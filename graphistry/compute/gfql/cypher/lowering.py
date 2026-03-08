@@ -66,7 +66,10 @@ from graphistry.compute.gfql.cypher.ast import (
     SourceSpan,
     UnwindClause,
 )
-from graphistry.compute.gfql.temporal_text import rewrite_temporal_constructors_in_expr
+from graphistry.compute.gfql.temporal_text import (
+    fold_temporal_constructor_ast,
+    rewrite_temporal_constructors_in_expr,
+)
 from graphistry.compute.gfql.same_path_types import WhereComparison, col, compare
 
 
@@ -180,7 +183,7 @@ def _parse_row_expr(
     prepared = _rewrite_entity_keys_expr(prepared, alias_targets=alias_targets)
     prepared = rewrite_temporal_constructors_in_expr(prepared)
     try:
-        return parse_expr(prepared)
+        return fold_temporal_constructor_ast(parse_expr(prepared))
     except (GFQLExprParseError, ImportError) as exc:
         raise GFQLValidationError(
             ErrorCode.E108,
@@ -567,14 +570,73 @@ def _row_expr_arg(
     )
     rewritten = _rewrite_entity_keys_expr(rewritten, alias_targets=alias_targets)
     rewritten = rewrite_temporal_constructors_in_expr(rewritten)
-    _parse_row_expr(
+    node = _parse_row_expr(
         rewritten,
         alias_targets=alias_targets,
         field=field,
         line=expr.span.line,
         column=expr.span.column,
     )
-    return rewritten
+    return _render_expr_node(node)
+
+
+def _projected_source_replacement(binding: _StageColumnBinding) -> str:
+    source = binding.source_name
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*", source):
+        return source
+    if source in {"null", "true", "false"}:
+        return source
+    if re.fullmatch(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", source):
+        return source
+    if source.startswith(("'", "[", "{")):
+        return source
+    return f"({source})"
+
+
+def _rewrite_expr_to_projected_sources(
+    expr: ExpressionText,
+    *,
+    projected_columns: Optional[Mapping[str, _StageColumnBinding]],
+    params: Optional[Mapping[str, Any]],
+    alias_targets: Mapping[str, ASTObject],
+    field: str,
+) -> ExpressionText:
+    if not projected_columns:
+        return expr
+    prepared = _rewrite_param_expr(
+        expr.text,
+        params=params,
+        field=field,
+        line=expr.span.line,
+        column=expr.span.column,
+        allow_missing=False,
+    )
+    prepared = _rewrite_entity_keys_expr(prepared, alias_targets=alias_targets)
+    try:
+        node = parse_expr(prepared)
+    except (GFQLExprParseError, ImportError) as exc:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher expression is outside the currently supported local GFQL subset",
+            field=field,
+            value=prepared,
+            suggestion="Use column references, supported GFQL scalar expressions, or supported aggregate functions.",
+            line=expr.span.line,
+            column=expr.span.column,
+            language="cypher",
+        ) from exc
+    replacements: Dict[str, str] = {}
+    for ident in collect_identifiers(node):
+        binding = projected_columns.get(ident)
+        if binding is None:
+            continue
+        replacements[ident] = _projected_source_replacement(binding)
+    if not replacements:
+        return ExpressionText(text=prepared, span=expr.span)
+    return ExpressionText(
+        text=_render_expr_node(_rewrite_expr_identifiers(node, replacements)),
+        span=expr.span,
+    )
 
 
 def _aggregate_spec(
@@ -1478,6 +1540,13 @@ def _build_projection_plan(
                 column=item.span.column,
                 language="cypher",
             )
+        row_expr = _rewrite_expr_to_projected_sources(
+            item.expression,
+            projected_columns=projected_columns,
+            params=params,
+            alias_targets=alias_targets,
+            field=f"{clause.kind}.items",
+        )
         runtime_expr = (
             prop
             if simple_ref and prop is not None
@@ -1485,7 +1554,7 @@ def _build_projection_plan(
                 binding.source_name
                 if binding is not None and binding.kind == "expr"
                 else _row_expr_arg(
-                    item.expression,
+                    row_expr,
                     params=params,
                     alias_targets=alias_targets,
                     field=f"{clause.kind}.items",
@@ -2281,6 +2350,7 @@ def _lower_row_column_stage(
     projection_items: List[Tuple[str, Any]] = []
     available_columns: Set[str] = set()
     expr_to_output: Dict[str, str] = {}
+    next_projected_columns: Dict[str, _StageColumnBinding] = {}
 
     for item in stage.clause.items:
         output_name = item.alias or item.expression.text
@@ -2299,21 +2369,31 @@ def _lower_row_column_stage(
             unwind_aliases=scope.row_columns,
             params=params,
             field=stage.clause.kind,
-            line=item.span.line,
-            column=item.span.column,
+                line=item.span.line,
+                column=item.span.column,
+            )
+        rewritten_item = _rewrite_expr_to_projected_sources(
+            item.expression,
+            projected_columns=scope.projected_columns,
+            params=params,
+            alias_targets={},
+            field=stage.clause.kind,
+        )
+        runtime_expr = _row_expr_arg(
+            rewritten_item,
+            params=params,
+            alias_targets={},
+            field=stage.clause.kind,
         )
         projection_items.append(
             (
                 output_name,
-                _row_expr_arg(
-                    item.expression,
-                    params=params,
-                    alias_targets={},
-                    field=stage.clause.kind,
-                ),
+                runtime_expr,
             )
         )
         available_columns.add(output_name)
+        if isinstance(runtime_expr, str):
+            next_projected_columns[output_name] = _StageColumnBinding(kind="expr", source_name=runtime_expr)
         _add_output_mapping(
             expr_to_output,
             source_expr=item.expression.text,
@@ -2338,7 +2418,13 @@ def _lower_row_column_stage(
         row_steps.append(
             where_rows(
                 expr=_row_expr_arg(
-                    stage.where,
+                    _rewrite_expr_to_projected_sources(
+                        stage.where,
+                        projected_columns=next_projected_columns,
+                        params=params,
+                        alias_targets={},
+                        field="with.where",
+                    ),
                     params=params,
                     alias_targets={},
                     field="with.where",
@@ -2366,7 +2452,7 @@ def _lower_row_column_stage(
         alias_targets={},
         active_alias=None,
         row_columns=set(available_columns),
-        projected_columns={},
+        projected_columns=next_projected_columns,
         table=None,
         seed_rows=scope.seed_rows,
     )

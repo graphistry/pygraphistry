@@ -667,6 +667,52 @@ def test_string_cypher_normalizes_time_offset_seconds() -> None:
     assert result._nodes.to_dict(orient="records") == [{"result": "12:34:56+02:05"}]
 
 
+def test_string_cypher_defaults_datetime_map_to_utc() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql("RETURN datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31}) AS result")
+
+    assert result._nodes.to_dict(orient="records") == [{"result": "1984-10-11T12:31Z"}]
+
+
+def test_string_cypher_defaults_time_map_to_utc() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql("RETURN time({hour: 12, minute: 31, second: 14}) AS result")
+
+    assert result._nodes.to_dict(orient="records") == [{"result": "12:31:14Z"}]
+
+
+def test_string_cypher_supports_nested_temporal_base_date_overrides() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql("RETURN date({date: date('1816-12-31'), year: 1817, week: 2}) AS d")
+
+    assert result._nodes.to_dict(orient="records") == [{"d": "1817-01-07"}]
+
+
+def test_string_cypher_executes_temporal_date_casts_from_with_alias() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "WITH date({year: 1984, month: 11, day: 11}) AS other "
+        "RETURN date({date: other, year: 28}) AS result"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"result": "0028-11-11"}]
+
+
+def test_string_cypher_executes_temporal_datetime_casts_from_with_alias() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "WITH date({year: 1984, month: 10, day: 11}) AS other "
+        "RETURN datetime({date: other, hour: 10, minute: 10, second: 10}) AS result"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"result": "1984-10-11T10:10:10Z"}]
+
+
 def test_string_cypher_formats_temporal_constructor_properties_in_entity_projection() -> None:
     nodes = pd.DataFrame(
         {

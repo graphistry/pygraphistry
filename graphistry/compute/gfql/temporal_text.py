@@ -4,8 +4,26 @@ from datetime import date as py_date
 from datetime import datetime as py_datetime
 from datetime import timedelta
 import re
-from typing import Optional
+from typing import Optional, cast
 from zoneinfo import ZoneInfo
+
+from graphistry.compute.gfql.expr_parser import (
+    BinaryOp,
+    CaseWhen,
+    ExprNode,
+    FunctionCall,
+    Identifier,
+    IsNullOp,
+    ListComprehension,
+    ListLiteral,
+    Literal,
+    MapLiteral,
+    QuantifierExpr,
+    SliceExpr,
+    SubscriptExpr,
+    UnaryOp,
+    Wildcard,
+)
 
 
 _TEMPORAL_FUNC_RE = re.compile(
@@ -66,6 +84,9 @@ _TIME_RE = re.compile(
     r"(?P<tz>Z|[+-]\d{2}(?::?\d{2})?(?::?\d{2})?)$"
 )
 _DATETIME_TZ_RE = re.compile(r"^(?P<core>.+?)(?P<tz>Z|[+-]\d{2}(?::?\d{2})?(?::?\d{2})?)$")
+_NORMALIZED_TIME_PART_RE = re.compile(
+    r"^(?P<local>\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)(?P<tz>Z|[+-]\d{2}:\d{2}(?::\d{2})?)?(?:\[[^\]]+\])?$"
+)
 
 
 def _split_map_items(text: str) -> list[str]:
@@ -136,6 +157,12 @@ def _normalize_fraction(nanos: int) -> str:
     return f".{frac}" if frac else ""
 
 
+def _parse_fraction_to_nanos(frac: Optional[str]) -> int:
+    if frac is None or frac == "":
+        return 0
+    return int(frac.ljust(9, "0")[:9])
+
+
 def _normalize_offset_text(tz_text: str) -> str:
     if tz_text == "Z":
         return "Z"
@@ -167,19 +194,90 @@ def _format_date(year: int, month: int, day: int) -> str:
     return f"-{abs(year):04d}-{month:02d}-{day:02d}"
 
 
+def _extract_date_text(text: str) -> Optional[str]:
+    candidate = text.strip()
+    if "T" in candidate:
+        candidate = candidate.split("T", 1)[0]
+    return _normalize_date_string(candidate)
+
+
+def _base_date_from_text(text: Optional[str]) -> Optional[py_date]:
+    if text is None:
+        return None
+    normalized = _extract_date_text(text)
+    if normalized is None:
+        return None
+    match = _DATE_YMD_RE.fullmatch(normalized)
+    if match is None:
+        return None
+    return py_date(
+        int(match.group("year")),
+        int(match.group("month")),
+        int(match.group("day")),
+    )
+
+
+def _day_of_quarter(value: py_date) -> int:
+    start = py_date(value.year, ((value.month - 1) // 3) * 3 + 1, 1)
+    return (value - start).days + 1
+
+
+def _base_time_parts_from_text(text: Optional[str]) -> Optional[dict[str, object]]:
+    if text is None:
+        return None
+    candidate = text.strip()
+    if "T" in candidate:
+        candidate = candidate.split("T", 1)[1]
+    match = _NORMALIZED_TIME_PART_RE.fullmatch(candidate)
+    if match is None:
+        normalized_local = _normalize_localtime_string(candidate)
+        if normalized_local is None:
+            normalized_time = _normalize_time_string(candidate)
+            if normalized_time is None:
+                return None
+            candidate = normalized_time
+        else:
+            candidate = normalized_local
+        match = _NORMALIZED_TIME_PART_RE.fullmatch(candidate)
+        if match is None:
+            return None
+    local = match.group("local")
+    tz = match.group("tz")
+    local_match = re.fullmatch(r"(?P<hour>\d{2}):(?P<minute>\d{2})(?::(?P<second>\d{2})(?:\.(?P<frac>\d+))?)?", local)
+    if local_match is None:
+        return None
+    return {
+        "hour": int(local_match.group("hour")),
+        "minute": int(local_match.group("minute")),
+        "second": int(local_match.group("second") or "0"),
+        "nanosecond": _parse_fraction_to_nanos(local_match.group("frac")),
+        "tz": tz,
+    }
+
+
+def _base_time_int(base: Optional[dict[str, object]], key: str, default: int) -> int:
+    if base is None:
+        return default
+    value = base.get(key)
+    return value if isinstance(value, int) else default
+
+
 def _date_from_fields(fields: dict[str, str]) -> Optional[py_date]:
-    year = _parse_int(fields.get("year"))
+    base = _base_date_from_text(_parse_quoted(fields.get("date", "")) or fields.get("date"))
+    year = _parse_int(fields.get("year"), base.year if base is not None else None)
     if year is None:
         return None
     if "month" in fields or "day" in fields:
-        month = _parse_int(fields.get("month"), 1)
-        day = _parse_int(fields.get("day"), 1)
+        month_default = base.month if base is not None else 1
+        day_default = base.day if base is not None else 1
+        month = _parse_int(fields.get("month"), month_default)
+        day = _parse_int(fields.get("day"), day_default)
         if month is None or day is None:
             return None
         return py_date(year, month, day)
     if "week" in fields:
         week = _parse_int(fields.get("week"))
-        day_of_week = _parse_int(fields.get("dayOfWeek"), 1)
+        day_of_week = _parse_int(fields.get("dayOfWeek"), base.isoweekday() if base is not None else 1)
         if week is None or day_of_week is None:
             return None
         return py_date.fromisocalendar(year, week, day_of_week)
@@ -190,11 +288,17 @@ def _date_from_fields(fields: dict[str, str]) -> Optional[py_date]:
         return py_date(year, 1, 1) + timedelta(days=ordinal - 1)
     if "quarter" in fields:
         quarter = _parse_int(fields.get("quarter"))
-        day_of_quarter = _parse_int(fields.get("dayOfQuarter"), 1)
+        day_of_quarter = _parse_int(fields.get("dayOfQuarter"), _day_of_quarter(base) if base is not None else 1)
         if quarter is None or day_of_quarter is None:
             return None
         start = py_date(year, ((quarter - 1) * 3) + 1, 1)
         return start + timedelta(days=day_of_quarter - 1)
+    if base is not None:
+        month = _parse_int(fields.get("month"), base.month)
+        day = _parse_int(fields.get("day"), base.day)
+        if month is None or day is None:
+            return None
+        return py_date(year, month, day)
     return py_date(year, 1, 1)
 
 
@@ -259,10 +363,13 @@ def _normalize_localtime_string(text: str) -> Optional[str]:
 
 
 def _normalize_localtime_map(fields: dict[str, str]) -> Optional[str]:
-    hour = _parse_int(fields.get("hour"), 0)
-    minute = _parse_int(fields.get("minute"), 0)
-    second = _parse_int(fields.get("second"))
-    nanos = _nanos_from_fields(fields)
+    base = _base_time_parts_from_text(_parse_quoted(fields.get("time", "")) or fields.get("time"))
+    hour = _parse_int(fields.get("hour"), _base_time_int(base, "hour", 0))
+    minute = _parse_int(fields.get("minute"), _base_time_int(base, "minute", 0))
+    second = _parse_int(fields.get("second"), _base_time_int(base, "second", 0) if base is not None else None)
+    nanos = _nanos_from_fields(fields) if any(k in fields for k in ("nanosecond", "microsecond", "millisecond")) else (
+        _base_time_int(base, "nanosecond", 0)
+    )
     if hour is None or minute is None:
         return None
     out = f"{hour:02d}:{minute:02d}"
@@ -274,7 +381,8 @@ def _normalize_localtime_map(fields: dict[str, str]) -> Optional[str]:
 def _normalize_time_string(text: str) -> Optional[str]:
     match = _TIME_RE.fullmatch(text)
     if match is None:
-        return None
+        local = _normalize_localtime_string(text)
+        return None if local is None else local + "Z"
     local = _normalize_localtime_string(match.group("local"))
     if local is None:
         return None
@@ -282,12 +390,14 @@ def _normalize_time_string(text: str) -> Optional[str]:
 
 
 def _normalize_time_map(fields: dict[str, str]) -> Optional[str]:
+    base = _base_time_parts_from_text(_parse_quoted(fields.get("time", "")) or fields.get("time"))
     tz_text = fields.get("timezone")
-    if tz_text is None:
-        return None
     local = _normalize_localtime_map(fields)
     if local is None:
         return None
+    if tz_text is None:
+        base_tz = None if base is None else cast(Optional[str], base.get("tz"))
+        return local + (base_tz or "Z")
     zone = _parse_quoted(tz_text)
     if zone is None:
         return local + _normalize_offset_text(tz_text)
@@ -359,7 +469,7 @@ def _normalize_datetime_string(text: str) -> Optional[str]:
         return out + suffix if suffix is not None else None
     if tz is not None:
         return out + _normalize_offset_text(tz)
-    return out
+    return out + "Z"
 
 
 def _normalize_datetime_map(fields: dict[str, str]) -> Optional[str]:
@@ -370,7 +480,9 @@ def _normalize_datetime_map(fields: dict[str, str]) -> Optional[str]:
     out = f"{date_part}T{time_part}"
     tz_text = fields.get("timezone")
     if tz_text is None:
-        return out
+        base = _base_time_parts_from_text(_parse_quoted(fields.get("time", "")) or fields.get("time"))
+        base_tz = None if base is None else cast(Optional[str], base.get("tz"))
+        return out + (base_tz or "Z")
     zone_name = _parse_quoted(tz_text)
     if zone_name is not None:
         suffix = _zone_suffix(zone_name, out)
@@ -474,3 +586,96 @@ def rewrite_temporal_constructors_in_expr(expr_text: str) -> str:
         return f"'{escaped}'"
 
     return TEMPORAL_CALL_EXPR_RE.sub(_replace, expr_text)
+
+
+def _render_temporal_arg(node: ExprNode) -> Optional[str]:
+    if isinstance(node, Literal):
+        value = node.value
+        if value is None:
+            return "null"
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return str(value)
+        if isinstance(value, str):
+            escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+            return f"'{escaped}'"
+        return None
+    if isinstance(node, MapLiteral):
+        parts: list[str] = []
+        for key, value in node.items:
+            rendered = _render_temporal_arg(value)
+            if rendered is None:
+                return None
+            parts.append(f"{key}: {rendered}")
+        return "{" + ", ".join(parts) + "}"
+    if isinstance(node, ListLiteral):
+        rendered_items: list[str] = []
+        for item in node.items:
+            rendered = _render_temporal_arg(item)
+            if rendered is None:
+                return None
+            rendered_items.append(rendered)
+        return "[" + ", ".join(rendered_items) + "]"
+    return None
+
+
+def fold_temporal_constructor_ast(node: ExprNode) -> ExprNode:
+    if isinstance(node, (Identifier, Literal, Wildcard)):
+        return node
+    if isinstance(node, UnaryOp):
+        return UnaryOp(node.op, fold_temporal_constructor_ast(node.operand))
+    if isinstance(node, BinaryOp):
+        return BinaryOp(
+            node.op,
+            fold_temporal_constructor_ast(node.left),
+            fold_temporal_constructor_ast(node.right),
+        )
+    if isinstance(node, IsNullOp):
+        return IsNullOp(fold_temporal_constructor_ast(node.value), negated=node.negated)
+    if isinstance(node, FunctionCall):
+        args = tuple(fold_temporal_constructor_ast(arg) for arg in node.args)
+        rewritten = FunctionCall(node.name, args, distinct=node.distinct)
+        if not node.distinct and len(args) == 1 and node.name in {"date", "localtime", "time", "localdatetime", "datetime", "duration"}:
+            rendered_arg = _render_temporal_arg(args[0])
+            if rendered_arg is not None:
+                normalized = normalize_temporal_constructor_text(f"{node.name}({rendered_arg})")
+                if normalized is not None:
+                    return Literal(normalized)
+        return rewritten
+    if isinstance(node, CaseWhen):
+        return CaseWhen(
+            fold_temporal_constructor_ast(node.condition),
+            fold_temporal_constructor_ast(node.when_true),
+            fold_temporal_constructor_ast(node.when_false),
+        )
+    if isinstance(node, QuantifierExpr):
+        return QuantifierExpr(
+            node.fn,
+            node.var,
+            fold_temporal_constructor_ast(node.source),
+            fold_temporal_constructor_ast(node.predicate),
+        )
+    if isinstance(node, ListComprehension):
+        return ListComprehension(
+            node.var,
+            fold_temporal_constructor_ast(node.source),
+            predicate=None if node.predicate is None else fold_temporal_constructor_ast(node.predicate),
+            projection=None if node.projection is None else fold_temporal_constructor_ast(node.projection),
+        )
+    if isinstance(node, ListLiteral):
+        return ListLiteral(tuple(fold_temporal_constructor_ast(item) for item in node.items))
+    if isinstance(node, MapLiteral):
+        return MapLiteral(tuple((key, fold_temporal_constructor_ast(value)) for key, value in node.items))
+    if isinstance(node, SubscriptExpr):
+        return SubscriptExpr(
+            fold_temporal_constructor_ast(node.value),
+            fold_temporal_constructor_ast(node.key),
+        )
+    if isinstance(node, SliceExpr):
+        return SliceExpr(
+            fold_temporal_constructor_ast(node.value),
+            None if node.start is None else fold_temporal_constructor_ast(node.start),
+            None if node.stop is None else fold_temporal_constructor_ast(node.stop),
+        )
+    return node
