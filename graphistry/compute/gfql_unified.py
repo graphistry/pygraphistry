@@ -1,7 +1,7 @@
-"""GFQL unified entrypoint for chains and DAGs"""
+"""GFQL unified entrypoint for chains, DAGs, and local string-compiled queries."""
 # ruff: noqa: E501
 
-from typing import List, Union, Optional, Dict, Any, Sequence
+from typing import List, Union, Optional, Dict, Any, Sequence, Mapping, Literal
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract
 from graphistry.util import setup_logger
@@ -22,6 +22,8 @@ from graphistry.compute.gfql.same_path_types import (
     normalize_where_entries,
     parse_where_json,
 )
+from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.gfql.cypher.api import cypher_to_gfql
 from graphistry.compute.gfql.df_executor import (
     build_same_path_inputs,
     execute_same_path_chain,
@@ -34,11 +36,13 @@ logger = setup_logger(__name__)
 
 def _gfql_otel_attrs(
     self: Plottable,
-    query: Union[ASTObject, List[ASTObject], ASTLet, Chain, dict],
+    query: Union[ASTObject, List[ASTObject], ASTLet, Chain, dict, str],
     engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
     output: Optional[str] = None,
     policy: Optional[Dict[str, PolicyFunction]] = None,
     where: Optional[Sequence[WhereComparison]] = None,
+    language: Optional[Literal["cypher", "gremlin"]] = None,
+    params: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     if isinstance(query, dict):
         query_type = "chain" if "chain" in query else "dag"
@@ -62,36 +66,64 @@ def _gfql_otel_attrs(
         attrs["gfql.output"] = output is not None
         attrs["gfql.policy"] = policy is not None
         attrs["gfql.engine"] = str(engine)
+        if isinstance(query, str):
+            attrs["gfql.language"] = language or "cypher"
+            attrs["gfql.has_params"] = params is not None
     return attrs
 
 
 def detect_query_type(query: Any) -> QueryType:
     if isinstance(query, ASTLet):
         return "dag"
+    elif isinstance(query, str):
+        return "chain"
     elif isinstance(query, (list, Chain)):
         return "chain"
     else:
         return "single"
 
 
+def _compile_string_query(
+    query: str,
+    *,
+    language: Optional[Literal["cypher", "gremlin"]],
+    params: Optional[Mapping[str, Any]],
+) -> Chain:
+    query_language = language or "cypher"
+    if query_language != "cypher":
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            f"Unsupported GFQL string language '{query_language}'",
+            field="language",
+            value=query_language,
+            suggestion="Use language='cypher' for now; Gremlin string compilation is not implemented yet.",
+            language="gfql",
+        )
+    return cypher_to_gfql(query, params=params)
+
+
 @otel_traced("gfql.run", attrs_fn=_gfql_otel_attrs)
 def gfql(self: Plottable,
-         query: Union[ASTObject, List[ASTObject], ASTLet, Chain, dict],
+         query: Union[ASTObject, List[ASTObject], ASTLet, Chain, dict, str],
          engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
          output: Optional[str] = None,
          policy: Optional[Dict[str, PolicyFunction]] = None,
-         where: Optional[Sequence[WhereComparison]] = None) -> Plottable:
+         where: Optional[Sequence[WhereComparison]] = None,
+         language: Optional[Literal["cypher", "gremlin"]] = None,
+         params: Optional[Mapping[str, Any]] = None) -> Plottable:
     """
     Execute a GFQL query - either a chain or a DAG
 
     Unified entrypoint that automatically detects query type and
     dispatches to the appropriate execution engine.
 
-    :param query: GFQL query - ASTObject, List[ASTObject], Chain, ASTLet, or dict
+    :param query: GFQL query - ASTObject, List[ASTObject], Chain, ASTLet, dict, or supported query string
     :param engine: Execution engine (auto, pandas, cudf)
     :param output: For DAGs, name of binding to return (default: last executed)
     :param policy: Optional policy hooks for external control (preload, postload, precall, postcall phases)
     :param where: Optional same-path constraints for list/Chain queries
+    :param language: Optional string-query language selector. Defaults to ``"cypher"`` when ``query`` is a string.
+    :param params: Optional parameter dictionary for string-query compilation
     :returns: Resulting Plottable
     :rtype: Plottable
 
@@ -227,6 +259,12 @@ def gfql(self: Plottable,
 
         # Dict → DAG execution (convenience)
         g.gfql({'people': n({'type': 'person'})})
+
+        # Local Cypher-string compilation → GFQL execution
+        g.gfql(
+            "MATCH (p:Person) RETURN p.name AS person_name ORDER BY person_name ASC LIMIT $top_n",
+            params={"top_n": 10},
+        )
     """
     context = ExecutionContext()
 
@@ -275,6 +313,15 @@ def gfql(self: Plottable,
 
         if where_param and isinstance(query, (dict, ASTLet)):
             raise ValueError("where must be provided inside dict chain under the 'where' key")
+        if isinstance(query, str):
+            if where_param:
+                raise ValueError("where cannot be combined with string queries; embed Cypher predicates in the query itself")
+            query = _compile_string_query(query, language=language, params=params)
+        else:
+            if language is not None:
+                raise ValueError("language is only supported when query is a string")
+            if params is not None:
+                raise ValueError("params is only supported when query is a string")
 
         if isinstance(query, dict) and "chain" in query:
             chain_items: List[ASTObject] = []
@@ -348,7 +395,7 @@ def gfql(self: Plottable,
                 )
             else:
                 raise TypeError(
-                    f"Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. "
+                    f"Query must be ASTObject, List[ASTObject], Chain, ASTLet, dict, or string. "
                     f"Got {type(query).__name__}"
                 )
         finally:

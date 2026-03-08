@@ -2,9 +2,15 @@ import pandas as pd
 import pytest
 from typing import cast
 
-from graphistry.compute.ast import ASTNode, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
+from graphistry.compute.ast import ASTCall, ASTNode, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
-from graphistry.compute.gfql.cypher import lower_match_clause, lower_match_query, parse_cypher
+from graphistry.compute.gfql.cypher import (
+    cypher_to_gfql,
+    lower_cypher_query,
+    lower_match_clause,
+    lower_match_query,
+    parse_cypher,
+)
 from graphistry.tests.test_compute import CGFull
 
 
@@ -166,3 +172,85 @@ def test_lower_match_query_executes_null_predicates() -> None:
 
     assert sorted(result._nodes["id"].tolist()) == ["a", "b"]
     assert result._edges[["s", "d"]].to_dict(orient="records") == [{"s": "a", "d": "b"}]
+
+
+def test_lower_cypher_query_builds_row_pipeline_chain() -> None:
+    parsed = parse_cypher(
+        "MATCH (p:Person) RETURN DISTINCT p.name AS person_name ORDER BY person_name DESC SKIP 1 LIMIT 2"
+    )
+
+    chain = lower_cypher_query(parsed)
+
+    assert [type(op).__name__ for op in chain.chain[:2]] == ["ASTNode", "ASTCall"]
+    assert isinstance(chain.chain[1], ASTCall)
+    assert chain.chain[1].function == "rows"
+    assert chain.chain[1].params == {"table": "nodes", "source": "p"}
+    assert isinstance(chain.chain[2], ASTCall)
+    assert chain.chain[2].function == "select"
+    assert chain.chain[2].params["items"] == [("person_name", "name")]
+    assert isinstance(chain.chain[3], ASTCall)
+    assert chain.chain[3].function == "distinct"
+    assert isinstance(chain.chain[4], ASTCall)
+    assert chain.chain[4].function == "order_by"
+    assert chain.chain[4].params["keys"] == [("person_name", "desc")]
+    assert isinstance(chain.chain[5], ASTCall)
+    assert chain.chain[5].function == "skip"
+    assert chain.chain[5].params["value"] == 1
+    assert isinstance(chain.chain[6], ASTCall)
+    assert chain.chain[6].function == "limit"
+    assert chain.chain[6].params["value"] == 2
+
+
+def test_cypher_to_gfql_executes_property_projection_pipeline() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c"],
+            "type": ["Person", "Person", "Person"],
+            "name": ["Alice", "Bob", "Alice"],
+            "score": [9, 4, 7],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    chain = cypher_to_gfql(
+        "MATCH (p:Person) RETURN DISTINCT p.name AS person_name ORDER BY person_name DESC SKIP 1 LIMIT $top_n",
+        params={"top_n": 1},
+    )
+    result = _mk_graph(nodes, edges).gfql(chain)
+
+    assert result._nodes.to_dict(orient="records") == [{"person_name": "Alice"}]
+
+
+def test_cypher_to_gfql_executes_whole_row_alias_pipeline() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c"],
+            "type": ["Person", "Person", "Company"],
+            "score": [2, 9, 7],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    chain = cypher_to_gfql("MATCH (p:Person) RETURN p ORDER BY p.score DESC LIMIT 1")
+    result = _mk_graph(nodes, edges).gfql(chain)
+
+    assert result._nodes[["id", "type", "score"]].to_dict(orient="records") == [
+        {"id": "b", "type": "Person", "score": 9}
+    ]
+
+
+def test_cypher_to_gfql_uses_terminal_with_projection() -> None:
+    chain = cypher_to_gfql("MATCH (p) WITH p.name AS person_name ORDER BY person_name ASC LIMIT 1")
+
+    assert isinstance(chain.chain[1], ASTCall)
+    assert chain.chain[1].function == "rows"
+    assert isinstance(chain.chain[2], ASTCall)
+    assert chain.chain[2].function == "with_"
+    assert chain.chain[2].params["items"] == [("person_name", "name")]
+
+
+def test_cypher_to_gfql_rejects_multi_alias_projection() -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        cypher_to_gfql("MATCH (p)-[r]->(q) RETURN p.id, q.id")
+
+    assert exc_info.value.code == ErrorCode.E108

@@ -8,7 +8,11 @@ from typing import Any, List, Optional, Protocol, Sequence, Tuple, Type, Union, 
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
 from graphistry.compute.gfql.cypher.ast import (
     CypherLiteral,
+    CypherPageValue,
     CypherQuery,
+    LimitClause,
+    OrderByClause,
+    OrderItem,
     ExpressionText,
     MatchClause,
     NodePattern,
@@ -19,6 +23,7 @@ from graphistry.compute.gfql.cypher.ast import (
     RelationshipPattern,
     ReturnClause,
     ReturnItem,
+    SkipClause,
     SourceSpan,
     WhereClause,
     WherePredicate,
@@ -28,7 +33,7 @@ from graphistry.compute.gfql.cypher.ast import (
 _GRAMMAR = r"""
 ?start: query
 
-query: match_clause where_clause? return_clause SEMI?
+query: match_clause where_clause? projection_clause order_by_clause? skip_clause? limit_clause? SEMI?
 
 match_clause: "MATCH"i pattern
 pattern: node_pattern (relationship_pattern node_pattern)*
@@ -60,11 +65,23 @@ where_predicate: property_ref COMP_OP where_rhs -> cmp_where
 where_rhs: property_ref
          | value
 
-return_clause: "RETURN"i distinct? return_item ("," return_item)*
+projection_clause: projection_keyword distinct? return_item ("," return_item)*
+projection_keyword: "RETURN"i -> return_kw
+                  | "WITH"i   -> with_kw
 distinct: "DISTINCT"i
 return_item: return_expr alias?
 return_expr: qualified_name
 alias: "AS"i NAME
+
+order_by_clause: "ORDER"i "BY"i order_item ("," order_item)*
+order_item: qualified_name order_direction?
+order_direction: "ASC"i  -> asc_order
+               | "DESC"i -> desc_order
+
+skip_clause: "SKIP"i page_value
+limit_clause: "LIMIT"i page_value
+page_value: parameter
+          | INT
 
 qualified_name: NAME ("." NAME)*
 property_ref: NAME "." NAME
@@ -85,6 +102,7 @@ COMP_OP: "=" | "<>" | "!=" | "<=" | "<" | ">=" | ">"
 SEMI: ";"
 NAME: /[A-Za-z_][A-Za-z0-9_]*/
 NUMBER: /[+-]?(?:\d+\.\d+|\d+)(?:[eE][+-]?\d+)?/
+INT: /[0-9]+/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
 LINE_COMMENT: /--[^\n]*/
 BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
@@ -314,6 +332,12 @@ def _build_transformer(source: str) -> _TransformerLike:
         def distinct(self, _meta: Any, _items: Sequence[Any]) -> bool:
             return True
 
+        def return_kw(self, _meta: Any, _items: Sequence[Any]) -> str:
+            return "return"
+
+        def with_kw(self, _meta: Any, _items: Sequence[Any]) -> str:
+            return "with"
+
         def qualified_name(self, meta: Any, _items: Sequence[Any]) -> _ExpressionSlice:
             span = _span_from_meta(meta)
             return _ExpressionSlice(text=self._slice(span).strip(), span=span)
@@ -391,11 +415,14 @@ def _build_transformer(source: str) -> _TransformerLike:
                 span=_span_from_meta(meta),
             )
 
-        def return_clause(self, meta: Any, items: Sequence[Any]) -> ReturnClause:
+        def projection_clause(self, meta: Any, items: Sequence[Any]) -> ReturnClause:
             distinct = False
+            kind = "return"
             return_items: List[ReturnItem] = []
             for item in items:
-                if isinstance(item, bool):
+                if item in {"return", "with"}:
+                    kind = cast(str, item)
+                elif isinstance(item, bool):
                     distinct = item
                 else:
                     return_items.append(cast(ReturnItem, item))
@@ -404,20 +431,83 @@ def _build_transformer(source: str) -> _TransformerLike:
             return ReturnClause(
                 items=tuple(return_items),
                 distinct=distinct,
+                kind=cast(Any, kind),
                 span=_span_from_meta(meta),
             )
+
+        def asc_order(self, _meta: Any, _items: Sequence[Any]) -> str:
+            return "asc"
+
+        def desc_order(self, _meta: Any, _items: Sequence[Any]) -> str:
+            return "desc"
+
+        def order_item(self, meta: Any, items: Sequence[Any]) -> OrderItem:
+            if len(items) == 0:
+                raise _to_syntax_error("ORDER BY item cannot be empty", line=meta.line, column=meta.column)
+            expr = cast(_ExpressionSlice, items[0])
+            direction = cast(str, items[1] if len(items) > 1 else "asc")
+            return OrderItem(
+                expression=ExpressionText(text=expr.text, span=expr.span),
+                direction=cast(Any, direction),
+                span=_span_from_meta(meta),
+            )
+
+        def order_by_clause(self, meta: Any, items: Sequence[Any]) -> OrderByClause:
+            order_items = tuple(cast(OrderItem, item) for item in items)
+            if len(order_items) == 0:
+                raise _to_syntax_error("ORDER BY clause cannot be empty", line=meta.line, column=meta.column)
+            return OrderByClause(items=order_items, span=_span_from_meta(meta))
+
+        def page_value(self, meta: Any, items: Sequence[Any]) -> CypherPageValue:
+            if len(items) != 1:
+                raise _to_syntax_error("Invalid page value", line=meta.line, column=meta.column)
+            item = items[0]
+            if isinstance(item, ParameterRef):
+                return item
+            return int(str(item))
+
+        def skip_clause(self, meta: Any, items: Sequence[Any]) -> SkipClause:
+            if len(items) != 1:
+                raise _to_syntax_error("Invalid SKIP clause", line=meta.line, column=meta.column)
+            return SkipClause(value=cast(CypherPageValue, items[0]), span=_span_from_meta(meta))
+
+        def limit_clause(self, meta: Any, items: Sequence[Any]) -> LimitClause:
+            if len(items) != 1:
+                raise _to_syntax_error("Invalid LIMIT clause", line=meta.line, column=meta.column)
+            return LimitClause(value=cast(CypherPageValue, items[0]), span=_span_from_meta(meta))
 
         def query(self, meta: Any, items: Sequence[Any]) -> CypherQuery:
             if len(items) < 2:
                 raise _to_syntax_error("Cypher query must contain MATCH and RETURN clauses", line=meta.line, column=meta.column)
             trailing_semicolon = any(str(item) == ";" for item in items)
-            match_clause = cast(MatchClause, items[0])
-            where_clause = cast(Optional[WhereClause], items[1] if len(items) > 2 and isinstance(items[1], WhereClause) else None)
-            return_clause = cast(ReturnClause, items[2] if where_clause is not None else items[1])
+            match_clause: Optional[MatchClause] = None
+            where_clause: Optional[WhereClause] = None
+            return_clause: Optional[ReturnClause] = None
+            order_by_clause: Optional[OrderByClause] = None
+            skip_clause: Optional[SkipClause] = None
+            limit_clause: Optional[LimitClause] = None
+            for item in items:
+                if isinstance(item, MatchClause):
+                    match_clause = item
+                elif isinstance(item, WhereClause):
+                    where_clause = item
+                elif isinstance(item, ReturnClause):
+                    return_clause = item
+                elif isinstance(item, OrderByClause):
+                    order_by_clause = item
+                elif isinstance(item, SkipClause):
+                    skip_clause = item
+                elif isinstance(item, LimitClause):
+                    limit_clause = item
+            if match_clause is None or return_clause is None:
+                raise _to_syntax_error("Cypher query must contain MATCH and RETURN/WITH clauses", line=meta.line, column=meta.column)
             return CypherQuery(
                 match=match_clause,
                 where=where_clause,
                 return_=return_clause,
+                order_by=order_by_clause,
+                skip=skip_clause,
+                limit=limit_clause,
                 trailing_semicolon=trailing_semicolon,
                 span=_span_from_meta(meta),
             )

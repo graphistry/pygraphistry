@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 from graphistry.compute.ast import ASTLet, ASTRef, n, e
 from graphistry.compute.chain import Chain
+from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.tests.test_compute import CGFull
 
 # Suppress deprecation warnings for chain() method in this test file
@@ -141,9 +142,61 @@ class TestGFQL:
         g = CGFull()
         
         with pytest.raises(TypeError) as exc_info:
-            g.gfql("not a valid query")
-        
-        assert "Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict" in str(exc_info.value)
+            g.gfql(123)
+
+        assert "Query must be ASTObject, List[ASTObject], Chain, ASTLet, dict, or string" in str(exc_info.value)
+
+    def test_gfql_with_cypher_string(self):
+        g = _mk_graph(
+            ids=["a", "b", "c"],
+            types=["person", "person", "person"],
+            src=["a", "b"],
+            dst=["b", "c"],
+        )
+        g = g.nodes(g._nodes.assign(score=[3, 1, 2], name=["Alice", "Bob", "Carol"]), "id")
+
+        result = g.gfql(
+            "MATCH (p:person) RETURN p.name AS person_name ORDER BY person_name DESC LIMIT $top_n",
+            params={"top_n": 2},
+        )
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"person_name": "Carol"},
+            {"person_name": "Bob"},
+        ]
+
+    def test_gfql_with_cypher_string_defaults_language_to_cypher(self):
+        g = _mk_people_company_graph3()
+
+        result = g.gfql("MATCH (p:person) RETURN p LIMIT 1")
+
+        assert len(result._nodes) == 1
+        assert result._nodes.iloc[0]["type"] == "person"
+
+    def test_gfql_string_invalid_syntax_surfaces_parser_error(self):
+        g = _mk_people_company_graph3()
+
+        with pytest.raises(GFQLSyntaxError) as exc_info:
+            g.gfql("MATCH (p RETURN p")
+
+        assert exc_info.value.code == ErrorCode.E107
+
+    def test_gfql_string_rejects_unsupported_language(self):
+        g = _mk_people_company_graph3()
+
+        with pytest.raises(GFQLValidationError) as exc_info:
+            g.gfql("MATCH (p) RETURN p", language="gremlin")
+
+        assert exc_info.value.code == ErrorCode.E108
+
+    def test_gfql_non_string_rejects_language_and_params(self):
+        g = _mk_people_company_graph3()
+
+        with pytest.raises(ValueError):
+            g.gfql([n()], language="cypher")
+
+        with pytest.raises(ValueError):
+            g.gfql([n()], params={"x": 1})
     
     def test_gfql_deprecation_and_migration(self):
         """Test deprecation warnings and migration path"""

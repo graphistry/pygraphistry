@@ -25,6 +25,7 @@ class ParameterRef:
 
 
 CypherLiteral = Union[None, bool, int, float, str, ParameterRef]
+CypherPageValue = Union[int, ParameterRef]
 
 
 @dataclass(frozen=True)
@@ -95,6 +96,32 @@ class ReturnItem:
 class ReturnClause:
     items: Tuple[ReturnItem, ...]
     distinct: bool
+    kind: Literal["return", "with"]
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
+class OrderItem:
+    expression: ExpressionText
+    direction: Literal["asc", "desc"]
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
+class OrderByClause:
+    items: Tuple[OrderItem, ...]
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
+class SkipClause:
+    value: CypherPageValue
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
+class LimitClause:
+    value: CypherPageValue
     span: SourceSpan
 
 
@@ -103,5 +130,8 @@ class CypherQuery:
     match: MatchClause
     where: Optional[WhereClause]
     return_: ReturnClause
+    order_by: Optional[OrderByClause]
+    skip: Optional[SkipClause]
+    limit: Optional[LimitClause]
     trailing_semicolon: bool
     span: SourceSpan

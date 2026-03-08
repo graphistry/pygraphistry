@@ -14,8 +14,12 @@ def test_parse_minimal_match_return() -> None:
 
     assert parsed.match.pattern[0].variable == "n"
     assert parsed.return_.distinct is False
+    assert parsed.return_.kind == "return"
     assert parsed.return_.items[0].expression.text == "n"
     assert parsed.return_.items[0].alias is None
+    assert parsed.order_by is None
+    assert parsed.skip is None
+    assert parsed.limit is None
     assert parsed.trailing_semicolon is False
 
 
@@ -95,6 +99,32 @@ def test_parse_where_null_predicates() -> None:
     assert parsed.where.predicates[0].right is None
     assert parsed.where.predicates[1].op == "is_not_null"
     assert parsed.where.predicates[1].right is None
+
+
+def test_parse_return_pipeline_clauses() -> None:
+    parsed = parse_cypher(
+        "MATCH (p:Person) RETURN DISTINCT p.name AS person_name ORDER BY person_name DESC, p.id ASC SKIP 1 LIMIT 2;"
+    )
+
+    assert parsed.return_.kind == "return"
+    assert parsed.return_.distinct is True
+    assert parsed.return_.items[0].expression.text == "p.name"
+    assert parsed.return_.items[0].alias == "person_name"
+    assert parsed.order_by is not None
+    assert [item.expression.text for item in parsed.order_by.items] == ["person_name", "p.id"]
+    assert [item.direction for item in parsed.order_by.items] == ["desc", "asc"]
+    assert parsed.skip is not None and parsed.skip.value == 1
+    assert parsed.limit is not None and parsed.limit.value == 2
+    assert parsed.trailing_semicolon is True
+
+
+def test_parse_terminal_with_clause() -> None:
+    parsed = parse_cypher("MATCH (p) WITH p.name AS person_name ORDER BY person_name ASC LIMIT 5")
+
+    assert parsed.return_.kind == "with"
+    assert parsed.order_by is not None
+    assert parsed.order_by.items[0].expression.text == "person_name"
+    assert parsed.limit is not None and parsed.limit.value == 5
 
 
 def test_invalid_syntax_reports_line_and_column() -> None:

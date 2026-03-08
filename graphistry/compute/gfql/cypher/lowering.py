@@ -1,20 +1,37 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Sequence, cast
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, cast
 
-from graphistry.compute import ge, gt, isna, le, lt, ne, notna
-from graphistry.compute.ast import ASTEdge, ASTObject, ASTNode, e_forward, e_reverse, e_undirected
+from graphistry.compute.ast import (
+    ASTEdge,
+    ASTObject,
+    ASTNode,
+    distinct,
+    e_forward,
+    e_reverse,
+    e_undirected,
+    limit,
+    order_by,
+    return_,
+    rows,
+    skip,
+    with_,
+)
+from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.predicates.comparison import ge, gt, isna, le, lt, ne, notna
 from graphistry.compute.gfql.cypher.ast import (
     CypherLiteral,
     CypherQuery,
     MatchClause,
     NodePattern,
     ParameterRef,
+    OrderByClause,
     PropertyRef,
     PropertyEntry,
     RelationshipPattern,
+    ReturnClause,
 )
 from graphistry.compute.gfql.same_path_types import WhereComparison, col, compare
 
@@ -23,6 +40,16 @@ from graphistry.compute.gfql.same_path_types import WhereComparison, col, compar
 class LoweredCypherMatch:
     query: List[ASTObject]
     where: List[WhereComparison]
+
+
+@dataclass(frozen=True)
+class _ProjectionPlan:
+    source_alias: str
+    table: str
+    whole_row: bool
+    clause_kind: str
+    projection_items: List[Tuple[str, str]]
+    available_columns: Set[str]
 
 
 def _unsupported(message: str, *, field: str, value: Any, line: int, column: int) -> GFQLValidationError:
@@ -58,6 +85,43 @@ def _resolve_literal(
             )
         return params[value.name]
     return value
+
+
+def _resolve_page_value(
+    value: Any,
+    *,
+    params: Optional[Mapping[str, Any]],
+    field: str,
+    line: int,
+    column: int,
+) -> int:
+    if isinstance(value, ParameterRef):
+        resolved = _resolve_literal(value, params=params, field=field)
+    else:
+        resolved = value
+    if isinstance(resolved, bool) or not isinstance(resolved, int):
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher SKIP/LIMIT values must be integers",
+            field=field,
+            value=resolved,
+            suggestion="Use a non-negative integer literal or parameter.",
+            line=line,
+            column=column,
+            language="cypher",
+        )
+    if resolved < 0:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher SKIP/LIMIT values must be non-negative",
+            field=field,
+            value=resolved,
+            suggestion="Use 0 or a positive integer.",
+            line=line,
+            column=column,
+            language="cypher",
+        )
+    return resolved
 
 
 def _filter_dict_from_entries(
@@ -193,6 +257,222 @@ def _predicate_value(op: str, value: Any) -> Any:
     raise ValueError(f"Unsupported predicate op: {op}")
 
 
+def _alias_table(target: ASTObject, *, alias: str, line: int, column: int) -> str:
+    if isinstance(target, ASTNode):
+        return "nodes"
+    if isinstance(target, ASTEdge):
+        return "edges"
+    raise _unsupported(
+        "Only node and edge aliases are supported in Cypher row projections",
+        field="return.alias",
+        value=alias,
+        line=line,
+        column=column,
+    )
+
+
+def _split_qualified_name(expr: str, *, line: int, column: int) -> Tuple[str, Optional[str]]:
+    parts = expr.split(".")
+    if len(parts) == 1:
+        return parts[0], None
+    if len(parts) == 2:
+        return parts[0], parts[1]
+    raise _unsupported(
+        "Only simple aliases and alias.property expressions are supported in Cypher RETURN/ORDER BY",
+        field="expression",
+        value=expr,
+        line=line,
+        column=column,
+    )
+
+
+def _build_projection_plan(
+    clause: ReturnClause,
+    *,
+    alias_targets: Dict[str, ASTObject],
+) -> _ProjectionPlan:
+    source_alias: Optional[str] = None
+    whole_row = False
+    projection_items: List[Tuple[str, str]] = []
+    available_columns: Set[str] = set()
+
+    for item in clause.items:
+        alias_name, prop = _split_qualified_name(
+            item.expression.text,
+            line=item.span.line,
+            column=item.span.column,
+        )
+        if alias_name not in alias_targets:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                f"Unknown Cypher alias '{alias_name}' in {clause.kind.upper()} clause",
+                field=f"{clause.kind}.alias",
+                value=alias_name,
+                suggestion="Reference an alias declared in the MATCH pattern.",
+                line=item.span.line,
+                column=item.span.column,
+                language="cypher",
+            )
+        if source_alias is None:
+            source_alias = alias_name
+        elif source_alias != alias_name:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Cypher row projection currently supports one source alias at a time",
+                field=f"{clause.kind}.items",
+                value=[entry.expression.text for entry in clause.items],
+                suggestion="Project from one alias only, or wait for multi-alias row projection support.",
+                line=item.span.line,
+                column=item.span.column,
+                language="cypher",
+            )
+        if prop is None:
+            if len(clause.items) != 1 or item.alias is not None:
+                raise GFQLValidationError(
+                    ErrorCode.E108,
+                    "Whole-row alias projection is only supported as a single bare alias",
+                    field=f"{clause.kind}.items",
+                    value=item.expression.text,
+                    suggestion="Use a single alias like RETURN p, or project individual properties.",
+                    line=item.span.line,
+                    column=item.span.column,
+                    language="cypher",
+                )
+            whole_row = True
+            continue
+        output_name = item.alias or prop
+        projection_items.append((output_name, prop))
+        available_columns.add(output_name)
+        available_columns.add(prop)
+
+    if source_alias is None:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            f"Cypher {clause.kind.upper()} clause must project at least one supported expression",
+            field=clause.kind,
+            value=None,
+            suggestion="Project a match alias or alias.property expression.",
+            line=clause.span.line,
+            column=clause.span.column,
+            language="cypher",
+        )
+    if whole_row and len(projection_items) > 0:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cannot mix whole-row alias projection with property projections",
+            field=f"{clause.kind}.items",
+            value=[entry.expression.text for entry in clause.items],
+            suggestion="Use either RETURN p or RETURN p.id, p.name, ...",
+            line=clause.span.line,
+            column=clause.span.column,
+            language="cypher",
+        )
+    if whole_row:
+        available_columns = set()
+    table = _alias_table(
+        alias_targets[source_alias],
+        alias=source_alias,
+        line=clause.span.line,
+        column=clause.span.column,
+    )
+    return _ProjectionPlan(
+        source_alias=source_alias,
+        table=table,
+        whole_row=whole_row,
+        clause_kind=clause.kind,
+        projection_items=projection_items,
+        available_columns=available_columns,
+    )
+
+
+def _lower_order_by_clause(
+    clause: OrderByClause,
+    *,
+    plan: _ProjectionPlan,
+) -> ASTObject:
+    keys: List[Tuple[str, str]] = []
+    for item in clause.items:
+        alias_name, prop = _split_qualified_name(
+            item.expression.text,
+            line=item.span.line,
+            column=item.span.column,
+        )
+        if prop is None:
+            order_key = alias_name
+        else:
+            if alias_name != plan.source_alias:
+                raise GFQLValidationError(
+                    ErrorCode.E108,
+                    "ORDER BY expressions must reference the active RETURN/WITH source alias",
+                    field="order_by",
+                    value=item.expression.text,
+                    suggestion=f"Use columns from alias '{plan.source_alias}' only in this phase.",
+                    line=item.span.line,
+                    column=item.span.column,
+                    language="cypher",
+                )
+            order_key = prop
+        if not plan.whole_row and order_key not in plan.available_columns:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "ORDER BY column must exist after RETURN/WITH projection in this phase",
+                field="order_by",
+                value=item.expression.text,
+                suggestion="Order by a projected output column or alias.",
+                line=item.span.line,
+                column=item.span.column,
+                language="cypher",
+            )
+        keys.append((order_key, item.direction))
+    return order_by(keys)
+
+
+def _lower_projection_chain(
+    query: CypherQuery,
+    lowered: LoweredCypherMatch,
+    *,
+    params: Optional[Mapping[str, Any]],
+) -> List[ASTObject]:
+    alias_targets = _alias_target(lowered.query)
+    plan = _build_projection_plan(query.return_, alias_targets=alias_targets)
+
+    row_steps: List[ASTObject] = [rows(table=plan.table, source=plan.source_alias)]
+
+    if not plan.whole_row:
+        projection_fn = with_ if plan.clause_kind == "with" else return_
+        row_steps.append(projection_fn(plan.projection_items))
+
+    if query.return_.distinct:
+        row_steps.append(distinct())
+    if query.order_by is not None:
+        row_steps.append(_lower_order_by_clause(query.order_by, plan=plan))
+    if query.skip is not None:
+        row_steps.append(
+            skip(
+                _resolve_page_value(
+                    query.skip.value,
+                    params=params,
+                    field="skip",
+                    line=query.skip.span.line,
+                    column=query.skip.span.column,
+                )
+            )
+        )
+    if query.limit is not None:
+        row_steps.append(
+            limit(
+                _resolve_page_value(
+                    query.limit.value,
+                    params=params,
+                    field="limit",
+                    line=query.limit.span.line,
+                    column=query.limit.span.column,
+                )
+            )
+        )
+    return lowered.query + row_steps
+
+
 def _apply_literal_where(
     targets: Dict[str, ASTObject],
     *,
@@ -277,3 +557,13 @@ def lower_match_query(
             )
 
     return LoweredCypherMatch(query=ops, where=where_out)
+
+
+def lower_cypher_query(
+    query: CypherQuery,
+    *,
+    params: Optional[Mapping[str, Any]] = None,
+) -> Chain:
+    lowered = lower_match_query(query, params=params)
+    row_query = _lower_projection_chain(query, lowered, params=params)
+    return Chain(row_query, where=lowered.where)
