@@ -1,5 +1,6 @@
 import re
 from functools import lru_cache
+import math
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -104,6 +105,10 @@ class RowPipelineMixin:
 
         left_null_mask = self._gfql_null_mask(table_df, left)
         right_null_mask = self._gfql_null_mask(table_df, right)
+        if isinstance(left, float) and math.isnan(left):
+            left_null_mask = self._gfql_broadcast_scalar(table_df, False).astype(bool)
+        if isinstance(right, float) and math.isnan(right):
+            right_null_mask = self._gfql_broadcast_scalar(table_df, False).astype(bool)
         out = cmp_fn(left, right)
         if hasattr(out, "where"):
             out = out.where(~(left_null_mask | right_null_mask), pd.NA)

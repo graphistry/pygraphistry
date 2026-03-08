@@ -203,7 +203,12 @@ def _append_property_segments(
 
 
 def _node_label_text(df: DataFrameT, alias_col: str) -> SeriesT:
-    label_cols = [col for col in df.columns if str(col).startswith("label__")]
+    label_cols = [
+        col
+        for col in df.columns
+        if str(col).startswith("label__")
+        and str(col).split("label__", 1)[1] not in {"<NA>", "None", "nan"}
+    ]
     if label_cols:
         labels = _empty_text(df, alias_col)
         for col in label_cols:
@@ -214,7 +219,8 @@ def _node_label_text(df: DataFrameT, alias_col: str) -> SeriesT:
     if "type" in df.columns:
         type_series = cast(SeriesT, df["type"])
         include = cast(SeriesT, ~_is_null_mask(type_series))
-        return cast(SeriesT, (_const_text(df, alias_col, ":") + type_series.astype(str)).where(include, ""))
+        rendered = cast(SeriesT, type_series.where(include, "").astype(str))
+        return cast(SeriesT, (_const_text(df, alias_col, ":") + rendered).where(include, ""))
     return _empty_text(df, alias_col)
 
 

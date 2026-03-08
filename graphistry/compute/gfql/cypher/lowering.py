@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, cast
 from typing_extensions import Literal
@@ -150,7 +150,19 @@ class _StageScope:
 _CYPHER_PARAM_RE = re.compile(r"^\$([A-Za-z_][A-Za-z0-9_]*)$")
 _CYPHER_PARAM_TOKEN_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 _CYPHER_ENTITY_KEYS_RE = re.compile(r"\bkeys\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)")
+_CYPHER_LABEL_PREDICATE_RE = re.compile(
+    r"^\(\s*(?P<alias>[A-Za-z_][A-Za-z0-9_]*)((?::[A-Za-z_][A-Za-z0-9_]*)+)\s*\)$"
+)
 _CYPHER_AGGREGATES = frozenset({"count", "sum", "min", "max", "avg", "collect"})
+
+
+def _rewrite_label_predicate_expr(expr_text: str) -> str:
+    match = _CYPHER_LABEL_PREDICATE_RE.fullmatch(expr_text.strip())
+    if match is None:
+        return expr_text
+    alias = match.group("alias")
+    labels = [label for label in match.group(2).split(":") if label]
+    return " and ".join(f"{alias}.label__{label} = true" for label in labels)
 
 
 def _unsupported(message: str, *, field: str, value: Any, line: int, column: int) -> GFQLValidationError:
@@ -185,6 +197,7 @@ def _parse_row_expr(
         allow_missing=allow_missing_params,
     )
     prepared = _rewrite_entity_keys_expr(prepared, alias_targets=alias_targets)
+    prepared = _rewrite_label_predicate_expr(prepared)
     prepared = rewrite_temporal_constructors_in_expr(prepared)
     try:
         return fold_temporal_constructor_ast(parse_expr(prepared))
@@ -665,6 +678,8 @@ def _aggregate_spec(
     params: Optional[Mapping[str, Any]] = None,
     alias_targets: Optional[Mapping[str, ASTObject]] = None,
 ) -> Optional[_AggregateSpec]:
+    if item.expression.text == "*":
+        return None
     node = _parse_row_expr(
         item.expression.text,
         params=params,
@@ -1474,30 +1489,54 @@ def _build_projection_plan(
         binding: Optional[_StageColumnBinding] = None
         projected_expr_binding = False
         simple_ref = True
-        try:
-            alias_name, prop = _projection_ref_from_expr(
-                item.expression.text,
-                alias_targets=alias_targets,
-                field=f"{clause.kind}.items",
-                line=item.span.line,
-                column=item.span.column,
-            )
-        except GFQLValidationError:
-            simple_ref = False
-            aliases = sorted(
-                _expr_match_aliases(
+        if item.expression.text == "*":
+            if active_alias is not None:
+                alias_name = active_alias
+            elif len(alias_targets) == 1:
+                alias_name = next(iter(alias_targets.keys()))
+            else:
+                raise GFQLValidationError(
+                    ErrorCode.E108,
+                    "Cypher RETURN/WITH * currently requires a single active alias in the local compiler",
+                    field=f"{clause.kind}.items",
+                    value=item.expression.text,
+                    suggestion="Use a single MATCH alias or project explicit columns.",
+                    line=item.span.line,
+                    column=item.span.column,
+                    language="cypher",
+                )
+            prop = None
+            binding = None
+            projected_expr_binding = False
+        else:
+            try:
+                alias_name, prop = _projection_ref_from_expr(
                     item.expression.text,
                     alias_targets=alias_targets,
-                    params=params,
                     field=f"{clause.kind}.items",
                     line=item.span.line,
                     column=item.span.column,
                 )
-            )
-            if len(aliases) != 1:
-                raise
-            alias_name = aliases[0]
-            prop = None
+            except GFQLValidationError:
+                simple_ref = False
+                aliases = sorted(
+                    _expr_match_aliases(
+                        item.expression.text,
+                        alias_targets=alias_targets,
+                        params=params,
+                        field=f"{clause.kind}.items",
+                        line=item.span.line,
+                        column=item.span.column,
+                    )
+                )
+                if len(aliases) == 1:
+                    alias_name = aliases[0]
+                    prop = None
+                elif len(aliases) == 0 and active_alias is not None:
+                    alias_name = active_alias
+                    prop = None
+                else:
+                    raise
         if alias_name not in alias_targets and projected_columns is not None:
             binding = projected_columns.get(alias_name)
             if binding is not None:
@@ -1543,6 +1582,21 @@ def _build_projection_plan(
                 column=item.span.column,
                 language="cypher",
             )
+        if item.expression.text == "*":
+            output_name = item.alias or alias_name
+            if output_name in available_columns or output_name in whole_row_output_names:
+                raise GFQLValidationError(
+                    ErrorCode.E108,
+                    "Duplicate Cypher projection names are not yet supported in local lowering",
+                    field=f"{clause.kind}.items",
+                    value=output_name,
+                    suggestion="Use distinct output names in RETURN/WITH.",
+                    line=item.span.line,
+                    column=item.span.column,
+                    language="cypher",
+                )
+            whole_row_output_names.append(output_name)
+            continue
         if simple_ref and prop is None:
             output_name = item.alias or alias_name
             if output_name in available_columns or output_name in whole_row_output_names:
@@ -1666,6 +1720,35 @@ def _result_projection_plan(
     )
 
 
+def _plan_with_visible_projected_columns(
+    plan: _ProjectionPlan,
+    projected_columns: Mapping[str, _StageColumnBinding],
+) -> _ProjectionPlan:
+    if not projected_columns:
+        return plan
+    output_to_source_property = dict(plan.output_to_source_property)
+    output_to_expr_source = dict(plan.output_to_expr_source)
+    available_columns = set(plan.available_columns)
+    for name, binding in projected_columns.items():
+        available_columns.add(name)
+        if name in output_to_source_property or name in output_to_expr_source:
+            continue
+        if binding.kind == "property":
+            output_to_source_property[name] = binding.source_name
+        else:
+            output_to_expr_source[name] = binding.source_name
+    return replace(
+        plan,
+        available_columns=available_columns,
+        output_to_source_property=output_to_source_property,
+        output_to_expr_source=output_to_expr_source,
+    )
+
+
+def _projection_output_names(plan: _ProjectionPlan) -> Set[str]:
+    return {name for name, _ in plan.projection_items} | set(plan.whole_row_output_names)
+
+
 def _lower_order_by_clause(
     clause: OrderByClause,
     *,
@@ -1674,6 +1757,7 @@ def _lower_order_by_clause(
     params: Optional[Mapping[str, Any]] = None,
 ) -> ASTObject:
     keys: List[Tuple[str, str]] = []
+    projection_output_names = _projection_output_names(plan)
     for item in clause.items:
         try:
             alias_name, prop = _projection_ref_from_expr(
@@ -1695,13 +1779,13 @@ def _lower_order_by_clause(
                 if alias_name in plan.output_to_source_property:
                     order_key = (
                         plan.output_to_source_property[alias_name]
-                        if plan.whole_row_output_names
+                        if plan.whole_row_output_names or alias_name not in projection_output_names
                         else alias_name
                     )
                 elif alias_name in plan.output_to_expr_source:
                     order_key = (
                         plan.output_to_expr_source[alias_name]
-                        if plan.whole_row_output_names
+                        if plan.whole_row_output_names or alias_name not in projection_output_names
                         else alias_name
                     )
                 elif alias_name in plan.whole_row_output_names or alias_name == plan.source_alias:
@@ -2077,10 +2161,11 @@ def _lower_match_alias_stage(
             )
         )
     if stage.order_by is not None:
+        order_plan = _plan_with_visible_projected_columns(plan, scope.projected_columns)
         row_steps.append(
             _lower_order_by_clause(
                 stage.order_by,
-                plan=plan,
+                plan=order_plan,
                 alias_targets=scope.alias_targets,
                 params=params,
             )

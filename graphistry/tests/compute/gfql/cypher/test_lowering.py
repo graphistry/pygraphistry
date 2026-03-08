@@ -692,15 +692,107 @@ def test_string_cypher_normalizes_zero_offset_temporals(query: str, expected: li
 @pytest.mark.parametrize(
     ("query", "expected"),
     [
-        ("RETURN (0.0 / 0.0) = 1 AS result", [{"result": None}]),
-        ("RETURN (0.0 / 0.0) = 1.0 AS result", [{"result": None}]),
-        ("RETURN (0.0 / 0.0) = (0.0 / 0.0) AS result", [{"result": None}]),
-        ("RETURN (0.0 / 0.0) = 'a' AS result", [{"result": None}]),
+        ("RETURN (0.0 / 0.0) = 1 AS isEqual, (0.0 / 0.0) <> 1 AS isNotEqual", [{"isEqual": False, "isNotEqual": True}]),
+        ("RETURN (0.0 / 0.0) = 1.0 AS isEqual, (0.0 / 0.0) <> 1.0 AS isNotEqual", [{"isEqual": False, "isNotEqual": True}]),
+        ("RETURN (0.0 / 0.0) = (0.0 / 0.0) AS isEqual, (0.0 / 0.0) <> (0.0 / 0.0) AS isNotEqual", [{"isEqual": False, "isNotEqual": True}]),
+        ("RETURN (0.0 / 0.0) = 'a' AS isEqual, (0.0 / 0.0) <> 'a' AS isNotEqual", [{"isEqual": False, "isNotEqual": True}]),
     ],
 )
-def test_string_cypher_nan_comparisons_produce_null(query: str, expected: list[dict[str, object]]) -> None:
+def test_string_cypher_nan_comparisons_match_cypher_semantics(query: str, expected: list[dict[str, object]]) -> None:
     result = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []})).gfql(query)
     assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == expected
+
+
+def test_string_cypher_formats_match_node_without_null_type_label() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["n1", "n2"],
+                "name": ["bar", "baz"],
+                "type": [pd.NA, pd.NA],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n {name: 'bar'}) RETURN n")
+
+    assert result._nodes.to_dict(orient="records") == [{"n": "({name: 'bar'})"}]
+
+
+def test_string_cypher_ignores_placeholder_label_columns_in_entity_rendering() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["n1"],
+                "name": ["bar"],
+                "label__<NA>": [True],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n {name: 'bar'}) RETURN n")
+
+    assert result._nodes.to_dict(orient="records") == [{"n": "({name: 'bar'})"}]
+
+
+def test_string_cypher_formats_numeric_id_as_entity_property() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": [1, 10]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n) RETURN DISTINCT n ORDER BY n.id")
+
+    assert result._nodes.to_dict(orient="records") == [{"n": "({id: 1})"}, {"n": "({id: 10})"}]
+
+
+def test_string_cypher_supports_return_star_with_order_by() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": [1, 10]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n) RETURN * ORDER BY n.id")
+
+    assert result._nodes.to_dict(orient="records") == [{"n": "({id: 1})"}, {"n": "({id: 10})"}]
+
+
+def test_string_cypher_supports_return_label_predicate_expression() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "label__Foo": [False, True],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n) RETURN (n:Foo)")
+
+    assert result._nodes.to_dict(orient="records") == [{"(n:Foo)": False}, {"(n:Foo)": True}]
+
+
+def test_string_cypher_supports_match_with_constant_projection_before_order_by() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["c1", "c2", "c3"],
+                "label__Crew": [True, True, True],
+                "name": ["Neo", "Neo", "Neo"],
+                "rank": [1, 2, 3],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (c:Crew {name: 'Neo'}) WITH c, 0 AS relevance RETURN c.rank AS rank ORDER BY relevance, c.rank"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"rank": 1}, {"rank": 2}, {"rank": 3}]
 
 
 @pytest.mark.parametrize(

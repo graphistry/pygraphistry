@@ -94,7 +94,10 @@ with_where_clause: "WHERE"i expr
 return_clause: "RETURN"i distinct? return_item ("," return_item)*
 distinct: "DISTINCT"i
 return_item: return_expr alias?
-return_expr: expr
+return_expr: "*"                              -> projection_star
+           | label_predicate_expr
+           | expr
+label_predicate_expr: "(" NAME labels ")"    -> grouped_label_predicate
 alias: "AS"i NAME
 
 order_by_clause: "ORDER"i "BY"i order_item ("," order_item)*
@@ -610,6 +613,19 @@ def _build_transformer(source: str) -> _TransformerLike:
                 alias=alias,
                 span=_span_from_meta(meta),
             )
+
+        def projection_star(self, meta: Any, _items: Sequence[Any]) -> _ExpressionSlice:
+            span = _span_from_meta(meta)
+            return _ExpressionSlice(text="*", span=span)
+
+        def grouped_label_predicate(self, meta: Any, items: Sequence[Any]) -> _ExpressionSlice:
+            if len(items) != 2:
+                raise _to_syntax_error("Invalid label predicate expression", line=meta.line, column=meta.column)
+            labels = cast(Sequence[str], items[1])
+            if len(labels) == 0:
+                raise _to_syntax_error("Label predicate must reference at least one label", line=meta.line, column=meta.column)
+            span = _span_from_meta(meta)
+            return _ExpressionSlice(text=self._slice(span), span=span)
 
         def _projection_clause(
             self,

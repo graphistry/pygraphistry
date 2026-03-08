@@ -21,7 +21,17 @@ def _fresh_col_name(columns: Sequence[object], prefix: str) -> str:
     return candidate
 
 
+def _include_numeric_id_as_property(df: DataFrameT) -> bool:
+    if "id" not in df.columns:
+        return False
+    try:
+        return bool(pd.api.types.is_numeric_dtype(df["id"]))
+    except Exception:
+        return False
+
+
 def node_property_columns(df: DataFrameT, alias_col: str, excluded: Sequence[str]) -> list[str]:
+    include_id = _include_numeric_id_as_property(df)
     return [
         str(col)
         for col in df.columns
@@ -29,7 +39,7 @@ def node_property_columns(df: DataFrameT, alias_col: str, excluded: Sequence[str
         and str(col) not in excluded
         and not str(col).startswith("__")
         and not str(col).startswith("label__")
-        and str(col) not in _NODE_INTERNAL_COLS
+        and (str(col) not in _NODE_INTERNAL_COLS or (include_id and str(col) == "id"))
     ]
 
 
