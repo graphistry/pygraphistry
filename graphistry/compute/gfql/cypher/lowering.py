@@ -50,6 +50,7 @@ class _ProjectionPlan:
     clause_kind: str
     projection_items: List[Tuple[str, str]]
     available_columns: Set[str]
+    projected_property_outputs: Dict[str, str]
 
 
 def _unsupported(message: str, *, field: str, value: Any, line: int, column: int) -> GFQLValidationError:
@@ -295,6 +296,7 @@ def _build_projection_plan(
     whole_row = False
     projection_items: List[Tuple[str, str]] = []
     available_columns: Set[str] = set()
+    projected_property_outputs: Dict[str, str] = {}
 
     for item in clause.items:
         alias_name, prop = _split_qualified_name(
@@ -344,6 +346,7 @@ def _build_projection_plan(
         projection_items.append((output_name, prop))
         available_columns.add(output_name)
         available_columns.add(prop)
+        projected_property_outputs.setdefault(prop, output_name)
 
     if source_alias is None:
         raise GFQLValidationError(
@@ -382,6 +385,7 @@ def _build_projection_plan(
         clause_kind=clause.kind,
         projection_items=projection_items,
         available_columns=available_columns,
+        projected_property_outputs=projected_property_outputs,
     )
 
 
@@ -411,7 +415,7 @@ def _lower_order_by_clause(
                     column=item.span.column,
                     language="cypher",
                 )
-            order_key = prop
+            order_key = prop if plan.whole_row else plan.projected_property_outputs.get(prop, prop)
         if not plan.whole_row and order_key not in plan.available_columns:
             raise GFQLValidationError(
                 ErrorCode.E108,

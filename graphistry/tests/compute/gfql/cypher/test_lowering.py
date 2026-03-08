@@ -213,7 +213,7 @@ def test_cypher_to_gfql_executes_property_projection_pipeline() -> None:
     edges = pd.DataFrame({"s": [], "d": []})
 
     chain = cypher_to_gfql(
-        "MATCH (p:Person) RETURN DISTINCT p.name AS person_name ORDER BY person_name DESC SKIP 1 LIMIT $top_n",
+        "MATCH (p:Person) RETURN DISTINCT p.name AS person_name ORDER BY p.name DESC SKIP 1 LIMIT $top_n",
         params={"top_n": 1},
     )
     result = _mk_graph(nodes, edges).gfql(chain)
