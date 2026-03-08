@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 GFQLParseExprFn = Callable[[str], "ExprNode"]
 GFQLValidateExprFn = Callable[["ExprNode"], List[str]]
 GFQLRuntimeParserBundle = Tuple[GFQLParseExprFn, GFQLValidateExprFn, ModuleType]
+_GFQL_MISSING_BOOL_OPERAND = object()
 
 
 @lru_cache(maxsize=1)
@@ -208,7 +209,10 @@ class RowPipelineMixin:
             if node.op == "-":
                 return True, 0 - operand
             if node.op == "not":
-                return True, ~self._gfql_bool_mask(table_df, operand)
+                bool_out = self._gfql_eval_boolean_op(table_df, operand, _GFQL_MISSING_BOOL_OPERAND, "not")
+                if bool_out is None:
+                    return False, None
+                return True, bool_out
             return False, None
 
         if isinstance(node, BinaryOp):
@@ -218,10 +222,11 @@ class RowPipelineMixin:
                 return False, None
             op = str(node.op).lower()
 
-            if op == "or":
-                return True, self._gfql_bool_mask(table_df, left) | self._gfql_bool_mask(table_df, right)
-            if op == "and":
-                return True, self._gfql_bool_mask(table_df, left) & self._gfql_bool_mask(table_df, right)
+            if op in {"or", "xor", "and"}:
+                bool_out = self._gfql_eval_boolean_op(table_df, left, right, op)
+                if bool_out is None:
+                    return False, None
+                return True, bool_out
 
             cmp_out = RowPipelineMixin._gfql_eval_comparison_op(self, table_df, left, right, op)
             if cmp_out is not None:
@@ -740,6 +745,79 @@ class RowPipelineMixin:
             return table_df.assign(**{tmp_col: [value for _ in range(len(table_df))]})[tmp_col]
 
         return table_df.assign(**{tmp_col: value})[tmp_col]
+
+    def _gfql_truth_masks(self, table_df: Any, value: Any) -> Optional[Tuple[Any, Any, Any]]:
+        if not hasattr(value, "astype"):
+            if is_null_scalar(value):
+                series = self._gfql_broadcast_scalar(table_df, pd.NA)
+            elif isinstance(value, bool):
+                series = self._gfql_broadcast_scalar(table_df, value)
+            else:
+                return None
+        else:
+            series = value
+        if not hasattr(series, "isin") or not hasattr(series, "where"):
+            return None
+        null_mask = self._gfql_null_mask(table_df, series)
+        dtype_name = str(getattr(series, "dtype", "")).lower()
+        if any(token in dtype_name for token in ("int", "float", "double", "long", "short", "uint")):
+            return None
+        valid_mask = series.isin([True, False]) | null_mask
+        if hasattr(valid_mask, "all") and not bool(valid_mask.all()):
+            return None
+        true_mask = series.isin([True]) & ~null_mask
+        false_mask = series.isin([False]) & ~null_mask
+        return true_mask, false_mask, null_mask.astype(bool)
+
+    def _gfql_series_from_truth_masks(
+        self,
+        table_df: Any,
+        true_mask: Any,
+        false_mask: Any,
+        null_mask: Any,
+    ) -> Any:
+        out = self._gfql_broadcast_scalar(table_df, False)
+        if hasattr(out, "astype"):
+            out = out.astype("object")
+        if hasattr(out, "where"):
+            out = out.where(~true_mask, True)
+            out = out.where(~false_mask, False)
+            out = out.where(~null_mask, pd.NA)
+            return out
+        return out
+
+    def _gfql_eval_boolean_op(self, table_df: Any, left: Any, right: Any, op: str) -> Optional[Any]:
+        if op == "not":
+            masks = self._gfql_truth_masks(table_df, left)
+            if masks is None:
+                return None
+            true_mask, false_mask, null_mask = masks
+            return self._gfql_series_from_truth_masks(table_df, false_mask, true_mask, null_mask)
+
+        if right is _GFQL_MISSING_BOOL_OPERAND:
+            return None
+
+        left_masks = self._gfql_truth_masks(table_df, left)
+        right_masks = self._gfql_truth_masks(table_df, right)
+        if left_masks is None or right_masks is None:
+            return None
+        left_true, left_false, _left_null = left_masks
+        right_true, right_false, _right_null = right_masks
+
+        if op == "and":
+            true_mask = left_true & right_true
+            false_mask = left_false | right_false
+        elif op == "or":
+            true_mask = left_true | right_true
+            false_mask = left_false & right_false
+        elif op == "xor":
+            true_mask = (left_true & right_false) | (left_false & right_true)
+            false_mask = (left_true & right_true) | (left_false & right_false)
+        else:
+            return None
+
+        null_mask = ~(true_mask | false_mask)
+        return self._gfql_series_from_truth_masks(table_df, true_mask, false_mask, null_mask)
 
     def _gfql_bool_mask(self, table_df: Any, value: Any) -> Any:
         if hasattr(value, "astype"):

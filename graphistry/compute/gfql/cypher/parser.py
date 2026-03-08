@@ -43,7 +43,7 @@ query: match_clause+ where_clause? unwind_clause* stage+ SEMI?
 stage: with_stage
      | return_stage
 
-with_stage: with_clause order_by_clause? skip_clause? limit_clause?
+with_stage: with_clause with_where_clause? order_by_clause? skip_clause? limit_clause?
 return_stage: return_clause order_by_clause? skip_clause? limit_clause?
 
 match_clause: "MATCH"i pattern ("," pattern)*
@@ -87,6 +87,7 @@ where_rhs: property_ref
 unwind_clause: "UNWIND"i unwind_expr "AS"i NAME
 
 with_clause: "WITH"i distinct? return_item ("," return_item)*
+with_where_clause: "WHERE"i expr
 return_clause: "RETURN"i distinct? return_item ("," return_item)*
 distinct: "DISTINCT"i
 return_item: return_expr alias?
@@ -111,8 +112,11 @@ order_expr: expr
 
 ?expr: or_expr
 
-?or_expr: and_expr
-        | or_expr "OR"i and_expr            -> or_op
+?or_expr: xor_expr
+        | or_expr "OR"i xor_expr            -> or_op
+
+?xor_expr: and_expr
+         | xor_expr "XOR"i and_expr         -> xor_op
 
 ?and_expr: not_expr
          | and_expr "AND"i not_expr         -> and_op
@@ -120,14 +124,16 @@ order_expr: expr
 ?not_expr: "NOT"i not_expr                  -> not_op
          | predicate
 
-?predicate: additive
-          | additive COMP_OP additive       -> cmp_op
-          | additive "IS"i "NULL"i          -> expr_is_null
-          | additive "IS"i "NOT"i "NULL"i   -> expr_is_not_null
-          | additive "IN"i additive         -> in_op
-          | additive "CONTAINS"i additive   -> contains_op
-          | additive "STARTS"i "WITH"i additive -> starts_with_op
-          | additive "ENDS"i "WITH"i additive -> ends_with_op
+?predicate: comparable
+          | comparable COMP_OP comparable   -> cmp_op
+
+?comparable: additive
+           | additive "IS"i "NULL"i          -> expr_is_null
+           | additive "IS"i "NOT"i "NULL"i   -> expr_is_not_null
+           | additive "IN"i additive         -> in_op
+           | additive "CONTAINS"i additive   -> contains_op
+           | additive "STARTS"i "WITH"i additive -> starts_with_op
+           | additive "ENDS"i "WITH"i additive -> ends_with_op
 
 ?additive: multiplicative
          | additive "+" multiplicative      -> add_op
@@ -203,7 +209,7 @@ COMP_OP: "=" | "<>" | "!=" | "<=" | "<" | ">=" | ">"
 
 SEMI: ";"
 MINUS: /-(?!-)/
-NAME: /(?!(?i:MATCH|RETURN|WITH|ORDER|BY|SKIP|LIMIT|UNWIND|WHERE|AS|ASC|DESC|AND|OR|NOT|IN|IS|NULL|TRUE|FALSE|CONTAINS|STARTS|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*/
+NAME: /(?!(?i:MATCH|RETURN|WITH|ORDER|BY|SKIP|LIMIT|UNWIND|WHERE|AS|ASC|DESC|AND|OR|XOR|NOT|IN|IS|NULL|TRUE|FALSE|CONTAINS|STARTS|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*/
 NUMBER: /[+-]?(?:\d+\.\d+|\d+)(?:[eE][+-]?\d+)?/
 INT: /[0-9]+/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
@@ -591,6 +597,10 @@ def _build_transformer(source: str) -> _TransformerLike:
         def with_clause(self, meta: Any, items: Sequence[Any]) -> ReturnClause:
             return self._projection_clause(meta=meta, items=items, kind="with")
 
+        def with_where_clause(self, meta: Any, _items: Sequence[Any]) -> ExpressionText:
+            span = _span_from_meta(meta)
+            return ExpressionText(text=self._slice(span)[len("WHERE"):].strip(), span=span)
+
         def return_clause(self, meta: Any, items: Sequence[Any]) -> ReturnClause:
             return self._projection_clause(meta=meta, items=items, kind="return")
 
@@ -637,12 +647,15 @@ def _build_transformer(source: str) -> _TransformerLike:
 
         def _projection_stage(self, meta: Any, items: Sequence[Any], *, expected_kind: str) -> ProjectionStage:
             clause: Optional[ReturnClause] = None
+            where_expr: Optional[ExpressionText] = None
             order_by_clause: Optional[OrderByClause] = None
             skip_clause: Optional[SkipClause] = None
             limit_clause: Optional[LimitClause] = None
             for item in items:
                 if isinstance(item, ReturnClause):
                     clause = item
+                elif isinstance(item, ExpressionText):
+                    where_expr = item
                 elif isinstance(item, OrderByClause):
                     order_by_clause = item
                 elif isinstance(item, SkipClause):
@@ -657,6 +670,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 )
             return ProjectionStage(
                 clause=clause,
+                where=where_expr,
                 order_by=order_by_clause,
                 skip=skip_clause,
                 limit=limit_clause,

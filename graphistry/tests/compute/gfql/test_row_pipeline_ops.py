@@ -510,6 +510,33 @@ class TestRowPipelineExecution:
         for expr, expected_ids in cases:
             assert self._where_expr_ids(nodes_df, expr) == expected_ids
 
+    def test_row_pipeline_where_rows_expr_xor_null_semantics(self):
+        nodes_df = pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d", "e"],
+                "lhs": [True, True, False, False, None],
+                "rhs": [True, False, False, None, True],
+            }
+        )
+
+        assert self._where_expr_ids(nodes_df, "lhs XOR rhs") == ["b"]
+
+        result = _mk_graph(nodes_df).gfql(
+            [
+                rows(),
+                select([("id", "id"), ("flag", "lhs XOR rhs")]),
+                order_by([("id", "asc")]),
+            ]
+        )
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"id": "a", "flag": False},
+            {"id": "b", "flag": True},
+            {"id": "c", "flag": False},
+            {"id": "d", "flag": None},
+            {"id": "e", "flag": None},
+        ]
+
     def test_row_pipeline_where_rows_expr_quantifiers(self):
         nodes_df = pd.DataFrame(
             {
@@ -1517,43 +1544,57 @@ class TestRowPipelineSafelist:
 
     def test_row_pipeline_eval_expr_ast_subset_parity(self):
         _assert_ast_parity(
-            {"id": ["a", "b", "c"], "score": [1, 2, 3], "name": ["a", "bb", "ccc"]},
+            {
+                "id": ["a", "b", "c"],
+                "score": [1, 2, 3],
+                "name": ["a", "bb", "ccc"],
+                "flag1": [True, True, False],
+                "flag2": [True, False, False],
+            },
             [
-            (
-                expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1)),
-                "score > 1",
-            ),
-            (
-                expr_parser.UnaryOp(
-                    "not",
+                (
                     expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1)),
+                    "score > 1",
                 ),
-                "NOT (score > 1)",
-            ),
-            (
-                expr_parser.BinaryOp(
-                    "and",
-                    expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1)),
-                    expr_parser.BinaryOp("<", expr_parser.Identifier("score"), expr_parser.Literal(3)),
+                (
+                    expr_parser.UnaryOp(
+                        "not",
+                        expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1)),
+                    ),
+                    "NOT (score > 1)",
                 ),
-                "score > 1 AND score < 3",
-            ),
-            (
-                expr_parser.BinaryOp(
-                    "contains",
-                    expr_parser.Identifier("name"),
-                    expr_parser.Literal("b"),
+                (
+                    expr_parser.BinaryOp(
+                        "and",
+                        expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1)),
+                        expr_parser.BinaryOp("<", expr_parser.Identifier("score"), expr_parser.Literal(3)),
+                    ),
+                    "score > 1 AND score < 3",
                 ),
-                "name CONTAINS 'b'",
-            ),
-            (
-                expr_parser.BinaryOp(
-                    ">=",
-                    expr_parser.BinaryOp("+", expr_parser.Identifier("score"), expr_parser.Literal(1)),
-                    expr_parser.Literal(3),
+                (
+                    expr_parser.BinaryOp(
+                        "xor",
+                        expr_parser.Identifier("flag1"),
+                        expr_parser.Identifier("flag2"),
+                    ),
+                    "flag1 XOR flag2",
                 ),
-                "score + 1 >= 3",
-            ),
+                (
+                    expr_parser.BinaryOp(
+                        "contains",
+                        expr_parser.Identifier("name"),
+                        expr_parser.Literal("b"),
+                    ),
+                    "name CONTAINS 'b'",
+                ),
+                (
+                    expr_parser.BinaryOp(
+                        ">=",
+                        expr_parser.BinaryOp("+", expr_parser.Identifier("score"), expr_parser.Literal(1)),
+                        expr_parser.Literal(3),
+                    ),
+                    "score + 1 >= 3",
+                ),
             ],
         )
 

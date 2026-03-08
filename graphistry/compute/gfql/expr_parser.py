@@ -160,8 +160,11 @@ _GRAMMAR = r"""
 
 ?expr: or_expr
 
-?or_expr: and_expr
-        | or_expr "OR"i and_expr            -> or_op
+?or_expr: xor_expr
+        | or_expr "OR"i xor_expr            -> or_op
+
+?xor_expr: and_expr
+         | xor_expr "XOR"i and_expr         -> xor_op
 
 ?and_expr: not_expr
          | and_expr "AND"i not_expr         -> and_op
@@ -169,14 +172,16 @@ _GRAMMAR = r"""
 ?not_expr: "NOT"i not_expr                  -> not_op
          | predicate
 
-?predicate: additive
-          | additive COMP_OP additive    -> cmp_op
-          | additive "IS"i "NULL"i             -> is_null
-          | additive "IS"i "NOT"i "NULL"i      -> is_not_null
-          | additive "IN"i additive            -> in_op
-          | additive "CONTAINS"i additive      -> contains_op
-          | additive "STARTS"i "WITH"i additive -> starts_with_op
-          | additive "ENDS"i "WITH"i additive  -> ends_with_op
+?predicate: comparable
+          | comparable COMP_OP comparable      -> cmp_op
+
+?comparable: additive
+           | additive "IS"i "NULL"i             -> is_null
+           | additive "IS"i "NOT"i "NULL"i      -> is_not_null
+           | additive "IN"i additive            -> in_op
+           | additive "CONTAINS"i additive      -> contains_op
+           | additive "STARTS"i "WITH"i additive -> starts_with_op
+           | additive "ENDS"i "WITH"i additive  -> ends_with_op
 
 ?additive: multiplicative
          | additive "+" multiplicative   -> add_op
@@ -248,7 +253,7 @@ literal: "NULL"i                            -> null_lit
 
 COMP_OP: __GFQL_COMPARISON_GRAMMAR_ALTS__
 MINUS: /-(?!-)/
-NAME: /(?!(?i:AND|OR|NOT|IN|IS|NULL|CASE|WHEN|THEN|ELSE|END|CONTAINS|STARTS|WITH|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*/
+NAME: /(?!(?i:AND|OR|XOR|NOT|IN|IS|NULL|CASE|WHEN|THEN|ELSE|END|CONTAINS|STARTS|WITH|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*/
 NUMBER: /[+-]?(?:\d+\.\d+|\d+)(?:[eE][+-]?\d+)?/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
 LINE_COMMENT: /--[^\n]*/
@@ -548,6 +553,9 @@ def _build_transformer() -> _TransformerLike:
 
         def or_op(self, items: Sequence[Any]) -> BinaryOp:
             return self._bin("or", items)
+
+        def xor_op(self, items: Sequence[Any]) -> BinaryOp:
+            return self._bin("xor", items)
 
         def and_op(self, items: Sequence[Any]) -> BinaryOp:
             return self._bin("and", items)

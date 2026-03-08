@@ -123,6 +123,7 @@ class ReturnClause:
 @dataclass(frozen=True)
 class ProjectionStage:
     clause: ReturnClause
+    where: Optional[ExpressionText]
     order_by: Optional["OrderByClause"]
     skip: Optional["SkipClause"]
     limit: Optional["LimitClause"]

@@ -1063,6 +1063,55 @@ def test_gfql_executes_top_level_membership_and_null_expression() -> None:
     assert result._nodes.to_dict(orient="records") == [{"hit": True, "empty": True}]
 
 
+def test_gfql_executes_top_level_xor_expression_and_precedence() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "RETURN "
+        "true XOR false AS tf, "
+        "false XOR false AS ff, "
+        "true XOR null AS tn, "
+        "true OR true XOR true AS or_xor, "
+        "true XOR false AND false AS xor_and"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {
+            "tf": True,
+            "ff": False,
+            "tn": None,
+            "or_xor": True,
+            "xor_and": True,
+        }
+    ]
+
+
+def test_gfql_executes_with_where_xor_null_pipeline() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "UNWIND [true, false, null] AS a "
+        "UNWIND [true, false, null] AS b "
+        "WITH a, b WHERE a IS NULL OR b IS NULL "
+        "RETURN a, b, (a XOR b) IS NULL = (b XOR a) IS NULL AS result "
+        "ORDER BY a, b"
+    )
+
+    actual_rows = result._nodes.to_dict(orient="records")
+    expected_rows = [
+        {"a": False, "b": None, "result": True},
+        {"a": None, "b": False, "result": True},
+        {"a": None, "b": None, "result": True},
+        {"a": None, "b": True, "result": True},
+        {"a": True, "b": None, "result": True},
+    ]
+
+    def _row_key(row):
+        return (str(row["a"]), str(row["b"]), str(row["result"]))
+
+    assert sorted(actual_rows, key=_row_key) == sorted(expected_rows, key=_row_key)
+
+
 def test_gfql_executes_top_level_list_comprehension_expression() -> None:
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 

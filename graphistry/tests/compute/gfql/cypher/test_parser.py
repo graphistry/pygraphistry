@@ -115,6 +115,20 @@ def test_parse_where_null_predicates() -> None:
     assert parsed.where.predicates[1].right is None
 
 
+def test_parse_return_xor_precedence_expression() -> None:
+    parsed = parse_cypher("RETURN true OR true XOR false AND false AS result")
+
+    assert parsed.return_.items[0].expression.text == "true OR true XOR false AND false"
+
+
+def test_parse_with_where_pipeline() -> None:
+    parsed = parse_cypher("UNWIND [true, false, null] AS a WITH a WHERE a IS NULL RETURN a")
+
+    assert len(parsed.with_stages) == 1
+    assert parsed.with_stages[0].where is not None
+    assert parsed.with_stages[0].where.text == "a IS NULL"
+
+
 def test_parse_where_label_predicate() -> None:
     parsed = parse_cypher("MATCH (a)-->(b) WHERE b:Foo:Bar RETURN b")
 

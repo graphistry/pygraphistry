@@ -20,6 +20,7 @@ from graphistry.compute.ast import (
     rows,
     skip,
     unwind,
+    where_rows,
     with_,
 )
 from graphistry.compute.chain import Chain
@@ -1672,6 +1673,27 @@ def _lower_match_alias_stage(
         row_steps.append(projection_fn(plan.projection_items))
     if stage.clause.distinct:
         row_steps.append(distinct())
+    if stage.where is not None:
+        _validate_row_expr_scope(
+            stage.where.text,
+            alias_targets=scope.alias_targets,
+            active_match_alias=scope.active_alias,
+            unwind_aliases=set(),
+            params=params,
+            field="with.where",
+            line=stage.where.span.line,
+            column=stage.where.span.column,
+        )
+        row_steps.append(
+            where_rows(
+                expr=_row_expr_arg(
+                    stage.where,
+                    params=params,
+                    alias_targets=scope.alias_targets,
+                    field="with.where",
+                )
+            )
+        )
     if stage.order_by is not None:
         row_steps.append(
             _lower_order_by_clause(
@@ -1764,6 +1786,27 @@ def _lower_row_column_stage(
     row_steps: List[ASTObject] = [projection_fn(projection_items)]
     if stage.clause.distinct:
         row_steps.append(distinct())
+    if stage.where is not None:
+        _validate_row_expr_scope(
+            stage.where.text,
+            alias_targets={},
+            active_match_alias=None,
+            unwind_aliases=available_columns,
+            params=params,
+            field="with.where",
+            line=stage.where.span.line,
+            column=stage.where.span.column,
+        )
+        row_steps.append(
+            where_rows(
+                expr=_row_expr_arg(
+                    stage.where,
+                    params=params,
+                    alias_targets={},
+                    field="with.where",
+                )
+            )
+        )
     if stage.order_by is not None:
         row_steps.append(
             _lower_order_by_outputs(
@@ -2312,6 +2355,7 @@ def compile_cypher_query(
 
         final_stage = ProjectionStage(
             clause=query.return_,
+            where=None,
             order_by=query.order_by,
             skip=query.skip,
             limit=query.limit,

@@ -49,9 +49,9 @@ def test_validate_expr_capabilities_rejects_unknown_function() -> None:
 
 
 def test_validate_expr_capabilities_rejects_unknown_operator() -> None:
-    node = BinaryOp(op="xor", left=Identifier("a"), right=Identifier("b"))
+    node = BinaryOp(op="pow", left=Identifier("a"), right=Identifier("b"))
     errors = validate_expr_capabilities(node)
-    assert "unsupported binary op: xor" in errors
+    assert "unsupported binary op: pow" in errors
 
 
 def test_validate_expr_capabilities_accepts_supported_tree() -> None:
@@ -74,12 +74,25 @@ def test_parse_expr_precedence_tree() -> None:
 
 
 @requires_lark
+def test_parse_expr_xor_precedence_tree() -> None:
+    node = parse_expr("a OR b XOR c AND d")
+    assert isinstance(node, BinaryOp)
+    assert node.op == "or"
+    assert isinstance(node.right, BinaryOp)
+    assert node.right.op == "xor"
+    assert isinstance(node.right.right, BinaryOp)
+    assert node.right.right.op == "and"
+
+
+@requires_lark
 @pytest.mark.parametrize(
     "expr",
     [
         "score > 1",
         "__node_keys__(n, n, r)",
         "NOT (score > 1 AND score < 3)",
+        "flag XOR other_flag",
+        "(flag XOR other_flag) IS NULL = (other_flag XOR flag) IS NULL",
         "CASE WHEN score > 1 THEN true ELSE false END",
         "any(x IN vals WHERE x = 2)",
         "[x IN vals WHERE x > 1 | x + 1]",
