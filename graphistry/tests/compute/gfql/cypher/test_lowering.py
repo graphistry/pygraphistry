@@ -852,6 +852,78 @@ def test_string_cypher_executes_match_with_constant_expression_order_pipeline() 
     assert result._nodes.to_dict(orient="records") == [{"a": "({num: 1, text: 'a'})"}]
 
 
+def test_string_cypher_executes_match_with_mixed_whole_row_bool_alias_pipeline() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e"],
+            "type": ["A", "B", "C", "D", "E"],
+            "bool": [True, False, False, True, False],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a) "
+        "WITH a, a.bool AS bool "
+        "WITH a, bool "
+        "ORDER BY bool ASC "
+        "LIMIT 3 "
+        "RETURN a, bool"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:B {bool: false})", "bool": False},
+        {"a": "(:C {bool: false})", "bool": False},
+        {"a": "(:E {bool: false})", "bool": False},
+    ]
+
+
+def test_string_cypher_executes_match_with_mixed_whole_row_numeric_alias_pipeline() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e"],
+            "type": ["A", "B", "C", "D", "E"],
+            "num": [9, 5, 30, -11, 7054],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a) "
+        "WITH a, a.num AS num "
+        "WITH a, num "
+        "ORDER BY num DESC "
+        "LIMIT 3 "
+        "RETURN a, num"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:E {num: 7054})", "num": 7054},
+        {"a": "(:C {num: 30})", "num": 30},
+        {"a": "(:A {num: 9})", "num": 9},
+    ]
+
+
+def test_string_cypher_rejects_match_with_mixed_whole_row_computed_alias_pipeline() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b"],
+            "type": ["A", "B"],
+            "num": [1, 2],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    with pytest.raises(GFQLValidationError, match="computed scalar projections"):
+        _mk_graph(nodes, edges).gfql(
+            "MATCH (a) "
+            "WITH a, a.num + 1 AS score "
+            "WITH a, score "
+            "ORDER BY score DESC "
+            "RETURN a, score"
+        )
+
+
 def test_cypher_to_gfql_rejects_multi_alias_projection() -> None:
     with pytest.raises(GFQLValidationError) as exc_info:
         cypher_to_gfql("MATCH (p)-[r]->(q) RETURN p.id, q.id")

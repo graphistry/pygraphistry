@@ -110,11 +110,18 @@ class _AggregateSpec:
 
 
 @dataclass(frozen=True)
+class _StageColumnBinding:
+    kind: Literal["property", "expr"]
+    source_name: str
+
+
+@dataclass(frozen=True)
 class _StageScope:
     mode: Literal["match_alias", "row_columns"]
     alias_targets: Dict[str, ASTObject]
     active_alias: Optional[str]
     row_columns: Set[str]
+    projected_columns: Dict[str, _StageColumnBinding]
     table: Optional[Literal["nodes", "edges"]]
     seed_rows: bool
 
@@ -1176,6 +1183,8 @@ def _build_projection_plan(
     clause: ReturnClause,
     *,
     alias_targets: Dict[str, ASTObject],
+    active_alias: Optional[str] = None,
+    projected_columns: Optional[Mapping[str, _StageColumnBinding]] = None,
     params: Optional[Mapping[str, Any]] = None,
 ) -> _ProjectionPlan:
     source_alias: Optional[str] = None
@@ -1187,6 +1196,7 @@ def _build_projection_plan(
     output_to_source_property: Dict[str, str] = {}
 
     for item in clause.items:
+        binding: Optional[_StageColumnBinding] = None
         simple_ref = True
         try:
             alias_name, prop = _projection_ref_from_expr(
@@ -1212,6 +1222,24 @@ def _build_projection_plan(
                 raise
             alias_name = aliases[0]
             prop = None
+        if prop is None and alias_name not in alias_targets and projected_columns is not None:
+            binding = projected_columns.get(alias_name)
+            if binding is not None:
+                if active_alias is None:
+                    raise _unsupported(
+                        "Projected Cypher column references require an active MATCH alias in this phase",
+                        field=f"{clause.kind}.items",
+                        value=item.expression.text,
+                        line=item.span.line,
+                        column=item.span.column,
+                    )
+                alias_name = active_alias
+                if binding.kind == "property":
+                    simple_ref = True
+                    prop = binding.source_name
+                else:
+                    simple_ref = False
+                    prop = None
         if alias_name not in alias_targets:
             raise GFQLValidationError(
                 ErrorCode.E108,
@@ -1266,11 +1294,15 @@ def _build_projection_plan(
         runtime_expr = (
             prop
             if simple_ref and prop is not None
-            else _row_expr_arg(
-                item.expression,
-                params=params,
-                alias_targets=alias_targets,
-                field=f"{clause.kind}.items",
+            else (
+                binding.source_name
+                if binding is not None and binding.kind == "expr"
+                else _row_expr_arg(
+                    item.expression,
+                    params=params,
+                    alias_targets=alias_targets,
+                    field=f"{clause.kind}.items",
+                )
             )
         )
         projection_items.append((output_name, runtime_expr))
@@ -1637,13 +1669,14 @@ def _build_initial_row_scope(
         unwind_aliases.add(unwind_clause.alias)
 
     return row_steps, _StageScope(
-        mode=scope_mode,
-        alias_targets=dict(alias_targets),
-        active_alias=active_match_alias,
-        row_columns=set(unwind_aliases),
-        table=table,
-        seed_rows=seed_rows,
-    )
+            mode=scope_mode,
+            alias_targets=dict(alias_targets),
+            active_alias=active_match_alias,
+            row_columns=set(unwind_aliases),
+            projected_columns={},
+            table=table,
+            seed_rows=seed_rows,
+        )
 
 
 def _lower_match_alias_stage(
@@ -1670,10 +1703,18 @@ def _lower_match_alias_stage(
             column=stage.clause.span.column,
         )
 
-    plan = _build_projection_plan(stage.clause, alias_targets=scope.alias_targets, params=params)
-    if stage.clause.kind == "with" and plan.whole_row_output_names and plan.projection_items:
+    plan = _build_projection_plan(
+        stage.clause,
+        alias_targets=scope.alias_targets,
+        active_alias=scope.active_alias,
+        projected_columns=scope.projected_columns,
+        params=params,
+    )
+    if stage.clause.kind == "with" and plan.whole_row_output_names and any(
+        column.kind == "expr" for column in plan.projection_columns
+    ):
         raise _unsupported(
-            "Cypher WITH pipelines mixing whole-row aliases with scalar projections are not yet supported",
+            "Cypher WITH pipelines mixing whole-row aliases with computed scalar projections are not yet supported",
             field="with",
             value=[item.expression.text for item in stage.clause.items],
             line=stage.clause.span.line,
@@ -1724,11 +1765,20 @@ def _lower_match_alias_stage(
     )
 
     if plan.whole_row_output_names:
+        next_projected_columns = {
+            column.output_name: _StageColumnBinding(
+                kind=cast(Literal["property", "expr"], column.kind),
+                source_name=cast(str, column.source_name),
+            )
+            for column in plan.projection_columns
+            if column.source_name is not None and column.kind in {"property", "expr"}
+        }
         next_scope = _StageScope(
             mode="match_alias",
             alias_targets=scope.alias_targets,
             active_alias=plan.source_alias,
             row_columns=set(),
+            projected_columns=next_projected_columns,
             table=cast(Optional[Literal["nodes", "edges"]], plan.table),
             seed_rows=scope.seed_rows,
         )
@@ -1738,6 +1788,7 @@ def _lower_match_alias_stage(
             alias_targets={},
             active_alias=None,
             row_columns=set(plan.available_columns),
+            projected_columns={},
             table=None,
             seed_rows=scope.seed_rows,
         )
@@ -1859,6 +1910,7 @@ def _lower_row_column_stage(
         alias_targets={},
         active_alias=None,
         row_columns=set(available_columns),
+        projected_columns={},
         table=None,
         seed_rows=scope.seed_rows,
     )
@@ -2040,6 +2092,7 @@ def _lower_row_column_aggregate_stage(
         alias_targets={},
         active_alias=None,
         row_columns=set(available_columns),
+        projected_columns={},
         table=None,
         seed_rows=scope.seed_rows,
     )
