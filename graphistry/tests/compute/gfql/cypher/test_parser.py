@@ -1,9 +1,13 @@
+from typing import cast
+
 import pytest
 
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
 from graphistry.compute.gfql.cypher import (
+    LabelRef,
     NodePattern,
     ParameterRef,
+    PropertyRef,
     RelationshipPattern,
     parse_cypher,
 )
@@ -66,6 +70,9 @@ def test_parse_linear_pattern_with_labels_properties_and_aliases() -> None:
     [
         ("MATCH (a)<-[r:KNOWS]-(b) RETURN r", "reverse"),
         ("MATCH (a)-[r:KNOWS]-(b) RETURN r;", "undirected"),
+        ("MATCH (a)-->(b) RETURN b", "forward"),
+        ("MATCH (a)<--(b) RETURN b", "reverse"),
+        ("MATCH (a)--(b) RETURN b", "undirected"),
     ],
 )
 def test_parse_relationship_directions(query: str, direction: str) -> None:
@@ -87,11 +94,13 @@ def test_parse_where_clause() -> None:
 
     assert parsed.where is not None
     assert len(parsed.where.predicates) == 2
-    assert parsed.where.predicates[0].left.alias == "a"
-    assert parsed.where.predicates[0].left.property == "team"
+    left0 = cast(PropertyRef, parsed.where.predicates[0].left)
+    left1 = cast(PropertyRef, parsed.where.predicates[1].left)
+    assert left0.alias == "a"
+    assert left0.property == "team"
     assert parsed.where.predicates[0].op == "=="
-    assert parsed.where.predicates[1].left.alias == "b"
-    assert parsed.where.predicates[1].left.property == "score"
+    assert left1.alias == "b"
+    assert left1.property == "score"
     assert parsed.where.predicates[1].op == ">="
 
 
@@ -103,6 +112,17 @@ def test_parse_where_null_predicates() -> None:
     assert parsed.where.predicates[0].right is None
     assert parsed.where.predicates[1].op == "is_not_null"
     assert parsed.where.predicates[1].right is None
+
+
+def test_parse_where_label_predicate() -> None:
+    parsed = parse_cypher("MATCH (a)-->(b) WHERE b:Foo:Bar RETURN b")
+
+    assert parsed.where is not None
+    assert len(parsed.where.predicates) == 1
+    assert parsed.where.predicates[0].op == "has_labels"
+    left = cast(LabelRef, parsed.where.predicates[0].left)
+    assert left.alias == "b"
+    assert left.labels == ("Foo", "Bar")
 
 
 def test_parse_return_pipeline_clauses() -> None:

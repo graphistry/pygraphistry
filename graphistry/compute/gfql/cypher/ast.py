@@ -36,6 +36,13 @@ class PropertyRef:
 
 
 @dataclass(frozen=True)
+class LabelRef:
+    alias: str
+    labels: Tuple[str, ...]
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
 class PropertyEntry:
     key: str
     value: CypherLiteral
@@ -75,12 +82,12 @@ class UnwindClause:
     span: SourceSpan
 
 
-WhereOp = Literal["==", "!=", "<", "<=", ">", ">=", "is_null", "is_not_null"]
+WhereOp = Literal["==", "!=", "<", "<=", ">", ">=", "is_null", "is_not_null", "has_labels"]
 
 
 @dataclass(frozen=True)
 class WherePredicate:
-    left: PropertyRef
+    left: Union[PropertyRef, LabelRef]
     op: WhereOp
     right: Optional[Union[PropertyRef, CypherLiteral]]
     span: SourceSpan

@@ -11,6 +11,7 @@ from graphistry.compute.gfql.cypher.ast import (
     CypherPageValue,
     CypherQuery,
     LimitClause,
+    LabelRef,
     OrderByClause,
     OrderItem,
     ExpressionText,
@@ -48,10 +49,16 @@ label: ":" NAME
 relationship_pattern: rel_forward
                     | rel_reverse
                     | rel_undirected
+                    | rel_forward_simple
+                    | rel_reverse_simple
+                    | rel_undirected_simple
 
 rel_forward: "-" "[" variable? rel_types? properties? "]" "->"
 rel_reverse: "<-" "[" variable? rel_types? properties? "]" "-"
 rel_undirected: "-" "[" variable? rel_types? properties? "]" "-"
+rel_forward_simple: REL_FWD_SIMPLE
+rel_reverse_simple: REL_REV_SIMPLE
+rel_undirected_simple: REL_UNDIR_SIMPLE
 
 rel_types: rel_type+
 rel_type: ":" NAME
@@ -65,6 +72,7 @@ where_clause: "WHERE"i where_predicate ("AND"i where_predicate)*
 where_predicate: property_ref COMP_OP where_rhs -> cmp_where
                | property_ref "IS"i "NULL"i -> is_null_where
                | property_ref "IS"i "NOT"i "NULL"i -> is_not_null_where
+               | variable labels -> has_labels_where
 where_rhs: property_ref
          | value
 
@@ -189,7 +197,10 @@ NAME: /(?!(?i:MATCH|RETURN|WITH|ORDER|BY|SKIP|LIMIT|UNWIND|WHERE|AS|ASC|DESC|AND
 NUMBER: /[+-]?(?:\d+\.\d+|\d+)(?:[eE][+-]?\d+)?/
 INT: /[0-9]+/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
-LINE_COMMENT: /--[^\n]*/
+REL_FWD_SIMPLE: /-->/
+REL_REV_SIMPLE: /<--/
+REL_UNDIR_SIMPLE: /--/
+LINE_COMMENT: /\/\/[^\n]*/
 BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
 %import common.WS
 %ignore WS
@@ -400,6 +411,15 @@ def _build_transformer(source: str) -> _TransformerLike:
         def rel_undirected(self, meta: Any, items: Sequence[Any]) -> RelationshipPattern:
             return self._relationship(meta, items, direction="undirected")
 
+        def rel_forward_simple(self, meta: Any, _items: Sequence[Any]) -> RelationshipPattern:
+            return self._relationship(meta, (), direction="forward")
+
+        def rel_reverse_simple(self, meta: Any, _items: Sequence[Any]) -> RelationshipPattern:
+            return self._relationship(meta, (), direction="reverse")
+
+        def rel_undirected_simple(self, meta: Any, _items: Sequence[Any]) -> RelationshipPattern:
+            return self._relationship(meta, (), direction="undirected")
+
         def relationship_pattern(self, meta: Any, items: Sequence[Any]) -> RelationshipPattern:
             if len(items) != 1 or not isinstance(items[0], RelationshipPattern):
                 raise _to_syntax_error("Invalid relationship pattern", line=meta.line, column=meta.column)
@@ -481,6 +501,18 @@ def _build_transformer(source: str) -> _TransformerLike:
             return WherePredicate(
                 left=cast(PropertyRef, items[0]),
                 op="is_not_null",
+                right=None,
+                span=_span_from_meta(meta),
+            )
+
+        def has_labels_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
+            if len(items) != 2:
+                raise _to_syntax_error("Invalid WHERE label predicate", line=meta.line, column=meta.column)
+            alias = str(items[0])
+            labels = cast(Tuple[str, ...], items[1])
+            return WherePredicate(
+                left=LabelRef(alias=alias, labels=labels, span=_span_from_meta(meta)),
+                op="has_labels",
                 right=None,
                 span=_span_from_meta(meta),
             )

@@ -58,6 +58,7 @@ def test_lower_match_clause_to_gfql_ops() -> None:
     [
         ("MATCH (a)<-[r:KNOWS]-(b) RETURN r", ASTEdgeReverse),
         ("MATCH (a)-[r:KNOWS]-(b) RETURN r", ASTEdgeUndirected),
+        ("MATCH (a)-->(b) RETURN b", ASTEdgeForward),
     ],
 )
 def test_lower_match_clause_relationship_direction(query: str, edge_type: type) -> None:
@@ -206,6 +207,44 @@ def test_lower_match_query_executes_null_predicates() -> None:
 
     assert sorted(result._nodes["id"].tolist()) == ["a", "b"]
     assert result._edges[["s", "d"]].to_dict(orient="records") == [{"s": "a", "d": "b"}]
+
+
+def test_lower_match_query_executes_bracketless_relationship_and_label_where() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["root", "t1", "t2"],
+            "type": ["Root", "TextNode", "Other"],
+            "name": ["x", None, None],
+            "score": [None, 7, 2],
+        }
+    )
+    edges = pd.DataFrame({"s": ["root", "root"], "d": ["t1", "t2"]})
+
+    chain = cypher_to_gfql(
+        "MATCH (:Root {name: 'x'})-->(i) WHERE i.score > 5 AND i:TextNode RETURN i"
+    )
+    result = _mk_graph(nodes, edges).gfql(chain)
+
+    assert result._nodes[["id", "type", "score"]].to_dict(orient="records") == [
+        {"id": "t1", "type": "TextNode", "score": 7}
+    ]
+
+
+def test_lower_match_query_executes_bracketless_relationship_with_labeled_alias_projection() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c"],
+            "type": ["Start", "Foo", "Bar"],
+        }
+    )
+    edges = pd.DataFrame({"s": ["a", "a"], "d": ["b", "c"]})
+
+    chain = cypher_to_gfql("MATCH (a)-->(b:Foo) RETURN b")
+    result = _mk_graph(nodes, edges).gfql(chain)
+
+    assert result._nodes[["id", "type"]].to_dict(orient="records") == [
+        {"id": "b", "type": "Foo"}
+    ]
 
 
 def test_lower_cypher_query_builds_row_pipeline_chain() -> None:

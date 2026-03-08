@@ -3,6 +3,7 @@
 from .ast import (
     CypherQuery,
     ExpressionText,
+    LabelRef,
     LimitClause,
     MatchClause,
     NodePattern,
@@ -39,6 +40,7 @@ __all__ = [
     "cypher_to_gfql",
     "ExpressionText",
     "gfql_from_cypher",
+    "LabelRef",
     "LimitClause",
     "LoweredCypherMatch",
     "lower_cypher_query",

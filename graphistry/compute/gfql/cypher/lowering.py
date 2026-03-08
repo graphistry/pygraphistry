@@ -36,6 +36,7 @@ from graphistry.compute.gfql.cypher.ast import (
     CypherLiteral,
     CypherQuery,
     ExpressionText,
+    LabelRef,
     MatchClause,
     NodePattern,
     ParameterRef,
@@ -831,6 +832,39 @@ def _apply_literal_where(
     _set_target_filter_dict(target, filter_dict)
 
 
+def _apply_label_where(
+    targets: Dict[str, ASTObject],
+    *,
+    left: LabelRef,
+) -> None:
+    if left.alias not in targets:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            f"Unknown Cypher alias '{left.alias}' in WHERE clause",
+            field="where.left.alias",
+            value=left.alias,
+            suggestion="Reference an alias declared in the MATCH pattern.",
+            line=left.span.line,
+            column=left.span.column,
+            language="cypher",
+        )
+
+    target = targets[left.alias]
+    if not isinstance(target, ASTNode):
+        raise _unsupported(
+            "Cypher label predicates in WHERE currently support node aliases only",
+            field="where",
+            value=left.alias,
+            line=left.span.line,
+            column=left.span.column,
+        )
+
+    filter_dict = dict(target.filter_dict or {})
+    for label in left.labels:
+        filter_dict[f"label__{label}"] = True
+    target.filter_dict = filter_dict
+
+
 def lower_match_clause(
     clause: MatchClause,
     *,
@@ -864,7 +898,11 @@ def lower_match_query(
 
     if query.where is not None:
         for predicate in query.where.predicates:
+            if isinstance(predicate.left, LabelRef):
+                _apply_label_where(alias_targets, left=predicate.left)
+                continue
             if isinstance(predicate.right, PropertyRef):
+                assert isinstance(predicate.left, PropertyRef)
                 where_out.append(
                     compare(
                         col(predicate.left.alias, predicate.left.property),
@@ -875,7 +913,7 @@ def lower_match_query(
                 continue
             _apply_literal_where(
                 alias_targets,
-                left=predicate.left,
+                left=cast(PropertyRef, predicate.left),
                 op=predicate.op,
                 right=cast(Optional[CypherLiteral], predicate.right),
                 params=params,
