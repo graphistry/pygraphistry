@@ -592,6 +592,54 @@ def test_string_cypher_formats_mixed_edge_entity_projection() -> None:
 
 
 @pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "MATCH (a) WHERE a.name STARTS WITH 'ABC' RETURN a.name AS name ORDER BY name",
+            [{"name": "ABCDEF"}],
+        ),
+        (
+            "MATCH (a) WHERE a.name ENDS WITH 'DEF' RETURN a.name AS name ORDER BY name",
+            [{"name": "ABCDEF"}],
+        ),
+        (
+            "MATCH (a) WHERE a.name CONTAINS 'CD' RETURN a.name AS name ORDER BY name",
+            [{"name": "ABCDEF"}],
+        ),
+        (
+            "MATCH (a) WHERE a.name STARTS WITH null RETURN a.name AS name ORDER BY name",
+            [],
+        ),
+        (
+            "MATCH (a) WHERE a.name ENDS WITH null RETURN a.name AS name ORDER BY name",
+            [],
+        ),
+        (
+            "MATCH (a) WHERE a.name CONTAINS null RETURN a.name AS name ORDER BY name",
+            [],
+        ),
+        (
+            "MATCH (a) WHERE a.name STARTS WITH 'A' AND a.name CONTAINS 'C' AND a.name ENDS WITH 'EF' "
+            "RETURN a.name AS name ORDER BY name",
+            [{"name": "ABCDEF"}],
+        ),
+    ],
+)
+def test_string_cypher_executes_match_where_string_predicates(
+    query: str, expected: list[dict[str, object]]
+) -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e", "f"],
+            "name": ["ABCDEF", "AB", "abcdef", "ab", "", None],
+        }
+    )
+    result = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []})).gfql(query)
+
+    assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == expected
+
+
+@pytest.mark.parametrize(
     "query,params,expected",
     [
         ("RETURN $elt IN $coll AS result", {"elt": 2, "coll": [1, 2, 3]}, True),

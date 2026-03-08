@@ -80,6 +80,9 @@ where_clause: "WHERE"i where_predicate ("AND"i where_predicate)*
 where_predicate: property_ref COMP_OP where_rhs -> cmp_where
                | property_ref "IS"i "NULL"i -> is_null_where
                | property_ref "IS"i "NOT"i "NULL"i -> is_not_null_where
+               | property_ref "CONTAINS"i where_rhs -> contains_where
+               | property_ref "STARTS"i "WITH"i where_rhs -> starts_with_where
+               | property_ref "ENDS"i "WITH"i where_rhs -> ends_with_where
                | variable labels -> has_labels_where
 where_rhs: property_ref
          | value
@@ -528,6 +531,36 @@ def _build_transformer(source: str) -> _TransformerLike:
                 left=cast(PropertyRef, items[0]),
                 op="is_not_null",
                 right=None,
+                span=_span_from_meta(meta),
+            )
+
+        def contains_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
+            if len(items) != 2:
+                raise _to_syntax_error("Invalid WHERE CONTAINS predicate", line=meta.line, column=meta.column)
+            return WherePredicate(
+                left=cast(PropertyRef, items[0]),
+                op="contains",
+                right=cast(Any, items[1]),
+                span=_span_from_meta(meta),
+            )
+
+        def starts_with_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
+            if len(items) != 2:
+                raise _to_syntax_error("Invalid WHERE STARTS WITH predicate", line=meta.line, column=meta.column)
+            return WherePredicate(
+                left=cast(PropertyRef, items[0]),
+                op="starts_with",
+                right=cast(Any, items[1]),
+                span=_span_from_meta(meta),
+            )
+
+        def ends_with_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
+            if len(items) != 2:
+                raise _to_syntax_error("Invalid WHERE ENDS WITH predicate", line=meta.line, column=meta.column)
+            return WherePredicate(
+                left=cast(PropertyRef, items[0]),
+                op="ends_with",
+                right=cast(Any, items[1]),
                 span=_span_from_meta(meta),
             )
 

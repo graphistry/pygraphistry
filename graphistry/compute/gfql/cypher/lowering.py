@@ -25,8 +25,11 @@ from graphistry.compute.ast import (
 )
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
-from graphistry.compute.predicates.comparison import ge, gt, isna, le, lt, ne, notna
+from graphistry.compute.predicates.ASTPredicate import ASTPredicate
+from graphistry.compute.predicates.comparison import eq, ge, gt, isna, le, lt, ne, notna
 from graphistry.compute.predicates.is_in import is_in
+from graphistry.compute.predicates.logical import all_of
+from graphistry.compute.predicates.str import contains as str_contains, endswith, match as str_match, startswith
 from graphistry.compute.gfql.expr_parser import (
     BinaryOp,
     CaseWhen,
@@ -1312,6 +1315,12 @@ def _predicate_value(op: str, value: Any) -> Any:
         return isna()
     if op == "is_not_null":
         return notna()
+    if op == "contains":
+        return str_match(r"(?!)", na=False) if value is None else str_contains(str(value), regex=False, na=False)
+    if op == "starts_with":
+        return str_match(r"(?!)", na=False) if value is None else startswith(str(value), na=False)
+    if op == "ends_with":
+        return str_match(r"(?!)", na=False) if value is None else endswith(str(value), na=False)
     raise ValueError(f"Unsupported predicate op: {op}")
 
 
@@ -2668,7 +2677,7 @@ def _apply_literal_where(
     op: str,
     right: Optional[CypherLiteral],
     params: Optional[Mapping[str, Any]],
-) -> None:
+    ) -> None:
     if left.alias not in targets:
         raise GFQLValidationError(
             ErrorCode.E108,
@@ -2682,24 +2691,49 @@ def _apply_literal_where(
         )
     target = targets[left.alias]
     filter_dict = dict(_target_filter_dict(target) or {})
-    if left.property in filter_dict:
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            f"Duplicate filtering on '{left.alias}.{left.property}' is not yet supported",
-            field=f"where.{left.alias}.{left.property}",
-            value=left.property,
-            suggestion="Move the filter to one location or wait for predicate merging support.",
-            line=left.span.line,
-            column=left.span.column,
-            language="cypher",
-        )
     resolved = None if right is None else _resolve_literal(
         right,
         params=params,
         field=f"where.{left.alias}.{left.property}",
     )
-    filter_dict[left.property] = _predicate_value(op, resolved)
+    new_filter = _predicate_value(op, resolved)
+    existing_filter = filter_dict.get(left.property)
+    if existing_filter is None or left.property not in filter_dict:
+        filter_dict[left.property] = new_filter
+    else:
+        filter_dict[left.property] = _merge_filter_predicates(
+            existing_filter,
+            new_filter,
+            field=f"where.{left.alias}.{left.property}",
+            line=left.span.line,
+            column=left.span.column,
+        )
     _set_target_filter_dict(target, filter_dict)
+
+
+def _as_ast_predicate(value: Any) -> Any:
+    if isinstance(value, ASTPredicate):
+        return value
+    if value is None:
+        return None
+    return eq(value)
+
+
+def _merge_filter_predicates(existing: Any, new: Any, *, field: str, line: int, column: int) -> Any:
+    existing_predicate = _as_ast_predicate(existing)
+    new_predicate = _as_ast_predicate(new)
+    if existing_predicate is None or new_predicate is None:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Duplicate null-equality filtering on the same property is not supported in the local Cypher compiler",
+            field=field,
+            value=None,
+            suggestion="Rewrite the filter using IS NULL / IS NOT NULL or avoid repeated null equality on the same property.",
+            line=line,
+            column=column,
+            language="cypher",
+        )
+    return all_of(existing_predicate, new_predicate)
 
 
 def _apply_label_where(

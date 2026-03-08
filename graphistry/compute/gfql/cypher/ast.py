@@ -88,7 +88,20 @@ class UnwindClause:
     span: SourceSpan
 
 
-WhereOp = Literal["==", "!=", "<", "<=", ">", ">=", "is_null", "is_not_null", "has_labels"]
+WhereOp = Literal[
+    "==",
+    "!=",
+    "<",
+    "<=",
+    ">",
+    ">=",
+    "is_null",
+    "is_not_null",
+    "has_labels",
+    "contains",
+    "starts_with",
+    "ends_with",
+]
 
 
 @dataclass(frozen=True)
