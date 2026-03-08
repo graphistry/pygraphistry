@@ -107,6 +107,12 @@ class RowPipelineMixin:
         out = cmp_fn(left, right)
         if hasattr(out, "where"):
             out = out.where(~(left_null_mask | right_null_mask), pd.NA)
+        else:
+            null_mask = left_null_mask | right_null_mask
+            if hasattr(null_mask, "where"):
+                out = self._gfql_broadcast_scalar(table_df, out).where(~null_mask, pd.NA)
+            elif bool(null_mask):
+                out = None
         return out
 
     def _gfql_eval_expr_ast(self, table_df: Any, node: Any) -> Tuple[bool, Any]:
@@ -264,7 +270,18 @@ class RowPipelineMixin:
             if op == "*":
                 return True, left * right
             if op == "/":
-                return True, left / right
+                try:
+                    return True, left / right
+                except ZeroDivisionError:
+                    if isinstance(left, bool) or isinstance(right, bool):
+                        return False, None
+                    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+                        if right == 0:
+                            if isinstance(left, float) or isinstance(right, float):
+                                if left == 0:
+                                    return True, float("nan")
+                                return True, float("inf") if left > 0 else float("-inf")
+                    return False, None
             if op == "%":
                 if (hasattr(left, "astype") and RowPipelineMixin._gfql_series_bool_like(left)) or (
                     hasattr(right, "astype") and RowPipelineMixin._gfql_series_bool_like(right)

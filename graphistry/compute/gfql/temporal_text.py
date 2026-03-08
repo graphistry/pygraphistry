@@ -190,6 +190,8 @@ def _normalize_offset_text(tz_text: str) -> str:
     sign, hour, minute, second = match.groups()
     minute = minute or "00"
     second = second or "00"
+    if hour == "00" and minute == "00" and second == "00":
+        return "Z"
     if second == "00":
         return f"{sign}{hour}:{minute}"
     return f"{sign}{hour}:{minute}:{second}"

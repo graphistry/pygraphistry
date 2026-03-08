@@ -1578,7 +1578,7 @@ def _build_projection_plan(
             field=f"{clause.kind}.items",
         )
         runtime_expr = (
-            prop
+            f"{alias_name}.{prop}"
             if simple_ref and prop is not None
             else (
                 binding.source_name
@@ -1729,7 +1729,11 @@ def _lower_order_by_clause(
                         column=item.span.column,
                         language="cypher",
                     )
-                order_key = prop if plan.whole_row_output_names else plan.projected_property_outputs.get(prop, prop)
+                order_key = (
+                    f"{alias_name}.{prop}"
+                    if plan.whole_row_output_names
+                    else plan.projected_property_outputs.get(prop, prop)
+                )
         else:
             if alias_targets is None:
                 raise GFQLValidationError(

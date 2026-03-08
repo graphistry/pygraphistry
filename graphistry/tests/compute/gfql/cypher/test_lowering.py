@@ -402,7 +402,7 @@ def test_lower_cypher_query_builds_row_pipeline_chain() -> None:
     assert chain.chain[1].params == {"table": "nodes", "source": "p"}
     assert isinstance(chain.chain[2], ASTCall)
     assert chain.chain[2].function == "select"
-    assert chain.chain[2].params["items"] == [("person_name", "name")]
+    assert chain.chain[2].params["items"] == [("person_name", "p.name")]
     assert isinstance(chain.chain[3], ASTCall)
     assert chain.chain[3].function == "distinct"
     assert isinstance(chain.chain[4], ASTCall)
@@ -636,6 +636,70 @@ def test_string_cypher_executes_match_where_string_predicates(
     )
     result = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []})).gfql(query)
 
+    assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == expected
+
+
+def test_string_cypher_returns_missing_property_as_null() -> None:
+    node_graph = _mk_graph(
+        pd.DataFrame({"id": ["a"], "num": [1]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+    edge_graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "name": [1]}),
+    )
+
+    node_result = node_graph.gfql("MATCH (a) RETURN a.name")
+    edge_result = edge_graph.gfql("MATCH ()-[r]->() RETURN r.name2")
+
+    assert node_result._nodes.where(~node_result._nodes.isna(), None).to_dict(orient="records") == [
+        {"a.name": None}
+    ]
+    assert edge_result._nodes.where(~edge_result._nodes.isna(), None).to_dict(orient="records") == [
+        {"r.name2": None}
+    ]
+
+
+def test_string_cypher_orders_distinct_whole_row_by_missing_property() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "label__A": [True, False],
+                "label__B": [False, True],
+            }
+        ),
+        pd.DataFrame({"s": ["a"], "d": ["b"]}),
+    )
+
+    result = graph.gfql("MATCH (a)-->(b) RETURN DISTINCT b ORDER BY b.name")
+
+    assert result._nodes.to_dict(orient="records") == [{"b": "(:B)"}]
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("RETURN time('2140-00:00') AS result", [{"result": "21:40Z"}]),
+        ("RETURN datetime('2015-07-20T2140-00:00') AS result", [{"result": "2015-07-20T21:40Z"}]),
+    ],
+)
+def test_string_cypher_normalizes_zero_offset_temporals(query: str, expected: list[dict[str, object]]) -> None:
+    result = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []})).gfql(query)
+    assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == expected
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("RETURN (0.0 / 0.0) = 1 AS result", [{"result": None}]),
+        ("RETURN (0.0 / 0.0) = 1.0 AS result", [{"result": None}]),
+        ("RETURN (0.0 / 0.0) = (0.0 / 0.0) AS result", [{"result": None}]),
+        ("RETURN (0.0 / 0.0) = 'a' AS result", [{"result": None}]),
+    ],
+)
+def test_string_cypher_nan_comparisons_produce_null(query: str, expected: list[dict[str, object]]) -> None:
+    result = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []})).gfql(query)
     assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == expected
 
 
@@ -1224,7 +1288,7 @@ def test_cypher_to_gfql_uses_terminal_with_projection() -> None:
     assert chain.chain[1].function == "rows"
     assert isinstance(chain.chain[2], ASTCall)
     assert chain.chain[2].function == "with_"
-    assert chain.chain[2].params["items"] == [("person_name", "name")]
+    assert chain.chain[2].params["items"] == [("person_name", "p.name")]
 
 
 def test_cypher_to_gfql_supports_with_then_return_pipeline() -> None:
@@ -1571,7 +1635,7 @@ def test_lower_cypher_query_builds_match_alias_with_expression_order_pipeline() 
         "limit",
         "select",
     ]
-    assert with_call.params["items"] == [("name", "name")]
+    assert with_call.params["items"] == [("name", "a.name")]
     assert order_call.params["keys"] == [("(name + 'C')", "asc")]
     assert limit_call.params["value"] == 2
     assert final_call.params["items"] == [("name", "name")]

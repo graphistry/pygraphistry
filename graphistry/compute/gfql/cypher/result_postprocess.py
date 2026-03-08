@@ -45,6 +45,13 @@ def _all_non_null_match(mask: SeriesT, non_null: SeriesT) -> bool:
     return bool(mask.where(non_null, True).all())
 
 
+def _normalize_zero_offset_suffix(timezone: SeriesT) -> SeriesT:
+    if not hasattr(timezone, "where") or not hasattr(timezone, "isin"):
+        return timezone
+    zero_offset = timezone.isin(["+00:00", "-00:00"])
+    return cast(SeriesT, timezone.where(~zero_offset, "Z"))
+
+
 def _normalize_temporal_constructor_series(
     df: DataFrameT,
     alias_col: str,
@@ -91,7 +98,7 @@ def _normalize_temporal_constructor_series(
         minute = parts["minute"].fillna("0").astype("int64").astype(str).str.zfill(2)
         second = parts["second"].fillna("")
         nanos = parts["nano"].fillna("").str.zfill(9).str.rstrip("0")
-        timezone = parts["tz"].fillna("")
+        timezone = _normalize_zero_offset_suffix(cast(SeriesT, parts["tz"].fillna("")))
         base = cast(SeriesT, hour + ":" + minute)
         has_seconds = (second != "") | (nanos != "")
         second_text = cast(SeriesT, ":" + second.where(second != "", "00").astype(str).str.zfill(2))
@@ -129,7 +136,7 @@ def _normalize_temporal_constructor_series(
         minute = parts["minute"].fillna("0").astype("int64").astype(str).str.zfill(2)
         second = parts["second"].fillna("")
         nanos = parts["nano"].fillna("").str.zfill(9).str.rstrip("0")
-        timezone = parts["tz"].fillna("")
+        timezone = _normalize_zero_offset_suffix(cast(SeriesT, parts["tz"].fillna("")))
         base = cast(SeriesT, year + "-" + month + "-" + day + "T" + hour + ":" + minute)
         has_seconds = (second != "") | (nanos != "")
         second_text = cast(SeriesT, ":" + second.where(second != "", "00").astype(str).str.zfill(2))
