@@ -155,8 +155,8 @@ order_expr: expr
 
 ?primary: parameter
         | literal
-        | qualified_name
         | function_call
+        | qualified_name
         | quantifier_expr
         | list_comprehension
         | list_literal
@@ -169,7 +169,7 @@ order_expr: expr
               | ".." expr                   -> subscript_slice_to
               | ".."                        -> subscript_slice_all
 
-function_call: NAME "(" [func_args] ")"
+function_call: qualified_name "(" [func_args] ")"
 ?func_args: distinct_func_args
          | regular_func_args
 regular_func_args: func_arg ("," func_arg)*

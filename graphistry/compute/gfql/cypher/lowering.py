@@ -68,6 +68,7 @@ from graphistry.compute.gfql.cypher.ast import (
 )
 from graphistry.compute.gfql.temporal_text import (
     fold_temporal_constructor_ast,
+    resolve_duration_text_property,
     rewrite_temporal_constructors_in_expr,
 )
 from graphistry.compute.gfql.same_path_types import WhereComparison, col, compare
@@ -628,9 +629,25 @@ def _rewrite_expr_to_projected_sources(
     replacements: Dict[str, str] = {}
     for ident in collect_identifiers(node):
         binding = projected_columns.get(ident)
-        if binding is None:
+        if binding is not None:
+            replacements[ident] = _projected_source_replacement(binding)
             continue
-        replacements[ident] = _projected_source_replacement(binding)
+        alias_name, prop = _split_qualified_name(ident, line=expr.span.line, column=expr.span.column)
+        if prop is None:
+            continue
+        base_binding = projected_columns.get(alias_name)
+        if base_binding is None or base_binding.kind != "expr":
+            continue
+        try:
+            source_node = fold_temporal_constructor_ast(parse_expr(base_binding.source_name))
+        except (GFQLExprParseError, ImportError):
+            continue
+        if not isinstance(source_node, ExprLiteral) or not isinstance(source_node.value, str):
+            continue
+        replacement = resolve_duration_text_property(source_node.value, prop)
+        if replacement is None:
+            continue
+        replacements[ident] = replacement
     if not replacements:
         return ExpressionText(text=prepared, span=expr.span)
     return ExpressionText(
@@ -1446,6 +1463,7 @@ def _build_projection_plan(
 
     for item in clause.items:
         binding: Optional[_StageColumnBinding] = None
+        projected_expr_binding = False
         simple_ref = True
         try:
             alias_name, prop = _projection_ref_from_expr(
@@ -1471,35 +1489,38 @@ def _build_projection_plan(
                 raise
             alias_name = aliases[0]
             prop = None
-        if prop is None and alias_name not in alias_targets and projected_columns is not None:
+        if alias_name not in alias_targets and projected_columns is not None:
             binding = projected_columns.get(alias_name)
             if binding is not None:
-                if active_alias is None:
-                    raise _unsupported(
-                        "Projected Cypher column references require an active MATCH alias in this phase",
-                        field=f"{clause.kind}.items",
-                        value=item.expression.text,
-                        line=item.span.line,
-                        column=item.span.column,
-                    )
-                alias_name = active_alias
-                if binding.kind == "property":
+                if prop is None and binding.kind == "property":
+                    if active_alias is None:
+                        raise _unsupported(
+                            "Projected Cypher column references require an active MATCH alias in this phase",
+                            field=f"{clause.kind}.items",
+                            value=item.expression.text,
+                            line=item.span.line,
+                            column=item.span.column,
+                        )
+                    alias_name = active_alias
                     simple_ref = True
                     prop = binding.source_name
                 else:
                     simple_ref = False
-                    prop = None
+                    projected_expr_binding = True
         if alias_name not in alias_targets:
-            raise GFQLValidationError(
-                ErrorCode.E108,
-                f"Unknown Cypher alias '{alias_name}' in {clause.kind.upper()} clause",
-                field=f"{clause.kind}.alias",
-                value=alias_name,
-                suggestion="Reference an alias declared in the MATCH pattern.",
-                line=item.span.line,
-                column=item.span.column,
-                language="cypher",
-            )
+            if projected_expr_binding:
+                alias_name = active_alias or alias_name
+            else:
+                raise GFQLValidationError(
+                    ErrorCode.E108,
+                    f"Unknown Cypher alias '{alias_name}' in {clause.kind.upper()} clause",
+                    field=f"{clause.kind}.alias",
+                    value=alias_name,
+                    suggestion="Reference an alias declared in the MATCH pattern.",
+                    line=item.span.line,
+                    column=item.span.column,
+                    language="cypher",
+                )
         if source_alias is None:
             source_alias = alias_name
         elif source_alias != alias_name:
@@ -1552,7 +1573,7 @@ def _build_projection_plan(
             if simple_ref and prop is not None
             else (
                 binding.source_name
-                if binding is not None and binding.kind == "expr"
+                if binding is not None and binding.kind == "expr" and prop is None
                 else _row_expr_arg(
                     row_expr,
                     params=params,

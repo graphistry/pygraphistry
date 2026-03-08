@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from decimal import Decimal
 from datetime import date as py_date
 from datetime import datetime as py_datetime
 from datetime import timedelta
@@ -32,6 +34,7 @@ _TEMPORAL_FUNC_RE = re.compile(
 TEMPORAL_CALL_EXPR_RE = re.compile(
     r"(?:localdatetime|localtime|datetime|time|date|duration)\((?:\{[^()]*\}|'[^']*')\)"
 )
+CURRENT_TEMPORAL_CALL_EXPR_RE = re.compile(r"\b(?P<fn>localdatetime|localtime|datetime|time|date)\(\)")
 _SIMPLE_QUOTED_RE = re.compile(r"^'([^']*)'$")
 
 # Compatibility regexes consumed by row ordering helpers for constructor-text
@@ -131,6 +134,15 @@ def _parse_quoted(value: str) -> Optional[str]:
     return match.group(1) if match is not None else None
 
 
+def _first_present_field_text(fields: dict[str, str], *keys: str) -> Optional[str]:
+    for key in keys:
+        raw = fields.get(key)
+        if raw is None:
+            continue
+        return _parse_quoted(raw) or raw
+    return None
+
+
 def _parse_int(value: Optional[str], default: Optional[int] = None) -> Optional[int]:
     if value is None:
         return default
@@ -143,10 +155,16 @@ def _parse_int(value: Optional[str], default: Optional[int] = None) -> Optional[
 def _nanos_from_fields(fields: dict[str, str]) -> int:
     if "nanosecond" in fields:
         return int(fields["nanosecond"])
+    if "nanoseconds" in fields:
+        return int(fields["nanoseconds"])
     if "microsecond" in fields:
         return int(fields["microsecond"]) * 1_000
+    if "microseconds" in fields:
+        return int(fields["microseconds"]) * 1_000
     if "millisecond" in fields:
         return int(fields["millisecond"]) * 1_000_000
+    if "milliseconds" in fields:
+        return int(fields["milliseconds"]) * 1_000_000
     return 0
 
 
@@ -252,6 +270,8 @@ def _base_time_parts_from_text(text: Optional[str]) -> Optional[dict[str, object
         "second": int(local_match.group("second") or "0"),
         "nanosecond": _parse_fraction_to_nanos(local_match.group("frac")),
         "tz": tz,
+        "has_second": local_match.group("second") is not None,
+        "has_fraction": local_match.group("frac") is not None,
     }
 
 
@@ -263,7 +283,7 @@ def _base_time_int(base: Optional[dict[str, object]], key: str, default: int) ->
 
 
 def _date_from_fields(fields: dict[str, str]) -> Optional[py_date]:
-    base = _base_date_from_text(_parse_quoted(fields.get("date", "")) or fields.get("date"))
+    base = _base_date_from_text(_first_present_field_text(fields, "date", "datetime", "localdatetime"))
     year = _parse_int(fields.get("year"), base.year if base is not None else None)
     if year is None:
         return None
@@ -363,10 +383,15 @@ def _normalize_localtime_string(text: str) -> Optional[str]:
 
 
 def _normalize_localtime_map(fields: dict[str, str]) -> Optional[str]:
-    base = _base_time_parts_from_text(_parse_quoted(fields.get("time", "")) or fields.get("time"))
+    base = _base_time_parts_from_text(_first_present_field_text(fields, "time", "datetime", "localdatetime"))
     hour = _parse_int(fields.get("hour"), _base_time_int(base, "hour", 0))
     minute = _parse_int(fields.get("minute"), _base_time_int(base, "minute", 0))
-    second = _parse_int(fields.get("second"), _base_time_int(base, "second", 0) if base is not None else None)
+    second_default = (
+        _base_time_int(base, "second", 0)
+        if base is not None and bool(base.get("has_second"))
+        else None
+    )
+    second = _parse_int(fields.get("second"), second_default)
     nanos = _nanos_from_fields(fields) if any(k in fields for k in ("nanosecond", "microsecond", "millisecond")) else (
         _base_time_int(base, "nanosecond", 0)
     )
@@ -390,7 +415,7 @@ def _normalize_time_string(text: str) -> Optional[str]:
 
 
 def _normalize_time_map(fields: dict[str, str]) -> Optional[str]:
-    base = _base_time_parts_from_text(_parse_quoted(fields.get("time", "")) or fields.get("time"))
+    base = _base_time_parts_from_text(_first_present_field_text(fields, "time", "datetime", "localdatetime"))
     tz_text = fields.get("timezone")
     local = _normalize_localtime_map(fields)
     if local is None:
@@ -480,11 +505,13 @@ def _normalize_datetime_map(fields: dict[str, str]) -> Optional[str]:
     out = f"{date_part}T{time_part}"
     tz_text = fields.get("timezone")
     if tz_text is None:
-        base = _base_time_parts_from_text(_parse_quoted(fields.get("time", "")) or fields.get("time"))
+        base = _base_time_parts_from_text(_first_present_field_text(fields, "time", "datetime"))
         base_tz = None if base is None else cast(Optional[str], base.get("tz"))
         return out + (base_tz or "Z")
     zone_name = _parse_quoted(tz_text)
     if zone_name is not None:
+        if re.fullmatch(r"Z|[+-]\d{2}(?::?\d{2})?(?::?\d{2})?", zone_name):
+            return out + _normalize_offset_text(zone_name)
         suffix = _zone_suffix(zone_name, out)
         return out + suffix if suffix is not None else None
     return out + _normalize_offset_text(tz_text)
@@ -494,43 +521,173 @@ def _normalize_duration_string(text: str) -> Optional[str]:
     return text if text.startswith("P") or text.startswith("-P") else None
 
 
-def _normalize_duration_map(fields: dict[str, str]) -> str:
-    years = _parse_int(fields.get("years"), 0) or 0
-    months = _parse_int(fields.get("months"), 0) or 0
-    days = _parse_int(fields.get("days"), 0) or 0
-    hours = _parse_int(fields.get("hours"), 0) or 0
-    minutes = _parse_int(fields.get("minutes"), 0) or 0
-    seconds = _parse_int(fields.get("seconds"), 0) or 0
-    nanos = _nanos_from_fields(fields)
+def _format_signed_day_time_duration(total_nanoseconds: int) -> str:
+    if total_nanoseconds == 0:
+        return "PT0S"
+    sign = -1 if total_nanoseconds < 0 else 1
+    remaining = abs(total_nanoseconds)
+    days, remaining = divmod(remaining, 24 * 60 * 60 * 1_000_000_000)
+    hours, remaining = divmod(remaining, 60 * 60 * 1_000_000_000)
+    minutes, remaining = divmod(remaining, 60 * 1_000_000_000)
+    seconds, nanoseconds = divmod(remaining, 1_000_000_000)
 
-    minutes += seconds // 60
-    seconds = seconds % 60
-    hours += minutes // 60
-    minutes = minutes % 60
-    days += hours // 24
-    hours = hours % 24
+    def _signed(value: int) -> str:
+        return f"{'-' if sign < 0 else ''}{value}"
+
+    parts = ["P"]
+    if days:
+        parts.append(f"{_signed(days)}D")
+    time_parts: list[str] = []
+    if hours:
+        time_parts.append(f"{_signed(hours)}H")
+    if minutes:
+        time_parts.append(f"{_signed(minutes)}M")
+    if seconds or nanoseconds or (not days and not time_parts):
+        if nanoseconds:
+            frac = str(nanoseconds).rjust(9, "0").rstrip("0")
+            time_parts.append(f"{_signed(seconds)}.{frac}S")
+        else:
+            time_parts.append(f"{_signed(seconds)}S")
+    if time_parts:
+        parts.append("T")
+        parts.extend(time_parts)
+    return "".join(parts)
+
+
+def _normalize_duration_map(fields: dict[str, str]) -> str:
+    def _decimal_value(key: str) -> Decimal:
+        raw = fields.get(key)
+        return Decimal(raw) if raw is not None else Decimal(0)
+
+    years_total = _decimal_value("years")
+    months_total = _decimal_value("months")
+    years = int(years_total)
+    months = int(months_total)
+    total_nanoseconds = (
+        (years_total - Decimal(years)) * Decimal("365.2425") * Decimal(24 * 60 * 60 * 1_000_000_000)
+        + (months_total - Decimal(months)) * Decimal("30.436875") * Decimal(24 * 60 * 60 * 1_000_000_000)
+        + _decimal_value("weeks") * Decimal(7 * 24 * 60 * 60 * 1_000_000_000)
+        + _decimal_value("days") * Decimal(24 * 60 * 60 * 1_000_000_000)
+        + _decimal_value("hours") * Decimal(60 * 60 * 1_000_000_000)
+        + _decimal_value("minutes") * Decimal(60 * 1_000_000_000)
+        + _decimal_value("seconds") * Decimal(1_000_000_000)
+        + Decimal(_nanos_from_fields(fields))
+    )
+    day_time_text = _format_signed_day_time_duration(int(total_nanoseconds.to_integral_value()))
 
     parts = ["P"]
     if years:
         parts.append(f"{years}Y")
     if months:
         parts.append(f"{months}M")
-    if days:
-        parts.append(f"{days}D")
-    time_parts: list[str] = []
-    if hours:
-        time_parts.append(f"{hours}H")
-    if minutes:
-        time_parts.append(f"{minutes}M")
-    if seconds or nanos:
-        sec_text = f"{seconds}{_normalize_fraction(nanos)}S"
-        time_parts.append(sec_text)
-    if time_parts:
-        parts.append("T")
-        parts.extend(time_parts)
+    if day_time_text != "PT0S":
+        parts.append(day_time_text[1:])
     if parts == ["P"]:
         return "PT0S"
     return "".join(parts)
+
+
+def _extract_time_text_parts(text: str) -> Optional[tuple[str, Optional[str], Optional[str]]]:
+    candidate = text.strip()
+    if "T" in candidate:
+        candidate = candidate.split("T", 1)[1]
+    zone_name: Optional[str] = None
+    zone_match = re.fullmatch(r"(?P<core>.+)\[(?P<zone>[^\]]+)\]$", candidate)
+    if zone_match is not None:
+        candidate = zone_match.group("core")
+        zone_name = zone_match.group("zone")
+    match = _NORMALIZED_TIME_PART_RE.fullmatch(candidate)
+    if match is None:
+        return None
+    return match.group("local"), match.group("tz"), zone_name
+
+
+def _cast_temporal_to_localtime_string(text: str) -> Optional[str]:
+    normalized = (
+        _normalize_datetime_string(text)
+        or _normalize_localdatetime_string(text)
+        or _normalize_time_string(text)
+        or _normalize_localtime_string(text)
+    )
+    if normalized is None:
+        return None
+    parts = _extract_time_text_parts(normalized)
+    return None if parts is None else parts[0]
+
+
+def _cast_temporal_to_time_string(text: str) -> Optional[str]:
+    normalized = (
+        _normalize_datetime_string(text)
+        or _normalize_time_string(text)
+        or _normalize_localdatetime_string(text)
+        or _normalize_localtime_string(text)
+    )
+    if normalized is None:
+        return None
+    parts = _extract_time_text_parts(normalized)
+    if parts is None:
+        return None
+    local_text, tz_text, zone_name = parts
+    if tz_text is None and zone_name is None:
+        return local_text + "Z"
+    suffix = (tz_text or "") + (f"[{zone_name}]" if zone_name is not None else "")
+    return local_text + suffix
+
+
+def _cast_temporal_to_localdatetime_string(text: str) -> Optional[str]:
+    normalized = _normalize_datetime_string(text) or _normalize_localdatetime_string(text) or _normalize_date_string(text)
+    if normalized is None:
+        return None
+    if "T" not in normalized:
+        return normalized + "T00:00"
+    date_text, _ = normalized.split("T", 1)
+    local_time_text = _cast_temporal_to_localtime_string(normalized)
+    if local_time_text is None:
+        return None
+    return f"{date_text}T{local_time_text}"
+
+
+def _cast_temporal_to_datetime_string(text: str) -> Optional[str]:
+    normalized = _normalize_datetime_string(text) or _normalize_localdatetime_string(text) or _normalize_date_string(text)
+    if normalized is None:
+        return None
+    if "T" not in normalized:
+        return normalized + "T00:00Z"
+    if _normalize_datetime_string(normalized) is not None:
+        return normalized
+    return normalized + "Z"
+
+
+def _current_temporal_literal(fn_name: str, current_dt: py_datetime) -> Optional[str]:
+    local_dt = current_dt.astimezone()
+    local_time_text = _format_localtime_parts(
+        local_dt.hour,
+        local_dt.minute,
+        local_dt.second,
+        local_dt.microsecond * 1_000,
+    )
+    if fn_name == "date":
+        return _format_date(local_dt.year, local_dt.month, local_dt.day)
+    if fn_name == "localtime":
+        return local_time_text
+    if fn_name == "time":
+        offset = local_dt.utcoffset()
+        suffix = "Z" if offset is None or offset == timedelta(0) else _format_offset(offset)
+        return local_time_text + suffix
+    local_datetime_text = _format_localdatetime_parts(
+        local_dt.date(),
+        local_dt.hour,
+        local_dt.minute,
+        local_dt.second,
+        local_dt.microsecond * 1_000,
+    )
+    if fn_name == "localdatetime":
+        return local_datetime_text
+    if fn_name == "datetime":
+        offset = local_dt.utcoffset()
+        suffix = "Z" if offset is None or offset == timedelta(0) else _format_offset(offset)
+        return local_datetime_text + suffix
+    return None
 
 
 def normalize_temporal_constructor_text(text: str) -> Optional[str]:
@@ -563,21 +720,514 @@ def normalize_temporal_constructor_text(text: str) -> Optional[str]:
     if literal is None:
         return None
     if fn == "date":
-        return _normalize_date_string(literal)
+        return _extract_date_text(literal)
     if fn == "localtime":
-        return _normalize_localtime_string(literal)
+        return _cast_temporal_to_localtime_string(literal)
     if fn == "time":
-        return _normalize_time_string(literal)
+        return _cast_temporal_to_time_string(literal)
     if fn == "localdatetime":
-        return _normalize_localdatetime_string(literal)
+        return _cast_temporal_to_localdatetime_string(literal)
     if fn == "datetime":
-        return _normalize_datetime_string(literal)
+        return _cast_temporal_to_datetime_string(literal)
     if fn == "duration":
         return _normalize_duration_string(literal)
     return None
 
 
+@dataclass(frozen=True)
+class _TemporalValue:
+    kind: str
+    date_value: Optional[py_date]
+    hour: int = 0
+    minute: int = 0
+    second: int = 0
+    nanosecond: int = 0
+    tz_suffix: Optional[str] = None
+
+
+_ZONE_SUFFIX_RE = re.compile(r"^(?P<core>.+?)(?:\[(?P<zone>[^\]]+)\])?$")
+_DURATION_TOKEN_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)([YMDHMS])")
+_DATE_TRUNCATION_UNITS = frozenset({"millennium", "century", "decade", "year", "weekYear", "quarter", "month", "week", "day"})
+
+
+def _format_localtime_parts(hour: int, minute: int, second: int, nanosecond: int) -> str:
+    out = f"{hour:02d}:{minute:02d}"
+    if second != 0 or nanosecond != 0:
+        out += f":{second:02d}{_normalize_fraction(nanosecond)}"
+    return out
+
+
+def _format_localdatetime_parts(
+    value_date: py_date,
+    hour: int,
+    minute: int,
+    second: int,
+    nanosecond: int,
+) -> str:
+    return f"{_format_date(value_date.year, value_date.month, value_date.day)}T{_format_localtime_parts(hour, minute, second, nanosecond)}"
+
+
+def _split_zone_name(text: str) -> tuple[str, Optional[str]]:
+    match = _ZONE_SUFFIX_RE.fullmatch(text)
+    if match is None:
+        return text, None
+    return match.group("core"), match.group("zone")
+
+
+def _parse_temporal_value(text: str) -> Optional[_TemporalValue]:
+    stripped = text.strip()
+    if stripped.startswith(("P", "-P")):
+        return None
+    if "T" in stripped:
+        date_text, time_text = stripped.split("T", 1)
+        value_date = _base_date_from_text(date_text)
+        if value_date is None:
+            return None
+        time_core, zone_name = _split_zone_name(time_text)
+        parts = _base_time_parts_from_text(time_core)
+        if parts is None:
+            return None
+        tz = cast(Optional[str], parts.get("tz"))
+        tz_suffix = tz if zone_name is None else ("" if tz is None else tz) + f"[{zone_name}]"
+        return _TemporalValue(
+            kind="datetime" if tz_suffix is not None else "localdatetime",
+            date_value=value_date,
+            hour=cast(int, parts["hour"]),
+            minute=cast(int, parts["minute"]),
+            second=cast(int, parts["second"]),
+            nanosecond=cast(int, parts["nanosecond"]),
+            tz_suffix=tz_suffix,
+        )
+    if ":" in stripped:
+        time_core, zone_name = _split_zone_name(stripped)
+        parts = _base_time_parts_from_text(time_core)
+        if parts is None:
+            return None
+        tz = cast(Optional[str], parts.get("tz"))
+        tz_suffix = tz if zone_name is None else ("" if tz is None else tz) + f"[{zone_name}]"
+        return _TemporalValue(
+            kind="time" if tz_suffix is not None else "localtime",
+            date_value=None,
+            hour=cast(int, parts["hour"]),
+            minute=cast(int, parts["minute"]),
+            second=cast(int, parts["second"]),
+            nanosecond=cast(int, parts["nanosecond"]),
+            tz_suffix=tz_suffix,
+        )
+    value_date = _base_date_from_text(stripped)
+    if value_date is None:
+        return None
+    return _TemporalValue(kind="date", date_value=value_date)
+
+
+def _truncate_year(year: int, span: int) -> int:
+    return (year // span) * span
+
+
+def _truncate_date_value(source_date: py_date, unit: str, overrides: dict[str, str]) -> Optional[py_date]:
+    if unit == "millennium":
+        base = py_date(_truncate_year(source_date.year, 1000), 1, 1)
+    elif unit == "century":
+        base = py_date(_truncate_year(source_date.year, 100), 1, 1)
+    elif unit == "decade":
+        base = py_date(_truncate_year(source_date.year, 10), 1, 1)
+    elif unit == "year":
+        base = py_date(source_date.year, 1, 1)
+    elif unit == "quarter":
+        base = py_date(source_date.year, ((source_date.month - 1) // 3) * 3 + 1, 1)
+    elif unit == "month":
+        base = py_date(source_date.year, source_date.month, 1)
+    elif unit == "week":
+        base = source_date - timedelta(days=source_date.isoweekday() - 1)
+        if "dayOfWeek" in overrides:
+            return base + timedelta(days=int(overrides["dayOfWeek"]) - 1)
+        if "day" in overrides:
+            return base + timedelta(days=int(overrides["day"]) - 1)
+    elif unit == "weekYear":
+        base = py_date.fromisocalendar(source_date.isocalendar().year, 1, 1)
+        if "day" in overrides:
+            return py_date(base.year, 1, 1) + timedelta(days=int(overrides["day"]) - 1)
+        if "dayOfWeek" in overrides:
+            return base + timedelta(days=int(overrides["dayOfWeek"]) - 1)
+    elif unit == "day":
+        base = source_date
+    else:
+        return None
+    fields = {"date": _format_date(base.year, base.month, base.day)}
+    fields.update(overrides)
+    return _date_from_fields(fields)
+
+
+def _truncate_time_parts(
+    source_value: _TemporalValue,
+    unit: str,
+    overrides: dict[str, str],
+) -> tuple[int, int, int, int]:
+    if unit in _DATE_TRUNCATION_UNITS:
+        hour = 0
+        minute = 0
+        second = 0
+        nanosecond = 0
+    else:
+        hour = source_value.hour
+        minute = source_value.minute
+        second = source_value.second
+        nanosecond = source_value.nanosecond
+
+    if unit == "day":
+        hour = 0
+        minute = 0
+        second = 0
+        nanosecond = 0
+    elif unit == "hour":
+        minute = 0
+        second = 0
+        nanosecond = 0
+    elif unit == "minute":
+        second = 0
+        nanosecond = 0
+    elif unit == "second":
+        nanosecond = 0
+    elif unit == "millisecond":
+        nanosecond = (nanosecond // 1_000_000) * 1_000_000
+    elif unit == "microsecond":
+        nanosecond = (nanosecond // 1_000) * 1_000
+
+    if "hour" in overrides:
+        hour = int(overrides["hour"])
+    if "minute" in overrides:
+        minute = int(overrides["minute"])
+    if "second" in overrides:
+        second = int(overrides["second"])
+    if any(key in overrides for key in ("nanosecond", "microsecond", "millisecond")):
+        nanosecond = _nanos_from_fields(overrides)
+
+    return hour, minute, second, nanosecond
+
+
+def _zone_compatible_local_datetime_text(date_value: py_date, local_time_text: str) -> str:
+    local_dt_text = f"{_format_date(date_value.year, date_value.month, date_value.day)}T{local_time_text}"
+    match = re.fullmatch(r"(?P<prefix>.+?\.\d{6})\d+(?P<suffix>)", local_dt_text)
+    if match is not None:
+        return match.group("prefix")
+    return local_dt_text
+
+
+def _target_timezone_suffix(
+    target_kind: str,
+    source_value: _TemporalValue,
+    overrides: dict[str, str],
+    *,
+    target_date: Optional[py_date],
+    local_time_text: str,
+) -> Optional[str]:
+    if target_kind not in {"time", "datetime"}:
+        return None
+    timezone_text = overrides.get("timezone")
+    if timezone_text is None:
+        return source_value.tz_suffix or "Z"
+    zone_name = _parse_quoted(timezone_text)
+    if zone_name is None and not re.fullmatch(r"Z|[+-]\d{2}(?::?\d{2})?(?::?\d{2})?", timezone_text):
+        zone_name = timezone_text
+    if zone_name is None:
+        return _normalize_offset_text(timezone_text)
+    zone_base_date = target_date or source_value.date_value or py_date(1970, 1, 1)
+    suffix = _zone_suffix(
+        zone_name,
+        _zone_compatible_local_datetime_text(zone_base_date, local_time_text),
+    )
+    return suffix
+
+
+def _fold_temporal_truncate_call(
+    fn_name: str,
+    args: tuple[ExprNode, ...],
+) -> Optional[Literal]:
+    if len(args) != 3:
+        return None
+    unit_node, value_node, override_node = args
+    if not isinstance(unit_node, Literal) or not isinstance(unit_node.value, str):
+        return None
+    if not isinstance(value_node, Literal) or not isinstance(value_node.value, str):
+        return None
+    if not isinstance(override_node, MapLiteral):
+        return None
+
+    overrides: dict[str, str] = {}
+    for key, value in override_node.items:
+        rendered = _render_temporal_arg(value)
+        if rendered is None:
+            return None
+        parsed = _parse_quoted(rendered)
+        overrides[key] = rendered if parsed is None else parsed
+
+    source_value = _parse_temporal_value(value_node.value)
+    if source_value is None:
+        return None
+
+    unit = unit_node.value
+    target_kind = fn_name.split(".", 1)[0]
+    target_date: Optional[py_date] = source_value.date_value
+    if target_kind == "date":
+        if target_date is None:
+            target_date = py_date(1970, 1, 1)
+        target_date = _truncate_date_value(target_date, unit, overrides)
+        if target_date is None:
+            return None
+    elif target_kind in {"datetime", "localdatetime"} and unit in _DATE_TRUNCATION_UNITS:
+        if target_date is None:
+            target_date = py_date(1970, 1, 1)
+        target_date = _truncate_date_value(target_date, unit, overrides)
+        if target_date is None:
+            return None
+
+    hour, minute, second, nanosecond = _truncate_time_parts(source_value, unit, overrides)
+
+    if target_kind == "date":
+        assert target_date is not None
+        return Literal(_format_date(target_date.year, target_date.month, target_date.day))
+
+    local_time_text = _format_localtime_parts(hour, minute, second, nanosecond)
+    if target_kind == "localtime":
+        return Literal(local_time_text)
+
+    tz_suffix = _target_timezone_suffix(
+        target_kind,
+        source_value,
+        overrides,
+        target_date=target_date,
+        local_time_text=local_time_text,
+    )
+
+    if target_kind == "time":
+        return Literal(local_time_text + cast(str, tz_suffix))
+
+    assert target_date is not None
+    local_dt_text = _format_localdatetime_parts(target_date, hour, minute, second, nanosecond)
+    if target_kind == "localdatetime":
+        return Literal(local_dt_text)
+    return Literal(local_dt_text + cast(str, tz_suffix))
+
+
+def _comparable_datetime(
+    value: _TemporalValue,
+    *,
+    include_date: bool,
+    keep_timezone: bool,
+) -> py_datetime:
+    value_date = value.date_value if include_date and value.date_value is not None else py_date(1970, 1, 1)
+    local_text = _format_localdatetime_parts(
+        value_date,
+        value.hour,
+        value.minute,
+        value.second,
+        value.nanosecond,
+    )
+    if keep_timezone and value.tz_suffix is not None:
+        offset = value.tz_suffix.split("[", 1)[0]
+        if offset == "Z":
+            offset = "+00:00"
+        return py_datetime.fromisoformat(local_text + offset)
+    return py_datetime.fromisoformat(local_text)
+
+
+def _timedelta_total_microseconds(delta: timedelta) -> int:
+    return ((delta.days * 24 * 60 * 60) + delta.seconds) * 1_000_000 + delta.microseconds
+
+
+def _format_time_only_duration(delta: timedelta) -> str:
+    total_microseconds = _timedelta_total_microseconds(delta)
+    if total_microseconds == 0:
+        return "PT0S"
+    sign = -1 if total_microseconds < 0 else 1
+    remaining = abs(total_microseconds)
+    hours, remaining = divmod(remaining, 3_600_000_000)
+    minutes, remaining = divmod(remaining, 60_000_000)
+    seconds, microseconds = divmod(remaining, 1_000_000)
+
+    def _signed(value: int) -> str:
+        return f"{'-' if sign < 0 else ''}{value}"
+
+    parts = ["PT"]
+    if hours:
+        parts.append(f"{_signed(hours)}H")
+    if minutes:
+        parts.append(f"{_signed(minutes)}M")
+    if seconds or microseconds or len(parts) == 1:
+        if microseconds:
+            frac = str(microseconds).rjust(6, "0").rstrip("0")
+            parts.append(f"{_signed(seconds)}.{frac}S")
+        else:
+            parts.append(f"{_signed(seconds)}S")
+    return "".join(parts)
+
+
+def _format_duration_components(
+    *,
+    years: int = 0,
+    months: int = 0,
+    days: int = 0,
+    hours: int = 0,
+    minutes: int = 0,
+    seconds: int = 0,
+    microseconds: int = 0,
+) -> str:
+    parts = ["P"]
+    if years:
+        parts.append(f"{years}Y")
+    if months:
+        parts.append(f"{months}M")
+    if days:
+        parts.append(f"{days}D")
+    time_parts: list[str] = []
+    if hours:
+        time_parts.append(f"{hours}H")
+    if minutes:
+        time_parts.append(f"{minutes}M")
+    if seconds or microseconds:
+        if microseconds:
+            frac = str(abs(microseconds)).rjust(6, "0").rstrip("0")
+            time_parts.append(f"{seconds}.{frac}S")
+        else:
+            time_parts.append(f"{seconds}S")
+    if time_parts:
+        parts.append("T")
+        parts.extend(time_parts)
+    if parts == ["P"]:
+        return "PT0S"
+    return "".join(parts)
+
+
+def _fold_duration_between(
+    start_value: _TemporalValue,
+    end_value: _TemporalValue,
+) -> str:
+    include_date = start_value.date_value is not None and end_value.date_value is not None
+    keep_timezone = start_value.tz_suffix is not None and end_value.tz_suffix is not None
+    start_dt = _comparable_datetime(start_value, include_date=include_date, keep_timezone=keep_timezone)
+    end_dt = _comparable_datetime(end_value, include_date=include_date, keep_timezone=keep_timezone)
+    delta = end_dt - start_dt
+    if not include_date:
+        return _format_time_only_duration(delta)
+
+    from dateutil.relativedelta import relativedelta  # type: ignore[import]
+
+    rel = relativedelta(end_dt, start_dt)
+    if rel.years == 0 and rel.months == 0:
+        return _format_signed_day_time_duration(_timedelta_total_microseconds(delta) * 1_000)
+    return _format_duration_components(
+        years=rel.years,
+        months=rel.months,
+        days=rel.days,
+        hours=rel.hours,
+        minutes=rel.minutes,
+        seconds=rel.seconds,
+        microseconds=rel.microseconds,
+    )
+
+
+def _fold_duration_in_months(
+    start_value: _TemporalValue,
+    end_value: _TemporalValue,
+) -> str:
+    if start_value.date_value is None or end_value.date_value is None:
+        return "PT0S"
+    keep_timezone = start_value.tz_suffix is not None and end_value.tz_suffix is not None
+    start_dt = _comparable_datetime(start_value, include_date=True, keep_timezone=keep_timezone)
+    end_dt = _comparable_datetime(end_value, include_date=True, keep_timezone=keep_timezone)
+    from dateutil.relativedelta import relativedelta  # type: ignore[import]
+
+    rel = relativedelta(end_dt, start_dt)
+    return _format_duration_components(years=rel.years, months=rel.months)
+
+
+def _fold_duration_in_days(
+    start_value: _TemporalValue,
+    end_value: _TemporalValue,
+) -> str:
+    if start_value.date_value is None or end_value.date_value is None:
+        return "PT0S"
+    keep_timezone = start_value.tz_suffix is not None and end_value.tz_suffix is not None
+    start_dt = _comparable_datetime(start_value, include_date=True, keep_timezone=keep_timezone)
+    end_dt = _comparable_datetime(end_value, include_date=True, keep_timezone=keep_timezone)
+    total_microseconds = _timedelta_total_microseconds(end_dt - start_dt)
+    days = int(total_microseconds / (24 * 60 * 60 * 1_000_000))
+    return _format_duration_components(days=days)
+
+
+def _fold_duration_in_seconds(
+    start_value: _TemporalValue,
+    end_value: _TemporalValue,
+) -> str:
+    include_date = start_value.date_value is not None and end_value.date_value is not None
+    keep_timezone = start_value.tz_suffix is not None and end_value.tz_suffix is not None
+    start_dt = _comparable_datetime(start_value, include_date=include_date, keep_timezone=keep_timezone)
+    end_dt = _comparable_datetime(end_value, include_date=include_date, keep_timezone=keep_timezone)
+    return _format_time_only_duration(end_dt - start_dt)
+
+
+def _fold_duration_function_call(
+    fn_name: str,
+    args: tuple[ExprNode, ...],
+) -> Optional[Literal]:
+    if len(args) != 2:
+        return None
+    if any(isinstance(arg, Literal) and arg.value is None for arg in args):
+        return Literal(None)
+    if not all(isinstance(arg, Literal) and isinstance(arg.value, str) for arg in args):
+        return None
+    start_value = _parse_temporal_value(cast(str, cast(Literal, args[0]).value))
+    end_value = _parse_temporal_value(cast(str, cast(Literal, args[1]).value))
+    if start_value is None or end_value is None:
+        return None
+    if fn_name == "duration.between":
+        return Literal(_fold_duration_between(start_value, end_value))
+    if fn_name == "duration.inmonths":
+        return Literal(_fold_duration_in_months(start_value, end_value))
+    if fn_name == "duration.indays":
+        return Literal(_fold_duration_in_days(start_value, end_value))
+    if fn_name == "duration.inseconds":
+        return Literal(_fold_duration_in_seconds(start_value, end_value))
+    return None
+
+
+def resolve_duration_text_property(duration_text: str, prop: str) -> Optional[str]:
+    if not duration_text.startswith(("P", "-P")):
+        return None
+    days_value = 0
+    time_ns = 0
+    body = duration_text[1:] if duration_text.startswith("P") else duration_text[2:]
+    date_part, _, time_part = body.partition("T")
+    for number_text, unit in _DURATION_TOKEN_RE.findall(date_part):
+        if unit == "D":
+            days_value = int(Decimal(number_text))
+    for number_text, unit in _DURATION_TOKEN_RE.findall(time_part):
+        if unit == "H":
+            time_ns += int(Decimal(number_text) * Decimal(3_600_000_000_000))
+        elif unit == "M":
+            time_ns += int(Decimal(number_text) * Decimal(60_000_000_000))
+        elif unit == "S":
+            time_ns += int(Decimal(number_text) * Decimal(1_000_000_000))
+    if prop == "days":
+        return str(days_value)
+    if prop == "seconds":
+        return str(time_ns // 1_000_000_000)
+    if prop == "nanosecondsOfSecond":
+        seconds_value = time_ns // 1_000_000_000
+        return str(time_ns - (seconds_value * 1_000_000_000))
+    return None
+
+
 def rewrite_temporal_constructors_in_expr(expr_text: str) -> str:
+    current_dt = py_datetime.now().astimezone()
+
+    def _replace_current(match: re.Match[str]) -> str:
+        normalized = _current_temporal_literal(match.group("fn"), current_dt)
+        if normalized is None:
+            return match.group(0)
+        escaped = normalized.replace("\\", "\\\\").replace("'", "\\'")
+        return f"'{escaped}'"
+
     def _replace(match: re.Match[str]) -> str:
         normalized = normalize_temporal_constructor_text(match.group(0))
         if normalized is None:
@@ -585,7 +1235,8 @@ def rewrite_temporal_constructors_in_expr(expr_text: str) -> str:
         escaped = normalized.replace("\\", "\\\\").replace("'", "\\'")
         return f"'{escaped}'"
 
-    return TEMPORAL_CALL_EXPR_RE.sub(_replace, expr_text)
+    rewritten = CURRENT_TEMPORAL_CALL_EXPR_RE.sub(_replace_current, expr_text)
+    return TEMPORAL_CALL_EXPR_RE.sub(_replace, rewritten)
 
 
 def _render_temporal_arg(node: ExprNode) -> Optional[str]:
@@ -621,61 +1272,95 @@ def _render_temporal_arg(node: ExprNode) -> Optional[str]:
 
 
 def fold_temporal_constructor_ast(node: ExprNode) -> ExprNode:
-    if isinstance(node, (Identifier, Literal, Wildcard)):
-        return node
-    if isinstance(node, UnaryOp):
-        return UnaryOp(node.op, fold_temporal_constructor_ast(node.operand))
-    if isinstance(node, BinaryOp):
-        return BinaryOp(
-            node.op,
-            fold_temporal_constructor_ast(node.left),
-            fold_temporal_constructor_ast(node.right),
-        )
-    if isinstance(node, IsNullOp):
-        return IsNullOp(fold_temporal_constructor_ast(node.value), negated=node.negated)
-    if isinstance(node, FunctionCall):
-        args = tuple(fold_temporal_constructor_ast(arg) for arg in node.args)
-        rewritten = FunctionCall(node.name, args, distinct=node.distinct)
-        if not node.distinct and len(args) == 1 and node.name in {"date", "localtime", "time", "localdatetime", "datetime", "duration"}:
-            rendered_arg = _render_temporal_arg(args[0])
-            if rendered_arg is not None:
-                normalized = normalize_temporal_constructor_text(f"{node.name}({rendered_arg})")
-                if normalized is not None:
-                    return Literal(normalized)
-        return rewritten
-    if isinstance(node, CaseWhen):
-        return CaseWhen(
-            fold_temporal_constructor_ast(node.condition),
-            fold_temporal_constructor_ast(node.when_true),
-            fold_temporal_constructor_ast(node.when_false),
-        )
-    if isinstance(node, QuantifierExpr):
-        return QuantifierExpr(
-            node.fn,
-            node.var,
-            fold_temporal_constructor_ast(node.source),
-            fold_temporal_constructor_ast(node.predicate),
-        )
-    if isinstance(node, ListComprehension):
-        return ListComprehension(
-            node.var,
-            fold_temporal_constructor_ast(node.source),
-            predicate=None if node.predicate is None else fold_temporal_constructor_ast(node.predicate),
-            projection=None if node.projection is None else fold_temporal_constructor_ast(node.projection),
-        )
-    if isinstance(node, ListLiteral):
-        return ListLiteral(tuple(fold_temporal_constructor_ast(item) for item in node.items))
-    if isinstance(node, MapLiteral):
-        return MapLiteral(tuple((key, fold_temporal_constructor_ast(value)) for key, value in node.items))
-    if isinstance(node, SubscriptExpr):
-        return SubscriptExpr(
-            fold_temporal_constructor_ast(node.value),
-            fold_temporal_constructor_ast(node.key),
-        )
-    if isinstance(node, SliceExpr):
-        return SliceExpr(
-            fold_temporal_constructor_ast(node.value),
-            None if node.start is None else fold_temporal_constructor_ast(node.start),
-            None if node.stop is None else fold_temporal_constructor_ast(node.stop),
-        )
-    return node
+    current_dt = py_datetime.now().astimezone()
+
+    def _fold(inner: ExprNode) -> ExprNode:
+        if isinstance(inner, (Identifier, Literal, Wildcard)):
+            return inner
+        if isinstance(inner, UnaryOp):
+            return UnaryOp(inner.op, _fold(inner.operand))
+        if isinstance(inner, BinaryOp):
+            return BinaryOp(
+                inner.op,
+                _fold(inner.left),
+                _fold(inner.right),
+            )
+        if isinstance(inner, IsNullOp):
+            return IsNullOp(_fold(inner.value), negated=inner.negated)
+        if isinstance(inner, FunctionCall):
+            args = tuple(_fold(arg) for arg in inner.args)
+            rewritten = FunctionCall(inner.name, args, distinct=inner.distinct)
+            if not inner.distinct and len(args) == 0 and inner.name in {
+                "date",
+                "localtime",
+                "time",
+                "localdatetime",
+                "datetime",
+            }:
+                current_literal = _current_temporal_literal(inner.name, current_dt)
+                if current_literal is not None:
+                    return Literal(current_literal)
+            if not inner.distinct and len(args) == 1 and inner.name in {"date", "localtime", "time", "localdatetime", "datetime", "duration"}:
+                rendered_arg = _render_temporal_arg(args[0])
+                if rendered_arg is not None:
+                    normalized = normalize_temporal_constructor_text(f"{inner.name}({rendered_arg})")
+                    if normalized is not None:
+                        return Literal(normalized)
+            if not inner.distinct and inner.name in {
+                "date.truncate",
+                "localtime.truncate",
+                "time.truncate",
+                "localdatetime.truncate",
+                "datetime.truncate",
+            }:
+                folded = _fold_temporal_truncate_call(inner.name, args)
+                if folded is not None:
+                    return folded
+            if not inner.distinct and inner.name in {
+                "duration.between",
+                "duration.inmonths",
+                "duration.indays",
+                "duration.inseconds",
+            }:
+                folded = _fold_duration_function_call(inner.name, args)
+                if folded is not None:
+                    return folded
+            return rewritten
+        if isinstance(inner, CaseWhen):
+            return CaseWhen(
+                _fold(inner.condition),
+                _fold(inner.when_true),
+                _fold(inner.when_false),
+            )
+        if isinstance(inner, QuantifierExpr):
+            return QuantifierExpr(
+                inner.fn,
+                inner.var,
+                _fold(inner.source),
+                _fold(inner.predicate),
+            )
+        if isinstance(inner, ListComprehension):
+            return ListComprehension(
+                inner.var,
+                _fold(inner.source),
+                predicate=None if inner.predicate is None else _fold(inner.predicate),
+                projection=None if inner.projection is None else _fold(inner.projection),
+            )
+        if isinstance(inner, ListLiteral):
+            return ListLiteral(tuple(_fold(item) for item in inner.items))
+        if isinstance(inner, MapLiteral):
+            return MapLiteral(tuple((key, _fold(value)) for key, value in inner.items))
+        if isinstance(inner, SubscriptExpr):
+            return SubscriptExpr(
+                _fold(inner.value),
+                _fold(inner.key),
+            )
+        if isinstance(inner, SliceExpr):
+            return SliceExpr(
+                _fold(inner.value),
+                None if inner.start is None else _fold(inner.start),
+                None if inner.stop is None else _fold(inner.stop),
+            )
+        return inner
+
+    return _fold(node)
