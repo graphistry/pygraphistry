@@ -914,6 +914,27 @@ def test_gfql_rejects_repeated_node_alias_row_projection() -> None:
     assert exc_info.value.code == ErrorCode.E108
 
 
+def test_gfql_rejects_connected_comma_cycle_row_projection_on_repeated_alias() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c"],
+            "name": ["a", "b", "c"],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "b", "b"],
+            "d": ["b", "a", "c"],
+            "type": ["A", "B", "B"],
+        }
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _mk_graph(nodes, edges).gfql("MATCH (a)-[:A]->(b), (b)-[:B]->(a) RETURN a.name")
+
+    assert exc_info.value.code == ErrorCode.E108
+
+
 def test_gfql_executes_distinct_aggregate_return_query() -> None:
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 

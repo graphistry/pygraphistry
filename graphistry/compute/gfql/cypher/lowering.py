@@ -1101,17 +1101,6 @@ def _reject_duplicate_alias_row_refs(
     if not duplicated_aliases:
         return
 
-    def _allow_simple_duplicate_property_ref(expr_text: str, *, line: int, column: int) -> bool:
-        node = _parse_row_expr(expr_text, field="expression", line=line, column=column)
-        if not isinstance(node, Identifier):
-            return False
-        alias_name, prop = _split_qualified_name(node.name, line=line, column=column)
-        return (
-            prop is not None
-            and alias_name in duplicated_aliases
-            and isinstance(alias_targets.get(alias_name), ASTNode)
-        )
-
     def _check(expr_text: str, *, field: str, line: int, column: int) -> None:
         refs = _expr_match_aliases(
             expr_text,
@@ -1121,11 +1110,7 @@ def _reject_duplicate_alias_row_refs(
             line=line,
             column=column,
         )
-        if refs & duplicated_aliases and not _allow_simple_duplicate_property_ref(
-            expr_text,
-            line=line,
-            column=column,
-        ):
+        if refs & duplicated_aliases:
             raise _unsupported(
                 "Cypher row projection from repeated MATCH aliases is not yet supported in the local compiler",
                 field=field,
