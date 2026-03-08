@@ -15,6 +15,8 @@ from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.numeric import NumericASTPredicate, Between
 from graphistry.compute.predicates.str import Contains, Startswith, Endswith, Match, Fullmatch
 
+_ROW_TABLE_SCHEMA_CALLS = {"select", "with_", "return_", "unwind", "group_by"}
+
 
 def _coerce_chain_ops(ops: Union[List[ASTObject], 'Chain']) -> List[ASTObject]:
     if hasattr(ops, 'chain'):
@@ -39,7 +41,15 @@ def trace_chain_schema(
 
     for op in chain_ops:
         snapshots.append((set(node_columns), set(edge_columns)))
-        if isinstance(op, ASTCall):
+        if isinstance(op, ASTNode):
+            alias = getattr(op, "_name", None)
+            if isinstance(alias, str) and alias != "":
+                node_columns.add(alias)
+        elif isinstance(op, ASTEdge):
+            alias = getattr(op, "_name", None)
+            if isinstance(alias, str) and alias != "":
+                edge_columns.add(alias)
+        elif isinstance(op, ASTCall):
             active_row_table = _apply_call_schema_effects(op, node_columns, edge_columns, active_row_table)
 
     return snapshots
@@ -105,7 +115,15 @@ def validate_chain_schema(
             else:
                 raise op_errors[0]
 
-        if isinstance(op, ASTCall):
+        if isinstance(op, ASTNode):
+            alias = getattr(op, "_name", None)
+            if isinstance(alias, str) and alias != "":
+                node_columns.add(alias)
+        elif isinstance(op, ASTEdge):
+            alias = getattr(op, "_name", None)
+            if isinstance(alias, str) and alias != "":
+                edge_columns.add(alias)
+        elif isinstance(op, ASTCall):
             active_row_table = _apply_call_schema_effects(op, node_columns, edge_columns, active_row_table)
 
     return errors if collect_all else None
@@ -344,7 +362,10 @@ def _apply_call_schema_effects(
     if adds_node_cols is not None:
         cols = adds_node_cols(op.params) if callable(adds_node_cols) else adds_node_cols
         if cols:
-            node_columns.update(cols)
+            if op.function in _ROW_TABLE_SCHEMA_CALLS and active_row_table == "edges":
+                edge_columns.update(cols)
+            else:
+                node_columns.update(cols)
 
     adds_edge_cols = schema_effects.get('adds_edge_cols')
     if adds_edge_cols is not None:

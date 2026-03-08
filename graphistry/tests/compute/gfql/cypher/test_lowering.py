@@ -5,6 +5,7 @@ from typing import cast
 from graphistry.compute.ast import ASTCall, ASTNode, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.predicates.is_in import IsIn
+from graphistry.compute.gfql.same_path_types import col, compare
 from graphistry.compute.gfql.cypher import (
     compile_cypher,
     cypher_to_gfql,
@@ -80,6 +81,19 @@ def test_lower_match_clause_relationship_type_alternation_uses_is_in_predicate()
     type_predicate = ops[1].edge_match["type"]
     assert isinstance(type_predicate, IsIn)
     assert type_predicate.options == ["KNOWS", "HATES"]
+
+
+def test_lower_match_query_rewrites_duplicate_node_aliases_to_internal_identity_checks() -> None:
+    parsed = parse_cypher("MATCH (n)-[r]-(n) RETURN count(r)")
+
+    lowered = lower_match_query(parsed)
+
+    assert len(lowered.query) == 3
+    repeated = cast(ASTNode, lowered.query[0])
+    assert isinstance(repeated, ASTNode)
+    assert repeated._name is not None
+    assert repeated._name.startswith("__cypher_aliasdup_n")
+    assert lowered.where == [compare(col("n", "id"), "==", col(repeated._name, "id"))]
 
 
 def test_lower_match_clause_executes_through_gfql_runtime() -> None:
@@ -747,6 +761,62 @@ def test_gfql_executes_aggregate_return_query() -> None:
         {"division": "x", "cnt": 2, "max_age": 7},
         {"division": "y", "cnt": 1, "max_age": 4},
     ]
+
+
+def test_gfql_executes_loop_edge_count_queries() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b"]})
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "a"],
+            "d": ["a", "b"],
+            "type": ["LOOP", "LINK"],
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
+    count_result = g.gfql("MATCH (n)-[r]-(n) RETURN count(r) AS cnt")
+    distinct_result = g.gfql("MATCH (n)-[r]-(n) RETURN count(DISTINCT r) AS cnt")
+
+    assert count_result._nodes.to_dict(orient="records") == [{"cnt": 1}]
+    assert distinct_result._nodes.to_dict(orient="records") == [{"cnt": 1}]
+
+
+def test_gfql_executes_distinct_edge_count_with_bound_edge_ids() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b"]})
+    edges = pd.DataFrame(
+        {
+            "edge_id": ["e1", "e2"],
+            "s": ["a", "a"],
+            "d": ["a", "b"],
+            "type": ["LOOP", "LINK"],
+        }
+    )
+    g = cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes, "id").edges(edges, "s", "d", edge="edge_id"))
+
+    result = g.gfql("MATCH (n)-[r]-(n) RETURN count(DISTINCT r) AS cnt")
+
+    assert result._nodes.to_dict(orient="records") == [{"cnt": 1}]
+
+
+def test_gfql_rejects_repeated_node_alias_row_projection() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "m", "z"],
+            "name": ["a", "mid", "other"],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "m", "z"],
+            "d": ["m", "a", "m"],
+            "type": ["A", "B", "B"],
+        }
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _mk_graph(nodes, edges).gfql("MATCH (a)-[:A]->()-[:B]->(a) RETURN a.name")
+
+    assert exc_info.value.code == ErrorCode.E108
 
 
 def test_gfql_executes_distinct_aggregate_return_query() -> None:

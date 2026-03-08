@@ -659,6 +659,89 @@ def _lower_relationship(
     return cast(ASTObject, e_undirected(edge_match=edge_match, name=relationship.variable))
 
 
+def _lower_match_clause_with_alias_equalities(
+    clause: MatchClause,
+    *,
+    params: Optional[Mapping[str, Any]],
+) -> Tuple[List[ASTObject], List[WhereComparison]]:
+    out: List[ASTObject] = []
+    where_out: List[WhereComparison] = []
+    seen_alias_kinds: Dict[str, Literal["node", "edge"]] = {}
+    seen_alias_ops: Dict[str, ASTObject] = {}
+    existing_aliases: Set[str] = {
+        cast(str, element.variable)
+        for element in clause.pattern
+        if getattr(element, "variable", None) is not None
+    }
+
+    for element in clause.pattern:
+        if isinstance(element, NodePattern):
+            alias = element.variable
+            if alias is None or alias not in seen_alias_kinds:
+                lowered = _lower_node(element, params=params)
+                if alias is not None:
+                    seen_alias_kinds[alias] = "node"
+                    seen_alias_ops[alias] = lowered
+                out.append(lowered)
+                continue
+            if seen_alias_kinds[alias] != "node":
+                raise _unsupported(
+                    "Cypher duplicate aliases across node/relationship kinds are not supported",
+                    field="alias",
+                    value=alias,
+                    line=element.span.line,
+                    column=element.span.column,
+                )
+            previous = seen_alias_ops[alias]
+            if not isinstance(previous, ASTNode):
+                raise _unsupported(
+                    "Cypher duplicate aliases across node/relationship kinds are not supported",
+                    field="alias",
+                    value=alias,
+                    line=element.span.line,
+                    column=element.span.column,
+                )
+            rewritten_alias = _fresh_temp_name(existing_aliases, f"__cypher_aliasdup_{alias}")
+            previous._name = rewritten_alias
+            seen_alias_kinds[rewritten_alias] = "node"
+            seen_alias_ops[rewritten_alias] = previous
+            lowered = _lower_node(element, params=params)
+            seen_alias_ops[alias] = lowered
+            out.append(lowered)
+            where_out.append(
+                compare(col(alias, "id"), "==", col(rewritten_alias, "id"))
+            )
+            continue
+
+        alias = element.variable
+        if alias is not None and alias in seen_alias_kinds:
+            raise _unsupported(
+                "Cypher duplicate relationship aliases are not yet supported",
+                field="alias",
+                value=alias,
+                line=element.span.line,
+                column=element.span.column,
+            )
+        if alias is not None:
+            seen_alias_kinds[alias] = "edge"
+        lowered_edge = _lower_relationship(element, params=params)
+        if alias is not None:
+            seen_alias_ops[alias] = lowered_edge
+        out.append(lowered_edge)
+
+    return out, where_out
+
+
+def _duplicate_node_aliases(match: Optional[MatchClause]) -> Set[str]:
+    if match is None:
+        return set()
+    counts: Dict[str, int] = {}
+    for element in match.pattern:
+        if isinstance(element, NodePattern) and element.variable is not None:
+            counts[element.variable] = counts.get(element.variable, 0) + 1
+    return {alias for alias, count in counts.items() if count > 1}
+
+
 def _alias_target(ops: Sequence[ASTObject]) -> Dict[str, ASTObject]:
     targets: Dict[str, ASTObject] = {}
     for op in ops:
@@ -803,6 +886,58 @@ def _projection_ref_from_expr(
         line=line,
         column=column,
     )
+
+
+def _reject_duplicate_alias_row_refs(
+    query: CypherQuery,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    duplicated_aliases: Set[str],
+    params: Optional[Mapping[str, Any]],
+) -> None:
+    if not duplicated_aliases:
+        return
+
+    def _check(expr_text: str, *, field: str, line: int, column: int) -> None:
+        refs = _expr_match_aliases(
+            expr_text,
+            alias_targets=alias_targets,
+            params=params,
+            field=field,
+            line=line,
+            column=column,
+        )
+        if refs & duplicated_aliases:
+            raise _unsupported(
+                "Cypher row projection from repeated MATCH aliases is not yet supported in the local compiler",
+                field=field,
+                value=expr_text,
+                line=line,
+                column=column,
+            )
+
+    for unwind_clause in query.unwinds:
+        _check(
+            unwind_clause.expression.text,
+            field="unwind",
+            line=unwind_clause.span.line,
+            column=unwind_clause.span.column,
+        )
+    for item in query.return_.items:
+        _check(
+            item.expression.text,
+            field=query.return_.kind,
+            line=item.span.line,
+            column=item.span.column,
+        )
+    if query.order_by is not None:
+        for order_item in query.order_by.items:
+            _check(
+                order_item.expression.text,
+                field="order_by",
+                line=order_item.span.line,
+                column=order_item.span.column,
+            )
 
 
 def _build_projection_plan(
@@ -1216,9 +1351,9 @@ def lower_match_query(
             line=query.return_.span.line,
             column=query.return_.span.column,
         )
-    ops = lower_match_clause(query.match, params=params)
+    ops, duplicate_alias_where = _lower_match_clause_with_alias_equalities(query.match, params=params)
     alias_targets = _alias_target(ops)
-    where_out: List[WhereComparison] = []
+    where_out: List[WhereComparison] = list(duplicate_alias_where)
 
     if query.where is not None:
         for predicate in query.where.predicates:
@@ -1606,6 +1741,13 @@ def compile_cypher_query(
 
     if query.match is not None and not query.unwinds:
         alias_targets = _alias_target(lowered.query)
+        duplicated_aliases = _duplicate_node_aliases(query.match)
+        _reject_duplicate_alias_row_refs(
+            query,
+            alias_targets=alias_targets,
+            duplicated_aliases=duplicated_aliases,
+            params=params,
+        )
         has_aggregates = any(
             _aggregate_spec(item, params=params, alias_targets=alias_targets) is not None
             for item in query.return_.items

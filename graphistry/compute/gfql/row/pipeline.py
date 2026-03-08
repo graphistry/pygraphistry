@@ -771,6 +771,8 @@ class RowPipelineMixin:
         txt = token.strip()
         if txt in table_df.columns:
             return table_df[txt]
+        if txt == "__gfql_edge_index_0__" and self._edge is not None and self._edge in table_df.columns:
+            return table_df[self._edge]
         prop_match = RowPipelineMixin._GFQL_ALIAS_PROP_RE.fullmatch(txt)
         if prop_match is not None:
             alias = prop_match.group("alias")
@@ -1081,7 +1083,7 @@ class RowPipelineMixin:
             out._edges = table_df.iloc[0:0].copy()
         out._source = None
         out._destination = None
-        out._edge = None
+        out._edge = self._edge if self._edge is not None and self._edge in table_df.columns else None
         if out._node is not None and out._node not in table_df.columns:
             out._node = None
         return out

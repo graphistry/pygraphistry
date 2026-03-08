@@ -5,7 +5,7 @@ from typing import List, Union, Optional, Dict, Any, Sequence, Mapping, Literal,
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract, df_cons, resolve_engine
 from graphistry.util import setup_logger
-from .ast import ASTObject, ASTLet, ASTNode, ASTEdge
+from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
 from .chain import Chain, chain as chain_impl
 from .chain_let import chain_let as chain_let_impl
 from .execution_context import ExecutionContext
@@ -25,13 +25,61 @@ from graphistry.compute.gfql.same_path_types import (
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.api import compile_cypher
 from graphistry.compute.gfql.df_executor import (
+    DFSamePathExecutor,
     build_same_path_inputs,
     execute_same_path_chain,
 )
+from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
+from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.otel import otel_traced, otel_detail_enabled
 
 logger = setup_logger(__name__)
+
+
+def _materialize_split_alias_columns(
+    result: Plottable,
+    executor: DFSamePathExecutor,
+) -> Plottable:
+    if result._edges is not None and result._edge is None:
+        edge_id_col = generate_safe_column_name("edge_index", result._edges, prefix="__gfql_", suffix="__")
+        result._edges = result._edges.assign(**{edge_id_col: range(len(result._edges))})
+        result._edge = edge_id_col
+
+    node_updates: Dict[str, Any] = {}
+    edge_updates: Dict[str, Any] = {}
+
+    for alias, binding in executor.inputs.alias_bindings.items():
+        frame = executor.alias_frames.get(alias)
+        if frame is None:
+            continue
+        if binding.kind == "node":
+            df = result._nodes
+            result_id_col = result._node
+            frame_id_col = executor._node_column
+        else:
+            df = result._edges
+            result_id_col = result._edge
+            frame_id_col = executor._edge_column
+        if (
+            df is None
+            or result_id_col is None
+            or frame_id_col is None
+            or result_id_col not in df.columns
+            or frame_id_col not in frame.columns
+        ):
+            continue
+        mask = df[result_id_col].isin(frame[frame_id_col])
+        if binding.kind == "node":
+            node_updates[alias] = mask
+        else:
+            edge_updates[alias] = mask
+
+    if node_updates and result._nodes is not None:
+        result._nodes = result._nodes.assign(**node_updates)
+    if edge_updates and result._edges is not None:
+        result._edges = result._edges.assign(**edge_updates)
+    return result
 
 
 def _gfql_otel_attrs(
@@ -429,6 +477,30 @@ def _chain_dispatch(
     context: ExecutionContext,
 ) -> Plottable:
     if chain_obj.where:
+        first_row_pipeline_idx = next(
+            (
+                idx
+                for idx, op in enumerate(chain_obj.chain)
+                if isinstance(op, ASTCall) and is_row_pipeline_call(op.function)
+            ),
+            None,
+        )
+        if first_row_pipeline_idx is not None:
+            same_path_prefix = chain_obj.chain[:first_row_pipeline_idx]
+            row_suffix = chain_obj.chain[first_row_pipeline_idx:]
+            validate_chain_schema(g, same_path_prefix, collect_all=False)
+            is_cudf = engine == EngineAbstract.CUDF or engine == "cudf"
+            engine_enum = Engine.CUDF if is_cudf else Engine.PANDAS
+            inputs = build_same_path_inputs(
+                g,
+                same_path_prefix,
+                chain_obj.where,
+                engine=engine_enum,
+                include_paths=False,
+            )
+            executor = DFSamePathExecutor(inputs)
+            matched = _materialize_split_alias_columns(executor.run(), executor)
+            return chain_impl(matched, row_suffix, engine, policy=policy, context=context)
         validate_chain_schema(g, chain_obj.chain, collect_all=False)
         is_cudf = engine == EngineAbstract.CUDF or engine == "cudf"
         engine_enum = Engine.CUDF if is_cudf else Engine.PANDAS
