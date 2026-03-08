@@ -667,6 +667,44 @@ def test_lower_cypher_query_builds_group_by_pipeline() -> None:
     assert order_call.params["keys"] == [("division", "asc"), ("cnt", "desc")]
 
 
+def test_lower_cypher_query_builds_distinct_aggregate_pipeline() -> None:
+    parsed = parse_cypher(
+        "UNWIND [null, 1, null, 2, 1] AS x RETURN count(DISTINCT x) AS cnt, collect(DISTINCT x) AS vals"
+    )
+
+    chain = lower_cypher_query(parsed)
+
+    with_call = cast(ASTCall, chain.chain[2])
+    group_call = cast(ASTCall, chain.chain[3])
+    return_call = cast(ASTCall, chain.chain[4])
+    assert [with_call.function, group_call.function, return_call.function] == [
+        "with_",
+        "group_by",
+        "select",
+    ]
+    assert with_call.params["items"] == [("__cypher_group__", 1), ("__cypher_agg__", "x"), ("__cypher_agg__1", "x")]
+    assert group_call.params == {
+        "keys": ["__cypher_group__"],
+        "aggregations": [("cnt", "count_distinct", "__cypher_agg__"), ("vals", "collect_distinct", "__cypher_agg__1")],
+    }
+
+
+def test_lower_cypher_query_maps_count_distinct_edge_alias_to_identity() -> None:
+    parsed = parse_cypher("MATCH (a)-[r]->(b) RETURN count(DISTINCT r)")
+
+    chain = lower_cypher_query(parsed)
+
+    row_call = cast(ASTCall, chain.chain[3])
+    with_call = cast(ASTCall, chain.chain[4])
+    group_call = cast(ASTCall, chain.chain[5])
+    assert row_call.params == {"table": "edges", "source": "r"}
+    assert with_call.params["items"] == [("__cypher_group__", 1), ("__cypher_agg__", "__gfql_edge_index_0__")]
+    assert group_call.params == {
+        "keys": ["__cypher_group__"],
+        "aggregations": [("count(DISTINCT r)", "count_distinct", "__cypher_agg__")],
+    }
+
+
 def test_gfql_executes_top_level_unwind_query() -> None:
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 
@@ -709,6 +747,31 @@ def test_gfql_executes_aggregate_return_query() -> None:
         {"division": "x", "cnt": 2, "max_age": 7},
         {"division": "y", "cnt": 1, "max_age": 4},
     ]
+
+
+def test_gfql_executes_distinct_aggregate_return_query() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql("UNWIND [null, 1, null, 2, 1] AS x RETURN count(DISTINCT x) AS cnt, collect(DISTINCT x) AS vals")
+
+    assert result._nodes.to_dict(orient="records") == [{"cnt": 2, "vals": [1, 2]}]
+
+
+def test_gfql_executes_collect_distinct_all_null_return_query() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql("UNWIND [null, null] AS x RETURN collect(DISTINCT x) AS c")
+
+    assert result._nodes.to_dict(orient="records") == [{"c": []}]
+
+
+def test_gfql_executes_count_distinct_missing_property_as_zero() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b"]})
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql("MATCH (a) RETURN count(DISTINCT a.name) AS cnt")
+
+    assert result._nodes.to_dict(orient="records") == [{"cnt": 0}]
 
 
 def test_cypher_to_gfql_rejects_multi_source_aggregate_expr() -> None:

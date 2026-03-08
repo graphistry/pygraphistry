@@ -782,6 +782,8 @@ class RowPipelineMixin:
                     pass
             if prop in table_df.columns:
                 return table_df[prop]
+            if alias in table_df.columns:
+                return self._gfql_broadcast_scalar(table_df, pd.NA)
         raise ValueError(f"unsupported token in row expression: {token!r}")
 
     def _gfql_eval_dynamic_list_subscript(
@@ -1448,18 +1450,38 @@ class RowPipelineMixin:
                     table_df = table_df.assign(**{tmp_col: expr_values})
                     expr_col = tmp_col
                 grouped = _make_grouped(table_df)
-                if func == "collect":
+                if func in {"collect", "collect_distinct"}:
                     # collect() ignores null entries; compute collection on
                     # non-null rows and merge against full key space below.
                     grouped_df = grouped.obj
                     non_null_df = grouped_df.loc[
                         ~grouped_df[expr_col].isna(), key_cols + [expr_col]
                     ]
-                    agg_df = (
-                        _make_grouped(non_null_df)[expr_col]
-                        .agg(list)
-                        .reset_index(name=alias)
-                    )
+                    if len(non_null_df) == 0:
+                        agg_df = out_df[key_cols].iloc[0:0].copy()
+                        agg_df[alias] = pd.Series(dtype="object")
+                    else:
+                        if func == "collect_distinct":
+                            try:
+                                non_null_df = non_null_df.drop_duplicates(
+                                    subset=key_cols + [expr_col],
+                                    keep="first",
+                                )
+                            except TypeError:
+                                norm_col = "__gfql_collect_distinct_norm__"
+                                while norm_col in non_null_df.columns:
+                                    norm_col = f"{norm_col}_x"
+                                norm_df = non_null_df.assign(**{norm_col: non_null_df[expr_col].astype(str)})
+                                norm_df = norm_df.drop_duplicates(
+                                    subset=key_cols + [norm_col],
+                                    keep="first",
+                                )
+                                non_null_df = norm_df.drop(columns=[norm_col])
+                        agg_df = (
+                            _make_grouped(non_null_df)[expr_col]
+                            .agg(list)
+                            .reset_index(name=alias)
+                        )
                 else:
                     method_name = GFQL_GROUPBY_AGG_METHODS.get(func)
                     if method_name is None:
@@ -1468,8 +1490,9 @@ class RowPipelineMixin:
                     agg_df = getattr(agg_series, method_name)().reset_index(name=alias)
 
             out_df = out_df.merge(agg_df, on=key_cols, how="left")
-            if func == "collect":
-                out_df[alias] = out_df[alias].where(~out_df[alias].isna(), [[] for _ in range(len(out_df))])
+            if func in {"collect", "collect_distinct"}:
+                empty_lists = pd.Series([[] for _ in range(len(out_df))], index=out_df.index, dtype="object")
+                out_df[alias] = out_df[alias].where(~out_df[alias].isna(), empty_lists)
 
         return self._gfql_row_table(out_df)
 

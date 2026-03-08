@@ -101,6 +101,7 @@ class _AggregateSpec:
     output_name: str
     func: str
     expr_text: Optional[str]
+    distinct: bool
     span_line: int
     span_column: int
 
@@ -414,6 +415,14 @@ def _aggregate_spec(
                 line=item.span.line,
                 column=item.span.column,
             )
+        if node.distinct:
+            raise _unsupported(
+                "count(DISTINCT *) is not supported in the local Cypher aggregate subset",
+                field="return.item",
+                value=item.expression.text,
+                line=item.span.line,
+                column=item.span.column,
+            )
         expr_text: Optional[str] = None
     else:
         open_paren = item.expression.text.find("(")
@@ -427,6 +436,17 @@ def _aggregate_spec(
                 column=item.span.column,
             )
         expr_text = item.expression.text[open_paren + 1:close_paren].strip()
+        if node.distinct:
+            distinct_match = re.match(r"(?is)^distinct\s+(.+)$", expr_text)
+            if distinct_match is None:
+                raise _unsupported(
+                    "Cypher DISTINCT aggregate syntax requires a non-empty argument",
+                    field="return.item",
+                    value=item.expression.text,
+                    line=item.span.line,
+                    column=item.span.column,
+                )
+            expr_text = distinct_match.group(1).strip()
         if expr_text == "":
             raise _unsupported(
                 "Cypher aggregate functions require a non-empty argument",
@@ -441,6 +461,7 @@ def _aggregate_spec(
         output_name=item.alias or item.expression.text,
         func=node.name,
         expr_text=expr_text,
+        distinct=node.distinct,
         span_line=item.span.line,
         span_column=item.span.column,
     )
@@ -1235,6 +1256,52 @@ def _fresh_temp_name(existing: Set[str], prefix: str) -> str:
     return candidate
 
 
+def _distinct_aggregate_expr_text(
+    agg_spec: _AggregateSpec,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+) -> Optional[str]:
+    expr_text = agg_spec.expr_text
+    if expr_text is None:
+        return None
+    target = alias_targets.get(expr_text)
+    if isinstance(target, ASTNode):
+        return "id"
+    if isinstance(target, ASTEdge):
+        if agg_spec.func == "collect":
+            raise _unsupported(
+                "collect(DISTINCT rel_alias) is not yet supported in local Cypher lowering",
+                field="return.item",
+                value=agg_spec.source_text,
+                line=agg_spec.span_line,
+                column=agg_spec.span_column,
+            )
+        return "__gfql_edge_index_0__"
+    return expr_text
+
+
+def _aggregate_runtime_spec(
+    agg_spec: _AggregateSpec,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+) -> Tuple[str, Optional[str]]:
+    func = agg_spec.func
+    expr_text = agg_spec.expr_text
+    if not agg_spec.distinct:
+        return func, expr_text
+    if func == "count":
+        return "count_distinct", _distinct_aggregate_expr_text(agg_spec, alias_targets=alias_targets)
+    if func == "collect":
+        return "collect_distinct", _distinct_aggregate_expr_text(agg_spec, alias_targets=alias_targets)
+    raise _unsupported(
+        "Cypher DISTINCT aggregates are currently supported for count() and collect() only",
+        field="return.item",
+        value=agg_spec.source_text,
+        line=agg_spec.span_line,
+        column=agg_spec.span_column,
+    )
+
+
 def _add_output_mapping(
     expr_to_output: Dict[str, str],
     *,
@@ -1389,10 +1456,14 @@ def _lower_general_row_projection(
                     line=agg_spec.span_line,
                     column=agg_spec.span_column,
                 )
-            if agg_spec.expr_text is None:
-                aggregations.append((agg_spec.output_name, agg_spec.func))
+            runtime_func, runtime_expr = _aggregate_runtime_spec(
+                agg_spec,
+                alias_targets=alias_targets,
+            )
+            if runtime_expr is None:
+                aggregations.append((agg_spec.output_name, runtime_func))
             else:
-                expr_text_obj = ExpressionText(text=agg_spec.expr_text, span=SourceSpan(
+                expr_text_obj = ExpressionText(text=runtime_expr, span=SourceSpan(
                     line=agg_spec.span_line,
                     column=agg_spec.span_column,
                     end_line=agg_spec.span_line,
@@ -1401,7 +1472,7 @@ def _lower_general_row_projection(
                     end_pos=0,
                 ))
                 _validate_row_expr_scope(
-                    agg_spec.expr_text,
+                    runtime_expr,
                     alias_targets=alias_targets,
                     active_match_alias=active_match_alias,
                     unwind_aliases=unwind_aliases,
@@ -1422,7 +1493,7 @@ def _lower_general_row_projection(
                         ),
                     )
                 )
-                aggregations.append((agg_spec.output_name, agg_spec.func, temp_name))
+                aggregations.append((agg_spec.output_name, runtime_func, temp_name))
             available_columns.add(agg_spec.output_name)
             _add_output_mapping(
                 expr_to_output,

@@ -54,6 +54,7 @@ class IsNullOp:
 class FunctionCall:
     name: str
     args: Tuple["ExprNode", ...]
+    distinct: bool = False
 
 
 @dataclass(frozen=True)
@@ -219,7 +220,10 @@ map_key: NAME                            -> map_key_name
        | STRING                          -> map_key_string
 
 function_call: NAME "(" func_args ")"
-func_args: func_arg ("," func_arg)*
+?func_args: distinct_func_args
+         | regular_func_args
+regular_func_args: func_arg ("," func_arg)*
+distinct_func_args: "DISTINCT"i func_arg
 ?func_arg: expr
          | "*"                           -> star_arg
 identifier: NAME ("." NAME)*
@@ -310,6 +314,11 @@ def _build_transformer() -> _TransformerLike:
     def _strip_tokens(items: Sequence[Any]) -> List[Any]:
         return [item for item in items if not _is_token(item)]
 
+    @dataclass(frozen=True)
+    class _FunctionArgs:
+        args: Tuple[ExprNode, ...]
+        distinct: bool = False
+
     class _AstBuilder(Transformer):  # type: ignore[valid-type,misc]
         def __init__(self) -> None:
             super().__init__(visit_tokens=True)
@@ -345,8 +354,14 @@ def _build_transformer() -> _TransformerLike:
                 raise GFQLExprParseError("Invalid identifier")
             return Identifier(".".join(names))
 
-        def func_args(self, items: Sequence[Any]) -> List[ExprNode]:
-            return [cast(ExprNode, i) for i in _strip_tokens(items)]
+        def regular_func_args(self, items: Sequence[Any]) -> _FunctionArgs:
+            return _FunctionArgs(tuple(cast(ExprNode, i) for i in _strip_tokens(items)))
+
+        def distinct_func_args(self, items: Sequence[Any]) -> _FunctionArgs:
+            stripped = _strip_tokens(items)
+            if len(stripped) != 1:
+                raise GFQLExprParseError("Invalid DISTINCT function argument")
+            return _FunctionArgs((cast(ExprNode, stripped[0]),), distinct=True)
 
         def star_arg(self, _: Sequence[Any]) -> Wildcard:
             return Wildcard()
@@ -354,18 +369,20 @@ def _build_transformer() -> _TransformerLike:
         def function_call(self, items: Sequence[Any]) -> FunctionCall:
             fn = ""
             args: Tuple[ExprNode, ...] = ()
+            distinct = False
             for item in items:
                 if _is_token(item):
                     if str(getattr(item, "type", "")) == "NAME" and fn == "":
                         fn = str(item).lower()
                     continue
-                if isinstance(item, list):
-                    args = tuple(cast(List[ExprNode], item))
+                if isinstance(item, _FunctionArgs):
+                    args = item.args
+                    distinct = item.distinct
                 else:
                     args = (cast(ExprNode, item),)
             if fn == "":
                 raise GFQLExprParseError("Invalid function call")
-            return FunctionCall(fn, args)
+            return FunctionCall(fn, args, distinct=distinct)
 
         def case_expr(self, items: Sequence[Any]) -> CaseWhen:
             stripped = _strip_tokens(items)

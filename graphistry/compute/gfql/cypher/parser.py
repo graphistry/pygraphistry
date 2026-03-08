@@ -154,7 +154,10 @@ order_expr: expr
               | ".."                        -> subscript_slice_all
 
 function_call: NAME "(" [func_args] ")"
-func_args: func_arg ("," func_arg)*
+?func_args: distinct_func_args
+         | regular_func_args
+regular_func_args: func_arg ("," func_arg)*
+distinct_func_args: "DISTINCT"i func_arg
 ?func_arg: expr
          | "*"                              -> star_arg
 

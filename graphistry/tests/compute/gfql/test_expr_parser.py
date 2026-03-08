@@ -172,6 +172,15 @@ def test_parse_expr_aggregate_wildcard_function_node() -> None:
 
 
 @requires_lark
+def test_parse_expr_distinct_function_node() -> None:
+    node = parse_expr("count(DISTINCT score)")
+    assert isinstance(node, FunctionCall)
+    assert node.name == "count"
+    assert node.distinct is True
+    assert node.args == (Identifier("score"),)
+
+
+@requires_lark
 def test_validate_expr_capabilities_rejects_wildcard_function_arg() -> None:
     node = parse_expr("count(*)")
     errors = validate_expr_capabilities(node)

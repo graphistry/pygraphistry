@@ -54,7 +54,7 @@ GFQL_GROUPBY_AGG_METHODS: Final[dict[str, str]] = {
 }
 
 GFQL_AGGREGATION_FUNCTIONS: Final[frozenset[str]] = frozenset(
-    set(GFQL_GROUPBY_AGG_METHODS) | {"collect"}
+    set(GFQL_GROUPBY_AGG_METHODS) | {"collect", "collect_distinct"}
 )
 GFQL_ORDER_AGG_ALIAS_FUNCTIONS: Final[frozenset[str]] = frozenset(
     {"count", "sum", "min", "max", "avg", "mean", "collect"}
