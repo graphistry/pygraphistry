@@ -296,12 +296,42 @@ class RowPipelineMixin:
                     out = out.where(~null_mask, None)
                 return True, out
 
+            if fn == "keys" and len(node.args) == 1:
+                arg = node.args[0]
+                ok, inner = self._gfql_eval_expr_ast(table_df, arg)
+                if not ok:
+                    return False, None
+                if hasattr(inner, "astype"):
+                    null_mask = self._gfql_null_mask(table_df, inner)
+                    if hasattr(null_mask, "all") and bool(null_mask.all()):
+                        out = self._gfql_broadcast_scalar(table_df, None)
+                        if hasattr(out, "where"):
+                            out = out.where(~null_mask, None)
+                        return True, out
+                    return False, None
+                if is_null_scalar(inner):
+                    return True, None
+                if isinstance(inner, dict):
+                    return True, list(inner.keys())
+                return False, None
+
             values: List[Any] = []
             for arg in node.args:
                 ok, val = self._gfql_eval_expr_ast(table_df, arg)
                 if not ok:
                     return False, None
                 values.append(val)
+
+            if fn == "range" and len(values) in {2, 3} and not any(hasattr(value, "astype") for value in values):
+                if not all(isinstance(value, int) and not isinstance(value, bool) for value in values):
+                    return False, None
+                start = values[0]
+                stop = values[1]
+                step = values[2] if len(values) == 3 else 1
+                if step == 0:
+                    return False, None
+                inclusive_stop = stop + (1 if step > 0 else -1)
+                return True, list(range(start, inclusive_stop, step))
 
             if fn == "size" and len(values) == 1:
                 inner = values[0]

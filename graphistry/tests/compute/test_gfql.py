@@ -197,6 +197,79 @@ class TestGFQL:
 
         with pytest.raises(ValueError):
             g.gfql([n()], params={"x": 1})
+
+    @pytest.mark.parametrize(
+        ("direction", "expected"),
+        [
+            ("ASC", [{"name": "A"}, {"name": "A"}]),
+            ("DESC", [{"name": "C"}, {"name": "C"}]),
+        ],
+    )
+    def test_gfql_executes_cypher_with_order_by_source_expression(self, direction, expected):
+        nodes_df = pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b1", "c1", "c2"],
+                "type": ["person"] * 5,
+                "name": ["A", "A", "B", "C", "C"],
+            }
+        )
+        g = CGFull().nodes(nodes_df, "id").edges(pd.DataFrame({"s": [], "d": []}), "s", "d")
+
+        result = g.gfql(
+            "MATCH (a) "
+            "WITH a.name AS name "
+            f"ORDER BY a.name + 'C' {direction} "
+            "LIMIT 2 "
+            "RETURN name"
+        )
+
+        assert result._nodes.to_dict(orient="records") == expected
+
+    @pytest.mark.parametrize(
+        ("direction", "expected"),
+        [
+            ("ASC", [{"name": "A", "cnt": 2}]),
+            ("DESC", [{"name": "C", "cnt": 2}]),
+        ],
+    )
+    def test_gfql_executes_cypher_with_aggregate_order_by_source_expression(self, direction, expected):
+        nodes_df = pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b1", "c1", "c2"],
+                "type": ["person"] * 5,
+                "name": ["A", "A", "B", "C", "C"],
+            }
+        )
+        g = CGFull().nodes(nodes_df, "id").edges(pd.DataFrame({"s": [], "d": []}), "s", "d")
+
+        result = g.gfql(
+            "MATCH (a) "
+            "WITH a.name AS name, count(*) AS cnt "
+            f"ORDER BY a.name + 'C' {direction} "
+            "LIMIT 1 "
+            "RETURN name, cnt"
+        )
+
+        assert result._nodes.to_dict(orient="records") == expected
+
+    @pytest.mark.parametrize(
+        ("query", "expected"),
+        [
+            ("RETURN range(0, 3) AS vals", [{"vals": [0, 1, 2, 3]}]),
+            ("RETURN 0x1A AS literal", [{"literal": 26}]),
+            ("RETURN 0o12 AS literal", [{"literal": 10}]),
+            ("RETURN .1e2 AS literal", [{"literal": 10.0}]),
+            ("RETURN -0.0 AS literal", [{"literal": 0.0}]),
+            ("RETURN keys({k: 1, l: null}) AS ks", [{"ks": ["k", "l"]}]),
+            ("WITH null AS m RETURN keys(m) AS ks, keys(null) AS null_keys", [{"ks": None, "null_keys": None}]),
+        ],
+    )
+    def test_gfql_executes_cypher_literal_list_and_map_scalar_queries(self, query, expected):
+        g = _mk_graph(ids=["a"], types=["person"], src=[], dst=[])
+
+        result = g.gfql(query)
+
+        assert result._nodes.to_dict(orient="records") == expected
     
     def test_gfql_deprecation_and_migration(self):
         """Test deprecation warnings and migration path"""

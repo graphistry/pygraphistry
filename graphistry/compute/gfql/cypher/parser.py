@@ -212,7 +212,7 @@ COMP_OP: "=" | "<>" | "!=" | "<=" | "<" | ">=" | ">"
 SEMI: ";"
 MINUS: /-(?!-)/
 NAME: /(?!(?i:MATCH|RETURN|WITH|ORDER|BY|SKIP|LIMIT|UNWIND|WHERE|AS|ASC|ASCENDING|DESC|DESCENDING|AND|OR|XOR|NOT|IN|IS|NULL|TRUE|FALSE|CONTAINS|STARTS|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*/
-NUMBER: /[+-]?(?:\d+\.\d+|\d+)(?:[eE][+-]?\d+)?/
+NUMBER: /[+-]?(?:0[xX][0-9A-Fa-f]+|0[oO][0-7]+|(?:\d+\.\d+(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+(?:[eE][+-]?\d+)?))/
 INT: /[0-9]+/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
 REL_FWD_SIMPLE: /-->/
@@ -271,8 +271,16 @@ def _parse_string_token(token: str) -> str:
 
 
 def _parse_number_token(token: str) -> Union[int, float]:
-    if any(ch in token for ch in (".", "e", "E")):
-        return float(token)
+    sign = -1 if token.startswith("-") else 1
+    body = token[1:] if token[:1] in {"+", "-"} else token
+    lowered = body.lower()
+    if lowered.startswith("0x"):
+        return sign * int(lowered[2:], 16)
+    if lowered.startswith("0o"):
+        return sign * int(lowered[2:], 8)
+    if any(ch in body for ch in (".", "e", "E")):
+        value = float(token)
+        return 0.0 if value == 0.0 else value
     return int(token)
 
 

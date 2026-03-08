@@ -28,9 +28,21 @@ from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.predicates.comparison import ge, gt, isna, le, lt, ne, notna
 from graphistry.compute.predicates.is_in import is_in
 from graphistry.compute.gfql.expr_parser import (
+    BinaryOp,
+    CaseWhen,
+    ExprNode,
     FunctionCall,
     GFQLExprParseError,
     Identifier,
+    IsNullOp,
+    ListComprehension,
+    ListLiteral,
+    Literal as ExprLiteral,
+    MapLiteral,
+    QuantifierExpr,
+    SliceExpr,
+    SubscriptExpr,
+    UnaryOp,
     Wildcard,
     collect_identifiers,
     parse_expr,
@@ -214,6 +226,176 @@ def _cypher_literal_expr_text(value: Any) -> str:
         suggestion="Use null, booleans, numbers, strings, lists, or maps as parameter values.",
         language="cypher",
     )
+
+
+def _render_expr_node(node: ExprNode) -> str:
+    if isinstance(node, Identifier):
+        return node.name
+    if isinstance(node, ExprLiteral):
+        return _cypher_literal_expr_text(node.value)
+    if isinstance(node, UnaryOp):
+        operand = _render_expr_node(node.operand)
+        if node.op == "not":
+            return f"(NOT {operand})"
+        return f"({node.op}{operand})"
+    if isinstance(node, BinaryOp):
+        left = _render_expr_node(node.left)
+        right = _render_expr_node(node.right)
+        if node.op in {"and", "or", "xor", "in"}:
+            op_txt = node.op.upper()
+        elif node.op == "starts_with":
+            op_txt = "STARTS WITH"
+        elif node.op == "ends_with":
+            op_txt = "ENDS WITH"
+        elif node.op == "contains":
+            op_txt = "CONTAINS"
+        else:
+            op_txt = node.op
+        return f"({left} {op_txt} {right})"
+    if isinstance(node, IsNullOp):
+        suffix = "IS NOT NULL" if node.negated else "IS NULL"
+        return f"({_render_expr_node(node.value)} {suffix})"
+    if isinstance(node, FunctionCall):
+        args = ", ".join(_render_expr_node(arg) for arg in node.args)
+        if node.distinct:
+            args = f"DISTINCT {args}"
+        return f"{node.name}({args})"
+    if isinstance(node, Wildcard):
+        return "*"
+    if isinstance(node, CaseWhen):
+        return (
+            "CASE WHEN "
+            f"{_render_expr_node(node.condition)} THEN {_render_expr_node(node.when_true)} "
+            f"ELSE {_render_expr_node(node.when_false)} END"
+        )
+    if isinstance(node, QuantifierExpr):
+        return (
+            f"{node.fn.upper()}({node.var} IN {_render_expr_node(node.source)} "
+            f"WHERE {_render_expr_node(node.predicate)})"
+        )
+    if isinstance(node, ListComprehension):
+        rendered = f"[{node.var} IN {_render_expr_node(node.source)}"
+        if node.predicate is not None:
+            rendered += f" WHERE {_render_expr_node(node.predicate)}"
+        if node.projection is not None:
+            rendered += f" | {_render_expr_node(node.projection)}"
+        return rendered + "]"
+    if isinstance(node, ListLiteral):
+        return "[" + ", ".join(_render_expr_node(item) for item in node.items) + "]"
+    if isinstance(node, MapLiteral):
+        parts: List[str] = []
+        for key, value in node.items:
+            rendered_key = key if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) else _cypher_literal_expr_text(key)
+            parts.append(f"{rendered_key}: {_render_expr_node(value)}")
+        return "{" + ", ".join(parts) + "}"
+    if isinstance(node, SubscriptExpr):
+        return f"{_render_expr_node(node.value)}[{_render_expr_node(node.key)}]"
+    if isinstance(node, SliceExpr):
+        start = "" if node.start is None else _render_expr_node(node.start)
+        stop = "" if node.stop is None else _render_expr_node(node.stop)
+        return f"{_render_expr_node(node.value)}[{start}..{stop}]"
+    raise TypeError(f"Unsupported expression node type for rendering: {type(node).__name__}")
+
+
+def _rewrite_expr_identifiers(node: ExprNode, replacements: Mapping[str, str]) -> ExprNode:
+    if isinstance(node, Identifier):
+        return Identifier(replacements.get(node.name, node.name))
+    if isinstance(node, ExprLiteral):
+        return node
+    if isinstance(node, UnaryOp):
+        return UnaryOp(node.op, _rewrite_expr_identifiers(node.operand, replacements))
+    if isinstance(node, BinaryOp):
+        return BinaryOp(
+            node.op,
+            _rewrite_expr_identifiers(node.left, replacements),
+            _rewrite_expr_identifiers(node.right, replacements),
+        )
+    if isinstance(node, IsNullOp):
+        return IsNullOp(_rewrite_expr_identifiers(node.value, replacements), negated=node.negated)
+    if isinstance(node, FunctionCall):
+        return FunctionCall(
+            node.name,
+            tuple(_rewrite_expr_identifiers(arg, replacements) for arg in node.args),
+            distinct=node.distinct,
+        )
+    if isinstance(node, Wildcard):
+        return node
+    if isinstance(node, CaseWhen):
+        return CaseWhen(
+            _rewrite_expr_identifiers(node.condition, replacements),
+            _rewrite_expr_identifiers(node.when_true, replacements),
+            _rewrite_expr_identifiers(node.when_false, replacements),
+        )
+    if isinstance(node, QuantifierExpr):
+        shadowed = {
+            name: replacement
+            for name, replacement in replacements.items()
+            if name != node.var and not name.startswith(f"{node.var}.")
+        }
+        return QuantifierExpr(
+            node.fn,
+            node.var,
+            _rewrite_expr_identifiers(node.source, shadowed),
+            _rewrite_expr_identifiers(node.predicate, shadowed),
+        )
+    if isinstance(node, ListComprehension):
+        shadowed = {
+            name: replacement
+            for name, replacement in replacements.items()
+            if name != node.var and not name.startswith(f"{node.var}.")
+        }
+        return ListComprehension(
+            node.var,
+            _rewrite_expr_identifiers(node.source, shadowed),
+            predicate=None if node.predicate is None else _rewrite_expr_identifiers(node.predicate, shadowed),
+            projection=None if node.projection is None else _rewrite_expr_identifiers(node.projection, shadowed),
+        )
+    if isinstance(node, ListLiteral):
+        return ListLiteral(tuple(_rewrite_expr_identifiers(item, replacements) for item in node.items))
+    if isinstance(node, MapLiteral):
+        return MapLiteral(tuple((key, _rewrite_expr_identifiers(value, replacements)) for key, value in node.items))
+    if isinstance(node, SubscriptExpr):
+        return SubscriptExpr(
+            _rewrite_expr_identifiers(node.value, replacements),
+            _rewrite_expr_identifiers(node.key, replacements),
+        )
+    if isinstance(node, SliceExpr):
+        return SliceExpr(
+            _rewrite_expr_identifiers(node.value, replacements),
+            None if node.start is None else _rewrite_expr_identifiers(node.start, replacements),
+            None if node.stop is None else _rewrite_expr_identifiers(node.stop, replacements),
+        )
+    raise TypeError(f"Unsupported expression node type for identifier rewrite: {type(node).__name__}")
+
+
+def _rewrite_order_expr_to_projected_outputs(
+    expr_text: str,
+    *,
+    source_alias: str,
+    property_outputs: Mapping[str, str],
+    params: Optional[Mapping[str, Any]],
+    alias_targets: Mapping[str, ASTObject],
+    field: str,
+    line: int,
+    column: int,
+) -> str:
+    node = _parse_row_expr(
+        expr_text,
+        params=params,
+        alias_targets=alias_targets,
+        field=field,
+        line=line,
+        column=column,
+    )
+    replacements: Dict[str, str] = {}
+    for ident in collect_identifiers(node):
+        alias_name, prop = _split_qualified_name(ident, line=line, column=column)
+        if alias_name != source_alias or prop is None:
+            continue
+        output_name = property_outputs.get(prop)
+        if output_name is not None:
+            replacements[ident] = output_name
+    return _render_expr_node(_rewrite_expr_identifiers(node, replacements))
 
 
 def _rewrite_param_expr(
@@ -1439,7 +1621,7 @@ def _lower_order_by_clause(
                     )
                 order_key = prop if plan.whole_row_output_names else plan.projected_property_outputs.get(prop, prop)
         else:
-            if not plan.whole_row_output_names or alias_targets is None:
+            if alias_targets is None:
                 raise GFQLValidationError(
                     ErrorCode.E108,
                     "ORDER BY expressions must reference projected columns or simple source properties in this phase",
@@ -1469,26 +1651,48 @@ def _lower_order_by_clause(
                     column=item.span.column,
                     language="cypher",
                 )
-            order_key = cast(
-                str,
-                _row_expr_arg(
-                    item.expression,
+            order_key = (
+                cast(
+                    str,
+                    _row_expr_arg(
+                        item.expression,
+                        params=params,
+                        alias_targets=alias_targets,
+                        field="order_by",
+                    ),
+                )
+                if plan.whole_row_output_names
+                else _rewrite_order_expr_to_projected_outputs(
+                    item.expression.text,
+                    source_alias=plan.source_alias,
+                    property_outputs=plan.projected_property_outputs,
                     params=params,
                     alias_targets=alias_targets,
                     field="order_by",
-                ),
+                    line=item.span.line,
+                    column=item.span.column,
+                )
             )
         if not plan.whole_row_output_names and order_key not in plan.available_columns:
-            raise GFQLValidationError(
-                ErrorCode.E108,
-                "ORDER BY column must exist after RETURN/WITH projection in this phase",
+            node = _parse_row_expr(
+                order_key,
+                params=params,
                 field="order_by",
-                value=item.expression.text,
-                suggestion="Order by a projected output column or alias.",
                 line=item.span.line,
                 column=item.span.column,
-                language="cypher",
             )
+            missing = sorted(ident for ident in collect_identifiers(node) if ident not in plan.available_columns)
+            if missing:
+                raise GFQLValidationError(
+                    ErrorCode.E108,
+                    "ORDER BY column must exist after RETURN/WITH projection in this phase",
+                    field="order_by",
+                    value=item.expression.text,
+                    suggestion="Order by a projected output column or alias.",
+                    line=item.span.line,
+                    column=item.span.column,
+                    language="cypher",
+                )
         keys.append((order_key, item.direction))
     return order_by(keys)
 
@@ -1511,8 +1715,7 @@ def _lower_order_by_outputs(
                 line=item.span.line,
                 column=item.span.column,
             )
-            roots = {ident.split(".", 1)[0] for ident in collect_identifiers(node)}
-            if any(root not in available_columns for root in roots):
+            if any(ident not in available_columns for ident in collect_identifiers(node)):
                 raise _unsupported(
                     "ORDER BY column must exist after RETURN/WITH projection in this phase",
                     field="order_by",
@@ -1706,6 +1909,25 @@ def _lower_match_alias_stage(
             column=stage.clause.span.column,
         )
 
+    aggregate_specs: List[_AggregateSpec] = []
+    non_aggregate_items: List[ReturnItem] = []
+    for item in stage.clause.items:
+        agg_spec = _aggregate_spec(item, params=params, alias_targets=scope.alias_targets)
+        if agg_spec is None:
+            non_aggregate_items.append(item)
+        else:
+            aggregate_specs.append(agg_spec)
+
+    if aggregate_specs:
+        return _lower_match_alias_aggregate_stage(
+            stage,
+            scope=scope,
+            params=params,
+            aggregate_specs=aggregate_specs,
+            non_aggregate_items=non_aggregate_items,
+            final_stage=final_stage,
+        )
+
     plan = _build_projection_plan(
         stage.clause,
         alias_targets=scope.alias_targets,
@@ -1798,6 +2020,236 @@ def _lower_match_alias_stage(
 
     result_projection = _result_projection_plan(plan, alias_targets=scope.alias_targets) if final_stage else None
     return row_steps, next_scope, result_projection
+
+
+def _lower_match_alias_aggregate_stage(
+    stage: ProjectionStage,
+    *,
+    scope: _StageScope,
+    params: Optional[Mapping[str, Any]],
+    aggregate_specs: Sequence[_AggregateSpec],
+    non_aggregate_items: Sequence[ReturnItem],
+    final_stage: bool,
+) -> Tuple[List[ASTObject], _StageScope, Optional[ResultProjectionPlan]]:
+    if stage.clause.distinct:
+        raise _unsupported(
+            "Cypher DISTINCT with aggregate RETURN/WITH is not yet supported in local lowering",
+            field=stage.clause.kind,
+            value=[item.expression.text for item in stage.clause.items],
+            line=stage.clause.span.line,
+            column=stage.clause.span.column,
+        )
+
+    active_alias = scope.active_alias
+    if active_alias is None:
+        raise _unsupported(
+            "Cypher aggregate row lowering requires an active MATCH alias",
+            field=stage.clause.kind,
+            value=[item.expression.text for item in stage.clause.items],
+            line=stage.clause.span.line,
+            column=stage.clause.span.column,
+        )
+
+    projection_fn = with_ if stage.clause.kind == "with" else return_
+    pre_items: List[Tuple[str, Any]] = []
+    key_names: List[str] = []
+    temp_names: Set[str] = set()
+    available_columns: Set[str] = set()
+    expr_to_output: Dict[str, str] = {}
+    projected_property_outputs: Dict[str, str] = {}
+    output_to_source_property: Dict[str, str] = {}
+
+    for item in non_aggregate_items:
+        if item.expression.text in scope.alias_targets:
+            raise _unsupported(
+                "Cypher aggregate RETURN/WITH does not yet support whole-row alias grouping",
+                field=stage.clause.kind,
+                value=item.expression.text,
+                line=item.span.line,
+                column=item.span.column,
+            )
+        output_name = item.alias or item.expression.text
+        if output_name in available_columns:
+            raise _unsupported(
+                "Duplicate Cypher projection names are not yet supported in local lowering",
+                field=stage.clause.kind,
+                value=output_name,
+                line=item.span.line,
+                column=item.span.column,
+            )
+        _validate_row_expr_scope(
+            item.expression.text,
+            alias_targets=scope.alias_targets,
+            active_match_alias=active_alias,
+            unwind_aliases=set(),
+            params=params,
+            field=stage.clause.kind,
+            line=item.span.line,
+            column=item.span.column,
+        )
+        pre_items.append(
+            (
+                output_name,
+                _row_expr_arg(
+                    item.expression,
+                    params=params,
+                    alias_targets=scope.alias_targets,
+                    field=stage.clause.kind,
+                ),
+            )
+        )
+        key_names.append(output_name)
+        available_columns.add(output_name)
+        _add_output_mapping(
+            expr_to_output,
+            source_expr=item.expression.text,
+            output_name=output_name,
+            alias_name=item.alias,
+        )
+        try:
+            alias_name, prop = _projection_ref_from_expr(
+                item.expression.text,
+                alias_targets=scope.alias_targets,
+                field=stage.clause.kind,
+                line=item.span.line,
+                column=item.span.column,
+            )
+        except GFQLValidationError:
+            continue
+        if alias_name == active_alias and prop is not None:
+            projected_property_outputs.setdefault(prop, output_name)
+            output_to_source_property[output_name] = prop
+
+    aggregations: List[Sequence[Any]] = []
+    for agg_spec in aggregate_specs:
+        if agg_spec.output_name in available_columns:
+            raise _unsupported(
+                "Duplicate Cypher projection names are not yet supported in local lowering",
+                field=stage.clause.kind,
+                value=agg_spec.output_name,
+                line=agg_spec.span_line,
+                column=agg_spec.span_column,
+            )
+        runtime_func, runtime_expr = _aggregate_runtime_spec(
+            agg_spec,
+            alias_targets=scope.alias_targets,
+        )
+        if runtime_expr is None:
+            aggregations.append((agg_spec.output_name, runtime_func))
+        else:
+            expr_text_obj = ExpressionText(
+                text=runtime_expr,
+                span=SourceSpan(
+                    line=agg_spec.span_line,
+                    column=agg_spec.span_column,
+                    end_line=agg_spec.span_line,
+                    end_column=agg_spec.span_column,
+                    start_pos=0,
+                    end_pos=0,
+                ),
+            )
+            _validate_row_expr_scope(
+                runtime_expr,
+                alias_targets=scope.alias_targets,
+                active_match_alias=active_alias,
+                unwind_aliases=set(),
+                params=params,
+                field=stage.clause.kind,
+                line=agg_spec.span_line,
+                column=agg_spec.span_column,
+            )
+            temp_name = _fresh_temp_name(temp_names, "__cypher_agg__")
+            pre_items.append(
+                (
+                    temp_name,
+                    _row_expr_arg(
+                        expr_text_obj,
+                        params=params,
+                        alias_targets=scope.alias_targets,
+                        field=stage.clause.kind,
+                    ),
+                )
+            )
+            aggregations.append((agg_spec.output_name, runtime_func, temp_name))
+        available_columns.add(agg_spec.output_name)
+        _add_output_mapping(
+            expr_to_output,
+            source_expr=agg_spec.source_text,
+            output_name=agg_spec.output_name,
+            alias_name=agg_spec.output_name,
+        )
+
+    row_steps: List[ASTObject] = []
+    if key_names:
+        if pre_items:
+            row_steps.append(with_(pre_items))
+        row_steps.append(group_by(key_names, aggregations))
+    else:
+        global_key = _fresh_temp_name(temp_names, "__cypher_group__")
+        row_steps.append(with_([(global_key, 1)] + pre_items))
+        row_steps.append(group_by([global_key], aggregations))
+        row_steps.append(projection_fn([(agg.output_name, agg.output_name) for agg in aggregate_specs]))
+        available_columns = {agg.output_name for agg in aggregate_specs}
+        expr_to_output = {agg.source_text: agg.output_name for agg in aggregate_specs}
+        projected_property_outputs = {}
+        output_to_source_property = {}
+
+    if stage.where is not None:
+        _validate_row_expr_scope(
+            stage.where.text,
+            alias_targets={},
+            active_match_alias=None,
+            unwind_aliases=available_columns,
+            params=params,
+            field="with.where",
+            line=stage.where.span.line,
+            column=stage.where.span.column,
+        )
+        row_steps.append(
+            where_rows(
+                expr=_row_expr_arg(
+                    stage.where,
+                    params=params,
+                    alias_targets={},
+                    field="with.where",
+                )
+            )
+        )
+    if stage.order_by is not None:
+        row_steps.append(
+            _lower_order_by_clause(
+                stage.order_by,
+                plan=_ProjectionPlan(
+                    source_alias=active_alias,
+                    table=scope.table or "nodes",
+                    whole_row_output_names=[],
+                    clause_kind=stage.clause.kind,
+                    projection_items=[],
+                    projection_columns=[],
+                    available_columns=available_columns,
+                    projected_property_outputs=projected_property_outputs,
+                    output_to_source_property=output_to_source_property,
+                ),
+                alias_targets=scope.alias_targets,
+                params=params,
+            )
+        )
+    _append_page_ops_values(
+        row_steps,
+        skip_clause=stage.skip,
+        limit_clause=stage.limit,
+        params=params,
+    )
+
+    return row_steps, _StageScope(
+        mode="row_columns",
+        alias_targets={},
+        active_alias=None,
+        row_columns=set(available_columns),
+        projected_columns={},
+        table=None,
+        seed_rows=scope.seed_rows,
+    ), None if final_stage else None
 
 
 def _lower_row_column_stage(

@@ -121,6 +121,23 @@ def test_parse_return_xor_precedence_expression() -> None:
     assert parsed.return_.items[0].expression.text == "true OR true XOR false AND false"
 
 
+@pytest.mark.parametrize(
+    "query,expr_text",
+    [
+        ("RETURN 0x1 AS literal", "0x1"),
+        ("RETURN -0x1 AS literal", "-0x1"),
+        ("RETURN 0o7 AS literal", "0o7"),
+        ("RETURN -0o7 AS literal", "-0o7"),
+        ("RETURN .1e9 AS literal", ".1e9"),
+        ("RETURN -.1e-5 AS literal", "-.1e-5"),
+    ],
+)
+def test_parse_numeric_literal_forms(query: str, expr_text: str) -> None:
+    parsed = parse_cypher(query)
+
+    assert parsed.return_.items[0].expression.text == expr_text
+
+
 def test_parse_with_where_pipeline() -> None:
     parsed = parse_cypher("UNWIND [true, false, null] AS a WITH a WHERE a IS NULL RETURN a")
 

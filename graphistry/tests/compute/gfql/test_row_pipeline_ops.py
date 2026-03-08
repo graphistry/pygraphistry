@@ -219,6 +219,26 @@ class TestRowPipelineASTPrimitives:
         assert step.function == function
         assert step.params == params
 
+
+def test_row_pipeline_select_supports_range_scalar_function() -> None:
+    nodes_df = pd.DataFrame({"id": ["a"]})
+
+    result = _run_node_steps(nodes_df, [rows(), select([("vals", "range(0, 3)")])], edges_df=_self_loop_edges(nodes_df))
+
+    assert _normalize_records(result.to_dict(orient="records")) == [{"vals": [0, 1, 2, 3]}]
+
+
+def test_row_pipeline_select_supports_keys_for_map_literals_and_nulls() -> None:
+    nodes_df = pd.DataFrame({"id": ["a"]})
+
+    result = _run_node_steps(
+        nodes_df,
+        [rows(), select([("ks", "keys({k: 1, l: null})"), ("null_keys", "keys(null)")])],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert _normalize_records(result.to_dict(orient="records")) == [{"ks": ["k", "l"], "null_keys": None}]
+
     @pytest.mark.parametrize(
         ("step", "function", "params"),
         [
@@ -474,7 +494,7 @@ class TestRowPipelineExecution:
             pytest.param(
                 {"id": ["a", "b", "c", "d"], "x": [1, 2, None, 4], "lst": [[1, 2], [2, 3], [], None]},
                 "NOT (x IN lst) OR x IS NULL",
-                ["c", "d"],
+                ["c"],
                 id="is-null-or-precedence",
             ),
         ],

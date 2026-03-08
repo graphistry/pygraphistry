@@ -1140,6 +1140,64 @@ def test_lower_cypher_query_builds_with_aggregate_pipeline() -> None:
     assert final_call.params["items"] == [("n", "size(xs)")]
 
 
+def test_lower_cypher_query_builds_match_alias_with_expression_order_pipeline() -> None:
+    parsed = parse_cypher(
+        "MATCH (a) WITH a.name AS name ORDER BY a.name + 'C' ASC LIMIT 2 RETURN name"
+    )
+
+    chain = lower_cypher_query(parsed)
+
+    row_call = cast(ASTCall, chain.chain[1])
+    with_call = cast(ASTCall, chain.chain[2])
+    order_call = cast(ASTCall, chain.chain[3])
+    limit_call = cast(ASTCall, chain.chain[4])
+    final_call = cast(ASTCall, chain.chain[5])
+
+    assert [row_call.function, with_call.function, order_call.function, limit_call.function, final_call.function] == [
+        "rows",
+        "with_",
+        "order_by",
+        "limit",
+        "select",
+    ]
+    assert with_call.params["items"] == [("name", "name")]
+    assert order_call.params["keys"] == [("(name + 'C')", "asc")]
+    assert limit_call.params["value"] == 2
+    assert final_call.params["items"] == [("name", "name")]
+
+
+def test_lower_cypher_query_builds_match_alias_with_aggregate_group_by_pipeline() -> None:
+    parsed = parse_cypher(
+        "MATCH (a) WITH a.name AS name, count(*) AS cnt ORDER BY a.name + 'C' DESC LIMIT 1 RETURN name, cnt"
+    )
+
+    chain = lower_cypher_query(parsed)
+
+    row_call = cast(ASTCall, chain.chain[1])
+    with_call = cast(ASTCall, chain.chain[2])
+    group_call = cast(ASTCall, chain.chain[3])
+    order_call = cast(ASTCall, chain.chain[4])
+    limit_call = cast(ASTCall, chain.chain[5])
+    final_call = cast(ASTCall, chain.chain[6])
+
+    assert [row_call.function, with_call.function, group_call.function, order_call.function, limit_call.function, final_call.function] == [
+        "rows",
+        "with_",
+        "group_by",
+        "order_by",
+        "limit",
+        "select",
+    ]
+    assert with_call.params["items"] == [("name", "a.name")]
+    assert group_call.params == {
+        "keys": ["name"],
+        "aggregations": [("cnt", "count")],
+    }
+    assert order_call.params["keys"] == [("(name + 'C')", "desc")]
+    assert limit_call.params["value"] == 1
+    assert final_call.params["items"] == [("name", "name"), ("cnt", "cnt")]
+
+
 def test_lower_cypher_query_maps_count_distinct_edge_alias_to_identity() -> None:
     parsed = parse_cypher("MATCH (a)-[r]->(b) RETURN count(DISTINCT r)")
 

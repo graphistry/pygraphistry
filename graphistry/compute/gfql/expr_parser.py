@@ -254,7 +254,7 @@ literal: "NULL"i                            -> null_lit
 COMP_OP: __GFQL_COMPARISON_GRAMMAR_ALTS__
 MINUS: /-(?!-)/
 NAME: /(?!(?i:AND|OR|XOR|NOT|IN|IS|NULL|CASE|WHEN|THEN|ELSE|END|CONTAINS|STARTS|WITH|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*/
-NUMBER: /[+-]?(?:\d+\.\d+|\d+)(?:[eE][+-]?\d+)?/
+NUMBER: /[+-]?(?:0[xX][0-9A-Fa-f]+|0[oO][0-7]+|(?:\d+\.\d+(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+(?:[eE][+-]?\d+)?))/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
 LINE_COMMENT: /--[^\n]*/
 BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
@@ -305,8 +305,16 @@ def _parse_string_token(token: str) -> str:
 
 
 def _parse_number_token(token: str) -> Union[int, float]:
-    if any(c in token for c in (".", "e", "E")):
-        return float(token)
+    sign = -1 if token.startswith("-") else 1
+    body = token[1:] if token[:1] in {"+", "-"} else token
+    lowered = body.lower()
+    if lowered.startswith("0x"):
+        return sign * int(lowered[2:], 16)
+    if lowered.startswith("0o"):
+        return sign * int(lowered[2:], 8)
+    if any(c in body for c in (".", "e", "E")):
+        value = float(token)
+        return 0.0 if value == 0.0 else value
     return int(token)
 
 
