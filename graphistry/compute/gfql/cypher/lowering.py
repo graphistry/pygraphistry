@@ -24,6 +24,7 @@ from graphistry.compute.ast import (
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.predicates.comparison import ge, gt, isna, le, lt, ne, notna
+from graphistry.compute.predicates.is_in import is_in
 from graphistry.compute.gfql.expr_parser import (
     FunctionCall,
     GFQLExprParseError,
@@ -409,16 +410,10 @@ def _filter_dict_from_entries(
     column: int,
 ) -> Optional[Dict[str, Any]]:
     out: Dict[str, Any] = {}
-    if len(discriminator_values) > 1:
-        raise _unsupported(
-            "Multiple labels/types are not yet supported by local Cypher lowering",
-            field=field_prefix,
-            value=list(discriminator_values),
-            line=line,
-            column=column,
-        )
     if discriminator_key is not None and len(discriminator_values) == 1:
         out[discriminator_key] = discriminator_values[0]
+    elif discriminator_key is not None and len(discriminator_values) > 1:
+        out[discriminator_key] = is_in(list(discriminator_values))
     for entry in properties:
         out[entry.key] = _resolve_literal(
             entry.value,
@@ -571,6 +566,54 @@ def _split_qualified_name(expr: str, *, line: int, column: int) -> Tuple[str, Op
     )
 
 
+def _projection_ref_from_expr(
+    expr: str,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    field: str,
+    line: int,
+    column: int,
+) -> Tuple[str, Optional[str]]:
+    node = _parse_row_expr(expr, field=field, line=line, column=column)
+    if isinstance(node, Identifier):
+        return _split_qualified_name(node.name, line=line, column=column)
+    if isinstance(node, FunctionCall) and node.name == "type":
+        if len(node.args) != 1 or not isinstance(node.args[0], Identifier):
+            raise _unsupported(
+                "type(...) is only supported with a single relationship alias argument in this phase",
+                field=field,
+                value=expr,
+                line=line,
+                column=column,
+            )
+        alias_name, prop = _split_qualified_name(node.args[0].name, line=line, column=column)
+        if prop is not None:
+            raise _unsupported(
+                "type(...) only supports bare relationship aliases in this phase",
+                field=field,
+                value=expr,
+                line=line,
+                column=column,
+            )
+        target = alias_targets.get(alias_name)
+        if not isinstance(target, ASTEdge):
+            raise _unsupported(
+                "type(...) is only supported for relationship aliases in this phase",
+                field=field,
+                value=expr,
+                line=line,
+                column=column,
+            )
+        return alias_name, "type"
+    raise _unsupported(
+        "Only simple aliases, alias.property, and type(rel_alias) expressions are supported in Cypher RETURN/ORDER BY",
+        field=field,
+        value=expr,
+        line=line,
+        column=column,
+    )
+
+
 def _build_projection_plan(
     clause: ReturnClause,
     *,
@@ -583,8 +626,10 @@ def _build_projection_plan(
     projected_property_outputs: Dict[str, str] = {}
 
     for item in clause.items:
-        alias_name, prop = _split_qualified_name(
+        alias_name, prop = _projection_ref_from_expr(
             item.expression.text,
+            alias_targets=alias_targets,
+            field=f"{clause.kind}.items",
             line=item.span.line,
             column=item.span.column,
         )
@@ -626,10 +671,9 @@ def _build_projection_plan(
                 )
             whole_row = True
             continue
-        output_name = item.alias or prop
+        output_name = item.alias or item.expression.text
         projection_items.append((output_name, prop))
         available_columns.add(output_name)
-        available_columns.add(prop)
         projected_property_outputs.setdefault(prop, output_name)
 
     if source_alias is None:

@@ -4,6 +4,7 @@ from typing import cast
 
 from graphistry.compute.ast import ASTCall, ASTNode, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.predicates.is_in import IsIn
 from graphistry.compute.gfql.cypher import (
     compile_cypher,
     cypher_to_gfql,
@@ -66,6 +67,19 @@ def test_lower_match_clause_relationship_direction(query: str, edge_type: type) 
     assert parsed.match is not None
     ops = lower_match_clause(parsed.match)
     assert isinstance(ops[1], edge_type)
+
+
+def test_lower_match_clause_relationship_type_alternation_uses_is_in_predicate() -> None:
+    parsed = parse_cypher("MATCH (n)-[r:KNOWS|HATES]->(x) RETURN r")
+    assert parsed.match is not None
+
+    ops = lower_match_clause(parsed.match)
+
+    assert isinstance(ops[1], ASTEdgeForward)
+    assert isinstance(ops[1].edge_match, dict)
+    type_predicate = ops[1].edge_match["type"]
+    assert isinstance(type_predicate, IsIn)
+    assert type_predicate.options == ["KNOWS", "HATES"]
 
 
 def test_lower_match_clause_executes_through_gfql_runtime() -> None:
@@ -247,6 +261,25 @@ def test_lower_match_query_executes_bracketless_relationship_with_labeled_alias_
     ]
 
 
+def test_cypher_to_gfql_executes_relationship_type_alternation() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "a", "a"],
+            "d": ["b", "c", "b"],
+            "type": ["KNOWS", "HATES", "LIKES"],
+        }
+    )
+
+    chain = cypher_to_gfql("MATCH (n)-[r:KNOWS|HATES]->(x) RETURN r")
+    result = _mk_graph(nodes, edges).gfql(chain)
+
+    assert result._nodes[["s", "d", "type"]].to_dict(orient="records") == [
+        {"s": "a", "d": "b", "type": "KNOWS"},
+        {"s": "a", "d": "c", "type": "HATES"},
+    ]
+
+
 def test_lower_cypher_query_builds_row_pipeline_chain() -> None:
     parsed = parse_cypher(
         "MATCH (p:Person) RETURN DISTINCT p.name AS person_name ORDER BY person_name DESC SKIP 1 LIMIT 2"
@@ -310,6 +343,42 @@ def test_cypher_to_gfql_executes_whole_row_alias_pipeline() -> None:
     assert result._nodes[["id", "type", "score"]].to_dict(orient="records") == [
         {"id": "b", "type": "Person", "score": 9}
     ]
+
+
+def test_cypher_to_gfql_executes_relationship_type_projection() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b"]})
+    edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["KNOWS"]})
+
+    chain = cypher_to_gfql("MATCH ()-[r]->() RETURN type(r) AS rel_type")
+    result = _mk_graph(nodes, edges).gfql(chain)
+
+    assert result._nodes.to_dict(orient="records") == [{"rel_type": "KNOWS"}]
+
+
+def test_cypher_to_gfql_preserves_default_property_output_name() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a"],
+            "type": ["Person"],
+            "name": ["Alice"],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    chain = cypher_to_gfql("MATCH (p) RETURN p.name")
+    result = _mk_graph(nodes, edges).gfql(chain)
+
+    assert result._nodes.to_dict(orient="records") == [{"p.name": "Alice"}]
+
+
+def test_cypher_to_gfql_preserves_default_relationship_type_output_name() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b"]})
+    edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["KNOWS"]})
+
+    chain = cypher_to_gfql("MATCH ()-[r]->() RETURN type(r)")
+    result = _mk_graph(nodes, edges).gfql(chain)
+
+    assert result._nodes.to_dict(orient="records") == [{"type(r)": "KNOWS"}]
 
 
 def test_cypher_to_gfql_uses_terminal_with_projection() -> None:

@@ -60,8 +60,7 @@ rel_forward_simple: REL_FWD_SIMPLE
 rel_reverse_simple: REL_REV_SIMPLE
 rel_undirected_simple: REL_UNDIR_SIMPLE
 
-rel_types: rel_type+
-rel_type: ":" NAME
+rel_types: ":" NAME ("|" ":"? NAME)*
 
 variable: NAME
 
@@ -317,11 +316,6 @@ def _build_transformer(source: str) -> _TransformerLike:
 
         def labels(self, _meta: Any, items: Sequence[Any]) -> Tuple[str, ...]:
             return tuple(str(item) for item in items)
-
-        def rel_type(self, meta: Any, items: Sequence[Any]) -> str:
-            if len(items) != 1:
-                raise _to_syntax_error("Invalid relationship type", line=meta.line, column=meta.column)
-            return str(items[0])
 
         def rel_types(self, _meta: Any, items: Sequence[Any]) -> Tuple[str, ...]:
             return tuple(str(item) for item in items)

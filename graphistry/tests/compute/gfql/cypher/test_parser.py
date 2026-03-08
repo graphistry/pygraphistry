@@ -125,6 +125,24 @@ def test_parse_where_label_predicate() -> None:
     assert left.labels == ("Foo", "Bar")
 
 
+def test_parse_relationship_type_alternation() -> None:
+    parsed = parse_cypher("MATCH (a)-[r:KNOWS|HATES]->(b) RETURN r")
+
+    assert parsed.match is not None
+    rel = parsed.match.pattern[1]
+    assert isinstance(rel, RelationshipPattern)
+    assert rel.types == ("KNOWS", "HATES")
+
+
+def test_parse_relationship_type_alternation_with_repeated_colon() -> None:
+    parsed = parse_cypher("MATCH (a)-[:T|:OTHER]->(b) RETURN b")
+
+    assert parsed.match is not None
+    rel = parsed.match.pattern[1]
+    assert isinstance(rel, RelationshipPattern)
+    assert rel.types == ("T", "OTHER")
+
+
 def test_parse_return_pipeline_clauses() -> None:
     parsed = parse_cypher(
         "MATCH (p:Person) RETURN DISTINCT p.name AS person_name ORDER BY person_name DESC, p.id ASC SKIP 1 LIMIT 2;"
