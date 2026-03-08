@@ -45,11 +45,11 @@ def test_lower_match_clause_to_gfql_ops() -> None:
     assert isinstance(ops[1], ASTEdgeForward)
     assert isinstance(ops[2], ASTNode)
 
-    assert ops[0].filter_dict == {"type": "Person", "id": 1}
+    assert ops[0].filter_dict == {"label__Person": True, "id": 1}
     assert ops[0]._name == "p"
     assert ops[1].edge_match == {"type": "FOLLOWS"}
     assert ops[1]._name == "r"
-    assert ops[2].filter_dict == {"type": "Person", "active": True}
+    assert ops[2].filter_dict == {"label__Person": True, "active": True}
     assert ops[2]._name == "q"
 
 
@@ -72,6 +72,34 @@ def test_lower_match_clause_executes_through_gfql_runtime() -> None:
         {
             "id": ["a", "b", "c"],
             "type": ["Person", "Person", "Company"],
+            "name": ["Alice", "Bob", "Acme"],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "b"],
+            "d": ["b", "c"],
+            "type": ["FOLLOWS", "WORKS_AT"],
+        }
+    )
+
+    parsed = parse_cypher("MATCH (p:Person {name: 'Alice'})-[r:FOLLOWS]->(q:Person) RETURN p, q")
+    assert parsed.match is not None
+    ops = lower_match_clause(parsed.match)
+    result = _mk_graph(nodes, edges).gfql(ops)
+
+    assert sorted(result._nodes["id"].tolist()) == ["a", "b"]
+    assert result._edges[["s", "d", "type"]].to_dict(orient="records") == [
+        {"s": "a", "d": "b", "type": "FOLLOWS"}
+    ]
+
+
+def test_lower_match_clause_executes_against_label_boolean_columns() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c"],
+            "label__Person": [True, True, False],
+            "label__Company": [False, False, True],
             "name": ["Alice", "Bob", "Acme"],
         }
     )

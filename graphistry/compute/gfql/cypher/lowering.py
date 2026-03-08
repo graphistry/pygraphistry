@@ -429,14 +429,25 @@ def _filter_dict_from_entries(
 
 def _lower_node(node: NodePattern, *, params: Optional[Mapping[str, Any]]) -> ASTNode:
     filter_dict = _filter_dict_from_entries(
-        discriminator_key="type",
-        discriminator_values=node.labels,
+        discriminator_key=None,
+        discriminator_values=(),
         properties=node.properties,
         params=params,
         field_prefix=f"node.{node.variable or '_'}",
         line=node.span.line,
         column=node.span.column,
     )
+    if node.labels:
+        if len(node.labels) > 1:
+            raise _unsupported(
+                "Multiple node labels are not yet supported by local Cypher lowering",
+                field=f"node.{node.variable or '_'}",
+                value=list(node.labels),
+                line=node.span.line,
+                column=node.span.column,
+            )
+        filter_dict = dict(filter_dict or {})
+        filter_dict[f"label__{node.labels[0]}"] = True
     return ASTNode(filter_dict=filter_dict, name=node.variable)
 
 

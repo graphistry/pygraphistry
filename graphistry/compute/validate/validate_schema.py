@@ -4,6 +4,7 @@ from typing import List, Optional, Union, TYPE_CHECKING, cast, Tuple, Set
 import pandas as pd
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTCall
+from graphistry.compute.filter_by_dict import resolve_filter_column
 
 if TYPE_CHECKING:
     from graphistry.compute.chain import Chain
@@ -152,8 +153,9 @@ def _validate_filter_dict(
     errors = []
     for col, val in filter_dict.items():
         try:
-            # Check column exists
-            if col not in columns:
+            try:
+                resolved_col, resolved_val = resolve_filter_column(df, col, val)
+            except GFQLSchemaError:
                 error = GFQLSchemaError(
                     ErrorCode.E301,
                     f'Column "{col}" does not exist in {context} dataframe',
@@ -163,21 +165,35 @@ def _validate_filter_dict(
                 )
                 if collect_all:
                     errors.append(error)
+                    continue
+                raise error
+
+            # Check column exists
+            if resolved_col not in columns:
+                error = GFQLSchemaError(
+                    ErrorCode.E301,
+                    f'Column "{col}" does not exist in {context} dataframe',
+                    field=col,
+                    value=resolved_val,
+                    suggestion=f'Available columns: {", ".join(sorted(columns)[:10])}{"..." if len(columns) > 10 else ""}'
+                )
+                if collect_all:
+                    errors.append(error)
                     continue  # Check next field
                 else:
                     raise error
 
             # Check type compatibility
-            col_dtype = df[col].dtype
+            col_dtype = df[resolved_col].dtype
 
-            if not isinstance(val, ASTPredicate):
+            if not isinstance(resolved_val, ASTPredicate):
                 # Check literal value type matches
-                if pd.api.types.is_numeric_dtype(col_dtype) and isinstance(val, str):
+                if pd.api.types.is_numeric_dtype(col_dtype) and isinstance(resolved_val, str):
                     error = GFQLSchemaError(
                         ErrorCode.E302,
-                        f'Type mismatch: {context} column "{col}" is numeric but filter value is string',
+                        f'Type mismatch: {context} column "{resolved_col}" is numeric but filter value is string',
                         field=col,
-                        value=val,
+                        value=resolved_val,
                         column_type=str(col_dtype),
                         suggestion=f'Use a numeric value like {col}=123'
                     )
@@ -185,12 +201,12 @@ def _validate_filter_dict(
                         errors.append(error)
                     else:
                         raise error
-                elif pd.api.types.is_string_dtype(col_dtype) and isinstance(val, (int, float)) and not isinstance(val, bool):
+                elif pd.api.types.is_string_dtype(col_dtype) and isinstance(resolved_val, (int, float)) and not isinstance(resolved_val, bool):
                     error = GFQLSchemaError(
                         ErrorCode.E302,
-                        f'Type mismatch: {context} column "{col}" is string but filter value is numeric',
+                        f'Type mismatch: {context} column "{resolved_col}" is string but filter value is numeric',
                         field=col,
-                        value=val,
+                        value=resolved_val,
                         column_type=str(col_dtype),
                         suggestion=f'Use a string value like {col}="value"'
                     )
@@ -200,12 +216,12 @@ def _validate_filter_dict(
                         raise error
             else:
                 # Check predicate type matches column type
-                if isinstance(val, (NumericASTPredicate, Between)) and not pd.api.types.is_numeric_dtype(col_dtype):
+                if isinstance(resolved_val, (NumericASTPredicate, Between)) and not pd.api.types.is_numeric_dtype(col_dtype):
                     error = GFQLSchemaError(
                         ErrorCode.E302,
-                        f'Type mismatch: numeric predicate used on non-numeric {context} column "{col}"',
+                        f'Type mismatch: numeric predicate used on non-numeric {context} column "{resolved_col}"',
                         field=col,
-                        value=f"{val.__class__.__name__}(...)",
+                        value=f"{resolved_val.__class__.__name__}(...)",
                         column_type=str(col_dtype),
                         suggestion='Use string predicates like contains() or startswith() for string columns'
                     )
@@ -214,12 +230,12 @@ def _validate_filter_dict(
                     else:
                         raise error
 
-                if isinstance(val, (Contains, Startswith, Endswith, Match, Fullmatch)) and not pd.api.types.is_string_dtype(col_dtype):
+                if isinstance(resolved_val, (Contains, Startswith, Endswith, Match, Fullmatch)) and not pd.api.types.is_string_dtype(col_dtype):
                     error = GFQLSchemaError(
                         ErrorCode.E302,
-                        f'Type mismatch: string predicate used on non-string {context} column "{col}"',
+                        f'Type mismatch: string predicate used on non-string {context} column "{resolved_col}"',
                         field=col,
-                        value=f"{val.__class__.__name__}(...)",
+                        value=f"{resolved_val.__class__.__name__}(...)",
                         column_type=str(col_dtype),
                         suggestion='Use numeric predicates like gt() or lt() for numeric columns'
                     )
