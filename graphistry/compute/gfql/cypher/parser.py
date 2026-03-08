@@ -14,18 +14,21 @@ from graphistry.compute.gfql.cypher.ast import (
     NodePattern,
     ParameterRef,
     PatternElement,
+    PropertyRef,
     PropertyEntry,
     RelationshipPattern,
     ReturnClause,
     ReturnItem,
     SourceSpan,
+    WhereClause,
+    WherePredicate,
 )
 
 
 _GRAMMAR = r"""
 ?start: query
 
-query: match_clause return_clause SEMI?
+query: match_clause where_clause? return_clause SEMI?
 
 match_clause: "MATCH"i pattern
 pattern: node_pattern (relationship_pattern node_pattern)*
@@ -50,6 +53,13 @@ variable: NAME
 properties: "{" [property_entry ("," property_entry)*] "}"
 property_entry: NAME ":" value
 
+where_clause: "WHERE"i where_predicate ("AND"i where_predicate)*
+where_predicate: property_ref COMP_OP where_rhs -> cmp_where
+               | property_ref "IS"i "NULL"i -> is_null_where
+               | property_ref "IS"i "NOT"i "NULL"i -> is_not_null_where
+where_rhs: property_ref
+         | value
+
 return_clause: "RETURN"i distinct? return_item ("," return_item)*
 distinct: "DISTINCT"i
 return_item: return_expr alias?
@@ -57,6 +67,7 @@ return_expr: qualified_name
 alias: "AS"i NAME
 
 qualified_name: NAME ("." NAME)*
+property_ref: NAME "." NAME
 
 ?value: parameter
       | literal
@@ -68,6 +79,8 @@ literal: "NULL"i    -> null_lit
        | "FALSE"i   -> false_lit
        | NUMBER     -> number_lit
        | STRING     -> string_lit
+
+COMP_OP: "=" | "<>" | "!=" | "<=" | "<" | ">=" | ">"
 
 SEMI: ";"
 NAME: /[A-Za-z_][A-Za-z0-9_]*/
@@ -163,6 +176,15 @@ def _to_syntax_error(message: str, *, line: Optional[int] = None, column: Option
 
 def _build_transformer(source: str) -> _TransformerLike:
     _, Transformer, _, v_args = _lark_imports()
+    op_map = {
+        "=": "==",
+        "!=": "!=",
+        "<>": "!=",
+        "<": "<",
+        "<=": "<=",
+        ">": ">",
+        ">=": ">=",
+    }
 
     @v_args(meta=True)  # type: ignore[misc]
     class _CypherAstBuilder(Transformer):  # type: ignore[valid-type,misc]
@@ -296,6 +318,58 @@ def _build_transformer(source: str) -> _TransformerLike:
             span = _span_from_meta(meta)
             return _ExpressionSlice(text=self._slice(span).strip(), span=span)
 
+        def property_ref(self, meta: Any, items: Sequence[Any]) -> PropertyRef:
+            if len(items) != 2:
+                raise _to_syntax_error("Invalid property reference", line=meta.line, column=meta.column)
+            return PropertyRef(alias=str(items[0]), property=str(items[1]), span=_span_from_meta(meta))
+
+        def where_rhs(self, _meta: Any, items: Sequence[Any]) -> object:
+            if len(items) != 1:
+                raise _to_syntax_error("Invalid WHERE right-hand side")
+            return items[0]
+
+        def cmp_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
+            if len(items) != 3:
+                raise _to_syntax_error("Invalid WHERE comparison", line=meta.line, column=meta.column)
+            left = cast(PropertyRef, items[0])
+            op_token = str(items[1])
+            right = cast(object, items[2])
+            op = op_map.get(op_token)
+            if op is None:
+                raise _to_syntax_error("Unsupported WHERE comparison operator", line=meta.line, column=meta.column)
+            return WherePredicate(
+                left=left,
+                op=cast(Any, op),
+                right=cast(Any, right),
+                span=_span_from_meta(meta),
+            )
+
+        def is_null_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
+            if len(items) != 1:
+                raise _to_syntax_error("Invalid WHERE IS NULL predicate", line=meta.line, column=meta.column)
+            return WherePredicate(
+                left=cast(PropertyRef, items[0]),
+                op="is_null",
+                right=None,
+                span=_span_from_meta(meta),
+            )
+
+        def is_not_null_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
+            if len(items) != 1:
+                raise _to_syntax_error("Invalid WHERE IS NOT NULL predicate", line=meta.line, column=meta.column)
+            return WherePredicate(
+                left=cast(PropertyRef, items[0]),
+                op="is_not_null",
+                right=None,
+                span=_span_from_meta(meta),
+            )
+
+        def where_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
+            predicates = tuple(cast(WherePredicate, item) for item in items)
+            if len(predicates) == 0:
+                raise _to_syntax_error("WHERE clause cannot be empty", line=meta.line, column=meta.column)
+            return WhereClause(predicates=predicates, span=_span_from_meta(meta))
+
         def return_expr(self, _meta: Any, items: Sequence[Any]) -> _ExpressionSlice:
             if len(items) != 1:
                 raise _to_syntax_error("Invalid RETURN expression")
@@ -338,9 +412,11 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("Cypher query must contain MATCH and RETURN clauses", line=meta.line, column=meta.column)
             trailing_semicolon = any(str(item) == ";" for item in items)
             match_clause = cast(MatchClause, items[0])
-            return_clause = cast(ReturnClause, items[1])
+            where_clause = cast(Optional[WhereClause], items[1] if len(items) > 2 and isinstance(items[1], WhereClause) else None)
+            return_clause = cast(ReturnClause, items[2] if where_clause is not None else items[1])
             return CypherQuery(
                 match=match_clause,
+                where=where_clause,
                 return_=return_clause,
                 trailing_semicolon=trailing_semicolon,
                 span=_span_from_meta(meta),

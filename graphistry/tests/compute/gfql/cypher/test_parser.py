@@ -74,6 +74,29 @@ def test_parse_reports_trailing_semicolon() -> None:
     assert parsed.trailing_semicolon is True
 
 
+def test_parse_where_clause() -> None:
+    parsed = parse_cypher("MATCH (a)-[r]->(b) WHERE a.team = b.team AND b.score >= 10 RETURN a")
+
+    assert parsed.where is not None
+    assert len(parsed.where.predicates) == 2
+    assert parsed.where.predicates[0].left.alias == "a"
+    assert parsed.where.predicates[0].left.property == "team"
+    assert parsed.where.predicates[0].op == "=="
+    assert parsed.where.predicates[1].left.alias == "b"
+    assert parsed.where.predicates[1].left.property == "score"
+    assert parsed.where.predicates[1].op == ">="
+
+
+def test_parse_where_null_predicates() -> None:
+    parsed = parse_cypher("MATCH (a)-[r]->(b) WHERE a.deleted IS NULL AND b.name IS NOT NULL RETURN a")
+
+    assert parsed.where is not None
+    assert parsed.where.predicates[0].op == "is_null"
+    assert parsed.where.predicates[0].right is None
+    assert parsed.where.predicates[1].op == "is_not_null"
+    assert parsed.where.predicates[1].right is None
+
+
 def test_invalid_syntax_reports_line_and_column() -> None:
     with pytest.raises(GFQLSyntaxError) as exc_info:
         parse_cypher("MATCH (n RETURN n")
@@ -88,5 +111,12 @@ def test_invalid_syntax_reports_line_and_column() -> None:
 def test_multi_statement_rejected() -> None:
     with pytest.raises(GFQLSyntaxError) as exc_info:
         parse_cypher("MATCH (n) RETURN n; MATCH (m) RETURN m")
+
+    assert exc_info.value.code == ErrorCode.E107
+
+
+def test_or_where_not_yet_supported() -> None:
+    with pytest.raises(GFQLSyntaxError) as exc_info:
+        parse_cypher("MATCH (a)-[r]->(b) WHERE a.team = b.team OR a.name = 'Alice' RETURN a")
 
     assert exc_info.value.code == ErrorCode.E107

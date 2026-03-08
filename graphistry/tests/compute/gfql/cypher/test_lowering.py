@@ -4,7 +4,7 @@ from typing import cast
 
 from graphistry.compute.ast import ASTNode, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
-from graphistry.compute.gfql.cypher import lower_match_clause, parse_cypher
+from graphistry.compute.gfql.cypher import lower_match_clause, lower_match_query, parse_cypher
 from graphistry.tests.test_compute import CGFull
 
 
@@ -100,3 +100,69 @@ def test_lower_match_clause_rejects_multi_label_nodes() -> None:
         lower_match_clause(parsed.match)
 
     assert exc_info.value.code == ErrorCode.E108
+
+
+def test_lower_match_query_folds_literal_where_into_filter_dicts() -> None:
+    parsed = parse_cypher("MATCH (p)-[r]->(q) WHERE p.name = 'Alice' AND q.name = 'Bob' RETURN p, q")
+
+    lowered = lower_match_query(parsed)
+
+    assert lowered.where == []
+    assert isinstance(lowered.query[0], ASTNode)
+    assert isinstance(lowered.query[2], ASTNode)
+    assert lowered.query[0].filter_dict == {"name": "Alice"}
+    assert lowered.query[2].filter_dict == {"name": "Bob"}
+
+
+def test_lower_match_query_emits_same_path_where_for_alias_comparisons() -> None:
+    parsed = parse_cypher("MATCH (p)-[r]->(q) WHERE p.team = q.team RETURN p, q")
+
+    lowered = lower_match_query(parsed)
+
+    assert len(lowered.where) == 1
+    clause = lowered.where[0]
+    assert clause.left.alias == "p"
+    assert clause.left.column == "team"
+    assert clause.op == "=="
+    assert clause.right.alias == "q"
+    assert clause.right.column == "team"
+
+
+def test_lower_match_query_executes_same_path_where() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c"],
+            "team": ["x", "x", "y"],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "a"],
+            "d": ["b", "c"],
+        }
+    )
+
+    parsed = parse_cypher("MATCH (p)-[r]->(q) WHERE p.team = q.team RETURN p, q")
+    lowered = lower_match_query(parsed)
+    result = _mk_graph(nodes, edges).gfql(lowered.query, where=lowered.where)
+
+    assert sorted(result._nodes["id"].tolist()) == ["a", "b"]
+    assert result._edges[["s", "d"]].to_dict(orient="records") == [{"s": "a", "d": "b"}]
+
+
+def test_lower_match_query_executes_null_predicates() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c"],
+            "deleted": [None, "yes", None],
+            "name": ["Alice", "Bob", "Carol"],
+        }
+    )
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+
+    parsed = parse_cypher("MATCH (p)-[r]->(q) WHERE p.deleted IS NULL AND q.name IS NOT NULL RETURN p, q")
+    lowered = lower_match_query(parsed)
+    result = _mk_graph(nodes, edges).gfql(lowered.query, where=lowered.where)
+
+    assert sorted(result._nodes["id"].tolist()) == ["a", "b"]
+    assert result._edges[["s", "d"]].to_dict(orient="records") == [{"s": "a", "d": "b"}]

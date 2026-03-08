@@ -1,17 +1,28 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence, cast
 
-from graphistry.compute.ast import ASTObject, ASTNode, e_forward, e_reverse, e_undirected
+from graphistry.compute import ge, gt, isna, le, lt, ne, notna
+from graphistry.compute.ast import ASTEdge, ASTObject, ASTNode, e_forward, e_reverse, e_undirected
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.ast import (
     CypherLiteral,
+    CypherQuery,
     MatchClause,
     NodePattern,
     ParameterRef,
+    PropertyRef,
     PropertyEntry,
     RelationshipPattern,
 )
+from graphistry.compute.gfql.same_path_types import WhereComparison, col, compare
+
+
+@dataclass(frozen=True)
+class LoweredCypherMatch:
+    query: List[ASTObject]
+    where: List[WhereComparison]
 
 
 def _unsupported(message: str, *, field: str, value: Any, line: int, column: int) -> GFQLValidationError:
@@ -113,6 +124,116 @@ def _lower_relationship(
     return cast(ASTObject, e_undirected(edge_match=edge_match, name=relationship.variable))
 
 
+def _alias_target(ops: Sequence[ASTObject]) -> Dict[str, ASTObject]:
+    targets: Dict[str, ASTObject] = {}
+    for op in ops:
+        alias = getattr(op, "_name", None)
+        if alias is None:
+            continue
+        if alias in targets:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                f"Duplicate Cypher alias '{alias}' is not yet supported",
+                field="alias",
+                value=alias,
+                suggestion="Use unique aliases per node/relationship pattern.",
+                language="cypher",
+            )
+        targets[alias] = op
+    return targets
+
+
+def _target_filter_dict(target: ASTObject) -> Optional[Dict[str, Any]]:
+    if isinstance(target, ASTNode):
+        return cast(Optional[Dict[str, Any]], target.filter_dict)
+    if isinstance(target, ASTEdge):
+        return cast(Optional[Dict[str, Any]], target.edge_match)
+    raise _unsupported(
+        "Only node and edge aliases are supported in Cypher MATCH lowering",
+        field="alias",
+        value=type(target).__name__,
+        line=1,
+        column=1,
+    )
+
+
+def _set_target_filter_dict(target: ASTObject, filter_dict: Dict[str, Any]) -> None:
+    if isinstance(target, ASTNode):
+        target.filter_dict = filter_dict
+        return
+    if isinstance(target, ASTEdge):
+        target.edge_match = filter_dict
+        return
+    raise _unsupported(
+        "Only node and edge aliases are supported in Cypher MATCH lowering",
+        field="alias",
+        value=type(target).__name__,
+        line=1,
+        column=1,
+    )
+
+
+def _predicate_value(op: str, value: Any) -> Any:
+    if op == "==":
+        return value
+    if op == "!=":
+        return ne(value)
+    if op == "<":
+        return lt(value)
+    if op == "<=":
+        return le(value)
+    if op == ">":
+        return gt(value)
+    if op == ">=":
+        return ge(value)
+    if op == "is_null":
+        return isna()
+    if op == "is_not_null":
+        return notna()
+    raise ValueError(f"Unsupported predicate op: {op}")
+
+
+def _apply_literal_where(
+    targets: Dict[str, ASTObject],
+    *,
+    left: PropertyRef,
+    op: str,
+    right: Optional[CypherLiteral],
+    params: Optional[Mapping[str, Any]],
+) -> None:
+    if left.alias not in targets:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            f"Unknown Cypher alias '{left.alias}' in WHERE clause",
+            field="where.left.alias",
+            value=left.alias,
+            suggestion="Reference an alias declared in the MATCH pattern.",
+            line=left.span.line,
+            column=left.span.column,
+            language="cypher",
+        )
+    target = targets[left.alias]
+    filter_dict = dict(_target_filter_dict(target) or {})
+    if left.property in filter_dict:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            f"Duplicate filtering on '{left.alias}.{left.property}' is not yet supported",
+            field=f"where.{left.alias}.{left.property}",
+            value=left.property,
+            suggestion="Move the filter to one location or wait for predicate merging support.",
+            line=left.span.line,
+            column=left.span.column,
+            language="cypher",
+        )
+    resolved = None if right is None else _resolve_literal(
+        right,
+        params=params,
+        field=f"where.{left.alias}.{left.property}",
+    )
+    filter_dict[left.property] = _predicate_value(op, resolved)
+    _set_target_filter_dict(target, filter_dict)
+
+
 def lower_match_clause(
     clause: MatchClause,
     *,
@@ -125,3 +246,34 @@ def lower_match_clause(
         else:
             out.append(_lower_relationship(element, params=params))
     return out
+
+
+def lower_match_query(
+    query: CypherQuery,
+    *,
+    params: Optional[Mapping[str, Any]] = None,
+) -> LoweredCypherMatch:
+    ops = lower_match_clause(query.match, params=params)
+    alias_targets = _alias_target(ops)
+    where_out: List[WhereComparison] = []
+
+    if query.where is not None:
+        for predicate in query.where.predicates:
+            if isinstance(predicate.right, PropertyRef):
+                where_out.append(
+                    compare(
+                        col(predicate.left.alias, predicate.left.property),
+                        cast(Any, predicate.op),
+                        col(predicate.right.alias, predicate.right.property),
+                    )
+                )
+                continue
+            _apply_literal_where(
+                alias_targets,
+                left=predicate.left,
+                op=predicate.op,
+                right=cast(Optional[CypherLiteral], predicate.right),
+                params=params,
+            )
+
+    return LoweredCypherMatch(query=ops, where=where_out)

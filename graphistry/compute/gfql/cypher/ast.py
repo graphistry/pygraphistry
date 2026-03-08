@@ -28,6 +28,13 @@ CypherLiteral = Union[None, bool, int, float, str, ParameterRef]
 
 
 @dataclass(frozen=True)
+class PropertyRef:
+    alias: str
+    property: str
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
 class PropertyEntry:
     key: str
     value: CypherLiteral
@@ -60,6 +67,23 @@ class MatchClause:
     span: SourceSpan
 
 
+WhereOp = Literal["==", "!=", "<", "<=", ">", ">=", "is_null", "is_not_null"]
+
+
+@dataclass(frozen=True)
+class WherePredicate:
+    left: PropertyRef
+    op: WhereOp
+    right: Optional[Union[PropertyRef, CypherLiteral]]
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
+class WhereClause:
+    predicates: Tuple[WherePredicate, ...]
+    span: SourceSpan
+
+
 @dataclass(frozen=True)
 class ReturnItem:
     expression: ExpressionText
@@ -77,6 +101,7 @@ class ReturnClause:
 @dataclass(frozen=True)
 class CypherQuery:
     match: MatchClause
+    where: Optional[WhereClause]
     return_: ReturnClause
     trailing_semicolon: bool
     span: SourceSpan
