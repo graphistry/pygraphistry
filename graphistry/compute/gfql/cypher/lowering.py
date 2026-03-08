@@ -54,6 +54,7 @@ from graphistry.compute.gfql.cypher.ast import (
     SourceSpan,
     UnwindClause,
 )
+from graphistry.compute.gfql.temporal_text import rewrite_temporal_constructors_in_expr
 from graphistry.compute.gfql.same_path_types import WhereComparison, col, compare
 
 
@@ -164,6 +165,7 @@ def _parse_row_expr(
         allow_missing=allow_missing_params,
     )
     prepared = _rewrite_entity_keys_expr(prepared, alias_targets=alias_targets)
+    prepared = rewrite_temporal_constructors_in_expr(prepared)
     try:
         return parse_expr(prepared)
     except (GFQLExprParseError, ImportError) as exc:
@@ -381,6 +383,7 @@ def _row_expr_arg(
         allow_missing=False,
     )
     rewritten = _rewrite_entity_keys_expr(rewritten, alias_targets=alias_targets)
+    rewritten = rewrite_temporal_constructors_in_expr(rewritten)
     _parse_row_expr(
         rewritten,
         alias_targets=alias_targets,

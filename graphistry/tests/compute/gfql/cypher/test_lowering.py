@@ -619,6 +619,91 @@ def test_string_cypher_supports_parameterized_row_expr_null_propagation() -> Non
     assert pd.isna(result._nodes.iloc[0]["result"])
 
 
+def test_string_cypher_executes_unwind_temporal_date_literals() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "UNWIND [date({year: 1910, month: 5, day: 6}), date({year: 1980, month: 10, day: 24})] AS dates "
+        "WITH dates ORDER BY dates ASC LIMIT 2 RETURN dates"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"dates": "1910-05-06"},
+        {"dates": "1980-10-24"},
+    ]
+
+
+def test_string_cypher_formats_temporal_constructor_properties_in_entity_projection() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c"],
+            "label__A": [True, True, True],
+            "date": [
+                "date({year: 1910, month: 5, day: 6})",
+                "date({year: 1980, month: 10, day: 24})",
+                "date({year: 1984, month: 10, day: 12})",
+            ],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a) WITH a, a.date AS date WITH a, date ORDER BY date ASC LIMIT 2 RETURN a, date"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:A {date: '1910-05-06'})", "date": "1910-05-06"},
+        {"a": "(:A {date: '1980-10-24'})", "date": "1980-10-24"},
+    ]
+
+
+def test_string_cypher_orders_temporal_constructor_time_properties() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e"],
+            "label__A": [True, True, True, True, True],
+            "time": [
+                "time({hour: 10, minute: 35, timezone: '-08:00'})",
+                "time({hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'})",
+                "time({hour: 12, minute: 31, second: 14, nanosecond: 645876124, timezone: '+01:00'})",
+                "time({hour: 12, minute: 35, second: 15, timezone: '+05:00'})",
+                "time({hour: 12, minute: 30, second: 14, nanosecond: 645876123, timezone: '+01:01'})",
+            ],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a) WITH a, a.time AS time WITH a, time ORDER BY time ASC LIMIT 3 RETURN a, time"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:A {time: '12:35:15+05:00'})", "time": "12:35:15+05:00"},
+        {"a": "(:A {time: '12:30:14.645876123+01:01'})", "time": "12:30:14.645876123+01:01"},
+        {"a": "(:A {time: '12:31:14.645876123+01:00'})", "time": "12:31:14.645876123+01:00"},
+    ]
+
+
+def test_string_cypher_formats_list_literal_strings_in_entity_projection() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b"],
+            "label__A": [True, True],
+            "list": ["[1, 2]", "[2, -2]"],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a) WITH a, a.list AS list WITH a, list ORDER BY list ASC LIMIT 2 RETURN a, list"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:A {list: [1, 2]})", "list": "[1, 2]"},
+        {"a": "(:A {list: [2, -2]})", "list": "[2, -2]"},
+    ]
+
+
 def test_string_cypher_unwinds_node_keys_without_alias_heuristics() -> None:
     nodes = pd.DataFrame(
         {

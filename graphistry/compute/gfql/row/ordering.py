@@ -9,6 +9,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from graphistry.compute.gfql.temporal_text import (
+    DATETIME_CALL_TEXT_RE,
+    LOCALDATETIME_CALL_TEXT_RE,
+    LOCALTIME_CALL_TEXT_RE,
+    TIME_CALL_TEXT_RE,
+)
+
 
 _GFQL_LIST_NUMERIC_TEXT_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$")
 _GFQL_TIME_TEXT_RE = re.compile(
@@ -110,6 +117,16 @@ def order_detect_temporal_mode(series: Any) -> Optional[str]:
         return "datetime"
     if all(_GFQL_TIME_TEXT_RE.fullmatch(v) is not None for v in sample_values):
         return "time"
+    if all(
+        LOCALDATETIME_CALL_TEXT_RE.fullmatch(v) is not None or DATETIME_CALL_TEXT_RE.fullmatch(v) is not None
+        for v in sample_values
+    ):
+        return "datetime_constructor"
+    if all(
+        LOCALTIME_CALL_TEXT_RE.fullmatch(v) is not None or TIME_CALL_TEXT_RE.fullmatch(v) is not None
+        for v in sample_values
+    ):
+        return "time_constructor"
     return None
 
 
@@ -205,17 +222,63 @@ def build_temporal_sort_columns(
     null_mask = null_mask_fn(work_df, value)
     if mode == "datetime":
         parts = text.str.extract(_GFQL_DATETIME_TEXT_RE)
-    else:
+        year = parts["y"].fillna("0").astype("int64")
+        month = parts["mo"].fillna("1").astype("int64")
+        day = parts["d"].fillna("1").astype("int64")
+        hour = parts["h"].fillna("0").astype("int64")
+        minute = parts["m"].fillna("0").astype("int64")
+        second = parts["s"].fillna("0").astype("int64")
+        frac = parts["f"].fillna("").str.pad(9, side="right", fillchar="0").replace("", "0")
+        nanos = frac.astype("int64")
+        off_sign = parts["off_sign"].fillna("+")
+        off_hours = parts["off_h"].fillna("0").astype("int64")
+        off_minutes = parts["off_m"].fillna("0").astype("int64")
+    elif mode == "time":
         parts = text.str.extract(_GFQL_TIME_TEXT_RE)
+        year = month = day = None
+        hour = parts["h"].fillna("0").astype("int64")
+        minute = parts["m"].fillna("0").astype("int64")
+        second = parts["s"].fillna("0").astype("int64")
+        frac = parts["f"].fillna("").str.pad(9, side="right", fillchar="0").replace("", "0")
+        nanos = frac.astype("int64")
+        off_sign = parts["off_sign"].fillna("+")
+        off_hours = parts["off_h"].fillna("0").astype("int64")
+        off_minutes = parts["off_m"].fillna("0").astype("int64")
+    elif mode == "datetime_constructor":
+        dt_parts = text.str.extract(DATETIME_CALL_TEXT_RE.pattern)
+        local_parts = text.str.extract(LOCALDATETIME_CALL_TEXT_RE.pattern)
+        use_dt = text.str.match(DATETIME_CALL_TEXT_RE.pattern, na=False)
+        year = dt_parts["year"].where(use_dt, local_parts["year"]).fillna("0").astype("int64")
+        month = dt_parts["month"].where(use_dt, local_parts["month"]).fillna("1").astype("int64")
+        day = dt_parts["day"].where(use_dt, local_parts["day"]).fillna("1").astype("int64")
+        hour = dt_parts["hour"].where(use_dt, local_parts["hour"]).fillna("0").astype("int64")
+        minute = dt_parts["minute"].where(use_dt, local_parts["minute"]).fillna("0").astype("int64")
+        second = dt_parts["second"].where(use_dt, local_parts["second"]).fillna("0").astype("int64")
+        frac = (
+            dt_parts["nano"].where(use_dt, local_parts["nano"]).fillna("").str.pad(9, side="right", fillchar="0").replace("", "0")
+        )
+        nanos = frac.astype("int64")
+        timezone = dt_parts["tz"].fillna("")
+        off_sign = timezone.str[:1].where(use_dt, "+").replace("", "+")
+        off_hours = timezone.str[1:3].where(use_dt, "0").replace("", "0").astype("int64")
+        off_minutes = timezone.str[4:6].where(use_dt, "0").replace("", "0").astype("int64")
+    else:
+        time_parts = text.str.extract(TIME_CALL_TEXT_RE.pattern)
+        local_parts = text.str.extract(LOCALTIME_CALL_TEXT_RE.pattern)
+        use_tz = text.str.match(TIME_CALL_TEXT_RE.pattern, na=False)
+        year = month = day = None
+        hour = time_parts["hour"].where(use_tz, local_parts["hour"]).fillna("0").astype("int64")
+        minute = time_parts["minute"].where(use_tz, local_parts["minute"]).fillna("0").astype("int64")
+        second = time_parts["second"].where(use_tz, local_parts["second"]).fillna("0").astype("int64")
+        frac = (
+            time_parts["nano"].where(use_tz, local_parts["nano"]).fillna("").str.pad(9, side="right", fillchar="0").replace("", "0")
+        )
+        nanos = frac.astype("int64")
+        timezone = time_parts["tz"].fillna("")
+        off_sign = timezone.str[:1].where(use_tz, "+").replace("", "+")
+        off_hours = timezone.str[1:3].where(use_tz, "0").replace("", "0").astype("int64")
+        off_minutes = timezone.str[4:6].where(use_tz, "0").replace("", "0").astype("int64")
 
-    hour = parts["h"].fillna("0").astype("int64")
-    minute = parts["m"].fillna("0").astype("int64")
-    second = parts["s"].fillna("0").astype("int64")
-    frac = parts["f"].fillna("").str.pad(9, side="right", fillchar="0").replace("", "0")
-    nanos = frac.astype("int64")
-    off_sign = parts["off_sign"].fillna("+")
-    off_hours = parts["off_h"].fillna("0").astype("int64")
-    off_minutes = parts["off_m"].fillna("0").astype("int64")
     sign_mult = off_sign.eq("-").astype("int64")
     sign_mult = sign_mult.where(sign_mult == 0, -1)
     sign_mult = sign_mult.where(sign_mult != 0, 1)
@@ -226,14 +289,12 @@ def build_temporal_sort_columns(
         - offset_total_minutes * 60 * 1_000_000_000
     )
 
-    if mode == "time":
+    if mode in {"time", "time_constructor"}:
         key_col = fresh_col_name_fn(work_df.columns, f"{key_prefix}_time_ns")
         out = work_df.assign(**{key_col: time_nanos.where(~null_mask, 9_223_372_036_854_775_000)})
         return out, [key_col]
 
-    year = parts["y"].fillna("0").astype("int64")
-    month = parts["mo"].fillna("1").astype("int64")
-    day = parts["d"].fillna("1").astype("int64")
+    assert year is not None and month is not None and day is not None
     a = (14 - month) // 12
     y2 = year + 4800 - a
     m2 = month + 12 * a - 3
