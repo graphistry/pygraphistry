@@ -43,6 +43,7 @@ from graphistry.compute.gfql.cypher.ast import (
     NodePattern,
     ParameterRef,
     OrderByClause,
+    PatternElement,
     PropertyRef,
     PropertyEntry,
     RelationshipPattern,
@@ -659,6 +660,143 @@ def _lower_relationship(
     return cast(ASTObject, e_undirected(edge_match=edge_match, name=relationship.variable))
 
 
+def _pattern_line_column(pattern: Sequence[PatternElement], clause: MatchClause) -> Tuple[int, int]:
+    if len(pattern) == 0:
+        return clause.span.line, clause.span.column
+    return pattern[0].span.line, pattern[0].span.column
+
+
+def _reverse_relationship_pattern(relationship: RelationshipPattern) -> RelationshipPattern:
+    direction: Literal["forward", "reverse", "undirected"]
+    if relationship.direction == "forward":
+        direction = "reverse"
+    elif relationship.direction == "reverse":
+        direction = "forward"
+    else:
+        direction = "undirected"
+    return RelationshipPattern(
+        direction=direction,
+        variable=relationship.variable,
+        types=relationship.types,
+        properties=relationship.properties,
+        span=relationship.span,
+    )
+
+
+def _reverse_pattern(pattern: Sequence[PatternElement]) -> Tuple[PatternElement, ...]:
+    out: List[PatternElement] = []
+    for element in reversed(pattern):
+        if isinstance(element, NodePattern):
+            out.append(element)
+        else:
+            out.append(_reverse_relationship_pattern(element))
+    return tuple(out)
+
+
+def _merge_property_entries(
+    left: Sequence[PropertyEntry],
+    right: Sequence[PropertyEntry],
+    *,
+    line: int,
+    column: int,
+) -> Tuple[PropertyEntry, ...]:
+    out: Dict[str, PropertyEntry] = {entry.key: entry for entry in left}
+    for entry in right:
+        if entry.key in out and out[entry.key].value != entry.value:
+            raise _unsupported(
+                "Comma-connected Cypher MATCH patterns have conflicting node filters",
+                field="match",
+                value=entry.key,
+                line=line,
+                column=column,
+            )
+        out[entry.key] = entry
+    return tuple(out.values())
+
+
+def _merge_node_patterns(
+    left: NodePattern,
+    right: NodePattern,
+) -> NodePattern:
+    line = right.span.line
+    column = right.span.column
+    if left.variable is None or right.variable is None or left.variable != right.variable:
+        raise _unsupported(
+            "Comma-connected Cypher MATCH patterns must share an explicit endpoint alias",
+            field="match",
+            value={"left": left.variable, "right": right.variable},
+            line=line,
+            column=column,
+        )
+    labels = tuple(dict.fromkeys(left.labels + right.labels))
+    properties = _merge_property_entries(left.properties, right.properties, line=line, column=column)
+    return NodePattern(
+        variable=left.variable,
+        labels=labels,
+        properties=properties,
+        span=left.span,
+    )
+
+
+def _node_join_alias(node: NodePattern) -> Optional[str]:
+    return node.variable
+
+
+def _node_can_join(left: NodePattern, right: NodePattern) -> bool:
+    left_alias = _node_join_alias(left)
+    right_alias = _node_join_alias(right)
+    return left_alias is not None and right_alias is not None and left_alias == right_alias
+
+
+def _stitch_patterns(
+    left: Sequence[PatternElement],
+    right: Sequence[PatternElement],
+    *,
+    clause: MatchClause,
+) -> Tuple[PatternElement, ...]:
+    if len(left) == 0:
+        return tuple(right)
+    if len(right) == 0:
+        return tuple(left)
+    left_start = cast(NodePattern, left[0])
+    left_end = cast(NodePattern, left[-1])
+    right_start = cast(NodePattern, right[0])
+    right_end = cast(NodePattern, right[-1])
+
+    if _node_can_join(left_end, right_start):
+        merged = _merge_node_patterns(left_end, right_start)
+        return tuple(left[:-1]) + (merged,) + tuple(right[1:])
+    if _node_can_join(left_end, right_end):
+        reversed_right = _reverse_pattern(right)
+        merged = _merge_node_patterns(left_end, cast(NodePattern, reversed_right[0]))
+        return tuple(left[:-1]) + (merged,) + tuple(reversed_right[1:])
+    if _node_can_join(left_start, right_end):
+        merged = _merge_node_patterns(cast(NodePattern, right_end), left_start)
+        return tuple(right[:-1]) + (merged,) + tuple(left[1:])
+    if _node_can_join(left_start, right_start):
+        reversed_right = _reverse_pattern(right)
+        merged = _merge_node_patterns(cast(NodePattern, reversed_right[-1]), left_start)
+        return tuple(reversed_right[:-1]) + (merged,) + tuple(left[1:])
+
+    line, column = _pattern_line_column(right, clause)
+    raise _unsupported(
+        "Comma-separated Cypher MATCH patterns are only supported for a single linear connected path with shared endpoint aliases",
+        field="match",
+        value=None,
+        line=line,
+        column=column,
+    )
+
+
+def _normalized_match_pattern(clause: MatchClause) -> Tuple[PatternElement, ...]:
+    if len(clause.patterns) == 0:
+        return ()
+    pattern = clause.patterns[0]
+    for next_pattern in clause.patterns[1:]:
+        pattern = _stitch_patterns(pattern, next_pattern, clause=clause)
+    return tuple(pattern)
+
+
 def _lower_match_clause_with_alias_equalities(
     clause: MatchClause,
     *,
@@ -668,13 +806,14 @@ def _lower_match_clause_with_alias_equalities(
     where_out: List[WhereComparison] = []
     seen_alias_kinds: Dict[str, Literal["node", "edge"]] = {}
     seen_alias_ops: Dict[str, ASTObject] = {}
+    pattern = _normalized_match_pattern(clause)
     existing_aliases: Set[str] = {
         cast(str, element.variable)
-        for element in clause.pattern
+        for element in pattern
         if getattr(element, "variable", None) is not None
     }
 
-    for element in clause.pattern:
+    for element in pattern:
         if isinstance(element, NodePattern):
             alias = element.variable
             if alias is None or alias not in seen_alias_kinds:
@@ -736,10 +875,74 @@ def _duplicate_node_aliases(match: Optional[MatchClause]) -> Set[str]:
     if match is None:
         return set()
     counts: Dict[str, int] = {}
-    for element in match.pattern:
+    for element in _normalized_match_pattern(match):
         if isinstance(element, NodePattern) and element.variable is not None:
             counts[element.variable] = counts.get(element.variable, 0) + 1
     return {alias for alias, count in counts.items() if count > 1}
+
+
+def _seed_node_bindings(matches: Sequence[MatchClause]) -> Dict[str, NodePattern]:
+    out: Dict[str, NodePattern] = {}
+    for clause in matches:
+        for pattern in clause.patterns:
+            if len(pattern) != 1 or not isinstance(pattern[0], NodePattern):
+                raise _unsupported(
+                    "Only node-only pre-binding MATCH clauses are supported before the final connected MATCH in this phase",
+                    field="match",
+                    value=None,
+                    line=clause.span.line,
+                    column=clause.span.column,
+                )
+            node = pattern[0]
+            if node.variable is None:
+                raise _unsupported(
+                    "Pre-binding MATCH clauses currently require explicit node aliases",
+                    field="match",
+                    value=None,
+                    line=node.span.line,
+                    column=node.span.column,
+                )
+            existing = out.get(node.variable)
+            out[node.variable] = node if existing is None else _merge_node_patterns(existing, node)
+    return out
+
+
+def _apply_seed_node_bindings(
+    clause: MatchClause,
+    *,
+    seed_bindings: Mapping[str, NodePattern],
+) -> MatchClause:
+    if not seed_bindings:
+        return clause
+    pattern = list(_normalized_match_pattern(clause))
+    seen: Set[str] = set()
+    updated: List[PatternElement] = []
+    for element in pattern:
+        alias = element.variable if isinstance(element, NodePattern) else None
+        if isinstance(element, NodePattern) and alias is not None and alias in seed_bindings:
+            updated.append(_merge_node_patterns(seed_bindings[alias], element))
+            seen.add(alias)
+        else:
+            updated.append(element)
+    unused = set(seed_bindings) - seen
+    if unused:
+        raise _unsupported(
+            "Earlier MATCH-bound aliases must participate in the final connected MATCH pattern in this phase",
+            field="match",
+            value=sorted(unused),
+            line=clause.span.line,
+            column=clause.span.column,
+        )
+    return MatchClause(patterns=(tuple(updated),), span=clause.span)
+
+
+def _merged_match_clause(query: CypherQuery) -> Optional[MatchClause]:
+    if not query.matches:
+        return None
+    if len(query.matches) == 1:
+        return query.matches[0]
+    seed_bindings = _seed_node_bindings(query.matches[:-1])
+    return _apply_seed_node_bindings(query.matches[-1], seed_bindings=seed_bindings)
 
 
 def _alias_target(ops: Sequence[ASTObject]) -> Dict[str, ASTObject]:
@@ -898,6 +1101,17 @@ def _reject_duplicate_alias_row_refs(
     if not duplicated_aliases:
         return
 
+    def _allow_simple_duplicate_property_ref(expr_text: str, *, line: int, column: int) -> bool:
+        node = _parse_row_expr(expr_text, field="expression", line=line, column=column)
+        if not isinstance(node, Identifier):
+            return False
+        alias_name, prop = _split_qualified_name(node.name, line=line, column=column)
+        return (
+            prop is not None
+            and alias_name in duplicated_aliases
+            and isinstance(alias_targets.get(alias_name), ASTNode)
+        )
+
     def _check(expr_text: str, *, field: str, line: int, column: int) -> None:
         refs = _expr_match_aliases(
             expr_text,
@@ -907,7 +1121,11 @@ def _reject_duplicate_alias_row_refs(
             line=line,
             column=column,
         )
-        if refs & duplicated_aliases:
+        if refs & duplicated_aliases and not _allow_simple_duplicate_property_ref(
+            expr_text,
+            line=line,
+            column=column,
+        ):
             raise _unsupported(
                 "Cypher row projection from repeated MATCH aliases is not yet supported in the local compiler",
                 field=field,
@@ -1330,7 +1548,7 @@ def lower_match_clause(
     params: Optional[Mapping[str, Any]] = None,
 ) -> List[ASTObject]:
     out: List[ASTObject] = []
-    for element in clause.pattern:
+    for element in _normalized_match_pattern(clause):
         if isinstance(element, NodePattern):
             out.append(_lower_node(element, params=params))
         else:
@@ -1343,7 +1561,8 @@ def lower_match_query(
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> LoweredCypherMatch:
-    if query.match is None:
+    merged_match = _merged_match_clause(query)
+    if merged_match is None:
         raise _unsupported(
             "Cypher MATCH lowering requires a MATCH clause",
             field="match",
@@ -1351,7 +1570,7 @@ def lower_match_query(
             line=query.return_.span.line,
             column=query.return_.span.column,
         )
-    ops, duplicate_alias_where = _lower_match_clause_with_alias_equalities(query.match, params=params)
+    ops, duplicate_alias_where = _lower_match_clause_with_alias_equalities(merged_match, params=params)
     alias_targets = _alias_target(ops)
     where_out: List[WhereComparison] = list(duplicate_alias_where)
 
@@ -1733,15 +1952,16 @@ def compile_cypher_query(
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> CompiledCypherQuery:
+    merged_match = _merged_match_clause(query)
     lowered = (
         lower_match_query(query, params=params)
-        if query.match is not None
+        if merged_match is not None
         else LoweredCypherMatch(query=[], where=[])
     )
 
-    if query.match is not None and not query.unwinds:
+    if merged_match is not None and not query.unwinds:
         alias_targets = _alias_target(lowered.query)
-        duplicated_aliases = _duplicate_node_aliases(query.match)
+        duplicated_aliases = _duplicate_node_aliases(merged_match)
         _reject_duplicate_alias_row_refs(
             query,
             alias_targets=alias_targets,

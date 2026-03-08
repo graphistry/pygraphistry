@@ -35,11 +35,11 @@ from graphistry.compute.gfql.cypher.ast import (
 _GRAMMAR = r"""
 ?start: query
 
-query: match_clause where_clause? unwind_clause* projection_clause order_by_clause? skip_clause? limit_clause? SEMI?
+query: match_clause+ where_clause? unwind_clause* projection_clause order_by_clause? skip_clause? limit_clause? SEMI?
      | unwind_clause+ projection_clause order_by_clause? skip_clause? limit_clause? SEMI?
      | projection_clause order_by_clause? skip_clause? limit_clause? SEMI?
 
-match_clause: "MATCH"i pattern
+match_clause: "MATCH"i pattern ("," pattern)*
 pattern: node_pattern (relationship_pattern node_pattern)*
 
 node_pattern: "(" variable? labels? properties? ")"
@@ -52,6 +52,7 @@ relationship_pattern: rel_forward
                     | rel_forward_simple
                     | rel_reverse_simple
                     | rel_undirected_simple
+                    | rel_bidirectional_simple
 
 rel_forward: "-" "[" variable? rel_types? properties? "]" "->"
 rel_reverse: "<-" "[" variable? rel_types? properties? "]" "-"
@@ -59,6 +60,7 @@ rel_undirected: "-" "[" variable? rel_types? properties? "]" "-"
 rel_forward_simple: REL_FWD_SIMPLE
 rel_reverse_simple: REL_REV_SIMPLE
 rel_undirected_simple: REL_UNDIR_SIMPLE
+rel_bidirectional_simple: REL_BIDIR_SIMPLE
 
 rel_types: ":" NAME ("|" ":"? NAME)*
 
@@ -202,6 +204,7 @@ STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
 REL_FWD_SIMPLE: /-->/
 REL_REV_SIMPLE: /<--/
 REL_UNDIR_SIMPLE: /--/
+REL_BIDIR_SIMPLE: /<-->/
 LINE_COMMENT: /\/\/[^\n]*/
 BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
 %import common.WS
@@ -417,6 +420,9 @@ def _build_transformer(source: str) -> _TransformerLike:
         def rel_undirected_simple(self, meta: Any, _items: Sequence[Any]) -> RelationshipPattern:
             return self._relationship(meta, (), direction="undirected")
 
+        def rel_bidirectional_simple(self, meta: Any, _items: Sequence[Any]) -> RelationshipPattern:
+            return self._relationship(meta, (), direction="undirected")
+
         def relationship_pattern(self, meta: Any, items: Sequence[Any]) -> RelationshipPattern:
             if len(items) != 1 or not isinstance(items[0], RelationshipPattern):
                 raise _to_syntax_error("Invalid relationship pattern", line=meta.line, column=meta.column)
@@ -426,10 +432,10 @@ def _build_transformer(source: str) -> _TransformerLike:
             return tuple(cast(PatternElement, item) for item in items)
 
         def match_clause(self, meta: Any, items: Sequence[Any]) -> MatchClause:
-            if len(items) != 1:
-                raise _to_syntax_error("Cypher MATCH clause must contain exactly one linear pattern", line=meta.line, column=meta.column)
-            pattern = cast(Tuple[PatternElement, ...], items[0])
-            return MatchClause(pattern=pattern, span=_span_from_meta(meta))
+            if len(items) < 1:
+                raise _to_syntax_error("Cypher MATCH clause cannot be empty", line=meta.line, column=meta.column)
+            patterns = tuple(cast(Tuple[PatternElement, ...], item) for item in items)
+            return MatchClause(patterns=patterns, span=_span_from_meta(meta))
 
         def distinct(self, _meta: Any, _items: Sequence[Any]) -> bool:
             return True
@@ -612,7 +618,7 @@ def _build_transformer(source: str) -> _TransformerLike:
 
         def query(self, meta: Any, items: Sequence[Any]) -> CypherQuery:
             trailing_semicolon = any(str(item) == ";" for item in items)
-            match_clause: Optional[MatchClause] = None
+            match_clauses: List[MatchClause] = []
             where_clause: Optional[WhereClause] = None
             unwind_clauses: List[UnwindClause] = []
             return_clause: Optional[ReturnClause] = None
@@ -621,7 +627,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             limit_clause: Optional[LimitClause] = None
             for item in items:
                 if isinstance(item, MatchClause):
-                    match_clause = item
+                    match_clauses.append(item)
                 elif isinstance(item, WhereClause):
                     where_clause = item
                 elif isinstance(item, UnwindClause):
@@ -640,14 +646,14 @@ def _build_transformer(source: str) -> _TransformerLike:
                     line=meta.line,
                     column=meta.column,
                 )
-            if where_clause is not None and match_clause is None:
+            if where_clause is not None and not match_clauses:
                 raise _to_syntax_error(
                     "Cypher WHERE is currently only supported after MATCH in the local compiler",
                     line=where_clause.span.line,
                     column=where_clause.span.column,
                 )
             return CypherQuery(
-                match=match_clause,
+                matches=tuple(match_clauses),
                 where=where_clause,
                 unwinds=tuple(unwind_clauses),
                 return_=return_clause,

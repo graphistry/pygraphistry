@@ -73,6 +73,7 @@ def test_parse_linear_pattern_with_labels_properties_and_aliases() -> None:
         ("MATCH (a)-->(b) RETURN b", "forward"),
         ("MATCH (a)<--(b) RETURN b", "reverse"),
         ("MATCH (a)--(b) RETURN b", "undirected"),
+        ("MATCH (a)<-->(b) RETURN b", "undirected"),
     ],
 )
 def test_parse_relationship_directions(query: str, direction: str) -> None:
@@ -188,6 +189,28 @@ def test_parse_match_then_unwind() -> None:
     assert len(parsed.unwinds) == 1
     assert parsed.unwinds[0].expression.text == "p.vals"
     assert parsed.unwinds[0].alias == "v"
+
+
+def test_parse_match_with_comma_connected_patterns() -> None:
+    parsed = parse_cypher("MATCH (a)-[:A]->(b), (b)-[:B]->(c) RETURN c")
+
+    assert parsed.match is not None
+    assert len(parsed.match.patterns) == 2
+    assert cast(NodePattern, parsed.match.patterns[0][0]).variable == "a"
+    assert cast(NodePattern, parsed.match.patterns[0][2]).variable == "b"
+    assert cast(NodePattern, parsed.match.patterns[1][0]).variable == "b"
+    assert cast(NodePattern, parsed.match.patterns[1][2]).variable == "c"
+
+
+def test_parse_multiple_match_clauses() -> None:
+    parsed = parse_cypher("MATCH (a {name: 'A'}), (b {name: 'B'}) MATCH (a)-->(x)<--(b) RETURN x")
+
+    assert len(parsed.matches) == 2
+    assert len(parsed.matches[0].patterns) == 2
+    assert len(parsed.matches[1].patterns) == 1
+    assert cast(NodePattern, parsed.matches[0].patterns[0][0]).variable == "a"
+    assert cast(NodePattern, parsed.matches[0].patterns[1][0]).variable == "b"
+    assert cast(NodePattern, parsed.matches[1].patterns[0][2]).variable == "x"
 
 
 def test_parse_aggregate_projection_items() -> None:

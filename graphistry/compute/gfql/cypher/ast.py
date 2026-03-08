@@ -71,8 +71,14 @@ PatternElement = Union[NodePattern, RelationshipPattern]
 
 @dataclass(frozen=True)
 class MatchClause:
-    pattern: Tuple[PatternElement, ...]
+    patterns: Tuple[Tuple[PatternElement, ...], ...]
     span: SourceSpan
+
+    @property
+    def pattern(self) -> Tuple[PatternElement, ...]:
+        if len(self.patterns) != 1:
+            raise ValueError("MATCH clause contains multiple patterns; use .patterns instead of .pattern")
+        return self.patterns[0]
 
 
 @dataclass(frozen=True)
@@ -141,7 +147,7 @@ class LimitClause:
 
 @dataclass(frozen=True)
 class CypherQuery:
-    match: Optional[MatchClause]
+    matches: Tuple[MatchClause, ...]
     where: Optional[WhereClause]
     unwinds: Tuple[UnwindClause, ...]
     return_: ReturnClause
@@ -150,3 +156,9 @@ class CypherQuery:
     limit: Optional[LimitClause]
     trailing_semicolon: bool
     span: SourceSpan
+
+    @property
+    def match(self) -> Optional[MatchClause]:
+        if not self.matches:
+            return None
+        return self.matches[-1]

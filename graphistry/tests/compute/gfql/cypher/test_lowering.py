@@ -83,6 +83,77 @@ def test_lower_match_clause_relationship_type_alternation_uses_is_in_predicate()
     assert type_predicate.options == ["KNOWS", "HATES"]
 
 
+def test_lower_match_clause_stitches_connected_comma_patterns() -> None:
+    parsed = parse_cypher("MATCH (a)-[:A]->(b), (b)-[:B]->(c) RETURN c")
+    assert parsed.match is not None
+
+    ops = lower_match_clause(parsed.match)
+
+    assert len(ops) == 5
+    assert isinstance(ops[0], ASTNode)
+    assert isinstance(ops[1], ASTEdgeForward)
+    assert isinstance(ops[2], ASTNode)
+    assert isinstance(ops[3], ASTEdgeForward)
+    assert isinstance(ops[4], ASTNode)
+    assert ops[0]._name == "a"
+    assert ops[2]._name == "b"
+    assert ops[4]._name == "c"
+
+
+def test_lower_match_clause_stitches_reversed_second_comma_segment() -> None:
+    parsed = parse_cypher("MATCH (a)-[:R1]->(b), (c)<-[:R2]-(b) RETURN c")
+    assert parsed.match is not None
+
+    ops = lower_match_clause(parsed.match)
+
+    assert len(ops) == 5
+    assert isinstance(ops[1], ASTEdgeForward)
+    assert isinstance(ops[3], ASTEdgeForward)
+    assert cast(ASTNode, ops[2])._name == "b"
+    assert cast(ASTNode, ops[4])._name == "c"
+
+
+def test_lower_match_clause_rejects_disconnected_comma_patterns() -> None:
+    parsed = parse_cypher("MATCH (a)-[:A]->(b), (c)-[:B]->(d) RETURN d")
+    assert parsed.match is not None
+
+    with pytest.raises(GFQLValidationError, match="single linear connected path"):
+        lower_match_clause(parsed.match)
+
+
+def test_lower_match_query_executes_seeded_repeated_match_for_connected_pattern() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "x1", "x2"],
+            "name": ["A", "B", "x1", "x2"],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "a", "b", "b"],
+            "d": ["x1", "x2", "x1", "x2"],
+            "type": ["KNOWS", "KNOWS", "KNOWS", "KNOWS"],
+        }
+    )
+
+    chain = cypher_to_gfql(
+        "MATCH (a {name: 'A'}), (b {name: 'B'}) MATCH (a)-[:KNOWS]->(x)<-[:KNOWS]-(b) RETURN x.name ORDER BY x.name"
+    )
+    result = _mk_graph(nodes, edges).gfql(chain)
+
+    assert result._nodes[["x.name"]].to_dict(orient="records") == [
+        {"x.name": "x1"},
+        {"x.name": "x2"},
+    ]
+
+
+def test_lower_match_query_rejects_seed_alias_not_used_by_final_pattern() -> None:
+    parsed = parse_cypher("MATCH (a {name: 'A'}), (c {name: 'C'}) MATCH (a)-->(b) RETURN b")
+
+    with pytest.raises(GFQLValidationError, match="must participate in the final connected MATCH pattern"):
+        lower_match_query(parsed)
+
+
 def test_lower_match_query_rewrites_duplicate_node_aliases_to_internal_identity_checks() -> None:
     parsed = parse_cypher("MATCH (n)-[r]-(n) RETURN count(r)")
 
@@ -94,6 +165,30 @@ def test_lower_match_query_rewrites_duplicate_node_aliases_to_internal_identity_
     assert repeated._name is not None
     assert repeated._name.startswith("__cypher_aliasdup_n")
     assert lowered.where == [compare(col("n", "id"), "==", col(repeated._name, "id"))]
+
+
+def test_lower_match_query_executes_connected_comma_pattern_with_unique_projection_alias() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c"],
+            "name": ["a", "b", "c"],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "b", "b"],
+            "d": ["b", "a", "c"],
+            "type": ["A", "B", "B"],
+        }
+    )
+
+    chain = cypher_to_gfql("MATCH (a)-[:A]->(b), (b)-[:B]->(c) RETURN c.name")
+    result = _mk_graph(nodes, edges).gfql(chain)
+
+    assert result._nodes[["c.name"]].to_dict(orient="records") == [
+        {"c.name": "a"},
+        {"c.name": "c"},
+    ]
 
 
 def test_lower_match_clause_executes_through_gfql_runtime() -> None:
