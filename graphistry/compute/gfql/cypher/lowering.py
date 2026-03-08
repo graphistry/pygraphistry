@@ -106,6 +106,7 @@ class _AggregateSpec:
 
 
 _CYPHER_PARAM_RE = re.compile(r"^\$([A-Za-z_][A-Za-z0-9_]*)$")
+_CYPHER_PARAM_TOKEN_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 _CYPHER_AGGREGATES = frozenset({"count", "sum", "min", "max", "avg", "collect"})
 
 
@@ -125,18 +126,28 @@ def _unsupported(message: str, *, field: str, value: Any, line: int, column: int
 def _parse_row_expr(
     expr_text: str,
     *,
+    params: Optional[Mapping[str, Any]] = None,
+    allow_missing_params: bool = False,
     field: str,
     line: int,
     column: int,
 ) -> Any:
+    prepared = _rewrite_param_expr(
+        expr_text,
+        params=params,
+        field=field,
+        line=line,
+        column=column,
+        allow_missing=allow_missing_params,
+    )
     try:
-        return parse_expr(expr_text)
+        return parse_expr(prepared)
     except (GFQLExprParseError, ImportError) as exc:
         raise GFQLValidationError(
             ErrorCode.E108,
             "Cypher expression is outside the currently supported local GFQL subset",
             field=field,
-            value=expr_text,
+            value=prepared,
             suggestion="Use column references, supported GFQL scalar expressions, or supported aggregate functions.",
             line=line,
             column=column,
@@ -144,15 +155,110 @@ def _parse_row_expr(
         ) from exc
 
 
+def _cypher_literal_expr_text(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float):
+        if value != value:
+            return "null"
+        return repr(value)
+    if isinstance(value, str):
+        return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_cypher_literal_expr_text(item) for item in value) + "]"
+    if isinstance(value, dict):
+        parts: List[str] = []
+        for key, item in value.items():
+            key_txt = str(key)
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key_txt):
+                rendered_key = key_txt
+            else:
+                rendered_key = "'" + key_txt.replace("\\", "\\\\").replace("'", "\\'") + "'"
+            parts.append(f"{rendered_key}: {_cypher_literal_expr_text(item)}")
+        return "{" + ", ".join(parts) + "}"
+    raise GFQLValidationError(
+        ErrorCode.E108,
+        "Cypher parameter value is outside the currently supported literal subset",
+        field="params",
+        value=type(value).__name__,
+        suggestion="Use null, booleans, numbers, strings, lists, or maps as parameter values.",
+        language="cypher",
+    )
+
+
+def _rewrite_param_expr(
+    expr_text: str,
+    *,
+    params: Optional[Mapping[str, Any]],
+    field: str,
+    line: int,
+    column: int,
+    allow_missing: bool,
+) -> str:
+    out: List[str] = []
+    idx = 0
+    in_single = False
+    in_double = False
+    while idx < len(expr_text):
+        ch = expr_text[idx]
+        if ch == "'" and not in_double and (idx == 0 or expr_text[idx - 1] != "\\"):
+            in_single = not in_single
+            out.append(ch)
+            idx += 1
+            continue
+        if ch == '"' and not in_single and (idx == 0 or expr_text[idx - 1] != "\\"):
+            in_double = not in_double
+            out.append(ch)
+            idx += 1
+            continue
+        if not in_single and not in_double and ch == "$":
+            match = _CYPHER_PARAM_TOKEN_RE.match(expr_text, idx)
+            if match is not None:
+                name = match.group(1)
+                if params is None or name not in params:
+                    if allow_missing:
+                        out.append("null")
+                    else:
+                        raise GFQLValidationError(
+                            ErrorCode.E105,
+                            f"Missing Cypher parameter '${name}'",
+                            field=field,
+                            value=name,
+                            suggestion=f"Pass params={{'{name}': ...}} when compiling or executing the query.",
+                            line=line,
+                            column=column,
+                            language="cypher",
+                        )
+                else:
+                    out.append(_cypher_literal_expr_text(params[name]))
+                idx = match.end()
+                continue
+        out.append(ch)
+        idx += 1
+    return "".join(out)
+
+
 def _expr_match_aliases(
     expr_text: str,
     *,
     alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]] = None,
     field: str,
     line: int,
     column: int,
 ) -> Set[str]:
-    node = _parse_row_expr(expr_text, field=field, line=line, column=column)
+    node = _parse_row_expr(
+        expr_text,
+        params=params,
+        allow_missing_params=True,
+        field=field,
+        line=line,
+        column=column,
+    )
     return {
         ident.split(".", 1)[0]
         for ident in collect_identifiers(node)
@@ -166,6 +272,7 @@ def _validate_row_expr_scope(
     alias_targets: Mapping[str, ASTObject],
     active_match_alias: Optional[str],
     unwind_aliases: Iterable[str],
+    params: Optional[Mapping[str, Any]] = None,
     field: str,
     line: int,
     column: int,
@@ -174,6 +281,7 @@ def _validate_row_expr_scope(
     for root in _expr_match_aliases(
         expr_text,
         alias_targets=alias_targets,
+        params=params,
         field=field,
         line=line,
         column=column,
@@ -216,21 +324,26 @@ def _row_expr_arg(
             params=params,
             field=field,
         )
-    if "$" in expr.text:
-        raise _unsupported(
-            "Cypher parameters are currently only supported as whole row expressions in local lowering",
-            field=field,
-            value=expr.text,
-            line=expr.span.line,
-            column=expr.span.column,
-        )
-    _parse_row_expr(expr.text, field=field, line=expr.span.line, column=expr.span.column)
-    return expr.text
+    rewritten = _rewrite_param_expr(
+        expr.text,
+        params=params,
+        field=field,
+        line=expr.span.line,
+        column=expr.span.column,
+        allow_missing=False,
+    )
+    _parse_row_expr(rewritten, field=field, line=expr.span.line, column=expr.span.column)
+    return rewritten
 
 
-def _aggregate_spec(item: ReturnItem) -> Optional[_AggregateSpec]:
+def _aggregate_spec(
+    item: ReturnItem,
+    *,
+    params: Optional[Mapping[str, Any]] = None,
+) -> Optional[_AggregateSpec]:
     node = _parse_row_expr(
         item.expression.text,
+        params=params,
         field="return.item",
         line=item.span.line,
         column=item.span.column,
@@ -301,6 +414,7 @@ def _active_match_alias(
     query: CypherQuery,
     *,
     alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]] = None,
 ) -> Optional[str]:
     if not alias_targets:
         return None
@@ -341,6 +455,7 @@ def _active_match_alias(
             _expr_match_aliases(
                 expr_text,
                 alias_targets=alias_targets,
+                params=params,
                 field=field,
                 line=line,
                 column=column,
@@ -637,6 +752,7 @@ def _build_projection_plan(
     clause: ReturnClause,
     *,
     alias_targets: Dict[str, ASTObject],
+    params: Optional[Mapping[str, Any]] = None,
 ) -> _ProjectionPlan:
     source_alias: Optional[str] = None
     whole_row_output_names: List[str] = []
@@ -662,6 +778,7 @@ def _build_projection_plan(
                 _expr_match_aliases(
                     item.expression.text,
                     alias_targets=alias_targets,
+                    params=params,
                     field=f"{clause.kind}.items",
                     line=item.span.line,
                     column=item.span.column,
@@ -916,7 +1033,7 @@ def _lower_projection_chain(
     plan: Optional[_ProjectionPlan] = None,
 ) -> List[ASTObject]:
     alias_targets = _alias_target(lowered.query)
-    plan = plan or _build_projection_plan(query.return_, alias_targets=alias_targets)
+    plan = plan or _build_projection_plan(query.return_, alias_targets=alias_targets, params=params)
 
     row_steps: List[ASTObject] = [rows(table=plan.table, source=plan.source_alias)]
 
@@ -1092,7 +1209,7 @@ def _lower_general_row_projection(
     params: Optional[Mapping[str, Any]],
 ) -> CompiledCypherQuery:
     alias_targets = _alias_target(lowered.query) if query.match is not None else {}
-    active_match_alias = _active_match_alias(query, alias_targets=alias_targets)
+    active_match_alias = _active_match_alias(query, alias_targets=alias_targets, params=params)
     seed_rows = query.match is None
 
     if active_match_alias is None:
@@ -1125,6 +1242,7 @@ def _lower_general_row_projection(
             alias_targets=alias_targets,
             active_match_alias=active_match_alias,
             unwind_aliases=unwind_aliases,
+            params=params,
             field="unwind",
             line=unwind_clause.span.line,
             column=unwind_clause.span.column,
@@ -1144,7 +1262,7 @@ def _lower_general_row_projection(
     aggregate_specs: List[_AggregateSpec] = []
     non_aggregate_items: List[ReturnItem] = []
     for item in query.return_.items:
-        agg_spec = _aggregate_spec(item)
+        agg_spec = _aggregate_spec(item, params=params)
         if agg_spec is None:
             non_aggregate_items.append(item)
         else:
@@ -1181,6 +1299,7 @@ def _lower_general_row_projection(
                 alias_targets=alias_targets,
                 active_match_alias=active_match_alias,
                 unwind_aliases=unwind_aliases,
+                params=params,
                 field=query.return_.kind,
                 line=item.span.line,
                 column=item.span.column,
@@ -1239,6 +1358,7 @@ def _lower_general_row_projection(
                     alias_targets=alias_targets,
                     active_match_alias=active_match_alias,
                     unwind_aliases=unwind_aliases,
+                    params=params,
                     field=query.return_.kind,
                     line=agg_spec.span_line,
                     column=agg_spec.span_column,
@@ -1295,6 +1415,7 @@ def _lower_general_row_projection(
                 alias_targets=alias_targets,
                 active_match_alias=active_match_alias,
                 unwind_aliases=unwind_aliases,
+                params=params,
                 field=query.return_.kind,
                 line=item.span.line,
                 column=item.span.column,
@@ -1364,10 +1485,10 @@ def compile_cypher_query(
     )
 
     if query.match is not None and not query.unwinds:
-        has_aggregates = any(_aggregate_spec(item) is not None for item in query.return_.items)
+        has_aggregates = any(_aggregate_spec(item, params=params) is not None for item in query.return_.items)
         if not has_aggregates:
             alias_targets = _alias_target(lowered.query)
-            plan = _build_projection_plan(query.return_, alias_targets=alias_targets)
+            plan = _build_projection_plan(query.return_, alias_targets=alias_targets, params=params)
             return CompiledCypherQuery(
                 Chain(_lower_projection_chain(query, lowered, params=params, plan=plan), where=lowered.where),
                 seed_rows=False,

@@ -482,6 +482,34 @@ def test_string_cypher_formats_mixed_edge_entity_projection() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    "query,params,expected",
+    [
+        ("RETURN $elt IN $coll AS result", {"elt": 2, "coll": [1, 2, 3]}, True),
+        ("RETURN $elt IN $coll AS result", {"elt": 4, "coll": [1, 2, 3]}, False),
+        ("RETURN $elt IN [1, 2, 3] AS result", {"elt": 2}, True),
+        ("RETURN 2 IN $coll AS result", {"coll": [1, 2, 3]}, True),
+    ],
+)
+def test_string_cypher_supports_parameterized_row_expressions(
+    query: str,
+    params: dict[str, object],
+    expected: object,
+) -> None:
+    result = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []})).gfql(query, params=params)
+
+    assert result._nodes.to_dict(orient="records") == [{"result": expected}]
+
+
+def test_string_cypher_supports_parameterized_row_expr_null_propagation() -> None:
+    result = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []})).gfql(
+        "RETURN $elt IN $coll AS result",
+        params={"elt": 4, "coll": [1, None, 3]},
+    )
+
+    assert pd.isna(result._nodes.iloc[0]["result"])
+
+
 def test_cypher_to_gfql_executes_relationship_type_projection() -> None:
     nodes = pd.DataFrame({"id": ["a", "b"]})
     edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["KNOWS"]})
