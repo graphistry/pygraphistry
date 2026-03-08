@@ -619,6 +619,25 @@ def test_string_cypher_supports_parameterized_row_expr_null_propagation() -> Non
     assert pd.isna(result._nodes.iloc[0]["result"])
 
 
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("WITH null AS expr, 'x' AS idx RETURN expr[idx] AS value", [{"value": None}]),
+        ("WITH {name: 'Mats'} AS expr, null AS idx RETURN expr[idx] AS value", [{"value": None}]),
+        ("WITH {name: 'Mats', Name: 'Pontus'} AS map RETURN map['nAMe'] AS result", [{"result": None}]),
+        ("WITH {name: 'Mats', nome: 'Pontus'} AS map RETURN map['null'] AS result", [{"result": None}]),
+        ("WITH {null: 'Mats', NULL: 'Pontus'} AS map RETURN map['null'] AS result", [{"result": "Mats"}]),
+        ("WITH {null: 'Mats', NULL: 'Pontus'} AS map RETURN map['NULL'] AS result", [{"result": "Pontus"}]),
+    ],
+)
+def test_string_cypher_supports_dynamic_map_subscripts(query: str, expected: list[dict[str, object]]) -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(query)
+
+    assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == expected
+
+
 def test_string_cypher_executes_unwind_temporal_date_literals() -> None:
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 
@@ -903,6 +922,65 @@ def test_string_cypher_executes_duration_unit_functions_with_current_temporals(q
     result = g.gfql(query)
 
     assert result._nodes.to_dict(orient="records") == [{"duration": "PT0S"}]
+
+
+@pytest.mark.parametrize(
+    ("query", "column"),
+    [
+        ("RETURN date(null) AS t", "t"),
+        ("RETURN localtime(null) AS t", "t"),
+        ("RETURN time(null) AS t", "t"),
+        ("RETURN localdatetime(null) AS t", "t"),
+        ("RETURN datetime(null) AS t", "t"),
+        ("RETURN duration(null) AS t", "t"),
+    ],
+)
+def test_string_cypher_temporal_constructor_null_propagation(query: str, column: str) -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(query)
+
+    assert pd.isna(result._nodes.iloc[0][column])
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "WITH date({year: 1984, month: 10, day: 11}) AS d "
+            "RETURN toString(d) AS ts, date(toString(d)) = d AS b",
+            [{"ts": "1984-10-11", "b": True}],
+        ),
+        (
+            "WITH localtime({hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS d "
+            "RETURN toString(d) AS ts, localtime(toString(d)) = d AS b",
+            [{"ts": "12:31:14.645876123", "b": True}],
+        ),
+        (
+            "WITH time({hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}) AS d "
+            "RETURN toString(d) AS ts, time(toString(d)) = d AS b",
+            [{"ts": "12:31:14.645876123+01:00", "b": True}],
+        ),
+        (
+            "WITH localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS d "
+            "RETURN toString(d) AS ts, localdatetime(toString(d)) = d AS b",
+            [{"ts": "1984-10-11T12:31:14.645876123", "b": True}],
+        ),
+        (
+            "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}) AS d "
+            "RETURN toString(d) AS ts, datetime(toString(d)) = d AS b",
+            [{"ts": "1984-10-11T12:31:14.645876123+01:00", "b": True}],
+        ),
+    ],
+)
+def test_string_cypher_temporal_tostring_roundtrip(
+    query: str, expected: list[dict[str, object]]
+) -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == expected
 
 
 @pytest.mark.parametrize(

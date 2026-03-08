@@ -1300,6 +1300,22 @@ def fold_temporal_constructor_ast(node: ExprNode) -> ExprNode:
                 current_literal = _current_temporal_literal(inner.name, current_dt)
                 if current_literal is not None:
                     return Literal(current_literal)
+            if not inner.distinct and inner.name == "tostring" and len(args) == 1 and isinstance(args[0], Literal):
+                value = args[0].value
+                if value is None:
+                    return Literal(None)
+                if isinstance(value, bool):
+                    return Literal("true" if value else "false")
+                return Literal(str(value))
+            if not inner.distinct and len(args) == 1 and inner.name in {
+                "date",
+                "localtime",
+                "time",
+                "localdatetime",
+                "datetime",
+                "duration",
+            } and isinstance(args[0], Literal) and args[0].value is None:
+                return Literal(None)
             if not inner.distinct and len(args) == 1 and inner.name in {"date", "localtime", "time", "localdatetime", "datetime", "duration"}:
                 rendered_arg = _render_temporal_arg(args[0])
                 if rendered_arg is not None:

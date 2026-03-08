@@ -221,7 +221,7 @@ expr_list: expr ("," expr)*
 map_literal: "{" [map_entries] "}"
 map_entries: map_entry ("," map_entry)*
 map_entry: map_key ":" expr
-map_key: NAME                            -> map_key_name
+map_key: MAP_KEY_NAME                    -> map_key_name
        | STRING                          -> map_key_string
 
 function_call: identifier "(" func_args ")"
@@ -254,6 +254,7 @@ literal: "NULL"i                            -> null_lit
 COMP_OP: __GFQL_COMPARISON_GRAMMAR_ALTS__
 MINUS: /-(?!-)/
 NAME: /(?!(?i:AND|OR|XOR|NOT|IN|IS|NULL|CASE|WHEN|THEN|ELSE|END|CONTAINS|STARTS|WITH|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*/
+MAP_KEY_NAME: /[A-Za-z_][A-Za-z0-9_]*/
 NUMBER: /[+-]?(?:0[xX][0-9A-Fa-f]+|0[oO][0-7]+|(?:\d+\.\d+(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+(?:[eE][+-]?\d+)?))/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
 LINE_COMMENT: /--[^\n]*/

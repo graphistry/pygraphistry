@@ -618,6 +618,10 @@ class RowPipelineMixin:
             ok_key, key_value = self._gfql_eval_expr_ast(table_df, node.key)
             if not (ok_base and ok_key):
                 return False, None
+            if is_null_scalar(base_value) or is_null_scalar(key_value):
+                return True, None
+            if isinstance(base_value, dict):
+                return True, base_value.get(str(key_value))
             if hasattr(key_value, "iloc"):
                 return True, self._gfql_eval_dynamic_list_subscript(
                     table_df, base_value, key_value, "ast subscript"
