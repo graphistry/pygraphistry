@@ -1739,6 +1739,24 @@ def _lower_row_column_stage(
     scope: _StageScope,
     params: Optional[Mapping[str, Any]],
 ) -> Tuple[List[ASTObject], _StageScope]:
+    aggregate_specs: List[_AggregateSpec] = []
+    non_aggregate_items: List[ReturnItem] = []
+    for item in stage.clause.items:
+        agg_spec = _aggregate_spec(item, params=params, alias_targets={})
+        if agg_spec is None:
+            non_aggregate_items.append(item)
+        else:
+            aggregate_specs.append(agg_spec)
+
+    if aggregate_specs:
+        return _lower_row_column_aggregate_stage(
+            stage,
+            scope=scope,
+            params=params,
+            aggregate_specs=aggregate_specs,
+            non_aggregate_items=non_aggregate_items,
+        )
+
     projection_fn = with_ if stage.clause.kind == "with" else return_
     projection_items: List[Tuple[str, Any]] = []
     available_columns: Set[str] = set()
@@ -1807,6 +1825,186 @@ def _lower_row_column_stage(
                 )
             )
         )
+    if stage.order_by is not None:
+        row_steps.append(
+            _lower_order_by_outputs(
+                stage.order_by,
+                available_columns=available_columns,
+                expr_to_output=expr_to_output,
+            )
+        )
+    _append_page_ops_values(
+        row_steps,
+        skip_clause=stage.skip,
+        limit_clause=stage.limit,
+        params=params,
+    )
+
+    return row_steps, _StageScope(
+        mode="row_columns",
+        alias_targets={},
+        active_alias=None,
+        row_columns=set(available_columns),
+        table=None,
+        seed_rows=scope.seed_rows,
+    )
+
+
+def _lower_row_column_aggregate_stage(
+    stage: ProjectionStage,
+    *,
+    scope: _StageScope,
+    params: Optional[Mapping[str, Any]],
+    aggregate_specs: Sequence[_AggregateSpec],
+    non_aggregate_items: Sequence[ReturnItem],
+) -> Tuple[List[ASTObject], _StageScope]:
+    if stage.clause.distinct:
+        raise _unsupported(
+            "Cypher DISTINCT with aggregate RETURN/WITH is not yet supported in local lowering",
+            field=stage.clause.kind,
+            value=[item.expression.text for item in stage.clause.items],
+            line=stage.clause.span.line,
+            column=stage.clause.span.column,
+        )
+
+    projection_fn = with_ if stage.clause.kind == "with" else return_
+    pre_items: List[Tuple[str, Any]] = []
+    key_names: List[str] = []
+    temp_names: Set[str] = set()
+    available_columns: Set[str] = set()
+    expr_to_output: Dict[str, str] = {}
+
+    for item in non_aggregate_items:
+        output_name = item.alias or item.expression.text
+        if output_name in available_columns:
+            raise _unsupported(
+                "Duplicate Cypher projection names are not yet supported in local lowering",
+                field=stage.clause.kind,
+                value=output_name,
+                line=item.span.line,
+                column=item.span.column,
+            )
+        _validate_row_expr_scope(
+            item.expression.text,
+            alias_targets={},
+            active_match_alias=None,
+            unwind_aliases=scope.row_columns,
+            params=params,
+            field=stage.clause.kind,
+            line=item.span.line,
+            column=item.span.column,
+        )
+        pre_items.append(
+            (
+                output_name,
+                _row_expr_arg(
+                    item.expression,
+                    params=params,
+                    alias_targets={},
+                    field=stage.clause.kind,
+                ),
+            )
+        )
+        key_names.append(output_name)
+        available_columns.add(output_name)
+        _add_output_mapping(
+            expr_to_output,
+            source_expr=item.expression.text,
+            output_name=output_name,
+            alias_name=item.alias,
+        )
+
+    aggregations: List[Sequence[Any]] = []
+    for agg_spec in aggregate_specs:
+        if agg_spec.output_name in available_columns:
+            raise _unsupported(
+                "Duplicate Cypher projection names are not yet supported in local lowering",
+                field=stage.clause.kind,
+                value=agg_spec.output_name,
+                line=agg_spec.span_line,
+                column=agg_spec.span_column,
+            )
+        runtime_func, runtime_expr = _aggregate_runtime_spec(agg_spec, alias_targets={})
+        if runtime_expr is None:
+            aggregations.append((agg_spec.output_name, runtime_func))
+        else:
+            expr_text_obj = ExpressionText(
+                text=runtime_expr,
+                span=SourceSpan(
+                    line=agg_spec.span_line,
+                    column=agg_spec.span_column,
+                    end_line=agg_spec.span_line,
+                    end_column=agg_spec.span_column,
+                    start_pos=0,
+                    end_pos=0,
+                ),
+            )
+            _validate_row_expr_scope(
+                runtime_expr,
+                alias_targets={},
+                active_match_alias=None,
+                unwind_aliases=scope.row_columns,
+                params=params,
+                field=stage.clause.kind,
+                line=agg_spec.span_line,
+                column=agg_spec.span_column,
+            )
+            temp_name = _fresh_temp_name(temp_names, "__cypher_agg__")
+            pre_items.append(
+                (
+                    temp_name,
+                    _row_expr_arg(
+                        expr_text_obj,
+                        params=params,
+                        alias_targets={},
+                        field=stage.clause.kind,
+                    ),
+                )
+            )
+            aggregations.append((agg_spec.output_name, runtime_func, temp_name))
+        available_columns.add(agg_spec.output_name)
+        _add_output_mapping(
+            expr_to_output,
+            source_expr=agg_spec.source_text,
+            output_name=agg_spec.output_name,
+            alias_name=agg_spec.output_name,
+        )
+
+    row_steps: List[ASTObject] = []
+    if key_names:
+        if pre_items:
+            row_steps.append(with_(pre_items))
+        row_steps.append(group_by(key_names, aggregations))
+    else:
+        global_key = _fresh_temp_name(temp_names, "__cypher_group__")
+        row_steps.append(with_([(global_key, 1)] + pre_items))
+        row_steps.append(group_by([global_key], aggregations))
+        row_steps.append(projection_fn([(agg.output_name, agg.output_name) for agg in aggregate_specs]))
+        available_columns = {agg.output_name for agg in aggregate_specs}
+        expr_to_output = {agg.source_text: agg.output_name for agg in aggregate_specs}
+
+    if stage.where is not None:
+        _validate_row_expr_scope(
+            stage.where.text,
+            alias_targets={},
+            active_match_alias=None,
+            unwind_aliases=available_columns,
+            params=params,
+            field="with.where",
+            line=stage.where.span.line,
+            column=stage.where.span.column,
+        )
+        row_steps.append(
+            where_rows(
+                expr=_row_expr_arg(
+                    stage.where,
+                    params=params,
+                    alias_targets={},
+                    field="with.where",
+                )
+            )
+        )
+
     if stage.order_by is not None:
         row_steps.append(
             _lower_order_by_outputs(

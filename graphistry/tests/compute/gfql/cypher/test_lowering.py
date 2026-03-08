@@ -878,6 +878,33 @@ def test_lower_cypher_query_builds_distinct_aggregate_pipeline() -> None:
     }
 
 
+def test_lower_cypher_query_builds_with_aggregate_pipeline() -> None:
+    parsed = parse_cypher(
+        "UNWIND [1, 2, 2] AS x WITH collect(DISTINCT x) AS xs RETURN size(xs) AS n"
+    )
+
+    chain = lower_cypher_query(parsed)
+
+    with_call = cast(ASTCall, chain.chain[2])
+    group_call = cast(ASTCall, chain.chain[3])
+    with_output_call = cast(ASTCall, chain.chain[4])
+    final_call = cast(ASTCall, chain.chain[5])
+
+    assert [with_call.function, group_call.function, with_output_call.function, final_call.function] == [
+        "with_",
+        "group_by",
+        "with_",
+        "select",
+    ]
+    assert with_call.params["items"] == [("__cypher_group__", 1), ("__cypher_agg__", "x")]
+    assert group_call.params == {
+        "keys": ["__cypher_group__"],
+        "aggregations": [("xs", "collect_distinct", "__cypher_agg__")],
+    }
+    assert with_output_call.params["items"] == [("xs", "xs")]
+    assert final_call.params["items"] == [("n", "size(xs)")]
+
+
 def test_lower_cypher_query_maps_count_distinct_edge_alias_to_identity() -> None:
     parsed = parse_cypher("MATCH (a)-[r]->(b) RETURN count(DISTINCT r)")
 
@@ -1110,6 +1137,21 @@ def test_gfql_executes_with_where_xor_null_pipeline() -> None:
         return (str(row["a"]), str(row["b"]), str(row["result"]))
 
     assert sorted(actual_rows, key=_row_key) == sorted(expected_rows, key=_row_key)
+
+
+def test_gfql_executes_with_aggregate_precedence_pipeline() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "UNWIND [true, false, null] AS a "
+        "UNWIND [true, false, null] AS b "
+        "UNWIND [true, false, null] AS c "
+        "WITH collect((a OR b XOR c) = (a OR (b XOR c))) AS eq, "
+        "collect((a OR b XOR c) <> ((a OR b) XOR c)) AS neq "
+        "RETURN all(x IN eq WHERE x) AND any(x IN neq WHERE x) AS result"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"result": True}]
 
 
 def test_gfql_executes_top_level_list_comprehension_expression() -> None:
