@@ -345,6 +345,52 @@ def test_cypher_to_gfql_executes_whole_row_alias_pipeline() -> None:
     ]
 
 
+def test_string_cypher_formats_single_node_entity_projection() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a"],
+            "type": ["Person"],
+            "name": ["Alice"],
+            "score": [2],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql("MATCH (p) RETURN p")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"p": "(:Person {name: 'Alice', score: 2})"}
+    ]
+
+
+def test_string_cypher_formats_single_edge_entity_projection() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b"]})
+    edges = pd.DataFrame(
+        {
+            "s": ["a"],
+            "d": ["b"],
+            "edge_id": ["e1"],
+            "type": ["KNOWS"],
+            "weight": [5],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql("MATCH ()-[r]->() RETURN r")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"r": "[:KNOWS {weight: 5}]"}
+    ]
+
+
+def test_string_cypher_formats_single_node_entity_projection_with_alias() -> None:
+    nodes = pd.DataFrame({"id": ["a"], "type": ["A"]})
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql("MATCH (a) RETURN a AS ColumnName")
+
+    assert result._nodes.to_dict(orient="records") == [{"ColumnName": "(:A)"}]
+
+
 def test_cypher_to_gfql_executes_relationship_type_projection() -> None:
     nodes = pd.DataFrame({"id": ["a", "b"]})
     edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["KNOWS"]})

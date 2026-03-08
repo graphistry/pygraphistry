@@ -312,6 +312,7 @@ def gfql(self: Plottable,
                 raise
 
         dispatch_self = self
+        compiled_query = None
 
         if where_param and isinstance(query, (dict, ASTLet)):
             raise ValueError("where must be provided inside dict chain under the 'where' key")
@@ -373,7 +374,12 @@ def gfql(self: Plottable,
                     if query.where:
                         raise ValueError("where provided for Chain that already includes where")
                     query = Chain(query.chain, where=where_param)
-                return _chain_dispatch(dispatch_self, query, engine, expanded_policy, context)
+                result = _chain_dispatch(dispatch_self, query, engine, expanded_policy, context)
+                if compiled_query is not None and compiled_query.whole_row_projection is not None:
+                    from .gfql.cypher.result_postprocess import apply_whole_row_projection
+
+                    result = apply_whole_row_projection(result, compiled_query.whole_row_projection)
+                return result
             elif isinstance(query, ASTObject):
                 logger.debug('GFQL executing single ASTObject as chain')
                 if output is not None:

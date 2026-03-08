@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, cast
+from typing_extensions import Literal
 
 from graphistry.compute.ast import (
     ASTEdge,
@@ -63,6 +64,15 @@ class LoweredCypherMatch:
 class CompiledCypherQuery:
     chain: Chain
     seed_rows: bool = False
+    whole_row_projection: Optional["WholeRowProjection"] = None
+
+
+@dataclass(frozen=True)
+class WholeRowProjection:
+    alias: str
+    output_name: str
+    table: Literal["nodes", "edges"]
+    exclude_columns: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -70,6 +80,7 @@ class _ProjectionPlan:
     source_alias: str
     table: str
     whole_row: bool
+    whole_row_output_name: Optional[str]
     clause_kind: str
     projection_items: List[Tuple[str, str]]
     available_columns: Set[str]
@@ -621,6 +632,7 @@ def _build_projection_plan(
 ) -> _ProjectionPlan:
     source_alias: Optional[str] = None
     whole_row = False
+    whole_row_output_name: Optional[str] = None
     projection_items: List[Tuple[str, str]] = []
     available_columns: Set[str] = set()
     projected_property_outputs: Dict[str, str] = {}
@@ -658,18 +670,19 @@ def _build_projection_plan(
                 language="cypher",
             )
         if prop is None:
-            if len(clause.items) != 1 or item.alias is not None:
+            if len(clause.items) != 1:
                 raise GFQLValidationError(
                     ErrorCode.E108,
-                    "Whole-row alias projection is only supported as a single bare alias",
+                    "Whole-row alias projection is only supported as a single alias item in this phase",
                     field=f"{clause.kind}.items",
                     value=item.expression.text,
-                    suggestion="Use a single alias like RETURN p, or project individual properties.",
+                    suggestion="Use one whole-row alias item, or project individual properties.",
                     line=item.span.line,
                     column=item.span.column,
                     language="cypher",
                 )
             whole_row = True
+            whole_row_output_name = item.alias or alias_name
             continue
         output_name = item.alias or item.expression.text
         projection_items.append((output_name, prop))
@@ -710,10 +723,26 @@ def _build_projection_plan(
         source_alias=source_alias,
         table=table,
         whole_row=whole_row,
+        whole_row_output_name=whole_row_output_name,
         clause_kind=clause.kind,
         projection_items=projection_items,
         available_columns=available_columns,
         projected_property_outputs=projected_property_outputs,
+    )
+
+
+def _whole_row_projection(
+    plan: _ProjectionPlan,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+) -> Optional[WholeRowProjection]:
+    if not plan.whole_row or plan.whole_row_output_name is None:
+        return None
+    return WholeRowProjection(
+        alias=plan.source_alias,
+        output_name=plan.whole_row_output_name,
+        table=cast(Literal["nodes", "edges"], plan.table),
+        exclude_columns=tuple(sorted(alias_targets.keys())),
     )
 
 
@@ -817,9 +846,10 @@ def _lower_projection_chain(
     lowered: LoweredCypherMatch,
     *,
     params: Optional[Mapping[str, Any]],
+    plan: Optional[_ProjectionPlan] = None,
 ) -> List[ASTObject]:
     alias_targets = _alias_target(lowered.query)
-    plan = _build_projection_plan(query.return_, alias_targets=alias_targets)
+    plan = plan or _build_projection_plan(query.return_, alias_targets=alias_targets)
 
     row_steps: List[ASTObject] = [rows(table=plan.table, source=plan.source_alias)]
 
@@ -1269,9 +1299,12 @@ def compile_cypher_query(
     if query.match is not None and not query.unwinds:
         has_aggregates = any(_aggregate_spec(item) is not None for item in query.return_.items)
         if not has_aggregates:
+            alias_targets = _alias_target(lowered.query)
+            plan = _build_projection_plan(query.return_, alias_targets=alias_targets)
             return CompiledCypherQuery(
-                Chain(_lower_projection_chain(query, lowered, params=params), where=lowered.where),
+                Chain(_lower_projection_chain(query, lowered, params=params, plan=plan), where=lowered.where),
                 seed_rows=False,
+                whole_row_projection=_whole_row_projection(plan, alias_targets=alias_targets),
             )
 
     return _lower_general_row_projection(query, lowered, params=params)

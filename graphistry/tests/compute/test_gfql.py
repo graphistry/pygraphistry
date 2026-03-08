@@ -171,7 +171,7 @@ class TestGFQL:
         result = g.gfql("MATCH (p:person) RETURN p LIMIT 1")
 
         assert len(result._nodes) == 1
-        assert result._nodes.iloc[0]["type"] == "person"
+        assert result._nodes.iloc[0]["p"] == "(:person)"
 
     def test_gfql_string_invalid_syntax_surfaces_parser_error(self):
         g = _mk_people_company_graph3()
