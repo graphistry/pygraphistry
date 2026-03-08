@@ -16,15 +16,26 @@ from .ast import (
     ReturnItem,
     SkipClause,
     SourceSpan,
+    UnwindClause,
     WhereClause,
     WherePredicate,
 )
-from .api import cypher_to_gfql, gfql_from_cypher
-from .lowering import LoweredCypherMatch, lower_cypher_query, lower_match_clause, lower_match_query
+from .api import compile_cypher, cypher_to_gfql, gfql_from_cypher
+from .lowering import (
+    CompiledCypherQuery,
+    LoweredCypherMatch,
+    compile_cypher_query,
+    lower_cypher_query,
+    lower_match_clause,
+    lower_match_query,
+)
 from .parser import parse_cypher
 
 __all__ = [
     "CypherQuery",
+    "compile_cypher",
+    "CompiledCypherQuery",
+    "compile_cypher_query",
     "cypher_to_gfql",
     "ExpressionText",
     "gfql_from_cypher",
@@ -45,6 +56,7 @@ __all__ = [
     "ReturnItem",
     "SkipClause",
     "SourceSpan",
+    "UnwindClause",
     "WhereClause",
     "WherePredicate",
     "parse_cypher",

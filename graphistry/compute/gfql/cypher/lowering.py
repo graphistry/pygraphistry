@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, cast
+import re
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, cast
 
 from graphistry.compute.ast import (
     ASTEdge,
@@ -11,19 +12,30 @@ from graphistry.compute.ast import (
     e_forward,
     e_reverse,
     e_undirected,
+    group_by,
     limit,
     order_by,
     return_,
     rows,
     skip,
+    unwind,
     with_,
 )
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.predicates.comparison import ge, gt, isna, le, lt, ne, notna
+from graphistry.compute.gfql.expr_parser import (
+    FunctionCall,
+    GFQLExprParseError,
+    Identifier,
+    Wildcard,
+    collect_identifiers,
+    parse_expr,
+)
 from graphistry.compute.gfql.cypher.ast import (
     CypherLiteral,
     CypherQuery,
+    ExpressionText,
     MatchClause,
     NodePattern,
     ParameterRef,
@@ -32,6 +44,9 @@ from graphistry.compute.gfql.cypher.ast import (
     PropertyEntry,
     RelationshipPattern,
     ReturnClause,
+    ReturnItem,
+    SourceSpan,
+    UnwindClause,
 )
 from graphistry.compute.gfql.same_path_types import WhereComparison, col, compare
 
@@ -43,6 +58,12 @@ class LoweredCypherMatch:
 
 
 @dataclass(frozen=True)
+class CompiledCypherQuery:
+    chain: Chain
+    seed_rows: bool = False
+
+
+@dataclass(frozen=True)
 class _ProjectionPlan:
     source_alias: str
     table: str
@@ -51,6 +72,20 @@ class _ProjectionPlan:
     projection_items: List[Tuple[str, str]]
     available_columns: Set[str]
     projected_property_outputs: Dict[str, str]
+
+
+@dataclass(frozen=True)
+class _AggregateSpec:
+    source_text: str
+    output_name: str
+    func: str
+    expr_text: Optional[str]
+    span_line: int
+    span_column: int
+
+
+_CYPHER_PARAM_RE = re.compile(r"^\$([A-Za-z_][A-Za-z0-9_]*)$")
+_CYPHER_AGGREGATES = frozenset({"count", "sum", "min", "max", "avg", "collect"})
 
 
 def _unsupported(message: str, *, field: str, value: Any, line: int, column: int) -> GFQLValidationError:
@@ -65,6 +100,243 @@ def _unsupported(message: str, *, field: str, value: Any, line: int, column: int
         language="cypher",
     )
 
+
+def _parse_row_expr(
+    expr_text: str,
+    *,
+    field: str,
+    line: int,
+    column: int,
+) -> Any:
+    try:
+        return parse_expr(expr_text)
+    except (GFQLExprParseError, ImportError) as exc:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher expression is outside the currently supported local GFQL subset",
+            field=field,
+            value=expr_text,
+            suggestion="Use column references, supported GFQL scalar expressions, or supported aggregate functions.",
+            line=line,
+            column=column,
+            language="cypher",
+        ) from exc
+
+
+def _expr_match_aliases(
+    expr_text: str,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    field: str,
+    line: int,
+    column: int,
+) -> Set[str]:
+    node = _parse_row_expr(expr_text, field=field, line=line, column=column)
+    return {
+        ident.split(".", 1)[0]
+        for ident in collect_identifiers(node)
+        if ident.split(".", 1)[0] in alias_targets
+    }
+
+
+def _validate_row_expr_scope(
+    expr_text: str,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    active_match_alias: Optional[str],
+    unwind_aliases: Iterable[str],
+    field: str,
+    line: int,
+    column: int,
+) -> None:
+    allowed_unwind_roots = set(unwind_aliases)
+    for root in _expr_match_aliases(
+        expr_text,
+        alias_targets=alias_targets,
+        field=field,
+        line=line,
+        column=column,
+    ):
+        if active_match_alias is None:
+            raise _unsupported(
+                "Cypher row expressions cannot reference MATCH aliases when no row source is active",
+                field=field,
+                value=expr_text,
+                line=line,
+                column=column,
+            )
+        if root != active_match_alias and root not in allowed_unwind_roots:
+            raise _unsupported(
+                "Cypher row lowering currently supports one MATCH source alias at a time",
+                field=field,
+                value=expr_text,
+                line=line,
+                column=column,
+            )
+
+
+def _whole_param_name(expr_text: str) -> Optional[str]:
+    match = _CYPHER_PARAM_RE.match(expr_text.strip())
+    if match is None:
+        return None
+    return match.group(1)
+
+
+def _row_expr_arg(
+    expr: ExpressionText,
+    *,
+    params: Optional[Mapping[str, Any]],
+    field: str,
+) -> Any:
+    param_name = _whole_param_name(expr.text)
+    if param_name is not None:
+        return _resolve_literal(
+            ParameterRef(name=param_name, span=expr.span),
+            params=params,
+            field=field,
+        )
+    if "$" in expr.text:
+        raise _unsupported(
+            "Cypher parameters are currently only supported as whole row expressions in local lowering",
+            field=field,
+            value=expr.text,
+            line=expr.span.line,
+            column=expr.span.column,
+        )
+    _parse_row_expr(expr.text, field=field, line=expr.span.line, column=expr.span.column)
+    return expr.text
+
+
+def _aggregate_spec(item: ReturnItem) -> Optional[_AggregateSpec]:
+    node = _parse_row_expr(
+        item.expression.text,
+        field="return.item",
+        line=item.span.line,
+        column=item.span.column,
+    )
+    if not isinstance(node, FunctionCall) or node.name not in _CYPHER_AGGREGATES:
+        return None
+
+    if len(node.args) == 0:
+        raise _unsupported(
+            "Cypher aggregate functions require an argument or '*'",
+            field="return.item",
+            value=item.expression.text,
+            line=item.span.line,
+            column=item.span.column,
+        )
+    if len(node.args) != 1:
+        raise _unsupported(
+            "Cypher local aggregate lowering currently supports single-argument aggregate functions only",
+            field="return.item",
+            value=item.expression.text,
+            line=item.span.line,
+            column=item.span.column,
+        )
+
+    arg = node.args[0]
+    if isinstance(arg, Wildcard):
+        if node.name != "count":
+            raise _unsupported(
+                "Only count(*) supports '*' in the local Cypher aggregate subset",
+                field="return.item",
+                value=item.expression.text,
+                line=item.span.line,
+                column=item.span.column,
+            )
+        expr_text: Optional[str] = None
+    else:
+        open_paren = item.expression.text.find("(")
+        close_paren = item.expression.text.rfind(")")
+        if open_paren < 0 or close_paren <= open_paren:
+            raise _unsupported(
+                "Invalid Cypher aggregate function syntax",
+                field="return.item",
+                value=item.expression.text,
+                line=item.span.line,
+                column=item.span.column,
+            )
+        expr_text = item.expression.text[open_paren + 1:close_paren].strip()
+        if expr_text == "":
+            raise _unsupported(
+                "Cypher aggregate functions require a non-empty argument",
+                field="return.item",
+                value=item.expression.text,
+                line=item.span.line,
+                column=item.span.column,
+            )
+
+    return _AggregateSpec(
+        source_text=item.expression.text,
+        output_name=item.alias or item.expression.text,
+        func=node.name,
+        expr_text=expr_text,
+        span_line=item.span.line,
+        span_column=item.span.column,
+    )
+
+
+def _active_match_alias(
+    query: CypherQuery,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+) -> Optional[str]:
+    if not alias_targets:
+        return None
+
+    expr_texts: List[Tuple[str, int, int, str]] = []
+    for unwind_clause in query.unwinds:
+        expr_texts.append(
+            (
+                unwind_clause.expression.text,
+                unwind_clause.span.line,
+                unwind_clause.span.column,
+                "unwind",
+            )
+        )
+    for return_item in query.return_.items:
+        expr_texts.append(
+            (
+                return_item.expression.text,
+                return_item.span.line,
+                return_item.span.column,
+                query.return_.kind,
+            )
+        )
+    if query.order_by is not None:
+        for order_item in query.order_by.items:
+            expr_texts.append(
+                (
+                    order_item.expression.text,
+                    order_item.span.line,
+                    order_item.span.column,
+                    "order_by",
+                )
+            )
+
+    referenced: Set[str] = set()
+    for expr_text, line, column, field in expr_texts:
+        referenced.update(
+            _expr_match_aliases(
+                expr_text,
+                alias_targets=alias_targets,
+                field=field,
+                line=line,
+                column=column,
+            )
+        )
+
+    if len(referenced) > 1:
+        raise _unsupported(
+            "Cypher row lowering currently supports one MATCH source alias at a time",
+            field="return",
+            value=sorted(referenced),
+            line=query.return_.span.line,
+            column=query.return_.span.column,
+        )
+    if len(referenced) == 1:
+        return next(iter(referenced))
+    return next(iter(alias_targets))
 
 def _resolve_literal(
     value: CypherLiteral,
@@ -431,25 +703,33 @@ def _lower_order_by_clause(
     return order_by(keys)
 
 
-def _lower_projection_chain(
-    query: CypherQuery,
-    lowered: LoweredCypherMatch,
+def _lower_order_by_outputs(
+    clause: OrderByClause,
     *,
+    available_columns: Set[str],
+    expr_to_output: Mapping[str, str],
+) -> ASTObject:
+    keys: List[Tuple[str, str]] = []
+    for item in clause.items:
+        order_key = expr_to_output.get(item.expression.text, item.expression.text)
+        if order_key not in available_columns:
+            raise _unsupported(
+                "ORDER BY column must exist after RETURN/WITH projection in this phase",
+                field="order_by",
+                value=item.expression.text,
+                line=item.span.line,
+                column=item.span.column,
+            )
+        keys.append((order_key, item.direction))
+    return order_by(keys)
+
+
+def _append_page_ops(
+    row_steps: List[ASTObject],
+    *,
+    query: CypherQuery,
     params: Optional[Mapping[str, Any]],
-) -> List[ASTObject]:
-    alias_targets = _alias_target(lowered.query)
-    plan = _build_projection_plan(query.return_, alias_targets=alias_targets)
-
-    row_steps: List[ASTObject] = [rows(table=plan.table, source=plan.source_alias)]
-
-    if not plan.whole_row:
-        projection_fn = with_ if plan.clause_kind == "with" else return_
-        row_steps.append(projection_fn(plan.projection_items))
-
-    if query.return_.distinct:
-        row_steps.append(distinct())
-    if query.order_by is not None:
-        row_steps.append(_lower_order_by_clause(query.order_by, plan=plan))
+) -> None:
     if query.skip is not None:
         row_steps.append(
             skip(
@@ -474,6 +754,28 @@ def _lower_projection_chain(
                 )
             )
         )
+
+
+def _lower_projection_chain(
+    query: CypherQuery,
+    lowered: LoweredCypherMatch,
+    *,
+    params: Optional[Mapping[str, Any]],
+) -> List[ASTObject]:
+    alias_targets = _alias_target(lowered.query)
+    plan = _build_projection_plan(query.return_, alias_targets=alias_targets)
+
+    row_steps: List[ASTObject] = [rows(table=plan.table, source=plan.source_alias)]
+
+    if not plan.whole_row:
+        projection_fn = with_ if plan.clause_kind == "with" else return_
+        row_steps.append(projection_fn(plan.projection_items))
+
+    if query.return_.distinct:
+        row_steps.append(distinct())
+    if query.order_by is not None:
+        row_steps.append(_lower_order_by_clause(query.order_by, plan=plan))
+    _append_page_ops(row_steps, query=query, params=params)
     return lowered.query + row_steps
 
 
@@ -537,6 +839,14 @@ def lower_match_query(
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> LoweredCypherMatch:
+    if query.match is None:
+        raise _unsupported(
+            "Cypher MATCH lowering requires a MATCH clause",
+            field="match",
+            value=None,
+            line=query.return_.span.line,
+            column=query.return_.span.column,
+        )
     ops = lower_match_clause(query.match, params=params)
     alias_targets = _alias_target(ops)
     where_out: List[WhereComparison] = []
@@ -563,11 +873,312 @@ def lower_match_query(
     return LoweredCypherMatch(query=ops, where=where_out)
 
 
+def _fresh_temp_name(existing: Set[str], prefix: str) -> str:
+    candidate = prefix
+    counter = 0
+    while candidate in existing:
+        counter += 1
+        candidate = f"{prefix}{counter}"
+    existing.add(candidate)
+    return candidate
+
+
+def _add_output_mapping(
+    expr_to_output: Dict[str, str],
+    *,
+    source_expr: str,
+    output_name: str,
+    alias_name: Optional[str],
+) -> None:
+    expr_to_output[source_expr] = output_name
+    if alias_name is not None:
+        expr_to_output[alias_name] = output_name
+
+
+def _lower_general_row_projection(
+    query: CypherQuery,
+    lowered: LoweredCypherMatch,
+    *,
+    params: Optional[Mapping[str, Any]],
+) -> CompiledCypherQuery:
+    alias_targets = _alias_target(lowered.query) if query.match is not None else {}
+    active_match_alias = _active_match_alias(query, alias_targets=alias_targets)
+    seed_rows = query.match is None
+
+    if active_match_alias is None:
+        row_steps: List[ASTObject] = [rows(table="nodes")]
+    else:
+        row_steps = [
+            rows(
+                table=_alias_table(
+                    alias_targets[active_match_alias],
+                    alias=active_match_alias,
+                    line=query.return_.span.line,
+                    column=query.return_.span.column,
+                ),
+                source=active_match_alias,
+            )
+        ]
+
+    unwind_aliases: Set[str] = set()
+    for unwind_clause in query.unwinds:
+        if unwind_clause.alias in alias_targets or unwind_clause.alias in unwind_aliases:
+            raise _unsupported(
+                "Cypher UNWIND alias collides with an existing alias in this local subset",
+                field="unwind.alias",
+                value=unwind_clause.alias,
+                line=unwind_clause.span.line,
+                column=unwind_clause.span.column,
+            )
+        _validate_row_expr_scope(
+            unwind_clause.expression.text,
+            alias_targets=alias_targets,
+            active_match_alias=active_match_alias,
+            unwind_aliases=unwind_aliases,
+            field="unwind",
+            line=unwind_clause.span.line,
+            column=unwind_clause.span.column,
+        )
+        row_steps.append(
+            unwind(
+                _row_expr_arg(
+                    unwind_clause.expression,
+                    params=params,
+                    field="unwind",
+                ),
+                as_=unwind_clause.alias,
+            )
+        )
+        unwind_aliases.add(unwind_clause.alias)
+
+    aggregate_specs: List[_AggregateSpec] = []
+    non_aggregate_items: List[ReturnItem] = []
+    for item in query.return_.items:
+        agg_spec = _aggregate_spec(item)
+        if agg_spec is None:
+            non_aggregate_items.append(item)
+        else:
+            aggregate_specs.append(agg_spec)
+
+    if aggregate_specs and query.return_.distinct:
+        raise _unsupported(
+            "Cypher DISTINCT with aggregate RETURN/WITH is not yet supported in local lowering",
+            field=query.return_.kind,
+            value=[item.expression.text for item in query.return_.items],
+            line=query.return_.span.line,
+            column=query.return_.span.column,
+        )
+
+    expr_to_output: Dict[str, str] = {}
+    available_columns: Set[str] = set()
+
+    if aggregate_specs:
+        pre_items: List[Tuple[str, Any]] = []
+        key_names: List[str] = []
+        temp_names: Set[str] = set()
+
+        for item in non_aggregate_items:
+            if item.expression.text in alias_targets:
+                raise _unsupported(
+                    "Cypher aggregate RETURN/WITH does not yet support whole-row alias grouping",
+                    field=query.return_.kind,
+                    value=item.expression.text,
+                    line=item.span.line,
+                    column=item.span.column,
+                )
+            _validate_row_expr_scope(
+                item.expression.text,
+                alias_targets=alias_targets,
+                active_match_alias=active_match_alias,
+                unwind_aliases=unwind_aliases,
+                field=query.return_.kind,
+                line=item.span.line,
+                column=item.span.column,
+            )
+            output_name = item.alias or item.expression.text
+            if output_name in available_columns:
+                raise _unsupported(
+                    "Duplicate Cypher projection names are not yet supported in local lowering",
+                    field=query.return_.kind,
+                    value=output_name,
+                    line=item.span.line,
+                    column=item.span.column,
+                )
+            pre_items.append(
+                (
+                    output_name,
+                    _row_expr_arg(
+                        item.expression,
+                        params=params,
+                        field=query.return_.kind,
+                    ),
+                )
+            )
+            key_names.append(output_name)
+            available_columns.add(output_name)
+            _add_output_mapping(
+                expr_to_output,
+                source_expr=item.expression.text,
+                output_name=output_name,
+                alias_name=item.alias,
+            )
+
+        aggregations: List[Sequence[Any]] = []
+        for agg_spec in aggregate_specs:
+            if agg_spec.output_name in available_columns:
+                raise _unsupported(
+                    "Duplicate Cypher projection names are not yet supported in local lowering",
+                    field=query.return_.kind,
+                    value=agg_spec.output_name,
+                    line=agg_spec.span_line,
+                    column=agg_spec.span_column,
+                )
+            if agg_spec.expr_text is None:
+                aggregations.append((agg_spec.output_name, agg_spec.func))
+            else:
+                expr_text_obj = ExpressionText(text=agg_spec.expr_text, span=SourceSpan(
+                    line=agg_spec.span_line,
+                    column=agg_spec.span_column,
+                    end_line=agg_spec.span_line,
+                    end_column=agg_spec.span_column,
+                    start_pos=0,
+                    end_pos=0,
+                ))
+                _validate_row_expr_scope(
+                    agg_spec.expr_text,
+                    alias_targets=alias_targets,
+                    active_match_alias=active_match_alias,
+                    unwind_aliases=unwind_aliases,
+                    field=query.return_.kind,
+                    line=agg_spec.span_line,
+                    column=agg_spec.span_column,
+                )
+                temp_name = _fresh_temp_name(temp_names, "__cypher_agg__")
+                pre_items.append(
+                    (
+                        temp_name,
+                        _row_expr_arg(
+                            expr_text_obj,
+                            params=params,
+                            field=query.return_.kind,
+                        ),
+                    )
+                )
+                aggregations.append((agg_spec.output_name, agg_spec.func, temp_name))
+            available_columns.add(agg_spec.output_name)
+            _add_output_mapping(
+                expr_to_output,
+                source_expr=agg_spec.source_text,
+                output_name=agg_spec.output_name,
+                alias_name=agg_spec.output_name,
+            )
+
+        if key_names:
+            if len(pre_items) > 0:
+                row_steps.append(with_(pre_items))
+            row_steps.append(group_by(key_names, aggregations))
+        else:
+            global_key = _fresh_temp_name(temp_names, "__cypher_group__")
+            row_steps.append(with_([(global_key, 1)] + pre_items))
+            row_steps.append(group_by([global_key], aggregations))
+            row_steps.append(return_([(agg.output_name, agg.output_name) for agg in aggregate_specs]))
+            available_columns = {agg.output_name for agg in aggregate_specs}
+    else:
+        if query.match is not None and not query.unwinds:
+            return CompiledCypherQuery(
+                Chain(_lower_projection_chain(query, lowered, params=params), where=lowered.where),
+                seed_rows=False,
+            )
+        projection_fn = with_ if query.return_.kind == "with" else return_
+        projection_items: List[Tuple[str, Any]] = []
+        for item in query.return_.items:
+            if item.expression.text in alias_targets:
+                raise _unsupported(
+                    "Whole-row alias RETURN/WITH is not supported once UNWIND/top-level row execution is active",
+                    field=query.return_.kind,
+                    value=item.expression.text,
+                    line=item.span.line,
+                    column=item.span.column,
+                )
+            _validate_row_expr_scope(
+                item.expression.text,
+                alias_targets=alias_targets,
+                active_match_alias=active_match_alias,
+                unwind_aliases=unwind_aliases,
+                field=query.return_.kind,
+                line=item.span.line,
+                column=item.span.column,
+            )
+            output_name = item.alias or item.expression.text
+            if output_name in available_columns:
+                raise _unsupported(
+                    "Duplicate Cypher projection names are not yet supported in local lowering",
+                    field=query.return_.kind,
+                    value=output_name,
+                    line=item.span.line,
+                    column=item.span.column,
+                )
+            projection_items.append(
+                (
+                    output_name,
+                    _row_expr_arg(
+                        item.expression,
+                        params=params,
+                        field=query.return_.kind,
+                    ),
+                )
+            )
+            available_columns.add(output_name)
+            _add_output_mapping(
+                expr_to_output,
+                source_expr=item.expression.text,
+                output_name=output_name,
+                alias_name=item.alias,
+            )
+        row_steps.append(projection_fn(projection_items))
+        if query.return_.distinct:
+            row_steps.append(distinct())
+
+    if query.order_by is not None:
+        row_steps.append(
+            _lower_order_by_outputs(
+                query.order_by,
+                available_columns=available_columns,
+                expr_to_output=expr_to_output,
+            )
+        )
+    _append_page_ops(row_steps, query=query, params=params)
+    return CompiledCypherQuery(
+        Chain(lowered.query + row_steps, where=lowered.where),
+        seed_rows=seed_rows,
+    )
+
+
 def lower_cypher_query(
     query: CypherQuery,
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> Chain:
-    lowered = lower_match_query(query, params=params)
-    row_query = _lower_projection_chain(query, lowered, params=params)
-    return Chain(row_query, where=lowered.where)
+    return compile_cypher_query(query, params=params).chain
+
+
+def compile_cypher_query(
+    query: CypherQuery,
+    *,
+    params: Optional[Mapping[str, Any]] = None,
+) -> CompiledCypherQuery:
+    lowered = (
+        lower_match_query(query, params=params)
+        if query.match is not None
+        else LoweredCypherMatch(query=[], where=[])
+    )
+
+    if query.match is not None and not query.unwinds:
+        has_aggregates = any(_aggregate_spec(item) is not None for item in query.return_.items)
+        if not has_aggregates:
+            return CompiledCypherQuery(
+                Chain(_lower_projection_chain(query, lowered, params=params), where=lowered.where),
+                seed_rows=False,
+            )
+
+    return _lower_general_row_projection(query, lowered, params=params)

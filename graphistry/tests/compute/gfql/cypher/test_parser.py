@@ -12,7 +12,9 @@ from graphistry.compute.gfql.cypher import (
 def test_parse_minimal_match_return() -> None:
     parsed = parse_cypher("MATCH (n) RETURN n")
 
+    assert parsed.match is not None
     assert parsed.match.pattern[0].variable == "n"
+    assert parsed.unwinds == ()
     assert parsed.return_.distinct is False
     assert parsed.return_.kind == "return"
     assert parsed.return_.items[0].expression.text == "n"
@@ -28,6 +30,7 @@ def test_parse_linear_pattern_with_labels_properties_and_aliases() -> None:
         'MATCH (p:Person {id: $person_id})-[r:FOLLOWS]->(q:Person {active: true}) RETURN p.name AS person_name, q'
     )
 
+    assert parsed.match is not None
     assert len(parsed.match.pattern) == 3
 
     left = parsed.match.pattern[0]
@@ -68,6 +71,7 @@ def test_parse_linear_pattern_with_labels_properties_and_aliases() -> None:
 def test_parse_relationship_directions(query: str, direction: str) -> None:
     parsed = parse_cypher(query)
 
+    assert parsed.match is not None
     rel = parsed.match.pattern[1]
     assert isinstance(rel, RelationshipPattern)
     assert rel.direction == direction
@@ -125,6 +129,52 @@ def test_parse_terminal_with_clause() -> None:
     assert parsed.order_by is not None
     assert parsed.order_by.items[0].expression.text == "person_name"
     assert parsed.limit is not None and parsed.limit.value == 5
+
+
+def test_parse_unwind_without_match() -> None:
+    parsed = parse_cypher("UNWIND [1, 2, 3] AS x RETURN x ORDER BY x")
+
+    assert parsed.match is None
+    assert len(parsed.unwinds) == 1
+    assert parsed.unwinds[0].expression.text == "[1, 2, 3]"
+    assert parsed.unwinds[0].alias == "x"
+    assert parsed.return_.items[0].expression.text == "x"
+    assert parsed.order_by is not None
+    assert parsed.order_by.items[0].expression.text == "x"
+
+
+def test_parse_match_then_unwind() -> None:
+    parsed = parse_cypher("MATCH (p) UNWIND p.vals AS v RETURN v")
+
+    assert parsed.match is not None
+    assert len(parsed.unwinds) == 1
+    assert parsed.unwinds[0].expression.text == "p.vals"
+    assert parsed.unwinds[0].alias == "v"
+
+
+def test_parse_aggregate_projection_items() -> None:
+    parsed = parse_cypher(
+        "MATCH (n) RETURN n.division AS division, count(*) AS cnt, max(n.age) AS max_age ORDER BY division, cnt DESC"
+    )
+
+    assert [item.expression.text for item in parsed.return_.items] == [
+        "n.division",
+        "count(*)",
+        "max(n.age)",
+    ]
+    assert [item.alias for item in parsed.return_.items] == ["division", "cnt", "max_age"]
+    assert parsed.order_by is not None
+    assert [item.expression.text for item in parsed.order_by.items] == ["division", "cnt"]
+
+
+def test_parse_top_level_projection_only() -> None:
+    parsed = parse_cypher("RETURN [1, 2, 3] AS xs LIMIT 1")
+
+    assert parsed.match is None
+    assert parsed.unwinds == ()
+    assert parsed.return_.items[0].expression.text == "[1, 2, 3]"
+    assert parsed.return_.items[0].alias == "xs"
+    assert parsed.limit is not None and parsed.limit.value == 1
 
 
 def test_invalid_syntax_reports_line_and_column() -> None:

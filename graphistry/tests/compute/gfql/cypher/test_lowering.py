@@ -5,6 +5,7 @@ from typing import cast
 from graphistry.compute.ast import ASTCall, ASTNode, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher import (
+    compile_cypher,
     cypher_to_gfql,
     lower_cypher_query,
     lower_match_clause,
@@ -36,6 +37,7 @@ def test_lower_match_clause_to_gfql_ops() -> None:
         "MATCH (p:Person {id: $person_id})-[r:FOLLOWS]->(q:Person {active: true}) RETURN p"
     )
 
+    assert parsed.match is not None
     ops = lower_match_clause(parsed.match, params={"person_id": 1})
 
     assert len(ops) == 3
@@ -60,6 +62,7 @@ def test_lower_match_clause_to_gfql_ops() -> None:
 )
 def test_lower_match_clause_relationship_direction(query: str, edge_type: type) -> None:
     parsed = parse_cypher(query)
+    assert parsed.match is not None
     ops = lower_match_clause(parsed.match)
     assert isinstance(ops[1], edge_type)
 
@@ -81,6 +84,7 @@ def test_lower_match_clause_executes_through_gfql_runtime() -> None:
     )
 
     parsed = parse_cypher("MATCH (p:Person {name: 'Alice'})-[r:FOLLOWS]->(q:Person) RETURN p, q")
+    assert parsed.match is not None
     ops = lower_match_clause(parsed.match)
     result = _mk_graph(nodes, edges).gfql(ops)
 
@@ -94,6 +98,7 @@ def test_lower_match_clause_requires_parameters() -> None:
     parsed = parse_cypher("MATCH (p {id: $person_id}) RETURN p")
 
     with pytest.raises(GFQLValidationError) as exc_info:
+        assert parsed.match is not None
         lower_match_clause(parsed.match)
 
     assert exc_info.value.code == ErrorCode.E105
@@ -103,6 +108,7 @@ def test_lower_match_clause_rejects_multi_label_nodes() -> None:
     parsed = parse_cypher("MATCH (p:Person:Admin) RETURN p")
 
     with pytest.raises(GFQLValidationError) as exc_info:
+        assert parsed.match is not None
         lower_match_clause(parsed.match)
 
     assert exc_info.value.code == ErrorCode.E108
@@ -252,5 +258,97 @@ def test_cypher_to_gfql_uses_terminal_with_projection() -> None:
 def test_cypher_to_gfql_rejects_multi_alias_projection() -> None:
     with pytest.raises(GFQLValidationError) as exc_info:
         cypher_to_gfql("MATCH (p)-[r]->(q) RETURN p.id, q.id")
+
+    assert exc_info.value.code == ErrorCode.E108
+
+
+def test_compile_cypher_tracks_seeded_top_level_row_query() -> None:
+    compiled = compile_cypher("UNWIND [1, 2, 3] AS x RETURN x ORDER BY x DESC LIMIT 2")
+
+    assert compiled.seed_rows is True
+    first = cast(ASTCall, compiled.chain.chain[0])
+    second = cast(ASTCall, compiled.chain.chain[1])
+    assert isinstance(first, ASTCall)
+    assert isinstance(second, ASTCall)
+    assert first.function == "rows"
+    assert second.function == "unwind"
+    assert second.params == {"expr": "[1, 2, 3]", "as_": "x"}
+
+
+def test_lower_cypher_query_builds_group_by_pipeline() -> None:
+    parsed = parse_cypher(
+        "MATCH (n) RETURN n.division AS division, count(*) AS cnt, max(n.age) AS max_age ORDER BY division ASC, cnt DESC"
+    )
+
+    chain = lower_cypher_query(parsed)
+
+    row_call = cast(ASTCall, chain.chain[1])
+    with_call = cast(ASTCall, chain.chain[2])
+    group_call = cast(ASTCall, chain.chain[3])
+    order_call = cast(ASTCall, chain.chain[4])
+    assert [row_call.function, with_call.function, group_call.function, order_call.function] == [
+        "rows",
+        "with_",
+        "group_by",
+        "order_by",
+    ]
+    assert with_call.params["items"] == [
+        ("division", "n.division"),
+        ("__cypher_agg__", "n.age"),
+    ]
+    assert group_call.params == {
+        "keys": ["division"],
+        "aggregations": [("cnt", "count"), ("max_age", "max", "__cypher_agg__")],
+    }
+    assert order_call.params["keys"] == [("division", "asc"), ("cnt", "desc")]
+
+
+def test_gfql_executes_top_level_unwind_query() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql("UNWIND [3, 1, 2] AS x RETURN x ORDER BY x ASC LIMIT 2")
+
+    assert result._nodes.to_dict(orient="records") == [{"x": 1}, {"x": 2}]
+
+
+def test_gfql_executes_match_then_unwind_query() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b"],
+            "vals": [[2, 1], [3]],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (n) UNWIND n.vals AS v RETURN v ORDER BY v ASC"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"v": 1}, {"v": 2}, {"v": 3}]
+
+
+def test_gfql_executes_aggregate_return_query() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c"],
+            "division": ["x", "x", "y"],
+            "age": [3, 7, 4],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (n) RETURN n.division AS division, count(*) AS cnt, max(n.age) AS max_age ORDER BY division ASC"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"division": "x", "cnt": 2, "max_age": 7},
+        {"division": "y", "cnt": 1, "max_age": 4},
+    ]
+
+
+def test_cypher_to_gfql_rejects_multi_source_aggregate_expr() -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        cypher_to_gfql("MATCH (a)-[r]->(b) RETURN a.id AS a_id, max(b.id) AS max_b")
 
     assert exc_info.value.code == ErrorCode.E108

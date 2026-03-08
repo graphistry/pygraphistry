@@ -1,9 +1,9 @@
 """GFQL unified entrypoint for chains, DAGs, and local string-compiled queries."""
 # ruff: noqa: E501
 
-from typing import List, Union, Optional, Dict, Any, Sequence, Mapping, Literal
+from typing import List, Union, Optional, Dict, Any, Sequence, Mapping, Literal, cast
 from graphistry.Plottable import Plottable
-from graphistry.Engine import Engine, EngineAbstract
+from graphistry.Engine import Engine, EngineAbstract, df_cons, resolve_engine
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge
 from .chain import Chain, chain as chain_impl
@@ -23,7 +23,7 @@ from graphistry.compute.gfql.same_path_types import (
     parse_where_json,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
-from graphistry.compute.gfql.cypher.api import cypher_to_gfql
+from graphistry.compute.gfql.cypher.api import compile_cypher
 from graphistry.compute.gfql.df_executor import (
     build_same_path_inputs,
     execute_same_path_chain,
@@ -88,7 +88,7 @@ def _compile_string_query(
     *,
     language: Optional[Literal["cypher", "gremlin"]],
     params: Optional[Mapping[str, Any]],
-) -> Chain:
+) -> Any:
     query_language = language or "cypher"
     if query_language != "cypher":
         raise GFQLValidationError(
@@ -99,7 +99,7 @@ def _compile_string_query(
             suggestion="Use language='cypher' for now; Gremlin string compilation is not implemented yet.",
             language="gfql",
         )
-    return cypher_to_gfql(query, params=params)
+    return compile_cypher(query, params=params)
 
 
 @otel_traced("gfql.run", attrs_fn=_gfql_otel_attrs)
@@ -311,12 +311,21 @@ def gfql(self: Plottable,
                     e.query_type = policy_context.get('query_type')
                 raise
 
+        dispatch_self = self
+
         if where_param and isinstance(query, (dict, ASTLet)):
             raise ValueError("where must be provided inside dict chain under the 'where' key")
         if isinstance(query, str):
             if where_param:
                 raise ValueError("where cannot be combined with string queries; embed Cypher predicates in the query itself")
-            query = _compile_string_query(query, language=language, params=params)
+            compiled_query = _compile_string_query(query, language=language, params=params)
+            if compiled_query.seed_rows:
+                concrete_engine = resolve_engine(cast(Any, engine), self)
+                df_ctor = df_cons(concrete_engine)
+                dispatch_self = self.bind()
+                dispatch_self._nodes = df_ctor({"__cypher_seed_row__": [True]})
+                dispatch_self._edges = df_ctor()
+            query = compiled_query.chain
         else:
             if language is not None:
                 raise ValueError("language is only supported when query is a string")
@@ -355,7 +364,7 @@ def gfql(self: Plottable,
         try:
             if isinstance(query, ASTLet):
                 logger.debug('GFQL executing as DAG')
-                return chain_let_impl(self, query, engine, output, policy=expanded_policy, context=context)
+                return chain_let_impl(dispatch_self, query, engine, output, policy=expanded_policy, context=context)
             elif isinstance(query, Chain):
                 logger.debug('GFQL executing as Chain')
                 if output is not None:
@@ -364,12 +373,12 @@ def gfql(self: Plottable,
                     if query.where:
                         raise ValueError("where provided for Chain that already includes where")
                     query = Chain(query.chain, where=where_param)
-                return _chain_dispatch(self, query, engine, expanded_policy, context)
+                return _chain_dispatch(dispatch_self, query, engine, expanded_policy, context)
             elif isinstance(query, ASTObject):
                 logger.debug('GFQL executing single ASTObject as chain')
                 if output is not None:
                     logger.warning('output parameter ignored for chain queries')
-                return _chain_dispatch(self, Chain([query], where=where_param), engine, expanded_policy, context)
+                return _chain_dispatch(dispatch_self, Chain([query], where=where_param), engine, expanded_policy, context)
             elif isinstance(query, list):
                 logger.debug('GFQL executing list as chain')
                 if output is not None:
@@ -387,7 +396,7 @@ def gfql(self: Plottable,
                         converted_query.append(item)
 
                 return _chain_dispatch(
-                    self,
+                    dispatch_self,
                     Chain(converted_query, where=where_param),
                     engine,
                     expanded_policy,

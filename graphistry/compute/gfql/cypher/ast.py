@@ -68,6 +68,13 @@ class MatchClause:
     span: SourceSpan
 
 
+@dataclass(frozen=True)
+class UnwindClause:
+    expression: ExpressionText
+    alias: str
+    span: SourceSpan
+
+
 WhereOp = Literal["==", "!=", "<", "<=", ">", ">=", "is_null", "is_not_null"]
 
 
@@ -127,8 +134,9 @@ class LimitClause:
 
 @dataclass(frozen=True)
 class CypherQuery:
-    match: MatchClause
+    match: Optional[MatchClause]
     where: Optional[WhereClause]
+    unwinds: Tuple[UnwindClause, ...]
     return_: ReturnClause
     order_by: Optional[OrderByClause]
     skip: Optional[SkipClause]

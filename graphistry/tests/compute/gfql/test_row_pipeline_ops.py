@@ -875,6 +875,22 @@ class TestRowPipelineExecution:
                 None,
                 id="order-by-aggregate-alias-columns",
             ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "division": ["x", "x", "y"], "age": [3, 7, 4]},
+                [
+                    rows(),
+                    group_by(["division"], [("count(*)", "count"), ("max(n.age)", "max", "age")]),
+                    return_([("division", "division"), ("count(*)", "count(*)"), ("max(n.age)", "max(n.age)")]),
+                    order_by([("division", "asc")]),
+                ],
+                [
+                    {"division": "x", "count(*)": 2, "max(n.age)": 7},
+                    {"division": "y", "count(*)": 1, "max(n.age)": 4},
+                ],
+                None,
+                None,
+                id="return-aggregate-alias-columns",
+            ),
         ],
     )
     def test_row_pipeline_exact_record_cases_more(

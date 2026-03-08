@@ -1149,7 +1149,10 @@ class RowPipelineMixin:
             if alias == "":
                 raise ValueError("select alias must be non-empty")
             if isinstance(expr, str):
-                value = self._gfql_eval_string_expr(table_df, expr)
+                if expr in table_df.columns:
+                    value = table_df[expr]
+                else:
+                    value = self._gfql_eval_string_expr(table_df, expr)
                 if not hasattr(value, "astype"):
                     value = self._gfql_broadcast_scalar(table_df, value)
                 projected[alias] = value

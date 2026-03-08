@@ -25,6 +25,7 @@ from graphistry.compute.gfql.cypher.ast import (
     ReturnItem,
     SkipClause,
     SourceSpan,
+    UnwindClause,
     WhereClause,
     WherePredicate,
 )
@@ -33,7 +34,9 @@ from graphistry.compute.gfql.cypher.ast import (
 _GRAMMAR = r"""
 ?start: query
 
-query: match_clause where_clause? projection_clause order_by_clause? skip_clause? limit_clause? SEMI?
+query: match_clause where_clause? unwind_clause* projection_clause order_by_clause? skip_clause? limit_clause? SEMI?
+     | unwind_clause+ projection_clause order_by_clause? skip_clause? limit_clause? SEMI?
+     | projection_clause order_by_clause? skip_clause? limit_clause? SEMI?
 
 match_clause: "MATCH"i pattern
 pattern: node_pattern (relationship_pattern node_pattern)*
@@ -65,16 +68,18 @@ where_predicate: property_ref COMP_OP where_rhs -> cmp_where
 where_rhs: property_ref
          | value
 
+unwind_clause: "UNWIND"i unwind_expr "AS"i NAME
+
 projection_clause: projection_keyword distinct? return_item ("," return_item)*
 projection_keyword: "RETURN"i -> return_kw
                   | "WITH"i   -> with_kw
 distinct: "DISTINCT"i
 return_item: return_expr alias?
-return_expr: qualified_name
+return_expr: expr
 alias: "AS"i NAME
 
 order_by_clause: "ORDER"i "BY"i order_item ("," order_item)*
-order_item: qualified_name order_direction?
+order_item: order_expr order_direction?
 order_direction: "ASC"i  -> asc_order
                | "DESC"i -> desc_order
 
@@ -85,6 +90,52 @@ page_value: parameter
 
 qualified_name: NAME ("." NAME)*
 property_ref: NAME "." NAME
+
+unwind_expr: expr
+order_expr: expr
+
+?expr: or_expr
+
+?or_expr: and_expr
+        | or_expr "OR"i and_expr            -> or_op
+
+?and_expr: additive
+         | and_expr "AND"i additive         -> and_op
+
+?additive: multiplicative
+         | additive "+" multiplicative      -> add_op
+         | additive MINUS multiplicative    -> sub_op
+
+?multiplicative: unary
+               | multiplicative "*" unary   -> mul_op
+               | multiplicative "/" unary   -> div_op
+               | multiplicative "%" unary   -> mod_op
+
+?unary: "+" unary                           -> uplus
+      | MINUS unary                         -> uminus
+      | primary
+
+?primary: parameter
+        | literal
+        | qualified_name
+        | function_call
+        | list_literal
+        | map_literal
+        | "(" expr ")"                      -> grouped_expr
+
+function_call: NAME "(" [func_args] ")"
+func_args: func_arg ("," func_arg)*
+?func_arg: expr
+         | "*"                              -> star_arg
+
+list_literal: "[" [expr_list] "]"
+expr_list: expr ("," expr)*
+
+map_literal: "{" [map_entries] "}"
+map_entries: map_entry ("," map_entry)*
+map_entry: map_key ":" expr
+map_key: NAME                               -> map_key_name
+       | STRING                             -> map_key_string
 
 ?value: parameter
       | literal
@@ -100,7 +151,8 @@ literal: "NULL"i    -> null_lit
 COMP_OP: "=" | "<>" | "!=" | "<=" | "<" | ">=" | ">"
 
 SEMI: ";"
-NAME: /[A-Za-z_][A-Za-z0-9_]*/
+MINUS: /-(?!-)/
+NAME: /(?!(?i:MATCH|RETURN|WITH|ORDER|BY|SKIP|LIMIT|UNWIND|WHERE|AS|ASC|DESC|AND|OR|NULL|TRUE|FALSE|IS)\b)[A-Za-z_][A-Za-z0-9_]*/
 NUMBER: /[+-]?(?:\d+\.\d+|\d+)(?:[eE][+-]?\d+)?/
 INT: /[0-9]+/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
@@ -342,6 +394,18 @@ def _build_transformer(source: str) -> _TransformerLike:
             span = _span_from_meta(meta)
             return _ExpressionSlice(text=self._slice(span).strip(), span=span)
 
+        def return_expr(self, meta: Any, _items: Sequence[Any]) -> _ExpressionSlice:
+            span = _span_from_meta(meta)
+            return _ExpressionSlice(text=self._slice(span).strip(), span=span)
+
+        def order_expr(self, meta: Any, _items: Sequence[Any]) -> _ExpressionSlice:
+            span = _span_from_meta(meta)
+            return _ExpressionSlice(text=self._slice(span).strip(), span=span)
+
+        def unwind_expr(self, meta: Any, _items: Sequence[Any]) -> _ExpressionSlice:
+            span = _span_from_meta(meta)
+            return _ExpressionSlice(text=self._slice(span).strip(), span=span)
+
         def property_ref(self, meta: Any, items: Sequence[Any]) -> PropertyRef:
             if len(items) != 2:
                 raise _to_syntax_error("Invalid property reference", line=meta.line, column=meta.column)
@@ -394,10 +458,18 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("WHERE clause cannot be empty", line=meta.line, column=meta.column)
             return WhereClause(predicates=predicates, span=_span_from_meta(meta))
 
-        def return_expr(self, _meta: Any, items: Sequence[Any]) -> _ExpressionSlice:
-            if len(items) != 1:
-                raise _to_syntax_error("Invalid RETURN expression")
-            return cast(_ExpressionSlice, items[0])
+        def unwind_clause(self, meta: Any, items: Sequence[Any]) -> UnwindClause:
+            if len(items) != 2:
+                raise _to_syntax_error("Invalid UNWIND clause", line=meta.line, column=meta.column)
+            expr = cast(_ExpressionSlice, items[0])
+            alias = str(items[1])
+            if alias == "":
+                raise _to_syntax_error("UNWIND alias must be non-empty", line=meta.line, column=meta.column)
+            return UnwindClause(
+                expression=ExpressionText(text=expr.text, span=expr.span),
+                alias=alias,
+                span=_span_from_meta(meta),
+            )
 
         def alias(self, meta: Any, items: Sequence[Any]) -> str:
             if len(items) != 1:
@@ -477,11 +549,10 @@ def _build_transformer(source: str) -> _TransformerLike:
             return LimitClause(value=cast(CypherPageValue, items[0]), span=_span_from_meta(meta))
 
         def query(self, meta: Any, items: Sequence[Any]) -> CypherQuery:
-            if len(items) < 2:
-                raise _to_syntax_error("Cypher query must contain MATCH and RETURN clauses", line=meta.line, column=meta.column)
             trailing_semicolon = any(str(item) == ";" for item in items)
             match_clause: Optional[MatchClause] = None
             where_clause: Optional[WhereClause] = None
+            unwind_clauses: List[UnwindClause] = []
             return_clause: Optional[ReturnClause] = None
             order_by_clause: Optional[OrderByClause] = None
             skip_clause: Optional[SkipClause] = None
@@ -491,6 +562,8 @@ def _build_transformer(source: str) -> _TransformerLike:
                     match_clause = item
                 elif isinstance(item, WhereClause):
                     where_clause = item
+                elif isinstance(item, UnwindClause):
+                    unwind_clauses.append(item)
                 elif isinstance(item, ReturnClause):
                     return_clause = item
                 elif isinstance(item, OrderByClause):
@@ -499,11 +572,22 @@ def _build_transformer(source: str) -> _TransformerLike:
                     skip_clause = item
                 elif isinstance(item, LimitClause):
                     limit_clause = item
-            if match_clause is None or return_clause is None:
-                raise _to_syntax_error("Cypher query must contain MATCH and RETURN/WITH clauses", line=meta.line, column=meta.column)
+            if return_clause is None:
+                raise _to_syntax_error(
+                    "Cypher query must contain a RETURN/WITH clause",
+                    line=meta.line,
+                    column=meta.column,
+                )
+            if where_clause is not None and match_clause is None:
+                raise _to_syntax_error(
+                    "Cypher WHERE is currently only supported after MATCH in the local compiler",
+                    line=where_clause.span.line,
+                    column=where_clause.span.column,
+                )
             return CypherQuery(
                 match=match_clause,
                 where=where_clause,
+                unwinds=tuple(unwind_clauses),
                 return_=return_clause,
                 order_by=order_by_clause,
                 skip=skip_clause,
