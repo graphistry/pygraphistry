@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import math
 import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, cast
 from typing_extensions import Literal
@@ -81,6 +82,7 @@ from graphistry.compute.gfql.same_path_types import WhereComparison, col, compar
 class LoweredCypherMatch:
     query: List[ASTObject]
     where: List[WhereComparison]
+    row_where: Optional[ExpressionText] = None
 
 
 @dataclass(frozen=True)
@@ -153,16 +155,51 @@ _CYPHER_ENTITY_KEYS_RE = re.compile(r"\bkeys\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\
 _CYPHER_LABEL_PREDICATE_RE = re.compile(
     r"^\(\s*(?P<alias>[A-Za-z_][A-Za-z0-9_]*)((?::[A-Za-z_][A-Za-z0-9_]*)+)\s*\)$"
 )
+_CYPHER_BARE_LABEL_PREDICATE_RE = re.compile(
+    r"(?<![A-Za-z0-9_.])(?P<alias>[A-Za-z_][A-Za-z0-9_]*)((?::[A-Za-z_][A-Za-z0-9_]*)+)(?![A-Za-z0-9_])"
+)
+_CYPHER_CHAINED_COMPARISON_RE = re.compile(
+    r"^\s*(?P<left>.+?)\s*(?P<op1><=|>=|<>|!=|=|<|>)\s*(?P<middle>.+?)\s*(?P<op2><=|>=|<>|!=|=|<|>)\s*(?P<right>.+?)\s*$",
+    re.DOTALL,
+)
 _CYPHER_AGGREGATES = frozenset({"count", "sum", "min", "max", "avg", "collect"})
 
 
-def _rewrite_label_predicate_expr(expr_text: str) -> str:
-    match = _CYPHER_LABEL_PREDICATE_RE.fullmatch(expr_text.strip())
+def _rewrite_label_predicate_expr(
+    expr_text: str,
+    *,
+    alias_targets: Optional[Mapping[str, ASTObject]] = None,
+) -> str:
+    def _render(alias: str, labels_text: str) -> str:
+        labels = [label for label in labels_text.split(":") if label]
+        return " and ".join(f"{alias}.label__{label} = true" for label in labels)
+
+    stripped = expr_text.strip()
+    full_match = _CYPHER_LABEL_PREDICATE_RE.fullmatch(stripped)
+    if full_match is not None:
+        alias = full_match.group("alias")
+        if alias_targets is None or alias in alias_targets:
+            return _render(alias, full_match.group(2))
+
+    def _replace(match: re.Match[str]) -> str:
+        alias = match.group("alias")
+        if alias_targets is not None and alias not in alias_targets:
+            return match.group(0)
+        return _render(alias, match.group(2))
+
+    return _CYPHER_BARE_LABEL_PREDICATE_RE.sub(_replace, expr_text)
+
+
+def _rewrite_chained_comparison_expr(expr_text: str) -> str:
+    match = _CYPHER_CHAINED_COMPARISON_RE.fullmatch(expr_text)
     if match is None:
         return expr_text
-    alias = match.group("alias")
-    labels = [label for label in match.group(2).split(":") if label]
-    return " and ".join(f"{alias}.label__{label} = true" for label in labels)
+    left = match.group("left").strip()
+    middle = match.group("middle").strip()
+    right = match.group("right").strip()
+    if any(token in segment.upper() for token in {" AND", " OR", " XOR"} for segment in (left, middle, right)):
+        return expr_text
+    return f"({left} {match.group('op1')} {middle}) AND ({middle} {match.group('op2')} {right})"
 
 
 def _unsupported(message: str, *, field: str, value: Any, line: int, column: int) -> GFQLValidationError:
@@ -197,11 +234,17 @@ def _parse_row_expr(
         allow_missing=allow_missing_params,
     )
     prepared = _rewrite_entity_keys_expr(prepared, alias_targets=alias_targets)
-    prepared = _rewrite_label_predicate_expr(prepared)
+    prepared = _rewrite_label_predicate_expr(prepared, alias_targets=alias_targets)
     prepared = rewrite_temporal_constructors_in_expr(prepared)
     try:
         return fold_temporal_constructor_ast(parse_expr(prepared))
     except (GFQLExprParseError, ImportError) as exc:
+        rewritten = _rewrite_chained_comparison_expr(prepared)
+        if rewritten != prepared:
+            try:
+                return fold_temporal_constructor_ast(parse_expr(rewritten))
+            except (GFQLExprParseError, ImportError):
+                pass
         raise GFQLValidationError(
             ErrorCode.E108,
             "Cypher expression is outside the currently supported local GFQL subset",
@@ -577,18 +620,9 @@ def _row_expr_arg(
             params=params,
             field=field,
         )
-    rewritten = _rewrite_param_expr(
+    node = _parse_row_expr(
         expr.text,
         params=params,
-        field=field,
-        line=expr.span.line,
-        column=expr.span.column,
-        allow_missing=False,
-    )
-    rewritten = _rewrite_entity_keys_expr(rewritten, alias_targets=alias_targets)
-    rewritten = rewrite_temporal_constructors_in_expr(rewritten)
-    node = _parse_row_expr(
-        rewritten,
         alias_targets=alias_targets,
         field=field,
         line=expr.span.line,
@@ -883,6 +917,8 @@ def _resolve_page_value(
 ) -> int:
     if isinstance(value, ParameterRef):
         resolved = _resolve_literal(value, params=params, field=field)
+    elif isinstance(value, ExpressionText):
+        resolved = _eval_constant_int_expr(value, params=params, field=field, line=line, column=column)
     else:
         resolved = value
     if isinstance(resolved, bool) or not isinstance(resolved, int):
@@ -903,6 +939,123 @@ def _resolve_page_value(
             field=field,
             value=resolved,
             suggestion="Use 0 or a positive integer.",
+            line=line,
+            column=column,
+            language="cypher",
+        )
+    return resolved
+
+
+def _eval_constant_int_expr(
+    expr: ExpressionText,
+    *,
+    params: Optional[Mapping[str, Any]],
+    field: str,
+    line: int,
+    column: int,
+) -> int:
+    node = _parse_row_expr(
+        expr.text,
+        params=params,
+        field=field,
+        line=line,
+        column=column,
+    )
+    if collect_identifiers(node):
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher SKIP/LIMIT expressions cannot depend on row variables in the local compiler",
+            field=field,
+            value=expr.text,
+            suggestion="Use a constant expression or parameter for SKIP/LIMIT.",
+            line=line,
+            column=column,
+            language="cypher",
+        )
+
+    def _eval(node: ExprNode) -> Any:
+        if isinstance(node, ExprLiteral):
+            return node.value
+        if isinstance(node, UnaryOp):
+            value = _eval(node.operand)
+            if node.op == "+":
+                return +value
+            if node.op == "-":
+                return -value
+            if node.op == "not":
+                return not value
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Unsupported unary function in Cypher SKIP/LIMIT expression",
+                field=field,
+                value=expr.text,
+                line=line,
+                column=column,
+                language="cypher",
+            )
+        if isinstance(node, BinaryOp):
+            left = _eval(node.left)
+            right = _eval(node.right)
+            if node.op == "+":
+                return left + right
+            if node.op == "-":
+                return left - right
+            if node.op == "*":
+                return left * right
+            if node.op == "/":
+                return left / right
+            if node.op == "%":
+                return left % right
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Cypher SKIP/LIMIT expressions currently support arithmetic constants only",
+                field=field,
+                value=expr.text,
+                line=line,
+                column=column,
+                language="cypher",
+            )
+        if isinstance(node, FunctionCall):
+            args = tuple(_eval(arg) for arg in node.args)
+            if node.name == "ceil" and len(args) == 1:
+                return math.ceil(args[0])
+            if node.name == "floor" and len(args) == 1:
+                return math.floor(args[0])
+            if node.name == "abs" and len(args) == 1:
+                return abs(args[0])
+            if node.name == "tointeger" and len(args) == 1:
+                return int(args[0])
+            if node.name == "tofloat" and len(args) == 1:
+                return float(args[0])
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Cypher SKIP/LIMIT expression uses an unsupported function",
+                field=field,
+                value=expr.text,
+                suggestion="Use arithmetic constants, parameters, ceil/floor/abs, or toInteger/toFloat.",
+                line=line,
+                column=column,
+                language="cypher",
+            )
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher SKIP/LIMIT expression uses an unsupported construct",
+            field=field,
+            value=expr.text,
+            suggestion="Use arithmetic constants or supported numeric functions.",
+            line=line,
+            column=column,
+            language="cypher",
+        )
+
+    resolved = _eval(node)
+    if isinstance(resolved, bool) or not isinstance(resolved, int):
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher SKIP/LIMIT values must resolve to integers",
+            field=field,
+            value=resolved,
+            suggestion="Use a constant integer expression or parameter.",
             line=line,
             column=column,
             language="cypher",
@@ -1973,6 +2126,39 @@ def _append_page_ops(
     )
 
 
+def _append_match_row_where(
+    row_steps: List[ASTObject],
+    *,
+    lowered: LoweredCypherMatch,
+    alias_targets: Mapping[str, ASTObject],
+    active_alias: Optional[str],
+    params: Optional[Mapping[str, Any]],
+) -> None:
+    expr = lowered.row_where
+    if expr is None:
+        return
+    _validate_row_expr_scope(
+        expr.text,
+        alias_targets=alias_targets,
+        active_match_alias=active_alias,
+        unwind_aliases=set(),
+        params=params,
+        field="where",
+        line=expr.span.line,
+        column=expr.span.column,
+    )
+    row_steps.append(
+        where_rows(
+            expr=_row_expr_arg(
+                expr,
+                params=params,
+                alias_targets=alias_targets,
+                field="where",
+            )
+        )
+    )
+
+
 def _lower_projection_chain(
     query: CypherQuery,
     lowered: LoweredCypherMatch,
@@ -1984,6 +2170,13 @@ def _lower_projection_chain(
     plan = plan or _build_projection_plan(query.return_, alias_targets=alias_targets, params=params)
 
     row_steps: List[ASTObject] = [rows(table=plan.table, source=plan.source_alias)]
+    _append_match_row_where(
+        row_steps,
+        lowered=lowered,
+        alias_targets=alias_targets,
+        active_alias=plan.source_alias,
+        params=params,
+    )
 
     if not plan.whole_row_output_names:
         projection_fn = with_ if plan.clause_kind == "with" else return_
@@ -2038,6 +2231,13 @@ def _build_initial_row_scope(
         )
         row_steps = [rows(table=table, source=active_match_alias)]
         scope_mode = "match_alias"
+    _append_match_row_where(
+        row_steps,
+        lowered=lowered,
+        alias_targets=alias_targets,
+        active_alias=active_match_alias,
+        params=params,
+    )
 
     unwind_aliases: Set[str] = set()
     for unwind_clause in query.unwinds:
@@ -2890,7 +3090,10 @@ def lower_match_query(
     alias_targets = _alias_target(ops)
     where_out: List[WhereComparison] = list(duplicate_alias_where)
 
+    row_where: Optional[ExpressionText] = None
     if query.where is not None:
+        if query.where.expr is not None:
+            row_where = query.where.expr
         for predicate in query.where.predicates:
             if isinstance(predicate.left, LabelRef):
                 _apply_label_where(alias_targets, left=predicate.left)
@@ -2913,7 +3116,7 @@ def lower_match_query(
                 params=params,
             )
 
-    return LoweredCypherMatch(query=ops, where=where_out)
+    return LoweredCypherMatch(query=ops, where=where_out, row_where=row_where)
 
 
 def _fresh_temp_name(existing: Set[str], prefix: str) -> str:

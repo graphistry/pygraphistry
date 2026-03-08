@@ -25,7 +25,7 @@ class ParameterRef:
 
 
 CypherLiteral = Union[None, bool, int, float, str, ParameterRef]
-CypherPageValue = Union[int, ParameterRef]
+CypherPageValue = Union[int, ParameterRef, ExpressionText]
 
 
 @dataclass(frozen=True)
@@ -116,6 +116,7 @@ class WherePredicate:
 class WhereClause:
     predicates: Tuple[WherePredicate, ...]
     span: SourceSpan
+    expr: Optional[ExpressionText] = None
 
 
 @dataclass(frozen=True)

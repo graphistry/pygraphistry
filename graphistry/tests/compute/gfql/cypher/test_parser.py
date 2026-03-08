@@ -4,6 +4,7 @@ import pytest
 
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
 from graphistry.compute.gfql.cypher import (
+    ExpressionText,
     LabelRef,
     NodePattern,
     ParameterRef,
@@ -187,8 +188,10 @@ def test_parse_return_pipeline_clauses() -> None:
     assert parsed.order_by is not None
     assert [item.expression.text for item in parsed.order_by.items] == ["person_name", "p.id"]
     assert [item.direction for item in parsed.order_by.items] == ["desc", "asc"]
-    assert parsed.skip is not None and parsed.skip.value == 1
-    assert parsed.limit is not None and parsed.limit.value == 2
+    assert parsed.skip is not None and isinstance(parsed.skip.value, ExpressionText)
+    assert parsed.skip.value.text == "1"
+    assert parsed.limit is not None and isinstance(parsed.limit.value, ExpressionText)
+    assert parsed.limit.value.text == "2"
     assert parsed.trailing_semicolon is True
 
 
@@ -199,7 +202,8 @@ def test_parse_terminal_with_clause() -> None:
     assert parsed.return_.kind == "with"
     assert parsed.order_by is not None
     assert parsed.order_by.items[0].expression.text == "person_name"
-    assert parsed.limit is not None and parsed.limit.value == 5
+    assert parsed.limit is not None and isinstance(parsed.limit.value, ExpressionText)
+    assert parsed.limit.value.text == "5"
 
 
 def test_parse_with_then_return_pipeline() -> None:
@@ -212,7 +216,8 @@ def test_parse_with_then_return_pipeline() -> None:
     assert with_stage.order_by is not None
     assert with_stage.order_by.items[0].expression.text == "ints"
     assert with_stage.order_by.items[0].direction == "desc"
-    assert with_stage.limit is not None and with_stage.limit.value == 2
+    assert with_stage.limit is not None and isinstance(with_stage.limit.value, ExpressionText)
+    assert with_stage.limit.value.text == "2"
     assert parsed.return_.kind == "return"
     assert parsed.return_.items[0].expression.text == "ints"
 
@@ -294,7 +299,8 @@ def test_parse_top_level_projection_only() -> None:
     assert parsed.unwinds == ()
     assert parsed.return_.items[0].expression.text == "[1, 2, 3]"
     assert parsed.return_.items[0].alias == "xs"
-    assert parsed.limit is not None and parsed.limit.value == 1
+    assert parsed.limit is not None and isinstance(parsed.limit.value, ExpressionText)
+    assert parsed.limit.value.text == "1"
 
 
 def test_parse_top_level_quantifier_expression() -> None:

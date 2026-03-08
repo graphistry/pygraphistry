@@ -46,7 +46,9 @@ stage: with_stage
 with_stage: with_clause with_where_clause? order_by_clause? skip_clause? limit_clause?
 return_stage: return_clause order_by_clause? skip_clause? limit_clause?
 
-match_clause: "MATCH"i pattern ("," pattern)*
+match_clause: "MATCH"i match_item ("," match_item)*
+match_item: pattern
+          | NAME "=" pattern               -> bound_pattern
 pattern: node_pattern (relationship_pattern node_pattern)*
 
 node_pattern: "(" variable? labels? properties? ")"
@@ -76,7 +78,9 @@ variable: NAME
 properties: "{" [property_entry ("," property_entry)*] "}"
 property_entry: NAME ":" value
 
-where_clause: "WHERE"i where_predicate ("AND"i where_predicate)*
+where_clause: "WHERE"i where_predicates
+            | "WHERE"i expr                -> generic_where_clause
+where_predicates: where_predicate ("AND"i where_predicate)*
 where_predicate: property_ref COMP_OP where_rhs -> cmp_where
                | property_ref "IS"i "NULL"i -> is_null_where
                | property_ref "IS"i "NOT"i "NULL"i -> is_not_null_where
@@ -107,13 +111,11 @@ order_direction: "ASC"i  -> asc_order
                | "DESC"i -> desc_order
                | "DESCENDING"i -> desc_order
 
-skip_clause: "SKIP"i page_value
-limit_clause: "LIMIT"i page_value
-page_value: parameter
-          | INT
+skip_clause: "SKIP"i expr
+limit_clause: "LIMIT"i expr
 
 qualified_name: NAME ("." NAME)*
-property_ref: NAME "." NAME
+property_ref.2: NAME "." NAME
 
 unwind_expr: expr
 order_expr: expr
@@ -133,6 +135,7 @@ order_expr: expr
          | predicate
 
 ?predicate: comparable
+          | comparable COMP_OP comparable COMP_OP comparable -> chained_cmp
           | comparable COMP_OP comparable   -> cmp_op
 
 ?comparable: additive
@@ -460,6 +463,16 @@ def _build_transformer(source: str) -> _TransformerLike:
         def pattern(self, _meta: Any, items: Sequence[Any]) -> Tuple[PatternElement, ...]:
             return tuple(cast(PatternElement, item) for item in items)
 
+        def bound_pattern(self, _meta: Any, items: Sequence[Any]) -> Tuple[PatternElement, ...]:
+            if len(items) != 2:
+                raise _to_syntax_error("Invalid bound MATCH pattern")
+            return cast(Tuple[PatternElement, ...], items[1])
+
+        def match_item(self, _meta: Any, items: Sequence[Any]) -> Tuple[PatternElement, ...]:
+            if len(items) != 1:
+                raise _to_syntax_error("Invalid MATCH pattern")
+            return cast(Tuple[PatternElement, ...], items[0])
+
         def match_clause(self, meta: Any, items: Sequence[Any]) -> MatchClause:
             if len(items) < 1:
                 raise _to_syntax_error("Cypher MATCH clause cannot be empty", line=meta.line, column=meta.column)
@@ -579,11 +592,24 @@ def _build_transformer(source: str) -> _TransformerLike:
                 span=_span_from_meta(meta),
             )
 
+        def where_predicates(self, _meta: Any, items: Sequence[Any]) -> Tuple[WherePredicate, ...]:
+            return tuple(cast(WherePredicate, item) for item in items)
+
         def where_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
-            predicates = tuple(cast(WherePredicate, item) for item in items)
+            if len(items) != 1:
+                raise _to_syntax_error("WHERE clause cannot be empty", line=meta.line, column=meta.column)
+            if isinstance(items[0], _ExpressionSlice):
+                expr = cast(_ExpressionSlice, items[0])
+                return WhereClause(predicates=(), expr=ExpressionText(text=expr.text, span=expr.span), span=_span_from_meta(meta))
+            predicates = cast(Tuple[WherePredicate, ...], items[0])
             if len(predicates) == 0:
                 raise _to_syntax_error("WHERE clause cannot be empty", line=meta.line, column=meta.column)
-            return WhereClause(predicates=predicates, span=_span_from_meta(meta))
+            return WhereClause(predicates=predicates, expr=None, span=_span_from_meta(meta))
+
+        def generic_where_clause(self, meta: Any, _items: Sequence[Any]) -> WhereClause:
+            span = _span_from_meta(meta)
+            expr = self._slice(span)[len("WHERE"):].strip()
+            return WhereClause(predicates=(), expr=ExpressionText(text=expr, span=span), span=span)
 
         def unwind_clause(self, meta: Any, items: Sequence[Any]) -> UnwindClause:
             if len(items) != 2:
@@ -687,23 +713,23 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("ORDER BY clause cannot be empty", line=meta.line, column=meta.column)
             return OrderByClause(items=order_items, span=_span_from_meta(meta))
 
-        def page_value(self, meta: Any, items: Sequence[Any]) -> CypherPageValue:
-            if len(items) != 1:
-                raise _to_syntax_error("Invalid page value", line=meta.line, column=meta.column)
-            item = items[0]
-            if isinstance(item, ParameterRef):
-                return item
-            return int(str(item))
-
         def skip_clause(self, meta: Any, items: Sequence[Any]) -> SkipClause:
             if len(items) != 1:
                 raise _to_syntax_error("Invalid SKIP clause", line=meta.line, column=meta.column)
-            return SkipClause(value=cast(CypherPageValue, items[0]), span=_span_from_meta(meta))
+            span = _span_from_meta(meta)
+            return SkipClause(
+                value=ExpressionText(text=self._slice(span)[len("SKIP"):].strip(), span=span),
+                span=span,
+            )
 
         def limit_clause(self, meta: Any, items: Sequence[Any]) -> LimitClause:
             if len(items) != 1:
                 raise _to_syntax_error("Invalid LIMIT clause", line=meta.line, column=meta.column)
-            return LimitClause(value=cast(CypherPageValue, items[0]), span=_span_from_meta(meta))
+            span = _span_from_meta(meta)
+            return LimitClause(
+                value=ExpressionText(text=self._slice(span)[len("LIMIT"):].strip(), span=span),
+                span=span,
+            )
 
         def _projection_stage(self, meta: Any, items: Sequence[Any], *, expected_kind: str) -> ProjectionStage:
             clause: Optional[ReturnClause] = None

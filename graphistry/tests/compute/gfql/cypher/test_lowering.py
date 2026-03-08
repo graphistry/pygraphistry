@@ -795,6 +795,63 @@ def test_string_cypher_supports_match_with_constant_projection_before_order_by()
     assert result._nodes.to_dict(orient="records") == [{"rank": 1}, {"rank": 2}, {"rank": 3}]
 
 
+def test_string_cypher_supports_path_bound_match_when_path_variable_is_unused() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"]}),
+    )
+
+    result = graph.gfql("MATCH p = (n)-->(b) RETURN aVg(    n.aGe     )")
+
+    assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == [
+        {"aVg(    n.aGe     )": None}
+    ]
+
+
+def test_string_cypher_supports_generic_match_where_constant_false() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"], "name": ["a", "b"]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n)\nWHERE 1 = 0\nRETURN n\nSKIP 0")
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_string_cypher_supports_generic_match_where_boolean_expression() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"], "name": ["a"]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n)\nWHERE NOT(n.name = 'apa' AND false)\nRETURN n")
+
+    assert result._nodes.to_dict(orient="records") == [{"n": "({name: 'a'})"}]
+
+
+def test_string_cypher_supports_generic_match_where_chained_comparison() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"], "num": [5]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n)\nWHERE 10 < n.num <= 3\nRETURN n.num")
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_string_cypher_supports_constant_limit_expressions() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["n1", "n2", "n3"]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n)\nWITH n LIMIT toInteger(ceil(1.7))\nRETURN count(*) AS count")
+
+    assert result._nodes.to_dict(orient="records") == [{"count": 2}]
+
+
 @pytest.mark.parametrize(
     "query,params,expected",
     [
@@ -1940,6 +1997,30 @@ def test_gfql_executes_top_level_quantifier_expression() -> None:
     result = g.gfql("RETURN none(x IN [true, false] WHERE x) AS result")
 
     assert result._nodes.to_dict(orient="records") == [{"result": False}]
+
+
+def test_gfql_executes_top_level_quantifier_composed_expression() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "RETURN none(x IN [1, 2, 3] WHERE x = 2) = (NOT any(x IN [1, 2, 3] WHERE x = 2)) AS result"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"result": True}]
+
+
+def test_gfql_executes_top_level_single_quantifier_null_semantics() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "RETURN "
+        "single(x IN [2, null] WHERE x = 2) AS left_result, "
+        "single(x IN [null, 2] WHERE x = 2) AS right_result"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"left_result": None, "right_result": None}
+    ]
 
 
 def test_gfql_executes_top_level_membership_and_null_expression() -> None:

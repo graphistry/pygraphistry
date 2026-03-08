@@ -553,7 +553,7 @@ class RowPipelineMixin:
                 unknown = (true_count == 0) & (null_count > 0)
             elif fn == "single":
                 out = true_count == 1
-                unknown = (true_count == 0) & (null_count > 0)
+                unknown = (true_count <= 1) & (null_count > 0)
             else:
                 return False, None
             out = out.where(~unknown, pd.NA)
