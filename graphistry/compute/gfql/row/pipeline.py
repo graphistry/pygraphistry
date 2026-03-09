@@ -3,6 +3,7 @@ from functools import lru_cache
 import math
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing_extensions import Literal
 
 import pandas as pd
 from graphistry.compute.gfql.row.order_expr import (
@@ -126,6 +127,13 @@ class RowPipelineMixin:
             or "type" in cols
             or any(col.startswith("label__") for col in cols)
         )
+
+    @staticmethod
+    def _gfql_infer_graph_table_kind(table_df: Any) -> Literal["nodes", "edges"]:
+        cols = {str(col) for col in table_df.columns}
+        if {"s", "d"} <= cols or {"src", "dst"} <= cols or "edge_id" in cols:
+            return "edges"
+        return "nodes"
 
     def _gfql_eval_comparison_op(
         self, table_df: Any, left: Any, right: Any, op: str
@@ -1098,6 +1106,45 @@ class RowPipelineMixin:
                 return False, None
             if is_null_scalar(base_value) or is_null_scalar(key_value):
                 return True, None
+            if hasattr(key_value, "iloc"):
+                key_constant, key_scalar = RowPipelineMixin._gfql_series_scalar_if_constant(key_value)
+                if key_constant:
+                    key_value = key_scalar
+            if isinstance(key_value, str):
+                if (
+                    isinstance(node.value, Identifier)
+                    and node.value.name in table_df.columns
+                    and RowPipelineMixin._gfql_series_bool_like(table_df[node.value.name])
+                    and RowPipelineMixin._gfql_table_has_graph_shape(table_df)
+                ):
+                    entity_value = self._gfql_format_entity_series(
+                        table_df,
+                        alias_col=node.value.name,
+                        table=RowPipelineMixin._gfql_infer_graph_table_kind(table_df),
+                    )
+                    return True, self._gfql_eval_property_access_value(
+                        table_df,
+                        entity_value,
+                        key_value,
+                        "ast subscript",
+                    )
+                if hasattr(base_value, "astype") and (
+                    RowPipelineMixin._gfql_series_is_mapping_like(base_value)
+                    or RowPipelineMixin._gfql_series_is_entity_text_like(base_value)
+                ):
+                    return True, self._gfql_eval_property_access_value(
+                        table_df,
+                        base_value,
+                        key_value,
+                        "ast subscript",
+                    )
+                if isinstance(base_value, Mapping) or is_entity_text_scalar(base_value):
+                    return True, self._gfql_eval_property_access_value(
+                        table_df,
+                        base_value,
+                        key_value,
+                        "ast subscript",
+                    )
             if isinstance(base_value, dict):
                 return True, base_value.get(str(key_value))
             if hasattr(key_value, "iloc"):

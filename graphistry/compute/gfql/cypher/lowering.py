@@ -2195,11 +2195,12 @@ def _projection_ref_from_expr(
     expr: str,
     *,
     alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]] = None,
     field: str,
     line: int,
     column: int,
 ) -> Tuple[str, Optional[str]]:
-    node = _parse_row_expr(expr, field=field, line=line, column=column)
+    node = _parse_row_expr(expr, params=params, field=field, line=line, column=column)
     if isinstance(node, Identifier):
         return _split_qualified_name(node.name, line=line, column=column)
     if isinstance(node, FunctionCall) and node.name == "type":
@@ -2237,6 +2238,37 @@ def _projection_ref_from_expr(
         line=line,
         column=column,
     )
+
+
+def _raise_if_invalid_graph_projection_expr(
+    expr: str,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]] = None,
+    field: str,
+    line: int,
+    column: int,
+) -> None:
+    node = _parse_row_expr(expr, params=params, field=field, line=line, column=column)
+    if not isinstance(node, FunctionCall) or node.name != "type" or len(node.args) != 1:
+        return
+    arg = node.args[0]
+    if not isinstance(arg, Identifier):
+        return
+    alias_name, prop = _split_qualified_name(arg.name, line=line, column=column)
+    if prop is not None:
+        return
+    target = alias_targets.get(alias_name)
+    if target is None:
+        return
+    if not isinstance(target, ASTEdge):
+        raise _unsupported(
+            "type(...) is only supported for relationship aliases in this phase",
+            field=field,
+            value=expr,
+            line=line,
+            column=column,
+        )
 
 
 def _reject_duplicate_alias_row_refs(
@@ -2336,11 +2368,20 @@ def _build_projection_plan(
                 alias_name, prop = _projection_ref_from_expr(
                     item.expression.text,
                     alias_targets=alias_targets,
+                    params=params,
                     field=f"{clause.kind}.items",
                     line=item.span.line,
                     column=item.span.column,
                 )
             except GFQLValidationError:
+                _raise_if_invalid_graph_projection_expr(
+                    item.expression.text,
+                    alias_targets=alias_targets,
+                    params=params,
+                    field=f"{clause.kind}.items",
+                    line=item.span.line,
+                    column=item.span.column,
+                )
                 simple_ref = False
                 aliases = sorted(
                     _expr_match_aliases(

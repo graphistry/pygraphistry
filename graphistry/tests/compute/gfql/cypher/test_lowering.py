@@ -1856,6 +1856,22 @@ def test_string_cypher_supports_null_graph_functions_in_multi_alias_projection()
     assert result._nodes.to_dict(orient="records") == [{"nn": None, "q": None, "tr": "REL", "tn": None}]
 
 
+def test_string_cypher_supports_dynamic_graph_property_lookup() -> None:
+    graph = _mk_graph(pd.DataFrame({"id": ["a"], "name": ["Apa"]}), pd.DataFrame({"s": [], "d": []}))
+
+    result = graph.gfql("MATCH (n {name: 'Apa'}) RETURN n['nam' + 'e'] AS value")
+
+    assert result._nodes.to_dict(orient="records") == [{"value": "Apa"}]
+
+
+def test_string_cypher_supports_dynamic_graph_property_lookup_with_param() -> None:
+    graph = _mk_graph(pd.DataFrame({"id": ["a"], "name": ["Apa"]}), pd.DataFrame({"s": [], "d": []}))
+
+    result = graph.gfql("MATCH (n {name: 'Apa'}) RETURN n[$idx] AS value", params={"idx": "name"})
+
+    assert result._nodes.to_dict(orient="records") == [{"value": "Apa"}]
+
+
 def test_string_cypher_supports_property_access_on_list_wrapped_node_and_relationship_entities() -> None:
     nodes = pd.DataFrame(
         {
@@ -1934,6 +1950,13 @@ def test_string_cypher_rejects_invalid_graph_functions_on_list_wrapped_scalars()
 
     with pytest.raises(GFQLTypeError, match="type\\(\\) requires a graph element, entity value, or null"):
         graph.gfql("MATCH (a) WITH [a, 1] AS list RETURN type(list[1]) AS t")
+
+
+def test_string_cypher_rejects_type_on_node_alias_even_when_match_is_empty() -> None:
+    graph = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    with pytest.raises(GFQLValidationError, match="relationship aliases"):
+        graph.gfql("MATCH (r) RETURN type(r)")
 
 
 @pytest.mark.parametrize(
