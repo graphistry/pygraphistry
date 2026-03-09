@@ -610,7 +610,12 @@ class RowPipelineMixin:
                 return True, out
             if fn == "labels" and len(node.args) == 1 and isinstance(node.args[0], Identifier):
                 alias_name = node.args[0].name
-                if "." not in alias_name and alias_name in table_df.columns and "id" in table_df.columns:
+                if (
+                    "." not in alias_name
+                    and alias_name in table_df.columns
+                    and "id" in table_df.columns
+                    and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
+                ):
                     out = self._gfql_format_labels_series(table_df, alias_col=alias_name)
                     null_mask = self._gfql_null_mask(table_df, table_df[alias_name])
                     if hasattr(out, "where"):
@@ -624,6 +629,7 @@ class RowPipelineMixin:
                     and alias_name in table_df.columns
                     and "type" in table_df.columns
                     and any(col in table_df.columns for col in edge_like_cols)
+                    and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
                 ):
                     null_mask = self._gfql_null_mask(table_df, table_df[alias_name])
                     out = table_df["type"]
@@ -632,7 +638,11 @@ class RowPipelineMixin:
                     return True, out
             if fn == "properties" and len(node.args) == 1 and isinstance(node.args[0], Identifier):
                 alias_name = node.args[0].name
-                if "." not in alias_name and alias_name in table_df.columns:
+                if (
+                    "." not in alias_name
+                    and alias_name in table_df.columns
+                    and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
+                ):
                     edge_like_cols = {"s", "d", "src", "dst", "edge_id"}
                     table_name = "edges" if any(col in table_df.columns for col in edge_like_cols) else "nodes"
                     entity_text = self._gfql_format_entity_series(

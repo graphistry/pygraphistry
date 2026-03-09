@@ -1475,6 +1475,8 @@ def _active_match_alias_for_stage(
     referenced: Set[str] = set()
     aggregate_only_referenced: Set[str] = set()
     for expr_text, line, column, field in expr_texts:
+        if expr_text == "*":
+            continue
         non_aggregate_aliases, aggregate_aliases = _expr_match_alias_usage(
             expr_text,
             alias_targets=alias_targets,
@@ -2353,9 +2355,15 @@ def _build_projection_plan(
                 if len(aliases) == 1:
                     alias_name = aliases[0]
                     prop = None
-                elif len(aliases) == 0 and active_alias is not None:
-                    alias_name = active_alias
-                    prop = None
+                elif len(aliases) == 0:
+                    if active_alias is not None:
+                        alias_name = active_alias
+                        prop = None
+                    elif len(alias_targets) == 1:
+                        alias_name = next(iter(alias_targets.keys()))
+                        prop = None
+                    else:
+                        raise
                 else:
                     raise
         if alias_name not in alias_targets and projected_columns is not None:
@@ -2843,7 +2851,12 @@ def _lower_projection_chain(
     plan: Optional[_ProjectionPlan] = None,
 ) -> List[ASTObject]:
     alias_targets = _alias_target(lowered.query)
-    plan = plan or _build_projection_plan(query.return_, alias_targets=alias_targets, params=params)
+    plan = plan or _build_projection_plan(
+        query.return_,
+        alias_targets=alias_targets,
+        active_alias=_active_match_alias(query, alias_targets=alias_targets, params=params),
+        params=params,
+    )
 
     row_steps: List[ASTObject] = [rows(table=plan.table, source=plan.source_alias)]
     _append_match_row_where(
@@ -4533,7 +4546,12 @@ def compile_cypher_query(
             for item in query.return_.items
         )
         if not has_aggregates:
-            plan = _build_projection_plan(query.return_, alias_targets=alias_targets, params=params)
+            plan = _build_projection_plan(
+                query.return_,
+                alias_targets=alias_targets,
+                active_alias=_active_match_alias(query, alias_targets=alias_targets, params=params),
+                params=params,
+            )
             return CompiledCypherQuery(
                 Chain(_lower_projection_chain(query, lowered, params=params, plan=plan), where=lowered.where),
                 seed_rows=False,

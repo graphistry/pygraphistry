@@ -1837,6 +1837,25 @@ def test_string_cypher_supports_graph_functions_on_list_wrapped_entities() -> No
     assert type_result._nodes.to_dict(orient="records") == [{"t": "T"}]
 
 
+def test_string_cypher_supports_null_graph_functions_in_multi_alias_projection() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"], "type": ["Seed", "Seed"]}),
+        pd.DataFrame(
+            {
+                "s": ["a"],
+                "d": ["b"],
+                "type": ["REL"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (a)-[r]->(b) "
+        "RETURN labels(null) AS nn, properties(null) AS q, type(r) AS tr, type(null) AS tn"
+    )
+    assert result._nodes.to_dict(orient="records") == [{"nn": None, "q": None, "tr": "REL", "tn": None}]
+
+
 def test_string_cypher_supports_property_access_on_list_wrapped_node_and_relationship_entities() -> None:
     nodes = pd.DataFrame(
         {
@@ -1882,6 +1901,14 @@ def test_string_cypher_supports_property_access_on_list_wrapped_map_values() -> 
     assert result._nodes.to_dict(orient="records") == [
         {"(list[1]).missing": None, "(list[1]).notMissing": None, "(list[1]).existing": 42}
     ]
+
+
+@pytest.mark.parametrize("bad_literal", ["0", "1.0", "true"])
+def test_string_cypher_rejects_type_on_mixed_entity_and_scalar_list_values(bad_literal: str) -> None:
+    graph = _mk_graph(pd.DataFrame({"id": ["a", "b"]}), pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["T"]}))
+
+    with pytest.raises(GFQLTypeError, match="type\\(\\) requires a graph element, entity value, or null"):
+        graph.gfql(f"MATCH ()-[r:T]->() RETURN [x IN [r, {bad_literal}] | type(x)] AS list")
 
 
 @pytest.mark.parametrize(
