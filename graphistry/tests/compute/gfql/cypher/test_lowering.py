@@ -305,14 +305,56 @@ def test_lower_match_clause_requires_parameters() -> None:
     assert exc_info.value.code == ErrorCode.E105
 
 
-def test_lower_match_clause_rejects_multi_label_nodes() -> None:
+def test_lower_match_clause_supports_multi_label_nodes() -> None:
     parsed = parse_cypher("MATCH (p:Person:Admin) RETURN p")
 
-    with pytest.raises(GFQLValidationError) as exc_info:
-        assert parsed.match is not None
-        lower_match_clause(parsed.match)
+    assert parsed.match is not None
+    ops = lower_match_clause(parsed.match)
 
-    assert exc_info.value.code == ErrorCode.E108
+    assert isinstance(ops[0], ASTNode)
+    assert ops[0].filter_dict == {"label__Person": True, "label__Admin": True}
+
+
+def test_lower_match_query_folds_relationship_type_where_into_match_filter() -> None:
+    parsed = parse_cypher("MATCH (n {name: 'A'})-[r]->(x) WHERE type(r) = 'KNOWS' RETURN x")
+
+    lowered = lower_match_query(parsed)
+
+    assert lowered.row_where is None
+    assert isinstance(lowered.query[1], ASTEdgeForward)
+    assert lowered.query[1].edge_match == {"type": "KNOWS"}
+
+
+def test_string_cypher_executes_relationship_type_where_with_bound_relationship_alias() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"], "name": ["A", "B", "C"]})
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "a"],
+            "d": ["b", "c"],
+            "type": ["KNOWS", "LIKES"],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (n {name: 'A'})-[r]->(x) WHERE type(r) = 'KNOWS' RETURN x.id AS id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "b"}]
+
+
+def test_string_cypher_executes_multi_label_node_patterns() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c"],
+            "label__A": [True, True, False],
+            "label__B": [True, True, True],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql("MATCH (a:A:B) RETURN a.id AS id ORDER BY id")
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "a"}, {"id": "b"}]
 
 
 def test_lower_match_query_folds_literal_where_into_filter_dicts() -> None:
@@ -519,6 +561,11 @@ def test_string_cypher_formats_single_node_entity_projection() -> None:
     assert result._nodes.to_dict(orient="records") == [
         {"p": "(:Person {name: 'Alice', score: 2})"}
     ]
+    entity_meta = getattr(result, "_cypher_entity_projection_meta")
+    assert entity_meta["p"]["table"] == "nodes"
+    assert entity_meta["p"]["alias"] == "p"
+    assert entity_meta["p"]["id_column"] == "id"
+    assert entity_meta["p"]["ids"].tolist() == ["a"]
 
 
 def test_string_cypher_formats_single_edge_entity_projection() -> None:
@@ -547,6 +594,8 @@ def test_string_cypher_formats_single_node_entity_projection_with_alias() -> Non
     result = _mk_graph(nodes, edges).gfql("MATCH (a) RETURN a AS ColumnName")
 
     assert result._nodes.to_dict(orient="records") == [{"ColumnName": "(:A)"}]
+    entity_meta = getattr(result, "_cypher_entity_projection_meta")
+    assert entity_meta["ColumnName"]["ids"].tolist() == ["a"]
 
 
 def test_compile_cypher_records_mixed_whole_row_projection_plan() -> None:

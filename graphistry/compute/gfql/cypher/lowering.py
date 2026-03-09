@@ -2048,16 +2048,9 @@ def _lower_node(node: NodePattern, *, params: Optional[Mapping[str, Any]]) -> AS
         column=node.span.column,
     )
     if node.labels:
-        if len(node.labels) > 1:
-            raise _unsupported(
-                "Multiple node labels are not yet supported by local Cypher lowering",
-                field=f"node.{node.variable or '_'}",
-                value=list(node.labels),
-                line=node.span.line,
-                column=node.span.column,
-            )
         filter_dict = dict(filter_dict or {})
-        filter_dict[f"label__{node.labels[0]}"] = True
+        for label in node.labels:
+            filter_dict[f"label__{label}"] = True
     return ASTNode(filter_dict=filter_dict, name=node.variable)
 
 
@@ -4409,6 +4402,46 @@ def _apply_label_where(
     target.filter_dict = filter_dict
 
 
+def _extract_relationship_type_where(
+    expr: ExpressionText,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+) -> Optional[Tuple[PropertyRef, Literal["==", "!="], CypherLiteral]]:
+    node = _parse_row_expr(
+        expr.text,
+        params=params,
+        alias_targets=alias_targets,
+        field="where",
+        line=expr.span.line,
+        column=expr.span.column,
+    )
+    if not isinstance(node, BinaryOp) or node.op not in {"=", "!="}:
+        return None
+
+    def _relationship_alias(node_in: ExprNode) -> Optional[str]:
+        if not isinstance(node_in, FunctionCall) or node_in.name != "type" or len(node_in.args) != 1:
+            return None
+        arg = node_in.args[0]
+        if not isinstance(arg, Identifier):
+            return None
+        alias_name, prop = _split_qualified_name(arg.name, line=expr.span.line, column=expr.span.column)
+        if prop is not None:
+            return None
+        if not isinstance(alias_targets.get(alias_name), ASTEdge):
+            return None
+        return alias_name
+
+    left_alias = _relationship_alias(node.left)
+    right_alias = _relationship_alias(node.right)
+    op = cast(Literal["==", "!="], "==" if node.op == "=" else "!=")
+    if left_alias is not None and isinstance(node.right, ExprLiteral) and isinstance(node.right.value, str):
+        return PropertyRef(alias=left_alias, property="type", span=expr.span), op, node.right.value
+    if right_alias is not None and isinstance(node.left, ExprLiteral) and isinstance(node.left.value, str):
+        return PropertyRef(alias=right_alias, property="type", span=expr.span), op, node.left.value
+    return None
+
+
 def lower_match_clause(
     clause: MatchClause,
     *,
@@ -4520,7 +4553,22 @@ def lower_match_query(
     row_where: Optional[ExpressionText] = None
     if query.where is not None:
         if query.where.expr is not None:
-            row_where = query.where.expr
+            type_where = _extract_relationship_type_where(
+                query.where.expr,
+                alias_targets=alias_targets,
+                params=params,
+            )
+            if type_where is None:
+                row_where = query.where.expr
+            else:
+                left, op, right = type_where
+                _apply_literal_where(
+                    alias_targets,
+                    left=left,
+                    op=op,
+                    right=right,
+                    params=params,
+                )
         for predicate in query.where.predicates:
             if isinstance(predicate, WherePatternPredicate):
                 raise _unsupported(

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
-from typing import Sequence, cast
+from typing import Any, Dict, Sequence, cast
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT, SeriesT
@@ -329,6 +329,18 @@ def _project_expr_column(
     return cast(SeriesT, value if hasattr(value, "astype") else adapter._gfql_broadcast_scalar(rows_df, value))
 
 
+def _whole_row_projection_meta(result: Plottable, rows_df: DataFrameT, projection: ResultProjectionPlan) -> Dict[str, Any] | None:
+    id_column = getattr(result, "_node" if projection.table == "nodes" else "_edge", None)
+    if id_column is None or id_column not in rows_df.columns:
+        return None
+    return {
+        "table": projection.table,
+        "alias": projection.alias,
+        "id_column": id_column,
+        "ids": cast(SeriesT, rows_df[id_column]).copy(),
+    }
+
+
 def apply_result_projection(result: Plottable, projection: ResultProjectionPlan) -> Plottable:
     rows_df = cast(DataFrameT, getattr(result, "_nodes", None))
     if rows_df is None or projection.alias not in rows_df.columns:
@@ -340,11 +352,15 @@ def apply_result_projection(result: Plottable, projection: ResultProjectionPlan)
         else _format_edge_entities(rows_df, projection)
     )
     projected_data: dict[str, SeriesT] = {}
+    whole_row_meta = _whole_row_projection_meta(result, rows_df, projection)
+    projected_entity_meta: Dict[str, Dict[str, Any]] = {}
     for column in projection.columns:
         if column.kind == "whole_row":
             projected_data[column.output_name] = entity_series
+            if whole_row_meta is not None:
+                projected_entity_meta[column.output_name] = dict(whole_row_meta)
         else:
-                projected_data[column.output_name] = (
+            projected_data[column.output_name] = (
                 _project_property_column(rows_df, column=column)
                 if column.kind == "property"
                 else _project_expr_column(result, rows_df, column=column)
@@ -353,6 +369,8 @@ def apply_result_projection(result: Plottable, projection: ResultProjectionPlan)
 
     out = result.bind()
     out._nodes = projected_nodes
+    if projected_entity_meta:
+        setattr(out, "_cypher_entity_projection_meta", projected_entity_meta)
     edges_df = getattr(result, "_edges", None)
     if edges_df is not None:
         out._edges = edges_df[:0]
