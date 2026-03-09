@@ -2696,7 +2696,7 @@ class RowPipelineMixin:
                     ]
                     if len(non_null_df) == 0:
                         agg_df = out_df[key_cols].iloc[0:0].copy()
-                        agg_df[alias] = pd.Series(dtype="object")
+                        agg_df[alias] = self._gfql_broadcast_scalar(agg_df, None)
                     else:
                         if func == "collect_distinct":
                             try:
