@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from typing import Sequence, cast
 
 from graphistry.Plottable import Plottable
@@ -50,6 +51,18 @@ def _normalize_zero_offset_suffix(timezone: SeriesT) -> SeriesT:
         return timezone
     zero_offset = timezone.isin(["+00:00", "-00:00"])
     return cast(SeriesT, timezone.where(~zero_offset, "Z"))
+
+
+def _format_decimal_text(value: object) -> str:
+    try:
+        out = format(Decimal(str(value)), "f")
+    except (InvalidOperation, ValueError):
+        return str(value)
+    if "." in out:
+        out = out.rstrip("0").rstrip(".")
+    if out in {"-0", "-0.0", ""}:
+        return "0"
+    return out
 
 
 def _normalize_temporal_constructor_series(
@@ -155,7 +168,12 @@ def _render_scalar_value_text(df: DataFrameT, alias_col: str, series: SeriesT) -
     if "bool" in dtype_txt and hasattr(text, "str"):
         return cast(SeriesT, text.str.lower())
     if "float" in dtype_txt and hasattr(text, "str"):
-        return cast(SeriesT, text.str.replace(r"\.0+$", "", regex=True))
+        out = cast(SeriesT, text.str.replace(r"\.0+$", "", regex=True))
+        sci_mask = cast(SeriesT, text.str.contains(r"[eE]", na=False))
+        if hasattr(sci_mask, "any") and bool(sci_mask.any()) and hasattr(series, "map"):
+            formatted = cast(SeriesT, series.map(_format_decimal_text))
+            out = cast(SeriesT, out.where(~sci_mask, formatted))
+        return out
     if any(token in dtype_txt for token in ("int", "double", "decimal")):
         return text
     if dtype_txt == "object" and hasattr(text, "str"):
@@ -172,11 +190,16 @@ def _render_scalar_value_text(df: DataFrameT, alias_col: str, series: SeriesT) -
             return temporal
         non_null = cast(SeriesT, ~_is_null_mask(series))
         bool_like = cast(SeriesT, text.str.match(r"^(True|False)$", na=False))
-        num_like = cast(SeriesT, text.str.match(r"^-?\d+(?:\.\d+)?$", na=False))
+        num_like = cast(SeriesT, text.str.match(r"^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$", na=False))
         if hasattr(bool_like, "where") and bool(bool_like.where(non_null, True).all()):
             return cast(SeriesT, text.str.lower())
         if hasattr(num_like, "where") and bool(num_like.where(non_null, True).all()):
-            return cast(SeriesT, text.str.replace(r"\.0+$", "", regex=True))
+            out = cast(SeriesT, text.str.replace(r"\.0+$", "", regex=True))
+            sci_mask = cast(SeriesT, text.str.contains(r"[eE]", na=False))
+            if hasattr(sci_mask, "any") and bool(sci_mask.any()) and hasattr(series, "map"):
+                formatted = cast(SeriesT, series.map(_format_decimal_text))
+                out = cast(SeriesT, out.where(~sci_mask, formatted))
+            return out
     if hasattr(text, "str"):
         escaped = cast(SeriesT, text.str.replace("'", "\\'", regex=False))
         return cast(SeriesT, _const_text(df, alias_col, "'") + escaped + "'")

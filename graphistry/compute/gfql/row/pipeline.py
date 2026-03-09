@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence,
 
 import pandas as pd
 from graphistry.compute.gfql.row.order_expr import (
+    extract_temporal_duration_sort_ast,
     is_order_aggregate_alias_ast,
     order_expr_ast_static_supported,
 )
@@ -32,6 +33,7 @@ from graphistry.compute.gfql.row.ordering import (
     order_detect_temporal_mode,
     validate_order_series_vector_safe,
 )
+from graphistry.compute.gfql.temporal_text import parse_temporal_sort_duration_components
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
@@ -1746,11 +1748,70 @@ class RowPipelineMixin:
             if expr in work_df.columns:
                 sort_col = expr
             else:
+                parsed_order_node = None
+                parser_bundle = _gfql_expr_runtime_parser_bundle()
+                if parser_bundle is not None:
+                    parser, _capability_checker, _expr_parser_mod = parser_bundle
+                    try:
+                        parsed_order_node = parser(expr)
+                    except Exception:
+                        parsed_order_node = None
                 if not RowPipelineMixin._gfql_order_expr_static_supported(expr):
                     raise ValueError(
                         "unsupported order_by expression in vectorized mode; "
                         f"use column/scalar arithmetic comparisons only: {expr!r}"
                     )
+                temporal_duration_expr = (
+                    extract_temporal_duration_sort_ast(parsed_order_node)
+                    if parsed_order_node is not None
+                    else None
+                )
+                if temporal_duration_expr is not None:
+                    base_node, duration_text, duration_sign = temporal_duration_expr
+                    duration_components = parse_temporal_sort_duration_components(duration_text)
+                    if duration_components is None:
+                        raise ValueError(
+                            "unsupported order_by temporal duration expression in vectorized mode; "
+                            f"unsupported duration literal: {expr!r}"
+                        )
+                    month_shift, duration_shift = duration_components
+                    ok_base, base_value = self._gfql_eval_expr_ast(work_df, base_node)
+                    if not ok_base or not hasattr(base_value, "astype"):
+                        raise ValueError(
+                            "unsupported order_by temporal duration expression in vectorized mode; "
+                            f"base expression must resolve to a vectorized temporal series: {expr!r}"
+                        )
+                    sort_col = f"__gfql_sort_{tmp_idx}__"
+                    tmp_idx += 1
+                    work_df = work_df.assign(**{sort_col: base_value})
+                    direction_is_asc = str(direction).lower() != "desc"
+                    series = work_df[sort_col]
+                    temporal_mode = order_detect_temporal_mode(series)
+                    if temporal_mode is None:
+                        raise ValueError(
+                            "unsupported order_by temporal duration expression in vectorized mode; "
+                            f"base expression is not a supported temporal series: {expr!r}"
+                        )
+                    if month_shift != 0 and temporal_mode in {"time", "time_constructor"}:
+                        raise ValueError(
+                            "unsupported order_by temporal duration expression in vectorized mode; "
+                            f"time values do not support year/month duration offsets: {expr!r}"
+                        )
+                    key_prefix = f"__gfql_sort_temporal_{tmp_idx}__"
+                    tmp_idx += 1
+                    work_df, temporal_key_cols = build_temporal_sort_columns(
+                        work_df,
+                        sort_col,
+                        key_prefix,
+                        temporal_mode,
+                        month_shift=duration_sign * month_shift,
+                        nanosecond_shift=duration_sign * duration_shift,
+                        null_mask_fn=self._gfql_null_mask,
+                        fresh_col_name_fn=RowPipelineMixin._gfql_fresh_col_name,
+                    )
+                    sort_cols.extend(temporal_key_cols)
+                    ascending.extend([direction_is_asc] * len(temporal_key_cols))
+                    continue
                 sort_col = f"__gfql_sort_{tmp_idx}__"
                 tmp_idx += 1
                 work_df = work_df.assign(**{sort_col: self._gfql_eval_string_expr(work_df, expr)})

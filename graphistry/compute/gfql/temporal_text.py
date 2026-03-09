@@ -750,6 +750,7 @@ class _TemporalValue:
 _ZONE_SUFFIX_RE = re.compile(r"^(?P<core>.+?)(?:\[(?P<zone>[^\]]+)\])?$")
 _DURATION_TOKEN_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)([YMDHMS])")
 _DATE_TRUNCATION_UNITS = frozenset({"millennium", "century", "decade", "year", "weekYear", "quarter", "month", "week", "day"})
+_DAY_TIME_DURATION_TOKEN_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)([WDHMS])")
 
 
 def _format_localtime_parts(hour: int, minute: int, second: int, nanosecond: int) -> str:
@@ -767,6 +768,84 @@ def _format_localdatetime_parts(
     nanosecond: int,
 ) -> str:
     return f"{_format_date(value_date.year, value_date.month, value_date.day)}T{_format_localtime_parts(hour, minute, second, nanosecond)}"
+
+
+def parse_temporal_sort_duration_components(text: str) -> Optional[tuple[int, int]]:
+    stripped = text.strip()
+    prefix_sign = 1
+    if stripped.startswith("-P"):
+        prefix_sign = -1
+        body = stripped[2:]
+    elif stripped.startswith("P"):
+        body = stripped[1:]
+    else:
+        return None
+    if body == "":
+        return None
+
+    if "T" in body:
+        date_part, time_part = body.split("T", 1)
+    else:
+        date_part, time_part = body, ""
+
+    month_shift = 0
+    total = Decimal(0)
+
+    def _consume(part: str, allowed_units: set[str]) -> Optional[list[tuple[Decimal, str]]]:
+        if part == "":
+            return []
+        pos = 0
+        out: list[tuple[Decimal, str]] = []
+        for match in _DAY_TIME_DURATION_TOKEN_RE.finditer(part):
+            if match.start() != pos:
+                return None
+            value_txt, unit = match.groups()
+            if unit not in allowed_units:
+                return None
+            out.append((Decimal(value_txt), unit))
+            pos = match.end()
+        if pos != len(part):
+            return None
+        return out
+
+    date_tokens = _consume(date_part, {"Y", "M", "W", "D"})
+    time_tokens = _consume(time_part, {"H", "M", "S"})
+    if date_tokens is None or time_tokens is None:
+        return None
+
+    for value, unit in date_tokens:
+        if unit == "Y":
+            if value != int(value):
+                return None
+            month_shift += int(value) * 12
+        elif unit == "M":
+            if value != int(value):
+                return None
+            month_shift += int(value)
+        elif unit == "W":
+            total += value * Decimal(7 * 24 * 60 * 60 * 1_000_000_000)
+        elif unit == "D":
+            total += value * Decimal(24 * 60 * 60 * 1_000_000_000)
+
+    for value, unit in time_tokens:
+        if unit == "H":
+            total += value * Decimal(60 * 60 * 1_000_000_000)
+        elif unit == "M":
+            total += value * Decimal(60 * 1_000_000_000)
+        elif unit == "S":
+            total += value * Decimal(1_000_000_000)
+
+    return month_shift * prefix_sign, int((total * prefix_sign).to_integral_value())
+
+
+def parse_day_time_duration_nanoseconds(text: str) -> Optional[int]:
+    parsed = parse_temporal_sort_duration_components(text)
+    if parsed is None:
+        return None
+    month_shift, nanosecond_shift = parsed
+    if month_shift != 0:
+        return None
+    return nanosecond_shift
 
 
 def _split_zone_name(text: str) -> tuple[str, Optional[str]]:

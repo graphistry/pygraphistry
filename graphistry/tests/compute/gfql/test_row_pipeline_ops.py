@@ -267,6 +267,63 @@ def test_row_pipeline_order_by_supports_list_literal_and_subscript_expression_ke
     assert result.to_dict(orient="records") == [{"id": "c"}, {"id": "b"}, {"id": "a"}]
 
 
+def test_row_pipeline_order_by_supports_temporal_duration_expression_keys() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e"],
+            "time": [
+                "time({hour: 10, minute: 35, timezone: '-08:00'})",
+                "time({hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'})",
+                "time({hour: 12, minute: 31, second: 14, nanosecond: 645876124, timezone: '+01:00'})",
+                "time({hour: 12, minute: 35, second: 15, timezone: '+05:00'})",
+                "time({hour: 12, minute: 30, second: 14, nanosecond: 645876123, timezone: '+01:01'})",
+            ],
+        }
+    )
+
+    result = _run_node_steps(
+        nodes_df,
+        [
+            rows(),
+            order_by([("time + 'PT6M'", "asc")]),
+            limit(3),
+            select([("id", "id")]),
+        ],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert result.to_dict(orient="records") == [{"id": "d"}, {"id": "e"}, {"id": "b"}]
+
+
+def test_row_pipeline_order_by_supports_date_duration_expression_keys() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e", "f"],
+            "date": [
+                "date({year: 1910, month: 5, day: 6})",
+                "date({year: 1980, month: 12, day: 24})",
+                "date({year: 1984, month: 10, day: 12})",
+                "date({year: 1985, month: 5, day: 6})",
+                "date({year: 1980, month: 10, day: 24})",
+                "date({year: 1984, month: 10, day: 11})",
+            ],
+        }
+    )
+
+    result = _run_node_steps(
+        nodes_df,
+        [
+            rows(),
+            order_by([("date + 'P1M2D'", "asc")]),
+            limit(2),
+            select([("id", "id")]),
+        ],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert result.to_dict(orient="records") == [{"id": "a"}, {"id": "e"}]
+
+
 def test_row_pipeline_select_supports_keys_for_map_literals_and_nulls() -> None:
     nodes_df = pd.DataFrame({"id": ["a"]})
 

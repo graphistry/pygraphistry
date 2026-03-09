@@ -11,6 +11,7 @@ import pandas as pd
 
 from graphistry.compute.gfql.temporal_text import (
     DATETIME_CALL_TEXT_RE,
+    DATE_CALL_TEXT_RE,
     LOCALDATETIME_CALL_TEXT_RE,
     LOCALTIME_CALL_TEXT_RE,
     TIME_CALL_TEXT_RE,
@@ -23,6 +24,7 @@ _GFQL_TIME_TEXT_RE = re.compile(
     r"(?::(?P<s>\d{2})(?:\.(?P<f>\d{1,9}))?)?"
     r"(?:(?P<off_sign>[+-])(?P<off_h>\d{2}):(?P<off_m>\d{2}))?$"
 )
+_GFQL_DATE_TEXT_RE = re.compile(r"^(?P<y>-?\d{4,9})-(?P<mo>\d{2})-(?P<d>\d{2})$")
 _GFQL_DATETIME_TEXT_RE = re.compile(
     r"^(?P<y>\d{4})-(?P<mo>\d{2})-(?P<d>\d{2})T"
     r"(?P<h>\d{2}):(?P<m>\d{2})"
@@ -113,10 +115,14 @@ def order_detect_temporal_mode(series: Any) -> Optional[str]:
         return None
     if not all(isinstance(v, str) for v in sample_values):
         return None
+    if all(_GFQL_DATE_TEXT_RE.fullmatch(v) is not None for v in sample_values):
+        return "date"
     if all(_GFQL_DATETIME_TEXT_RE.fullmatch(v) is not None for v in sample_values):
         return "datetime"
     if all(_GFQL_TIME_TEXT_RE.fullmatch(v) is not None for v in sample_values):
         return "time"
+    if all(DATE_CALL_TEXT_RE.fullmatch(v) is not None for v in sample_values):
+        return "date_constructor"
     if all(
         LOCALDATETIME_CALL_TEXT_RE.fullmatch(v) is not None or DATETIME_CALL_TEXT_RE.fullmatch(v) is not None
         for v in sample_values
@@ -214,13 +220,22 @@ def build_temporal_sort_columns(
     key_prefix: str,
     mode: str,
     *,
+    month_shift: int = 0,
+    nanosecond_shift: int = 0,
     null_mask_fn: NullMaskFn,
     fresh_col_name_fn: FreshColNameFn,
 ) -> Tuple[Any, List[str]]:
     value = work_df[sort_col]
     text = value.astype(str)
     null_mask = null_mask_fn(work_df, value)
-    if mode == "datetime":
+    if mode == "date":
+        parts = text.str.extract(_GFQL_DATE_TEXT_RE)
+        year = parts["y"].fillna("0").astype("int64")
+        month = parts["mo"].fillna("1").astype("int64")
+        day = parts["d"].fillna("1").astype("int64")
+        hour = minute = second = nanos = off_hours = off_minutes = None
+        off_sign = None
+    elif mode == "datetime":
         parts = text.str.extract(_GFQL_DATETIME_TEXT_RE)
         year = parts["y"].fillna("0").astype("int64")
         month = parts["mo"].fillna("1").astype("int64")
@@ -244,6 +259,13 @@ def build_temporal_sort_columns(
         off_sign = parts["off_sign"].fillna("+")
         off_hours = parts["off_h"].fillna("0").astype("int64")
         off_minutes = parts["off_m"].fillna("0").astype("int64")
+    elif mode == "date_constructor":
+        parts = text.str.extract(DATE_CALL_TEXT_RE.pattern)
+        year = parts["year"].fillna("0").astype("int64")
+        month = parts["month"].fillna("1").astype("int64")
+        day = parts["day"].fillna("1").astype("int64")
+        hour = minute = second = nanos = off_hours = off_minutes = None
+        off_sign = None
     elif mode == "datetime_constructor":
         dt_parts = text.str.extract(DATETIME_CALL_TEXT_RE.pattern)
         local_parts = text.str.extract(LOCALDATETIME_CALL_TEXT_RE.pattern)
@@ -279,29 +301,63 @@ def build_temporal_sort_columns(
         off_hours = timezone.str[1:3].where(use_tz, "0").replace("", "0").astype("int64")
         off_minutes = timezone.str[4:6].where(use_tz, "0").replace("", "0").astype("int64")
 
-    sign_mult = off_sign.eq("-").astype("int64")
-    sign_mult = sign_mult.where(sign_mult == 0, -1)
-    sign_mult = sign_mult.where(sign_mult != 0, 1)
-    offset_total_minutes = sign_mult * (off_hours * 60 + off_minutes)
-    time_nanos = (
-        (hour * 3600 + minute * 60 + second) * 1_000_000_000
-        + nanos
-        - offset_total_minutes * 60 * 1_000_000_000
-    )
+    day_nanos = 86_400 * 1_000_000_000
+    if mode in {"date", "date_constructor"}:
+        time_nanos = month.astype("int64") * 0
+        if nanosecond_shift % day_nanos != 0:
+            raise ValueError("date order_by duration support currently requires whole-day offsets")
+        day_time_shift = nanosecond_shift // day_nanos
+    else:
+        assert (
+            hour is not None
+            and minute is not None
+            and second is not None
+            and nanos is not None
+            and off_sign is not None
+            and off_hours is not None
+            and off_minutes is not None
+        )
+        sign_mult = off_sign.eq("-").astype("int64")
+        sign_mult = sign_mult.where(sign_mult == 0, -1)
+        sign_mult = sign_mult.where(sign_mult != 0, 1)
+        offset_total_minutes = sign_mult * (off_hours * 60 + off_minutes)
+        time_nanos = (
+            (hour * 3600 + minute * 60 + second) * 1_000_000_000
+            + nanos
+            - offset_total_minutes * 60 * 1_000_000_000
+        )
+        if nanosecond_shift != 0:
+            time_nanos = time_nanos + nanosecond_shift
+        day_time_shift = 0
 
     if mode in {"time", "time_constructor"}:
+        if month_shift != 0:
+            raise ValueError("time order_by duration support currently rejects year/month offsets")
         key_col = fresh_col_name_fn(work_df.columns, f"{key_prefix}_time_ns")
-        out = work_df.assign(**{key_col: time_nanos.where(~null_mask, 9_223_372_036_854_775_000)})
+        normalized_time_nanos = ((time_nanos % day_nanos) + day_nanos) % day_nanos
+        out = work_df.assign(**{key_col: normalized_time_nanos.where(~null_mask, 9_223_372_036_854_775_000)})
         return out, [key_col]
 
     assert year is not None and month is not None and day is not None
+    if month_shift != 0:
+        total_months = year * 12 + (month - 1) + month_shift
+        year = total_months // 12
+        month = (total_months % 12) + 1
+        leap = ((year % 4 == 0) & ((year % 100 != 0) | (year % 400 == 0))).astype("int64")
+        max_day = month * 0 + 31
+        max_day = max_day.where(~month.isin([4, 6, 9, 11]), 30)
+        max_day = max_day.where(month != 2, 28 + leap)
+        day = day.where(day <= max_day, max_day)
     a = (14 - month) // 12
     y2 = year + 4800 - a
     m2 = month + 12 * a - 3
     julian_day = day + ((153 * m2 + 2) // 5) + (365 * y2) + (y2 // 4) - (y2 // 100) + (y2 // 400) - 32045
-    day_nanos = 86_400 * 1_000_000_000
-    day_adjust = time_nanos // day_nanos
-    nanos_of_day = time_nanos - (day_adjust * day_nanos)
+    if mode in {"date", "date_constructor"}:
+        day_adjust = day_time_shift
+        nanos_of_day = month * 0
+    else:
+        day_adjust = (time_nanos // day_nanos) + day_time_shift
+        nanos_of_day = time_nanos - ((time_nanos // day_nanos) * day_nanos)
     day_key = julian_day + day_adjust
     day_col = fresh_col_name_fn(work_df.columns, f"{key_prefix}_day")
     nanos_col = fresh_col_name_fn(work_df.columns, f"{key_prefix}_ns")

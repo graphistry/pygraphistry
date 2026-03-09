@@ -748,6 +748,25 @@ def test_string_cypher_formats_numeric_id_as_entity_property() -> None:
     assert result._nodes.to_dict(orient="records") == [{"n": "({id: 1})"}, {"n": "({id: 10})"}]
 
 
+def test_string_cypher_formats_small_float_entity_properties_without_scientific_notation() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "num": [30.94857, 0.00002],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n) RETURN n ORDER BY n.num DESC")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"n": "({num: 30.94857})"},
+        {"n": "({num: 0.00002})"},
+    ]
+
+
 def test_string_cypher_supports_return_star_with_order_by() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": [1, 10]}),
@@ -1417,6 +1436,87 @@ def test_string_cypher_orders_temporal_constructor_time_properties() -> None:
         {"a": "(:A {time: '12:35:15+05:00'})", "time": "12:35:15+05:00"},
         {"a": "(:A {time: '12:30:14.645876123+01:01'})", "time": "12:30:14.645876123+01:01"},
         {"a": "(:A {time: '12:31:14.645876123+01:00'})", "time": "12:31:14.645876123+01:00"},
+    ]
+
+
+def test_string_cypher_orders_time_plus_duration_expression() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e"],
+            "label__A": [True, True, True, True, True],
+            "time": [
+                "time({hour: 10, minute: 35, timezone: '-08:00'})",
+                "time({hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'})",
+                "time({hour: 12, minute: 31, second: 14, nanosecond: 645876124, timezone: '+01:00'})",
+                "time({hour: 12, minute: 35, second: 15, timezone: '+05:00'})",
+                "time({hour: 12, minute: 30, second: 14, nanosecond: 645876123, timezone: '+01:01'})",
+            ],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a) WITH a ORDER BY a.time + duration({minutes: 6}) ASC LIMIT 3 RETURN a"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:A {time: '12:35:15+05:00'})"},
+        {"a": "(:A {time: '12:30:14.645876123+01:01'})"},
+        {"a": "(:A {time: '12:31:14.645876123+01:00'})"},
+    ]
+
+
+def test_string_cypher_orders_datetime_plus_duration_expression() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e"],
+            "label__A": [True, True, True, True, True],
+            "datetime": [
+                "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 30, second: 14, nanosecond: 12, timezone: '+00:15'})",
+                "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+00:17'})",
+                "datetime({year: 1, month: 1, day: 1, hour: 1, minute: 1, second: 1, nanosecond: 1, timezone: '-11:59'})",
+                "datetime({year: 9999, month: 9, day: 9, hour: 9, minute: 59, second: 59, nanosecond: 999999999, timezone: '+11:59'})",
+                "datetime({year: 1980, month: 12, day: 11, hour: 12, minute: 31, second: 14, timezone: '-11:59'})",
+            ],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a) WITH a ORDER BY a.datetime + duration({days: 4, minutes: 6}) ASC LIMIT 3 RETURN a"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:A {datetime: '0001-01-01T01:01:01.000000001-11:59'})"},
+        {"a": "(:A {datetime: '1980-12-11T12:31:14-11:59'})"},
+        {"a": "(:A {datetime: '1984-10-11T12:31:14.645876123+00:17'})"},
+    ]
+
+
+def test_string_cypher_orders_date_plus_duration_expression() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e", "f"],
+            "label__A": [True, True, True, True, True, True],
+            "date": [
+                "date({year: 1910, month: 5, day: 6})",
+                "date({year: 1980, month: 12, day: 24})",
+                "date({year: 1984, month: 10, day: 12})",
+                "date({year: 1985, month: 5, day: 6})",
+                "date({year: 1980, month: 10, day: 24})",
+                "date({year: 1984, month: 10, day: 11})",
+            ],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a) WITH a ORDER BY a.date + duration({months: 1, days: 2}) ASC LIMIT 2 RETURN a"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:A {date: '1910-05-06'})"},
+        {"a": "(:A {date: '1980-10-24'})"},
     ]
 
 
