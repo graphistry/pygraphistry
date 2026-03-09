@@ -114,8 +114,17 @@ class WherePredicate:
 
 
 @dataclass(frozen=True)
+class WherePatternPredicate:
+    pattern: Tuple[PatternElement, ...]
+    span: SourceSpan
+
+
+WhereTerm = Union[WherePredicate, WherePatternPredicate]
+
+
+@dataclass(frozen=True)
 class WhereClause:
-    predicates: Tuple[WherePredicate, ...]
+    predicates: Tuple[WhereTerm, ...]
     span: SourceSpan
     expr: Optional[ExpressionText] = None
 

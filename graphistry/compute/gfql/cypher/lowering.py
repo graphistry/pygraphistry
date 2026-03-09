@@ -71,6 +71,8 @@ from graphistry.compute.gfql.cypher.ast import (
     ReturnItem,
     SourceSpan,
     UnwindClause,
+    WhereClause,
+    WherePatternPredicate,
 )
 from graphistry.compute.gfql.temporal_text import (
     fold_temporal_constructor_ast,
@@ -181,6 +183,7 @@ _CYPHER_CHAINED_COMPARISON_RE = re.compile(
     re.DOTALL,
 )
 _CYPHER_AGGREGATES = frozenset({"count", "sum", "min", "max", "avg", "collect"})
+_CYPHER_BARE_WHERE_GROUPED_ALIAS_RE = re.compile(r"^\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)$")
 
 
 def _rewrite_label_predicate_expr(
@@ -4114,11 +4117,87 @@ def lower_match_clause(
     return out
 
 
+def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQuery:
+    if query.where is None or not query.where.predicates:
+        return query
+    pattern_preds = [predicate for predicate in query.where.predicates if isinstance(predicate, WherePatternPredicate)]
+    if not pattern_preds:
+        return query
+    first = pattern_preds[0]
+    if query.where.expr is not None:
+        raise _unsupported(
+            "Cypher WHERE pattern predicates cannot yet be mixed with generic row expressions",
+            field="where",
+            value=query.where.expr.text,
+            line=first.span.line,
+            column=first.span.column,
+        )
+    if len(pattern_preds) > 1:
+        raise _unsupported(
+            "Cypher WHERE currently supports one positive pattern predicate at a time",
+            field="where",
+            value=len(pattern_preds),
+            line=first.span.line,
+            column=first.span.column,
+        )
+    if len(first.pattern) < 3:
+        raise _unsupported(
+            "Cypher WHERE pattern predicates must include a relationship",
+            field="where",
+            value=None,
+            line=first.span.line,
+            column=first.span.column,
+        )
+    bound_aliases = {
+        cast(str, element.variable)
+        for clause in query.matches
+        for pattern in clause.patterns
+        for element in pattern
+        if getattr(element, "variable", None) is not None
+    }
+    introduced_aliases = sorted(
+        cast(str, element.variable)
+        for element in first.pattern
+        if getattr(element, "variable", None) is not None and cast(str, element.variable) not in bound_aliases
+    )
+    if introduced_aliases:
+        raise _unsupported(
+            "Cypher WHERE pattern predicates cannot introduce new aliases in this phase",
+            field="where",
+            value=introduced_aliases,
+            line=first.span.line,
+            column=first.span.column,
+        )
+
+    remaining = tuple(predicate for predicate in query.where.predicates if not isinstance(predicate, WherePatternPredicate))
+    remaining_where = None
+    if remaining:
+        remaining_where = WhereClause(predicates=cast(Any, remaining), expr=None, span=query.where.span)
+    extra_match = MatchClause(patterns=(first.pattern,), span=first.span, optional=False)
+    return replace(query, matches=query.matches + (extra_match,), where=remaining_where)
+
+
+def _reject_unsupported_where_expr_forms(query: CypherQuery) -> None:
+    if query.where is None or query.where.expr is None:
+        return
+    expr_text = query.where.expr.text.strip()
+    if _CYPHER_BARE_WHERE_GROUPED_ALIAS_RE.fullmatch(expr_text) is not None:
+        raise _unsupported(
+            "Cypher WHERE pattern predicates must include a relationship",
+            field="where",
+            value=expr_text,
+            line=query.where.span.line,
+            column=query.where.span.column,
+        )
+
+
 def lower_match_query(
     query: CypherQuery,
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> LoweredCypherMatch:
+    query = _rewrite_where_pattern_predicates_to_matches(query)
+    _reject_unsupported_where_expr_forms(query)
     merged_match = _merged_match_clause(query)
     if merged_match is None:
         raise _unsupported(
@@ -4137,6 +4216,14 @@ def lower_match_query(
         if query.where.expr is not None:
             row_where = query.where.expr
         for predicate in query.where.predicates:
+            if isinstance(predicate, WherePatternPredicate):
+                raise _unsupported(
+                    "Cypher WHERE pattern predicates must be rewritten before lowering",
+                    field="where",
+                    value=None,
+                    line=predicate.span.line,
+                    column=predicate.span.column,
+                )
             if isinstance(predicate.left, LabelRef):
                 _apply_label_where(alias_targets, left=predicate.left)
                 continue
@@ -4648,6 +4735,8 @@ def compile_cypher_query(
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> CompiledCypherQuery:
+    query = _rewrite_where_pattern_predicates_to_matches(query)
+    _reject_unsupported_where_expr_forms(query)
     if query.row_sequence:
         return _lower_row_only_sequence(query, params=params)
 

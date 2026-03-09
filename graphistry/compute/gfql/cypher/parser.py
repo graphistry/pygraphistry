@@ -6,7 +6,7 @@ from functools import lru_cache
 import re
 from typing import Any, List, Optional, Protocol, Sequence, Tuple, Type, Union, cast
 
-from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
+from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.cypher.ast import (
     CypherLiteral,
     CypherPageValue,
@@ -30,6 +30,7 @@ from graphistry.compute.gfql.cypher.ast import (
     SourceSpan,
     UnwindClause,
     WhereClause,
+    WherePatternPredicate,
     WherePredicate,
 )
 
@@ -82,7 +83,8 @@ variable: NAME
 properties: "{" [property_entry ("," property_entry)*] "}"
 property_entry: NAME ":" value
 
-where_clause: "WHERE"i where_predicates
+where_clause: "WHERE"i WHERE_PATTERN -> where_pattern_only_clause
+            | "WHERE"i where_predicates
             | "WHERE"i expr                -> generic_where_clause
 where_predicates: where_predicate ("AND"i where_predicate)*
 where_predicate: property_ref COMP_OP where_rhs -> cmp_where
@@ -240,6 +242,7 @@ MAP_KEY_NAME: /[A-Za-z_][A-Za-z0-9_]*/
 NUMBER: /[+-]?(?:0[xX][0-9A-Fa-f]+|0[oO][0-7]+|(?:\d+\.\d+(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+(?:[eE][+-]?\d+)?))/
 INT: /[0-9]+/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
+WHERE_PATTERN: /\([^)\n]*\)\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\)(?:\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\))*?(?:\s+AND\s+\([^)\n]*\)\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\)(?:\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\))*)*/
 REL_FWD_SIMPLE: /-->/
 REL_REV_SIMPLE: /<--/
 REL_UNDIR_SIMPLE: /--/
@@ -254,6 +257,10 @@ BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
 """
 
 _BARE_LABEL_PREDICATE_RE = re.compile(r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)((?::[A-Za-z_][A-Za-z0-9_]*)+)$")
+_WHERE_PATTERN_ITEM_RE = re.compile(
+    r"\([^)\n]*\)\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\)"
+    r"(?:\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\))*"
+)
 
 
 class _ParserLike:
@@ -324,6 +331,19 @@ def _parser() -> _ParserLike:
     parser = Lark(
         _GRAMMAR,
         start="start",
+        parser="lalr",
+        maybe_placeholders=False,
+        propagate_positions=True,
+    )
+    return cast(_ParserLike, parser)
+
+
+@lru_cache(maxsize=1)
+def _pattern_parser() -> _ParserLike:
+    Lark, _, _, _ = _lark_imports()
+    parser = Lark(
+        _GRAMMAR,
+        start="pattern",
         parser="lalr",
         maybe_placeholders=False,
         propagate_positions=True,
@@ -617,7 +637,69 @@ def _build_transformer(source: str) -> _TransformerLike:
             )
 
         def where_predicates(self, _meta: Any, items: Sequence[Any]) -> Tuple[WherePredicate, ...]:
-            return tuple(cast(WherePredicate, item) for item in items)
+            return tuple(items)
+
+        def where_pattern_only_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
+            if len(items) != 1:
+                raise _to_syntax_error("Invalid WHERE pattern predicate", line=meta.line, column=meta.column)
+            pattern_text = str(items[0]).strip()
+            span = _span_from_meta(meta)
+            pattern_items = [match.group(0).strip() for match in _WHERE_PATTERN_ITEM_RE.finditer(pattern_text)]
+            if len(pattern_items) != 1:
+                raise GFQLValidationError(
+                    ErrorCode.E108,
+                    "Cypher WHERE currently supports one positive pattern predicate at a time",
+                    field="where",
+                    value=pattern_text,
+                    suggestion="Use a single positive relationship existence pattern in WHERE for the local compiler subset.",
+                    line=span.line,
+                    column=span.column,
+                    language="cypher",
+                )
+            try:
+                pattern_tree = _pattern_parser().parse(pattern_items[0])
+                pattern_node = _build_transformer(pattern_items[0]).transform(pattern_tree)
+            except Exception as exc:
+                _, _, LarkError, _ = _lark_imports()
+                if isinstance(exc, (GFQLSyntaxError, GFQLValidationError)):
+                    raise
+                if isinstance(exc, LarkError):
+                    raise GFQLValidationError(
+                        ErrorCode.E108,
+                        "Cypher WHERE pattern predicate is outside the currently supported local subset",
+                        field="where",
+                        value=pattern_text,
+                        suggestion="Use a single positive fixed-length relationship existence pattern in WHERE.",
+                        line=span.line,
+                        column=span.column,
+                        language="cypher",
+                    ) from exc
+                raise GFQLValidationError(
+                    ErrorCode.E108,
+                    "Cypher WHERE pattern predicate is outside the currently supported local subset",
+                    field="where",
+                    value=pattern_text,
+                    suggestion="Use a single positive fixed-length relationship existence pattern in WHERE.",
+                    line=span.line,
+                    column=span.column,
+                    language="cypher",
+                ) from exc
+            if not isinstance(pattern_node, tuple):
+                raise GFQLValidationError(
+                    ErrorCode.E108,
+                    "Cypher WHERE pattern predicate is outside the currently supported local subset",
+                    field="where",
+                    value=pattern_text,
+                    suggestion="Use a single positive fixed-length relationship existence pattern in WHERE.",
+                    line=span.line,
+                    column=span.column,
+                    language="cypher",
+                )
+            return WhereClause(
+                predicates=(WherePatternPredicate(pattern=cast(Tuple[PatternElement, ...], pattern_node), span=span),),
+                expr=None,
+                span=span,
+            )
 
         def where_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
             if len(items) != 1:
@@ -628,7 +710,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             predicates = cast(Tuple[WherePredicate, ...], items[0])
             if len(predicates) == 0:
                 raise _to_syntax_error("WHERE clause cannot be empty", line=meta.line, column=meta.column)
-            return WhereClause(predicates=predicates, expr=None, span=_span_from_meta(meta))
+            return WhereClause(predicates=cast(Any, predicates), expr=None, span=_span_from_meta(meta))
 
         def generic_where_clause(self, meta: Any, _items: Sequence[Any]) -> WhereClause:
             span = _span_from_meta(meta)
@@ -916,7 +998,10 @@ def parse_cypher(query: str) -> CypherQuery:
         node = transformer.transform(tree)
     except Exception as exc:
         _, _, LarkError, _ = _lark_imports()
-        if isinstance(exc, GFQLSyntaxError):
+        orig_exc = getattr(exc, "orig_exc", None)
+        if isinstance(orig_exc, (GFQLSyntaxError, GFQLValidationError)):
+            raise orig_exc
+        if isinstance(exc, (GFQLSyntaxError, GFQLValidationError)):
             raise
         if isinstance(exc, LarkError):
             line = getattr(exc, "line", None)

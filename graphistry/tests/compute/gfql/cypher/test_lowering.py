@@ -13,6 +13,7 @@ from graphistry.compute.gfql.cypher import (
     lower_match_clause,
     lower_match_query,
     parse_cypher,
+    WherePatternPredicate,
 )
 from graphistry.tests.test_compute import CGFull
 
@@ -167,6 +168,14 @@ def test_lower_match_query_rewrites_duplicate_node_aliases_to_internal_identity_
     assert lowered.where == [compare(col("n", "id"), "==", col(repeated._name, "id"))]
 
 
+def test_parse_where_pattern_predicate() -> None:
+    parsed = parse_cypher("MATCH (n) WHERE (n)-[:R]->() RETURN n")
+
+    assert parsed.where is not None
+    assert len(parsed.where.predicates) == 1
+    assert isinstance(parsed.where.predicates[0], WherePatternPredicate)
+
+
 def test_lower_match_query_executes_connected_comma_pattern_with_unique_projection_alias() -> None:
     nodes = pd.DataFrame(
         {
@@ -189,6 +198,46 @@ def test_lower_match_query_executes_connected_comma_pattern_with_unique_projecti
         {"c.name": "a"},
         {"c.name": "c"},
     ]
+
+
+def test_gfql_executes_positive_where_pattern_predicate_as_seeded_match() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "type": ["R", "X"]})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (n) WHERE (n)-[:R]->() RETURN n.id AS id ORDER BY id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "a"}]
+
+
+def test_gfql_executes_positive_where_pattern_predicate_between_bound_aliases_for_single_source_projection() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": ["a", "a"], "d": ["b", "c"], "type": ["R", "X"]})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (n), (m) "
+        "WHERE (n)-[:R]->(m) "
+        "RETURN n.id AS n_id "
+        "ORDER BY n_id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"n_id": "a"}]
+
+
+def test_lower_match_query_rejects_bare_where_pattern_predicate_without_relationship() -> None:
+    with pytest.raises(GFQLValidationError, match="must include a relationship"):
+        lower_cypher_query(parse_cypher("MATCH (n) WHERE (n) RETURN n"))
+
+
+def test_lower_match_query_rejects_multiple_where_pattern_predicates() -> None:
+    with pytest.raises(GFQLValidationError, match="one positive pattern predicate at a time"):
+        lower_cypher_query(parse_cypher("MATCH (n) WHERE (n)-[:R]->() AND (n)-[:S]->() RETURN n"))
+
+
+def test_lower_match_query_rejects_where_pattern_predicate_introducing_new_aliases() -> None:
+    with pytest.raises(GFQLValidationError, match="cannot introduce new aliases"):
+        lower_cypher_query(parse_cypher("MATCH (n) WHERE (n)-[r]->(a) RETURN n"))
 
 
 def test_lower_match_clause_executes_through_gfql_runtime() -> None:

@@ -10,6 +10,7 @@ from graphistry.compute.gfql.cypher import (
     ParameterRef,
     PropertyRef,
     RelationshipPattern,
+    WherePatternPredicate,
     parse_cypher,
 )
 
@@ -96,24 +97,32 @@ def test_parse_where_clause() -> None:
 
     assert parsed.where is not None
     assert len(parsed.where.predicates) == 2
-    left0 = cast(PropertyRef, parsed.where.predicates[0].left)
-    left1 = cast(PropertyRef, parsed.where.predicates[1].left)
+    pred0 = parsed.where.predicates[0]
+    pred1 = parsed.where.predicates[1]
+    assert not isinstance(pred0, WherePatternPredicate)
+    assert not isinstance(pred1, WherePatternPredicate)
+    left0 = cast(PropertyRef, pred0.left)
+    left1 = cast(PropertyRef, pred1.left)
     assert left0.alias == "a"
     assert left0.property == "team"
-    assert parsed.where.predicates[0].op == "=="
+    assert pred0.op == "=="
     assert left1.alias == "b"
     assert left1.property == "score"
-    assert parsed.where.predicates[1].op == ">="
+    assert pred1.op == ">="
 
 
 def test_parse_where_null_predicates() -> None:
     parsed = parse_cypher("MATCH (a)-[r]->(b) WHERE a.deleted IS NULL AND b.name IS NOT NULL RETURN a")
 
     assert parsed.where is not None
-    assert parsed.where.predicates[0].op == "is_null"
-    assert parsed.where.predicates[0].right is None
-    assert parsed.where.predicates[1].op == "is_not_null"
-    assert parsed.where.predicates[1].right is None
+    pred0 = parsed.where.predicates[0]
+    pred1 = parsed.where.predicates[1]
+    assert not isinstance(pred0, WherePatternPredicate)
+    assert not isinstance(pred1, WherePatternPredicate)
+    assert pred0.op == "is_null"
+    assert pred0.right is None
+    assert pred1.op == "is_not_null"
+    assert pred1.right is None
 
 
 def test_parse_return_xor_precedence_expression() -> None:
@@ -166,8 +175,10 @@ def test_parse_where_label_predicate() -> None:
 
     assert parsed.where is not None
     assert len(parsed.where.predicates) == 1
-    assert parsed.where.predicates[0].op == "has_labels"
-    left = cast(LabelRef, parsed.where.predicates[0].left)
+    predicate = parsed.where.predicates[0]
+    assert not isinstance(predicate, WherePatternPredicate)
+    assert predicate.op == "has_labels"
+    left = cast(LabelRef, predicate.left)
     assert left.alias == "b"
     assert left.labels == ("Foo", "Bar")
 

@@ -19,6 +19,7 @@ from .ast import (
     SourceSpan,
     UnwindClause,
     WhereClause,
+    WherePatternPredicate,
     WherePredicate,
 )
 from .api import compile_cypher, cypher_to_gfql, gfql_from_cypher
@@ -60,6 +61,7 @@ __all__ = [
     "SourceSpan",
     "UnwindClause",
     "WhereClause",
+    "WherePatternPredicate",
     "WherePredicate",
     "parse_cypher",
 ]
