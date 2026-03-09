@@ -5,6 +5,7 @@ from decimal import Decimal
 from datetime import date as py_date
 from datetime import datetime as py_datetime
 from datetime import timedelta
+from datetime import timezone as py_timezone
 import re
 from typing import Optional, cast
 from zoneinfo import ZoneInfo
@@ -90,6 +91,12 @@ _DATETIME_TZ_RE = re.compile(r"^(?P<core>.+?)(?P<tz>Z|[+-]\d{2}(?::?\d{2})?(?::?
 _NORMALIZED_TIME_PART_RE = re.compile(
     r"^(?P<local>\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)(?P<tz>Z|[+-]\d{2}:\d{2}(?::\d{2})?)?(?:\[[^\]]+\])?$"
 )
+_WIDE_DATE_TEXT_RE = re.compile(r"^(?P<year>[+-]?\d{5,})-(?P<month>\d{2})-(?P<day>\d{2})$")
+_WIDE_LOCALDATETIME_TEXT_RE = re.compile(
+    r"^(?P<year>[+-]?\d{5,})-(?P<month>\d{2})-(?P<day>\d{2})"
+    r"T(?P<hour>\d{2}):(?P<minute>\d{2})"
+    r"(?::(?P<second>\d{2})(?:\.(?P<frac>\d+))?)?$"
+)
 
 
 def _split_map_items(text: str) -> list[str]:
@@ -153,19 +160,20 @@ def _parse_int(value: Optional[str], default: Optional[int] = None) -> Optional[
 
 
 def _nanos_from_fields(fields: dict[str, str]) -> int:
-    if "nanosecond" in fields:
-        return int(fields["nanosecond"])
-    if "nanoseconds" in fields:
-        return int(fields["nanoseconds"])
-    if "microsecond" in fields:
-        return int(fields["microsecond"]) * 1_000
-    if "microseconds" in fields:
-        return int(fields["microseconds"]) * 1_000
-    if "millisecond" in fields:
-        return int(fields["millisecond"]) * 1_000_000
+    nanos = 0
     if "milliseconds" in fields:
-        return int(fields["milliseconds"]) * 1_000_000
-    return 0
+        nanos += int(fields["milliseconds"]) * 1_000_000
+    if "millisecond" in fields:
+        nanos += int(fields["millisecond"]) * 1_000_000
+    if "microseconds" in fields:
+        nanos += int(fields["microseconds"]) * 1_000
+    if "microsecond" in fields:
+        nanos += int(fields["microsecond"]) * 1_000
+    if "nanoseconds" in fields:
+        nanos += int(fields["nanoseconds"])
+    if "nanosecond" in fields:
+        nanos += int(fields["nanosecond"])
+    return nanos
 
 
 def _normalize_fraction(nanos: int) -> str:
@@ -214,6 +222,13 @@ def _format_date(year: int, month: int, day: int) -> str:
     return f"-{abs(year):04d}-{month:02d}-{day:02d}"
 
 
+def _format_arbitrary_date(year: int, month: int, day: int) -> str:
+    if -9999 <= year <= 9999:
+        return _format_date(year, month, day)
+    prefix = "-" if year < 0 else ""
+    return f"{prefix}{abs(year)}-{month:02d}-{day:02d}"
+
+
 def _extract_date_text(text: str) -> Optional[str]:
     candidate = text.strip()
     if "T" in candidate:
@@ -230,11 +245,14 @@ def _base_date_from_text(text: Optional[str]) -> Optional[py_date]:
     match = _DATE_YMD_RE.fullmatch(normalized)
     if match is None:
         return None
-    return py_date(
-        int(match.group("year")),
-        int(match.group("month")),
-        int(match.group("day")),
-    )
+    try:
+        return py_date(
+            int(match.group("year")),
+            int(match.group("month")),
+            int(match.group("day")),
+        )
+    except ValueError:
+        return None
 
 
 def _day_of_quarter(value: py_date) -> int:
@@ -286,10 +304,10 @@ def _base_time_int(base: Optional[dict[str, object]], key: str, default: int) ->
 
 def _date_from_fields(fields: dict[str, str]) -> Optional[py_date]:
     base = _base_date_from_text(_first_present_field_text(fields, "date", "datetime", "localdatetime"))
-    year = _parse_int(fields.get("year"), base.year if base is not None else None)
-    if year is None:
-        return None
     if "month" in fields or "day" in fields:
+        year = _parse_int(fields.get("year"), base.year if base is not None else None)
+        if year is None:
+            return None
         month_default = base.month if base is not None else 1
         day_default = base.day if base is not None else 1
         month = _parse_int(fields.get("month"), month_default)
@@ -298,17 +316,27 @@ def _date_from_fields(fields: dict[str, str]) -> Optional[py_date]:
             return None
         return py_date(year, month, day)
     if "week" in fields:
+        iso_year_default = base.isocalendar().year if base is not None else None
+        year = _parse_int(fields.get("year"), iso_year_default)
+        if year is None:
+            return None
         week = _parse_int(fields.get("week"))
         day_of_week = _parse_int(fields.get("dayOfWeek"), base.isoweekday() if base is not None else 1)
         if week is None or day_of_week is None:
             return None
         return py_date.fromisocalendar(year, week, day_of_week)
     if "ordinalDay" in fields:
+        year = _parse_int(fields.get("year"), base.year if base is not None else None)
+        if year is None:
+            return None
         ordinal = _parse_int(fields.get("ordinalDay"))
         if ordinal is None:
             return None
         return py_date(year, 1, 1) + timedelta(days=ordinal - 1)
     if "quarter" in fields:
+        year = _parse_int(fields.get("year"), base.year if base is not None else None)
+        if year is None:
+            return None
         quarter = _parse_int(fields.get("quarter"))
         day_of_quarter = _parse_int(fields.get("dayOfQuarter"), _day_of_quarter(base) if base is not None else 1)
         if quarter is None or day_of_quarter is None:
@@ -316,11 +344,17 @@ def _date_from_fields(fields: dict[str, str]) -> Optional[py_date]:
         start = py_date(year, ((quarter - 1) * 3) + 1, 1)
         return start + timedelta(days=day_of_quarter - 1)
     if base is not None:
+        year = _parse_int(fields.get("year"), base.year)
+        if year is None:
+            return None
         month = _parse_int(fields.get("month"), base.month)
         day = _parse_int(fields.get("day"), base.day)
         if month is None or day is None:
             return None
         return py_date(year, month, day)
+    year = _parse_int(fields.get("year"))
+    if year is None:
+        return None
     return py_date(year, 1, 1)
 
 
@@ -332,6 +366,14 @@ def _normalize_date_map(fields: dict[str, str]) -> Optional[str]:
 
 
 def _normalize_date_string(text: str) -> Optional[str]:
+    wide_match = _WIDE_DATE_TEXT_RE.fullmatch(text)
+    if wide_match is not None:
+        year = int(wide_match.group("year"))
+        month = int(wide_match.group("month"))
+        day = int(wide_match.group("day"))
+        if not 1 <= month <= 12 or not 1 <= day <= _days_in_month(year, month):
+            return None
+        return _format_arbitrary_date(year, month, day)
     for pattern in (
         _DATE_YMD_RE,
         _DATE_COMPACT_YMD_RE,
@@ -747,6 +789,18 @@ class _TemporalValue:
     tz_suffix: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class _WideTemporalValue:
+    kind: str
+    year: int
+    month: int
+    day: int
+    hour: int = 0
+    minute: int = 0
+    second: int = 0
+    nanosecond: int = 0
+
+
 _ZONE_SUFFIX_RE = re.compile(r"^(?P<core>.+?)(?:\[(?P<zone>[^\]]+)\])?$")
 _DURATION_TOKEN_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)([YMDHMS])")
 _DATE_TRUNCATION_UNITS = frozenset({"millennium", "century", "decade", "year", "weekYear", "quarter", "month", "week", "day"})
@@ -905,6 +959,143 @@ def _truncate_year(year: int, span: int) -> int:
     return (year // span) * span
 
 
+def _is_leap_year(year: int) -> bool:
+    return (year % 4 == 0) and ((year % 100 != 0) or (year % 400 == 0))
+
+
+def _days_in_month(year: int, month: int) -> int:
+    if month in {1, 3, 5, 7, 8, 10, 12}:
+        return 31
+    if month in {4, 6, 9, 11}:
+        return 30
+    if month == 2:
+        return 29 if _is_leap_year(year) else 28
+    raise ValueError(f"invalid month: {month}")
+
+
+def _days_from_civil(year: int, month: int, day: int) -> int:
+    adjusted_year = year - (1 if month <= 2 else 0)
+    era = adjusted_year // 400
+    year_of_era = adjusted_year - (era * 400)
+    month_prime = month + (-3 if month > 2 else 9)
+    day_of_year = ((153 * month_prime) + 2) // 5 + day - 1
+    day_of_era = year_of_era * 365 + year_of_era // 4 - year_of_era // 100 + day_of_year
+    return era * 146097 + day_of_era - 719468
+
+
+def _parse_wide_temporal_value(text: str) -> Optional[_WideTemporalValue]:
+    stripped = text.strip()
+    localdatetime_match = _WIDE_LOCALDATETIME_TEXT_RE.fullmatch(stripped)
+    if localdatetime_match is not None:
+        year = int(localdatetime_match.group("year"))
+        month = int(localdatetime_match.group("month"))
+        day = int(localdatetime_match.group("day"))
+        hour = int(localdatetime_match.group("hour"))
+        minute = int(localdatetime_match.group("minute"))
+        second = int(localdatetime_match.group("second") or "0")
+        if not 1 <= month <= 12 or not 1 <= day <= _days_in_month(year, month):
+            return None
+        if hour > 23 or minute > 59 or second > 59:
+            return None
+        return _WideTemporalValue(
+            kind="localdatetime",
+            year=year,
+            month=month,
+            day=day,
+            hour=hour,
+            minute=minute,
+            second=second,
+            nanosecond=_parse_fraction_to_nanos(localdatetime_match.group("frac")),
+        )
+    date_match = _WIDE_DATE_TEXT_RE.fullmatch(stripped)
+    if date_match is None:
+        return None
+    year = int(date_match.group("year"))
+    month = int(date_match.group("month"))
+    day = int(date_match.group("day"))
+    if not 1 <= month <= 12 or not 1 <= day <= _days_in_month(year, month):
+        return None
+    return _WideTemporalValue(kind="date", year=year, month=month, day=day)
+
+
+def _format_large_time_only_duration(total_nanoseconds: int) -> str:
+    if total_nanoseconds == 0:
+        return "PT0S"
+    sign = -1 if total_nanoseconds < 0 else 1
+    remaining = abs(total_nanoseconds)
+    hours, remaining = divmod(remaining, 3_600_000_000_000)
+    minutes, remaining = divmod(remaining, 60_000_000_000)
+    seconds, nanoseconds = divmod(remaining, 1_000_000_000)
+
+    def _signed(value: int) -> str:
+        return f"{'-' if sign < 0 else ''}{value}"
+
+    parts = ["PT"]
+    if hours:
+        parts.append(f"{_signed(hours)}H")
+    if minutes:
+        parts.append(f"{_signed(minutes)}M")
+    if seconds or nanoseconds or len(parts) == 1:
+        if nanoseconds:
+            frac = str(nanoseconds).rjust(9, "0").rstrip("0")
+            parts.append(f"{_signed(seconds)}.{frac}S")
+        else:
+            parts.append(f"{_signed(seconds)}S")
+    return "".join(parts)
+
+
+def _fold_large_year_duration_function_call(
+    fn_name: str,
+    start_text: str,
+    end_text: str,
+) -> Optional[str]:
+    start_value = _parse_wide_temporal_value(start_text)
+    end_value = _parse_wide_temporal_value(end_text)
+    if start_value is None or end_value is None:
+        return None
+    if fn_name == "duration.between":
+        if start_value.kind != "date" or end_value.kind != "date":
+            return None
+        if (end_value.year, end_value.month, end_value.day) < (start_value.year, start_value.month, start_value.day):
+            return None
+        years = end_value.year - start_value.year
+        months = end_value.month - start_value.month
+        days = end_value.day - start_value.day
+        if days < 0:
+            months -= 1
+            prev_year = end_value.year
+            prev_month = end_value.month - 1
+            if prev_month == 0:
+                prev_year -= 1
+                prev_month = 12
+            days += _days_in_month(prev_year, prev_month)
+        if months < 0:
+            years -= 1
+            months += 12
+        return _format_duration_components(years=years, months=months, days=days)
+    if fn_name == "duration.inseconds":
+        if start_value.kind != "localdatetime" or end_value.kind != "localdatetime":
+            return None
+        start_days = _days_from_civil(start_value.year, start_value.month, start_value.day)
+        end_days = _days_from_civil(end_value.year, end_value.month, end_value.day)
+        start_total = (
+            start_days * 86_400_000_000_000
+            + start_value.hour * 3_600_000_000_000
+            + start_value.minute * 60_000_000_000
+            + start_value.second * 1_000_000_000
+            + start_value.nanosecond
+        )
+        end_total = (
+            end_days * 86_400_000_000_000
+            + end_value.hour * 3_600_000_000_000
+            + end_value.minute * 60_000_000_000
+            + end_value.second * 1_000_000_000
+            + end_value.nanosecond
+        )
+        return _format_large_time_only_duration(end_total - start_total)
+    return None
+
+
 def _truncate_date_value(source_date: py_date, unit: str, overrides: dict[str, str]) -> Optional[py_date]:
     if unit == "millennium":
         base = py_date(_truncate_year(source_date.year, 1000), 1, 1)
@@ -981,7 +1172,24 @@ def _truncate_time_parts(
     if "second" in overrides:
         second = int(overrides["second"])
     if any(key in overrides for key in ("nanosecond", "microsecond", "millisecond")):
-        nanosecond = _nanos_from_fields(overrides)
+        truncated_millisecond = nanosecond // 1_000_000
+        truncated_microsecond = (nanosecond // 1_000) % 1_000
+        truncated_nanosecond = nanosecond % 1_000
+        millisecond = _parse_int(
+            overrides.get("millisecond", overrides.get("milliseconds")),
+            truncated_millisecond,
+        )
+        microsecond = _parse_int(
+            overrides.get("microsecond", overrides.get("microseconds")),
+            truncated_microsecond,
+        )
+        sub_nanosecond = _parse_int(
+            overrides.get("nanosecond", overrides.get("nanoseconds")),
+            truncated_nanosecond,
+        )
+        if millisecond is None or microsecond is None or sub_nanosecond is None:
+            return hour, minute, second, nanosecond
+        nanosecond = (millisecond * 1_000_000) + (microsecond * 1_000) + sub_nanosecond
 
     return hour, minute, second, nanosecond
 
@@ -1095,8 +1303,13 @@ def _comparable_datetime(
     *,
     include_date: bool,
     keep_timezone: bool,
+    anchor_date: Optional[py_date] = None,
+    anchor_tz_suffix: Optional[str] = None,
 ) -> py_datetime:
-    value_date = value.date_value if include_date and value.date_value is not None else py_date(1970, 1, 1)
+    if include_date:
+        value_date = value.date_value or anchor_date or py_date(1970, 1, 1)
+    else:
+        value_date = anchor_date or py_date(1970, 1, 1)
     local_text = _format_localdatetime_parts(
         value_date,
         value.hour,
@@ -1104,16 +1317,45 @@ def _comparable_datetime(
         value.second,
         value.nanosecond,
     )
-    if keep_timezone and value.tz_suffix is not None:
-        offset = value.tz_suffix.split("[", 1)[0]
+    effective_tz_suffix = value.tz_suffix or anchor_tz_suffix
+    if keep_timezone and effective_tz_suffix is not None:
+        offset = effective_tz_suffix.split("[", 1)[0]
+        zone_match = re.search(r"\[(?P<zone>[^\]]+)\]$", effective_tz_suffix)
+        if zone_match is not None:
+            try:
+                return py_datetime.fromisoformat(local_text).replace(tzinfo=ZoneInfo(zone_match.group("zone")))
+            except Exception:
+                pass
         if offset == "Z":
-            offset = "+00:00"
+            return py_datetime.fromisoformat(local_text).replace(tzinfo=py_timezone.utc)
+        offset_delta = py_timedelta_from_offset(offset)
+        if offset_delta is not None:
+            return py_datetime.fromisoformat(local_text).replace(tzinfo=py_timezone(offset_delta))
         return py_datetime.fromisoformat(local_text + offset)
     return py_datetime.fromisoformat(local_text)
 
 
+def py_timedelta_from_offset(offset: str) -> Optional[timedelta]:
+    match = re.fullmatch(r"(?P<sign>[+-])(?P<hour>\d{2}):(?P<minute>\d{2})(?::(?P<second>\d{2}))?", offset)
+    if match is None:
+        return None
+    sign = 1 if match.group("sign") == "+" else -1
+    delta = timedelta(
+        hours=int(match.group("hour")),
+        minutes=int(match.group("minute")),
+        seconds=int(match.group("second") or "0"),
+    )
+    return delta if sign > 0 else -delta
+
+
 def _timedelta_total_microseconds(delta: timedelta) -> int:
     return ((delta.days * 24 * 60 * 60) + delta.seconds) * 1_000_000 + delta.microseconds
+
+
+def _absolute_temporal_delta(start_dt: py_datetime, end_dt: py_datetime) -> timedelta:
+    if start_dt.tzinfo is not None and end_dt.tzinfo is not None:
+        return end_dt.astimezone(py_timezone.utc) - start_dt.astimezone(py_timezone.utc)
+    return end_dt - start_dt
 
 
 def _format_time_only_duration(delta: timedelta) -> str:
@@ -1185,9 +1427,24 @@ def _fold_duration_between(
 ) -> str:
     include_date = start_value.date_value is not None and end_value.date_value is not None
     keep_timezone = start_value.tz_suffix is not None and end_value.tz_suffix is not None
-    start_dt = _comparable_datetime(start_value, include_date=include_date, keep_timezone=keep_timezone)
-    end_dt = _comparable_datetime(end_value, include_date=include_date, keep_timezone=keep_timezone)
-    delta = end_dt - start_dt
+    anchor_date = start_value.date_value or end_value.date_value
+    anchor_tz_suffix = start_value.tz_suffix or end_value.tz_suffix
+    effective_keep_timezone = keep_timezone or anchor_tz_suffix is not None
+    start_dt = _comparable_datetime(
+        start_value,
+        include_date=include_date,
+        keep_timezone=effective_keep_timezone,
+        anchor_date=anchor_date,
+        anchor_tz_suffix=anchor_tz_suffix if start_value.tz_suffix is None else None,
+    )
+    end_dt = _comparable_datetime(
+        end_value,
+        include_date=include_date,
+        keep_timezone=effective_keep_timezone,
+        anchor_date=anchor_date,
+        anchor_tz_suffix=anchor_tz_suffix if end_value.tz_suffix is None else None,
+    )
+    delta = _absolute_temporal_delta(start_dt, end_dt)
     if not include_date:
         return _format_time_only_duration(delta)
 
@@ -1231,7 +1488,7 @@ def _fold_duration_in_days(
     keep_timezone = start_value.tz_suffix is not None and end_value.tz_suffix is not None
     start_dt = _comparable_datetime(start_value, include_date=True, keep_timezone=keep_timezone)
     end_dt = _comparable_datetime(end_value, include_date=True, keep_timezone=keep_timezone)
-    total_microseconds = _timedelta_total_microseconds(end_dt - start_dt)
+    total_microseconds = _timedelta_total_microseconds(_absolute_temporal_delta(start_dt, end_dt))
     days = int(total_microseconds / (24 * 60 * 60 * 1_000_000))
     return _format_duration_components(days=days)
 
@@ -1242,9 +1499,24 @@ def _fold_duration_in_seconds(
 ) -> str:
     include_date = start_value.date_value is not None and end_value.date_value is not None
     keep_timezone = start_value.tz_suffix is not None and end_value.tz_suffix is not None
-    start_dt = _comparable_datetime(start_value, include_date=include_date, keep_timezone=keep_timezone)
-    end_dt = _comparable_datetime(end_value, include_date=include_date, keep_timezone=keep_timezone)
-    return _format_time_only_duration(end_dt - start_dt)
+    anchor_date = start_value.date_value or end_value.date_value
+    anchor_tz_suffix = start_value.tz_suffix or end_value.tz_suffix
+    effective_keep_timezone = keep_timezone or anchor_tz_suffix is not None
+    start_dt = _comparable_datetime(
+        start_value,
+        include_date=include_date,
+        keep_timezone=effective_keep_timezone,
+        anchor_date=anchor_date,
+        anchor_tz_suffix=anchor_tz_suffix if start_value.tz_suffix is None else None,
+    )
+    end_dt = _comparable_datetime(
+        end_value,
+        include_date=include_date,
+        keep_timezone=effective_keep_timezone,
+        anchor_date=anchor_date,
+        anchor_tz_suffix=anchor_tz_suffix if end_value.tz_suffix is None else None,
+    )
+    return _format_time_only_duration(_absolute_temporal_delta(start_dt, end_dt))
 
 
 def _fold_duration_function_call(
@@ -1257,9 +1529,18 @@ def _fold_duration_function_call(
         return Literal(None)
     if not all(isinstance(arg, Literal) and isinstance(arg.value, str) for arg in args):
         return None
-    start_value = _parse_temporal_value(cast(str, cast(Literal, args[0]).value))
-    end_value = _parse_temporal_value(cast(str, cast(Literal, args[1]).value))
+    start_text = cast(str, cast(Literal, args[0]).value)
+    end_text = cast(str, cast(Literal, args[1]).value)
+    try:
+        start_value = _parse_temporal_value(start_text)
+        end_value = _parse_temporal_value(end_text)
+    except ValueError:
+        start_value = None
+        end_value = None
     if start_value is None or end_value is None:
+        large_year = _fold_large_year_duration_function_call(fn_name, start_text, end_text)
+        if large_year is not None:
+            return Literal(large_year)
         return None
     if fn_name == "duration.between":
         return Literal(_fold_duration_between(start_value, end_value))
@@ -1270,6 +1551,41 @@ def _fold_duration_function_call(
     if fn_name == "duration.inseconds":
         return Literal(_fold_duration_in_seconds(start_value, end_value))
     return None
+
+
+def _fold_datetime_epoch_function_call(
+    fn_name: str,
+    args: tuple[ExprNode, ...],
+) -> Optional[Literal]:
+    if fn_name not in {"datetime.fromepoch", "datetime.fromepochmillis"}:
+        return None
+    if any(isinstance(arg, Literal) and arg.value is None for arg in args):
+        return Literal(None)
+    if not all(isinstance(arg, Literal) and isinstance(arg.value, int) and not isinstance(arg.value, bool) for arg in args):
+        return None
+
+    epoch = py_datetime(1970, 1, 1)
+    if fn_name == "datetime.fromepochmillis":
+        if len(args) != 1:
+            return None
+        total_nanoseconds = cast(int, cast(Literal, args[0]).value) * 1_000_000
+    else:
+        if len(args) not in {1, 2}:
+            return None
+        seconds_value = cast(int, cast(Literal, args[0]).value)
+        nanoseconds_value = cast(int, cast(Literal, args[1]).value) if len(args) == 2 else 0
+        total_nanoseconds = (seconds_value * 1_000_000_000) + nanoseconds_value
+
+    seconds_part, nanoseconds_part = divmod(total_nanoseconds, 1_000_000_000)
+    dt = epoch + timedelta(seconds=seconds_part, microseconds=nanoseconds_part // 1_000)
+    rendered = _format_localdatetime_parts(
+        dt.date(),
+        dt.hour,
+        dt.minute,
+        dt.second,
+        int(nanoseconds_part),
+    )
+    return Literal(rendered + "Z")
 
 
 def resolve_duration_text_property(duration_text: str, prop: str) -> Optional[str]:
@@ -1420,6 +1736,13 @@ def fold_temporal_constructor_ast(node: ExprNode) -> ExprNode:
                 "duration.inseconds",
             }:
                 folded = _fold_duration_function_call(inner.name, args)
+                if folded is not None:
+                    return folded
+            if not inner.distinct and inner.name in {
+                "datetime.fromepoch",
+                "datetime.fromepochmillis",
+            }:
+                folded = _fold_datetime_epoch_function_call(inner.name, args)
                 if folded is not None:
                     return folded
             return rewritten

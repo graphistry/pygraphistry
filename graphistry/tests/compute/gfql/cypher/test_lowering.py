@@ -1352,6 +1352,39 @@ def test_string_cypher_parses_datetime_map_with_quoted_offset_timezone() -> None
     assert result._nodes.to_dict(orient="records") == [{"result": "1984-10-11T12:00+01:00"}]
 
 
+def test_string_cypher_combines_fractional_temporal_fields() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "RETURN "
+        "localtime({hour: 12, minute: 31, second: 14, millisecond: 645, microsecond: 876, nanosecond: 123}) AS t, "
+        "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, millisecond: 645, microsecond: 876, nanosecond: 123, timezone: '+01:00'}) AS dt"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {
+            "t": "12:31:14.645876123",
+            "dt": "1984-10-11T12:31:14.645876123+01:00",
+        }
+    ]
+
+
+def test_string_cypher_supports_datetime_fromepoch_functions() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "RETURN datetime.fromepoch(416779, 999999999) AS d1, "
+        "datetime.fromepochmillis(237821673987) AS d2"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {
+            "d1": "1970-01-05T19:46:19.999999999Z",
+            "d2": "1977-07-15T13:34:33.987Z",
+        }
+    ]
+
+
 def test_string_cypher_defaults_time_map_to_utc() -> None:
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 
@@ -1366,6 +1399,25 @@ def test_string_cypher_supports_nested_temporal_base_date_overrides() -> None:
     result = g.gfql("RETURN date({date: date('1816-12-31'), year: 1817, week: 2}) AS d")
 
     assert result._nodes.to_dict(orient="records") == [{"d": "1817-01-07"}]
+
+
+def test_string_cypher_inherits_iso_week_year_from_base_date() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "RETURN "
+        "date({date: date('1816-12-30'), week: 2, dayOfWeek: 3}) AS d1, "
+        "localdatetime({date: date('1816-12-31'), week: 2}) AS d2, "
+        "datetime({date: date('1816-12-30'), week: 2, dayOfWeek: 3}) AS d3"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {
+            "d1": "1817-01-08",
+            "d2": "1817-01-07T00:00",
+            "d3": "1817-01-08T00:00Z",
+        }
+    ]
 
 
 def test_string_cypher_executes_temporal_date_casts_from_with_alias() -> None:
@@ -1505,6 +1557,25 @@ def test_string_cypher_executes_temporal_datetime_hour_truncate_from_localdateti
     assert result._nodes.to_dict(orient="records") == [{"result": "1984-10-11T12:00:00.000000002Z"}]
 
 
+def test_string_cypher_preserves_truncated_fraction_when_overriding_lower_precision_fields() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "RETURN "
+        "datetime.truncate('millisecond', datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}), {nanosecond: 2}) AS dt_ms, "
+        "datetime.truncate('microsecond', localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), {nanosecond: 2}) AS dt_us, "
+        "time.truncate('microsecond', time({hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}), {nanosecond: 2}) AS t_us"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {
+            "dt_ms": "1984-10-11T12:31:14.645000002+01:00",
+            "dt_us": "1984-10-11T12:31:14.645876002Z",
+            "t_us": "12:31:14.645876002+01:00",
+        }
+    ]
+
+
 def test_string_cypher_executes_duration_between_with_alias_properties() -> None:
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 
@@ -1554,6 +1625,44 @@ def test_string_cypher_executes_duration_unit_functions(query: str, expected: st
     result = g.gfql(query)
 
     assert result._nodes.to_dict(orient="records") == [{"duration": expected}]
+
+
+def test_string_cypher_executes_duration_in_seconds_with_dst_anchor_and_mixed_temporals() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "RETURN "
+        "duration.inSeconds(datetime({year: 2017, month: 10, day: 29, hour: 0, timezone: 'Europe/Stockholm'}), localdatetime({year: 2017, month: 10, day: 29, hour: 4})) AS d1, "
+        "duration.inSeconds(datetime({year: 2017, month: 10, day: 29, hour: 0, timezone: 'Europe/Stockholm'}), localtime({hour: 4})) AS d2, "
+        "duration.inSeconds(date({year: 2017, month: 10, day: 29}), datetime({year: 2017, month: 10, day: 29, hour: 4, timezone: 'Europe/Stockholm'})) AS d3, "
+        "duration.inSeconds(datetime({year: 2017, month: 10, day: 29, hour: 0, timezone: 'Europe/Stockholm'}), date({year: 2017, month: 10, day: 30})) AS d4"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {
+            "d1": "PT5H",
+            "d2": "PT5H",
+            "d3": "PT5H",
+            "d4": "PT25H",
+        }
+    ]
+
+
+def test_string_cypher_executes_extreme_year_duration_functions() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "RETURN "
+        "duration.between(date('-999999999-01-01'), date('+999999999-12-31')) AS d1, "
+        "duration.inSeconds(localdatetime('-999999999-01-01'), localdatetime('+999999999-12-31T23:59:59')) AS d2"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {
+            "d1": "P1999999998Y11M30D",
+            "d2": "PT17531639991215H59M59S",
+        }
+    ]
 
 
 @pytest.mark.parametrize(
