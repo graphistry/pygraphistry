@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, 
 from typing_extensions import Literal
 
 import pandas as pd
+from graphistry.compute.dataframe_utils import concat_frames
 from graphistry.compute.gfql.row.order_expr import (
     extract_temporal_duration_sort_ast,
     is_order_aggregate_alias_ast,
@@ -1114,21 +1115,19 @@ class RowPipelineMixin:
 
             empty_mask = merged[len_col] == 0
             if hasattr(empty_mask, "any") and bool(empty_mask.any()):
-                empty_idx = result.index[empty_mask]
-                empty_vals: Any = pd.Series([[] for _ in range(len(empty_idx))], index=empty_idx, dtype="object")
-                result.loc[empty_idx] = empty_vals
+                result.loc[result.index[empty_mask]] = self._gfql_broadcast_scalar(
+                    merged.loc[empty_mask],
+                    [],
+                )
 
             missing_mask = result.isna() if hasattr(result, "isna") else None
             if missing_mask is not None:
                 filtered_empty_mask = missing_mask & (~null_mask)
                 if hasattr(filtered_empty_mask, "any") and bool(filtered_empty_mask.any()):
-                    filtered_idx = result.index[filtered_empty_mask]
-                    filtered_empty_vals: Any = pd.Series(
-                        [[] for _ in range(len(filtered_idx))],
-                        index=filtered_idx,
-                        dtype="object",
+                    result.loc[result.index[filtered_empty_mask]] = self._gfql_broadcast_scalar(
+                        merged.loc[filtered_empty_mask],
+                        [],
                     )
-                    result.loc[filtered_idx] = filtered_empty_vals
 
             if hasattr(null_mask, "any") and bool(null_mask.any()):
                 result.loc[result.index[null_mask]] = None
@@ -1823,7 +1822,7 @@ class RowPipelineMixin:
             return base[len_col]
 
         max_len = int(base[len_col].max()) if len(base) > 0 else 0
-        result: Any = pd.Series([[] for _ in range(len(base))], index=base.index, dtype="object")
+        result: Any = self._gfql_broadcast_scalar(base, [])
         if max_len <= 0:
             return result.reset_index(drop=True)
 
@@ -1844,8 +1843,10 @@ class RowPipelineMixin:
         result = merged[out_col].copy()
         missing_mask = result.isna() if hasattr(result, "isna") else None
         if missing_mask is not None and bool(missing_mask.any()):
-            empty_idx = result.index[missing_mask]
-            result.loc[empty_idx] = pd.Series([[] for _ in range(len(empty_idx))], index=empty_idx, dtype="object")
+            result.loc[result.index[missing_mask]] = self._gfql_broadcast_scalar(
+                merged.loc[missing_mask],
+                [],
+            )
         if hasattr(result, "reset_index"):
             return result.reset_index(drop=True)
         return result
@@ -2063,9 +2064,10 @@ class RowPipelineMixin:
             )
             empty_mask = merged[start_col] >= merged[stop_col]
             if hasattr(empty_mask, "any") and bool(empty_mask.any()):
-                empty_idx = result.index[empty_mask]
-                empty_vals: Any = pd.Series([[] for _ in range(len(empty_idx))], index=empty_idx, dtype="object")
-                result.loc[empty_idx] = empty_vals
+                result.loc[result.index[empty_mask]] = self._gfql_broadcast_scalar(
+                    merged.loc[empty_mask],
+                    [],
+                )
             if hasattr(null_mask, "any") and bool(null_mask.any()):
                 result.loc[result.index[null_mask]] = None
             return result.reset_index(drop=True)
@@ -2120,9 +2122,13 @@ class RowPipelineMixin:
         if prepend:
             if len(expanded) > 0:
                 expanded = expanded.assign(**{pos_col: expanded[pos_col] + 1})
-            combined = pd.concat([append_rows, expanded], ignore_index=True, sort=False)
+            combined = concat_frames([append_rows, expanded])
         else:
-            combined = pd.concat([expanded, append_rows], ignore_index=True, sort=False)
+            combined = concat_frames([expanded, append_rows])
+        if combined is None:
+            combined = non_null[[row_col]].iloc[0:0].copy()
+            combined[pos_col] = []
+            combined[val_col] = []
         if len(combined) > 0:
             combined = combined.sort_values(by=[row_col, pos_col], kind="mergesort")
             grouped = combined.groupby(row_col, sort=False)[val_col].agg(list).reset_index()
@@ -2133,9 +2139,10 @@ class RowPipelineMixin:
         out = base[[row_col, len_col]].merge(grouped, on=row_col, how="left", sort=False)[val_col]
         empty_mask = base[len_col] == 0
         if hasattr(empty_mask, "any") and bool(empty_mask.any()):
-            idx = out.index[empty_mask]
-            empty_vals: Any = pd.Series([[] for _ in range(len(idx))], index=idx, dtype="object")
-            out.loc[idx] = empty_vals
+            out.loc[out.index[empty_mask]] = self._gfql_broadcast_scalar(
+                base.loc[empty_mask],
+                [],
+            )
         out = out.where(~null_mask, None)
         return out.reset_index(drop=True)
 
@@ -2721,7 +2728,7 @@ class RowPipelineMixin:
 
             out_df = out_df.merge(agg_df, on=key_cols, how="left")
             if func in {"collect", "collect_distinct"}:
-                empty_lists = pd.Series([[] for _ in range(len(out_df))], index=out_df.index, dtype="object")
+                empty_lists = self._gfql_broadcast_scalar(out_df, [])
                 out_df[alias] = out_df[alias].where(~out_df[alias].isna(), empty_lists)
 
         return self._gfql_row_table(out_df)

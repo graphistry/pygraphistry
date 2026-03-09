@@ -1841,6 +1841,27 @@ def test_string_cypher_supports_in_keys_for_node_properties() -> None:
     assert result._nodes.to_dict(orient="records") == [{"has_active": True, "missing": False}]
 
 
+def test_string_cypher_supports_keys_for_mixed_node_property_sets() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b"],
+            "type": ["Person", "Person"],
+            "name": ["Alice", None],
+            "score": [None, None],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (n:Person) RETURN n.id AS id, keys(n) AS ks ORDER BY id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": "a", "ks": ["name"]},
+        {"id": "b", "ks": []},
+    ]
+
+
 def test_string_cypher_supports_properties_for_node_relationship_map_and_null() -> None:
     nodes = pd.DataFrame(
         {

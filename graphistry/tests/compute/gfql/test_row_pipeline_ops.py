@@ -6,6 +6,7 @@ import pytest
 import graphistry.compute.gfql.call.validation as call_safelist
 import graphistry.compute.gfql.expr_parser as expr_parser
 import graphistry.compute.gfql.row.pipeline as row_pipeline_mixin
+from graphistry.compute.gfql.row.entity_props import entity_keys_series
 from graphistry.compute.ast import (
     ASTCall,
     distinct,
@@ -373,6 +374,25 @@ def test_row_pipeline_select_supports_keys_for_map_literals_and_nulls() -> None:
     )
 
     assert _normalize_records(result.to_dict(orient="records")) == [{"ks": ["k", "l"], "null_keys": None}]
+
+
+def test_entity_keys_series_supports_mixed_entity_property_sets() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": ["a", "b"],
+            "name": ["Alice", None],
+            "score": [None, None],
+        }
+    )
+
+    result = entity_keys_series(
+        nodes_df,
+        alias_col="id",
+        table="nodes",
+        excluded=(),
+    )
+
+    assert _normalize_expr_eval_output(result) == [["name"], []]
 
 
 def test_row_pipeline_select_supports_properties_for_map_literals_and_nulls() -> None:
