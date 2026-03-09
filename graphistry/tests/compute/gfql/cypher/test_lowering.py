@@ -1705,6 +1705,74 @@ def test_string_cypher_supports_range_comparison_after_collect() -> None:
     assert result._nodes.to_dict(orient="records") == [{"equal": True}]
 
 
+def test_string_cypher_supports_time_comparison_consistent_with_sort_order() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "WITH ["
+        "time({hour: 10, minute: 35, timezone: '-08:00'}), "
+        "time({hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}), "
+        "time({hour: 12, minute: 31, second: 14, nanosecond: 645876124, timezone: '+01:00'}), "
+        "time({hour: 12, minute: 35, second: 15, timezone: '+05:00'}), "
+        "time({hour: 12, minute: 30, second: 14, nanosecond: 645876123, timezone: '+01:01'}), "
+        "time({hour: 12, minute: 35, second: 15, timezone: '+01:00'})"
+        "] AS values "
+        "WITH values, size(values) AS numOfValues "
+        "UNWIND values AS value "
+        "WITH size([x IN values WHERE x < value]) AS x, value, numOfValues "
+        "ORDER BY value "
+        "WITH numOfValues, collect(x) AS orderedX "
+        "RETURN orderedX = range(0, numOfValues - 1) AS equal"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"equal": True}]
+
+
+def test_string_cypher_supports_datetime_comparison_consistent_with_sort_order() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "WITH ["
+        "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 30, second: 14, nanosecond: 12, timezone: '+00:15'}), "
+        "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+00:17'}), "
+        "datetime({year: 1, month: 1, day: 1, hour: 1, minute: 1, second: 1, nanosecond: 1, timezone: '-11:59'}), "
+        "datetime({year: 9999, month: 9, day: 9, hour: 9, minute: 59, second: 59, nanosecond: 999999999, timezone: '+11:59'}), "
+        "datetime({year: 1980, month: 12, day: 11, hour: 12, minute: 31, second: 14, timezone: '-11:59'})"
+        "] AS values "
+        "WITH values, size(values) AS numOfValues "
+        "UNWIND values AS value "
+        "WITH size([x IN values WHERE x < value]) AS x, value, numOfValues "
+        "ORDER BY value "
+        "WITH numOfValues, collect(x) AS orderedX "
+        "RETURN orderedX = range(0, numOfValues - 1) AS equal"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"equal": True}]
+
+
+def test_string_cypher_supports_date_comparison_consistent_with_sort_order() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "WITH ["
+        "date({year: 1910, month: 5, day: 6}), "
+        "date({year: 1980, month: 12, day: 24}), "
+        "date({year: 1984, month: 10, day: 12}), "
+        "date({year: 1985, month: 5, day: 6}), "
+        "date({year: 1980, month: 10, day: 24}), "
+        "date({year: 1984, month: 10, day: 11})"
+        "] AS values "
+        "WITH values, size(values) AS numOfValues "
+        "UNWIND values AS value "
+        "WITH size([x IN values WHERE x < value]) AS x, value, numOfValues "
+        "ORDER BY value "
+        "WITH numOfValues, collect(x) AS orderedX "
+        "RETURN orderedX = range(0, numOfValues - 1) AS equal"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"equal": True}]
+
+
 def test_string_cypher_supports_order_by_list_literal_and_subscript_expression() -> None:
     g = _mk_graph(
         pd.DataFrame(

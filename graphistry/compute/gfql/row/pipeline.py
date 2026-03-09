@@ -122,6 +122,10 @@ class RowPipelineMixin:
             if list_cmp is not None:
                 return list_cmp
 
+        temporal_cmp = self._gfql_eval_temporal_comparison_op(table_df, left, right, op)
+        if temporal_cmp is not None:
+            return temporal_cmp
+
         left_null_mask = self._gfql_null_mask(table_df, left)
         right_null_mask = self._gfql_null_mask(table_df, right)
         if isinstance(left, float) and math.isnan(left):
@@ -137,6 +141,87 @@ class RowPipelineMixin:
                 out = self._gfql_broadcast_scalar(table_df, out).where(~null_mask, pd.NA)
             elif bool(null_mask):
                 out = None
+        return out
+
+    def _gfql_eval_temporal_comparison_op(
+        self,
+        table_df: Any,
+        left_value: Any,
+        right_value: Any,
+        op: str,
+    ) -> Optional[Any]:
+        if op not in {"=", "!=", "<>", "<", "<=", ">", ">="}:
+            return None
+
+        left_series = left_value if hasattr(left_value, "astype") else self._gfql_broadcast_scalar(table_df, left_value)
+        right_series = right_value if hasattr(right_value, "astype") else self._gfql_broadcast_scalar(table_df, right_value)
+        left_mode = order_detect_temporal_mode(left_series)
+        right_mode = order_detect_temporal_mode(right_series)
+        if left_mode is None or right_mode is None:
+            return None
+
+        def _temporal_family(mode: str) -> str:
+            if mode in {"date", "date_constructor"}:
+                return "date"
+            if mode in {"time", "time_constructor"}:
+                return "time"
+            return "datetime"
+
+        if _temporal_family(left_mode) != _temporal_family(right_mode):
+            return None
+
+        left_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_cmp_left_temporal__")
+        right_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_cmp_right_temporal__")
+        work_df = table_df.reset_index(drop=True).copy()
+        work_df = work_df.assign(**{left_col: left_series, right_col: right_series})
+
+        work_df, left_keys = build_temporal_sort_columns(
+            work_df,
+            left_col,
+            "__gfql_cmp_left_key__",
+            left_mode,
+            null_mask_fn=self._gfql_null_mask,
+            fresh_col_name_fn=RowPipelineMixin._gfql_fresh_col_name,
+        )
+        work_df, right_keys = build_temporal_sort_columns(
+            work_df,
+            right_col,
+            "__gfql_cmp_right_key__",
+            right_mode,
+            null_mask_fn=self._gfql_null_mask,
+            fresh_col_name_fn=RowPipelineMixin._gfql_fresh_col_name,
+        )
+
+        left_null_mask = self._gfql_null_mask(work_df, work_df[left_col])
+        right_null_mask = self._gfql_null_mask(work_df, work_df[right_col])
+        any_null_mask = left_null_mask | right_null_mask
+
+        eq_out = work_df[left_keys[0]] == work_df[right_keys[0]]
+        if len(left_keys) > 1:
+            eq_out = eq_out & (work_df[left_keys[1]] == work_df[right_keys[1]])
+
+        lt_out = work_df[left_keys[0]] < work_df[right_keys[0]]
+        if len(left_keys) > 1:
+            lt_out = lt_out | (
+                (work_df[left_keys[0]] == work_df[right_keys[0]])
+                & (work_df[left_keys[1]] < work_df[right_keys[1]])
+            )
+
+        if op == "=":
+            out = eq_out
+        elif op in {"!=", "<>"}:
+            out = ~eq_out
+        elif op == "<":
+            out = lt_out
+        elif op == "<=":
+            out = lt_out | eq_out
+        elif op == ">":
+            out = ~(lt_out | eq_out)
+        else:
+            out = ~lt_out
+
+        if hasattr(out, "where"):
+            out = out.where(~any_null_mask, pd.NA)
         return out
 
     def _gfql_eval_list_comparison_op(
