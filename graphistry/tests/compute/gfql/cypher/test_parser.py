@@ -172,6 +172,23 @@ def test_parse_where_label_predicate() -> None:
     assert left.labels == ("Foo", "Bar")
 
 
+def test_parse_reserved_keyword_labels_and_relationship_types() -> None:
+    parsed = parse_cypher("MATCH (n:Single)-[r:SINGLE]->(m:End) RETURN m:TYPE, n:Single")
+
+    assert parsed.match is not None
+    left = parsed.match.pattern[0]
+    rel = parsed.match.pattern[1]
+    right = parsed.match.pattern[2]
+    assert isinstance(left, NodePattern)
+    assert isinstance(rel, RelationshipPattern)
+    assert isinstance(right, NodePattern)
+    assert left.labels == ("Single",)
+    assert rel.types == ("SINGLE",)
+    assert right.labels == ("End",)
+    assert parsed.return_.items[0].expression.text == "m:TYPE"
+    assert parsed.return_.items[1].expression.text == "n:Single"
+
+
 def test_parse_relationship_type_alternation() -> None:
     parsed = parse_cypher("MATCH (a)-[r:KNOWS|HATES]->(b) RETURN r")
 

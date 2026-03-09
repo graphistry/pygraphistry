@@ -1905,6 +1905,17 @@ def test_string_cypher_supports_bound_optional_match_mixed_null_and_non_null_row
     ]
 
 
+def test_string_cypher_supports_label_expression_on_null_with_reserved_keyword_labels() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["s"], "label__Single": [True]}),
+        pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object"), "type": pd.Series(dtype="object")}),
+    )
+
+    result = graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r:TYPE]-(m) RETURN m:TYPE")
+
+    assert result._nodes.to_dict(orient="records") == [{"m:TYPE": None}]
+
+
 def test_string_cypher_supports_dynamic_graph_property_lookup() -> None:
     graph = _mk_graph(pd.DataFrame({"id": ["a"], "name": ["Apa"]}), pd.DataFrame({"s": [], "d": []}))
 

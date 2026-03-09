@@ -57,7 +57,7 @@ pattern: node_pattern (relationship_pattern node_pattern)*
 
 node_pattern: "(" variable? labels? properties? ")"
 labels: label+
-label: ":" NAME
+label: ":" LABEL_NAME
 
 relationship_pattern: rel_forward
                     | rel_reverse
@@ -75,7 +75,7 @@ rel_reverse_simple: REL_REV_SIMPLE
 rel_undirected_simple: REL_UNDIR_SIMPLE
 rel_bidirectional_simple: REL_BIDIR_SIMPLE
 
-rel_types: ":" NAME ("|" ":"? NAME)*
+rel_types: ":" LABEL_NAME ("|" ":"? LABEL_NAME)*
 
 variable: NAME
 
@@ -244,6 +244,7 @@ REL_FWD_SIMPLE: /-->/
 REL_REV_SIMPLE: /<--/
 REL_UNDIR_SIMPLE: /--/
 REL_BIDIR_SIMPLE: /<-->/
+LABEL_NAME: /[A-Za-z_][A-Za-z0-9_]*/
 LINE_COMMENT: /\/\/[^\n]*/
 BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
 %import common.WS
