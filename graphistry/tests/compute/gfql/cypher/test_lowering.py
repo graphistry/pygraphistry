@@ -3106,3 +3106,19 @@ def test_gfql_executes_top_level_list_comprehension_expression() -> None:
     result = g.gfql("RETURN [x IN [1, 2, 3] WHERE x > 1 | x + 10] AS vals")
 
     assert result._nodes.to_dict(orient="records") == [{"vals": [12, 13]}]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "RETURN 123 AND true AS out",
+        "RETURN 123.4 OR false AS out",
+        "RETURN 'foo' XOR true AS out",
+        "RETURN NOT [] AS out",
+    ],
+)
+def test_string_cypher_rejects_obviously_non_boolean_operands_in_boolean_ops(query: str) -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": [], "type": []}))
+
+    with pytest.raises(GFQLValidationError, match="requires boolean or null operands"):
+        g.gfql(query)

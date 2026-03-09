@@ -263,6 +263,13 @@ def _parse_row_expr(
     prepared = rewrite_temporal_constructors_in_expr(prepared)
     try:
         node = fold_temporal_constructor_ast(parse_expr(prepared))
+        _validate_cypher_boolean_literal_constraints(
+            node,
+            field=field,
+            value=prepared,
+            line=line,
+            column=column,
+        )
         if alias_targets:
             node = _rewrite_collection_alias_entities(node, alias_targets=alias_targets)
         return node
@@ -271,6 +278,13 @@ def _parse_row_expr(
         if rewritten != prepared:
             try:
                 node = fold_temporal_constructor_ast(parse_expr(rewritten))
+                _validate_cypher_boolean_literal_constraints(
+                    node,
+                    field=field,
+                    value=rewritten,
+                    line=line,
+                    column=column,
+                )
                 if alias_targets:
                     node = _rewrite_collection_alias_entities(node, alias_targets=alias_targets)
                 return node
@@ -286,6 +300,216 @@ def _parse_row_expr(
             column=column,
             language="cypher",
         ) from exc
+
+
+def _is_obviously_non_boolean_expr(node: ExprNode) -> bool:
+    if isinstance(node, ExprLiteral):
+        return node.value is not None and not isinstance(node.value, bool)
+    return isinstance(node, (ListLiteral, ListComprehension, MapLiteral))
+
+
+def _validate_cypher_boolean_literal_constraints(
+    node: ExprNode,
+    *,
+    field: str,
+    value: str,
+    line: int,
+    column: int,
+) -> None:
+    def _raise_invalid(op_name: str) -> None:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            f"Cypher {op_name} requires boolean or null operands in the local compiler subset",
+            field=field,
+            value=value,
+            suggestion="Use boolean/null operands for NOT/AND/OR/XOR, or rewrite the expression before compiling.",
+            line=line,
+            column=column,
+            language="cypher",
+        )
+
+    if isinstance(node, UnaryOp):
+        if node.op == "not" and _is_obviously_non_boolean_expr(node.operand):
+            _raise_invalid("NOT")
+        _validate_cypher_boolean_literal_constraints(
+            node.operand,
+            field=field,
+            value=value,
+            line=line,
+            column=column,
+        )
+        return
+    if isinstance(node, BinaryOp):
+        if node.op in {"and", "or", "xor"}:
+            if _is_obviously_non_boolean_expr(node.left) or _is_obviously_non_boolean_expr(node.right):
+                _raise_invalid(node.op.upper())
+        _validate_cypher_boolean_literal_constraints(
+            node.left,
+            field=field,
+            value=value,
+            line=line,
+            column=column,
+        )
+        _validate_cypher_boolean_literal_constraints(
+            node.right,
+            field=field,
+            value=value,
+            line=line,
+            column=column,
+        )
+        return
+    if isinstance(node, IsNullOp):
+        _validate_cypher_boolean_literal_constraints(
+            node.value,
+            field=field,
+            value=value,
+            line=line,
+            column=column,
+        )
+        return
+    if isinstance(node, FunctionCall):
+        for arg in node.args:
+            _validate_cypher_boolean_literal_constraints(
+                arg,
+                field=field,
+                value=value,
+                line=line,
+                column=column,
+            )
+        return
+    if isinstance(node, CaseWhen):
+        _validate_cypher_boolean_literal_constraints(
+            node.condition,
+            field=field,
+            value=value,
+            line=line,
+            column=column,
+        )
+        _validate_cypher_boolean_literal_constraints(
+            node.when_true,
+            field=field,
+            value=value,
+            line=line,
+            column=column,
+        )
+        _validate_cypher_boolean_literal_constraints(
+            node.when_false,
+            field=field,
+            value=value,
+            line=line,
+            column=column,
+        )
+        return
+    if isinstance(node, QuantifierExpr):
+        _validate_cypher_boolean_literal_constraints(
+            node.source,
+            field=field,
+            value=value,
+            line=line,
+            column=column,
+        )
+        _validate_cypher_boolean_literal_constraints(
+            node.predicate,
+            field=field,
+            value=value,
+            line=line,
+            column=column,
+        )
+        return
+    if isinstance(node, ListComprehension):
+        _validate_cypher_boolean_literal_constraints(
+            node.source,
+            field=field,
+            value=value,
+            line=line,
+            column=column,
+        )
+        if node.predicate is not None:
+            _validate_cypher_boolean_literal_constraints(
+                node.predicate,
+                field=field,
+                value=value,
+                line=line,
+                column=column,
+            )
+        if node.projection is not None:
+            _validate_cypher_boolean_literal_constraints(
+                node.projection,
+                field=field,
+                value=value,
+                line=line,
+                column=column,
+            )
+        return
+    if isinstance(node, ListLiteral):
+        for item in node.items:
+            _validate_cypher_boolean_literal_constraints(
+                item,
+                field=field,
+                value=value,
+                line=line,
+                column=column,
+            )
+        return
+    if isinstance(node, MapLiteral):
+        for _, item in node.items:
+            _validate_cypher_boolean_literal_constraints(
+                item,
+                field=field,
+                value=value,
+                line=line,
+                column=column,
+            )
+        return
+    if isinstance(node, SubscriptExpr):
+        _validate_cypher_boolean_literal_constraints(
+            node.value,
+            field=field,
+            value=value,
+            line=line,
+            column=column,
+        )
+        _validate_cypher_boolean_literal_constraints(
+            node.key,
+            field=field,
+            value=value,
+            line=line,
+            column=column,
+        )
+        return
+    if isinstance(node, SliceExpr):
+        _validate_cypher_boolean_literal_constraints(
+            node.value,
+            field=field,
+            value=value,
+            line=line,
+            column=column,
+        )
+        if node.start is not None:
+            _validate_cypher_boolean_literal_constraints(
+                node.start,
+                field=field,
+                value=value,
+                line=line,
+                column=column,
+            )
+        if node.stop is not None:
+            _validate_cypher_boolean_literal_constraints(
+                node.stop,
+                field=field,
+                value=value,
+                line=line,
+                column=column,
+            )
+        return
+    if isinstance(node, PropertyAccessExpr):
+        _validate_cypher_boolean_literal_constraints(
+            node.value,
+            field=field,
+            value=value,
+            line=line,
+            column=column,
+        )
 
 
 def _cypher_literal_expr_text(value: Any) -> str:
