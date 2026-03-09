@@ -244,6 +244,45 @@ def test_row_pipeline_select_supports_range_with_constant_series_bounds() -> Non
     assert _normalize_records(result.to_dict(orient="records")) == [{"equal": True}]
 
 
+def test_row_pipeline_select_supports_range_with_varying_row_bounds_and_steps() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d"],
+            "start": [0, 0, 10, 2],
+            "stop": [3, -1, 4, 2],
+            "step": [1, -1, -3, 5],
+        }
+    )
+
+    result = _run_node_steps(
+        nodes_df,
+        [rows(), select([("id", "id"), ("vals", "range(start, stop, step)")]), order_by([("id", "asc")])],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert _normalize_records(result.to_dict(orient="records")) == [
+        {"id": "a", "vals": [0, 1, 2, 3]},
+        {"id": "b", "vals": [0, -1]},
+        {"id": "c", "vals": [10, 7, 4]},
+        {"id": "d", "vals": [2]},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("expr", "pattern"),
+    [
+        ("range(2, 8, 0)", "range\\(\\) step must be non-zero"),
+        ("range(true, 1, 1)", "range\\(\\) start must be an integer"),
+        ("range(0, 1.0, 1)", "range\\(\\) stop must be an integer"),
+    ],
+)
+def test_row_pipeline_select_rejects_invalid_range_arguments(expr: str, pattern: str) -> None:
+    nodes_df = pd.DataFrame({"id": ["a"]})
+
+    with pytest.raises(GFQLTypeError, match=pattern):
+        _run_node_steps(nodes_df, [rows(), select([("vals", expr)])], edges_df=_self_loop_edges(nodes_df))
+
+
 def test_row_pipeline_order_by_supports_list_literal_and_subscript_expression_keys() -> None:
     nodes_df = pd.DataFrame(
         {

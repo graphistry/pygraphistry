@@ -2168,6 +2168,44 @@ def test_string_cypher_supports_range_comparison_after_collect() -> None:
     assert result._nodes.to_dict(orient="records") == [{"equal": True}]
 
 
+def test_string_cypher_supports_range_with_varying_row_bounds_and_steps() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "WITH ["
+        "{id: 'a', start: 0, stop: 3, step: 1}, "
+        "{id: 'b', start: 0, stop: -1, step: -1}, "
+        "{id: 'c', start: 10, stop: 4, step: -3}, "
+        "{id: 'd', start: 2, stop: 2, step: 5}"
+        "] AS rows "
+        "UNWIND rows AS row "
+        "RETURN row.id AS id, range(row.start, row.stop, row.step) AS vals "
+        "ORDER BY id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": "a", "vals": [0, 1, 2, 3]},
+        {"id": "b", "vals": [0, -1]},
+        {"id": "c", "vals": [10, 7, 4]},
+        {"id": "d", "vals": [2]},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("query", "pattern"),
+    [
+        ("RETURN range(2, 8, 0)", "range\\(\\) step must be non-zero"),
+        ("RETURN range(true, 1, 1)", "range\\(\\) start must be an integer"),
+        ("RETURN range(0, 1.0, 1)", "range\\(\\) stop must be an integer"),
+    ],
+)
+def test_string_cypher_rejects_invalid_range_arguments(query: str, pattern: str) -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    with pytest.raises(GFQLTypeError, match=pattern):
+        g.gfql(query)
+
+
 def test_string_cypher_supports_time_comparison_consistent_with_sort_order() -> None:
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 

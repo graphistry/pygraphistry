@@ -3526,6 +3526,7 @@ def _lower_row_column_stage(
 ) -> Tuple[List[ASTObject], _StageScope]:
     aggregate_specs: List[_AggregateSpec] = []
     non_aggregate_items: List[ReturnItem] = []
+    post_aggregate_items: List[_PostAggregateExprPlan] = []
     clause_items = _expand_row_column_star_items(
         stage.clause.items,
         available_columns=scope.row_columns,
@@ -3534,7 +3535,13 @@ def _lower_row_column_stage(
     for item in clause_items:
         agg_spec = _aggregate_spec(item, params=params, alias_targets={})
         if agg_spec is None:
-            non_aggregate_items.append(item)
+            post_agg_plan = _post_aggregate_expr_plan(item, params=params, alias_targets={})
+            if post_agg_plan is not None:
+                nested_aggregate_specs, post_agg_item = post_agg_plan
+                aggregate_specs.extend(nested_aggregate_specs)
+                post_aggregate_items.append(post_agg_item)
+            else:
+                non_aggregate_items.append(item)
         else:
             aggregate_specs.append(agg_spec)
 
@@ -3545,6 +3552,7 @@ def _lower_row_column_stage(
             params=params,
             aggregate_specs=aggregate_specs,
             non_aggregate_items=non_aggregate_items,
+            post_aggregate_items=post_aggregate_items,
         )
 
     projection_fn = with_ if stage.clause.kind == "with" else return_
@@ -3775,6 +3783,7 @@ def _lower_row_column_aggregate_stage(
     params: Optional[Mapping[str, Any]],
     aggregate_specs: Sequence[_AggregateSpec],
     non_aggregate_items: Sequence[ReturnItem],
+    post_aggregate_items: Sequence[_PostAggregateExprPlan],
 ) -> Tuple[List[ASTObject], _StageScope]:
     non_aggregate_items = _expand_row_column_star_items(
         non_aggregate_items,
@@ -3893,9 +3902,55 @@ def _lower_row_column_aggregate_stage(
         global_key = _fresh_temp_name(temp_names, "__cypher_group__")
         row_steps.append(with_([(global_key, 1)] + pre_items))
         row_steps.append(group_by([global_key], aggregations))
-        row_steps.append(projection_fn([(agg.output_name, agg.output_name) for agg in aggregate_specs]))
         available_columns = {agg.output_name for agg in aggregate_specs}
         expr_to_output = {agg.source_text: agg.output_name for agg in aggregate_specs}
+
+    if post_aggregate_items:
+        post_projection_items: List[Tuple[str, Any]] = []
+        projected_columns: Set[str] = set()
+        for item in non_aggregate_items:
+            output_name = item.alias or item.expression.text
+            post_projection_items.append((output_name, output_name))
+            projected_columns.add(output_name)
+        for agg_spec in aggregate_specs:
+            if agg_spec.output_name.startswith("__cypher_postagg__"):
+                continue
+            if agg_spec.output_name in projected_columns:
+                raise _unsupported(
+                    "Duplicate Cypher projection names are not yet supported in local lowering",
+                    field=stage.clause.kind,
+                    value=agg_spec.output_name,
+                    line=agg_spec.span_line,
+                    column=agg_spec.span_column,
+                )
+            post_projection_items.append((agg_spec.output_name, agg_spec.output_name))
+            projected_columns.add(agg_spec.output_name)
+        for plan in post_aggregate_items:
+            if plan.output_name in projected_columns:
+                raise _unsupported(
+                    "Duplicate Cypher projection names are not yet supported in local lowering",
+                    field=stage.clause.kind,
+                    value=plan.output_name,
+                    line=plan.span_line,
+                    column=plan.span_column,
+                )
+            post_projection_items.append(
+                (
+                    plan.output_name,
+                    _row_expr_arg(
+                        plan.expr,
+                        params=params,
+                        alias_targets={},
+                        field=stage.clause.kind,
+                    ),
+                )
+            )
+            projected_columns.add(plan.output_name)
+        row_steps.append(projection_fn(post_projection_items))
+        available_columns = projected_columns
+    elif not key_names:
+        row_steps.append(projection_fn([(agg.output_name, agg.output_name) for agg in aggregate_specs]))
+        available_columns = {agg.output_name for agg in aggregate_specs}
 
     if stage.where is not None:
         _validate_row_expr_scope(
@@ -4294,9 +4349,9 @@ def _lower_general_row_projection(
             continue
         post_agg_plan = _post_aggregate_expr_plan(item, params=params, alias_targets=alias_targets)
         if post_agg_plan is not None:
-            nested_aggregate_specs, rewritten_item = post_agg_plan
+            nested_aggregate_specs, post_agg_item = post_agg_plan
             aggregate_specs.extend(nested_aggregate_specs)
-            post_aggregate_items.append(rewritten_item)
+            post_aggregate_items.append(post_agg_item)
             continue
         non_aggregate_items.append(item)
 

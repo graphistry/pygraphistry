@@ -740,23 +740,7 @@ class RowPipelineMixin:
                 return True, self._gfql_eval_entity_graph_fn(table_df, values[0], fn, f"ast {fn}()")
 
             if fn == "range" and len(values) in {2, 3}:
-                scalar_values: List[Any] = []
-                for value in values:
-                    if hasattr(value, "astype"):
-                        ok, scalar = RowPipelineMixin._gfql_series_scalar_if_constant(value)
-                        if not ok:
-                            return False, None
-                        value = scalar
-                    scalar_values.append(value)
-                if not all(isinstance(value, int) and not isinstance(value, bool) for value in scalar_values):
-                    return False, None
-                start = scalar_values[0]
-                stop = scalar_values[1]
-                step = scalar_values[2] if len(scalar_values) == 3 else 1
-                if step == 0:
-                    return False, None
-                inclusive_stop = stop + (1 if step > 0 else -1)
-                return True, list(range(start, inclusive_stop, step))
+                return True, self._gfql_eval_range_expr(table_df, values, "range(...)")
 
             if fn == "size" and len(values) == 1:
                 inner = values[0]
@@ -1656,6 +1640,117 @@ class RowPipelineMixin:
             table_df,
             is_null_scalar(value),
         ).astype(bool)
+
+    def _gfql_range_arg_series(
+        self,
+        table_df: Any,
+        value: Any,
+        *,
+        label: str,
+        expr: str,
+    ) -> Any:
+        series = value if hasattr(value, "astype") else self._gfql_broadcast_scalar(table_df, value)
+        null_mask = self._gfql_null_mask(table_df, series)
+        if hasattr(null_mask, "any") and bool(null_mask.any()):
+            raise ValueError(f"unsupported row expression: range() {label} must be an integer in {expr!r}")
+
+        dtype_txt = str(getattr(series, "dtype", "")).lower()
+        if dtype_txt in {"bool", "boolean"}:
+            raise ValueError(f"unsupported row expression: range() {label} must be an integer in {expr!r}")
+        if any(token in dtype_txt for token in ("int", "long", "short", "uint")):
+            return series.astype("int64") if hasattr(series, "astype") else series
+        if any(token in dtype_txt for token in ("float", "double", "decimal")):
+            raise ValueError(f"unsupported row expression: range() {label} must be an integer in {expr!r}")
+
+        if not hasattr(series, "dropna"):
+            if isinstance(series, int) and not isinstance(series, bool):
+                return self._gfql_broadcast_scalar(table_df, series)
+            raise ValueError(f"unsupported row expression: range() {label} must be an integer in {expr!r}")
+
+        sample = series.dropna().head(128)
+        if hasattr(sample, "to_pandas"):
+            sample = sample.to_pandas()
+        values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
+        if any((not isinstance(v, int)) or isinstance(v, bool) for v in values):
+            raise ValueError(f"unsupported row expression: range() {label} must be an integer in {expr!r}")
+        return series.astype("int64") if hasattr(series, "astype") else series
+
+    def _gfql_eval_range_expr(self, table_df: Any, values: Sequence[Any], expr: str) -> Any:
+        if len(values) not in {2, 3}:
+            raise ValueError(f"unsupported row expression: range() expects 2 or 3 arguments in {expr!r}")
+
+        start_series = self._gfql_range_arg_series(table_df, values[0], label="start", expr=expr)
+        stop_series = self._gfql_range_arg_series(table_df, values[1], label="stop", expr=expr)
+        step_series = (
+            self._gfql_range_arg_series(table_df, values[2], label="step", expr=expr)
+            if len(values) == 3
+            else self._gfql_broadcast_scalar(table_df, 1).astype("int64")
+        )
+
+        zero_step_mask = step_series == 0
+        if hasattr(zero_step_mask, "any") and bool(zero_step_mask.any()):
+            raise ValueError(f"unsupported row expression: range() step must be non-zero in {expr!r}")
+
+        row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_range_row__")
+        start_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_range_start__")
+        stop_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_range_stop__")
+        step_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_range_step__")
+        len_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_range_len__")
+        pos_list_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_range_pos_list__")
+        pos_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_range_pos__")
+        out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_range_out__")
+
+        base = table_df.reset_index(drop=True).copy()
+        base = base.assign(
+            **{
+                row_col: range(len(base)),
+                start_col: start_series,
+                stop_col: stop_series,
+                step_col: step_series,
+            }
+        )
+
+        positive_mask = base[step_col] > 0
+        negative_mask = base[step_col] < 0
+        keep_positive = positive_mask & (base[stop_col] >= base[start_col])
+        keep_negative = negative_mask & (base[stop_col] <= base[start_col])
+
+        zero_lengths = (base[start_col] * 0).astype("int64")
+        positive_lengths = (((base[stop_col] - base[start_col]) // base[step_col]) + 1).where(keep_positive, 0)
+        negative_lengths = (((base[start_col] - base[stop_col]) // (-base[step_col])) + 1).where(keep_negative, 0)
+        lengths = zero_lengths + positive_lengths.astype("int64") + negative_lengths.astype("int64")
+        base = base.assign(**{len_col: lengths})
+
+        if len(base) == 0:
+            return base[len_col]
+
+        max_len = int(base[len_col].max()) if len(base) > 0 else 0
+        result: Any = pd.Series([[] for _ in range(len(base))], index=base.index, dtype="object")
+        if max_len <= 0:
+            return result.reset_index(drop=True)
+
+        non_empty = base.loc[base[len_col] > 0, [row_col, start_col, step_col, len_col]].copy()
+        pos_template = self._gfql_broadcast_scalar(non_empty, list(range(max_len)))
+        expanded = non_empty.assign(**{pos_list_col: pos_template}).explode(pos_list_col)
+        if len(expanded) == 0:
+            return result.reset_index(drop=True)
+
+        expanded = expanded.reset_index(drop=True)
+        expanded = expanded.rename(columns={pos_list_col: pos_col})
+        expanded[pos_col] = expanded[pos_col].astype("int64")
+        expanded = expanded.loc[expanded[pos_col] < expanded[len_col]]
+        expanded = expanded.assign(**{out_col: expanded[start_col] + expanded[pos_col] * expanded[step_col]})
+
+        grouped = expanded.groupby(row_col, sort=False)[out_col].agg(list).reset_index()
+        merged = base[[row_col]].merge(grouped, on=row_col, how="left", sort=False)
+        result = merged[out_col].copy()
+        missing_mask = result.isna() if hasattr(result, "isna") else None
+        if missing_mask is not None and bool(missing_mask.any()):
+            empty_idx = result.index[missing_mask]
+            result.loc[empty_idx] = pd.Series([[] for _ in range(len(empty_idx))], index=empty_idx, dtype="object")
+        if hasattr(result, "reset_index"):
+            return result.reset_index(drop=True)
+        return result
 
     def _gfql_resolve_token(self, table_df: Any, token: str) -> Any:
         txt = token.strip()
