@@ -188,6 +188,15 @@ def test_parse_expr_postfix_property_access_node() -> None:
 
 
 @requires_lark
+def test_parse_expr_identifier_property_access_node() -> None:
+    node = parse_expr("m.missing")
+    assert isinstance(node, PropertyAccessExpr)
+    assert node.property == "missing"
+    assert isinstance(node.value, Identifier)
+    assert node.value.name == "m"
+
+
+@requires_lark
 def test_collect_identifiers_excludes_bound_vars() -> None:
     node = parse_expr("any(x IN vals WHERE x > threshold)")
     names = collect_identifiers(node)

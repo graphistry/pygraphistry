@@ -614,7 +614,7 @@ def _render_expr_node(node: ExprNode) -> str:
         stop = "" if node.stop is None else _render_expr_node(node.stop)
         return f"{_render_expr_node(node.value)}[{start}..{stop}]"
     if isinstance(node, PropertyAccessExpr):
-        return f"({_render_expr_node(node.value)}).{node.property}"
+        return f"{_render_expr_node(node.value)}.{node.property}"
     raise TypeError(f"Unsupported expression node type for rendering: {type(node).__name__}")
 
 
@@ -819,15 +819,61 @@ def _rewrite_order_expr_to_projected_outputs(
         line=line,
         column=column,
     )
-    replacements: Dict[str, str] = {}
-    for ident in collect_identifiers(node):
-        alias_name, prop = _split_qualified_name(ident, line=line, column=column)
-        if alias_name != source_alias or prop is None:
-            continue
-        output_name = property_outputs.get(prop)
-        if output_name is not None:
-            replacements[ident] = output_name
-    return _render_expr_node(_rewrite_expr_identifiers(node, replacements))
+
+    def _rewrite(node_in: ExprNode) -> ExprNode:
+        if isinstance(node_in, PropertyAccessExpr) and isinstance(node_in.value, Identifier):
+            alias_name, prop = _qualified_ref_from_node(
+                node_in,
+                field=field,
+                value=expr_text,
+                line=line,
+                column=column,
+            )
+            if alias_name == source_alias and prop is not None:
+                output_name = property_outputs.get(prop)
+                if output_name is not None:
+                    return Identifier(output_name)
+            return PropertyAccessExpr(_rewrite(node_in.value), node_in.property)
+        if isinstance(node_in, Identifier):
+            return node_in
+        if isinstance(node_in, ExprLiteral):
+            return node_in
+        if isinstance(node_in, UnaryOp):
+            return UnaryOp(node_in.op, _rewrite(node_in.operand))
+        if isinstance(node_in, BinaryOp):
+            return BinaryOp(node_in.op, _rewrite(node_in.left), _rewrite(node_in.right))
+        if isinstance(node_in, IsNullOp):
+            return IsNullOp(_rewrite(node_in.value), negated=node_in.negated)
+        if isinstance(node_in, FunctionCall):
+            return FunctionCall(node_in.name, tuple(_rewrite(arg) for arg in node_in.args), distinct=node_in.distinct)
+        if isinstance(node_in, Wildcard):
+            return node_in
+        if isinstance(node_in, CaseWhen):
+            return CaseWhen(_rewrite(node_in.condition), _rewrite(node_in.when_true), _rewrite(node_in.when_false))
+        if isinstance(node_in, QuantifierExpr):
+            return QuantifierExpr(node_in.fn, node_in.var, _rewrite(node_in.source), _rewrite(node_in.predicate))
+        if isinstance(node_in, ListComprehension):
+            return ListComprehension(
+                node_in.var,
+                _rewrite(node_in.source),
+                predicate=None if node_in.predicate is None else _rewrite(node_in.predicate),
+                projection=None if node_in.projection is None else _rewrite(node_in.projection),
+            )
+        if isinstance(node_in, ListLiteral):
+            return ListLiteral(tuple(_rewrite(item) for item in node_in.items))
+        if isinstance(node_in, MapLiteral):
+            return MapLiteral(tuple((key, _rewrite(value)) for key, value in node_in.items))
+        if isinstance(node_in, SubscriptExpr):
+            return SubscriptExpr(_rewrite(node_in.value), _rewrite(node_in.key))
+        if isinstance(node_in, SliceExpr):
+            return SliceExpr(
+                _rewrite(node_in.value),
+                None if node_in.start is None else _rewrite(node_in.start),
+                None if node_in.stop is None else _rewrite(node_in.stop),
+            )
+        return node_in
+
+    return _render_expr_node(_rewrite(node))
 
 
 def _rewrite_expr_to_output_names(
@@ -2442,6 +2488,36 @@ def _split_qualified_name(expr: str, *, line: int, column: int) -> Tuple[str, Op
     )
 
 
+def _qualified_ref_from_node(
+    node: ExprNode,
+    *,
+    field: str,
+    value: str,
+    line: int,
+    column: int,
+) -> Tuple[str, Optional[str]]:
+    if isinstance(node, Identifier):
+        return _split_qualified_name(node.name, line=line, column=column)
+    if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
+        alias_name, prop = _split_qualified_name(node.value.name, line=line, column=column)
+        if prop is not None:
+            raise _unsupported(
+                "Only simple aliases and alias.property expressions are supported in Cypher RETURN/ORDER BY",
+                field=field,
+                value=value,
+                line=line,
+                column=column,
+            )
+        return alias_name, node.property
+    raise _unsupported(
+        "Only simple aliases and alias.property expressions are supported in Cypher RETURN/ORDER BY",
+        field=field,
+        value=value,
+        line=line,
+        column=column,
+    )
+
+
 def _projection_ref_from_expr(
     expr: str,
     *,
@@ -2452,8 +2528,14 @@ def _projection_ref_from_expr(
     column: int,
 ) -> Tuple[str, Optional[str]]:
     node = _parse_row_expr(expr, params=params, field=field, line=line, column=column)
-    if isinstance(node, Identifier):
-        return _split_qualified_name(node.name, line=line, column=column)
+    if isinstance(node, (Identifier, PropertyAccessExpr)):
+        return _qualified_ref_from_node(
+            node,
+            field=field,
+            value=expr,
+            line=line,
+            column=column,
+        )
     if isinstance(node, FunctionCall) and node.name == "type":
         if len(node.args) != 1 or not isinstance(node.args[0], Identifier):
             raise _unsupported(

@@ -46,6 +46,7 @@ from graphistry.compute.gfql.row.ordering import (
     validate_order_series_vector_safe,
 )
 from graphistry.compute.gfql.temporal_text import parse_temporal_sort_duration_components
+from graphistry.compute.gfql.temporal_text import resolve_duration_text_property
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
@@ -438,6 +439,28 @@ class RowPipelineMixin:
             return True, out_map
 
         if isinstance(node, PropertyAccessExpr):
+            if isinstance(node.value, Identifier):
+                alias_name = node.value.name
+                has_bound_graph_table = (
+                    (self._node is not None and self._node in table_df.columns)
+                    or (self._edge is not None and self._edge in table_df.columns)
+                    or RowPipelineMixin._gfql_table_has_graph_shape(table_df)
+                )
+                if (
+                    "." not in alias_name
+                    and alias_name in table_df.columns
+                    and has_bound_graph_table
+                    and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
+                ):
+                    alias_mask = table_df[alias_name]
+                    prop_value = (
+                        table_df[node.property]
+                        if node.property in table_df.columns
+                        else self._gfql_broadcast_scalar(table_df, None)
+                    )
+                    if hasattr(prop_value, "where"):
+                        prop_value = prop_value.where(alias_mask == True, None)  # noqa: E712
+                    return True, prop_value
             ok, value = self._gfql_eval_expr_ast(table_df, node.value)
             if not ok:
                 return False, None
@@ -1399,8 +1422,24 @@ class RowPipelineMixin:
         prop: str,
         expr: str,
     ) -> Any:
+        def _coerce_duration_property(value_text: str) -> Any:
+            resolved = resolve_duration_text_property(value_text, prop)
+            if resolved is None:
+                return None
+            if re.fullmatch(r"-?\d+", resolved):
+                return int(resolved)
+            return resolved
+
         if hasattr(value, "astype"):
             null_mask = self._gfql_null_mask(table_df, value)
+            scalar_ok, scalar_value = RowPipelineMixin._gfql_series_scalar_if_constant(value)
+            if scalar_ok and isinstance(scalar_value, str):
+                duration_value = _coerce_duration_property(scalar_value)
+                if duration_value is not None:
+                    out = self._gfql_broadcast_scalar(table_df, duration_value)
+                    if hasattr(out, "where"):
+                        out = out.where(~null_mask, None)
+                    return out
             if RowPipelineMixin._gfql_series_is_mapping_like(value):
                 out = value.str.get(prop)
                 if hasattr(out, "where"):
@@ -1417,17 +1456,21 @@ class RowPipelineMixin:
                     out = out.where(~null_mask, None)
                 return out
             raise ValueError(
-                f"unsupported row expression: property access requires a graph element, entity value, or map in {expr!r}"
+                f"unsupported row expression: property access requires a graph element alias, entity value, or map in {expr!r}"
             )
 
         if is_null_scalar(value):
             return None
+        if isinstance(value, str):
+            duration_value = _coerce_duration_property(value)
+            if duration_value is not None:
+                return duration_value
         if isinstance(value, Mapping):
             return value.get(prop)
         if is_entity_text_scalar(value):
             return entity_property_scalar(value, prop)
         raise ValueError(
-            f"unsupported row expression: property access requires a graph element, entity value, or map in {expr!r}"
+            f"unsupported row expression: property access requires a graph element alias, entity value, or map in {expr!r}"
         )
 
     @staticmethod

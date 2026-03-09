@@ -708,6 +708,78 @@ def _build_transformer() -> _TransformerLike:
     return cast(_TransformerLike, _AstBuilder())
 
 
+def _normalize_dotted_identifiers(node: ExprNode) -> ExprNode:
+    if isinstance(node, Identifier):
+        parts = node.name.split(".")
+        if len(parts) <= 1:
+            return node
+        out: ExprNode = Identifier(parts[0])
+        for prop in parts[1:]:
+            out = PropertyAccessExpr(value=out, property=prop)
+        return out
+    if isinstance(node, Literal):
+        return node
+    if isinstance(node, UnaryOp):
+        return UnaryOp(op=node.op, operand=_normalize_dotted_identifiers(node.operand))
+    if isinstance(node, BinaryOp):
+        return BinaryOp(
+            op=node.op,
+            left=_normalize_dotted_identifiers(node.left),
+            right=_normalize_dotted_identifiers(node.right),
+        )
+    if isinstance(node, IsNullOp):
+        return IsNullOp(value=_normalize_dotted_identifiers(node.value), negated=node.negated)
+    if isinstance(node, FunctionCall):
+        return FunctionCall(
+            name=node.name,
+            args=tuple(_normalize_dotted_identifiers(arg) for arg in node.args),
+            distinct=node.distinct,
+        )
+    if isinstance(node, Wildcard):
+        return node
+    if isinstance(node, CaseWhen):
+        return CaseWhen(
+            condition=_normalize_dotted_identifiers(node.condition),
+            when_true=_normalize_dotted_identifiers(node.when_true),
+            when_false=_normalize_dotted_identifiers(node.when_false),
+        )
+    if isinstance(node, QuantifierExpr):
+        return QuantifierExpr(
+            fn=node.fn,
+            var=node.var,
+            source=_normalize_dotted_identifiers(node.source),
+            predicate=_normalize_dotted_identifiers(node.predicate),
+        )
+    if isinstance(node, ListComprehension):
+        return ListComprehension(
+            var=node.var,
+            source=_normalize_dotted_identifiers(node.source),
+            predicate=None if node.predicate is None else _normalize_dotted_identifiers(node.predicate),
+            projection=None if node.projection is None else _normalize_dotted_identifiers(node.projection),
+        )
+    if isinstance(node, ListLiteral):
+        return ListLiteral(tuple(_normalize_dotted_identifiers(item) for item in node.items))
+    if isinstance(node, MapLiteral):
+        return MapLiteral(tuple((key, _normalize_dotted_identifiers(value)) for key, value in node.items))
+    if isinstance(node, SubscriptExpr):
+        return SubscriptExpr(
+            value=_normalize_dotted_identifiers(node.value),
+            key=_normalize_dotted_identifiers(node.key),
+        )
+    if isinstance(node, SliceExpr):
+        return SliceExpr(
+            value=_normalize_dotted_identifiers(node.value),
+            start=None if node.start is None else _normalize_dotted_identifiers(node.start),
+            stop=None if node.stop is None else _normalize_dotted_identifiers(node.stop),
+        )
+    if isinstance(node, PropertyAccessExpr):
+        return PropertyAccessExpr(
+            value=_normalize_dotted_identifiers(node.value),
+            property=node.property,
+        )
+    return node
+
+
 def parse_expr(expr: str) -> ExprNode:
     if not isinstance(expr, str) or expr.strip() == "":
         raise GFQLExprParseError("Expression must be a non-empty string")
@@ -716,7 +788,7 @@ def parse_expr(expr: str) -> ExprNode:
     transformer = _build_transformer()
     try:
         tree = parser.parse(expr)
-        node = transformer.transform(tree)
+        node = _normalize_dotted_identifiers(cast(ExprNode, transformer.transform(tree)))
     except Exception as exc:
         _, _, LarkError = _lark_imports()
         if isinstance(exc, LarkError):

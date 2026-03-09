@@ -10,6 +10,7 @@ from graphistry.compute.gfql.expr_parser import (
     ListComprehension,
     Literal,
     MapLiteral,
+    PropertyAccessExpr,
     QuantifierExpr,
     Wildcard,
     iter_expr_children,
@@ -31,9 +32,13 @@ def is_order_aggregate_alias_ast(node: object) -> bool:
         return False
 
     arg = node.args[0]
-    return isinstance(arg, (Wildcard, Identifier)) and (
-        not isinstance(arg, Identifier) or arg.name != ""
-    )
+    if isinstance(arg, Wildcard):
+        return True
+    if isinstance(arg, Identifier):
+        return arg.name != ""
+    if isinstance(arg, PropertyAccessExpr) and isinstance(arg.value, Identifier):
+        return arg.value.name != "" and arg.property != ""
+    return False
 
 
 def order_expr_ast_static_supported(node: object) -> bool:

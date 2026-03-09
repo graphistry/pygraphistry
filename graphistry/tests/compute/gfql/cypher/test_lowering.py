@@ -1824,6 +1824,27 @@ def test_string_cypher_supports_properties_for_node_relationship_map_and_null() 
     ]
 
 
+def test_string_cypher_supports_property_access_on_null_map_alias() -> None:
+    graph = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": [], "type": []}))
+
+    result = graph.gfql("WITH null AS m RETURN m.missing AS out, m.missing IS NULL AS is_null")
+
+    assert result._nodes.to_dict(orient="records") == [{"out": None, "is_null": True}]
+
+
+def test_string_cypher_supports_property_access_on_graph_alias_in_projection() -> None:
+    graph = cast(
+        _CypherTestGraph,
+        _CypherTestGraph().nodes(pd.DataFrame({"node_id": ["n1"]}), "node_id").edges(
+            pd.DataFrame({"s": [], "d": [], "type": []}), "s", "d"
+        ),
+    )
+
+    result = graph.gfql("MATCH (a) RETURN a.id IS NOT NULL AS a, a IS NOT NULL AS b")
+
+    assert result._nodes.to_dict(orient="records") == [{"a": False, "b": True}]
+
+
 def test_string_cypher_supports_labels_projection_and_relationship_label_predicate() -> None:
     nodes = pd.DataFrame(
         {
@@ -3106,6 +3127,20 @@ def test_gfql_executes_top_level_list_comprehension_expression() -> None:
     result = g.gfql("RETURN [x IN [1, 2, 3] WHERE x > 1 | x + 10] AS vals")
 
     assert result._nodes.to_dict(orient="records") == [{"vals": [12, 13]}]
+
+
+def test_string_cypher_supports_empty_map_quantifier_predicates() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": [], "type": []}))
+
+    result = g.gfql(
+        "RETURN none(x IN [] WHERE x.a = 2) AS none_result, "
+        "any(x IN [] WHERE x.a = 2) AS any_result, "
+        "single(x IN [] WHERE x.a = 2) AS single_result"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"none_result": True, "any_result": False, "single_result": False}
+    ]
 
 
 @pytest.mark.parametrize(
