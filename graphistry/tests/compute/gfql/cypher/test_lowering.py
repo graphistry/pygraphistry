@@ -1880,6 +1880,31 @@ def test_string_cypher_supports_top_level_optional_match_null_rows_for_property_
     assert rel_result._nodes.to_dict(orient="records") == [{"m": None}]
 
 
+def test_string_cypher_supports_bound_optional_match_null_rows_for_type() -> None:
+    graph = _mk_graph(pd.DataFrame({"id": ["a"]}), pd.DataFrame({"s": [], "d": [], "type": []}))
+
+    result = graph.gfql("MATCH (a) OPTIONAL MATCH (a)-[r:NOT_THERE]->() RETURN type(r) AS tr, type(null) AS tn")
+
+    assert result._nodes.to_dict(orient="records") == [{"tr": None, "tn": None}]
+
+
+def test_string_cypher_supports_bound_optional_match_mixed_null_and_non_null_rows_for_type() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["T"]}),
+    )
+
+    result = graph.gfql("MATCH (a) OPTIONAL MATCH (a)-[r:T]->() RETURN type(r) AS tr")
+
+    assert sorted(
+        result._nodes.to_dict(orient="records"),
+        key=lambda row: (row["tr"] is None, str(row["tr"])),
+    ) == [
+        {"tr": "T"},
+        {"tr": None},
+    ]
+
+
 def test_string_cypher_supports_dynamic_graph_property_lookup() -> None:
     graph = _mk_graph(pd.DataFrame({"id": ["a"], "name": ["Apa"]}), pd.DataFrame({"s": [], "d": []}))
 

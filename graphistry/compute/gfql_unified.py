@@ -3,7 +3,7 @@
 
 from typing import List, Union, Optional, Dict, Any, Sequence, Mapping, Literal, cast
 from graphistry.Plottable import Plottable
-from graphistry.Engine import Engine, EngineAbstract, df_cons, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
 from .chain import Chain, chain as chain_impl
@@ -50,6 +50,37 @@ def _apply_empty_result_row(
     df_ctor = df_cons(concrete_engine)
     out = result.bind()
     out._nodes = df_ctor({key: [value] for key, value in empty_result_row.items()})
+    edges_df = getattr(result, "_edges", None)
+    if edges_df is not None:
+        out._edges = edges_df[:0]
+    return out
+
+
+def _apply_optional_null_fill(
+    result: Plottable,
+    *,
+    base_result: Plottable,
+    engine: Union[EngineAbstract, str],
+    null_row: Mapping[str, Any],
+) -> Plottable:
+    base_rows_df = getattr(base_result, "_nodes", None)
+    expected_rows = 0 if base_rows_df is None else len(base_rows_df)
+    if expected_rows == 0:
+        return result
+
+    rows_df = getattr(result, "_nodes", None)
+    actual_rows = 0 if rows_df is None else len(rows_df)
+    missing_rows = expected_rows - actual_rows
+    if missing_rows <= 0:
+        return result
+
+    concrete_engine = resolve_engine(cast(Any, engine), result)
+    df_ctor = df_cons(concrete_engine)
+    concat = df_concat(concrete_engine)
+    fill_df = df_ctor({key: [value] * missing_rows for key, value in null_row.items()})
+
+    out = result.bind()
+    out._nodes = fill_df if rows_df is None else concat([rows_df, fill_df], ignore_index=True, sort=False)
     edges_df = getattr(result, "_edges", None)
     if edges_df is not None:
         out._edges = edges_df[:0]
@@ -452,6 +483,20 @@ def gfql(self: Plottable,
                     from .gfql.cypher.result_postprocess import apply_result_projection
 
                     result = apply_result_projection(result, compiled_query.result_projection)
+                if compiled_query is not None and compiled_query.optional_null_fill is not None:
+                    base_result = _chain_dispatch(
+                        self,
+                        compiled_query.optional_null_fill.base_chain,
+                        engine,
+                        expanded_policy,
+                        context,
+                    )
+                    result = _apply_optional_null_fill(
+                        result,
+                        base_result=base_result,
+                        engine=engine,
+                        null_row=compiled_query.optional_null_fill.null_row,
+                    )
                 return result
             elif isinstance(query, ASTObject):
                 logger.debug('GFQL executing single ASTObject as chain')

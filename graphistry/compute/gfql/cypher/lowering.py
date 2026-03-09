@@ -93,6 +93,13 @@ class CompiledCypherQuery:
     seed_rows: bool = False
     result_projection: Optional["ResultProjectionPlan"] = None
     empty_result_row: Optional[Dict[str, Any]] = None
+    optional_null_fill: Optional["OptionalNullFillPlan"] = None
+
+
+@dataclass(frozen=True)
+class OptionalNullFillPlan:
+    base_chain: Chain
+    null_row: Dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -2075,7 +2082,7 @@ def _apply_seed_node_bindings(
             line=clause.span.line,
             column=clause.span.column,
         )
-    return MatchClause(patterns=(tuple(updated),), span=clause.span)
+    return MatchClause(patterns=(tuple(updated),), span=clause.span, optional=clause.optional)
 
 
 def _merged_match_clause(query: CypherQuery) -> Optional[MatchClause]:
@@ -2085,6 +2092,23 @@ def _merged_match_clause(query: CypherQuery) -> Optional[MatchClause]:
         return query.matches[0]
     seed_bindings = _seed_node_bindings(query.matches[:-1])
     return _apply_seed_node_bindings(query.matches[-1], seed_bindings=seed_bindings)
+
+
+def _match_clause_aliases(clause: MatchClause) -> Set[str]:
+    return {
+        cast(str, element.variable)
+        for element in _normalized_match_pattern(clause)
+        if getattr(element, "variable", None) is not None
+    }
+
+
+def _single_node_seed_alias(clause: MatchClause) -> Optional[str]:
+    if clause.optional or len(clause.patterns) != 1:
+        return None
+    pattern = clause.patterns[0]
+    if len(pattern) != 1 or not isinstance(pattern[0], NodePattern):
+        return None
+    return pattern[0].variable
 
 
 def _alias_target(ops: Sequence[ASTObject]) -> Dict[str, ASTObject]:
@@ -2595,6 +2619,55 @@ def _empty_optional_projection_row(plan: _ProjectionPlan) -> Dict[str, Any]:
     for column in plan.projection_columns:
         out[column.output_name] = None
     return out
+
+
+def _optional_null_fill_plan(
+    query: CypherQuery,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    plan: _ProjectionPlan,
+    params: Optional[Mapping[str, Any]],
+) -> Optional[OptionalNullFillPlan]:
+    if (
+        len(query.matches) != 2
+        or query.matches[0].optional
+        or not query.matches[1].optional
+        or query.where is not None
+        or query.with_stages
+        or query.unwinds
+        or query.order_by is not None
+        or query.skip is not None
+        or query.limit is not None
+    ):
+        return None
+
+    seed_alias = _single_node_seed_alias(query.matches[0])
+    if seed_alias is None:
+        return None
+
+    optional_aliases = _match_clause_aliases(query.matches[1]) - {seed_alias}
+    if not optional_aliases:
+        return None
+
+    referenced: Set[str] = set()
+    for item in query.return_.items:
+        referenced.update(
+            _expr_match_aliases(
+                item.expression.text,
+                alias_targets=alias_targets,
+                params=params,
+                field=query.return_.kind,
+                line=item.span.line,
+                column=item.span.column,
+            )
+        )
+    if not referenced or not referenced <= optional_aliases:
+        return None
+
+    return OptionalNullFillPlan(
+        base_chain=Chain(lower_match_clause(query.matches[0], params=params)),
+        null_row=_empty_optional_projection_row(plan),
+    )
 
 
 def _plan_with_visible_projected_columns(
@@ -4605,11 +4678,18 @@ def compile_cypher_query(
                 if len(query.matches) == 1 and query.matches[0].optional
                 else None
             )
+            optional_null_fill = _optional_null_fill_plan(
+                query,
+                alias_targets=alias_targets,
+                plan=plan,
+                params=params,
+            )
             return CompiledCypherQuery(
                 Chain(_lower_projection_chain(query, lowered, params=params, plan=plan), where=lowered.where),
                 seed_rows=False,
                 result_projection=_result_projection_plan(plan, alias_targets=alias_targets),
                 empty_result_row=empty_result_row,
+                optional_null_fill=optional_null_fill,
             )
 
     return _lower_general_row_projection(query, lowered, params=params)
