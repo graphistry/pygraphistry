@@ -6,6 +6,7 @@ try:
 except ImportError:  # pragma: no cover - stdlib fallback
     from unittest.mock import patch
 import graphistry
+import warnings
 
 from graphistry.pygraphistry import PyGraphistry, GraphistryClient
 from graphistry.messages import (
@@ -207,3 +208,47 @@ def test_switch_organization_not_permitted(mock_response, capfd):
     # PyGraphistry.org_name("not-permitted-org")
     # out, err = capfd.readouterr()
     # assert "Failed to switch organization" in out
+
+
+class TestApiVersionDeprecation(unittest.TestCase):
+    """Tests that api=1 emits a DeprecationWarning and continues working as v1."""
+
+    def test_api_version_1_emits_deprecation_warning(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            PyGraphistry.api_version(1)
+            dep = [x for x in w if issubclass(x.category, DeprecationWarning)]
+            self.assertEqual(len(dep), 1)
+            self.assertIn("api=1 is deprecated", str(dep[0].message))
+
+    def test_api_version_1_stays_as_1(self):
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            result = PyGraphistry.api_version(1)
+        self.assertEqual(result, 1)
+
+    def test_api_version_3_no_warning(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            PyGraphistry.api_version(3)
+            dep = [x for x in w if issubclass(x.category, DeprecationWarning)]
+            self.assertEqual(len(dep), 0)
+
+    def test_api_version_invalid_raises(self):
+        with self.assertRaises(ValueError):
+            PyGraphistry.api_version(2)
+
+    def test_register_api_1_emits_deprecation_warning(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            PyGraphistry.register(api=1, server="test.example.com")
+            dep = [x for x in w if issubclass(x.category, DeprecationWarning)]
+            self.assertGreaterEqual(len(dep), 1)
+            self.assertTrue(any("api=1 is deprecated" in str(d.message) for d in dep))
+
+    def test_register_api_3_no_deprecation_warning(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            PyGraphistry.register(api=3, server="test.example.com")
+            dep = [x for x in w if issubclass(x.category, DeprecationWarning)]
+            self.assertEqual(len(dep), 0)

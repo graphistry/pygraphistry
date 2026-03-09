@@ -12,7 +12,7 @@ from .plugins_types.kusto_types import KustoConfig
 
 
 
-ApiVersion = Literal[3]
+ApiVersion = Literal[1, 3]
 
 ENV_GRAPHISTRY_API_KEY = "GRAPHISTRY_API_KEY"
 
@@ -56,9 +56,16 @@ class ClientSession:
         env_api_version = get_from_env("GRAPHISTRY_API_VERSION", int)
         if env_api_version is None:
             env_api_version = 3
-        elif env_api_version != 3:
-            raise ValueError("Expected API version to be 3. Legacy API versions 1 and 2 are no longer supported. Got: %s" % env_api_version)
-        self.api_version: ApiVersion = cast(ApiVersion, env_api_version)  
+        elif env_api_version not in (1, 3):
+            raise ValueError("Expected API version to be 1 or 3, got: %s" % env_api_version)
+        if env_api_version == 1:
+            warnings.warn(
+                "api=1 is deprecated and will be removed in a future version. "
+                "Please use api=3.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        self.api_version: ApiVersion = cast(ApiVersion, env_api_version)
 
         self.dataset_prefix: str = get_from_env("GRAPHISTRY_DATASET_PREFIX", str, "PyGraphistry/")
         self.hostname: str = get_from_env("GRAPHISTRY_HOSTNAME", str, "hub.graphistry.com")

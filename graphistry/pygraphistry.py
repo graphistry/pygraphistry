@@ -1,3 +1,4 @@
+import warnings
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union, cast, overload
 from typing_extensions import Literal
 from graphistry.privacy import Mode, ModeAction
@@ -540,15 +541,23 @@ class GraphistryClient(AuthManagerProtocol):
         return otel_config(enabled=enabled, detail=detail, reset=reset)
 
     def api_version(self, value: Optional[ApiVersion] = None) -> ApiVersion:
-        """Set or get the API version. Only api=3 is supported.
-        Legacy API versions 1 and 2 are no longer supported.
+        """Set or get the API version. api=3 is recommended.
+        api=1 is deprecated and will be removed in a future version.
         Also set via environment variable GRAPHISTRY_API_VERSION."""
 
         if value is None:
             value = self.session.api_version
 
-        if value != 3:
-            raise ValueError("Expected API version to be 3. Legacy API versions 1 and 2 are no longer supported. Got: %s" % value)
+        if value not in (1, 3):
+            raise ValueError("Expected API version to be 1 or 3, got: %s" % value)
+
+        if value == 1:
+            warnings.warn(
+                "api=1 is deprecated and will be removed in a future version. "
+                "Please use api=3.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
         # setter
         self.session.api_version = value
@@ -583,7 +592,7 @@ class GraphistryClient(AuthManagerProtocol):
         personal_key_secret: Optional[str] = None,
         server: Optional[str] = None,
         protocol: Optional[str] = None,
-        api: Optional[Literal[3]] = None,
+        api: Optional[Literal[1, 3]] = None,
         certificate_validation: Optional[bool] = None,
         bolt: Optional[Union[Dict, Any]] = None,
         store_token_creds_in_memory: Optional[bool] = None,
@@ -617,8 +626,8 @@ class GraphistryClient(AuthManagerProtocol):
         :type server: Optional[str]
         :param protocol: Protocol to use for server uploaders, defaults to "https".
         :type protocol: Optional[str]
-        :param api: API version (only 3 is supported, uses Arrow+JWT)
-        :type api: Optional[Literal[3]]
+        :param api: API version (3 recommended; 1 is deprecated and will be removed in a future version)
+        :type api: Optional[Literal[1, 3]]
         :param certificate_validation: Override default-on check for valid TLS certificate by setting to True.
         :type certificate_validation: Optional[bool]
         :param bolt: Neo4j bolt information. Optional driver or named constructor arguments for instantiating a new one.
