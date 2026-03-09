@@ -850,8 +850,8 @@ def test_string_cypher_formats_small_float_entity_properties_without_scientific_
     graph = _mk_graph(
         pd.DataFrame(
             {
-                "id": ["a", "b"],
-                "num": [30.94857, 0.00002],
+                "id": ["a", "b", "c"],
+                "num": [30.94857, 0.00002, -0.00002],
             }
         ),
         pd.DataFrame({"s": [], "d": []}),
@@ -862,6 +862,7 @@ def test_string_cypher_formats_small_float_entity_properties_without_scientific_
     assert result._nodes.to_dict(orient="records") == [
         {"n": "({num: 30.94857})"},
         {"n": "({num: 0.00002})"},
+        {"n": "({num: -0.00002})"},
     ]
 
 

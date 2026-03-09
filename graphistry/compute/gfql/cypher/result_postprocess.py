@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
 from typing import Any, Literal, Sequence, TypedDict, cast
 
 from graphistry.Plottable import Plottable
@@ -66,16 +65,77 @@ def _quote_text_series(df: DataFrameT, alias_col: str, text: SeriesT) -> SeriesT
     return cast(SeriesT, _const_text(df, alias_col, "'") + escaped + "'")
 
 
-def _format_decimal_text(value: object) -> str:
-    try:
-        out = format(Decimal(str(value)), "f")
-    except (InvalidOperation, ValueError):
-        return str(value)
-    if "." in out:
-        out = out.rstrip("0").rstrip(".")
-    if out in {"-0", "-0.0", ""}:
-        return "0"
+def _const_text_from_template(text: SeriesT, value: str) -> SeriesT:
+    return cast(SeriesT, text.where(text.isna(), "") + value)
+
+
+def _zero_text_from_counts(text: SeriesT, counts: SeriesT) -> SeriesT:
+    out = _const_text_from_template(text, "")
+    max_count = int(counts.max()) if hasattr(counts, "max") else 0
+    for count in range(max_count + 1):
+        out = cast(SeriesT, out.where(counts != count, _const_text_from_template(text, "0" * count)))
     return out
+
+
+def _slice_text_by_position(text: SeriesT, digits: SeriesT, positions: SeriesT, *, left: bool) -> SeriesT:
+    out = _const_text_from_template(text, "")
+    max_pos = int(positions.max()) if hasattr(positions, "max") else 0
+    for pos in range(max_pos + 1):
+        piece = cast(SeriesT, digits.str.slice(0, pos) if left else digits.str.slice(pos, None))
+        out = cast(SeriesT, out.where(positions != pos, piece))
+    return out
+
+
+def _normalize_scientific_numeric_text(text: SeriesT) -> SeriesT:
+    sci_mask = cast(SeriesT, text.str.contains(r"[eE]", na=False))
+    out = cast(SeriesT, text.str.replace(r"\.0+$", "", regex=True))
+    if not hasattr(sci_mask, "any") or not bool(sci_mask.any()):
+        return out
+
+    parts = text.str.extract(r"^(?P<sign>[+-]?)(?P<int>\d+)(?:\.(?P<frac>\d+))?[eE](?P<exp>[+-]?\d+)$")
+    valid = cast(SeriesT, parts["int"].notna())
+    if not hasattr(valid, "any") or not bool(valid.any()):
+        return out
+
+    sign = cast(SeriesT, parts["sign"].fillna(""))
+    int_part = cast(SeriesT, parts["int"].fillna(""))
+    frac_part = cast(SeriesT, parts["frac"].fillna(""))
+    digits = cast(SeriesT, int_part + frac_part)
+    int_len = cast(SeriesT, int_part.str.len().fillna(0).astype("int64"))
+    digit_len = cast(SeriesT, digits.str.len().fillna(0).astype("int64"))
+    exponent = cast(SeriesT, parts["exp"].fillna("0").astype("int64"))
+    decimal_pos = cast(SeriesT, int_len + exponent)
+
+    neg_mask = cast(SeriesT, valid & (decimal_pos <= 0))
+    if hasattr(neg_mask, "any") and bool(neg_mask.any()):
+        zero_prefix = _zero_text_from_counts(
+            text,
+            cast(SeriesT, (-decimal_pos).where(neg_mask, 0).astype("int64")),
+        )
+        neg_out = cast(SeriesT, sign + _const_text_from_template(text, "0.") + zero_prefix + digits)
+        out = cast(SeriesT, out.where(~neg_mask, neg_out))
+
+    tail_mask = cast(SeriesT, valid & (decimal_pos >= digit_len))
+    if hasattr(tail_mask, "any") and bool(tail_mask.any()):
+        zero_suffix = _zero_text_from_counts(
+            text,
+            cast(SeriesT, (decimal_pos - digit_len).where(tail_mask, 0).astype("int64")),
+        )
+        tail_out = cast(SeriesT, sign + digits + zero_suffix)
+        out = cast(SeriesT, out.where(~tail_mask, tail_out))
+
+    mid_mask = cast(SeriesT, valid & ~(neg_mask | tail_mask))
+    if hasattr(mid_mask, "any") and bool(mid_mask.any()):
+        positions = cast(SeriesT, decimal_pos.where(mid_mask, 0).astype("int64"))
+        left = _slice_text_by_position(text, digits, positions, left=True)
+        right = _slice_text_by_position(text, digits, positions, left=False)
+        mid_out = cast(SeriesT, sign + left + _const_text_from_template(text, ".") + right)
+        out = cast(SeriesT, out.where(~mid_mask, mid_out))
+
+    out = cast(SeriesT, out.str.replace(r"(\.\d*?[1-9])0+$", r"\1", regex=True))
+    out = cast(SeriesT, out.str.replace(r"\.0+$", "", regex=True))
+    neg_zero = cast(SeriesT, out.isin(["-0", "-0.0", "-0."]))
+    return cast(SeriesT, out.where(~neg_zero, "0"))
 
 
 def _normalize_temporal_constructor_series(
@@ -181,12 +241,7 @@ def _render_scalar_value_text(df: DataFrameT, alias_col: str, series: SeriesT) -
     if "bool" in dtype_txt and hasattr(text, "str"):
         return cast(SeriesT, text.str.lower())
     if "float" in dtype_txt and hasattr(text, "str"):
-        out = cast(SeriesT, text.str.replace(r"\.0+$", "", regex=True))
-        sci_mask = cast(SeriesT, text.str.contains(r"[eE]", na=False))
-        if hasattr(sci_mask, "any") and bool(sci_mask.any()) and hasattr(series, "map"):
-            formatted = cast(SeriesT, series.map(_format_decimal_text))
-            out = cast(SeriesT, out.where(~sci_mask, formatted))
-        return out
+        return _normalize_scientific_numeric_text(text)
     if any(token in dtype_txt for token in ("int", "double", "decimal")):
         return text
     if dtype_txt == "object" and hasattr(text, "str"):
@@ -207,12 +262,7 @@ def _render_scalar_value_text(df: DataFrameT, alias_col: str, series: SeriesT) -
         if hasattr(bool_like, "where") and bool(bool_like.where(non_null, True).all()):
             return cast(SeriesT, text.str.lower())
         if hasattr(num_like, "where") and bool(num_like.where(non_null, True).all()):
-            out = cast(SeriesT, text.str.replace(r"\.0+$", "", regex=True))
-            sci_mask = cast(SeriesT, text.str.contains(r"[eE]", na=False))
-            if hasattr(sci_mask, "any") and bool(sci_mask.any()) and hasattr(series, "map"):
-                formatted = cast(SeriesT, series.map(_format_decimal_text))
-                out = cast(SeriesT, out.where(~sci_mask, formatted))
-            return out
+            return _normalize_scientific_numeric_text(text)
         out = _quote_text_series(df, alias_col, text)
         out = cast(SeriesT, out.where(~bool_like, text.str.lower()))
         out = cast(SeriesT, out.where(~num_like, text.str.replace(r"\.0+$", "", regex=True)))
