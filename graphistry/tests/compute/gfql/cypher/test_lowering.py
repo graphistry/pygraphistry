@@ -1475,6 +1475,103 @@ def test_string_cypher_executes_temporal_localdatetime_cast_from_aware_datetime_
     assert result._nodes.to_dict(orient="records") == [{"result": "1984-10-11T12:00"}]
 
 
+def test_string_cypher_executes_temporal_time_cast_and_constructor_from_named_zone_datetime_alias() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS other "
+        "RETURN "
+        "time(other) AS cast_result, "
+        "time({time: other}) AS ctor_result, "
+        "time({time: other, timezone: '+05:00'}) AS converted_result, "
+        "time({time: other, second: 42, timezone: '+05:00'}) AS converted_second_result"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {
+            "cast_result": "12:00+01:00",
+            "ctor_result": "12:00+01:00",
+            "converted_result": "16:00+05:00",
+            "converted_second_result": "16:00:42+05:00",
+        }
+    ]
+
+
+def test_string_cypher_executes_temporal_time_constructor_converts_aware_time_alias_timezone() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "WITH time({hour: 12, minute: 31, second: 14, microsecond: 645876, timezone: '+01:00'}) AS other "
+        "RETURN "
+        "time({time: other, timezone: '+05:00'}) AS converted_result, "
+        "time({time: other, second: 42, timezone: '+05:00'}) AS converted_second_result"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {
+            "converted_result": "16:31:14.645876+05:00",
+            "converted_second_result": "16:31:42.645876+05:00",
+        }
+    ]
+
+
+def test_string_cypher_executes_temporal_datetime_constructor_preserves_and_converts_named_zone_time_alias() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS other "
+        "RETURN "
+        "datetime({year: 1984, month: 10, day: 11, time: other}) AS preserved_result, "
+        "datetime({year: 1984, month: 10, day: 11, time: other, second: 42}) AS preserved_second_result, "
+        "datetime({year: 1984, month: 10, day: 11, time: other, timezone: '+05:00'}) AS converted_result, "
+        "datetime({year: 1984, month: 10, day: 11, time: other, second: 42, timezone: 'Pacific/Honolulu'}) AS converted_named_result"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {
+            "preserved_result": "1984-10-11T12:00+01:00[Europe/Stockholm]",
+            "preserved_second_result": "1984-10-11T12:00:42+01:00[Europe/Stockholm]",
+            "converted_result": "1984-10-11T16:00+05:00",
+            "converted_named_result": "1984-10-11T01:00:42-10:00[Pacific/Honolulu]",
+        }
+    ]
+
+
+def test_string_cypher_executes_temporal_datetime_constructor_recomputes_named_zone_offset_for_new_date() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "WITH "
+        "localdatetime({year: 1984, week: 10, dayOfWeek: 3, hour: 12, minute: 31, second: 14, millisecond: 645}) AS otherDate, "
+        "datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS otherTime "
+        "RETURN datetime({date: otherDate, time: otherTime, day: 28, second: 42}) AS result"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"result": "1984-03-28T12:00:42+02:00[Europe/Stockholm]"}
+    ]
+
+
+def test_string_cypher_executes_temporal_datetime_constructor_from_named_zone_datetime_alias() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS other "
+        "RETURN "
+        "datetime({datetime: other}) AS preserved_result, "
+        "datetime({datetime: other, timezone: '+05:00'}) AS converted_result, "
+        "datetime({datetime: other, day: 28, second: 42}) AS recomputed_result"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {
+            "preserved_result": "1984-10-11T12:00+01:00[Europe/Stockholm]",
+            "converted_result": "1984-10-11T16:00+05:00",
+            "recomputed_result": "1984-10-28T12:00:42+01:00[Europe/Stockholm]",
+        }
+    ]
+
+
 def test_string_cypher_executes_temporal_date_truncate() -> None:
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 

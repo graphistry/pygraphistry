@@ -6,6 +6,7 @@ from datetime import date as py_date
 from datetime import datetime as py_datetime
 from datetime import timedelta
 from datetime import timezone as py_timezone
+from datetime import tzinfo as py_tzinfo
 import re
 from typing import Optional, cast
 from zoneinfo import ZoneInfo
@@ -205,6 +206,13 @@ def _normalize_offset_text(tz_text: str) -> str:
     return f"{sign}{hour}:{minute}:{second}"
 
 
+def _split_tz_suffix_parts(tz_suffix: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    if tz_suffix is None:
+        return None, None
+    core, zone_name = _split_zone_name(tz_suffix)
+    return (core or None), zone_name
+
+
 def _format_offset(delta: timedelta) -> str:
     total_seconds = int(delta.total_seconds())
     sign = "+" if total_seconds >= 0 else "-"
@@ -302,8 +310,12 @@ def _base_time_int(base: Optional[dict[str, object]], key: str, default: int) ->
     return value if isinstance(value, int) else default
 
 
-def _date_from_fields(fields: dict[str, str]) -> Optional[py_date]:
-    base = _base_date_from_text(_first_present_field_text(fields, "date", "datetime", "localdatetime"))
+def _date_from_fields(
+    fields: dict[str, str],
+    *,
+    base_date: Optional[py_date] = None,
+) -> Optional[py_date]:
+    base = base_date or _base_date_from_text(_first_present_field_text(fields, "date", "datetime", "localdatetime"))
     if "month" in fields or "day" in fields:
         year = _parse_int(fields.get("year"), base.year if base is not None else None)
         if year is None:
@@ -358,8 +370,8 @@ def _date_from_fields(fields: dict[str, str]) -> Optional[py_date]:
     return py_date(year, 1, 1)
 
 
-def _normalize_date_map(fields: dict[str, str]) -> Optional[str]:
-    value = _date_from_fields(fields)
+def _normalize_date_map(fields: dict[str, str], *, base_date: Optional[py_date] = None) -> Optional[str]:
+    value = _date_from_fields(fields, base_date=base_date)
     if value is None:
         return None
     return _format_date(value.year, value.month, value.day)
@@ -426,8 +438,13 @@ def _normalize_localtime_string(text: str) -> Optional[str]:
     return out
 
 
-def _normalize_localtime_map(fields: dict[str, str]) -> Optional[str]:
-    base = _base_time_parts_from_text(_first_present_field_text(fields, "time", "datetime", "localdatetime"))
+def _normalize_localtime_map(
+    fields: dict[str, str],
+    *,
+    base: Optional[dict[str, object]] = None,
+) -> Optional[str]:
+    if base is None:
+        base = _base_time_parts_from_text(_first_present_field_text(fields, "time", "datetime", "localdatetime"))
     hour = _parse_int(fields.get("hour"), _base_time_int(base, "hour", 0))
     minute = _parse_int(fields.get("minute"), _base_time_int(base, "minute", 0))
     second_default = (
@@ -458,21 +475,151 @@ def _normalize_time_string(text: str) -> Optional[str]:
     return local + _normalize_offset_text(match.group("tz"))
 
 
+def _source_temporal_value(fields: dict[str, str]) -> Optional[_TemporalValue]:
+    source_text = _first_present_field_text(fields, "time", "datetime", "localdatetime")
+    if source_text is None:
+        return None
+    return _parse_temporal_value(source_text)
+
+
+def _resolve_timezone_target(
+    timezone_text: str,
+) -> Optional[tuple[object, Optional[str], str]]:
+    zone_name = _parse_quoted(timezone_text)
+    target_text = zone_name if zone_name is not None else timezone_text
+    normalized_offset = _normalize_offset_text(target_text)
+    if re.fullmatch(r"Z|[+-]\d{2}:\d{2}(?::\d{2})?", normalized_offset):
+        if normalized_offset == "Z":
+            return py_timezone.utc, None, "Z"
+        offset_delta = py_timedelta_from_offset(normalized_offset)
+        if offset_delta is None:
+            return None
+        return py_timezone(offset_delta), None, normalized_offset
+    try:
+        return ZoneInfo(target_text), target_text, target_text
+    except Exception:
+        return None
+
+
+def _render_explicit_timezone_suffix(
+    timezone_text: str,
+    local_datetime_text: str,
+    *,
+    keep_zone_name: bool,
+) -> Optional[str]:
+    resolved = _resolve_timezone_target(timezone_text)
+    if resolved is None:
+        return None
+    _, zone_name, fixed_suffix = resolved
+    if zone_name is None:
+        return fixed_suffix
+    suffix = _zone_suffix(zone_name, local_datetime_text)
+    if suffix is None:
+        return None
+    if keep_zone_name:
+        return suffix
+    return suffix.split("[", 1)[0]
+
+
+def _preserve_source_timezone_suffix(
+    source_value: Optional[_TemporalValue],
+    local_datetime_text: str,
+    *,
+    keep_zone_name: bool,
+) -> Optional[str]:
+    if source_value is None or source_value.tz_suffix is None:
+        return None
+    offset, zone_name = _split_tz_suffix_parts(source_value.tz_suffix)
+    if zone_name is None:
+        return offset or "Z"
+    suffix = _zone_suffix(zone_name, local_datetime_text)
+    if suffix is None:
+        return None
+    if keep_zone_name:
+        return suffix
+    return suffix.split("[", 1)[0]
+
+
+def _converted_aware_source_base(
+    source_value: Optional[_TemporalValue],
+    source_base: Optional[dict[str, object]],
+    timezone_text: str,
+    *,
+    target_date: Optional[py_date],
+) -> tuple[Optional[dict[str, object]], Optional[py_date]]:
+    if source_value is None or source_value.tz_suffix is None:
+        return source_base, target_date
+    resolved = _resolve_timezone_target(timezone_text)
+    if resolved is None:
+        return source_base, target_date
+    target_tzinfo, _, _ = resolved
+    anchor_date = target_date or source_value.date_value or py_date(1970, 1, 1)
+    conversion_source = source_value
+    if target_date is not None and source_value.date_value is not None:
+        conversion_source = _TemporalValue(
+            kind=source_value.kind,
+            date_value=target_date,
+            hour=source_value.hour,
+            minute=source_value.minute,
+            second=source_value.second,
+            nanosecond=source_value.nanosecond,
+            tz_suffix=source_value.tz_suffix,
+        )
+    source_dt = _comparable_datetime(
+        conversion_source,
+        include_date=True,
+        keep_timezone=True,
+        anchor_date=anchor_date,
+    )
+    converted_dt = source_dt.astimezone(cast(py_tzinfo, target_tzinfo))
+    converted_base: dict[str, object] = {} if source_base is None else dict(source_base)
+    converted_base["hour"] = converted_dt.hour
+    converted_base["minute"] = converted_dt.minute
+    converted_base["second"] = converted_dt.second
+    converted_base["nanosecond"] = source_value.nanosecond
+    converted_base["tz"] = _normalize_offset_text(
+        "Z" if converted_dt.utcoffset() in {None, timedelta(0)} else _format_offset(cast(timedelta, converted_dt.utcoffset()))
+    )
+    converted_base["has_second"] = bool(converted_base.get("has_second")) or converted_dt.second != 0
+    converted_base["has_fraction"] = bool(converted_base.get("has_fraction")) or source_value.nanosecond != 0
+    return converted_base, converted_dt.date()
+
+
 def _normalize_time_map(fields: dict[str, str]) -> Optional[str]:
-    base = _base_time_parts_from_text(_first_present_field_text(fields, "time", "datetime", "localdatetime"))
+    source_value = _source_temporal_value(fields)
+    source_base = _base_time_parts_from_text(_first_present_field_text(fields, "time", "datetime", "localdatetime"))
     tz_text = fields.get("timezone")
-    local = _normalize_localtime_map(fields)
+    effective_date = source_value.date_value if source_value is not None else py_date(1970, 1, 1)
+    effective_base = source_base
+    if tz_text is not None:
+        effective_base, effective_date = _converted_aware_source_base(
+            source_value,
+            source_base,
+            tz_text,
+            target_date=effective_date,
+        )
+    local = _normalize_localtime_map(fields, base=effective_base)
     if local is None:
         return None
+    local_datetime_text = _zone_compatible_local_datetime_text(effective_date or py_date(1970, 1, 1), local)
     if tz_text is None:
-        base_tz = None if base is None else cast(Optional[str], base.get("tz"))
+        preserved_suffix = _preserve_source_timezone_suffix(
+            source_value,
+            local_datetime_text,
+            keep_zone_name=False,
+        )
+        if preserved_suffix is not None:
+            return local + preserved_suffix
+        base_tz = None if effective_base is None else cast(Optional[str], effective_base.get("tz"))
         return local + (base_tz or "Z")
-    zone = _parse_quoted(tz_text)
-    if zone is None:
-        return local + _normalize_offset_text(tz_text)
-    if re.fullmatch(r"Z|[+-]\d{2}(?::?\d{2})?(?::?\d{2})?", zone):
-        return local + _normalize_offset_text(zone)
-    return local + f"[{zone}]"
+    explicit_suffix = _render_explicit_timezone_suffix(
+        tz_text,
+        local_datetime_text,
+        keep_zone_name=False,
+    )
+    if explicit_suffix is None:
+        return None
+    return local + explicit_suffix
 
 
 def _normalize_localdatetime_string(text: str) -> Optional[str]:
@@ -542,23 +689,72 @@ def _normalize_datetime_string(text: str) -> Optional[str]:
 
 
 def _normalize_datetime_map(fields: dict[str, str]) -> Optional[str]:
-    date_part = _normalize_date_map(fields)
-    time_part = _normalize_localtime_map(fields)
+    source_value = _source_temporal_value(fields)
+    source_base = _base_time_parts_from_text(_first_present_field_text(fields, "time", "datetime", "localdatetime"))
+    tz_text = fields.get("timezone")
+    source_date_base = _base_date_from_text(_first_present_field_text(fields, "date", "datetime", "localdatetime"))
+    effective_base_date = source_date_base or (source_value.date_value if source_value is not None else None)
+    effective_time_base = source_base
+    explicit_date_controls = any(
+        key in fields
+        for key in (
+            "date",
+            "year",
+            "month",
+            "day",
+            "week",
+            "dayOfWeek",
+            "ordinalDay",
+            "quarter",
+            "dayOfQuarter",
+        )
+    )
+    date_part: Optional[str]
+    if explicit_date_controls:
+        date_part = _normalize_date_map(fields, base_date=effective_base_date)
+        if date_part is None:
+            return None
+        target_date = _base_date_from_text(date_part)
+        if tz_text is not None:
+            effective_time_base, _ = _converted_aware_source_base(
+                source_value,
+                source_base,
+                tz_text,
+                target_date=target_date,
+            )
+    else:
+        if tz_text is not None:
+            effective_time_base, converted_base_date = _converted_aware_source_base(
+                source_value,
+                source_base,
+                tz_text,
+                target_date=effective_base_date,
+            )
+            if source_date_base is None and converted_base_date is not None:
+                effective_base_date = converted_base_date
+        date_part = _normalize_date_map(fields, base_date=effective_base_date)
+    time_part = _normalize_localtime_map(fields, base=effective_time_base)
     if date_part is None or time_part is None:
         return None
     out = f"{date_part}T{time_part}"
-    tz_text = fields.get("timezone")
     if tz_text is None:
-        base = _base_time_parts_from_text(_first_present_field_text(fields, "time", "datetime"))
-        base_tz = None if base is None else cast(Optional[str], base.get("tz"))
+        preserved_suffix = _preserve_source_timezone_suffix(
+            source_value,
+            out,
+            keep_zone_name=True,
+        )
+        if preserved_suffix is not None:
+            return out + preserved_suffix
+        base_tz = None if effective_time_base is None else cast(Optional[str], effective_time_base.get("tz"))
         return out + (base_tz or "Z")
-    zone_name = _parse_quoted(tz_text)
-    if zone_name is not None:
-        if re.fullmatch(r"Z|[+-]\d{2}(?::?\d{2})?(?::?\d{2})?", zone_name):
-            return out + _normalize_offset_text(zone_name)
-        suffix = _zone_suffix(zone_name, out)
-        return out + suffix if suffix is not None else None
-    return out + _normalize_offset_text(tz_text)
+    explicit_suffix = _render_explicit_timezone_suffix(
+        tz_text,
+        out,
+        keep_zone_name=True,
+    )
+    if explicit_suffix is None:
+        return None
+    return out + explicit_suffix
 
 
 def _normalize_duration_string(text: str) -> Optional[str]:
@@ -736,11 +932,14 @@ def _cast_temporal_to_time_string(text: str) -> Optional[str]:
     parts = _extract_time_text_parts(normalized)
     if parts is None:
         return None
-    local_text, tz_text, zone_name = parts
-    if tz_text is None and zone_name is None:
-        return local_text + "Z"
-    suffix = (tz_text or "") + (f"[{zone_name}]" if zone_name is not None else "")
-    return local_text + suffix
+    local_text, _, _ = parts
+    parsed = _parse_temporal_value(normalized)
+    preserved_suffix = _preserve_source_timezone_suffix(
+        parsed,
+        _zone_compatible_local_datetime_text(parsed.date_value if parsed is not None and parsed.date_value is not None else py_date(1970, 1, 1), local_text),
+        keep_zone_name=False,
+    )
+    return local_text + (preserved_suffix or "Z")
 
 
 def _cast_temporal_to_localdatetime_string(text: str) -> Optional[str]:
