@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast as pyast
 from dataclasses import dataclass
 from functools import lru_cache
+import re
 from typing import Any, List, Optional, Protocol, Sequence, Tuple, Type, Union, cast
 
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
@@ -36,9 +37,11 @@ from graphistry.compute.gfql.cypher.ast import (
 _GRAMMAR = r"""
 ?start: query
 
-query: match_clause+ where_clause? unwind_clause* stage+ SEMI?
-     | unwind_clause+ stage+ SEMI?
-     | stage+ SEMI?
+query: query_item+ SEMI?
+query_item: match_clause
+          | where_clause
+          | unwind_clause
+          | stage
 
 stage: with_stage
      | return_stage
@@ -103,6 +106,7 @@ return_expr: "*"                              -> projection_star
            | label_predicate_expr
            | expr
 label_predicate_expr: "(" NAME labels ")"    -> grouped_label_predicate
+bare_label_predicate_expr: NAME labels       -> bare_label_predicate
 alias: "AS"i NAME
 
 order_by_clause: "ORDER"i "BY"i order_item ("," order_item)*
@@ -138,6 +142,7 @@ order_expr: expr
 ?predicate: comparable
           | comparable COMP_OP comparable COMP_OP comparable -> chained_cmp
           | comparable COMP_OP comparable   -> cmp_op
+          | bare_label_predicate_expr
 
 ?comparable: additive
            | additive "IS"i "NULL"i          -> expr_is_null
@@ -237,6 +242,8 @@ BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
 %ignore LINE_COMMENT
 %ignore BLOCK_COMMENT
 """
+
+_BARE_LABEL_PREDICATE_RE = re.compile(r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)((?::[A-Za-z_][A-Za-z0-9_]*)+)$")
 
 
 class _ParserLike:
@@ -616,6 +623,21 @@ def _build_transformer(source: str) -> _TransformerLike:
         def generic_where_clause(self, meta: Any, _items: Sequence[Any]) -> WhereClause:
             span = _span_from_meta(meta)
             expr = self._slice(span)[len("WHERE"):].strip()
+            bare_label_match = _BARE_LABEL_PREDICATE_RE.fullmatch(expr)
+            if bare_label_match is not None:
+                labels = tuple(label for label in bare_label_match.group(2).split(":") if label)
+                return WhereClause(
+                    predicates=(
+                        WherePredicate(
+                            left=LabelRef(alias=bare_label_match.group("alias"), labels=labels, span=span),
+                            op="has_labels",
+                            right=None,
+                            span=span,
+                        ),
+                    ),
+                    expr=None,
+                    span=span,
+                )
             return WhereClause(predicates=(), expr=ExpressionText(text=expr, span=span), span=span)
 
         def unwind_clause(self, meta: Any, items: Sequence[Any]) -> UnwindClause:
@@ -652,6 +674,15 @@ def _build_transformer(source: str) -> _TransformerLike:
             return _ExpressionSlice(text="*", span=span)
 
         def grouped_label_predicate(self, meta: Any, items: Sequence[Any]) -> _ExpressionSlice:
+            if len(items) != 2:
+                raise _to_syntax_error("Invalid label predicate expression", line=meta.line, column=meta.column)
+            labels = cast(Sequence[str], items[1])
+            if len(labels) == 0:
+                raise _to_syntax_error("Label predicate must reference at least one label", line=meta.line, column=meta.column)
+            span = _span_from_meta(meta)
+            return _ExpressionSlice(text=self._slice(span), span=span)
+
+        def bare_label_predicate(self, meta: Any, items: Sequence[Any]) -> _ExpressionSlice:
             if len(items) != 2:
                 raise _to_syntax_error("Invalid label predicate expression", line=meta.line, column=meta.column)
             labels = cast(Sequence[str], items[1])
@@ -781,21 +812,43 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("Invalid projection stage")
             return items[0]
 
+        def query_item(self, meta: Any, items: Sequence[Any]) -> Any:
+            if len(items) != 1:
+                raise _to_syntax_error("Invalid query item", line=meta.line, column=meta.column)
+            return items[0]
+
         def query(self, meta: Any, items: Sequence[Any]) -> CypherQuery:
             trailing_semicolon = any(str(item) == ";" for item in items)
             match_clauses: List[MatchClause] = []
             where_clause: Optional[WhereClause] = None
             unwind_clauses: List[UnwindClause] = []
             stages: List[ProjectionStage] = []
+            ordered_row_items: List[Union[ProjectionStage, UnwindClause]] = []
+            seen_stage = False
             for item in items:
                 if isinstance(item, MatchClause):
+                    if seen_stage:
+                        raise _to_syntax_error(
+                            "Cypher MATCH after WITH/RETURN is not yet supported in the local compiler",
+                            line=item.span.line,
+                            column=item.span.column,
+                        )
                     match_clauses.append(item)
                 elif isinstance(item, WhereClause):
                     where_clause = item
                 elif isinstance(item, UnwindClause):
+                    if match_clauses and seen_stage:
+                        raise _to_syntax_error(
+                            "Cypher UNWIND after WITH/RETURN is only supported in row-only local queries",
+                            line=item.span.line,
+                            column=item.span.column,
+                        )
                     unwind_clauses.append(item)
+                    ordered_row_items.append(item)
                 elif isinstance(item, ProjectionStage):
                     stages.append(item)
+                    ordered_row_items.append(item)
+                    seen_stage = True
             if len(stages) == 0:
                 raise _to_syntax_error(
                     "Cypher query must contain a RETURN/WITH clause",
@@ -822,6 +875,9 @@ def _build_transformer(source: str) -> _TransformerLike:
                     line=where_clause.span.line,
                     column=where_clause.span.column,
                 )
+            row_sequence: Tuple[Union[ProjectionStage, UnwindClause], ...] = ()
+            if not match_clauses and where_clause is None:
+                row_sequence = tuple(ordered_row_items)
             return CypherQuery(
                 matches=tuple(match_clauses),
                 where=where_clause,
@@ -831,6 +887,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 order_by=final_stage.order_by,
                 skip=final_stage.skip,
                 limit=final_stage.limit,
+                row_sequence=row_sequence,
                 trailing_semicolon=trailing_semicolon,
                 span=_span_from_meta(meta),
             )

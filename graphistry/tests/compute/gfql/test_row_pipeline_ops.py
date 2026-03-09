@@ -773,6 +773,16 @@ class TestRowPipelineExecution:
                 id="slice-variants",
             ),
             pytest.param(
+                {"id": ["a"], "vals": [[[1], [2, 3], [4, 5], 5, [6, 7], [8, 9], 10]]},
+                [
+                    ("mid", "vals[1..3]"),
+                    ("tail", "vals[4..6]"),
+                    ("empty", "vals[0..0]"),
+                ],
+                [{"mid": [[2, 3], [4, 5]], "tail": [[6, 7], [8, 9]], "empty": []}],
+                id="list-slice-variants",
+            ),
+            pytest.param(
                 {"id": ["a"]},
                 [("v", "[[1, 2, 3]]"), ("has3", "3 IN [[1, 2, 3]][0]")],
                 [{"v": [[1, 2, 3]], "has3": True}],

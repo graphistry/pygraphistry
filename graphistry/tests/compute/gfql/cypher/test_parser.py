@@ -226,12 +226,30 @@ def test_parse_multiple_with_stages_and_long_order_directions() -> None:
     parsed = parse_cypher("WITH 1 AS a, 2 AS b WITH a ORDER BY a ASCENDING WITH a ORDER BY a DESCENDING RETURN a")
 
     assert len(parsed.with_stages) == 3
+    assert len(parsed.row_sequence) == 4
     assert parsed.with_stages[0].clause.items[0].expression.text == "1"
     assert parsed.with_stages[1].order_by is not None
     assert parsed.with_stages[1].order_by.items[0].direction == "asc"
     assert parsed.with_stages[2].order_by is not None
     assert parsed.with_stages[2].order_by.items[0].direction == "desc"
     assert parsed.return_.items[0].expression.text == "a"
+
+
+def test_parse_interleaved_row_only_with_unwind_sequence() -> None:
+    parsed = parse_cypher(
+        "WITH [0, 1] AS prows, [[2], [3, 4]] AS qrows "
+        "UNWIND prows AS p "
+        "UNWIND qrows[p] AS q "
+        "WITH p, count(q) AS rng "
+        "RETURN p "
+        "ORDER BY rng"
+    )
+
+    assert parsed.match is None
+    assert len(parsed.row_sequence) == 5
+    assert parsed.return_.items[0].expression.text == "p"
+    assert parsed.order_by is not None
+    assert parsed.order_by.items[0].expression.text == "rng"
 
 
 def test_parse_unwind_without_match() -> None:

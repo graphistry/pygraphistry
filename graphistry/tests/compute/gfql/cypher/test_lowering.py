@@ -854,6 +854,102 @@ def test_string_cypher_supports_generic_match_where_chained_comparison() -> None
     assert result._nodes.to_dict(orient="records") == []
 
 
+def test_string_cypher_supports_distinct_with_aggregate_grouping() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "color": ["red", "red", "blue"],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (a) RETURN DISTINCT a.color, count(*)")
+
+    actual = sorted(
+        result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records"),
+        key=lambda row: cast(str, row["a.color"]),
+    )
+
+    assert actual == [
+        {"a.color": "blue", "count(*)": 1},
+        {"a.color": "red", "count(*)": 2},
+    ]
+
+
+def test_string_cypher_collects_node_entities_in_aggregate_projection() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["n1"]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n) RETURN count(n), collect(n)")
+
+    assert result._nodes.to_dict(orient="records") == [{"count(n)": 1, "collect(n)": ["()"]}]
+
+
+def test_string_cypher_orders_on_aggregate_expression_using_projected_outputs() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["m1", "m2", "m3", "m4"],
+                "label__Person": [True, True, True, True],
+                "age": [20, 20, 30, 30],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (me:Person) "
+        "RETURN me.age AS age, count(*) AS cnt "
+        "ORDER BY age, age + count(*)"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"age": 20, "cnt": 2},
+        {"age": 30, "cnt": 2},
+    ]
+
+
+def test_string_cypher_supports_bare_label_predicate_in_with_where() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["root", "t1", "t2"],
+                "label__Root": [True, False, False],
+                "label__TextNode": [False, True, True],
+                "name": ["x", None, None],
+                "var": ["aa", "tf", "td"],
+            }
+        ),
+        pd.DataFrame({"s": ["root", "root"], "d": ["t1", "t2"]}),
+    )
+
+    result = graph.gfql("MATCH (:Root {name: 'x'})-->(i:TextNode) WITH i WHERE i.var > 'te' AND i:TextNode RETURN i")
+
+    assert result._nodes.to_dict(orient="records") == [{"i": "(:TextNode {var: 'tf'})"}]
+
+
+def test_string_cypher_supports_list_slice_precedence_with_concat() -> None:
+    graph = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = graph.gfql(
+        "RETURN [[1], [2, 3], [4, 5]] + [5, [6, 7], [8, 9], 10][1..3] AS a, "
+        "[[1], [2, 3], [4, 5]] + ([5, [6, 7], [8, 9], 10][1..3]) AS b, "
+        "([[1], [2, 3], [4, 5]] + [5, [6, 7], [8, 9], 10])[1..3] AS c"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {
+            "a": [[1], [2, 3], [4, 5], [6, 7], [8, 9]],
+            "b": [[1], [2, 3], [4, 5], [6, 7], [8, 9]],
+            "c": [[2, 3], [4, 5]],
+        }
+    ]
+
+
 def test_string_cypher_supports_constant_limit_expressions() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["n1", "n2", "n3"]}),
@@ -1478,6 +1574,21 @@ def test_string_cypher_executes_multiple_with_stages() -> None:
     assert result._nodes.to_dict(orient="records") == [{"a": 1}]
 
 
+def test_string_cypher_executes_interleaved_row_only_with_unwind_pipeline() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "WITH [0, 1] AS prows, [[2], [3, 4]] AS qrows "
+        "UNWIND prows AS p "
+        "UNWIND qrows[p] AS q "
+        "WITH p, count(q) AS rng "
+        "RETURN p "
+        "ORDER BY rng"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"p": 0}, {"p": 1}]
+
+
 def test_string_cypher_rejects_out_of_scope_order_by_after_multiple_with_stages() -> None:
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 
@@ -1999,7 +2110,7 @@ def test_gfql_executes_count_distinct_missing_property_as_zero() -> None:
 
 def test_cypher_to_gfql_rejects_multi_source_aggregate_expr() -> None:
     with pytest.raises(GFQLValidationError) as exc_info:
-        cypher_to_gfql("MATCH (a)-[r]->(b) RETURN a.id AS a_id, max(b.id) AS max_b")
+        cypher_to_gfql("MATCH (a)-[r]->(b) RETURN a.id AS a_id, max(b.score) AS max_b")
 
     assert exc_info.value.code == ErrorCode.E108
 

@@ -180,6 +180,7 @@ class CypherQuery:
     order_by: Optional[OrderByClause]
     skip: Optional[SkipClause]
     limit: Optional[LimitClause]
+    row_sequence: Tuple[Union[ProjectionStage, UnwindClause], ...]
     trailing_semicolon: bool
     span: SourceSpan
 
