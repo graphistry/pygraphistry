@@ -2244,7 +2244,7 @@ class PlotterBase(Plottable):
             try:
                 server_base = '%s://%s' % (self.session.protocol, self.session.hostname)
                 resp = requests.post(
-                    '%s/api/v2/auth/jwt/ott/' % server_base,
+                    '%s/api/v1/auth/jwt/ott/' % server_base,
                     headers={'Authorization': 'Bearer %s' % token},
                     verify=self.session.certificate_validation,
                 )
