@@ -2639,6 +2639,28 @@ def test_string_cypher_executes_with_orderby4_style_mixed_whole_row_pipeline() -
     ]
 
 
+def test_string_cypher_executes_with_match_reentry_limit_shape() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "a2", "b1", "b2"],
+            "label__A": [True, True, False, False],
+            "name": ["alpha", "beta", None, None],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a1", "a2"],
+            "d": ["b1", "b2"],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A) WITH a ORDER BY a.name LIMIT 1 MATCH (a)-->(b) RETURN a"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
+
+
 def test_cypher_to_gfql_rejects_multi_alias_projection() -> None:
     with pytest.raises(GFQLValidationError) as exc_info:
         cypher_to_gfql("MATCH (p)-[r]->(q) RETURN p.id, q.id")

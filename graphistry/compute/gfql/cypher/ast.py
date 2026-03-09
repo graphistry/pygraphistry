@@ -192,6 +192,8 @@ class CypherQuery:
     row_sequence: Tuple[Union[ProjectionStage, UnwindClause], ...]
     trailing_semicolon: bool
     span: SourceSpan
+    reentry_matches: Tuple[MatchClause, ...] = ()
+    reentry_where: Optional[WhereClause] = None
 
     @property
     def match(self) -> Optional[MatchClause]:

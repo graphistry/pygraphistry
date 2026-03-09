@@ -170,6 +170,15 @@ def test_parse_with_where_pipeline() -> None:
     assert parsed.with_stages[0].where.text == "a IS NULL"
 
 
+def test_parse_match_after_with_reentry_shape() -> None:
+    parsed = parse_cypher("MATCH (a:A) WITH a ORDER BY a.name LIMIT 1 MATCH (a)-->(b) RETURN a")
+
+    assert len(parsed.matches) == 1
+    assert len(parsed.with_stages) == 1
+    assert len(parsed.reentry_matches) == 1
+    assert parsed.reentry_where is None
+
+
 def test_parse_where_label_predicate() -> None:
     parsed = parse_cypher("MATCH (a)-->(b) WHERE b:Foo:Bar RETURN b")
 

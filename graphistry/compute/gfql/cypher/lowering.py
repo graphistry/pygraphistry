@@ -96,6 +96,8 @@ class CompiledCypherQuery:
     result_projection: Optional["ResultProjectionPlan"] = None
     empty_result_row: Optional[Dict[str, Any]] = None
     optional_null_fill: Optional["OptionalNullFillPlan"] = None
+    start_nodes_query: Optional["CompiledCypherQuery"] = None
+    start_nodes_output_name: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -5084,6 +5086,104 @@ def lower_cypher_query(
     return compile_cypher_query(query, params=params).chain
 
 
+def _first_pattern_node_alias(clause: MatchClause) -> Optional[str]:
+    pattern = clause.pattern
+    if not pattern or not isinstance(pattern[0], NodePattern):
+        return None
+    return pattern[0].variable
+
+
+def _compile_bounded_reentry_query(
+    query: CypherQuery,
+    *,
+    params: Optional[Mapping[str, Any]] = None,
+) -> CompiledCypherQuery:
+    if len(query.with_stages) != 1 or len(query.reentry_matches) != 1:
+        raise _unsupported(
+            "Cypher MATCH after WITH is only supported for a single MATCH ... WITH ... MATCH ... RETURN shape in the local compiler",
+            field="match",
+            value=len(query.reentry_matches),
+            line=query.return_.span.line,
+            column=query.return_.span.column,
+        )
+    prefix_stage = query.with_stages[0]
+    if prefix_stage.where is not None:
+        raise _unsupported(
+            "Cypher MATCH after WITH does not yet support WITH ... WHERE in the prefix stage",
+            field="with.where",
+            value=prefix_stage.where.text,
+            line=prefix_stage.span.line,
+            column=prefix_stage.span.column,
+        )
+    prefix_query = CypherQuery(
+        matches=query.matches,
+        where=query.where,
+        unwinds=query.unwinds,
+        with_stages=(),
+        return_=ReturnClause(
+            items=prefix_stage.clause.items,
+            distinct=prefix_stage.clause.distinct,
+            kind="return",
+            span=prefix_stage.clause.span,
+        ),
+        order_by=prefix_stage.order_by,
+        skip=prefix_stage.skip,
+        limit=prefix_stage.limit,
+        row_sequence=(),
+        trailing_semicolon=False,
+        span=query.span,
+    )
+    prefix_compiled = compile_cypher_query(prefix_query, params=params)
+    prefix_projection = prefix_compiled.result_projection
+    if prefix_projection is None or len(prefix_projection.columns) != 1 or prefix_projection.columns[0].kind != "whole_row":
+        raise _unsupported(
+            "Cypher MATCH after WITH currently requires the prefix WITH stage to project exactly one whole-row alias",
+            field="with",
+            value=[item.expression.text for item in prefix_stage.clause.items],
+            line=prefix_stage.span.line,
+            column=prefix_stage.span.column,
+        )
+    if prefix_projection.table != "nodes":
+        raise _unsupported(
+            "Cypher MATCH after WITH currently supports node re-entry only",
+            field="with",
+            value=prefix_projection.table,
+            line=prefix_stage.span.line,
+            column=prefix_stage.span.column,
+        )
+
+    reentry_match = query.reentry_matches[0]
+    first_alias = _first_pattern_node_alias(reentry_match)
+    if first_alias is None or first_alias != prefix_projection.alias:
+        raise _unsupported(
+            "Cypher MATCH after WITH currently requires the trailing MATCH to start from the same carried node alias",
+            field="match",
+            value=first_alias,
+            line=reentry_match.span.line,
+            column=reentry_match.span.column,
+        )
+
+    suffix_query = CypherQuery(
+        matches=query.reentry_matches,
+        where=query.reentry_where,
+        unwinds=(),
+        with_stages=(),
+        return_=query.return_,
+        order_by=query.order_by,
+        skip=query.skip,
+        limit=query.limit,
+        row_sequence=(),
+        trailing_semicolon=query.trailing_semicolon,
+        span=query.span,
+    )
+    suffix_compiled = compile_cypher_query(suffix_query, params=params)
+    return replace(
+        suffix_compiled,
+        start_nodes_query=prefix_compiled,
+        start_nodes_output_name=prefix_projection.columns[0].output_name,
+    )
+
+
 def compile_cypher_query(
     query: CypherQuery,
     *,
@@ -5091,6 +5191,8 @@ def compile_cypher_query(
 ) -> CompiledCypherQuery:
     query = _rewrite_where_pattern_predicates_to_matches(query)
     _reject_unsupported_where_expr_forms(query)
+    if query.reentry_matches:
+        return _compile_bounded_reentry_query(query, params=params)
     if query.row_sequence:
         return _lower_row_only_sequence(query, params=params)
 

@@ -87,6 +87,93 @@ def _apply_optional_null_fill(
     return out
 
 
+def _execute_compiled_query(
+    base_graph: Plottable,
+    *,
+    compiled_query: Any,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+    start_nodes: Optional[Any] = None,
+) -> Plottable:
+    dispatch_graph = base_graph
+    if compiled_query.seed_rows:
+        concrete_engine = resolve_engine(cast(Any, engine), base_graph)
+        df_ctor = df_cons(concrete_engine)
+        dispatch_graph = base_graph.bind()
+        dispatch_graph._nodes = df_ctor({"__cypher_seed_row__": [True]})
+        dispatch_graph._edges = df_ctor()
+    result = _chain_dispatch(dispatch_graph, compiled_query.chain, engine, policy, context, start_nodes=start_nodes)
+    if compiled_query.empty_result_row is not None:
+        result = _apply_empty_result_row(
+            result,
+            engine=engine,
+            empty_result_row=compiled_query.empty_result_row,
+        )
+    if compiled_query.result_projection is not None:
+        from .gfql.cypher.result_postprocess import apply_result_projection
+
+        result = apply_result_projection(result, compiled_query.result_projection)
+    if compiled_query.optional_null_fill is not None:
+        base_result = _chain_dispatch(
+            base_graph,
+            compiled_query.optional_null_fill.base_chain,
+            engine,
+            policy,
+            context,
+        )
+        result = _apply_optional_null_fill(
+            result,
+            base_result=base_result,
+            engine=engine,
+            null_row=compiled_query.optional_null_fill.null_row,
+        )
+    return result
+
+
+def _compiled_query_start_nodes(
+    compiled_query: Any,
+    prefix_result: Plottable,
+    *,
+    engine: Union[EngineAbstract, str],
+) -> Any:
+    output_name = compiled_query.start_nodes_output_name
+    entity_meta = getattr(prefix_result, "_cypher_entity_projection_meta", None)
+    if not isinstance(entity_meta, dict) or output_name not in entity_meta:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher MATCH after WITH could not recover carried node identities from the prefix stage",
+            field="with",
+            value=output_name,
+            suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
+            language="cypher",
+        )
+    meta = entity_meta[output_name]
+    if not isinstance(meta, dict) or meta.get("table") != "nodes":
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher MATCH after WITH currently supports node re-entry only",
+            field="with",
+            value=output_name,
+            suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
+            language="cypher",
+        )
+    ids = meta.get("ids")
+    id_column = meta.get("id_column")
+    if id_column is None or ids is None or not hasattr(ids, "dropna"):
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher MATCH after WITH could not recover carried node identities from the prefix stage",
+            field="with",
+            value=output_name,
+            suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
+            language="cypher",
+        )
+    concrete_engine = resolve_engine(cast(Any, engine), prefix_result)
+    df_ctor = df_cons(concrete_engine)
+    return df_ctor({id_column: ids.dropna().tolist()})
+
+
 def _materialize_split_alias_columns(
     result: Plottable,
     executor: DFSamePathExecutor,
@@ -418,12 +505,6 @@ def gfql(self: Plottable,
             if where_param:
                 raise ValueError("where cannot be combined with string queries; embed Cypher predicates in the query itself")
             compiled_query = _compile_string_query(query, language=language, params=params)
-            if compiled_query.seed_rows:
-                concrete_engine = resolve_engine(cast(Any, engine), self)
-                df_ctor = df_cons(concrete_engine)
-                dispatch_self = self.bind()
-                dispatch_self._nodes = df_ctor({"__cypher_seed_row__": [True]})
-                dispatch_self._edges = df_ctor()
             query = compiled_query.chain
         else:
             if language is not None:
@@ -472,32 +553,26 @@ def gfql(self: Plottable,
                     if query.where:
                         raise ValueError("where provided for Chain that already includes where")
                     query = Chain(query.chain, where=where_param)
-                result = _chain_dispatch(dispatch_self, query, engine, expanded_policy, context)
-                if compiled_query is not None and compiled_query.empty_result_row is not None:
-                    result = _apply_empty_result_row(
-                        result,
-                        engine=engine,
-                        empty_result_row=compiled_query.empty_result_row,
-                    )
-                if compiled_query is not None and compiled_query.result_projection is not None:
-                    from .gfql.cypher.result_postprocess import apply_result_projection
-
-                    result = apply_result_projection(result, compiled_query.result_projection)
-                if compiled_query is not None and compiled_query.optional_null_fill is not None:
-                    base_result = _chain_dispatch(
+                if compiled_query is not None:
+                    start_nodes = None
+                    if compiled_query.start_nodes_query is not None:
+                        prefix_result = _execute_compiled_query(
+                            self,
+                            compiled_query=compiled_query.start_nodes_query,
+                            engine=engine,
+                            policy=expanded_policy,
+                            context=context,
+                        )
+                        start_nodes = _compiled_query_start_nodes(compiled_query, prefix_result, engine=engine)
+                    return _execute_compiled_query(
                         self,
-                        compiled_query.optional_null_fill.base_chain,
-                        engine,
-                        expanded_policy,
-                        context,
-                    )
-                    result = _apply_optional_null_fill(
-                        result,
-                        base_result=base_result,
+                        compiled_query=compiled_query,
                         engine=engine,
-                        null_row=compiled_query.optional_null_fill.null_row,
+                        policy=expanded_policy,
+                        context=context,
+                        start_nodes=start_nodes,
                     )
-                return result
+                return _chain_dispatch(dispatch_self, query, engine, expanded_policy, context)
             elif isinstance(query, ASTObject):
                 logger.debug('GFQL executing single ASTObject as chain')
                 if output is not None:
@@ -545,8 +620,18 @@ def _chain_dispatch(
     engine: Union[EngineAbstract, str],
     policy: Optional[PolicyDict],
     context: ExecutionContext,
+    start_nodes: Optional[Any] = None,
 ) -> Plottable:
     if chain_obj.where:
+        if start_nodes is not None:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Cypher MATCH after WITH does not yet support re-entry into MATCH chains with same-path WHERE constraints",
+                field="match",
+                value="where",
+                suggestion="Use a simpler trailing MATCH without additional same-path WHERE constraints.",
+                language="cypher",
+            )
         first_row_pipeline_idx = next(
             (
                 idx
@@ -588,4 +673,4 @@ def _chain_dispatch(
             inputs.engine,
             inputs.include_paths,
         )
-    return chain_impl(g, chain_obj.chain, engine, policy=policy, context=context)
+    return chain_impl(g, chain_obj.chain, engine, policy=policy, context=context, start_nodes=start_nodes)

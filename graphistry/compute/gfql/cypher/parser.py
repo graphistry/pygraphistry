@@ -912,7 +912,9 @@ def _build_transformer(source: str) -> _TransformerLike:
         def query(self, meta: Any, items: Sequence[Any]) -> CypherQuery:
             trailing_semicolon = any(str(item) == ";" for item in items)
             match_clauses: List[MatchClause] = []
+            reentry_match_clauses: List[MatchClause] = []
             where_clause: Optional[WhereClause] = None
+            reentry_where_clause: Optional[WhereClause] = None
             unwind_clauses: List[UnwindClause] = []
             stages: List[ProjectionStage] = []
             ordered_row_items: List[Union[ProjectionStage, UnwindClause]] = []
@@ -920,15 +922,27 @@ def _build_transformer(source: str) -> _TransformerLike:
             for item in items:
                 if isinstance(item, MatchClause):
                     if seen_stage:
+                        reentry_match_clauses.append(item)
+                    else:
+                        match_clauses.append(item)
+                elif isinstance(item, WhereClause):
+                    if reentry_match_clauses:
+                        if reentry_where_clause is not None:
+                            raise _to_syntax_error(
+                                "Cypher only supports one WHERE clause after post-WITH MATCH in the local compiler",
+                                line=item.span.line,
+                                column=item.span.column,
+                            )
+                        reentry_where_clause = item
+                    else:
+                        where_clause = item
+                elif isinstance(item, UnwindClause):
+                    if reentry_match_clauses:
                         raise _to_syntax_error(
-                            "Cypher MATCH after WITH/RETURN is not yet supported in the local compiler",
+                            "Cypher UNWIND after post-WITH MATCH is not yet supported in the local compiler",
                             line=item.span.line,
                             column=item.span.column,
                         )
-                    match_clauses.append(item)
-                elif isinstance(item, WhereClause):
-                    where_clause = item
-                elif isinstance(item, UnwindClause):
                     if match_clauses and seen_stage:
                         raise _to_syntax_error(
                             "Cypher UNWIND after WITH/RETURN is only supported in row-only local queries",
@@ -938,6 +952,12 @@ def _build_transformer(source: str) -> _TransformerLike:
                     unwind_clauses.append(item)
                     ordered_row_items.append(item)
                 elif isinstance(item, ProjectionStage):
+                    if reentry_match_clauses and item.clause.kind != "return":
+                        raise _to_syntax_error(
+                            "Cypher WITH after post-WITH MATCH is not yet supported in the local compiler",
+                            line=item.span.line,
+                            column=item.span.column,
+                        )
                     stages.append(item)
                     ordered_row_items.append(item)
                     seen_stage = True
@@ -960,6 +980,14 @@ def _build_transformer(source: str) -> _TransformerLike:
                     return_stage = stage
                 elif idx != len(stages) - 1:
                     with_stages.append(stage)
+            if reentry_match_clauses:
+                if len(stages) != 2 or stages[0].clause.kind != "with" or stages[-1].clause.kind != "return":
+                    first_match = reentry_match_clauses[0]
+                    raise _to_syntax_error(
+                        "Cypher MATCH after WITH is only supported for a single MATCH ... WITH ... MATCH ... RETURN shape in the local compiler",
+                        line=first_match.span.line,
+                        column=first_match.span.column,
+                    )
             final_stage = return_stage or stages[-1]
             if where_clause is not None and not match_clauses:
                 raise _to_syntax_error(
@@ -982,6 +1010,8 @@ def _build_transformer(source: str) -> _TransformerLike:
                 row_sequence=row_sequence,
                 trailing_semicolon=trailing_semicolon,
                 span=_span_from_meta(meta),
+                reentry_matches=tuple(reentry_match_clauses),
+                reentry_where=reentry_where_clause,
             )
 
     return cast(_TransformerLike, _CypherAstBuilder())
