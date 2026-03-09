@@ -1856,6 +1856,30 @@ def test_string_cypher_supports_null_graph_functions_in_multi_alias_projection()
     assert result._nodes.to_dict(orient="records") == [{"nn": None, "q": None, "tr": "REL", "tn": None}]
 
 
+def test_string_cypher_supports_top_level_optional_match_null_rows_for_labels() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": pd.Series(dtype="object"), "type": pd.Series(dtype="object")}),
+        pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")}),
+    )
+
+    result = graph.gfql("OPTIONAL MATCH (n:DoesNotExist) RETURN labels(n) AS ln, labels(null) AS nn")
+
+    assert result._nodes.to_dict(orient="records") == [{"ln": None, "nn": None}]
+
+
+def test_string_cypher_supports_top_level_optional_match_null_rows_for_property_access() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": pd.Series(dtype="object")}),
+        pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")}),
+    )
+
+    node_result = graph.gfql("OPTIONAL MATCH (n) RETURN n.missing AS m")
+    rel_result = graph.gfql("OPTIONAL MATCH ()-[r]->() RETURN r.missing AS m")
+
+    assert node_result._nodes.to_dict(orient="records") == [{"m": None}]
+    assert rel_result._nodes.to_dict(orient="records") == [{"m": None}]
+
+
 def test_string_cypher_supports_dynamic_graph_property_lookup() -> None:
     graph = _mk_graph(pd.DataFrame({"id": ["a"], "name": ["Apa"]}), pd.DataFrame({"s": [], "d": []}))
 

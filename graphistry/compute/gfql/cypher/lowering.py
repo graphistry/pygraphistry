@@ -2590,6 +2590,13 @@ def _result_projection_plan(
     )
 
 
+def _empty_optional_projection_row(plan: _ProjectionPlan) -> Dict[str, Any]:
+    out: Dict[str, Any] = {name: None for name in plan.whole_row_output_names}
+    for column in plan.projection_columns:
+        out[column.output_name] = None
+    return out
+
+
 def _plan_with_visible_projected_columns(
     plan: _ProjectionPlan,
     projected_columns: Mapping[str, _StageColumnBinding],
@@ -4593,10 +4600,16 @@ def compile_cypher_query(
                 active_alias=_active_match_alias(query, alias_targets=alias_targets, params=params),
                 params=params,
             )
+            empty_result_row = (
+                _empty_optional_projection_row(plan)
+                if len(query.matches) == 1 and query.matches[0].optional
+                else None
+            )
             return CompiledCypherQuery(
                 Chain(_lower_projection_chain(query, lowered, params=params, plan=plan), where=lowered.where),
                 seed_rows=False,
                 result_projection=_result_projection_plan(plan, alias_targets=alias_targets),
+                empty_result_row=empty_result_row,
             )
 
     return _lower_general_row_projection(query, lowered, params=params)
