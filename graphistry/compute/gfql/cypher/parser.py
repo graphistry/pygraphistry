@@ -167,6 +167,7 @@ order_expr: expr
 
 ?postfix: primary
         | postfix "[" subscript_key "]"     -> subscript
+        | postfix "." NAME                  -> property_access
 
 ?primary: parameter
         | literal

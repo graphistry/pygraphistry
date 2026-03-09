@@ -7,7 +7,9 @@ from graphistry.compute.gfql.expr_parser import (
     Identifier,
     Literal,
     ListComprehension,
+    PropertyAccessExpr,
     QuantifierExpr,
+    SubscriptExpr,
     Wildcard,
     collect_identifiers,
     find_unsupported_functions,
@@ -175,6 +177,14 @@ def test_parse_expr_list_comprehension_node() -> None:
     assert node.var == "x"
     assert node.predicate is not None
     assert node.projection is not None
+
+
+@requires_lark
+def test_parse_expr_postfix_property_access_node() -> None:
+    node = parse_expr("(list[1]).missing")
+    assert isinstance(node, PropertyAccessExpr)
+    assert node.property == "missing"
+    assert isinstance(node.value, SubscriptExpr)
 
 
 @requires_lark

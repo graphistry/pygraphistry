@@ -44,6 +44,7 @@ from graphistry.compute.gfql.expr_parser import (
     ListLiteral,
     Literal as ExprLiteral,
     MapLiteral,
+    PropertyAccessExpr,
     QuantifierExpr,
     SliceExpr,
     SubscriptExpr,
@@ -251,12 +252,18 @@ def _parse_row_expr(
     prepared = _rewrite_label_predicate_expr(prepared, alias_targets=alias_targets)
     prepared = rewrite_temporal_constructors_in_expr(prepared)
     try:
-        return fold_temporal_constructor_ast(parse_expr(prepared))
+        node = fold_temporal_constructor_ast(parse_expr(prepared))
+        if alias_targets:
+            node = _rewrite_collection_alias_entities(node, alias_targets=alias_targets)
+        return node
     except (GFQLExprParseError, ImportError) as exc:
         rewritten = _rewrite_chained_comparison_expr(prepared)
         if rewritten != prepared:
             try:
-                return fold_temporal_constructor_ast(parse_expr(rewritten))
+                node = fold_temporal_constructor_ast(parse_expr(rewritten))
+                if alias_targets:
+                    node = _rewrite_collection_alias_entities(node, alias_targets=alias_targets)
+                return node
             except (GFQLExprParseError, ImportError):
                 pass
         raise GFQLValidationError(
@@ -372,6 +379,8 @@ def _render_expr_node(node: ExprNode) -> str:
         start = "" if node.start is None else _render_expr_node(node.start)
         stop = "" if node.stop is None else _render_expr_node(node.stop)
         return f"{_render_expr_node(node.value)}[{start}..{stop}]"
+    if isinstance(node, PropertyAccessExpr):
+        return f"({_render_expr_node(node.value)}).{node.property}"
     raise TypeError(f"Unsupported expression node type for rendering: {type(node).__name__}")
 
 
@@ -442,6 +451,11 @@ def _rewrite_expr_identifiers(node: ExprNode, replacements: Mapping[str, str]) -
             _rewrite_expr_identifiers(node.value, replacements),
             None if node.start is None else _rewrite_expr_identifiers(node.start, replacements),
             None if node.stop is None else _rewrite_expr_identifiers(node.stop, replacements),
+        )
+    if isinstance(node, PropertyAccessExpr):
+        return PropertyAccessExpr(
+            _rewrite_expr_identifiers(node.value, replacements),
+            node.property,
         )
     raise TypeError(f"Unsupported expression node type for identifier rewrite: {type(node).__name__}")
 
@@ -544,6 +558,11 @@ def _rewrite_cypher_integer_division_ast(
             if node.stop is None
             else _rewrite_cypher_integer_division_ast(node.stop, integer_identifiers=integer_identifiers),
         )
+    if isinstance(node, PropertyAccessExpr):
+        return PropertyAccessExpr(
+            _rewrite_cypher_integer_division_ast(node.value, integer_identifiers=integer_identifiers),
+            node.property,
+        )
     return node
 
 
@@ -636,6 +655,8 @@ def _rewrite_expr_to_output_names(
                 None if node_in.start is None else _rewrite(node_in.start),
                 None if node_in.stop is None else _rewrite(node_in.stop),
             )
+        if isinstance(node_in, PropertyAccessExpr):
+            return PropertyAccessExpr(_rewrite(node_in.value), node_in.property)
         raise TypeError(f"Unsupported expression node type for output rewrite: {type(node_in).__name__}")
 
     return _render_expr_node(_rewrite(node))
@@ -713,6 +734,120 @@ def _rewrite_entity_keys_expr(
         return f"{fn}({', '.join(ordered_aliases)})"
 
     return _CYPHER_ENTITY_KEYS_RE.sub(_replace, expr_text)
+
+
+def _entity_wrapper_call(
+    alias_name: str,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+) -> ExprNode:
+    target = alias_targets.get(alias_name)
+    if isinstance(target, ASTNode):
+        fn = "__node_entity__"
+    elif isinstance(target, ASTEdge):
+        fn = "__edge_entity__"
+    else:
+        return Identifier(alias_name)
+    extra_aliases = tuple(
+        ExprLiteral(str(name))
+        for name in alias_targets.keys()
+        if str(name) != alias_name
+    )
+    return FunctionCall(fn, (Identifier(alias_name),) + extra_aliases)
+
+
+def _rewrite_collection_alias_entities(
+    node: ExprNode,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    inside_collection: bool = False,
+) -> ExprNode:
+    if isinstance(node, Identifier):
+        if inside_collection and "." not in node.name and node.name in alias_targets:
+            return _entity_wrapper_call(node.name, alias_targets=alias_targets)
+        return node
+    if isinstance(node, ExprLiteral):
+        return node
+    if isinstance(node, UnaryOp):
+        return UnaryOp(node.op, _rewrite_collection_alias_entities(node.operand, alias_targets=alias_targets))
+    if isinstance(node, BinaryOp):
+        return BinaryOp(
+            node.op,
+            _rewrite_collection_alias_entities(node.left, alias_targets=alias_targets),
+            _rewrite_collection_alias_entities(node.right, alias_targets=alias_targets),
+        )
+    if isinstance(node, IsNullOp):
+        return IsNullOp(_rewrite_collection_alias_entities(node.value, alias_targets=alias_targets), negated=node.negated)
+    if isinstance(node, FunctionCall):
+        return FunctionCall(
+            node.name,
+            tuple(_rewrite_collection_alias_entities(arg, alias_targets=alias_targets) for arg in node.args),
+            distinct=node.distinct,
+        )
+    if isinstance(node, Wildcard):
+        return node
+    if isinstance(node, CaseWhen):
+        return CaseWhen(
+            _rewrite_collection_alias_entities(node.condition, alias_targets=alias_targets),
+            _rewrite_collection_alias_entities(node.when_true, alias_targets=alias_targets),
+            _rewrite_collection_alias_entities(node.when_false, alias_targets=alias_targets),
+        )
+    if isinstance(node, QuantifierExpr):
+        return QuantifierExpr(
+            node.fn,
+            node.var,
+            _rewrite_collection_alias_entities(node.source, alias_targets=alias_targets),
+            _rewrite_collection_alias_entities(node.predicate, alias_targets=alias_targets),
+        )
+    if isinstance(node, ListComprehension):
+        return ListComprehension(
+            node.var,
+            _rewrite_collection_alias_entities(node.source, alias_targets=alias_targets),
+            predicate=None
+            if node.predicate is None
+            else _rewrite_collection_alias_entities(node.predicate, alias_targets=alias_targets),
+            projection=None
+            if node.projection is None
+            else _rewrite_collection_alias_entities(node.projection, alias_targets=alias_targets),
+        )
+    if isinstance(node, ListLiteral):
+        return ListLiteral(
+            tuple(
+                _rewrite_collection_alias_entities(item, alias_targets=alias_targets, inside_collection=True)
+                for item in node.items
+            )
+        )
+    if isinstance(node, MapLiteral):
+        return MapLiteral(
+            tuple(
+                (
+                    key,
+                    _rewrite_collection_alias_entities(value, alias_targets=alias_targets, inside_collection=True),
+                )
+                for key, value in node.items
+            )
+        )
+    if isinstance(node, SubscriptExpr):
+        return SubscriptExpr(
+            _rewrite_collection_alias_entities(node.value, alias_targets=alias_targets),
+            _rewrite_collection_alias_entities(node.key, alias_targets=alias_targets),
+        )
+    if isinstance(node, SliceExpr):
+        return SliceExpr(
+            _rewrite_collection_alias_entities(node.value, alias_targets=alias_targets),
+            None
+            if node.start is None
+            else _rewrite_collection_alias_entities(node.start, alias_targets=alias_targets),
+            None
+            if node.stop is None
+            else _rewrite_collection_alias_entities(node.stop, alias_targets=alias_targets),
+        )
+    if isinstance(node, PropertyAccessExpr):
+        return PropertyAccessExpr(
+            _rewrite_collection_alias_entities(node.value, alias_targets=alias_targets),
+            node.property,
+        )
+    raise TypeError(f"Unsupported expression node type for collection alias rewrite: {type(node).__name__}")
 
 
 def _expr_match_alias_usage(
@@ -798,6 +933,9 @@ def _expr_match_alias_usage(
                 _visit(node_in.start, inside_aggregate=inside_aggregate)
             if node_in.stop is not None:
                 _visit(node_in.stop, inside_aggregate=inside_aggregate)
+            return
+        if isinstance(node_in, PropertyAccessExpr):
+            _visit(node_in.value, inside_aggregate=inside_aggregate)
             return
 
     _visit(node)
@@ -1256,6 +1394,8 @@ def _post_aggregate_expr_plan(
                 None if node_in.start is None else _rewrite(node_in.start),
                 None if node_in.stop is None else _rewrite(node_in.stop),
             )
+        if isinstance(node_in, PropertyAccessExpr):
+            return PropertyAccessExpr(_rewrite(node_in.value), node_in.property)
         raise TypeError(f"Unsupported expression node type for aggregate rewrite: {type(node_in).__name__}")
 
     rewritten = _rewrite(node)

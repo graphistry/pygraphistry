@@ -1810,6 +1810,80 @@ def test_string_cypher_supports_labels_projection_and_relationship_label_predica
     ]
 
 
+def test_string_cypher_supports_graph_functions_on_list_wrapped_entities() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b"],
+            "label__Foo": [True, True],
+            "label__Bar": [False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a"],
+            "d": ["b"],
+            "type": ["T"],
+        }
+    )
+    graph = _mk_graph(nodes, edges)
+
+    labels_result = graph.gfql("MATCH (a) WITH [a, 1] AS list RETURN labels(list[0]) AS l ORDER BY l")
+    assert sorted(labels_result._nodes.to_dict(orient="records"), key=lambda row: (len(row["l"]), row["l"])) == [
+        {"l": "['Foo']"},
+        {"l": "['Foo', 'Bar']"},
+    ]
+
+    type_result = graph.gfql("MATCH ()-[r]->() WITH [r, 1] AS list RETURN type(list[0]) AS t")
+    assert type_result._nodes.to_dict(orient="records") == [{"t": "T"}]
+
+
+def test_string_cypher_supports_property_access_on_list_wrapped_node_and_relationship_entities() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b"],
+            "existing": [42, None],
+            "missing": [None, None],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a"],
+            "d": ["b"],
+            "type": ["REL"],
+            "existing": [42],
+            "missing": [None],
+        }
+    )
+    graph = _mk_graph(nodes, edges)
+
+    node_result = graph.gfql(
+        "MATCH (n) WITH [123, n] AS list RETURN (list[1]).missing, (list[1]).missingToo, (list[1]).existing"
+    )
+    assert node_result._nodes.to_dict(orient="records") == [
+        {"(list[1]).missing": None, "(list[1]).missingToo": None, "(list[1]).existing": 42},
+        {"(list[1]).missing": None, "(list[1]).missingToo": None, "(list[1]).existing": None},
+    ]
+
+    rel_result = graph.gfql(
+        "MATCH ()-[r]->() WITH [123, r] AS list RETURN (list[1]).missing, (list[1]).missingToo, (list[1]).existing"
+    )
+    assert rel_result._nodes.to_dict(orient="records") == [
+        {"(list[1]).missing": None, "(list[1]).missingToo": None, "(list[1]).existing": 42},
+    ]
+
+
+def test_string_cypher_supports_property_access_on_list_wrapped_map_values() -> None:
+    graph = _mk_graph(pd.DataFrame({"id": ["a"]}), pd.DataFrame({"s": [], "d": []}))
+
+    result = graph.gfql(
+        "WITH [123, {existing: 42, notMissing: null}] AS list RETURN (list[1]).missing, (list[1]).notMissing, (list[1]).existing"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"(list[1]).missing": None, "(list[1]).notMissing": None, "(list[1]).existing": 42}
+    ]
+
+
 @pytest.mark.parametrize(
     "query",
     [
@@ -1823,6 +1897,16 @@ def test_string_cypher_rejects_invalid_properties_arguments(query: str) -> None:
 
     with pytest.raises(GFQLTypeError, match="properties\\(\\) requires a node, relationship, map, or null argument"):
         graph.gfql(query)
+
+
+def test_string_cypher_rejects_invalid_graph_functions_on_list_wrapped_scalars() -> None:
+    graph = _mk_graph(pd.DataFrame({"id": ["a"]}), pd.DataFrame({"s": [], "d": []}))
+
+    with pytest.raises(GFQLTypeError, match="labels\\(\\) requires a graph element, entity value, or null"):
+        graph.gfql("MATCH (a) WITH [a, 1] AS list RETURN labels(list[1]) AS l")
+
+    with pytest.raises(GFQLTypeError, match="type\\(\\) requires a graph element, entity value, or null"):
+        graph.gfql("MATCH (a) WITH [a, 1] AS list RETURN type(list[1]) AS t")
 
 
 @pytest.mark.parametrize(

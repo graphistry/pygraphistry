@@ -45,6 +45,7 @@ GFQL_SCALAR_FUNCTIONS: Final[frozenset[str]] = frozenset(
         "sign",
         "keys",
         "labels",
+        "type",
         "properties",
         "range",
         "__node_keys__",

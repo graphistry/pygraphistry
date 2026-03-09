@@ -108,6 +108,12 @@ class SliceExpr:
     stop: Optional["ExprNode"]
 
 
+@dataclass(frozen=True)
+class PropertyAccessExpr:
+    value: "ExprNode"
+    property: str
+
+
 ExprNode = Union[
     Identifier,
     Literal,
@@ -123,6 +129,7 @@ ExprNode = Union[
     MapLiteral,
     SubscriptExpr,
     SliceExpr,
+    PropertyAccessExpr,
 ]
 
 _EXPR_NODE_TYPES = (
@@ -140,6 +147,7 @@ _EXPR_NODE_TYPES = (
     MapLiteral,
     SubscriptExpr,
     SliceExpr,
+    PropertyAccessExpr,
 )
 
 ExprVisitor = Callable[[ExprNode], None]
@@ -198,6 +206,7 @@ _GRAMMAR = r"""
 
 ?postfix: primary
         | postfix "[" subscript_key "]"  -> subscript
+        | postfix "." NAME               -> property_access
 
 ?subscript_key: expr                     -> subscript_index
               | expr ".." expr           -> subscript_slice_between
@@ -618,6 +627,16 @@ def _build_transformer() -> _TransformerLike:
                 stop=cast(Optional[ExprNode], sub[2]),
             )
 
+        def property_access(self, items: Sequence[Any]) -> PropertyAccessExpr:
+            stripped = _strip_tokens(items)
+            if len(stripped) != 1:
+                raise GFQLExprParseError("Invalid property access")
+            value = cast(ExprNode, stripped[0])
+            names = [str(i) for i in items if _is_token(i) and str(getattr(i, "type", "")) == "NAME"]
+            if len(names) == 0:
+                raise GFQLExprParseError("Invalid property access")
+            return PropertyAccessExpr(value=value, property=names[-1])
+
         def uplus(self, items: Sequence[Any]) -> UnaryOp:
             return UnaryOp(op="+", operand=cast(ExprNode, _strip_tokens(items)[0]))
 
@@ -725,6 +744,7 @@ def parse_expr(expr: str) -> ExprNode:
             MapLiteral,
             SubscriptExpr,
             SliceExpr,
+            PropertyAccessExpr,
         ),
     ):
         raise GFQLExprParseError("Invalid GFQL expression AST")
@@ -770,6 +790,8 @@ def iter_expr_children(node: ExprNode) -> Tuple[ExprNode, ...]:
         if node.stop is not None:
             children.append(node.stop)
         return tuple(children)
+    if isinstance(node, PropertyAccessExpr):
+        return (node.value,)
     return ()
 
 
@@ -872,7 +894,7 @@ def validate_expr_capabilities(
             if n.fn not in allowed_quantifiers:
                 errors.append(f"unsupported quantifier: {n.fn}")
             return
-        if isinstance(n, (ListComprehension, ListLiteral, MapLiteral, SubscriptExpr, SliceExpr)):
+        if isinstance(n, (ListComprehension, ListLiteral, MapLiteral, SubscriptExpr, SliceExpr, PropertyAccessExpr)):
             return
         errors.append(f"unsupported node type: {type(n).__name__}")
 

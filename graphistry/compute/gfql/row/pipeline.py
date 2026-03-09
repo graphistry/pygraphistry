@@ -25,6 +25,17 @@ from graphistry.compute.gfql.row.entity_props import (
     entity_keys_series,
     node_property_columns,
 )
+from graphistry.compute.gfql.row.entity_text import (
+    entity_labels_scalar,
+    entity_labels_series,
+    entity_properties_scalar,
+    entity_properties_series,
+    entity_property_scalar,
+    entity_property_series,
+    entity_type_scalar,
+    entity_type_series,
+    is_entity_text_scalar,
+)
 from graphistry.compute.gfql.row.ordering import (
     build_list_sort_columns,
     build_temporal_sort_columns,
@@ -355,6 +366,7 @@ class RowPipelineMixin:
         ListComprehension = expr_parser_mod.ListComprehension
         ListLiteral = expr_parser_mod.ListLiteral
         MapLiteral = expr_parser_mod.MapLiteral
+        PropertyAccessExpr = expr_parser_mod.PropertyAccessExpr
         SubscriptExpr = expr_parser_mod.SubscriptExpr
         SliceExpr = expr_parser_mod.SliceExpr
 
@@ -416,6 +428,17 @@ class RowPipelineMixin:
                     return False, None
                 out_map[str(key)] = value
             return True, out_map
+
+        if isinstance(node, PropertyAccessExpr):
+            ok, value = self._gfql_eval_expr_ast(table_df, node.value)
+            if not ok:
+                return False, None
+            return True, self._gfql_eval_property_access_value(
+                table_df,
+                value,
+                node.property,
+                f"ast property access .{node.property}",
+            )
 
         if isinstance(node, IsNullOp):
             ok, value = self._gfql_eval_expr_ast(table_df, node.value)
@@ -538,9 +561,16 @@ class RowPipelineMixin:
         if isinstance(node, FunctionCall):
             fn = str(node.name).lower()
             if fn in {"__node_keys__", "__edge_keys__"}:
-                if len(node.args) < 1 or any(not isinstance(arg, Identifier) for arg in node.args):
+                if len(node.args) < 1 or not isinstance(node.args[0], Identifier):
                     return False, None
-                alias_names = [arg.name for arg in node.args]
+                alias_names: List[str] = [node.args[0].name]
+                for extra_arg in node.args[1:]:
+                    if isinstance(extra_arg, Identifier):
+                        alias_names.append(extra_arg.name)
+                    elif isinstance(extra_arg, Literal) and isinstance(extra_arg.value, str):
+                        alias_names.append(extra_arg.value)
+                    else:
+                        return False, None
                 source_alias = alias_names[0]
                 if source_alias not in table_df.columns:
                     return False, None
@@ -555,17 +585,24 @@ class RowPipelineMixin:
                     out = out.where(~null_mask, None)
                 return True, out
             if fn in {"__node_entity__", "__edge_entity__"}:
-                if len(node.args) < 1 or any(not isinstance(arg, Identifier) for arg in node.args):
+                if len(node.args) < 1 or not isinstance(node.args[0], Identifier):
                     return False, None
-                alias_names = [arg.name for arg in node.args]
-                source_alias = alias_names[0]
+                entity_alias_names: List[str] = [node.args[0].name]
+                for extra_arg in node.args[1:]:
+                    if isinstance(extra_arg, Identifier):
+                        entity_alias_names.append(extra_arg.name)
+                    elif isinstance(extra_arg, Literal) and isinstance(extra_arg.value, str):
+                        entity_alias_names.append(extra_arg.value)
+                    else:
+                        return False, None
+                source_alias = entity_alias_names[0]
                 if source_alias not in table_df.columns:
                     return False, None
                 out = self._gfql_format_entity_series(
                     table_df,
                     alias_col=source_alias,
                     table=("nodes" if fn == "__node_entity__" else "edges"),
-                    excluded=tuple(alias_names),
+                    excluded=tuple(entity_alias_names),
                 )
                 null_mask = self._gfql_null_mask(table_df, table_df[source_alias])
                 if hasattr(out, "where"):
@@ -576,6 +613,20 @@ class RowPipelineMixin:
                 if "." not in alias_name and alias_name in table_df.columns and "id" in table_df.columns:
                     out = self._gfql_format_labels_series(table_df, alias_col=alias_name)
                     null_mask = self._gfql_null_mask(table_df, table_df[alias_name])
+                    if hasattr(out, "where"):
+                        out = out.where(~null_mask, None)
+                    return True, out
+            if fn == "type" and len(node.args) == 1 and isinstance(node.args[0], Identifier):
+                alias_name = node.args[0].name
+                edge_like_cols = {"s", "d", "src", "dst", "edge_id"}
+                if (
+                    "." not in alias_name
+                    and alias_name in table_df.columns
+                    and "type" in table_df.columns
+                    and any(col in table_df.columns for col in edge_like_cols)
+                ):
+                    null_mask = self._gfql_null_mask(table_df, table_df[alias_name])
+                    out = table_df["type"]
                     if hasattr(out, "where"):
                         out = out.where(~null_mask, None)
                     return True, out
@@ -665,13 +716,10 @@ class RowPipelineMixin:
                     return True, None
                 if isinstance(inner, Mapping):
                     return True, RowPipelineMixin._gfql_format_cypher_map_scalar(inner)
-                return False, None
+                return True, self._gfql_eval_entity_graph_fn(table_df, inner, "properties", "ast properties()")
 
-            if fn == "labels" and len(values) == 1:
-                inner = values[0]
-                if is_null_scalar(inner):
-                    return True, None
-                return False, None
+            if fn in {"labels", "type"} and len(values) == 1:
+                return True, self._gfql_eval_entity_graph_fn(table_df, values[0], fn, f"ast {fn}()")
 
             if fn == "range" and len(values) in {2, 3}:
                 scalar_values: List[Any] = []
@@ -1137,16 +1185,23 @@ class RowPipelineMixin:
         blank = table_df[alias_col].astype(str).where(table_df[alias_col].isna(), "")
         excluded_cols = tuple(dict.fromkeys((alias_col,) + tuple(str(name) for name in excluded)))
         if table == "nodes":
-            label_cols = [
-                col
-                for col in table_df.columns
-                if str(col).startswith("label__")
-                and str(col).split("label__", 1)[1] not in {"<NA>", "None", "nan"}
-            ]
             labels = blank.copy()
-            for col in label_cols:
-                mask = table_df[col] == True  # noqa: E712
-                labels = labels + (blank + ":" + str(col).split("label__", 1)[1]).where(mask, "")
+            if "labels" in table_df.columns and RowPipelineMixin._gfql_series_is_list_like(table_df["labels"]):
+                labels_raw = table_df["labels"].astype(str)
+                labels_body = labels_raw.str.replace("[", "", regex=False).str.replace("]", "", regex=False)
+                labels_body = labels_body.str.replace("'", "", regex=False).str.replace(", ", ":", regex=False)
+                has_list_labels = labels_raw != "[]"
+                labels = labels + (blank + ":" + labels_body).where(has_list_labels, "")
+            else:
+                label_cols = [
+                    col
+                    for col in table_df.columns
+                    if str(col).startswith("label__")
+                    and str(col).split("label__", 1)[1] not in {"<NA>", "None", "nan"}
+                ]
+                for col in label_cols:
+                    mask = table_df[col] == True  # noqa: E712
+                    labels = labels + (blank + ":" + str(col).split("label__", 1)[1]).where(mask, "")
             if "type" in table_df.columns:
                 include = ~self._gfql_null_mask(table_df, table_df["type"])
                 labels = labels + (blank + ":" + table_df["type"].astype(str)).where(include, "")
@@ -1179,6 +1234,12 @@ class RowPipelineMixin:
 
     def _gfql_format_labels_series(self, table_df: Any, *, alias_col: str) -> Any:
         blank = table_df[alias_col].astype(str).where(table_df[alias_col].isna(), "")
+        if "labels" in table_df.columns and RowPipelineMixin._gfql_series_is_list_like(table_df["labels"]):
+            labels_raw = table_df["labels"].astype(str)
+            null_mask = self._gfql_null_mask(table_df, table_df[alias_col])
+            if hasattr(labels_raw, "where"):
+                return labels_raw.where(~null_mask, None)
+            return labels_raw
         labels_text = blank.copy()
         has_labels = (table_df[alias_col] == True) & False  # noqa: E712
 
@@ -1204,6 +1265,98 @@ class RowPipelineMixin:
             has_labels = has_labels | include
 
         return ((blank + "[") + labels_text + "]").where(has_labels, "[]")
+
+    @staticmethod
+    def _gfql_series_is_entity_text_like(series: Any) -> bool:
+        if not hasattr(series, "dropna"):
+            return is_entity_text_scalar(series)
+        sample = series.dropna().head(128)
+        if hasattr(sample, "to_pandas"):
+            sample = sample.to_pandas()
+        values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
+        return len(values) > 0 and all(is_entity_text_scalar(v) for v in values)
+
+    def _gfql_eval_entity_graph_fn(
+        self,
+        table_df: Any,
+        value: Any,
+        fn: str,
+        expr: str,
+    ) -> Any:
+        if hasattr(value, "astype"):
+            null_mask = self._gfql_null_mask(table_df, value)
+            if RowPipelineMixin._gfql_series_is_entity_text_like(value):
+                if fn == "labels":
+                    out = entity_labels_series(value)
+                elif fn == "type":
+                    out = entity_type_series(value)
+                elif fn == "properties":
+                    out = entity_properties_series(value)
+                else:
+                    raise ValueError(f"unsupported row expression graph function: {fn} in {expr!r}")
+                if hasattr(out, "where"):
+                    out = out.where(~null_mask, None)
+                return out
+            if hasattr(null_mask, "all") and bool(null_mask.all()):
+                out = self._gfql_broadcast_scalar(table_df, None)
+                if hasattr(out, "where"):
+                    out = out.where(~null_mask, None)
+                return out
+            raise ValueError(
+                f"unsupported row expression: {fn}() requires a graph element, entity value, or null in {expr!r}"
+            )
+
+        if is_null_scalar(value):
+            return None
+        if not is_entity_text_scalar(value):
+            raise ValueError(
+                f"unsupported row expression: {fn}() requires a graph element, entity value, or null in {expr!r}"
+            )
+        if fn == "labels":
+            return entity_labels_scalar(value)
+        if fn == "type":
+            return entity_type_scalar(value)
+        if fn == "properties":
+            return entity_properties_scalar(value)
+        raise ValueError(f"unsupported row expression graph function: {fn} in {expr!r}")
+
+    def _gfql_eval_property_access_value(
+        self,
+        table_df: Any,
+        value: Any,
+        prop: str,
+        expr: str,
+    ) -> Any:
+        if hasattr(value, "astype"):
+            null_mask = self._gfql_null_mask(table_df, value)
+            if RowPipelineMixin._gfql_series_is_mapping_like(value):
+                out = value.str.get(prop)
+                if hasattr(out, "where"):
+                    out = out.where(~null_mask, None)
+                return out
+            if RowPipelineMixin._gfql_series_is_entity_text_like(value):
+                out = entity_property_series(value, prop)
+                if hasattr(out, "where"):
+                    out = out.where(~null_mask, None)
+                return out
+            if hasattr(null_mask, "all") and bool(null_mask.all()):
+                out = self._gfql_broadcast_scalar(table_df, None)
+                if hasattr(out, "where"):
+                    out = out.where(~null_mask, None)
+                return out
+            raise ValueError(
+                f"unsupported row expression: property access requires a graph element, entity value, or map in {expr!r}"
+            )
+
+        if is_null_scalar(value):
+            return None
+        if isinstance(value, Mapping):
+            return value.get(prop)
+        if is_entity_text_scalar(value):
+            return entity_property_scalar(value, prop)
+        raise ValueError(
+            f"unsupported row expression: property access requires a graph element, entity value, or map in {expr!r}"
+        )
 
     @staticmethod
     def _gfql_series_is_list_like(series: Any) -> bool:
