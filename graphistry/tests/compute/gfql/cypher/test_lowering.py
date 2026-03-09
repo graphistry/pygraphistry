@@ -919,6 +919,17 @@ def test_string_cypher_supports_post_aggregate_arithmetic_projection() -> None:
     assert result._nodes.to_dict(orient="records") == [{"c": 10}]
 
 
+def test_string_cypher_uses_integer_division_for_post_aggregate_expression() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": [f"n{i}" for i in range(7)]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n) RETURN count(n) / 3 / 2 AS count")
+
+    assert result._nodes.to_dict(orient="records") == [{"count": 1}]
+
+
 def test_string_cypher_supports_whole_row_grouping_with_post_aggregate_expression() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["n1"]}),
@@ -1069,6 +1080,17 @@ def test_string_cypher_supports_constant_limit_expressions() -> None:
     )
 
     result = graph.gfql("MATCH (n)\nWITH n LIMIT toInteger(ceil(1.7))\nRETURN count(*) AS count")
+
+    assert result._nodes.to_dict(orient="records") == [{"count": 2}]
+
+
+def test_string_cypher_supports_integer_division_in_limit_expression() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["n1", "n2", "n3", "n4", "n5"]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n) WITH n ORDER BY n.id LIMIT 7 / 3 RETURN count(*) AS count")
 
     assert result._nodes.to_dict(orient="records") == [{"count": 2}]
 

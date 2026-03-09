@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import math
 import re
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, cast
+from typing import AbstractSet, Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, cast
 from typing_extensions import Literal
 
 from graphistry.compute.ast import (
@@ -440,6 +440,107 @@ def _rewrite_expr_identifiers(node: ExprNode, replacements: Mapping[str, str]) -
             None if node.stop is None else _rewrite_expr_identifiers(node.stop, replacements),
         )
     raise TypeError(f"Unsupported expression node type for identifier rewrite: {type(node).__name__}")
+
+
+def _expr_is_cypher_integer_like(node: ExprNode, *, integer_identifiers: AbstractSet[str]) -> bool:
+    if isinstance(node, Identifier):
+        return node.name in integer_identifiers
+    if isinstance(node, ExprLiteral):
+        return isinstance(node.value, int) and not isinstance(node.value, bool)
+    if isinstance(node, UnaryOp):
+        return node.op in {"+", "-"} and _expr_is_cypher_integer_like(node.operand, integer_identifiers=integer_identifiers)
+    if isinstance(node, BinaryOp):
+        return node.op in {"+", "-", "*", "%", "/"} and _expr_is_cypher_integer_like(
+            node.left,
+            integer_identifiers=integer_identifiers,
+        ) and _expr_is_cypher_integer_like(
+            node.right,
+            integer_identifiers=integer_identifiers,
+        )
+    if isinstance(node, FunctionCall):
+        return node.name.lower() == "tointeger" and len(node.args) == 1
+    return False
+
+
+def _rewrite_cypher_integer_division_ast(
+    node: ExprNode,
+    *,
+    integer_identifiers: AbstractSet[str],
+) -> ExprNode:
+    if isinstance(node, BinaryOp):
+        left = _rewrite_cypher_integer_division_ast(node.left, integer_identifiers=integer_identifiers)
+        right = _rewrite_cypher_integer_division_ast(node.right, integer_identifiers=integer_identifiers)
+        rewritten = BinaryOp(node.op, left, right)
+        if node.op == "/" and _expr_is_cypher_integer_like(left, integer_identifiers=integer_identifiers) and _expr_is_cypher_integer_like(
+            right,
+            integer_identifiers=integer_identifiers,
+        ):
+            return FunctionCall("toInteger", (rewritten,))
+        return rewritten
+    if isinstance(node, UnaryOp):
+        return UnaryOp(node.op, _rewrite_cypher_integer_division_ast(node.operand, integer_identifiers=integer_identifiers))
+    if isinstance(node, IsNullOp):
+        return IsNullOp(
+            _rewrite_cypher_integer_division_ast(node.value, integer_identifiers=integer_identifiers),
+            negated=node.negated,
+        )
+    if isinstance(node, FunctionCall):
+        return FunctionCall(
+            node.name,
+            tuple(_rewrite_cypher_integer_division_ast(arg, integer_identifiers=integer_identifiers) for arg in node.args),
+            distinct=node.distinct,
+        )
+    if isinstance(node, CaseWhen):
+        return CaseWhen(
+            _rewrite_cypher_integer_division_ast(node.condition, integer_identifiers=integer_identifiers),
+            _rewrite_cypher_integer_division_ast(node.when_true, integer_identifiers=integer_identifiers),
+            _rewrite_cypher_integer_division_ast(node.when_false, integer_identifiers=integer_identifiers),
+        )
+    if isinstance(node, QuantifierExpr):
+        return QuantifierExpr(
+            node.fn,
+            node.var,
+            _rewrite_cypher_integer_division_ast(node.source, integer_identifiers=integer_identifiers),
+            _rewrite_cypher_integer_division_ast(node.predicate, integer_identifiers=integer_identifiers),
+        )
+    if isinstance(node, ListComprehension):
+        return ListComprehension(
+            node.var,
+            _rewrite_cypher_integer_division_ast(node.source, integer_identifiers=integer_identifiers),
+            predicate=None
+            if node.predicate is None
+            else _rewrite_cypher_integer_division_ast(node.predicate, integer_identifiers=integer_identifiers),
+            projection=None
+            if node.projection is None
+            else _rewrite_cypher_integer_division_ast(node.projection, integer_identifiers=integer_identifiers),
+        )
+    if isinstance(node, ListLiteral):
+        return ListLiteral(
+            tuple(_rewrite_cypher_integer_division_ast(item, integer_identifiers=integer_identifiers) for item in node.items)
+        )
+    if isinstance(node, MapLiteral):
+        return MapLiteral(
+            tuple(
+                (key, _rewrite_cypher_integer_division_ast(value, integer_identifiers=integer_identifiers))
+                for key, value in node.items
+            )
+        )
+    if isinstance(node, SubscriptExpr):
+        return SubscriptExpr(
+            _rewrite_cypher_integer_division_ast(node.value, integer_identifiers=integer_identifiers),
+            _rewrite_cypher_integer_division_ast(node.key, integer_identifiers=integer_identifiers),
+        )
+    if isinstance(node, SliceExpr):
+        return SliceExpr(
+            _rewrite_cypher_integer_division_ast(node.value, integer_identifiers=integer_identifiers),
+            None
+            if node.start is None
+            else _rewrite_cypher_integer_division_ast(node.start, integer_identifiers=integer_identifiers),
+            None
+            if node.stop is None
+            else _rewrite_cypher_integer_division_ast(node.stop, integer_identifiers=integer_identifiers),
+        )
+    return node
 
 
 def _rewrite_order_expr_to_projected_outputs(
@@ -1156,6 +1257,15 @@ def _post_aggregate_expr_plan(
     rewritten = _rewrite(node)
     if not aggregate_specs:
         return None
+    integer_aggregate_names = {
+        spec.output_name
+        for spec in aggregate_specs
+        if spec.func == "count"
+    }
+    rewritten = _rewrite_cypher_integer_division_ast(
+        rewritten,
+        integer_identifiers=integer_aggregate_names,
+    )
 
     return aggregate_specs, _PostAggregateExprPlan(
         output_name=item.alias or item.expression.text,
@@ -1410,6 +1520,13 @@ def _eval_constant_int_expr(
             if node.op == "*":
                 return left * right
             if node.op == "/":
+                if (
+                    isinstance(left, int)
+                    and not isinstance(left, bool)
+                    and isinstance(right, int)
+                    and not isinstance(right, bool)
+                ):
+                    return int(left / right)
                 return left / right
             if node.op == "%":
                 return left % right
