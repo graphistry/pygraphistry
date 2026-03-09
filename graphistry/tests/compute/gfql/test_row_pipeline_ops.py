@@ -411,6 +411,33 @@ def test_row_pipeline_order_by_rejects_mixed_list_values_beyond_sample_window() 
         )
 
 
+@pytest.mark.parametrize(
+    ("values", "families"),
+    [
+        pytest.param([1] * 128 + [{}], "number, unsupported", id="number-unsupported"),
+        pytest.param([True] * 128 + ["x"], "bool, str", id="bool-str"),
+        pytest.param([1.5] * 128 + ["x"], "number, str", id="number-str"),
+    ],
+)
+def test_row_pipeline_order_by_rejects_mixed_scalar_families_beyond_sample_window(
+    values: list[object], families: str
+) -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(len(values))],
+            "v": values,
+        },
+        dtype="object",
+    )
+
+    with pytest.raises(Exception, match=rf"mixed/dynamic value families \({families}\)"):
+        _run_node_steps(
+            nodes_df,
+            [rows(), order_by([("v", "asc")]), select([("v", "v")])],
+            edges_df=_self_loop_edges(nodes_df),
+        )
+
+
 def test_entity_keys_series_supports_mixed_entity_property_sets() -> None:
     nodes_df = pd.DataFrame(
         {

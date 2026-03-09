@@ -80,12 +80,37 @@ def validate_order_series_vector_safe(series: Any, expr: str) -> None:
     dtype_txt = str(getattr(series, "dtype", "")).lower()
     if dtype_txt != "object":
         return
-    non_null = series.dropna()
-    sample = non_null.head(128)
-    if hasattr(sample, "to_pandas"):
-        sample = sample.to_pandas()
-    values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
-    families = {fam for fam in (order_value_family(v) for v in values) if fam is not None}
+    if not hasattr(series, "isna") or not hasattr(series, "astype"):
+        return
+    null_mask = series.isna()
+    non_null = ~null_mask
+    if hasattr(non_null, "any") and not bool(non_null.any()):
+        return
+    text = series.astype(str)
+    if not hasattr(text, "str"):
+        return
+    actual_string = _actual_string_mask(series, text, null_mask)
+    bool_mask = (~null_mask) & (~actual_string) & text.isin(["True", "False"])
+    number_mask = (~null_mask) & (~actual_string) & text.str.fullmatch(_GFQL_LIST_NUMERIC_TEXT_RE.pattern, na=False)
+    datetime_mask = (~null_mask) & (~actual_string) & (
+        text.str.fullmatch(_GFQL_DATE_TEXT_RE.pattern, na=False)
+        | text.str.fullmatch(_GFQL_DATETIME_TEXT_RE.pattern, na=False)
+        | text.str.fullmatch(_GFQL_TIME_TEXT_RE.pattern, na=False)
+    )
+    string_mask = (~null_mask) & actual_string
+    classified_mask = null_mask | bool_mask | number_mask | datetime_mask | string_mask
+    families = set()
+    if hasattr(bool_mask, "any") and bool(bool_mask.any()):
+        families.add("bool")
+    if hasattr(number_mask, "any") and bool(number_mask.any()):
+        families.add("number")
+    if hasattr(datetime_mask, "any") and bool(datetime_mask.any()):
+        families.add("datetime")
+    if hasattr(string_mask, "any") and bool(string_mask.any()):
+        families.add("str")
+    unsupported_mask = ~classified_mask
+    if hasattr(unsupported_mask, "any") and bool(unsupported_mask.any()):
+        families.add("unsupported")
     if len(families) == 0:
         return
     if "unsupported" in families or len(families) > 1:
