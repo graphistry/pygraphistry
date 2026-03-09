@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime
 import math
 import re
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import pandas as pd
 
@@ -121,15 +121,6 @@ def validate_order_series_vector_safe(series: Any, expr: str) -> None:
         )
 
 
-def order_sample_values(series: Any) -> List[Any]:
-    sample = series.dropna().head(128)
-    if hasattr(sample, "to_pandas"):
-        sample = sample.to_pandas()
-    if hasattr(sample, "tolist"):
-        return list(sample.tolist())
-    return list(sample)
-
-
 def _actual_string_mask(series: Any, text: Any, null_mask: Any) -> Any:
     try:
         mask = series == text
@@ -194,7 +185,7 @@ def build_list_sort_columns(
     null_mask_fn: NullMaskFn,
     broadcast_scalar_fn: BroadcastScalarFn,
     fresh_col_name_fn: FreshColNameFn,
-) -> Tuple[Any, List[str]]:
+) -> Tuple[Any, list[str]]:
     row_col = fresh_col_name_fn(work_df.columns, f"{key_prefix}__row")
     list_col = fresh_col_name_fn(work_df.columns, f"{key_prefix}__list")
     len_col = fresh_col_name_fn(work_df.columns, f"{key_prefix}__len")
@@ -274,7 +265,7 @@ def build_temporal_sort_columns(
     nanosecond_shift: int = 0,
     null_mask_fn: NullMaskFn,
     fresh_col_name_fn: FreshColNameFn,
-) -> Tuple[Any, List[str]]:
+) -> Tuple[Any, list[str]]:
     value = work_df[sort_col]
     text = value.astype(str)
     null_mask = null_mask_fn(work_df, value)
