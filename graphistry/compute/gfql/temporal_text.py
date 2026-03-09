@@ -562,7 +562,72 @@ def _normalize_datetime_map(fields: dict[str, str]) -> Optional[str]:
 
 
 def _normalize_duration_string(text: str) -> Optional[str]:
-    return text if text.startswith("P") or text.startswith("-P") else None
+    stripped = text.strip()
+    datetime_match = re.fullmatch(
+        r"(?P<sign>-)?P"
+        r"(?P<year>\d+)-(?P<month>\d{2})-(?P<day>\d{2})"
+        r"T(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})(?:\.(?P<frac>\d+))?",
+        stripped,
+    )
+    if datetime_match is not None:
+        sign = "-" if datetime_match.group("sign") else ""
+        datetime_fields = {
+            "years": sign + datetime_match.group("year"),
+            "months": sign + str(int(datetime_match.group("month"))),
+            "days": sign + str(int(datetime_match.group("day"))),
+            "hours": sign + str(int(datetime_match.group("hour"))),
+            "minutes": sign + str(int(datetime_match.group("minute"))),
+            "seconds": sign
+            + (
+                datetime_match.group("second")
+                if datetime_match.group("frac") is None
+                else f"{int(datetime_match.group('second'))}.{datetime_match.group('frac')}"
+            ),
+        }
+        return _normalize_duration_map(datetime_fields)
+
+    prefix_match = re.fullmatch(r"(?P<sign>-)?P(?P<body>.*)", stripped)
+    if prefix_match is None:
+        return None
+    body = prefix_match.group("body")
+    if body == "":
+        return None
+    sign = "-" if prefix_match.group("sign") else ""
+    if "T" in body:
+        date_part, time_part = body.split("T", 1)
+    else:
+        date_part, time_part = body, ""
+
+    def _consume(part: str, allowed_units: set[str]) -> Optional[list[tuple[str, str]]]:
+        if part == "":
+            return []
+        pos = 0
+        out: list[tuple[str, str]] = []
+        for token_match in _DURATION_TOKEN_RE.finditer(part):
+            if token_match.start() != pos:
+                return None
+            value_txt, unit = token_match.groups()
+            if unit not in allowed_units:
+                return None
+            out.append((value_txt, unit))
+            pos = token_match.end()
+        if pos != len(part):
+            return None
+        return out
+
+    date_tokens = _consume(date_part, {"Y", "M", "W", "D"})
+    time_tokens = _consume(time_part, {"H", "M", "S"})
+    if date_tokens is None or time_tokens is None:
+        return None
+
+    component_fields: dict[str, str] = {}
+    date_key_map = {"Y": "years", "M": "months", "W": "weeks", "D": "days"}
+    time_key_map = {"H": "hours", "M": "minutes", "S": "seconds"}
+    for value_txt, unit in date_tokens:
+        component_fields[date_key_map[unit]] = sign + value_txt
+    for value_txt, unit in time_tokens:
+        component_fields[time_key_map[unit]] = sign + value_txt
+    return _normalize_duration_map(component_fields)
 
 
 def _format_signed_day_time_duration(total_nanoseconds: int) -> str:
@@ -802,7 +867,7 @@ class _WideTemporalValue:
 
 
 _ZONE_SUFFIX_RE = re.compile(r"^(?P<core>.+?)(?:\[(?P<zone>[^\]]+)\])?$")
-_DURATION_TOKEN_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)([YMDHMS])")
+_DURATION_TOKEN_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)([YMWDHMS])")
 _DATE_TRUNCATION_UNITS = frozenset({"millennium", "century", "decade", "year", "weekYear", "quarter", "month", "week", "day"})
 _DAY_TIME_DURATION_TOKEN_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)([WDHMS])")
 

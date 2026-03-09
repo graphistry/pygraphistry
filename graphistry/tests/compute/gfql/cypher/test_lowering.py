@@ -1515,6 +1515,28 @@ def test_string_cypher_executes_temporal_datetime_truncate_with_named_zone() -> 
     ]
 
 
+@pytest.mark.parametrize(
+    ("query", "expected_result"),
+    [
+        ("RETURN duration('P5M1.5D') AS result", "P5M1DT12H"),
+        ("RETURN duration('P0.75M') AS result", "P22DT19H51M49.5S"),
+        ("RETURN duration('PT0.75M') AS result", "PT45S"),
+        ("RETURN duration('P2.5W') AS result", "P17DT12H"),
+        ("RETURN duration('P12Y5M14DT16H12M70S') AS result", "P12Y5M14DT16H13M10S"),
+        ("RETURN duration('P2012-02-02T14:37:21.545') AS result", "P2012Y2M2DT14H37M21.545S"),
+    ],
+)
+def test_string_cypher_executes_temporal_duration_string_canonicalization(
+    query: str,
+    expected_result: str,
+) -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"result": expected_result}]
+
+
 def test_string_cypher_executes_temporal_localdatetime_weekyear_truncate_day_override() -> None:
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 
