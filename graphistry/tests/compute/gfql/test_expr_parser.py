@@ -94,6 +94,7 @@ def test_parse_expr_xor_precedence_tree() -> None:
         "flag XOR other_flag",
         "(flag XOR other_flag) IS NULL = (other_flag XOR flag) IS NULL",
         "CASE WHEN score > 1 THEN true ELSE false END",
+        "CASE score WHEN 1 THEN 'one' ELSE 'other' END",
         "any(x IN vals WHERE x = 2)",
         "[x IN vals WHERE x > 1 | x + 1]",
         "name CONTAINS 'a'",
@@ -121,7 +122,6 @@ def test_parse_expr_accepts_shared_comparison_vocab(op: str) -> None:
     [
         "score == 1",
         "id = 'a' -- comment",
-        "CASE WHEN score > 1 THEN true END",
         "any(x vals WHERE x = 2)",
         "any(x IN vals WHERE x = 2))",
         "size() > 0",
@@ -138,6 +138,14 @@ def test_parse_expr_rejects_malformed_samples(expr: str) -> None:
 def test_parse_expr_case_and_quantifier_nodes() -> None:
     case_node = parse_expr("CASE WHEN score > 1 THEN true ELSE false END")
     assert isinstance(case_node, CaseWhen)
+    simple_case_node = parse_expr("CASE score WHEN 1 THEN true WHEN 2 THEN false ELSE null END")
+    assert isinstance(simple_case_node, CaseWhen)
+    assert isinstance(simple_case_node.condition, FunctionCall)
+    assert simple_case_node.condition.name == "__cypher_case_eq__"
+    no_else_case = parse_expr("CASE WHEN score > 1 THEN true END")
+    assert isinstance(no_else_case, CaseWhen)
+    assert isinstance(no_else_case.when_false, Literal)
+    assert no_else_case.when_false.value is None
 
     quant = parse_expr("any(x IN vals WHERE x = 2)")
     assert isinstance(quant, QuantifierExpr)

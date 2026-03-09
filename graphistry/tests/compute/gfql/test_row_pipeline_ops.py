@@ -1027,6 +1027,22 @@ class TestRowPipelineExecution:
                 id="case-when-expression",
             ),
             pytest.param(
+                {"id": ["a", "b", "c"], "score": [1, 3, 2]},
+                [rows(), select([("id", "id"), ("bucket", "CASE score WHEN 1 THEN 'lo' WHEN 3 THEN 'hi' ELSE 'mid' END")]), order_by([("id", "asc")])],
+                [{"id": "a", "bucket": "lo"}, {"id": "b", "bucket": "hi"}, {"id": "c", "bucket": "mid"}],
+                None,
+                None,
+                id="simple-case-expression",
+            ),
+            pytest.param(
+                {"id": ["a"], "flag": [True]},
+                [rows(), select([("bucket", "CASE flag WHEN 1 THEN 'one' ELSE 'other' END")])],
+                [{"bucket": "other"}],
+                None,
+                None,
+                id="simple-case-bool-not-equal-int",
+            ),
+            pytest.param(
                 {"id": ["a", "b", "c"]},
                 [rows(table="edges"), select([("weight", "weight")]), order_by([("weight", "desc")])],
                 [{"weight": 3}, {"weight": 2}, {"weight": 1}],
@@ -1502,8 +1518,11 @@ class TestRowPipelineSafelist:
             'name = "rand()"',
             *[f"txt {op}" for op in ["CONTAINS 5", "CONTAINS null", "CONTAINS (5)", "STARTS WITH (5)", "ENDS WITH (5)"]],
             "CASE WHEN score > 1 THEN true ELSE false END",
+            "CASE WHEN score > 1 THEN true END",
+            "CASE score WHEN 1 THEN true ELSE false END",
             *[f"{fn}(x IN vals WHERE x {pred})" for fn, pred in [("any", "= 2"), ("all", "> 1"), ("none", "< 0"), ("single", "= 2")]],
             "score > 1 AND CASE WHEN id = 'a' THEN true ELSE false END",
+            "score > 1 AND CASE WHEN id = 'a' THEN true END",
             *[f"size([x IN vals WHERE x > 1{suffix}]) > 0" for suffix in ["", " | x"]],
         ]
         for expr in valid_exprs:
@@ -1526,8 +1545,6 @@ class TestRowPipelineSafelist:
             "any(x IN vals WHERE x = 2",
             "any(x vals WHERE x = 2)",
             "any(x IN vals | WHERE x = 2)",
-            "CASE WHEN score > 1 THEN true END",
-            "score > 1 AND CASE WHEN id = 'a' THEN true END",
             *[
                 f"size({expr}) > 0"
                 for expr in [

@@ -862,6 +862,53 @@ def test_string_cypher_supports_generic_match_where_boolean_expression() -> None
     assert result._nodes.to_dict(orient="records") == [{"n": "({name: 'a'})"}]
 
 
+def test_string_cypher_executes_searched_case_projection() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"], "score": [1, 3, 2]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) RETURN n.id AS id, CASE WHEN n.score > 2 THEN 'hi' ELSE 'lo' END AS bucket ORDER BY id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": "a", "bucket": "lo"},
+        {"id": "b", "bucket": "hi"},
+        {"id": "c", "bucket": "lo"},
+    ]
+
+
+def test_string_cypher_executes_simple_case_projection() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"], "score": [1, 3, 2]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) RETURN n.id AS id, CASE n.score WHEN 1 THEN 'lo' WHEN 3 THEN 'hi' ELSE 'mid' END AS bucket ORDER BY id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": "a", "bucket": "lo"},
+        {"id": "b", "bucket": "hi"},
+        {"id": "c", "bucket": "mid"},
+    ]
+
+
+def test_string_cypher_simple_case_does_not_match_bool_to_int() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"], "flag": [True]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) RETURN CASE n.flag WHEN 1 THEN 'one' ELSE 'other' END AS result"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"result": "other"}]
+
+
 def test_string_cypher_supports_generic_match_where_chained_comparison() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["a"], "num": [5]}),

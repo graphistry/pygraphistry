@@ -49,6 +49,7 @@ GFQL_SCALAR_FUNCTIONS: Final[frozenset[str]] = frozenset(
         "__edge_keys__",
         "__node_entity__",
         "__edge_entity__",
+        "__cypher_case_eq__",
     }
 )
 GFQL_SEQUENCE_FUNCTIONS: Final[frozenset[str]] = frozenset({"head", "tail", "reverse"})

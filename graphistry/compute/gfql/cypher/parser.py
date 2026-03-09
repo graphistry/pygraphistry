@@ -172,6 +172,7 @@ order_expr: expr
         | literal
         | function_call
         | qualified_name
+        | case_expr
         | quantifier_expr
         | list_comprehension
         | list_literal
@@ -191,6 +192,13 @@ regular_func_args: func_arg ("," func_arg)*
 distinct_func_args: "DISTINCT"i func_arg
 ?func_arg: expr
          | "*"                              -> star_arg
+
+case_expr: searched_case_expr
+         | simple_case_expr
+searched_case_expr: "CASE"i case_when+ case_else? "END"i
+simple_case_expr: "CASE"i expr case_when+ case_else? "END"i
+case_when: "WHEN"i expr "THEN"i expr
+case_else: "ELSE"i expr
 
 list_literal: "[" [expr_list] "]"
 expr_list: expr ("," expr)*
@@ -226,7 +234,7 @@ COMP_OP: "=" | "<>" | "!=" | "<=" | "<" | ">=" | ">"
 
 SEMI: ";"
 MINUS: /-(?!-)/
-NAME: /(?!(?i:MATCH|RETURN|WITH|ORDER|BY|SKIP|LIMIT|UNWIND|WHERE|AS|ASC|ASCENDING|DESC|DESCENDING|AND|OR|XOR|NOT|IN|IS|NULL|TRUE|FALSE|CONTAINS|STARTS|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*/
+NAME: /(?!(?i:MATCH|RETURN|WITH|ORDER|BY|SKIP|LIMIT|UNWIND|WHERE|AS|ASC|ASCENDING|DESC|DESCENDING|AND|OR|XOR|NOT|IN|IS|NULL|TRUE|FALSE|CONTAINS|STARTS|ENDS|ANY|ALL|NONE|SINGLE|CASE|WHEN|THEN|ELSE|END)\b)[A-Za-z_][A-Za-z0-9_]*/
 MAP_KEY_NAME: /[A-Za-z_][A-Za-z0-9_]*/
 NUMBER: /[+-]?(?:0[xX][0-9A-Fa-f]+|0[oO][0-7]+|(?:\d+\.\d+(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+(?:[eE][+-]?\d+)?))/
 INT: /[0-9]+/

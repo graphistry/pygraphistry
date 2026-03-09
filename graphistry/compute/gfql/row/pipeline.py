@@ -587,6 +587,41 @@ class RowPipelineMixin:
                     return False, None
                 values.append(val)
 
+            if fn == "__cypher_case_eq__" and len(values) == 2:
+                left = values[0]
+                right = values[1]
+                left_null_mask = self._gfql_null_mask(table_df, left)
+                right_null_mask = self._gfql_null_mask(table_df, right)
+                any_null_mask = left_null_mask | right_null_mask
+                left_is_bool = (
+                    RowPipelineMixin._gfql_series_bool_like(left)
+                    if hasattr(left, "astype")
+                    else isinstance(left, bool)
+                )
+                right_is_bool = (
+                    RowPipelineMixin._gfql_series_bool_like(right)
+                    if hasattr(right, "astype")
+                    else isinstance(right, bool)
+                )
+                left_is_numeric = (
+                    RowPipelineMixin._gfql_series_numeric_non_bool_like(left)
+                    if hasattr(left, "astype")
+                    else RowPipelineMixin._gfql_scalar_numeric_non_bool(left)
+                )
+                right_is_numeric = (
+                    RowPipelineMixin._gfql_series_numeric_non_bool_like(right)
+                    if hasattr(right, "astype")
+                    else RowPipelineMixin._gfql_scalar_numeric_non_bool(right)
+                )
+                if (left_is_bool and right_is_numeric) or (left_is_numeric and right_is_bool):
+                    return True, self._gfql_broadcast_scalar(table_df, False).where(~any_null_mask, False)
+                out = left == right
+                if hasattr(out, "where"):
+                    out = out.where(~any_null_mask, False)
+                elif hasattr(any_null_mask, "any") and bool(any_null_mask.any()):
+                    out = False
+                return True, out
+
             if fn == "range" and len(values) in {2, 3}:
                 scalar_values: List[Any] = []
                 for value in values:
@@ -1131,6 +1166,25 @@ class RowPipelineMixin:
             sample = sample.to_pandas()
         values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
         return len(values) > 0 and all(isinstance(v, bool) for v in values)
+
+    @staticmethod
+    def _gfql_scalar_numeric_non_bool(value: Any) -> bool:
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+    @staticmethod
+    def _gfql_series_numeric_non_bool_like(series: Any) -> bool:
+        dtype_txt = str(getattr(series, "dtype", "")).lower()
+        if dtype_txt in {"bool", "boolean"}:
+            return False
+        if any(token in dtype_txt for token in ("int", "float", "double", "decimal")):
+            return True
+        if not hasattr(series, "dropna"):
+            return RowPipelineMixin._gfql_scalar_numeric_non_bool(series)
+        sample = series.dropna().head(128)
+        if hasattr(sample, "to_pandas"):
+            sample = sample.to_pandas()
+        values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
+        return len(values) > 0 and all(RowPipelineMixin._gfql_scalar_numeric_non_bool(v) for v in values)
 
     def _gfql_eval_string_predicate_expr(
         self,

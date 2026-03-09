@@ -122,6 +122,20 @@ def test_parse_return_xor_precedence_expression() -> None:
     assert parsed.return_.items[0].expression.text == "true OR true XOR false AND false"
 
 
+def test_parse_return_searched_case_expression() -> None:
+    parsed = parse_cypher("RETURN CASE WHEN score > 1 THEN true ELSE false END AS result")
+
+    assert parsed.return_.items[0].expression.text == "CASE WHEN score > 1 THEN true ELSE false END"
+    assert parsed.return_.items[0].alias == "result"
+
+
+def test_parse_return_simple_case_expression() -> None:
+    parsed = parse_cypher("RETURN CASE score WHEN 1 THEN 'one' ELSE 'other' END AS result")
+
+    assert parsed.return_.items[0].expression.text == "CASE score WHEN 1 THEN 'one' ELSE 'other' END"
+    assert parsed.return_.items[0].alias == "result"
+
+
 @pytest.mark.parametrize(
     "query,expr_text",
     [

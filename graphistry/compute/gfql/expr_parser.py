@@ -233,7 +233,12 @@ distinct_func_args: "DISTINCT"i func_arg
          | "*"                           -> star_arg
 identifier: NAME ("." NAME)*
 
-case_expr: "CASE"i "WHEN"i expr "THEN"i expr "ELSE"i expr "END"i
+case_expr: searched_case_expr
+         | simple_case_expr
+searched_case_expr: "CASE"i case_when+ case_else? "END"i
+simple_case_expr: "CASE"i expr case_when+ case_else? "END"i
+case_when: "WHEN"i expr "THEN"i expr
+case_else: "ELSE"i expr
 
 quantifier_expr: "ANY"i "(" NAME "IN"i expr "WHERE"i expr ")"       -> any_quant
                | "ALL"i "(" NAME "IN"i expr "WHERE"i expr ")"       -> all_quant
@@ -333,6 +338,11 @@ def _build_transformer() -> _TransformerLike:
         args: Tuple[ExprNode, ...]
         distinct: bool = False
 
+    @dataclass(frozen=True)
+    class _CaseArm:
+        when_expr: ExprNode
+        then_expr: ExprNode
+
     class _AstBuilder(Transformer):  # type: ignore[valid-type,misc]
         def __init__(self) -> None:
             super().__init__(visit_tokens=True)
@@ -399,13 +409,73 @@ def _build_transformer() -> _TransformerLike:
                 raise GFQLExprParseError("Invalid function call")
             return FunctionCall(fn, args, distinct=distinct)
 
+        def case_when(self, items: Sequence[Any]) -> _CaseArm:
+            stripped = _strip_tokens(items)
+            if len(stripped) != 2:
+                raise GFQLExprParseError("Invalid CASE arm")
+            return _CaseArm(
+                when_expr=cast(ExprNode, stripped[0]),
+                then_expr=cast(ExprNode, stripped[1]),
+            )
+
+        def case_else(self, items: Sequence[Any]) -> ExprNode:
+            stripped = _strip_tokens(items)
+            if len(stripped) != 1:
+                raise GFQLExprParseError("Invalid CASE ELSE clause")
+            return cast(ExprNode, stripped[0])
+
+        def _fold_case_arms(
+            self,
+            arms: Sequence[_CaseArm],
+            *,
+            base_expr: Optional[ExprNode] = None,
+            else_expr: Optional[ExprNode] = None,
+        ) -> CaseWhen:
+            if len(arms) == 0:
+                raise GFQLExprParseError("CASE requires at least one WHEN branch")
+            node: ExprNode = Literal(None) if else_expr is None else else_expr
+            for arm in reversed(tuple(arms)):
+                condition = arm.when_expr
+                if base_expr is not None:
+                    condition = FunctionCall("__cypher_case_eq__", (base_expr, condition))
+                node = CaseWhen(
+                    condition=condition,
+                    when_true=arm.then_expr,
+                    when_false=node,
+                )
+            if not isinstance(node, CaseWhen):
+                raise GFQLExprParseError("Invalid CASE expression")
+            return node
+
+        def searched_case_expr(self, items: Sequence[Any]) -> CaseWhen:
+            arms: List[_CaseArm] = []
+            else_expr: Optional[ExprNode] = None
+            for item in _strip_tokens(items):
+                if isinstance(item, _CaseArm):
+                    arms.append(item)
+                else:
+                    else_expr = cast(ExprNode, item)
+            return self._fold_case_arms(arms, else_expr=else_expr)
+
+        def simple_case_expr(self, items: Sequence[Any]) -> CaseWhen:
+            stripped = _strip_tokens(items)
+            if len(stripped) < 2:
+                raise GFQLExprParseError("Invalid CASE expression")
+            base_expr = cast(ExprNode, stripped[0])
+            arms: List[_CaseArm] = []
+            else_expr: Optional[ExprNode] = None
+            for item in stripped[1:]:
+                if isinstance(item, _CaseArm):
+                    arms.append(item)
+                else:
+                    else_expr = cast(ExprNode, item)
+            return self._fold_case_arms(arms, base_expr=base_expr, else_expr=else_expr)
+
         def case_expr(self, items: Sequence[Any]) -> CaseWhen:
             stripped = _strip_tokens(items)
-            return CaseWhen(
-                condition=cast(ExprNode, stripped[0]),
-                when_true=cast(ExprNode, stripped[1]),
-                when_false=cast(ExprNode, stripped[2]),
-            )
+            if len(stripped) != 1 or not isinstance(stripped[0], CaseWhen):
+                raise GFQLExprParseError("Invalid CASE expression")
+            return cast(CaseWhen, stripped[0])
 
         def _quantifier_expr(self, fn: str, items: Sequence[Any]) -> QuantifierExpr:
             var = ""
