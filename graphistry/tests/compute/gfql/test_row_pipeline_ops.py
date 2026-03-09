@@ -228,6 +228,22 @@ def test_row_pipeline_select_supports_range_scalar_function() -> None:
     assert _normalize_records(result.to_dict(orient="records")) == [{"vals": [0, 1, 2, 3]}]
 
 
+def test_row_pipeline_select_supports_range_with_constant_series_bounds() -> None:
+    nodes_df = pd.DataFrame({"id": ["a"], "num_of_values": [3]})
+
+    result = _run_node_steps(
+        nodes_df,
+        [
+            rows(),
+            select([("ordered_x", "[0, 1, 2]"), ("num_of_values", "num_of_values")]),
+            select([("equal", "ordered_x = range(0, num_of_values - 1)")]),
+        ],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert _normalize_records(result.to_dict(orient="records")) == [{"equal": True}]
+
+
 def test_row_pipeline_select_supports_keys_for_map_literals_and_nulls() -> None:
     nodes_df = pd.DataFrame({"id": ["a"]})
 

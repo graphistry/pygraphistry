@@ -1589,6 +1589,22 @@ def test_string_cypher_executes_interleaved_row_only_with_unwind_pipeline() -> N
     assert result._nodes.to_dict(orient="records") == [{"p": 0}, {"p": 1}]
 
 
+def test_string_cypher_supports_range_comparison_after_collect() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "WITH [1, 3, 2] AS values "
+        "WITH values, size(values) AS numOfValues "
+        "UNWIND values AS value "
+        "WITH size([x IN values WHERE x < value]) AS x, value, numOfValues "
+        "ORDER BY value "
+        "WITH numOfValues, collect(x) AS orderedX "
+        "RETURN orderedX = range(0, numOfValues - 1) AS equal"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"equal": True}]
+
+
 def test_string_cypher_rejects_out_of_scope_order_by_after_multiple_with_stages() -> None:
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 

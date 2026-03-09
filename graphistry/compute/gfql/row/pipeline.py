@@ -107,6 +107,19 @@ class RowPipelineMixin:
         if cmp_fn is None:
             return None
 
+        left_is_list = (
+            isinstance(left, (list, tuple))
+            or (hasattr(left, "astype") and RowPipelineMixin._gfql_series_is_list_like(left))
+        )
+        right_is_list = (
+            isinstance(right, (list, tuple))
+            or (hasattr(right, "astype") and RowPipelineMixin._gfql_series_is_list_like(right))
+        )
+        if op in {"=", "!=", "<>"} and (left_is_list or right_is_list):
+            list_cmp = self._gfql_eval_list_comparison_op(table_df, left, right, op)
+            if list_cmp is not None:
+                return list_cmp
+
         left_null_mask = self._gfql_null_mask(table_df, left)
         right_null_mask = self._gfql_null_mask(table_df, right)
         if isinstance(left, float) and math.isnan(left):
@@ -123,6 +136,106 @@ class RowPipelineMixin:
             elif bool(null_mask):
                 out = None
         return out
+
+    def _gfql_eval_list_comparison_op(
+        self,
+        table_df: Any,
+        left_value: Any,
+        right_value: Any,
+        op: str,
+    ) -> Optional[Any]:
+        left_series = left_value if hasattr(left_value, "astype") else self._gfql_broadcast_scalar(table_df, left_value)
+        right_series = right_value if hasattr(right_value, "astype") else self._gfql_broadcast_scalar(table_df, right_value)
+
+        if not hasattr(left_series, "str") or not hasattr(right_series, "str"):
+            return None
+        if not hasattr(left_series.str, "len") or not hasattr(right_series.str, "len"):
+            return None
+
+        row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_row__")
+        lhs_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_lhs__")
+        rhs_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_rhs__")
+        lhs_len_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_lhs_len__")
+        rhs_len_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_rhs_len__")
+        pos_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_pos__")
+        match_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_match__")
+        unknown_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_unknown__")
+
+        base = table_df.assign(**{row_col: range(len(table_df)), lhs_col: left_series, rhs_col: right_series})
+        left_null = self._gfql_null_mask(base, base[lhs_col])
+        right_null = self._gfql_null_mask(base, base[rhs_col])
+        null_mask = left_null | right_null
+
+        lhs_len = base[lhs_col].str.len().fillna(0).astype("int64")
+        rhs_len = base[rhs_col].str.len().fillna(0).astype("int64")
+        base = base.assign(**{lhs_len_col: lhs_len, rhs_len_col: rhs_len})
+
+        non_null = base.loc[~null_mask, [row_col, lhs_col, rhs_col, lhs_len_col, rhs_len_col]].copy()
+        if len(non_null) == 0:
+            return self._gfql_broadcast_scalar(table_df, pd.NA)
+
+        lhs_expanded = non_null[[row_col, lhs_col, lhs_len_col]].explode(lhs_col)
+        rhs_expanded = non_null[[row_col, rhs_col, rhs_len_col]].explode(rhs_col)
+
+        if len(lhs_expanded) > 0:
+            lhs_expanded = lhs_expanded.assign(**{pos_col: lhs_expanded.groupby(row_col, sort=False).cumcount()})
+            lhs_expanded = lhs_expanded.loc[lhs_expanded[pos_col] < lhs_expanded[lhs_len_col]]
+        if len(rhs_expanded) > 0:
+            rhs_expanded = rhs_expanded.assign(**{pos_col: rhs_expanded.groupby(row_col, sort=False).cumcount()})
+            rhs_expanded = rhs_expanded.loc[rhs_expanded[pos_col] < rhs_expanded[rhs_len_col]]
+
+        expanded = lhs_expanded.merge(
+            rhs_expanded[[row_col, rhs_col, pos_col]],
+            on=[row_col, pos_col],
+            how="outer",
+            sort=False,
+        )
+
+        if len(expanded) > 0:
+            lhs_elem = expanded[lhs_col]
+            rhs_elem = expanded[rhs_col]
+            lhs_elem_null = self._gfql_null_mask(expanded, lhs_elem)
+            rhs_elem_null = self._gfql_null_mask(expanded, rhs_elem)
+            both_null = lhs_elem_null & rhs_elem_null
+            elem_equal = lhs_elem == rhs_elem
+            if hasattr(elem_equal, "where"):
+                elem_equal = elem_equal.where(~(lhs_elem_null | rhs_elem_null), both_null)
+            else:
+                elem_equal = both_null if bool(lhs_elem_null | rhs_elem_null) else elem_equal
+            elem_unknown = (lhs_elem_null | rhs_elem_null) & (~both_null)
+            eval_df = expanded.assign(
+                **{
+                    match_col: elem_equal.astype("int64"),
+                    unknown_col: elem_unknown.astype("int64"),
+                }
+            )
+            match_counts = eval_df.groupby(row_col, sort=False)[match_col].sum().reset_index()
+            unknown_counts = eval_df.groupby(row_col, sort=False)[unknown_col].sum().reset_index()
+        else:
+            match_counts = non_null[[row_col]].iloc[0:0].copy()
+            match_counts[match_col] = []
+            unknown_counts = non_null[[row_col]].iloc[0:0].copy()
+            unknown_counts[unknown_col] = []
+
+        summary = base[[row_col, lhs_len_col, rhs_len_col]].merge(match_counts, on=row_col, how="left", sort=False)
+        summary = summary.merge(unknown_counts, on=row_col, how="left", sort=False)
+        summary = summary.assign(
+            **{
+                match_col: summary[match_col].fillna(0).astype("int64"),
+                unknown_col: summary[unknown_col].fillna(0).astype("int64"),
+            }
+        )
+        lengths_equal = summary[lhs_len_col] == summary[rhs_len_col]
+        known_equal = lengths_equal & (summary[match_col] == summary[lhs_len_col])
+        unknown_equal = lengths_equal & (summary[match_col] + summary[unknown_col] == summary[lhs_len_col]) & (~known_equal)
+
+        out = self._gfql_broadcast_scalar(summary, False)
+        out = out.where(~unknown_equal, pd.NA)
+        out = out.where(~known_equal, True)
+        out = out.where(~null_mask, pd.NA)
+        if op in {"!=", "<>"}:
+            out = (~out.astype("boolean")).where(~out.isna(), pd.NA)
+        return out.reset_index(drop=True)
 
     def _gfql_eval_expr_ast(self, table_df: Any, node: Any) -> Tuple[bool, Any]:
         parser_bundle = _gfql_expr_runtime_parser_bundle()
@@ -386,12 +499,20 @@ class RowPipelineMixin:
                     return False, None
                 values.append(val)
 
-            if fn == "range" and len(values) in {2, 3} and not any(hasattr(value, "astype") for value in values):
-                if not all(isinstance(value, int) and not isinstance(value, bool) for value in values):
+            if fn == "range" and len(values) in {2, 3}:
+                scalar_values: List[Any] = []
+                for value in values:
+                    if hasattr(value, "astype"):
+                        ok, scalar = RowPipelineMixin._gfql_series_scalar_if_constant(value)
+                        if not ok:
+                            return False, None
+                        value = scalar
+                    scalar_values.append(value)
+                if not all(isinstance(value, int) and not isinstance(value, bool) for value in scalar_values):
                     return False, None
-                start = values[0]
-                stop = values[1]
-                step = values[2] if len(values) == 3 else 1
+                start = scalar_values[0]
+                stop = scalar_values[1]
+                step = scalar_values[2] if len(scalar_values) == 3 else 1
                 if step == 0:
                     return False, None
                 inclusive_stop = stop + (1 if step > 0 else -1)
@@ -720,6 +841,18 @@ class RowPipelineMixin:
                 empty_idx = result.index[empty_mask]
                 empty_vals: Any = pd.Series([[] for _ in range(len(empty_idx))], index=empty_idx, dtype="object")
                 result.loc[empty_idx] = empty_vals
+
+            missing_mask = result.isna() if hasattr(result, "isna") else None
+            if missing_mask is not None:
+                filtered_empty_mask = missing_mask & (~null_mask)
+                if hasattr(filtered_empty_mask, "any") and bool(filtered_empty_mask.any()):
+                    filtered_idx = result.index[filtered_empty_mask]
+                    filtered_empty_vals: Any = pd.Series(
+                        [[] for _ in range(len(filtered_idx))],
+                        index=filtered_idx,
+                        dtype="object",
+                    )
+                    result.loc[filtered_idx] = filtered_empty_vals
 
             if hasattr(null_mask, "any") and bool(null_mask.any()):
                 result.loc[result.index[null_mask]] = None
