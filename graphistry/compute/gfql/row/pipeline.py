@@ -1269,10 +1269,15 @@ class RowPipelineMixin:
                 return text.str.lower()
             if hasattr(num_like, "where") and bool(num_like.where(non_null, True).all()):
                 return text.str.replace(r"\.0+$", "", regex=True)
-            if hasattr(series, "map"):
-                return series.map(RowPipelineMixin._gfql_format_cypher_scalar_literal)
+            escaped = text.str.replace("\\", "\\\\", regex=False).str.replace("'", "\\'", regex=False)
+            out = "'" + escaped + "'"
+            out = out.where(~bool_like, text.str.lower())
+            out = out.where(~num_like, text.str.replace(r"\.0+$", "", regex=True))
+            out = out.where(~list_like, stripped)
+            out = out.where(~map_like, stripped)
+            return out
         if hasattr(text, "str"):
-            escaped = text.str.replace("'", "\\'", regex=False)
+            escaped = text.str.replace("\\", "\\\\", regex=False).str.replace("'", "\\'", regex=False)
             return "'" + escaped + "'"
         return "'" + text + "'"
 

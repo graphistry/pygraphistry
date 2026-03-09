@@ -4,6 +4,7 @@ from typing import Literal, Sequence, cast
 
 import pandas as pd
 
+from graphistry.compute.dataframe_utils import df_cons as template_df_cons
 from graphistry.compute.typing import DataFrameT, SeriesT
 
 
@@ -28,6 +29,10 @@ def _include_numeric_id_as_property(df: DataFrameT) -> bool:
         return bool(pd.api.types.is_numeric_dtype(df["id"]))
     except Exception:
         return False
+
+
+def _list_series_from_python_rows(df: DataFrameT, col_name: str, row_count: int) -> SeriesT:
+    return cast(SeriesT, template_df_cons(df, {col_name: [[] for _ in range(row_count)]})[col_name])
 
 
 def node_property_columns(df: DataFrameT, alias_col: str, excluded: Sequence[str]) -> list[str]:
@@ -80,7 +85,8 @@ def entity_keys_series(
         excluded=excluded,
     )
     if len(property_cols) == 0:
-        return cast(SeriesT, pd.Series([[] for _ in range(len(df))], index=df.index, dtype="object"))
+        empty_col = _fresh_col_name(df.columns, "__gfql_entity_key_empty__")
+        return _list_series_from_python_rows(df, empty_col, len(df))
 
     row_col = _fresh_col_name(df.columns, "__gfql_entity_key_row__")
     key_col = _fresh_col_name(df.columns, "__gfql_entity_key_name__")
@@ -104,11 +110,12 @@ def entity_keys_series(
         non_null.groupby(row_col, sort=False)[key_col].agg(list).reset_index(),
     )
 
-    base_rows = cast(DataFrameT, pd.DataFrame({row_col: range(len(df))}))
+    base_rows = cast(DataFrameT, template_df_cons(df, {row_col: range(len(df))}))
     merged = cast(DataFrameT, base_rows.merge(grouped, on=row_col, how="left", sort=False))
     out = cast(SeriesT, merged[key_col])
     missing_mask = cast(SeriesT, out.isna())
     if bool(missing_mask.any()):
-        empty_index = out.index[missing_mask]
-        out.loc[empty_index] = pd.Series([[] for _ in range(len(empty_index))], index=empty_index, dtype="object")
+        fill_col = _fresh_col_name(df.columns, "__gfql_entity_key_fill__")
+        filled = _list_series_from_python_rows(df, fill_col, len(merged))
+        out = cast(SeriesT, out.where(~missing_mask, filled))
     return out.reset_index(drop=True)

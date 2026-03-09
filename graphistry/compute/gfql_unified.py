@@ -1,7 +1,7 @@
 """GFQL unified entrypoint for chains, DAGs, and local string-compiled queries."""
 # ruff: noqa: E501
 
-from typing import List, Union, Optional, Dict, Any, Sequence, Mapping, Literal, cast
+from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Union, cast
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine
 from graphistry.util import setup_logger
@@ -24,12 +24,15 @@ from graphistry.compute.gfql.same_path_types import (
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.api import compile_cypher
+from graphistry.compute.gfql.cypher.lowering import CompiledCypherQuery
+from graphistry.compute.gfql.cypher.result_postprocess import WholeRowProjectionMeta
 from graphistry.compute.gfql.df_executor import (
     DFSamePathExecutor,
     build_same_path_inputs,
     execute_same_path_chain,
 )
 from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
+from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.otel import otel_traced, otel_detail_enabled
@@ -90,11 +93,11 @@ def _apply_optional_null_fill(
 def _execute_compiled_query(
     base_graph: Plottable,
     *,
-    compiled_query: Any,
+    compiled_query: CompiledCypherQuery,
     engine: Union[EngineAbstract, str],
     policy: Optional[PolicyDict],
     context: ExecutionContext,
-    start_nodes: Optional[Any] = None,
+    start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
     dispatch_graph = base_graph
     if compiled_query.seed_rows:
@@ -132,13 +135,16 @@ def _execute_compiled_query(
 
 
 def _compiled_query_start_nodes(
-    compiled_query: Any,
+    compiled_query: CompiledCypherQuery,
     prefix_result: Plottable,
     *,
     engine: Union[EngineAbstract, str],
-) -> Any:
+) -> DataFrameT:
     output_name = compiled_query.start_nodes_output_name
-    entity_meta = getattr(prefix_result, "_cypher_entity_projection_meta", None)
+    entity_meta = cast(
+        Optional[dict[str, WholeRowProjectionMeta]],
+        getattr(prefix_result, "_cypher_entity_projection_meta", None),
+    )
     if not isinstance(entity_meta, dict) or output_name not in entity_meta:
         raise GFQLValidationError(
             ErrorCode.E108,
@@ -149,7 +155,7 @@ def _compiled_query_start_nodes(
             language="cypher",
         )
     meta = entity_meta[output_name]
-    if not isinstance(meta, dict) or meta.get("table") != "nodes":
+    if meta["table"] != "nodes":
         raise GFQLValidationError(
             ErrorCode.E108,
             "Cypher MATCH after WITH currently supports node re-entry only",
@@ -158,9 +164,9 @@ def _compiled_query_start_nodes(
             suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
             language="cypher",
         )
-    ids = meta.get("ids")
-    id_column = meta.get("id_column")
-    if id_column is None or ids is None or not hasattr(ids, "dropna"):
+    ids = meta["ids"]
+    id_column = meta["id_column"]
+    if not hasattr(ids, "dropna"):
         raise GFQLValidationError(
             ErrorCode.E108,
             "Cypher MATCH after WITH could not recover carried node identities from the prefix stage",
@@ -171,7 +177,8 @@ def _compiled_query_start_nodes(
         )
     concrete_engine = resolve_engine(cast(Any, engine), prefix_result)
     df_ctor = df_cons(concrete_engine)
-    return df_ctor({id_column: ids.dropna().tolist()})
+    carried_ids = cast(SeriesT, ids.dropna().reset_index(drop=True))
+    return df_ctor({id_column: carried_ids})
 
 
 def _materialize_split_alias_columns(
@@ -620,7 +627,7 @@ def _chain_dispatch(
     engine: Union[EngineAbstract, str],
     policy: Optional[PolicyDict],
     context: ExecutionContext,
-    start_nodes: Optional[Any] = None,
+    start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
     if chain_obj.where:
         if start_nodes is not None:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, Sequence, cast
+from typing import Any, Literal, Sequence, TypedDict, cast
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT, SeriesT
@@ -16,6 +16,13 @@ from graphistry.compute.gfql.temporal_text import (
 )
 from graphistry.compute.gfql.row.entity_props import edge_property_columns, node_property_columns
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter
+
+
+class WholeRowProjectionMeta(TypedDict):
+    table: Literal["nodes", "edges"]
+    alias: str
+    id_column: str
+    ids: SeriesT
 
 
 def _empty_text(df: DataFrameT, alias_col: str) -> SeriesT:
@@ -51,6 +58,12 @@ def _normalize_zero_offset_suffix(timezone: SeriesT) -> SeriesT:
         return timezone
     zero_offset = timezone.isin(["+00:00", "-00:00"])
     return cast(SeriesT, timezone.where(~zero_offset, "Z"))
+
+
+def _quote_text_series(df: DataFrameT, alias_col: str, text: SeriesT) -> SeriesT:
+    escaped = cast(SeriesT, text.str.replace("\\", "\\\\", regex=False))
+    escaped = cast(SeriesT, escaped.str.replace("'", "\\'", regex=False))
+    return cast(SeriesT, _const_text(df, alias_col, "'") + escaped + "'")
 
 
 def _format_decimal_text(value: object) -> str:
@@ -200,11 +213,14 @@ def _render_scalar_value_text(df: DataFrameT, alias_col: str, series: SeriesT) -
                 formatted = cast(SeriesT, series.map(_format_decimal_text))
                 out = cast(SeriesT, out.where(~sci_mask, formatted))
             return out
-        if hasattr(series, "map"):
-            return cast(SeriesT, series.map(_RowPipelineAdapter._gfql_format_cypher_scalar_literal))
+        out = _quote_text_series(df, alias_col, text)
+        out = cast(SeriesT, out.where(~bool_like, text.str.lower()))
+        out = cast(SeriesT, out.where(~num_like, text.str.replace(r"\.0+$", "", regex=True)))
+        out = cast(SeriesT, out.where(~list_like, stripped))
+        out = cast(SeriesT, out.where(~map_like, stripped))
+        return out
     if hasattr(text, "str"):
-        escaped = cast(SeriesT, text.str.replace("'", "\\'", regex=False))
-        return cast(SeriesT, _const_text(df, alias_col, "'") + escaped + "'")
+        return _quote_text_series(df, alias_col, text)
     return cast(SeriesT, _const_text(df, alias_col, "'") + text + "'")
 
 
@@ -329,7 +345,11 @@ def _project_expr_column(
     return cast(SeriesT, value if hasattr(value, "astype") else adapter._gfql_broadcast_scalar(rows_df, value))
 
 
-def _whole_row_projection_meta(result: Plottable, rows_df: DataFrameT, projection: ResultProjectionPlan) -> Dict[str, Any] | None:
+def _whole_row_projection_meta(
+    result: Plottable,
+    rows_df: DataFrameT,
+    projection: ResultProjectionPlan,
+) -> WholeRowProjectionMeta | None:
     id_column = getattr(result, "_node" if projection.table == "nodes" else "_edge", None)
     if id_column is None or id_column not in rows_df.columns:
         return None
@@ -353,12 +373,17 @@ def apply_result_projection(result: Plottable, projection: ResultProjectionPlan)
     )
     projected_data: dict[str, SeriesT] = {}
     whole_row_meta = _whole_row_projection_meta(result, rows_df, projection)
-    projected_entity_meta: Dict[str, Dict[str, Any]] = {}
+    projected_entity_meta: dict[str, WholeRowProjectionMeta] = {}
     for column in projection.columns:
         if column.kind == "whole_row":
             projected_data[column.output_name] = entity_series
             if whole_row_meta is not None:
-                projected_entity_meta[column.output_name] = dict(whole_row_meta)
+                projected_entity_meta[column.output_name] = {
+                    "table": whole_row_meta["table"],
+                    "alias": whole_row_meta["alias"],
+                    "id_column": whole_row_meta["id_column"],
+                    "ids": whole_row_meta["ids"],
+                }
         else:
             projected_data[column.output_name] = (
                 _project_property_column(rows_df, column=column)
