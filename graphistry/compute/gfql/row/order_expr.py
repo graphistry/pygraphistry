@@ -7,11 +7,8 @@ from graphistry.compute.gfql.expr_parser import (
     FunctionCall,
     Identifier,
     ListComprehension,
-    ListLiteral,
     MapLiteral,
     QuantifierExpr,
-    SliceExpr,
-    SubscriptExpr,
     Wildcard,
     iter_expr_children,
     is_expr_node,
@@ -21,10 +18,7 @@ from graphistry.compute.gfql.language_defs import GFQL_ORDER_AGG_ALIAS_FUNCTIONS
 _ORDER_UNSUPPORTED_NODE_TYPES: Final[tuple[type, ...]] = (
     QuantifierExpr,
     ListComprehension,
-    ListLiteral,
     MapLiteral,
-    SubscriptExpr,
-    SliceExpr,
 )
 
 

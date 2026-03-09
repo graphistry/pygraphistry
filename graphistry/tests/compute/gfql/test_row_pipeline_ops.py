@@ -244,6 +244,29 @@ def test_row_pipeline_select_supports_range_with_constant_series_bounds() -> Non
     assert _normalize_records(result.to_dict(orient="records")) == [{"equal": True}]
 
 
+def test_row_pipeline_order_by_supports_list_literal_and_subscript_expression_keys() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e"],
+            "list": [[2, -2], [1, 2], [300, 0], [1, -20], [2, -2, 100]],
+            "list2": [[3, -2], [2, -2], [1, -2], [4, -2], [5, -2]],
+        }
+    )
+
+    result = _run_node_steps(
+        nodes_df,
+        [
+            rows(),
+            order_by([("[list2[1], list2[0], list[1]] + list + list2", "asc")]),
+            limit(3),
+            select([("id", "id")]),
+        ],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert result.to_dict(orient="records") == [{"id": "c"}, {"id": "b"}, {"id": "a"}]
+
+
 def test_row_pipeline_select_supports_keys_for_map_literals_and_nulls() -> None:
     nodes_df = pd.DataFrame({"id": ["a"]})
 
@@ -1701,6 +1724,7 @@ class TestRowPipelineSafelist:
     def test_row_pipeline_order_by_validation(self):
         self._assert_valid("order_by", {"keys": [("name", "asc"), ("score", "desc")]})
         self._assert_valid("order_by", {"keys": [("count(*)", "asc"), ("max(n.age)", "desc")]})
+        self._assert_valid("order_by", {"keys": [("[score, score + 1]", "asc")]})
 
         for bad_keys in [
             None,
@@ -1710,7 +1734,6 @@ class TestRowPipelineSafelist:
             [1],
             [(1, "asc")],
             [("a", "up")],
-            [("[1, 2]", "asc")],
             [("unknown_fn(score)", "asc")],
         ]:
             self._assert_e201("order_by", {"keys": bad_keys})

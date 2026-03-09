@@ -2863,6 +2863,51 @@ def _lower_match_alias_aggregate_stage(
     ), None if final_stage else None
 
 
+def _expand_row_column_star_items(
+    items: Sequence[ReturnItem],
+    *,
+    available_columns: Set[str],
+    clause_kind: str,
+) -> List[ReturnItem]:
+    saw_star = any(item.expression.text == "*" for item in items)
+    if not saw_star:
+        return list(items)
+    if len(items) != 1:
+        first = items[0]
+        raise _unsupported(
+            f"Cypher {clause_kind.upper()} currently supports * only as the sole row-column projection item",
+            field=f"{clause_kind}.items",
+            value=[item.expression.text for item in items],
+            line=first.span.line,
+            column=first.span.column,
+        )
+    star_item = items[0]
+    if star_item.alias is not None:
+        raise _unsupported(
+            f"Cypher {clause_kind.upper()} * does not support aliasing in the local compiler",
+            field=f"{clause_kind}.items",
+            value=star_item.alias,
+            line=star_item.span.line,
+            column=star_item.span.column,
+        )
+    if len(available_columns) == 0:
+        raise _unsupported(
+            f"Cypher {clause_kind.upper()} * requires projected row columns in this local phase",
+            field=f"{clause_kind}.items",
+            value="*",
+            line=star_item.span.line,
+            column=star_item.span.column,
+        )
+    return [
+        ReturnItem(
+            expression=ExpressionText(text=column, span=star_item.expression.span),
+            alias=None,
+            span=star_item.span,
+        )
+        for column in sorted(available_columns)
+    ]
+
+
 def _lower_row_column_stage(
     stage: ProjectionStage,
     *,
@@ -2871,7 +2916,12 @@ def _lower_row_column_stage(
 ) -> Tuple[List[ASTObject], _StageScope]:
     aggregate_specs: List[_AggregateSpec] = []
     non_aggregate_items: List[ReturnItem] = []
-    for item in stage.clause.items:
+    clause_items = _expand_row_column_star_items(
+        stage.clause.items,
+        available_columns=scope.row_columns,
+        clause_kind=stage.clause.kind,
+    )
+    for item in clause_items:
         agg_spec = _aggregate_spec(item, params=params, alias_targets={})
         if agg_spec is None:
             non_aggregate_items.append(item)
@@ -2895,7 +2945,7 @@ def _lower_row_column_stage(
     hidden_order_columns: List[str] = []
     temp_names: Set[str] = set()
 
-    for item in stage.clause.items:
+    for item in clause_items:
         output_name = item.alias or item.expression.text
         if output_name in available_columns:
             raise _unsupported(
@@ -3029,7 +3079,7 @@ def _lower_row_column_stage(
     if hidden_order_columns:
         visible_items = [
             (item.alias or item.expression.text, item.alias or item.expression.text)
-            for item in stage.clause.items
+            for item in clause_items
         ]
         row_steps.append(select(visible_items))
         for hidden_column in hidden_order_columns:
@@ -3116,6 +3166,11 @@ def _lower_row_column_aggregate_stage(
     aggregate_specs: Sequence[_AggregateSpec],
     non_aggregate_items: Sequence[ReturnItem],
 ) -> Tuple[List[ASTObject], _StageScope]:
+    non_aggregate_items = _expand_row_column_star_items(
+        non_aggregate_items,
+        available_columns=scope.row_columns,
+        clause_kind=stage.clause.kind,
+    )
     projection_fn = with_ if stage.clause.kind == "with" else return_
     pre_items: List[Tuple[str, Any]] = []
     key_names: List[str] = []
