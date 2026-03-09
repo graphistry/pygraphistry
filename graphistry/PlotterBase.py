@@ -2239,7 +2239,7 @@ class PlotterBase(Plottable):
             'viztoken': str(uuid.uuid4())
         }
         url_params = dict(self._url_params)
-        token = self.api_token()
+        token = self.session.api_token
         if token:
             try:
                 server_base = '%s://%s' % (self.session.protocol, self.session.hostname)
