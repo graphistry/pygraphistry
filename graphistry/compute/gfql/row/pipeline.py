@@ -473,13 +473,42 @@ class RowPipelineMixin:
             return False, None
 
         if isinstance(node, BinaryOp):
+            op = str(node.op).lower()
+
+            if op in {"or", "and"}:
+                prefer_right = (
+                    isinstance(node.right, IsNullOp)
+                    or (isinstance(node.right, Literal) and isinstance(node.right.value, bool))
+                ) and not (
+                    isinstance(node.left, IsNullOp)
+                    or (isinstance(node.left, Literal) and isinstance(node.left.value, bool))
+                )
+                first_node = node.right if prefer_right else node.left
+                second_node = node.left if prefer_right else node.right
+                ok_first, first = self._gfql_eval_expr_ast(table_df, first_node)
+                if not ok_first:
+                    return False, None
+                short = self._gfql_boolean_short_circuit_result(table_df, first, op)
+                if short is not None:
+                    return True, short
+                ok_second, second = self._gfql_eval_expr_ast(table_df, second_node)
+                if not ok_second:
+                    return False, None
+                if prefer_right:
+                    left, right = second, first
+                else:
+                    left, right = first, second
+                bool_out = self._gfql_eval_boolean_op(table_df, left, right, op)
+                if bool_out is None:
+                    return False, None
+                return True, bool_out
+
             ok_l, left = self._gfql_eval_expr_ast(table_df, node.left)
             ok_r, right = self._gfql_eval_expr_ast(table_df, node.right)
             if not (ok_l and ok_r):
                 return False, None
-            op = str(node.op).lower()
 
-            if op in {"or", "xor", "and"}:
+            if op == "xor":
                 bool_out = self._gfql_eval_boolean_op(table_df, left, right, op)
                 if bool_out is None:
                     return False, None
@@ -1217,6 +1246,8 @@ class RowPipelineMixin:
                 return text.str.lower()
             if hasattr(num_like, "where") and bool(num_like.where(non_null, True).all()):
                 return text.str.replace(r"\.0+$", "", regex=True)
+            if hasattr(series, "map"):
+                return series.map(RowPipelineMixin._gfql_format_cypher_scalar_literal)
         if hasattr(text, "str"):
             escaped = text.str.replace("'", "\\'", regex=False)
             return "'" + escaped + "'"
@@ -1581,6 +1612,25 @@ class RowPipelineMixin:
             out = out.where(~null_mask, pd.NA)
             return out
         return out
+
+    def _gfql_boolean_short_circuit_result(self, table_df: Any, value: Any, op: str) -> Optional[Any]:
+        if op not in {"or", "and"}:
+            return None
+        masks = self._gfql_truth_masks(table_df, value)
+        if masks is None:
+            return None
+        true_mask, false_mask, null_mask = masks
+        if op == "or":
+            if hasattr(false_mask, "any") and bool(false_mask.any()):
+                return None
+            if hasattr(null_mask, "any") and bool(null_mask.any()):
+                return None
+            return self._gfql_series_from_truth_masks(table_df, true_mask, false_mask, null_mask)
+        if hasattr(true_mask, "any") and bool(true_mask.any()):
+            return None
+        if hasattr(null_mask, "any") and bool(null_mask.any()):
+            return None
+        return self._gfql_series_from_truth_masks(table_df, true_mask, false_mask, null_mask)
 
     def _gfql_eval_boolean_op(self, table_df: Any, left: Any, right: Any, op: str) -> Optional[Any]:
         if op == "not":

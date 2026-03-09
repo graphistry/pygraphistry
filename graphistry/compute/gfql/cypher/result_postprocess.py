@@ -200,6 +200,8 @@ def _render_scalar_value_text(df: DataFrameT, alias_col: str, series: SeriesT) -
                 formatted = cast(SeriesT, series.map(_format_decimal_text))
                 out = cast(SeriesT, out.where(~sci_mask, formatted))
             return out
+        if hasattr(series, "map"):
+            return cast(SeriesT, series.map(_RowPipelineAdapter._gfql_format_cypher_scalar_literal))
     if hasattr(text, "str"):
         escaped = cast(SeriesT, text.str.replace("'", "\\'", regex=False))
         return cast(SeriesT, _const_text(df, alias_col, "'") + escaped + "'")

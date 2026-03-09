@@ -751,6 +751,25 @@ class TestRowPipelineExecution:
             if issubclass(w.category, FutureWarning)
         )
 
+    def test_row_pipeline_where_rows_expr_or_short_circuits_mixed_type_compare_with_is_not_null(self):
+        nodes_df = pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "var": ["text", 0],
+            }
+        )
+
+        result = _mk_graph(nodes_df).gfql(
+            [
+                rows(),
+                where_rows(expr="var > 'te' OR var IS NOT NULL"),
+                order_by([("id", "asc")]),
+                return_([("id", "id")]),
+            ]
+        )
+
+        assert result._nodes["id"].tolist() == ["a", "b"]
+
     @pytest.mark.parametrize(
         ("nodes", "steps", "expected_records"),
         [

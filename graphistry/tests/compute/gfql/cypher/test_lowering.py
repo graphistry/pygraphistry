@@ -2989,6 +2989,40 @@ def test_gfql_executes_optional_match_null_projections_on_non_empty_graph() -> N
     ]
 
 
+def test_gfql_executes_with_where_or_short_circuit_over_mixed_type_compare() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["root", "child1", "child2"],
+            "label__Root": [True, False, False],
+            "label__TextNode": [False, True, False],
+            "label__IntNode": [False, False, True],
+            "name": ["x", None, None],
+            "var": [None, "text", 0],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["root", "root"],
+            "d": ["child1", "child2"],
+            "type": ["T", "T"],
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (:Root {name: 'x'})-->(i) "
+        "WITH i "
+        "WHERE i.var > 'te' OR i.var IS NOT NULL "
+        "RETURN i "
+        "ORDER BY i.id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"i": "(:TextNode {var: 'text'})"},
+        {"i": "(:IntNode {var: 0})"},
+    ]
+
+
 def test_gfql_executes_optional_match_count_distinct_on_empty_graph() -> None:
     g = _mk_graph(
         pd.DataFrame({"id": []}),
