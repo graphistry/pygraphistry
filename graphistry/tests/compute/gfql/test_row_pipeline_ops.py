@@ -376,6 +376,24 @@ def test_row_pipeline_select_supports_keys_for_map_literals_and_nulls() -> None:
     assert _normalize_records(result.to_dict(orient="records")) == [{"ks": ["k", "l"], "null_keys": None}]
 
 
+def test_row_pipeline_order_by_falls_back_to_string_sort_for_mixed_date_text_beyond_sample_window() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(129)],
+            "date": [f"1984-10-{(i % 28) + 1:02d}" for i in range(128)] + ["not-a-date"],
+        }
+    )
+
+    result = _run_node_steps(
+        nodes_df,
+        [rows(), order_by([("date", "asc")]), select([("date", "date")])],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert result["date"].iloc[0] == "1984-10-01"
+    assert result["date"].iloc[-1] == "not-a-date"
+
+
 def test_entity_keys_series_supports_mixed_entity_property_sets() -> None:
     nodes_df = pd.DataFrame(
         {

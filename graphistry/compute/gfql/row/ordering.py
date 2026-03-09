@@ -110,28 +110,29 @@ def order_detect_list_series(series: Any) -> bool:
 
 
 def order_detect_temporal_mode(series: Any) -> Optional[str]:
-    sample_values = order_sample_values(series)
-    if len(sample_values) == 0:
+    if not hasattr(series, "dropna"):
         return None
-    if not all(isinstance(v, str) for v in sample_values):
+    non_null = series.dropna()
+    if len(non_null) == 0 or not hasattr(non_null, "astype"):
         return None
-    if all(_GFQL_DATE_TEXT_RE.fullmatch(v) is not None for v in sample_values):
+    text = non_null.astype(str)
+    if not hasattr(text, "str"):
+        return None
+    if bool(text.str.fullmatch(_GFQL_DATE_TEXT_RE.pattern, na=False).all()):
         return "date"
-    if all(_GFQL_DATETIME_TEXT_RE.fullmatch(v) is not None for v in sample_values):
+    if bool(text.str.fullmatch(_GFQL_DATETIME_TEXT_RE.pattern, na=False).all()):
         return "datetime"
-    if all(_GFQL_TIME_TEXT_RE.fullmatch(v) is not None for v in sample_values):
+    if bool(text.str.fullmatch(_GFQL_TIME_TEXT_RE.pattern, na=False).all()):
         return "time"
-    if all(DATE_CALL_TEXT_RE.fullmatch(v) is not None for v in sample_values):
+    if bool(text.str.fullmatch(DATE_CALL_TEXT_RE.pattern, na=False).all()):
         return "date_constructor"
-    if all(
-        LOCALDATETIME_CALL_TEXT_RE.fullmatch(v) is not None or DATETIME_CALL_TEXT_RE.fullmatch(v) is not None
-        for v in sample_values
-    ):
+    datetime_local = text.str.fullmatch(LOCALDATETIME_CALL_TEXT_RE.pattern, na=False)
+    datetime_tz = text.str.fullmatch(DATETIME_CALL_TEXT_RE.pattern, na=False)
+    if bool((datetime_local | datetime_tz).all()):
         return "datetime_constructor"
-    if all(
-        LOCALTIME_CALL_TEXT_RE.fullmatch(v) is not None or TIME_CALL_TEXT_RE.fullmatch(v) is not None
-        for v in sample_values
-    ):
+    time_local = text.str.fullmatch(LOCALTIME_CALL_TEXT_RE.pattern, na=False)
+    time_tz = text.str.fullmatch(TIME_CALL_TEXT_RE.pattern, na=False)
+    if bool((time_local | time_tz).all()):
         return "time_constructor"
     return None
 

@@ -1700,6 +1700,24 @@ def test_string_cypher_orders_temporal_constructor_time_properties() -> None:
     ]
 
 
+def test_string_cypher_order_by_falls_back_to_string_sort_for_mixed_time_constructor_text() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(129)],
+            "label__A": [True] * 129,
+            "time": ["time({hour: 10, minute: 35, timezone: '-08:00'})"] * 128 + ["zz-not-a-time"],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a) WITH a, a.time AS time WITH a, time ORDER BY time ASC RETURN time"
+    )
+
+    assert result._nodes["time"].iloc[0] == "time({hour: 10, minute: 35, timezone: '-08:00'})"
+    assert result._nodes["time"].iloc[-1] == "zz-not-a-time"
+
+
 def test_string_cypher_orders_time_plus_duration_expression() -> None:
     nodes = pd.DataFrame(
         {
