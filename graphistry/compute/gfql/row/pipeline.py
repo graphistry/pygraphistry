@@ -554,6 +554,7 @@ class RowPipelineMixin:
                     table_df,
                     alias_col=source_alias,
                     table=("nodes" if fn == "__node_entity__" else "edges"),
+                    excluded=tuple(alias_names),
                 )
                 null_mask = self._gfql_null_mask(table_df, table_df[source_alias])
                 if hasattr(out, "where"):
@@ -1046,8 +1047,9 @@ class RowPipelineMixin:
             return "'" + escaped + "'"
         return "'" + text + "'"
 
-    def _gfql_format_entity_series(self, table_df: Any, *, alias_col: str, table: str) -> Any:
+    def _gfql_format_entity_series(self, table_df: Any, *, alias_col: str, table: str, excluded: Sequence[str] = ()) -> Any:
         blank = table_df[alias_col].astype(str).where(table_df[alias_col].isna(), "")
+        excluded_cols = tuple(dict.fromkeys((alias_col,) + tuple(str(name) for name in excluded)))
         if table == "nodes":
             label_cols = [
                 col
@@ -1062,7 +1064,7 @@ class RowPipelineMixin:
             if "type" in table_df.columns:
                 include = ~self._gfql_null_mask(table_df, table_df["type"])
                 labels = labels + (blank + ":" + table_df["type"].astype(str)).where(include, "")
-            prop_cols = node_property_columns(table_df, alias_col, (alias_col,))
+            prop_cols = node_property_columns(table_df, alias_col, excluded_cols)
             left_bracket, right_bracket = "(", ")"
         else:
             if "type" in table_df.columns:
@@ -1070,7 +1072,7 @@ class RowPipelineMixin:
                 labels = (blank + ":" + table_df["type"].astype(str)).where(include, "")
             else:
                 labels = blank.copy()
-            prop_cols = edge_property_columns(table_df, alias_col, (alias_col,))
+            prop_cols = edge_property_columns(table_df, alias_col, excluded_cols)
             left_bracket, right_bracket = "[", "]"
 
         prop_text = blank.copy()

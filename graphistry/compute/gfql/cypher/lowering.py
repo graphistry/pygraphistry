@@ -135,6 +135,14 @@ class _AggregateSpec:
 
 
 @dataclass(frozen=True)
+class _PostAggregateExprPlan:
+    output_name: str
+    expr: ExpressionText
+    span_line: int
+    span_column: int
+
+
+@dataclass(frozen=True)
 class _StageColumnBinding:
     kind: Literal["property", "expr"]
     source_name: str
@@ -989,6 +997,169 @@ def _aggregate_spec(
         func=node.name,
         expr_text=expr_text,
         distinct=node.distinct,
+        span_line=item.span.line,
+        span_column=item.span.column,
+    )
+
+
+def _aggregate_spec_from_function_call(
+    node: FunctionCall,
+    *,
+    source_text: str,
+    output_name: str,
+    span_line: int,
+    span_column: int,
+) -> _AggregateSpec:
+    if node.name not in _CYPHER_AGGREGATES:
+        raise _unsupported(
+            "Only supported Cypher aggregate functions may appear in aggregate expressions",
+            field="return.item",
+            value=source_text,
+            line=span_line,
+            column=span_column,
+        )
+    if len(node.args) == 0:
+        raise _unsupported(
+            "Cypher aggregate functions require an argument or '*'",
+            field="return.item",
+            value=source_text,
+            line=span_line,
+            column=span_column,
+        )
+    if len(node.args) != 1:
+        raise _unsupported(
+            "Cypher local aggregate lowering currently supports single-argument aggregate functions only",
+            field="return.item",
+            value=source_text,
+            line=span_line,
+            column=span_column,
+        )
+    arg = node.args[0]
+    if isinstance(arg, Wildcard):
+        if node.name != "count":
+            raise _unsupported(
+                "Only count(*) supports '*' in the local Cypher aggregate subset",
+                field="return.item",
+                value=source_text,
+                line=span_line,
+                column=span_column,
+            )
+        if node.distinct:
+            raise _unsupported(
+                "count(DISTINCT *) is not supported in the local Cypher aggregate subset",
+                field="return.item",
+                value=source_text,
+                line=span_line,
+                column=span_column,
+            )
+        expr_text: Optional[str] = None
+    else:
+        expr_text = _render_expr_node(arg)
+        if expr_text == "":
+            raise _unsupported(
+                "Cypher aggregate functions require a non-empty argument",
+                field="return.item",
+                value=source_text,
+                line=span_line,
+                column=span_column,
+            )
+
+    return _AggregateSpec(
+        source_text=source_text,
+        output_name=output_name,
+        func=node.name,
+        expr_text=expr_text,
+        distinct=node.distinct,
+        span_line=span_line,
+        span_column=span_column,
+    )
+
+
+def _post_aggregate_expr_plan(
+    item: ReturnItem,
+    *,
+    params: Optional[Mapping[str, Any]] = None,
+    alias_targets: Optional[Mapping[str, ASTObject]] = None,
+) -> Optional[Tuple[List[_AggregateSpec], _PostAggregateExprPlan]]:
+    if item.expression.text == "*":
+        return None
+
+    node = _parse_row_expr(
+        item.expression.text,
+        params=params,
+        alias_targets=alias_targets,
+        field="return.item",
+        line=item.span.line,
+        column=item.span.column,
+    )
+
+    temp_names: Set[str] = set()
+    aggregate_specs: List[_AggregateSpec] = []
+    aggregate_temp_by_source: Dict[str, str] = {}
+
+    def _rewrite(node_in: ExprNode) -> ExprNode:
+        if isinstance(node_in, FunctionCall) and node_in.name in _CYPHER_AGGREGATES:
+            source_text = _render_expr_node(node_in)
+            temp_name = aggregate_temp_by_source.get(source_text)
+            if temp_name is None:
+                temp_name = _fresh_temp_name(temp_names, "__cypher_postagg__")
+                aggregate_temp_by_source[source_text] = temp_name
+                aggregate_specs.append(
+                    _aggregate_spec_from_function_call(
+                        node_in,
+                        source_text=source_text,
+                        output_name=temp_name,
+                        span_line=item.span.line,
+                        span_column=item.span.column,
+                    )
+                )
+            return Identifier(temp_name)
+        if isinstance(node_in, FunctionCall):
+            return FunctionCall(node_in.name, tuple(_rewrite(arg) for arg in node_in.args), distinct=node_in.distinct)
+        if isinstance(node_in, Identifier):
+            return node_in
+        if isinstance(node_in, ExprLiteral):
+            return node_in
+        if isinstance(node_in, UnaryOp):
+            return UnaryOp(node_in.op, _rewrite(node_in.operand))
+        if isinstance(node_in, BinaryOp):
+            return BinaryOp(node_in.op, _rewrite(node_in.left), _rewrite(node_in.right))
+        if isinstance(node_in, IsNullOp):
+            return IsNullOp(_rewrite(node_in.value), negated=node_in.negated)
+        if isinstance(node_in, Wildcard):
+            return node_in
+        if isinstance(node_in, CaseWhen):
+            return CaseWhen(_rewrite(node_in.condition), _rewrite(node_in.when_true), _rewrite(node_in.when_false))
+        if isinstance(node_in, QuantifierExpr):
+            return QuantifierExpr(node_in.fn, node_in.var, _rewrite(node_in.source), _rewrite(node_in.predicate))
+        if isinstance(node_in, ListComprehension):
+            return ListComprehension(
+                node_in.var,
+                _rewrite(node_in.source),
+                predicate=None if node_in.predicate is None else _rewrite(node_in.predicate),
+                projection=None if node_in.projection is None else _rewrite(node_in.projection),
+            )
+        if isinstance(node_in, ListLiteral):
+            return ListLiteral(tuple(_rewrite(child) for child in node_in.items))
+        if isinstance(node_in, MapLiteral):
+            return MapLiteral(tuple((key, _rewrite(value)) for key, value in node_in.items))
+        if isinstance(node_in, SubscriptExpr):
+            return SubscriptExpr(_rewrite(node_in.value), _rewrite(node_in.key))
+        if isinstance(node_in, SliceExpr):
+            return SliceExpr(
+                _rewrite(node_in.value),
+                None if node_in.start is None else _rewrite(node_in.start),
+                None if node_in.stop is None else _rewrite(node_in.stop),
+            )
+        raise TypeError(f"Unsupported expression node type for aggregate rewrite: {type(node_in).__name__}")
+
+    rewritten = _rewrite(node)
+    if not aggregate_specs:
+        return None
+
+    return aggregate_specs, _PostAggregateExprPlan(
+        output_name=item.alias or item.expression.text,
+        expr=ExpressionText(text=_render_expr_node(rewritten), span=item.expression.span),
         span_line=item.span.line,
         span_column=item.span.column,
     )
@@ -2681,16 +2852,9 @@ def _lower_match_alias_aggregate_stage(
     expr_to_output: Dict[str, str] = {}
     projected_property_outputs: Dict[str, str] = {}
     output_to_source_property: Dict[str, str] = {}
+    hidden_group_key_names: Set[str] = set()
 
     for item in non_aggregate_items:
-        if item.expression.text in scope.alias_targets:
-            raise _unsupported(
-                "Cypher aggregate RETURN/WITH does not yet support whole-row alias grouping",
-                field=stage.clause.kind,
-                value=item.expression.text,
-                line=item.span.line,
-                column=item.span.column,
-            )
         output_name = item.alias or item.expression.text
         if output_name in available_columns:
             raise _unsupported(
@@ -2700,6 +2864,51 @@ def _lower_match_alias_aggregate_stage(
                 line=item.span.line,
                 column=item.span.column,
             )
+        if item.expression.text in scope.alias_targets:
+            alias_name = item.expression.text
+            if alias_name != active_alias:
+                raise _unsupported(
+                    "Cypher aggregate whole-row grouping currently supports the active MATCH alias only",
+                    field=stage.clause.kind,
+                    value=item.expression.text,
+                    line=item.span.line,
+                    column=item.span.column,
+                )
+            hidden_key_name = _fresh_temp_name(temp_names, "__cypher_group_key__")
+            pre_items.append(
+                (
+                    hidden_key_name,
+                    _whole_row_group_key_expr(
+                        alias_name,
+                        alias_targets=scope.alias_targets,
+                        field=stage.clause.kind,
+                        line=item.span.line,
+                        column=item.span.column,
+                    ),
+                )
+            )
+            pre_items.append(
+                (
+                    output_name,
+                    _whole_row_group_entity_expr(
+                        alias_name,
+                        alias_targets=scope.alias_targets,
+                        field=stage.clause.kind,
+                        line=item.span.line,
+                        column=item.span.column,
+                    ),
+                )
+            )
+            key_names.extend([hidden_key_name, output_name])
+            hidden_group_key_names.add(hidden_key_name)
+            available_columns.add(output_name)
+            _add_output_mapping(
+                expr_to_output,
+                source_expr=item.expression.text,
+                output_name=output_name,
+                alias_name=item.alias,
+            )
+            continue
         _validate_row_expr_scope(
             item.expression.text,
             alias_targets=scope.alias_targets,
@@ -2814,6 +3023,12 @@ def _lower_match_alias_aggregate_stage(
         expr_to_output = {agg.source_text: agg.output_name for agg in aggregate_specs}
         projected_property_outputs = {}
         output_to_source_property = {}
+
+    if hidden_group_key_names:
+        visible_projection_items = [(item.alias or item.expression.text, item.alias or item.expression.text) for item in non_aggregate_items]
+        visible_projection_items.extend((agg.output_name, agg.output_name) for agg in aggregate_specs)
+        row_steps.append(projection_fn(visible_projection_items))
+        available_columns = {name for name, _ in visible_projection_items}
 
     if stage.where is not None:
         _validate_row_expr_scope(
@@ -3558,6 +3773,51 @@ def _aggregate_runtime_spec(
     )
 
 
+def _whole_row_group_entity_expr(
+    alias_name: str,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    field: str,
+    line: int,
+    column: int,
+) -> str:
+    target = alias_targets.get(alias_name)
+    alias_args = ", ".join(dict.fromkeys([alias_name] + [str(name) for name in alias_targets.keys()]))
+    if isinstance(target, ASTNode):
+        return f"__node_entity__({alias_args})"
+    if isinstance(target, ASTEdge):
+        return f"__edge_entity__({alias_args})"
+    raise _unsupported(
+        "Cypher aggregate whole-row grouping requires a node or edge alias",
+        field=field,
+        value=alias_name,
+        line=line,
+        column=column,
+    )
+
+
+def _whole_row_group_key_expr(
+    alias_name: str,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    field: str,
+    line: int,
+    column: int,
+) -> str:
+    target = alias_targets.get(alias_name)
+    if isinstance(target, ASTNode):
+        return "id"
+    if isinstance(target, ASTEdge):
+        return "__gfql_edge_index_0__"
+    raise _unsupported(
+        "Cypher aggregate whole-row grouping requires a node or edge alias",
+        field=field,
+        value=alias_name,
+        line=line,
+        column=column,
+    )
+
+
 def _add_output_mapping(
     expr_to_output: Dict[str, str],
     *,
@@ -3630,31 +3890,86 @@ def _lower_general_row_projection(
 
     aggregate_specs: List[_AggregateSpec] = []
     non_aggregate_items: List[ReturnItem] = []
+    post_aggregate_items: List[_PostAggregateExprPlan] = []
     empty_result_row: Optional[Dict[str, Any]] = None
     for item in query.return_.items:
         agg_spec = _aggregate_spec(item, params=params, alias_targets=alias_targets)
-        if agg_spec is None:
-            non_aggregate_items.append(item)
-        else:
+        if agg_spec is not None:
             aggregate_specs.append(agg_spec)
+            continue
+        post_agg_plan = _post_aggregate_expr_plan(item, params=params, alias_targets=alias_targets)
+        if post_agg_plan is not None:
+            nested_aggregate_specs, rewritten_item = post_agg_plan
+            aggregate_specs.extend(nested_aggregate_specs)
+            post_aggregate_items.append(rewritten_item)
+            continue
+        non_aggregate_items.append(item)
 
     expr_to_output: Dict[str, str] = {}
     available_columns: Set[str] = set()
 
     if aggregate_specs:
+        projection_fn = with_ if query.return_.kind == "with" else return_
         pre_items: List[Tuple[str, Any]] = []
         key_names: List[str] = []
         temp_names: Set[str] = set()
+        hidden_group_key_names: Set[str] = set()
 
         for item in non_aggregate_items:
-            if item.expression.text in alias_targets:
+            output_name = item.alias or item.expression.text
+            if output_name in available_columns:
                 raise _unsupported(
-                    "Cypher aggregate RETURN/WITH does not yet support whole-row alias grouping",
+                    "Duplicate Cypher projection names are not yet supported in local lowering",
                     field=query.return_.kind,
-                    value=item.expression.text,
+                    value=output_name,
                     line=item.span.line,
                     column=item.span.column,
                 )
+            if item.expression.text in alias_targets:
+                alias_name = item.expression.text
+                if alias_name != active_match_alias:
+                    raise _unsupported(
+                        "Cypher aggregate whole-row grouping currently supports the active MATCH alias only",
+                        field=query.return_.kind,
+                        value=item.expression.text,
+                        line=item.span.line,
+                        column=item.span.column,
+                    )
+                hidden_key_name = _fresh_temp_name(temp_names, "__cypher_group_key__")
+                pre_items.append(
+                    (
+                        hidden_key_name,
+                        _whole_row_group_key_expr(
+                            alias_name,
+                            alias_targets=alias_targets,
+                            field=query.return_.kind,
+                            line=item.span.line,
+                            column=item.span.column,
+                        ),
+                    )
+                )
+                pre_items.append(
+                    (
+                        output_name,
+                        _whole_row_group_entity_expr(
+                            alias_name,
+                            alias_targets=alias_targets,
+                            field=query.return_.kind,
+                            line=item.span.line,
+                            column=item.span.column,
+                        ),
+                    )
+                )
+                key_names.extend([hidden_key_name, output_name])
+                hidden_group_key_names.add(hidden_key_name)
+                available_columns.add(output_name)
+                _add_output_mapping(
+                    expr_to_output,
+                    source_expr=item.expression.text,
+                    output_name=output_name,
+                    alias_name=item.alias,
+                )
+                continue
             _validate_row_expr_scope(
                 item.expression.text,
                 alias_targets=alias_targets,
@@ -3665,15 +3980,6 @@ def _lower_general_row_projection(
                 line=item.span.line,
                 column=item.span.column,
             )
-            output_name = item.alias or item.expression.text
-            if output_name in available_columns:
-                raise _unsupported(
-                    "Duplicate Cypher projection names are not yet supported in local lowering",
-                    field=query.return_.kind,
-                    value=output_name,
-                    line=item.span.line,
-                    column=item.span.column,
-                )
             pre_items.append(
                 (
                     output_name,
@@ -3756,9 +4062,54 @@ def _lower_general_row_projection(
             global_key = _fresh_temp_name(temp_names, "__cypher_group__")
             row_steps.append(with_([(global_key, 1)] + pre_items))
             row_steps.append(group_by([global_key], aggregations))
-            row_steps.append(return_([(agg.output_name, agg.output_name) for agg in aggregate_specs]))
             available_columns = {agg.output_name for agg in aggregate_specs}
             empty_result_row = _empty_aggregate_row(aggregate_specs)
+
+        if post_aggregate_items or hidden_group_key_names:
+            post_projection_items: List[Tuple[str, Any]] = []
+            projected_columns: Set[str] = set()
+            for item in non_aggregate_items:
+                output_name = item.alias or item.expression.text
+                post_projection_items.append((output_name, output_name))
+                projected_columns.add(output_name)
+            for agg_spec in aggregate_specs:
+                if agg_spec.output_name in projected_columns:
+                    raise _unsupported(
+                        "Duplicate Cypher projection names are not yet supported in local lowering",
+                        field=query.return_.kind,
+                        value=agg_spec.output_name,
+                        line=agg_spec.span_line,
+                        column=agg_spec.span_column,
+                    )
+                if agg_spec.output_name.startswith("__cypher_postagg__"):
+                    continue
+                post_projection_items.append((agg_spec.output_name, agg_spec.output_name))
+                projected_columns.add(agg_spec.output_name)
+            for plan in post_aggregate_items:
+                if plan.output_name in projected_columns:
+                    raise _unsupported(
+                        "Duplicate Cypher projection names are not yet supported in local lowering",
+                        field=query.return_.kind,
+                        value=plan.output_name,
+                        line=plan.span_line,
+                        column=plan.span_column,
+                    )
+                post_projection_items.append(
+                    (
+                        plan.output_name,
+                        _row_expr_arg(
+                            plan.expr,
+                            params=params,
+                            alias_targets={},
+                            field=query.return_.kind,
+                        ),
+                    )
+                )
+                projected_columns.add(plan.output_name)
+            row_steps.append(projection_fn(post_projection_items))
+            available_columns = projected_columns
+        elif not key_names:
+            row_steps.append(projection_fn([(agg.output_name, agg.output_name) for agg in aggregate_specs]))
     else:
         if query.match is not None and not query.unwinds:
             return CompiledCypherQuery(
@@ -3917,6 +4268,7 @@ def compile_cypher_query(
         )
         has_aggregates = any(
             _aggregate_spec(item, params=params, alias_targets=alias_targets) is not None
+            or _post_aggregate_expr_plan(item, params=params, alias_targets=alias_targets) is not None
             for item in query.return_.items
         )
         if not has_aggregates:

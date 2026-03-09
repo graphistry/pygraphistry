@@ -908,6 +908,99 @@ def test_string_cypher_collects_node_entities_in_aggregate_projection() -> None:
     assert result._nodes.to_dict(orient="records") == [{"count(n)": 1, "collect(n)": ["()"]}]
 
 
+def test_string_cypher_supports_post_aggregate_arithmetic_projection() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["n1"]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH () RETURN count(*) * 10 AS c")
+
+    assert result._nodes.to_dict(orient="records") == [{"c": 10}]
+
+
+def test_string_cypher_supports_whole_row_grouping_with_post_aggregate_expression() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["n1"]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (a) RETURN a, count(a) + 3")
+
+    assert result._nodes.to_dict(orient="records") == [{"a": "()", "count(a) + 3": 4}]
+
+
+def test_string_cypher_supports_whole_row_grouping_with_count_star() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a"],
+                "label__L": [True],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (a:L) RETURN a, count(*)")
+
+    assert result._nodes.to_dict(orient="records") == [{"a": "(:L)", "count(*)": 1}]
+
+
+def test_string_cypher_supports_with_whole_row_grouping_then_return() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["x", "y"],
+                "label__X": [True, True],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (x:X) "
+        "WITH x, count(*) AS c "
+        "ORDER BY c LIMIT 1 "
+        "RETURN x, c"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"x": "(:X)", "c": 1}]
+
+
+def test_string_cypher_supports_post_aggregate_size_collect_projection() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["n1", "n2", "n3"]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (a) RETURN size(collect(a)) AS n")
+
+    assert result._nodes.to_dict(orient="records") == [{"n": 3}]
+
+
+def test_string_cypher_supports_grouped_post_aggregate_size_collect_projection() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["andres", "anna"],
+                "name": ["Andres", "Anna"],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (a) "
+        "RETURN a.name AS name, size(collect(a.name)) AS n "
+        "ORDER BY name"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"name": "Andres", "n": 1},
+        {"name": "Anna", "n": 1},
+    ]
+
+
 def test_string_cypher_orders_on_aggregate_expression_using_projected_outputs() -> None:
     graph = _mk_graph(
         pd.DataFrame(
