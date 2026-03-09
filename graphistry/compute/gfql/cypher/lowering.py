@@ -182,6 +182,10 @@ def _rewrite_label_predicate_expr(
 ) -> str:
     def _render(alias: str, labels_text: str) -> str:
         labels = [label for label in labels_text.split(":") if label]
+        if alias_targets is not None:
+            target = alias_targets.get(alias)
+            if isinstance(target, ASTEdge):
+                return " and ".join(f"{alias}.type = '{label}'" for label in labels)
         return " and ".join(f"{alias}.label__{label} = true" for label in labels)
 
     stripped = expr_text.strip()

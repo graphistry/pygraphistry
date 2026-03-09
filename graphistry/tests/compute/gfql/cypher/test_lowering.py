@@ -1775,6 +1775,41 @@ def test_string_cypher_supports_properties_for_node_relationship_map_and_null() 
     ]
 
 
+def test_string_cypher_supports_labels_projection_and_relationship_label_predicate() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c"],
+            "label__Foo": [True, True, False],
+            "label__Bar": [False, True, False],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "a"],
+            "d": ["b", "c"],
+            "type": ["T1", "T2"],
+        }
+    )
+    graph = _mk_graph(nodes, edges)
+
+    labels_result = graph.gfql("MATCH (n) RETURN labels(n) AS ls ORDER BY ls")
+    actual_label_rows = sorted(
+        labels_result._nodes.to_dict(orient="records"),
+        key=lambda row: (len(row["ls"]), row["ls"]),
+    )
+    assert actual_label_rows == [
+        {"ls": "[]"},
+        {"ls": "['Foo']"},
+        {"ls": "['Foo', 'Bar']"},
+    ]
+
+    rel_result = graph.gfql("MATCH ()-[r]->() RETURN r, r:T2 AS result ORDER BY result")
+    assert sorted(rel_result._nodes.to_dict(orient="records"), key=lambda row: row["r"]) == [
+        {"r": "[:T1]", "result": False},
+        {"r": "[:T2]", "result": True},
+    ]
+
+
 @pytest.mark.parametrize(
     "query",
     [
@@ -1788,6 +1823,31 @@ def test_string_cypher_rejects_invalid_properties_arguments(query: str) -> None:
 
     with pytest.raises(GFQLTypeError, match="properties\\(\\) requires a node, relationship, map, or null argument"):
         graph.gfql(query)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "WITH 123 AS nonGraphElement RETURN nonGraphElement.num AS v",
+        "WITH 42.45 AS nonGraphElement RETURN nonGraphElement.num AS v",
+        "WITH true AS nonGraphElement RETURN nonGraphElement.num AS v",
+        "WITH 'abc' AS nonGraphElement RETURN nonGraphElement.num AS v",
+        "WITH [1, 2] AS nonGraphElement RETURN nonGraphElement.num AS v",
+    ],
+)
+def test_string_cypher_rejects_property_access_on_non_graph_values(query: str) -> None:
+    graph = _mk_graph(pd.DataFrame({"id": ["a"]}), pd.DataFrame({"s": [], "d": []}))
+
+    with pytest.raises(GFQLTypeError, match="property access requires a graph element alias"):
+        graph.gfql(query)
+
+
+def test_string_cypher_unwind_null_returns_no_rows() -> None:
+    graph = _mk_graph(pd.DataFrame({"id": ["a"]}), pd.DataFrame({"s": [], "d": []}))
+
+    result = graph.gfql("UNWIND null AS nil RETURN nil")
+
+    assert result._nodes.to_dict(orient="records") == []
 
 
 def test_string_cypher_unwinds_edge_keys_without_internal_columns() -> None:

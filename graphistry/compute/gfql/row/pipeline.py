@@ -102,6 +102,20 @@ class RowPipelineMixin:
             col = f"{col}_x"
         return col
 
+    @staticmethod
+    def _gfql_table_has_graph_shape(table_df: Any) -> bool:
+        cols = {str(col) for col in table_df.columns}
+        return (
+            "id" in cols
+            or "s" in cols
+            or "d" in cols
+            or "src" in cols
+            or "dst" in cols
+            or "edge_id" in cols
+            or "type" in cols
+            or any(col.startswith("label__") for col in cols)
+        )
+
     def _gfql_eval_comparison_op(
         self, table_df: Any, left: Any, right: Any, op: str
     ) -> Optional[Any]:
@@ -348,10 +362,7 @@ class RowPipelineMixin:
             txt = node.name
             if txt in table_df.columns:
                 return True, table_df[txt]
-            try:
-                return True, self._gfql_resolve_token(table_df, txt)
-            except Exception:
-                return False, None
+            return True, self._gfql_resolve_token(table_df, txt)
 
         if isinstance(node, Literal):
             value = node.value
@@ -560,6 +571,14 @@ class RowPipelineMixin:
                 if hasattr(out, "where"):
                     out = out.where(~null_mask, None)
                 return True, out
+            if fn == "labels" and len(node.args) == 1 and isinstance(node.args[0], Identifier):
+                alias_name = node.args[0].name
+                if "." not in alias_name and alias_name in table_df.columns and "id" in table_df.columns:
+                    out = self._gfql_format_labels_series(table_df, alias_col=alias_name)
+                    null_mask = self._gfql_null_mask(table_df, table_df[alias_name])
+                    if hasattr(out, "where"):
+                        out = out.where(~null_mask, None)
+                    return True, out
             if fn == "properties" and len(node.args) == 1 and isinstance(node.args[0], Identifier):
                 alias_name = node.args[0].name
                 if "." not in alias_name and alias_name in table_df.columns:
@@ -646,6 +665,12 @@ class RowPipelineMixin:
                     return True, None
                 if isinstance(inner, Mapping):
                     return True, RowPipelineMixin._gfql_format_cypher_map_scalar(inner)
+                return False, None
+
+            if fn == "labels" and len(values) == 1:
+                inner = values[0]
+                if is_null_scalar(inner):
+                    return True, None
                 return False, None
 
             if fn == "range" and len(values) in {2, 3}:
@@ -1152,6 +1177,34 @@ class RowPipelineMixin:
         prop_only = ((blank + "{") + prop_text + "}").where(has_props & (labels == ""), "")
         return left_bracket + labels + prop_block + prop_only + right_bracket
 
+    def _gfql_format_labels_series(self, table_df: Any, *, alias_col: str) -> Any:
+        blank = table_df[alias_col].astype(str).where(table_df[alias_col].isna(), "")
+        labels_text = blank.copy()
+        has_labels = (table_df[alias_col] == True) & False  # noqa: E712
+
+        label_cols = [
+            col
+            for col in table_df.columns
+            if str(col).startswith("label__")
+            and str(col).split("label__", 1)[1] not in {"<NA>", "None", "nan"}
+        ]
+        for col in label_cols:
+            label_name = str(col).split("label__", 1)[1]
+            include = table_df[col] == True  # noqa: E712
+            segment = (blank + f"'{label_name}'").where(include, "")
+            prefix = (blank + ", ").where(has_labels & include, "")
+            labels_text = labels_text + prefix + segment
+            has_labels = has_labels | include
+
+        if "type" in table_df.columns:
+            include = ~self._gfql_null_mask(table_df, table_df["type"])
+            segment = (blank + "'" + table_df["type"].astype(str) + "'").where(include, "")
+            prefix = (blank + ", ").where(has_labels & include, "")
+            labels_text = labels_text + prefix + segment
+            has_labels = has_labels | include
+
+        return ((blank + "[") + labels_text + "]").where(has_labels, "[]")
+
     @staticmethod
     def _gfql_series_is_list_like(series: Any) -> bool:
         if not hasattr(series, "dropna"):
@@ -1161,6 +1214,16 @@ class RowPipelineMixin:
             sample = sample.to_pandas()
         values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
         return len(values) > 0 and all(isinstance(v, (list, tuple)) for v in values)
+
+    @staticmethod
+    def _gfql_series_is_mapping_like(series: Any) -> bool:
+        if not hasattr(series, "dropna"):
+            return False
+        sample = series.dropna().head(128)
+        if hasattr(sample, "to_pandas"):
+            sample = sample.to_pandas()
+        values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
+        return len(values) > 0 and all(isinstance(v, Mapping) for v in values)
 
     @staticmethod
     def _gfql_series_scalar_if_constant(series: Any) -> Tuple[bool, Any]:
@@ -1394,7 +1457,11 @@ class RowPipelineMixin:
         if prop_match is not None:
             alias = prop_match.group("alias")
             prop = prop_match.group("prop")
-            if alias in table_df.columns and hasattr(table_df[alias], "str"):
+            if (
+                alias in table_df.columns
+                and hasattr(table_df[alias], "str")
+                and RowPipelineMixin._gfql_series_is_mapping_like(table_df[alias])
+            ):
                 try:
                     return table_df[alias].str.get(prop)
                 except Exception:
@@ -1402,6 +1469,10 @@ class RowPipelineMixin:
             if prop in table_df.columns:
                 return table_df[prop]
             if alias in table_df.columns:
+                if not RowPipelineMixin._gfql_table_has_graph_shape(table_df):
+                    raise ValueError(
+                        f"unsupported row expression: property access requires a graph element alias in {token!r}"
+                    )
                 return self._gfql_broadcast_scalar(table_df, pd.NA)
         raise ValueError(f"unsupported token in row expression: {token!r}")
 
@@ -2113,6 +2184,10 @@ class RowPipelineMixin:
         row_col = None
         len_col = None
         pos_col = None
+        null_mask = self._gfql_null_mask(out_df, out_df[tmp_col])
+        if not list_like and hasattr(null_mask, "all") and bool(null_mask.all()):
+            empty_df = out_df.iloc[0:0].drop(columns=[tmp_col]).assign(**{as_clean: out_df.iloc[0:0][tmp_col]})
+            return self._gfql_row_table(empty_df)
         if list_like:
             row_col = self._gfql_fresh_col_name(out_df.columns, "__gfql_unwind_row__")
             len_col = self._gfql_fresh_col_name(out_df.columns, "__gfql_unwind_len__")
