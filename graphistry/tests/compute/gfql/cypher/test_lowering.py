@@ -3,7 +3,7 @@ import pytest
 from typing import cast
 
 from graphistry.compute.ast import ASTCall, ASTNode, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
-from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
 from graphistry.compute.predicates.is_in import IsIn
 from graphistry.compute.gfql.same_path_types import col, compare
 from graphistry.compute.gfql.cypher import (
@@ -1741,6 +1741,53 @@ def test_string_cypher_supports_in_keys_for_node_properties() -> None:
     )
 
     assert result._nodes.to_dict(orient="records") == [{"has_active": True, "missing": False}]
+
+
+def test_string_cypher_supports_properties_for_node_relationship_map_and_null() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b"],
+            "label__Person": [True, False],
+            "name": ["Popeye", None],
+            "level": [9001, None],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a"],
+            "d": ["b"],
+            "type": ["R"],
+            "name": ["Popeye"],
+            "level": [9001],
+        }
+    )
+    graph = _mk_graph(nodes, edges)
+
+    node_result = graph.gfql("MATCH (p:Person) RETURN properties(p) AS m")
+    assert node_result._nodes.to_dict(orient="records") == [{"m": "{name: 'Popeye', level: 9001}"}]
+
+    edge_result = graph.gfql("MATCH ()-[r:R]->() RETURN properties(r) AS m")
+    assert edge_result._nodes.to_dict(orient="records") == [{"m": "{name: 'Popeye', level: 9001}"}]
+
+    map_result = graph.gfql("RETURN properties({name: 'Popeye', level: 9001}) AS m, properties(null) AS n")
+    assert map_result._nodes.to_dict(orient="records") == [
+        {"m": "{name: 'Popeye', level: 9001}", "n": None}
+    ]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "RETURN properties(1)",
+        "RETURN properties('Cypher')",
+        "RETURN properties([true, false])",
+    ],
+)
+def test_string_cypher_rejects_invalid_properties_arguments(query: str) -> None:
+    graph = _mk_graph(pd.DataFrame({"id": ["a"]}), pd.DataFrame({"s": [], "d": []}))
+
+    with pytest.raises(GFQLTypeError, match="properties\\(\\) requires a node, relationship, map, or null argument"):
+        graph.gfql(query)
 
 
 def test_string_cypher_unwinds_edge_keys_without_internal_columns() -> None:

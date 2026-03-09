@@ -2,7 +2,7 @@ import re
 from functools import lru_cache
 import math
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import pandas as pd
 from graphistry.compute.gfql.row.order_expr import (
@@ -560,6 +560,24 @@ class RowPipelineMixin:
                 if hasattr(out, "where"):
                     out = out.where(~null_mask, None)
                 return True, out
+            if fn == "properties" and len(node.args) == 1 and isinstance(node.args[0], Identifier):
+                alias_name = node.args[0].name
+                if "." not in alias_name and alias_name in table_df.columns:
+                    edge_like_cols = {"s", "d", "src", "dst", "edge_id"}
+                    table_name = "edges" if any(col in table_df.columns for col in edge_like_cols) else "nodes"
+                    entity_text = self._gfql_format_entity_series(
+                        table_df,
+                        alias_col=alias_name,
+                        table=table_name,
+                        excluded=(alias_name,),
+                    )
+                    if not hasattr(entity_text, "str"):
+                        return False, None
+                    null_mask = self._gfql_null_mask(table_df, table_df[alias_name])
+                    props = entity_text.str.extract(r"(\{.*\})", expand=False)
+                    props = props.where(props.notna(), "{}")
+                    props = props.where(~null_mask, None)
+                    return True, props
 
             if fn == "keys" and len(node.args) == 1:
                 arg = node.args[0]
@@ -621,6 +639,14 @@ class RowPipelineMixin:
                 elif hasattr(any_null_mask, "any") and bool(any_null_mask.any()):
                     out = False
                 return True, out
+
+            if fn == "properties" and len(values) == 1:
+                inner = values[0]
+                if is_null_scalar(inner):
+                    return True, None
+                if isinstance(inner, Mapping):
+                    return True, RowPipelineMixin._gfql_format_cypher_map_scalar(inner)
+                return False, None
 
             if fn == "range" and len(values) in {2, 3}:
                 scalar_values: List[Any] = []
@@ -1186,6 +1212,24 @@ class RowPipelineMixin:
         values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
         return len(values) > 0 and all(RowPipelineMixin._gfql_scalar_numeric_non_bool(v) for v in values)
 
+    @staticmethod
+    def _gfql_format_cypher_scalar_literal(value: Any) -> str:
+        if value is None or is_null_scalar(value):
+            return "null"
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, str):
+            return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+        return str(value)
+
+    @staticmethod
+    def _gfql_format_cypher_map_scalar(value: Mapping[str, Any]) -> str:
+        parts = [
+            f"{key}: {RowPipelineMixin._gfql_format_cypher_scalar_literal(item)}"
+            for key, item in value.items()
+        ]
+        return "{" + ", ".join(parts) + "}"
+
     def _gfql_eval_string_predicate_expr(
         self,
         table_df: Any,
@@ -1703,7 +1747,9 @@ class RowPipelineMixin:
             raise ValueError(f"unsupported row expression: parser validation failed in {expr!r}") from exc
 
         if len(capability_errors) > 0:
-            raise ValueError(f"unsupported row expression: parser validation failed in {expr!r}")
+            raise ValueError(
+                f"unsupported row expression: {', '.join(capability_errors)} in {expr!r}"
+            )
 
         try:
             ast_ok, ast_value = self._gfql_eval_expr_ast(table_df, ast_node)

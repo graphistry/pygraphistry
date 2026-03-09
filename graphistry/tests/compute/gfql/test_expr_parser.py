@@ -64,6 +64,21 @@ def test_validate_expr_capabilities_accepts_supported_tree() -> None:
     assert errors == []
 
 
+def test_validate_expr_capabilities_accepts_properties_on_identifier_map_and_null() -> None:
+    assert validate_expr_capabilities(FunctionCall(name="properties", args=(Identifier("n"),))) == []
+    assert validate_expr_capabilities(FunctionCall(name="properties", args=(Literal(None),))) == []
+
+    map_node = parse_expr("{name: 'Popeye', level: 9001}") if _has_lark() else None
+    if map_node is not None:
+        assert validate_expr_capabilities(FunctionCall(name="properties", args=(map_node,))) == []
+
+
+def test_validate_expr_capabilities_rejects_properties_on_scalar_literals() -> None:
+    for bad in (Literal(1), Literal("Cypher"), parse_expr("[true, false]") if _has_lark() else Literal(True)):
+        errors = validate_expr_capabilities(FunctionCall(name="properties", args=(bad,)))
+        assert "properties() requires a node, relationship, map, or null argument" in errors
+
+
 @requires_lark
 def test_parse_expr_precedence_tree() -> None:
     node = parse_expr("NOT a = 1 AND b = 2 OR c = 3")

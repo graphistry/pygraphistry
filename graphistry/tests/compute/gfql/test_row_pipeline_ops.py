@@ -335,6 +335,20 @@ def test_row_pipeline_select_supports_keys_for_map_literals_and_nulls() -> None:
 
     assert _normalize_records(result.to_dict(orient="records")) == [{"ks": ["k", "l"], "null_keys": None}]
 
+
+def test_row_pipeline_select_supports_properties_for_map_literals_and_nulls() -> None:
+    nodes_df = pd.DataFrame({"id": ["a"]})
+
+    result = _run_node_steps(
+        nodes_df,
+        [rows(), select([("m", "properties({name: 'Popeye', level: 9001})"), ("null_props", "properties(null)")])],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert _normalize_records(result.to_dict(orient="records")) == [
+        {"m": "{name: 'Popeye', level: 9001}", "null_props": None}
+    ]
+
     @pytest.mark.parametrize(
         ("step", "function", "params"),
         [

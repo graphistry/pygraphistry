@@ -829,6 +829,13 @@ def validate_expr_capabilities(
 ) -> List[str]:
     errors: List[str] = []
 
+    def _properties_arg_supported(arg: ExprNode) -> bool:
+        if isinstance(arg, (Identifier, MapLiteral)):
+            return True
+        if isinstance(arg, Literal):
+            return arg.value is None
+        return False
+
     def _enter(n: ExprNode) -> None:
         if isinstance(n, (Identifier, Literal)):
             return
@@ -851,6 +858,13 @@ def validate_expr_capabilities(
         if isinstance(n, FunctionCall):
             if n.name not in allowed_functions:
                 errors.append(f"unsupported function: {n.name}")
+                return
+            if n.name == "properties":
+                if len(n.args) != 1:
+                    errors.append("properties() requires exactly one argument")
+                    return
+                if not _properties_arg_supported(n.args[0]):
+                    errors.append("properties() requires a node, relationship, map, or null argument")
             return
         if isinstance(n, CaseWhen):
             return
