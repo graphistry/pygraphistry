@@ -1182,6 +1182,17 @@ class RowPipelineMixin:
                     )
             if isinstance(base_value, dict):
                 return True, base_value.get(str(key_value))
+            if (
+                isinstance(key_value, int)
+                and not isinstance(key_value, bool)
+                and hasattr(base_value, "iloc")
+            ):
+                return True, self._gfql_eval_dynamic_list_subscript(
+                    table_df,
+                    base_value,
+                    self._gfql_broadcast_scalar(table_df, key_value),
+                    "ast subscript",
+                )
             if hasattr(key_value, "iloc"):
                 return True, self._gfql_eval_dynamic_list_subscript(
                     table_df, base_value, key_value, "ast subscript"
@@ -1367,13 +1378,24 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_series_is_entity_text_like(series: Any) -> bool:
-        if not hasattr(series, "dropna"):
+        if not hasattr(series, "isna") or not hasattr(series, "astype"):
             return is_entity_text_scalar(series)
-        sample = series.dropna().head(128)
-        if hasattr(sample, "to_pandas"):
-            sample = sample.to_pandas()
-        values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
-        return len(values) > 0 and all(is_entity_text_scalar(v) for v in values)
+        null_mask = series.isna()
+        non_null = ~null_mask
+        if hasattr(non_null, "any") and not bool(non_null.any()):
+            return False
+        text = series.astype(str)
+        if not hasattr(text, "str"):
+            return False
+        try:
+            actual_string = (series == text).where(non_null, False)
+        except Exception:
+            actual_string = non_null & False
+        entity_like = text.str.strip().str.match(
+            r"^(?:\((?::[A-Za-z_][A-Za-z0-9_]*)*(?:\s*\{.*\})?\)|\[:[^\]\s]+(?:\s+\{.*\})?\]|\(\)|\[\])$",
+            na=False,
+        )
+        return bool(entity_like.where(~null_mask, True).where(actual_string, False).all())
 
     def _gfql_eval_entity_graph_fn(
         self,
@@ -1479,23 +1501,39 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_series_is_list_like(series: Any) -> bool:
-        if not hasattr(series, "dropna"):
+        if not hasattr(series, "isna") or not hasattr(series, "astype"):
             return False
-        sample = series.dropna().head(128)
-        if hasattr(sample, "to_pandas"):
-            sample = sample.to_pandas()
-        values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
-        return len(values) > 0 and all(isinstance(v, (list, tuple)) for v in values)
+        null_mask = series.isna()
+        non_null = ~null_mask
+        if hasattr(non_null, "any") and not bool(non_null.any()):
+            return False
+        text = series.astype(str)
+        if not hasattr(text, "str"):
+            return False
+        try:
+            actual_string = (series == text).where(non_null, False)
+        except Exception:
+            actual_string = non_null & False
+        list_like = text.str.strip().str.match(r"^(?:\[.*\]|\(.*\))$", na=False)
+        return bool(list_like.where(~null_mask, True).where(~actual_string, False).all())
 
     @staticmethod
     def _gfql_series_is_mapping_like(series: Any) -> bool:
-        if not hasattr(series, "dropna"):
+        if not hasattr(series, "isna") or not hasattr(series, "astype"):
             return False
-        sample = series.dropna().head(128)
-        if hasattr(sample, "to_pandas"):
-            sample = sample.to_pandas()
-        values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
-        return len(values) > 0 and all(isinstance(v, Mapping) for v in values)
+        null_mask = series.isna()
+        non_null = ~null_mask
+        if hasattr(non_null, "any") and not bool(non_null.any()):
+            return False
+        text = series.astype(str)
+        if not hasattr(text, "str"):
+            return False
+        try:
+            actual_string = (series == text).where(non_null, False)
+        except Exception:
+            actual_string = non_null & False
+        mapping_like = text.str.strip().str.match(r"^\{.*\}$", na=False)
+        return bool(mapping_like.where(~null_mask, True).where(~actual_string, False).all())
 
     @staticmethod
     def _gfql_series_scalar_if_constant(series: Any) -> Tuple[bool, Any]:
@@ -1504,15 +1542,14 @@ class RowPipelineMixin:
         non_null = series.dropna()
         if len(non_null) == 0:
             return True, None
-        sample = non_null.head(128)
-        if hasattr(sample, "to_pandas"):
-            sample = sample.to_pandas()
-        values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
-        if len(values) == 0:
-            return True, None
-        first = values[0]
-        if all(v == first for v in values):
-            return True, first
+        try:
+            if hasattr(non_null, "nunique") and int(non_null.nunique(dropna=True)) == 1:
+                if hasattr(non_null, "iloc"):
+                    return True, non_null.iloc[0]
+                values = list(non_null)
+                return True, values[0] if len(values) > 0 else None
+        except Exception:
+            return False, None
         return False, None
 
     @staticmethod
@@ -1531,6 +1568,31 @@ class RowPipelineMixin:
     @staticmethod
     def _gfql_scalar_numeric_non_bool(value: Any) -> bool:
         return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+    @staticmethod
+    def _gfql_series_int_non_bool_like(series: Any) -> bool:
+        dtype_txt = str(getattr(series, "dtype", "")).lower()
+        if dtype_txt in {"bool", "boolean"}:
+            return False
+        if any(token in dtype_txt for token in ("int", "long", "short", "uint")):
+            return True
+        if any(token in dtype_txt for token in ("float", "double", "decimal")):
+            return False
+        if not hasattr(series, "isna") or not hasattr(series, "astype"):
+            return isinstance(series, int) and not isinstance(series, bool)
+        null_mask = series.isna()
+        non_null = ~null_mask
+        if hasattr(non_null, "any") and not bool(non_null.any()):
+            return True
+        text = series.astype(str)
+        if not hasattr(text, "str"):
+            return False
+        try:
+            actual_string = (series == text).where(non_null, False)
+        except Exception:
+            actual_string = non_null & False
+        int_like = text.str.match(r"^[+-]?\d+$", na=False)
+        return bool(int_like.where(~null_mask, True).where(~actual_string, False).all())
 
     @staticmethod
     def _gfql_series_numeric_non_bool_like(series: Any) -> bool:
@@ -1764,11 +1826,7 @@ class RowPipelineMixin:
                 return self._gfql_broadcast_scalar(table_df, series)
             raise ValueError(f"unsupported row expression: range() {label} must be an integer in {expr!r}")
 
-        sample = series.dropna().head(128)
-        if hasattr(sample, "to_pandas"):
-            sample = sample.to_pandas()
-        values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
-        if any((not isinstance(v, int)) or isinstance(v, bool) for v in values):
+        if not RowPipelineMixin._gfql_series_int_non_bool_like(series):
             raise ValueError(f"unsupported row expression: range() {label} must be an integer in {expr!r}")
         return series.astype("int64") if hasattr(series, "astype") else series
 
@@ -1896,12 +1954,7 @@ class RowPipelineMixin:
                 f"unsupported row expression: dynamic subscript requires list-like base in {expr!r}"
             )
 
-        non_null_base = base_value.dropna()
-        sample = non_null_base.head(128)
-        if hasattr(sample, "to_pandas"):
-            sample = sample.to_pandas()
-        sample_values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
-        if any(not isinstance(v, (list, tuple)) for v in sample_values):
+        if not RowPipelineMixin._gfql_series_is_list_like(base_value):
             raise ValueError(
                 f"unsupported row expression: dynamic subscript requires list-like base in {expr!r}"
             )
@@ -1913,12 +1966,7 @@ class RowPipelineMixin:
                 raise ValueError(
                     f"unsupported row expression: dynamic subscript keys must be integer typed in {expr!r}"
                 )
-            non_null_keys = key_value.dropna()
-            key_sample = non_null_keys.head(128)
-            if hasattr(key_sample, "to_pandas"):
-                key_sample = key_sample.to_pandas()
-            key_values = key_sample.tolist() if hasattr(key_sample, "tolist") else list(key_sample)
-            if any((not isinstance(v, int)) or isinstance(v, bool) for v in key_values):
+            if not RowPipelineMixin._gfql_series_int_non_bool_like(key_value):
                 raise ValueError(
                     f"unsupported row expression: dynamic subscript keys must be integer typed in {expr!r}"
                 )

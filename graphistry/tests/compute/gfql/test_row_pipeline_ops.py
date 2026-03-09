@@ -394,6 +394,23 @@ def test_row_pipeline_order_by_falls_back_to_string_sort_for_mixed_date_text_bey
     assert result["date"].iloc[-1] == "not-a-date"
 
 
+def test_row_pipeline_order_by_rejects_mixed_list_values_beyond_sample_window() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(129)],
+            "vals": [[1]] * 128 + [1],
+        },
+        dtype="object",
+    )
+
+    with pytest.raises(Exception, match="unsupported order_by expression for vectorized execution"):
+        _run_node_steps(
+            nodes_df,
+            [rows(), order_by([("vals", "asc")]), select([("vals", "vals")])],
+            edges_df=_self_loop_edges(nodes_df),
+        )
+
+
 def test_entity_keys_series_supports_mixed_entity_property_sets() -> None:
     nodes_df = pd.DataFrame(
         {
@@ -411,6 +428,115 @@ def test_entity_keys_series_supports_mixed_entity_property_sets() -> None:
     )
 
     assert _normalize_expr_eval_output(result) == [["name"], []]
+
+
+def test_row_pipeline_dynamic_subscript_uses_full_series_constant_check() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(129)],
+            "vals": [[10, 20, 30]] * 129,
+            "idx": [1] * 128 + [2],
+        },
+        dtype="object",
+    )
+
+    result = _run_node_steps(
+        nodes_df,
+        [rows(), select([("x", "vals[idx]")])],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert result["x"].iloc[0] == 20
+    assert result["x"].iloc[-1] == 30
+
+
+def test_row_pipeline_dynamic_subscript_rejects_mixed_list_scalar_beyond_sample_window() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(129)],
+            "vals": [[10, 20, 30]] * 128 + [1],
+            "idx": [1] * 129,
+        },
+        dtype="object",
+    )
+
+    with pytest.raises(Exception, match="dynamic subscript requires list-like base"):
+        _run_node_steps(
+            nodes_df,
+            [rows(), select([("x", "vals[idx]")])],
+            edges_df=_self_loop_edges(nodes_df),
+        )
+
+
+def test_row_pipeline_dynamic_subscript_rejects_mixed_integer_key_beyond_sample_window() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(129)],
+            "vals": [[10, 20, 30]] * 129,
+            "idx": [1] * 128 + ["bad"],
+        },
+        dtype="object",
+    )
+
+    with pytest.raises(Exception, match="dynamic subscript keys must be integer typed"):
+        _run_node_steps(
+            nodes_df,
+            [rows(), select([("x", "vals[idx]")])],
+            edges_df=_self_loop_edges(nodes_df),
+        )
+
+
+def test_row_pipeline_property_access_rejects_mixed_map_scalar_beyond_sample_window() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(129)],
+            "m": [{"a": 1}] * 128 + [1],
+        },
+        dtype="object",
+    )
+
+    with pytest.raises(Exception, match="property access requires a graph element alias, entity value, or map"):
+        _run_node_steps(
+            nodes_df,
+            [rows(), select([("x", "m.a")])],
+            edges_df=_self_loop_edges(nodes_df),
+        )
+
+
+def test_row_pipeline_labels_rejects_mixed_entity_scalar_beyond_sample_window() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(129)],
+            "e": ["()"] * 128 + [1],
+        },
+        dtype="object",
+    )
+
+    with pytest.raises(Exception, match="labels\\(\\) requires a graph element, entity value, or null"):
+        _run_node_steps(
+            nodes_df,
+            [rows(), select([("x", "labels(e)")])],
+            edges_df=_self_loop_edges(nodes_df),
+        )
+
+
+def test_row_pipeline_range_rejects_mixed_integer_arg_beyond_sample_window() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(129)],
+            "start": [0] * 128 + ["bad"],
+            "stop": [2] * 129,
+            "step": [1] * 129,
+        },
+        dtype="object",
+    )
+
+    with pytest.raises(Exception, match="range\\(\\) start must be an integer"):
+        _run_node_steps(
+            nodes_df,
+            [rows(), select([("vals", "range(start, stop, step)")])],
+            edges_df=_self_loop_edges(nodes_df),
+        )
 
 
 def test_row_pipeline_select_supports_properties_for_map_literals_and_nulls() -> None:

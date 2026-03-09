@@ -19,6 +19,7 @@ from graphistry.compute.gfql.temporal_text import (
 
 
 _GFQL_LIST_NUMERIC_TEXT_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$")
+_GFQL_LIST_TEXT_RE = re.compile(r"^(?:\[.*\]|\(.*\))$")
 _GFQL_TIME_TEXT_RE = re.compile(
     r"^(?P<h>\d{2}):(?P<m>\d{2})"
     r"(?::(?P<s>\d{2})(?:\.(?P<f>\d{1,9}))?)?"
@@ -104,9 +105,32 @@ def order_sample_values(series: Any) -> List[Any]:
     return list(sample)
 
 
+def _actual_string_mask(series: Any, text: Any, null_mask: Any) -> Any:
+    try:
+        mask = series == text
+    except Exception:
+        return null_mask & False
+    if hasattr(mask, "where"):
+        return mask.where(~null_mask, False)
+    return mask
+
+
 def order_detect_list_series(series: Any) -> bool:
-    sample_values = order_sample_values(series)
-    return len(sample_values) > 0 and all(isinstance(v, (list, tuple)) for v in sample_values)
+    if not hasattr(series, "isna") or not hasattr(series, "astype"):
+        return False
+    null_mask = series.isna()
+    non_null = ~null_mask
+    if hasattr(non_null, "any") and not bool(non_null.any()):
+        return False
+    text = series.astype(str)
+    if not hasattr(text, "str"):
+        return False
+    actual_string = _actual_string_mask(series, text, null_mask)
+    list_like = text.str.strip().str.match(_GFQL_LIST_TEXT_RE.pattern, na=False)
+    valid = (~null_mask) & (~actual_string) & list_like
+    if hasattr(valid, "where"):
+        return bool(valid.where(~null_mask, True).all())
+    return False
 
 
 def order_detect_temporal_mode(series: Any) -> Optional[str]:
