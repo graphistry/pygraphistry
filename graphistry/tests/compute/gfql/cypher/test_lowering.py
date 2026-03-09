@@ -3,7 +3,7 @@ import pytest
 from typing import cast
 
 from graphistry.compute.ast import ASTCall, ASTNode, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
-from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
+from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLValidationError
 from graphistry.compute.predicates.is_in import IsIn
 from graphistry.compute.gfql.same_path_types import col, compare
 from graphistry.compute.gfql.cypher import (
@@ -1663,6 +1663,234 @@ def test_string_cypher_executes_extreme_year_duration_functions() -> None:
             "d2": "PT17531639991215H59M59S",
         }
     ]
+
+
+@pytest.mark.parametrize(
+    ("query", "nodes_df", "edges_df"),
+    [
+        (
+            "MATCH (a) WITH a, count(*) RETURN a",
+            pd.DataFrame({"id": []}),
+            pd.DataFrame({"s": [], "d": []}),
+        ),
+        (
+            "WITH [1, 2, 3, 4, 5] AS list, true AS idx RETURN list[idx]",
+            pd.DataFrame({"id": []}),
+            pd.DataFrame({"s": [], "d": []}),
+        ),
+        (
+            "MATCH (n) RETURN [x IN [1, 2, 3, 4, 5] | count(*)]",
+            pd.DataFrame({"id": []}),
+            pd.DataFrame({"s": [], "d": []}),
+        ),
+        (
+            "RETURN 1 IN 'foo' AS res",
+            pd.DataFrame({"id": []}),
+            pd.DataFrame({"s": [], "d": []}),
+        ),
+        (
+            "RETURN 1 IN {x: []} AS res",
+            pd.DataFrame({"id": []}),
+            pd.DataFrame({"s": [], "d": []}),
+        ),
+        (
+            "RETURN 9223372036854775808 AS literal",
+            pd.DataFrame({"id": []}),
+            pd.DataFrame({"s": [], "d": []}),
+        ),
+        (
+            "RETURN -9223372036854775809 AS literal",
+            pd.DataFrame({"id": []}),
+            pd.DataFrame({"s": [], "d": []}),
+        ),
+        (
+            "RETURN 0x8000000000000000 AS literal",
+            pd.DataFrame({"id": []}),
+            pd.DataFrame({"s": [], "d": []}),
+        ),
+        (
+            "RETURN -0x8000000000000001 AS literal",
+            pd.DataFrame({"id": []}),
+            pd.DataFrame({"s": [], "d": []}),
+        ),
+        (
+            "RETURN 0o1000000000000000000000 AS literal",
+            pd.DataFrame({"id": []}),
+            pd.DataFrame({"s": [], "d": []}),
+        ),
+        (
+            "RETURN -0o1000000000000000000001 AS literal",
+            pd.DataFrame({"id": []}),
+            pd.DataFrame({"s": [], "d": []}),
+        ),
+        (
+            "MATCH p = (n)-[r:T]->() RETURN [x IN [1.0, true] | toFloat(x) ] AS list",
+            pd.DataFrame({"id": ["n1", "n2"]}),
+            pd.DataFrame({"s": ["n1"], "d": ["n2"], "type": ["T"]}),
+        ),
+        (
+            "MATCH p = (n)-[r:T]->() RETURN [x IN [1, '', r] | toString(x) ] AS list",
+            pd.DataFrame({"id": ["n1", "n2"]}),
+            pd.DataFrame({"s": ["n1"], "d": ["n2"], "type": ["T"]}),
+        ),
+    ],
+)
+def test_string_cypher_failfast_rejects_invalid_supported_overlap_queries(
+    query: str,
+    nodes_df: pd.DataFrame,
+    edges_df: pd.DataFrame,
+) -> None:
+    g = _mk_graph(nodes_df, edges_df)
+
+    with pytest.raises(GFQLValidationError):
+        g.gfql(query)
+
+
+@pytest.mark.parametrize(
+    ("query", "missing_name"),
+    [
+        (
+            "MATCH (n)\nRETURN n\nORDER BY n.name ASC\nSKIP $skipAmount",
+            "skipAmount",
+        ),
+        (
+            "MATCH (n)\nRETURN n\nORDER BY n.name ASC\nSKIP $s\nLIMIT $l",
+            "s",
+        ),
+        (
+            "MATCH (n)\nWITH n\nORDER BY n.name ASC\nSKIP $s\nLIMIT $l\nRETURN n",
+            "s",
+        ),
+        (
+            "RETURN $elt IN $coll AS result",
+            "elt",
+        ),
+    ],
+)
+def test_string_cypher_failfast_rejects_missing_overlap_parameters(
+    query: str,
+    missing_name: str,
+) -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        g.gfql(query)
+
+    assert exc_info.value.code == ErrorCode.E105
+    assert missing_name in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        (
+            "WITH [1, null, true, 4.5, 'abc', false, '', [234, false], {a: null, b: true, c: 15.2}, {}, [], [null], [[{b: [null]}]]] AS inputList\n"
+            "UNWIND inputList AS x\n"
+            "WITH inputList, x, [ y IN inputList WHERE rand() > 0.5 | y] AS list\n"
+            "WITH inputList, CASE WHEN rand() < 0.5 THEN reverse(list) ELSE list END + x AS list\n"
+            "UNWIND inputList AS x\n"
+            "WITH inputList, x, [ y IN inputList WHERE rand() > 0.5 | y] AS list\n"
+            "WITH inputList, CASE WHEN rand() < 0.5 THEN reverse(list) ELSE list END + x AS list\n"
+            "UNWIND inputList AS x\n"
+            "WITH inputList, x, [ y IN inputList WHERE rand() > 0.5 | y] AS list\n"
+            "WITH inputList, CASE WHEN rand() < 0.5 THEN reverse(list) ELSE list END + x AS list\n"
+            "WITH list WHERE size(list) > 0\n"
+            "WITH none(x IN list WHERE false) AS result, count(*) AS cnt\n"
+            "RETURN result"
+        ),
+        (
+            "WITH [1, null, true, 4.5, 'abc', false, '', [234, false], {a: null, b: true, c: 15.2}, {}, [], [null], [[{b: [null]}]]] AS inputList\n"
+            "UNWIND inputList AS x\n"
+            "WITH inputList, x, [ y IN inputList WHERE rand() > 0.5 | y] AS list\n"
+            "WITH inputList, CASE WHEN rand() < 0.5 THEN reverse(list) ELSE list END + x AS list\n"
+            "UNWIND inputList AS x\n"
+            "WITH inputList, x, [ y IN inputList WHERE rand() > 0.5 | y] AS list\n"
+            "WITH inputList, CASE WHEN rand() < 0.5 THEN reverse(list) ELSE list END + x AS list\n"
+            "UNWIND inputList AS x\n"
+            "WITH inputList, x, [ y IN inputList WHERE rand() > 0.5 | y] AS list\n"
+            "WITH inputList, CASE WHEN rand() < 0.5 THEN reverse(list) ELSE list END + x AS list\n"
+            "WITH list WHERE size(list) > 0\n"
+            "WITH single(x IN list WHERE false) AS result, count(*) AS cnt\n"
+            "RETURN result"
+        ),
+        (
+            "WITH [1, null, true, 4.5, 'abc', false, '', [234, false], {a: null, b: true, c: 15.2}, {}, [], [null], [[{b: [null]}]]] AS inputList\n"
+            "UNWIND inputList AS x\n"
+            "WITH inputList, x, [ y IN inputList WHERE rand() > 0.5 | y] AS list\n"
+            "WITH inputList, CASE WHEN rand() < 0.5 THEN reverse(list) ELSE list END + x AS list\n"
+            "UNWIND inputList AS x\n"
+            "WITH inputList, x, [ y IN inputList WHERE rand() > 0.5 | y] AS list\n"
+            "WITH inputList, CASE WHEN rand() < 0.5 THEN reverse(list) ELSE list END + x AS list\n"
+            "UNWIND inputList AS x\n"
+            "WITH inputList, x, [ y IN inputList WHERE rand() > 0.5 | y] AS list\n"
+            "WITH inputList, CASE WHEN rand() < 0.5 THEN reverse(list) ELSE list END + x AS list\n"
+            "WITH list WHERE size(list) > 0\n"
+            "WITH any(x IN list WHERE false) AS result, count(*) AS cnt\n"
+            "RETURN result"
+        ),
+        (
+            "WITH [1, null, true, 4.5, 'abc', false, '', [234, false], {a: null, b: true, c: 15.2}, {}, [], [null], [[{b: [null]}]]] AS inputList\n"
+            "UNWIND inputList AS x\n"
+            "WITH inputList, x, [ y IN inputList WHERE rand() > 0.5 | y] AS list\n"
+            "WITH inputList, CASE WHEN rand() < 0.5 THEN reverse(list) ELSE list END + x AS list\n"
+            "UNWIND inputList AS x\n"
+            "WITH inputList, x, [ y IN inputList WHERE rand() > 0.5 | y] AS list\n"
+            "WITH inputList, CASE WHEN rand() < 0.5 THEN reverse(list) ELSE list END + x AS list\n"
+            "UNWIND inputList AS x\n"
+            "WITH inputList, x, [ y IN inputList WHERE rand() > 0.5 | y] AS list\n"
+            "WITH inputList, CASE WHEN rand() < 0.5 THEN reverse(list) ELSE list END + x AS list\n"
+            "WITH list WHERE size(list) > 0\n"
+            "WITH all(x IN list WHERE false) AS result, count(*) AS cnt\n"
+            "RETURN result"
+        ),
+    ],
+)
+def test_string_cypher_failfast_rejects_rand_quantifier_overlap_queries(query: str) -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    with pytest.raises(GFQLValidationError, match="currently supported local GFQL subset"):
+        g.gfql(query)
+
+
+def test_string_cypher_rejects_placeholder_quantifier_overlap_query_as_syntax() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+    query = (
+        "UNWIND [{list: [2], fixed: true}, {list: [6], fixed: true}, {list: [1, 2, 3, 4, 5, 6, 7, 8, 9], fixed: false}] AS input\n"
+        "WITH CASE WHEN input.fixed THEN input.list ELSE null END AS fixedList,\n"
+        "     CASE WHEN NOT input.fixed THEN input.list ELSE [1] END AS inputList\n"
+        "UNWIND inputList AS x\n"
+        "WITH fixedList, inputList, x, [ y IN inputList WHERE rand() > 0.5 | y] AS list\n"
+        "WITH fixedList, inputList, CASE WHEN rand() < 0.5 THEN reverse(list) ELSE list END + x AS list\n"
+        "UNWIND inputList AS x\n"
+        "WITH fixedList, inputList, x, [ y IN inputList WHERE rand() > 0.5 | y] AS list\n"
+        "WITH fixedList, inputList, CASE WHEN rand() < 0.5 THEN reverse(list) ELSE list END + x AS list\n"
+        "UNWIND inputList AS x\n"
+        "WITH fixedList, inputList, x, [ y IN inputList WHERE rand() > 0.5 | y] AS list\n"
+        "WITH fixedList, inputList, CASE WHEN rand() < 0.5 THEN reverse(list) ELSE list END + x AS list\n"
+        "WITH coalesce(fixedList, list) AS list\n"
+        "WITH list WHERE single(<operands>) OR all(x IN list WHERE x < 7)\n"
+        "WITH any(x IN list WHERE x < 7) AS result, count(*) AS cnt\n"
+        "RETURN result"
+    )
+
+    with pytest.raises(GFQLSyntaxError):
+        g.gfql(query)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (a {name: 'Andres'})<-[:FATHER]-(child)\nRETURN a.name, {foo: a.name='Andres', kids: collect(child.name)}",
+        "MATCH (me: Person)--(you: Person)\nWITH me.age AS age, you\nRETURN age, age + count(you.age)",
+        "MATCH (me: Person)--(you: Person)\nRETURN me.age, me.age + count(you.age)",
+        "MATCH (me: Person)--(you: Person)\nRETURN me.age AS age, count(you.age) AS cnt\nORDER BY age, age + count(you.age)",
+    ],
+)
+def test_string_cypher_rejects_unsound_multi_source_aggregate_overlap_queries(query: str) -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time"):
+        g.gfql(query)
 
 
 @pytest.mark.parametrize(

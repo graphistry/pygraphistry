@@ -32,6 +32,7 @@ from graphistry.compute.predicates.comparison import eq, ge, gt, isna, le, lt, n
 from graphistry.compute.predicates.is_in import is_in
 from graphistry.compute.predicates.logical import all_of
 from graphistry.compute.predicates.str import contains as str_contains, endswith, match as str_match, startswith
+from graphistry.compute.gfql.language_defs import GFQL_AGGREGATION_FUNCTIONS
 from graphistry.compute.gfql.expr_parser import (
     BinaryOp,
     CaseWhen,
@@ -52,6 +53,7 @@ from graphistry.compute.gfql.expr_parser import (
     Wildcard,
     collect_identifiers,
     parse_expr,
+    walk_expr_nodes,
 )
 from graphistry.compute.gfql.cypher.ast import (
     CypherLiteral,
@@ -87,6 +89,10 @@ class LoweredCypherMatch:
     query: List[ASTObject]
     where: List[WhereComparison]
     row_where: Optional[ExpressionText] = None
+
+
+_CYPHER_INT64_MIN = -(2**63)
+_CYPHER_INT64_MAX = (2**63) - 1
 
 
 @dataclass(frozen=True)
@@ -274,6 +280,14 @@ def _parse_row_expr(
         )
         if alias_targets:
             node = _rewrite_collection_alias_entities(node, alias_targets=alias_targets)
+        _validate_cypher_expr_constraints(
+            node,
+            alias_targets=alias_targets,
+            field=field,
+            value=prepared,
+            line=line,
+            column=column,
+        )
         return node
     except (GFQLExprParseError, ImportError) as exc:
         rewritten = _rewrite_chained_comparison_expr(prepared)
@@ -289,6 +303,14 @@ def _parse_row_expr(
                 )
                 if alias_targets:
                     node = _rewrite_collection_alias_entities(node, alias_targets=alias_targets)
+                _validate_cypher_expr_constraints(
+                    node,
+                    alias_targets=alias_targets,
+                    field=field,
+                    value=rewritten,
+                    line=line,
+                    column=column,
+                )
                 return node
             except (GFQLExprParseError, ImportError):
                 pass
@@ -511,6 +533,126 @@ def _validate_cypher_boolean_literal_constraints(
             value=value,
             line=line,
             column=column,
+        )
+
+
+def _list_item_invalid_for_tofloat(
+    item: ExprNode,
+    *,
+    alias_targets: Optional[Mapping[str, ASTObject]],
+) -> bool:
+    if isinstance(item, ExprLiteral):
+        return isinstance(item.value, bool) or isinstance(item.value, (list, dict))
+    if isinstance(item, (ListLiteral, MapLiteral)):
+        return True
+    if isinstance(item, Identifier):
+        return alias_targets is not None and item.name in alias_targets
+    if isinstance(item, FunctionCall):
+        return item.name in {"__node_entity__", "__edge_entity__"}
+    return False
+
+
+def _list_item_invalid_for_tostring(
+    item: ExprNode,
+    *,
+    alias_targets: Optional[Mapping[str, ASTObject]],
+) -> bool:
+    if isinstance(item, Identifier):
+        return alias_targets is not None and item.name in alias_targets
+    if isinstance(item, FunctionCall):
+        return item.name in {"__node_entity__", "__edge_entity__"}
+    return False
+
+
+def _contains_aggregate_call(node: ExprNode) -> bool:
+    found = False
+
+    def _enter(current: ExprNode) -> None:
+        nonlocal found
+        if isinstance(current, FunctionCall) and current.name in GFQL_AGGREGATION_FUNCTIONS:
+            found = True
+
+    walk_expr_nodes(node, enter=_enter)
+    return found
+
+
+def _validate_cypher_expr_constraints(
+    node: ExprNode,
+    *,
+    alias_targets: Optional[Mapping[str, ASTObject]],
+    field: str,
+    value: str,
+    line: int,
+    column: int,
+) -> None:
+    def _raise(message: str) -> None:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            message,
+            field=field,
+            value=value,
+            suggestion="Use the supported local Cypher subset or rewrite the expression before compiling.",
+            line=line,
+            column=column,
+            language="cypher",
+        )
+
+    def _enter(current: ExprNode) -> None:
+        if isinstance(current, ExprLiteral) and isinstance(current.value, int) and not isinstance(current.value, bool):
+            if current.value < _CYPHER_INT64_MIN or current.value > _CYPHER_INT64_MAX:
+                _raise("Cypher integer literal is out of the supported 64-bit range")
+        if isinstance(current, BinaryOp) and current.op.lower() == "in":
+            if (
+                isinstance(current.right, ExprLiteral)
+                and current.right.value is not None
+            ) or isinstance(current.right, MapLiteral):
+                _raise("Cypher IN requires a list-valued right-hand side in the local compiler")
+        if isinstance(current, SubscriptExpr) and isinstance(current.key, ExprLiteral):
+            key_value = current.key.value
+            if isinstance(key_value, bool) or isinstance(key_value, float):
+                _raise("Cypher list indexing requires integer keys in the local compiler")
+        if isinstance(current, ListComprehension):
+            if current.predicate is not None and _contains_aggregate_call(current.predicate):
+                _raise("Cypher list comprehensions cannot contain aggregate functions in the local compiler")
+            if current.projection is not None and _contains_aggregate_call(current.projection):
+                _raise("Cypher list comprehensions cannot contain aggregate functions in the local compiler")
+            if (
+                isinstance(current.projection, FunctionCall)
+                and len(current.projection.args) == 1
+                and isinstance(current.projection.args[0], Identifier)
+                and current.projection.args[0].name == current.var
+                and isinstance(current.source, ListLiteral)
+            ):
+                if current.projection.name == "tofloat":
+                    if any(
+                        _list_item_invalid_for_tofloat(item, alias_targets=alias_targets)
+                        for item in current.source.items
+                    ):
+                        _raise("Cypher toFloat() cannot consume the current list-comprehension item types in the local compiler")
+                if current.projection.name == "tostring":
+                    if any(
+                        _list_item_invalid_for_tostring(item, alias_targets=alias_targets)
+                        for item in current.source.items
+                    ):
+                        _raise("Cypher toString() cannot consume the current list-comprehension item types in the local compiler")
+
+    walk_expr_nodes(node, enter=_enter)
+
+
+def _validate_with_projection_aliasing(stage: ProjectionStage) -> None:
+    if stage.clause.kind != "with":
+        return
+    for item in stage.clause.items:
+        if item.alias is not None:
+            continue
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", item.expression.text):
+            continue
+        raise _unsupported(
+            "Cypher WITH requires aliasing non-variable projection expressions in the local compiler",
+            field="with",
+            value=item.expression.text,
+            line=item.span.line,
+            column=item.span.column,
         )
 
 
@@ -3404,6 +3546,7 @@ def _lower_match_alias_stage(
     params: Optional[Mapping[str, Any]],
     final_stage: bool,
 ) -> Tuple[List[ASTObject], _StageScope, Optional[ResultProjectionPlan]]:
+    _validate_with_projection_aliasing(stage)
     if scope.active_alias is None:
         raise _unsupported(
             "Cypher row expressions cannot reference MATCH aliases when no row source is active",
@@ -3828,6 +3971,7 @@ def _lower_row_column_stage(
     scope: _StageScope,
     params: Optional[Mapping[str, Any]],
 ) -> Tuple[List[ASTObject], _StageScope]:
+    _validate_with_projection_aliasing(stage)
     aggregate_specs: List[_AggregateSpec] = []
     non_aggregate_items: List[ReturnItem] = []
     post_aggregate_items: List[_PostAggregateExprPlan] = []
