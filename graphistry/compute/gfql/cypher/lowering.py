@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import math
 import re
-from typing import AbstractSet, Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
+from typing import AbstractSet, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 from typing_extensions import Literal
 
 from graphistry.compute.ast import (
@@ -778,26 +778,6 @@ def _render_expr_node(node: ExprNode) -> str:
 def _rewrite_expr_identifiers(node: ExprNode, replacements: Mapping[str, str]) -> ExprNode:
     if isinstance(node, Identifier):
         return Identifier(replacements.get(node.name, node.name))
-    if isinstance(node, ExprLiteral):
-        return node
-    if isinstance(node, UnaryOp):
-        return UnaryOp(node.op, _rewrite_expr_identifiers(node.operand, replacements))
-    if isinstance(node, BinaryOp):
-        return BinaryOp(
-            node.op,
-            _rewrite_expr_identifiers(node.left, replacements),
-            _rewrite_expr_identifiers(node.right, replacements),
-        )
-    if isinstance(node, IsNullOp):
-        return IsNullOp(_rewrite_expr_identifiers(node.value, replacements), negated=node.negated)
-    if isinstance(node, FunctionCall):
-        return FunctionCall(
-            node.name,
-            tuple(_rewrite_expr_identifiers(arg, replacements) for arg in node.args),
-            distinct=node.distinct,
-        )
-    if isinstance(node, Wildcard):
-        return node
     if isinstance(node, CaseWhen):
         return CaseWhen(
             _rewrite_expr_identifiers(node.condition, replacements),
@@ -828,27 +808,55 @@ def _rewrite_expr_identifiers(node: ExprNode, replacements: Mapping[str, str]) -
             predicate=None if node.predicate is None else _rewrite_expr_identifiers(node.predicate, shadowed),
             projection=None if node.projection is None else _rewrite_expr_identifiers(node.projection, shadowed),
         )
-    if isinstance(node, ListLiteral):
-        return ListLiteral(tuple(_rewrite_expr_identifiers(item, replacements) for item in node.items))
-    if isinstance(node, MapLiteral):
-        return MapLiteral(tuple((key, _rewrite_expr_identifiers(value, replacements)) for key, value in node.items))
-    if isinstance(node, SubscriptExpr):
-        return SubscriptExpr(
-            _rewrite_expr_identifiers(node.value, replacements),
-            _rewrite_expr_identifiers(node.key, replacements),
+    return _rebuild_expr_node(
+        node,
+        rewrite=lambda child: _rewrite_expr_identifiers(child, replacements),
+        error_context="identifier rewrite",
+    )
+
+
+def _rebuild_expr_node(
+    node: ExprNode,
+    *,
+    rewrite: Callable[[ExprNode], ExprNode],
+    error_context: str,
+) -> ExprNode:
+    if isinstance(node, (Identifier, ExprLiteral, Wildcard)):
+        return node
+    if isinstance(node, UnaryOp):
+        return UnaryOp(node.op, rewrite(node.operand))
+    if isinstance(node, BinaryOp):
+        return BinaryOp(node.op, rewrite(node.left), rewrite(node.right))
+    if isinstance(node, IsNullOp):
+        return IsNullOp(rewrite(node.value), negated=node.negated)
+    if isinstance(node, FunctionCall):
+        return FunctionCall(node.name, tuple(rewrite(arg) for arg in node.args), distinct=node.distinct)
+    if isinstance(node, CaseWhen):
+        return CaseWhen(rewrite(node.condition), rewrite(node.when_true), rewrite(node.when_false))
+    if isinstance(node, QuantifierExpr):
+        return QuantifierExpr(node.fn, node.var, rewrite(node.source), rewrite(node.predicate))
+    if isinstance(node, ListComprehension):
+        return ListComprehension(
+            node.var,
+            rewrite(node.source),
+            predicate=None if node.predicate is None else rewrite(node.predicate),
+            projection=None if node.projection is None else rewrite(node.projection),
         )
+    if isinstance(node, ListLiteral):
+        return ListLiteral(tuple(rewrite(item) for item in node.items))
+    if isinstance(node, MapLiteral):
+        return MapLiteral(tuple((key, rewrite(value)) for key, value in node.items))
+    if isinstance(node, SubscriptExpr):
+        return SubscriptExpr(rewrite(node.value), rewrite(node.key))
     if isinstance(node, SliceExpr):
         return SliceExpr(
-            _rewrite_expr_identifiers(node.value, replacements),
-            None if node.start is None else _rewrite_expr_identifiers(node.start, replacements),
-            None if node.stop is None else _rewrite_expr_identifiers(node.stop, replacements),
+            rewrite(node.value),
+            None if node.start is None else rewrite(node.start),
+            None if node.stop is None else rewrite(node.stop),
         )
     if isinstance(node, PropertyAccessExpr):
-        return PropertyAccessExpr(
-            _rewrite_expr_identifiers(node.value, replacements),
-            node.property,
-        )
-    raise TypeError(f"Unsupported expression node type for identifier rewrite: {type(node).__name__}")
+        return PropertyAccessExpr(rewrite(node.value), node.property)
+    raise TypeError(f"Unsupported expression node type for {error_context}: {type(node).__name__}")
 
 
 def _expr_is_cypher_integer_like(node: ExprNode, *, integer_identifiers: AbstractSet[str]) -> bool:
@@ -886,75 +894,11 @@ def _rewrite_cypher_integer_division_ast(
         ):
             return FunctionCall("toInteger", (rewritten,))
         return rewritten
-    if isinstance(node, UnaryOp):
-        return UnaryOp(node.op, _rewrite_cypher_integer_division_ast(node.operand, integer_identifiers=integer_identifiers))
-    if isinstance(node, IsNullOp):
-        return IsNullOp(
-            _rewrite_cypher_integer_division_ast(node.value, integer_identifiers=integer_identifiers),
-            negated=node.negated,
-        )
-    if isinstance(node, FunctionCall):
-        return FunctionCall(
-            node.name,
-            tuple(_rewrite_cypher_integer_division_ast(arg, integer_identifiers=integer_identifiers) for arg in node.args),
-            distinct=node.distinct,
-        )
-    if isinstance(node, CaseWhen):
-        return CaseWhen(
-            _rewrite_cypher_integer_division_ast(node.condition, integer_identifiers=integer_identifiers),
-            _rewrite_cypher_integer_division_ast(node.when_true, integer_identifiers=integer_identifiers),
-            _rewrite_cypher_integer_division_ast(node.when_false, integer_identifiers=integer_identifiers),
-        )
-    if isinstance(node, QuantifierExpr):
-        return QuantifierExpr(
-            node.fn,
-            node.var,
-            _rewrite_cypher_integer_division_ast(node.source, integer_identifiers=integer_identifiers),
-            _rewrite_cypher_integer_division_ast(node.predicate, integer_identifiers=integer_identifiers),
-        )
-    if isinstance(node, ListComprehension):
-        return ListComprehension(
-            node.var,
-            _rewrite_cypher_integer_division_ast(node.source, integer_identifiers=integer_identifiers),
-            predicate=None
-            if node.predicate is None
-            else _rewrite_cypher_integer_division_ast(node.predicate, integer_identifiers=integer_identifiers),
-            projection=None
-            if node.projection is None
-            else _rewrite_cypher_integer_division_ast(node.projection, integer_identifiers=integer_identifiers),
-        )
-    if isinstance(node, ListLiteral):
-        return ListLiteral(
-            tuple(_rewrite_cypher_integer_division_ast(item, integer_identifiers=integer_identifiers) for item in node.items)
-        )
-    if isinstance(node, MapLiteral):
-        return MapLiteral(
-            tuple(
-                (key, _rewrite_cypher_integer_division_ast(value, integer_identifiers=integer_identifiers))
-                for key, value in node.items
-            )
-        )
-    if isinstance(node, SubscriptExpr):
-        return SubscriptExpr(
-            _rewrite_cypher_integer_division_ast(node.value, integer_identifiers=integer_identifiers),
-            _rewrite_cypher_integer_division_ast(node.key, integer_identifiers=integer_identifiers),
-        )
-    if isinstance(node, SliceExpr):
-        return SliceExpr(
-            _rewrite_cypher_integer_division_ast(node.value, integer_identifiers=integer_identifiers),
-            None
-            if node.start is None
-            else _rewrite_cypher_integer_division_ast(node.start, integer_identifiers=integer_identifiers),
-            None
-            if node.stop is None
-            else _rewrite_cypher_integer_division_ast(node.stop, integer_identifiers=integer_identifiers),
-        )
-    if isinstance(node, PropertyAccessExpr):
-        return PropertyAccessExpr(
-            _rewrite_cypher_integer_division_ast(node.value, integer_identifiers=integer_identifiers),
-            node.property,
-        )
-    return node
+    return _rebuild_expr_node(
+        node,
+        rewrite=lambda child: _rewrite_cypher_integer_division_ast(child, integer_identifiers=integer_identifiers),
+        error_context="cypher integer division rewrite",
+    )
 
 
 def _rewrite_order_expr_to_projected_outputs(
@@ -991,44 +935,7 @@ def _rewrite_order_expr_to_projected_outputs(
                 if output_name is not None:
                     return Identifier(output_name)
             return PropertyAccessExpr(_rewrite(node_in.value), node_in.property)
-        if isinstance(node_in, Identifier):
-            return node_in
-        if isinstance(node_in, ExprLiteral):
-            return node_in
-        if isinstance(node_in, UnaryOp):
-            return UnaryOp(node_in.op, _rewrite(node_in.operand))
-        if isinstance(node_in, BinaryOp):
-            return BinaryOp(node_in.op, _rewrite(node_in.left), _rewrite(node_in.right))
-        if isinstance(node_in, IsNullOp):
-            return IsNullOp(_rewrite(node_in.value), negated=node_in.negated)
-        if isinstance(node_in, FunctionCall):
-            return FunctionCall(node_in.name, tuple(_rewrite(arg) for arg in node_in.args), distinct=node_in.distinct)
-        if isinstance(node_in, Wildcard):
-            return node_in
-        if isinstance(node_in, CaseWhen):
-            return CaseWhen(_rewrite(node_in.condition), _rewrite(node_in.when_true), _rewrite(node_in.when_false))
-        if isinstance(node_in, QuantifierExpr):
-            return QuantifierExpr(node_in.fn, node_in.var, _rewrite(node_in.source), _rewrite(node_in.predicate))
-        if isinstance(node_in, ListComprehension):
-            return ListComprehension(
-                node_in.var,
-                _rewrite(node_in.source),
-                predicate=None if node_in.predicate is None else _rewrite(node_in.predicate),
-                projection=None if node_in.projection is None else _rewrite(node_in.projection),
-            )
-        if isinstance(node_in, ListLiteral):
-            return ListLiteral(tuple(_rewrite(item) for item in node_in.items))
-        if isinstance(node_in, MapLiteral):
-            return MapLiteral(tuple((key, _rewrite(value)) for key, value in node_in.items))
-        if isinstance(node_in, SubscriptExpr):
-            return SubscriptExpr(_rewrite(node_in.value), _rewrite(node_in.key))
-        if isinstance(node_in, SliceExpr):
-            return SliceExpr(
-                _rewrite(node_in.value),
-                None if node_in.start is None else _rewrite(node_in.start),
-                None if node_in.stop is None else _rewrite(node_in.stop),
-            )
-        return node_in
+        return _rebuild_expr_node(node_in, rewrite=_rewrite, error_context="order expression rewrite")
 
     return _render_expr_node(_rewrite(node))
 
@@ -1057,44 +964,7 @@ def _rewrite_expr_to_output_names(
             return Identifier(replacement)
         if isinstance(node_in, Identifier):
             return Identifier(replacements.get(node_in.name, node_in.name))
-        if isinstance(node_in, ExprLiteral):
-            return node_in
-        if isinstance(node_in, UnaryOp):
-            return UnaryOp(node_in.op, _rewrite(node_in.operand))
-        if isinstance(node_in, BinaryOp):
-            return BinaryOp(node_in.op, _rewrite(node_in.left), _rewrite(node_in.right))
-        if isinstance(node_in, IsNullOp):
-            return IsNullOp(_rewrite(node_in.value), negated=node_in.negated)
-        if isinstance(node_in, FunctionCall):
-            return FunctionCall(node_in.name, tuple(_rewrite(arg) for arg in node_in.args), distinct=node_in.distinct)
-        if isinstance(node_in, Wildcard):
-            return node_in
-        if isinstance(node_in, CaseWhen):
-            return CaseWhen(_rewrite(node_in.condition), _rewrite(node_in.when_true), _rewrite(node_in.when_false))
-        if isinstance(node_in, QuantifierExpr):
-            return QuantifierExpr(node_in.fn, node_in.var, _rewrite(node_in.source), _rewrite(node_in.predicate))
-        if isinstance(node_in, ListComprehension):
-            return ListComprehension(
-                node_in.var,
-                _rewrite(node_in.source),
-                predicate=None if node_in.predicate is None else _rewrite(node_in.predicate),
-                projection=None if node_in.projection is None else _rewrite(node_in.projection),
-            )
-        if isinstance(node_in, ListLiteral):
-            return ListLiteral(tuple(_rewrite(item) for item in node_in.items))
-        if isinstance(node_in, MapLiteral):
-            return MapLiteral(tuple((key, _rewrite(value)) for key, value in node_in.items))
-        if isinstance(node_in, SubscriptExpr):
-            return SubscriptExpr(_rewrite(node_in.value), _rewrite(node_in.key))
-        if isinstance(node_in, SliceExpr):
-            return SliceExpr(
-                _rewrite(node_in.value),
-                None if node_in.start is None else _rewrite(node_in.start),
-                None if node_in.stop is None else _rewrite(node_in.stop),
-            )
-        if isinstance(node_in, PropertyAccessExpr):
-            return PropertyAccessExpr(_rewrite(node_in.value), node_in.property)
-        raise TypeError(f"Unsupported expression node type for output rewrite: {type(node_in).__name__}")
+        return _rebuild_expr_node(node_in, rewrite=_rewrite, error_context="output rewrite")
 
     return _render_expr_node(_rewrite(node))
 
@@ -1264,27 +1134,11 @@ def _rewrite_collection_alias_entities(
                 for key, value in node.items
             )
         )
-    if isinstance(node, SubscriptExpr):
-        return SubscriptExpr(
-            _rewrite_collection_alias_entities(node.value, alias_targets=alias_targets),
-            _rewrite_collection_alias_entities(node.key, alias_targets=alias_targets),
-        )
-    if isinstance(node, SliceExpr):
-        return SliceExpr(
-            _rewrite_collection_alias_entities(node.value, alias_targets=alias_targets),
-            None
-            if node.start is None
-            else _rewrite_collection_alias_entities(node.start, alias_targets=alias_targets),
-            None
-            if node.stop is None
-            else _rewrite_collection_alias_entities(node.stop, alias_targets=alias_targets),
-        )
-    if isinstance(node, PropertyAccessExpr):
-        return PropertyAccessExpr(
-            _rewrite_collection_alias_entities(node.value, alias_targets=alias_targets),
-            node.property,
-        )
-    raise TypeError(f"Unsupported expression node type for collection alias rewrite: {type(node).__name__}")
+    return _rebuild_expr_node(
+        node,
+        rewrite=lambda child: _rewrite_collection_alias_entities(child, alias_targets=alias_targets),
+        error_context="collection alias rewrite",
+    )
 
 
 def _expr_match_alias_usage(
@@ -1794,46 +1648,7 @@ def _post_aggregate_expr_plan(
                     )
                 )
             return Identifier(temp_name)
-        if isinstance(node_in, FunctionCall):
-            return FunctionCall(node_in.name, tuple(_rewrite(arg) for arg in node_in.args), distinct=node_in.distinct)
-        if isinstance(node_in, Identifier):
-            return node_in
-        if isinstance(node_in, ExprLiteral):
-            return node_in
-        if isinstance(node_in, UnaryOp):
-            return UnaryOp(node_in.op, _rewrite(node_in.operand))
-        if isinstance(node_in, BinaryOp):
-            return BinaryOp(node_in.op, _rewrite(node_in.left), _rewrite(node_in.right))
-        if isinstance(node_in, IsNullOp):
-            return IsNullOp(_rewrite(node_in.value), negated=node_in.negated)
-        if isinstance(node_in, Wildcard):
-            return node_in
-        if isinstance(node_in, CaseWhen):
-            return CaseWhen(_rewrite(node_in.condition), _rewrite(node_in.when_true), _rewrite(node_in.when_false))
-        if isinstance(node_in, QuantifierExpr):
-            return QuantifierExpr(node_in.fn, node_in.var, _rewrite(node_in.source), _rewrite(node_in.predicate))
-        if isinstance(node_in, ListComprehension):
-            return ListComprehension(
-                node_in.var,
-                _rewrite(node_in.source),
-                predicate=None if node_in.predicate is None else _rewrite(node_in.predicate),
-                projection=None if node_in.projection is None else _rewrite(node_in.projection),
-            )
-        if isinstance(node_in, ListLiteral):
-            return ListLiteral(tuple(_rewrite(child) for child in node_in.items))
-        if isinstance(node_in, MapLiteral):
-            return MapLiteral(tuple((key, _rewrite(value)) for key, value in node_in.items))
-        if isinstance(node_in, SubscriptExpr):
-            return SubscriptExpr(_rewrite(node_in.value), _rewrite(node_in.key))
-        if isinstance(node_in, SliceExpr):
-            return SliceExpr(
-                _rewrite(node_in.value),
-                None if node_in.start is None else _rewrite(node_in.start),
-                None if node_in.stop is None else _rewrite(node_in.stop),
-            )
-        if isinstance(node_in, PropertyAccessExpr):
-            return PropertyAccessExpr(_rewrite(node_in.value), node_in.property)
-        raise TypeError(f"Unsupported expression node type for aggregate rewrite: {type(node_in).__name__}")
+        return _rebuild_expr_node(node_in, rewrite=_rewrite, error_context="aggregate rewrite")
 
     rewritten = _rewrite(node)
     if not aggregate_specs:
