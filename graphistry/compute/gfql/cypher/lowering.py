@@ -31,7 +31,7 @@ from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.comparison import eq, ge, gt, isna, le, lt, ne, notna
 from graphistry.compute.predicates.is_in import is_in
 from graphistry.compute.predicates.logical import all_of
-from graphistry.compute.predicates.str import contains as str_contains, endswith, match as str_match, startswith
+from graphistry.compute.predicates.str import contains as str_contains, endswith, never_match, startswith
 from graphistry.compute.gfql.language_defs import GFQL_AGGREGATION_FUNCTIONS
 from graphistry.compute.gfql.expr_parser import (
     BinaryOp,
@@ -2416,11 +2416,11 @@ def _predicate_value(op: str, value: Any) -> Any:
     if op == "is_not_null":
         return notna()
     if op == "contains":
-        return str_match(r"(?!)", na=False) if value is None else str_contains(str(value), regex=False, na=False)
+        return never_match() if value is None else str_contains(str(value), regex=False, na=False)
     if op == "starts_with":
-        return str_match(r"(?!)", na=False) if value is None else startswith(str(value), na=False)
+        return never_match() if value is None else startswith(str(value), na=False)
     if op == "ends_with":
-        return str_match(r"(?!)", na=False) if value is None else endswith(str(value), na=False)
+        return never_match() if value is None else endswith(str(value), na=False)
     raise ValueError(f"Unsupported predicate op: {op}")
 
 

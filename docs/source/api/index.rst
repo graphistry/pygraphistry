@@ -3,7 +3,7 @@
 Python API Reference
 ====================
 
-See the article on :ref:`10min` for a high-level overview of binding data and plotting it.
+See the article on :ref:`10min-pygraphistry` for a high-level overview of binding data and plotting it.
 
 .. toctree::
    :maxdepth: 3

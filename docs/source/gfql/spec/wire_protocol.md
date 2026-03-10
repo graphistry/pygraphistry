@@ -154,12 +154,12 @@ Optional fields:
 - `where`: list of same-path comparisons using `eq`, `neq`, `lt`, `le`, `gt`, `ge`
   with `left`/`right` as `alias.column` strings. Multiple entries are ANDed.
   Operator mapping:
-  - `eq` ↔ `==`
-  - `neq` ↔ `!=`
-  - `lt` ↔ `<`
-  - `le` ↔ `<=`
-  - `gt` ↔ `>`
-  - `ge` ↔ `>=`
+  - `eq` maps to `==`
+  - `neq` maps to `!=`
+  - `lt` maps to `<`
+  - `le` maps to `<=`
+  - `gt` maps to `>`
+  - `ge` maps to `>=`
 
 **Chain with WHERE (wire format):**
 ```json

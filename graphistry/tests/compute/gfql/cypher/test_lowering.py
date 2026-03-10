@@ -780,6 +780,28 @@ def test_string_cypher_executes_match_where_string_predicates(
     assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == expected
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (a) WHERE a.name STARTS WITH null RETURN a.name AS name ORDER BY name",
+        "MATCH (a) WHERE a.name ENDS WITH null RETURN a.name AS name ORDER BY name",
+        "MATCH (a) WHERE a.name CONTAINS null RETURN a.name AS name ORDER BY name",
+    ],
+)
+def test_string_cypher_string_predicates_with_null_rhs_on_arrow_string_dtype(
+    query: str,
+) -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e", "f"],
+            "name": pd.Series(["ABCDEF", "AB", "abcdef", "ab", "", None], dtype="string[pyarrow]"),
+        }
+    )
+    result = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []})).gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
 def test_string_cypher_returns_missing_property_as_null() -> None:
     node_graph = _mk_graph(
         pd.DataFrame({"id": ["a"], "num": [1]}),
