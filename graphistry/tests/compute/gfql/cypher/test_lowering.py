@@ -38,6 +38,17 @@ def _mk_graph(nodes_df: pd.DataFrame, edges_df: pd.DataFrame) -> _CypherTestGrap
     return cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes_df, "id").edges(edges_df, "s", "d"))
 
 
+def _mk_simple_path_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"]}),
+        pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]}),
+    )
+
+
+def _mk_empty_graph() -> _CypherTestGraph:
+    return _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+
 def _parse_query(query: str) -> CypherQuery:
     return cast(CypherQuery, parse_cypher(query))
 
@@ -2743,18 +2754,18 @@ def test_cypher_to_gfql_rejects_union_programs() -> None:
     assert exc_info.value.code == ErrorCode.E108
 
 
-def test_compile_cypher_call_returns_procedure_program() -> None:
-    compiled = _compile_query("CALL graphistry.degree()")
+@pytest.mark.parametrize(
+    ("query", "procedure"),
+    [
+        ("CALL graphistry.degree()", "graphistry.degree"),
+        ("CALL graphistry.cugraph.pagerank()", "graphistry.cugraph.pagerank"),
+    ],
+)
+def test_compile_cypher_call_returns_procedure_program(query: str, procedure: str) -> None:
+    compiled = _compile_query(query)
 
     assert compiled.procedure_call is not None
-    assert compiled.procedure_call.procedure == "graphistry.degree"
-
-
-def test_compile_cypher_call_supports_backend_specific_pagerank_procedures() -> None:
-    compiled = _compile_query("CALL graphistry.cugraph.pagerank()")
-
-    assert compiled.procedure_call is not None
-    assert compiled.procedure_call.procedure == "graphistry.cugraph.pagerank"
+    assert compiled.procedure_call.procedure == procedure
 
 
 def test_cypher_to_gfql_rejects_call_programs() -> None:
@@ -2764,110 +2775,89 @@ def test_cypher_to_gfql_rejects_call_programs() -> None:
     assert exc_info.value.code == ErrorCode.E108
 
 
-def test_string_cypher_executes_graphistry_degree_call() -> None:
-    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
-    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+@pytest.mark.parametrize(
+    ("module_name", "query", "expected_rows", "expected_columns"),
+    [
+        (
+            None,
+            "CALL graphistry.degree() "
+            "YIELD nodeId, degree "
+            "RETURN nodeId, degree "
+            "ORDER BY degree DESC, nodeId ASC",
+            [
+                {"nodeId": "b", "degree": 2},
+                {"nodeId": "a", "degree": 1},
+                {"nodeId": "c", "degree": 1},
+            ],
+            None,
+        ),
+        (
+            None,
+            "CALL graphistry.degree()",
+            [
+                {"nodeId": "a", "degree": 1, "degree_in": 0, "degree_out": 1},
+                {"nodeId": "b", "degree": 2, "degree_in": 1, "degree_out": 1},
+                {"nodeId": "c", "degree": 1, "degree_in": 1, "degree_out": 0},
+            ],
+            ["nodeId", "degree", "degree_in", "degree_out"],
+        ),
+        (
+            None,
+            "CALL graphistry.degree YIELD nodeId RETURN nodeId ORDER BY nodeId ASC",
+            [{"nodeId": "a"}, {"nodeId": "b"}, {"nodeId": "c"}],
+            None,
+        ),
+        (
+            "igraph",
+            "CALL graphistry.igraph.pagerank() "
+            "YIELD nodeId, score "
+            "RETURN nodeId "
+            "ORDER BY score DESC, nodeId ASC "
+            "LIMIT 1",
+            [{"nodeId": "c"}],
+            None,
+        ),
+        (
+            "networkx",
+            "CALL graphistry.nx.pagerank() "
+            "YIELD nodeId, score "
+            "RETURN nodeId "
+            "ORDER BY score DESC, nodeId ASC "
+            "LIMIT 1",
+            [{"nodeId": "c"}],
+            None,
+        ),
+    ],
+)
+def test_string_cypher_executes_graphistry_call(
+    module_name: str | None,
+    query: str,
+    expected_rows: list[dict[str, object]],
+    expected_columns: list[str] | None,
+) -> None:
+    if module_name is not None:
+        pytest.importorskip(module_name)
 
-    result = _mk_graph(nodes, edges).gfql(
-        "CALL graphistry.degree() "
-        "YIELD nodeId, degree "
-        "RETURN nodeId, degree "
-        "ORDER BY degree DESC, nodeId ASC"
-    )
+    result = _mk_simple_path_graph().gfql(query)
 
-    assert result._nodes.to_dict(orient="records") == [
-        {"nodeId": "b", "degree": 2},
-        {"nodeId": "a", "degree": 1},
-        {"nodeId": "c", "degree": 1},
-    ]
+    if expected_columns is not None:
+        assert list(result._nodes.columns) == expected_columns
+    assert result._nodes.to_dict(orient="records") == expected_rows
 
 
-def test_string_cypher_call_without_return_uses_default_outputs() -> None:
-    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
-    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
-
-    result = _mk_graph(nodes, edges).gfql("CALL graphistry.degree()")
-
-    assert list(result._nodes.columns) == ["nodeId", "degree", "degree_in", "degree_out"]
-    assert result._nodes.to_dict(orient="records") == [
-        {"nodeId": "a", "degree": 1, "degree_in": 0, "degree_out": 1},
-        {"nodeId": "b", "degree": 2, "degree_in": 1, "degree_out": 1},
-        {"nodeId": "c", "degree": 1, "degree_in": 1, "degree_out": 0},
-    ]
-
-
-def test_string_cypher_executes_bare_graphistry_degree_call() -> None:
-    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
-    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
-
-    result = _mk_graph(nodes, edges).gfql("CALL graphistry.degree YIELD nodeId RETURN nodeId ORDER BY nodeId ASC")
-
-    assert result._nodes.to_dict(orient="records") == [
-        {"nodeId": "a"},
-        {"nodeId": "b"},
-        {"nodeId": "c"},
-    ]
-
-
-def test_string_cypher_call_rejects_unknown_procedure() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
+@pytest.mark.parametrize(
+    "query",
+    [
+        "CALL graphistry.unknown()",
+        "CALL test.my.proc YIELD out RETURN out",
+        "CALL graphistry.degree() YIELD score RETURN score",
+    ],
+)
+def test_string_cypher_call_rejects_invalid_procedure_or_yield(query: str) -> None:
     with pytest.raises(GFQLValidationError) as exc_info:
-        g.gfql("CALL graphistry.unknown()")
+        _mk_empty_graph().gfql(query)
 
     assert exc_info.value.code == ErrorCode.E108
-
-
-def test_string_cypher_bare_call_rejects_unknown_procedure() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    with pytest.raises(GFQLValidationError) as exc_info:
-        g.gfql("CALL test.my.proc YIELD out RETURN out")
-
-    assert exc_info.value.code == ErrorCode.E108
-
-
-def test_string_cypher_call_rejects_unknown_yield_output() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    with pytest.raises(GFQLValidationError) as exc_info:
-        g.gfql("CALL graphistry.degree() YIELD score RETURN score")
-
-    assert exc_info.value.code == ErrorCode.E108
-
-
-def test_string_cypher_executes_graphistry_igraph_pagerank_call() -> None:
-    pytest.importorskip("igraph", reason="graphistry.igraph.pagerank requires python-igraph")
-
-    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
-    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
-
-    result = _mk_graph(nodes, edges).gfql(
-        "CALL graphistry.igraph.pagerank() "
-        "YIELD nodeId, score "
-        "RETURN nodeId "
-        "ORDER BY score DESC, nodeId ASC "
-        "LIMIT 1"
-    )
-
-    assert result._nodes.to_dict(orient="records") == [{"nodeId": "c"}]
-
-
-def test_string_cypher_executes_graphistry_nx_pagerank_call() -> None:
-    pytest.importorskip("networkx", reason="graphistry.nx.pagerank requires networkx")
-
-    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
-    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
-
-    result = _mk_graph(nodes, edges).gfql(
-        "CALL graphistry.nx.pagerank() "
-        "YIELD nodeId, score "
-        "RETURN nodeId "
-        "ORDER BY score DESC, nodeId ASC "
-        "LIMIT 1"
-    )
-
-    assert result._nodes.to_dict(orient="records") == [{"nodeId": "c"}]
 
 
 def test_cypher_to_gfql_uses_terminal_with_projection() -> None:
