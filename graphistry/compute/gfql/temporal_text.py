@@ -8,8 +8,13 @@ from datetime import timedelta
 from datetime import timezone as py_timezone
 from datetime import tzinfo as py_tzinfo
 import re
+import sys
 from typing import Optional, cast
-from zoneinfo import ZoneInfo
+
+if sys.version_info >= (3, 9):
+    from zoneinfo import ZoneInfo
+else:
+    ZoneInfo = None
 
 from graphistry.compute.gfql.expr_parser import (
     BinaryOp,
@@ -328,7 +333,7 @@ def _date_from_fields(
             return None
         return py_date(year, month, day)
     if "week" in fields:
-        iso_year_default = base.isocalendar().year if base is not None else None
+        iso_year_default = base.isocalendar()[0] if base is not None else None
         year = _parse_int(fields.get("year"), iso_year_default)
         if year is None:
             return None
@@ -495,6 +500,8 @@ def _resolve_timezone_target(
         if offset_delta is None:
             return None
         return py_timezone(offset_delta), None, normalized_offset
+    if ZoneInfo is None:
+        return None
     try:
         return ZoneInfo(target_text), target_text, target_text
     except Exception:
@@ -644,6 +651,8 @@ def _normalize_localdatetime_map(fields: dict[str, str]) -> Optional[str]:
 
 
 def _zone_suffix(zone_name: str, local_text: str) -> Optional[str]:
+    if ZoneInfo is None:
+        return None
     try:
         zone = ZoneInfo(zone_name)
     except Exception:
@@ -1380,7 +1389,7 @@ def _truncate_date_value(source_date: py_date, unit: str, overrides: dict[str, s
         if "day" in overrides:
             return base + timedelta(days=int(overrides["day"]) - 1)
     elif unit == "weekYear":
-        base = py_date.fromisocalendar(source_date.isocalendar().year, 1, 1)
+        base = py_date.fromisocalendar(source_date.isocalendar()[0], 1, 1)
         if "day" in overrides:
             return py_date(base.year, 1, 1) + timedelta(days=int(overrides["day"]) - 1)
         if "dayOfWeek" in overrides:
@@ -1585,7 +1594,7 @@ def _comparable_datetime(
     if keep_timezone and effective_tz_suffix is not None:
         offset = effective_tz_suffix.split("[", 1)[0]
         zone_match = re.search(r"\[(?P<zone>[^\]]+)\]$", effective_tz_suffix)
-        if zone_match is not None:
+        if zone_match is not None and ZoneInfo is not None:
             try:
                 return py_datetime.fromisoformat(local_text).replace(tzinfo=ZoneInfo(zone_match.group("zone")))
             except Exception:

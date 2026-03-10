@@ -179,7 +179,7 @@ def _compiled_query_start_nodes(
 ) -> DataFrameT:
     output_name = compiled_query.start_nodes_output_name
     entity_meta = cast(
-        Optional[dict[str, WholeRowProjectionMeta]],
+        Optional[Dict[str, WholeRowProjectionMeta]],
         getattr(prefix_result, "_cypher_entity_projection_meta", None),
     )
     if not isinstance(entity_meta, dict) or output_name not in entity_meta:
