@@ -2794,56 +2794,46 @@ def test_cypher_to_gfql_supports_with_then_return_pipeline() -> None:
 
 
 def test_string_cypher_executes_with_then_return_pipeline() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql("UNWIND [1, 3, 2] AS ints WITH ints ORDER BY ints DESC LIMIT 2 RETURN ints")
-
-    assert result._nodes.to_dict(orient="records") == [{"ints": 3}, {"ints": 2}]
+    _assert_query_rows(
+        "UNWIND [1, 3, 2] AS ints WITH ints ORDER BY ints DESC LIMIT 2 RETURN ints",
+        [{"ints": 3}, {"ints": 2}],
+    )
 
 
 def test_string_cypher_executes_multiple_with_stages() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql("WITH 1 AS a, 'b' AS b WITH a ORDER BY a ASCENDING WITH a RETURN a")
-
-    assert result._nodes.to_dict(orient="records") == [{"a": 1}]
+    _assert_query_rows(
+        "WITH 1 AS a, 'b' AS b WITH a ORDER BY a ASCENDING WITH a RETURN a",
+        [{"a": 1}],
+    )
 
 
 def test_string_cypher_executes_interleaved_row_only_with_unwind_pipeline() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql(
+    _assert_query_rows(
         "WITH [0, 1] AS prows, [[2], [3, 4]] AS qrows "
         "UNWIND prows AS p "
         "UNWIND qrows[p] AS q "
         "WITH p, count(q) AS rng "
         "RETURN p "
-        "ORDER BY rng"
+        "ORDER BY rng",
+        [{"p": 0}, {"p": 1}],
     )
-
-    assert result._nodes.to_dict(orient="records") == [{"p": 0}, {"p": 1}]
 
 
 def test_string_cypher_supports_range_comparison_after_collect() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql(
+    _assert_query_rows(
         "WITH [1, 3, 2] AS values "
         "WITH values, size(values) AS numOfValues "
         "UNWIND values AS value "
         "WITH size([x IN values WHERE x < value]) AS x, value, numOfValues "
         "ORDER BY value "
         "WITH numOfValues, collect(x) AS orderedX "
-        "RETURN orderedX = range(0, numOfValues - 1) AS equal"
+        "RETURN orderedX = range(0, numOfValues - 1) AS equal",
+        [{"equal": True}],
     )
-
-    assert result._nodes.to_dict(orient="records") == [{"equal": True}]
 
 
 def test_string_cypher_supports_range_with_varying_row_bounds_and_steps() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql(
+    _assert_query_rows(
         "WITH ["
         "{id: 'a', start: 0, stop: 3, step: 1}, "
         "{id: 'b', start: 0, stop: -1, step: -1}, "
@@ -2852,15 +2842,14 @@ def test_string_cypher_supports_range_with_varying_row_bounds_and_steps() -> Non
         "] AS rows "
         "UNWIND rows AS row "
         "RETURN row.id AS id, range(row.start, row.stop, row.step) AS vals "
-        "ORDER BY id"
-    )
-
-    assert result._nodes.to_dict(orient="records") == [
+        "ORDER BY id",
+        [
         {"id": "a", "vals": [0, 1, 2, 3]},
         {"id": "b", "vals": [0, -1]},
         {"id": "c", "vals": [10, 7, 4]},
         {"id": "d", "vals": [2]},
-    ]
+        ],
+    )
 
 
 @pytest.mark.parametrize(
@@ -2879,9 +2868,7 @@ def test_string_cypher_rejects_invalid_range_arguments(query: str, pattern: str)
 
 
 def test_string_cypher_supports_time_comparison_consistent_with_sort_order() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql(
+    _assert_query_rows(
         "WITH ["
         "time({hour: 10, minute: 35, timezone: '-08:00'}), "
         "time({hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}), "
@@ -2895,16 +2882,13 @@ def test_string_cypher_supports_time_comparison_consistent_with_sort_order() -> 
         "WITH size([x IN values WHERE x < value]) AS x, value, numOfValues "
         "ORDER BY value "
         "WITH numOfValues, collect(x) AS orderedX "
-        "RETURN orderedX = range(0, numOfValues - 1) AS equal"
+        "RETURN orderedX = range(0, numOfValues - 1) AS equal",
+        [{"equal": True}],
     )
-
-    assert result._nodes.to_dict(orient="records") == [{"equal": True}]
 
 
 def test_string_cypher_supports_datetime_comparison_consistent_with_sort_order() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql(
+    _assert_query_rows(
         "WITH ["
         "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 30, second: 14, nanosecond: 12, timezone: '+00:15'}), "
         "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+00:17'}), "
@@ -2917,16 +2901,13 @@ def test_string_cypher_supports_datetime_comparison_consistent_with_sort_order()
         "WITH size([x IN values WHERE x < value]) AS x, value, numOfValues "
         "ORDER BY value "
         "WITH numOfValues, collect(x) AS orderedX "
-        "RETURN orderedX = range(0, numOfValues - 1) AS equal"
+        "RETURN orderedX = range(0, numOfValues - 1) AS equal",
+        [{"equal": True}],
     )
-
-    assert result._nodes.to_dict(orient="records") == [{"equal": True}]
 
 
 def test_string_cypher_supports_date_comparison_consistent_with_sort_order() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql(
+    _assert_query_rows(
         "WITH ["
         "date({year: 1910, month: 5, day: 6}), "
         "date({year: 1980, month: 12, day: 24}), "
@@ -2940,10 +2921,9 @@ def test_string_cypher_supports_date_comparison_consistent_with_sort_order() -> 
         "WITH size([x IN values WHERE x < value]) AS x, value, numOfValues "
         "ORDER BY value "
         "WITH numOfValues, collect(x) AS orderedX "
-        "RETURN orderedX = range(0, numOfValues - 1) AS equal"
+        "RETURN orderedX = range(0, numOfValues - 1) AS equal",
+        [{"equal": True}],
     )
-
-    assert result._nodes.to_dict(orient="records") == [{"equal": True}]
 
 
 def test_string_cypher_supports_order_by_list_literal_and_subscript_expression() -> None:
@@ -2998,11 +2978,10 @@ def test_string_cypher_rejects_out_of_scope_order_by_after_multiple_with_stages(
 
 
 def test_string_cypher_executes_row_column_expression_order_after_with() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql("UNWIND [1, 2, 3] AS a WITH a ORDER BY a + 2 DESC, a ASC LIMIT 1 RETURN a")
-
-    assert result._nodes.to_dict(orient="records") == [{"a": 3}]
+    _assert_query_rows(
+        "UNWIND [1, 2, 3] AS a WITH a ORDER BY a + 2 DESC, a ASC LIMIT 1 RETURN a",
+        [{"a": 3}],
+    )
 
 
 def test_string_cypher_executes_match_with_then_return_pipeline() -> None:
@@ -3507,19 +3486,14 @@ def test_gfql_rejects_connected_comma_cycle_row_projection_on_repeated_alias() -
 
 
 def test_gfql_executes_distinct_aggregate_return_query() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql("UNWIND [null, 1, null, 2, 1] AS x RETURN count(DISTINCT x) AS cnt, collect(DISTINCT x) AS vals")
-
-    assert result._nodes.to_dict(orient="records") == [{"cnt": 2, "vals": [1, 2]}]
+    _assert_query_rows(
+        "UNWIND [null, 1, null, 2, 1] AS x RETURN count(DISTINCT x) AS cnt, collect(DISTINCT x) AS vals",
+        [{"cnt": 2, "vals": [1, 2]}],
+    )
 
 
 def test_gfql_executes_collect_distinct_all_null_return_query() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql("UNWIND [null, null] AS x RETURN collect(DISTINCT x) AS c")
-
-    assert result._nodes.to_dict(orient="records") == [{"c": []}]
+    _assert_query_rows("UNWIND [null, null] AS x RETURN collect(DISTINCT x) AS c", [{"c": []}])
 
 
 def test_gfql_executes_count_distinct_missing_property_as_zero() -> None:
@@ -3539,81 +3513,53 @@ def test_cypher_to_gfql_rejects_multi_source_aggregate_expr() -> None:
 
 
 def test_gfql_executes_top_level_quantifier_expression() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql("RETURN none(x IN [true, false] WHERE x) AS result")
-
-    assert result._nodes.to_dict(orient="records") == [{"result": False}]
+    _assert_query_rows("RETURN none(x IN [true, false] WHERE x) AS result", [{"result": False}])
 
 
 def test_gfql_executes_top_level_quantifier_composed_expression() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql(
-        "RETURN none(x IN [1, 2, 3] WHERE x = 2) = (NOT any(x IN [1, 2, 3] WHERE x = 2)) AS result"
+    _assert_query_rows(
+        "RETURN none(x IN [1, 2, 3] WHERE x = 2) = (NOT any(x IN [1, 2, 3] WHERE x = 2)) AS result",
+        [{"result": True}],
     )
-
-    assert result._nodes.to_dict(orient="records") == [{"result": True}]
 
 
 def test_gfql_executes_top_level_single_quantifier_null_semantics() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql(
+    _assert_query_rows(
         "RETURN "
         "single(x IN [2, null] WHERE x = 2) AS left_result, "
-        "single(x IN [null, 2] WHERE x = 2) AS right_result"
+        "single(x IN [null, 2] WHERE x = 2) AS right_result",
+        [{"left_result": None, "right_result": None}],
     )
-
-    assert result._nodes.to_dict(orient="records") == [
-        {"left_result": None, "right_result": None}
-    ]
 
 
 def test_gfql_executes_top_level_membership_and_null_expression() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql("RETURN 3 IN [1, 2, 3] AS hit, null IS NULL AS empty")
-
-    assert result._nodes.to_dict(orient="records") == [{"hit": True, "empty": True}]
+    _assert_query_rows("RETURN 3 IN [1, 2, 3] AS hit, null IS NULL AS empty", [{"hit": True, "empty": True}])
 
 
 def test_gfql_executes_size_null_and_sqrt_constant_expressions() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql("WITH null AS l RETURN size(l) AS size_l, size(null) AS size_null, sqrt(12.96) AS root")
-
-    assert result._nodes.to_dict(orient="records") == [
-        {"size_l": None, "size_null": None, "root": 3.6}
-    ]
+    _assert_query_rows(
+        "WITH null AS l RETURN size(l) AS size_l, size(null) AS size_null, sqrt(12.96) AS root",
+        [{"size_l": None, "size_null": None, "root": 3.6}],
+    )
 
 
 def test_gfql_executes_substring_and_tointeger_expressions() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql(
+    _assert_query_rows(
         "WITH 82.9 AS weight "
-        "RETURN substring('0123456789', 1) AS s, toInteger(weight) AS int_weight"
+        "RETURN substring('0123456789', 1) AS s, toInteger(weight) AS int_weight",
+        [{"s": "123456789", "int_weight": 82}],
     )
-
-    assert result._nodes.to_dict(orient="records") == [
-        {"s": "123456789", "int_weight": 82}
-    ]
 
 
 def test_gfql_executes_top_level_xor_expression_and_precedence() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql(
+    _assert_query_rows(
         "RETURN "
         "true XOR false AS tf, "
         "false XOR false AS ff, "
         "true XOR null AS tn, "
         "true OR true XOR true AS or_xor, "
-        "true XOR false AND false AS xor_and"
-    )
-
-    assert result._nodes.to_dict(orient="records") == [
+        "true XOR false AND false AS xor_and",
+        [
         {
             "tf": True,
             "ff": False,
@@ -3621,7 +3567,8 @@ def test_gfql_executes_top_level_xor_expression_and_precedence() -> None:
             "or_xor": True,
             "xor_and": True,
         }
-    ]
+        ],
+    )
 
 
 def test_gfql_executes_with_where_xor_null_pipeline() -> None:
@@ -3731,26 +3678,19 @@ def test_gfql_executes_optional_match_count_distinct_on_empty_graph() -> None:
 
 
 def test_gfql_executes_with_aggregate_precedence_pipeline() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql(
+    _assert_query_rows(
         "UNWIND [true, false, null] AS a "
         "UNWIND [true, false, null] AS b "
         "UNWIND [true, false, null] AS c "
         "WITH collect((a OR b XOR c) = (a OR (b XOR c))) AS eq, "
         "collect((a OR b XOR c) <> ((a OR b) XOR c)) AS neq "
-        "RETURN all(x IN eq WHERE x) AND any(x IN neq WHERE x) AS result"
+        "RETURN all(x IN eq WHERE x) AND any(x IN neq WHERE x) AS result",
+        [{"result": True}],
     )
-
-    assert result._nodes.to_dict(orient="records") == [{"result": True}]
 
 
 def test_gfql_executes_top_level_list_comprehension_expression() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql("RETURN [x IN [1, 2, 3] WHERE x > 1 | x + 10] AS vals")
-
-    assert result._nodes.to_dict(orient="records") == [{"vals": [12, 13]}]
+    _assert_query_rows("RETURN [x IN [1, 2, 3] WHERE x > 1 | x + 10] AS vals", [{"vals": [12, 13]}])
 
 
 def test_string_cypher_supports_empty_map_quantifier_predicates() -> None:
