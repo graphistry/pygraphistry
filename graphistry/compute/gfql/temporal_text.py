@@ -9,12 +9,17 @@ from datetime import timezone as py_timezone
 from datetime import tzinfo as py_tzinfo
 import re
 import sys
-from typing import Optional, cast
+from typing import Callable, Optional, cast
 
 if sys.version_info >= (3, 9):
     from zoneinfo import ZoneInfo
 else:
     ZoneInfo = None
+
+try:
+    from dateutil.tz import gettz as _dateutil_gettz  # type: ignore[import-untyped]
+except Exception:
+    _dateutil_gettz = None
 
 from graphistry.compute.gfql.expr_parser import (
     BinaryOp,
@@ -216,6 +221,19 @@ def _split_tz_suffix_parts(tz_suffix: Optional[str]) -> tuple[Optional[str], Opt
         return None, None
     core, zone_name = _split_zone_name(tz_suffix)
     return (core or None), zone_name
+
+
+def _named_timezone(zone_name: str) -> Optional[py_tzinfo]:
+    if ZoneInfo is not None:
+        try:
+            return cast(py_tzinfo, ZoneInfo(zone_name))
+        except Exception:
+            pass
+    if _dateutil_gettz is not None:
+        tzinfo = cast(Callable[[str], Optional[py_tzinfo]], _dateutil_gettz)(zone_name)
+        if tzinfo is not None:
+            return tzinfo
+    return None
 
 
 def _format_offset(delta: timedelta) -> str:
@@ -500,12 +518,10 @@ def _resolve_timezone_target(
         if offset_delta is None:
             return None
         return py_timezone(offset_delta), None, normalized_offset
-    if ZoneInfo is None:
+    zone = _named_timezone(target_text)
+    if zone is None:
         return None
-    try:
-        return ZoneInfo(target_text), target_text, target_text
-    except Exception:
-        return None
+    return zone, target_text, target_text
 
 
 def _render_explicit_timezone_suffix(
@@ -651,11 +667,8 @@ def _normalize_localdatetime_map(fields: dict[str, str]) -> Optional[str]:
 
 
 def _zone_suffix(zone_name: str, local_text: str) -> Optional[str]:
-    if ZoneInfo is None:
-        return None
-    try:
-        zone = ZoneInfo(zone_name)
-    except Exception:
+    zone = _named_timezone(zone_name)
+    if zone is None:
         return None
     try:
         local_dt = py_datetime.fromisoformat(local_text)
@@ -1583,29 +1596,30 @@ def _comparable_datetime(
         value_date = value.date_value or anchor_date or py_date(1970, 1, 1)
     else:
         value_date = anchor_date or py_date(1970, 1, 1)
-    local_text = _format_localdatetime_parts(
-        value_date,
+    effective_tz_suffix = value.tz_suffix or anchor_tz_suffix
+    naive = py_datetime(
+        value_date.year,
+        value_date.month,
+        value_date.day,
         value.hour,
         value.minute,
         value.second,
-        value.nanosecond,
+        value.nanosecond // 1_000,
     )
-    effective_tz_suffix = value.tz_suffix or anchor_tz_suffix
     if keep_timezone and effective_tz_suffix is not None:
         offset = effective_tz_suffix.split("[", 1)[0]
         zone_match = re.search(r"\[(?P<zone>[^\]]+)\]$", effective_tz_suffix)
-        if zone_match is not None and ZoneInfo is not None:
-            try:
-                return py_datetime.fromisoformat(local_text).replace(tzinfo=ZoneInfo(zone_match.group("zone")))
-            except Exception:
-                pass
+        if zone_match is not None:
+            zone = _named_timezone(zone_match.group("zone"))
+            if zone is not None:
+                return naive.replace(tzinfo=zone)
         if offset == "Z":
-            return py_datetime.fromisoformat(local_text).replace(tzinfo=py_timezone.utc)
+            return naive.replace(tzinfo=py_timezone.utc)
         offset_delta = py_timedelta_from_offset(offset)
         if offset_delta is not None:
-            return py_datetime.fromisoformat(local_text).replace(tzinfo=py_timezone(offset_delta))
-        return py_datetime.fromisoformat(local_text + offset)
-    return py_datetime.fromisoformat(local_text)
+            return naive.replace(tzinfo=py_timezone(offset_delta))
+        return naive
+    return naive
 
 
 def py_timedelta_from_offset(offset: str) -> Optional[timedelta]:

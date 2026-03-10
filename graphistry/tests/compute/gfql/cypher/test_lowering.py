@@ -2054,7 +2054,7 @@ def test_string_cypher_formats_temporal_constructor_properties_in_entity_project
                 "date({year: 1984, month: 10, day: 12})",
             ],
         }
-    )
+    ).astype({"date": "string"})
     edges = pd.DataFrame({"s": [], "d": []})
 
     result = _mk_graph(nodes, edges).gfql(
@@ -2080,7 +2080,7 @@ def test_string_cypher_orders_temporal_constructor_time_properties() -> None:
                 "time({hour: 12, minute: 30, second: 14, nanosecond: 645876123, timezone: '+01:01'})",
             ],
         }
-    )
+    ).astype({"time": "string"})
     edges = pd.DataFrame({"s": [], "d": []})
 
     result = _mk_graph(nodes, edges).gfql(
@@ -2125,7 +2125,7 @@ def test_string_cypher_orders_time_plus_duration_expression() -> None:
                 "time({hour: 12, minute: 30, second: 14, nanosecond: 645876123, timezone: '+01:01'})",
             ],
         }
-    )
+    ).astype({"time": "string"})
     edges = pd.DataFrame({"s": [], "d": []})
 
     result = _mk_graph(nodes, edges).gfql(
@@ -2152,7 +2152,7 @@ def test_string_cypher_orders_datetime_plus_duration_expression() -> None:
                 "datetime({year: 1980, month: 12, day: 11, hour: 12, minute: 31, second: 14, timezone: '-11:59'})",
             ],
         }
-    )
+    ).astype({"datetime": "string"})
     edges = pd.DataFrame({"s": [], "d": []})
 
     result = _mk_graph(nodes, edges).gfql(
@@ -2180,7 +2180,7 @@ def test_string_cypher_orders_date_plus_duration_expression() -> None:
                 "date({year: 1984, month: 10, day: 11})",
             ],
         }
-    )
+    ).astype({"date": "string"})
     edges = pd.DataFrame({"s": [], "d": []})
 
     result = _mk_graph(nodes, edges).gfql(
@@ -2200,7 +2200,7 @@ def test_string_cypher_formats_list_literal_strings_in_entity_projection() -> No
             "label__A": [True, True],
             "list": ["[1, 2]", "[2, -2]"],
         }
-    )
+    ).astype({"list": "string"})
     edges = pd.DataFrame({"s": [], "d": []})
 
     result = _mk_graph(nodes, edges).gfql(

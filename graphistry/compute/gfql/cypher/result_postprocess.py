@@ -244,7 +244,7 @@ def _render_scalar_value_text(df: DataFrameT, alias_col: str, series: SeriesT) -
         return _normalize_scientific_numeric_text(text)
     if any(token in dtype_txt for token in ("int", "double", "decimal")):
         return text
-    if dtype_txt == "object" and hasattr(text, "str"):
+    if hasattr(text, "str"):
         stripped = cast(SeriesT, text.str.strip())
         non_null = cast(SeriesT, ~_is_null_mask(series))
         list_like = cast(SeriesT, stripped.str.match(r"^\[.*\]$", na=False))
