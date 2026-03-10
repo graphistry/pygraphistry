@@ -2743,6 +2743,111 @@ def test_cypher_to_gfql_rejects_union_programs() -> None:
     assert exc_info.value.code == ErrorCode.E108
 
 
+def test_compile_cypher_call_returns_procedure_program() -> None:
+    compiled = _compile_query("CALL graphistry.degree()")
+
+    assert compiled.procedure_call is not None
+    assert compiled.procedure_call.procedure == "graphistry.degree"
+
+
+def test_compile_cypher_call_supports_backend_specific_pagerank_procedures() -> None:
+    compiled = _compile_query("CALL graphistry.cugraph.pagerank()")
+
+    assert compiled.procedure_call is not None
+    assert compiled.procedure_call.procedure == "graphistry.cugraph.pagerank"
+
+
+def test_cypher_to_gfql_rejects_call_programs() -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        cypher_to_gfql("CALL graphistry.degree()")
+
+    assert exc_info.value.code == ErrorCode.E108
+
+
+def test_string_cypher_executes_graphistry_degree_call() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "CALL graphistry.degree() "
+        "YIELD nodeId, degree "
+        "RETURN nodeId, degree "
+        "ORDER BY degree DESC, nodeId ASC"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"nodeId": "b", "degree": 2},
+        {"nodeId": "a", "degree": 1},
+        {"nodeId": "c", "degree": 1},
+    ]
+
+
+def test_string_cypher_call_without_return_uses_default_outputs() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+
+    result = _mk_graph(nodes, edges).gfql("CALL graphistry.degree()")
+
+    assert list(result._nodes.columns) == ["nodeId", "degree", "degree_in", "degree_out"]
+    assert result._nodes.to_dict(orient="records") == [
+        {"nodeId": "a", "degree": 1, "degree_in": 0, "degree_out": 1},
+        {"nodeId": "b", "degree": 2, "degree_in": 1, "degree_out": 1},
+        {"nodeId": "c", "degree": 1, "degree_in": 1, "degree_out": 0},
+    ]
+
+
+def test_string_cypher_call_rejects_unknown_procedure() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        g.gfql("CALL graphistry.unknown()")
+
+    assert exc_info.value.code == ErrorCode.E108
+
+
+def test_string_cypher_call_rejects_unknown_yield_output() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        g.gfql("CALL graphistry.degree() YIELD score RETURN score")
+
+    assert exc_info.value.code == ErrorCode.E108
+
+
+def test_string_cypher_executes_graphistry_igraph_pagerank_call() -> None:
+    pytest.importorskip("igraph", reason="graphistry.igraph.pagerank requires python-igraph")
+
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "CALL graphistry.igraph.pagerank() "
+        "YIELD nodeId, score "
+        "RETURN nodeId "
+        "ORDER BY score DESC, nodeId ASC "
+        "LIMIT 1"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"nodeId": "c"}]
+
+
+def test_string_cypher_executes_graphistry_nx_pagerank_call() -> None:
+    pytest.importorskip("networkx", reason="graphistry.nx.pagerank requires networkx")
+
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+
+    result = _mk_graph(nodes, edges).gfql(
+        "CALL graphistry.nx.pagerank() "
+        "YIELD nodeId, score "
+        "RETURN nodeId "
+        "ORDER BY score DESC, nodeId ASC "
+        "LIMIT 1"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"nodeId": "c"}]
+
+
 def test_cypher_to_gfql_uses_terminal_with_projection() -> None:
     chain = cypher_to_gfql("MATCH (p) WITH p.name AS person_name ORDER BY person_name ASC LIMIT 1")
 

@@ -25,6 +25,15 @@ def cypher_to_gfql(
             suggestion="Execute the query through g.gfql(\"...\", language=\"cypher\") instead of cypher_to_gfql().",
             language="cypher",
         )
+    if compiled.procedure_call is not None:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher CALL cannot be represented as a single GFQL Chain",
+            field="call",
+            value=compiled.procedure_call.procedure,
+            suggestion="Execute the query through g.gfql(\"...\", language=\"cypher\") instead of cypher_to_gfql().",
+            language="cypher",
+        )
     return compiled.chain
 
 

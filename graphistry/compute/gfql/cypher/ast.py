@@ -89,6 +89,21 @@ class UnwindClause:
     span: SourceSpan
 
 
+@dataclass(frozen=True)
+class CypherYieldItem:
+    name: str
+    alias: Optional[str]
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
+class CallClause:
+    procedure: str
+    args: Tuple[ExpressionText, ...]
+    yield_items: Tuple[CypherYieldItem, ...]
+    span: SourceSpan
+
+
 WhereOp = Literal[
     "==",
     "!=",
@@ -183,6 +198,7 @@ class LimitClause:
 class CypherQuery:
     matches: Tuple[MatchClause, ...]
     where: Optional[WhereClause]
+    call: Optional[CallClause]
     unwinds: Tuple[UnwindClause, ...]
     with_stages: Tuple[ProjectionStage, ...]
     return_: ReturnClause

@@ -4,6 +4,7 @@ import pytest
 
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
 from graphistry.compute.gfql.cypher import (
+    CallClause,
     CypherQuery,
     ExpressionText,
     LabelRef,
@@ -120,6 +121,28 @@ def test_parse_mixed_union_kinds_rejected() -> None:
         parse_cypher("RETURN 1 AS x UNION RETURN 2 AS x UNION ALL RETURN 3 AS x")
 
     assert exc_info.value.code == ErrorCode.E107
+
+
+def test_parse_call_with_optional_yield_and_return() -> None:
+    parsed = _parse_query("CALL graphistry.igraph.pagerank() YIELD nodeId, score AS pr RETURN nodeId, pr")
+
+    assert isinstance(parsed.call, CallClause)
+    assert parsed.call.procedure == "graphistry.igraph.pagerank"
+    assert parsed.call.args == ()
+    assert tuple((item.name, item.alias) for item in parsed.call.yield_items) == (
+        ("nodeId", None),
+        ("score", "pr"),
+    )
+    assert parsed.return_.items[0].expression.text == "nodeId"
+    assert parsed.return_.items[1].expression.text == "pr"
+
+
+def test_parse_call_without_return_synthesizes_row_sequence() -> None:
+    parsed = _parse_query("CALL graphistry.degree()")
+
+    assert isinstance(parsed.call, CallClause)
+    assert len(parsed.row_sequence) == 1
+    assert parsed.return_.items[0].expression.text == "*"
 
 
 def test_parse_where_clause() -> None:

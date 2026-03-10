@@ -56,6 +56,7 @@ from graphistry.compute.gfql.expr_parser import (
     walk_expr_nodes,
 )
 from graphistry.compute.gfql.cypher.ast import (
+    CallClause,
     CypherLiteral,
     CypherQuery,
     CypherUnionQuery,
@@ -76,6 +77,10 @@ from graphistry.compute.gfql.cypher.ast import (
     UnwindClause,
     WhereClause,
     WherePatternPredicate,
+)
+from graphistry.compute.gfql.cypher.call_procedures import (
+    CompiledCypherProcedureCall,
+    compile_cypher_call,
 )
 from graphistry.compute.gfql.temporal_text import (
     fold_temporal_constructor_ast,
@@ -100,6 +105,7 @@ _CYPHER_INT64_MAX = (2**63) - 1
 class CompiledCypherQuery:
     chain: Chain
     seed_rows: bool = False
+    procedure_call: Optional[CompiledCypherProcedureCall] = None
     result_projection: Optional["ResultProjectionPlan"] = None
     empty_result_row: Optional[Dict[str, Any]] = None
     optional_null_fill: Optional["OptionalNullFillPlan"] = None
@@ -4170,20 +4176,23 @@ def _lower_row_column_stage(
     )
 
 
-def _lower_row_only_sequence(
+def _lower_row_only_sequence_with_scope(
     query: CypherQuery,
     *,
     params: Optional[Mapping[str, Any]],
+    initial_row_columns: AbstractSet[str],
+    seed_rows: bool,
+    procedure_call: Optional[CompiledCypherProcedureCall] = None,
 ) -> CompiledCypherQuery:
     row_steps: List[ASTObject] = [rows(table="nodes")]
     scope = _StageScope(
         mode="row_columns",
         alias_targets={},
         active_alias=None,
-        row_columns=set(),
+        row_columns=set(initial_row_columns),
         projected_columns={},
         table=None,
-        seed_rows=True,
+        seed_rows=seed_rows,
     )
 
     for item in query.row_sequence:
@@ -4228,7 +4237,20 @@ def _lower_row_only_sequence(
         stage_steps, scope = _lower_row_column_stage(item, scope=scope, params=params)
         row_steps.extend(stage_steps)
 
-    return CompiledCypherQuery(Chain(row_steps), seed_rows=True)
+    return CompiledCypherQuery(Chain(row_steps), seed_rows=seed_rows, procedure_call=procedure_call)
+
+
+def _lower_row_only_sequence(
+    query: CypherQuery,
+    *,
+    params: Optional[Mapping[str, Any]],
+) -> CompiledCypherQuery:
+    return _lower_row_only_sequence_with_scope(
+        query,
+        params=params,
+        initial_row_columns=set(),
+        seed_rows=True,
+    )
 
 
 def _lower_row_column_aggregate_stage(
@@ -5259,6 +5281,15 @@ def lower_cypher_query(
             suggestion="Execute the Cypher query through g.gfql(\"...\", language=\"cypher\") instead of cypher_to_gfql().",
             language="cypher",
         )
+    if compiled.procedure_call is not None:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher CALL cannot be represented as a single GFQL Chain",
+            field="call",
+            value=compiled.procedure_call.procedure,
+            suggestion="Execute the Cypher query through g.gfql(\"...\", language=\"cypher\") instead of cypher_to_gfql().",
+            language="cypher",
+        )
     return compiled.chain
 
 
@@ -5294,6 +5325,7 @@ def _compile_bounded_reentry_query(
     prefix_query = CypherQuery(
         matches=query.matches,
         where=query.where,
+        call=None,
         unwinds=query.unwinds,
         with_stages=(),
         return_=ReturnClause(
@@ -5350,6 +5382,7 @@ def _compile_bounded_reentry_query(
     suffix_query = CypherQuery(
         matches=query.reentry_matches,
         where=query.reentry_where,
+        call=None,
         unwinds=(),
         with_stages=(),
         return_=query.return_,
@@ -5373,6 +5406,45 @@ def _compile_bounded_reentry_query(
         suffix_compiled,
         start_nodes_query=prefix_compiled,
         start_nodes_output_name=prefix_projection.columns[0].output_name,
+    )
+
+
+def _compile_call_query(
+    query: CypherQuery,
+    *,
+    params: Optional[Mapping[str, Any]] = None,
+) -> CompiledCypherQuery:
+    if query.call is None:
+        raise ValueError("Expected query.call for Cypher CALL compilation")
+    if query.matches or query.where is not None or query.reentry_matches or query.reentry_where is not None:
+        raise _unsupported(
+            "Cypher CALL is only supported in standalone or row-only local queries",
+            field="call",
+            value=query.call.procedure,
+            line=query.call.span.line,
+            column=query.call.span.column,
+        )
+    compiled_call = compile_cypher_call(query.call)
+    if (
+        not query.unwinds
+        and not query.with_stages
+        and query.order_by is None
+        and query.skip is None
+        and query.limit is None
+        and len(query.return_.items) == 1
+        and query.return_.items[0].expression.text == "*"
+    ):
+        return CompiledCypherQuery(
+            Chain([]),
+            seed_rows=False,
+            procedure_call=compiled_call,
+        )
+    return _lower_row_only_sequence_with_scope(
+        query,
+        params=params,
+        initial_row_columns={output.output_name for output in compiled_call.output_columns},
+        seed_rows=False,
+        procedure_call=compiled_call,
     )
 
 
@@ -5415,6 +5487,8 @@ def compile_cypher_query(
     _reject_unsupported_where_expr_forms(query)
     if query.reentry_matches:
         return _compile_bounded_reentry_query(query, params=params)
+    if query.call is not None:
+        return _compile_call_query(query, params=params)
     if query.row_sequence:
         return _lower_row_only_sequence(query, params=params)
 

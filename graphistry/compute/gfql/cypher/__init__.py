@@ -1,8 +1,10 @@
 """Cypher-string parsing and lowering for local GFQL execution."""
 
 from .ast import (
+    CallClause,
     CypherQuery,
     CypherUnionQuery,
+    CypherYieldItem,
     ExpressionText,
     LabelRef,
     LimitClause,
@@ -25,6 +27,7 @@ from .ast import (
 )
 from .api import compile_cypher, cypher_to_gfql, gfql_from_cypher
 from .lowering import (
+    CompiledCypherProcedureCall,
     CompiledCypherQuery,
     CompiledCypherUnionQuery,
     LoweredCypherMatch,
@@ -38,13 +41,16 @@ from .parser import parse_cypher
 __all__ = [
     "CypherQuery",
     "CypherUnionQuery",
+    "CallClause",
     "compile_cypher",
+    "CompiledCypherProcedureCall",
     "CompiledCypherQuery",
     "CompiledCypherUnionQuery",
     "compile_cypher_query",
     "cypher_to_gfql",
     "ExpressionText",
     "gfql_from_cypher",
+    "CypherYieldItem",
     "LabelRef",
     "LimitClause",
     "LoweredCypherMatch",

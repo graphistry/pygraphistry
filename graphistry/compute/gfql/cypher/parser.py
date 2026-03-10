@@ -8,10 +8,12 @@ from typing import Any, List, Literal, Optional, Protocol, Sequence, Tuple, Type
 
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.cypher.ast import (
+    CallClause,
     CypherLiteral,
     CypherPageValue,
     CypherQuery,
     CypherUnionQuery,
+    CypherYieldItem,
     LimitClause,
     LabelRef,
     OrderByClause,
@@ -46,6 +48,7 @@ union_op: "UNION"i "ALL"i       -> union_all
 
 query_item: match_clause
           | where_clause
+          | call_clause
           | unwind_clause
           | stage
 
@@ -103,6 +106,11 @@ where_rhs: property_ref
          | value
 
 unwind_clause: "UNWIND"i unwind_expr "AS"i NAME
+call_clause: "CALL"i qualified_name "(" [call_args] ")" yield_clause?
+call_args: call_arg ("," call_arg)*
+call_arg: expr
+yield_clause: "YIELD"i yield_item ("," yield_item)*
+yield_item: NAME alias?
 
 with_clause: "WITH"i distinct? return_item ("," return_item)*
 with_where_clause: "WHERE"i expr
@@ -750,6 +758,46 @@ def _build_transformer(source: str) -> _TransformerLike:
                 span=_span_from_meta(meta),
             )
 
+        def call_arg(self, meta: Any, _items: Sequence[Any]) -> _ExpressionSlice:
+            span = _span_from_meta(meta)
+            return _ExpressionSlice(text=self._slice(span).strip(), span=span)
+
+        def call_args(self, _meta: Any, items: Sequence[Any]) -> Tuple[_ExpressionSlice, ...]:
+            return tuple(cast(_ExpressionSlice, item) for item in items)
+
+        def yield_item(self, meta: Any, items: Sequence[Any]) -> CypherYieldItem:
+            if len(items) == 0:
+                raise _to_syntax_error("YIELD item cannot be empty", line=meta.line, column=meta.column)
+            return CypherYieldItem(
+                name=str(items[0]),
+                alias=cast(Optional[str], items[1] if len(items) > 1 else None),
+                span=_span_from_meta(meta),
+            )
+
+        def yield_clause(self, _meta: Any, items: Sequence[Any]) -> Tuple[CypherYieldItem, ...]:
+            return tuple(cast(CypherYieldItem, item) for item in items)
+
+        def call_clause(self, meta: Any, items: Sequence[Any]) -> CallClause:
+            if len(items) == 0:
+                raise _to_syntax_error("CALL clause cannot be empty", line=meta.line, column=meta.column)
+            procedure_item = cast(_ExpressionSlice, items[0])
+            call_args: Tuple[_ExpressionSlice, ...] = ()
+            yield_items: Tuple[CypherYieldItem, ...] = ()
+            for item in items[1:]:
+                if isinstance(item, tuple) and all(isinstance(arg, _ExpressionSlice) for arg in item):
+                    call_args = cast(Tuple[_ExpressionSlice, ...], item)
+                elif isinstance(item, tuple) and all(isinstance(yield_item, CypherYieldItem) for yield_item in item):
+                    yield_items = cast(Tuple[CypherYieldItem, ...], item)
+            return CallClause(
+                procedure=procedure_item.text,
+                args=tuple(
+                    ExpressionText(text=arg.text, span=arg.span)
+                    for arg in call_args
+                ),
+                yield_items=yield_items,
+                span=_span_from_meta(meta),
+            )
+
         def alias(self, meta: Any, items: Sequence[Any]) -> str:
             if len(items) != 1:
                 raise _to_syntax_error("Invalid RETURN alias", line=meta.line, column=meta.column)
@@ -920,6 +968,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             reentry_match_clauses: List[MatchClause] = []
             where_clause: Optional[WhereClause] = None
             reentry_where_clause: Optional[WhereClause] = None
+            call_clause: Optional[CallClause] = None
             unwind_clauses: List[UnwindClause] = []
             stages: List[ProjectionStage] = []
             ordered_row_items: List[Union[ProjectionStage, UnwindClause]] = []
@@ -931,6 +980,12 @@ def _build_transformer(source: str) -> _TransformerLike:
                     else:
                         match_clauses.append(item)
                 elif isinstance(item, WhereClause):
+                    if call_clause is not None:
+                        raise _to_syntax_error(
+                            "Cypher WHERE is not supported with CALL in the local compiler; use YIELD/RETURN row expressions instead",
+                            line=item.span.line,
+                            column=item.span.column,
+                        )
                     if reentry_match_clauses:
                         if reentry_where_clause is not None:
                             raise _to_syntax_error(
@@ -941,6 +996,20 @@ def _build_transformer(source: str) -> _TransformerLike:
                         reentry_where_clause = item
                     else:
                         where_clause = item
+                elif isinstance(item, CallClause):
+                    if call_clause is not None:
+                        raise _to_syntax_error(
+                            "Cypher only supports one CALL clause per query in the local compiler",
+                            line=item.span.line,
+                            column=item.span.column,
+                        )
+                    if match_clauses or reentry_match_clauses or stages or unwind_clauses:
+                        raise _to_syntax_error(
+                            "Cypher CALL is currently only supported as the first clause in standalone or row-only local queries",
+                            line=item.span.line,
+                            column=item.span.column,
+                        )
+                    call_clause = item
                 elif isinstance(item, UnwindClause):
                     if reentry_match_clauses:
                         raise _to_syntax_error(
@@ -957,6 +1026,12 @@ def _build_transformer(source: str) -> _TransformerLike:
                     unwind_clauses.append(item)
                     ordered_row_items.append(item)
                 elif isinstance(item, ProjectionStage):
+                    if call_clause is not None and reentry_match_clauses:
+                        raise _to_syntax_error(
+                            "Cypher CALL with MATCH re-entry is not yet supported in the local compiler",
+                            line=item.span.line,
+                            column=item.span.column,
+                        )
                     if reentry_match_clauses and item.clause.kind != "return":
                         raise _to_syntax_error(
                             "Cypher WITH after post-WITH MATCH is not yet supported in the local compiler",
@@ -966,7 +1041,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                     stages.append(item)
                     ordered_row_items.append(item)
                     seen_stage = True
-            if len(stages) == 0:
+            if len(stages) == 0 and call_clause is None:
                 raise _to_syntax_error(
                     "Cypher query must contain a RETURN/WITH clause",
                     line=meta.line,
@@ -993,7 +1068,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                         line=first_match.span.line,
                         column=first_match.span.column,
                     )
-            final_stage = return_stage or stages[-1]
+            final_stage: Optional[ProjectionStage] = return_stage or (stages[-1] if stages else None)
             if where_clause is not None and not match_clauses:
                 raise _to_syntax_error(
                     "Cypher WHERE is currently only supported after MATCH in the local compiler",
@@ -1001,11 +1076,40 @@ def _build_transformer(source: str) -> _TransformerLike:
                     column=where_clause.span.column,
                 )
             row_sequence: Tuple[Union[ProjectionStage, UnwindClause], ...] = ()
+            if call_clause is not None and len(stages) == 0:
+                synthetic_item = ReturnItem(
+                    expression=ExpressionText(text="*", span=call_clause.span),
+                    alias=None,
+                    span=call_clause.span,
+                )
+                synthetic_clause = ReturnClause(
+                    items=(synthetic_item,),
+                    distinct=False,
+                    kind="return",
+                    span=call_clause.span,
+                )
+                synthetic_stage = ProjectionStage(
+                    clause=synthetic_clause,
+                    where=None,
+                    order_by=None,
+                    skip=None,
+                    limit=None,
+                    span=call_clause.span,
+                )
+                final_stage = synthetic_stage
+                ordered_row_items.append(synthetic_stage)
+            if final_stage is None:
+                raise _to_syntax_error(
+                    "Cypher query must contain a RETURN/WITH clause or a supported CALL",
+                    line=meta.line,
+                    column=meta.column,
+                )
             if not match_clauses and where_clause is None:
                 row_sequence = tuple(ordered_row_items)
             return CypherQuery(
                 matches=tuple(match_clauses),
                 where=where_clause,
+                call=call_clause,
                 unwinds=tuple(unwind_clauses),
                 with_stages=tuple(with_stages),
                 return_=final_stage.clause,
@@ -1050,6 +1154,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                     return CypherQuery(
                         matches=branch.matches,
                         where=branch.where,
+                        call=branch.call,
                         unwinds=branch.unwinds,
                         with_stages=branch.with_stages,
                         return_=branch.return_,

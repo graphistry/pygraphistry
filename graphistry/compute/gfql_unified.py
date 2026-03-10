@@ -25,6 +25,7 @@ from graphistry.compute.gfql.same_path_types import (
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.api import compile_cypher
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherQuery, CompiledCypherUnionQuery
+from graphistry.compute.gfql.cypher.call_procedures import execute_cypher_call
 from graphistry.compute.gfql.cypher.result_postprocess import WholeRowProjectionMeta
 from graphistry.compute.gfql.df_executor import (
     DFSamePathExecutor,
@@ -124,7 +125,9 @@ def _execute_compiled_query(
         return out
 
     dispatch_graph = base_graph
-    if compiled_query.seed_rows:
+    if compiled_query.procedure_call is not None:
+        dispatch_graph = execute_cypher_call(base_graph, compiled_query.procedure_call)
+    elif compiled_query.seed_rows:
         concrete_engine = resolve_engine(cast(Any, engine), base_graph)
         df_ctor = df_cons(concrete_engine)
         dispatch_graph = base_graph.bind()
