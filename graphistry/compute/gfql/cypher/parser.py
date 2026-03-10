@@ -106,7 +106,8 @@ where_rhs: property_ref
          | value
 
 unwind_clause: "UNWIND"i unwind_expr "AS"i NAME
-call_clause: "CALL"i qualified_name "(" [call_args] ")" yield_clause?
+call_clause: "CALL"i qualified_name call_invocation? yield_clause?
+call_invocation: "(" [call_args] ")"
 call_args: call_arg ("," call_arg)*
 call_arg: expr
 yield_clause: "YIELD"i yield_item ("," yield_item)*
@@ -764,6 +765,13 @@ def _build_transformer(source: str) -> _TransformerLike:
 
         def call_args(self, _meta: Any, items: Sequence[Any]) -> Tuple[_ExpressionSlice, ...]:
             return tuple(cast(_ExpressionSlice, item) for item in items)
+
+        def call_invocation(self, _meta: Any, items: Sequence[Any]) -> Tuple[_ExpressionSlice, ...]:
+            if len(items) == 0:
+                return ()
+            if len(items) != 1 or not isinstance(items[0], tuple):
+                raise _to_syntax_error("Invalid CALL invocation")
+            return cast(Tuple[_ExpressionSlice, ...], items[0])
 
         def yield_item(self, meta: Any, items: Sequence[Any]) -> CypherYieldItem:
             if len(items) == 0:

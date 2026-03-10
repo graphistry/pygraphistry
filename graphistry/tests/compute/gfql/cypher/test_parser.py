@@ -145,6 +145,15 @@ def test_parse_call_without_return_synthesizes_row_sequence() -> None:
     assert parsed.return_.items[0].expression.text == "*"
 
 
+def test_parse_bare_call_without_parentheses() -> None:
+    parsed = _parse_query("CALL graphistry.degree YIELD nodeId RETURN nodeId")
+
+    assert isinstance(parsed.call, CallClause)
+    assert parsed.call.procedure == "graphistry.degree"
+    assert parsed.call.args == ()
+    assert tuple((item.name, item.alias) for item in parsed.call.yield_items) == (("nodeId", None),)
+
+
 def test_parse_where_clause() -> None:
     parsed = _parse_query("MATCH (a)-[r]->(b) WHERE a.team = b.team AND b.score >= 10 RETURN a")
 

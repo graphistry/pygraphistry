@@ -2796,11 +2796,33 @@ def test_string_cypher_call_without_return_uses_default_outputs() -> None:
     ]
 
 
+def test_string_cypher_executes_bare_graphistry_degree_call() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+
+    result = _mk_graph(nodes, edges).gfql("CALL graphistry.degree YIELD nodeId RETURN nodeId ORDER BY nodeId ASC")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"nodeId": "a"},
+        {"nodeId": "b"},
+        {"nodeId": "c"},
+    ]
+
+
 def test_string_cypher_call_rejects_unknown_procedure() -> None:
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 
     with pytest.raises(GFQLValidationError) as exc_info:
         g.gfql("CALL graphistry.unknown()")
+
+    assert exc_info.value.code == ErrorCode.E108
+
+
+def test_string_cypher_bare_call_rejects_unknown_procedure() -> None:
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        g.gfql("CALL test.my.proc YIELD out RETURN out")
 
     assert exc_info.value.code == ErrorCode.E108
 
