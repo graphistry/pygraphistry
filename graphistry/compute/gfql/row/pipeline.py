@@ -47,7 +47,14 @@ from graphistry.compute.gfql.row.ordering import (
     validate_order_series_vector_safe,
 )
 from graphistry.compute.gfql.temporal_text import parse_temporal_sort_duration_components
-from graphistry.compute.gfql.temporal_text import resolve_duration_text_property
+from graphistry.compute.gfql.temporal_text import (
+    DATETIME_CALL_TEXT_RE,
+    DATE_CALL_TEXT_RE,
+    LOCALDATETIME_CALL_TEXT_RE,
+    LOCALTIME_CALL_TEXT_RE,
+    TIME_CALL_TEXT_RE,
+    resolve_duration_text_property,
+)
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
@@ -1263,6 +1270,106 @@ class RowPipelineMixin:
             return False
         return order_expr_ast_static_supported(node)
 
+    @staticmethod
+    def _gfql_all_non_null_match(mask: Any, non_null: Any) -> bool:
+        return bool(hasattr(mask, "where") and mask.where(non_null, True).all())
+
+    @staticmethod
+    def _gfql_normalize_zero_offset_suffix(timezone: Any) -> Any:
+        if not hasattr(timezone, "where") or not hasattr(timezone, "isin"):
+            return timezone
+        zero_offset = timezone.isin(["+00:00", "-00:00"])
+        return timezone.where(~zero_offset, "Z")
+
+    def _gfql_entity_temporal_text(self, table_df: Any, series: Any, text: Any) -> Any:
+        if not hasattr(text, "str"):
+            return None
+        stripped = text.str.strip()
+        non_null = ~self._gfql_null_mask(table_df, series)
+
+        def _quote(values: Any) -> Any:
+            return "'" + values + "'"
+
+        date_mask = stripped.str.match(DATE_CALL_TEXT_RE.pattern, na=False)
+        if self._gfql_all_non_null_match(date_mask, non_null):
+            parts = stripped.str.extract(DATE_CALL_TEXT_RE.pattern)
+            year = parts["year"].fillna("0").astype("int64").astype(str).str.zfill(4)
+            month = parts["month"].fillna("0").astype("int64").astype(str).str.zfill(2)
+            day = parts["day"].fillna("0").astype("int64").astype(str).str.zfill(2)
+            return _quote(year + "-" + month + "-" + day)
+
+        localtime_mask = stripped.str.match(LOCALTIME_CALL_TEXT_RE.pattern, na=False)
+        if self._gfql_all_non_null_match(localtime_mask, non_null):
+            parts = stripped.str.extract(LOCALTIME_CALL_TEXT_RE.pattern)
+            hour = parts["hour"].fillna("0").astype("int64").astype(str).str.zfill(2)
+            minute = parts["minute"].fillna("0").astype("int64").astype(str).str.zfill(2)
+            second = parts["second"].fillna("")
+            nanos = parts["nano"].fillna("").str.zfill(9).str.rstrip("0")
+            base = hour + ":" + minute
+            has_seconds = (second != "") | (nanos != "")
+            second_text = ":" + second.where(second != "", "00").astype(str).str.zfill(2)
+            frac = "." + nanos
+            base = base + second_text.where(has_seconds, "")
+            base = base + frac.where(nanos != "", "")
+            return _quote(base)
+
+        time_mask = stripped.str.match(TIME_CALL_TEXT_RE.pattern, na=False)
+        if self._gfql_all_non_null_match(time_mask, non_null):
+            parts = stripped.str.extract(TIME_CALL_TEXT_RE.pattern)
+            hour = parts["hour"].fillna("0").astype("int64").astype(str).str.zfill(2)
+            minute = parts["minute"].fillna("0").astype("int64").astype(str).str.zfill(2)
+            second = parts["second"].fillna("")
+            nanos = parts["nano"].fillna("").str.zfill(9).str.rstrip("0")
+            timezone = self._gfql_normalize_zero_offset_suffix(parts["tz"].fillna(""))
+            base = hour + ":" + minute
+            has_seconds = (second != "") | (nanos != "")
+            second_text = ":" + second.where(second != "", "00").astype(str).str.zfill(2)
+            frac = "." + nanos
+            base = base + second_text.where(has_seconds, "")
+            base = base + frac.where(nanos != "", "")
+            base = base + timezone
+            return _quote(base)
+
+        localdatetime_mask = stripped.str.match(LOCALDATETIME_CALL_TEXT_RE.pattern, na=False)
+        if self._gfql_all_non_null_match(localdatetime_mask, non_null):
+            parts = stripped.str.extract(LOCALDATETIME_CALL_TEXT_RE.pattern)
+            year = parts["year"].fillna("0").astype("int64").astype(str).str.zfill(4)
+            month = parts["month"].fillna("0").astype("int64").astype(str).str.zfill(2)
+            day = parts["day"].fillna("0").astype("int64").astype(str).str.zfill(2)
+            hour = parts["hour"].fillna("0").astype("int64").astype(str).str.zfill(2)
+            minute = parts["minute"].fillna("0").astype("int64").astype(str).str.zfill(2)
+            second = parts["second"].fillna("")
+            nanos = parts["nano"].fillna("").str.zfill(9).str.rstrip("0")
+            base = year + "-" + month + "-" + day + "T" + hour + ":" + minute
+            has_seconds = (second != "") | (nanos != "")
+            second_text = ":" + second.where(second != "", "00").astype(str).str.zfill(2)
+            frac = "." + nanos
+            base = base + second_text.where(has_seconds, "")
+            base = base + frac.where(nanos != "", "")
+            return _quote(base)
+
+        datetime_mask = stripped.str.match(DATETIME_CALL_TEXT_RE.pattern, na=False)
+        if self._gfql_all_non_null_match(datetime_mask, non_null):
+            parts = stripped.str.extract(DATETIME_CALL_TEXT_RE.pattern)
+            year = parts["year"].fillna("0").astype("int64").astype(str).str.zfill(4)
+            month = parts["month"].fillna("0").astype("int64").astype(str).str.zfill(2)
+            day = parts["day"].fillna("0").astype("int64").astype(str).str.zfill(2)
+            hour = parts["hour"].fillna("0").astype("int64").astype(str).str.zfill(2)
+            minute = parts["minute"].fillna("0").astype("int64").astype(str).str.zfill(2)
+            second = parts["second"].fillna("")
+            nanos = parts["nano"].fillna("").str.zfill(9).str.rstrip("0")
+            timezone = self._gfql_normalize_zero_offset_suffix(parts["tz"].fillna(""))
+            base = year + "-" + month + "-" + day + "T" + hour + ":" + minute
+            has_seconds = (second != "") | (nanos != "")
+            second_text = ":" + second.where(second != "", "00").astype(str).str.zfill(2)
+            frac = "." + nanos
+            base = base + second_text.where(has_seconds, "")
+            base = base + frac.where(nanos != "", "")
+            base = base + timezone
+            return _quote(base)
+
+        return None
+
     def _gfql_entity_scalar_text(self, table_df: Any, alias_col: str, series: Any) -> Any:
         text = series.astype(str)
         dtype_txt = str(getattr(series, "dtype", "")).lower()
@@ -1272,20 +1379,23 @@ class RowPipelineMixin:
             return text.str.replace(r"\.0+$", "", regex=True)
         if any(token in dtype_txt for token in ("int", "double", "decimal")):
             return text
-        if dtype_txt == "object" and hasattr(text, "str"):
+        if hasattr(text, "str"):
             stripped = text.str.strip()
             non_null = ~self._gfql_null_mask(table_df, series)
             list_like = stripped.str.match(r"^\[.*\]$", na=False)
-            if hasattr(list_like, "where") and bool(list_like.where(non_null, True).all()):
+            if self._gfql_all_non_null_match(list_like, non_null):
                 return stripped
             map_like = stripped.str.match(r"^\{.*\}$", na=False)
-            if hasattr(map_like, "where") and bool(map_like.where(non_null, True).all()):
+            if self._gfql_all_non_null_match(map_like, non_null):
                 return stripped
+            temporal = self._gfql_entity_temporal_text(table_df, series, text)
+            if temporal is not None:
+                return temporal
             bool_like = text.str.match(r"^(True|False)$", na=False)
             num_like = text.str.match(r"^-?\d+(?:\.\d+)?$", na=False)
-            if hasattr(bool_like, "where") and bool(bool_like.where(non_null, True).all()):
+            if self._gfql_all_non_null_match(bool_like, non_null):
                 return text.str.lower()
-            if hasattr(num_like, "where") and bool(num_like.where(non_null, True).all()):
+            if self._gfql_all_non_null_match(num_like, non_null):
                 return text.str.replace(r"\.0+$", "", regex=True)
             escaped = text.str.replace("\\", "\\\\", regex=False).str.replace("'", "\\'", regex=False)
             out = "'" + escaped + "'"
