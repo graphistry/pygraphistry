@@ -4,13 +4,14 @@ import ast as pyast
 from dataclasses import dataclass
 from functools import lru_cache
 import re
-from typing import Any, List, Optional, Protocol, Sequence, Tuple, Type, Union, cast
+from typing import Any, List, Literal, Optional, Protocol, Sequence, Tuple, Type, Union, cast
 
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.cypher.ast import (
     CypherLiteral,
     CypherPageValue,
     CypherQuery,
+    CypherUnionQuery,
     LimitClause,
     LabelRef,
     OrderByClause,
@@ -36,9 +37,13 @@ from graphistry.compute.gfql.cypher.ast import (
 
 
 _GRAMMAR = r"""
-?start: query
+?start: union_query
 
-query: query_item+ SEMI?
+union_query: query_body (union_op query_body)* SEMI?
+query_body: query_item+
+union_op: "UNION"i "ALL"i       -> union_all
+        | "UNION"i              -> union_distinct
+
 query_item: match_clause
           | where_clause
           | unwind_clause
@@ -909,7 +914,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("Invalid query item", line=meta.line, column=meta.column)
             return items[0]
 
-        def query(self, meta: Any, items: Sequence[Any]) -> CypherQuery:
+        def query_body(self, meta: Any, items: Sequence[Any]) -> CypherQuery:
             trailing_semicolon = any(str(item) == ";" for item in items)
             match_clauses: List[MatchClause] = []
             reentry_match_clauses: List[MatchClause] = []
@@ -1014,10 +1019,71 @@ def _build_transformer(source: str) -> _TransformerLike:
                 reentry_where=reentry_where_clause,
             )
 
+        def union_all(self, meta: Any, _items: Sequence[Any]) -> str:
+            if meta.empty:
+                return "all"
+            return "all"
+
+        def union_distinct(self, meta: Any, _items: Sequence[Any]) -> str:
+            if meta.empty:
+                return "distinct"
+            return "distinct"
+
+        def union_query(self, meta: Any, items: Sequence[Any]) -> Union[CypherQuery, CypherUnionQuery]:
+            trailing_semicolon = any(str(item) == ";" for item in items)
+            branches: List[CypherQuery] = []
+            union_kinds: List[str] = []
+            for item in items:
+                if isinstance(item, CypherQuery):
+                    branches.append(item)
+                elif isinstance(item, str) and item in {"distinct", "all"}:
+                    union_kinds.append(item)
+            if not branches:
+                raise _to_syntax_error(
+                    "Cypher query must contain a RETURN/WITH clause",
+                    line=meta.line,
+                    column=meta.column,
+                )
+            if len(branches) == 1:
+                branch = branches[0]
+                if trailing_semicolon and not branch.trailing_semicolon:
+                    return CypherQuery(
+                        matches=branch.matches,
+                        where=branch.where,
+                        unwinds=branch.unwinds,
+                        with_stages=branch.with_stages,
+                        return_=branch.return_,
+                        order_by=branch.order_by,
+                        skip=branch.skip,
+                        limit=branch.limit,
+                        row_sequence=branch.row_sequence,
+                        trailing_semicolon=True,
+                        span=branch.span,
+                        reentry_matches=branch.reentry_matches,
+                        reentry_where=branch.reentry_where,
+                    )
+                return branch
+            if len(union_kinds) != len(branches) - 1:
+                raise _to_syntax_error("Invalid UNION query", line=meta.line, column=meta.column)
+            union_kind_set = set(union_kinds)
+            if len(union_kind_set) != 1:
+                raise _to_syntax_error(
+                    "Mixing UNION and UNION ALL is not supported in the local compiler",
+                    line=meta.line,
+                    column=meta.column,
+                )
+            union_kind = cast(Union[Literal["distinct"], Literal["all"]], union_kinds[0])
+            return CypherUnionQuery(
+                branches=tuple(branches),
+                union_kind=union_kind,
+                trailing_semicolon=trailing_semicolon,
+                span=_span_from_meta(meta),
+            )
+
     return cast(_TransformerLike, _CypherAstBuilder())
 
 
-def parse_cypher(query: str) -> CypherQuery:
+def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery]:
     if not isinstance(query, str) or query.strip() == "":
         raise _to_syntax_error("Cypher query must be a non-empty string")
 
@@ -1039,6 +1105,6 @@ def parse_cypher(query: str) -> CypherQuery:
             raise _to_syntax_error("Invalid Cypher query syntax", line=line, column=column) from exc
         raise _to_syntax_error("Invalid Cypher query syntax") from exc
 
-    if not isinstance(node, CypherQuery):
+    if not isinstance(node, (CypherQuery, CypherUnionQuery)):
         raise _to_syntax_error("Cypher parser did not produce a query")
     return node

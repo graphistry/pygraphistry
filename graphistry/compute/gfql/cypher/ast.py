@@ -200,3 +200,11 @@ class CypherQuery:
         if not self.matches:
             return None
         return self.matches[-1]
+
+
+@dataclass(frozen=True)
+class CypherUnionQuery:
+    branches: Tuple[CypherQuery, ...]
+    union_kind: Literal["distinct", "all"]
+    trailing_semicolon: bool
+    span: SourceSpan

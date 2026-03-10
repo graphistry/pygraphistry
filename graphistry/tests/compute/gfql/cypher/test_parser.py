@@ -4,19 +4,25 @@ import pytest
 
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
 from graphistry.compute.gfql.cypher import (
+    CypherQuery,
     ExpressionText,
     LabelRef,
     NodePattern,
     ParameterRef,
     PropertyRef,
     RelationshipPattern,
+    CypherUnionQuery,
     WherePatternPredicate,
     parse_cypher,
 )
 
 
+def _parse_query(query: str) -> CypherQuery:
+    return cast(CypherQuery, parse_cypher(query))
+
+
 def test_parse_minimal_match_return() -> None:
-    parsed = parse_cypher("MATCH (n) RETURN n")
+    parsed = _parse_query("MATCH (n) RETURN n")
 
     assert parsed.match is not None
     assert parsed.match.pattern[0].variable == "n"
@@ -32,7 +38,7 @@ def test_parse_minimal_match_return() -> None:
 
 
 def test_parse_linear_pattern_with_labels_properties_and_aliases() -> None:
-    parsed = parse_cypher(
+    parsed = _parse_query(
         'MATCH (p:Person {id: $person_id})-[r:FOLLOWS]->(q:Person {active: true}) RETURN p.name AS person_name, q'
     )
 
@@ -79,7 +85,7 @@ def test_parse_linear_pattern_with_labels_properties_and_aliases() -> None:
     ],
 )
 def test_parse_relationship_directions(query: str, direction: str) -> None:
-    parsed = parse_cypher(query)
+    parsed = _parse_query(query)
 
     assert parsed.match is not None
     rel = parsed.match.pattern[1]
@@ -88,12 +94,36 @@ def test_parse_relationship_directions(query: str, direction: str) -> None:
 
 
 def test_parse_reports_trailing_semicolon() -> None:
-    parsed = parse_cypher("MATCH (n) RETURN n;")
+    parsed = _parse_query("MATCH (n) RETURN n;")
     assert parsed.trailing_semicolon is True
 
 
+def test_parse_union_distinct_query() -> None:
+    parsed = parse_cypher("RETURN 1 AS x UNION RETURN 2 AS x")
+
+    assert isinstance(parsed, CypherUnionQuery)
+    assert parsed.union_kind == "distinct"
+    assert len(parsed.branches) == 2
+    assert [branch.return_.items[0].alias for branch in parsed.branches] == ["x", "x"]
+
+
+def test_parse_union_all_query() -> None:
+    parsed = parse_cypher("RETURN 1 AS x UNION ALL RETURN 2 AS x;")
+
+    assert isinstance(parsed, CypherUnionQuery)
+    assert parsed.union_kind == "all"
+    assert parsed.trailing_semicolon is True
+
+
+def test_parse_mixed_union_kinds_rejected() -> None:
+    with pytest.raises(GFQLSyntaxError) as exc_info:
+        parse_cypher("RETURN 1 AS x UNION RETURN 2 AS x UNION ALL RETURN 3 AS x")
+
+    assert exc_info.value.code == ErrorCode.E107
+
+
 def test_parse_where_clause() -> None:
-    parsed = parse_cypher("MATCH (a)-[r]->(b) WHERE a.team = b.team AND b.score >= 10 RETURN a")
+    parsed = _parse_query("MATCH (a)-[r]->(b) WHERE a.team = b.team AND b.score >= 10 RETURN a")
 
     assert parsed.where is not None
     assert len(parsed.where.predicates) == 2
@@ -112,7 +142,7 @@ def test_parse_where_clause() -> None:
 
 
 def test_parse_where_null_predicates() -> None:
-    parsed = parse_cypher("MATCH (a)-[r]->(b) WHERE a.deleted IS NULL AND b.name IS NOT NULL RETURN a")
+    parsed = _parse_query("MATCH (a)-[r]->(b) WHERE a.deleted IS NULL AND b.name IS NOT NULL RETURN a")
 
     assert parsed.where is not None
     pred0 = parsed.where.predicates[0]
@@ -126,20 +156,20 @@ def test_parse_where_null_predicates() -> None:
 
 
 def test_parse_return_xor_precedence_expression() -> None:
-    parsed = parse_cypher("RETURN true OR true XOR false AND false AS result")
+    parsed = _parse_query("RETURN true OR true XOR false AND false AS result")
 
     assert parsed.return_.items[0].expression.text == "true OR true XOR false AND false"
 
 
 def test_parse_return_searched_case_expression() -> None:
-    parsed = parse_cypher("RETURN CASE WHEN score > 1 THEN true ELSE false END AS result")
+    parsed = _parse_query("RETURN CASE WHEN score > 1 THEN true ELSE false END AS result")
 
     assert parsed.return_.items[0].expression.text == "CASE WHEN score > 1 THEN true ELSE false END"
     assert parsed.return_.items[0].alias == "result"
 
 
 def test_parse_return_simple_case_expression() -> None:
-    parsed = parse_cypher("RETURN CASE score WHEN 1 THEN 'one' ELSE 'other' END AS result")
+    parsed = _parse_query("RETURN CASE score WHEN 1 THEN 'one' ELSE 'other' END AS result")
 
     assert parsed.return_.items[0].expression.text == "CASE score WHEN 1 THEN 'one' ELSE 'other' END"
     assert parsed.return_.items[0].alias == "result"
@@ -157,13 +187,13 @@ def test_parse_return_simple_case_expression() -> None:
     ],
 )
 def test_parse_numeric_literal_forms(query: str, expr_text: str) -> None:
-    parsed = parse_cypher(query)
+    parsed = _parse_query(query)
 
     assert parsed.return_.items[0].expression.text == expr_text
 
 
 def test_parse_with_where_pipeline() -> None:
-    parsed = parse_cypher("UNWIND [true, false, null] AS a WITH a WHERE a IS NULL RETURN a")
+    parsed = _parse_query("UNWIND [true, false, null] AS a WITH a WHERE a IS NULL RETURN a")
 
     assert len(parsed.with_stages) == 1
     assert parsed.with_stages[0].where is not None
@@ -171,7 +201,7 @@ def test_parse_with_where_pipeline() -> None:
 
 
 def test_parse_match_after_with_reentry_shape() -> None:
-    parsed = parse_cypher("MATCH (a:A) WITH a ORDER BY a.name LIMIT 1 MATCH (a)-->(b) RETURN a")
+    parsed = _parse_query("MATCH (a:A) WITH a ORDER BY a.name LIMIT 1 MATCH (a)-->(b) RETURN a")
 
     assert len(parsed.matches) == 1
     assert len(parsed.with_stages) == 1
@@ -180,7 +210,7 @@ def test_parse_match_after_with_reentry_shape() -> None:
 
 
 def test_parse_where_label_predicate() -> None:
-    parsed = parse_cypher("MATCH (a)-->(b) WHERE b:Foo:Bar RETURN b")
+    parsed = _parse_query("MATCH (a)-->(b) WHERE b:Foo:Bar RETURN b")
 
     assert parsed.where is not None
     assert len(parsed.where.predicates) == 1
@@ -193,7 +223,7 @@ def test_parse_where_label_predicate() -> None:
 
 
 def test_parse_reserved_keyword_labels_and_relationship_types() -> None:
-    parsed = parse_cypher("MATCH (n:Single)-[r:SINGLE]->(m:End) RETURN m:TYPE, n:Single")
+    parsed = _parse_query("MATCH (n:Single)-[r:SINGLE]->(m:End) RETURN m:TYPE, n:Single")
 
     assert parsed.match is not None
     left = parsed.match.pattern[0]
@@ -210,7 +240,7 @@ def test_parse_reserved_keyword_labels_and_relationship_types() -> None:
 
 
 def test_parse_relationship_type_alternation() -> None:
-    parsed = parse_cypher("MATCH (a)-[r:KNOWS|HATES]->(b) RETURN r")
+    parsed = _parse_query("MATCH (a)-[r:KNOWS|HATES]->(b) RETURN r")
 
     assert parsed.match is not None
     rel = parsed.match.pattern[1]
@@ -219,7 +249,7 @@ def test_parse_relationship_type_alternation() -> None:
 
 
 def test_parse_relationship_type_alternation_with_repeated_colon() -> None:
-    parsed = parse_cypher("MATCH (a)-[:T|:OTHER]->(b) RETURN b")
+    parsed = _parse_query("MATCH (a)-[:T|:OTHER]->(b) RETURN b")
 
     assert parsed.match is not None
     rel = parsed.match.pattern[1]
@@ -228,7 +258,7 @@ def test_parse_relationship_type_alternation_with_repeated_colon() -> None:
 
 
 def test_parse_return_pipeline_clauses() -> None:
-    parsed = parse_cypher(
+    parsed = _parse_query(
         "MATCH (p:Person) RETURN DISTINCT p.name AS person_name ORDER BY person_name DESC, p.id ASC SKIP 1 LIMIT 2;"
     )
 
@@ -247,7 +277,7 @@ def test_parse_return_pipeline_clauses() -> None:
 
 
 def test_parse_terminal_with_clause() -> None:
-    parsed = parse_cypher("MATCH (p) WITH p.name AS person_name ORDER BY person_name ASC LIMIT 5")
+    parsed = _parse_query("MATCH (p) WITH p.name AS person_name ORDER BY person_name ASC LIMIT 5")
 
     assert parsed.with_stages == ()
     assert parsed.return_.kind == "with"
@@ -258,7 +288,7 @@ def test_parse_terminal_with_clause() -> None:
 
 
 def test_parse_with_then_return_pipeline() -> None:
-    parsed = parse_cypher("UNWIND [1, 3, 2] AS ints WITH ints ORDER BY ints DESC LIMIT 2 RETURN ints")
+    parsed = _parse_query("UNWIND [1, 3, 2] AS ints WITH ints ORDER BY ints DESC LIMIT 2 RETURN ints")
 
     assert len(parsed.with_stages) == 1
     with_stage = parsed.with_stages[0]
@@ -274,7 +304,7 @@ def test_parse_with_then_return_pipeline() -> None:
 
 
 def test_parse_multiple_with_stages_and_long_order_directions() -> None:
-    parsed = parse_cypher("WITH 1 AS a, 2 AS b WITH a ORDER BY a ASCENDING WITH a ORDER BY a DESCENDING RETURN a")
+    parsed = _parse_query("WITH 1 AS a, 2 AS b WITH a ORDER BY a ASCENDING WITH a ORDER BY a DESCENDING RETURN a")
 
     assert len(parsed.with_stages) == 3
     assert len(parsed.row_sequence) == 4
@@ -287,7 +317,7 @@ def test_parse_multiple_with_stages_and_long_order_directions() -> None:
 
 
 def test_parse_interleaved_row_only_with_unwind_sequence() -> None:
-    parsed = parse_cypher(
+    parsed = _parse_query(
         "WITH [0, 1] AS prows, [[2], [3, 4]] AS qrows "
         "UNWIND prows AS p "
         "UNWIND qrows[p] AS q "
@@ -304,7 +334,7 @@ def test_parse_interleaved_row_only_with_unwind_sequence() -> None:
 
 
 def test_parse_unwind_without_match() -> None:
-    parsed = parse_cypher("UNWIND [1, 2, 3] AS x RETURN x ORDER BY x")
+    parsed = _parse_query("UNWIND [1, 2, 3] AS x RETURN x ORDER BY x")
 
     assert parsed.match is None
     assert len(parsed.unwinds) == 1
@@ -316,7 +346,7 @@ def test_parse_unwind_without_match() -> None:
 
 
 def test_parse_match_then_unwind() -> None:
-    parsed = parse_cypher("MATCH (p) UNWIND p.vals AS v RETURN v")
+    parsed = _parse_query("MATCH (p) UNWIND p.vals AS v RETURN v")
 
     assert parsed.match is not None
     assert len(parsed.unwinds) == 1
@@ -325,7 +355,7 @@ def test_parse_match_then_unwind() -> None:
 
 
 def test_parse_match_with_comma_connected_patterns() -> None:
-    parsed = parse_cypher("MATCH (a)-[:A]->(b), (b)-[:B]->(c) RETURN c")
+    parsed = _parse_query("MATCH (a)-[:A]->(b), (b)-[:B]->(c) RETURN c")
 
     assert parsed.match is not None
     assert len(parsed.match.patterns) == 2
@@ -336,7 +366,7 @@ def test_parse_match_with_comma_connected_patterns() -> None:
 
 
 def test_parse_multiple_match_clauses() -> None:
-    parsed = parse_cypher("MATCH (a {name: 'A'}), (b {name: 'B'}) MATCH (a)-->(x)<--(b) RETURN x")
+    parsed = _parse_query("MATCH (a {name: 'A'}), (b {name: 'B'}) MATCH (a)-->(x)<--(b) RETURN x")
 
     assert len(parsed.matches) == 2
     assert len(parsed.matches[0].patterns) == 2
@@ -347,7 +377,7 @@ def test_parse_multiple_match_clauses() -> None:
 
 
 def test_parse_optional_match_clause() -> None:
-    parsed = parse_cypher("OPTIONAL MATCH (n) RETURN n.exists IS NULL AS missing")
+    parsed = _parse_query("OPTIONAL MATCH (n) RETURN n.exists IS NULL AS missing")
 
     assert len(parsed.matches) == 1
     assert parsed.matches[0].optional is True
@@ -355,7 +385,7 @@ def test_parse_optional_match_clause() -> None:
 
 
 def test_parse_aggregate_projection_items() -> None:
-    parsed = parse_cypher(
+    parsed = _parse_query(
         "MATCH (n) RETURN n.division AS division, count(*) AS cnt, max(n.age) AS max_age ORDER BY division, cnt DESC"
     )
 
@@ -370,7 +400,7 @@ def test_parse_aggregate_projection_items() -> None:
 
 
 def test_parse_top_level_projection_only() -> None:
-    parsed = parse_cypher("RETURN [1, 2, 3] AS xs LIMIT 1")
+    parsed = _parse_query("RETURN [1, 2, 3] AS xs LIMIT 1")
 
     assert parsed.match is None
     assert parsed.unwinds == ()
@@ -381,7 +411,7 @@ def test_parse_top_level_projection_only() -> None:
 
 
 def test_parse_top_level_quantifier_expression() -> None:
-    parsed = parse_cypher("RETURN none(x IN [true, false] WHERE x) AS result")
+    parsed = _parse_query("RETURN none(x IN [true, false] WHERE x) AS result")
 
     assert parsed.match is None
     assert parsed.return_.items[0].expression.text == "none(x IN [true, false] WHERE x)"
@@ -389,7 +419,7 @@ def test_parse_top_level_quantifier_expression() -> None:
 
 
 def test_parse_top_level_membership_and_null_expression() -> None:
-    parsed = parse_cypher("RETURN 3 IN [1, 2, 3] AS hit, null IS NULL AS empty")
+    parsed = _parse_query("RETURN 3 IN [1, 2, 3] AS hit, null IS NULL AS empty")
 
     assert [item.expression.text for item in parsed.return_.items] == [
         "3 IN [1, 2, 3]",
@@ -398,14 +428,14 @@ def test_parse_top_level_membership_and_null_expression() -> None:
 
 
 def test_parse_top_level_list_comprehension_expression() -> None:
-    parsed = parse_cypher("RETURN [x IN [1, 2, 3] WHERE x > 1 | x + 10] AS vals")
+    parsed = _parse_query("RETURN [x IN [1, 2, 3] WHERE x > 1 | x + 10] AS vals")
 
     assert parsed.return_.items[0].expression.text == "[x IN [1, 2, 3] WHERE x > 1 | x + 10]"
 
 
 def test_invalid_syntax_reports_line_and_column() -> None:
     with pytest.raises(GFQLSyntaxError) as exc_info:
-        parse_cypher("MATCH (n RETURN n")
+        _parse_query("MATCH (n RETURN n")
 
     exc = exc_info.value
     assert exc.code == ErrorCode.E107
@@ -416,13 +446,13 @@ def test_invalid_syntax_reports_line_and_column() -> None:
 
 def test_multi_statement_rejected() -> None:
     with pytest.raises(GFQLSyntaxError) as exc_info:
-        parse_cypher("MATCH (n) RETURN n; MATCH (m) RETURN m")
+        _parse_query("MATCH (n) RETURN n; MATCH (m) RETURN m")
 
     assert exc_info.value.code == ErrorCode.E107
 
 
 def test_or_where_not_yet_supported() -> None:
     with pytest.raises(GFQLSyntaxError) as exc_info:
-        parse_cypher("MATCH (a)-[r]->(b) WHERE a.team = b.team OR a.name = 'Alice' RETURN a")
+        _parse_query("MATCH (a)-[r]->(b) WHERE a.team = b.team OR a.name = 'Alice' RETURN a")
 
     assert exc_info.value.code == ErrorCode.E107

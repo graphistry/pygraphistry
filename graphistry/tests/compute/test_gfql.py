@@ -225,6 +225,70 @@ class TestGFQL:
 
         assert result._nodes.to_dict(orient="records") == expected
 
+    def test_gfql_executes_cypher_union_distinct(self):
+        g = _mk_graph(ids=[], types=[], src=[], dst=[])
+
+        result = g.gfql("RETURN 2 AS x UNION RETURN 1 AS x UNION RETURN 2 AS x")
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"x": 2},
+            {"x": 1},
+        ]
+
+    def test_gfql_executes_cypher_union_all(self):
+        g = _mk_graph(ids=[], types=[], src=[], dst=[])
+
+        result = g.gfql("RETURN 2 AS x UNION ALL RETURN 1 AS x UNION ALL RETURN 2 AS x")
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"x": 2},
+            {"x": 1},
+            {"x": 2},
+        ]
+
+    def test_gfql_executes_cypher_union_with_unwind(self):
+        g = _mk_graph(ids=[], types=[], src=[], dst=[])
+
+        result = g.gfql(
+            "UNWIND [2, 1, 2, 3] AS x RETURN x "
+            "UNION "
+            "UNWIND [3, 4] AS x RETURN x"
+        )
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"x": 2},
+            {"x": 1},
+            {"x": 3},
+            {"x": 4},
+        ]
+
+    def test_gfql_executes_cypher_union_of_whole_row_entity_outputs(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"], "type": ["A", "B"]})
+        g = CGFull().nodes(nodes_df, "id").edges(pd.DataFrame({"s": [], "d": []}), "s", "d")
+
+        result = g.gfql("MATCH (a:A) RETURN a AS a UNION MATCH (b:B) RETURN b AS a")
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"a": "(:A)"},
+            {"a": "(:B)"},
+        ]
+
+    def test_gfql_rejects_cypher_union_with_mismatched_columns(self):
+        g = _mk_graph(ids=[], types=[], src=[], dst=[])
+
+        with pytest.raises(GFQLValidationError) as exc_info:
+            g.gfql("RETURN 1 AS a UNION RETURN 2 AS b")
+
+        assert exc_info.value.code == ErrorCode.E108
+
+    def test_gfql_rejects_mixed_union_kinds(self):
+        g = _mk_graph(ids=[], types=[], src=[], dst=[])
+
+        with pytest.raises(GFQLSyntaxError) as exc_info:
+            g.gfql("RETURN 1 AS a UNION RETURN 2 AS a UNION ALL RETURN 3 AS a")
+
+        assert exc_info.value.code == ErrorCode.E107
+
     @pytest.mark.parametrize(
         ("direction", "expected"),
         [

@@ -24,7 +24,7 @@ from graphistry.compute.gfql.same_path_types import (
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.api import compile_cypher
-from graphistry.compute.gfql.cypher.lowering import CompiledCypherQuery
+from graphistry.compute.gfql.cypher.lowering import CompiledCypherQuery, CompiledCypherUnionQuery
 from graphistry.compute.gfql.cypher.result_postprocess import WholeRowProjectionMeta
 from graphistry.compute.gfql.df_executor import (
     DFSamePathExecutor,
@@ -93,12 +93,36 @@ def _apply_optional_null_fill(
 def _execute_compiled_query(
     base_graph: Plottable,
     *,
-    compiled_query: CompiledCypherQuery,
+    compiled_query: Union[CompiledCypherQuery, CompiledCypherUnionQuery],
     engine: Union[EngineAbstract, str],
     policy: Optional[PolicyDict],
     context: ExecutionContext,
     start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
+    if isinstance(compiled_query, CompiledCypherUnionQuery):
+        concrete_engine = resolve_engine(cast(Any, engine), base_graph)
+        df_ctor = df_cons(concrete_engine)
+        concat = df_concat(concrete_engine)
+        branch_results = [
+            _execute_compiled_query(
+                base_graph,
+                compiled_query=branch,
+                engine=engine,
+                policy=policy,
+                context=context,
+                start_nodes=start_nodes,
+            )
+            for branch in compiled_query.branches
+        ]
+        row_frames = [cast(DataFrameT, getattr(result, "_nodes", None)) for result in branch_results if getattr(result, "_nodes", None) is not None]
+        union_rows = df_ctor() if not row_frames else concat(row_frames, ignore_index=True, sort=False)
+        if compiled_query.union_kind == "distinct" and len(union_rows) > 0:
+            union_rows = cast(DataFrameT, union_rows.drop_duplicates(ignore_index=True))
+        out = base_graph.bind()
+        out._nodes = union_rows
+        out._edges = df_ctor()
+        return out
+
     dispatch_graph = base_graph
     if compiled_query.seed_rows:
         concrete_engine = resolve_engine(cast(Any, engine), base_graph)
@@ -512,7 +536,8 @@ def gfql(self: Plottable,
             if where_param:
                 raise ValueError("where cannot be combined with string queries; embed Cypher predicates in the query itself")
             compiled_query = _compile_string_query(query, language=language, params=params)
-            query = compiled_query.chain
+            if isinstance(compiled_query, CompiledCypherQuery):
+                query = compiled_query.chain
         else:
             if language is not None:
                 raise ValueError("language is only supported when query is a string")
@@ -549,6 +574,15 @@ def gfql(self: Plottable,
         context.push_path(query_segment)
 
         try:
+            if compiled_query is not None and not isinstance(query, Chain):
+                logger.debug('GFQL executing compiled string program')
+                return _execute_compiled_query(
+                    self,
+                    compiled_query=compiled_query,
+                    engine=engine,
+                    policy=expanded_policy,
+                    context=context,
+                )
             if isinstance(query, ASTLet):
                 logger.debug('GFQL executing as DAG')
                 return chain_let_impl(dispatch_self, query, engine, output, policy=expanded_policy, context=context)

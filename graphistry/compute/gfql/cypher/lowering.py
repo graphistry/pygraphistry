@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import math
 import re
-from typing import AbstractSet, Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, cast
+from typing import AbstractSet, Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 from typing_extensions import Literal
 
 from graphistry.compute.ast import (
@@ -58,6 +58,7 @@ from graphistry.compute.gfql.expr_parser import (
 from graphistry.compute.gfql.cypher.ast import (
     CypherLiteral,
     CypherQuery,
+    CypherUnionQuery,
     ExpressionText,
     LabelRef,
     MatchClause,
@@ -104,6 +105,12 @@ class CompiledCypherQuery:
     optional_null_fill: Optional["OptionalNullFillPlan"] = None
     start_nodes_query: Optional["CompiledCypherQuery"] = None
     start_nodes_output_name: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class CompiledCypherUnionQuery:
+    branches: Tuple[CompiledCypherQuery, ...]
+    union_kind: Literal["distinct", "all"]
 
 
 @dataclass(frozen=True)
@@ -5222,12 +5229,37 @@ def _lower_general_row_projection(
     )
 
 
+def _cypher_return_output_names(clause: ReturnClause) -> Tuple[str, ...]:
+    names: List[str] = []
+    for item in clause.items:
+        if item.expression.text == "*":
+            raise _unsupported(
+                "Cypher UNION does not yet support RETURN * branches in the local compiler",
+                field="return",
+                value=item.expression.text,
+                line=item.span.line,
+                column=item.span.column,
+            )
+        names.append(item.alias or item.expression.text)
+    return tuple(names)
+
+
 def lower_cypher_query(
-    query: CypherQuery,
+    query: Union[CypherQuery, CypherUnionQuery],
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> Chain:
-    return compile_cypher_query(query, params=params).chain
+    compiled = compile_cypher_query(query, params=params)
+    if isinstance(compiled, CompiledCypherUnionQuery):
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher UNION cannot be represented as a single GFQL Chain",
+            field="union",
+            value=compiled.union_kind,
+            suggestion="Execute the Cypher query through g.gfql(\"...\", language=\"cypher\") instead of cypher_to_gfql().",
+            language="cypher",
+        )
+    return compiled.chain
 
 
 def _first_pattern_node_alias(clause: MatchClause) -> Optional[str]:
@@ -5278,6 +5310,14 @@ def _compile_bounded_reentry_query(
         span=query.span,
     )
     prefix_compiled = compile_cypher_query(prefix_query, params=params)
+    if not isinstance(prefix_compiled, CompiledCypherQuery):
+        raise _unsupported(
+            "Cypher MATCH after WITH prefix compilation produced an unexpected UNION program",
+            field="with",
+            value="union",
+            line=prefix_stage.span.line,
+            column=prefix_stage.span.column,
+        )
     prefix_projection = prefix_compiled.result_projection
     if prefix_projection is None or len(prefix_projection.columns) != 1 or prefix_projection.columns[0].kind != "whole_row":
         raise _unsupported(
@@ -5321,6 +5361,14 @@ def _compile_bounded_reentry_query(
         span=query.span,
     )
     suffix_compiled = compile_cypher_query(suffix_query, params=params)
+    if not isinstance(suffix_compiled, CompiledCypherQuery):
+        raise _unsupported(
+            "Cypher MATCH after WITH suffix compilation produced an unexpected UNION program",
+            field="match",
+            value="union",
+            line=reentry_match.span.line,
+            column=reentry_match.span.column,
+        )
     return replace(
         suffix_compiled,
         start_nodes_query=prefix_compiled,
@@ -5329,10 +5377,40 @@ def _compile_bounded_reentry_query(
 
 
 def compile_cypher_query(
-    query: CypherQuery,
+    query: Union[CypherQuery, CypherUnionQuery],
     *,
     params: Optional[Mapping[str, Any]] = None,
-) -> CompiledCypherQuery:
+) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery]:
+    if isinstance(query, CypherUnionQuery):
+        branch_output_names: Optional[Tuple[str, ...]] = None
+        compiled_branches: List[CompiledCypherQuery] = []
+        for branch in query.branches:
+            output_names = _cypher_return_output_names(branch.return_)
+            if branch_output_names is None:
+                branch_output_names = output_names
+            elif output_names != branch_output_names:
+                raise _unsupported(
+                    "Cypher UNION branches must project the same output names in the same order",
+                    field="union",
+                    value={"expected": branch_output_names, "actual": output_names},
+                    line=branch.return_.span.line,
+                    column=branch.return_.span.column,
+                )
+            compiled_branch = compile_cypher_query(branch, params=params)
+            if not isinstance(compiled_branch, CompiledCypherQuery):
+                raise _unsupported(
+                    "Nested Cypher UNION branches are not supported in the local compiler",
+                    field="union",
+                    value=branch.return_.span.line,
+                    line=branch.return_.span.line,
+                    column=branch.return_.span.column,
+                )
+            compiled_branches.append(compiled_branch)
+        return CompiledCypherUnionQuery(
+            branches=tuple(compiled_branches),
+            union_kind=query.union_kind,
+        )
+
     query = _rewrite_where_pattern_predicates_to_matches(query)
     _reject_unsupported_where_expr_forms(query)
     if query.reentry_matches:

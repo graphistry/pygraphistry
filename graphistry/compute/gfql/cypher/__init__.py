@@ -2,6 +2,7 @@
 
 from .ast import (
     CypherQuery,
+    CypherUnionQuery,
     ExpressionText,
     LabelRef,
     LimitClause,
@@ -25,6 +26,7 @@ from .ast import (
 from .api import compile_cypher, cypher_to_gfql, gfql_from_cypher
 from .lowering import (
     CompiledCypherQuery,
+    CompiledCypherUnionQuery,
     LoweredCypherMatch,
     compile_cypher_query,
     lower_cypher_query,
@@ -35,8 +37,10 @@ from .parser import parse_cypher
 
 __all__ = [
     "CypherQuery",
+    "CypherUnionQuery",
     "compile_cypher",
     "CompiledCypherQuery",
+    "CompiledCypherUnionQuery",
     "compile_cypher_query",
     "cypher_to_gfql",
     "ExpressionText",

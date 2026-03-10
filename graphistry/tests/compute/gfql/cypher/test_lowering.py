@@ -7,8 +7,11 @@ from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeEr
 from graphistry.compute.predicates.is_in import IsIn
 from graphistry.compute.gfql.same_path_types import col, compare
 from graphistry.compute.gfql.cypher import (
+    CypherQuery,
     compile_cypher,
     cypher_to_gfql,
+    CompiledCypherUnionQuery,
+    CompiledCypherQuery,
     lower_cypher_query,
     lower_match_clause,
     lower_match_query,
@@ -35,8 +38,16 @@ def _mk_graph(nodes_df: pd.DataFrame, edges_df: pd.DataFrame) -> _CypherTestGrap
     return cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes_df, "id").edges(edges_df, "s", "d"))
 
 
+def _parse_query(query: str) -> CypherQuery:
+    return cast(CypherQuery, parse_cypher(query))
+
+
+def _compile_query(query: str) -> CompiledCypherQuery:
+    return cast(CompiledCypherQuery, compile_cypher(query))
+
+
 def test_lower_match_clause_to_gfql_ops() -> None:
-    parsed = parse_cypher(
+    parsed = _parse_query(
         "MATCH (p:Person {id: $person_id})-[r:FOLLOWS]->(q:Person {active: true}) RETURN p"
     )
 
@@ -65,14 +76,14 @@ def test_lower_match_clause_to_gfql_ops() -> None:
     ],
 )
 def test_lower_match_clause_relationship_direction(query: str, edge_type: type) -> None:
-    parsed = parse_cypher(query)
+    parsed = _parse_query(query)
     assert parsed.match is not None
     ops = lower_match_clause(parsed.match)
     assert isinstance(ops[1], edge_type)
 
 
 def test_lower_match_clause_relationship_type_alternation_uses_is_in_predicate() -> None:
-    parsed = parse_cypher("MATCH (n)-[r:KNOWS|HATES]->(x) RETURN r")
+    parsed = _parse_query("MATCH (n)-[r:KNOWS|HATES]->(x) RETURN r")
     assert parsed.match is not None
 
     ops = lower_match_clause(parsed.match)
@@ -85,7 +96,7 @@ def test_lower_match_clause_relationship_type_alternation_uses_is_in_predicate()
 
 
 def test_lower_match_clause_stitches_connected_comma_patterns() -> None:
-    parsed = parse_cypher("MATCH (a)-[:A]->(b), (b)-[:B]->(c) RETURN c")
+    parsed = _parse_query("MATCH (a)-[:A]->(b), (b)-[:B]->(c) RETURN c")
     assert parsed.match is not None
 
     ops = lower_match_clause(parsed.match)
@@ -102,7 +113,7 @@ def test_lower_match_clause_stitches_connected_comma_patterns() -> None:
 
 
 def test_lower_match_clause_stitches_reversed_second_comma_segment() -> None:
-    parsed = parse_cypher("MATCH (a)-[:R1]->(b), (c)<-[:R2]-(b) RETURN c")
+    parsed = _parse_query("MATCH (a)-[:R1]->(b), (c)<-[:R2]-(b) RETURN c")
     assert parsed.match is not None
 
     ops = lower_match_clause(parsed.match)
@@ -115,7 +126,7 @@ def test_lower_match_clause_stitches_reversed_second_comma_segment() -> None:
 
 
 def test_lower_match_clause_rejects_disconnected_comma_patterns() -> None:
-    parsed = parse_cypher("MATCH (a)-[:A]->(b), (c)-[:B]->(d) RETURN d")
+    parsed = _parse_query("MATCH (a)-[:A]->(b), (c)-[:B]->(d) RETURN d")
     assert parsed.match is not None
 
     with pytest.raises(GFQLValidationError, match="single linear connected path"):
@@ -149,14 +160,14 @@ def test_lower_match_query_executes_seeded_repeated_match_for_connected_pattern(
 
 
 def test_lower_match_query_rejects_seed_alias_not_used_by_final_pattern() -> None:
-    parsed = parse_cypher("MATCH (a {name: 'A'}), (c {name: 'C'}) MATCH (a)-->(b) RETURN b")
+    parsed = _parse_query("MATCH (a {name: 'A'}), (c {name: 'C'}) MATCH (a)-->(b) RETURN b")
 
     with pytest.raises(GFQLValidationError, match="must participate in the final connected MATCH pattern"):
         lower_match_query(parsed)
 
 
 def test_lower_match_query_rewrites_duplicate_node_aliases_to_internal_identity_checks() -> None:
-    parsed = parse_cypher("MATCH (n)-[r]-(n) RETURN count(r)")
+    parsed = _parse_query("MATCH (n)-[r]-(n) RETURN count(r)")
 
     lowered = lower_match_query(parsed)
 
@@ -169,7 +180,7 @@ def test_lower_match_query_rewrites_duplicate_node_aliases_to_internal_identity_
 
 
 def test_parse_where_pattern_predicate() -> None:
-    parsed = parse_cypher("MATCH (n) WHERE (n)-[:R]->() RETURN n")
+    parsed = _parse_query("MATCH (n) WHERE (n)-[:R]->() RETURN n")
 
     assert parsed.where is not None
     assert len(parsed.where.predicates) == 1
@@ -227,17 +238,17 @@ def test_gfql_executes_positive_where_pattern_predicate_between_bound_aliases_fo
 
 def test_lower_match_query_rejects_bare_where_pattern_predicate_without_relationship() -> None:
     with pytest.raises(GFQLValidationError, match="must include a relationship"):
-        lower_cypher_query(parse_cypher("MATCH (n) WHERE (n) RETURN n"))
+        lower_cypher_query(_parse_query("MATCH (n) WHERE (n) RETURN n"))
 
 
 def test_lower_match_query_rejects_multiple_where_pattern_predicates() -> None:
     with pytest.raises(GFQLValidationError, match="one positive pattern predicate at a time"):
-        lower_cypher_query(parse_cypher("MATCH (n) WHERE (n)-[:R]->() AND (n)-[:S]->() RETURN n"))
+        lower_cypher_query(_parse_query("MATCH (n) WHERE (n)-[:R]->() AND (n)-[:S]->() RETURN n"))
 
 
 def test_lower_match_query_rejects_where_pattern_predicate_introducing_new_aliases() -> None:
     with pytest.raises(GFQLValidationError, match="cannot introduce new aliases"):
-        lower_cypher_query(parse_cypher("MATCH (n) WHERE (n)-[r]->(a) RETURN n"))
+        lower_cypher_query(_parse_query("MATCH (n) WHERE (n)-[r]->(a) RETURN n"))
 
 
 def test_lower_match_clause_executes_through_gfql_runtime() -> None:
@@ -256,7 +267,7 @@ def test_lower_match_clause_executes_through_gfql_runtime() -> None:
         }
     )
 
-    parsed = parse_cypher("MATCH (p:Person {name: 'Alice'})-[r:FOLLOWS]->(q:Person) RETURN p, q")
+    parsed = _parse_query("MATCH (p:Person {name: 'Alice'})-[r:FOLLOWS]->(q:Person) RETURN p, q")
     assert parsed.match is not None
     ops = lower_match_clause(parsed.match)
     result = _mk_graph(nodes, edges).gfql(ops)
@@ -284,7 +295,7 @@ def test_lower_match_clause_executes_against_label_boolean_columns() -> None:
         }
     )
 
-    parsed = parse_cypher("MATCH (p:Person {name: 'Alice'})-[r:FOLLOWS]->(q:Person) RETURN p, q")
+    parsed = _parse_query("MATCH (p:Person {name: 'Alice'})-[r:FOLLOWS]->(q:Person) RETURN p, q")
     assert parsed.match is not None
     ops = lower_match_clause(parsed.match)
     result = _mk_graph(nodes, edges).gfql(ops)
@@ -296,7 +307,7 @@ def test_lower_match_clause_executes_against_label_boolean_columns() -> None:
 
 
 def test_lower_match_clause_requires_parameters() -> None:
-    parsed = parse_cypher("MATCH (p {id: $person_id}) RETURN p")
+    parsed = _parse_query("MATCH (p {id: $person_id}) RETURN p")
 
     with pytest.raises(GFQLValidationError) as exc_info:
         assert parsed.match is not None
@@ -306,7 +317,7 @@ def test_lower_match_clause_requires_parameters() -> None:
 
 
 def test_lower_match_clause_supports_multi_label_nodes() -> None:
-    parsed = parse_cypher("MATCH (p:Person:Admin) RETURN p")
+    parsed = _parse_query("MATCH (p:Person:Admin) RETURN p")
 
     assert parsed.match is not None
     ops = lower_match_clause(parsed.match)
@@ -316,7 +327,7 @@ def test_lower_match_clause_supports_multi_label_nodes() -> None:
 
 
 def test_lower_match_query_folds_relationship_type_where_into_match_filter() -> None:
-    parsed = parse_cypher("MATCH (n {name: 'A'})-[r]->(x) WHERE type(r) = 'KNOWS' RETURN x")
+    parsed = _parse_query("MATCH (n {name: 'A'})-[r]->(x) WHERE type(r) = 'KNOWS' RETURN x")
 
     lowered = lower_match_query(parsed)
 
@@ -358,7 +369,7 @@ def test_string_cypher_executes_multi_label_node_patterns() -> None:
 
 
 def test_lower_match_query_folds_literal_where_into_filter_dicts() -> None:
-    parsed = parse_cypher("MATCH (p)-[r]->(q) WHERE p.name = 'Alice' AND q.name = 'Bob' RETURN p, q")
+    parsed = _parse_query("MATCH (p)-[r]->(q) WHERE p.name = 'Alice' AND q.name = 'Bob' RETURN p, q")
 
     lowered = lower_match_query(parsed)
 
@@ -370,7 +381,7 @@ def test_lower_match_query_folds_literal_where_into_filter_dicts() -> None:
 
 
 def test_lower_match_query_emits_same_path_where_for_alias_comparisons() -> None:
-    parsed = parse_cypher("MATCH (p)-[r]->(q) WHERE p.team = q.team RETURN p, q")
+    parsed = _parse_query("MATCH (p)-[r]->(q) WHERE p.team = q.team RETURN p, q")
 
     lowered = lower_match_query(parsed)
 
@@ -397,7 +408,7 @@ def test_lower_match_query_executes_same_path_where() -> None:
         }
     )
 
-    parsed = parse_cypher("MATCH (p)-[r]->(q) WHERE p.team = q.team RETURN p, q")
+    parsed = _parse_query("MATCH (p)-[r]->(q) WHERE p.team = q.team RETURN p, q")
     lowered = lower_match_query(parsed)
     result = _mk_graph(nodes, edges).gfql(lowered.query, where=lowered.where)
 
@@ -415,7 +426,7 @@ def test_lower_match_query_executes_null_predicates() -> None:
     )
     edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
 
-    parsed = parse_cypher("MATCH (p)-[r]->(q) WHERE p.deleted IS NULL AND q.name IS NOT NULL RETURN p, q")
+    parsed = _parse_query("MATCH (p)-[r]->(q) WHERE p.deleted IS NULL AND q.name IS NOT NULL RETURN p, q")
     lowered = lower_match_query(parsed)
     result = _mk_graph(nodes, edges).gfql(lowered.query, where=lowered.where)
 
@@ -481,7 +492,7 @@ def test_cypher_to_gfql_executes_relationship_type_alternation() -> None:
 
 
 def test_lower_cypher_query_builds_row_pipeline_chain() -> None:
-    parsed = parse_cypher(
+    parsed = _parse_query(
         "MATCH (p:Person) RETURN DISTINCT p.name AS person_name ORDER BY person_name DESC SKIP 1 LIMIT 2"
     )
 
@@ -599,7 +610,7 @@ def test_string_cypher_formats_single_node_entity_projection_with_alias() -> Non
 
 
 def test_compile_cypher_records_mixed_whole_row_projection_plan() -> None:
-    compiled = compile_cypher("MATCH (p:Person) RETURN p AS person, p.name AS person_name")
+    compiled = _compile_query("MATCH (p:Person) RETURN p AS person, p.name AS person_name")
 
     assert compiled.result_projection is not None
     assert compiled.result_projection.alias == "p"
@@ -2717,6 +2728,21 @@ def test_cypher_to_gfql_preserves_default_relationship_type_output_name() -> Non
     assert result._nodes.to_dict(orient="records") == [{"type(r)": "KNOWS"}]
 
 
+def test_compile_cypher_union_returns_union_program() -> None:
+    compiled = compile_cypher("RETURN 1 AS x UNION RETURN 2 AS x")
+
+    assert isinstance(compiled, CompiledCypherUnionQuery)
+    assert compiled.union_kind == "distinct"
+    assert len(compiled.branches) == 2
+
+
+def test_cypher_to_gfql_rejects_union_programs() -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        cypher_to_gfql("RETURN 1 AS x UNION RETURN 2 AS x")
+
+    assert exc_info.value.code == ErrorCode.E108
+
+
 def test_cypher_to_gfql_uses_terminal_with_projection() -> None:
     chain = cypher_to_gfql("MATCH (p) WITH p.name AS person_name ORDER BY person_name ASC LIMIT 1")
 
@@ -3165,7 +3191,7 @@ def test_cypher_to_gfql_rejects_multi_alias_projection() -> None:
 
 
 def test_compile_cypher_tracks_seeded_top_level_row_query() -> None:
-    compiled = compile_cypher("UNWIND [1, 2, 3] AS x RETURN x ORDER BY x DESC LIMIT 2")
+    compiled = _compile_query("UNWIND [1, 2, 3] AS x RETURN x ORDER BY x DESC LIMIT 2")
 
     assert compiled.seed_rows is True
     first = cast(ASTCall, compiled.chain.chain[0])
@@ -3178,7 +3204,7 @@ def test_compile_cypher_tracks_seeded_top_level_row_query() -> None:
 
 
 def test_lower_cypher_query_builds_group_by_pipeline() -> None:
-    parsed = parse_cypher(
+    parsed = _parse_query(
         "MATCH (n) RETURN n.division AS division, count(*) AS cnt, max(n.age) AS max_age ORDER BY division ASC, cnt DESC"
     )
 
@@ -3206,7 +3232,7 @@ def test_lower_cypher_query_builds_group_by_pipeline() -> None:
 
 
 def test_lower_cypher_query_builds_distinct_aggregate_pipeline() -> None:
-    parsed = parse_cypher(
+    parsed = _parse_query(
         "UNWIND [null, 1, null, 2, 1] AS x RETURN count(DISTINCT x) AS cnt, collect(DISTINCT x) AS vals"
     )
 
@@ -3228,7 +3254,7 @@ def test_lower_cypher_query_builds_distinct_aggregate_pipeline() -> None:
 
 
 def test_lower_cypher_query_builds_with_aggregate_pipeline() -> None:
-    parsed = parse_cypher(
+    parsed = _parse_query(
         "UNWIND [1, 2, 2] AS x WITH collect(DISTINCT x) AS xs RETURN size(xs) AS n"
     )
 
@@ -3255,7 +3281,7 @@ def test_lower_cypher_query_builds_with_aggregate_pipeline() -> None:
 
 
 def test_lower_cypher_query_builds_match_alias_with_expression_order_pipeline() -> None:
-    parsed = parse_cypher(
+    parsed = _parse_query(
         "MATCH (a) WITH a.name AS name ORDER BY a.name + 'C' ASC LIMIT 2 RETURN name"
     )
 
@@ -3281,7 +3307,7 @@ def test_lower_cypher_query_builds_match_alias_with_expression_order_pipeline() 
 
 
 def test_lower_cypher_query_builds_match_alias_with_aggregate_group_by_pipeline() -> None:
-    parsed = parse_cypher(
+    parsed = _parse_query(
         "MATCH (a) WITH a.name AS name, count(*) AS cnt ORDER BY a.name + 'C' DESC LIMIT 1 RETURN name, cnt"
     )
 
@@ -3313,7 +3339,7 @@ def test_lower_cypher_query_builds_match_alias_with_aggregate_group_by_pipeline(
 
 
 def test_lower_cypher_query_maps_count_distinct_edge_alias_to_identity() -> None:
-    parsed = parse_cypher("MATCH (a)-[r]->(b) RETURN count(DISTINCT r)")
+    parsed = _parse_query("MATCH (a)-[r]->(b) RETURN count(DISTINCT r)")
 
     chain = lower_cypher_query(parsed)
 
