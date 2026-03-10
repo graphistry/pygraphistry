@@ -11,6 +11,10 @@ from .typing import DataFrameT
 logger = setup_logger(__name__)
 
 
+def _is_membership_filter_value(value: Any) -> bool:
+    return isinstance(value, (list, tuple, set, frozenset, pd.Index, pd.Series))
+
+
 def resolve_filter_column(df: DataFrameT, col: str, val: Any) -> Tuple[str, Any]:
     if col in df.columns:
         return col, val
@@ -55,6 +59,9 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
 
         # Type checking for non-predicate values
         if not isinstance(resolved_val, ASTPredicate):
+            if _is_membership_filter_value(resolved_val):
+                concrete_filters[col] = (resolved_col, list(resolved_val))
+                continue
             if len(df) == 0:
                 concrete_filters[col] = (resolved_col, resolved_val)
                 continue
@@ -114,7 +121,10 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
     if concrete_filters:
         for original_col, (resolved_col, resolved_val) in concrete_filters.items():
             _ = original_col
-            hits = hits & (df[resolved_col] == resolved_val)
+            if _is_membership_filter_value(resolved_val):
+                hits = hits & df[resolved_col].isin(list(resolved_val))
+            else:
+                hits = hits & (df[resolved_col] == resolved_val)
     if predicates:
         for resolved_col, op in predicates.values():
             hits = hits & op(df[resolved_col])

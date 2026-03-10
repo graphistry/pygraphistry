@@ -5,14 +5,14 @@ from typing import Literal, Sequence, cast
 import pandas as pd
 
 from graphistry.compute.dataframe_utils import df_cons as template_df_cons
-from graphistry.compute.typing import DataFrameT, SeriesT
+from graphistry.compute.typing import DataFrameT, IndexT, SeriesT
 
 
 _NODE_INTERNAL_COLS = frozenset({"id", "labels", "type"})
 _EDGE_INTERNAL_COLS = frozenset({"s", "d", "src", "dst", "edge_id", "type", "__gfql_edge_index_0__", "undirected"})
 
 
-def _fresh_col_name(columns: Sequence[object], prefix: str) -> str:
+def _fresh_col_name(columns: Sequence[object] | IndexT, prefix: str) -> str:
     existing = {str(col) for col in columns}
     candidate = prefix
     counter = 0

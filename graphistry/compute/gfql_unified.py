@@ -1,6 +1,7 @@
 """GFQL unified entrypoint for chains, DAGs, and local string-compiled queries."""
 # ruff: noqa: E501
 
+import re
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Union, cast
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine
@@ -39,6 +40,15 @@ from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.otel import otel_traced, otel_detail_enabled
 
 logger = setup_logger(__name__)
+
+_CYPHER_LEAD_RE = re.compile(
+    r"^\s*(?:MATCH|OPTIONAL\s+MATCH|WITH|RETURN|UNWIND|CALL|CREATE|MERGE|DELETE|DETACH\s+DELETE|SET|REMOVE|FOREACH)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_cypher_query(query: str) -> bool:
+    return _CYPHER_LEAD_RE.match(query) is not None
 
 
 def _apply_empty_result_row(
@@ -538,6 +548,8 @@ def gfql(self: Plottable,
         if isinstance(query, str):
             if where_param:
                 raise ValueError("where cannot be combined with string queries; embed Cypher predicates in the query itself")
+            if language is None and not _looks_like_cypher_query(query):
+                raise TypeError("Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. Got str")
             compiled_query = _compile_string_query(query, language=language, params=params)
             if isinstance(compiled_query, CompiledCypherQuery):
                 query = compiled_query.chain

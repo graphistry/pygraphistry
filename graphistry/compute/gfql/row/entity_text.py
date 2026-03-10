@@ -12,6 +12,14 @@ _ENTITY_PROPERTIES_RE = re.compile(r"(\{.*\})")
 _ENTITY_PROPERTY_VALUE_RE = r"(?:'(?:\\.|[^'\\])*'|true|false|null|[+-]?(?:\d+\.\d+(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+(?:[eE][+-]?\d+)?)|\[[^\]]*\]|\{[^{}]*\})"
 
 
+def _series_mask_fill(series: SeriesT, mask: SeriesT, value: Any) -> SeriesT:
+    out = cast(SeriesT, series.copy())
+    if value is None:
+        out = cast(SeriesT, out.astype("object"))
+    out.loc[mask] = value
+    return out
+
+
 def is_entity_text_scalar(value: Any) -> bool:
     if not isinstance(value, str):
         return False
@@ -88,8 +96,10 @@ def _coerce_property_value_series(raw: SeriesT) -> SeriesT:
     integer_mask = cast(SeriesT, raw.str.match(r"^[+-]?\d+$", na=False))
     float_mask = cast(SeriesT, numeric_mask & ~integer_mask)
 
-    out = cast(SeriesT, out.where(~missing_mask, None))
-    out = cast(SeriesT, out.where(~null_mask, None))
+    if bool(missing_mask.any()):
+        out = _series_mask_fill(out, missing_mask, None)
+    if bool(null_mask.any()):
+        out = _series_mask_fill(out, null_mask, None)
     out = cast(SeriesT, out.where(~true_mask, True))
     out = cast(SeriesT, out.where(~false_mask, False))
 

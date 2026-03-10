@@ -79,6 +79,12 @@ class TestFilterByDict(object):
         g = hops_graph()
         assert filter_by_dict(g._nodes, {'type': 'n'}).equals(g._nodes)
 
+    def test_kv_single_membership_list(self):
+        g = hops_graph()
+        expected = g._nodes[g._nodes['node'].isin(['a', 'b'])].reset_index(drop=True)
+        actual = filter_by_dict(g._nodes, {'node': ['a', 'b']}).reset_index(drop=True)
+        assert actual.equals(expected)
+
     def test_kv_multiple_good(self):
         g = hops_graph()
         assert filter_by_dict(g._nodes, {'node': 'a', 'type': 'n'}).equals(g._nodes[:1])

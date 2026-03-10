@@ -117,6 +117,14 @@ class RowPipelineMixin:
         return col
 
     @staticmethod
+    def _gfql_mask_fill(series: Any, mask: Any, value: Any) -> Any:
+        out = series.copy()
+        if value is None and hasattr(out, "astype"):
+            out = out.astype("object")
+        out.loc[mask] = value
+        return out
+
+    @staticmethod
     def _gfql_table_has_graph_shape(table_df: Any) -> bool:
         cols = {str(col) for col in table_df.columns}
         return (
@@ -460,7 +468,7 @@ class RowPipelineMixin:
                         else self._gfql_broadcast_scalar(table_df, None)
                     )
                     if hasattr(prop_value, "where"):
-                        prop_value = prop_value.where(alias_mask == True, None)  # noqa: E712
+                        prop_value = self._gfql_mask_fill(prop_value, alias_mask != True, None)  # noqa: E712
                     return True, prop_value
             ok, value = self._gfql_eval_expr_ast(table_df, node.value)
             if not ok:
@@ -643,7 +651,7 @@ class RowPipelineMixin:
                 )
                 null_mask = self._gfql_null_mask(table_df, table_df[source_alias])
                 if hasattr(out, "where"):
-                    out = out.where(~null_mask, None)
+                    out = self._gfql_mask_fill(out, null_mask, None)
                 return True, out
             if fn in {"__node_entity__", "__edge_entity__"}:
                 if len(node.args) < 1 or not isinstance(node.args[0], Identifier):
@@ -667,7 +675,7 @@ class RowPipelineMixin:
                 )
                 null_mask = self._gfql_null_mask(table_df, table_df[source_alias])
                 if hasattr(out, "where"):
-                    out = out.where(~null_mask, None)
+                    out = self._gfql_mask_fill(out, null_mask, None)
                 return True, out
             if fn == "labels" and len(node.args) == 1 and isinstance(node.args[0], Identifier):
                 alias_name = node.args[0].name
@@ -680,7 +688,7 @@ class RowPipelineMixin:
                     out = self._gfql_format_labels_series(table_df, alias_col=alias_name)
                     null_mask = self._gfql_null_mask(table_df, table_df[alias_name])
                     if hasattr(out, "where"):
-                        out = out.where(~null_mask, None)
+                        out = self._gfql_mask_fill(out, null_mask, None)
                     return True, out
             if fn == "type" and len(node.args) == 1 and isinstance(node.args[0], Identifier):
                 alias_name = node.args[0].name
@@ -695,7 +703,7 @@ class RowPipelineMixin:
                     null_mask = self._gfql_null_mask(table_df, table_df[alias_name])
                     out = table_df["type"]
                     if hasattr(out, "where"):
-                        out = out.where(~null_mask, None)
+                        out = self._gfql_mask_fill(out, null_mask, None)
                     return True, out
             if fn == "properties" and len(node.args) == 1 and isinstance(node.args[0], Identifier):
                 alias_name = node.args[0].name
@@ -717,7 +725,7 @@ class RowPipelineMixin:
                     null_mask = self._gfql_null_mask(table_df, table_df[alias_name])
                     props = entity_text.str.extract(r"(\{.*\})", expand=False)
                     props = props.where(props.notna(), "{}")
-                    props = props.where(~null_mask, None)
+                    props = self._gfql_mask_fill(props, null_mask, None)
                     return True, props
 
             if fn == "keys" and len(node.args) == 1:
@@ -730,7 +738,7 @@ class RowPipelineMixin:
                     if hasattr(null_mask, "all") and bool(null_mask.all()):
                         out = self._gfql_broadcast_scalar(table_df, None)
                         if hasattr(out, "where"):
-                            out = out.where(~null_mask, None)
+                            out = self._gfql_mask_fill(out, null_mask, None)
                         return True, out
                     return False, None
                 if is_null_scalar(inner):
@@ -892,7 +900,7 @@ class RowPipelineMixin:
                     if hasattr(out, "str"):
                         out = out.str.replace(r"^True$", "true", regex=True)
                         out = out.str.replace(r"^False$", "false", regex=True)
-                    return True, out.where(~null_mask, None)
+                    return True, self._gfql_mask_fill(out, null_mask, None)
                 if is_null_scalar(inner):
                     return True, None
                 if isinstance(inner, bool):
@@ -1348,7 +1356,7 @@ class RowPipelineMixin:
             labels_raw = table_df["labels"].astype(str)
             null_mask = self._gfql_null_mask(table_df, table_df[alias_col])
             if hasattr(labels_raw, "where"):
-                return labels_raw.where(~null_mask, None)
+                return self._gfql_mask_fill(labels_raw, null_mask, None)
             return labels_raw
         labels_text = blank.copy()
         has_labels = (table_df[alias_col] == True) & False  # noqa: E712
@@ -1416,12 +1424,12 @@ class RowPipelineMixin:
                 else:
                     raise ValueError(f"unsupported row expression graph function: {fn} in {expr!r}")
                 if hasattr(out, "where"):
-                    out = out.where(~null_mask, None)
+                    out = self._gfql_mask_fill(out, null_mask, None)
                 return out
             if hasattr(null_mask, "all") and bool(null_mask.all()):
                 out = self._gfql_broadcast_scalar(table_df, None)
                 if hasattr(out, "where"):
-                    out = out.where(~null_mask, None)
+                    out = self._gfql_mask_fill(out, null_mask, None)
                 return out
             raise ValueError(
                 f"unsupported row expression: {fn}() requires a graph element, entity value, or null in {expr!r}"
@@ -1464,22 +1472,22 @@ class RowPipelineMixin:
                 if duration_value is not None:
                     out = self._gfql_broadcast_scalar(table_df, duration_value)
                     if hasattr(out, "where"):
-                        out = out.where(~null_mask, None)
+                        out = self._gfql_mask_fill(out, null_mask, None)
                     return out
             if RowPipelineMixin._gfql_series_is_mapping_like(value):
                 out = value.str.get(prop)
                 if hasattr(out, "where"):
-                    out = out.where(~null_mask, None)
+                    out = self._gfql_mask_fill(out, null_mask, None)
                 return out
             if RowPipelineMixin._gfql_series_is_entity_text_like(value):
                 out = entity_property_series(value, prop)
                 if hasattr(out, "where"):
-                    out = out.where(~null_mask, None)
+                    out = self._gfql_mask_fill(out, null_mask, None)
                 return out
             if hasattr(null_mask, "all") and bool(null_mask.all()):
                 out = self._gfql_broadcast_scalar(table_df, None)
                 if hasattr(out, "where"):
-                    out = out.where(~null_mask, None)
+                    out = self._gfql_mask_fill(out, null_mask, None)
                 return out
             raise ValueError(
                 f"unsupported row expression: property access requires a graph element alias, entity value, or map in {expr!r}"
@@ -2191,7 +2199,7 @@ class RowPipelineMixin:
                 base.loc[empty_mask],
                 [],
             )
-        out = out.where(~null_mask, None)
+        out = self._gfql_mask_fill(out, null_mask, None)
         return out.reset_index(drop=True)
 
     def _gfql_eval_in_expr(

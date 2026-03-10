@@ -7,7 +7,6 @@ from graphistry.compute.gfql.row.ordering import (
     is_null_scalar,
     order_detect_list_series,
     order_detect_temporal_mode,
-    order_sample_values,
     order_value_family,
     validate_order_series_vector_safe,
 )
@@ -19,7 +18,6 @@ __all__ = [
     "is_null_scalar",
     "order_detect_list_series",
     "order_detect_temporal_mode",
-    "order_sample_values",
     "order_value_family",
     "validate_order_series_vector_safe",
 ]
