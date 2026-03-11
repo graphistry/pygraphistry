@@ -123,6 +123,9 @@ class CompiledCypherUnionQuery:
 class OptionalNullFillPlan:
     base_chain: Chain
     null_row: Dict[str, Any]
+    alignment_chain: Chain
+    alignment_projection: "ResultProjectionPlan"
+    alignment_output_name: str
 
 
 @dataclass(frozen=True)
@@ -2949,6 +2952,7 @@ def _empty_optional_projection_row(plan: _ProjectionPlan) -> Dict[str, Any]:
 def _optional_null_fill_plan(
     query: CypherQuery,
     *,
+    lowered: LoweredCypherMatch,
     alias_targets: Mapping[str, ASTObject],
     plan: _ProjectionPlan,
     params: Optional[Mapping[str, Any]],
@@ -2989,9 +2993,44 @@ def _optional_null_fill_plan(
     if not referenced or not referenced <= optional_aliases:
         return None
 
+    alignment_output_name = "__cypher_optional_seed__"
+    alignment_table = cast(
+        Literal["nodes", "edges"],
+        _alias_table(
+            alias_targets[seed_alias],
+            alias=seed_alias,
+            line=query.return_.span.line,
+            column=query.return_.span.column,
+        ),
+    )
+    alignment_plan = _ProjectionPlan(
+        source_alias=seed_alias,
+        table=alignment_table,
+        whole_row_output_names=[alignment_output_name],
+        clause_kind="return",
+        projection_items=[],
+        projection_columns=[],
+        available_columns=set(),
+        projected_property_outputs={},
+        output_to_source_property={},
+        output_to_expr_source={},
+    )
+    alignment_projection = _result_projection_plan(alignment_plan, alias_targets=alias_targets)
+    if alignment_projection is None:
+        raise _unsupported(
+            "Cypher OPTIONAL MATCH null-row alignment could not construct a seed-row projection",
+            field="return",
+            value=[item.expression.text for item in query.return_.items],
+            line=query.return_.span.line,
+            column=query.return_.span.column,
+        )
+
     return OptionalNullFillPlan(
         base_chain=Chain(lower_match_clause(query.matches[0], params=params)),
         null_row=_empty_optional_projection_row(plan),
+        alignment_chain=Chain(_lower_projection_chain(query, lowered, params=params, plan=alignment_plan)),
+        alignment_projection=alignment_projection,
+        alignment_output_name=alignment_output_name,
     )
 
 
@@ -5435,6 +5474,20 @@ def compile_cypher_query(
                 active_alias=_active_match_alias(query, alias_targets=alias_targets, params=params),
                 params=params,
             )
+            seed_alias = _single_node_seed_alias(query.matches[0]) if len(query.matches) == 2 else None
+            if (
+                seed_alias is not None
+                and query.matches[0].optional is False
+                and query.matches[1].optional is True
+                and plan.source_alias == seed_alias
+            ):
+                raise _unsupported(
+                    "Cypher MATCH ... OPTIONAL MATCH projections that return only the bound seed alias are not yet supported in the local compiler",
+                    field=query.return_.kind,
+                    value=[item.expression.text for item in query.return_.items],
+                    line=query.return_.span.line,
+                    column=query.return_.span.column,
+                )
             empty_result_row = (
                 _empty_optional_projection_row(plan)
                 if len(query.matches) == 1 and query.matches[0].optional
@@ -5442,6 +5495,7 @@ def compile_cypher_query(
             )
             optional_null_fill = _optional_null_fill_plan(
                 query,
+                lowered=lowered,
                 alias_targets=alias_targets,
                 plan=plan,
                 params=params,

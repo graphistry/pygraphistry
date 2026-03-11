@@ -2497,6 +2497,14 @@ def test_string_cypher_supports_bound_optional_match_null_rows_for_type() -> Non
     assert result._nodes.to_dict(orient="records") == [{"tr": None, "tn": None}]
 
 
+def test_string_cypher_supports_top_level_optional_match_null_rows_for_whole_row_edge_projection() -> None:
+    graph = _mk_graph(pd.DataFrame({"id": ["a"]}), pd.DataFrame({"s": [], "d": [], "type": []}))
+
+    result = graph.gfql("OPTIONAL MATCH ()-[r]->() RETURN r")
+
+    assert result._nodes.to_dict(orient="records") == [{"r": None}]
+
+
 def test_string_cypher_supports_bound_optional_match_mixed_null_and_non_null_rows_for_type() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b"]}),
@@ -2512,6 +2520,34 @@ def test_string_cypher_supports_bound_optional_match_mixed_null_and_non_null_row
         {"tr": "T"},
         {"tr": None},
     ]
+
+
+def test_string_cypher_preserves_bound_optional_match_row_order_for_optional_alias_outputs() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"]}),
+        pd.DataFrame({"s": ["b"], "d": ["c"], "type": ["T"]}),
+    )
+
+    result = graph.gfql("MATCH (a) OPTIONAL MATCH (a)-[r:T]->() RETURN type(r) AS tr")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"tr": None},
+        {"tr": "T"},
+        {"tr": None},
+    ]
+
+
+def test_string_cypher_rejects_bound_optional_match_seed_only_projection() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"]}),
+        pd.DataFrame({"s": ["b"], "d": ["c"], "type": ["T"]}),
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql("MATCH (a) OPTIONAL MATCH (a)-[r:T]->() RETURN a.id AS id")
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert "bound seed alias" in exc_info.value.message
 
 
 def test_string_cypher_supports_label_expression_on_null_with_reserved_keyword_labels() -> None:

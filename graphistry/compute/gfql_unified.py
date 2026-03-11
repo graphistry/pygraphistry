@@ -27,7 +27,7 @@ from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.api import compile_cypher
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherQuery, CompiledCypherUnionQuery
 from graphistry.compute.gfql.cypher.call_procedures import execute_cypher_call
-from graphistry.compute.gfql.cypher.result_postprocess import WholeRowProjectionMeta
+from graphistry.compute.gfql.cypher.result_postprocess import WholeRowProjectionMeta, apply_result_projection
 from graphistry.compute.gfql.df_executor import (
     DFSamePathExecutor,
     build_same_path_inputs,
@@ -74,6 +74,8 @@ def _apply_optional_null_fill(
     result: Plottable,
     *,
     base_result: Plottable,
+    alignment_result: Plottable,
+    alignment_output_name: str,
     engine: Union[EngineAbstract, str],
     null_row: Mapping[str, Any],
 ) -> Plottable:
@@ -84,17 +86,89 @@ def _apply_optional_null_fill(
 
     rows_df = getattr(result, "_nodes", None)
     actual_rows = 0 if rows_df is None else len(rows_df)
-    missing_rows = expected_rows - actual_rows
-    if missing_rows <= 0:
+    entity_meta = cast(
+        Optional[Dict[str, WholeRowProjectionMeta]],
+        getattr(alignment_result, "_cypher_entity_projection_meta", None),
+    )
+    if not isinstance(entity_meta, dict) or alignment_output_name not in entity_meta:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher OPTIONAL MATCH null-row alignment could not recover matched seed identities",
+            field="match",
+            value=alignment_output_name,
+            suggestion="Use a simpler OPTIONAL MATCH projection shape in the local compiler.",
+            language="cypher",
+        )
+    matched_ids = entity_meta[alignment_output_name]["ids"]
+    if not hasattr(matched_ids, "tolist"):
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher OPTIONAL MATCH null-row alignment could not recover matched seed identities",
+            field="match",
+            value=alignment_output_name,
+            suggestion="Use a simpler OPTIONAL MATCH projection shape in the local compiler.",
+            language="cypher",
+        )
+    if actual_rows != len(matched_ids):
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher OPTIONAL MATCH null-row alignment produced inconsistent row counts",
+            field="match",
+            value={"matched_rows": actual_rows, "aligned_ids": len(matched_ids)},
+            suggestion="Retry with a simpler OPTIONAL MATCH projection shape in the local compiler.",
+            language="cypher",
+        )
+    node_col = base_result._node
+    if node_col is None or base_rows_df is None or node_col not in base_rows_df.columns:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher OPTIONAL MATCH null-row alignment could not recover base seed identities",
+            field="match",
+            value=node_col,
+            suggestion="Use a simpler OPTIONAL MATCH projection shape in the local compiler.",
+            language="cypher",
+        )
+
+    base_ids = list(base_rows_df[node_col].tolist())
+    matched_id_list = list(matched_ids.tolist())
+    if len(base_ids) == actual_rows and base_ids == matched_id_list:
         return result
 
     concrete_engine = resolve_engine(cast(Any, engine), result)
     df_ctor = df_cons(concrete_engine)
     concat = df_concat(concrete_engine)
-    fill_df = df_ctor({key: [value] * missing_rows for key, value in null_row.items()})
+    fill_df = df_ctor({key: [value] for key, value in null_row.items()})
+    segments = []
+    matched_idx = 0
+    for base_id in base_ids:
+        group_start = matched_idx
+        while matched_idx < len(matched_id_list) and matched_id_list[matched_idx] == base_id:
+            matched_idx += 1
+        if matched_idx > group_start:
+            if rows_df is None:
+                raise GFQLValidationError(
+                    ErrorCode.E108,
+                    "Cypher OPTIONAL MATCH null-row alignment lost the projected result rows",
+                    field="match",
+                    value=None,
+                    suggestion="Retry with a simpler OPTIONAL MATCH projection shape in the local compiler.",
+                    language="cypher",
+                )
+            segments.append(rows_df.iloc[group_start:matched_idx])
+        else:
+            segments.append(fill_df)
+    if matched_idx != len(matched_id_list):
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher OPTIONAL MATCH null-row alignment could not map matched rows back to the seed MATCH order",
+            field="match",
+            value={"mapped_rows": matched_idx, "matched_rows": len(matched_id_list)},
+            suggestion="Use a simpler OPTIONAL MATCH projection shape in the local compiler.",
+            language="cypher",
+        )
 
     out = result.bind()
-    out._nodes = fill_df if rows_df is None else concat([rows_df, fill_df], ignore_index=True, sort=False)
+    out._nodes = concat(segments, ignore_index=True, sort=False) if segments else df_ctor()
     edges_df = getattr(result, "_edges", None)
     if edges_df is not None:
         out._edges = edges_df[:0]
@@ -151,8 +225,6 @@ def _execute_compiled_query(
             empty_result_row=compiled_query.empty_result_row,
         )
     if compiled_query.result_projection is not None:
-        from .gfql.cypher.result_postprocess import apply_result_projection
-
         result = apply_result_projection(result, compiled_query.result_projection)
     if compiled_query.optional_null_fill is not None:
         base_result = _chain_dispatch(
@@ -162,9 +234,21 @@ def _execute_compiled_query(
             policy,
             context,
         )
+        alignment_result = apply_result_projection(
+            _chain_dispatch(
+                base_graph,
+                compiled_query.optional_null_fill.alignment_chain,
+                engine,
+                policy,
+                context,
+            ),
+            compiled_query.optional_null_fill.alignment_projection,
+        )
         result = _apply_optional_null_fill(
             result,
             base_result=base_result,
+            alignment_result=alignment_result,
+            alignment_output_name=compiled_query.optional_null_fill.alignment_output_name,
             engine=engine,
             null_row=compiled_query.optional_null_fill.null_row,
         )

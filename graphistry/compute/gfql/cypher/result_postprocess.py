@@ -26,7 +26,7 @@ class WholeRowProjectionMeta(TypedDict):
 
 def _empty_text(df: DataFrameT, alias_col: str) -> SeriesT:
     base = cast(SeriesT, df[alias_col])
-    return cast(SeriesT, base.astype(str).where(base.isna(), ""))
+    return cast(SeriesT, base.where(base.isna(), ""))
 
 
 def _const_text(df: DataFrameT, alias_col: str, value: str) -> SeriesT:
@@ -337,7 +337,8 @@ def _format_node_entities(df: DataFrameT, projection: ResultProjectionPlan) -> S
         SeriesT,
         (_const_text(df, alias_col, " ").where(has_props & label_present, "") + prop_block).where(has_props, ""),
     )
-    return cast(SeriesT, _const_text(df, alias_col, "(") + labels + prop_suffix + ")")
+    rendered = cast(SeriesT, _const_text(df, alias_col, "(") + labels + prop_suffix + ")")
+    return cast(SeriesT, rendered.where(~_is_null_mask(cast(SeriesT, df[alias_col])), None))
 
 
 def _format_edge_entities(df: DataFrameT, projection: ResultProjectionPlan) -> SeriesT:
@@ -358,7 +359,8 @@ def _format_edge_entities(df: DataFrameT, projection: ResultProjectionPlan) -> S
         SeriesT,
         (_const_text(df, alias_col, " ").where(has_props & type_present, "") + prop_block).where(has_props, ""),
     )
-    return cast(SeriesT, _const_text(df, alias_col, "[") + type_part + prop_suffix + "]")
+    rendered = cast(SeriesT, _const_text(df, alias_col, "[") + type_part + prop_suffix + "]")
+    return cast(SeriesT, rendered.where(~_is_null_mask(cast(SeriesT, df[alias_col])), None))
 
 
 def _project_property_column(
