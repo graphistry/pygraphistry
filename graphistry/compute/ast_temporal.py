@@ -1,11 +1,34 @@
-from typing import Any, Dict, Union
+from typing import Any, Dict, Optional, Union, cast
 from abc import ABC, abstractmethod
 from datetime import date, datetime, time
 from dateutil import parser as date_parser  # type: ignore[import]
+from datetime import tzinfo as py_tzinfo
 import pandas as pd
+
+try:
+    from zoneinfo import ZoneInfo as _ZoneInfoImport
+    ZoneInfo = cast(Any, _ZoneInfoImport)
+except Exception:
+    ZoneInfo = cast(Any, None)
+
+try:
+    from dateutil.tz import gettz as _dateutil_gettz  # type: ignore[import-untyped]
+except Exception:
+    _dateutil_gettz = None
 
 from graphistry.models.gfql.types.temporal import DateTimeWire, DateWire, TimeWire, TemporalWire
 from graphistry.utils.json import JSONVal
+
+
+def _resolve_timezone(timezone: str) -> Optional[py_tzinfo]:
+    if ZoneInfo is not None:
+        try:
+            return ZoneInfo(timezone)
+        except Exception:
+            pass
+    if _dateutil_gettz is not None:
+        return _dateutil_gettz(timezone)
+    return None
 
 
 class TemporalValue(ABC):
@@ -51,12 +74,13 @@ class DateTimeValue(TemporalValue):
         
         # Handle timezone
         ts = pd.Timestamp(dt)
+        tzinfo = _resolve_timezone(timezone) or timezone
         if dt.tzinfo is None:
             # Naive datetime - localize to specified timezone
-            ts = ts.tz_localize(timezone)
+            ts = ts.tz_localize(tzinfo)
         else:
             # Already has timezone - convert to specified timezone
-            ts = ts.tz_convert(timezone)
+            ts = ts.tz_convert(tzinfo)
 
         return ts
     

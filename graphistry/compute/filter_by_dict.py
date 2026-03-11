@@ -57,7 +57,7 @@ def resolve_filter_column(df: DataFrameT, col: str, val: Any) -> Tuple[str, Any]
         label = col[len("label__") :]
         if "labels" in df.columns:
             return "labels", label
-        if "type" in df.columns and _looks_like_edge_dataframe(df):
+        if "type" in df.columns and not _looks_like_edge_dataframe(df):
             return "type", label
 
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
