@@ -30,10 +30,10 @@ class AllOf(ASTPredicate):
                 field="predicates",
                 value=type(self.predicates).__name__,
             )
-        if len(self.predicates) < 2:
+        if len(self.predicates) < 1:
             raise GFQLTypeError(
                 ErrorCode.E201,
-                "predicates must contain at least two predicates",
+                "predicates must contain at least one predicate",
                 field="predicates",
                 value=len(self.predicates),
             )
