@@ -15,14 +15,50 @@ def _is_membership_filter_value(value: Any) -> bool:
     return isinstance(value, (list, tuple, set, frozenset, pd.Index, pd.Series))
 
 
+def _looks_like_edge_dataframe(df: DataFrameT) -> bool:
+    cols = {str(col) for col in df.columns}
+    return {"s", "d"} <= cols or {"src", "dst"} <= cols or "edge_id" in cols
+
+
+def _normalize_labels_cell(value: Any) -> Tuple[Any, ...]:
+    if value is None:
+        return ()
+    try:
+        marker = pd.isna(value)
+    except Exception:
+        marker = False
+    if isinstance(marker, bool) and marker:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, (list, tuple, set, frozenset, pd.Index, pd.Series)):
+        return tuple(value)
+    return (value,)
+
+
+def _label_series_contains(series: Any, label: str) -> Any:
+    try:
+        dtype_txt = str(series.dtype).lower()
+        if dtype_txt != "object" and pd.api.types.is_string_dtype(series.dtype):
+            mask = series == label
+            if hasattr(mask, "where") and hasattr(series, "isna"):
+                return mask.where(~series.isna(), False)
+            return mask
+    except Exception:
+        pass
+    return series.apply(lambda value: label in _normalize_labels_cell(value))
+
+
 def resolve_filter_column(df: DataFrameT, col: str, val: Any) -> Tuple[str, Any]:
     if col in df.columns:
         return col, val
 
-    if col.startswith("label__") and val is True and "type" in df.columns:
-        return "type", col[len("label__") :]
-    if col.startswith("label__") and val is True and "labels" in df.columns and len(df) == 0:
-        return "labels", col[len("label__") :]
+    if col.startswith("label__") and val is True:
+        label = col[len("label__") :]
+        if "labels" in df.columns:
+            return "labels", label
+        if "type" in df.columns and _looks_like_edge_dataframe(df):
+            return "type", label
 
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 
@@ -120,8 +156,9 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
     hits = df[[]].assign(x=True).x
     if concrete_filters:
         for original_col, (resolved_col, resolved_val) in concrete_filters.items():
-            _ = original_col
-            if _is_membership_filter_value(resolved_val):
+            if original_col.startswith("label__") and resolved_col == "labels" and isinstance(resolved_val, str):
+                hits = hits & _label_series_contains(df[resolved_col], resolved_val)
+            elif _is_membership_filter_value(resolved_val):
                 hits = hits & df[resolved_col].isin(list(resolved_val))
             else:
                 hits = hits & (df[resolved_col] == resolved_val)

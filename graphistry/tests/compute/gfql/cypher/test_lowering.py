@@ -3037,6 +3037,22 @@ def test_string_cypher_orders_extended_positive_year_datetimes_temporally() -> N
     )
 
 
+def test_string_cypher_matches_labels_column_even_with_node_type_property() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b"],
+            "labels": [["Person"], ["Animal"]],
+            "type": ["node", "node"],
+            "name": ["alice", "bear"],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": []})
+
+    result = _mk_graph(nodes, edges).gfql("MATCH (n:Person) RETURN n.name AS name")
+
+    assert result._nodes.to_dict(orient="records") == [{"name": "alice"}]
+
+
 def test_string_cypher_supports_date_comparison_consistent_with_sort_order() -> None:
     _assert_query_rows(
         "WITH ["

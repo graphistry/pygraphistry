@@ -85,6 +85,18 @@ class TestFilterByDict(object):
         actual = filter_by_dict(g._nodes, {'node': ['a', 'b']}).reset_index(drop=True)
         assert actual.equals(expected)
 
+    def test_label_filter_uses_labels_column_membership(self):
+        nodes = pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "labels": [["Person"], ["Animal", "Pet"]],
+                "name": ["alice", "bear"],
+            }
+        )
+        actual = filter_by_dict(nodes, {"label__Person": True}).reset_index(drop=True)
+        expected = nodes.iloc[[0]].reset_index(drop=True)
+        assert actual.equals(expected)
+
     def test_kv_multiple_good(self):
         g = hops_graph()
         assert filter_by_dict(g._nodes, {'node': 'a', 'type': 'n'}).equals(g._nodes[:1])
