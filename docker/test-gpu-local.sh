@@ -10,12 +10,18 @@ WITH_TYPECHECK=${WITH_TYPECHECK:-1}
 WITH_TEST=${WITH_TEST:-1}
 WITH_BUILD=${WITH_BUILD:-1}
 TEST_CPU_VERSION=${TEST_CPU_VERSION:-latest}
+GPU_IMAGE=${GPU_IMAGE:-${RAPIDS_IMAGE:-}}
 LOG_LEVEL=${LOG_LEVEL:-DEBUG}
 
 NETWORK=""
 if [ "$WITH_NEO4J" == "1" ]
 then
     NETWORK="--net grph_net"
+fi
+
+if [ -n "$GPU_IMAGE" ]
+then
+    export GPU_IMAGE
 fi
 
 echo "PREP"
