@@ -1588,6 +1588,26 @@ class TestRowPipelineExecution:
                 3,
                 id="datetime-offsets",
             ),
+            pytest.param(
+                {
+                    "id": ["a", "b"],
+                    "datetimes": [
+                        "9999-01-01T00:00:00Z",
+                        "10000-01-01T00:00:00Z",
+                    ],
+                },
+                "datetimes",
+                [
+                    "9999-01-01T00:00:00Z",
+                    "10000-01-01T00:00:00Z",
+                ],
+                [
+                    "10000-01-01T00:00:00Z",
+                    "9999-01-01T00:00:00Z",
+                ],
+                None,
+                id="datetime-extended-year-utc",
+            ),
         ],
     )
     def test_row_pipeline_order_by_value_semantics(

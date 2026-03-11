@@ -23,14 +23,14 @@ _GFQL_LIST_TEXT_RE = re.compile(r"^(?:\[.*\]|\(.*\))$")
 _GFQL_TIME_TEXT_RE = re.compile(
     r"^(?P<h>\d{2}):(?P<m>\d{2})"
     r"(?::(?P<s>\d{2})(?:\.(?P<f>\d{1,9}))?)?"
-    r"(?:(?P<off_sign>[+-])(?P<off_h>\d{2}):(?P<off_m>\d{2}))?$"
+    r"(?:(?P<z>Z)|(?P<off_sign>[+-])(?P<off_h>\d{2}):(?P<off_m>\d{2}))?$"
 )
-_GFQL_DATE_TEXT_RE = re.compile(r"^(?P<y>-?\d{4,9})-(?P<mo>\d{2})-(?P<d>\d{2})$")
+_GFQL_DATE_TEXT_RE = re.compile(r"^(?P<y>[+-]?\d{4,9})-(?P<mo>\d{2})-(?P<d>\d{2})$")
 _GFQL_DATETIME_TEXT_RE = re.compile(
-    r"^(?P<y>\d{4})-(?P<mo>\d{2})-(?P<d>\d{2})T"
+    r"^(?P<y>[+-]?\d{4,9})-(?P<mo>\d{2})-(?P<d>\d{2})T"
     r"(?P<h>\d{2}):(?P<m>\d{2})"
     r"(?::(?P<s>\d{2})(?:\.(?P<f>\d{1,9}))?)?"
-    r"(?:(?P<off_sign>[+-])(?P<off_h>\d{2}):(?P<off_m>\d{2}))?$"
+    r"(?:(?P<z>Z)|(?P<off_sign>[+-])(?P<off_h>\d{2}):(?P<off_m>\d{2}))?$"
 )
 
 NullMaskFn = Callable[[Any, Any], Any]

@@ -3018,6 +3018,25 @@ def test_string_cypher_supports_datetime_comparison_consistent_with_sort_order()
     )
 
 
+def test_string_cypher_supports_datetime_comparison_with_extended_positive_years() -> None:
+    _assert_query_rows(
+        "RETURN datetime('9999-01-01T00:00:00Z') < datetime('+10000-01-01T00:00:00Z') AS b",
+        [{"b": True}],
+    )
+
+
+def test_string_cypher_orders_extended_positive_year_datetimes_temporally() -> None:
+    _assert_query_rows(
+        "WITH [datetime('9999-01-01T00:00:00Z'), datetime('+10000-01-01T00:00:00Z')] AS values "
+        "UNWIND values AS value "
+        "RETURN value ORDER BY value ASC",
+        [
+            {"value": "9999-01-01T00:00:00Z"},
+            {"value": "10000-01-01T00:00:00Z"},
+        ],
+    )
+
+
 def test_string_cypher_supports_date_comparison_consistent_with_sort_order() -> None:
     _assert_query_rows(
         "WITH ["
