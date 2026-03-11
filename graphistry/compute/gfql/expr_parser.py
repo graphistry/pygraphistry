@@ -54,6 +54,7 @@ class IsNullOp:
 class FunctionCall:
     name: str
     args: Tuple["ExprNode", ...]
+    distinct: bool = False
 
 
 @dataclass(frozen=True)
@@ -107,6 +108,12 @@ class SliceExpr:
     stop: Optional["ExprNode"]
 
 
+@dataclass(frozen=True)
+class PropertyAccessExpr:
+    value: "ExprNode"
+    property: str
+
+
 ExprNode = Union[
     Identifier,
     Literal,
@@ -122,6 +129,7 @@ ExprNode = Union[
     MapLiteral,
     SubscriptExpr,
     SliceExpr,
+    PropertyAccessExpr,
 ]
 
 _EXPR_NODE_TYPES = (
@@ -139,6 +147,7 @@ _EXPR_NODE_TYPES = (
     MapLiteral,
     SubscriptExpr,
     SliceExpr,
+    PropertyAccessExpr,
 )
 
 ExprVisitor = Callable[[ExprNode], None]
@@ -159,8 +168,11 @@ _GRAMMAR = r"""
 
 ?expr: or_expr
 
-?or_expr: and_expr
-        | or_expr "OR"i and_expr            -> or_op
+?or_expr: xor_expr
+        | or_expr "OR"i xor_expr            -> or_op
+
+?xor_expr: and_expr
+         | xor_expr "XOR"i and_expr         -> xor_op
 
 ?and_expr: not_expr
          | and_expr "AND"i not_expr         -> and_op
@@ -168,14 +180,16 @@ _GRAMMAR = r"""
 ?not_expr: "NOT"i not_expr                  -> not_op
          | predicate
 
-?predicate: additive
-          | additive COMP_OP additive    -> cmp_op
-          | additive "IS"i "NULL"i             -> is_null
-          | additive "IS"i "NOT"i "NULL"i      -> is_not_null
-          | additive "IN"i additive            -> in_op
-          | additive "CONTAINS"i additive      -> contains_op
-          | additive "STARTS"i "WITH"i additive -> starts_with_op
-          | additive "ENDS"i "WITH"i additive  -> ends_with_op
+?predicate: comparable
+          | comparable COMP_OP comparable      -> cmp_op
+
+?comparable: additive
+           | additive "IS"i "NULL"i             -> is_null
+           | additive "IS"i "NOT"i "NULL"i      -> is_not_null
+           | additive "IN"i additive            -> in_op
+           | additive "CONTAINS"i additive      -> contains_op
+           | additive "STARTS"i "WITH"i additive -> starts_with_op
+           | additive "ENDS"i "WITH"i additive  -> ends_with_op
 
 ?additive: multiplicative
          | additive "+" multiplicative   -> add_op
@@ -192,6 +206,7 @@ _GRAMMAR = r"""
 
 ?postfix: primary
         | postfix "[" subscript_key "]"  -> subscript
+        | postfix "." NAME               -> property_access
 
 ?subscript_key: expr                     -> subscript_index
               | expr ".." expr           -> subscript_slice_between
@@ -200,8 +215,8 @@ _GRAMMAR = r"""
               | ".."                     -> subscript_slice_all
 
 ?primary: literal
-        | identifier
         | function_call
+        | identifier
         | case_expr
         | quantifier_expr
         | list_comprehension
@@ -215,16 +230,24 @@ expr_list: expr ("," expr)*
 map_literal: "{" [map_entries] "}"
 map_entries: map_entry ("," map_entry)*
 map_entry: map_key ":" expr
-map_key: NAME                            -> map_key_name
+map_key: MAP_KEY_NAME                    -> map_key_name
        | STRING                          -> map_key_string
 
-function_call: NAME "(" func_args ")"
-func_args: func_arg ("," func_arg)*
+function_call: identifier "(" func_args ")"
+?func_args: distinct_func_args
+         | regular_func_args
+regular_func_args: func_arg ("," func_arg)*
+distinct_func_args: "DISTINCT"i func_arg
 ?func_arg: expr
          | "*"                           -> star_arg
 identifier: NAME ("." NAME)*
 
-case_expr: "CASE"i "WHEN"i expr "THEN"i expr "ELSE"i expr "END"i
+case_expr: searched_case_expr
+         | simple_case_expr
+searched_case_expr: "CASE"i case_when+ case_else? "END"i
+simple_case_expr: "CASE"i expr case_when+ case_else? "END"i
+case_when: "WHEN"i expr "THEN"i expr
+case_else: "ELSE"i expr
 
 quantifier_expr: "ANY"i "(" NAME "IN"i expr "WHERE"i expr ")"       -> any_quant
                | "ALL"i "(" NAME "IN"i expr "WHERE"i expr ")"       -> all_quant
@@ -244,8 +267,9 @@ literal: "NULL"i                            -> null_lit
 
 COMP_OP: __GFQL_COMPARISON_GRAMMAR_ALTS__
 MINUS: /-(?!-)/
-NAME: /(?!(?i:AND|OR|NOT|IN|IS|NULL|CASE|WHEN|THEN|ELSE|END|CONTAINS|STARTS|WITH|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*/
-NUMBER: /[+-]?(?:\d+\.\d+|\d+)(?:[eE][+-]?\d+)?/
+NAME: /(?!(?i:AND|OR|XOR|NOT|IN|IS|NULL|CASE|WHEN|THEN|ELSE|END|CONTAINS|STARTS|WITH|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*/
+MAP_KEY_NAME: /[A-Za-z_][A-Za-z0-9_]*/
+NUMBER: /[+-]?(?:0[xX][0-9A-Fa-f]+|0[oO][0-7]+|(?:\d+\.\d+(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+(?:[eE][+-]?\d+)?))/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
 LINE_COMMENT: /--[^\n]*/
 BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
@@ -296,8 +320,16 @@ def _parse_string_token(token: str) -> str:
 
 
 def _parse_number_token(token: str) -> Union[int, float]:
-    if any(c in token for c in (".", "e", "E")):
-        return float(token)
+    sign = -1 if token.startswith("-") else 1
+    body = token[1:] if token[:1] in {"+", "-"} else token
+    lowered = body.lower()
+    if lowered.startswith("0x"):
+        return sign * int(lowered[2:], 16)
+    if lowered.startswith("0o"):
+        return sign * int(lowered[2:], 8)
+    if any(c in body for c in (".", "e", "E")):
+        value = float(token)
+        return 0.0 if value == 0.0 else value
     return int(token)
 
 
@@ -309,6 +341,16 @@ def _build_transformer() -> _TransformerLike:
 
     def _strip_tokens(items: Sequence[Any]) -> List[Any]:
         return [item for item in items if not _is_token(item)]
+
+    @dataclass(frozen=True)
+    class _FunctionArgs:
+        args: Tuple[ExprNode, ...]
+        distinct: bool = False
+
+    @dataclass(frozen=True)
+    class _CaseArm:
+        when_expr: ExprNode
+        then_expr: ExprNode
 
     class _AstBuilder(Transformer):  # type: ignore[valid-type,misc]
         def __init__(self) -> None:
@@ -345,8 +387,14 @@ def _build_transformer() -> _TransformerLike:
                 raise GFQLExprParseError("Invalid identifier")
             return Identifier(".".join(names))
 
-        def func_args(self, items: Sequence[Any]) -> List[ExprNode]:
-            return [cast(ExprNode, i) for i in _strip_tokens(items)]
+        def regular_func_args(self, items: Sequence[Any]) -> _FunctionArgs:
+            return _FunctionArgs(tuple(cast(ExprNode, i) for i in _strip_tokens(items)))
+
+        def distinct_func_args(self, items: Sequence[Any]) -> _FunctionArgs:
+            stripped = _strip_tokens(items)
+            if len(stripped) != 1:
+                raise GFQLExprParseError("Invalid DISTINCT function argument")
+            return _FunctionArgs((cast(ExprNode, stripped[0]),), distinct=True)
 
         def star_arg(self, _: Sequence[Any]) -> Wildcard:
             return Wildcard()
@@ -354,26 +402,89 @@ def _build_transformer() -> _TransformerLike:
         def function_call(self, items: Sequence[Any]) -> FunctionCall:
             fn = ""
             args: Tuple[ExprNode, ...] = ()
+            distinct = False
             for item in items:
                 if _is_token(item):
-                    if str(getattr(item, "type", "")) == "NAME" and fn == "":
-                        fn = str(item).lower()
                     continue
-                if isinstance(item, list):
-                    args = tuple(cast(List[ExprNode], item))
+                if isinstance(item, Identifier) and fn == "":
+                    fn = item.name.lower()
+                    continue
+                if isinstance(item, _FunctionArgs):
+                    args = item.args
+                    distinct = item.distinct
                 else:
                     args = (cast(ExprNode, item),)
             if fn == "":
                 raise GFQLExprParseError("Invalid function call")
-            return FunctionCall(fn, args)
+            return FunctionCall(fn, args, distinct=distinct)
+
+        def case_when(self, items: Sequence[Any]) -> _CaseArm:
+            stripped = _strip_tokens(items)
+            if len(stripped) != 2:
+                raise GFQLExprParseError("Invalid CASE arm")
+            return _CaseArm(
+                when_expr=cast(ExprNode, stripped[0]),
+                then_expr=cast(ExprNode, stripped[1]),
+            )
+
+        def case_else(self, items: Sequence[Any]) -> ExprNode:
+            stripped = _strip_tokens(items)
+            if len(stripped) != 1:
+                raise GFQLExprParseError("Invalid CASE ELSE clause")
+            return cast(ExprNode, stripped[0])
+
+        def _fold_case_arms(
+            self,
+            arms: Sequence[_CaseArm],
+            *,
+            base_expr: Optional[ExprNode] = None,
+            else_expr: Optional[ExprNode] = None,
+        ) -> CaseWhen:
+            if len(arms) == 0:
+                raise GFQLExprParseError("CASE requires at least one WHEN branch")
+            node: ExprNode = Literal(None) if else_expr is None else else_expr
+            for arm in reversed(tuple(arms)):
+                condition = arm.when_expr
+                if base_expr is not None:
+                    condition = FunctionCall("__cypher_case_eq__", (base_expr, condition))
+                node = CaseWhen(
+                    condition=condition,
+                    when_true=arm.then_expr,
+                    when_false=node,
+                )
+            if not isinstance(node, CaseWhen):
+                raise GFQLExprParseError("Invalid CASE expression")
+            return node
+
+        def searched_case_expr(self, items: Sequence[Any]) -> CaseWhen:
+            arms: List[_CaseArm] = []
+            else_expr: Optional[ExprNode] = None
+            for item in _strip_tokens(items):
+                if isinstance(item, _CaseArm):
+                    arms.append(item)
+                else:
+                    else_expr = cast(ExprNode, item)
+            return self._fold_case_arms(arms, else_expr=else_expr)
+
+        def simple_case_expr(self, items: Sequence[Any]) -> CaseWhen:
+            stripped = _strip_tokens(items)
+            if len(stripped) < 2:
+                raise GFQLExprParseError("Invalid CASE expression")
+            base_expr = cast(ExprNode, stripped[0])
+            arms: List[_CaseArm] = []
+            else_expr: Optional[ExprNode] = None
+            for item in stripped[1:]:
+                if isinstance(item, _CaseArm):
+                    arms.append(item)
+                else:
+                    else_expr = cast(ExprNode, item)
+            return self._fold_case_arms(arms, base_expr=base_expr, else_expr=else_expr)
 
         def case_expr(self, items: Sequence[Any]) -> CaseWhen:
             stripped = _strip_tokens(items)
-            return CaseWhen(
-                condition=cast(ExprNode, stripped[0]),
-                when_true=cast(ExprNode, stripped[1]),
-                when_false=cast(ExprNode, stripped[2]),
-            )
+            if len(stripped) != 1 or not isinstance(stripped[0], CaseWhen):
+                raise GFQLExprParseError("Invalid CASE expression")
+            return cast(CaseWhen, stripped[0])
 
         def _quantifier_expr(self, fn: str, items: Sequence[Any]) -> QuantifierExpr:
             var = ""
@@ -516,6 +627,16 @@ def _build_transformer() -> _TransformerLike:
                 stop=cast(Optional[ExprNode], sub[2]),
             )
 
+        def property_access(self, items: Sequence[Any]) -> PropertyAccessExpr:
+            stripped = _strip_tokens(items)
+            if len(stripped) != 1:
+                raise GFQLExprParseError("Invalid property access")
+            value = cast(ExprNode, stripped[0])
+            names = [str(i) for i in items if _is_token(i) and str(getattr(i, "type", "")) == "NAME"]
+            if len(names) == 0:
+                raise GFQLExprParseError("Invalid property access")
+            return PropertyAccessExpr(value=value, property=names[-1])
+
         def uplus(self, items: Sequence[Any]) -> UnaryOp:
             return UnaryOp(op="+", operand=cast(ExprNode, _strip_tokens(items)[0]))
 
@@ -531,6 +652,9 @@ def _build_transformer() -> _TransformerLike:
 
         def or_op(self, items: Sequence[Any]) -> BinaryOp:
             return self._bin("or", items)
+
+        def xor_op(self, items: Sequence[Any]) -> BinaryOp:
+            return self._bin("xor", items)
 
         def and_op(self, items: Sequence[Any]) -> BinaryOp:
             return self._bin("and", items)
@@ -584,6 +708,78 @@ def _build_transformer() -> _TransformerLike:
     return cast(_TransformerLike, _AstBuilder())
 
 
+def _normalize_dotted_identifiers(node: ExprNode) -> ExprNode:
+    if isinstance(node, Identifier):
+        parts = node.name.split(".")
+        if len(parts) <= 1:
+            return node
+        out: ExprNode = Identifier(parts[0])
+        for prop in parts[1:]:
+            out = PropertyAccessExpr(value=out, property=prop)
+        return out
+    if isinstance(node, Literal):
+        return node
+    if isinstance(node, UnaryOp):
+        return UnaryOp(op=node.op, operand=_normalize_dotted_identifiers(node.operand))
+    if isinstance(node, BinaryOp):
+        return BinaryOp(
+            op=node.op,
+            left=_normalize_dotted_identifiers(node.left),
+            right=_normalize_dotted_identifiers(node.right),
+        )
+    if isinstance(node, IsNullOp):
+        return IsNullOp(value=_normalize_dotted_identifiers(node.value), negated=node.negated)
+    if isinstance(node, FunctionCall):
+        return FunctionCall(
+            name=node.name,
+            args=tuple(_normalize_dotted_identifiers(arg) for arg in node.args),
+            distinct=node.distinct,
+        )
+    if isinstance(node, Wildcard):
+        return node
+    if isinstance(node, CaseWhen):
+        return CaseWhen(
+            condition=_normalize_dotted_identifiers(node.condition),
+            when_true=_normalize_dotted_identifiers(node.when_true),
+            when_false=_normalize_dotted_identifiers(node.when_false),
+        )
+    if isinstance(node, QuantifierExpr):
+        return QuantifierExpr(
+            fn=node.fn,
+            var=node.var,
+            source=_normalize_dotted_identifiers(node.source),
+            predicate=_normalize_dotted_identifiers(node.predicate),
+        )
+    if isinstance(node, ListComprehension):
+        return ListComprehension(
+            var=node.var,
+            source=_normalize_dotted_identifiers(node.source),
+            predicate=None if node.predicate is None else _normalize_dotted_identifiers(node.predicate),
+            projection=None if node.projection is None else _normalize_dotted_identifiers(node.projection),
+        )
+    if isinstance(node, ListLiteral):
+        return ListLiteral(tuple(_normalize_dotted_identifiers(item) for item in node.items))
+    if isinstance(node, MapLiteral):
+        return MapLiteral(tuple((key, _normalize_dotted_identifiers(value)) for key, value in node.items))
+    if isinstance(node, SubscriptExpr):
+        return SubscriptExpr(
+            value=_normalize_dotted_identifiers(node.value),
+            key=_normalize_dotted_identifiers(node.key),
+        )
+    if isinstance(node, SliceExpr):
+        return SliceExpr(
+            value=_normalize_dotted_identifiers(node.value),
+            start=None if node.start is None else _normalize_dotted_identifiers(node.start),
+            stop=None if node.stop is None else _normalize_dotted_identifiers(node.stop),
+        )
+    if isinstance(node, PropertyAccessExpr):
+        return PropertyAccessExpr(
+            value=_normalize_dotted_identifiers(node.value),
+            property=node.property,
+        )
+    return node
+
+
 def parse_expr(expr: str) -> ExprNode:
     if not isinstance(expr, str) or expr.strip() == "":
         raise GFQLExprParseError("Expression must be a non-empty string")
@@ -592,7 +788,7 @@ def parse_expr(expr: str) -> ExprNode:
     transformer = _build_transformer()
     try:
         tree = parser.parse(expr)
-        node = transformer.transform(tree)
+        node = _normalize_dotted_identifiers(cast(ExprNode, transformer.transform(tree)))
     except Exception as exc:
         _, _, LarkError = _lark_imports()
         if isinstance(exc, LarkError):
@@ -620,6 +816,7 @@ def parse_expr(expr: str) -> ExprNode:
             MapLiteral,
             SubscriptExpr,
             SliceExpr,
+            PropertyAccessExpr,
         ),
     ):
         raise GFQLExprParseError("Invalid GFQL expression AST")
@@ -665,6 +862,8 @@ def iter_expr_children(node: ExprNode) -> Tuple[ExprNode, ...]:
         if node.stop is not None:
             children.append(node.stop)
         return tuple(children)
+    if isinstance(node, PropertyAccessExpr):
+        return (node.value,)
     return ()
 
 
@@ -724,6 +923,13 @@ def validate_expr_capabilities(
 ) -> List[str]:
     errors: List[str] = []
 
+    def _properties_arg_supported(arg: ExprNode) -> bool:
+        if isinstance(arg, (Identifier, MapLiteral)):
+            return True
+        if isinstance(arg, Literal):
+            return arg.value is None
+        return False
+
     def _enter(n: ExprNode) -> None:
         if isinstance(n, (Identifier, Literal)):
             return
@@ -746,6 +952,13 @@ def validate_expr_capabilities(
         if isinstance(n, FunctionCall):
             if n.name not in allowed_functions:
                 errors.append(f"unsupported function: {n.name}")
+                return
+            if n.name == "properties":
+                if len(n.args) != 1:
+                    errors.append("properties() requires exactly one argument")
+                    return
+                if not _properties_arg_supported(n.args[0]):
+                    errors.append("properties() requires a node, relationship, map, or null argument")
             return
         if isinstance(n, CaseWhen):
             return
@@ -753,7 +966,7 @@ def validate_expr_capabilities(
             if n.fn not in allowed_quantifiers:
                 errors.append(f"unsupported quantifier: {n.fn}")
             return
-        if isinstance(n, (ListComprehension, ListLiteral, MapLiteral, SubscriptExpr, SliceExpr)):
+        if isinstance(n, (ListComprehension, ListLiteral, MapLiteral, SubscriptExpr, SliceExpr, PropertyAccessExpr)):
             return
         errors.append(f"unsupported node type: {type(n).__name__}")
 

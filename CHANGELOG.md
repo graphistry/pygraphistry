@@ -9,18 +9,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Added
-- **GFQL / Row pipeline**: Added Cypher-style row operators for MATCH ... RETURN workflows: `rows()`, `where_rows()`, `return_()`, `with_()`, `order_by()`, `skip()`, `limit()`, `distinct()`, `unwind()`, and `group_by()`.
-- **GFQL / Parser**: Added a Lark-backed expression parser for the supported `where_rows(expr=...)` subset, with compile-time validation for unsupported shapes.
+- **GFQL / Cypher**: Added local Cypher-string execution through `g.gfql(query, params=...)`. String queries that look like Cypher now execute locally through GFQL; remote `g.cypher(...)` semantics stay unchanged.
+- **GFQL / Cypher compiler**: Added the `graphistry.compute.gfql.cypher` parser/compiler surface, including `parse_cypher`, `compile_cypher`, `cypher_to_gfql`, and `gfql_from_cypher`.
+- **GFQL / Cypher runtime**: Added local lowering/execution support for the current Cypher fragment, including `MATCH` / `OPTIONAL MATCH`, `WHERE`, `WITH`, `RETURN`, `ORDER BY`, `SKIP`, `LIMIT`, `UNWIND`, `UNION`, and `CALL graphistry.*`.
+- **GFQL / Row pipeline**: Added and expanded the row-pipeline operators used by Cypher lowering: `rows()`, `where_rows()`, `return_()`, `with_()`, `order_by()`, `skip()`, `limit()`, `distinct()`, `unwind()`, and `group_by()`.
+- **GFQL / Row results**: Added whole-row entity projection helpers for Cypher node/edge/map outputs plus temporal/entity text normalization.
 
 ### Fixed
-- **GFQL / Validation + runtime parity**: Hardened row-pipeline validation/runtime boundaries so unsupported expressions fail fast in validation and still fail safely at runtime when validation is bypassed.
+- **GFQL / Cypher validation/runtime parity**: Hardened lowering and row-pipeline boundaries so unsupported Cypher/query shapes fail fast with validation errors instead of falling through to unsupported execution paths.
+- **GFQL / Cypher compatibility**: Fixed local Cypher execution across pandas 2/3 and Python 3.8-3.14 for temporal constructor rendering/parsing, whole-row projection text normalization, and Arrow-string null RHS handling in string predicates.
 
 ### Tests
+- **GFQL / Cypher**: Added parser, lowering, execution, procedure-call, UNION, temporal, whole-row projection, and compatibility coverage for local Cypher execution.
 - **GFQL / Row pipeline**: Expanded unit coverage for projection aliasing, ordering/grouping semantics, DISTINCT/UNWIND flows, and parser/precedence regressions across pure-vector execution paths.
-
-### Docs
-- **Ecosystem**: Added [graphistry-skills](https://github.com/graphistry/graphistry-skills) documentation for LLM coding assistants (Claude Code, Cursor, Codex). Skills improve AI code generation success rates from ~50% to ~90%.
-- **GFQL / Cypher-style workflows**: Added and expanded docs for MATCH/WHERE/RETURN row-pipeline flows (`quick`, `where`, `return`, temporal + wire examples, and spec mapping pages) with clearer operator semantics and placement guidance.
 
 ## [0.51.0 - 2026-03-02]
 

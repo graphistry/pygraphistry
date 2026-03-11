@@ -16,7 +16,7 @@ GFQL_COMPARISON_BINARY_OPS: Final[dict[str, Callable[[Any, Any], Any]]] = {
     ">=": operator.ge,
 }
 
-GFQL_BOOLEAN_BINARY_OPS: Final[frozenset[str]] = frozenset({"or", "and"})
+GFQL_BOOLEAN_BINARY_OPS: Final[frozenset[str]] = frozenset({"or", "xor", "and"})
 GFQL_COMPARISON_BINARY_OP_NAMES: Final[frozenset[str]] = frozenset(GFQL_COMPARISON_BINARY_OPS)
 GFQL_STRING_PREDICATE_OPS: Final[frozenset[str]] = frozenset({"contains", "starts_with", "ends_with"})
 GFQL_ARITHMETIC_BINARY_OPS: Final[frozenset[str]] = frozenset({"+", "-", "*", "/", "%"})
@@ -32,7 +32,28 @@ GFQL_ALLOWED_UNARY_OPS: Final[frozenset[str]] = frozenset({"+", "-", "not"})
 GFQL_ALLOWED_QUANTIFIERS: Final[frozenset[str]] = frozenset({"any", "all", "none", "single"})
 
 GFQL_SCALAR_FUNCTIONS: Final[frozenset[str]] = frozenset(
-    {"size", "abs", "toboolean", "tostring", "coalesce", "sign"}
+    {
+        "size",
+        "abs",
+        "sqrt",
+        "substring",
+        "tointeger",
+        "tofloat",
+        "toboolean",
+        "tostring",
+        "coalesce",
+        "sign",
+        "keys",
+        "labels",
+        "type",
+        "properties",
+        "range",
+        "__node_keys__",
+        "__edge_keys__",
+        "__node_entity__",
+        "__edge_entity__",
+        "__cypher_case_eq__",
+    }
 )
 GFQL_SEQUENCE_FUNCTIONS: Final[frozenset[str]] = frozenset({"head", "tail", "reverse"})
 GFQL_PATH_VALUE_FUNCTIONS: Final[frozenset[str]] = frozenset({"nodes", "relationships"})
@@ -54,7 +75,7 @@ GFQL_GROUPBY_AGG_METHODS: Final[dict[str, str]] = {
 }
 
 GFQL_AGGREGATION_FUNCTIONS: Final[frozenset[str]] = frozenset(
-    set(GFQL_GROUPBY_AGG_METHODS) | {"collect"}
+    set(GFQL_GROUPBY_AGG_METHODS) | {"collect", "collect_distinct"}
 )
 GFQL_ORDER_AGG_ALIAS_FUNCTIONS: Final[frozenset[str]] = frozenset(
     {"count", "sum", "min", "max", "avg", "mean", "collect"}

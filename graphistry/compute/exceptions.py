@@ -19,6 +19,8 @@ class ErrorCode:
     E104 = "invalid-direction"
     E105 = "missing-required-field"
     E106 = "empty-chain"
+    E107 = "invalid-cypher-syntax"
+    E108 = "unsupported-cypher-query"
 
     # Type errors (E2xx)
     E201 = "type-mismatch"

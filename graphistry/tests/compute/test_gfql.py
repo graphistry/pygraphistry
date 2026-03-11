@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 from graphistry.compute.ast import ASTLet, ASTRef, n, e
 from graphistry.compute.chain import Chain
+from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.tests.test_compute import CGFull
 
 # Suppress deprecation warnings for chain() method in this test file
@@ -31,6 +32,10 @@ def _mk_people_company_graph4():
         src=["a", "b", "c"],
         dst=["b", "c", "d"],
     )
+
+
+def _mk_empty_graph():
+    return _mk_graph(ids=[], types=[], src=[], dst=[])
 
 
 class TestGFQLAPI:
@@ -141,9 +146,189 @@ class TestGFQL:
         g = CGFull()
         
         with pytest.raises(TypeError) as exc_info:
-            g.gfql("not a valid query")
-        
-        assert "Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict" in str(exc_info.value)
+            g.gfql(123)
+
+        assert "Query must be ASTObject, List[ASTObject], Chain, ASTLet, dict, or string" in str(exc_info.value)
+
+    def test_gfql_with_cypher_string(self):
+        g = _mk_graph(
+            ids=["a", "b", "c"],
+            types=["person", "person", "person"],
+            src=["a", "b"],
+            dst=["b", "c"],
+        )
+        g = g.nodes(g._nodes.assign(score=[3, 1, 2], name=["Alice", "Bob", "Carol"]), "id")
+
+        result = g.gfql(
+            "MATCH (p:person) RETURN p.name AS person_name ORDER BY person_name DESC LIMIT $top_n",
+            params={"top_n": 2},
+        )
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"person_name": "Carol"},
+            {"person_name": "Bob"},
+        ]
+
+    def test_gfql_with_cypher_string_defaults_language_to_cypher(self):
+        g = _mk_people_company_graph3()
+
+        result = g.gfql("MATCH (p:person) RETURN p LIMIT 1")
+
+        assert len(result._nodes) == 1
+        assert result._nodes.iloc[0]["p"] == "(:person)"
+
+    def test_gfql_string_invalid_syntax_surfaces_parser_error(self):
+        g = _mk_people_company_graph3()
+
+        with pytest.raises(GFQLSyntaxError) as exc_info:
+            g.gfql("MATCH (p RETURN p")
+
+        assert exc_info.value.code == ErrorCode.E107
+
+    def test_gfql_string_rejects_unsupported_language(self):
+        g = _mk_people_company_graph3()
+
+        with pytest.raises(GFQLValidationError) as exc_info:
+            g.gfql("MATCH (p) RETURN p", language="gremlin")
+
+        assert exc_info.value.code == ErrorCode.E108
+
+    def test_gfql_non_string_rejects_language_and_params(self):
+        g = _mk_people_company_graph3()
+
+        with pytest.raises(ValueError):
+            g.gfql([n()], language="cypher")
+
+        with pytest.raises(ValueError):
+            g.gfql([n()], params={"x": 1})
+
+    @pytest.mark.parametrize(
+        ("direction", "expected"),
+        [
+            ("ASC", [{"name": "A"}, {"name": "A"}]),
+            ("DESC", [{"name": "C"}, {"name": "C"}]),
+        ],
+    )
+    def test_gfql_executes_cypher_with_order_by_source_expression(self, direction, expected):
+        nodes_df = pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b1", "c1", "c2"],
+                "type": ["person"] * 5,
+                "name": ["A", "A", "B", "C", "C"],
+            }
+        )
+        g = CGFull().nodes(nodes_df, "id").edges(pd.DataFrame({"s": [], "d": []}), "s", "d")
+
+        result = g.gfql(
+            "MATCH (a) "
+            "WITH a.name AS name "
+            f"ORDER BY a.name + 'C' {direction} "
+            "LIMIT 2 "
+            "RETURN name"
+        )
+
+        assert result._nodes.to_dict(orient="records") == expected
+
+    @pytest.mark.parametrize(
+        ("query", "expected"),
+        [
+            (
+                "RETURN 2 AS x UNION RETURN 1 AS x UNION RETURN 2 AS x",
+                [{"x": 2}, {"x": 1}],
+            ),
+            (
+                "RETURN 2 AS x UNION ALL RETURN 1 AS x UNION ALL RETURN 2 AS x",
+                [{"x": 2}, {"x": 1}, {"x": 2}],
+            ),
+        ],
+    )
+    def test_gfql_executes_cypher_union_set_ops(self, query, expected):
+        result = _mk_empty_graph().gfql(query)
+
+        assert result._nodes.to_dict(orient="records") == expected
+
+    def test_gfql_executes_cypher_union_with_unwind(self):
+        result = _mk_empty_graph().gfql(
+            "UNWIND [2, 1, 2, 3] AS x RETURN x "
+            "UNION "
+            "UNWIND [3, 4] AS x RETURN x"
+        )
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"x": 2},
+            {"x": 1},
+            {"x": 3},
+            {"x": 4},
+        ]
+
+    def test_gfql_executes_cypher_union_of_whole_row_entity_outputs(self):
+        nodes_df = pd.DataFrame({"id": ["a", "b"], "type": ["A", "B"]})
+        g = CGFull().nodes(nodes_df, "id").edges(pd.DataFrame({"s": [], "d": []}), "s", "d")
+
+        result = g.gfql("MATCH (a:A) RETURN a AS a UNION MATCH (b:B) RETURN b AS a")
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"a": "(:A)"},
+            {"a": "(:B)"},
+        ]
+
+    def test_gfql_rejects_cypher_union_with_mismatched_columns(self):
+        with pytest.raises(GFQLValidationError) as exc_info:
+            _mk_empty_graph().gfql("RETURN 1 AS a UNION RETURN 2 AS b")
+
+        assert exc_info.value.code == ErrorCode.E108
+
+    def test_gfql_rejects_mixed_union_kinds(self):
+        with pytest.raises(GFQLSyntaxError) as exc_info:
+            _mk_empty_graph().gfql("RETURN 1 AS a UNION RETURN 2 AS a UNION ALL RETURN 3 AS a")
+
+        assert exc_info.value.code == ErrorCode.E107
+
+    @pytest.mark.parametrize(
+        ("direction", "expected"),
+        [
+            ("ASC", [{"name": "A", "cnt": 2}]),
+            ("DESC", [{"name": "C", "cnt": 2}]),
+        ],
+    )
+    def test_gfql_executes_cypher_with_aggregate_order_by_source_expression(self, direction, expected):
+        nodes_df = pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b1", "c1", "c2"],
+                "type": ["person"] * 5,
+                "name": ["A", "A", "B", "C", "C"],
+            }
+        )
+        g = CGFull().nodes(nodes_df, "id").edges(pd.DataFrame({"s": [], "d": []}), "s", "d")
+
+        result = g.gfql(
+            "MATCH (a) "
+            "WITH a.name AS name, count(*) AS cnt "
+            f"ORDER BY a.name + 'C' {direction} "
+            "LIMIT 1 "
+            "RETURN name, cnt"
+        )
+
+        assert result._nodes.to_dict(orient="records") == expected
+
+    @pytest.mark.parametrize(
+        ("query", "expected"),
+        [
+            ("RETURN range(0, 3) AS vals", [{"vals": [0, 1, 2, 3]}]),
+            ("RETURN 0x1A AS literal", [{"literal": 26}]),
+            ("RETURN 0o12 AS literal", [{"literal": 10}]),
+            ("RETURN .1e2 AS literal", [{"literal": 10.0}]),
+            ("RETURN -0.0 AS literal", [{"literal": 0.0}]),
+            ("RETURN keys({k: 1, l: null}) AS ks", [{"ks": ["k", "l"]}]),
+            ("WITH null AS m RETURN keys(m) AS ks, keys(null) AS null_keys", [{"ks": None, "null_keys": None}]),
+        ],
+    )
+    def test_gfql_executes_cypher_literal_list_and_map_scalar_queries(self, query, expected):
+        g = _mk_graph(ids=["a"], types=["person"], src=[], dst=[])
+
+        result = g.gfql(query)
+
+        assert result._nodes.to_dict(orient="records") == expected
     
     def test_gfql_deprecation_and_migration(self):
         """Test deprecation warnings and migration path"""

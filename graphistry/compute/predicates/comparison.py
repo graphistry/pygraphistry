@@ -3,7 +3,7 @@ from datetime import date, time
 import numpy as np
 import pandas as pd
 
-from graphistry.compute.ast_temporal import DateTimeValue, DateValue, TemporalValue, TimeValue
+from graphistry.compute.ast_temporal import DateTimeValue, DateValue, TemporalValue, TimeValue, _resolve_timezone
 from graphistry.compute.typing import SeriesT
 from graphistry.models.gfql.coercions.temporal import to_ast
 from graphistry.models.gfql.types.guards import is_any_temporal, is_native_numeric, is_string
@@ -48,10 +48,11 @@ class ComparisonPredicate(ASTPredicate):
         if isinstance(temporal_val, DateTimeValue):
             # Normalize series to target timezone for comparison
             if hasattr(s, 'dt') and hasattr(s.dt, 'tz_localize'):
+                tzinfo = _resolve_timezone(temporal_val.timezone) or temporal_val.timezone
                 if s.dt.tz is None:
-                    return s.dt.tz_localize('UTC').dt.tz_convert(temporal_val.timezone)
+                    return s.dt.tz_localize('UTC').dt.tz_convert(tzinfo)
                 else:
-                    return s.dt.tz_convert(temporal_val.timezone)
+                    return s.dt.tz_convert(tzinfo)
             return s
         
         elif isinstance(temporal_val, DateValue):

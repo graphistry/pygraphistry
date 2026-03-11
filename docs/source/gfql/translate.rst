@@ -655,7 +655,7 @@ Additional Resources
 
 - :ref:`gfql-quick`
 - :ref:`gfql-predicates-quick`: Use predicates for filtering on nodee and edge attributes.
-- :ref:`10min`: Visualize GFQL queries with GPU-accelerated tools.
+- :ref:`10min-pygraphistry`: Visualize GFQL queries with GPU-accelerated tools.
 
 Conclusion
 ----------
