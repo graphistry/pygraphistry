@@ -46,6 +46,14 @@ def _bool_mask(series: SeriesT) -> SeriesT:
     return cast(SeriesT, series == True)  # noqa: E712
 
 
+def _nullify_missing_alias_rows(df: DataFrameT, alias_col: str, rendered: SeriesT) -> SeriesT:
+    out = cast(SeriesT, rendered.copy())
+    if hasattr(out, "astype"):
+        out = cast(SeriesT, out.astype("object"))
+    out.loc[_is_null_mask(cast(SeriesT, df[alias_col]))] = None
+    return out
+
+
 def _all_non_null_match(mask: SeriesT, non_null: SeriesT) -> bool:
     if not hasattr(mask, "where"):
         return False
@@ -338,7 +346,7 @@ def _format_node_entities(df: DataFrameT, projection: ResultProjectionPlan) -> S
         (_const_text(df, alias_col, " ").where(has_props & label_present, "") + prop_block).where(has_props, ""),
     )
     rendered = cast(SeriesT, _const_text(df, alias_col, "(") + labels + prop_suffix + ")")
-    return cast(SeriesT, rendered.where(~_is_null_mask(cast(SeriesT, df[alias_col])), None))
+    return _nullify_missing_alias_rows(df, alias_col, rendered)
 
 
 def _format_edge_entities(df: DataFrameT, projection: ResultProjectionPlan) -> SeriesT:
@@ -360,7 +368,7 @@ def _format_edge_entities(df: DataFrameT, projection: ResultProjectionPlan) -> S
         (_const_text(df, alias_col, " ").where(has_props & type_present, "") + prop_block).where(has_props, ""),
     )
     rendered = cast(SeriesT, _const_text(df, alias_col, "[") + type_part + prop_suffix + "]")
-    return cast(SeriesT, rendered.where(~_is_null_mask(cast(SeriesT, df[alias_col])), None))
+    return _nullify_missing_alias_rows(df, alias_col, rendered)
 
 
 def _project_property_column(
