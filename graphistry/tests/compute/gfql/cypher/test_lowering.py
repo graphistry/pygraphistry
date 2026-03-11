@@ -802,6 +802,40 @@ def test_string_cypher_string_predicates_with_null_rhs_on_arrow_string_dtype(
     assert result._nodes.to_dict(orient="records") == []
 
 
+@pytest.mark.parametrize(
+    ("query", "nodes_df", "edges_df", "expected"),
+    [
+        (
+            "MATCH (n) RETURN 'keys(n)' AS s",
+            pd.DataFrame({"id": ["a"]}),
+            pd.DataFrame({"s": [], "d": []}),
+            [{"s": "keys(n)"}],
+        ),
+        (
+            "MATCH (n) RETURN 'n:Foo' AS s",
+            pd.DataFrame({"id": ["a"]}),
+            pd.DataFrame({"s": [], "d": []}),
+            [{"s": "n:Foo"}],
+        ),
+        (
+            "MATCH ()-[r]->() RETURN 'r:T' AS s",
+            pd.DataFrame({"id": ["a", "b"]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["T"]}),
+            [{"s": "r:T"}],
+        ),
+    ],
+)
+def test_string_cypher_preserves_string_literals_during_rewrite_passes(
+    query: str,
+    nodes_df: pd.DataFrame,
+    edges_df: pd.DataFrame,
+    expected: list[dict[str, object]],
+) -> None:
+    result = _mk_graph(nodes_df, edges_df).gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == expected
+
+
 def test_string_cypher_returns_missing_property_as_null() -> None:
     node_graph = _mk_graph(
         pd.DataFrame({"id": ["a"], "num": [1]}),

@@ -227,13 +227,16 @@ def _rewrite_label_predicate_expr(
         if alias_targets is None or alias in alias_targets:
             return _render(alias, full_match.group(2))
 
-    def _replace(match: re.Match[str]) -> str:
-        alias = match.group("alias")
-        if alias_targets is not None and alias not in alias_targets:
-            return match.group(0)
-        return _render(alias, match.group(2))
+    def _rewrite_segment(segment: str) -> str:
+        def _replace(match: re.Match[str]) -> str:
+            alias = match.group("alias")
+            if alias_targets is not None and alias not in alias_targets:
+                return match.group(0)
+            return _render(alias, match.group(2))
 
-    return _CYPHER_BARE_LABEL_PREDICATE_RE.sub(_replace, expr_text)
+        return _CYPHER_BARE_LABEL_PREDICATE_RE.sub(_replace, segment)
+
+    return _rewrite_unquoted_expr_segments(expr_text, rewrite=_rewrite_segment)
 
 
 def _rewrite_chained_comparison_expr(expr_text: str) -> str:
@@ -261,6 +264,75 @@ def _unsupported(message: str, *, field: str, value: Any, line: int, column: int
     )
 
 
+def _rewrite_unquoted_expr_segments(
+    expr_text: str,
+    *,
+    rewrite: Callable[[str], str],
+) -> str:
+    out: List[str] = []
+    segment_start = 0
+    idx = 0
+    in_single = False
+    in_double = False
+
+    while idx < len(expr_text):
+        ch = expr_text[idx]
+        if ch == "'" and not in_double and (idx == 0 or expr_text[idx - 1] != "\\"):
+            if not in_single:
+                out.append(rewrite(expr_text[segment_start:idx]))
+                segment_start = idx
+            in_single = not in_single
+            idx += 1
+            if not in_single:
+                out.append(expr_text[segment_start:idx])
+                segment_start = idx
+            continue
+        if ch == '"' and not in_single and (idx == 0 or expr_text[idx - 1] != "\\"):
+            if not in_double:
+                out.append(rewrite(expr_text[segment_start:idx]))
+                segment_start = idx
+            in_double = not in_double
+            idx += 1
+            if not in_double:
+                out.append(expr_text[segment_start:idx])
+                segment_start = idx
+            continue
+        idx += 1
+
+    trailing = expr_text[segment_start:]
+    out.append(trailing if in_single or in_double else rewrite(trailing))
+    return "".join(out)
+
+
+def _parse_validated_row_expr_node(
+    expr_text: str,
+    *,
+    alias_targets: Optional[Mapping[str, ASTObject]],
+    field: str,
+    line: int,
+    column: int,
+) -> ExprNode:
+    node = fold_temporal_constructor_ast(parse_expr(expr_text))
+    _validate_cypher_boolean_literal_constraints(
+        node,
+        field=field,
+        value=expr_text,
+        line=line,
+        column=column,
+    )
+    if alias_targets:
+        node = _rewrite_collection_alias_entities(node, alias_targets=alias_targets)
+    _validate_cypher_expr_constraints(
+        node,
+        alias_targets=alias_targets,
+        field=field,
+        value=expr_text,
+        line=line,
+        column=column,
+    )
+    return node
+
+
 def _parse_row_expr(
     expr_text: str,
     *,
@@ -283,48 +355,24 @@ def _parse_row_expr(
     prepared = _rewrite_label_predicate_expr(prepared, alias_targets=alias_targets)
     prepared = rewrite_temporal_constructors_in_expr(prepared)
     try:
-        node = fold_temporal_constructor_ast(parse_expr(prepared))
-        _validate_cypher_boolean_literal_constraints(
-            node,
-            field=field,
-            value=prepared,
-            line=line,
-            column=column,
-        )
-        if alias_targets:
-            node = _rewrite_collection_alias_entities(node, alias_targets=alias_targets)
-        _validate_cypher_expr_constraints(
-            node,
+        return _parse_validated_row_expr_node(
+            prepared,
             alias_targets=alias_targets,
             field=field,
-            value=prepared,
             line=line,
             column=column,
         )
-        return node
     except (GFQLExprParseError, ImportError) as exc:
         rewritten = _rewrite_chained_comparison_expr(prepared)
         if rewritten != prepared:
             try:
-                node = fold_temporal_constructor_ast(parse_expr(rewritten))
-                _validate_cypher_boolean_literal_constraints(
-                    node,
-                    field=field,
-                    value=rewritten,
-                    line=line,
-                    column=column,
-                )
-                if alias_targets:
-                    node = _rewrite_collection_alias_entities(node, alias_targets=alias_targets)
-                _validate_cypher_expr_constraints(
-                    node,
+                return _parse_validated_row_expr_node(
+                    rewritten,
                     alias_targets=alias_targets,
                     field=field,
-                    value=rewritten,
                     line=line,
                     column=column,
                 )
-                return node
             except (GFQLExprParseError, ImportError):
                 pass
         raise GFQLValidationError(
@@ -1031,16 +1079,19 @@ def _rewrite_entity_keys_expr(
 
     alias_names = list(alias_targets.keys())
 
-    def _replace(match: re.Match[str]) -> str:
-        alias = match.group(1)
-        target = alias_targets.get(alias)
-        if target is None:
-            return match.group(0)
-        fn = "__node_keys__" if isinstance(target, ASTNode) else "__edge_keys__"
-        ordered_aliases = [alias] + [name for name in alias_names if name != alias]
-        return f"{fn}({', '.join(ordered_aliases)})"
+    def _rewrite_segment(segment: str) -> str:
+        def _replace(match: re.Match[str]) -> str:
+            alias = match.group(1)
+            target = alias_targets.get(alias)
+            if target is None:
+                return match.group(0)
+            fn = "__node_keys__" if isinstance(target, ASTNode) else "__edge_keys__"
+            ordered_aliases = [alias] + [name for name in alias_names if name != alias]
+            return f"{fn}({', '.join(ordered_aliases)})"
 
-    return _CYPHER_ENTITY_KEYS_RE.sub(_replace, expr_text)
+        return _CYPHER_ENTITY_KEYS_RE.sub(_replace, segment)
+
+    return _rewrite_unquoted_expr_segments(expr_text, rewrite=_rewrite_segment)
 
 
 def _entity_wrapper_call(
