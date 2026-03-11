@@ -4,11 +4,12 @@ from datetime import date, datetime, time
 from dateutil import parser as date_parser  # type: ignore[import]
 from datetime import tzinfo as py_tzinfo
 import pandas as pd
+import sys
 
-try:
+if sys.version_info >= (3, 9):
     from zoneinfo import ZoneInfo as _ZoneInfoImport
     ZoneInfo = cast(Any, _ZoneInfoImport)
-except Exception:
+else:
     ZoneInfo = cast(Any, None)
 
 try:
