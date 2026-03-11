@@ -77,37 +77,34 @@ jobs:
     - name: Detect docs-only change on tip
       id: docs_only_latest
       run: |
-        # Compare the latest commit to its immediate predecessor (push)
-        # or to the PR tip's parent (pull_request) to see if ONLY the latest commit changed docs.
+        # Only apply the latest-commit docs-only optimization on push.
+        # PR runs already have path-filter gating and should not infer commit ancestry from merge refs.
         docs_only=false
-        changed_files=""
 
-        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-          # PR merge refs are often shallow, so HEAD^ may be unavailable.
-          base_ref=$(git rev-parse HEAD^ 2>/dev/null || true)
-        else
+        if [[ "${{ github.event_name }}" != "pull_request" ]]; then
           base_ref="${{ github.event.before }}"
           if [[ -z "$base_ref" ]]; then
             base_ref=$(git rev-parse HEAD^ 2>/dev/null || true)
           fi
-        fi
 
-        if [[ -n "${base_ref:-}" ]]; then
-          changed_files=$(git diff --name-only "$base_ref" HEAD 2>/dev/null || true)
-        fi
+          changed_files=""
+          if [[ -n "${base_ref:-}" ]]; then
+            changed_files=$(git diff --name-only "$base_ref" HEAD 2>/dev/null || true)
+          fi
 
-        if [[ -n "$changed_files" ]]; then
-          docs_only=true
-          for f in $changed_files; do
-            if [[ "$f" == "README.md" || "$f" == "CHANGELOG.md" || "$f" == docs/* || "$f" == demos/* || "$f" == notebooks/* || "$f" == *.md || "$f" == *.rst ]]; then
-              continue
-            else
-              docs_only=false
-              break
-            fi
-          done
-        else
-          echo "Could not determine latest-commit diff; conservatively disabling docs-only skip."
+          if [[ -n "$changed_files" ]]; then
+            docs_only=true
+            for f in $changed_files; do
+              if [[ "$f" == "README.md" || "$f" == "CHANGELOG.md" || "$f" == docs/* || "$f" == demos/* || "$f" == notebooks/* || "$f" == *.md || "$f" == *.rst ]]; then
+                continue
+              else
+                docs_only=false
+                break
+              fi
+            done
+          else
+            echo "Could not determine latest-commit diff; conservatively disabling docs-only skip."
+          fi
         fi
 
         echo "docs_only_latest=${docs_only}" >> "$GITHUB_OUTPUT"
