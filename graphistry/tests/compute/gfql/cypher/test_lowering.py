@@ -1049,6 +1049,24 @@ def test_string_cypher_supports_generic_match_where_constant_false() -> None:
     assert result._nodes.to_dict(orient="records") == []
 
 
+def test_string_cypher_supports_generic_match_where_constant_false_with_arrow_string_props() -> None:
+    pytest.importorskip("pyarrow")
+
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": pd.Series(["a", "b"], dtype="string[pyarrow]"),
+                "name": pd.Series(["a", "b"], dtype="string[pyarrow]"),
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n)\nWHERE 1 = 0\nRETURN n\nSKIP 0")
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
 def test_string_cypher_supports_generic_match_where_boolean_expression() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["a"], "name": ["a"]}),

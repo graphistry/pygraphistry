@@ -24,12 +24,16 @@ class WholeRowProjectionMeta(TypedDict):
     ids: SeriesT
 
 
-def _empty_text(df: DataFrameT, alias_col: str) -> SeriesT:
-    base = cast(SeriesT, df[alias_col])
-    out = cast(SeriesT, base.where(base.isna(), ""))
+def _object_text(series: SeriesT) -> SeriesT:
+    out = cast(SeriesT, series)
     if hasattr(out, "astype"):
         out = cast(SeriesT, out.astype("object"))
     return out
+
+
+def _empty_text(df: DataFrameT, alias_col: str) -> SeriesT:
+    base = cast(SeriesT, df[alias_col])
+    return _object_text(cast(SeriesT, base.where(base.isna(), "")))
 
 
 def _const_text(df: DataFrameT, alias_col: str, value: str) -> SeriesT:
@@ -73,6 +77,7 @@ def _normalize_zero_offset_suffix(timezone: SeriesT) -> SeriesT:
 def _quote_text_series(df: DataFrameT, alias_col: str, text: SeriesT) -> SeriesT:
     escaped = cast(SeriesT, text.str.replace("\\", "\\\\", regex=False))
     escaped = cast(SeriesT, escaped.str.replace("'", "\\'", regex=False))
+    escaped = _object_text(escaped)
     return cast(SeriesT, _const_text(df, alias_col, "'") + escaped + "'")
 
 
@@ -161,6 +166,7 @@ def _normalize_temporal_constructor_series(
     stripped = cast(SeriesT, text.str.strip())
 
     def _format(series: SeriesT) -> SeriesT:
+        series = _object_text(series)
         if not quoted:
             return series
         return cast(SeriesT, _const_text(df, alias_col, "'") + series + "'")
@@ -247,7 +253,7 @@ def _normalize_temporal_constructor_series(
 
 
 def _render_scalar_value_text(df: DataFrameT, alias_col: str, series: SeriesT) -> SeriesT:
-    text = cast(SeriesT, series.astype(str))
+    text = _object_text(cast(SeriesT, series.astype(str)))
     dtype_txt = str(getattr(series, "dtype", "")).lower()
     if "bool" in dtype_txt and hasattr(text, "str"):
         return cast(SeriesT, text.str.lower())
@@ -321,7 +327,7 @@ def _node_label_text(df: DataFrameT, alias_col: str) -> SeriesT:
     if "type" in df.columns:
         type_series = cast(SeriesT, df["type"])
         include = cast(SeriesT, ~_is_null_mask(type_series))
-        rendered = cast(SeriesT, type_series.where(include, "").astype(str))
+        rendered = _object_text(cast(SeriesT, type_series.where(include, "").astype(str)))
         return cast(SeriesT, (_const_text(df, alias_col, ":") + rendered).where(include, ""))
     return _empty_text(df, alias_col)
 
@@ -356,7 +362,8 @@ def _format_edge_entities(df: DataFrameT, projection: ResultProjectionPlan) -> S
     alias_col = projection.alias
     if "type" in df.columns:
         type_series = cast(SeriesT, df["type"])
-        type_part = cast(SeriesT, (_const_text(df, alias_col, ":") + type_series.astype(str)).where(~_is_null_mask(type_series), ""))
+        type_text = _object_text(cast(SeriesT, type_series.astype(str)))
+        type_part = cast(SeriesT, (_const_text(df, alias_col, ":") + type_text).where(~_is_null_mask(type_series), ""))
     else:
         type_part = _empty_text(df, alias_col)
     prop_text, has_props = _append_property_segments(
