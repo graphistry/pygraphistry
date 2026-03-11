@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from typing import Any, Literal, Sequence, TypedDict, cast
 
+import pandas as pd
+
 from graphistry.Plottable import Plottable
+from graphistry.compute.gfql.series_str_compat import series_str_contains, series_str_extract, series_str_match
 from graphistry.compute.typing import DataFrameT, SeriesT
 
 from .lowering import ResultProjectionColumn, ResultProjectionPlan
@@ -33,7 +36,9 @@ def _object_text(series: SeriesT) -> SeriesT:
 
 def _empty_text(df: DataFrameT, alias_col: str) -> SeriesT:
     base = cast(SeriesT, df[alias_col])
-    return _object_text(cast(SeriesT, base.where(base.isna(), "")))
+    text = cast(SeriesT, base.astype(str))
+    null_preserving = cast(SeriesT, text.where(~base.isna(), None))
+    return _object_text(cast(SeriesT, null_preserving.where(base.isna(), "")))
 
 
 def _const_text(df: DataFrameT, alias_col: str, value: str) -> SeriesT:
@@ -54,10 +59,11 @@ def _bool_mask(series: SeriesT) -> SeriesT:
 
 
 def _nullify_missing_alias_rows(df: DataFrameT, alias_col: str, rendered: SeriesT) -> SeriesT:
+    mask = _is_null_mask(cast(SeriesT, df[alias_col]))
+    if hasattr(rendered, "where"):
+        return cast(SeriesT, rendered.where(~mask, None))
     out = cast(SeriesT, rendered.copy())
-    if hasattr(out, "astype"):
-        out = cast(SeriesT, out.astype("object"))
-    out.loc[_is_null_mask(cast(SeriesT, df[alias_col]))] = None
+    out.loc[mask] = None
     return out
 
 
@@ -102,13 +108,25 @@ def _slice_text_by_position(text: SeriesT, digits: SeriesT, positions: SeriesT, 
     return out
 
 
+def _trim_decimal_trailing_zeroes(text: SeriesT) -> SeriesT:
+    decimal_mask = cast(SeriesT, series_str_contains(text, r"\.", na=False))
+    if not hasattr(decimal_mask, "any") or not bool(decimal_mask.any()):
+        return text
+
+    trimmed = cast(SeriesT, text.str.rstrip("0"))
+    trailing_dot = cast(SeriesT, series_str_match(trimmed, r"^[+-]?\d+\.$", na=False))
+    if hasattr(trailing_dot, "any") and bool(trailing_dot.any()):
+        trimmed = cast(SeriesT, trimmed.where(~trailing_dot, trimmed.str.slice(0, -1)))
+    return cast(SeriesT, text.where(~decimal_mask, trimmed))
+
+
 def _normalize_scientific_numeric_text(text: SeriesT) -> SeriesT:
-    sci_mask = cast(SeriesT, text.str.contains(r"[eE]", na=False))
+    sci_mask = cast(SeriesT, series_str_contains(text, r"[eE]", na=False))
     out = cast(SeriesT, text.str.replace(r"\.0+$", "", regex=True))
     if not hasattr(sci_mask, "any") or not bool(sci_mask.any()):
         return out
 
-    parts = text.str.extract(r"^(?P<sign>[+-]?)(?P<int>\d+)(?:\.(?P<frac>\d+))?[eE](?P<exp>[+-]?\d+)$")
+    parts = series_str_extract(text, r"^(?P<sign>[+-]?)(?P<int>\d+)(?:\.(?P<frac>\d+))?[eE](?P<exp>[+-]?\d+)$")
     valid = cast(SeriesT, parts["int"].notna())
     if not hasattr(valid, "any") or not bool(valid.any()):
         return out
@@ -148,8 +166,7 @@ def _normalize_scientific_numeric_text(text: SeriesT) -> SeriesT:
         mid_out = cast(SeriesT, sign + left + _const_text_from_template(text, ".") + right)
         out = cast(SeriesT, out.where(~mid_mask, mid_out))
 
-    out = cast(SeriesT, out.str.replace(r"(\.\d*?[1-9])0+$", r"\1", regex=True))
-    out = cast(SeriesT, out.str.replace(r"\.0+$", "", regex=True))
+    out = _trim_decimal_trailing_zeroes(out)
     neg_zero = cast(SeriesT, out.isin(["-0", "-0.0", "-0."]))
     return cast(SeriesT, out.where(~neg_zero, "0"))
 
@@ -171,17 +188,17 @@ def _normalize_temporal_constructor_series(
             return series
         return cast(SeriesT, _const_text(df, alias_col, "'") + series + "'")
 
-    date_mask = cast(SeriesT, stripped.str.match(DATE_CALL_TEXT_RE.pattern, na=False))
+    date_mask = cast(SeriesT, series_str_match(stripped, DATE_CALL_TEXT_RE.pattern, na=False))
     if _all_non_null_match(date_mask, non_null):
-        parts = stripped.str.extract(DATE_CALL_TEXT_RE.pattern)
+        parts = series_str_extract(stripped, DATE_CALL_TEXT_RE.pattern)
         year = parts["year"].fillna("0").astype("int64").astype(str).str.zfill(4)
         month = parts["month"].fillna("0").astype("int64").astype(str).str.zfill(2)
         day = parts["day"].fillna("0").astype("int64").astype(str).str.zfill(2)
         return _format(cast(SeriesT, year + "-" + month + "-" + day))
 
-    localtime_mask = cast(SeriesT, stripped.str.match(LOCALTIME_CALL_TEXT_RE.pattern, na=False))
+    localtime_mask = cast(SeriesT, series_str_match(stripped, LOCALTIME_CALL_TEXT_RE.pattern, na=False))
     if _all_non_null_match(localtime_mask, non_null):
-        parts = stripped.str.extract(LOCALTIME_CALL_TEXT_RE.pattern)
+        parts = series_str_extract(stripped, LOCALTIME_CALL_TEXT_RE.pattern)
         hour = parts["hour"].fillna("0").astype("int64").astype(str).str.zfill(2)
         minute = parts["minute"].fillna("0").astype("int64").astype(str).str.zfill(2)
         second = parts["second"].fillna("")
@@ -194,9 +211,9 @@ def _normalize_temporal_constructor_series(
         base = cast(SeriesT, base + frac.where(nanos != "", ""))
         return _format(base)
 
-    time_mask = cast(SeriesT, stripped.str.match(TIME_CALL_TEXT_RE.pattern, na=False))
+    time_mask = cast(SeriesT, series_str_match(stripped, TIME_CALL_TEXT_RE.pattern, na=False))
     if _all_non_null_match(time_mask, non_null):
-        parts = stripped.str.extract(TIME_CALL_TEXT_RE.pattern)
+        parts = series_str_extract(stripped, TIME_CALL_TEXT_RE.pattern)
         hour = parts["hour"].fillna("0").astype("int64").astype(str).str.zfill(2)
         minute = parts["minute"].fillna("0").astype("int64").astype(str).str.zfill(2)
         second = parts["second"].fillna("")
@@ -211,9 +228,9 @@ def _normalize_temporal_constructor_series(
         base = cast(SeriesT, base + timezone)
         return _format(base)
 
-    localdatetime_mask = cast(SeriesT, stripped.str.match(LOCALDATETIME_CALL_TEXT_RE.pattern, na=False))
+    localdatetime_mask = cast(SeriesT, series_str_match(stripped, LOCALDATETIME_CALL_TEXT_RE.pattern, na=False))
     if _all_non_null_match(localdatetime_mask, non_null):
-        parts = stripped.str.extract(LOCALDATETIME_CALL_TEXT_RE.pattern)
+        parts = series_str_extract(stripped, LOCALDATETIME_CALL_TEXT_RE.pattern)
         year = parts["year"].fillna("0").astype("int64").astype(str).str.zfill(4)
         month = parts["month"].fillna("0").astype("int64").astype(str).str.zfill(2)
         day = parts["day"].fillna("0").astype("int64").astype(str).str.zfill(2)
@@ -229,9 +246,9 @@ def _normalize_temporal_constructor_series(
         base = cast(SeriesT, base + frac.where(nanos != "", ""))
         return _format(base)
 
-    datetime_mask = cast(SeriesT, stripped.str.match(DATETIME_CALL_TEXT_RE.pattern, na=False))
+    datetime_mask = cast(SeriesT, series_str_match(stripped, DATETIME_CALL_TEXT_RE.pattern, na=False))
     if _all_non_null_match(datetime_mask, non_null):
-        parts = stripped.str.extract(DATETIME_CALL_TEXT_RE.pattern)
+        parts = series_str_extract(stripped, DATETIME_CALL_TEXT_RE.pattern)
         year = parts["year"].fillna("0").astype("int64").astype(str).str.zfill(4)
         month = parts["month"].fillna("0").astype("int64").astype(str).str.zfill(2)
         day = parts["day"].fillna("0").astype("int64").astype(str).str.zfill(2)
@@ -264,18 +281,18 @@ def _render_scalar_value_text(df: DataFrameT, alias_col: str, series: SeriesT) -
     if hasattr(text, "str"):
         stripped = cast(SeriesT, text.str.strip())
         non_null = cast(SeriesT, ~_is_null_mask(series))
-        list_like = cast(SeriesT, stripped.str.match(r"^\[.*\]$", na=False))
+        list_like = cast(SeriesT, series_str_match(stripped, r"^\[.*\]$", na=False))
         if _all_non_null_match(list_like, non_null):
             return stripped
-        map_like = cast(SeriesT, stripped.str.match(r"^\{.*\}$", na=False))
+        map_like = cast(SeriesT, series_str_match(stripped, r"^\{.*\}$", na=False))
         if _all_non_null_match(map_like, non_null):
             return stripped
         temporal = _normalize_temporal_constructor_series(df, alias_col, series, text, quoted=True)
         if temporal is not None:
             return temporal
         non_null = cast(SeriesT, ~_is_null_mask(series))
-        bool_like = cast(SeriesT, text.str.match(r"^(True|False)$", na=False))
-        num_like = cast(SeriesT, text.str.match(r"^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$", na=False))
+        bool_like = cast(SeriesT, series_str_match(text, r"^(True|False)$", na=False))
+        num_like = cast(SeriesT, series_str_match(text, r"^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$", na=False))
         if hasattr(bool_like, "where") and bool(bool_like.where(non_null, True).all()):
             return cast(SeriesT, text.str.lower())
         if hasattr(num_like, "where") and bool(num_like.where(non_null, True).all()):
@@ -402,6 +419,12 @@ def _project_property_column(
     return series
 
 
+def _broadcast_projected_scalar(adapter: _RowPipelineAdapter, rows_df: DataFrameT, value: Any) -> SeriesT:
+    if rows_df.__class__.__module__.startswith("cudf") and isinstance(value, (list, tuple, dict)):
+        return cast(SeriesT, pd.Series([value for _ in range(len(rows_df))], dtype="object"))
+    return cast(SeriesT, adapter._gfql_broadcast_scalar(rows_df, value))
+
+
 def _project_expr_column(
     result: Plottable,
     rows_df: DataFrameT,
@@ -412,7 +435,7 @@ def _project_expr_column(
         raise ValueError(f"projection expression not found: {column.output_name!r}")
     adapter = _RowPipelineAdapter(result)
     value = adapter._gfql_eval_string_expr(rows_df, column.source_name)
-    return cast(SeriesT, value if hasattr(value, "astype") else adapter._gfql_broadcast_scalar(rows_df, value))
+    return cast(SeriesT, value if hasattr(value, "astype") else _broadcast_projected_scalar(adapter, rows_df, value))
 
 
 def _whole_row_projection_meta(
@@ -460,7 +483,14 @@ def apply_result_projection(result: Plottable, projection: ResultProjectionPlan)
                 if column.kind == "property"
                 else _project_expr_column(result, rows_df, column=column)
             )
-    projected_nodes = cast(DataFrameT, rows_df.assign(**projected_data)[[column.output_name for column in projection.columns]])
+    projected_rows = rows_df
+    if rows_df.__class__.__module__.startswith("cudf") and any(isinstance(value, pd.Series) for value in projected_data.values()):
+        projected_rows = cast(DataFrameT, rows_df.to_pandas())
+        projected_data = {
+            key: cast(SeriesT, value.to_pandas() if hasattr(value, "to_pandas") else value)
+            for key, value in projected_data.items()
+        }
+    projected_nodes = cast(DataFrameT, projected_rows.assign(**projected_data)[[column.output_name for column in projection.columns]])
 
     out = result.bind()
     out._nodes = projected_nodes

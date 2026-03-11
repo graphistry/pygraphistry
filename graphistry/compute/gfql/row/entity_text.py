@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional, cast
 
+from graphistry.compute.gfql.series_str_compat import series_str_match
 from graphistry.compute.typing import SeriesT
 
 
@@ -83,17 +84,25 @@ def entity_properties_scalar(value: Any) -> Optional[str]:
 
 
 def _coerce_property_value_series(raw: SeriesT) -> SeriesT:
+    if hasattr(raw, "to_pandas") and raw.__class__.__module__.startswith("cudf"):
+        out_pd = _coerce_property_value_series(cast(SeriesT, raw.to_pandas()))
+        try:
+            import cudf  # type: ignore
+            return cast(SeriesT, cudf.Series(out_pd.tolist(), index=raw.index))
+        except Exception:
+            return cast(SeriesT, out_pd)
+
     out = cast(SeriesT, raw.astype("object"))
     missing_mask = cast(SeriesT, raw.isna())
     null_mask = cast(SeriesT, raw == "null")
     true_mask = cast(SeriesT, raw == "true")
     false_mask = cast(SeriesT, raw == "false")
-    quoted_mask = cast(SeriesT, raw.str.match(r"^'(?:\\.|[^'\\])*'$", na=False))
+    quoted_mask = cast(SeriesT, series_str_match(raw, r"^'(?:\\.|[^'\\])*'$", na=False))
     numeric_mask = cast(
         SeriesT,
-        raw.str.match(r"^[+-]?(?:\d+\.\d+(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+(?:[eE][+-]?\d+)?)$", na=False),
+        series_str_match(raw, r"^[+-]?(?:\d+\.\d+(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+(?:[eE][+-]?\d+)?)$", na=False),
     )
-    integer_mask = cast(SeriesT, raw.str.match(r"^[+-]?\d+$", na=False))
+    integer_mask = cast(SeriesT, series_str_match(raw, r"^[+-]?\d+$", na=False))
     float_mask = cast(SeriesT, numeric_mask & ~integer_mask)
 
     if bool(missing_mask.any()):
@@ -120,6 +129,9 @@ def _coerce_property_value_series(raw: SeriesT) -> SeriesT:
 def entity_property_series(series: SeriesT, prop: str) -> SeriesT:
     text = cast(SeriesT, series.astype(str))
     pattern = rf"(?:\{{|,\s*){re.escape(prop)}:\s*(?P<value>{_ENTITY_PROPERTY_VALUE_RE})(?=,\s*[A-Za-z_][A-Za-z0-9_]*:|\}})"
+    if hasattr(text, "to_pandas") and text.__class__.__module__.startswith("cudf"):
+        raw_pd = cast(SeriesT, text.to_pandas().str.extract(pattern, expand=False))
+        return _coerce_property_value_series(raw_pd)
     raw = cast(SeriesT, text.str.extract(pattern, expand=False))
     return _coerce_property_value_series(raw)
 

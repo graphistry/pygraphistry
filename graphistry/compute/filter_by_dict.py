@@ -46,6 +46,13 @@ def _label_series_contains(series: Any, label: str) -> Any:
             return mask
     except Exception:
         pass
+    if hasattr(series, "to_pandas") and series.__class__.__module__.startswith("cudf"):
+        mask_pd = series.to_pandas().apply(lambda value: label in _normalize_labels_cell(value))
+        try:
+            import cudf  # type: ignore
+            return cudf.Series(mask_pd.tolist(), index=series.index, dtype="bool")
+        except Exception:
+            return mask_pd
     return series.apply(lambda value: label in _normalize_labels_cell(value))
 
 
@@ -57,7 +64,11 @@ def resolve_filter_column(df: DataFrameT, col: str, val: Any) -> Tuple[str, Any]
         label = col[len("label__") :]
         if "labels" in df.columns:
             return "labels", label
+<<<<<<< HEAD
         if "type" in df.columns and not _looks_like_edge_dataframe(df):
+=======
+        if "type" in df.columns:
+>>>>>>> 493b5549 (fix(cypher): make cuDF GFQL TCK pass on RAPIDS)
             return "type", label
 
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError

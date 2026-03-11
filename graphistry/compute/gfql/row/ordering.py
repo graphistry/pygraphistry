@@ -9,6 +9,12 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import pandas as pd
 
+from graphistry.compute.gfql.series_str_compat import (
+    series_sequence_len,
+    series_str_extract,
+    series_str_fullmatch,
+    series_str_match,
+)
 from graphistry.compute.gfql.temporal_text import (
     DATETIME_CALL_TEXT_RE,
     DATE_CALL_TEXT_RE,
@@ -91,11 +97,11 @@ def validate_order_series_vector_safe(series: Any, expr: str) -> None:
         return
     actual_string = _actual_string_mask(series, text, null_mask)
     bool_mask = (~null_mask) & (~actual_string) & text.isin(["True", "False"])
-    number_mask = (~null_mask) & (~actual_string) & text.str.fullmatch(_GFQL_LIST_NUMERIC_TEXT_RE.pattern, na=False)
+    number_mask = (~null_mask) & (~actual_string) & series_str_fullmatch(text, _GFQL_LIST_NUMERIC_TEXT_RE.pattern, na=False)
     datetime_mask = (~null_mask) & (~actual_string) & (
-        text.str.fullmatch(_GFQL_DATE_TEXT_RE.pattern, na=False)
-        | text.str.fullmatch(_GFQL_DATETIME_TEXT_RE.pattern, na=False)
-        | text.str.fullmatch(_GFQL_TIME_TEXT_RE.pattern, na=False)
+        series_str_fullmatch(text, _GFQL_DATE_TEXT_RE.pattern, na=False)
+        | series_str_fullmatch(text, _GFQL_DATETIME_TEXT_RE.pattern, na=False)
+        | series_str_fullmatch(text, _GFQL_TIME_TEXT_RE.pattern, na=False)
     )
     string_mask = (~null_mask) & actual_string
     classified_mask = null_mask | bool_mask | number_mask | datetime_mask | string_mask
@@ -142,7 +148,7 @@ def order_detect_list_series(series: Any) -> bool:
     if not hasattr(text, "str"):
         return False
     actual_string = _actual_string_mask(series, text, null_mask)
-    list_like = text.str.strip().str.match(_GFQL_LIST_TEXT_RE.pattern, na=False)
+    list_like = series_str_match(text.str.strip(), _GFQL_LIST_TEXT_RE.pattern, na=False)
     valid = (~null_mask) & (~actual_string) & list_like
     if hasattr(valid, "where"):
         return bool(valid.where(~null_mask, True).all())
@@ -158,20 +164,20 @@ def order_detect_temporal_mode(series: Any) -> Optional[str]:
     text = non_null.astype(str)
     if not hasattr(text, "str"):
         return None
-    if bool(text.str.fullmatch(_GFQL_DATE_TEXT_RE.pattern, na=False).all()):
+    if bool(series_str_fullmatch(text, _GFQL_DATE_TEXT_RE.pattern, na=False).all()):
         return "date"
-    if bool(text.str.fullmatch(_GFQL_DATETIME_TEXT_RE.pattern, na=False).all()):
+    if bool(series_str_fullmatch(text, _GFQL_DATETIME_TEXT_RE.pattern, na=False).all()):
         return "datetime"
-    if bool(text.str.fullmatch(_GFQL_TIME_TEXT_RE.pattern, na=False).all()):
+    if bool(series_str_fullmatch(text, _GFQL_TIME_TEXT_RE.pattern, na=False).all()):
         return "time"
-    if bool(text.str.fullmatch(DATE_CALL_TEXT_RE.pattern, na=False).all()):
+    if bool(series_str_fullmatch(text, DATE_CALL_TEXT_RE.pattern, na=False).all()):
         return "date_constructor"
-    datetime_local = text.str.fullmatch(LOCALDATETIME_CALL_TEXT_RE.pattern, na=False)
-    datetime_tz = text.str.fullmatch(DATETIME_CALL_TEXT_RE.pattern, na=False)
+    datetime_local = series_str_fullmatch(text, LOCALDATETIME_CALL_TEXT_RE.pattern, na=False)
+    datetime_tz = series_str_fullmatch(text, DATETIME_CALL_TEXT_RE.pattern, na=False)
     if bool((datetime_local | datetime_tz).all()):
         return "datetime_constructor"
-    time_local = text.str.fullmatch(LOCALTIME_CALL_TEXT_RE.pattern, na=False)
-    time_tz = text.str.fullmatch(TIME_CALL_TEXT_RE.pattern, na=False)
+    time_local = series_str_fullmatch(text, LOCALTIME_CALL_TEXT_RE.pattern, na=False)
+    time_tz = series_str_fullmatch(text, TIME_CALL_TEXT_RE.pattern, na=False)
     if bool((time_local | time_tz).all()):
         return "time_constructor"
     return None
@@ -193,9 +199,10 @@ def build_list_sort_columns(
     tok_col = fresh_col_name_fn(work_df.columns, f"{key_prefix}__tok")
 
     base = work_df.assign(**{row_col: range(len(work_df)), list_col: work_df[sort_col]})[[row_col, list_col]]
-    if not hasattr(base[list_col], "str") or not hasattr(base[list_col].str, "len"):
-        raise ValueError("order_by list sorting requires string/list accessor support")
-    lengths = base[list_col].str.len()
+    try:
+        lengths = series_sequence_len(base[list_col])
+    except Exception as exc:
+        raise ValueError("order_by list sorting requires string/list accessor support") from exc
     base = base.assign(**{len_col: lengths})
     expanded = base[[row_col, list_col, len_col]].explode(list_col)
     if len(expanded) > 0:
@@ -212,7 +219,7 @@ def build_list_sort_columns(
         null_mask = null_mask_fn(expanded, value)
         lower_str = value_str.str.lower() if hasattr(value_str, "str") else value_str
         bool_mask = (~null_mask) & lower_str.isin(["true", "false"])
-        num_mask = (~null_mask) & (~bool_mask) & value_str.str.fullmatch(_GFQL_LIST_NUMERIC_TEXT_RE.pattern)
+        num_mask = (~null_mask) & (~bool_mask) & series_str_fullmatch(value_str, _GFQL_LIST_NUMERIC_TEXT_RE.pattern, na=False)
         str_mask = (~null_mask) & (~bool_mask) & (~num_mask)
 
         num_values = value_str.where(num_mask, None).astype("float64")
@@ -270,53 +277,53 @@ def build_temporal_sort_columns(
     text = value.astype(str)
     null_mask = null_mask_fn(work_df, value)
     if mode == "date":
-        parts = text.str.extract(_GFQL_DATE_TEXT_RE)
+        parts = series_str_extract(text, _GFQL_DATE_TEXT_RE.pattern)
         year = parts["y"].fillna("0").astype("int64")
         month = parts["mo"].fillna("1").astype("int64")
         day = parts["d"].fillna("1").astype("int64")
         hour = minute = second = nanos = off_hours = off_minutes = None
         off_sign = None
     elif mode == "datetime":
-        parts = text.str.extract(_GFQL_DATETIME_TEXT_RE)
+        parts = series_str_extract(text, _GFQL_DATETIME_TEXT_RE.pattern)
         year = parts["y"].fillna("0").astype("int64")
         month = parts["mo"].fillna("1").astype("int64")
         day = parts["d"].fillna("1").astype("int64")
         hour = parts["h"].fillna("0").astype("int64")
         minute = parts["m"].fillna("0").astype("int64")
-        second = parts["s"].fillna("0").astype("int64")
+        second = parts["s"].fillna("0").replace("", "0").astype("int64")
         frac = parts["f"].fillna("").str.pad(9, side="right", fillchar="0").replace("", "0")
         nanos = frac.astype("int64")
         off_sign = parts["off_sign"].fillna("+")
-        off_hours = parts["off_h"].fillna("0").astype("int64")
-        off_minutes = parts["off_m"].fillna("0").astype("int64")
+        off_hours = parts["off_h"].fillna("0").replace("", "0").astype("int64")
+        off_minutes = parts["off_m"].fillna("0").replace("", "0").astype("int64")
     elif mode == "time":
-        parts = text.str.extract(_GFQL_TIME_TEXT_RE)
+        parts = series_str_extract(text, _GFQL_TIME_TEXT_RE.pattern)
         year = month = day = None
         hour = parts["h"].fillna("0").astype("int64")
         minute = parts["m"].fillna("0").astype("int64")
-        second = parts["s"].fillna("0").astype("int64")
+        second = parts["s"].fillna("0").replace("", "0").astype("int64")
         frac = parts["f"].fillna("").str.pad(9, side="right", fillchar="0").replace("", "0")
         nanos = frac.astype("int64")
         off_sign = parts["off_sign"].fillna("+")
-        off_hours = parts["off_h"].fillna("0").astype("int64")
-        off_minutes = parts["off_m"].fillna("0").astype("int64")
+        off_hours = parts["off_h"].fillna("0").replace("", "0").astype("int64")
+        off_minutes = parts["off_m"].fillna("0").replace("", "0").astype("int64")
     elif mode == "date_constructor":
-        parts = text.str.extract(DATE_CALL_TEXT_RE.pattern)
+        parts = series_str_extract(text, DATE_CALL_TEXT_RE.pattern)
         year = parts["year"].fillna("0").astype("int64")
         month = parts["month"].fillna("1").astype("int64")
         day = parts["day"].fillna("1").astype("int64")
         hour = minute = second = nanos = off_hours = off_minutes = None
         off_sign = None
     elif mode == "datetime_constructor":
-        dt_parts = text.str.extract(DATETIME_CALL_TEXT_RE.pattern)
-        local_parts = text.str.extract(LOCALDATETIME_CALL_TEXT_RE.pattern)
-        use_dt = text.str.match(DATETIME_CALL_TEXT_RE.pattern, na=False)
+        dt_parts = series_str_extract(text, DATETIME_CALL_TEXT_RE.pattern)
+        local_parts = series_str_extract(text, LOCALDATETIME_CALL_TEXT_RE.pattern)
+        use_dt = series_str_match(text, DATETIME_CALL_TEXT_RE.pattern, na=False)
         year = dt_parts["year"].where(use_dt, local_parts["year"]).fillna("0").astype("int64")
         month = dt_parts["month"].where(use_dt, local_parts["month"]).fillna("1").astype("int64")
         day = dt_parts["day"].where(use_dt, local_parts["day"]).fillna("1").astype("int64")
         hour = dt_parts["hour"].where(use_dt, local_parts["hour"]).fillna("0").astype("int64")
         minute = dt_parts["minute"].where(use_dt, local_parts["minute"]).fillna("0").astype("int64")
-        second = dt_parts["second"].where(use_dt, local_parts["second"]).fillna("0").astype("int64")
+        second = dt_parts["second"].where(use_dt, local_parts["second"]).fillna("0").replace("", "0").astype("int64")
         frac = (
             dt_parts["nano"].where(use_dt, local_parts["nano"]).fillna("").str.pad(9, side="right", fillchar="0").replace("", "0")
         )
@@ -326,13 +333,13 @@ def build_temporal_sort_columns(
         off_hours = timezone.str[1:3].where(use_dt, "0").replace("", "0").astype("int64")
         off_minutes = timezone.str[4:6].where(use_dt, "0").replace("", "0").astype("int64")
     else:
-        time_parts = text.str.extract(TIME_CALL_TEXT_RE.pattern)
-        local_parts = text.str.extract(LOCALTIME_CALL_TEXT_RE.pattern)
-        use_tz = text.str.match(TIME_CALL_TEXT_RE.pattern, na=False)
+        time_parts = series_str_extract(text, TIME_CALL_TEXT_RE.pattern)
+        local_parts = series_str_extract(text, LOCALTIME_CALL_TEXT_RE.pattern)
+        use_tz = series_str_match(text, TIME_CALL_TEXT_RE.pattern, na=False)
         year = month = day = None
         hour = time_parts["hour"].where(use_tz, local_parts["hour"]).fillna("0").astype("int64")
         minute = time_parts["minute"].where(use_tz, local_parts["minute"]).fillna("0").astype("int64")
-        second = time_parts["second"].where(use_tz, local_parts["second"]).fillna("0").astype("int64")
+        second = time_parts["second"].where(use_tz, local_parts["second"]).fillna("0").replace("", "0").astype("int64")
         frac = (
             time_parts["nano"].where(use_tz, local_parts["nano"]).fillna("").str.pad(9, side="right", fillchar="0").replace("", "0")
         )
