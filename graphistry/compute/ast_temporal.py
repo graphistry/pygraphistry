@@ -1,6 +1,7 @@
 from typing import Any, Dict, Optional, Union, cast
 from abc import ABC, abstractmethod
 from datetime import date, datetime, time
+from datetime import timezone as py_timezone
 from dateutil import parser as date_parser  # type: ignore[import]
 from datetime import tzinfo as py_tzinfo
 import pandas as pd
@@ -22,6 +23,8 @@ from graphistry.utils.json import JSONVal
 
 
 def _resolve_timezone(timezone: str) -> Optional[py_tzinfo]:
+    if timezone.upper() == "UTC":
+        return py_timezone.utc
     if ZoneInfo is not None:
         try:
             return ZoneInfo(timezone)
