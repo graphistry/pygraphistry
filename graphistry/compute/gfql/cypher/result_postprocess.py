@@ -26,7 +26,10 @@ class WholeRowProjectionMeta(TypedDict):
 
 def _empty_text(df: DataFrameT, alias_col: str) -> SeriesT:
     base = cast(SeriesT, df[alias_col])
-    return cast(SeriesT, base.where(base.isna(), ""))
+    out = cast(SeriesT, base.where(base.isna(), ""))
+    if hasattr(out, "astype"):
+        out = cast(SeriesT, out.astype("object"))
+    return out
 
 
 def _const_text(df: DataFrameT, alias_col: str, value: str) -> SeriesT:
