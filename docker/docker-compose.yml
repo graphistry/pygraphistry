@@ -15,9 +15,8 @@ x-build-kwargs:
     - DOCKER_TAG=${DOCKER_TAG:-latest}
     - BUILDKIT_INLINE_CACHE=1
     - JUPYTER_IMAGE_TAG=python-3.9.5
-    - BASE_VERSION=v2.41.0
+    - RAPIDS_IMAGE=${RAPIDS_IMAGE:-rapidsai/base:25.12-cuda13-py3.12}
     - SENTENCE_TRANSFORMER=""
-    - CUDA_SHORT_VERSION=11.8
 
 ############################################################
 ##

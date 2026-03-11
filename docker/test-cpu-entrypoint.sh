@@ -4,10 +4,22 @@ set -ex
 # Run from project root
 # Args get passed to pytest phase
 
-MAYBE_RAPIDS="echo 'no rapids'"
+activate_rapids_env() {
+    if ! command -v conda >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local conda_base
+    conda_base="$(conda info --base 2>/dev/null || true)"
+    if [[ -n "$conda_base" && -f "$conda_base/etc/profile.d/conda.sh" ]]; then
+        # shellcheck disable=SC1090
+        source "$conda_base/etc/profile.d/conda.sh"
+        conda activate base || true
+    fi
+}
+
 if [[ "$RAPIDS" == "1" ]]; then
-    source activate base
-    MAYBE_RAPIDS="source activate base"
+    activate_rapids_env
 else
     source pygraphistry/bin/activate
 fi
@@ -37,5 +49,8 @@ fi
 
 echo "=== Building ==="
 if [[ "$WITH_BUILD" != "0" ]]; then
-    $MAYBE_RAPIDS && OUTPUT_DIR=/tmp ./bin/build.sh
+    if [[ "$RAPIDS" == "1" ]]; then
+        activate_rapids_env
+    fi
+    OUTPUT_DIR=/tmp ./bin/build.sh
 fi

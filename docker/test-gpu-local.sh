@@ -42,6 +42,7 @@ docker run \
     -e WITH_BUILD=$WITH_BUILD \
     -e LOG_LEVEL=$LOG_LEVEL \
     -v "`pwd`/../graphistry:/opt/pygraphistry/graphistry:ro" \
+    --gpus all \
     --security-opt seccomp=unconfined \
     --rm \
     ${NETWORK} \

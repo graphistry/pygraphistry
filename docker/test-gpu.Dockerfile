@@ -1,9 +1,11 @@
 #NOTE: context is ..
 
-ARG BASE_VERSION=v2.41.0
-ARG CUDA_SHORT_VERSION=11.8
-FROM graphistry/graphistry-nvidia:${BASE_VERSION}-${CUDA_SHORT_VERSION}
+ARG RAPIDS_IMAGE=rapidsai/base:25.12-cuda13-py3.12
+FROM ${RAPIDS_IMAGE}
 ARG PIP_DEPS="-e .[umap-learn,test,ai]"
+
+SHELL ["/bin/bash", "-lc"]
+USER root
 
 RUN mkdir /opt/pygraphistry
 WORKDIR /opt/pygraphistry
@@ -13,10 +15,12 @@ COPY README.md setup.py setup.cfg versioneer.py MANIFEST.in ./
 COPY graphistry/_version.py ./graphistry/_version.py
 
 RUN --mount=type=cache,target=/root/.cache \
-    source activate base \
-    && pip list \
+    python --version \
+    && pip --version \
+    && python -c "import cudf, cugraph, cuml; print('cudf', cudf.__version__); print('cugraph', cugraph.__version__); print('cuml', cuml.__version__)" \
     && touch graphistry/__init__.py \
     && echo "PIP_DEPS: $PIP_DEPS" \
+    && pip install build \
     && pip install $PIP_DEPS \
     && pip list
 
