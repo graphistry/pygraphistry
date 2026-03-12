@@ -1915,13 +1915,13 @@ def _return_references_optional_only_alias(
         alias
         for clause in query.matches
         if not clause.optional
-        for alias in _match_clause_aliases(clause)
+        for alias in _match_clause_aliases_raw(clause)
     }
     optional_only_aliases = {
         alias
         for clause in query.matches
         if clause.optional
-        for alias in _match_clause_aliases(clause)
+        for alias in _match_clause_aliases_raw(clause)
         if alias not in bound_aliases
     }
     if not optional_only_aliases:
@@ -1938,6 +1938,31 @@ def _return_references_optional_only_alias(
             column=item.span.column,
         )
         if referenced & optional_only_aliases:
+            return True
+    return False
+
+
+def _where_uses_optional_only_label_predicate(query: CypherQuery) -> bool:
+    if query.where is None or not query.where.predicates:
+        return False
+    bound_aliases = {
+        alias
+        for clause in query.matches
+        if not clause.optional
+        for alias in _match_clause_aliases_raw(clause)
+    }
+    optional_only_aliases = {
+        alias
+        for clause in query.matches
+        if clause.optional
+        for alias in _match_clause_aliases_raw(clause)
+        if alias not in bound_aliases
+    }
+    if not optional_only_aliases:
+        return False
+    for predicate in query.where.predicates:
+        left = predicate.left
+        if isinstance(left, LabelRef) and left.alias in optional_only_aliases:
             return True
     return False
 
@@ -2492,6 +2517,15 @@ def _match_clause_aliases(clause: MatchClause) -> Set[str]:
     return {
         cast(str, element.variable)
         for element in _normalized_match_pattern(clause)
+        if getattr(element, "variable", None) is not None
+    }
+
+
+def _match_clause_aliases_raw(clause: MatchClause) -> Set[str]:
+    return {
+        cast(str, element.variable)
+        for pattern in clause.patterns
+        for element in pattern
         if getattr(element, "variable", None) is not None
     }
 
@@ -5635,18 +5669,28 @@ def compile_cypher_query(
                 plan=plan,
                 params=params,
             )
-            if optional_null_fill is None and _return_references_optional_only_alias(
+            optional_only_projection = _return_references_optional_only_alias(
                 query,
                 alias_targets=alias_targets,
                 params=params,
-            ):
-                raise _unsupported(
-                    "Cypher MATCH ... OPTIONAL MATCH projections that require null-extension for optional aliases are not yet supported in the local compiler",
-                    field=query.return_.kind,
-                    value=[item.expression.text for item in query.return_.items],
-                    line=query.return_.span.line,
-                    column=query.return_.span.column,
-                )
+            )
+            if optional_null_fill is None and optional_only_projection:
+                if seed_alias is None:
+                    raise _unsupported(
+                        "Cypher MATCH ... OPTIONAL MATCH projections that require null-extension for optional aliases are only supported from a single-node seed MATCH",
+                        field=query.return_.kind,
+                        value=[item.expression.text for item in query.return_.items],
+                        line=query.return_.span.line,
+                        column=query.return_.span.column,
+                    )
+                if _where_uses_optional_only_label_predicate(query):
+                    raise _unsupported(
+                        "Cypher OPTIONAL MATCH label filters over optional-only aliases are not yet supported when projecting optional aliases",
+                        field=query.return_.kind,
+                        value=[item.expression.text for item in query.return_.items],
+                        line=query.return_.span.line,
+                        column=query.return_.span.column,
+                    )
             return CompiledCypherQuery(
                 Chain(_lower_projection_chain(query, lowered, params=params, plan=plan), where=lowered.where),
                 seed_rows=False,
