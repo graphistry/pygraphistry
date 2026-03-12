@@ -1961,6 +1961,8 @@ def _where_uses_optional_only_label_predicate(query: CypherQuery) -> bool:
     if not optional_only_aliases:
         return False
     for predicate in query.where.predicates:
+        if isinstance(predicate, WherePatternPredicate):
+            continue
         left = predicate.left
         if isinstance(left, LabelRef) and left.alias in optional_only_aliases:
             return True
