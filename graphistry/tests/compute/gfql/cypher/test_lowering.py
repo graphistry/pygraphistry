@@ -2797,6 +2797,30 @@ def test_string_cypher_supports_top_level_optional_match_null_rows_for_labels_on
     assert result._nodes.to_pandas().to_dict(orient="records") == [{"ln": None, "nn": None}]
 
 
+def test_string_cypher_supports_optional_match_inline_missing_label_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    graph = _mk_graph(
+        cudf.DataFrame.from_pandas(
+            pd.DataFrame(
+                {
+                    "id": ["a"],
+                    "labels": [["Single"]],
+                    "label__Single": [True],
+                }
+            )
+        ),
+        cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []})),
+    )
+
+    result = graph.gfql(
+        "MATCH (n:Single)\nOPTIONAL MATCH (n)-[r]-(m:NonExistent)\nRETURN r",
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"r": None}]
+
+
 def test_string_cypher_supports_top_level_optional_match_null_rows_for_property_access() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": pd.Series(dtype="object")}),
@@ -4379,6 +4403,24 @@ def test_string_cypher_supports_empty_map_quantifier_predicates() -> None:
 
     assert result._nodes.to_dict(orient="records") == [
         {"none_result": True, "any_result": False, "single_result": False}
+    ]
+
+
+def test_string_cypher_supports_map_quantifier_predicates_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    g = _mk_graph(
+        cudf.DataFrame.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
+        cudf.DataFrame.from_pandas(pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object"), "type": pd.Series(dtype="object")})),
+    )
+
+    result = g.gfql(
+        "RETURN none(x IN [{a: 2, b: 5}] WHERE x.a = 2) AS result",
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"result": False}
     ]
 
 

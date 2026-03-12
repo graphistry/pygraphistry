@@ -1700,7 +1700,13 @@ class RowPipelineMixin:
                         out = self._gfql_mask_fill(out, null_mask, None)
                     return out
             if RowPipelineMixin._gfql_series_is_mapping_like(value):
-                out = value.str.get(prop)
+                if hasattr(value, "struct"):
+                    try:
+                        out = value.struct.field(prop)
+                    except KeyError:
+                        out = self._gfql_broadcast_scalar(table_df, None)
+                else:
+                    out = value.str.get(prop)
                 if hasattr(out, "where"):
                     out = self._gfql_mask_fill(out, null_mask, None)
                 return out
@@ -1763,7 +1769,20 @@ class RowPipelineMixin:
         non_null = ~null_mask
         if hasattr(non_null, "any") and not bool(non_null.any()):
             return False
-        text = series.astype(str)
+        sample_source = series[non_null]
+        if hasattr(sample_source, "head"):
+            sample_values = RowPipelineMixin._gfql_series_to_pylist(sample_source.head(16))
+            if hasattr(sample_source, "tail"):
+                sample_values.extend(RowPipelineMixin._gfql_series_to_pylist(sample_source.tail(16)))
+        else:
+            sample_values = RowPipelineMixin._gfql_series_to_pylist(sample_source)
+        sample_values = [value for value in sample_values if not is_null_scalar(value)]
+        if sample_values and all(isinstance(value, Mapping) for value in sample_values):
+            return True
+        try:
+            text = series.astype(str)
+        except Exception:
+            return False
         if not hasattr(text, "str"):
             return False
         try:

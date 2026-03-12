@@ -20,6 +20,32 @@ def _looks_like_edge_dataframe(df: DataFrameT) -> bool:
     return {"s", "d"} <= cols or {"src", "dst"} <= cols or "edge_id" in cols
 
 
+def _dtype_text(dtype: Any) -> str:
+    try:
+        return str(dtype).lower()
+    except Exception:
+        return ""
+
+
+def _is_numeric_dtype_safe(dtype: Any) -> bool:
+    try:
+        return bool(pd.api.types.is_numeric_dtype(dtype))
+    except Exception:
+        kind = getattr(dtype, "kind", None)
+        if isinstance(kind, str) and kind in {"b", "i", "u", "f", "c"}:
+            return True
+        dtype_txt = _dtype_text(dtype)
+        return any(token in dtype_txt for token in ("bool", "int", "float", "double", "decimal"))
+
+
+def _is_string_dtype_safe(dtype: Any) -> bool:
+    try:
+        return bool(pd.api.types.is_string_dtype(dtype))
+    except Exception:
+        dtype_txt = _dtype_text(dtype)
+        return dtype_txt == "object" or "string" in dtype_txt or dtype_txt.endswith("[python]")
+
+
 def _normalize_labels_cell(value: Any) -> Tuple[Any, ...]:
     if value is None:
         return ()
@@ -38,8 +64,8 @@ def _normalize_labels_cell(value: Any) -> Tuple[Any, ...]:
 
 def _label_series_contains(series: Any, label: str) -> Any:
     try:
-        dtype_txt = str(series.dtype).lower()
-        if dtype_txt != "object" and pd.api.types.is_string_dtype(series.dtype):
+        dtype_txt = _dtype_text(series.dtype)
+        if dtype_txt != "object" and _is_string_dtype_safe(series.dtype):
             mask = series == label
             if hasattr(mask, "where") and hasattr(series, "isna"):
                 return mask.where(~series.isna(), False)
@@ -110,7 +136,7 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
                 continue
             # Check for obvious type mismatches
             col_dtype = df[resolved_col].dtype
-            if pd.api.types.is_numeric_dtype(col_dtype) and isinstance(resolved_val, str):
+            if _is_numeric_dtype_safe(col_dtype) and isinstance(resolved_val, str):
                 raise GFQLSchemaError(
                     ErrorCode.E302,
                     f'Type mismatch: column "{resolved_col}" is numeric but filter value is string',
@@ -119,7 +145,7 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
                     column_type=str(col_dtype),
                     suggestion=f'Use a numeric value like {col}=123'
                 )
-            elif pd.api.types.is_string_dtype(col_dtype) and isinstance(resolved_val, (int, float)) and not isinstance(resolved_val, bool):
+            elif _is_string_dtype_safe(col_dtype) and isinstance(resolved_val, (int, float)) and not isinstance(resolved_val, bool):
                 raise GFQLSchemaError(
                     ErrorCode.E302,
                     f'Type mismatch: column "{resolved_col}" is string but filter value is numeric',
@@ -137,7 +163,7 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
             col_dtype = df[resolved_col].dtype
 
             # Check numeric predicates on non-numeric columns
-            if isinstance(resolved_val, (NumericASTPredicate, Between)) and not pd.api.types.is_numeric_dtype(col_dtype):
+            if isinstance(resolved_val, (NumericASTPredicate, Between)) and not _is_numeric_dtype_safe(col_dtype):
                 raise GFQLSchemaError(
                     ErrorCode.E302,
                     f'Type mismatch: numeric predicate used on non-numeric column "{resolved_col}"',
@@ -148,7 +174,7 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
                 )
 
             # Check string predicates on non-string columns
-            if isinstance(resolved_val, (Contains, Startswith, Endswith, Match)) and not pd.api.types.is_string_dtype(col_dtype):
+            if isinstance(resolved_val, (Contains, Startswith, Endswith, Match)) and not _is_string_dtype_safe(col_dtype):
                 raise GFQLSchemaError(
                     ErrorCode.E302,
                     f'Type mismatch: string predicate used on non-string column "{resolved_col}"',
