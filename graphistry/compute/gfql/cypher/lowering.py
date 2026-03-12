@@ -1872,7 +1872,7 @@ def _reject_unsound_relationship_multiplicity_aggregates(
         if isinstance(active_target, ASTEdge) and relationship_count == 1:
             return
     raise _unsupported(
-        "Cypher multiplicity-sensitive aggregates over relationship MATCH patterns are not yet supported without a multiplicity-preserving row carrier",
+        "This Cypher aggregate would need repeated MATCH rows from a relationship pattern, but the current runtime collapses those rows before aggregation. Queries like MATCH (a)-[r]->(b) RETURN a, count(*) are not supported yet.",
         field=query.return_.kind,
         value=[item.expression.text for item in query.return_.items],
         line=query.return_.span.line,

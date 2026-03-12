@@ -1245,7 +1245,7 @@ def test_string_cypher_rejects_unsound_node_carrier_multiplicity_sensitive_aggre
         ),
     )
 
-    with pytest.raises(GFQLValidationError, match="multiplicity-sensitive aggregates"):
+    with pytest.raises(GFQLValidationError, match="repeated MATCH rows"):
         graph.gfql(query)
 
 
