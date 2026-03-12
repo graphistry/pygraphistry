@@ -2078,6 +2078,139 @@ def test_string_cypher_rejects_unsound_multi_source_aggregate_overlap_queries(qu
 @pytest.mark.parametrize(
     "query",
     [
+        (
+            "MATCH (david {name: 'David'})--(otherPerson)-->() "
+            "WITH otherPerson, count(*) AS foaf "
+            "WHERE foaf > 1 "
+            "WITH otherPerson "
+            "WHERE otherPerson.name <> 'NotOther' "
+            "RETURN count(*)"
+        ),
+        "MATCH (a)-->() WITH a, count(*) AS relCount WHERE relCount > 1 RETURN a",
+    ],
+)
+def test_string_cypher_failfast_rejects_with_stage_unsound_relationship_multiplicity_aggregates(query: str) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d", "anon_5", "anon_6", "anon_7", "anon_8", "anon_9"],
+                "name": ["David", "Other", "NotOther", "NotOther2", None, None, None, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a", "a", "a", "b", "b", "c", "c", "d"],
+                "d": ["b", "c", "d", "anon_5", "anon_6", "anon_7", "anon_8", "anon_9"],
+                "type": ["REL"] * 8,
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError, match="repeated MATCH rows"):
+        graph.gfql(query)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:NonExistent RETURN r",
+        "MATCH (a:A), (c:C) OPTIONAL MATCH (a)-->(b)-->(c) RETURN b",
+    ],
+)
+def test_string_cypher_failfast_rejects_optional_match_null_extension_shapes_without_safe_alignment(query: str) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["s", "a", "b", "c"],
+                "label__Single": [True, False, False, False],
+                "label__A": [False, True, False, False],
+                "label__B": [False, False, True, False],
+                "label__C": [False, False, False, True],
+                "num": [None, 42, 46, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["s", "s", "a", "b"],
+                "d": ["a", "b", "c", "b"],
+                "type": ["REL", "REL", "REL", "LOOP"],
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(query)
+
+    assert exc_info.value.code == ErrorCode.E108
+
+
+def test_string_cypher_failfast_rejects_graph_backed_unwind_after_with_as_unsupported() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["s", "n", "e"],
+                "label__S": [True, False, False],
+                "label__E": [False, False, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["s", "s", "n"],
+                "d": ["e", "e", "e"],
+                "type": ["X", "Y", "Y"],
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql("MATCH (a:S)-[:X]->(b1) WITH a, collect(b1) AS bees UNWIND bees AS b2 MATCH (a)-[:Y]->(b2) RETURN a, b2")
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert "UNWIND after WITH/RETURN" in exc_info.value.message
+
+
+def test_string_cypher_failfast_rejects_variable_length_relationship_patterns_as_unsupported() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d", "e", "f"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "c", "d", "e"],
+                "d": ["b", "d", "e", "f"],
+                "type": ["R", "R", "R", "R"],
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql("MATCH p = (a)-[*]->(b) RETURN collect(nodes(p)) AS paths, length(p) AS l ORDER BY l")
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert "variable-length relationship patterns" in exc_info.value.message
+
+
+def test_string_cypher_failfast_rejects_multi_pattern_reentry_match_as_unsupported() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["anon_1", "anon_2", "anon_3"],
+                "label__A": [True, False, False],
+                "label__X": [False, True, False],
+                "label__B": [False, False, True],
+            }
+        ),
+        pd.DataFrame({"s": ["anon_1"], "d": ["anon_2"], "type": ["REL"]}),
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql("MATCH (n:A) WITH n LIMIT 1 MATCH (m:B), (n)-->(x:X) RETURN *")
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert "single trailing MATCH pattern" in exc_info.value.message
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
         "RETURN duration.inSeconds(localtime(), localtime()) AS duration",
         "RETURN duration.inSeconds(time(), time()) AS duration",
         "RETURN duration.inSeconds(date(), date()) AS duration",

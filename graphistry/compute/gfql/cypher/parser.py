@@ -377,6 +377,58 @@ def _to_syntax_error(message: str, *, line: Optional[int] = None, column: Option
     )
 
 
+def _to_unsupported(message: str, *, line: Optional[int] = None, column: Optional[int] = None, **extra: Any) -> GFQLValidationError:
+    return GFQLValidationError(
+        ErrorCode.E108,
+        message,
+        suggestion="Use a subset currently supported by the local Cypher compiler.",
+        line=line,
+        column=column,
+        language="cypher",
+        **extra,
+    )
+
+
+_VARIABLE_REL_PATTERN_RE = re.compile(
+    r"(?:<-\s*\[[^\]\n]*\*[^\]\n]*\]\s*-)|(?:-\s*\[[^\]\n]*\*[^\]\n]*\]\s*->)|(?:-\s*\[[^\]\n]*\*[^\]\n]*\]\s*-)"
+)
+
+
+def _line_and_column_from_offset(source: str, offset: int) -> Tuple[int, int]:
+    line = source.count("\n", 0, offset) + 1
+    last_newline = source.rfind("\n", 0, offset)
+    column = offset + 1 if last_newline < 0 else offset - last_newline
+    return line, column
+
+
+def _find_variable_length_relationship_pattern(source: str) -> Optional[Tuple[str, int, int]]:
+    in_single_quote = False
+    escape = False
+    segment_start = 0
+    for idx, ch in enumerate(source):
+        if in_single_quote:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == "'":
+                in_single_quote = False
+                segment_start = idx + 1
+            continue
+        if ch == "'":
+            match = _VARIABLE_REL_PATTERN_RE.search(source, segment_start, idx)
+            if match is not None:
+                line, column = _line_and_column_from_offset(source, match.start())
+                return match.group(0), line, column
+            in_single_quote = True
+            continue
+    match = _VARIABLE_REL_PATTERN_RE.search(source, segment_start)
+    if match is None:
+        return None
+    line, column = _line_and_column_from_offset(source, match.start())
+    return match.group(0), line, column
+
+
 def _build_transformer(source: str) -> _TransformerLike:
     _, Transformer, _, v_args = _lark_imports()
     op_map = {
@@ -1026,8 +1078,8 @@ def _build_transformer(source: str) -> _TransformerLike:
                             column=item.span.column,
                         )
                     if match_clauses and seen_stage:
-                        raise _to_syntax_error(
-                            "Cypher UNWIND after WITH/RETURN is only supported in row-only local queries",
+                        raise _to_unsupported(
+                            "Cypher UNWIND after WITH/RETURN is not yet supported once MATCH has introduced graph aliases",
                             line=item.span.line,
                             column=item.span.column,
                         )
@@ -1199,6 +1251,16 @@ def _build_transformer(source: str) -> _TransformerLike:
 def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery]:
     if not isinstance(query, str) or query.strip() == "":
         raise _to_syntax_error("Cypher query must be a non-empty string")
+    variable_length_pattern = _find_variable_length_relationship_pattern(query)
+    if variable_length_pattern is not None:
+        pattern_text, line, column = variable_length_pattern
+        raise _to_unsupported(
+            "Cypher variable-length relationship patterns are not yet supported in the local compiler",
+            line=line,
+            column=column,
+            field="match",
+            value=pattern_text,
+        )
 
     parser = _parser()
     transformer = _build_transformer(query)
@@ -1213,9 +1275,9 @@ def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery]:
         if isinstance(exc, (GFQLSyntaxError, GFQLValidationError)):
             raise
         if isinstance(exc, LarkError):
-            line = getattr(exc, "line", None)
-            column = getattr(exc, "column", None)
-            raise _to_syntax_error("Invalid Cypher query syntax", line=line, column=column) from exc
+            err_line = cast(Optional[int], getattr(exc, "line", None))
+            err_column = cast(Optional[int], getattr(exc, "column", None))
+            raise _to_syntax_error("Invalid Cypher query syntax", line=err_line, column=err_column) from exc
         raise _to_syntax_error("Invalid Cypher query syntax") from exc
 
     if not isinstance(node, (CypherQuery, CypherUnionQuery)):

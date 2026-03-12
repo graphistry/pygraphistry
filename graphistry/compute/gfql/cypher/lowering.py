@@ -191,6 +191,7 @@ class _StageScope:
     projected_columns: Dict[str, _StageColumnBinding]
     table: Optional[Literal["nodes", "edges"]]
     seed_rows: bool
+    relationship_count: int
 
 
 _CYPHER_PARAM_RE = re.compile(r"^\$([A-Za-z_][A-Za-z0-9_]*)$")
@@ -1852,19 +1853,19 @@ def _match_relationship_count(clause: MatchClause) -> int:
     return sum(1 for element in _normalized_match_pattern(clause) if isinstance(element, RelationshipPattern))
 
 
-def _reject_unsound_relationship_multiplicity_aggregates(
-    query: CypherQuery,
+def _reject_unsound_relationship_multiplicity_aggregates_common(
     *,
     aggregate_specs: Sequence[_AggregateSpec],
     alias_targets: Mapping[str, ASTObject],
     active_match_alias: Optional[str],
+    relationship_count: int,
+    field: str,
+    value: Any,
+    line: int,
+    column: int,
 ) -> None:
     if not any(_is_multiplicity_sensitive_aggregate(spec) for spec in aggregate_specs):
         return
-    merged_match = _merged_match_clause(query)
-    if merged_match is None:
-        return
-    relationship_count = _match_relationship_count(merged_match)
     if relationship_count == 0:
         return
     if active_match_alias is not None:
@@ -1873,11 +1874,72 @@ def _reject_unsound_relationship_multiplicity_aggregates(
             return
     raise _unsupported(
         "This Cypher aggregate would need repeated MATCH rows from a relationship pattern, but the current runtime collapses those rows before aggregation. Queries like MATCH (a)-[r]->(b) RETURN a, count(*) are not supported yet.",
+        field=field,
+        value=value,
+        line=line,
+        column=column,
+    )
+
+
+def _reject_unsound_relationship_multiplicity_aggregates(
+    query: CypherQuery,
+    *,
+    aggregate_specs: Sequence[_AggregateSpec],
+    alias_targets: Mapping[str, ASTObject],
+    active_match_alias: Optional[str],
+) -> None:
+    merged_match = _merged_match_clause(query)
+    if merged_match is None:
+        return
+    _reject_unsound_relationship_multiplicity_aggregates_common(
+        aggregate_specs=aggregate_specs,
+        alias_targets=alias_targets,
+        active_match_alias=active_match_alias,
+        relationship_count=_match_relationship_count(merged_match),
         field=query.return_.kind,
         value=[item.expression.text for item in query.return_.items],
         line=query.return_.span.line,
         column=query.return_.span.column,
     )
+
+
+def _return_references_optional_only_alias(
+    query: CypherQuery,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]] = None,
+) -> bool:
+    if not any(clause.optional for clause in query.matches) or not any(not clause.optional for clause in query.matches):
+        return False
+    bound_aliases = {
+        alias
+        for clause in query.matches
+        if not clause.optional
+        for alias in _match_clause_aliases(clause)
+    }
+    optional_only_aliases = {
+        alias
+        for clause in query.matches
+        if clause.optional
+        for alias in _match_clause_aliases(clause)
+        if alias not in bound_aliases
+    }
+    if not optional_only_aliases:
+        return False
+    for item in query.return_.items:
+        if item.expression.text == "*":
+            return True
+        referenced = _expr_match_aliases(
+            item.expression.text,
+            alias_targets=alias_targets,
+            params=params,
+            field=query.return_.kind,
+            line=item.span.line,
+            column=item.span.column,
+        )
+        if referenced & optional_only_aliases:
+            return True
+    return False
 
 
 def _active_match_alias(
@@ -3420,6 +3482,7 @@ def _build_initial_row_scope(
     params: Optional[Mapping[str, Any]],
 ) -> Tuple[List[ASTObject], _StageScope]:
     alias_targets = _alias_target(lowered.query) if query.match is not None else {}
+    merged_match = _merged_match_clause(query)
     active_match_alias = _active_match_alias_for_stage(
         unwinds=query.unwinds,
         clause=stage_clause,
@@ -3494,6 +3557,7 @@ def _build_initial_row_scope(
             projected_columns={},
             table=table,
             seed_rows=seed_rows,
+            relationship_count=_match_relationship_count(merged_match) if merged_match is not None else 0,
         )
 
 
@@ -3609,6 +3673,7 @@ def _lower_match_alias_stage(
             projected_columns=next_projected_columns,
             table=cast(Optional[Literal["nodes", "edges"]], plan.table),
             seed_rows=scope.seed_rows,
+            relationship_count=scope.relationship_count,
         )
     else:
         next_scope = _StageScope(
@@ -3619,6 +3684,7 @@ def _lower_match_alias_stage(
             projected_columns={},
             table=None,
             seed_rows=scope.seed_rows,
+            relationship_count=scope.relationship_count,
         )
 
     result_projection = _result_projection_plan(plan, alias_targets=scope.alias_targets) if final_stage else None
@@ -3645,6 +3711,16 @@ def _lower_match_alias_aggregate_stage(
         )
 
     projection_fn = with_ if stage.clause.kind == "with" else return_
+    _reject_unsound_relationship_multiplicity_aggregates_common(
+        aggregate_specs=aggregate_specs,
+        alias_targets=scope.alias_targets,
+        active_match_alias=active_alias,
+        relationship_count=scope.relationship_count,
+        field=stage.clause.kind,
+        value=[item.expression.text for item in stage.clause.items],
+        line=stage.clause.span.line,
+        column=stage.clause.span.column,
+    )
     pre_items: List[Tuple[str, Any]] = []
     key_names: List[str] = []
     temp_names: Set[str] = set()
@@ -3875,6 +3951,7 @@ def _lower_match_alias_aggregate_stage(
         projected_columns={},
         table=None,
         seed_rows=scope.seed_rows,
+        relationship_count=scope.relationship_count,
     ), None if final_stage else None
 
 
@@ -4118,6 +4195,7 @@ def _lower_row_column_stage(
         projected_columns=next_projected_columns,
         table=None,
         seed_rows=scope.seed_rows,
+        relationship_count=scope.relationship_count,
     )
 
 
@@ -4138,6 +4216,7 @@ def _lower_row_only_sequence_with_scope(
         projected_columns={},
         table=None,
         seed_rows=seed_rows,
+        relationship_count=0,
     )
 
     for item in query.row_sequence:
@@ -4176,6 +4255,7 @@ def _lower_row_only_sequence_with_scope(
                 projected_columns=dict(scope.projected_columns),
                 table=None,
                 seed_rows=scope.seed_rows,
+                relationship_count=scope.relationship_count,
             )
             continue
 
@@ -4420,6 +4500,7 @@ def _lower_row_column_aggregate_stage(
         projected_columns={},
         table=None,
         seed_rows=scope.seed_rows,
+        relationship_count=scope.relationship_count,
     )
 
 
@@ -5245,7 +5326,15 @@ def lower_cypher_query(
 
 
 def _first_pattern_node_alias(clause: MatchClause) -> Optional[str]:
-    pattern = clause.pattern
+    if len(clause.patterns) != 1:
+        raise _unsupported(
+            "Cypher MATCH after WITH currently supports a single trailing MATCH pattern",
+            field="match",
+            value=len(clause.patterns),
+            line=clause.span.line,
+            column=clause.span.column,
+        )
+    pattern = clause.patterns[0]
     if not pattern or not isinstance(pattern[0], NodePattern):
         return None
     return pattern[0].variable
@@ -5546,6 +5635,18 @@ def compile_cypher_query(
                 plan=plan,
                 params=params,
             )
+            if optional_null_fill is None and _return_references_optional_only_alias(
+                query,
+                alias_targets=alias_targets,
+                params=params,
+            ):
+                raise _unsupported(
+                    "Cypher MATCH ... OPTIONAL MATCH projections that require null-extension for optional aliases are not yet supported in the local compiler",
+                    field=query.return_.kind,
+                    value=[item.expression.text for item in query.return_.items],
+                    line=query.return_.span.line,
+                    column=query.return_.span.column,
+                )
             return CompiledCypherQuery(
                 Chain(_lower_projection_chain(query, lowered, params=params, plan=plan), where=lowered.where),
                 seed_rows=False,
