@@ -1015,14 +1015,12 @@ def test_string_cypher_supports_match_with_constant_projection_before_order_by()
 def test_string_cypher_supports_path_bound_match_when_path_variable_is_unused() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b"]}),
-        pd.DataFrame({"s": ["a"], "d": ["b"]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "id": ["r1"]}),
     )
 
-    result = graph.gfql("MATCH p = (n)-->(b) RETURN aVg(    n.aGe     )")
+    result = graph.gfql("MATCH p = (n)-[r]->(b) RETURN count(r) AS cnt")
 
-    assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == [
-        {"aVg(    n.aGe     )": None}
-    ]
+    assert result._nodes.to_dict(orient="records") == [{"cnt": 1}]
 
 
 def test_string_cypher_emits_global_aggregate_row_for_empty_match() -> None:
@@ -1031,7 +1029,7 @@ def test_string_cypher_emits_global_aggregate_row_for_empty_match() -> None:
         pd.DataFrame({"s": [], "d": []}),
     )
 
-    result = graph.gfql("MATCH p = (n)-->(b) RETURN aVg(    n.aGe     )")
+    result = graph.gfql("MATCH (n {id: 'missing'}) RETURN aVg(    n.aGe     )")
 
     assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == [
         {"aVg(    n.aGe     )": None}
@@ -1218,6 +1216,59 @@ def test_string_cypher_supports_whole_row_grouping_with_count_star() -> None:
     result = graph.gfql("MATCH (a:L) RETURN a, count(*)")
 
     assert result._nodes.to_dict(orient="records") == [{"a": "(:L)", "count(*)": 1}]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (a:L)-[r]->(b) RETURN a, count(*) AS cnt",
+        "MATCH (a:L)-[r]->(b) RETURN a.id AS aid, count(*) AS cnt",
+        "MATCH (a)-[r]->(b) RETURN count(*) AS cnt",
+        "MATCH (a)-[r]->(b) RETURN count(a) AS cnt",
+        "MATCH (a)-[r]->(b) RETURN sum(1) AS total",
+    ],
+)
+def test_string_cypher_rejects_unsound_node_carrier_multiplicity_sensitive_aggregates(query: str) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "label__L": [True, False, False],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a", "a"],
+                "d": ["b", "c"],
+                "id": ["r1", "r2"],
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError, match="multiplicity-sensitive aggregates"):
+        graph.gfql(query)
+
+
+def test_string_cypher_keeps_single_edge_relationship_grouped_count_star() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"]}),
+        pd.DataFrame({"s": ["a", "a"], "d": ["b", "c"], "id": ["r1", "r2"]}),
+    )
+
+    result = graph.gfql("MATCH (a)-[r]->(b) RETURN r.id AS rid, count(*) AS cnt")
+
+    assert result._nodes.to_dict(orient="records") == [{"rid": "r1", "cnt": 1}, {"rid": "r2", "cnt": 1}]
+
+
+def test_string_cypher_keeps_single_edge_relationship_global_count() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"]}),
+        pd.DataFrame({"s": ["a", "a"], "d": ["b", "c"], "id": ["r1", "r2"]}),
+    )
+
+    result = graph.gfql("MATCH (a)-[r]->(b) RETURN count(r) AS cnt")
+
+    assert result._nodes.to_dict(orient="records") == [{"cnt": 2}]
 
 
 def test_string_cypher_supports_with_whole_row_grouping_then_return() -> None:

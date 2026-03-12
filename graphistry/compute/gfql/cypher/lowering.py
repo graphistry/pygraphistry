@@ -1840,6 +1840,46 @@ def _validate_aggregate_expr_scope(
     )
 
 
+def _is_multiplicity_sensitive_aggregate(agg_spec: _AggregateSpec) -> bool:
+    if agg_spec.func in {"sum", "avg"}:
+        return True
+    if agg_spec.func in {"count", "collect"}:
+        return not agg_spec.distinct
+    return False
+
+
+def _match_relationship_count(clause: MatchClause) -> int:
+    return sum(1 for element in _normalized_match_pattern(clause) if isinstance(element, RelationshipPattern))
+
+
+def _reject_unsound_relationship_multiplicity_aggregates(
+    query: CypherQuery,
+    *,
+    aggregate_specs: Sequence[_AggregateSpec],
+    alias_targets: Mapping[str, ASTObject],
+    active_match_alias: Optional[str],
+) -> None:
+    if not any(_is_multiplicity_sensitive_aggregate(spec) for spec in aggregate_specs):
+        return
+    merged_match = _merged_match_clause(query)
+    if merged_match is None:
+        return
+    relationship_count = _match_relationship_count(merged_match)
+    if relationship_count == 0:
+        return
+    if active_match_alias is not None:
+        active_target = alias_targets.get(active_match_alias)
+        if isinstance(active_target, ASTEdge) and relationship_count == 1:
+            return
+    raise _unsupported(
+        "Cypher multiplicity-sensitive aggregates over relationship MATCH patterns are not yet supported without a multiplicity-preserving row carrier",
+        field=query.return_.kind,
+        value=[item.expression.text for item in query.return_.items],
+        line=query.return_.span.line,
+        column=query.return_.span.column,
+    )
+
+
 def _active_match_alias(
     query: CypherQuery,
     *,
@@ -5025,6 +5065,12 @@ def _lower_general_row_projection(
                 alias_name=agg_spec.output_name,
             )
 
+        _reject_unsound_relationship_multiplicity_aggregates(
+            query,
+            aggregate_specs=aggregate_specs,
+            alias_targets=alias_targets,
+            active_match_alias=active_match_alias,
+        )
         if key_names:
             if len(pre_items) > 0:
                 row_steps.append(with_(pre_items))
