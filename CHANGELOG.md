@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.51.1 - 2026-03-12]
+
 ### Added
 - **GFQL / Cypher**: Added local Cypher-string execution through `g.gfql(query, params=...)`. String queries that look like Cypher now execute locally through GFQL; remote `g.cypher(...)` semantics stay unchanged.
 - **GFQL / Cypher compiler**: Added the `graphistry.compute.gfql.cypher` parser/compiler surface, including `parse_cypher`, `compile_cypher`, `cypher_to_gfql`, and `gfql_from_cypher`.
