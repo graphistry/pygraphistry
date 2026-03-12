@@ -303,7 +303,7 @@ class RowPipelineMixin:
         if op in {"<", "<=", ">", ">="}:
             left_values = self._gfql_series_to_pylist(left_series)
             right_values = self._gfql_series_to_pylist(right_series)
-            out_values = []
+            out_values: List[Optional[bool]] = []
             for left_item, right_item in zip(left_values, right_values):
                 if is_null_scalar(left_item) or is_null_scalar(right_item):
                     out_values.append(None)
@@ -2217,7 +2217,7 @@ class RowPipelineMixin:
                 break
             if parsed_values:
                 host_index = getattr(base_value, "index", None)
-                if hasattr(host_index, "to_pandas"):
+                if host_index is not None and hasattr(host_index, "to_pandas"):
                     try:
                         host_index = host_index.to_pandas()
                     except Exception:
