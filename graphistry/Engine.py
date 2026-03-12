@@ -103,6 +103,46 @@ def df_to_pdf(df, engine: Engine):
         return df.compute()
     raise ValueError('Only engines pandas/cudf supported')
 
+def _cudf_from_pandas_best_effort(df: pd.DataFrame):
+    import cudf
+
+    try:
+        return cudf.DataFrame.from_pandas(df)
+    except Exception:
+        failed_cols: List[str] = []
+        out_gdf = cudf.DataFrame.from_pandas(df[[]])
+        for col in df.columns:
+            try:
+                out_gdf[col] = cudf.DataFrame.from_pandas(df[[col]])[col]
+            except Exception:
+                series = df[col]
+                non_null = series.dropna()
+                numeric_values = list(non_null.tolist()) if len(non_null) > 0 else []
+                if numeric_values and all(
+                    isinstance(value, (int, float, np.integer, np.floating)) and not isinstance(value, bool)
+                    for value in numeric_values
+                ):
+                    try:
+                        numeric_series = pd.to_numeric(series, errors="coerce")
+                        if all(float(value).is_integer() for value in numeric_values):
+                            numeric_series = numeric_series.astype("Int64")
+                        numeric_df = pd.DataFrame({col: numeric_series})
+                        out_gdf[col] = cudf.DataFrame.from_pandas(numeric_df)[col]
+                        continue
+                    except Exception:
+                        pass
+                failed_cols.append(str(col))
+                string_df = pd.DataFrame({col: series.astype("string")})
+                out_gdf[col] = cudf.DataFrame.from_pandas(string_df)[col]
+        if failed_cols:
+            warnings.warn(
+                "Best-effort pandas->cuDF coercion converted mixed-type columns to string dtype: "
+                + ", ".join(f"{col}[{df[col].dtype}]" for col in failed_cols),
+                RuntimeWarning,
+            )
+        return out_gdf
+
+
 def df_to_engine(df, engine: Engine):
     if engine == Engine.PANDAS:
         if isinstance(df, pd.DataFrame):
@@ -113,8 +153,9 @@ def df_to_engine(df, engine: Engine):
         import cudf
         if isinstance(df, cudf.DataFrame):
             return df
-        else:
-            return cudf.DataFrame.from_pandas(df)
+        if not isinstance(df, pd.DataFrame):
+            df = df.to_pandas()
+        return _cudf_from_pandas_best_effort(df)
     raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 def df_concat(engine: Engine):
@@ -124,6 +165,69 @@ def df_concat(engine: Engine):
         import cudf
         return cudf.concat
     raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+
+
+def align_shared_column_dtypes(
+    reference: DataframeLike,
+    candidate: DataframeLike,
+) -> DataframeLike:
+    """
+    Coerce shared columns on ``candidate`` to the dtypes already used by
+    ``reference`` when both frames are on the same engine.
+
+    cuDF row-wise concat is stricter than pandas about shared-column dtype
+    mismatches, so endpoint rows synthesized from edges need to inherit the
+    node table schema before concatenation.
+    """
+
+    if reference is None or candidate is None:
+        return candidate
+
+    reference_engine = resolve_engine(EngineAbstract.AUTO, reference)
+    candidate_engine = resolve_engine(EngineAbstract.AUTO, candidate)
+    if candidate_engine != reference_engine:
+        candidate = df_to_engine(candidate, reference_engine)
+
+    shared_cols = [col for col in candidate.columns if col in reference.columns]
+    for col in shared_cols:
+        ref_dtype = getattr(reference[col], "dtype", None)
+        cand_dtype = getattr(candidate[col], "dtype", None)
+        if ref_dtype is None or cand_dtype is None or str(ref_dtype) == str(cand_dtype):
+            continue
+        try:
+            candidate[col] = candidate[col].astype(ref_dtype)
+        except Exception:
+            pass
+
+    return candidate
+
+
+def safe_row_concat(
+    frames: List[DataframeLike],
+    *,
+    ignore_index: bool = True,
+    sort: bool = False,
+) -> DataframeLike:
+    """
+    Concatenate row-wise while preserving the first frame's engine when cuDF
+    refuses mixed/missing-column schemas that pandas accepts.
+    """
+
+    if len(frames) == 0:
+        return pd.DataFrame()
+    if len(frames) == 1:
+        return frames[0]
+
+    engine_concrete = resolve_engine(EngineAbstract.AUTO, frames[0])
+    concat_fn = df_concat(engine_concrete)
+    try:
+        return concat_fn(frames, ignore_index=ignore_index, sort=sort)
+    except Exception:
+        if engine_concrete != Engine.CUDF:
+            raise
+        pandas_frames = [df_to_engine(frame, Engine.PANDAS) for frame in frames]
+        pandas_result = pd.concat(pandas_frames, ignore_index=ignore_index, sort=sort)
+        return df_to_engine(pandas_result, Engine.CUDF)
 
 def df_cons(engine: Engine):
     if engine == Engine.PANDAS:

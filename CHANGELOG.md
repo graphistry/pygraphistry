@@ -18,10 +18,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 - **GFQL / Cypher validation/runtime parity**: Hardened lowering and row-pipeline boundaries so unsupported Cypher/query shapes fail fast with validation errors instead of falling through to unsupported execution paths.
 - **GFQL / Cypher compatibility**: Fixed local Cypher execution across pandas 2/3 and Python 3.8-3.14 for temporal constructor rendering/parsing, whole-row projection text normalization, and Arrow-string null RHS handling in string predicates.
+- **GFQL / Cypher aggregates**: Reject unsound aggregate multiplicity query shapes during local Cypher lowering instead of returning incorrect results.
+- **GFQL / cuDF row projections**: Preserve list/map/entity row projections through pandas<->cuDF fallback paths, harden schema validation and struct/map access, and keep RAPIDS CUDA 13 execution aligned with pandas for supported local string-Cypher queries.
 
 ### Tests
 - **GFQL / Cypher**: Added parser, lowering, execution, procedure-call, UNION, temporal, whole-row projection, and compatibility coverage for local Cypher execution.
 - **GFQL / Row pipeline**: Expanded unit coverage for projection aliasing, ordering/grouping semantics, DISTINCT/UNWIND flows, and parser/precedence regressions across pure-vector execution paths.
+- **GFQL / cuDF**: Added RAPIDS-focused regression coverage for schema validation, row projection precedence/list cases, and row-table preservation, keeping the supported string-Cypher TCK slice green on the latest GPU validation flow.
+
+### Infra
+- **Docker / GPU tests**: Added an opt-in RAPIDS CUDA 13 GPU validation path for local/DGX cuDF testing while keeping the default Graphistry GPU image flow unchanged.
+- **CI**: Scoped the `docs_only_latest` optimization to push workflows so shallow PR refs do not suppress required jobs.
 
 ## [0.51.0 - 2026-03-02]
 

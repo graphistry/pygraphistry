@@ -1,7 +1,7 @@
 import logging
 import pandas as pd
 from typing import Any, Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
-from graphistry.Engine import Engine, EngineAbstract, df_concat, df_to_engine, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, align_shared_column_dtypes, df_concat, df_to_engine, resolve_engine, safe_row_concat
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
@@ -1018,11 +1018,8 @@ def _chain_impl(
                     ignore_index=True,
                     sort=False,
                 ).drop_duplicates(subset=[g_out._node])
-                if resolve_engine(EngineAbstract.AUTO, endpoints) != resolve_engine(EngineAbstract.AUTO, g_out._nodes):
-                    endpoints = df_to_engine(endpoints, resolve_engine(EngineAbstract.AUTO, g_out._nodes))
-                g_out = g_out.nodes(
-                    concat_fn([g_out._nodes, endpoints], ignore_index=True, sort=False).drop_duplicates(subset=[g_out._node])
-                )
+                endpoints = align_shared_column_dtypes(g_out._nodes, endpoints)
+                g_out = g_out.nodes(safe_row_concat([g_out._nodes, endpoints], ignore_index=True, sort=False).drop_duplicates(subset=[g_out._node]))
 
             success = True
 

@@ -630,6 +630,108 @@ def test_string_cypher_formats_single_edge_entity_projection() -> None:
     ]
 
 
+def test_string_cypher_formats_filtered_edge_entity_projection_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    nodes = cudf.DataFrame.from_pandas(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "labels": [[], [], []],
+                "name": ["A", "B", "C"],
+            }
+        )
+    )
+    edges = cudf.DataFrame.from_pandas(
+        pd.DataFrame(
+            {
+                "s": ["a", "a", "a"],
+                "d": ["b", "c", "c"],
+                "edge_id": ["rel_1", "rel_2", "rel_3"],
+                "type": ["KNOWS", "HATES", "WONDERS"],
+                "undirected": [False, False, False],
+            }
+        )
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (n)-[r]->(x) "
+        "WHERE type(r) = 'KNOWS' OR type(r) = 'HATES' "
+        "RETURN r",
+        engine="cudf",
+    )
+
+    pdf = result._nodes.to_pandas().sort_values("r").reset_index(drop=True)
+    assert pdf.to_dict(orient="records") == [
+        {"r": "[:HATES]"},
+        {"r": "[:KNOWS]"},
+    ]
+
+
+def test_string_cypher_formats_optional_match_projection_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    nodes = cudf.DataFrame.from_pandas(
+        pd.DataFrame(
+            {
+                "id": ["s", "a", "b", "c"],
+                "labels": [["Single"], ["A"], ["B"], ["C"]],
+                "label__Single": [True, False, False, False],
+                "label__A": [False, True, False, False],
+                "label__B": [False, False, True, False],
+                "label__C": [False, False, False, True],
+                "num": pd.Series([pd.NA, 42, 46, pd.NA], dtype="Int64"),
+            }
+        )
+    )
+    edges = cudf.DataFrame.from_pandas(
+        pd.DataFrame(
+            {
+                "s": ["s", "s", "a", "b"],
+                "d": ["a", "b", "c", "b"],
+                "edge_id": ["rel_1", "rel_2", "rel_3", "rel_4"],
+                "type": ["REL", "REL", "REL", "LOOP"],
+                "undirected": [False, False, False, False],
+            }
+        )
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (n:Single) "
+        "OPTIONAL MATCH (n)-[r]-(m) "
+        "WHERE m.num = 42 "
+        "RETURN m",
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"m": "(:A {num: 42})"}
+    ]
+
+
+def test_string_cypher_formats_small_float_node_entity_projection_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    nodes = cudf.DataFrame.from_pandas(
+        pd.DataFrame(
+            {
+                "id": ["b"],
+                "labels": [["B"]],
+                "label__B": [True],
+                "num": [30.94857],
+                "num2": [0.00002],
+            }
+        )
+    )
+    edges = cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []}))
+
+    result = _mk_graph(nodes, edges).gfql("MATCH (a) RETURN a", engine="cudf")
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"a": "(:B {num: 30.94857, num2: 0.00002})"}
+    ]
+
+
 def test_string_cypher_formats_single_node_entity_projection_with_alias() -> None:
     nodes = pd.DataFrame({"id": ["a"], "type": ["A"]})
     edges = pd.DataFrame({"s": [], "d": []})
@@ -1303,6 +1405,17 @@ def test_string_cypher_supports_post_aggregate_size_collect_projection() -> None
     assert result._nodes.to_dict(orient="records") == [{"n": 3}]
 
 
+def test_string_cypher_supports_post_aggregate_size_collect_projection_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    nodes = cudf.DataFrame.from_pandas(pd.DataFrame({"id": [f"n{i}" for i in range(11)], "labels": [[] for _ in range(11)]}))
+    edges = cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []}))
+
+    result = _mk_graph(nodes, edges).gfql("MATCH (a) RETURN size(collect(a)) AS n", engine="cudf")
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"n": 11}]
+
+
 def test_string_cypher_supports_grouped_post_aggregate_size_collect_projection() -> None:
     graph = _mk_graph(
         pd.DataFrame(
@@ -1435,6 +1548,55 @@ def test_string_cypher_supports_parameterized_row_expr_null_propagation() -> Non
     )
 
     assert pd.isna(result._nodes.iloc[0]["result"])
+
+
+def test_string_cypher_supports_static_row_expr_null_propagation_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    graph = _mk_graph(
+        cudf.DataFrame.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
+        cudf.DataFrame.from_pandas(pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")})),
+    )
+
+    result = graph.gfql("RETURN 4 IN [1, null, 3] AS result", engine="cudf")
+
+    assert pd.isna(result._nodes.to_pandas().iloc[0]["result"])
+
+
+def test_string_cypher_supports_list_append_precedence_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    graph = _mk_graph(
+        cudf.DataFrame.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
+        cudf.DataFrame.from_pandas(pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")})),
+    )
+
+    result = graph.gfql(
+        "RETURN [1]+2 IN [3]+4 AS a, ([1]+2) IN ([3]+4) AS b, [1]+(2 IN [3])+4 AS c",
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"a": False, "b": False, "c": [1, False, 4]}
+    ]
+
+
+def test_string_cypher_supports_list_membership_append_precedence_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    graph = _mk_graph(
+        cudf.DataFrame.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
+        cudf.DataFrame.from_pandas(pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")})),
+    )
+
+    result = graph.gfql(
+        "RETURN [1]+[2] IN [3]+[4] AS a, ([1]+[2]) IN ([3]+[4]) AS b, (([1]+[2]) IN [3])+[4] AS c, [1]+([2] IN [3])+[4] AS d",
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"a": False, "b": False, "c": [False, 4], "d": [1, False, 4]}
+    ]
 
 
 @pytest.mark.parametrize(
@@ -2400,6 +2562,34 @@ def test_string_cypher_supports_keys_for_mixed_node_property_sets() -> None:
     ]
 
 
+def test_string_cypher_supports_unwind_keys_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    nodes = cudf.DataFrame.from_pandas(
+        pd.DataFrame(
+            {
+                "id": ["a"],
+                "type": ["Person"],
+                "name": ["Alice"],
+                "score": [1],
+                "active": [True],
+            }
+        )
+    )
+    edges = cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []}))
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (n:Person) UNWIND keys(n) AS x RETURN DISTINCT x AS theProps ORDER BY theProps",
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"theProps": "active"},
+        {"theProps": "name"},
+        {"theProps": "score"},
+    ]
+
+
 def test_string_cypher_supports_properties_for_node_relationship_map_and_null() -> None:
     nodes = pd.DataFrame(
         {
@@ -2515,6 +2705,48 @@ def test_string_cypher_supports_graph_functions_on_list_wrapped_entities() -> No
     assert type_result._nodes.to_dict(orient="records") == [{"t": "T"}]
 
 
+def test_string_cypher_supports_graph_functions_on_list_wrapped_entities_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    nodes = cudf.DataFrame.from_pandas(
+        pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "label__Foo": [True, True],
+                "label__Bar": [False, True],
+            }
+        )
+    )
+    edges = cudf.DataFrame.from_pandas(
+        pd.DataFrame(
+            {
+                "s": ["a"],
+                "d": ["b"],
+                "type": ["T"],
+            }
+        )
+    )
+    graph = _mk_graph(nodes, edges)
+
+    labels_result = graph.gfql(
+        "MATCH (a) WITH [a, 1] AS list RETURN labels(list[0]) AS l ORDER BY l",
+        engine="cudf",
+    )
+    assert sorted(
+        labels_result._nodes.to_pandas().to_dict(orient="records"),
+        key=lambda row: (len(row["l"]), row["l"]),
+    ) == [
+        {"l": "['Foo']"},
+        {"l": "['Foo', 'Bar']"},
+    ]
+
+    type_result = graph.gfql(
+        "MATCH ()-[r]->() WITH [r, 1] AS list RETURN type(list[0]) AS t",
+        engine="cudf",
+    )
+    assert type_result._nodes.to_pandas().to_dict(orient="records") == [{"t": "T"}]
+
+
 def test_string_cypher_supports_null_graph_functions_in_multi_alias_projection() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b"], "type": ["Seed", "Seed"]}),
@@ -2543,6 +2775,50 @@ def test_string_cypher_supports_top_level_optional_match_null_rows_for_labels() 
     result = graph.gfql("OPTIONAL MATCH (n:DoesNotExist) RETURN labels(n) AS ln, labels(null) AS nn")
 
     assert result._nodes.to_dict(orient="records") == [{"ln": None, "nn": None}]
+
+
+def test_string_cypher_supports_top_level_optional_match_null_rows_for_labels_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    graph = _mk_graph(
+        cudf.DataFrame.from_pandas(
+            pd.DataFrame({"id": pd.Series(dtype="object"), "labels": pd.Series(dtype="object")})
+        ),
+        cudf.DataFrame.from_pandas(
+            pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")})
+        ),
+    )
+
+    result = graph.gfql(
+        "OPTIONAL MATCH (n:DoesNotExist) RETURN labels(n) AS ln, labels(null) AS nn",
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"ln": None, "nn": None}]
+
+
+def test_string_cypher_supports_optional_match_inline_missing_label_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    graph = _mk_graph(
+        cudf.DataFrame.from_pandas(
+            pd.DataFrame(
+                {
+                    "id": ["a"],
+                    "labels": [["Single"]],
+                    "label__Single": [True],
+                }
+            )
+        ),
+        cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []})),
+    )
+
+    result = graph.gfql(
+        "MATCH (n:Single)\nOPTIONAL MATCH (n)-[r]-(m:NonExistent)\nRETURN r",
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"r": None}]
 
 
 def test_string_cypher_supports_top_level_optional_match_null_rows_for_property_access() -> None:
@@ -2638,6 +2914,20 @@ def test_string_cypher_supports_dynamic_graph_property_lookup() -> None:
     assert result._nodes.to_dict(orient="records") == [{"value": "Apa"}]
 
 
+def test_string_cypher_supports_dynamic_graph_property_lookup_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    graph = _mk_graph(
+        cudf.DataFrame.from_pandas(pd.DataFrame({"id": ["a"], "name": ["Apa"]})),
+        cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []})),
+    )
+
+    result = graph.gfql("MATCH (n {name: 'Apa'}) RETURN n['nam' + 'e'] AS value", engine="cudf")
+
+    nodes_df = result._nodes.to_pandas() if hasattr(result._nodes, "to_pandas") else result._nodes
+    assert nodes_df.to_dict(orient="records") == [{"value": "Apa"}]
+
+
 def test_string_cypher_supports_dynamic_graph_property_lookup_with_param() -> None:
     graph = _mk_graph(pd.DataFrame({"id": ["a"], "name": ["Apa"]}), pd.DataFrame({"s": [], "d": []}))
 
@@ -2681,6 +2971,49 @@ def test_string_cypher_supports_property_access_on_list_wrapped_node_and_relatio
     ]
 
 
+def test_string_cypher_supports_property_access_on_list_wrapped_node_and_relationship_entities_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    nodes = cudf.DataFrame.from_pandas(
+        pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "existing": [42, None],
+                "missing": [None, None],
+            }
+        )
+    )
+    edges = cudf.DataFrame.from_pandas(
+        pd.DataFrame(
+            {
+                "s": ["a"],
+                "d": ["b"],
+                "type": ["REL"],
+                "existing": [42],
+                "missing": [None],
+            }
+        )
+    )
+    graph = _mk_graph(nodes, edges)
+
+    node_result = graph.gfql(
+        "MATCH (n) WITH [123, n] AS list RETURN (list[1]).missing, (list[1]).missingToo, (list[1]).existing",
+        engine="cudf",
+    )
+    assert node_result._nodes.to_pandas().to_dict(orient="records") == [
+        {"(list[1]).missing": None, "(list[1]).missingToo": None, "(list[1]).existing": 42},
+        {"(list[1]).missing": None, "(list[1]).missingToo": None, "(list[1]).existing": None},
+    ]
+
+    rel_result = graph.gfql(
+        "MATCH ()-[r]->() WITH [123, r] AS list RETURN (list[1]).missing, (list[1]).missingToo, (list[1]).existing",
+        engine="cudf",
+    )
+    assert rel_result._nodes.to_pandas().to_dict(orient="records") == [
+        {"(list[1]).missing": None, "(list[1]).missingToo": None, "(list[1]).existing": 42},
+    ]
+
+
 def test_string_cypher_supports_property_access_on_list_wrapped_map_values() -> None:
     graph = _mk_graph(pd.DataFrame({"id": ["a"]}), pd.DataFrame({"s": [], "d": []}))
 
@@ -2689,6 +3022,24 @@ def test_string_cypher_supports_property_access_on_list_wrapped_map_values() -> 
     )
 
     assert result._nodes.to_dict(orient="records") == [
+        {"(list[1]).missing": None, "(list[1]).notMissing": None, "(list[1]).existing": 42}
+    ]
+
+
+def test_string_cypher_supports_property_access_on_list_wrapped_map_values_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    graph = _mk_graph(
+        cudf.DataFrame.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
+        cudf.DataFrame.from_pandas(pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")})),
+    )
+
+    result = graph.gfql(
+        "WITH [123, {existing: 42, notMissing: null}] AS list RETURN (list[1]).missing, (list[1]).notMissing, (list[1]).existing",
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
         {"(list[1]).missing": None, "(list[1]).notMissing": None, "(list[1]).existing": 42}
     ]
 
@@ -3606,6 +3957,121 @@ def test_gfql_executes_aggregate_return_query() -> None:
     ]
 
 
+def test_gfql_executes_aggregate_order_by_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    nodes = cudf.DataFrame.from_pandas(
+        pd.DataFrame(
+            {
+                "id": ["anon_1", "anon_2", "anon_3", "anon_4"],
+                "labels": [[], [], [], []],
+                "division": ["A", "B", "B", "C"],
+                "age": [22, 33, 44, 55],
+            }
+        )
+    )
+    edges = cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []}))
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (n)\nRETURN n.division, max(n.age)\nORDER BY max(n.age)",
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"n.division": "A", "max(n.age)": 22},
+        {"n.division": "B", "max(n.age)": 44},
+        {"n.division": "C", "max(n.age)": 55},
+    ]
+
+
+def test_gfql_preserves_group_order_for_aggregate_order_ties_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    nodes = cudf.DataFrame.from_pandas(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "labels": [["L1"], ["L2"], ["L3"]],
+                "label__L1": [True, False, False],
+                "label__L2": [False, True, False],
+                "label__L3": [False, False, True],
+            }
+        )
+    )
+    edges = cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []}))
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a)\nRETURN a, count(*)\nORDER BY count(*)",
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"a": "(:L1)", "count(*)": 1},
+        {"a": "(:L2)", "count(*)": 1},
+        {"a": "(:L3)", "count(*)": 1},
+    ]
+
+
+def test_gfql_executes_boolean_list_comprehension_order_check_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    nodes = cudf.DataFrame.from_pandas(pd.DataFrame({"id": []}))
+    edges = cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []}))
+
+    result = _mk_graph(nodes, edges).gfql(
+        "WITH [true, false] AS values\n"
+        "WITH values, size(values) AS numOfValues\n"
+        "UNWIND values AS value\n"
+        "WITH size([ x IN values WHERE x < value ]) AS x, value, numOfValues\n"
+        "  ORDER BY value\n"
+        "WITH numOfValues, collect(x) AS orderedX\n"
+        "RETURN orderedX = range(0, numOfValues-1) AS equal",
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"equal": True}]
+
+
+def test_gfql_executes_integer_list_comprehension_order_check_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    nodes = cudf.DataFrame.from_pandas(pd.DataFrame({"id": []}))
+    edges = cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []}))
+
+    result = _mk_graph(nodes, edges).gfql(
+        "WITH [351, -3974856, 93, -3, 123, 0, 3, -2, 20934587, 1, 20934585, 20934586, -10] AS values\n"
+        "WITH values, size(values) AS numOfValues\n"
+        "UNWIND values AS value\n"
+        "WITH size([ x IN values WHERE x < value ]) AS x, value, numOfValues\n"
+        "  ORDER BY value\n"
+        "WITH numOfValues, collect(x) AS orderedX\n"
+        "RETURN orderedX = range(0, numOfValues-1) AS equal",
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"equal": True}]
+
+
+def test_gfql_executes_nested_list_comprehension_order_check_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    nodes = cudf.DataFrame.from_pandas(pd.DataFrame({"id": []}))
+    edges = cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []}))
+
+    result = _mk_graph(nodes, edges).gfql(
+        "WITH [[2, 2], [2, -2], [1, 2], [], [1], [300, 0], [1, -20], [2, -2, 100]] AS values\n"
+        "WITH values, size(values) AS numOfValues\n"
+        "UNWIND values AS value\n"
+        "WITH size([ x IN values WHERE x < value ]) AS x, value, numOfValues\n"
+        "  ORDER BY value\n"
+        "WITH numOfValues, collect(x) AS orderedX\n"
+        "RETURN orderedX = range(0, numOfValues-1) AS equal",
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"equal": True}]
+
+
 def test_gfql_executes_loop_edge_count_queries() -> None:
     nodes = pd.DataFrame({"id": ["a", "b"]})
     edges = pd.DataFrame(
@@ -3862,6 +4328,41 @@ def test_gfql_executes_with_where_or_short_circuit_over_mixed_type_compare() -> 
     ]
 
 
+def test_gfql_executes_with_where_null_filter_over_mixed_type_compare_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    nodes = pd.DataFrame(
+        {
+            "id": ["root", "child1", "child2"],
+            "label__Root": [True, False, False],
+            "label__TextNode": [False, True, False],
+            "label__IntNode": [False, False, True],
+            "name": ["x", None, None],
+            "var": [None, "text", 0],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["root", "root"],
+            "d": ["child1", "child2"],
+            "type": ["T", "T"],
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (:Root {name: 'x'})-->(i:TextNode)\n"
+        "WITH i\n"
+        "WHERE i.var > 'te'\n"
+        "RETURN i",
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"i": "(:TextNode {var: 'text'})"}
+    ]
+
+
 def test_gfql_executes_optional_match_count_distinct_on_empty_graph() -> None:
     g = _mk_graph(
         pd.DataFrame({"id": []}),
@@ -3902,6 +4403,24 @@ def test_string_cypher_supports_empty_map_quantifier_predicates() -> None:
 
     assert result._nodes.to_dict(orient="records") == [
         {"none_result": True, "any_result": False, "single_result": False}
+    ]
+
+
+def test_string_cypher_supports_map_quantifier_predicates_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    g = _mk_graph(
+        cudf.DataFrame.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
+        cudf.DataFrame.from_pandas(pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object"), "type": pd.Series(dtype="object")})),
+    )
+
+    result = g.gfql(
+        "RETURN none(x IN [{a: 2, b: 5}] WHERE x.a = 2) AS result",
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"result": False}
     ]
 
 

@@ -51,6 +51,25 @@ def _looks_like_cypher_query(query: str) -> bool:
     return _CYPHER_LEAD_RE.match(query) is not None
 
 
+def _series_to_pylist(values: Any) -> List[Any]:
+    if hasattr(values, "to_arrow"):
+        try:
+            return list(values.to_arrow().to_pylist())
+        except Exception:
+            pass
+    if hasattr(values, "to_pandas"):
+        try:
+            return list(values.to_pandas().tolist())
+        except Exception:
+            pass
+    if hasattr(values, "tolist"):
+        try:
+            return list(values.tolist())
+        except Exception:
+            pass
+    return list(values)
+
+
 def _apply_empty_result_row(
     result: Plottable,
     *,
@@ -129,8 +148,8 @@ def _apply_optional_null_fill(
             language="cypher",
         )
 
-    base_ids = list(base_rows_df[node_col].tolist())
-    matched_id_list = list(matched_ids.tolist())
+    base_ids = _series_to_pylist(base_rows_df[node_col])
+    matched_id_list = _series_to_pylist(matched_ids)
     if len(base_ids) == actual_rows and base_ids == matched_id_list:
         return result
 

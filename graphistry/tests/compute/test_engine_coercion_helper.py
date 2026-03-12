@@ -156,6 +156,22 @@ class TestEngineCoercionHelper:
         assert len(result._nodes) == 3, "Nodes count should be preserved"
         assert result._nodes['id'].to_pandas().tolist() == [1, 2, 3], "Node IDs should be preserved"
 
+    @pytest.mark.skipif(not has_cudf, reason="cuDF not available")
+    def test_preserves_pandas_row_tables_with_object_list_values_for_cudf_requests(self):
+        base = graphistry.nodes(pd.DataFrame({'id': [1]}), 'id')
+        g = base.bind()
+        g._nodes = pd.DataFrame({'c': [[False, 4]], 'd': [[1, False, 4]]})
+        g._edges = cudf.DataFrame()
+        g._node = None
+        g._source = None
+        g._destination = None
+
+        result = ensure_engine_match(g, Engine.CUDF)
+
+        assert isinstance(result._nodes, pd.DataFrame), "Row-table nodes should stay pandas"
+        assert hasattr(result._nodes, 'to_pandas'), "Preserved pandas row tables should expose to_pandas()"
+        assert result._nodes.to_dict(orient='records') == [{'c': [False, 4], 'd': [1, False, 4]}]
+
     def test_graceful_degradation_on_error(self):
         """Test that errors are handled gracefully (returns original graph)."""
         # Create a graph
