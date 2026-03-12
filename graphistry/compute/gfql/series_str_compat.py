@@ -78,6 +78,8 @@ def _call_str_method(series: SeriesT, method_name: str, pattern: str, *, na: Opt
     try:
         result = _invoke_str_method(method, pattern, na=na, **kwargs)
     except Exception:
+        # cuDF rejects some regex constructs that pandas accepts,
+        # so retry once with a simplified equivalent pattern.
         safe_pattern = _sanitize_regex_pattern(pattern)
         if safe_pattern == pattern:
             raise
