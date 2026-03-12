@@ -2196,33 +2196,39 @@ class RowPipelineMixin:
                 f"unsupported row expression: dynamic subscript requires list-like base in {expr!r}"
             )
 
-        if not RowPipelineMixin._gfql_series_is_list_like(base_value):
-            parsed_values: List[Any] = []
-            for value in RowPipelineMixin._gfql_series_to_pylist(base_value):
-                if is_null_scalar(value):
-                    parsed_values.append(None)
+        normalized_values: List[Any] = []
+        saw_string_parse = False
+        parse_failed = False
+        for value in RowPipelineMixin._gfql_series_to_pylist(base_value):
+            if is_null_scalar(value):
+                normalized_values.append(None)
+                continue
+            if isinstance(value, (list, tuple)):
+                normalized_values.append(list(value))
+                continue
+            if isinstance(value, str):
+                try:
+                    parsed_value = ast.literal_eval(value)
+                except Exception:
+                    parsed_value = None
+                if isinstance(parsed_value, (list, tuple)):
+                    normalized_values.append(list(parsed_value))
+                    saw_string_parse = True
                     continue
-                if isinstance(value, (list, tuple)):
-                    parsed_values.append(list(value))
-                    continue
-                if isinstance(value, str):
-                    try:
-                        parsed_value = ast.literal_eval(value)
-                    except Exception:
-                        parsed_value = None
-                    if isinstance(parsed_value, (list, tuple)):
-                        parsed_values.append(list(parsed_value))
-                        continue
-                parsed_values = []
-                break
-            if parsed_values:
+            parse_failed = True
+            break
+        if parse_failed:
+            raise ValueError(
+                f"unsupported row expression: dynamic subscript requires list-like base in {expr!r}"
+            )
+        if saw_string_parse:
                 host_index = getattr(base_value, "index", None)
                 if host_index is not None and hasattr(host_index, "to_pandas"):
                     try:
                         host_index = host_index.to_pandas()
                     except Exception:
                         host_index = None
-                base_value = pd.Series(parsed_values, index=host_index, dtype="object")
+                base_value = pd.Series(normalized_values, index=host_index, dtype="object")
         if not RowPipelineMixin._gfql_series_is_list_like(base_value):
             raise ValueError(
                 f"unsupported row expression: dynamic subscript requires list-like base in {expr!r}"

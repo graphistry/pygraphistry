@@ -37,7 +37,7 @@ def _object_text(series: SeriesT) -> SeriesT:
 def _empty_text(df: DataFrameT, alias_col: str) -> SeriesT:
     base = cast(SeriesT, df[alias_col])
     text = cast(SeriesT, base.astype(str))
-    null_preserving = cast(SeriesT, text.where(~base.isna(), None))
+    null_preserving = cast(SeriesT, cast(Any, text).where(~base.isna(), None))
     return _object_text(cast(SeriesT, null_preserving.where(base.isna(), "")))
 
 
@@ -61,7 +61,7 @@ def _bool_mask(series: SeriesT) -> SeriesT:
 def _nullify_missing_alias_rows(df: DataFrameT, alias_col: str, rendered: SeriesT) -> SeriesT:
     mask = _is_null_mask(cast(SeriesT, df[alias_col]))
     if hasattr(rendered, "where"):
-        return cast(SeriesT, rendered.where(~mask, None))
+        return cast(SeriesT, cast(Any, rendered).where(~mask, None))
     out = cast(SeriesT, rendered.copy())
     out.loc[mask] = None
     return out
@@ -485,7 +485,7 @@ def apply_result_projection(result: Plottable, projection: ResultProjectionPlan)
             )
     projected_rows = rows_df
     if rows_df.__class__.__module__.startswith("cudf") and any(isinstance(value, pd.Series) for value in projected_data.values()):
-        projected_rows = cast(DataFrameT, rows_df.to_pandas())
+        projected_rows = cast(DataFrameT, cast(Any, rows_df).to_pandas())
         projected_data = {
             key: cast(SeriesT, value.to_pandas() if hasattr(value, "to_pandas") else value)
             for key, value in projected_data.items()
