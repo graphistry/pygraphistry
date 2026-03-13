@@ -489,3 +489,64 @@ class TestArrowUploader_Comms(unittest.TestCase):
 
         with pytest.raises(Exception):
             au.sso_get_token(state='ignored-valid')
+
+
+class TestSsoStateTtl(unittest.TestCase):
+
+    def setUp(self):
+        self.client = graphistry.PyGraphistry
+        self.client.session.sso_state = None
+        self.client.session.sso_state_created_at = None
+
+    def tearDown(self):
+        self.client.session.sso_state = None
+        self.client.session.sso_state_created_at = None
+
+    def test_sso_state_created_at_set_on_state_assignment(self):
+        import time
+        before = time.time()
+        self.client.sso_state('test-state-123')
+        after = time.time()
+        assert self.client.session.sso_state == 'test-state-123'
+        assert self.client.session.sso_state_created_at is not None
+        assert before <= self.client.session.sso_state_created_at <= after
+
+    def test_sso_state_ttl_default(self):
+        assert self.client.session.sso_state_ttl_s == 300
+
+    def test_expired_state_raises(self):
+        import time
+        from graphistry.exceptions import SsoStateExpiredException
+        self.client.sso_state('expired-state')
+        # Backdate created_at so it appears expired
+        self.client.session.sso_state_created_at = time.time() - 400
+        with pytest.raises(SsoStateExpiredException, match="expired"):
+            self.client._sso_get_token()
+        # State should be cleared
+        assert self.client.session.sso_state is None
+        assert self.client.session.sso_state_created_at is None
+
+    @mock.patch('requests.get')
+    def test_fresh_state_not_expired(self, mock_get):
+        import time
+        mock_resp = mock.Mock()
+        mock_resp.status_code = 200
+        mock_resp.raise_for_status = mock.Mock()
+        mock_resp.json.return_value = {
+            'status': 'OK',
+            'data': {
+                'token': 'tok123',
+                'active_organization': {
+                    'slug': 'test-org',
+                    'is_found': True,
+                    'is_member': True,
+                }
+            }
+        }
+        mock_get.return_value = mock_resp
+
+        self.client.sso_state('fresh-state')
+        # Just created, should not be expired
+        with mock.patch.object(type(self.client), '_maybe_switch_org'):
+            token, org_name = self.client._sso_get_token()
+        assert token is not None
