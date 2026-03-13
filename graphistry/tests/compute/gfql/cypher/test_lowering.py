@@ -2306,6 +2306,50 @@ def test_string_cypher_failfast_rejects_optional_match_null_extension_shapes_wit
     assert exc_info.value.code == ErrorCode.E108
 
 
+def test_string_cypher_failfast_rejects_graph_backed_unwind_after_with_as_validation_error() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["s", "n", "e"],
+                "label__S": [True, False, False],
+                "label__E": [False, False, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["s", "s", "n"],
+                "d": ["e", "e", "e"],
+                "type": ["X", "Y", "Y"],
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql("MATCH (a:S)-[:X]->(b1) WITH a, collect(b1) AS bees UNWIND bees AS b2 MATCH (a)-[:Y]->(b2) RETURN a, b2")
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert "UNWIND after WITH/RETURN" in exc_info.value.message
+
+
+def test_string_cypher_failfast_rejects_variable_length_relationship_patterns_as_validation_error() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d", "e", "f"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "c", "d", "e"],
+                "d": ["b", "d", "e", "f"],
+                "type": ["R", "R", "R", "R"],
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql("MATCH p = (a)-[*]->(b) RETURN collect(nodes(p)) AS paths, length(p) AS l ORDER BY l")
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert "variable-length relationship patterns" in exc_info.value.message
+
+
 @pytest.mark.parametrize(
     "query",
     [
