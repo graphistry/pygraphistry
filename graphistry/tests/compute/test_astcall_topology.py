@@ -164,6 +164,20 @@ class TestTopologicalChains:
                 n()
             ])
 
+    def test_topology_middle_call_error_points_to_supported_ref_pattern(self, rich_graph):
+        """Mixed-chain guidance should point to supported let()/ref() composition."""
+        with pytest.raises(GFQLValidationError) as exc_info:
+            rich_graph.gfql([
+                n({'type': 'person'}),
+                ASTCall('filter_edges_by_dict', {'filter_dict': {'weight': GE(5)}}),
+                e(),
+                n()
+            ])
+
+        suggestion = exc_info.value.context['suggestion']
+        assert "ref('filtered', [call('get_degrees', {'col': 'degree'})])" in suggestion
+        assert "g=ref('filtered')" not in suggestion
+
     def test_topology_call_at_chain_end(self, rich_graph):
         """Pattern: [n(), e(), n(), call(f1)]
 

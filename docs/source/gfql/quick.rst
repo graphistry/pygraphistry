@@ -22,6 +22,19 @@ Basic Usage
 Use this page as a quick MATCH/chain reference.
 For row-pipeline RETURN semantics, see :doc:`return`.
 
+Choose The Right Entrypoint
+---------------------------
+
+- Use `g.gfql([...])` or `g.gfql("MATCH ...")` for local in-memory GFQL and the local Cypher subset.
+- Use `graphistry.cypher("...")` or `g.cypher("...")` for remote database Cypher over Bolt/Neo4j.
+
+Graph State Vs Row State
+------------------------
+
+- **Graph state** keeps a traversable graph in `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, and `let()` / `ref()` graph DAG stages stay in graph state.
+- **Row state** stores tabular results in `_nodes` and uses an empty placeholder `_edges` frame. Row-pipeline steps such as `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning local Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
+- If you want to enrich a graph and keep matching today, use a graph-preserving `call()` / `let()` pattern rather than a row-returning local Cypher `CALL`.
+
 Node Matchers
 -------------
 
@@ -514,6 +527,20 @@ Run graph algorithms like PageRank, community detection, and layouts directly wi
 
       # Results have pagerank column
       top_nodes = result._nodes.sort_values('pagerank', ascending=False).head(10)
+
+- **Enrich a graph, then keep matching:**
+
+  .. code-block:: python
+
+      from graphistry import call
+
+      g_ranked = g.gfql([call('compute_cugraph', {'alg': 'pagerank'})])
+      top_ranked = g_ranked.gfql(
+          "MATCH (n) WHERE n.pagerank > 0.01 RETURN n.id AS id, n.pagerank AS pagerank ORDER BY pagerank DESC LIMIT 10"
+      )
+
+  Local note: `g.gfql("CALL ... YIELD ... RETURN ...")` currently targets row-returning procedure flows.
+  For graph-preserving enrich-then-match workflows, prefer `call()` / `let()` today.
 
 - **Community detection with Louvain:**
 
