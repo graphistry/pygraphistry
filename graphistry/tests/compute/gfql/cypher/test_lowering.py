@@ -2240,6 +2240,146 @@ def test_string_cypher_rejects_unsound_multi_source_aggregate_overlap_queries(qu
 @pytest.mark.parametrize(
     "query",
     [
+        (
+            "MATCH (david {name: 'David'})--(otherPerson)-->() "
+            "WITH otherPerson, count(*) AS foaf "
+            "WHERE foaf > 1 "
+            "WITH otherPerson "
+            "WHERE otherPerson.name <> 'NotOther' "
+            "RETURN count(*)"
+        ),
+        "MATCH (a)-->() WITH a, count(*) AS relCount WHERE relCount > 1 RETURN a",
+    ],
+)
+def test_string_cypher_failfast_rejects_with_stage_unsound_relationship_multiplicity_aggregates(query: str) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d", "anon_5", "anon_6", "anon_7", "anon_8", "anon_9"],
+                "name": ["David", "Other", "NotOther", "NotOther2", None, None, None, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a", "a", "a", "b", "b", "c", "c", "d"],
+                "d": ["b", "c", "d", "anon_5", "anon_6", "anon_7", "anon_8", "anon_9"],
+                "type": ["REL"] * 8,
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError, match="repeated MATCH rows"):
+        graph.gfql(query)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:NonExistent RETURN r",
+        "MATCH (a:A), (c:C) OPTIONAL MATCH (a)-->(b)-->(c) RETURN b",
+    ],
+)
+def test_string_cypher_failfast_rejects_optional_match_null_extension_shapes_without_safe_alignment(query: str) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["s", "a", "b", "c"],
+                "label__Single": [True, False, False, False],
+                "label__A": [False, True, False, False],
+                "label__B": [False, False, True, False],
+                "label__C": [False, False, False, True],
+                "num": [None, 42, 46, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["s", "s", "a", "b"],
+                "d": ["a", "b", "c", "b"],
+                "type": ["REL", "REL", "REL", "LOOP"],
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(query)
+
+    assert exc_info.value.code == ErrorCode.E108
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n:A) WITH n MATCH (m:B), (n)-->(x:X) RETURN *",
+        "MATCH (n:A) WITH n LIMIT 1 MATCH (m:B), (n)-->(x:X) RETURN *",
+        "MATCH (n:A) WITH n SKIP 0 LIMIT 1 MATCH (m:B), (n)-->(x:X) RETURN *",
+    ],
+)
+def test_string_cypher_failfast_rejects_multi_pattern_reentry_match_as_unsupported(query: str) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["anon_1", "anon_2", "anon_3"],
+                "label__A": [True, False, False],
+                "label__X": [False, True, False],
+                "label__B": [False, False, True],
+            }
+        ),
+        pd.DataFrame({"s": ["anon_1"], "d": ["anon_2"], "type": ["REL"]}),
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(query)
+
+    assert exc_info.value.code == ErrorCode.E108
+
+
+def test_string_cypher_failfast_rejects_multi_alias_return_star_after_with_reentry() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "label__A": [True, False, False],
+                "label__B": [False, True, True],
+            }
+        ),
+        pd.DataFrame({"s": ["a", "a"], "d": ["b", "c"], "type": ["REL", "REL"]}),
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql("MATCH (a:A) WITH a MATCH (a)-->(b) RETURN *")
+
+    assert exc_info.value.code == ErrorCode.E108
+
+
+def test_string_cypher_supports_optional_match_optional_alias_projection_when_all_rows_match() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["s", "a", "b", "c"],
+                "label__Single": [True, False, False, False],
+                "label__A": [False, True, False, False],
+                "label__B": [False, False, True, False],
+                "label__C": [False, False, False, True],
+                "num": [None, 42, 46, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["s", "s", "a", "b"],
+                "d": ["a", "b", "c", "b"],
+                "type": ["REL", "REL", "REL", "LOOP"],
+            }
+        ),
+    )
+
+    result = graph.gfql("MATCH (a:Single), (c:C) OPTIONAL MATCH (a)-->(b)-->(c) RETURN b")
+
+    assert result._nodes.to_dict(orient="records") == [{"b": "(:A {num: 42})"}]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
         "RETURN duration.inSeconds(localtime(), localtime()) AS duration",
         "RETURN duration.inSeconds(time(), time()) AS duration",
         "RETURN duration.inSeconds(date(), date()) AS duration",
