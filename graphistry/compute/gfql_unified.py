@@ -194,6 +194,29 @@ def _apply_optional_null_fill(
     return out
 
 
+def _apply_optional_projection_row_guard(
+    result: Plottable,
+    *,
+    expected_rows: int,
+) -> Plottable:
+    if expected_rows == 0:
+        return result
+
+    rows_df = getattr(result, "_nodes", None)
+    actual_rows = 0 if rows_df is None else len(rows_df)
+    if actual_rows >= expected_rows:
+        return result
+
+    raise GFQLValidationError(
+        ErrorCode.E108,
+        "Cypher MATCH ... OPTIONAL MATCH projections over optional aliases would need null-extension rows that the local compiler cannot synthesize for this query shape",
+        field="match",
+        value={"expected_rows": expected_rows, "actual_rows": actual_rows},
+        suggestion="Use a simpler OPTIONAL MATCH projection shape in the local compiler.",
+        language="cypher",
+    )
+
+
 def _execute_compiled_query(
     base_graph: Plottable,
     *,
@@ -245,6 +268,24 @@ def _execute_compiled_query(
         )
     if compiled_query.result_projection is not None:
         result = apply_result_projection(result, compiled_query.result_projection)
+    if compiled_query.optional_projection_row_guard is not None:
+        expected_rows = 1
+        for base_chain in compiled_query.optional_projection_row_guard.base_chains:
+            base_result = _chain_dispatch(
+                base_graph,
+                base_chain,
+                engine,
+                policy,
+                context,
+            )
+            base_rows_df = getattr(base_result, "_nodes", None)
+            expected_rows *= 0 if base_rows_df is None else len(base_rows_df)
+            if expected_rows == 0:
+                break
+        result = _apply_optional_projection_row_guard(
+            result,
+            expected_rows=expected_rows,
+        )
     if compiled_query.optional_null_fill is not None:
         base_result = _chain_dispatch(
             base_graph,

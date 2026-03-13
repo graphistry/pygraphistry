@@ -76,6 +76,7 @@ from graphistry.compute.gfql.cypher.ast import (
     SourceSpan,
     UnwindClause,
     WhereClause,
+    WherePredicate,
     WherePatternPredicate,
 )
 from graphistry.compute.gfql.cypher.call_procedures import (
@@ -109,6 +110,7 @@ class CompiledCypherQuery:
     result_projection: Optional["ResultProjectionPlan"] = None
     empty_result_row: Optional[Dict[str, Any]] = None
     optional_null_fill: Optional["OptionalNullFillPlan"] = None
+    optional_projection_row_guard: Optional["OptionalProjectionRowGuardPlan"] = None
     start_nodes_query: Optional["CompiledCypherQuery"] = None
     start_nodes_output_name: Optional[str] = None
 
@@ -126,6 +128,11 @@ class OptionalNullFillPlan:
     alignment_chain: Chain
     alignment_projection: "ResultProjectionPlan"
     alignment_output_name: str
+
+
+@dataclass(frozen=True)
+class OptionalProjectionRowGuardPlan:
+    base_chains: Tuple[Chain, ...]
 
 
 @dataclass(frozen=True)
@@ -191,6 +198,7 @@ class _StageScope:
     projected_columns: Dict[str, _StageColumnBinding]
     table: Optional[Literal["nodes", "edges"]]
     seed_rows: bool
+    relationship_count: int
 
 
 _CYPHER_PARAM_RE = re.compile(r"^\$([A-Za-z_][A-Za-z0-9_]*)$")
@@ -1852,19 +1860,19 @@ def _match_relationship_count(clause: MatchClause) -> int:
     return sum(1 for element in _normalized_match_pattern(clause) if isinstance(element, RelationshipPattern))
 
 
-def _reject_unsound_relationship_multiplicity_aggregates(
-    query: CypherQuery,
+def _reject_unsound_relationship_multiplicity_aggregates_common(
     *,
     aggregate_specs: Sequence[_AggregateSpec],
     alias_targets: Mapping[str, ASTObject],
     active_match_alias: Optional[str],
+    relationship_count: int,
+    field: str,
+    value: Any,
+    line: int,
+    column: int,
 ) -> None:
     if not any(_is_multiplicity_sensitive_aggregate(spec) for spec in aggregate_specs):
         return
-    merged_match = _merged_match_clause(query)
-    if merged_match is None:
-        return
-    relationship_count = _match_relationship_count(merged_match)
     if relationship_count == 0:
         return
     if active_match_alias is not None:
@@ -1873,11 +1881,99 @@ def _reject_unsound_relationship_multiplicity_aggregates(
             return
     raise _unsupported(
         "This Cypher aggregate would need repeated MATCH rows from a relationship pattern, but the current runtime collapses those rows before aggregation. Queries like MATCH (a)-[r]->(b) RETURN a, count(*) are not supported yet.",
+        field=field,
+        value=value,
+        line=line,
+        column=column,
+    )
+
+
+def _reject_unsound_relationship_multiplicity_aggregates(
+    query: CypherQuery,
+    *,
+    aggregate_specs: Sequence[_AggregateSpec],
+    alias_targets: Mapping[str, ASTObject],
+    active_match_alias: Optional[str],
+) -> None:
+    merged_match = _merged_match_clause(query)
+    if merged_match is None:
+        return
+    _reject_unsound_relationship_multiplicity_aggregates_common(
+        aggregate_specs=aggregate_specs,
+        alias_targets=alias_targets,
+        active_match_alias=active_match_alias,
+        relationship_count=_match_relationship_count(merged_match),
         field=query.return_.kind,
         value=[item.expression.text for item in query.return_.items],
         line=query.return_.span.line,
         column=query.return_.span.column,
     )
+
+
+def _return_references_optional_only_alias(
+    query: CypherQuery,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]] = None,
+) -> bool:
+    if not any(clause.optional for clause in query.matches) or not any(not clause.optional for clause in query.matches):
+        return False
+    bound_aliases = {
+        alias
+        for clause in query.matches
+        if not clause.optional
+        for alias in _match_clause_aliases_raw(clause)
+    }
+    optional_only_aliases = {
+        alias
+        for clause in query.matches
+        if clause.optional
+        for alias in _match_clause_aliases_raw(clause)
+        if alias not in bound_aliases
+    }
+    if not optional_only_aliases:
+        return False
+    for item in query.return_.items:
+        if item.expression.text == "*":
+            return True
+        referenced = _expr_match_aliases(
+            item.expression.text,
+            alias_targets=alias_targets,
+            params=params,
+            field=query.return_.kind,
+            line=item.span.line,
+            column=item.span.column,
+        )
+        if referenced & optional_only_aliases:
+            return True
+    return False
+
+
+def _where_uses_optional_only_label_predicate(query: CypherQuery) -> bool:
+    if query.where is None or not query.where.predicates:
+        return False
+    bound_aliases = {
+        alias
+        for clause in query.matches
+        if not clause.optional
+        for alias in _match_clause_aliases_raw(clause)
+    }
+    optional_only_aliases = {
+        alias
+        for clause in query.matches
+        if clause.optional
+        for alias in _match_clause_aliases_raw(clause)
+        if alias not in bound_aliases
+    }
+    if not optional_only_aliases:
+        return False
+    for predicate in query.where.predicates:
+        if not isinstance(predicate, WherePredicate):
+            continue
+        left = predicate.left
+        if isinstance(left, LabelRef) and left.alias in optional_only_aliases:
+            return True
+    return False
 
 
 def _active_match_alias(
@@ -2430,6 +2526,15 @@ def _match_clause_aliases(clause: MatchClause) -> Set[str]:
     return {
         cast(str, element.variable)
         for element in _normalized_match_pattern(clause)
+        if getattr(element, "variable", None) is not None
+    }
+
+
+def _match_clause_aliases_raw(clause: MatchClause) -> Set[str]:
+    return {
+        cast(str, element.variable)
+        for pattern in clause.patterns
+        for element in pattern
         if getattr(element, "variable", None) is not None
     }
 
@@ -3074,6 +3179,41 @@ def _optional_null_fill_plan(
     )
 
 
+def _optional_projection_row_guard_plan(
+    query: CypherQuery,
+    *,
+    params: Optional[Mapping[str, Any]],
+) -> Optional[OptionalProjectionRowGuardPlan]:
+    if (
+        len(query.matches) != 2
+        or query.matches[0].optional
+        or not query.matches[1].optional
+        or query.where is not None
+        or query.with_stages
+        or query.unwinds
+        or query.order_by is not None
+        or query.skip is not None
+        or query.limit is not None
+    ):
+        return None
+    base_clause = query.matches[0]
+    if len(base_clause.patterns) == 1:
+        return OptionalProjectionRowGuardPlan(
+            base_chains=(Chain(lower_match_clause(base_clause, params=params)),)
+        )
+    base_chains: List[Chain] = []
+    for pattern in base_clause.patterns:
+        if len(pattern) != 1 or not isinstance(pattern[0], NodePattern):
+            return None
+        pattern_clause = MatchClause(
+            patterns=(pattern,),
+            span=base_clause.span,
+            optional=False,
+        )
+        base_chains.append(Chain(lower_match_clause(pattern_clause, params=params)))
+    return OptionalProjectionRowGuardPlan(base_chains=tuple(base_chains))
+
+
 def _plan_with_visible_projected_columns(
     plan: _ProjectionPlan,
     projected_columns: Mapping[str, _StageColumnBinding],
@@ -3420,6 +3560,7 @@ def _build_initial_row_scope(
     params: Optional[Mapping[str, Any]],
 ) -> Tuple[List[ASTObject], _StageScope]:
     alias_targets = _alias_target(lowered.query) if query.match is not None else {}
+    merged_match = _merged_match_clause(query)
     active_match_alias = _active_match_alias_for_stage(
         unwinds=query.unwinds,
         clause=stage_clause,
@@ -3494,6 +3635,7 @@ def _build_initial_row_scope(
             projected_columns={},
             table=table,
             seed_rows=seed_rows,
+            relationship_count=_match_relationship_count(merged_match) if merged_match is not None else 0,
         )
 
 
@@ -3609,6 +3751,7 @@ def _lower_match_alias_stage(
             projected_columns=next_projected_columns,
             table=cast(Optional[Literal["nodes", "edges"]], plan.table),
             seed_rows=scope.seed_rows,
+            relationship_count=scope.relationship_count,
         )
     else:
         next_scope = _StageScope(
@@ -3619,6 +3762,7 @@ def _lower_match_alias_stage(
             projected_columns={},
             table=None,
             seed_rows=scope.seed_rows,
+            relationship_count=scope.relationship_count,
         )
 
     result_projection = _result_projection_plan(plan, alias_targets=scope.alias_targets) if final_stage else None
@@ -3645,6 +3789,16 @@ def _lower_match_alias_aggregate_stage(
         )
 
     projection_fn = with_ if stage.clause.kind == "with" else return_
+    _reject_unsound_relationship_multiplicity_aggregates_common(
+        aggregate_specs=aggregate_specs,
+        alias_targets=scope.alias_targets,
+        active_match_alias=active_alias,
+        relationship_count=scope.relationship_count,
+        field=stage.clause.kind,
+        value=[item.expression.text for item in stage.clause.items],
+        line=stage.clause.span.line,
+        column=stage.clause.span.column,
+    )
     pre_items: List[Tuple[str, Any]] = []
     key_names: List[str] = []
     temp_names: Set[str] = set()
@@ -3875,6 +4029,7 @@ def _lower_match_alias_aggregate_stage(
         projected_columns={},
         table=None,
         seed_rows=scope.seed_rows,
+        relationship_count=scope.relationship_count,
     ), None if final_stage else None
 
 
@@ -4118,6 +4273,7 @@ def _lower_row_column_stage(
         projected_columns=next_projected_columns,
         table=None,
         seed_rows=scope.seed_rows,
+        relationship_count=scope.relationship_count,
     )
 
 
@@ -4138,6 +4294,7 @@ def _lower_row_only_sequence_with_scope(
         projected_columns={},
         table=None,
         seed_rows=seed_rows,
+        relationship_count=0,
     )
 
     for item in query.row_sequence:
@@ -4176,6 +4333,7 @@ def _lower_row_only_sequence_with_scope(
                 projected_columns=dict(scope.projected_columns),
                 table=None,
                 seed_rows=scope.seed_rows,
+                relationship_count=scope.relationship_count,
             )
             continue
 
@@ -4420,6 +4578,7 @@ def _lower_row_column_aggregate_stage(
         projected_columns={},
         table=None,
         seed_rows=scope.seed_rows,
+        relationship_count=scope.relationship_count,
     )
 
 
@@ -5245,6 +5404,14 @@ def lower_cypher_query(
 
 
 def _first_pattern_node_alias(clause: MatchClause) -> Optional[str]:
+    if len(clause.patterns) != 1:
+        raise _unsupported(
+            "Cypher MATCH after WITH currently supports a single trailing MATCH pattern",
+            field="match",
+            value=len(clause.patterns),
+            line=clause.span.line,
+            column=clause.span.column,
+        )
     pattern = clause.pattern
     if not pattern or not isinstance(pattern[0], NodePattern):
         return None
@@ -5317,6 +5484,14 @@ def _compile_bounded_reentry_query(
             value=prefix_projection.table,
             line=prefix_stage.span.line,
             column=prefix_stage.span.column,
+        )
+    if len(query.return_.items) == 1 and query.return_.items[0].expression.text == "*":
+        raise _unsupported(
+            "Cypher MATCH after WITH does not yet support RETURN * from the trailing MATCH re-entry stage",
+            field=query.return_.kind,
+            value="*",
+            line=query.return_.span.line,
+            column=query.return_.span.column,
         )
 
     reentry_match = query.reentry_matches[0]
@@ -5546,12 +5721,40 @@ def compile_cypher_query(
                 plan=plan,
                 params=params,
             )
+            optional_only_projection = _return_references_optional_only_alias(
+                query,
+                alias_targets=alias_targets,
+                params=params,
+            )
+            optional_projection_row_guard = None
+            if optional_null_fill is None and optional_only_projection:
+                if _where_uses_optional_only_label_predicate(query):
+                    raise _unsupported(
+                        "Cypher OPTIONAL MATCH label filters over optional-only aliases are not yet supported when projecting optional aliases",
+                        field=query.return_.kind,
+                        value=[item.expression.text for item in query.return_.items],
+                        line=query.return_.span.line,
+                        column=query.return_.span.column,
+                    )
+                optional_projection_row_guard = _optional_projection_row_guard_plan(
+                    query,
+                    params=params,
+                )
+                if seed_alias is None and optional_projection_row_guard is None:
+                    raise _unsupported(
+                        "Cypher MATCH ... OPTIONAL MATCH projections that require null-extension for optional aliases are only supported from a single-node seed MATCH",
+                        field=query.return_.kind,
+                        value=[item.expression.text for item in query.return_.items],
+                        line=query.return_.span.line,
+                        column=query.return_.span.column,
+                    )
             return CompiledCypherQuery(
                 Chain(_lower_projection_chain(query, lowered, params=params, plan=plan), where=lowered.where),
                 seed_rows=False,
                 result_projection=_result_projection_plan(plan, alias_targets=alias_targets),
                 empty_result_row=empty_result_row,
                 optional_null_fill=optional_null_fill,
+                optional_projection_row_guard=optional_projection_row_guard,
             )
 
     return _lower_general_row_projection(query, lowered, params=params)

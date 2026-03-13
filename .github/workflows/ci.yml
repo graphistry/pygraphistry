@@ -233,7 +233,9 @@ jobs:
     # Run if Python files changed OR infrastructure changed OR manual/scheduled run
     if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    # Python 3.14 minimal runs are now close to the hosted-runner wall clock budget
+    # even when the suite passes cleanly, so keep a small buffer for env setup.
+    timeout-minutes: 8
 
     strategy:
       matrix:
