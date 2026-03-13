@@ -516,7 +516,7 @@ def _handle_boundary_calls(
                 message="Cannot mix call() operations with n()/e() traversals in interior of chain",
                 suggestion="call() operations are only allowed at chain boundaries (start/end). "
                           "For complex patterns, use either: "
-                          "(1) let() composition: let({'filtered': [n(...), e(...)], 'enriched': call('get_degrees', g=ref('filtered'))}), or "
+                          "(1) let() composition: let({'filtered': [n(...), e(...)], 'enriched': ref('filtered', [call('get_degrees', {'col': 'degree'})])}, output='enriched'), or "
                           "(2) explicit cascading: g1 = g.chain([call(...)]); g2 = g1.chain([n(), e()]); g3 = g2.chain([call(...)]). "
                           "See issues #791, #792"
             )

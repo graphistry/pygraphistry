@@ -52,8 +52,24 @@ GFQL works on the same graphs as the rest of the PyGraphistry library. The opera
 - **Predicates**: Apply conditions to filter nodes and edges based on their properties, reusing the optimized native operations of the underlying dataframe engine
 - **Same-path constraints (WHERE)**: Relate attributes across steps in a chain using `where`
 - **Row pipelines (`MATCH ... RETURN` style)**: Move from graph pattern matches to tabular results with `rows()`, `where_rows()`, `return_()`, `order_by()`, `group_by()`, `skip()`, and `limit()`
+- **Result kinds**: Some stages keep you in graph state, while row-pipeline stages and row-returning local Cypher `CALL` queries move you into row state
 - **GPU & CPU vectorization**: GFQL automatically leverages GPU acceleration and in-memory columnar processing for massive speedups on your queries
 - **Optional remote mode**: Bind to remote data or upload it quickly as Arrow, and run your same Python and GFQL queries on remote GPU resources when available
+
+Choosing Entry Points And Result Kinds
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use the entrypoint that matches where the query executes:
+
+- **Local in-memory GFQL / Cypher-style execution**: `g.gfql([...])` or `g.gfql("MATCH ...")` runs on the current `Plottable` in pandas/cuDF.
+- **Remote database Cypher**: `graphistry.cypher("...")` or `g.cypher("...")` runs Cypher over a remote Bolt/Neo4j connection.
+
+GFQL pipelines also have two practical result kinds:
+
+- **Graph state**: Traversable graph results with meaningful `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, and `let()` / `ref()` DAG stages stay in graph state.
+- **Row state**: Tabular results stored in `_nodes`, with `_edges` reduced to an empty placeholder frame. Row-pipeline steps like `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning local Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
+
+If you need to enrich a graph and keep matching today, prefer graph-preserving `call()` / `let()` composition rather than a row-returning local Cypher `CALL`.
 
 Quick Examples
 ~~~~~~~~~~~~~~~

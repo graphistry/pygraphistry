@@ -39,6 +39,8 @@ All Call operations:
 - Can add columns to nodes or edges (schema effects)
 - Are restricted to methods in the safelist for security
 
+Call operations stay in graph state: the result remains a traversable graph with meaningful `_edges`, so you can keep matching or compose additional graph stages with `let()` / `ref()`. If you want row/tabular output, switch into row-pipeline operators such as `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, or use a row-returning local Cypher `CALL ... YIELD ... RETURN ...` query.
+
 Graph Transformation Methods
 ----------------------------
 
