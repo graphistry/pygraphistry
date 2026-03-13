@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.51.2 - 2026-03-13]
+
 ### Fixed
 - **GFQL / Cypher validation**: Hardened local Cypher fail-fast handling for additional unsupported read-only query shapes so valid-but-unsupported queries raise `GFQLValidationError` instead of surfacing syntax errors, runtime errors, or wrong rows.
 
