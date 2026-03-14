@@ -114,6 +114,36 @@ def test_lower_match_clause_relationship_direction(query: str, edge_type: type) 
     assert isinstance(ops[1], edge_type)
 
 
+@pytest.mark.parametrize(
+    "query,edge_type,min_hops,max_hops,to_fixed_point,edge_match",
+    [
+        ("MATCH (a)-[*2]->(b) RETURN b", ASTEdgeForward, 2, 2, False, None),
+        ("MATCH (a)<-[*3]-(b) RETURN b", ASTEdgeReverse, 3, 3, False, None),
+        ("MATCH (a)-[:R*1..4]-(b) RETURN b", ASTEdgeUndirected, 1, 4, False, {"type": "R"}),
+        ("MATCH (a)-[*]->(b) RETURN b", ASTEdgeForward, None, None, True, None),
+    ],
+)
+def test_lower_match_clause_variable_length_relationships(
+    query: str,
+    edge_type: type,
+    min_hops: int | None,
+    max_hops: int | None,
+    to_fixed_point: bool,
+    edge_match: dict[str, object] | None,
+) -> None:
+    parsed = _parse_query(query)
+    assert parsed.match is not None
+
+    ops = lower_match_clause(parsed.match)
+
+    assert isinstance(ops[1], edge_type)
+    edge = ops[1]
+    assert edge.min_hops == min_hops
+    assert edge.max_hops == max_hops
+    assert edge.to_fixed_point is to_fixed_point
+    assert edge.edge_match == edge_match
+
+
 def test_lower_match_clause_relationship_type_alternation_uses_is_in_predicate() -> None:
     parsed = _parse_query("MATCH (n)-[r:KNOWS|HATES]->(x) RETURN r")
     assert parsed.match is not None
@@ -2331,31 +2361,89 @@ def test_string_cypher_failfast_rejects_graph_backed_unwind_after_with_as_valida
     assert "UNWIND after WITH/RETURN" in exc_info.value.message
 
 
-@pytest.mark.parametrize(
-    "query",
-    [
-        "MATCH (a)-[*]->(b) RETURN a, b",
-        "MATCH (a)-[*2]->(b) RETURN a, b",
-        "MATCH (a)-[*1..3]->(b) RETURN a, b",
-    ],
-)
-def test_string_cypher_failfast_rejects_variable_length_relationship_patterns_as_validation_error(query: str) -> None:
+def test_string_cypher_executes_exact_multihop_relationship_pattern() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c", "d", "e", "f"]}),
         pd.DataFrame(
             {
-                "s": ["a", "c", "d", "e"],
-                "d": ["b", "d", "e", "f"],
-                "type": ["R", "R", "R", "R"],
+                "s": ["a", "b", "c", "d", "e"],
+                "d": ["b", "c", "d", "e", "f"],
+                "type": ["R", "R", "R", "R", "R"],
             }
         ),
     )
 
-    with pytest.raises(GFQLValidationError) as exc_info:
-        graph.gfql(query)
+    result = graph.gfql("MATCH (a {id: 'a'})-[*2]->(b) RETURN b.id AS id ORDER BY id")
 
-    assert exc_info.value.code == ErrorCode.E108
-    assert "variable-length relationship patterns" in exc_info.value.message
+    assert result._nodes.to_dict(orient="records") == [{"id": "c"}]
+
+
+def test_string_cypher_executes_bounded_multihop_relationship_pattern() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d", "e"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c", "a"],
+                "d": ["b", "c", "d", "e"],
+                "type": ["R", "R", "R", "S"],
+            }
+        ),
+    )
+
+    result = graph.gfql("MATCH (a {id: 'a'})-[:R*1..3]->(b) RETURN b.id AS id ORDER BY id")
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "b"}, {"id": "c"}, {"id": "d"}]
+
+
+def test_string_cypher_executes_fixed_point_relationship_pattern() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d", "e"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c", "a"],
+                "d": ["b", "c", "d", "e"],
+                "type": ["R", "R", "R", "S"],
+            }
+        ),
+    )
+
+    result = graph.gfql("MATCH (a {id: 'a'})-[*]->(b) RETURN b.id AS id ORDER BY id")
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "b"}, {"id": "c"}, {"id": "d"}, {"id": "e"}]
+
+
+def test_string_cypher_executes_reverse_multihop_relationship_pattern() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c"],
+                "d": ["b", "c", "d"],
+                "type": ["R", "R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql("MATCH (a {id: 'c'})<-[*2]-(b) RETURN b.id AS id ORDER BY id")
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "a"}]
+
+
+def test_string_cypher_executes_undirected_multihop_relationship_pattern() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c"],
+                "d": ["b", "c", "d"],
+                "type": ["R", "R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql("MATCH (a {id: 'a'})-[:R*1..2]-(b) RETURN b.id AS id ORDER BY id")
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "b"}, {"id": "c"}]
 
 
 @pytest.mark.parametrize(

@@ -90,6 +90,11 @@ class TestMultiHopChainForward():
             {'s': 'c', 'd': 'd'}
         ]
 
+    def test_chain_exact_named_terminal_alias_marks_only_endpoint_nodes(self, g_long_forwards_chain):
+        g2 = g_long_forwards_chain.gfql([n({'v': 'a'}, name='seed'), e_forward(min_hops=3, max_hops=3), n(name='hit')])
+        assert sorted(g2._nodes.loc[g2._nodes['seed'], 'v'].tolist()) == ['a']
+        assert sorted(g2._nodes.loc[g2._nodes['hit'], 'v'].tolist()) == ['d']
+
     def test_chain_predicates_ok_source(self, g_long_forwards_chain):
         g2 = g_long_forwards_chain.gfql([
             n({'v': 'a'}),

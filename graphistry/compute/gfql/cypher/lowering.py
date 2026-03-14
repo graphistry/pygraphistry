@@ -2230,11 +2230,19 @@ def _lower_relationship(
         line=relationship.span.line,
         column=relationship.span.column,
     )
+    edge_kwargs = {
+        "edge_match": edge_match,
+        "hops": None if (relationship.min_hops is not None or relationship.max_hops is not None or relationship.to_fixed_point) else 1,
+        "min_hops": relationship.min_hops,
+        "max_hops": relationship.max_hops,
+        "to_fixed_point": relationship.to_fixed_point,
+        "name": relationship.variable,
+    }
     if relationship.direction == "forward":
-        return cast(ASTObject, e_forward(edge_match=edge_match, name=relationship.variable))
+        return cast(ASTObject, e_forward(**edge_kwargs))
     if relationship.direction == "reverse":
-        return cast(ASTObject, e_reverse(edge_match=edge_match, name=relationship.variable))
-    return cast(ASTObject, e_undirected(edge_match=edge_match, name=relationship.variable))
+        return cast(ASTObject, e_reverse(**edge_kwargs))
+    return cast(ASTObject, e_undirected(**edge_kwargs))
 
 
 def _pattern_line_column(pattern: Sequence[PatternElement], clause: MatchClause) -> Tuple[int, int]:
@@ -2257,6 +2265,9 @@ def _reverse_relationship_pattern(relationship: RelationshipPattern) -> Relation
         types=relationship.types,
         properties=relationship.properties,
         span=relationship.span,
+        min_hops=relationship.min_hops,
+        max_hops=relationship.max_hops,
+        to_fixed_point=relationship.to_fixed_point,
     )
 
 

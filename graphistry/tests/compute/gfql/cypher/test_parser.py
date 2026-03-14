@@ -289,6 +289,36 @@ def test_parse_relationship_type_alternation_with_repeated_colon() -> None:
     assert rel.types == ("T", "OTHER")
 
 
+@pytest.mark.parametrize(
+    "query,direction,min_hops,max_hops,to_fixed_point,types",
+    [
+        ("MATCH (a)-[*2]->(b) RETURN b", "forward", 2, 2, False, ()),
+        ("MATCH (a)-[:R*1..3]->(b) RETURN b", "forward", 1, 3, False, ("R",)),
+        ("MATCH (a)<-[*4]-(b) RETURN b", "reverse", 4, 4, False, ()),
+        ("MATCH (a)-[*]->(b) RETURN b", "forward", None, None, True, ()),
+        ("MATCH (a)-[:R|:S*2..4]-(b) RETURN b", "undirected", 2, 4, False, ("R", "S")),
+    ],
+)
+def test_parse_variable_length_relationship_patterns(
+    query: str,
+    direction: str,
+    min_hops: int | None,
+    max_hops: int | None,
+    to_fixed_point: bool,
+    types: tuple[str, ...],
+) -> None:
+    parsed = _parse_query(query)
+
+    assert parsed.match is not None
+    rel = parsed.match.pattern[1]
+    assert isinstance(rel, RelationshipPattern)
+    assert rel.direction == direction
+    assert rel.min_hops == min_hops
+    assert rel.max_hops == max_hops
+    assert rel.to_fixed_point is to_fixed_point
+    assert rel.types == types
+
+
 def test_parse_return_pipeline_clauses() -> None:
     parsed = _parse_query(
         "MATCH (p:Person) RETURN DISTINCT p.name AS person_name ORDER BY person_name DESC, p.id ASC SKIP 1 LIMIT 2;"

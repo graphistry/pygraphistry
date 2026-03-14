@@ -432,6 +432,41 @@ def combine_steps(
                         mapped_vals = out_df[id].map(hop_map)
                         out_df[hc] = out_df[hc].where(out_df[hc].notna(), mapped_vals)
 
+        if hop_cols:
+            hop_col = hop_cols[0]
+            for idx, (op, _g_step) in enumerate(steps):
+                if op._name is None or not isinstance(op, ASTNode) or op._name not in out_df.columns or idx == 0:
+                    continue
+                prev_op, _ = steps[idx - 1]
+                if not isinstance(prev_op, ASTEdge):
+                    continue
+                min_hop = (
+                    prev_op.output_min_hops
+                    if prev_op.output_min_hops is not None
+                    else (
+                        prev_op.min_hops
+                        if prev_op.min_hops is not None
+                        else (prev_op.hops if prev_op.hops is not None else 1)
+                    )
+                )
+                max_hop = (
+                    prev_op.output_max_hops
+                    if prev_op.output_max_hops is not None
+                    else (
+                        prev_op.max_hops
+                        if prev_op.max_hops is not None
+                        else prev_op.hops
+                    )
+                )
+                if prev_op.to_fixed_point:
+                    max_hop = None
+                label_mask = out_df[op._name].fillna(False).astype(bool)
+                if min_hop > 1:
+                    label_mask = label_mask & out_df[hop_col].notna() & (out_df[hop_col] >= min_hop)
+                if max_hop is not None:
+                    label_mask = label_mask & out_df[hop_col].notna() & (out_df[hop_col] <= max_hop)
+                out_df[op._name] = label_mask
+
     cols = list(out_df.columns)
     for c in cols:
         if c.endswith('_x'):

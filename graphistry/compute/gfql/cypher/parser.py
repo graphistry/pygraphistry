@@ -76,15 +76,18 @@ relationship_pattern: rel_forward
                     | rel_undirected_simple
                     | rel_bidirectional_simple
 
-rel_forward: "-" "[" variable? rel_types? properties? "]" "->"
-rel_reverse: "<-" "[" variable? rel_types? properties? "]" "-"
-rel_undirected: "-" "[" variable? rel_types? properties? "]" "-"
+rel_forward: "-" "[" variable? rel_types? rel_range? properties? "]" "->"
+rel_reverse: "<-" "[" variable? rel_types? rel_range? properties? "]" "-"
+rel_undirected: "-" "[" variable? rel_types? rel_range? properties? "]" "-"
 rel_forward_simple: REL_FWD_SIMPLE
 rel_reverse_simple: REL_REV_SIMPLE
 rel_undirected_simple: REL_UNDIR_SIMPLE
 rel_bidirectional_simple: REL_BIDIR_SIMPLE
 
 rel_types: ":" LABEL_NAME ("|" ":"? LABEL_NAME)*
+rel_range: "*" INT ".." INT      -> rel_range_bounded
+         | "*" INT               -> rel_range_exact
+         | "*"                   -> rel_range_fixed
 
 variable: NAME
 
@@ -389,44 +392,11 @@ def _to_unsupported(message: str, *, line: Optional[int] = None, column: Optiona
     )
 
 
-_VARIABLE_REL_PATTERN_RE = re.compile(
-    r"(?:<-\s*\[[^\]\n]*\*[^\]\n]*\]\s*-)|(?:-\s*\[[^\]\n]*\*[^\]\n]*\]\s*->)|(?:-\s*\[[^\]\n]*\*[^\]\n]*\]\s*-)"
-)
-
-
 def _line_and_column_from_offset(source: str, offset: int) -> Tuple[int, int]:
     line = source.count("\n", 0, offset) + 1
     last_newline = source.rfind("\n", 0, offset)
     column = offset + 1 if last_newline < 0 else offset - last_newline
     return line, column
-
-
-def _find_variable_length_relationship_pattern(source: str) -> Optional[Tuple[str, int, int]]:
-    in_single_quote = False
-    escape = False
-    segment_start = 0
-    for idx, ch in enumerate(source):
-        if in_single_quote:
-            if escape:
-                escape = False
-            elif ch == "\\":
-                escape = True
-            elif ch == "'":
-                in_single_quote = False
-                segment_start = idx + 1
-            continue
-        if ch == "'":
-            match = _VARIABLE_REL_PATTERN_RE.search(source, segment_start, idx)
-            if match is not None:
-                line, column = _line_and_column_from_offset(source, match.start())
-                return match.group(0), line, column
-            in_single_quote = True
-            continue
-    match = _VARIABLE_REL_PATTERN_RE.search(source, segment_start)
-    if match is None:
-        return None
-    line, column = _line_and_column_from_offset(source, match.start())
-    return match.group(0), line, column
 
 
 def _build_transformer(source: str) -> _TransformerLike:
@@ -523,9 +493,16 @@ def _build_transformer(source: str) -> _TransformerLike:
             variable: Optional[str] = None
             rel_types: Tuple[str, ...] = ()
             properties: Tuple[PropertyEntry, ...] = ()
+            min_hops: Optional[int] = None
+            max_hops: Optional[int] = None
+            to_fixed_point = False
             for item in items:
                 if isinstance(item, str):
                     variable = item
+                elif isinstance(item, dict):
+                    min_hops = cast(Optional[int], item.get("min_hops"))
+                    max_hops = cast(Optional[int], item.get("max_hops"))
+                    to_fixed_point = bool(item.get("to_fixed_point", False))
                 elif isinstance(item, tuple) and all(isinstance(v, str) for v in item):
                     rel_types = cast(Tuple[str, ...], item)
                 elif isinstance(item, tuple):
@@ -536,7 +513,49 @@ def _build_transformer(source: str) -> _TransformerLike:
                 types=rel_types,
                 properties=properties,
                 span=_span_from_meta(meta),
+                min_hops=min_hops,
+                max_hops=max_hops,
+                to_fixed_point=to_fixed_point,
             )
+
+        def _rel_hops(self, meta: Any, token: Any) -> int:
+            try:
+                value = int(str(token))
+            except Exception as exc:
+                raise _to_syntax_error("Invalid relationship range bound", line=meta.line, column=meta.column) from exc
+            if value <= 0:
+                raise _to_unsupported(
+                    "Cypher zero-hop relationship ranges are not yet supported in the current GFQL Cypher compiler",
+                    line=meta.line,
+                    column=meta.column,
+                    field="match",
+                    value=self._slice(_span_from_meta(meta)),
+                )
+            return value
+
+        def rel_range_exact(self, meta: Any, items: Sequence[Any]) -> dict[str, Any]:
+            if len(items) != 1:
+                raise _to_syntax_error("Invalid relationship range", line=meta.line, column=meta.column)
+            hops = self._rel_hops(meta, items[0])
+            return {"min_hops": hops, "max_hops": hops, "to_fixed_point": False}
+
+        def rel_range_bounded(self, meta: Any, items: Sequence[Any]) -> dict[str, Any]:
+            if len(items) != 2:
+                raise _to_syntax_error("Invalid relationship range", line=meta.line, column=meta.column)
+            min_hops = self._rel_hops(meta, items[0])
+            max_hops = self._rel_hops(meta, items[1])
+            if min_hops > max_hops:
+                raise _to_unsupported(
+                    "Cypher relationship ranges require lower bound <= upper bound",
+                    line=meta.line,
+                    column=meta.column,
+                    field="match",
+                    value=self._slice(_span_from_meta(meta)),
+                )
+            return {"min_hops": min_hops, "max_hops": max_hops, "to_fixed_point": False}
+
+        def rel_range_fixed(self, meta: Any, _items: Sequence[Any]) -> dict[str, Any]:
+            return {"min_hops": None, "max_hops": None, "to_fixed_point": True}
 
         def rel_forward(self, meta: Any, items: Sequence[Any]) -> RelationshipPattern:
             return self._relationship(meta, items, direction="forward")
@@ -1261,16 +1280,6 @@ def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery]:
     """
     if not isinstance(query, str) or query.strip() == "":
         raise _to_syntax_error("Cypher query must be a non-empty string")
-    variable_length_pattern = _find_variable_length_relationship_pattern(query)
-    if variable_length_pattern is not None:
-        pattern_text, line, column = variable_length_pattern
-        raise _to_unsupported(
-            "Cypher variable-length relationship patterns are not yet supported in the current GFQL Cypher compiler",
-            line=line,
-            column=column,
-            field="match",
-            value=pattern_text,
-        )
 
     parser = _parser()
     transformer = _build_transformer(query)
