@@ -115,11 +115,11 @@ Support Matrix
      - Partial
      - The current row-expression subset is intentionally smaller than full Cypher; finish advanced logic in pandas/cuDF when needed.
 
-Verified Supported Syntax Forms
--------------------------------
+Supported Syntax Forms
+----------------------
 
 The matrix above is clause-level. This section lists the main user-visible
-syntax forms currently verified by parser, lowering, and runtime tests.
+syntax forms on the current Cypher-in-GFQL surface.
 
 Pattern Matching Forms
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -155,8 +155,8 @@ Row And Row-Pipeline Forms
   ``ORDER BY``, ``SKIP``, and ``LIMIT``.
 - Terminal ``WITH`` queries and multiple ``WITH`` stages.
 - ``WITH ... WHERE`` row filtering.
-- Aggregation/grouping via Cypher projection semantics, with tested examples
-  including ``count``, ``count(DISTINCT ...)``, ``collect``,
+- Aggregation/grouping via Cypher projection semantics, including ``count``,
+  ``count(DISTINCT ...)``, ``collect``,
   ``collect(DISTINCT ...)``, ``sum``, ``max``, and ``size(...)``.
 - Top-level ``UNWIND ... RETURN ...`` queries.
 - Mixed graph/row queries such as ``MATCH ... UNWIND ... RETURN ...``.
@@ -178,8 +178,8 @@ Procedure And Multi-Branch Forms
   rejects ``UNION`` / ``UNION ALL`` and row-returning ``CALL`` flows because
   they are not representable as a single GFQL ``Chain``.
 
-Tested Expression Families
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+Expression Families
+~~~~~~~~~~~~~~~~~~~
 
 - Arithmetic, boolean, comparison, and null-propagation expressions.
 - ``CASE`` expressions.
@@ -189,13 +189,13 @@ Tested Expression Families
 - List predicates such as ``all(...)``, ``any(...)``, ``none(...)``, and
   ``single(...)``.
 - Temporal constructors and operations over ``date``, ``time``, ``datetime``,
-  ``localtime``, ``localdatetime``, and ``duration`` in the currently tested
-  vectorized subset.
+  ``localtime``, ``localdatetime``, and ``duration`` in the current vectorized
+  subset.
 
 Bounded / Partial Forms
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-- ``OPTIONAL MATCH`` works for a bounded tested subset, including top-level and
+- ``OPTIONAL MATCH`` works for a bounded subset, including top-level and
   bound optional rows, but not the full Cypher null-extension surface.
 - ``UNWIND`` works at top level, after ``MATCH``, and in row-only pipelines,
   but not in every graph/row interleaving.
