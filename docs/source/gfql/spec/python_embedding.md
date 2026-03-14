@@ -391,17 +391,40 @@ nodes_with_edges = result._nodes[result._nodes[g._node].isin(result._edges[g._so
 ### Local Cypher String Execution
 
 For supported local Cypher strings on a bound graph, `g.gfql()` defaults string
-queries to `language="cypher"`:
+queries to `language="cypher"`.
+
+`g.gfql("MATCH ...")` still returns a `Plottable`, but current local Cypher
+`RETURN` output is usually consumed as rows from `result._nodes`:
+
+- scalar/property projections such as `RETURN p.name AS name` produce a table in
+  `result._nodes`
+- whole-entity projections such as `RETURN p` also surface entity-valued rows in
+  `result._nodes`
+- `result._edges` is typically an empty placeholder frame for these row-shaped
+  local Cypher results
+
+If you want a traversable graph/subgraph back in both `_nodes` and `_edges`,
+prefer native GFQL chain syntax instead of local Cypher `RETURN` projections.
 
 ```python
-g.gfql("MATCH (p:Person) RETURN p.name AS name")
+from graphistry import n, e_forward
 
-g.gfql(
+# Local Cypher returns a Plottable, with row output exposed in _nodes.
+result = g.gfql("MATCH (p:Person) RETURN p.name AS name")
+df = result._nodes
+
+entity_rows = g.gfql("MATCH (p:Person) RETURN p")
+entity_df = entity_rows._nodes
+
+# If you want a graph/subgraph back, use native GFQL chain syntax.
+g2 = g.gfql([n({"type": "Person"}), e_forward(), n()])
+
+limited = g.gfql(
     "MATCH (p:Person) RETURN p.name AS name ORDER BY name DESC LIMIT $top_n",
     params={"top_n": 10},
 )
 
-g.gfql("MATCH (p:Person) RETURN p.name AS name", language="cypher")
+same_limited = g.gfql("MATCH (p:Person) RETURN p.name AS name", language="cypher")
 ```
 
 Use `params=...` instead of manual string interpolation, and expect unsupported
