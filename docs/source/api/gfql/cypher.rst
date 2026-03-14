@@ -3,37 +3,61 @@
 GFQL Local Cypher API Reference
 ===============================
 
-These helpers expose the local GFQL-flavored Cypher parser and compiler.
+This page documents the Python helper APIs behind PyGraphistry's local Cypher
+support.
 
-For execution-first usage, prefer ``g.gfql("MATCH ...")`` on a bound graph. Use
-the helper functions below when you want to parse, compile, or translate a
-supported local Cypher query programmatically. They do not call remote
-Bolt/Neo4j-style Cypher backends.
+- **Cypher** is a graph query language popularized by Neo4j and related tools.
+- **GFQL** is PyGraphistry's dataframe-native graph query language for querying
+  a bound graph in memory.
+- PyGraphistry supports a read-only local Cypher subset that can be parsed,
+  validated, compiled, and executed through GFQL.
+
+Use this page when you want to:
+
+- run a supported local Cypher query through ``g.gfql("MATCH ...")``
+- preflight a query with ``parse_cypher()`` or ``compile_cypher()``
+- translate a supported query into a GFQL ``Chain`` programmatically
+
+This page is an API reference, not the main tutorial. It does not call remote
+Bolt/Neo4j-style Cypher backends; use ``g.cypher(...)`` or
+``graphistry.cypher(...)`` for that remote execution path.
 
 See also:
 
-- :doc:`/gfql/cypher` for the user-facing local Cypher guide
+- :doc:`/gfql/cypher` for the user-facing local Cypher guide and support matrix
+- :doc:`/gfql/index` or :doc:`/gfql/quick` if you are new to GFQL itself
 - :doc:`/gfql/spec/cypher_mapping` for translation-oriented guidance
 
-Direct Execution Entry Point
-----------------------------
+Start Here: Local Execution
+---------------------------
 
-Use ``g.gfql(...)`` for local string execution on a bound graph:
+If you only want to run a supported local Cypher query on a bound graph, start
+with ``g.gfql(...)``. The method always returns a ``Plottable``, but the result
+shape depends on what you ask for:
+
+- native GFQL chains preserve graph state in ``_nodes`` and ``_edges``
+- local Cypher ``RETURN`` projections surface tabular rows in the returned
+  ``_nodes`` dataframe
+
+For the broader graph-state vs row-state model, see :doc:`/gfql/quick`.
 
 .. code-block:: python
 
-    result = g.gfql("MATCH (p:Person) RETURN p.name AS name")
+    from graphistry.compute.ast import e_forward, n
 
-When the query argument is a string, the ``language`` selector defaults to
-``"cypher"``. Use ``params=...`` for parameter substitution instead of manual
-string interpolation:
+    # Graph/subgraph result: native GFQL chains stay in graph state.
+    g2 = g1.gfql([n({"type": "Person"}), e_forward(), n()])
 
-.. code-block:: python
-
-    result = g.gfql(
+    # Row/table result: local Cypher projections surface rows in _nodes.
+    df = g1.gfql(
         "MATCH (p:Person) RETURN p.name AS name ORDER BY name DESC LIMIT $top_n",
         params={"top_n": 5},
-    )
+    )._nodes
+
+When the query argument is a string, the ``language`` selector defaults to
+``"cypher"``. Top-level ``params=...`` is currently only supported for string
+query compilation; regular GFQL AST / Chain inputs use normal Python values in
+the AST itself.
 
 Helper Functions
 ----------------
