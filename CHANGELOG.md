@@ -15,25 +15,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [0.51.2 - 2026-03-13]
 
 ### Fixed
-- **GFQL / Cypher validation**: Hardened fail-fast handling for additional unsupported read-only Cypher query shapes so valid-but-unsupported queries raise `GFQLValidationError` instead of surfacing syntax errors, runtime errors, or wrong rows.
+- **GFQL / Cypher validation**: Hardened local Cypher fail-fast handling for additional unsupported read-only query shapes so valid-but-unsupported queries raise `GFQLValidationError` instead of surfacing syntax errors, runtime errors, or wrong rows.
 
 ## [0.51.1 - 2026-03-12]
 
 ### Added
-- **GFQL / Cypher**: Added Cypher-string execution through `g.gfql(query, params=...)` on bound graphs. String queries that look like Cypher now execute through GFQL's columnar engine; remote `g.cypher(...)` semantics stay unchanged.
+- **GFQL / Cypher**: Added local Cypher-string execution through `g.gfql(query, params=...)`. String queries that look like Cypher now execute locally through GFQL; remote `g.cypher(...)` semantics stay unchanged.
 - **GFQL / Cypher compiler**: Added the `graphistry.compute.gfql.cypher` parser/compiler surface, including `parse_cypher`, `compile_cypher`, `cypher_to_gfql`, and `gfql_from_cypher`.
-- **GFQL / Cypher runtime**: Added lowering/execution support for the current Cypher-in-GFQL fragment, including `MATCH` / `OPTIONAL MATCH`, `WHERE`, `WITH`, `RETURN`, `ORDER BY`, `SKIP`, `LIMIT`, `UNWIND`, `UNION`, and `CALL graphistry.*`.
+- **GFQL / Cypher runtime**: Added local lowering/execution support for the current Cypher fragment, including `MATCH` / `OPTIONAL MATCH`, `WHERE`, `WITH`, `RETURN`, `ORDER BY`, `SKIP`, `LIMIT`, `UNWIND`, `UNION`, and `CALL graphistry.*`.
 - **GFQL / Row pipeline**: Added and expanded the row-pipeline operators used by Cypher lowering: `rows()`, `where_rows()`, `return_()`, `with_()`, `order_by()`, `skip()`, `limit()`, `distinct()`, `unwind()`, and `group_by()`.
 - **GFQL / Row results**: Added whole-row entity projection helpers for Cypher node/edge/map outputs plus temporal/entity text normalization.
 
 ### Fixed
 - **GFQL / Cypher validation/runtime parity**: Hardened lowering and row-pipeline boundaries so unsupported Cypher/query shapes fail fast with validation errors instead of falling through to unsupported execution paths.
-- **GFQL / Cypher compatibility**: Fixed Cypher-string execution through `g.gfql("MATCH ...")` across pandas 2/3 and Python 3.8-3.14 for temporal constructor rendering/parsing, whole-row projection text normalization, and Arrow-string null RHS handling in string predicates.
-- **GFQL / Cypher aggregates**: Reject unsound aggregate multiplicity query shapes during Cypher lowering instead of returning incorrect results.
-- **GFQL / cuDF row projections**: Preserve list/map/entity row projections through pandas<->cuDF fallback paths, harden schema validation and struct/map access, and keep RAPIDS CUDA 13 execution aligned with pandas for supported string-Cypher queries through GFQL.
+- **GFQL / Cypher compatibility**: Fixed local Cypher execution across pandas 2/3 and Python 3.8-3.14 for temporal constructor rendering/parsing, whole-row projection text normalization, and Arrow-string null RHS handling in string predicates.
+- **GFQL / Cypher aggregates**: Reject unsound aggregate multiplicity query shapes during local Cypher lowering instead of returning incorrect results.
+- **GFQL / cuDF row projections**: Preserve list/map/entity row projections through pandas<->cuDF fallback paths, harden schema validation and struct/map access, and keep RAPIDS CUDA 13 execution aligned with pandas for supported local string-Cypher queries.
 
 ### Tests
-- **GFQL / Cypher**: Added parser, lowering, execution, procedure-call, UNION, temporal, whole-row projection, and compatibility coverage for Cypher-string execution through `g.gfql(...)`.
+- **GFQL / Cypher**: Added parser, lowering, execution, procedure-call, UNION, temporal, whole-row projection, and compatibility coverage for local Cypher execution.
 - **GFQL / Row pipeline**: Expanded unit coverage for projection aliasing, ordering/grouping semantics, DISTINCT/UNWIND flows, and parser/precedence regressions across pure-vector execution paths.
 - **GFQL / cuDF**: Added RAPIDS-focused regression coverage for schema validation, row projection precedence/list cases, and row-table preservation, keeping the supported string-Cypher TCK slice green on the latest GPU validation flow.
 
