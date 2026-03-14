@@ -5,6 +5,12 @@ Welcome to **GFQL**, the first dataframe-native graph query language with GPU su
 
 **GFQL bridges the gap** between traditional storage-tier graph databases and the modern compute tier, allowing you to perform your favorite high-performance graph queries directly on your dataframes. It's built to be familiar to users of Cypher, other graph query languages, and popular dataframe libraries. By being native to accelerated Python datascience dataframe technologies such as Apache Arrow, Numpy, Nvidia RAPIDS, and Graphistry, it can already do workloads like 100M+ edges in interactive time on a single machine.
 
+If you are new to Cypher: Cypher is a graph query language popularized by
+Neo4j and related tools. It uses ASCII-art graph patterns such as
+``(n1)-[e1]->(n2)`` to describe traversals from one node to another across an
+edge. GFQL supports a bounded local Cypher subset directly through
+``g.gfql("MATCH ...")``.
+
 For local Cypher-string execution, start with
 :doc:`GFQL Local Cypher <cypher>`,
 :doc:`GFQL Quick Reference <quick>`,

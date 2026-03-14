@@ -5,6 +5,11 @@ GFQL Quick Reference
 
 This quick reference page provides short examples of various parameters and usage patterns.
 
+If you are new to Cypher: Cypher is a graph query language popularized by
+Neo4j and related tools. It uses ASCII-art graph patterns such as
+``(n1)-[e1]->(n2)`` to describe node-edge-node traversals, so GFQL docs use
+that notation as a familiar shorthand when discussing local Cypher strings.
+
 Basic Usage
 -----------
 
@@ -48,9 +53,9 @@ instead of writing the equivalent GFQL chain by hand:
 .. code-block:: python
 
     result = g.gfql(
-        "MATCH (p:Person) "
-        "RETURN p.name AS name "
-        "ORDER BY name DESC "
+        "MATCH (n1:Person)-[e1:FOLLOWS]->(n2:Person) "
+        "RETURN n1.name AS source_name, n2.name AS target_name "
+        "ORDER BY source_name, target_name "
         "LIMIT $top_n",
         params={"top_n": 5},
     )
