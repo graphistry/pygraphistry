@@ -77,6 +77,40 @@ that includes:
 For exact ``RETURN`` / ``WITH`` row semantics after pattern matching, see
 :doc:`return`. For same-path ``WHERE`` comparisons, see :doc:`where`.
 
+Support Matrix
+--------------
+
+.. list-table::
+   :header-rows: 1
+
+   * - Query shape
+     - Status
+     - Notes
+   * - ``MATCH`` / ``WHERE`` / ``RETURN`` / ``WITH`` / ``ORDER BY`` / ``SKIP`` / ``LIMIT`` / ``DISTINCT``
+     - Supported
+     - Core local read-only path.
+   * - ``OPTIONAL MATCH``
+     - Partial
+     - Supported for a bounded local subset, not the full Cypher null-extension surface.
+   * - ``UNWIND``
+     - Partial
+     - Supported in the local subset, but not in every placement and combination.
+   * - ``UNION`` and ``CALL graphistry.*``
+     - Partial
+     - Execute directly through ``g.gfql("...")``. Helper translation to a single ``Chain`` is stricter.
+   * - Variable-length relationship patterns
+     - Not yet supported
+     - Rewrite in native GFQL with explicit hop bounds today.
+   * - ``CREATE`` / ``DELETE`` / ``SET``
+     - Not supported
+     - Local GFQL-flavored Cypher is read-only.
+   * - Multiple disconnected ``MATCH`` patterns and arbitrary joins
+     - Not supported
+     - Split the work into separate GFQL / dataframe steps.
+   * - Full Cypher expression and function surface in row expressions
+     - Partial
+     - The local row-expression subset is intentionally smaller than full Cypher; finish advanced logic in pandas/cuDF when needed.
+
 Validation And Unsupported Shapes
 ---------------------------------
 
@@ -88,6 +122,46 @@ Validation And Unsupported Shapes
 
 That fail-fast behavior is intentional: the local compiler prefers explicit
 validation over silently returning wrong rows.
+
+Static Validation / Preflight Check
+-----------------------------------
+
+If you want to know whether a query fits the current local subset before
+execution, preflight it with the helper APIs:
+
+.. code-block:: python
+
+    from graphistry.compute.exceptions import GFQLSyntaxError, GFQLValidationError
+    from graphistry.compute.gfql.cypher import parse_cypher, compile_cypher
+
+    query = "MATCH (p:Person) RETURN p.name AS name"
+
+    try:
+        parse_cypher(query)      # grammar + AST checks
+        compile_cypher(query)    # local compiler / lowering checks
+    except GFQLSyntaxError as exc:
+        print("Invalid local Cypher syntax:", exc)
+    except GFQLValidationError as exc:
+        print("Valid Cypher, but outside the current local subset:", exc)
+
+- Use ``parse_cypher()`` when you only want syntax and AST validation.
+- Use ``compile_cypher()`` for the strongest local preflight, because it also
+  catches unsupported-but-valid query shapes in lowering.
+- Use ``cypher_to_gfql()`` only when you specifically need a single GFQL
+  ``Chain``. It is intentionally stricter than direct execution through
+  ``g.gfql("...")``.
+
+Common Rewrites
+---------------
+
+- Need remote database Cypher instead of local in-memory execution? Use
+  ``graphistry.cypher("...")`` or ``g.cypher("...")``.
+- Need a pure GFQL chain object? Use ``cypher_to_gfql()`` when the query fits a
+  single ``Chain``.
+- Need variable-length traversal today? Rewrite in native GFQL with explicit
+  hop bounds such as ``e_forward(min_hops=1, max_hops=3)``.
+- Need write semantics or arbitrary joins? Keep local Cypher for the supported
+  read-only part and finish the rest in a database or in pandas/cuDF.
 
 Compiler Helper APIs
 --------------------
