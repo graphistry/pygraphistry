@@ -1,17 +1,20 @@
 .. _gfql-cypher:
 
-Local Cypher In GFQL
-====================
+Cypher Syntax In GFQL
+=====================
 
-PyGraphistry can run a supported Cypher subset directly on a bound graph in
-memory. Start here when you want to execute a Cypher string locally through
-GFQL instead of translating the query into GFQL by hand.
+PyGraphistry supports a read-only Cypher surface directly through GFQL on a
+bound graph. You get Cypher's familiar declarative syntax and graph-pattern
+semantics, while execution stays in GFQL's columnar engine with optional GPU
+acceleration. Start here when you want to execute a Cypher query through
+``g.gfql("MATCH ...")`` instead of translating it into native GFQL operators
+by hand.
 
 Choose The Right Cypher Entrypoint
 ----------------------------------
 
 - Use ``g.gfql("MATCH ...")`` or ``g.gfql("...", language="cypher")`` for
-  local in-memory Cypher execution on the current ``Plottable``.
+  Cypher syntax on the current bound ``Plottable``.
 - Use ``g.gfql_remote([...])`` for remote GFQL execution when the dataset size
   or hardware profile calls for running GFQL on remote infrastructure.
 - Use ``graphistry.cypher("...")`` or ``g.cypher("...")`` for remote database
@@ -60,18 +63,18 @@ Use ``params=...`` instead of manual string interpolation:
 
     limited._nodes
 
-Supported Local Cypher Surface
-------------------------------
+Supported Cypher Surface Through ``g.gfql()``
+---------------------------------------------
 
-The local compiler intentionally supports a bounded subset. At a high level,
-that includes:
+The current GFQL Cypher compiler intentionally supports a bounded read-only
+surface. At a high level, that includes:
 
 - ``MATCH`` and a bounded ``OPTIONAL MATCH`` subset
 - ``WHERE``
 - ``RETURN`` and ``WITH``
 - ``ORDER BY``, ``SKIP``, ``LIMIT``, and ``DISTINCT``
 - ``UNWIND``
-- supported local ``UNION`` and ``CALL graphistry.*`` flows when executed
+- supported ``UNION`` and ``CALL graphistry.*`` flows when executed
   directly through ``g.gfql("...")``
 
 For exact ``RETURN`` / ``WITH`` row semantics after pattern matching, see
@@ -88,13 +91,13 @@ Support Matrix
      - Notes
    * - ``MATCH`` / ``WHERE`` / ``RETURN`` / ``WITH`` / ``ORDER BY`` / ``SKIP`` / ``LIMIT`` / ``DISTINCT``
      - Supported
-     - Core local read-only path.
+     - Core read-only Cypher-in-GFQL path.
    * - ``OPTIONAL MATCH``
      - Partial
-     - Supported for a bounded local subset, not the full Cypher null-extension surface.
+     - Supported for a bounded Cypher-in-GFQL subset, not the full Cypher null-extension surface.
    * - ``UNWIND``
      - Partial
-     - Supported in the local subset, but not in every placement and combination.
+     - Supported in the current Cypher-in-GFQL subset, but not in every placement and combination.
    * - ``UNION`` and ``CALL graphistry.*``
      - Partial
      - Execute directly through ``g.gfql("...")``. Helper translation to a single ``Chain`` is stricter.
@@ -103,30 +106,30 @@ Support Matrix
      - Rewrite in native GFQL with explicit hop bounds today.
    * - ``CREATE`` / ``DELETE`` / ``SET``
      - Not supported
-     - Local GFQL-flavored Cypher is read-only.
+     - GFQL's Cypher surface is read-only.
    * - Multiple disconnected ``MATCH`` patterns and arbitrary joins
      - Not supported
      - Split the work into separate GFQL / dataframe steps.
    * - Full Cypher expression and function surface in row expressions
      - Partial
-     - The local row-expression subset is intentionally smaller than full Cypher; finish advanced logic in pandas/cuDF when needed.
+     - The current row-expression subset is intentionally smaller than full Cypher; finish advanced logic in pandas/cuDF when needed.
 
 Validation And Unsupported Shapes
 ---------------------------------
 
-- Unsupported but syntactically valid local Cypher shapes raise
+- Unsupported but syntactically valid query shapes on this Cypher surface raise
   ``GFQLValidationError``, usually before execution starts.
-- Invalid local Cypher syntax raises ``GFQLSyntaxError``.
+- Invalid Cypher syntax raises ``GFQLSyntaxError``.
 - Passing a string query with an unsupported ``language=...`` selector also
   raises ``GFQLValidationError``.
 
-That fail-fast behavior is intentional: the local compiler prefers explicit
-validation over silently returning wrong rows.
+That fail-fast behavior is intentional: the current GFQL Cypher compiler
+prefers explicit validation over silently returning wrong rows.
 
 Static Validation / Preflight Check
 -----------------------------------
 
-If you want to know whether a query fits the current local subset before
+If you want to know whether a query fits the current Cypher-in-GFQL subset before
 execution, preflight it with the helper APIs:
 
 .. code-block:: python
@@ -138,14 +141,14 @@ execution, preflight it with the helper APIs:
 
     try:
         parse_cypher(query)      # grammar + AST checks
-        compile_cypher(query)    # local compiler / lowering checks
+        compile_cypher(query)    # GFQL Cypher compiler / lowering checks
     except GFQLSyntaxError as exc:
-        print("Invalid local Cypher syntax:", exc)
+        print("Invalid Cypher syntax for g.gfql(\"MATCH ...\"):", exc)
     except GFQLValidationError as exc:
-        print("Valid Cypher, but outside the current local subset:", exc)
+        print("Valid Cypher, but outside the current GFQL Cypher surface:", exc)
 
 - Use ``parse_cypher()`` when you only want syntax and AST validation.
-- Use ``compile_cypher()`` for the strongest local preflight, because it also
+- Use ``compile_cypher()`` for the strongest compiler preflight, because it also
   catches unsupported-but-valid query shapes in lowering.
 - Use ``cypher_to_gfql()`` only when you specifically need a single GFQL
   ``Chain``. It is intentionally stricter than direct execution through
@@ -154,15 +157,15 @@ execution, preflight it with the helper APIs:
 Common Rewrites
 ---------------
 
-- Need remote execution instead of local in-memory execution? Prefer
-  ``g.gfql_remote([...])`` for remote GFQL on Graphistry infrastructure.
+- Need remote execution on Graphistry infrastructure instead of running against
+  the current bound graph? Prefer ``g.gfql_remote([...])`` for remote GFQL.
 - Need remote database Cypher against Neo4j/Bolt-style backends instead of
   remote GFQL? Use ``graphistry.cypher("...")`` or ``g.cypher("...")``.
 - Need a pure GFQL chain object? Use ``cypher_to_gfql()`` when the query fits a
   single ``Chain``.
 - Need variable-length traversal today? Rewrite in native GFQL with explicit
   hop bounds such as ``e_forward(min_hops=1, max_hops=3)``.
-- Need write semantics or arbitrary joins? Keep local Cypher for the supported
+- Need write semantics or arbitrary joins? Keep Cypher syntax for the supported
   read-only part and finish the rest in a database or in pandas/cuDF.
 
 Compiler Helper APIs
@@ -194,7 +197,8 @@ See :doc:`/api/gfql/cypher` for the helper reference.
 Translation Vs Direct Execution
 -------------------------------
 
-This page is about **direct local execution** of supported Cypher strings.
+This page is about **direct Cypher-syntax execution** through
+``g.gfql("MATCH ...")`` on a bound graph.
 
 - If you want to run the query now, use ``g.gfql("MATCH ...")``.
 - If you want to understand how Cypher maps into GFQL operators and wire

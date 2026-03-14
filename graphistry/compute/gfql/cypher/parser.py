@@ -381,7 +381,7 @@ def _to_unsupported(message: str, *, line: Optional[int] = None, column: Optiona
     return GFQLValidationError(
         ErrorCode.E108,
         message,
-        suggestion="Use a subset currently supported by the local Cypher compiler.",
+        suggestion="Use a subset currently supported by the GFQL Cypher compiler.",
         line=line,
         column=column,
         language="cypher",
@@ -717,7 +717,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                     "Cypher WHERE currently supports one positive pattern predicate at a time",
                     field="where",
                     value=pattern_text,
-                    suggestion="Use a single positive relationship existence pattern in WHERE for the local compiler subset.",
+                    suggestion="Use a single positive relationship existence pattern in WHERE for the current GFQL Cypher subset.",
                     line=span.line,
                     column=span.column,
                     language="cypher",
@@ -732,7 +732,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 if isinstance(exc, LarkError):
                     raise GFQLValidationError(
                         ErrorCode.E108,
-                        "Cypher WHERE pattern predicate is outside the currently supported local subset",
+                        "Cypher WHERE pattern predicate is outside the currently supported GFQL Cypher subset",
                         field="where",
                         value=pattern_text,
                         suggestion="Use a single positive fixed-length relationship existence pattern in WHERE.",
@@ -742,7 +742,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                     ) from exc
                 raise GFQLValidationError(
                     ErrorCode.E108,
-                    "Cypher WHERE pattern predicate is outside the currently supported local subset",
+                    "Cypher WHERE pattern predicate is outside the currently supported GFQL Cypher subset",
                     field="where",
                     value=pattern_text,
                     suggestion="Use a single positive fixed-length relationship existence pattern in WHERE.",
@@ -753,7 +753,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             if not isinstance(pattern_node, tuple):
                 raise GFQLValidationError(
                     ErrorCode.E108,
-                    "Cypher WHERE pattern predicate is outside the currently supported local subset",
+                    "Cypher WHERE pattern predicate is outside the currently supported GFQL Cypher subset",
                     field="where",
                     value=pattern_text,
                     suggestion="Use a single positive fixed-length relationship existence pattern in WHERE.",
@@ -1042,14 +1042,14 @@ def _build_transformer(source: str) -> _TransformerLike:
                 elif isinstance(item, WhereClause):
                     if call_clause is not None:
                         raise _to_syntax_error(
-                            "Cypher WHERE is not supported with CALL in the local compiler; use YIELD/RETURN row expressions instead",
+                            "Cypher WHERE is not supported with CALL in the current GFQL Cypher compiler; use YIELD/RETURN row expressions instead",
                             line=item.span.line,
                             column=item.span.column,
                         )
                     if reentry_match_clauses:
                         if reentry_where_clause is not None:
                             raise _to_syntax_error(
-                                "Cypher only supports one WHERE clause after post-WITH MATCH in the local compiler",
+                                "Cypher only supports one WHERE clause after post-WITH MATCH in the current GFQL Cypher compiler",
                                 line=item.span.line,
                                 column=item.span.column,
                             )
@@ -1059,13 +1059,13 @@ def _build_transformer(source: str) -> _TransformerLike:
                 elif isinstance(item, CallClause):
                     if call_clause is not None:
                         raise _to_syntax_error(
-                            "Cypher only supports one CALL clause per query in the local compiler",
+                            "Cypher only supports one CALL clause per query in the current GFQL Cypher compiler",
                             line=item.span.line,
                             column=item.span.column,
                         )
                     if match_clauses or reentry_match_clauses or stages or unwind_clauses:
                         raise _to_syntax_error(
-                            "Cypher CALL is currently only supported as the first clause in standalone or row-only local queries",
+                            "Cypher CALL is currently only supported as the first clause in standalone or row-only GFQL Cypher queries",
                             line=item.span.line,
                             column=item.span.column,
                         )
@@ -1073,7 +1073,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 elif isinstance(item, UnwindClause):
                     if reentry_match_clauses:
                         raise _to_syntax_error(
-                            "Cypher UNWIND after post-WITH MATCH is not yet supported in the local compiler",
+                            "Cypher UNWIND after post-WITH MATCH is not yet supported in the current GFQL Cypher compiler",
                             line=item.span.line,
                             column=item.span.column,
                         )
@@ -1088,13 +1088,13 @@ def _build_transformer(source: str) -> _TransformerLike:
                 elif isinstance(item, ProjectionStage):
                     if call_clause is not None and reentry_match_clauses:
                         raise _to_syntax_error(
-                            "Cypher CALL with MATCH re-entry is not yet supported in the local compiler",
+                            "Cypher CALL with MATCH re-entry is not yet supported in the current GFQL Cypher compiler",
                             line=item.span.line,
                             column=item.span.column,
                         )
                     if reentry_match_clauses and item.clause.kind != "return":
                         raise _to_syntax_error(
-                            "Cypher WITH after post-WITH MATCH is not yet supported in the local compiler",
+                            "Cypher WITH after post-WITH MATCH is not yet supported in the current GFQL Cypher compiler",
                             line=item.span.line,
                             column=item.span.column,
                         )
@@ -1113,7 +1113,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 if stage.clause.kind == "return":
                     if idx != len(stages) - 1 or return_stage is not None:
                         raise _to_syntax_error(
-                            "Cypher RETURN must be the final projection stage in the local compiler",
+                            "Cypher RETURN must be the final projection stage in the current GFQL Cypher compiler",
                             line=stage.span.line,
                             column=stage.span.column,
                         )
@@ -1124,14 +1124,14 @@ def _build_transformer(source: str) -> _TransformerLike:
                 if len(stages) != 2 or stages[0].clause.kind != "with" or stages[-1].clause.kind != "return":
                     first_match = reentry_match_clauses[0]
                     raise _to_syntax_error(
-                        "Cypher MATCH after WITH is only supported for a single MATCH ... WITH ... MATCH ... RETURN shape in the local compiler",
+                        "Cypher MATCH after WITH is only supported for a single MATCH ... WITH ... MATCH ... RETURN shape in the current GFQL Cypher compiler",
                         line=first_match.span.line,
                         column=first_match.span.column,
                     )
             final_stage: Optional[ProjectionStage] = return_stage or (stages[-1] if stages else None)
             if where_clause is not None and not match_clauses:
                 raise _to_syntax_error(
-                    "Cypher WHERE is currently only supported after MATCH in the local compiler",
+                    "Cypher WHERE is currently only supported after MATCH in the current GFQL Cypher compiler",
                     line=where_clause.span.line,
                     column=where_clause.span.column,
                 )
@@ -1233,7 +1233,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             union_kind_set = set(union_kinds)
             if len(union_kind_set) != 1:
                 raise _to_syntax_error(
-                    "Mixing UNION and UNION ALL is not supported in the local compiler",
+                    "Mixing UNION and UNION ALL is not supported in the current GFQL Cypher compiler",
                     line=meta.line,
                     column=meta.column,
                 )
@@ -1249,15 +1249,15 @@ def _build_transformer(source: str) -> _TransformerLike:
 
 
 def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery]:
-    """Parse supported local Cypher text into the typed AST used by the local compiler.
+    """Parse supported Cypher text into the typed AST used by GFQL's Cypher compiler.
 
-    The returned AST preserves the clause structure needed by the local GFQL
-    compiler, including unions and row-pipeline stages.
+    The returned AST preserves the clause structure needed by the current GFQL
+    Cypher compiler, including unions and row-pipeline stages.
 
-    :param query: Local Cypher text to parse.
+    :param query: Cypher text to parse.
     :returns: A parsed ``CypherQuery`` or ``CypherUnionQuery``.
-    :raises GFQLSyntaxError: If the query is not valid within the supported
-        local Cypher grammar.
+    :raises GFQLSyntaxError: If the query is not valid within GFQL's current
+        supported Cypher grammar.
     """
     if not isinstance(query, str) or query.strip() == "":
         raise _to_syntax_error("Cypher query must be a non-empty string")
@@ -1265,7 +1265,7 @@ def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery]:
     if variable_length_pattern is not None:
         pattern_text, line, column = variable_length_pattern
         raise _to_unsupported(
-            "Cypher variable-length relationship patterns are not yet supported in the local compiler",
+            "Cypher variable-length relationship patterns are not yet supported in the current GFQL Cypher compiler",
             line=line,
             column=column,
             field="match",

@@ -2,9 +2,10 @@
 
 # Cypher to GFQL Python & Wire Protocol Mapping
 
-GFQL supports Cypher syntax out of the box for a supported local subset, and
-this page explains how to translate familiar Cypher patterns into native GFQL
-Python and wire protocol forms when you want more explicit control.
+GFQL supports Cypher syntax out of the box for a bounded read-only surface on
+bound graphs, while executing through GFQL's columnar engine with optional GPU
+acceleration. This page explains how to translate familiar Cypher patterns into
+native GFQL Python and wire protocol forms when you want more explicit control.
 
 ## Introduction
 
@@ -15,13 +16,14 @@ want direct operator control, {ref}`Wire Protocol <gfql-spec-wire-protocol>`
 JSON generation, migration from Cypher-centric systems, language-agnostic API
 integration, or secure query generation without code execution.
 
-## Direct Local Execution Note
+## Direct ``g.gfql("MATCH ...")`` Note
 
-If you want to **run** a supported Cypher string locally on a bound graph, use
+If you want to **run** a supported Cypher string through ``g.gfql("MATCH ...")``
+on a bound graph, use
 `g.gfql("MATCH ...")` (or `g.gfql("...", language="cypher")`) and start with
 {doc}`/gfql/cypher`. This page stays translation-first: it explains how to
 express Cypher semantics in native GFQL operators and wire protocol, not the
-primary local execution quickstart.
+primary quickstart for direct Cypher syntax execution.
 
 ## What Maps 1-to-1
 
@@ -434,7 +436,7 @@ analysis = g.gfql([
 
 ## Not Supported
 - `CREATE`, `DELETE`, `SET`: GFQL is read-only.
-- `OPTIONAL MATCH`: direct local Cypher execution supports a bounded subset,
+- `OPTIONAL MATCH`: direct `g.gfql("MATCH ...")` execution supports a bounded subset,
   but pure GFQL translation still has no single general operator for full
   outer-join/null-extension semantics.
 - Full Cypher expression/function surface in row expressions: current vectorized subset only.

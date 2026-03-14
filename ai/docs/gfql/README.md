@@ -235,8 +235,8 @@ Before generating GFQL:
 - Full specifications in: `ai/prompts/`
   - `GFQL_LLM_GUIDE.md` - Complete language guidance
   - `GFQL_LLM_GUIDE_MAINTENANCE.md` - Maintenance workflow
-- Local Cypher docs now span:
-  - `docs/source/gfql/cypher.rst` - Local execution guide
+- Cypher-in-GFQL docs now span:
+  - `docs/source/gfql/cypher.rst` - Cypher syntax guide
   - `docs/source/api/gfql/cypher.rst` - Helper/API reference
   - `docs/source/gfql/spec/cypher_mapping.md` - Translation-first mapping
 

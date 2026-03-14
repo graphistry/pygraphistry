@@ -371,7 +371,7 @@ g.gfql([
 ])
 
 # Pure GFQL list/Chain syntax still has no direct OPTIONAL MATCH operator.
-# For the bounded local Cypher subset, execute a Cypher string instead:
+# For the bounded Cypher surface through g.gfql(), execute a Cypher string instead:
 g.gfql(
     "MATCH (n:Person) "
     "OPTIONAL MATCH (n)-[r:KNOWS]->(m) "
@@ -388,12 +388,12 @@ nodes_with_edges = result._nodes[result._nodes[g._node].isin(result._edges[g._so
 # Correct - Use supported row-expression operators, or post-process DataFrame
 ```
 
-### Local Cypher String Execution
+### Cypher String Execution Through ``g.gfql()``
 
-For supported local Cypher strings on a bound graph, `g.gfql()` defaults string
+For supported Cypher strings on a bound graph, `g.gfql()` defaults string
 queries to `language="cypher"`.
 
-`g.gfql("MATCH ...")` still returns a `Plottable`, but current local Cypher
+`g.gfql("MATCH ...")` still returns a `Plottable`, but current Cypher
 `RETURN` output is usually consumed as rows from `result._nodes`:
 
 - scalar/property projections such as `RETURN p.name AS name` produce a table in
@@ -401,15 +401,15 @@ queries to `language="cypher"`.
 - whole-entity projections such as `RETURN p` also surface entity-valued rows in
   `result._nodes`
 - `result._edges` is typically an empty placeholder frame for these row-shaped
-  local Cypher results
+  Cypher results
 
 If you want a traversable graph/subgraph back in both `_nodes` and `_edges`,
-prefer native GFQL chain syntax instead of local Cypher `RETURN` projections.
+prefer native GFQL chain syntax instead of Cypher `RETURN` projections.
 
 ```python
 from graphistry import n, e_forward
 
-# Local Cypher returns a Plottable, with row output exposed in _nodes.
+# Cypher syntax through g.gfql() returns a Plottable, with row output exposed in _nodes.
 result = g.gfql("MATCH (p:Person) RETURN p.name AS name")
 df = result._nodes
 
@@ -428,7 +428,8 @@ same_limited = g.gfql("MATCH (p:Person) RETURN p.name AS name", language="cypher
 ```
 
 Use `params=...` instead of manual string interpolation, and expect unsupported
-but syntactically valid local Cypher shapes to raise `GFQLValidationError`.
+but syntactically valid query shapes on this Cypher surface to raise
+`GFQLValidationError`.
 
 Use the compiler helpers when you need parse/compile/translation output instead
 of immediate execution:
@@ -442,7 +443,7 @@ from graphistry.compute.gfql.cypher import (
 )
 ```
 
-See the local-Cypher guide for the execution-first path and entrypoint
+See the Cypher-in-GFQL guide for the execution-first path and entrypoint
 selection:
 {doc}`/gfql/cypher`.
 

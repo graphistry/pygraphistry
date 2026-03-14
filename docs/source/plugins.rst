@@ -12,8 +12,9 @@ Occasionally, native PyGraphistry plugins streamline common operations, such as 
 .. note::
 
    ``graphistry.cypher("...")`` / ``g.cypher("...")`` below refer to the
-   remote database Cypher integrations. For local in-memory Cypher on a bound
-   graph, use ``g.gfql("MATCH ...")``; see :doc:`gfql/cypher`.
+   remote database Cypher integrations. For Cypher syntax through GFQL on a
+   bound graph, use ``g.gfql("MATCH ...")``; for remote GFQL execution, use
+   ``g.gfql_remote([...])``. See :doc:`gfql/cypher`.
 
 For more examples, see also the :ref:`notebook catalog <notebooks>`.
 

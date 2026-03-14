@@ -35,7 +35,7 @@ PyGraphistry is an open source Python library for data scientists and developers
 
 * [**Prototype locally and deploy remotely:**](https://www.graphistry.com/get-started) Prototype from notebooks like Jupyter and Databricks using local CPUs & GPUs, and then power production dashboards & pipelines with Graphistry Hub and your own self-hosted servers.
 
-* [**Query graphs with GFQL:**](https://pygraphistry.readthedocs.io/en/latest/gfql/index.html) Use GFQL, the first dataframe-native graph query language, to ask relationship questions that are difficult for tabular tools and without requiring a database, including local Cypher-style execution through `g.gfql("MATCH ...")`.
+* [**Query graphs with GFQL:**](https://pygraphistry.readthedocs.io/en/latest/gfql/index.html) Use GFQL, the first dataframe-native graph query language, to ask relationship questions that are difficult for tabular tools and without requiring a database, including friendly Cypher syntax and declarative graph semantics through `g.gfql("MATCH ...")`, with GFQL's columnar and optional-GPU execution model.
 
 * [**graphistry[ai]:**](https://pygraphistry.readthedocs.io/en/latest/gfql/combo.html#) Call streamlined graph ML & AI methods to benefit from clustering, UMAP embeddings, graph neural networks, automatic feature engineering, and more.
 

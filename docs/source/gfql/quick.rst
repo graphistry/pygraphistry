@@ -8,7 +8,8 @@ This quick reference page provides short examples of various parameters and usag
 If you are new to Cypher: Cypher is a graph query language popularized by
 Neo4j and related tools. It uses ASCII-art graph patterns such as
 ``(n1)-[e1]->(n2)`` to describe node-edge-node traversals, so GFQL docs use
-that notation as a familiar shorthand when discussing local Cypher strings.
+that notation as a familiar shorthand when discussing Cypher syntax through
+``g.gfql("MATCH ...")``.
 
 Basic Usage
 -----------
@@ -30,7 +31,7 @@ For row-pipeline RETURN semantics, see :doc:`return`.
 Choose The Right Entrypoint
 ---------------------------
 
-- Use `g.gfql([...])` or `g.gfql("MATCH ...")` for local in-memory GFQL and the local Cypher subset.
+- Use `g.gfql([...])` for native GFQL operators and `g.gfql("MATCH ...")` for Cypher syntax on the current graph.
 - Use `g.gfql_remote([...])` for remote GFQL when the dataset size or hardware profile calls for remote execution, including remote GPU execution. See :ref:`gfql-remote`.
 
 .. warning::
@@ -41,14 +42,15 @@ Graph State Vs Row State
 ------------------------
 
 - **Graph state** keeps a traversable graph in `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, and `let()` / `ref()` graph DAG stages stay in graph state.
-- **Row state** stores tabular results in `_nodes` and uses an empty placeholder `_edges` frame. Row-pipeline steps such as `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning local Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
-- If you want to enrich a graph and keep matching today, use a graph-preserving `call()` / `let()` pattern rather than a row-returning local Cypher `CALL`.
+- **Row state** stores tabular results in `_nodes` and uses an empty placeholder `_edges` frame. Row-pipeline steps such as `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
+- If you want to enrich a graph and keep matching today, use a graph-preserving `call()` / `let()` pattern rather than a row-returning Cypher `CALL`.
 
-Local Cypher Strings
---------------------
+Cypher Strings Through ``g.gfql()``
+-----------------------------------
 
-Use ``g.gfql("MATCH ...")`` when you want the supported local Cypher subset
-instead of writing the equivalent GFQL chain by hand:
+Use ``g.gfql("MATCH ...")`` when you want Cypher syntax and declarative graph
+semantics on a bound graph instead of writing the equivalent GFQL chain by
+hand:
 
 .. code-block:: python
 

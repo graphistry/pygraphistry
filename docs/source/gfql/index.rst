@@ -8,11 +8,13 @@ Welcome to **GFQL**, the first dataframe-native graph query language with GPU su
 If you are new to Cypher: Cypher is a graph query language popularized by
 Neo4j and related tools. It uses ASCII-art graph patterns such as
 ``(n1)-[e1]->(n2)`` to describe traversals from one node to another across an
-edge. GFQL supports a bounded local Cypher subset directly through
-``g.gfql("MATCH ...")``.
+edge. GFQL supports a bounded Cypher surface directly through
+``g.gfql("MATCH ...")`` on bound graphs, while keeping GFQL's columnar
+execution model and optional GPU acceleration. Use ``g.gfql_remote([...])``
+when you want remote GFQL execution.
 
-For local Cypher-string execution, start with
-:doc:`GFQL Local Cypher <cypher>`,
+For Cypher syntax through ``g.gfql("MATCH ...")``, start with
+:doc:`Cypher Syntax In GFQL <cypher>`,
 :doc:`GFQL Quick Reference <quick>`,
 :doc:`GFQL RETURN <return>`,
 and :doc:`Cypher to GFQL Mapping <spec/cypher_mapping>`.
@@ -20,7 +22,7 @@ and :doc:`Cypher to GFQL Mapping <spec/cypher_mapping>`.
 Recommended paths:
 
 - New to GFQL: :doc:`overview` -> :doc:`quick` -> :doc:`where` -> :doc:`return`
-- Running local Cypher: :doc:`cypher` -> :doc:`quick` -> :doc:`return` -> :doc:`spec/cypher_mapping`
+- Running Cypher syntax in GFQL: :doc:`cypher` -> :doc:`quick` -> :doc:`return` -> :doc:`spec/cypher_mapping`
 - Performance path (intro -> GPU -> remote GPU): :doc:`about` -> :doc:`performance` -> :doc:`remote`
 - Translating existing Cypher to native GFQL: :doc:`spec/cypher_mapping`
 - Building agents/integrations: :doc:`spec/language` + :doc:`spec/python_embedding` + :doc:`spec/wire_protocol`

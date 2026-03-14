@@ -14,7 +14,7 @@ def cypher_to_gfql(
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> Chain:
-    """Compile a supported local Cypher query into a single GFQL Chain.
+    """Compile a supported Cypher query on GFQL's current Cypher surface into a single GFQL Chain.
 
     Use this helper when you want the translated GFQL chain object rather than
     running the query immediately. Queries that require a union program or a
@@ -22,7 +22,7 @@ def cypher_to_gfql(
     use :func:`compile_cypher` when you want to inspect those compiled program
     shapes, or execute them directly through ``g.gfql("...", language="cypher")``.
 
-    :param query: Local Cypher text to parse and lower.
+    :param query: Cypher text to parse and lower.
     :param params: Optional parameter dictionary used during lowering.
     :returns: A GFQL ``Chain`` equivalent to the supported query.
     :raises GFQLValidationError: If the query cannot be represented as a single
@@ -65,12 +65,12 @@ def compile_cypher(
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery]:
-    """Parse and lower a supported local Cypher query into a compiled program.
+    """Parse and lower a supported Cypher query into a compiled program.
 
-    This is the lowest-level public helper for inspecting the local Cypher
+    This is the lowest-level public helper for inspecting GFQL's Cypher
     compiler output before execution.
 
-    :param query: Local Cypher text to parse and lower.
+    :param query: Cypher text to parse and lower.
     :param params: Optional parameter dictionary used during lowering.
     :returns: A compiled single-query or union-query program.
     """
