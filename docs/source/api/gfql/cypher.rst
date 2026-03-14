@@ -28,7 +28,8 @@ database Cypher** over Bolt/Neo4j-style backends, use ``g.cypher(...)`` or
 
 See also:
 
-- :doc:`/gfql/cypher` for the user-facing Cypher-in-GFQL guide and support matrix
+- :doc:`/gfql/cypher` for the user-facing guide, verified supported syntax forms,
+  and current boundaries
 - :doc:`/gfql/remote` for remote GFQL execution
 - :doc:`/gfql/index` or :doc:`/gfql/quick` if you are new to GFQL itself
 - :doc:`/gfql/spec/cypher_mapping` for translation-oriented guidance

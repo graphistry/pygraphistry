@@ -3359,6 +3359,20 @@ def test_compile_cypher_union_returns_union_program() -> None:
     assert len(compiled.branches) == 2
 
 
+def test_gfql_executes_union_distinct_query() -> None:
+    _assert_query_rows(
+        "RETURN 1 AS x UNION RETURN 1 AS x UNION RETURN 2 AS x",
+        [{"x": 1}, {"x": 2}],
+    )
+
+
+def test_gfql_executes_union_all_query() -> None:
+    _assert_query_rows(
+        "RETURN 1 AS x UNION ALL RETURN 1 AS x UNION ALL RETURN 2 AS x",
+        [{"x": 1}, {"x": 1}, {"x": 2}],
+    )
+
+
 def test_cypher_to_gfql_rejects_union_programs() -> None:
     with pytest.raises(GFQLValidationError) as exc_info:
         cypher_to_gfql("RETURN 1 AS x UNION RETURN 2 AS x")

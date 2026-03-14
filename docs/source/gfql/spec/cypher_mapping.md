@@ -36,7 +36,9 @@ When translating from Cypher, you'll encounter three scenarios:
 ### Direct Translations
 - Graph patterns: `(a)-[r]->(b)` → chain operations
 - Property filters: WHERE clauses embed into operations
-- Path traversals: Variable-length paths use `hops` parameter
+- Path traversals: after manual translation into native GFQL, explicit hop
+  bounds use `e_forward(min_hops=..., max_hops=...)`; direct Cypher
+  variable-length relationship syntax is not supported today
 - Pattern composition: Multiple patterns become sequential operations
 - Same-path constraints: `WHERE` across steps → `g.gfql([...], where=[...])`
 

@@ -75,7 +75,7 @@ surface. At a high level, that includes:
 - ``RETURN`` and ``WITH``
 - ``ORDER BY``, ``SKIP``, ``LIMIT``, and ``DISTINCT``
 - ``UNWIND``
-- supported ``UNION`` and ``CALL graphistry.*`` flows when executed
+- supported ``UNION`` / ``UNION ALL`` and ``CALL graphistry.*`` flows when executed
   directly through ``g.gfql("...")``
 
 For exact ``RETURN`` / ``WITH`` row semantics after pattern matching, see
@@ -99,7 +99,7 @@ Support Matrix
    * - ``UNWIND``
      - Partial
      - Supported in the current Cypher-in-GFQL subset, but not in every placement and combination.
-   * - ``UNION`` and ``CALL graphistry.*``
+   * - ``UNION`` / ``UNION ALL`` and ``CALL graphistry.*``
      - Partial
      - Execute directly through ``g.gfql("...")``. Helper translation to a single ``Chain`` is stricter.
    * - Variable-length relationship patterns
@@ -114,6 +114,106 @@ Support Matrix
    * - Full Cypher expression and function surface in row expressions
      - Partial
      - The current row-expression subset is intentionally smaller than full Cypher; finish advanced logic in pandas/cuDF when needed.
+
+Verified Supported Syntax Forms
+-------------------------------
+
+The matrix above is clause-level. This section lists the main user-visible
+syntax forms currently verified by parser, lowering, and runtime tests.
+
+Pattern Matching Forms
+~~~~~~~~~~~~~~~~~~~~~~
+
+- Single-pattern ``MATCH`` queries with node aliases, relationship aliases,
+  inline property maps, and top-level ``params=...`` binding.
+- Node labels and multi-label node patterns such as ``(p:Person:Admin)``.
+- Relationship direction forms ``->``, ``<-``, and undirected ``-[]-``.
+- Relationship type alternation such as ``[r:KNOWS|HATES]``.
+- Connected comma-separated patterns such as
+  ``MATCH (a)-[:A]->(b), (b)-[:B]->(c)``.
+- Repeated ``MATCH`` clauses when they stay connected through shared aliases.
+- Path variable binding such as ``MATCH p = (n)-[r]->(b)`` when the path
+  variable itself is not the projected output.
+
+WHERE Forms
+~~~~~~~~~~~
+
+- Literal and parameter comparisons on node and edge properties.
+- Same-path alias comparisons such as ``WHERE p.team = q.team``.
+- ``IS NULL`` and ``IS NOT NULL`` predicates.
+- String predicates ``STARTS WITH``, ``ENDS WITH``, and ``CONTAINS``.
+- Label predicates such as ``WHERE b:Foo:Bar``.
+- Relationship-type predicates such as ``WHERE type(r) = 'KNOWS'``.
+- Positive relationship-existence pattern predicates such as
+  ``WHERE (n)-[:R]->()``.
+
+Row And Row-Pipeline Forms
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Top-level row-only queries such as ``RETURN 1 AS x``.
+- ``RETURN`` / ``WITH`` projections with aliases, ``RETURN *``, ``DISTINCT``,
+  ``ORDER BY``, ``SKIP``, and ``LIMIT``.
+- Terminal ``WITH`` queries and multiple ``WITH`` stages.
+- ``WITH ... WHERE`` row filtering.
+- Aggregation/grouping via Cypher projection semantics, with tested examples
+  including ``count``, ``count(DISTINCT ...)``, ``collect``,
+  ``collect(DISTINCT ...)``, ``sum``, ``max``, and ``size(...)``.
+- Top-level ``UNWIND ... RETURN ...`` queries.
+- Mixed graph/row queries such as ``MATCH ... UNWIND ... RETURN ...``.
+- The bounded ``MATCH ... WITH ... MATCH ... RETURN`` re-entry shape.
+
+Procedure And Multi-Branch Forms
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Direct execution of ``UNION`` row queries through ``g.gfql("...")``.
+- Direct execution of ``UNION ALL`` row queries through ``g.gfql("...")``.
+- Direct execution of row-returning ``CALL graphistry.*`` procedures,
+  including:
+
+  - ``CALL graphistry.degree()``
+  - ``CALL graphistry.degree YIELD nodeId RETURN nodeId``
+  - ``CALL graphistry.igraph.pagerank() YIELD nodeId, score RETURN nodeId``
+
+- ``cypher_to_gfql()`` stays stricter than direct execution and intentionally
+  rejects ``UNION`` / ``UNION ALL`` and row-returning ``CALL`` flows because
+  they are not representable as a single GFQL ``Chain``.
+
+Tested Expression Families
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Arithmetic, boolean, comparison, and null-propagation expressions.
+- ``CASE`` expressions.
+- Graph introspection helpers such as ``labels()``, ``type()``, ``keys()``, and
+  ``properties()``.
+- Dynamic graph property lookup such as ``n['name']`` and ``n[$idx]``.
+- List predicates such as ``all(...)``, ``any(...)``, ``none(...)``, and
+  ``single(...)``.
+- Temporal constructors and operations over ``date``, ``time``, ``datetime``,
+  ``localtime``, ``localdatetime``, and ``duration`` in the currently tested
+  vectorized subset.
+
+Bounded / Partial Forms
+~~~~~~~~~~~~~~~~~~~~~~~
+
+- ``OPTIONAL MATCH`` works for a bounded tested subset, including top-level and
+  bound optional rows, but not the full Cypher null-extension surface.
+- ``UNWIND`` works at top level, after ``MATCH``, and in row-only pipelines,
+  but not in every graph/row interleaving.
+- ``MATCH ... WITH ... MATCH ... RETURN`` is limited to the bounded single
+  re-entry shape and does not generalize to arbitrary re-entry plans.
+
+Not Supported Today
+~~~~~~~~~~~~~~~~~~~
+
+- Variable-length relationship patterns such as ``[*1..3]`` in direct Cypher
+  syntax.
+- Multiple disconnected ``MATCH`` patterns used as arbitrary joins.
+- Multi-pattern re-entry shapes beyond the bounded single
+  ``MATCH ... WITH ... MATCH ... RETURN`` form.
+- ``RETURN *`` after unsupported re-entry shapes.
+- ``CREATE``, ``DELETE``, ``SET``, and other write clauses.
+- Generic database procedures outside ``CALL graphistry.*``.
+- The full Cypher expression/function surface.
 
 Validation And Unsupported Shapes
 ---------------------------------
