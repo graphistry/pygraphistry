@@ -2,11 +2,18 @@
 
 # Cypher to GFQL Python & Wire Protocol Mapping
 
-Translate existing Cypher workloads to GPU-accelerated GFQL with minimal code changes.
+GFQL supports Cypher syntax out of the box for a supported local subset, and
+this page explains how to translate familiar Cypher patterns into native GFQL
+Python and wire protocol forms when you want more explicit control.
 
 ## Introduction
 
-This specification shows how to translate Cypher queries to both GFQL Python code and {ref}`Wire Protocol <gfql-spec-wire-protocol>` JSON, enabling migration from Cypher-based systems, LLM pipelines (text → Cypher → GFQL), language-agnostic API integration, and secure query generation without code execution.
+Cypher is a graph query language popularized by Neo4j and related tools. In
+PyGraphistry, you can often start with a Cypher string directly through
+`g.gfql("MATCH ...")`, then translate that query into native GFQL when you
+want direct operator control, {ref}`Wire Protocol <gfql-spec-wire-protocol>`
+JSON generation, migration from Cypher-centric systems, language-agnostic API
+integration, or secure query generation without code execution.
 
 ## Direct Local Execution Note
 
