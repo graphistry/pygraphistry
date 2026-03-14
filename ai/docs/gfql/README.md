@@ -232,10 +232,13 @@ Before generating GFQL:
 
 ### Full Specifications
 
-- Full specifications in: `AI_PROGRESS/gfql_llm_specs/`
-  - `gfql_language_spec.md` - Complete language specification
-  - `gfql_wire_protocol_spec.md` - JSON wire format
-  - `cypher_to_gfql_mapping_spec.md` - Cypher translation
+- Full specifications in: `ai/prompts/`
+  - `GFQL_LLM_GUIDE.md` - Complete language guidance
+  - `GFQL_LLM_GUIDE_MAINTENANCE.md` - Maintenance workflow
+- Local Cypher docs now span:
+  - `docs/source/gfql/cypher.rst` - Local execution guide
+  - `docs/source/api/gfql/cypher.rst` - Helper/API reference
+  - `docs/source/gfql/spec/cypher_mapping.md` - Translation-first mapping
 
 ## 🎯 Key Takeaways
 

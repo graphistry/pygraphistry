@@ -1249,6 +1249,16 @@ def _build_transformer(source: str) -> _TransformerLike:
 
 
 def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery]:
+    """Parse supported local Cypher text into the typed AST used by the local compiler.
+
+    The returned AST preserves the clause structure needed by the local GFQL
+    compiler, including unions and row-pipeline stages.
+
+    :param query: Local Cypher text to parse.
+    :returns: A parsed ``CypherQuery`` or ``CypherUnionQuery``.
+    :raises GFQLSyntaxError: If the query is not valid within the supported
+        local Cypher grammar.
+    """
     if not isinstance(query, str) or query.strip() == "":
         raise _to_syntax_error("Cypher query must be a non-empty string")
     variable_length_pattern = _find_variable_length_relationship_pattern(query)
