@@ -12,6 +12,12 @@ GFQL (GraphFrame Query Language) is designed to be intuitive for users familiar 
 
 GFQL operates on graph DataFrames - graphs represented as node and edge DataFrames. This DataFrame-native approach enables seamless integration with the PyData ecosystem and natural vectorization for both CPU and GPU processing.
 
+This page is translation-first rather than a support matrix for direct
+``g.gfql("MATCH ...")`` string execution. Some Cypher snippets below express
+the same graph-query intent as native GFQL but are not yet accepted verbatim by
+the current direct Cypher surface. For the currently supported direct string
+forms, see :doc:`/gfql/cypher`.
+
 Who Is This Guide For?
 ----------------------
 
@@ -205,7 +211,12 @@ Performing Multi-Hop Traversals
 
 **Explanation**:
 
-- `min_hops`/`max_hops` match Cypher's variable-length pattern (`[*2..2]`) while remaining dataframish. If you set `label_node_hops`/`label_edge_hops`, those column names will store the hop step (nodes = first arrival, edges = traversal step); omit or `None` to skip labels.
+- `min_hops`/`max_hops` express the same bounded traversal intent as a Cypher
+  pattern like `[*2..2]` after translation into native GFQL. The current
+  direct `g.gfql("MATCH ...")` Cypher surface does not yet accept `[*...]`
+  relationship syntax. If you set `label_node_hops`/`label_edge_hops`, those
+  column names will store the hop step (nodes = first arrival, edges =
+  traversal step); omit or `None` to skip labels.
 - `output_min_hops`/`output_max_hops` (optional) slice the displayed hops after traversal. By default, all traversed hops up to `max_hops` remain visible; set `output_min_hops` if you want to drop early hops (e.g., traverse 2..4 but only show 3..4). Invalid slices (e.g., `output_min_hops` > `max_hops` or `output_max_hops` < `min_hops`) raise a `ValueError`.
 
 **Explanation**:

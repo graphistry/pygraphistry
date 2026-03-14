@@ -2331,7 +2331,15 @@ def test_string_cypher_failfast_rejects_graph_backed_unwind_after_with_as_valida
     assert "UNWIND after WITH/RETURN" in exc_info.value.message
 
 
-def test_string_cypher_failfast_rejects_variable_length_relationship_patterns_as_validation_error() -> None:
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (a)-[*]->(b) RETURN a, b",
+        "MATCH (a)-[*2]->(b) RETURN a, b",
+        "MATCH (a)-[*1..3]->(b) RETURN a, b",
+    ],
+)
+def test_string_cypher_failfast_rejects_variable_length_relationship_patterns_as_validation_error(query: str) -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c", "d", "e", "f"]}),
         pd.DataFrame(
@@ -2344,7 +2352,7 @@ def test_string_cypher_failfast_rejects_variable_length_relationship_patterns_as
     )
 
     with pytest.raises(GFQLValidationError) as exc_info:
-        graph.gfql("MATCH p = (a)-[*]->(b) RETURN collect(nodes(p)) AS paths, length(p) AS l ORDER BY l")
+        graph.gfql(query)
 
     assert exc_info.value.code == ErrorCode.E108
     assert "variable-length relationship patterns" in exc_info.value.message
@@ -3357,6 +3365,20 @@ def test_compile_cypher_union_returns_union_program() -> None:
     assert isinstance(compiled, CompiledCypherUnionQuery)
     assert compiled.union_kind == "distinct"
     assert len(compiled.branches) == 2
+
+
+def test_gfql_executes_union_distinct_query() -> None:
+    _assert_query_rows(
+        "RETURN 1 AS x UNION RETURN 1 AS x UNION RETURN 2 AS x",
+        [{"x": 1}, {"x": 2}],
+    )
+
+
+def test_gfql_executes_union_all_query() -> None:
+    _assert_query_rows(
+        "RETURN 1 AS x UNION ALL RETURN 1 AS x UNION ALL RETURN 2 AS x",
+        [{"x": 1}, {"x": 1}, {"x": 2}],
+    )
 
 
 def test_cypher_to_gfql_rejects_union_programs() -> None:

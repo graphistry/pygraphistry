@@ -36,7 +36,9 @@ When translating from Cypher, you'll encounter three scenarios:
 ### Direct Translations
 - Graph patterns: `(a)-[r]->(b)` → chain operations
 - Property filters: WHERE clauses embed into operations
-- Path traversals: Variable-length paths use `hops` parameter
+- Path traversals: after manual translation into native GFQL, explicit hop
+  bounds use `e_forward(min_hops=..., max_hops=...)`; direct Cypher
+  variable-length relationship syntax is not supported today
 - Pattern composition: Multiple patterns become sequential operations
 - Same-path constraints: `WHERE` across steps → `g.gfql([...], where=[...])`
 
@@ -250,8 +252,12 @@ g.gfql([
 
 ### Edge Patterns
 
-| Cypher | Python | Wire Protocol (compact) |
-|--------|--------|-------------------------|
+Rows using `[*...]` below show the native GFQL rewrite for the same traversal
+intent. They are semantic mappings, not a claim that direct
+`g.gfql("MATCH ...")` currently accepts those `[*...]` string forms.
+
+| Cypher / intent | Python | Wire Protocol (compact) |
+|-----------------|--------|-------------------------|
 | `-[]->` | `e_forward()` | `{"type": "Edge", "direction": "forward"}` |
 | `-[r:KNOWS]->` | `e_forward({"type": "KNOWS"}, name="r")` | `{"type": "Edge", "direction": "forward", "edge_match": {"type": "KNOWS"}, "name": "r"}` |
 | `<-[r]-` | `e_reverse(name="r")` | `{"type": "Edge", "direction": "reverse", "name": "r"}` |
@@ -262,6 +268,10 @@ g.gfql([
 | `(n1)-[*2..4]->(n2)` but only show hops 3..4 | `e_forward(min_hops=2, max_hops=4, output_min_hops=3, label_edge_hops="edge_hop")` | `{"type": "Edge", "direction": "forward", "min_hops": 2, "max_hops": 4, "output_min_hops": 3, "label_edge_hops": "edge_hop"}` |
 | `(n1)-[*]->(n2)` | `e_forward(to_fixed_point=True)` | `{"type": "Edge", "direction": "forward", "to_fixed_point": true}` |
 | `-[r:BOUGHT {amount: gt(100)}]->` | `e_forward({"type": "BOUGHT", "amount": gt(100)}, name="r")` | `{"type": "Edge", "direction": "forward", "edge_match": {"type": "BOUGHT", "amount": {"type": "GT", "val": 100}}, "name": "r"}` |
+
+When you need constraints on intermediate hops, use repeated single-hop GFQL
+steps with aliases instead of collapsing the traversal into one multihop edge
+operator.
 
 ### Predicates
 

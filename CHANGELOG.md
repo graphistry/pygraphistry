@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Docs
+- **GFQL / Cypher docs**: Clarified the currently supported direct `g.gfql("MATCH ...")` Cypher surface, documented that `[*n]`, `[*m..n]`, and `[*]` multihop patterns are native-GFQL rewrites rather than accepted direct string syntax today, and added an internal hand-off note for aligning direct Cypher multihop support with existing GFQL hop semantics.
+
 ## [0.51.3 - 2026-03-14]
 
 ### Docs
