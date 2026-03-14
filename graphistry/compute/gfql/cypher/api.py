@@ -18,8 +18,9 @@ def cypher_to_gfql(
 
     Use this helper when you want the translated GFQL chain object rather than
     running the query immediately. Queries that require a union program or a
-    row-returning procedure flow should be executed directly through
-    ``g.gfql("...", language="cypher")`` instead.
+    row-returning procedure flow cannot be represented as a single ``Chain``;
+    use :func:`compile_cypher` when you want to inspect those compiled program
+    shapes, or execute them directly through ``g.gfql("...", language="cypher")``.
 
     :param query: Local Cypher text to parse and lower.
     :param params: Optional parameter dictionary used during lowering.

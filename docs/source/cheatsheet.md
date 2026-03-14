@@ -250,7 +250,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
 
 > The `graphistry.cypher(...)` examples below are the remote database Cypher
 > path. For local in-memory Cypher on a bound graph, use `g.gfql("MATCH ...")`
-> and see the GFQL local Cypher guide.
+> and see the [GFQL local Cypher guide](gfql/cypher.rst).
 
 * [Neo4j](http://neo4j.com) ([notebook demo](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/neo4j/official/graphistry_bolt_tutorial_public.ipynb))
 
