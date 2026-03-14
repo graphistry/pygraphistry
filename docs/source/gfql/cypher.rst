@@ -154,8 +154,10 @@ execution, preflight it with the helper APIs:
 Common Rewrites
 ---------------
 
-- Need remote database Cypher instead of local in-memory execution? Use
-  ``graphistry.cypher("...")`` or ``g.cypher("...")``.
+- Need remote execution instead of local in-memory execution? Prefer
+  ``g.gfql_remote([...])`` for remote GFQL on Graphistry infrastructure.
+- Need remote database Cypher against Neo4j/Bolt-style backends instead of
+  remote GFQL? Use ``graphistry.cypher("...")`` or ``g.cypher("...")``.
 - Need a pure GFQL chain object? Use ``cypher_to_gfql()`` when the query fits a
   single ``Chain``.
 - Need variable-length traversal today? Rewrite in native GFQL with explicit
