@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Docs
 - **GFQL / Cypher docs**: Clarified the currently supported direct `g.gfql("MATCH ...")` Cypher surface, documented that `[*n]`, `[*m..n]`, and `[*]` multihop patterns are native-GFQL rewrites rather than accepted direct string syntax today, and added an internal hand-off note for aligning direct Cypher multihop support with existing GFQL hop semantics.
+- **GFQL / remote compatibility**: Clarified the intended typed remote GFQL rollout contract: new clients remain backward compatible with older servers for query forms that still lower to legacy `gfql_operations`; only genuinely new typed-only remote query forms require newer server support. Named/stored GFQL UDF typed transport remains server-gated until server CRUD/schema support lands.
 
 ## [0.51.3 - 2026-03-14]
 
