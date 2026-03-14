@@ -3367,17 +3367,20 @@ def test_cypher_to_gfql_rejects_union_programs() -> None:
 
 
 @pytest.mark.parametrize(
-    ("query", "procedure"),
+    ("query", "procedure", "result_kind"),
     [
-        ("CALL graphistry.degree()", "graphistry.degree"),
-        ("CALL graphistry.cugraph.pagerank()", "graphistry.cugraph.pagerank"),
+        ("CALL graphistry.degree()", "graphistry.degree", "rows"),
+        ("CALL graphistry.cugraph.pagerank()", "graphistry.cugraph.pagerank", "rows"),
+        ("CALL graphistry.degree.write()", "graphistry.degree.write", "graph"),
+        ("CALL graphistry.nx.pagerank.write()", "graphistry.nx.pagerank.write", "graph"),
     ],
 )
-def test_compile_cypher_call_returns_procedure_program(query: str, procedure: str) -> None:
+def test_compile_cypher_call_returns_procedure_program(query: str, procedure: str, result_kind: str) -> None:
     compiled = _compile_query(query)
 
     assert compiled.procedure_call is not None
     assert compiled.procedure_call.procedure == procedure
+    assert compiled.procedure_call.result_kind == result_kind
 
 
 def test_cypher_to_gfql_rejects_call_programs() -> None:
@@ -3468,6 +3471,53 @@ def test_string_cypher_executes_graphistry_call(
 def test_string_cypher_call_rejects_invalid_procedure_or_yield(query: str) -> None:
     with pytest.raises(GFQLValidationError) as exc_info:
         _mk_empty_graph().gfql(query)
+
+    assert exc_info.value.code == ErrorCode.E108
+
+
+def test_string_cypher_executes_graph_preserving_degree_call() -> None:
+    result = _mk_simple_path_graph().gfql("CALL graphistry.degree.write()")
+
+    assert set(result._nodes.columns) == {"id", "degree", "degree_in", "degree_out"}
+    assert result._nodes.sort_values("id").to_dict(orient="records") == [
+        {"id": "a", "degree_in": 0, "degree_out": 1, "degree": 1},
+        {"id": "b", "degree_in": 1, "degree_out": 1, "degree": 2},
+        {"id": "c", "degree_in": 1, "degree_out": 0, "degree": 1},
+    ]
+    assert result._edges.to_dict(orient="records") == [
+        {"s": "a", "d": "b"},
+        {"s": "b", "d": "c"},
+    ]
+
+
+def test_string_cypher_write_call_can_feed_match_query() -> None:
+    pytest.importorskip("networkx")
+
+    enriched = _mk_simple_path_graph().gfql("CALL graphistry.nx.pagerank.write()")
+    assert "pagerank" in enriched._nodes.columns
+
+    result = enriched.gfql(
+        "MATCH (n) "
+        "WHERE n.pagerank > 0 "
+        "RETURN n.id AS nodeId, n.pagerank AS pagerank "
+        "ORDER BY pagerank DESC, nodeId ASC "
+        "LIMIT 1"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"nodeId": "c", "pagerank": pytest.approx(0.47441161634059786)}]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "CALL graphistry.nx.pagerank.write() YIELD nodeId RETURN nodeId",
+        "CALL graphistry.degree.write() RETURN * ORDER BY degree DESC",
+        "CALL graphistry.nx.pagerank.write('pagerank')",
+    ],
+)
+def test_string_cypher_graph_write_call_rejects_row_mode_forms(query: str) -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _mk_simple_path_graph().gfql(query)
 
     assert exc_info.value.code == ErrorCode.E108
 

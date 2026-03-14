@@ -5551,7 +5551,7 @@ def _compile_call_query(
             column=query.call.span.column,
         )
     compiled_call = compile_cypher_call(query.call)
-    if (
+    is_bare_call = (
         not query.unwinds
         and not query.with_stages
         and query.order_by is None
@@ -5559,7 +5559,22 @@ def _compile_call_query(
         and query.limit is None
         and len(query.return_.items) == 1
         and query.return_.items[0].expression.text == "*"
-    ):
+    )
+    if compiled_call.result_kind == "graph":
+        if not is_bare_call:
+            raise _unsupported(
+                "Graph-preserving Cypher CALL procedures are only supported as standalone local queries",
+                field="call",
+                value=query.call.procedure,
+                line=query.call.span.line,
+                column=query.call.span.column,
+            )
+        return CompiledCypherQuery(
+            Chain([]),
+            seed_rows=False,
+            procedure_call=compiled_call,
+        )
+    if is_bare_call:
         return CompiledCypherQuery(
             Chain([]),
             seed_rows=False,
