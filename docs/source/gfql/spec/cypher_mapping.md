@@ -256,8 +256,8 @@ Rows using `[*...]` below show the native GFQL rewrite for the same traversal
 intent. They are semantic mappings, not a claim that direct
 `g.gfql("MATCH ...")` currently accepts those `[*...]` string forms.
 
-| Cypher | Python | Wire Protocol (compact) |
-|--------|--------|-------------------------|
+| Cypher / intent | Python | Wire Protocol (compact) |
+|-----------------|--------|-------------------------|
 | `-[]->` | `e_forward()` | `{"type": "Edge", "direction": "forward"}` |
 | `-[r:KNOWS]->` | `e_forward({"type": "KNOWS"}, name="r")` | `{"type": "Edge", "direction": "forward", "edge_match": {"type": "KNOWS"}, "name": "r"}` |
 | `<-[r]-` | `e_reverse(name="r")` | `{"type": "Edge", "direction": "reverse", "name": "r"}` |

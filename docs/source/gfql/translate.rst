@@ -12,6 +12,12 @@ GFQL (GraphFrame Query Language) is designed to be intuitive for users familiar 
 
 GFQL operates on graph DataFrames - graphs represented as node and edge DataFrames. This DataFrame-native approach enables seamless integration with the PyData ecosystem and natural vectorization for both CPU and GPU processing.
 
+This page is translation-first rather than a support matrix for direct
+``g.gfql("MATCH ...")`` string execution. Some Cypher snippets below express
+the same graph-query intent as native GFQL but are not yet accepted verbatim by
+the current direct Cypher surface. For the currently supported direct string
+forms, see :doc:`/gfql/cypher`.
+
 Who Is This Guide For?
 ----------------------
 
