@@ -104,7 +104,8 @@ Support Matrix
      - Execute directly through ``g.gfql("...")``. Helper translation to a single ``Chain`` is stricter.
    * - Variable-length relationship patterns
      - Not yet supported
-     - Rewrite in native GFQL with explicit hop bounds today.
+     - Direct Cypher ``[*2]``, ``[*1..3]``, and ``[*]`` are not accepted yet.
+       Rewrite in native GFQL with hop bounds or explicit repeated steps.
    * - ``CREATE`` / ``DELETE`` / ``SET``
      - Not supported
      - GFQL's Cypher surface is read-only.
@@ -205,8 +206,8 @@ Bounded / Partial Forms
 Not Supported Today
 ~~~~~~~~~~~~~~~~~~~
 
-- Variable-length relationship patterns such as ``[*1..3]`` in direct Cypher
-  syntax.
+- Direct Cypher variable-length relationship patterns such as ``[*2]``,
+  ``[*1..3]``, and ``[*]``.
 - Multiple disconnected ``MATCH`` patterns used as arbitrary joins.
 - Multi-pattern re-entry shapes beyond the bounded single
   ``MATCH ... WITH ... MATCH ... RETURN`` form.
@@ -264,8 +265,11 @@ Common Rewrites
   remote GFQL? Use ``graphistry.cypher("...")`` or ``g.cypher("...")``.
 - Need a pure GFQL chain object? Use ``cypher_to_gfql()`` when the query fits a
   single ``Chain``.
-- Need variable-length traversal today? Rewrite in native GFQL with explicit
-  hop bounds such as ``e_forward(min_hops=1, max_hops=3)``.
+- Need fixed-length, bounded, or fixed-point traversal today? Direct Cypher
+  ``[*2]``, ``[*1..3]``, and ``[*]`` are not accepted yet. Rewrite in native
+  GFQL with explicit hop bounds such as ``e_forward(min_hops=1, max_hops=3)``
+  or ``e_forward(to_fixed_point=True)``. If you need aliasable intermediate
+  hops, unroll them into explicit chain steps.
 - Need write semantics or arbitrary joins? Keep Cypher syntax for the supported
   read-only part and finish the rest in a database or in pandas/cuDF.
 

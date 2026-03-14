@@ -252,6 +252,10 @@ g.gfql([
 
 ### Edge Patterns
 
+Rows using `[*...]` below show the native GFQL rewrite for the same traversal
+intent. They are semantic mappings, not a claim that direct
+`g.gfql("MATCH ...")` currently accepts those `[*...]` string forms.
+
 | Cypher | Python | Wire Protocol (compact) |
 |--------|--------|-------------------------|
 | `-[]->` | `e_forward()` | `{"type": "Edge", "direction": "forward"}` |
@@ -264,6 +268,10 @@ g.gfql([
 | `(n1)-[*2..4]->(n2)` but only show hops 3..4 | `e_forward(min_hops=2, max_hops=4, output_min_hops=3, label_edge_hops="edge_hop")` | `{"type": "Edge", "direction": "forward", "min_hops": 2, "max_hops": 4, "output_min_hops": 3, "label_edge_hops": "edge_hop"}` |
 | `(n1)-[*]->(n2)` | `e_forward(to_fixed_point=True)` | `{"type": "Edge", "direction": "forward", "to_fixed_point": true}` |
 | `-[r:BOUGHT {amount: gt(100)}]->` | `e_forward({"type": "BOUGHT", "amount": gt(100)}, name="r")` | `{"type": "Edge", "direction": "forward", "edge_match": {"type": "BOUGHT", "amount": {"type": "GT", "val": 100}}, "name": "r"}` |
+
+When you need constraints on intermediate hops, use repeated single-hop GFQL
+steps with aliases instead of collapsing the traversal into one multihop edge
+operator.
 
 ### Predicates
 
