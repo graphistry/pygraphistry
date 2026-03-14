@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple, cast
+from typing import Any, Dict, Literal, Optional, Tuple, cast
 
 import pandas as pd
 
+from graphistry.Engine import safe_merge
 from graphistry.Plottable import Plottable
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.ast import CallClause
@@ -22,14 +23,18 @@ class ProcedureOutputColumn:
 class _ProcedureDefinition:
     procedure: str
     kind: str
-    default_outputs: Tuple[str, ...]
+    default_outputs: Tuple[str, ...] = ()
+    result_kind: Literal["rows", "graph"] = "rows"
+    write_property: Optional[str] = None
 
 
 @dataclass(frozen=True)
 class CompiledCypherProcedureCall:
     procedure: str
     kind: str
-    output_columns: Tuple[ProcedureOutputColumn, ...]
+    output_columns: Tuple[ProcedureOutputColumn, ...] = ()
+    result_kind: Literal["rows", "graph"] = "rows"
+    write_property: Optional[str] = None
 
 
 _PROCEDURE_DEFS: Dict[str, _ProcedureDefinition] = {
@@ -38,20 +43,43 @@ _PROCEDURE_DEFS: Dict[str, _ProcedureDefinition] = {
         kind="degree",
         default_outputs=("nodeId", "degree", "degree_in", "degree_out"),
     ),
+    "graphistry.degree.write": _ProcedureDefinition(
+        procedure="graphistry.degree.write",
+        kind="degree_write",
+        result_kind="graph",
+    ),
     "graphistry.igraph.pagerank": _ProcedureDefinition(
         procedure="graphistry.igraph.pagerank",
         kind="igraph_pagerank",
         default_outputs=("nodeId", "score"),
+    ),
+    "graphistry.igraph.pagerank.write": _ProcedureDefinition(
+        procedure="graphistry.igraph.pagerank.write",
+        kind="igraph_pagerank_write",
+        result_kind="graph",
+        write_property="pagerank",
     ),
     "graphistry.cugraph.pagerank": _ProcedureDefinition(
         procedure="graphistry.cugraph.pagerank",
         kind="cugraph_pagerank",
         default_outputs=("nodeId", "score"),
     ),
+    "graphistry.cugraph.pagerank.write": _ProcedureDefinition(
+        procedure="graphistry.cugraph.pagerank.write",
+        kind="cugraph_pagerank_write",
+        result_kind="graph",
+        write_property="pagerank",
+    ),
     "graphistry.nx.pagerank": _ProcedureDefinition(
         procedure="graphistry.nx.pagerank",
         kind="networkx_pagerank",
         default_outputs=("nodeId", "score"),
+    ),
+    "graphistry.nx.pagerank.write": _ProcedureDefinition(
+        procedure="graphistry.nx.pagerank.write",
+        kind="networkx_pagerank_write",
+        result_kind="graph",
+        write_property="pagerank",
     ),
 }
 
@@ -69,6 +97,30 @@ def _unsupported_call(message: str, *, call: CallClause, value: Any) -> GFQLVali
     )
 
 
+def _compile_graph_call(
+    definition: _ProcedureDefinition,
+    call: CallClause,
+) -> CompiledCypherProcedureCall:
+    if call.args:
+        raise _unsupported_call(
+            "Graph-preserving Cypher CALL procedures do not accept arguments in the current local subset",
+            call=call,
+            value=call.procedure,
+        )
+    if call.yield_items:
+        raise _unsupported_call(
+            "Graph-preserving Cypher CALL procedures do not support YIELD in the current local subset",
+            call=call,
+            value=call.procedure,
+        )
+    return CompiledCypherProcedureCall(
+        procedure=definition.procedure,
+        kind=definition.kind,
+        result_kind="graph",
+        write_property=definition.write_property,
+    )
+
+
 def compile_cypher_call(call: CallClause) -> CompiledCypherProcedureCall:
     definition = _PROCEDURE_DEFS.get(call.procedure)
     if definition is None:
@@ -77,6 +129,8 @@ def compile_cypher_call(call: CallClause) -> CompiledCypherProcedureCall:
             call=call,
             value=call.procedure,
         )
+    if definition.result_kind == "graph":
+        return _compile_graph_call(definition, call)
     if call.args:
         raise _unsupported_call(
             "Graphistry Cypher CALL procedures do not accept arguments in the current local subset",
@@ -280,7 +334,53 @@ def _networkx_pagerank_rows(base_graph: Plottable) -> DataFrameT:
     return cast(DataFrameT, rows_pdf)
 
 
+def _merge_node_property_rows(
+    base_graph: Plottable,
+    rows_df: DataFrameT,
+    *,
+    source_value_col: str,
+    output_value_col: str,
+) -> Plottable:
+    graph_with_nodes = _materialized_graph(base_graph)
+    assert graph_with_nodes._nodes is not None
+    assert graph_with_nodes._node is not None
+    node_col = graph_with_nodes._node
+    nodes_df = graph_with_nodes._nodes
+    merge_base = cast(DataFrameT, nodes_df.drop(columns=[output_value_col])) if output_value_col in nodes_df.columns else nodes_df
+    projected_rows = rows_df.rename(columns={"nodeId": node_col, source_value_col: output_value_col})[
+        [node_col, output_value_col]
+    ]
+    merged_nodes = cast(DataFrameT, safe_merge(merge_base, projected_rows, on=node_col, how="left"))
+    return graph_with_nodes.nodes(merged_nodes, node=node_col)
+
+
+def _execute_graph_call(base_graph: Plottable, compiled_call: CompiledCypherProcedureCall) -> Plottable:
+    if compiled_call.kind == "degree_write":
+        return _materialized_graph(base_graph).get_degrees()
+    if compiled_call.kind == "igraph_pagerank_write":
+        return _materialized_graph(base_graph).compute_igraph(
+            "pagerank",
+            out_col=compiled_call.write_property or "pagerank",
+        )
+    if compiled_call.kind == "cugraph_pagerank_write":
+        return _materialized_graph(base_graph).compute_cugraph(
+            "pagerank",
+            out_col=compiled_call.write_property or "pagerank",
+        )
+    if compiled_call.kind == "networkx_pagerank_write":
+        rows_df = _networkx_pagerank_rows(base_graph)
+        return _merge_node_property_rows(
+            base_graph,
+            rows_df,
+            source_value_col="score",
+            output_value_col=compiled_call.write_property or "pagerank",
+        )
+    raise ValueError(f"Unexpected graph-preserving Cypher CALL kind: {compiled_call.kind}")
+
+
 def execute_cypher_call(base_graph: Plottable, compiled_call: CompiledCypherProcedureCall) -> Plottable:
+    if compiled_call.result_kind == "graph":
+        return _execute_graph_call(base_graph, compiled_call)
     if compiled_call.kind == "degree":
         default_rows = _degree_rows(base_graph)
     elif compiled_call.kind == "igraph_pagerank":
