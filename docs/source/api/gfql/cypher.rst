@@ -18,13 +18,16 @@ Use this page when you want to:
 - preflight a query with ``parse_cypher()`` or ``compile_cypher()``
 - translate a supported query into a GFQL ``Chain`` programmatically
 
-This page is an API reference, not the main tutorial. It does not call remote
-Bolt/Neo4j-style Cypher backends; use ``g.cypher(...)`` or
-``graphistry.cypher(...)`` for that remote execution path.
+This page is an API reference, not the main tutorial. It covers the **local**
+Cypher path through ``g.gfql("MATCH ...")``. For **remote GFQL** execution on
+Graphistry infrastructure, use ``g.gfql_remote([...])``. For **remote database
+Cypher** over Bolt/Neo4j-style backends, use ``g.cypher(...)`` or
+``graphistry.cypher(...)``.
 
 See also:
 
 - :doc:`/gfql/cypher` for the user-facing local Cypher guide and support matrix
+- :doc:`/gfql/remote` for remote GFQL execution
 - :doc:`/gfql/index` or :doc:`/gfql/quick` if you are new to GFQL itself
 - :doc:`/gfql/spec/cypher_mapping` for translation-oriented guidance
 
