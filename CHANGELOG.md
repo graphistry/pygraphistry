@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Docs
 - **GFQL docs**: Clarified that `g.gfql_remote([...])` is the remote GFQL path for larger datasets and remote GPU execution, while `graphistry.cypher(...)` / `g.cypher(...)` is a separate remote database Cypher integration rather than the GFQL execution surface.
+- **GFQL / Cypher docs**: Added a dedicated local Cypher guide and helper reference, plus updated spec/reference docs to clarify direct local execution, helper APIs, and the current translation boundaries.
 
 ## [0.51.2 - 2026-03-13]
 

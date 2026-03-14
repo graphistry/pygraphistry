@@ -370,10 +370,15 @@ g.gfql([
     group_by(keys=["type"], aggregations=[("cnt", "count")]),
 ])
 
-# Wrong - OPTIONAL MATCH not supported
-# No direct GFQL equivalent
+# Pure GFQL list/Chain syntax still has no direct OPTIONAL MATCH operator.
+# For the bounded local Cypher subset, execute a Cypher string instead:
+g.gfql(
+    "MATCH (n:Person) "
+    "OPTIONAL MATCH (n)-[r:KNOWS]->(m) "
+    "RETURN n.name AS name, type(r) AS rel_type"
+)
 
-# Correct - Handle optionality in post-processing
+# Or handle optionality explicitly in post-processing:
 result = g.gfql([n(), e_forward()])
 # Check for nodes without edges
 nodes_with_edges = result._nodes[result._nodes[g._node].isin(result._edges[g._source])]
@@ -382,6 +387,37 @@ nodes_with_edges = result._nodes[result._nodes[g._node].isin(result._edges[g._so
 # g.gfql([rows(), where_rows(expr="custom_fn(score)")])
 # Correct - Use supported row-expression operators, or post-process DataFrame
 ```
+
+### Local Cypher String Execution
+
+For supported local Cypher strings on a bound graph, `g.gfql()` defaults string
+queries to `language="cypher"`:
+
+```python
+g.gfql("MATCH (p:Person) RETURN p.name AS name")
+
+g.gfql(
+    "MATCH (p:Person) RETURN p.name AS name ORDER BY name DESC LIMIT $top_n",
+    params={"top_n": 10},
+)
+
+g.gfql("MATCH (p:Person) RETURN p.name AS name", language="cypher")
+```
+
+Use the compiler helpers when you need parse/compile/translation output instead
+of immediate execution:
+
+```python
+from graphistry.compute.gfql.cypher import (
+    parse_cypher,
+    compile_cypher,
+    cypher_to_gfql,
+    gfql_from_cypher,
+)
+```
+
+See the local-Cypher guide for the execution-first path:
+{doc}`/gfql/cypher`.
 
 ## Best Practices
 

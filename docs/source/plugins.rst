@@ -9,6 +9,12 @@ Users typically prefer to go through PyGraphistry's native dataframe support (Ap
 
 Occasionally, native PyGraphistry plugins streamline common operations, such as with graph databases. We link to the native API integrations below as appropriate.
 
+.. note::
+
+   ``graphistry.cypher("...")`` / ``g.cypher("...")`` below refer to the
+   remote database Cypher integrations. For local in-memory Cypher on a bound
+   graph, use ``g.gfql("MATCH ...")``; see :doc:`gfql/cypher`.
+
 For more examples, see also the :ref:`notebook catalog <notebooks>`.
 
 

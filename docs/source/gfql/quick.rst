@@ -39,6 +39,27 @@ Graph State Vs Row State
 - **Row state** stores tabular results in `_nodes` and uses an empty placeholder `_edges` frame. Row-pipeline steps such as `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning local Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
 - If you want to enrich a graph and keep matching today, use a graph-preserving `call()` / `let()` pattern rather than a row-returning local Cypher `CALL`.
 
+Local Cypher Strings
+--------------------
+
+Use ``g.gfql("MATCH ...")`` when you want the supported local Cypher subset
+instead of writing the equivalent GFQL chain by hand:
+
+.. code-block:: python
+
+    result = g.gfql(
+        "MATCH (p:Person) "
+        "RETURN p.name AS name "
+        "ORDER BY name DESC "
+        "LIMIT $top_n",
+        params={"top_n": 5},
+    )
+
+    result._nodes
+
+For the dedicated guide, helper APIs, and direct-vs-translation guidance, see
+:doc:`cypher`.
+
 Node Matchers
 -------------
 

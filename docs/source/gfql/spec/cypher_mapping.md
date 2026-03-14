@@ -8,6 +8,13 @@ Translate existing Cypher workloads to GPU-accelerated GFQL with minimal code ch
 
 This specification shows how to translate Cypher queries to both GFQL Python code and {ref}`Wire Protocol <gfql-spec-wire-protocol>` JSON, enabling migration from Cypher-based systems, LLM pipelines (text → Cypher → GFQL), language-agnostic API integration, and secure query generation without code execution.
 
+## Direct Local Execution Note
+
+If you want to **run** a supported Cypher string locally on a bound graph, use
+`g.gfql("MATCH ...")` (or `g.gfql("...", language="cypher")`). This page stays
+translation-first: it explains how to express Cypher semantics in native GFQL
+operators and wire protocol, not the primary local execution quickstart.
+
 ## What Maps 1-to-1
 
 When translating from Cypher, you'll encounter three scenarios:
@@ -74,7 +81,8 @@ Projection sequencing and placement rules:
   Keep call steps in boundary prefix/suffix segments around traversal blocks.
 
 ## When You Still Need DataFrames
-- Unsupported Cypher clauses (for example `OPTIONAL MATCH`)
+- Translation targets outside the current pure GFQL operator surface, such as
+  some `OPTIONAL MATCH` / null-extension flows
 - Arbitrary joins across disconnected intermediate result sets
 - Custom functions outside the current row-expression subset
 
@@ -418,7 +426,9 @@ analysis = g.gfql([
 
 ## Not Supported
 - `CREATE`, `DELETE`, `SET`: GFQL is read-only.
-- `OPTIONAL MATCH`: no direct equivalent yet (requires outer-join semantics).
+- `OPTIONAL MATCH`: direct local Cypher execution supports a bounded subset,
+  but pure GFQL translation still has no single general operator for full
+  outer-join/null-extension semantics.
 - Full Cypher expression/function surface in row expressions: current vectorized subset only.
 - Multiple disconnected `MATCH` patterns in one query: use separate GFQL chains and explicit dataframe joins.
 
