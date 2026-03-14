@@ -404,6 +404,9 @@ g.gfql(
 g.gfql("MATCH (p:Person) RETURN p.name AS name", language="cypher")
 ```
 
+Use `params=...` instead of manual string interpolation, and expect unsupported
+but syntactically valid local Cypher shapes to raise `GFQLValidationError`.
+
 Use the compiler helpers when you need parse/compile/translation output instead
 of immediate execution:
 
@@ -416,7 +419,8 @@ from graphistry.compute.gfql.cypher import (
 )
 ```
 
-See the local-Cypher guide for the execution-first path:
+See the local-Cypher guide for the execution-first path and entrypoint
+selection:
 {doc}`/gfql/cypher`.
 
 ## Best Practices

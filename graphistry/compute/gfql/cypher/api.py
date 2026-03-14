@@ -17,7 +17,7 @@ def cypher_to_gfql(
     """Compile a supported local Cypher query into a single GFQL Chain.
 
     Use this helper when you want the translated GFQL chain object rather than
-    executing the query immediately. Queries that require a union program or a
+    running the query immediately. Queries that require a union program or a
     row-returning procedure flow should be executed directly through
     ``g.gfql("...", language="cypher")`` instead.
 

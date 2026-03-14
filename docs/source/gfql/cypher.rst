@@ -4,8 +4,8 @@ Local Cypher In GFQL
 ====================
 
 PyGraphistry can run a supported Cypher subset directly on a bound graph in
-memory. Use this page when you want to execute a Cypher string locally through
-GFQL instead of translating the query by hand.
+memory. Start here when you want to execute a Cypher string locally through
+GFQL instead of translating the query into GFQL by hand.
 
 Choose The Right Cypher Entrypoint
 ----------------------------------
@@ -63,8 +63,8 @@ Use ``params=...`` instead of manual string interpolation:
 Supported Local Cypher Surface
 ------------------------------
 
-The shipped local compiler is intentionally bounded. High-level supported
-families include:
+The local compiler intentionally supports a bounded subset. At a high level,
+that includes:
 
 - ``MATCH`` and a bounded ``OPTIONAL MATCH`` subset
 - ``WHERE``
@@ -74,16 +74,17 @@ families include:
 - supported local ``UNION`` and ``CALL graphistry.*`` flows when executed
   directly through ``g.gfql("...")``
 
-For exact row-pipeline semantics after pattern matching, see :doc:`return`. For
-same-path comparisons, see :doc:`where`.
+For exact ``RETURN`` / ``WITH`` row semantics after pattern matching, see
+:doc:`return`. For same-path ``WHERE`` comparisons, see :doc:`where`.
 
 Validation And Unsupported Shapes
 ---------------------------------
 
 - Unsupported but syntactically valid local Cypher shapes raise
-  ``GFQLValidationError``.
+  ``GFQLValidationError``, usually before execution starts.
 - Invalid local Cypher syntax raises ``GFQLSyntaxError``.
-- Unsupported string languages also raise ``GFQLValidationError``.
+- Passing a string query with an unsupported ``language=...`` selector also
+  raises ``GFQLValidationError``.
 
 That fail-fast behavior is intentional: the local compiler prefers explicit
 validation over silently returning wrong rows.
@@ -92,7 +93,7 @@ Compiler Helper APIs
 --------------------
 
 Use the helper APIs when you want to inspect or reuse compiler output rather
-than execute immediately:
+than run the query immediately:
 
 .. code-block:: python
 

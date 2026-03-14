@@ -11,9 +11,10 @@ This specification shows how to translate Cypher queries to both GFQL Python cod
 ## Direct Local Execution Note
 
 If you want to **run** a supported Cypher string locally on a bound graph, use
-`g.gfql("MATCH ...")` (or `g.gfql("...", language="cypher")`). This page stays
-translation-first: it explains how to express Cypher semantics in native GFQL
-operators and wire protocol, not the primary local execution quickstart.
+`g.gfql("MATCH ...")` (or `g.gfql("...", language="cypher")`) and start with
+{doc}`/gfql/cypher`. This page stays translation-first: it explains how to
+express Cypher semantics in native GFQL operators and wire protocol, not the
+primary local execution quickstart.
 
 ## What Maps 1-to-1
 
@@ -82,7 +83,7 @@ Projection sequencing and placement rules:
 
 ## When You Still Need DataFrames
 - Translation targets outside the current pure GFQL operator surface, such as
-  some `OPTIONAL MATCH` / null-extension flows
+  some `OPTIONAL MATCH` null-extension flows
 - Arbitrary joins across disconnected intermediate result sets
 - Custom functions outside the current row-expression subset
 

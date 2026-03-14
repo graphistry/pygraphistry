@@ -3,11 +3,12 @@
 GFQL Local Cypher API Reference
 ===============================
 
-These APIs support the local GFQL-flavored Cypher path.
+These helpers expose the local GFQL-flavored Cypher parser and compiler.
 
 For execution-first usage, prefer ``g.gfql("MATCH ...")`` on a bound graph. Use
 the helper functions below when you want to parse, compile, or translate a
-supported local Cypher query programmatically.
+supported local Cypher query programmatically. They do not call remote
+Bolt/Neo4j-style Cypher backends.
 
 See also:
 
@@ -51,13 +52,15 @@ Import the helpers from ``graphistry.compute.gfql.cypher``:
 ``parse_cypher(query)``
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-- Parses supported local Cypher text into a typed AST.
+- Parses supported local Cypher text into the typed AST used by the local
+  compiler.
 - Returns ``CypherQuery`` or ``CypherUnionQuery``.
 
 ``compile_cypher(query, params=None)``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-- Parses and lowers a supported local Cypher query into a compiled program.
+- Parses and lowers a supported local Cypher query into the compiled program
+  used by local execution.
 - Returns ``CompiledCypherQuery`` or ``CompiledCypherUnionQuery``.
 - Use this when you want to inspect the compiler output before execution.
 

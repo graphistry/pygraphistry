@@ -1249,7 +1249,7 @@ def _build_transformer(source: str) -> _TransformerLike:
 
 
 def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery]:
-    """Parse supported local Cypher text into a typed AST.
+    """Parse supported local Cypher text into the typed AST used by the local compiler.
 
     The returned AST preserves the clause structure needed by the local GFQL
     compiler, including unions and row-pipeline stages.
