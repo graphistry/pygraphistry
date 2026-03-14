@@ -62,7 +62,12 @@ Choosing Entry Points And Result Kinds
 Use the entrypoint that matches where the query executes:
 
 - **Local in-memory GFQL / Cypher-style execution**: `g.gfql([...])` or `g.gfql("MATCH ...")` runs on the current `Plottable` in pandas/cuDF.
-- **Remote database Cypher**: `graphistry.cypher("...")` or `g.cypher("...")` runs Cypher over a remote Bolt/Neo4j connection.
+- **Remote GFQL execution**: `g.gfql_remote([...])` runs the same GFQL chains/DAGs remotely, which is useful for larger datasets and remote GPU execution. See :ref:`gfql-remote`.
+
+.. warning::
+   `graphistry.cypher("...")` and `g.cypher("...")` are a separate remote database Cypher path
+   (for example, Neo4j/Neptune integrations), not the GFQL execution surface described on this page.
+   Do not treat them as interchangeable with `g.gfql(...)` or `g.gfql_remote(...)`.
 
 GFQL pipelines also have two practical result kinds:
 

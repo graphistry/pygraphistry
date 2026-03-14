@@ -26,7 +26,11 @@ Choose The Right Entrypoint
 ---------------------------
 
 - Use `g.gfql([...])` or `g.gfql("MATCH ...")` for local in-memory GFQL and the local Cypher subset.
-- Use `graphistry.cypher("...")` or `g.cypher("...")` for remote database Cypher over Bolt/Neo4j.
+- Use `g.gfql_remote([...])` for remote GFQL when the dataset size or hardware profile calls for remote execution, including remote GPU execution. See :ref:`gfql-remote`.
+
+.. warning::
+   `graphistry.cypher("...")` and `g.cypher("...")` are a separate remote database Cypher path
+   (for example, Neo4j/Neptune integrations), not the GFQL execution surface summarized on this page.
 
 Graph State Vs Row State
 ------------------------
