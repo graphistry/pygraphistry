@@ -8,6 +8,7 @@ GFQL API Reference
 
    ast
    chain
+   cypher
    edge
    hop
    node

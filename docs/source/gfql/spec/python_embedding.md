@@ -370,10 +370,15 @@ g.gfql([
     group_by(keys=["type"], aggregations=[("cnt", "count")]),
 ])
 
-# Wrong - OPTIONAL MATCH not supported
-# No direct GFQL equivalent
+# Pure GFQL list/Chain syntax still has no direct OPTIONAL MATCH operator.
+# For the bounded Cypher surface through g.gfql(), execute a Cypher string instead:
+g.gfql(
+    "MATCH (n:Person) "
+    "OPTIONAL MATCH (n)-[r:KNOWS]->(m) "
+    "RETURN n.name AS name, type(r) AS rel_type"
+)
 
-# Correct - Handle optionality in post-processing
+# Or handle optionality explicitly in post-processing:
 result = g.gfql([n(), e_forward()])
 # Check for nodes without edges
 nodes_with_edges = result._nodes[result._nodes[g._node].isin(result._edges[g._source])]
@@ -382,6 +387,65 @@ nodes_with_edges = result._nodes[result._nodes[g._node].isin(result._edges[g._so
 # g.gfql([rows(), where_rows(expr="custom_fn(score)")])
 # Correct - Use supported row-expression operators, or post-process DataFrame
 ```
+
+### Cypher String Execution Through ``g.gfql()``
+
+For supported Cypher strings on a bound graph, `g.gfql()` defaults string
+queries to `language="cypher"`.
+
+`g.gfql("MATCH ...")` still returns a `Plottable`, but current Cypher
+`RETURN` output is usually consumed as rows from `result._nodes`:
+
+- scalar/property projections such as `RETURN p.name AS name` produce a table in
+  `result._nodes`
+- whole-entity projections such as `RETURN p` also surface entity-valued rows in
+  `result._nodes`
+- `result._edges` is typically an empty placeholder frame for these row-shaped
+  Cypher results
+
+If you want a traversable graph/subgraph back in both `_nodes` and `_edges`,
+prefer native GFQL chain syntax instead of Cypher `RETURN` projections.
+
+```python
+from graphistry import n, e_forward
+
+# Cypher syntax through g.gfql() returns a Plottable, with row output exposed in _nodes.
+result = g.gfql("MATCH (p:Person) RETURN p.name AS name")
+df = result._nodes
+
+entity_rows = g.gfql("MATCH (p:Person) RETURN p")
+entity_df = entity_rows._nodes
+
+# If you want a graph/subgraph back, use native GFQL chain syntax.
+g2 = g.gfql([n({"type": "Person"}), e_forward(), n()])
+
+limited = g.gfql(
+    "MATCH (p:Person) RETURN p.name AS name ORDER BY name DESC LIMIT $top_n",
+    params={"top_n": 10},
+)
+
+same_limited = g.gfql("MATCH (p:Person) RETURN p.name AS name", language="cypher")
+```
+
+Use `params=...` instead of manual string interpolation, and expect unsupported
+but syntactically valid query shapes on this Cypher surface to raise
+`GFQLValidationError`.
+
+Use the compiler helpers when you need parse/compile/translation output instead
+of immediate execution:
+
+```python
+from graphistry.compute.gfql.cypher import (
+    parse_cypher,
+    compile_cypher,
+    cypher_to_gfql,
+    gfql_from_cypher,
+)
+```
+
+See the Cypher-in-GFQL guide for the execution-first path and entrypoint
+selection:
+{doc}`/gfql/cypher`.
 
 ## Best Practices
 

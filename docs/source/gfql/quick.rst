@@ -3,7 +3,15 @@
 GFQL Quick Reference
 ====================
 
-This quick reference page provides short examples of various parameters and usage patterns.
+GFQL is the first fully vectorized dataframe-native graph query language with
+an open-source GPU runtime. This quick reference page provides short examples
+of various parameters and usage patterns.
+
+If you are new to Cypher: Cypher is a graph query language popularized by
+Neo4j and related tools. It uses ASCII-art graph patterns such as
+``(n1)-[e1]->(n2)`` to describe node-edge-node traversals, so GFQL docs use
+that notation as a familiar shorthand when discussing Cypher syntax through
+``g.gfql("MATCH ...")``.
 
 Basic Usage
 -----------
@@ -25,7 +33,7 @@ For row-pipeline RETURN semantics, see :doc:`return`.
 Choose The Right Entrypoint
 ---------------------------
 
-- Use `g.gfql([...])` or `g.gfql("MATCH ...")` for local in-memory GFQL and the local Cypher subset.
+- Use `g.gfql([...])` for native GFQL operators and `g.gfql("MATCH ...")` for Cypher syntax on the current graph.
 - Use `g.gfql_remote([...])` for remote GFQL when the dataset size or hardware profile calls for remote execution, including remote GPU execution. See :ref:`gfql-remote`.
 
 .. warning::
@@ -36,8 +44,30 @@ Graph State Vs Row State
 ------------------------
 
 - **Graph state** keeps a traversable graph in `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, and `let()` / `ref()` graph DAG stages stay in graph state.
-- **Row state** stores tabular results in `_nodes` and uses an empty placeholder `_edges` frame. Row-pipeline steps such as `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning local Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
-- If you want to enrich a graph and keep matching today, use a graph-preserving `call()` / `let()` pattern rather than a row-returning local Cypher `CALL`.
+- **Row state** stores tabular results in `_nodes` and uses an empty placeholder `_edges` frame. Row-pipeline steps such as `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
+- If you want to enrich a graph and keep matching today, use a graph-preserving `call()` / `let()` pattern rather than a row-returning Cypher `CALL`.
+
+Cypher Strings Through ``g.gfql()``
+-----------------------------------
+
+Use ``g.gfql("MATCH ...")`` when you want Cypher syntax and declarative graph
+semantics on a bound graph instead of writing the equivalent GFQL chain by
+hand:
+
+.. code-block:: python
+
+    result = g.gfql(
+        "MATCH (n1:Person)-[e1:FOLLOWS]->(n2:Person) "
+        "RETURN n1.name AS source_name, n2.name AS target_name "
+        "ORDER BY source_name, target_name "
+        "LIMIT $top_n",
+        params={"top_n": 5},
+    )
+
+    result._nodes
+
+For the dedicated guide, helper APIs, and direct-vs-translation guidance, see
+:doc:`cypher`.
 
 Node Matchers
 -------------
