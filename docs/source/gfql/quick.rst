@@ -3,7 +3,9 @@
 GFQL Quick Reference
 ====================
 
-This quick reference page provides short examples of various parameters and usage patterns.
+GFQL is the first fully vectorized dataframe-native graph query language with
+an open-source GPU runtime. This quick reference page provides short examples
+of various parameters and usage patterns.
 
 If you are new to Cypher: Cypher is a graph query language popularized by
 Neo4j and related tools. It uses ASCII-art graph patterns such as

@@ -4,11 +4,12 @@ Cypher Syntax In GFQL
 =====================
 
 PyGraphistry supports a read-only Cypher surface directly through GFQL on a
-bound graph. You get Cypher's familiar declarative syntax and graph-pattern
-semantics, while execution stays in GFQL's columnar engine with optional GPU
-acceleration. Start here when you want to execute a Cypher query through
-``g.gfql("MATCH ...")`` instead of translating it into native GFQL operators
-by hand.
+bound graph. This is the on-ramp for Cypher users who want familiar
+declarative syntax and graph-pattern semantics, but executed by GFQL's fully
+vectorized columnar engine and open-source GPU runtime instead of a
+database-only runtime. Start here when you want to execute a Cypher query
+through ``g.gfql("MATCH ...")`` instead of translating it into native GFQL
+operators by hand.
 
 Choose The Right Cypher Entrypoint
 ----------------------------------

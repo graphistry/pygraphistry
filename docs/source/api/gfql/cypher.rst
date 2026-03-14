@@ -7,10 +7,10 @@ This page documents the Python helper APIs behind PyGraphistry's Cypher-syntax
 support in GFQL.
 
 - **Cypher** is a graph query language popularized by Neo4j and related tools.
-- **GFQL** is PyGraphistry's dataframe-native graph query language for querying
-  a bound graph in memory.
+- **GFQL** is PyGraphistry's dataframe-native graph query language: the first
+  fully vectorized graph query implementation with an open-source GPU runtime.
 - PyGraphistry supports a read-only Cypher surface on bound graphs that can be
-  parsed, validated, compiled, and executed through GFQL.
+  parsed, validated, compiled, and executed through GFQL's columnar engine.
 
 Use this page when you want to:
 
@@ -19,9 +19,11 @@ Use this page when you want to:
 - translate a supported query into a GFQL ``Chain`` programmatically
 
 This page is an API reference, not the main tutorial. It covers Cypher syntax
-through ``g.gfql("MATCH ...")`` on a bound graph. For **remote GFQL** execution on
-Graphistry infrastructure, use ``g.gfql_remote([...])``. For **remote database
-Cypher** over Bolt/Neo4j-style backends, use ``g.cypher(...)`` or
+through ``g.gfql("MATCH ...")`` on a bound graph, which is the on-ramp for
+Cypher users who want familiar graph-pattern syntax without giving up GFQL's
+fully vectorized dataframe/GPU execution model. For **remote GFQL** execution
+on Graphistry infrastructure, use ``g.gfql_remote([...])``. For **remote
+database Cypher** over Bolt/Neo4j-style backends, use ``g.cypher(...)`` or
 ``graphistry.cypher(...)``.
 
 See also:
