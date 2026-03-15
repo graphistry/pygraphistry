@@ -2588,6 +2588,23 @@ def test_string_cypher_failfast_rejects_variable_length_named_path_alias_referen
     assert "named path aliases" in exc_info.value.message
 
 
+def test_string_cypher_supports_unused_named_path_alias_for_endpoint_projection() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b"],
+                "d": ["b", "c"],
+                "type": ["R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql("MATCH p = (a {id: 'a'})-[:R*2]->(b) RETURN b.id AS id")
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "c"}]
+
+
 @pytest.mark.parametrize(
     "query",
     [
@@ -2625,6 +2642,25 @@ def test_string_cypher_failfast_rejects_bounded_variable_length_where_pattern_pr
 
     assert exc_info.value.code == ErrorCode.E108
     assert "WHERE pattern predicates" in exc_info.value.message
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) WHERE (n)-[:R*]->() AND n.id <> 'a' RETURN n",
+        "MATCH (n) WHERE n.id <> 'a' AND (n)-[:R*]->() RETURN n",
+        "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'z' RETURN n",
+        "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n",
+    ],
+)
+def test_string_cypher_failfast_rejects_mixed_variable_length_where_pattern_predicates(query: str) -> None:
+    graph = _mk_empty_graph()
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(query)
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert "mixed with generic row expressions" in exc_info.value.message
 
 
 def test_string_cypher_failfast_rejects_multi_alias_return_star_projection() -> None:
@@ -4258,6 +4294,72 @@ def test_string_cypher_executes_with_match_reentry_limit_shape() -> None:
     )
 
     assert result._nodes.to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
+
+
+def test_string_cypher_executes_with_match_reentry_multihop_shape() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d"],
+            "label__A": [True, False, False, False],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "b", "c"],
+            "d": ["b", "c", "d"],
+            "type": ["R", "R", "R"],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A) WITH a MATCH (a)-[:R*2]->(b) RETURN b.id AS id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "c"}]
+
+
+def test_string_cypher_executes_seeded_multihop_then_with_match_reentry_shape() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d"],
+            "label__A": [True, False, False, False],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "b", "c"],
+            "d": ["b", "c", "d"],
+            "type": ["R", "R", "R"],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A) MATCH (a)-[:R*2]->(b) WITH b MATCH (b)-[:R]->(c) RETURN c.id AS id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
+
+
+def test_string_cypher_executes_seeded_multihop_then_with_optional_match_reentry_shape() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d"],
+            "label__A": [True, False, False, False],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "b", "c"],
+            "d": ["b", "c", "d"],
+            "type": ["R", "R", "R"],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A) MATCH (a)-[:R*2]->(b) WITH b OPTIONAL MATCH (b)-[:R]->(c) RETURN c.id AS id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
 
 
 def test_cypher_to_gfql_rejects_multi_alias_projection() -> None:

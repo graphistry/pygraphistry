@@ -278,6 +278,15 @@ _WHERE_PATTERN_ITEM_RE = re.compile(
     r"\([^)\n]*\)\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\)"
     r"(?:\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\))*"
 )
+_WHERE_PATTERN_SEQUENCE_RE = re.compile(
+    rf"(?:{_WHERE_PATTERN_ITEM_RE.pattern})(?:\s+AND\s+(?:{_WHERE_PATTERN_ITEM_RE.pattern}))*",
+    re.IGNORECASE,
+)
+_WHERE_CLAUSE_BODY_RE = re.compile(
+    r"\bWHERE\b(?P<body>.*?)(?=\bRETURN\b|\bWITH\b|\bORDER\s+BY\b|\bSKIP\b|\bLIMIT\b|\bUNWIND\b|\bCALL\b|\bMATCH\b|\bOPTIONAL\s+MATCH\b|\bUNION\b|;|$)",
+    re.IGNORECASE | re.DOTALL,
+)
+_BOOLEAN_KEYWORD_RE = re.compile(r"\b(?:AND|OR|XOR|NOT)\b", re.IGNORECASE)
 
 
 class _ParserLike:
@@ -403,6 +412,28 @@ def _line_and_column_from_offset(source: str, offset: int) -> Tuple[int, int]:
     last_newline = source.rfind("\n", 0, offset)
     column = offset + 1 if last_newline < 0 else offset - last_newline
     return line, column
+
+
+def _mixed_where_pattern_expr_error(source: str) -> Optional[GFQLValidationError]:
+    for match in _WHERE_CLAUSE_BODY_RE.finditer(source):
+        body = match.group("body").strip()
+        if body == "":
+            continue
+        if _WHERE_PATTERN_ITEM_RE.search(body) is None:
+            continue
+        if _WHERE_PATTERN_SEQUENCE_RE.fullmatch(body) is not None:
+            continue
+        if _BOOLEAN_KEYWORD_RE.search(body) is None:
+            continue
+        line, column = _line_and_column_from_offset(source, match.start("body"))
+        return _to_unsupported(
+            "Cypher WHERE pattern predicates cannot yet be mixed with generic row expressions",
+            line=line,
+            column=column,
+            field="where",
+            value=body,
+        )
+    return None
 
 
 def _build_transformer(source: str) -> _TransformerLike:
@@ -1321,6 +1352,9 @@ def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery]:
         if isinstance(exc, (GFQLSyntaxError, GFQLValidationError)):
             raise
         if isinstance(exc, LarkError):
+            mixed_where_error = _mixed_where_pattern_expr_error(query)
+            if mixed_where_error is not None:
+                raise mixed_where_error from exc
             err_line = cast(Optional[int], getattr(exc, "line", None))
             err_column = cast(Optional[int], getattr(exc, "column", None))
             raise _to_syntax_error("Invalid Cypher query syntax", line=err_line, column=err_column) from exc

@@ -4,7 +4,7 @@ from typing import cast
 
 import pytest
 
-from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
+from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.cypher import (
     CallClause,
     CypherQuery,
@@ -458,6 +458,20 @@ def test_parse_optional_match_clause() -> None:
     assert len(parsed.matches) == 1
     assert parsed.matches[0].optional is True
     assert cast(NodePattern, parsed.matches[0].patterns[0][0]).variable == "n"
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) WHERE (n)-[:R*]->() AND n.id <> 'a' RETURN n",
+        "MATCH (n) WHERE n.id <> 'a' AND (n)-[:R*]->() RETURN n",
+        "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'z' RETURN n",
+        "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n",
+    ],
+)
+def test_parse_rejects_mixed_where_pattern_predicates_as_unsupported(query: str) -> None:
+    with pytest.raises(GFQLValidationError, match="mixed with generic row expressions"):
+        parse_cypher(query)
 
 
 def test_parse_aggregate_projection_items() -> None:
