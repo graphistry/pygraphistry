@@ -5,7 +5,7 @@ NOTE: Excluded from pyre (.pyre_configuration) - hop() complexity causes hang. U
 """
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, Union, cast
 import pandas as pd
 
 from graphistry.Engine import (
@@ -697,8 +697,10 @@ def hop(self: Plottable,
     ) -> set:
         if len(edges_df) == 0 or len(seed_nodes_df) == 0:
             return set()
-        edges_pdf = edges_df[[source_col, destination_col]].to_pandas() if hasattr(edges_df, "to_pandas") else edges_df[[source_col, destination_col]].copy()
-        seeds_pdf = seed_nodes_df[[node_col]].to_pandas() if hasattr(seed_nodes_df, "to_pandas") else seed_nodes_df[[node_col]].copy()
+        edge_subset = cast(Any, edges_df[[source_col, destination_col]])
+        seed_subset = cast(Any, seed_nodes_df[[node_col]])
+        edges_pdf = edge_subset.to_pandas() if hasattr(edge_subset, "to_pandas") else edge_subset.copy()
+        seeds_pdf = seed_subset.to_pandas() if hasattr(seed_subset, "to_pandas") else seed_subset.copy()
         adjacency: Dict[Any, set] = {}
         for row in edges_pdf.itertuples(index=False):
             src = getattr(row, source_col)
@@ -730,7 +732,8 @@ def hop(self: Plottable,
     def _undirected_cycle_nodes(edges_df: DataFrameT) -> set:
         if len(edges_df) == 0:
             return set()
-        edges_pdf = edges_df[[source_col, destination_col]].to_pandas() if hasattr(edges_df, "to_pandas") else edges_df[[source_col, destination_col]].copy()
+        edge_subset = cast(Any, edges_df[[source_col, destination_col]])
+        edges_pdf = edge_subset.to_pandas() if hasattr(edge_subset, "to_pandas") else edge_subset.copy()
         loop_nodes = set(
             edges_pdf.loc[edges_pdf[source_col] == edges_pdf[destination_col], source_col].tolist()
         )
