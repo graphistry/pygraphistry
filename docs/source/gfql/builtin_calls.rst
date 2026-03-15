@@ -325,18 +325,12 @@ Run GPU-accelerated graph algorithms using `cuGraph <https://github.com/rapidsai
 
 **Supported Algorithms:**
 
-- **pagerank**: PageRank centrality
-- **louvain**: Community detection
-- **betweenness_centrality**: Betweenness centrality
-- **eigenvector_centrality**: Eigenvector centrality
-- **katz_centrality**: Katz centrality
-- **hits**: HITS (hubs and authorities)
-- **bfs**: Breadth-first search
-- **sssp**: Single-source shortest path
-- **connected_components**: Find connected components
-- **strongly_connected_components**: Find strongly connected components
-- **k_core**: K-core decomposition
-- **triangle_count**: Count triangles per node
+The exact procedure names mirror ``graphistry.plugins.cugraph.compute_algs``.
+Current categories include:
+
+- **Node-enriching:** ``betweenness_centrality``, ``bfs``, ``bfs_edges``, ``connected_components``, ``core_number``, ``ecg``, ``hits``, ``katz_centrality``, ``leiden``, ``louvain``, ``pagerank``, ``shortest_path``, ``shortest_path_length``, ``spectralBalancedCutClustering``, ``spectralModularityMaximizationClustering``, ``sssp``, ``strongly_connected_components``
+- **Edge-enriching:** ``batched_ego_graphs``, ``edge_betweenness_centrality``, ``jaccard``, ``jaccard_w``, ``overlap``, ``overlap_coefficient``, ``overlap_w``, ``sorensen``, ``sorensen_coefficient``, ``sorensen_w``
+- **Topology-returning:** ``ego_graph``, ``k_core``, ``minimum_spanning_tree``
 
 **Examples:**
 
@@ -368,7 +362,15 @@ Run GPU-accelerated graph algorithms using `cuGraph <https://github.com/rapidsai
         })
     ])
 
-**Schema Effects:** Adds one column to nodes with the algorithm result.
+**Schema Effects:** Depends on the algorithm family. Node algorithms add node columns, edge algorithms add edge columns, and topology-returning algorithms return a new graph topology.
+
+**Local Cypher Modes:**
+
+- **Procedure naming:** ``CALL graphistry.cugraph.<alg>()`` and ``CALL graphistry.cugraph.<alg>.write()`` mirror ``compute_cugraph(alg=...)`` for the supported algorithm names above.
+- **Row mode for node algorithms:** ``g.gfql("CALL graphistry.cugraph.louvain()")`` returns row state with ``nodeId`` plus the default algorithm output columns in ``_nodes`` and an empty placeholder ``_edges`` frame (for example, ``assert result._edges.empty``).
+- **Row mode for edge algorithms:** ``g.gfql("CALL graphistry.cugraph.edge_betweenness_centrality()")`` returns row state with ``source``, ``destination``, and the edge result columns in ``_nodes`` while leaving ``_edges`` empty.
+- **Graph mode / topology mode:** ``g.gfql("CALL graphistry.cugraph.edge_betweenness_centrality.write()")`` enriches the graph in place and keeps traversable edges (for example, ``assert not result._edges.empty``). Topology-returning algorithms such as ``k_core`` and ``minimum_spanning_tree`` require ``.write()``.
+- **Options map:** Local Cypher procedures accept one optional map argument. ``out_col``, ``directed``, ``kind``, and ``params`` mirror ``compute_cugraph()`` directly, and any extra keys are forwarded into the nested algorithm ``params`` dictionary. For example, ``CALL graphistry.cugraph.louvain({resolution: 1.0})`` maps to ``compute_cugraph('louvain', params={'resolution': 1.0})``.
 
 **Parameter Discovery:** For detailed algorithm parameters, see the `cuGraph documentation <https://docs.rapids.ai/api/cugraph/stable/>`_. Parameters are passed via the ``params`` dictionary.
 
@@ -413,19 +415,13 @@ Run CPU-based graph algorithms using `igraph <https://igraph.org/>`_, the compre
 
 **Supported Algorithms:**
 
-Similar to cuGraph but on CPU, including:
+The exact procedure names mirror ``graphistry.plugins.igraph.compute_algs``.
+Current supported names include:
 
-- **pagerank**: PageRank centrality
-- **community_multilevel**: Louvain community detection
-- **betweenness**: Betweenness centrality
-- **closeness**: Closeness centrality
-- **eigenvector_centrality**: Eigenvector centrality
-- **authority_score**: Authority scores (HITS)
-- **hub_score**: Hub scores (HITS)
-- **coreness**: K-core values
-- **clusters**: Connected components
-- **maximal_cliques**: Find maximal cliques
-- **shortest_paths**: Compute shortest paths
+- ``articulation_points``, ``authority_score``, ``betweenness``, ``bibcoupling``, ``closeness``, ``clusters``, ``cocitation``
+- ``community_edge_betweenness``, ``community_fastgreedy``, ``community_infomap``, ``community_label_propagation``, ``community_leading_eigenvector``, ``community_leiden``, ``community_multilevel``, ``community_optimal_modularity``, ``community_spinglass``, ``community_walktrap``
+- ``constraint``, ``coreness``, ``eccentricity``, ``eigenvector_centrality``, ``harmonic_centrality``, ``hub_score``, ``k_core``, ``pagerank``, ``personalized_pagerank``
+- Topology-returning procedures: ``gomory_hu_tree`` and ``spanning_tree``
 
 **Examples:**
 
@@ -448,7 +444,21 @@ Similar to cuGraph but on CPU, including:
         })
     ])
 
-**Schema Effects:** Adds one column to nodes with the algorithm result.
+**Schema Effects:** Most algorithms add one node column. Topology-returning algorithms such as ``gomory_hu_tree`` and ``spanning_tree`` return a new graph topology instead.
+
+**Local Cypher Modes:**
+
+- **Procedure naming:** ``CALL graphistry.igraph.<alg>()`` and ``CALL graphistry.igraph.<alg>.write()`` mirror ``compute_igraph(alg=...)`` for the supported algorithm names above.
+- **Row mode:** ``g.gfql("CALL graphistry.igraph.pagerank()")`` returns row state with ``nodeId`` plus the default algorithm output column in ``_nodes`` and an empty placeholder ``_edges`` frame (for example, ``assert result._edges.empty``).
+- **Graph mode / topology mode:** ``g.gfql("CALL graphistry.igraph.pagerank.write()")`` keeps the result in graph state with traversable edges (for example, ``assert not result._edges.empty``). Topology-returning algorithms such as ``spanning_tree`` and ``gomory_hu_tree`` require ``.write()``.
+- **Options map:** Local Cypher procedures accept one optional map argument. ``out_col``, ``directed``, ``use_vids``, and ``params`` mirror ``compute_igraph()`` directly, and any extra keys are forwarded into the nested algorithm ``params`` dictionary. For example, ``CALL graphistry.igraph.pagerank({damping: 0.9, directed: false})`` maps to ``compute_igraph('pagerank', directed=False, params={'damping': 0.9})``.
+- **NetworkX compatibility subset:** The local Cypher compiler also keeps a small ``graphistry.nx.*`` subset for parity with the older branch behavior:
+
+  - Node-enriching calls: ``CALL graphistry.nx.pagerank()`` / ``.write()`` and ``CALL graphistry.nx.betweenness_centrality()`` / ``.write()``
+  - Edge-enriching calls: ``CALL graphistry.nx.edge_betweenness_centrality()`` / ``.write()``
+  - Topology-returning calls: ``CALL graphistry.nx.k_core.write()``
+
+  They follow the same row-vs-``.write()`` contract as the other backends: node calls use ``nodeId`` + value column rows, edge calls use ``source`` / ``destination`` + value column rows, and topology-returning calls require ``.write()``.
 
 **Parameter Discovery:** For detailed algorithm parameters, see the `Python igraph documentation <https://igraph.org/python/>`_. Parameters are passed via the ``params`` dictionary.
 
@@ -510,6 +520,11 @@ Calculate degree centrality for nodes (in-degree, out-degree, and total degree).
     }))
 
 **Schema Effects:** Adds up to 3 columns to nodes (based on parameters provided).
+
+**Local Cypher Modes:**
+
+- **Row mode:** ``g.gfql("CALL graphistry.degree()")`` returns row state with default ``nodeId``, ``degree``, ``degree_in``, and ``degree_out`` columns in ``_nodes`` and an empty placeholder ``_edges`` frame (for example, ``assert result._edges.empty``). Add ``YIELD ... RETURN ...`` when you want to project or sort those rows explicitly.
+- **Graph mode:** ``g.gfql("CALL graphistry.degree.write()")`` materializes ``degree``, ``degree_in``, and ``degree_out`` on nodes while preserving the graph for later matches with traversable edges (for example, ``assert not result._edges.empty``).
 
 get_indegrees
 ~~~~~~~~~~~~~

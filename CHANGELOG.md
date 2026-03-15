@@ -22,6 +22,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Docs
 - **GFQL / Cypher docs**: Clarified the current direct `g.gfql("MATCH ...")` multihop support boundary: endpoint-only `[*n]`, `[*m..n]`, and `[*]` relationship patterns are supported, while path-carrier and mixed-pattern residuals remain explicit validation failures.
 
+## [0.52.1 - 2026-03-15]
+
+### Added
+- **GFQL / Cypher**: Added shared-registry-backed local Cypher `CALL graphistry.degree`, `CALL graphistry.igraph.<alg>`, and `CALL graphistry.cugraph.<alg>` procedure families. Bare calls stay row-returning for supported node/edge algorithms, while `.write()` preserves graph state and also covers topology-returning algorithms. The branch also keeps a smaller `graphistry.nx.*` compatibility subset on the same row/write contract: `pagerank`, `betweenness_centrality`, `edge_betweenness_centrality`, and `k_core.write()`.
+
+### Fixed
+- **GFQL / Cypher cugraph CALL parity**: Aligned local `CALL graphistry.cugraph.*` row/write output naming with real `compute_cugraph()` behavior for edge algorithms and multi-column node algorithms, and added backend-backed regression coverage for representative cuGraph and igraph CALL paths.
+
+### Docs
+- **GFQL docs**: Documented the local graph-preserving `CALL graphistry.*.write()` subset, clarified that omitting `.write()` keeps row-returning behavior, and updated enrich-then-match examples to show when local Cypher stays in graph state versus when `CALL ... YIELD ... RETURN ...` moves into row state.
+
 ## [0.51.3 - 2026-03-14]
 
 ### Docs

@@ -43,9 +43,10 @@ Choose The Right Entrypoint
 Graph State Vs Row State
 ------------------------
 
-- **Graph state** keeps a traversable graph in `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, and `let()` / `ref()` graph DAG stages stay in graph state.
-- **Row state** stores tabular results in `_nodes` and uses an empty placeholder `_edges` frame. Row-pipeline steps such as `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
-- If you want to enrich a graph and keep matching today, use a graph-preserving `call()` / `let()` pattern rather than a row-returning Cypher `CALL`.
+- **Graph state** keeps a traversable graph in `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, `let()` / `ref()` graph DAG stages, and local Cypher `CALL graphistry.*.write()` queries stay in graph state.
+- **Row state** stores tabular results in `_nodes` and uses an empty placeholder `_edges` frame. Row-pipeline steps such as `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning local Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
+- A bare local Cypher procedure call without `.write()` also moves into row state. For example, `CALL graphistry.degree()` projects its default output columns into `_nodes` and clears `_edges`.
+- If you want to enrich a graph and keep matching locally, use a graph-preserving `call()` / `let()` pattern or a bare local Cypher `CALL graphistry.*.write()`. The local Cypher compiler currently supports `graphistry.degree.write()` plus `graphistry.igraph.<alg>.write()` and `graphistry.cugraph.<alg>.write()` for algorithms exposed through `compute_igraph()` / `compute_cugraph()`, along with the smaller compatibility subset `graphistry.nx.pagerank.write()`, `graphistry.nx.betweenness_centrality.write()`, `graphistry.nx.edge_betweenness_centrality.write()`, and `graphistry.nx.k_core.write()`.
 
 Cypher Strings Through ``g.gfql()``
 -----------------------------------
@@ -566,15 +567,24 @@ Run graph algorithms like PageRank, community detection, and layouts directly wi
 
   .. code-block:: python
 
-      from graphistry import call
-
-      g_ranked = g.gfql([call('compute_cugraph', {'alg': 'pagerank'})])
-      top_ranked = g_ranked.gfql(
-          "MATCH (n) WHERE n.pagerank > 0.01 RETURN n.id AS id, n.pagerank AS pagerank ORDER BY pagerank DESC LIMIT 10"
+      g_enriched = g.gfql("CALL graphistry.degree.write()")
+      assert not g_enriched._edges.empty
+      top_degree = g_enriched.gfql(
+          "MATCH (n) WHERE n.degree >= 2 RETURN n.id AS id, n.degree AS degree ORDER BY degree DESC LIMIT 10"
       )
 
-  Local note: `g.gfql("CALL ... YIELD ... RETURN ...")` currently targets row-returning procedure flows.
-  For graph-preserving enrich-then-match workflows, prefer `call()` / `let()` today.
+  Local note: a bare `g.gfql("CALL graphistry.*.write()")` stays in graph state and can feed later `MATCH` queries.
+  `g.gfql("CALL ... YIELD ... RETURN ...")` still targets row-returning procedure flows.
+
+- **Return procedure rows instead of an enriched graph:**
+
+  .. code-block:: python
+
+      degree_rows = g.gfql("CALL graphistry.degree()")
+      assert degree_rows._edges.empty
+
+      # Row state: _nodes has nodeId/degree columns and _edges is empty
+      degree_rows._nodes
 
 - **Community detection with Louvain:**
 

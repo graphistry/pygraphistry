@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
-from typing import cast
+from typing import Any, cast
 
 from graphistry.compute.ast import ASTCall, ASTNode, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLValidationError
@@ -40,9 +40,45 @@ def _mk_graph(nodes_df: pd.DataFrame, edges_df: pd.DataFrame) -> _CypherTestGrap
     return cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes_df, "id").edges(edges_df, "s", "d"))
 
 
+def _mk_cudf_graph(nodes_df: pd.DataFrame, edges_df: pd.DataFrame) -> _CypherTestGraph:
+    cudf = pytest.importorskip("cudf")
+    return cast(
+        _CypherTestGraph,
+        _CypherTestGraph().nodes(cudf.from_pandas(nodes_df), "id").edges(cudf.from_pandas(edges_df), "s", "d"),
+    )
+
+
 def _mk_simple_path_graph() -> _CypherTestGraph:
     return _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c"]}),
+        pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]}),
+    )
+
+
+def _mk_triangle_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"]}),
+        pd.DataFrame({"s": ["a", "b", "a"], "d": ["b", "c", "c"]}),
+    )
+
+
+def _mk_path_with_isolate_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "z"]}),
+        pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]}),
+    )
+
+
+def _mk_simple_path_graph_cudf() -> _CypherTestGraph:
+    return _mk_cudf_graph(
+        pd.DataFrame({"id": ["a", "b", "c"]}),
+        pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]}),
+    )
+
+
+def _mk_path_with_isolate_graph_cudf() -> _CypherTestGraph:
+    return _mk_cudf_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "z"]}),
         pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]}),
     )
 
@@ -68,6 +104,10 @@ def _assert_query_rows(
     )
     result = graph.gfql(query)
     assert result._nodes.to_dict(orient="records") == expected_rows
+
+
+def _to_pandas_df(df: Any) -> pd.DataFrame:
+    return cast(pd.DataFrame, df.to_pandas() if hasattr(df, "to_pandas") else df)
 
 
 def _parse_query(query: str) -> CypherQuery:
@@ -3756,17 +3796,30 @@ def test_cypher_to_gfql_rejects_union_programs() -> None:
 
 
 @pytest.mark.parametrize(
-    ("query", "procedure"),
+    ("query", "procedure", "result_kind"),
     [
-        ("CALL graphistry.degree()", "graphistry.degree"),
-        ("CALL graphistry.cugraph.pagerank()", "graphistry.cugraph.pagerank"),
+        ("CALL graphistry.degree()", "graphistry.degree", "rows"),
+        ("CALL graphistry.igraph.pagerank()", "graphistry.igraph.pagerank", "rows"),
+        ("CALL graphistry.igraph.spanning_tree.write()", "graphistry.igraph.spanning_tree.write", "graph"),
+        ("CALL graphistry.cugraph.louvain()", "graphistry.cugraph.louvain", "rows"),
+        ("CALL graphistry.cugraph.edge_betweenness_centrality()", "graphistry.cugraph.edge_betweenness_centrality", "rows"),
+        ("CALL graphistry.cugraph.k_core.write()", "graphistry.cugraph.k_core.write", "graph"),
+        ("CALL graphistry.nx.pagerank()", "graphistry.nx.pagerank", "rows"),
+        ("CALL graphistry.nx.betweenness_centrality()", "graphistry.nx.betweenness_centrality", "rows"),
+        ("CALL graphistry.nx.edge_betweenness_centrality()", "graphistry.nx.edge_betweenness_centrality", "rows"),
+        ("CALL graphistry.degree.write()", "graphistry.degree.write", "graph"),
+        ("CALL graphistry.igraph.betweenness.write()", "graphistry.igraph.betweenness.write", "graph"),
+        ("CALL graphistry.cugraph.louvain.write()", "graphistry.cugraph.louvain.write", "graph"),
+        ("CALL graphistry.nx.k_core.write()", "graphistry.nx.k_core.write", "graph"),
+        ("CALL graphistry.nx.pagerank.write()", "graphistry.nx.pagerank.write", "graph"),
     ],
 )
-def test_compile_cypher_call_returns_procedure_program(query: str, procedure: str) -> None:
+def test_compile_cypher_call_returns_procedure_program(query: str, procedure: str, result_kind: str) -> None:
     compiled = _compile_query(query)
 
     assert compiled.procedure_call is not None
     assert compiled.procedure_call.procedure == procedure
+    assert compiled.procedure_call.result_kind == result_kind
 
 
 def test_cypher_to_gfql_rejects_call_programs() -> None:
@@ -3811,9 +3864,9 @@ def test_cypher_to_gfql_rejects_call_programs() -> None:
         (
             "igraph",
             "CALL graphistry.igraph.pagerank() "
-            "YIELD nodeId, score "
+            "YIELD nodeId, pagerank "
             "RETURN nodeId "
-            "ORDER BY score DESC, nodeId ASC "
+            "ORDER BY pagerank DESC, nodeId ASC "
             "LIMIT 1",
             [{"nodeId": "c"}],
             None,
@@ -3821,9 +3874,9 @@ def test_cypher_to_gfql_rejects_call_programs() -> None:
         (
             "networkx",
             "CALL graphistry.nx.pagerank() "
-            "YIELD nodeId, score "
+            "YIELD nodeId, pagerank "
             "RETURN nodeId "
-            "ORDER BY score DESC, nodeId ASC "
+            "ORDER BY pagerank DESC, nodeId ASC "
             "LIMIT 1",
             [{"nodeId": "c"}],
             None,
@@ -3843,6 +3896,8 @@ def test_string_cypher_executes_graphistry_call(
 
     if expected_columns is not None:
         assert list(result._nodes.columns) == expected_columns
+    assert result._node == result._nodes.columns[0]
+    assert result._edges.empty
     assert result._nodes.to_dict(orient="records") == expected_rows
 
 
@@ -3852,6 +3907,7 @@ def test_string_cypher_executes_graphistry_call(
         "CALL graphistry.unknown()",
         "CALL test.my.proc YIELD out RETURN out",
         "CALL graphistry.degree() YIELD score RETURN score",
+        "CALL graphistry.nx.betweenness()",
     ],
 )
 def test_string_cypher_call_rejects_invalid_procedure_or_yield(query: str) -> None:
@@ -3859,6 +3915,452 @@ def test_string_cypher_call_rejects_invalid_procedure_or_yield(query: str) -> No
         _mk_empty_graph().gfql(query)
 
     assert exc_info.value.code == ErrorCode.E108
+
+
+def test_string_cypher_executes_bare_pagerank_call_in_row_state() -> None:
+    pytest.importorskip("igraph")
+
+    result = _mk_simple_path_graph().gfql("CALL graphistry.igraph.pagerank()")
+
+    assert list(result._nodes.columns) == ["nodeId", "pagerank"]
+    assert result._node == "nodeId"
+    assert result._edges.empty
+    assert set(result._nodes["nodeId"]) == {"a", "b", "c"}
+    assert result._nodes["pagerank"].gt(0).all()
+
+
+def test_string_cypher_executes_graph_preserving_degree_call() -> None:
+    result = _mk_simple_path_graph().gfql("CALL graphistry.degree.write()")
+
+    assert set(result._nodes.columns) == {"id", "degree", "degree_in", "degree_out"}
+    assert result._nodes.sort_values("id").to_dict(orient="records") == [
+        {"id": "a", "degree_in": 0, "degree_out": 1, "degree": 1},
+        {"id": "b", "degree_in": 1, "degree_out": 1, "degree": 2},
+        {"id": "c", "degree_in": 1, "degree_out": 0, "degree": 1},
+    ]
+    assert result._edges.to_dict(orient="records") == [
+        {"s": "a", "d": "b"},
+        {"s": "b", "d": "c"},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("module_name", "query", "expected_col"),
+    [
+        ("igraph", "CALL graphistry.igraph.pagerank.write()", "pagerank"),
+        ("networkx", "CALL graphistry.nx.pagerank.write()", "pagerank"),
+    ],
+)
+def test_string_cypher_executes_graph_preserving_pagerank_write_call(
+    module_name: str,
+    query: str,
+    expected_col: str,
+) -> None:
+    pytest.importorskip(module_name)
+
+    result = _mk_simple_path_graph().gfql(query)
+
+    assert expected_col in result._nodes.columns
+    assert result._nodes[expected_col].gt(0).all()
+    assert result._edges.to_dict(orient="records") == [
+        {"s": "a", "d": "b"},
+        {"s": "b", "d": "c"},
+    ]
+
+
+def test_string_cypher_write_call_can_feed_match_query() -> None:
+    pytest.importorskip("igraph")
+
+    enriched = _mk_simple_path_graph().gfql("CALL graphistry.igraph.pagerank.write()")
+    assert "pagerank" in enriched._nodes.columns
+
+    result = enriched.gfql(
+        "MATCH (n) "
+        "WHERE n.pagerank > 0 "
+        "RETURN n.id AS nodeId, n.pagerank AS pagerank "
+        "ORDER BY pagerank DESC, nodeId ASC "
+        "LIMIT 1"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"nodeId": "c", "pagerank": pytest.approx(0.47441217150760717)}]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "CALL graphistry.cugraph.pagerank.write({out_col: 'pr'}) YIELD nodeId RETURN nodeId",
+        "CALL graphistry.degree.write() RETURN * ORDER BY degree DESC",
+        "CALL graphistry.cugraph.pagerank.write('pagerank')",
+    ],
+)
+def test_string_cypher_graph_write_call_rejects_row_mode_forms(query: str) -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _mk_simple_path_graph().gfql(query)
+
+    assert exc_info.value.code == ErrorCode.E108
+
+
+def test_compile_cypher_call_flattens_algorithm_options_into_params() -> None:
+    compiled = _compile_query(
+        "CALL graphistry.cugraph.betweenness_centrality({directed: false, k: 2, params: {normalized: true}})"
+    )
+
+    assert compiled.procedure_call is not None
+    assert compiled.procedure_call.call_params == {
+        "alg": "betweenness_centrality",
+        "directed": False,
+        "params": {"normalized": True, "k": 2},
+    }
+
+
+def test_compile_cypher_call_flattens_networkx_options_into_params() -> None:
+    compiled = _compile_query(
+        "CALL graphistry.nx.edge_betweenness_centrality({directed: false, normalized: false})"
+    )
+
+    assert compiled.procedure_call is not None
+    assert compiled.procedure_call.call_params == {
+        "alg": "edge_betweenness_centrality",
+        "directed": False,
+        "params": {"normalized": False},
+    }
+
+
+def test_compile_cypher_call_rejects_graph_only_cugraph_rows() -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _compile_query("CALL graphistry.cugraph.k_core()")
+
+    assert exc_info.value.code == ErrorCode.E108
+
+
+def test_compile_cypher_call_rejects_graph_only_networkx_rows() -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _compile_query("CALL graphistry.nx.k_core()")
+
+    assert exc_info.value.code == ErrorCode.E108
+
+
+def test_string_cypher_executes_networkx_call_with_option_map() -> None:
+    pytest.importorskip("networkx")
+
+    result = _mk_simple_path_graph().gfql(
+        "CALL graphistry.nx.pagerank({alpha: 0.9, out_col: 'pr'}) "
+        "YIELD nodeId, pr "
+        "RETURN nodeId, pr "
+        "ORDER BY pr DESC, nodeId ASC "
+        "LIMIT 1"
+    )
+
+    assert result._nodes.to_dict(orient="records")[0]["nodeId"] == "c"
+    assert result._nodes.to_dict(orient="records")[0]["pr"] > 0
+
+
+def test_string_cypher_executes_networkx_betweenness_row_call() -> None:
+    pytest.importorskip("networkx")
+
+    result = _mk_simple_path_graph().gfql(
+        "CALL graphistry.nx.betweenness_centrality() "
+        "YIELD nodeId, betweenness_centrality "
+        "RETURN nodeId, betweenness_centrality "
+        "ORDER BY betweenness_centrality DESC, nodeId ASC "
+        "LIMIT 1"
+    )
+
+    assert result._edges.empty
+    assert result._nodes.to_dict(orient="records") == [{"nodeId": "b", "betweenness_centrality": 0.5}]
+
+
+def test_string_cypher_executes_networkx_edge_row_call() -> None:
+    pytest.importorskip("networkx")
+
+    result = _mk_simple_path_graph().gfql(
+        "CALL graphistry.nx.edge_betweenness_centrality() "
+        "YIELD source, destination, edge_betweenness_centrality "
+        "RETURN source, destination, edge_betweenness_centrality "
+        "ORDER BY source, destination"
+    )
+
+    assert result._edges.empty
+    assert result._nodes.to_dict(orient="records") == [
+        {"source": "a", "destination": "b", "edge_betweenness_centrality": pytest.approx(1.0 / 3.0)},
+        {"source": "b", "destination": "c", "edge_betweenness_centrality": pytest.approx(1.0 / 3.0)},
+    ]
+
+
+def test_string_cypher_executes_networkx_edge_write_call() -> None:
+    pytest.importorskip("networkx")
+
+    result = _mk_simple_path_graph().gfql("CALL graphistry.nx.edge_betweenness_centrality.write()")
+
+    assert "edge_betweenness_centrality" in result._edges.columns
+    assert result._edges["edge_betweenness_centrality"].gt(0).all()
+
+
+def test_string_cypher_executes_networkx_graph_write_call() -> None:
+    pytest.importorskip("networkx")
+
+    result = _mk_path_with_isolate_graph().gfql(
+        "CALL graphistry.nx.k_core.write({k: 1, directed: false})"
+    )
+
+    assert set(result._nodes["id"]) == {"a", "b", "c"}
+    assert result._edges.to_dict(orient="records") == [
+        {"s": "a", "d": "b"},
+        {"s": "b", "d": "c"},
+    ]
+
+
+def test_string_cypher_executes_real_cugraph_node_row_call_on_cudf() -> None:
+    pytest.importorskip("cugraph")
+
+    result = _mk_simple_path_graph_cudf().gfql(
+        "CALL graphistry.cugraph.pagerank() "
+        "YIELD nodeId, pagerank "
+        "RETURN nodeId, pagerank "
+        "ORDER BY pagerank DESC, nodeId ASC"
+    )
+
+    rows = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert result._edges.empty
+    assert [row["nodeId"] for row in rows] == ["c", "b", "a"]
+    assert rows[0]["pagerank"] > rows[1]["pagerank"] > rows[2]["pagerank"] > 0
+
+
+def test_string_cypher_executes_real_cugraph_node_multi_column_row_call_on_cudf() -> None:
+    pytest.importorskip("cugraph")
+
+    result = _mk_simple_path_graph_cudf().gfql(
+        "CALL graphistry.cugraph.hits() "
+        "YIELD nodeId, hits, authorities "
+        "RETURN nodeId, hits, authorities "
+        "ORDER BY nodeId"
+    )
+
+    rows = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert result._edges.empty
+    assert [row["nodeId"] for row in rows] == ["a", "b", "c"]
+    assert all("hits" in row and "authorities" in row for row in rows)
+
+
+def test_string_cypher_executes_real_cugraph_edge_row_call_on_cudf() -> None:
+    pytest.importorskip("cugraph")
+
+    result = _mk_simple_path_graph_cudf().gfql(
+        "CALL graphistry.cugraph.edge_betweenness_centrality() "
+        "YIELD source, destination, edge_betweenness_centrality "
+        "RETURN source, destination, edge_betweenness_centrality "
+        "ORDER BY source, destination"
+    )
+
+    rows = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert result._edges.empty
+    assert [(row["source"], row["destination"]) for row in rows] == [("a", "b"), ("b", "c")]
+    assert rows[0]["edge_betweenness_centrality"] == pytest.approx(1.0 / 3.0)
+    assert rows[1]["edge_betweenness_centrality"] == pytest.approx(1.0 / 3.0)
+
+
+def test_string_cypher_executes_real_cugraph_edge_write_call_on_cudf() -> None:
+    pytest.importorskip("cugraph")
+
+    result = _mk_simple_path_graph_cudf().gfql("CALL graphistry.cugraph.edge_betweenness_centrality.write()")
+
+    edges_pdf = _to_pandas_df(result._edges).sort_values(["s", "d"]).reset_index(drop=True)
+    assert "edge_betweenness_centrality" in edges_pdf.columns
+    assert edges_pdf["edge_betweenness_centrality"].tolist() == [pytest.approx(1.0 / 3.0), pytest.approx(1.0 / 3.0)]
+
+
+def test_string_cypher_executes_real_cugraph_node_multi_column_write_call_on_cudf() -> None:
+    pytest.importorskip("cugraph")
+
+    result = _mk_simple_path_graph_cudf().gfql("CALL graphistry.cugraph.hits.write()")
+
+    nodes_pdf = _to_pandas_df(result._nodes).sort_values("id").reset_index(drop=True)
+    assert "hits" in nodes_pdf.columns
+    assert "authorities" in nodes_pdf.columns
+
+
+def test_string_cypher_executes_real_cugraph_graph_write_call_on_cudf() -> None:
+    pytest.importorskip("cugraph")
+
+    result = _mk_path_with_isolate_graph_cudf().gfql(
+        "CALL graphistry.cugraph.k_core.write({k: 1, directed: false})"
+    )
+
+    nodes_pdf = _to_pandas_df(result._nodes).sort_values("id").reset_index(drop=True)
+    edges_pdf = _to_pandas_df(result._edges).sort_values(["s", "d"]).reset_index(drop=True)
+    assert set(nodes_pdf["id"]) == {"a", "b", "c", "z"}
+    assert edges_pdf.to_dict(orient="records") == [
+        {"s": "a", "d": "b"},
+        {"s": "b", "d": "c"},
+    ]
+
+
+def test_string_cypher_executes_real_igraph_graph_write_call() -> None:
+    pytest.importorskip("igraph")
+
+    result = _mk_triangle_graph().gfql("CALL graphistry.igraph.spanning_tree.write()")
+
+    nodes_pdf = _to_pandas_df(result._nodes).sort_values("id").reset_index(drop=True)
+    edges_pdf = _to_pandas_df(result._edges).sort_values(["s", "d"]).reset_index(drop=True)
+    edge_pairs = set(zip(edges_pdf["s"], edges_pdf["d"]))
+    assert set(nodes_pdf["id"]) == {"a", "b", "c"}
+    assert len(edges_pdf) == 2
+    assert edge_pairs.issubset({("a", "b"), ("a", "c"), ("b", "c")})
+
+
+def test_string_cypher_executes_cugraph_node_row_call_via_shared_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_compute_cugraph(self, alg: str, out_col: str | None = None, **kwargs):
+        assert alg == "louvain"
+        assert kwargs == {"params": {"resolution": 1.0}}
+        graph_with_nodes = self.materialize_nodes()
+        assert graph_with_nodes._nodes is not None
+        assert graph_with_nodes._node is not None
+        out_name = out_col or alg
+        nodes_df = graph_with_nodes._nodes.assign(**{out_name: [0, 1, 1]})
+        return graph_with_nodes.nodes(nodes_df, graph_with_nodes._node)
+
+    monkeypatch.setattr(_CypherTestGraph, "compute_cugraph", fake_compute_cugraph)
+
+    result = _mk_simple_path_graph().gfql(
+        "CALL graphistry.cugraph.louvain({resolution: 1.0}) "
+        "YIELD nodeId, louvain "
+        "RETURN nodeId, louvain "
+        "ORDER BY nodeId"
+    )
+
+    assert result._edges.empty
+    assert result._nodes.to_dict(orient="records") == [
+        {"nodeId": "a", "louvain": 0},
+        {"nodeId": "b", "louvain": 1},
+        {"nodeId": "c", "louvain": 1},
+    ]
+
+
+def test_string_cypher_executes_cugraph_node_multi_column_row_call_via_shared_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_compute_cugraph(self, alg: str, out_col: str | None = None, **kwargs):
+        assert alg == "hits"
+        assert out_col is None
+        assert kwargs == {}
+        graph_with_nodes = self.materialize_nodes()
+        assert graph_with_nodes._nodes is not None
+        assert graph_with_nodes._node is not None
+        nodes_df = graph_with_nodes._nodes.assign(hubs=[0.1, 0.7, 0.2], authorities=[0.2, 0.6, 0.2])
+        return graph_with_nodes.nodes(nodes_df, graph_with_nodes._node)
+
+    monkeypatch.setattr(_CypherTestGraph, "compute_cugraph", fake_compute_cugraph)
+
+    result = _mk_simple_path_graph().gfql(
+        "CALL graphistry.cugraph.hits() "
+        "YIELD nodeId, hits, authorities "
+        "RETURN nodeId, hits, authorities "
+        "ORDER BY nodeId"
+    )
+
+    assert result._edges.empty
+    assert result._nodes.to_dict(orient="records") == [
+        {"nodeId": "a", "hits": 0.1, "authorities": 0.2},
+        {"nodeId": "b", "hits": 0.7, "authorities": 0.6},
+        {"nodeId": "c", "hits": 0.2, "authorities": 0.2},
+    ]
+
+
+def test_string_cypher_executes_cugraph_edge_row_call_via_shared_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_compute_cugraph(self, alg: str, out_col: str | None = None, **kwargs):
+        assert alg == "edge_betweenness_centrality"
+        assert out_col is None
+        assert kwargs == {}
+        assert self._edges is not None
+        edges_df = self._edges.assign(edge_betweenness_centrality=[0.25, 0.75])
+        return self.edges(edges_df, self._source, self._destination)
+
+    monkeypatch.setattr(_CypherTestGraph, "compute_cugraph", fake_compute_cugraph)
+
+    result = _mk_simple_path_graph().gfql(
+        "CALL graphistry.cugraph.edge_betweenness_centrality() "
+        "YIELD source, destination, edge_betweenness_centrality "
+        "RETURN source, destination, edge_betweenness_centrality "
+        "ORDER BY source, destination"
+    )
+
+    assert result._edges.empty
+    assert result._nodes.to_dict(orient="records") == [
+        {"source": "a", "destination": "b", "edge_betweenness_centrality": 0.25},
+        {"source": "b", "destination": "c", "edge_betweenness_centrality": 0.75},
+    ]
+
+
+def test_string_cypher_executes_cugraph_edge_write_call_via_shared_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_compute_cugraph(self, alg: str, out_col: str | None = None, **kwargs):
+        assert alg == "edge_betweenness_centrality"
+        assert kwargs == {"params": {"k": 2}}
+        assert self._edges is not None
+        out_name = out_col or alg
+        edges_df = self._edges.assign(**{out_name: [0.25, 0.75]})
+        return self.edges(edges_df, self._source, self._destination)
+
+    monkeypatch.setattr(_CypherTestGraph, "compute_cugraph", fake_compute_cugraph)
+
+    result = _mk_simple_path_graph().gfql(
+        "CALL graphistry.cugraph.edge_betweenness_centrality.write({k: 2})"
+    )
+
+    assert "edge_betweenness_centrality" in result._edges.columns
+    assert result._edges["edge_betweenness_centrality"].tolist() == [0.25, 0.75]
+
+
+def test_string_cypher_executes_cugraph_graph_write_call_via_shared_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_compute_cugraph(self, alg: str, out_col: str | None = None, **kwargs):
+        assert alg == "k_core"
+        assert out_col is None
+        assert kwargs == {}
+        trimmed_nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+        trimmed_edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+        return self.nodes(trimmed_nodes, "id").edges(trimmed_edges, "s", "d")
+
+    monkeypatch.setattr(_CypherTestGraph, "compute_cugraph", fake_compute_cugraph)
+
+    result = _mk_path_with_isolate_graph().gfql("CALL graphistry.cugraph.k_core.write()")
+
+    assert set(result._nodes["id"]) == {"a", "b", "c"}
+    assert result._edges.to_dict(orient="records") == [
+        {"s": "a", "d": "b"},
+        {"s": "b", "d": "c"},
+    ]
+
+
+def test_string_cypher_rejects_igraph_graph_only_row_call_after_execution(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_compute_igraph(self, alg: str, out_col: str | None = None, **kwargs):
+        assert alg == "spanning_tree"
+        assert out_col is None
+        assert kwargs == {}
+        trimmed_edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+        return self.nodes(pd.DataFrame({"id": ["a", "b", "c"]}), "id").edges(trimmed_edges, "s", "d")
+
+    monkeypatch.setattr(_CypherTestGraph, "compute_igraph", fake_compute_igraph)
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _mk_triangle_graph().gfql("CALL graphistry.igraph.spanning_tree()")
+
+    assert exc_info.value.code == ErrorCode.E108
+
+
+def test_string_cypher_executes_igraph_graph_write_call_via_shared_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_compute_igraph(self, alg: str, out_col: str | None = None, **kwargs):
+        assert alg == "spanning_tree"
+        assert out_col is None
+        assert kwargs == {}
+        trimmed_edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+        return self.nodes(pd.DataFrame({"id": ["a", "b", "c"]}), "id").edges(trimmed_edges, "s", "d")
+
+    monkeypatch.setattr(_CypherTestGraph, "compute_igraph", fake_compute_igraph)
+
+    result = _mk_triangle_graph().gfql("CALL graphistry.igraph.spanning_tree.write()")
+
+    assert set(result._nodes["id"]) == {"a", "b", "c"}
+    assert result._edges.to_dict(orient="records") == [
+        {"s": "a", "d": "b"},
+        {"s": "b", "d": "c"},
+    ]
 
 
 def test_cypher_to_gfql_uses_terminal_with_projection() -> None:

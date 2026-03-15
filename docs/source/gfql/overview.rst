@@ -71,10 +71,11 @@ Use the entrypoint that matches where the query executes:
 
 GFQL pipelines also have two practical result kinds:
 
-- **Graph state**: Traversable graph results with meaningful `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, and `let()` / `ref()` DAG stages stay in graph state.
+- **Graph state**: Traversable graph results with meaningful `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, `let()` / `ref()` DAG stages, and local Cypher `CALL graphistry.*.write()` queries stay in graph state.
 - **Row state**: Tabular results stored in `_nodes`, with `_edges` reduced to an empty placeholder frame. Row-pipeline steps like `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning local Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
+- A bare local Cypher procedure call without `.write()` is also row-returning. For example, `CALL graphistry.degree()` materializes the default procedure output columns into `_nodes` and clears `_edges`.
 
-If you need to enrich a graph and keep matching today, prefer graph-preserving `call()` / `let()` composition rather than a row-returning local Cypher `CALL`.
+If you need to enrich a graph and keep matching locally, use graph-preserving `call()` / `let()` composition or a bare local Cypher `CALL graphistry.*.write()`. The local Cypher compiler currently supports `graphistry.degree.write()` plus `graphistry.igraph.<alg>.write()` and `graphistry.cugraph.<alg>.write()` for algorithms exposed through `compute_igraph()` / `compute_cugraph()`, along with the smaller compatibility subset `graphistry.nx.pagerank.write()`, `graphistry.nx.betweenness_centrality.write()`, `graphistry.nx.edge_betweenness_centrality.write()`, and `graphistry.nx.k_core.write()`.
 
 Quick Examples
 ~~~~~~~~~~~~~~~
@@ -139,6 +140,36 @@ Example: Match people, filter rows, project columns, then sort/limit.
     ])
 
     top_people._nodes
+
+**Local Cypher `CALL ... .write()` Example**
+
+Example: Enrich a graph locally, keep graph state, then run a later `MATCH`.
+
+.. code-block:: python
+
+    g_enriched = g.gfql("CALL graphistry.degree.write()")
+    assert not g_enriched._edges.empty
+    top_degree = g_enriched.gfql(
+        "MATCH (n) "
+        "WHERE n.degree >= 2 "
+        "RETURN n.id AS id, n.degree AS degree "
+        "ORDER BY degree DESC, id ASC "
+        "LIMIT 10"
+    )
+
+    top_degree._nodes
+
+**Local Cypher row-returning `CALL` Example**
+
+Example: Omit `.write()` when you want procedure rows instead of an enriched graph.
+
+.. code-block:: python
+
+    degree_rows = g.gfql("CALL graphistry.degree()")
+    assert degree_rows._edges.empty
+    degree_rows._nodes
+
+This row result uses ``nodeId`` as the row identifier, stores the projected procedure outputs in ``_nodes``, and clears ``_edges``. Use ``.write()`` when the next step needs graph topology.
 
 Example visualization (static):
 
