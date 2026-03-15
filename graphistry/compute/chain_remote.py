@@ -75,6 +75,42 @@ def _response_content_type(response: requests.Response) -> str:
     return value if isinstance(value, str) else str(value)
 
 
+def _json_error_message(error_data: Any) -> str:
+    if isinstance(error_data, dict):
+        return cast(str, error_data.get("error") or error_data.get("message") or str(error_data))
+    return str(error_data)
+
+
+def _raise_remote_error(
+    response: requests.Response,
+    *,
+    request_body: Optional[Dict[str, Any]] = None,
+    zip_context: bool = False,
+) -> None:
+    if _response_content_type(response).startswith('application/json'):
+        error_data = response.json()
+        if (
+            request_body is not None
+            and response.status_code == 422
+            and isinstance(error_data, dict)
+            and error_data.get("message") == _LEGACY_GFQL_COMPAT_422
+            and "gfql_operations" not in request_body
+        ):
+            raise ValueError(
+                "GFQL remote operation failed: this server only supports legacy "
+                "gfql_operations chains. The requested query requires gfql_query "
+                "typed transport, so upgrade the server or rewrite the query as a "
+                "legacy chain-compatible form. (HTTP 422)"
+            )
+        error_msg = _json_error_message(error_data)
+        if zip_context:
+            raise ValueError(f"GFQL remote operation failed with validation error: {error_msg}")
+        raise ValueError(f"GFQL remote operation failed: {error_msg} (HTTP {response.status_code})")
+    if zip_context:
+        raise ValueError(f"GFQL remote operation failed - server returned non-zip response: {response.text[:500]}")
+    raise ValueError(f"GFQL remote operation failed: {response.text[:500]} (HTTP {response.status_code})")
+
+
 def chain_remote_generic(
     self: Plottable,
     chain: Union[ASTObject, Chain, Dict[str, JSONVal], List[Any]],
@@ -167,34 +203,7 @@ def chain_remote_generic(
     # Enhanced error handling for GFQL validation errors
     if not response.ok:
         try:
-            # Try to parse JSON error response for more details
-            if _response_content_type(response).startswith('application/json'):
-                error_data = response.json()
-                if (
-                    response.status_code == 422
-                    and isinstance(error_data, dict)
-                    and error_data.get("message") == _LEGACY_GFQL_COMPAT_422
-                    and "gfql_operations" not in request_body
-                ):
-                    raise ValueError(
-                        "GFQL remote operation failed: this server only supports legacy "
-                        "gfql_operations chains. The requested query requires gfql_query "
-                        "typed transport, so upgrade the server or rewrite the query as a "
-                        "legacy chain-compatible form. (HTTP 422)"
-                    )
-                error_msg = (
-                    error_data.get('error')
-                    if isinstance(error_data, dict)
-                    else None
-                ) or (
-                    error_data.get('message')
-                    if isinstance(error_data, dict)
-                    else None
-                ) or str(error_data)
-                raise ValueError(f"GFQL remote operation failed: {error_msg} (HTTP {response.status_code})")
-            else:
-                # Fallback to generic error with response text
-                raise ValueError(f"GFQL remote operation failed: {response.text[:500]} (HTTP {response.status_code})")
+            _raise_remote_error(response, request_body=request_body)
         except ValueError as ve:
             # Re-raise our custom ValueError
             raise ve
@@ -298,21 +307,7 @@ def chain_remote_generic(
             # Server likely returned an error response instead of zip data
             # Try to parse the response as JSON for a better error message
             try:
-                if _response_content_type(response).startswith('application/json'):
-                    error_data = response.json()
-                    error_msg = (
-                        error_data.get('error')
-                        if isinstance(error_data, dict)
-                        else None
-                    ) or (
-                        error_data.get('message')
-                        if isinstance(error_data, dict)
-                        else None
-                    ) or str(error_data)
-                    raise ValueError(f"GFQL remote operation failed with validation error: {error_msg}")
-                else:
-                    # Show the response text for debugging
-                    raise ValueError(f"GFQL remote operation failed - server returned non-zip response: {response.text[:500]}")
+                _raise_remote_error(response, zip_context=True)
             except Exception:
                 # If all else fails, re-raise the original BadZipFile error with context
                 raise ValueError(f"GFQL remote operation failed - server response is not a valid zip file. "

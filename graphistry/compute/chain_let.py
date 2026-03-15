@@ -16,6 +16,19 @@ if TYPE_CHECKING:
 logger = setup_logger(__name__)
 
 
+def _execute_ast_query(
+    g: Plottable,
+    ast_query: ASTQuery,
+    engine: Engine,
+    policy=None,
+) -> Plottable:
+    return g.gfql(
+        ast_query,
+        engine=EngineAbstract(engine.value),
+        policy=policy,
+    )
+
+
 def extract_dependencies(ast_obj: Union[ASTObject, 'Chain', 'Plottable']) -> Set[str]:
     """Recursively find all ASTRef references in an AST object or GraphOperation
     
@@ -244,11 +257,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         result = chain_let_impl(g, ast_obj, EngineAbstract(engine.value), policy=policy, context=context)
     elif isinstance(ast_obj, ASTQuery):
         original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
-        result = original_g.gfql(
-            ast_obj,
-            engine=EngineAbstract(engine.value),
-            policy=policy,
-        )
+        result = _execute_ast_query(original_g, ast_obj, engine, policy=policy)
     elif isinstance(ast_obj, ASTRef):
         # Resolve reference from context
         try:
@@ -262,11 +271,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
 
         # Execute the chain on the referenced result
         if ast_obj.query is not None:
-            result = referenced_result.gfql(
-                ast_obj.query,
-                engine=EngineAbstract(engine.value),
-                policy=policy,
-            )
+            result = _execute_ast_query(referenced_result, ast_obj.query, engine, policy=policy)
         elif ast_obj.chain:
             # Import chain function to execute the operations
             from .chain import chain as chain_impl
