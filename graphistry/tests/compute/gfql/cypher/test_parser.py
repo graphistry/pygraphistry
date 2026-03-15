@@ -461,10 +461,45 @@ def test_parse_optional_match_clause() -> None:
 
 
 @pytest.mark.parametrize(
+    "query,expr_text",
+    [
+        ("MATCH (n) WHERE (n)-[:R*]->() AND n.id <> 'a' RETURN n", "n.id <> 'a'"),
+        ("MATCH (n) WHERE n.id <> 'a' AND (n)-[:R*]->() RETURN n", "n.id <> 'a'"),
+        (
+            "MATCH (n) WHERE n.id <> 'a' AND (n)-[:R*]->() AND n.kind = 'x' RETURN n",
+            "n.id <> 'a' AND n.kind = 'x'",
+        ),
+        (
+            "MATCH (n) WHERE n.kind = 'x' AND (n)-[:R*]->() AND n.id <> 'a' RETURN n",
+            "n.kind = 'x' AND n.id <> 'a'",
+        ),
+        (
+            "MATCH (n) WHERE (n)-[:R*]->() AND n.id <> 'a' AND n.kind = 'x' RETURN n",
+            "n.id <> 'a' AND n.kind = 'x'",
+        ),
+        (
+            "MATCH (n) WHERE n.id <> 'a' AND n.kind = 'x' AND (n)-[:R*]->() RETURN n",
+            "n.id <> 'a' AND n.kind = 'x'",
+        ),
+        (
+            "MATCH (n) WHERE (n)-[:R*]->() AND (n.id = 'b' OR n.id = 'c') RETURN n",
+            "(n.id = 'b' OR n.id = 'c')",
+        ),
+    ],
+)
+def test_parse_supports_where_pattern_predicate_and_expr_mix(query: str, expr_text: str) -> None:
+    parsed = _parse_query(query)
+
+    assert parsed.where is not None
+    assert len(parsed.where.predicates) == 1
+    assert isinstance(parsed.where.predicates[0], WherePatternPredicate)
+    assert parsed.where.expr is not None
+    assert parsed.where.expr.text == expr_text
+
+
+@pytest.mark.parametrize(
     "query",
     [
-        "MATCH (n) WHERE (n)-[:R*]->() AND n.id <> 'a' RETURN n",
-        "MATCH (n) WHERE n.id <> 'a' AND (n)-[:R*]->() RETURN n",
         "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'z' RETURN n",
         "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n",
     ],

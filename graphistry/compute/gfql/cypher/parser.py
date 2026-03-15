@@ -94,7 +94,9 @@ variable: NAME
 properties: "{" [property_entry ("," property_entry)*] "}"
 property_entry: NAME ":" value
 
-where_clause: "WHERE"i WHERE_PATTERN -> where_pattern_only_clause
+where_clause: "WHERE"i WHERE_PATTERN "AND"i expr -> where_pattern_and_expr_clause
+            | "WHERE"i expr "AND"i WHERE_PATTERN -> expr_and_where_pattern_clause
+            | "WHERE"i WHERE_PATTERN -> where_pattern_only_clause
             | "WHERE"i where_predicates
             | "WHERE"i expr                -> generic_where_clause
 where_predicates: where_predicate ("AND"i where_predicate)*
@@ -282,6 +284,14 @@ _WHERE_PATTERN_SEQUENCE_RE = re.compile(
     rf"(?:{_WHERE_PATTERN_ITEM_RE.pattern})(?:\s+AND\s+(?:{_WHERE_PATTERN_ITEM_RE.pattern}))*",
     re.IGNORECASE,
 )
+_WHERE_PATTERN_THEN_EXPR_RE = re.compile(
+    rf"^(?P<pattern>{_WHERE_PATTERN_SEQUENCE_RE.pattern})\s+AND\s+(?P<expr>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+_WHERE_EXPR_THEN_PATTERN_RE = re.compile(
+    rf"^(?P<expr>.+)\s+AND\s+(?P<pattern>{_WHERE_PATTERN_SEQUENCE_RE.pattern})$",
+    re.IGNORECASE | re.DOTALL,
+)
 _WHERE_CLAUSE_BODY_RE = re.compile(
     r"\bWHERE\b(?P<body>.*?)(?=\bRETURN\b|\bWITH\b|\bORDER\s+BY\b|\bSKIP\b|\bLIMIT\b|\bUNWIND\b|\bCALL\b|\bMATCH\b|\bOPTIONAL\s+MATCH\b|\bUNION\b|;|$)",
     re.IGNORECASE | re.DOTALL,
@@ -433,6 +443,108 @@ def _mixed_where_pattern_expr_error(source: str) -> Optional[GFQLValidationError
             field="where",
             value=body,
         )
+    return None
+
+
+def _split_top_level_and_terms(expr: str) -> Optional[Tuple[str, ...]]:
+    terms: list[str] = []
+    term_start = 0
+    paren_depth = 0
+    bracket_depth = 0
+    brace_depth = 0
+    string_quote: Optional[str] = None
+    in_backtick = False
+    i = 0
+    while i < len(expr):
+        ch = expr[i]
+        if string_quote is not None:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == string_quote:
+                string_quote = None
+            i += 1
+            continue
+        if in_backtick:
+            if ch == "`":
+                in_backtick = False
+            i += 1
+            continue
+        if ch in {"'", '"'}:
+            string_quote = ch
+            i += 1
+            continue
+        if ch == "`":
+            in_backtick = True
+            i += 1
+            continue
+        if ch == "(":
+            paren_depth += 1
+            i += 1
+            continue
+        if ch == ")":
+            paren_depth = max(0, paren_depth - 1)
+            i += 1
+            continue
+        if ch == "[":
+            bracket_depth += 1
+            i += 1
+            continue
+        if ch == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+            i += 1
+            continue
+        if ch == "{":
+            brace_depth += 1
+            i += 1
+            continue
+        if ch == "}":
+            brace_depth = max(0, brace_depth - 1)
+            i += 1
+            continue
+        if (
+            paren_depth == 0
+            and bracket_depth == 0
+            and brace_depth == 0
+            and expr[i:i + 3].upper() == "AND"
+            and (i == 0 or expr[i - 1].isspace())
+            and (i + 3 == len(expr) or expr[i + 3].isspace())
+        ):
+            term = expr[term_start:i].strip()
+            if term == "":
+                return None
+            terms.append(term)
+            i += 3
+            while i < len(expr) and expr[i].isspace():
+                i += 1
+            term_start = i
+            continue
+        i += 1
+    tail = expr[term_start:].strip()
+    if tail == "":
+        return None
+    terms.append(tail)
+    return tuple(terms) if len(terms) > 1 else None
+
+
+def _canonicalize_where_single_pattern_and_expr(source: str) -> Optional[str]:
+    for match in _WHERE_CLAUSE_BODY_RE.finditer(source):
+        body = match.group("body").strip()
+        terms = _split_top_level_and_terms(body)
+        if terms is None:
+            continue
+        pattern_indices = [idx for idx, term in enumerate(terms) if _WHERE_PATTERN_SEQUENCE_RE.fullmatch(term) is not None]
+        if len(pattern_indices) != 1:
+            continue
+        pattern_index = pattern_indices[0]
+        pattern_text = terms[pattern_index].strip()
+        expr_terms = [term for idx, term in enumerate(terms) if idx != pattern_index]
+        if not expr_terms:
+            continue
+        canonical_body = f"{pattern_text} AND {' AND '.join(expr_terms)}"
+        if canonical_body == body:
+            continue
+        return f"{source[:match.start('body')]}{canonical_body}{source[match.end('body'):]}"
     return None
 
 
@@ -782,11 +894,7 @@ def _build_transformer(source: str) -> _TransformerLike:
         def where_predicates(self, _meta: Any, items: Sequence[Any]) -> Tuple[WherePredicate, ...]:
             return tuple(items)
 
-        def where_pattern_only_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
-            if len(items) != 1:
-                raise _to_syntax_error("Invalid WHERE pattern predicate", line=meta.line, column=meta.column)
-            pattern_text = str(items[0]).strip()
-            span = _span_from_meta(meta)
+        def _parse_where_pattern_predicate_text(self, pattern_text: str, span: SourceSpan) -> WherePatternPredicate:
             pattern_items = [match.group(0).strip() for match in _WHERE_PATTERN_ITEM_RE.finditer(pattern_text)]
             if len(pattern_items) != 1:
                 raise GFQLValidationError(
@@ -838,9 +946,55 @@ def _build_transformer(source: str) -> _TransformerLike:
                     column=span.column,
                     language="cypher",
                 )
+            return WherePatternPredicate(pattern=cast(Tuple[PatternElement, ...], pattern_node), span=span)
+
+        def _mixed_where_clause(
+            self,
+            *,
+            pattern_text: str,
+            expr_text: str,
+            span: SourceSpan,
+        ) -> WhereClause:
+            if expr_text.strip() == "":
+                raise _to_syntax_error("Invalid WHERE clause", line=span.line, column=span.column)
             return WhereClause(
-                predicates=(WherePatternPredicate(pattern=cast(Tuple[PatternElement, ...], pattern_node), span=span),),
+                predicates=(self._parse_where_pattern_predicate_text(pattern_text, span),),
+                expr=ExpressionText(text=expr_text.strip(), span=span),
+                span=span,
+            )
+
+        def where_pattern_only_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
+            if len(items) != 1:
+                raise _to_syntax_error("Invalid WHERE pattern predicate", line=meta.line, column=meta.column)
+            pattern_text = str(items[0]).strip()
+            span = _span_from_meta(meta)
+            return WhereClause(
+                predicates=(self._parse_where_pattern_predicate_text(pattern_text, span),),
                 expr=None,
+                span=span,
+            )
+
+        def where_pattern_and_expr_clause(self, meta: Any, _items: Sequence[Any]) -> WhereClause:
+            span = _span_from_meta(meta)
+            body = self._slice(span)[len("WHERE"):].strip()
+            match = _WHERE_PATTERN_THEN_EXPR_RE.fullmatch(body)
+            if match is None:
+                raise _to_syntax_error("Invalid WHERE clause", line=meta.line, column=meta.column)
+            return self._mixed_where_clause(
+                pattern_text=match.group("pattern").strip(),
+                expr_text=match.group("expr").strip(),
+                span=span,
+            )
+
+        def expr_and_where_pattern_clause(self, meta: Any, _items: Sequence[Any]) -> WhereClause:
+            span = _span_from_meta(meta)
+            body = self._slice(span)[len("WHERE"):].strip()
+            match = _WHERE_EXPR_THEN_PATTERN_RE.fullmatch(body)
+            if match is None:
+                raise _to_syntax_error("Invalid WHERE clause", line=meta.line, column=meta.column)
+            return self._mixed_where_clause(
+                pattern_text=match.group("pattern").strip(),
+                expr_text=match.group("expr").strip(),
                 span=span,
             )
 
@@ -1352,6 +1506,14 @@ def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery]:
         if isinstance(exc, (GFQLSyntaxError, GFQLValidationError)):
             raise
         if isinstance(exc, LarkError):
+            canonical_query = _canonicalize_where_single_pattern_and_expr(query)
+            if canonical_query is not None and canonical_query != query:
+                canonical_transformer = _build_transformer(canonical_query)
+                tree = parser.parse(canonical_query)
+                node = canonical_transformer.transform(tree)
+                if not isinstance(node, (CypherQuery, CypherUnionQuery)):
+                    raise _to_syntax_error("Cypher parser did not produce a query")
+                return node
             mixed_where_error = _mixed_where_pattern_expr_error(query)
             if mixed_where_error is not None:
                 raise mixed_where_error from exc

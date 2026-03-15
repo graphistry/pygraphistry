@@ -153,6 +153,9 @@ WHERE Forms
 - Positive relationship-existence pattern predicates such as
   ``WHERE (n)-[:R]->()`` and bare fixed-point variable-length existence checks
   such as ``WHERE (n)-[*]-()``.
+- One positive relationship-existence pattern predicate may be combined with
+  ordinary row filters through top-level ``AND``, for example
+  ``WHERE n.kind = 'x' AND (n)-[:R*]->() AND n.id <> 'a'``.
 
 Variable-Length Relationship Boundary
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -174,6 +177,9 @@ The current compiler explicitly rejects these remaining subfamilies with
   ``RETURN r`` or ``count(r)``
 - exact or bounded variable-length ``WHERE`` pattern predicates such as
   ``WHERE (n)-[:R*2]-()``
+- top-level ``OR`` / ``NOT`` around variable-length ``WHERE`` pattern
+  predicates, or more than one positive pattern predicate in the same
+  ``WHERE`` clause
 - connected patterns containing more than one relationship when any one of
   them is variable-length
 - multi-alias ``RETURN *`` projections that would require unsupported

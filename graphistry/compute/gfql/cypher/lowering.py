@@ -4798,14 +4798,6 @@ def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQu
     if not pattern_preds:
         return query
     first = pattern_preds[0]
-    if query.where.expr is not None:
-        raise _unsupported(
-            "Cypher WHERE pattern predicates cannot yet be mixed with generic row expressions",
-            field="where",
-            value=query.where.expr.text,
-            line=first.span.line,
-            column=first.span.column,
-        )
     if len(pattern_preds) > 1:
         raise _unsupported(
             "Cypher WHERE currently supports one positive pattern predicate at a time",
@@ -4845,8 +4837,12 @@ def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQu
 
     remaining = tuple(predicate for predicate in query.where.predicates if not isinstance(predicate, WherePatternPredicate))
     remaining_where = None
-    if remaining:
-        remaining_where = WhereClause(predicates=cast(Any, remaining), expr=None, span=query.where.span)
+    if remaining or query.where.expr is not None:
+        remaining_where = WhereClause(
+            predicates=cast(Any, remaining),
+            expr=query.where.expr,
+            span=query.where.span,
+        )
     extra_match = MatchClause(patterns=(first.pattern,), span=first.span, optional=False, pattern_aliases=(None,))
     return replace(query, matches=query.matches + (extra_match,), where=remaining_where)
 

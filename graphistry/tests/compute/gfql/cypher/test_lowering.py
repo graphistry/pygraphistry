@@ -2632,6 +2632,7 @@ def test_string_cypher_failfast_rejects_nonterminal_variable_length_relationship
         "MATCH (n) WHERE (n)-[:REL1*2]-() RETURN n",
         "MATCH (n) WHERE (n)-[*2]-() RETURN n",
         "MATCH (n) WHERE (n)<-[:REL1*1..2]-() RETURN n",
+        "MATCH (n) WHERE (n)-[:REL1*2]-() AND n.id <> 'a' RETURN n",
     ],
 )
 def test_string_cypher_failfast_rejects_bounded_variable_length_where_pattern_predicates(query: str) -> None:
@@ -2645,15 +2646,66 @@ def test_string_cypher_failfast_rejects_bounded_variable_length_where_pattern_pr
 
 
 @pytest.mark.parametrize(
+    "query,expected_rows",
+    [
+        (
+            "MATCH (n) WHERE (n)-[:R*]->() AND n.id <> 'a' RETURN n.id AS id ORDER BY id",
+            [{"id": "b"}, {"id": "c"}],
+        ),
+        (
+            "MATCH (n) WHERE n.id <> 'a' AND (n)-[:R*]->() RETURN n.id AS id ORDER BY id",
+            [{"id": "b"}, {"id": "c"}],
+        ),
+        (
+            "MATCH (n) WHERE n.id <> 'a' AND (n)-[:R*]->() AND n.kind = 'x' RETURN n.id AS id ORDER BY id",
+            [{"id": "b"}, {"id": "c"}],
+        ),
+        (
+            "MATCH (n) WHERE n.kind = 'x' AND (n)-[:R*]->() AND n.id <> 'a' RETURN n.id AS id ORDER BY id",
+            [{"id": "b"}, {"id": "c"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-[:R*]->() AND n.id <> 'a' AND n.id <> 'b' RETURN n.id AS id ORDER BY id",
+            [{"id": "c"}],
+        ),
+        (
+            "MATCH (n) WHERE n.id <> 'a' AND n.kind = 'x' AND (n)-[:R*]->() RETURN n.id AS id ORDER BY id",
+            [{"id": "b"}, {"id": "c"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-[:R*]->() AND (n.id = 'b' OR n.id = 'c') RETURN n.id AS id ORDER BY id",
+            [{"id": "b"}, {"id": "c"}],
+        ),
+    ],
+)
+def test_string_cypher_executes_where_pattern_predicate_and_expr_mix(
+    query: str,
+    expected_rows: list[dict[str, object]],
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"], "kind": ["x", "x", "x", "y"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "a", "b", "c"],
+                "d": ["b", "c", "c", "d"],
+                "type": ["R", "R", "R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == expected_rows
+
+
+@pytest.mark.parametrize(
     "query",
     [
-        "MATCH (n) WHERE (n)-[:R*]->() AND n.id <> 'a' RETURN n",
-        "MATCH (n) WHERE n.id <> 'a' AND (n)-[:R*]->() RETURN n",
         "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'z' RETURN n",
         "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n",
     ],
 )
-def test_string_cypher_failfast_rejects_mixed_variable_length_where_pattern_predicates(query: str) -> None:
+def test_string_cypher_failfast_rejects_unsupported_mixed_variable_length_where_pattern_predicates(query: str) -> None:
     graph = _mk_empty_graph()
 
     with pytest.raises(GFQLValidationError) as exc_info:
