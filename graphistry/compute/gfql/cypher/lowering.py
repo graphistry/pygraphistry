@@ -2552,7 +2552,12 @@ def _apply_seed_node_bindings(
             line=clause.span.line,
             column=clause.span.column,
         )
-    return MatchClause(patterns=(tuple(updated),), span=clause.span, optional=clause.optional)
+    return MatchClause(
+        patterns=(tuple(updated),),
+        span=clause.span,
+        optional=clause.optional,
+        pattern_aliases=clause.pattern_aliases[-1:] if clause.pattern_aliases else (),
+    )
 
 
 def _merged_match_clause(query: CypherQuery) -> Optional[MatchClause]:
@@ -3252,13 +3257,14 @@ def _optional_projection_row_guard_plan(
             base_chains=(Chain(lower_match_clause(base_clause, params=params)),)
         )
     base_chains: List[Chain] = []
-    for pattern in base_clause.patterns:
+    for idx, pattern in enumerate(base_clause.patterns):
         if len(pattern) != 1 or not isinstance(pattern[0], NodePattern):
             return None
         pattern_clause = MatchClause(
             patterns=(pattern,),
             span=base_clause.span,
             optional=False,
+            pattern_aliases=((base_clause.pattern_aliases[idx] if idx < len(base_clause.pattern_aliases) else None),),
         )
         base_chains.append(Chain(lower_match_clause(pattern_clause, params=params)))
     return OptionalProjectionRowGuardPlan(base_chains=tuple(base_chains))
@@ -4841,7 +4847,7 @@ def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQu
     remaining_where = None
     if remaining:
         remaining_where = WhereClause(predicates=cast(Any, remaining), expr=None, span=query.where.span)
-    extra_match = MatchClause(patterns=(first.pattern,), span=first.span, optional=False)
+    extra_match = MatchClause(patterns=(first.pattern,), span=first.span, optional=False, pattern_aliases=(None,))
     return replace(query, matches=query.matches + (extra_match,), where=remaining_where)
 
 
@@ -4955,6 +4961,110 @@ def _variable_length_relationship_aliases(
     return out
 
 
+def _variable_length_path_aliases(query: CypherQuery) -> Set[str]:
+    out: Set[str] = set()
+    for clause in query.matches + query.reentry_matches:
+        pattern_aliases = clause.pattern_aliases or tuple(None for _ in clause.patterns)
+        for alias, pattern in zip(pattern_aliases, clause.patterns):
+            if alias is None:
+                continue
+            if any(
+                isinstance(element, RelationshipPattern)
+                and _is_variable_length_relationship_pattern(element)
+                for element in pattern
+            ):
+                out.add(alias)
+    return out
+
+
+def _reject_variable_length_path_alias_references(
+    query: CypherQuery,
+    *,
+    params: Optional[Mapping[str, Any]],
+) -> None:
+    variable_length_path_aliases = _variable_length_path_aliases(query)
+    if not variable_length_path_aliases:
+        return
+
+    alias_targets = {
+        alias: cast(ASTObject, ASTNode(name=alias))
+        for alias in variable_length_path_aliases
+    }
+
+    def _check_expr(expr_text: str, *, field: str, line: int, column: int) -> None:
+        if not (_expr_match_aliases(
+            expr_text,
+            alias_targets=alias_targets,
+            params=params,
+            field=field,
+            line=line,
+            column=column,
+        ) & variable_length_path_aliases):
+            return
+        raise _unsupported(
+            "Cypher variable-length named path aliases cannot yet be projected or used in row expressions in the local compiler",
+            field=field,
+            value=expr_text,
+            line=line,
+            column=column,
+        )
+
+    if query.where is not None and query.where.expr is not None:
+        _check_expr(
+            query.where.expr.text,
+            field="where",
+            line=query.where.span.line,
+            column=query.where.span.column,
+        )
+    if query.reentry_where is not None and query.reentry_where.expr is not None:
+        _check_expr(
+            query.reentry_where.expr.text,
+            field="where",
+            line=query.reentry_where.span.line,
+            column=query.reentry_where.span.column,
+        )
+
+    def _check_projection_clause(clause: ReturnClause) -> None:
+        for item in clause.items:
+            if item.expression.text == "*":
+                continue
+            _check_expr(
+                item.expression.text,
+                field=clause.kind,
+                line=item.span.line,
+                column=item.span.column,
+            )
+
+    _check_projection_clause(query.return_)
+
+    if query.order_by is not None:
+        for item in query.order_by.items:
+            _check_expr(
+                item.expression.text,
+                field="order_by",
+                line=item.span.line,
+                column=item.span.column,
+            )
+
+    for stage in query.with_stages:
+        _check_projection_clause(stage.clause)
+        if stage.where is not None:
+            _check_expr(
+                stage.where.text,
+                field="with.where",
+                line=stage.span.line,
+                column=stage.span.column,
+            )
+        if stage.order_by is not None:
+            for item in stage.order_by.items:
+                _check_expr(
+                    item.expression.text,
+                    field="order_by",
+                    line=item.span.line,
+                    column=item.span.column,
+                )
+
+
 def _reject_variable_length_relationship_alias_path_carriers(
     query: CypherQuery,
     *,
@@ -5039,6 +5149,7 @@ def lower_match_query(
 ) -> LoweredCypherMatch:
     query = _rewrite_where_pattern_predicates_to_matches(query)
     _reject_unsupported_where_expr_forms(query)
+    _reject_variable_length_path_alias_references(query, params=params)
     merged_match = _merged_match_clause(query)
     if merged_match is None:
         raise _unsupported(
@@ -5833,6 +5944,7 @@ def compile_cypher_query(
         )
 
     _reject_unsupported_variable_length_where_pattern_predicates(query)
+    _reject_variable_length_path_alias_references(query, params=params)
     query = _rewrite_where_pattern_predicates_to_matches(query)
     _reject_unsupported_where_expr_forms(query)
     _reject_nonterminal_variable_length_relationship_patterns(query)

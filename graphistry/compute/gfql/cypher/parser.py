@@ -342,6 +342,12 @@ class _ExpressionSlice:
     span: SourceSpan
 
 
+@dataclass(frozen=True)
+class _BoundPattern:
+    alias: str
+    pattern: Tuple[PatternElement, ...]
+
+
 @lru_cache(maxsize=1)
 def _parser() -> _ParserLike:
     Lark, _, _, _ = _lark_imports()
@@ -589,24 +595,45 @@ def _build_transformer(source: str) -> _TransformerLike:
         def bound_pattern(self, _meta: Any, items: Sequence[Any]) -> Tuple[PatternElement, ...]:
             if len(items) != 2:
                 raise _to_syntax_error("Invalid bound MATCH pattern")
-            return cast(Tuple[PatternElement, ...], items[1])
+            return _BoundPattern(alias=str(items[0]), pattern=cast(Tuple[PatternElement, ...], items[1]))
 
-        def match_item(self, _meta: Any, items: Sequence[Any]) -> Tuple[PatternElement, ...]:
+        def match_item(self, _meta: Any, items: Sequence[Any]) -> Union[Tuple[PatternElement, ...], _BoundPattern]:
             if len(items) != 1:
                 raise _to_syntax_error("Invalid MATCH pattern")
-            return cast(Tuple[PatternElement, ...], items[0])
+            return cast(Union[Tuple[PatternElement, ...], _BoundPattern], items[0])
 
         def match_clause(self, meta: Any, items: Sequence[Any]) -> MatchClause:
             if len(items) < 1:
                 raise _to_syntax_error("Cypher MATCH clause cannot be empty", line=meta.line, column=meta.column)
-            patterns = tuple(cast(Tuple[PatternElement, ...], item) for item in items)
-            return MatchClause(patterns=patterns, span=_span_from_meta(meta))
+            patterns: List[Tuple[PatternElement, ...]] = []
+            pattern_aliases: List[Optional[str]] = []
+            for item in items:
+                if isinstance(item, _BoundPattern):
+                    patterns.append(item.pattern)
+                    pattern_aliases.append(item.alias)
+                else:
+                    patterns.append(cast(Tuple[PatternElement, ...], item))
+                    pattern_aliases.append(None)
+            return MatchClause(patterns=tuple(patterns), span=_span_from_meta(meta), pattern_aliases=tuple(pattern_aliases))
 
         def optional_match_clause(self, meta: Any, items: Sequence[Any]) -> MatchClause:
             if len(items) < 1:
                 raise _to_syntax_error("Cypher OPTIONAL MATCH clause cannot be empty", line=meta.line, column=meta.column)
-            patterns = tuple(cast(Tuple[PatternElement, ...], item) for item in items)
-            return MatchClause(patterns=patterns, span=_span_from_meta(meta), optional=True)
+            patterns: List[Tuple[PatternElement, ...]] = []
+            pattern_aliases: List[Optional[str]] = []
+            for item in items:
+                if isinstance(item, _BoundPattern):
+                    patterns.append(item.pattern)
+                    pattern_aliases.append(item.alias)
+                else:
+                    patterns.append(cast(Tuple[PatternElement, ...], item))
+                    pattern_aliases.append(None)
+            return MatchClause(
+                patterns=tuple(patterns),
+                span=_span_from_meta(meta),
+                optional=True,
+                pattern_aliases=tuple(pattern_aliases),
+            )
 
         def distinct(self, _meta: Any, _items: Sequence[Any]) -> bool:
             return True

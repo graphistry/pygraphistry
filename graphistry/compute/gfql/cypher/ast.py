@@ -77,6 +77,7 @@ class MatchClause:
     patterns: Tuple[Tuple[PatternElement, ...], ...]
     span: SourceSpan
     optional: bool = False
+    pattern_aliases: Tuple[Optional[str], ...] = ()
 
     @property
     def pattern(self) -> Tuple[PatternElement, ...]:

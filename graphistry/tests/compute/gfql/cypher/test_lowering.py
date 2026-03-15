@@ -284,6 +284,46 @@ def test_gfql_executes_positive_where_pattern_predicate_as_seeded_match() -> Non
     assert result._nodes.to_dict(orient="records") == [{"id": "a"}]
 
 
+def test_gfql_executes_reverse_fixed_point_where_pattern_predicate_as_seeded_match() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "x", "y"]})
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "b", "x"],
+            "d": ["b", "c", "y"],
+            "type": ["R", "R", "R"],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (n) WHERE (n)<-[:R*]-() RETURN n.id AS id ORDER BY id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "b"}, {"id": "c"}, {"id": "y"}]
+
+
+def test_gfql_executes_undirected_fixed_point_where_pattern_predicate_as_seeded_match() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "x", "y"]})
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "b", "x"],
+            "d": ["b", "c", "y"],
+            "type": ["R", "R", "R"],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (n) WHERE (n)-[:R*]-() RETURN n.id AS id ORDER BY id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": "a"},
+        {"id": "b"},
+        {"id": "c"},
+        {"id": "x"},
+        {"id": "y"},
+    ]
+
+
 def test_gfql_executes_positive_where_pattern_predicate_between_bound_aliases_for_single_source_projection() -> None:
     nodes = pd.DataFrame({"id": ["a", "b", "c"]})
     edges = pd.DataFrame({"s": ["a", "a"], "d": ["b", "c"], "type": ["R", "X"]})
@@ -2522,6 +2562,30 @@ def test_string_cypher_failfast_rejects_variable_length_relationship_alias_path_
 
     assert exc_info.value.code == ErrorCode.E108
     assert "path/list carriers" in exc_info.value.message
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH p = (a)-[:R*2]->(b) RETURN p",
+        "MATCH p = (a)-[:R*]->(b) RETURN p",
+        "MATCH p = (a)-[:R*2]->(b) RETURN length(p) AS n",
+        "MATCH p = (a)-[:R*]->(b) RETURN relationships(p) AS rels",
+        "MATCH p = (a)-[:R*]->(b) WHERE p IS NOT NULL RETURN b",
+        "MATCH p = (a)-[:R*]->(b) WITH p RETURN p",
+        "MATCH p = (a)-[:R*]->(b) RETURN b.id AS id ORDER BY p",
+    ],
+)
+def test_string_cypher_failfast_rejects_variable_length_named_path_alias_references(
+    query: str,
+) -> None:
+    graph = _mk_empty_graph()
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(query)
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert "named path aliases" in exc_info.value.message
 
 
 @pytest.mark.parametrize(
