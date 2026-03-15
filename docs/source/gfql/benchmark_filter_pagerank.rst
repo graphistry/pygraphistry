@@ -59,30 +59,38 @@ The important detail is that these are not separate systems stitched together. T
 What the actual benchmarked pipelines look like
 --------------------------------------------------------
 
-The Graphistry side of this benchmark now uses the cleanest currently supported mixed flow on ``master``:
+The Graphistry side of this benchmark can now be written as one readable local Cypher pipeline shape:
 
-- GFQL handles the graph-preserving search stages via ``n(query=...)`` + ``e_undirected(...)``
-- the PageRank stage uses the new local Cypher ``CALL graphistry.{igraph,cugraph}.pagerank.write()`` surface
-- that is deliberate: graph-preserving ``CALL ... .write()`` works today, but only as a standalone local query, not as a single pure-Cypher ``MATCH ... CALL ... MATCH ...`` program
+- graph-preserving search with local Cypher ``MATCH ... RETURN GRAPH``
+- graph-preserving enrichment with local Cypher ``CALL graphistry.{igraph,cugraph}.pagerank.write()``
+- graph-preserving search again with local Cypher ``MATCH ... RETURN GRAPH``
+
+This page is still presentation-only: the saved timings come from the same three-stage graph-preserving DGX benchmark workflow and are **not** being rerun just for this code-golf cleanup.
 
 Same Graphistry pipeline shape on CPU and GPU:
 
 .. code-block:: python
 
-   from graphistry.compute.ast import e_undirected, n
+   g1 = g.gfql(
+       "MATCH (seed)-[reach]-(nbr) "
+       "WHERE seed.degree >= $degree_cutoff "
+       "RETURN GRAPH",
+       params={"degree_cutoff": degree_cutoff},
+       engine=engine,
+   )
 
-   def halo(query: str, *, seed_name: str, edge_name: str):
-       return [
-           n(query=query, name=seed_name),
-           e_undirected(hops=1, name=edge_name),
-           n(name="nbr"),
-       ]
+   g2 = g1.gfql(
+       f"CALL graphistry.{backend}.pagerank.write()",
+       engine=engine,
+   )
 
-   g1 = g.gfql(halo(f"degree >= {degree_cutoff!r}", seed_name="seed", edge_name="reach"), engine=engine)
-   g2 = g1.gfql(f"CALL graphistry.{backend}.pagerank.write()", engine=engine)
-
-   pagerank_cutoff = float(g2._nodes["pagerank"].quantile(pagerank_quantile))
-   g3 = g2.gfql(halo(f"pagerank >= {pagerank_cutoff!r}", seed_name="core", edge_name="halo"), engine=engine)
+   g3 = g2.gfql(
+       "MATCH (core)-[halo]-(nbr) "
+       "WHERE core.pagerank >= $pagerank_cutoff "
+       "RETURN GRAPH",
+       params={"pagerank_cutoff": pagerank_cutoff},
+       engine=engine,
+   )
 
 Where:
 

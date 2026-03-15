@@ -140,7 +140,7 @@ def pipeline_overview_df() -> pd.DataFrame:
     return pd.DataFrame([
         {"Phase": "Data loading", "What happens": "Read a cached SNAP edge list into a dataframe", "Why it matters": "Shows dataframe-native ingest cost, not just graph runtime"},
         {"Phase": "Data shaping", "What happens": "Compute node degree once and keep it as node metadata", "Why it matters": "Benchmarks the columnar prep that later GFQL stages query directly"},
-        {"Phase": "Graph search", "What happens": "Run GFQL `n(query=...)` + `e_undirected(...)` neighborhood expansion", "Why it matters": "Measures graph-preserving search directly on dataframe-backed graphs"},
+        {"Phase": "Graph search", "What happens": "Run local Cypher `MATCH ... RETURN GRAPH` subgraph extraction", "Why it matters": "Measures graph-preserving search directly on dataframe-backed graphs"},
         {"Phase": "Graph analytics", "What happens": "Run local Cypher `CALL graphistry.{igraph,cugraph}.pagerank.write()`", "Why it matters": "Shows backend graph algorithm acceleration while keeping the enriched graph resident"},
         {"Phase": "Downstream use", "What happens": "Keep the final enriched subgraph for visualization or follow-on analysis", "Why it matters": "No external DB required; it stays in Python dataframes/graph objects"},
     ])

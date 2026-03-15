@@ -273,7 +273,7 @@ Selected DGX result (`gplus`, `degree_q=0.995`, `pagerank_q=0.9995`):
 - Warm CPU pipeline: `89.79s`
 - Warm GPU pipeline: `3.76s`
 - Warm speedup: `23.88x`
-- This benchmark now uses GFQL `n(query=...)` search stages plus local Cypher `CALL graphistry.{igraph,cugraph}.pagerank.write()` for the PageRank stage.
+- The presentation form of this benchmark now uses local Cypher `MATCH ... RETURN GRAPH` search stages around local Cypher `CALL graphistry.{igraph,cugraph}.pagerank.write()`. The saved timings are unchanged and come from the same three-stage graph-preserving workflow.
 - Stage medians:
   - GFQL filter 1: `55.23s` CPU vs `2.67s` GPU (`20.69x`)
   - PageRank via local Cypher write: `22.18s` CPU vs `0.50s` GPU (`44.74x`)
