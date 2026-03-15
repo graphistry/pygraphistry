@@ -270,18 +270,18 @@ python benchmarks/gfql/filter_pagerank/filter_pagerank_pipeline_cpu_gpu.py \
 ```
 
 Selected DGX result (`gplus`, `degree_q=0.995`, `pagerank_q=0.9995`):
-- Warm CPU pipeline: `89.79s`
-- Warm GPU pipeline: `3.76s`
-- Warm speedup: `23.88x`
-- The presentation form of this benchmark now uses local Cypher `MATCH ... RETURN GRAPH` search stages around local Cypher `CALL graphistry.{igraph,cugraph}.pagerank.write()`. The saved timings are unchanged and come from the same three-stage graph-preserving workflow.
+- Warm CPU pipeline: `83.61s`
+- Warm GPU pipeline: `3.41s`
+- Warm speedup: `24.51x`
+- This rerun now measures the smoother local Cypher `MATCH ... RETURN GRAPH` search stages around local Cypher `CALL graphistry.{igraph,cugraph}.pagerank.write()`.
 - Stage medians:
-  - GFQL filter 1: `55.23s` CPU vs `2.67s` GPU (`20.69x`)
-  - PageRank via local Cypher write: `22.18s` CPU vs `0.50s` GPU (`44.74x`)
-  - GFQL filter 2: `12.38s` CPU vs `0.59s` GPU (`20.83x`)
+  - Search 1 via local Cypher `RETURN GRAPH`: `50.06s` CPU vs `2.36s` GPU (`21.18x`)
+  - PageRank via local Cypher write: `21.92s` CPU vs `0.47s` GPU (`46.28x`)
+  - Search 2 via local Cypher `RETURN GRAPH`: `11.63s` CPU vs `0.57s` GPU (`20.28x`)
 - Graph sizes:
   - Full graph: `107,614` nodes / `30,494,866` edges on both engines
-  - After GFQL filter 1: `73,010` nodes / `11,755,106` edges on both engines
-  - Final graph after PageRank cutoff + GFQL filter 2:
+  - After search 1 via local Cypher `RETURN GRAPH`: `73,010` nodes / `11,755,106` edges on both engines
+  - Final graph after PageRank cutoff + search 2 via local Cypher `RETURN GRAPH`:
     - CPU (`igraph`): `41,147` nodes / `1,341,817` edges
     - GPU (`cugraph`): `42,002` nodes / `1,278,572` edges
 - Note: the final graph differs modestly because `igraph` and `cugraph` produce slightly different PageRank score distributions, so the top-quantile cutoff lands on a different boundary.
@@ -359,17 +359,17 @@ Notes:
 - Reuses raw DB/import scratch space under `plans/gfql-gpu-pagerank-benchmark/neo4j/`.
 
 Exact Twitter 3-way comparison (`degree_q=0.99`, `pagerank_q=0.99`):
-- Graphistry CPU (`pandas + igraph`): `2.32s` warm pipeline
-  - stage medians: GFQL1 `0.80s`, PageRank `1.19s`, GFQL2 `0.34s`
-- Graphistry GPU (`cudf + cugraph`): `0.31s` warm pipeline
-  - stage medians: GFQL1 `0.15s`, PageRank `0.05s`, GFQL2 `0.11s`
+- Graphistry CPU (`pandas + igraph`): `2.36s` warm pipeline
+  - stage medians: search1 `0.84s`, pagerank `1.18s`, search2 `0.33s`
+- Graphistry GPU (`cudf + cugraph`): `0.25s` warm pipeline
+  - stage medians: search1 `0.14s`, pagerank `0.02s`, search2 `0.09s`
 - Neo4j (`Neo4j + GDS`): `13.51s` warm pipeline
   - stage medians: filter1 `5.74s`, pagerank `3.20s`, filter2 `3.51s`
-- Relative to the exact same Twitter shape, Graphistry CPU is `5.82x` faster than Neo4j and Graphistry GPU is `44.15x` faster.
+- Relative to the exact same Twitter shape, Graphistry CPU is `5.72x` faster than Neo4j and Graphistry GPU is `54.48x` faster.
 - Stage 1 shape matches across all three engines: `44,273` nodes / `873,810` edges.
 - Final graph drift remains modest because the PageRank backends/cutoff boundaries differ:
-  - Graphistry CPU: `43,065` nodes / `667,609` edges
-  - Graphistry GPU: `43,226` nodes / `634,687` edges
+  - Graphistry CPU: `42,217` nodes / `618,212` edges
+  - Graphistry GPU: `42,372` nodes / `586,116` edges
   - Neo4j: `43,068` nodes / `667,484` edges
 
 Larger GPlus analog (`degree_q=0.995`, `pagerank_q=0.9995`):
@@ -380,5 +380,5 @@ Larger GPlus analog (`degree_q=0.995`, `pagerank_q=0.9995`):
 
 So the honest current comparison is:
 - Neo4j is workable for the smaller Twitter analog, but already materially slower than both Graphistry CPU and GPU on the exact same shape.
-- On the selected GPlus benchmark shape, Neo4j is already dramatically slower than Graphistry CPU (`82.48s`) and Graphistry GPU (`4.08s`) before teardown/cleanup is even done.
+- On the selected GPlus benchmark shape, Neo4j is already dramatically slower than Graphistry CPU (`83.61s`) and Graphistry GPU (`3.41s`) before teardown/cleanup is even done.
 - Raw notes: `plans/gfql-gpu-pagerank-benchmark/results/neo4j_summary.md`

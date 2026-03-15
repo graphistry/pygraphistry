@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark a GFQL -> local Cypher CALL -> GFQL pipeline on CPU and GPU backends.
+"""Benchmark a local Cypher graph-search -> CALL write -> graph-search pipeline on CPU and GPU backends.
 
 Designed for DGX-style runs where the graph is loaded once, then the main pipeline is
 benchmarked warm on the resident in-memory graph.
@@ -15,8 +15,6 @@ from pathlib import Path
 from typing import Dict, List
 
 import graphistry
-from graphistry.compute.ast import e_undirected, n
-
 
 def download(url: str, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -116,12 +114,20 @@ def backend_name(engine: str) -> str:
     return "igraph" if engine == "pandas" else "cugraph"
 
 
-def halo_chain(query: str, *, seed_name: str, edge_name: str):
-    return [
-        n(query=query, name=seed_name),
-        e_undirected(hops=1, name=edge_name),
-        n(name="nbr"),
-    ]
+def return_graph_search_query(*, metric: str) -> str:
+    if metric == "degree":
+        return (
+            "MATCH (seed)-[reach]-(nbr) "
+            "WHERE seed.degree >= $cutoff "
+            "RETURN GRAPH"
+        )
+    if metric == "pagerank":
+        return (
+            "MATCH (core)-[halo]-(nbr) "
+            "WHERE core.pagerank >= $cutoff "
+            "RETURN GRAPH"
+        )
+    raise ValueError(f"Unknown search metric: {metric}")
 
 
 def pagerank_call(engine: str) -> str:
@@ -130,14 +136,22 @@ def pagerank_call(engine: str) -> str:
 
 def run_pipeline_once(g, engine: str, degree_cutoff: float, pagerank_quantile: float):
     t1 = time.perf_counter()
-    g1 = g.gfql(halo_chain(f"degree >= {degree_cutoff!r}", seed_name="seed", edge_name="reach"), engine=engine)
+    g1 = g.gfql(
+        return_graph_search_query(metric="degree"),
+        params={"cutoff": degree_cutoff},
+        engine=engine,
+    )
     t2 = time.perf_counter()
 
     g2 = g1.gfql(pagerank_call(engine), engine=engine)
     t3 = time.perf_counter()
 
     pr_cutoff = from_engine_scalar(g2._nodes["pagerank"].quantile(pagerank_quantile))
-    g3 = g2.gfql(halo_chain(f"pagerank >= {pr_cutoff!r}", seed_name="core", edge_name="halo"), engine=engine)
+    g3 = g2.gfql(
+        return_graph_search_query(metric="pagerank"),
+        params={"cutoff": pr_cutoff},
+        engine=engine,
+    )
     t4 = time.perf_counter()
 
     return {
