@@ -210,13 +210,17 @@ Procedure And Multi-Branch Forms
 
   - ``CALL graphistry.degree()``
   - ``CALL graphistry.degree YIELD nodeId RETURN nodeId``
-  - ``CALL graphistry.igraph.pagerank() YIELD nodeId, score RETURN nodeId``
+  - ``CALL graphistry.igraph.pagerank() YIELD nodeId, pagerank RETURN nodeId``
+  - ``CALL graphistry.cugraph.louvain()``
+  - ``CALL graphistry.cugraph.edge_betweenness_centrality()``
 
 - Direct execution of standalone graph-preserving ``CALL graphistry.*.write()``
   procedures, including:
 
   - ``CALL graphistry.degree.write()``
   - ``CALL graphistry.igraph.pagerank.write()``
+  - ``CALL graphistry.cugraph.edge_betweenness_centrality.write()``
+  - ``CALL graphistry.cugraph.k_core.write()``
   - ``CALL graphistry.nx.pagerank.write()``
 
 - Bare procedures without ``.write()`` stay row-returning even when you omit
@@ -225,6 +229,27 @@ Procedure And Multi-Branch Forms
   ``_edges`` frame (for example, ``assert result._edges.empty``); use
   ``.write()`` when you want enrich-then-``MATCH`` graph workflows with
   traversable edges (for example, ``assert not result._edges.empty``).
+
+- For ``graphistry.igraph.<alg>()`` and node-oriented ``graphistry.cugraph.<alg>()``,
+  row mode uses ``nodeId`` plus the algorithm output columns (for example,
+  ``pagerank`` or ``louvain``). For edge-oriented ``graphistry.cugraph.<alg>()``,
+  row mode uses ``source`` / ``destination`` plus the edge result columns.
+  Topology-returning procedures such as ``graphistry.cugraph.k_core()`` or
+  ``graphistry.igraph.spanning_tree()`` require ``.write()``.
+
+- ``graphistry.nx.pagerank()`` and ``graphistry.nx.pagerank.write()`` remain
+  supported as a narrow compatibility subset. They follow the same ``nodeId`` +
+  ``pagerank`` row shape and optional one-map-argument pattern as the other
+  backends, but broader ``graphistry.nx.*`` coverage is deferred until there is
+  a shared NetworkX compute surface to mirror.
+
+- Local Cypher ``CALL`` options accept one optional map argument. The top-level
+  keys mirror ``compute_igraph()`` / ``compute_cugraph()`` options such as
+  ``out_col``, ``directed``, ``kind``, ``use_vids``, and ``params``; any extra
+  keys are forwarded into the nested algorithm ``params`` dictionary.
+
+- Outside the ``pagerank`` compatibility subset, ``graphistry.nx.*`` is not
+  part of the current local Cypher ``CALL`` surface.
 
 - ``cypher_to_gfql()`` stays stricter than direct execution and intentionally
   rejects ``UNION`` / ``UNION ALL`` and row-returning ``CALL`` flows because

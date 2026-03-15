@@ -126,17 +126,26 @@ def test_parse_mixed_union_kinds_rejected() -> None:
 
 
 def test_parse_call_with_optional_yield_and_return() -> None:
-    parsed = _parse_query("CALL graphistry.igraph.pagerank() YIELD nodeId, score AS pr RETURN nodeId, pr")
+    parsed = _parse_query("CALL graphistry.igraph.pagerank() YIELD nodeId, pagerank AS pr RETURN nodeId, pr")
 
     assert isinstance(parsed.call, CallClause)
     assert parsed.call.procedure == "graphistry.igraph.pagerank"
     assert parsed.call.args == ()
     assert tuple((item.name, item.alias) for item in parsed.call.yield_items) == (
         ("nodeId", None),
-        ("score", "pr"),
+        ("pagerank", "pr"),
     )
     assert parsed.return_.items[0].expression.text == "nodeId"
     assert parsed.return_.items[1].expression.text == "pr"
+
+
+def test_parse_call_with_options_map() -> None:
+    parsed = _parse_query("CALL graphistry.cugraph.louvain({resolution: 1.0, directed: false})")
+
+    assert isinstance(parsed.call, CallClause)
+    assert parsed.call.procedure == "graphistry.cugraph.louvain"
+    assert len(parsed.call.args) == 1
+    assert parsed.call.args[0].text == "{resolution: 1.0, directed: false}"
 
 
 def test_parse_call_without_return_synthesizes_row_sequence() -> None:

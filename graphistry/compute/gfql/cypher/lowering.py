@@ -5880,7 +5880,7 @@ def _compile_call_query(
             line=query.call.span.line,
             column=query.call.span.column,
         )
-    compiled_call = compile_cypher_call(query.call)
+    compiled_call = compile_cypher_call(query.call, params=params)
     is_bare_call = (
         not query.unwinds
         and not query.with_stages
