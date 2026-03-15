@@ -309,18 +309,44 @@ The benchmark reports both full pipeline timings and split stage timings so we c
 
 ### Neo4j exploratory comparison
 
-DGX exploratory results for a Neo4j + GDS analog of the same benchmark shape:
+Tracked manual benchmark script for the Neo4j + GDS analog:
 
-- Twitter exact analog (`degree_q=0.99`, `pagerank_q=0.99`):
-  - warm pipeline: `13.16s`
-  - stage medians: filter1 `5.31s`, pagerank `4.51s`, filter2 `3.34s`
-- GPlus exact analog (`degree_q=0.995`, `pagerank_q=0.9995`):
-  - imported and runnable in Neo4j after switching import IDs to `string`
-  - naive single-transaction seed expansion OOMed at `dbms.memory.transaction.total.max`
-  - batched seed/core expansion fixed the OOM
-  - even with batching, the full pipeline exceeded `3m07s` before the main transaction reached `Closing`
+```bash
+uv run --no-project --with neo4j \
+  python benchmarks/gfql/filter_pagerank_pipeline_neo4j.py \
+  --dataset twitter \
+  --degree-quantile 0.99 \
+  --pagerank-quantile 0.99 \
+  --warmup 1 --runs 3 \
+  --output-json plans/gfql-gpu-pagerank-benchmark/results/twitter_neo4j_tracked_q99_pr99.json
+```
+
+Notes:
+- Manual/DGX-only benchmark: requires local Docker access plus the `neo4j` Python driver.
+- Defaults to Neo4j Community `2026.02.2` with GDS, `16G` heap, `16G` pagecache, and `32G` transaction memory.
+- Reuses raw DB/import scratch space under `plans/gfql-gpu-pagerank-benchmark/neo4j/`.
+
+Exact Twitter 3-way comparison (`degree_q=0.99`, `pagerank_q=0.99`):
+- Graphistry CPU (`pandas + igraph`): `2.32s` warm pipeline
+  - stage medians: GFQL1 `0.80s`, PageRank `1.19s`, GFQL2 `0.34s`
+- Graphistry GPU (`cudf + cugraph`): `0.31s` warm pipeline
+  - stage medians: GFQL1 `0.15s`, PageRank `0.05s`, GFQL2 `0.11s`
+- Neo4j (`Neo4j + GDS`): `13.51s` warm pipeline
+  - stage medians: filter1 `5.74s`, pagerank `3.20s`, filter2 `3.51s`
+- Relative to the exact same Twitter shape, Graphistry CPU is `5.82x` faster than Neo4j and Graphistry GPU is `44.15x` faster.
+- Stage 1 shape matches across all three engines: `44,273` nodes / `873,810` edges.
+- Final graph drift remains modest because the PageRank backends/cutoff boundaries differ:
+  - Graphistry CPU: `43,065` nodes / `667,609` edges
+  - Graphistry GPU: `43,226` nodes / `634,687` edges
+  - Neo4j: `43,068` nodes / `667,484` edges
+
+Larger GPlus analog (`degree_q=0.995`, `pagerank_q=0.9995`):
+- imported and runnable in Neo4j after switching import IDs to `string`
+- naive single-transaction seed expansion OOMed at `dbms.memory.transaction.total.max`
+- batched seed/core expansion fixed the OOM
+- even with batching, the full pipeline exceeded `3m07s` before the main transaction reached `Closing`
 
 So the honest current comparison is:
-- Neo4j is workable for the smaller Twitter analog.
+- Neo4j is workable for the smaller Twitter analog, but already materially slower than both Graphistry CPU and GPU on the exact same shape.
 - On the selected GPlus benchmark shape, Neo4j is already dramatically slower than Graphistry CPU (`82.48s`) and Graphistry GPU (`4.08s`) before teardown/cleanup is even done.
 - Raw notes: `plans/gfql-gpu-pagerank-benchmark/results/neo4j_summary.md`
