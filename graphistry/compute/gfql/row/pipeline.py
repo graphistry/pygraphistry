@@ -1852,6 +1852,19 @@ class RowPipelineMixin:
         return bool(int_like.where(~null_mask, True).where(~actual_string, False).all())
 
     @staticmethod
+    def _gfql_series_object_non_null_str_like(series: Any) -> bool:
+        dtype_txt = str(getattr(series, "dtype", "")).lower()
+        if dtype_txt != "object":
+            return False
+        if not hasattr(series, "dropna"):
+            return isinstance(series, str)
+        sample = series.dropna().head(128)
+        if hasattr(sample, "to_pandas"):
+            sample = sample.to_pandas()
+        values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
+        return len(values) > 0 and all(isinstance(v, str) for v in values)
+
+    @staticmethod
     def _gfql_series_numeric_non_bool_like(series: Any) -> bool:
         dtype_txt = str(getattr(series, "dtype", "")).lower()
         if dtype_txt in {"bool", "boolean"}:
@@ -2209,12 +2222,6 @@ class RowPipelineMixin:
         if not hasattr(base_value, "iloc"):
             base_value = self._gfql_broadcast_scalar(table_df, base_value)
 
-        base_dtype = str(getattr(base_value, "dtype", "")).lower()
-        if base_dtype != "object":
-            raise ValueError(
-                f"unsupported row expression: dynamic subscript requires list-like base in {expr!r}"
-            )
-
         normalized_values: List[Any] = []
         saw_string_parse = False
         parse_failed = False
@@ -2241,13 +2248,13 @@ class RowPipelineMixin:
                 f"unsupported row expression: dynamic subscript requires list-like base in {expr!r}"
             )
         if saw_string_parse:
-                host_index = getattr(base_value, "index", None)
-                if host_index is not None and hasattr(host_index, "to_pandas"):
-                    try:
-                        host_index = host_index.to_pandas()
-                    except Exception:
-                        host_index = None
-                base_value = pd.Series(normalized_values, index=host_index, dtype="object")
+            host_index = getattr(base_value, "index", None)
+            if host_index is not None and hasattr(host_index, "to_pandas"):
+                try:
+                    host_index = host_index.to_pandas()
+                except Exception:
+                    host_index = None
+            base_value = pd.Series(normalized_values, index=host_index, dtype="object")
         if not RowPipelineMixin._gfql_series_is_list_like(base_value):
             raise ValueError(
                 f"unsupported row expression: dynamic subscript requires list-like base in {expr!r}"
@@ -3130,6 +3137,12 @@ class RowPipelineMixin:
                     method_name = GFQL_GROUPBY_AGG_METHODS.get(func)
                     if method_name is None:
                         raise ValueError(f"unsupported group_by aggregation function: {func!r}")
+                    if (
+                        func in {"min", "max"}
+                        and RowPipelineMixin._gfql_series_object_non_null_str_like(table_df[expr_col])
+                    ):
+                        table_df = table_df.assign(**{expr_col: table_df[expr_col].astype("string")})
+                        grouped = _make_grouped(table_df)
                     agg_series = grouped[expr_col]
                     agg_df = getattr(agg_series, method_name)().reset_index(name=alias)
 

@@ -64,6 +64,9 @@ class RelationshipPattern:
     types: Tuple[str, ...]
     properties: Tuple[PropertyEntry, ...]
     span: SourceSpan
+    min_hops: Optional[int] = None
+    max_hops: Optional[int] = None
+    to_fixed_point: bool = False
 
 
 PatternElement = Union[NodePattern, RelationshipPattern]
@@ -74,6 +77,7 @@ class MatchClause:
     patterns: Tuple[Tuple[PatternElement, ...], ...]
     span: SourceSpan
     optional: bool = False
+    pattern_aliases: Tuple[Optional[str], ...] = ()
 
     @property
     def pattern(self) -> Tuple[PatternElement, ...]:

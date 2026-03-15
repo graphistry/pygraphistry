@@ -5,7 +5,7 @@ NOTE: Excluded from pyre (.pyre_configuration) - hop() complexity causes hang. U
 """
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, Union, cast
 import pandas as pd
 
 from graphistry.Engine import (
@@ -205,6 +205,8 @@ def hop(self: Plottable,
 
     assert g2._source is not None, "Source binding checked above"
     assert g2._destination is not None, "Destination binding checked above"
+    source_col = g2._source
+    destination_col = g2._destination
 
     node_src_conflict = g2._node == g2._source
     node_dst_conflict = g2._node == g2._destination
@@ -689,6 +691,78 @@ def hop(self: Plottable,
         final_edges = final_edges.drop(columns=[EDGE_ID])
     g_out = g2.edges(final_edges)
 
+    def _undirected_component_seed_keep_ids(
+        edges_df: DataFrameT,
+        seed_nodes_df: DataFrameT,
+    ) -> set:
+        if len(edges_df) == 0 or len(seed_nodes_df) == 0:
+            return set()
+        edge_subset = cast(Any, edges_df[[source_col, destination_col]])
+        seed_subset = cast(Any, seed_nodes_df[[node_col]])
+        edges_pdf = edge_subset.to_pandas() if hasattr(edge_subset, "to_pandas") else edge_subset.copy()
+        seeds_pdf = seed_subset.to_pandas() if hasattr(seed_subset, "to_pandas") else seed_subset.copy()
+        adjacency: Dict[Any, set] = {}
+        for row in edges_pdf.itertuples(index=False):
+            src = getattr(row, source_col)
+            dst = getattr(row, destination_col)
+            adjacency.setdefault(src, set()).add(dst)
+            adjacency.setdefault(dst, set()).add(src)
+        seeds = set(seeds_pdf[node_col].drop_duplicates().tolist())
+        keep: set = set()
+        seen: set = set()
+        for seed in seeds:
+            if seed in seen:
+                continue
+            stack = [seed]
+            component: set = set()
+            while stack:
+                current = stack.pop()
+                if current in component:
+                    continue
+                component.add(current)
+                seen.add(current)
+                for neighbor in adjacency.get(current, set()):
+                    if neighbor not in component:
+                        stack.append(neighbor)
+            component_seeds = component & seeds
+            if len(component_seeds) > 1:
+                keep.update(component_seeds)
+        return keep
+
+    def _undirected_cycle_nodes(edges_df: DataFrameT) -> set:
+        if len(edges_df) == 0:
+            return set()
+        edge_subset = cast(Any, edges_df[[source_col, destination_col]])
+        edges_pdf = edge_subset.to_pandas() if hasattr(edge_subset, "to_pandas") else edge_subset.copy()
+        loop_nodes = set(
+            edges_pdf.loc[edges_pdf[source_col] == edges_pdf[destination_col], source_col].tolist()
+        )
+        simple_edges = edges_pdf.loc[edges_pdf[source_col] != edges_pdf[destination_col]]
+        adjacency: Dict[Any, set] = {}
+        degrees: Dict[Any, int] = {}
+        for row in simple_edges.itertuples(index=False):
+            src = getattr(row, source_col)
+            dst = getattr(row, destination_col)
+            adjacency.setdefault(src, set()).add(dst)
+            adjacency.setdefault(dst, set()).add(src)
+        for node_id, neighbors in adjacency.items():
+            degrees[node_id] = len(neighbors)
+        queue = [node_id for node_id, degree in degrees.items() if degree <= 1]
+        removed: set = set()
+        while queue:
+            current = queue.pop()
+            if current in removed:
+                continue
+            removed.add(current)
+            for neighbor in list(adjacency.get(current, set())):
+                if neighbor in removed:
+                    continue
+                adjacency[neighbor].discard(current)
+                degrees[neighbor] = len(adjacency[neighbor])
+                if degrees[neighbor] == 1:
+                    queue.append(neighbor)
+        return loop_nodes | {node_id for node_id in degrees if node_id not in removed}
+
     if self._nodes is not None:
         logger.debug('~~~~~~~~~~ NODES HYDRATION ~~~~~~~~~~~')
         rich_nodes = self._nodes
@@ -931,10 +1005,20 @@ def hop(self: Plottable,
         and node_col in starting_nodes.columns
     ):
         seed_ids = starting_nodes[[node_col]].drop_duplicates()
-        seeds_not_reached = seed_ids
-        if matches_nodes is not None and node_col in matches_nodes.columns:
-            seeds_not_reached = seed_ids[~seed_ids[node_col].isin(matches_nodes[node_col])]
-        filtered_nodes = g_out._nodes[~g_out._nodes[node_col].isin(seeds_not_reached[node_col])]
+        if direction == 'undirected' and to_fixed_point:
+            keep_seed_ids = _undirected_component_seed_keep_ids(final_edges, seed_ids)
+            keep_seed_ids |= _undirected_cycle_nodes(final_edges)
+            seed_mask = g_out._nodes[node_col].isin(seed_ids[node_col])
+            if keep_seed_ids:
+                keep_mask = g_out._nodes[node_col].isin(list(keep_seed_ids))
+                filtered_nodes = g_out._nodes[~seed_mask | keep_mask]
+            else:
+                filtered_nodes = g_out._nodes[~seed_mask]
+        else:
+            seeds_not_reached = seed_ids
+            if matches_nodes is not None and node_col in matches_nodes.columns:
+                seeds_not_reached = seed_ids[~seed_ids[node_col].isin(matches_nodes[node_col])]
+            filtered_nodes = g_out._nodes[~g_out._nodes[node_col].isin(seeds_not_reached[node_col])]
         g_out = g_out.nodes(filtered_nodes)
 
     return g_out

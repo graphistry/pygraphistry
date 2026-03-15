@@ -167,6 +167,125 @@ class TestMultiHopForward():
             {'s': 'd', 'd': 'e'}
         ]
 
+    def test_hop_fixedpoint_undirected_does_not_revisit_seed_via_same_edge(self, g_long_forwards_chain: CGFull, n_a):
+        g2 = g_long_forwards_chain.hop(
+            nodes=n_a,
+            to_fixed_point=True,
+            direction='undirected',
+            return_as_wave_front=True
+        )
+        assert set(g2._nodes['v'].tolist()) == {'b', 'c', 'd', 'e'}
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'b'},
+            {'s': 'b', 'd': 'c'},
+            {'s': 'c', 'd': 'd'},
+            {'s': 'd', 'd': 'e'}
+        ]
+
+    def test_hop_fixedpoint_undirected_keeps_seed_when_reachable_via_real_cycle(self):
+        g_cycle = (
+            CGFull()
+            .edges(
+                pd.DataFrame(
+                    {
+                        's': ['a', 'b', 'c'],
+                        'd': ['b', 'c', 'a'],
+                    }
+                ),
+                's',
+                'd',
+            )
+            .nodes(pd.DataFrame({'v': ['a', 'b', 'c']}), 'v')
+        )
+        n_a_cycle = g_cycle._nodes.query('v == "a"')
+
+        g2 = g_cycle.hop(
+            nodes=n_a_cycle,
+            to_fixed_point=True,
+            direction='undirected',
+            return_as_wave_front=True
+        )
+        assert set(g2._nodes['v'].tolist()) == {'a', 'b', 'c'}
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'b'},
+            {'s': 'b', 'd': 'c'},
+            {'s': 'c', 'd': 'a'}
+        ]
+
+    def test_hop_fixedpoint_undirected_keeps_rediscovered_seed_from_other_seed(self, g_long_forwards_chain: CGFull):
+        seed_nodes = g_long_forwards_chain._nodes[g_long_forwards_chain._nodes['v'].isin(['a', 'e'])]
+
+        g2 = g_long_forwards_chain.hop(
+            nodes=seed_nodes,
+            to_fixed_point=True,
+            direction='undirected',
+            return_as_wave_front=True
+        )
+        assert set(g2._nodes['v'].tolist()) == {'a', 'b', 'c', 'd', 'e'}
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'b'},
+            {'s': 'b', 'd': 'c'},
+            {'s': 'c', 'd': 'd'},
+            {'s': 'd', 'd': 'e'}
+        ]
+
+    def test_hop_fixedpoint_undirected_keeps_seed_on_self_loop(self):
+        g_loop = (
+            CGFull()
+            .edges(
+                pd.DataFrame(
+                    {
+                        's': ['a'],
+                        'd': ['a'],
+                    }
+                ),
+                's',
+                'd',
+            )
+            .nodes(pd.DataFrame({'v': ['a']}), 'v')
+        )
+        n_a_loop = g_loop._nodes.query('v == "a"')
+
+        g2 = g_loop.hop(
+            nodes=n_a_loop,
+            to_fixed_point=True,
+            direction='undirected',
+            return_as_wave_front=True
+        )
+        assert set(g2._nodes['v'].tolist()) == {'a'}
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'a'}
+        ]
+
+    def test_hop_fixedpoint_undirected_excludes_unrediscovered_seeds_in_disconnected_components(self):
+        g_disconnected = (
+            CGFull()
+            .edges(
+                pd.DataFrame(
+                    {
+                        's': ['a', 'x'],
+                        'd': ['b', 'y'],
+                    }
+                ),
+                's',
+                'd',
+            )
+            .nodes(pd.DataFrame({'v': ['a', 'b', 'x', 'y']}), 'v')
+        )
+        seed_nodes = g_disconnected._nodes[g_disconnected._nodes['v'].isin(['a', 'x'])]
+
+        g2 = g_disconnected.hop(
+            nodes=seed_nodes,
+            to_fixed_point=True,
+            direction='undirected',
+            return_as_wave_front=True
+        )
+        assert set(g2._nodes['v'].tolist()) == {'b', 'y'}
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'b'},
+            {'s': 'x', 'd': 'y'}
+        ]
+
     def test_hop_long_back(self, g_long_forwards_chain: CGFull, n_d, n_a):
         g_reverse = g_long_forwards_chain.nodes(
             g_long_forwards_chain._nodes[

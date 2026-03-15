@@ -8,8 +8,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.52.0 - 2026-03-15]
+
+### Added
+- **GFQL / Cypher**: Added direct local Cypher multihop support for single variable-length relationship endpoint traversals through `g.gfql("MATCH ...")`, including `[*n]`, `[*m..n]`, and `[*]` in forward, reverse, undirected, and typed forms.
+
+### Fixed
+- **GFQL / Cypher WHERE lowering**: Supported direct local Cypher queries that combine one positive `WHERE` pattern predicate with ordinary row filters through top-level `AND`, including cases where the pattern predicate appears at either end or in the middle of the conjunction chain.
+- **GFQL / Cypher validation**: Tightened direct local Cypher fail-fast boundaries for unsupported variable-length subfamilies, including path/list-carrier uses of relationship aliases, named path alias projections like `RETURN p` / `length(p)` / `relationships(p)`, exact/bounded `WHERE` pattern predicates, connected patterns that mix variable-length and standard relationships, and unsupported multi-alias `RETURN *` projections.
+- **GFQL / Cypher pandas parity**: Normalized direct local Cypher row semantics across pandas 2/3 for stringified-list subscripts and string `min` / `max` aggregations with nulls, removing the last sibling TCK contract split on the current supported surface.
+- **GFQL / multihop semantics**: Tightened undirected fixed-point wave-front output semantics so local Cypher `-[*]-` endpoint queries and the underlying GFQL/hop runtime exclude trivial seed backtracking while still keeping seeds that are rediscovered through a real cycle or another seed.
+
 ### Docs
-- **GFQL / Cypher docs**: Clarified the currently supported direct `g.gfql("MATCH ...")` Cypher surface, documented that `[*n]`, `[*m..n]`, and `[*]` multihop patterns are native-GFQL rewrites rather than accepted direct string syntax today, and added an internal hand-off note for aligning direct Cypher multihop support with existing GFQL hop semantics.
+- **GFQL / Cypher docs**: Clarified the current direct `g.gfql("MATCH ...")` multihop support boundary: endpoint-only `[*n]`, `[*m..n]`, and `[*]` relationship patterns are supported, while path-carrier and mixed-pattern residuals remain explicit validation failures.
 
 ## [0.51.3 - 2026-03-14]
 

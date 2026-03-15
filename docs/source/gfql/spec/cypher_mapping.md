@@ -36,9 +36,11 @@ When translating from Cypher, you'll encounter three scenarios:
 ### Direct Translations
 - Graph patterns: `(a)-[r]->(b)` → chain operations
 - Property filters: WHERE clauses embed into operations
-- Path traversals: after manual translation into native GFQL, explicit hop
-  bounds use `e_forward(min_hops=..., max_hops=...)`; direct Cypher
-  variable-length relationship syntax is not supported today
+- Path traversals: direct `g.gfql("MATCH ...")` supports endpoint-only single
+  variable-length relationship forms such as `[*2]`, `[*1..3]`, and `[*]`.
+  Native GFQL still gives you the full explicit hop surface, including output
+  slicing, intermediate-hop aliasing, and rewrites for currently unsupported
+  direct-Cypher multihop shapes.
 - Pattern composition: Multiple patterns become sequential operations
 - Same-path constraints: `WHERE` across steps → `g.gfql([...], where=[...])`
 
@@ -253,8 +255,10 @@ g.gfql([
 ### Edge Patterns
 
 Rows using `[*...]` below show the native GFQL rewrite for the same traversal
-intent. They are semantic mappings, not a claim that direct
-`g.gfql("MATCH ...")` currently accepts those `[*...]` string forms.
+intent. Direct `g.gfql("MATCH ...")` now accepts these endpoint-only
+single-variable-length relationship forms, while native GFQL remains the more
+explicit option when you need intermediate-hop control or unsupported mixed
+pattern shapes.
 
 | Cypher / intent | Python | Wire Protocol (compact) |
 |-----------------|--------|-------------------------|
@@ -269,9 +273,10 @@ intent. They are semantic mappings, not a claim that direct
 | `(n1)-[*]->(n2)` | `e_forward(to_fixed_point=True)` | `{"type": "Edge", "direction": "forward", "to_fixed_point": true}` |
 | `-[r:BOUGHT {amount: gt(100)}]->` | `e_forward({"type": "BOUGHT", "amount": gt(100)}, name="r")` | `{"type": "Edge", "direction": "forward", "edge_match": {"type": "BOUGHT", "amount": {"type": "GT", "val": 100}}, "name": "r"}` |
 
-When you need constraints on intermediate hops, use repeated single-hop GFQL
-steps with aliases instead of collapsing the traversal into one multihop edge
-operator.
+When you need constraints on intermediate hops, path/list-carrier semantics, or
+mixed connected patterns beyond the current direct-Cypher subset, use repeated
+single-hop GFQL steps with aliases instead of collapsing the traversal into one
+multihop edge operator.
 
 ### Predicates
 

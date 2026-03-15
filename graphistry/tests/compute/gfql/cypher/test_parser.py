@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 from typing import cast
 
 import pytest
 
-from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError
+from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.cypher import (
     CallClause,
     CypherQuery,
@@ -289,6 +291,48 @@ def test_parse_relationship_type_alternation_with_repeated_colon() -> None:
     assert rel.types == ("T", "OTHER")
 
 
+@pytest.mark.parametrize(
+    "query,direction,min_hops,max_hops,to_fixed_point,types",
+    [
+        ("MATCH (a)-[*2]->(b) RETURN b", "forward", 2, 2, False, ()),
+        ("MATCH (a)-[:R*1..3]->(b) RETURN b", "forward", 1, 3, False, ("R",)),
+        ("MATCH (a)<-[*4]-(b) RETURN b", "reverse", 4, 4, False, ()),
+        ("MATCH (a)-[*]->(b) RETURN b", "forward", None, None, True, ()),
+        ("MATCH (a)-[:R|:S*2..4]-(b) RETURN b", "undirected", 2, 4, False, ("R", "S")),
+    ],
+)
+def test_parse_variable_length_relationship_patterns(
+    query: str,
+    direction: str,
+    min_hops: int | None,
+    max_hops: int | None,
+    to_fixed_point: bool,
+    types: tuple[str, ...],
+) -> None:
+    parsed = _parse_query(query)
+
+    assert parsed.match is not None
+    rel = parsed.match.pattern[1]
+    assert isinstance(rel, RelationshipPattern)
+    assert rel.direction == direction
+    assert rel.min_hops == min_hops
+    assert rel.max_hops == max_hops
+    assert rel.to_fixed_point is to_fixed_point
+    assert rel.types == types
+
+
+def test_parse_bound_variable_length_relationship_pattern_alias() -> None:
+    parsed = _parse_query("MATCH p = (a)-[:R*2]->(b) RETURN b")
+
+    assert parsed.match is not None
+    assert parsed.match.pattern_aliases == ("p",)
+    rel = parsed.match.pattern[1]
+    assert isinstance(rel, RelationshipPattern)
+    assert rel.types == ("R",)
+    assert rel.min_hops == 2
+    assert rel.max_hops == 2
+
+
 def test_parse_return_pipeline_clauses() -> None:
     parsed = _parse_query(
         "MATCH (p:Person) RETURN DISTINCT p.name AS person_name ORDER BY person_name DESC, p.id ASC SKIP 1 LIMIT 2;"
@@ -414,6 +458,55 @@ def test_parse_optional_match_clause() -> None:
     assert len(parsed.matches) == 1
     assert parsed.matches[0].optional is True
     assert cast(NodePattern, parsed.matches[0].patterns[0][0]).variable == "n"
+
+
+@pytest.mark.parametrize(
+    "query,expr_text",
+    [
+        ("MATCH (n) WHERE (n)-[:R*]->() AND n.id <> 'a' RETURN n", "n.id <> 'a'"),
+        ("MATCH (n) WHERE n.id <> 'a' AND (n)-[:R*]->() RETURN n", "n.id <> 'a'"),
+        (
+            "MATCH (n) WHERE n.id <> 'a' AND (n)-[:R*]->() AND n.kind = 'x' RETURN n",
+            "n.id <> 'a' AND n.kind = 'x'",
+        ),
+        (
+            "MATCH (n) WHERE n.kind = 'x' AND (n)-[:R*]->() AND n.id <> 'a' RETURN n",
+            "n.kind = 'x' AND n.id <> 'a'",
+        ),
+        (
+            "MATCH (n) WHERE (n)-[:R*]->() AND n.id <> 'a' AND n.kind = 'x' RETURN n",
+            "n.id <> 'a' AND n.kind = 'x'",
+        ),
+        (
+            "MATCH (n) WHERE n.id <> 'a' AND n.kind = 'x' AND (n)-[:R*]->() RETURN n",
+            "n.id <> 'a' AND n.kind = 'x'",
+        ),
+        (
+            "MATCH (n) WHERE (n)-[:R*]->() AND (n.id = 'b' OR n.id = 'c') RETURN n",
+            "(n.id = 'b' OR n.id = 'c')",
+        ),
+    ],
+)
+def test_parse_supports_where_pattern_predicate_and_expr_mix(query: str, expr_text: str) -> None:
+    parsed = _parse_query(query)
+
+    assert parsed.where is not None
+    assert len(parsed.where.predicates) == 1
+    assert isinstance(parsed.where.predicates[0], WherePatternPredicate)
+    assert parsed.where.expr is not None
+    assert parsed.where.expr.text == expr_text
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'z' RETURN n",
+        "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n",
+    ],
+)
+def test_parse_rejects_mixed_where_pattern_predicates_as_unsupported(query: str) -> None:
+    with pytest.raises(GFQLValidationError, match="mixed with generic row expressions"):
+        parse_cypher(query)
 
 
 def test_parse_aggregate_projection_items() -> None:

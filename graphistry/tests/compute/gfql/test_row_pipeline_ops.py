@@ -479,6 +479,24 @@ def test_row_pipeline_dynamic_subscript_uses_full_series_constant_check() -> Non
     assert result["x"].iloc[-1] == 30
 
 
+def test_row_pipeline_dynamic_subscript_supports_string_dtype_list_literals() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": ["a", "b"],
+            "vals": pd.Series(["[10, 20, 30]", "[40, 50, 60]"], dtype="string"),
+            "idx": [1, 2],
+        }
+    )
+
+    result = _run_node_steps(
+        nodes_df,
+        [rows(), select([("x", "vals[idx]")])],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert result["x"].tolist() == [20, 60]
+
+
 def test_row_pipeline_dynamic_subscript_rejects_mixed_list_scalar_beyond_sample_window() -> None:
     nodes_df = pd.DataFrame(
         {

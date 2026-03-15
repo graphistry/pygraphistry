@@ -76,22 +76,27 @@ relationship_pattern: rel_forward
                     | rel_undirected_simple
                     | rel_bidirectional_simple
 
-rel_forward: "-" "[" variable? rel_types? properties? "]" "->"
-rel_reverse: "<-" "[" variable? rel_types? properties? "]" "-"
-rel_undirected: "-" "[" variable? rel_types? properties? "]" "-"
+rel_forward: "-" "[" variable? rel_types? rel_range? properties? "]" "->"
+rel_reverse: "<-" "[" variable? rel_types? rel_range? properties? "]" "-"
+rel_undirected: "-" "[" variable? rel_types? rel_range? properties? "]" "-"
 rel_forward_simple: REL_FWD_SIMPLE
 rel_reverse_simple: REL_REV_SIMPLE
 rel_undirected_simple: REL_UNDIR_SIMPLE
 rel_bidirectional_simple: REL_BIDIR_SIMPLE
 
 rel_types: ":" LABEL_NAME ("|" ":"? LABEL_NAME)*
+rel_range: "*" INT ".." INT      -> rel_range_bounded
+         | "*" INT               -> rel_range_exact
+         | "*"                   -> rel_range_fixed
 
 variable: NAME
 
 properties: "{" [property_entry ("," property_entry)*] "}"
 property_entry: NAME ":" value
 
-where_clause: "WHERE"i WHERE_PATTERN -> where_pattern_only_clause
+where_clause: "WHERE"i WHERE_PATTERN "AND"i expr -> where_pattern_and_expr_clause
+            | "WHERE"i expr "AND"i WHERE_PATTERN -> expr_and_where_pattern_clause
+            | "WHERE"i WHERE_PATTERN -> where_pattern_only_clause
             | "WHERE"i where_predicates
             | "WHERE"i expr                -> generic_where_clause
 where_predicates: where_predicate ("AND"i where_predicate)*
@@ -275,6 +280,23 @@ _WHERE_PATTERN_ITEM_RE = re.compile(
     r"\([^)\n]*\)\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\)"
     r"(?:\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\))*"
 )
+_WHERE_PATTERN_SEQUENCE_RE = re.compile(
+    rf"(?:{_WHERE_PATTERN_ITEM_RE.pattern})(?:\s+AND\s+(?:{_WHERE_PATTERN_ITEM_RE.pattern}))*",
+    re.IGNORECASE,
+)
+_WHERE_PATTERN_THEN_EXPR_RE = re.compile(
+    rf"^(?P<pattern>{_WHERE_PATTERN_SEQUENCE_RE.pattern})\s+AND\s+(?P<expr>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+_WHERE_EXPR_THEN_PATTERN_RE = re.compile(
+    rf"^(?P<expr>.+)\s+AND\s+(?P<pattern>{_WHERE_PATTERN_SEQUENCE_RE.pattern})$",
+    re.IGNORECASE | re.DOTALL,
+)
+_WHERE_CLAUSE_BODY_RE = re.compile(
+    r"\bWHERE\b(?P<body>.*?)(?=\bRETURN\b|\bWITH\b|\bORDER\s+BY\b|\bSKIP\b|\bLIMIT\b|\bUNWIND\b|\bCALL\b|\bMATCH\b|\bOPTIONAL\s+MATCH\b|\bUNION\b|;|$)",
+    re.IGNORECASE | re.DOTALL,
+)
+_BOOLEAN_KEYWORD_RE = re.compile(r"\b(?:AND|OR|XOR|NOT)\b", re.IGNORECASE)
 
 
 class _ParserLike:
@@ -339,6 +361,12 @@ class _ExpressionSlice:
     span: SourceSpan
 
 
+@dataclass(frozen=True)
+class _BoundPattern:
+    alias: str
+    pattern: Tuple[PatternElement, ...]
+
+
 @lru_cache(maxsize=1)
 def _parser() -> _ParserLike:
     Lark, _, _, _ = _lark_imports()
@@ -389,11 +417,6 @@ def _to_unsupported(message: str, *, line: Optional[int] = None, column: Optiona
     )
 
 
-_VARIABLE_REL_PATTERN_RE = re.compile(
-    r"(?:<-\s*\[[^\]\n]*\*[^\]\n]*\]\s*-)|(?:-\s*\[[^\]\n]*\*[^\]\n]*\]\s*->)|(?:-\s*\[[^\]\n]*\*[^\]\n]*\]\s*-)"
-)
-
-
 def _line_and_column_from_offset(source: str, offset: int) -> Tuple[int, int]:
     line = source.count("\n", 0, offset) + 1
     last_newline = source.rfind("\n", 0, offset)
@@ -401,32 +424,128 @@ def _line_and_column_from_offset(source: str, offset: int) -> Tuple[int, int]:
     return line, column
 
 
-def _find_variable_length_relationship_pattern(source: str) -> Optional[Tuple[str, int, int]]:
-    in_single_quote = False
-    escape = False
-    segment_start = 0
-    for idx, ch in enumerate(source):
-        if in_single_quote:
-            if escape:
-                escape = False
-            elif ch == "\\":
-                escape = True
-            elif ch == "'":
-                in_single_quote = False
-                segment_start = idx + 1
+def _mixed_where_pattern_expr_error(source: str) -> Optional[GFQLValidationError]:
+    for match in _WHERE_CLAUSE_BODY_RE.finditer(source):
+        body = match.group("body").strip()
+        if body == "":
             continue
-        if ch == "'":
-            match = _VARIABLE_REL_PATTERN_RE.search(source, segment_start, idx)
-            if match is not None:
-                line, column = _line_and_column_from_offset(source, match.start())
-                return match.group(0), line, column
-            in_single_quote = True
+        if _WHERE_PATTERN_ITEM_RE.search(body) is None:
             continue
-    match = _VARIABLE_REL_PATTERN_RE.search(source, segment_start)
-    if match is None:
+        if _WHERE_PATTERN_SEQUENCE_RE.fullmatch(body) is not None:
+            continue
+        if _BOOLEAN_KEYWORD_RE.search(body) is None:
+            continue
+        line, column = _line_and_column_from_offset(source, match.start("body"))
+        return _to_unsupported(
+            "Cypher WHERE pattern predicates cannot yet be mixed with generic row expressions",
+            line=line,
+            column=column,
+            field="where",
+            value=body,
+        )
+    return None
+
+
+def _split_top_level_and_terms(expr: str) -> Optional[Tuple[str, ...]]:
+    terms: list[str] = []
+    term_start = 0
+    paren_depth = 0
+    bracket_depth = 0
+    brace_depth = 0
+    string_quote: Optional[str] = None
+    in_backtick = False
+    i = 0
+    while i < len(expr):
+        ch = expr[i]
+        if string_quote is not None:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == string_quote:
+                string_quote = None
+            i += 1
+            continue
+        if in_backtick:
+            if ch == "`":
+                in_backtick = False
+            i += 1
+            continue
+        if ch in {"'", '"'}:
+            string_quote = ch
+            i += 1
+            continue
+        if ch == "`":
+            in_backtick = True
+            i += 1
+            continue
+        if ch == "(":
+            paren_depth += 1
+            i += 1
+            continue
+        if ch == ")":
+            paren_depth = max(0, paren_depth - 1)
+            i += 1
+            continue
+        if ch == "[":
+            bracket_depth += 1
+            i += 1
+            continue
+        if ch == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+            i += 1
+            continue
+        if ch == "{":
+            brace_depth += 1
+            i += 1
+            continue
+        if ch == "}":
+            brace_depth = max(0, brace_depth - 1)
+            i += 1
+            continue
+        if (
+            paren_depth == 0
+            and bracket_depth == 0
+            and brace_depth == 0
+            and expr[i:i + 3].upper() == "AND"
+            and (i == 0 or expr[i - 1].isspace())
+            and (i + 3 == len(expr) or expr[i + 3].isspace())
+        ):
+            term = expr[term_start:i].strip()
+            if term == "":
+                return None
+            terms.append(term)
+            i += 3
+            while i < len(expr) and expr[i].isspace():
+                i += 1
+            term_start = i
+            continue
+        i += 1
+    tail = expr[term_start:].strip()
+    if tail == "":
         return None
-    line, column = _line_and_column_from_offset(source, match.start())
-    return match.group(0), line, column
+    terms.append(tail)
+    return tuple(terms) if len(terms) > 1 else None
+
+
+def _canonicalize_where_single_pattern_and_expr(source: str) -> Optional[str]:
+    for match in _WHERE_CLAUSE_BODY_RE.finditer(source):
+        body = match.group("body").strip()
+        terms = _split_top_level_and_terms(body)
+        if terms is None:
+            continue
+        pattern_indices = [idx for idx, term in enumerate(terms) if _WHERE_PATTERN_SEQUENCE_RE.fullmatch(term) is not None]
+        if len(pattern_indices) != 1:
+            continue
+        pattern_index = pattern_indices[0]
+        pattern_text = terms[pattern_index].strip()
+        expr_terms = [term for idx, term in enumerate(terms) if idx != pattern_index]
+        if not expr_terms:
+            continue
+        canonical_body = f"{pattern_text} AND {' AND '.join(expr_terms)}"
+        if canonical_body == body:
+            continue
+        return f"{source[:match.start('body')]}{canonical_body}{source[match.end('body'):]}"
+    return None
 
 
 def _build_transformer(source: str) -> _TransformerLike:
@@ -523,9 +642,16 @@ def _build_transformer(source: str) -> _TransformerLike:
             variable: Optional[str] = None
             rel_types: Tuple[str, ...] = ()
             properties: Tuple[PropertyEntry, ...] = ()
+            min_hops: Optional[int] = None
+            max_hops: Optional[int] = None
+            to_fixed_point = False
             for item in items:
                 if isinstance(item, str):
                     variable = item
+                elif isinstance(item, dict):
+                    min_hops = cast(Optional[int], item.get("min_hops"))
+                    max_hops = cast(Optional[int], item.get("max_hops"))
+                    to_fixed_point = bool(item.get("to_fixed_point", False))
                 elif isinstance(item, tuple) and all(isinstance(v, str) for v in item):
                     rel_types = cast(Tuple[str, ...], item)
                 elif isinstance(item, tuple):
@@ -536,7 +662,49 @@ def _build_transformer(source: str) -> _TransformerLike:
                 types=rel_types,
                 properties=properties,
                 span=_span_from_meta(meta),
+                min_hops=min_hops,
+                max_hops=max_hops,
+                to_fixed_point=to_fixed_point,
             )
+
+        def _rel_hops(self, meta: Any, token: Any) -> int:
+            try:
+                value = int(str(token))
+            except Exception as exc:
+                raise _to_syntax_error("Invalid relationship range bound", line=meta.line, column=meta.column) from exc
+            if value <= 0:
+                raise _to_unsupported(
+                    "Cypher zero-hop relationship ranges are not yet supported in the current GFQL Cypher compiler",
+                    line=meta.line,
+                    column=meta.column,
+                    field="match",
+                    value=self._slice(_span_from_meta(meta)),
+                )
+            return value
+
+        def rel_range_exact(self, meta: Any, items: Sequence[Any]) -> dict[str, Any]:
+            if len(items) != 1:
+                raise _to_syntax_error("Invalid relationship range", line=meta.line, column=meta.column)
+            hops = self._rel_hops(meta, items[0])
+            return {"min_hops": hops, "max_hops": hops, "to_fixed_point": False}
+
+        def rel_range_bounded(self, meta: Any, items: Sequence[Any]) -> dict[str, Any]:
+            if len(items) != 2:
+                raise _to_syntax_error("Invalid relationship range", line=meta.line, column=meta.column)
+            min_hops = self._rel_hops(meta, items[0])
+            max_hops = self._rel_hops(meta, items[1])
+            if min_hops > max_hops:
+                raise _to_unsupported(
+                    "Cypher relationship ranges require lower bound <= upper bound",
+                    line=meta.line,
+                    column=meta.column,
+                    field="match",
+                    value=self._slice(_span_from_meta(meta)),
+                )
+            return {"min_hops": min_hops, "max_hops": max_hops, "to_fixed_point": False}
+
+        def rel_range_fixed(self, meta: Any, _items: Sequence[Any]) -> dict[str, Any]:
+            return {"min_hops": None, "max_hops": None, "to_fixed_point": True}
 
         def rel_forward(self, meta: Any, items: Sequence[Any]) -> RelationshipPattern:
             return self._relationship(meta, items, direction="forward")
@@ -567,27 +735,48 @@ def _build_transformer(source: str) -> _TransformerLike:
         def pattern(self, _meta: Any, items: Sequence[Any]) -> Tuple[PatternElement, ...]:
             return tuple(cast(PatternElement, item) for item in items)
 
-        def bound_pattern(self, _meta: Any, items: Sequence[Any]) -> Tuple[PatternElement, ...]:
+        def bound_pattern(self, _meta: Any, items: Sequence[Any]) -> _BoundPattern:
             if len(items) != 2:
                 raise _to_syntax_error("Invalid bound MATCH pattern")
-            return cast(Tuple[PatternElement, ...], items[1])
+            return _BoundPattern(alias=str(items[0]), pattern=cast(Tuple[PatternElement, ...], items[1]))
 
-        def match_item(self, _meta: Any, items: Sequence[Any]) -> Tuple[PatternElement, ...]:
+        def match_item(self, _meta: Any, items: Sequence[Any]) -> Union[Tuple[PatternElement, ...], _BoundPattern]:
             if len(items) != 1:
                 raise _to_syntax_error("Invalid MATCH pattern")
-            return cast(Tuple[PatternElement, ...], items[0])
+            return cast(Union[Tuple[PatternElement, ...], _BoundPattern], items[0])
 
         def match_clause(self, meta: Any, items: Sequence[Any]) -> MatchClause:
             if len(items) < 1:
                 raise _to_syntax_error("Cypher MATCH clause cannot be empty", line=meta.line, column=meta.column)
-            patterns = tuple(cast(Tuple[PatternElement, ...], item) for item in items)
-            return MatchClause(patterns=patterns, span=_span_from_meta(meta))
+            patterns: List[Tuple[PatternElement, ...]] = []
+            pattern_aliases: List[Optional[str]] = []
+            for item in items:
+                if isinstance(item, _BoundPattern):
+                    patterns.append(item.pattern)
+                    pattern_aliases.append(item.alias)
+                else:
+                    patterns.append(cast(Tuple[PatternElement, ...], item))
+                    pattern_aliases.append(None)
+            return MatchClause(patterns=tuple(patterns), span=_span_from_meta(meta), pattern_aliases=tuple(pattern_aliases))
 
         def optional_match_clause(self, meta: Any, items: Sequence[Any]) -> MatchClause:
             if len(items) < 1:
                 raise _to_syntax_error("Cypher OPTIONAL MATCH clause cannot be empty", line=meta.line, column=meta.column)
-            patterns = tuple(cast(Tuple[PatternElement, ...], item) for item in items)
-            return MatchClause(patterns=patterns, span=_span_from_meta(meta), optional=True)
+            patterns: List[Tuple[PatternElement, ...]] = []
+            pattern_aliases: List[Optional[str]] = []
+            for item in items:
+                if isinstance(item, _BoundPattern):
+                    patterns.append(item.pattern)
+                    pattern_aliases.append(item.alias)
+                else:
+                    patterns.append(cast(Tuple[PatternElement, ...], item))
+                    pattern_aliases.append(None)
+            return MatchClause(
+                patterns=tuple(patterns),
+                span=_span_from_meta(meta),
+                optional=True,
+                pattern_aliases=tuple(pattern_aliases),
+            )
 
         def distinct(self, _meta: Any, _items: Sequence[Any]) -> bool:
             return True
@@ -705,11 +894,7 @@ def _build_transformer(source: str) -> _TransformerLike:
         def where_predicates(self, _meta: Any, items: Sequence[Any]) -> Tuple[WherePredicate, ...]:
             return tuple(items)
 
-        def where_pattern_only_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
-            if len(items) != 1:
-                raise _to_syntax_error("Invalid WHERE pattern predicate", line=meta.line, column=meta.column)
-            pattern_text = str(items[0]).strip()
-            span = _span_from_meta(meta)
+        def _parse_where_pattern_predicate_text(self, pattern_text: str, span: SourceSpan) -> WherePatternPredicate:
             pattern_items = [match.group(0).strip() for match in _WHERE_PATTERN_ITEM_RE.finditer(pattern_text)]
             if len(pattern_items) != 1:
                 raise GFQLValidationError(
@@ -761,9 +946,55 @@ def _build_transformer(source: str) -> _TransformerLike:
                     column=span.column,
                     language="cypher",
                 )
+            return WherePatternPredicate(pattern=cast(Tuple[PatternElement, ...], pattern_node), span=span)
+
+        def _mixed_where_clause(
+            self,
+            *,
+            pattern_text: str,
+            expr_text: str,
+            span: SourceSpan,
+        ) -> WhereClause:
+            if expr_text.strip() == "":
+                raise _to_syntax_error("Invalid WHERE clause", line=span.line, column=span.column)
             return WhereClause(
-                predicates=(WherePatternPredicate(pattern=cast(Tuple[PatternElement, ...], pattern_node), span=span),),
+                predicates=(self._parse_where_pattern_predicate_text(pattern_text, span),),
+                expr=ExpressionText(text=expr_text.strip(), span=span),
+                span=span,
+            )
+
+        def where_pattern_only_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
+            if len(items) != 1:
+                raise _to_syntax_error("Invalid WHERE pattern predicate", line=meta.line, column=meta.column)
+            pattern_text = str(items[0]).strip()
+            span = _span_from_meta(meta)
+            return WhereClause(
+                predicates=(self._parse_where_pattern_predicate_text(pattern_text, span),),
                 expr=None,
+                span=span,
+            )
+
+        def where_pattern_and_expr_clause(self, meta: Any, _items: Sequence[Any]) -> WhereClause:
+            span = _span_from_meta(meta)
+            body = self._slice(span)[len("WHERE"):].strip()
+            match = _WHERE_PATTERN_THEN_EXPR_RE.fullmatch(body)
+            if match is None:
+                raise _to_syntax_error("Invalid WHERE clause", line=meta.line, column=meta.column)
+            return self._mixed_where_clause(
+                pattern_text=match.group("pattern").strip(),
+                expr_text=match.group("expr").strip(),
+                span=span,
+            )
+
+        def expr_and_where_pattern_clause(self, meta: Any, _items: Sequence[Any]) -> WhereClause:
+            span = _span_from_meta(meta)
+            body = self._slice(span)[len("WHERE"):].strip()
+            match = _WHERE_EXPR_THEN_PATTERN_RE.fullmatch(body)
+            if match is None:
+                raise _to_syntax_error("Invalid WHERE clause", line=meta.line, column=meta.column)
+            return self._mixed_where_clause(
+                pattern_text=match.group("pattern").strip(),
+                expr_text=match.group("expr").strip(),
                 span=span,
             )
 
@@ -1261,16 +1492,6 @@ def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery]:
     """
     if not isinstance(query, str) or query.strip() == "":
         raise _to_syntax_error("Cypher query must be a non-empty string")
-    variable_length_pattern = _find_variable_length_relationship_pattern(query)
-    if variable_length_pattern is not None:
-        pattern_text, line, column = variable_length_pattern
-        raise _to_unsupported(
-            "Cypher variable-length relationship patterns are not yet supported in the current GFQL Cypher compiler",
-            line=line,
-            column=column,
-            field="match",
-            value=pattern_text,
-        )
 
     parser = _parser()
     transformer = _build_transformer(query)
@@ -1285,6 +1506,17 @@ def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery]:
         if isinstance(exc, (GFQLSyntaxError, GFQLValidationError)):
             raise
         if isinstance(exc, LarkError):
+            canonical_query = _canonicalize_where_single_pattern_and_expr(query)
+            if canonical_query is not None and canonical_query != query:
+                canonical_transformer = _build_transformer(canonical_query)
+                tree = parser.parse(canonical_query)
+                node = canonical_transformer.transform(tree)
+                if not isinstance(node, (CypherQuery, CypherUnionQuery)):
+                    raise _to_syntax_error("Cypher parser did not produce a query")
+                return node
+            mixed_where_error = _mixed_where_pattern_expr_error(query)
+            if mixed_where_error is not None:
+                raise mixed_where_error from exc
             err_line = cast(Optional[int], getattr(exc, "line", None))
             err_column = cast(Optional[int], getattr(exc, "column", None))
             raise _to_syntax_error("Invalid Cypher query syntax", line=err_line, column=err_column) from exc
