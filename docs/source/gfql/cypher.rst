@@ -103,9 +103,11 @@ Support Matrix
      - Partial
      - Execute directly through ``g.gfql("...")``. Helper translation to a single ``Chain`` is stricter.
    * - Variable-length relationship patterns
-     - Not yet supported
-     - Direct Cypher ``[*2]``, ``[*1..3]``, and ``[*]`` are not accepted yet.
-       Rewrite in native GFQL with hop bounds or explicit repeated steps.
+     - Partial
+     - Direct Cypher supports endpoint-only single variable-length relationship
+       traversals such as ``[*2]``, ``[*1..3]``, ``[*]``, and typed forms like
+       ``[:R*2..4]``. Path/list-carrier uses, bounded/exact ``WHERE`` pattern
+       predicates, and mixed connected patterns still fail fast.
    * - ``CREATE`` / ``DELETE`` / ``SET``
      - Not supported
      - GFQL's Cypher surface is read-only.
@@ -130,6 +132,9 @@ Pattern Matching Forms
 - Node labels and multi-label node patterns such as ``(p:Person:Admin)``.
 - Relationship direction forms ``->``, ``<-``, and undirected ``-[]-``.
 - Relationship type alternation such as ``[r:KNOWS|HATES]``.
+- Single variable-length relationship patterns when they are the only
+  relationship in the connected pattern, including ``[*n]``, ``[*m..n]``,
+  ``[*]``, and typed forms such as ``[:R*2..4]``.
 - Connected comma-separated patterns such as
   ``MATCH (a)-[:A]->(b), (b)-[:B]->(c)``.
 - Repeated ``MATCH`` clauses when they stay connected through shared aliases.
@@ -146,7 +151,33 @@ WHERE Forms
 - Label predicates such as ``WHERE b:Foo:Bar``.
 - Relationship-type predicates such as ``WHERE type(r) = 'KNOWS'``.
 - Positive relationship-existence pattern predicates such as
-  ``WHERE (n)-[:R]->()``.
+  ``WHERE (n)-[:R]->()`` and bare fixed-point variable-length existence checks
+  such as ``WHERE (n)-[*]-()``.
+
+Variable-Length Relationship Boundary
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Direct Cypher multihop support is intentionally narrow in the current landing
+slice. The supported direct forms are endpoint traversals where the
+variable-length relationship is the only relationship in the connected pattern,
+for example:
+
+- ``MATCH (a)-[*2]->(b) RETURN b``
+- ``MATCH (a)-[:R*1..3]->(b) RETURN b``
+- ``MATCH (a)<-[*2]-(b) RETURN b``
+- ``MATCH (a)-[:R*1..2]-(b) RETURN b``
+
+The current compiler explicitly rejects these remaining subfamilies with
+``GFQLValidationError`` instead of attempting unsound execution:
+
+- path/list-carrier use of a variable-length relationship alias, such as
+  ``RETURN r`` or ``count(r)``
+- exact or bounded variable-length ``WHERE`` pattern predicates such as
+  ``WHERE (n)-[:R*2]-()``
+- connected patterns containing more than one relationship when any one of
+  them is variable-length
+- multi-alias ``RETURN *`` projections that would require unsupported
+  path/multi-source row shaping
 
 Row And Row-Pipeline Forms
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -206,12 +237,17 @@ Bounded / Partial Forms
 Not Supported Today
 ~~~~~~~~~~~~~~~~~~~
 
-- Direct Cypher variable-length relationship patterns such as ``[*2]``,
-  ``[*1..3]``, and ``[*]``.
+- Variable-length relationship aliases used as path/list carriers, such as
+  ``RETURN r`` or ``count(r)``.
+- Exact or bounded variable-length ``WHERE`` pattern predicates such as
+  ``WHERE (n)-[:R*2]-()``.
+- Connected patterns that mix a variable-length relationship with other
+  relationship segments in the same connected pattern.
 - Multiple disconnected ``MATCH`` patterns used as arbitrary joins.
 - Multi-pattern re-entry shapes beyond the bounded single
   ``MATCH ... WITH ... MATCH ... RETURN`` form.
-- ``RETURN *`` after unsupported re-entry shapes.
+- ``RETURN *`` after unsupported re-entry shapes or when it would require
+  unsupported multi-alias/path projection shaping.
 - ``CREATE``, ``DELETE``, ``SET``, and other write clauses.
 - Generic database procedures outside ``CALL graphistry.*``.
 - The full Cypher expression/function surface.
@@ -265,11 +301,13 @@ Common Rewrites
   remote GFQL? Use ``graphistry.cypher("...")`` or ``g.cypher("...")``.
 - Need a pure GFQL chain object? Use ``cypher_to_gfql()`` when the query fits a
   single ``Chain``.
-- Need fixed-length, bounded, or fixed-point traversal today? Direct Cypher
-  ``[*2]``, ``[*1..3]``, and ``[*]`` are not accepted yet. Rewrite in native
-  GFQL with explicit hop bounds such as ``e_forward(min_hops=1, max_hops=3)``
-  or ``e_forward(to_fixed_point=True)``. If you need aliasable intermediate
-  hops, unroll them into explicit chain steps.
+- Need fixed-length, bounded, or fixed-point endpoint traversal? Direct Cypher
+  already supports ``[*2]``, ``[*1..3]``, and ``[*]`` for that endpoint-only
+  slice.
+- Need aliasable intermediate hops, output slicing, or mixed connected-pattern
+  multihop control? Rewrite in native GFQL with explicit hop bounds such as
+  ``e_forward(min_hops=1, max_hops=3)`` or ``e_forward(to_fixed_point=True)``,
+  or unroll the traversal into explicit chain steps.
 - Need write semantics or arbitrary joins? Keep Cypher syntax for the supported
   read-only part and finish the rest in a database or in pandas/cuDF.
 
