@@ -368,7 +368,6 @@ def hop(self: Plottable,
     current_hop = 0
     max_reached_hop = 0
     skip_full_loop = False
-    visited_edge_ids = None
     if fast_path_enabled:
         frontier_ids = _domain_unique(starting_nodes[node_col])
         visited_node_ids = None
@@ -382,8 +381,6 @@ def hop(self: Plottable,
             current_hop += 1
 
             hop_edges = pairs[pairs[FROM_COL].isin(frontier_ids)]
-            if to_fixed_point and not _domain_is_empty(visited_edge_ids):
-                hop_edges = hop_edges[~hop_edges[EDGE_ID].isin(visited_edge_ids)]
             cand_nodes = _domain_unique(hop_edges[TO_COL])
             seed_ids_domain = None
             if visited_node_ids is None and not return_as_wave_front:
@@ -478,17 +475,11 @@ def hop(self: Plottable,
                 logger.debug('new_node_ids after precomputed filtering:\n%s', new_node_ids)
                 logger.debug('hop_edges filtered by precomputed nodes:\n%s', hop_edges)
 
-        if to_fixed_point and not _domain_is_empty(visited_edge_ids):
-            hop_edges = hop_edges[~hop_edges[EDGE_ID].isin(visited_edge_ids)]
-            new_node_ids = hop_edges[[TO_COL]].rename(columns={TO_COL: node_col}).drop_duplicates()
-
         matches_edges = concat(
             [matches_edges, hop_edges[[EDGE_ID]]],
             ignore_index=True,
             sort=False
         ).drop_duplicates(subset=[EDGE_ID])
-        if len(hop_edges) > 0:
-            visited_edge_ids = _domain_union(visited_edge_ids, _domain_unique(hop_edges[EDGE_ID]))
 
         if len(new_node_ids) > 0:
             max_reached_hop = current_hop
@@ -697,6 +688,75 @@ def hop(self: Plottable,
     if EDGE_ID not in self._edges:
         final_edges = final_edges.drop(columns=[EDGE_ID])
     g_out = g2.edges(final_edges)
+
+    def _undirected_component_seed_keep_ids(
+        edges_df: DataFrameT,
+        seed_nodes_df: DataFrameT,
+    ) -> set:
+        if len(edges_df) == 0 or len(seed_nodes_df) == 0:
+            return set()
+        edges_pdf = edges_df[[g2._source, g2._destination]].to_pandas() if hasattr(edges_df, "to_pandas") else edges_df[[g2._source, g2._destination]].copy()
+        seeds_pdf = seed_nodes_df[[node_col]].to_pandas() if hasattr(seed_nodes_df, "to_pandas") else seed_nodes_df[[node_col]].copy()
+        adjacency: Dict[Any, set] = {}
+        for row in edges_pdf.itertuples(index=False):
+            src = getattr(row, g2._source)
+            dst = getattr(row, g2._destination)
+            adjacency.setdefault(src, set()).add(dst)
+            adjacency.setdefault(dst, set()).add(src)
+        seeds = set(seeds_pdf[node_col].drop_duplicates().tolist())
+        keep: set = set()
+        seen: set = set()
+        for seed in seeds:
+            if seed in seen:
+                continue
+            stack = [seed]
+            component: set = set()
+            while stack:
+                current = stack.pop()
+                if current in component:
+                    continue
+                component.add(current)
+                seen.add(current)
+                for neighbor in adjacency.get(current, set()):
+                    if neighbor not in component:
+                        stack.append(neighbor)
+            component_seeds = component & seeds
+            if len(component_seeds) > 1:
+                keep.update(component_seeds)
+        return keep
+
+    def _undirected_cycle_nodes(edges_df: DataFrameT) -> set:
+        if len(edges_df) == 0:
+            return set()
+        edges_pdf = edges_df[[g2._source, g2._destination]].to_pandas() if hasattr(edges_df, "to_pandas") else edges_df[[g2._source, g2._destination]].copy()
+        loop_nodes = set(
+            edges_pdf.loc[edges_pdf[g2._source] == edges_pdf[g2._destination], g2._source].tolist()
+        )
+        simple_edges = edges_pdf.loc[edges_pdf[g2._source] != edges_pdf[g2._destination]]
+        adjacency: Dict[Any, set] = {}
+        degrees: Dict[Any, int] = {}
+        for row in simple_edges.itertuples(index=False):
+            src = getattr(row, g2._source)
+            dst = getattr(row, g2._destination)
+            adjacency.setdefault(src, set()).add(dst)
+            adjacency.setdefault(dst, set()).add(src)
+        for node_id, neighbors in adjacency.items():
+            degrees[node_id] = len(neighbors)
+        queue = [node_id for node_id, degree in degrees.items() if degree <= 1]
+        removed: set = set()
+        while queue:
+            current = queue.pop()
+            if current in removed:
+                continue
+            removed.add(current)
+            for neighbor in list(adjacency.get(current, set())):
+                if neighbor in removed:
+                    continue
+                adjacency[neighbor].discard(current)
+                degrees[neighbor] = len(adjacency[neighbor])
+                if degrees[neighbor] == 1:
+                    queue.append(neighbor)
+        return loop_nodes | {node_id for node_id in degrees if node_id not in removed}
 
     if self._nodes is not None:
         logger.debug('~~~~~~~~~~ NODES HYDRATION ~~~~~~~~~~~')
@@ -940,10 +1000,20 @@ def hop(self: Plottable,
         and node_col in starting_nodes.columns
     ):
         seed_ids = starting_nodes[[node_col]].drop_duplicates()
-        seeds_not_reached = seed_ids
-        if matches_nodes is not None and node_col in matches_nodes.columns:
-            seeds_not_reached = seed_ids[~seed_ids[node_col].isin(matches_nodes[node_col])]
-        filtered_nodes = g_out._nodes[~g_out._nodes[node_col].isin(seeds_not_reached[node_col])]
+        if direction == 'undirected' and to_fixed_point:
+            keep_seed_ids = _undirected_component_seed_keep_ids(final_edges, seed_ids)
+            keep_seed_ids |= _undirected_cycle_nodes(final_edges)
+            seed_mask = g_out._nodes[node_col].isin(seed_ids[node_col])
+            if keep_seed_ids:
+                keep_mask = g_out._nodes[node_col].isin(list(keep_seed_ids))
+                filtered_nodes = g_out._nodes[~seed_mask | keep_mask]
+            else:
+                filtered_nodes = g_out._nodes[~seed_mask]
+        else:
+            seeds_not_reached = seed_ids
+            if matches_nodes is not None and node_col in matches_nodes.columns:
+                seeds_not_reached = seed_ids[~seed_ids[node_col].isin(matches_nodes[node_col])]
+            filtered_nodes = g_out._nodes[~g_out._nodes[node_col].isin(seeds_not_reached[node_col])]
         g_out = g_out.nodes(filtered_nodes)
 
     return g_out

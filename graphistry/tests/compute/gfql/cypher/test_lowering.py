@@ -2480,6 +2480,23 @@ def test_string_cypher_executes_undirected_fixed_point_relationship_pattern_with
     assert result._nodes.to_dict(orient="records") == [{"id": "b"}, {"id": "c"}, {"id": "d"}]
 
 
+def test_string_cypher_executes_undirected_fixed_point_relationship_pattern_on_cycle_includes_seed() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c"],
+                "d": ["b", "c", "a"],
+                "type": ["R", "R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql("MATCH (a {id: 'a'})-[:R*]-(b) RETURN b.id AS id ORDER BY id")
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+
+
 @pytest.mark.parametrize(
     "query",
     [
