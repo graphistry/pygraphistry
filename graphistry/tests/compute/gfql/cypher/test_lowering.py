@@ -2449,6 +2449,29 @@ def test_string_cypher_executes_undirected_multihop_relationship_pattern() -> No
 @pytest.mark.parametrize(
     "query",
     [
+        "MATCH (a)-[r*1..1]->(b) RETURN r",
+        "MATCH (a:A) MATCH (a)-[r*2]->() RETURN r",
+        "MATCH (a)-[r:REL*2..2]->(b:End) RETURN r",
+        "MATCH (a)-[r:REL*2..2]-(b:End) RETURN r",
+        "MATCH (a:Start)-[r:REL*2..2]-(b) RETURN r",
+        "MATCH (a:Blue)-[r*]->(b:Green) RETURN count(r)",
+    ],
+)
+def test_string_cypher_failfast_rejects_variable_length_relationship_alias_path_carrier_forms(
+    query: str,
+) -> None:
+    graph = _mk_empty_graph()
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(query)
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert "path/list carriers" in exc_info.value.message
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
         "MATCH (n:A) WITH n MATCH (m:B), (n)-->(x:X) RETURN *",
         "MATCH (n:A) WITH n LIMIT 1 MATCH (m:B), (n)-->(x:X) RETURN *",
         "MATCH (n:A) WITH n SKIP 0 LIMIT 1 MATCH (m:B), (n)-->(x:X) RETURN *",

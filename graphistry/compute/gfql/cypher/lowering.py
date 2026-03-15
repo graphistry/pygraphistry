@@ -4851,6 +4851,95 @@ def _reject_unsupported_where_expr_forms(query: CypherQuery) -> None:
         )
 
 
+def _variable_length_relationship_aliases(
+    alias_targets: Mapping[str, ASTObject],
+) -> Set[str]:
+    out: Set[str] = set()
+    for alias, target in alias_targets.items():
+        if not isinstance(target, ASTEdge):
+            continue
+        if target.min_hops is not None or target.max_hops is not None or target.to_fixed_point:
+            out.add(alias)
+    return out
+
+
+def _reject_variable_length_relationship_alias_path_carriers(
+    query: CypherQuery,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+) -> None:
+    variable_length_aliases = _variable_length_relationship_aliases(alias_targets)
+    if not variable_length_aliases:
+        return
+
+    def _check_expr(expr_text: str, *, field: str, line: int, column: int) -> None:
+        if not (_expr_match_aliases(
+            expr_text,
+            alias_targets=alias_targets,
+            params=params,
+            field=field,
+            line=line,
+            column=column,
+        ) & variable_length_aliases):
+            return
+        raise _unsupported(
+            "Cypher variable-length relationship aliases cannot yet be projected or aggregated as path/list carriers in the local compiler",
+            field=field,
+            value=expr_text,
+            line=line,
+            column=column,
+        )
+
+    if query.where is not None and query.where.expr is not None:
+        _check_expr(
+            query.where.expr.text,
+            field="where",
+            line=query.where.span.line,
+            column=query.where.span.column,
+        )
+
+    def _check_projection_clause(clause: ReturnClause) -> None:
+        for item in clause.items:
+            if item.expression.text == "*":
+                continue
+            _check_expr(
+                item.expression.text,
+                field=clause.kind,
+                line=item.span.line,
+                column=item.span.column,
+            )
+
+    _check_projection_clause(query.return_)
+
+    if query.order_by is not None:
+        for item in query.order_by.items:
+            _check_expr(
+                item.expression.text,
+                field="order_by",
+                line=item.span.line,
+                column=item.span.column,
+            )
+
+    for stage in query.with_stages:
+        _check_projection_clause(stage.clause)
+        if stage.where is not None:
+            _check_expr(
+                stage.where.text,
+                field="with.where",
+                line=stage.span.line,
+                column=stage.span.column,
+            )
+        if stage.order_by is not None:
+            for item in stage.order_by.items:
+                _check_expr(
+                    item.expression.text,
+                    field="order_by",
+                    line=item.span.line,
+                    column=item.span.column,
+                )
+
+
 def lower_match_query(
     query: CypherQuery,
     *,
@@ -5668,6 +5757,12 @@ def compile_cypher_query(
     )
 
     if query.with_stages:
+        alias_targets = _alias_target(lowered.query)
+        _reject_variable_length_relationship_alias_path_carriers(
+            query,
+            alias_targets=alias_targets,
+            params=params,
+        )
         first_stage = query.with_stages[0]
         row_steps, scope = _build_initial_row_scope(
             query,
@@ -5718,6 +5813,11 @@ def compile_cypher_query(
 
     if merged_match is not None and not query.unwinds:
         alias_targets = _alias_target(lowered.query)
+        _reject_variable_length_relationship_alias_path_carriers(
+            query,
+            alias_targets=alias_targets,
+            params=params,
+        )
         duplicated_aliases = _duplicate_node_aliases(merged_match)
         _reject_duplicate_alias_row_refs(
             query,
@@ -5799,4 +5899,10 @@ def compile_cypher_query(
                 optional_projection_row_guard=optional_projection_row_guard,
             )
 
+    alias_targets = _alias_target(lowered.query)
+    _reject_variable_length_relationship_alias_path_carriers(
+        query,
+        alias_targets=alias_targets,
+        params=params,
+    )
     return _lower_general_row_projection(query, lowered, params=params)
