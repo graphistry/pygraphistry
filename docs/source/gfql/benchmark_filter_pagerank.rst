@@ -56,6 +56,107 @@ The pipeline is intentionally simple and representative:
 
 The important detail is that these are not separate systems stitched together. The Graphistry CPU and GPU paths both keep the workflow dataframe-native, and the GPU path accelerates both the dataframe work and the graph algorithm work.
 
+What the actual benchmarked pipelines look like
+----------------------------------------------
+
+The Graphistry side of this benchmark did **not** use Cypher strings. It used direct GFQL/PyGraphistry calls so the timing reflects dataframe-native query/runtime behavior and the igraph/cugraph backend step, not parser overhead.
+
+Graphistry CPU path (``pandas + igraph``):
+
+.. code-block:: python
+
+   from graphistry.compute.ast import e_undirected, n
+
+   q1 = [
+       n({"seed_keep": True}, name="seed"),
+       e_undirected(hops=1, name="reach"),
+       n(name="nbr"),
+   ]
+   g1 = g.gfql(q1, engine="pandas")
+   g2 = g1.compute_igraph("pagerank", directed=False)
+
+   pr_cutoff = float(g2._nodes["pagerank"].quantile(pagerank_quantile))
+   nodes2 = g2._nodes.copy()
+   nodes2["core_keep"] = nodes2["pagerank"] >= pr_cutoff
+   g2b = g2.nodes(nodes2, g2._node)
+
+   q2 = [
+       n({"core_keep": True}, name="core"),
+       e_undirected(hops=1, name="halo"),
+       n(name="nbr"),
+   ]
+   g3 = g2b.gfql(q2, engine="pandas")
+
+Graphistry GPU path (``cudf + cugraph``):
+
+.. code-block:: python
+
+   from graphistry.compute.ast import e_undirected, n
+
+   q1 = [
+       n({"seed_keep": True}, name="seed"),
+       e_undirected(hops=1, name="reach"),
+       n(name="nbr"),
+   ]
+   g1 = g.gfql(q1, engine="cudf")
+   g2 = g1.compute_cugraph("pagerank", directed=False)
+
+   pr_cutoff = float(g2._nodes["pagerank"].quantile(pagerank_quantile).to_pandas())
+   nodes2 = g2._nodes.copy()
+   nodes2["core_keep"] = nodes2["pagerank"] >= pr_cutoff
+   g2b = g2.nodes(nodes2, g2._node)
+
+   q2 = [
+       n({"core_keep": True}, name="core"),
+       e_undirected(hops=1, name="halo"),
+       n(name="nbr"),
+   ]
+   g3 = g2b.gfql(q2, engine="cudf")
+
+Neo4j + GDS analog (Cypher + projection + PageRank write):
+
+.. code-block:: cypher
+
+   MATCH (n:Node)
+   SET n.seed_keep = n.degree >= $cutoff,
+       n.sub1_keep = false,
+       n.core_keep = false,
+       n.final_keep = false
+   REMOVE n.pagerank;
+
+   MATCH (n:Node)
+   WHERE n.seed_keep
+   SET n.sub1_keep = true;
+
+   UNWIND $seed_ids AS sid
+   MATCH (s:Node) WHERE id(s) = sid
+   MATCH (s)-[r:LINK]-(nbr:Node)
+   SET nbr.sub1_keep = true, r.sub1_keep = true;
+
+   CALL gds.graph.project.cypher(
+     'sub1',
+     'MATCH (n:Node) WHERE n.sub1_keep RETURN id(n) AS id',
+     'MATCH (a:Node)-[r:LINK]->(b:Node) WHERE r.sub1_keep RETURN id(a) AS source, id(b) AS target
+      UNION ALL
+      MATCH (a:Node)-[r:LINK]->(b:Node) WHERE r.sub1_keep RETURN id(b) AS source, id(a) AS target'
+   );
+   CALL gds.pageRank.write('sub1', {writeProperty: 'pagerank'});
+
+   MATCH (n:Node)
+   SET n.core_keep = coalesce(n.sub1_keep, false)
+                     AND coalesce(n.pagerank, 0.0) >= $cutoff,
+       n.final_keep = false;
+
+   UNWIND $core_ids AS cid
+   MATCH (c:Node) WHERE id(c) = cid
+   MATCH (c)-[r:LINK]-(nbr:Node)
+   SET nbr.final_keep = true, r.final_keep = true;
+
+That means the comparison is honest about what each system is actually doing:
+
+- Graphistry CPU/GPU: native Python dataframe + graph runtime
+- Neo4j: Cypher + GDS projection/write pipeline inside the database
+
 Exact 3-way comparison on Twitter
 ---------------------------------
 
