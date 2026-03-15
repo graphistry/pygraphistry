@@ -432,6 +432,7 @@ def _align_computed_result_columns(
     computed_graph: Plottable,
     compiled_call: CompiledCypherProcedureCall,
 ) -> Plottable:
+    # Keep the local Cypher CALL surface stable even when backend column names differ.
     definition = _ProcedureDefinition(
         procedure=compiled_call.procedure,
         backend=compiled_call.backend,
