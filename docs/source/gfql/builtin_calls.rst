@@ -370,7 +370,10 @@ Run GPU-accelerated graph algorithms using `cuGraph <https://github.com/rapidsai
 
 **Schema Effects:** Adds one column to nodes with the algorithm result.
 
-**Local Cypher Equivalent:** ``g.gfql("CALL graphistry.cugraph.pagerank.write()")`` writes the default ``pagerank`` node property and keeps the result in graph state for later matches.
+**Local Cypher Modes:**
+
+- **Row mode:** ``g.gfql("CALL graphistry.cugraph.pagerank()")`` returns row state with default ``nodeId`` and ``score`` columns in ``_nodes`` and clears ``_edges``. Add ``YIELD ... RETURN ...`` when you want to rename, filter, or sort those rows.
+- **Graph mode:** ``g.gfql("CALL graphistry.cugraph.pagerank.write()")`` writes the default ``pagerank`` node property and keeps the result in graph state for later matches.
 
 **Parameter Discovery:** For detailed algorithm parameters, see the `cuGraph documentation <https://docs.rapids.ai/api/cugraph/stable/>`_. Parameters are passed via the ``params`` dictionary.
 
@@ -452,7 +455,10 @@ Similar to cuGraph but on CPU, including:
 
 **Schema Effects:** Adds one column to nodes with the algorithm result.
 
-**Local Cypher Equivalent:** ``g.gfql("CALL graphistry.igraph.pagerank.write()")`` writes the default ``pagerank`` node property and keeps the result in graph state for later matches.
+**Local Cypher Modes:**
+
+- **Row mode:** ``g.gfql("CALL graphistry.igraph.pagerank()")`` returns row state with default ``nodeId`` and ``score`` columns in ``_nodes`` and clears ``_edges``. Add ``YIELD ... RETURN ...`` when you want to rename, filter, or sort those rows.
+- **Graph mode:** ``g.gfql("CALL graphistry.igraph.pagerank.write()")`` writes the default ``pagerank`` node property and keeps the result in graph state for later matches.
 
 **Parameter Discovery:** For detailed algorithm parameters, see the `Python igraph documentation <https://igraph.org/python/>`_. Parameters are passed via the ``params`` dictionary.
 
@@ -515,7 +521,10 @@ Calculate degree centrality for nodes (in-degree, out-degree, and total degree).
 
 **Schema Effects:** Adds up to 3 columns to nodes (based on parameters provided).
 
-**Local Cypher Equivalent:** ``g.gfql("CALL graphistry.degree.write()")`` materializes ``degree``, ``degree_in``, and ``degree_out`` on nodes while preserving the graph for later matches.
+**Local Cypher Modes:**
+
+- **Row mode:** ``g.gfql("CALL graphistry.degree()")`` returns row state with default ``nodeId``, ``degree``, ``degree_in``, and ``degree_out`` columns in ``_nodes`` and clears ``_edges``. Add ``YIELD ... RETURN ...`` when you want to project or sort those rows explicitly.
+- **Graph mode:** ``g.gfql("CALL graphistry.degree.write()")`` materializes ``degree``, ``degree_in``, and ``degree_out`` on nodes while preserving the graph for later matches.
 
 get_indegrees
 ~~~~~~~~~~~~~

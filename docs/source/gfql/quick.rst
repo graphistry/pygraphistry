@@ -45,6 +45,7 @@ Graph State Vs Row State
 
 - **Graph state** keeps a traversable graph in `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, `let()` / `ref()` graph DAG stages, and local Cypher `CALL graphistry.*.write()` queries stay in graph state.
 - **Row state** stores tabular results in `_nodes` and uses an empty placeholder `_edges` frame. Row-pipeline steps such as `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning local Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
+- A bare local Cypher procedure call without `.write()` also moves into row state. For example, `CALL graphistry.degree()` projects its default output columns into `_nodes` and clears `_edges`.
 - If you want to enrich a graph and keep matching locally, use a graph-preserving `call()` / `let()` pattern or a bare local Cypher `CALL graphistry.*.write()`. Supported local graph-preserving procedures today are `graphistry.degree.write()`, `graphistry.igraph.pagerank.write()`, `graphistry.cugraph.pagerank.write()`, and `graphistry.nx.pagerank.write()`.
 
 Cypher Strings Through ``g.gfql()``
@@ -573,6 +574,15 @@ Run graph algorithms like PageRank, community detection, and layouts directly wi
 
   Local note: a bare `g.gfql("CALL graphistry.*.write()")` stays in graph state and can feed later `MATCH` queries.
   `g.gfql("CALL ... YIELD ... RETURN ...")` still targets row-returning procedure flows.
+
+- **Return procedure rows instead of an enriched graph:**
+
+  .. code-block:: python
+
+      degree_rows = g.gfql("CALL graphistry.degree()")
+
+      # Row state: _nodes has nodeId/degree columns and _edges is empty
+      degree_rows._nodes
 
 - **Community detection with Louvain:**
 

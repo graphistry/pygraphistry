@@ -212,6 +212,18 @@ Procedure And Multi-Branch Forms
   - ``CALL graphistry.degree YIELD nodeId RETURN nodeId``
   - ``CALL graphistry.igraph.pagerank() YIELD nodeId, score RETURN nodeId``
 
+- Direct execution of standalone graph-preserving ``CALL graphistry.*.write()``
+  procedures, including:
+
+  - ``CALL graphistry.degree.write()``
+  - ``CALL graphistry.igraph.pagerank.write()``
+  - ``CALL graphistry.nx.pagerank.write()``
+
+- Bare procedures without ``.write()`` stay row-returning even when you omit
+  ``YIELD ... RETURN ...``. For example, ``CALL graphistry.degree()`` projects
+  its default outputs into ``_nodes`` and clears ``_edges``; use ``.write()``
+  when you want enrich-then-``MATCH`` graph workflows.
+
 - ``cypher_to_gfql()`` stays stricter than direct execution and intentionally
   rejects ``UNION`` / ``UNION ALL`` and row-returning ``CALL`` flows because
   they are not representable as a single GFQL ``Chain``.

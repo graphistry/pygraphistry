@@ -3850,6 +3850,8 @@ def test_string_cypher_executes_graphistry_call(
 
     if expected_columns is not None:
         assert list(result._nodes.columns) == expected_columns
+    assert result._node == result._nodes.columns[0]
+    assert result._edges.empty
     assert result._nodes.to_dict(orient="records") == expected_rows
 
 
@@ -3866,6 +3868,18 @@ def test_string_cypher_call_rejects_invalid_procedure_or_yield(query: str) -> No
         _mk_empty_graph().gfql(query)
 
     assert exc_info.value.code == ErrorCode.E108
+
+
+def test_string_cypher_executes_bare_pagerank_call_in_row_state() -> None:
+    pytest.importorskip("networkx")
+
+    result = _mk_simple_path_graph().gfql("CALL graphistry.nx.pagerank()")
+
+    assert list(result._nodes.columns) == ["nodeId", "score"]
+    assert result._node == "nodeId"
+    assert result._edges.empty
+    assert set(result._nodes["nodeId"]) == {"a", "b", "c"}
+    assert result._nodes["score"].gt(0).all()
 
 
 def test_string_cypher_executes_graph_preserving_degree_call() -> None:
