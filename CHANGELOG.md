@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **GFQL / Cypher**: Added a first local graph-returning Cypher form through `RETURN GRAPH` for the current `MATCH ... [WHERE ...] RETURN GRAPH` subset. It returns the matched subgraph in graph state instead of row state, keeps matched node/edge columns intact, and reserves `GRAPH` as a local compiler identifier where it would otherwise collide with the new syntax.
+
+### Docs
+- **GFQL / Cypher docs**: Documented when local Cypher stays row-oriented versus when `RETURN GRAPH` preserves graph state, including the current support boundary for the initial graph-returning subset.
+
 ## [0.52.0 - 2026-03-15]
 
 ### Added

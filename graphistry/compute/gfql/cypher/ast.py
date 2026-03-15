@@ -161,6 +161,7 @@ class ReturnClause:
     distinct: bool
     kind: Literal["return", "with"]
     span: SourceSpan
+    result_kind: Literal["rows", "graph"] = "rows"
 
 
 @dataclass(frozen=True)

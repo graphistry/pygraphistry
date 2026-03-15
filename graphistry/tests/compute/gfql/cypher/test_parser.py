@@ -40,6 +40,33 @@ def test_parse_minimal_match_return() -> None:
     assert parsed.trailing_semicolon is False
 
 
+def test_parse_match_return_graph() -> None:
+    parsed = _parse_query("MATCH (n)-[r]->(m) RETURN GRAPH")
+
+    assert parsed.match is not None
+    assert parsed.return_.kind == "return"
+    assert parsed.return_.result_kind == "graph"
+    assert parsed.return_.items == ()
+    assert parsed.order_by is None
+    assert parsed.skip is None
+    assert parsed.limit is None
+
+
+def test_parse_return_graph_still_allows_graph_property_access() -> None:
+    parsed = _parse_query("MATCH (n) RETURN n.graph")
+
+    assert parsed.return_.result_kind == "rows"
+    assert parsed.return_.items[0].expression.text == "n.graph"
+
+
+def test_parse_rejects_reserved_graph_identifier_for_aliases_and_variables() -> None:
+    with pytest.raises(GFQLSyntaxError):
+        _parse_query("MATCH (graph) RETURN n")
+
+    with pytest.raises(GFQLSyntaxError):
+        _parse_query("MATCH (n) RETURN n.id AS graph")
+
+
 def test_parse_linear_pattern_with_labels_properties_and_aliases() -> None:
     parsed = _parse_query(
         'MATCH (p:Person {id: $person_id})-[r:FOLLOWS]->(q:Person {active: true}) RETURN p.name AS person_name, q'

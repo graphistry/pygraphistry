@@ -5692,6 +5692,14 @@ def _lower_general_row_projection(
 
 
 def _cypher_return_output_names(clause: ReturnClause) -> Tuple[str, ...]:
+    if clause.result_kind == "graph":
+        raise _unsupported(
+            "Cypher UNION does not yet support RETURN GRAPH branches in the local compiler",
+            field="return",
+            value="GRAPH",
+            line=clause.span.line,
+            column=clause.span.column,
+        )
     names: List[str] = []
     for item in clause.items:
         if item.expression.text == "*":
@@ -5704,6 +5712,67 @@ def _cypher_return_output_names(clause: ReturnClause) -> Tuple[str, ...]:
             )
         names.append(item.alias or item.expression.text)
     return tuple(names)
+
+
+def _compile_return_graph_query(
+    query: CypherQuery,
+    *,
+    params: Optional[Mapping[str, Any]] = None,
+) -> CompiledCypherQuery:
+    if not query.matches:
+        raise _unsupported(
+            "Cypher RETURN GRAPH requires at least one MATCH clause in the local compiler",
+            field="return",
+            value="GRAPH",
+            line=query.return_.span.line,
+            column=query.return_.span.column,
+        )
+    if query.call is not None:
+        raise _unsupported(
+            "Cypher RETURN GRAPH does not yet support CALL in the same query",
+            field="return",
+            value="GRAPH",
+            line=query.return_.span.line,
+            column=query.return_.span.column,
+        )
+    if query.unwinds:
+        raise _unsupported(
+            "Cypher RETURN GRAPH does not yet support UNWIND in the same query",
+            field="return",
+            value="GRAPH",
+            line=query.return_.span.line,
+            column=query.return_.span.column,
+        )
+    if query.with_stages or query.reentry_matches:
+        raise _unsupported(
+            "Cypher RETURN GRAPH currently supports MATCH ... WHERE ... RETURN GRAPH only",
+            field="return",
+            value="GRAPH",
+            line=query.return_.span.line,
+            column=query.return_.span.column,
+        )
+    if query.order_by is not None or query.skip is not None or query.limit is not None:
+        raise _unsupported(
+            "Cypher RETURN GRAPH does not yet support ORDER BY / SKIP / LIMIT",
+            field="return",
+            value="GRAPH",
+            line=query.return_.span.line,
+            column=query.return_.span.column,
+        )
+    if query.return_.distinct:
+        raise _unsupported(
+            "Cypher RETURN GRAPH does not support DISTINCT",
+            field="return",
+            value="GRAPH",
+            line=query.return_.span.line,
+            column=query.return_.span.column,
+        )
+
+    lowered = lower_match_query(query, params=params)
+    return CompiledCypherQuery(
+        Chain(lowered.query, where=lowered.where),
+        seed_rows=False,
+    )
 
 
 def lower_cypher_query(
@@ -5959,6 +6028,8 @@ def compile_cypher_query(
     query = _rewrite_where_pattern_predicates_to_matches(query)
     _reject_unsupported_where_expr_forms(query)
     _reject_nonterminal_variable_length_relationship_patterns(query)
+    if query.return_.result_kind == "graph":
+        return _compile_return_graph_query(query, params=params)
     if query.reentry_matches:
         return _compile_bounded_reentry_query(query, params=params)
     if query.call is not None:

@@ -64,6 +64,53 @@ Use ``params=...`` instead of manual string interpolation:
 
     limited._nodes
 
+Returning A Graph Instead Of Rows
+---------------------------------
+
+Use ``RETURN GRAPH`` when you want the matched subgraph back in graph state
+instead of a row table:
+
+.. code-block:: python
+
+    subgraph = g.gfql(
+        "MATCH (seed)-[reach]-(nbr) "
+        "WHERE seed.degree >= $degree_cutoff "
+        "RETURN GRAPH",
+        params={"degree_cutoff": 10},
+    )
+
+    subgraph._nodes
+    subgraph._edges
+
+The current local ``RETURN GRAPH`` subset is intentionally small:
+
+- it returns the matched subgraph
+- it preserves the original node and edge columns
+- it does not yet support ``ORDER BY``, ``SKIP``, ``LIMIT``, ``DISTINCT``,
+  ``UNWIND``, ``WITH``, ``CALL``, or graph-specific projection syntax in the
+  same query
+
+That is enough to express a clean graph-search -> analytics -> graph-search
+pipeline:
+
+.. code-block:: python
+
+    g1 = g.gfql(
+        "MATCH (seed)-[reach]-(nbr) "
+        "WHERE seed.degree >= $degree_cutoff "
+        "RETURN GRAPH",
+        params={"degree_cutoff": 10},
+    )
+
+    g2 = g1.gfql("CALL graphistry.cugraph.pagerank.write()", engine="cudf")
+
+    g3 = g2.gfql(
+        "MATCH (core)-[halo]-(nbr) "
+        "WHERE core.pagerank >= $pagerank_cutoff "
+        "RETURN GRAPH",
+        params={"pagerank_cutoff": 0.25},
+    )
+
 Supported Cypher Surface Through ``g.gfql()``
 ---------------------------------------------
 
@@ -93,6 +140,10 @@ Support Matrix
    * - ``MATCH`` / ``WHERE`` / ``RETURN`` / ``WITH`` / ``ORDER BY`` / ``SKIP`` / ``LIMIT`` / ``DISTINCT``
      - Supported
      - Core read-only Cypher-in-GFQL path.
+   * - ``MATCH`` / ``WHERE`` / ``RETURN GRAPH``
+     - Partial
+     - Returns the matched subgraph in graph state. Current local subset is
+       intentionally limited to match/filter plus whole-graph return.
    * - ``OPTIONAL MATCH``
      - Partial
      - Supported for a bounded Cypher-in-GFQL subset, not the full Cypher null-extension surface.

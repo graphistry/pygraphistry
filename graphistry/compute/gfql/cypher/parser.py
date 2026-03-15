@@ -54,9 +54,11 @@ query_item: match_clause
 
 stage: with_stage
      | return_stage
+     | graph_return_stage
 
 with_stage: with_clause with_where_clause? order_by_clause? skip_clause? limit_clause?
 return_stage: return_clause order_by_clause? skip_clause? limit_clause?
+graph_return_stage: "RETURN"i "GRAPH"i
 
 match_clause: "MATCH"i match_item ("," match_item)*              -> match_clause
             | "OPTIONAL"i "MATCH"i match_item ("," match_item)*  -> optional_match_clause
@@ -276,6 +278,7 @@ BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
 """
 
 _BARE_LABEL_PREDICATE_RE = re.compile(r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)((?::[A-Za-z_][A-Za-z0-9_]*)+)$")
+_RESERVED_IDENTIFIER_GRAPH = "graph"
 _WHERE_PATTERN_ITEM_RE = re.compile(
     r"\([^)\n]*\)\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\)"
     r"(?:\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\))*"
@@ -1164,6 +1167,23 @@ def _build_transformer(source: str) -> _TransformerLike:
         def return_clause(self, meta: Any, items: Sequence[Any]) -> ReturnClause:
             return self._projection_clause(meta=meta, items=items, kind="return")
 
+        def graph_return_stage(self, meta: Any, _items: Sequence[Any]) -> ProjectionStage:
+            span = _span_from_meta(meta)
+            return ProjectionStage(
+                clause=ReturnClause(
+                    items=(),
+                    distinct=False,
+                    kind="return",
+                    span=span,
+                    result_kind="graph",
+                ),
+                where=None,
+                order_by=None,
+                skip=None,
+                limit=None,
+                span=span,
+            )
+
         def asc_order(self, _meta: Any, _items: Sequence[Any]) -> str:
             return "asc"
 
@@ -1524,4 +1544,48 @@ def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery]:
 
     if not isinstance(node, (CypherQuery, CypherUnionQuery)):
         raise _to_syntax_error("Cypher parser did not produce a query")
+    _validate_reserved_identifiers(node)
     return node
+
+
+def _validate_reserved_identifiers(node: Union[CypherQuery, CypherUnionQuery]) -> None:
+    if isinstance(node, CypherUnionQuery):
+        for branch in node.branches:
+            _validate_reserved_identifiers(branch)
+        return
+
+    def _check_identifier(name: Optional[str], *, line: int, column: int) -> None:
+        if name is not None and name.lower() == _RESERVED_IDENTIFIER_GRAPH:
+            raise _to_syntax_error(
+                "Cypher identifier GRAPH is reserved in the local compiler",
+                line=line,
+                column=column,
+            )
+
+    for match in (*node.matches, *node.reentry_matches):
+        for alias in match.pattern_aliases:
+            _check_identifier(alias, line=match.span.line, column=match.span.column)
+        for pattern in match.patterns:
+            for element in pattern:
+                if isinstance(element, NodePattern):
+                    _check_identifier(element.variable, line=element.span.line, column=element.span.column)
+                elif isinstance(element, RelationshipPattern):
+                    _check_identifier(element.variable, line=element.span.line, column=element.span.column)
+
+    for unwind in node.unwinds:
+        _check_identifier(unwind.alias, line=unwind.span.line, column=unwind.span.column)
+
+    for stage in (*node.with_stages, ProjectionStage(
+        clause=node.return_,
+        where=None,
+        order_by=node.order_by,
+        skip=node.skip,
+        limit=node.limit,
+        span=node.return_.span,
+    ),):
+        for item in stage.clause.items:
+            _check_identifier(item.alias, line=item.span.line, column=item.span.column)
+
+    if node.call is not None:
+        for yield_item in node.call.yield_items:
+            _check_identifier(yield_item.alias, line=yield_item.span.line, column=yield_item.span.column)
