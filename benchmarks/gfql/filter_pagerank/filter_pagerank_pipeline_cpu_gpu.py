@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark a GFQL -> PageRank -> GFQL pipeline on CPU and GPU backends.
+"""Benchmark a GFQL -> local Cypher CALL -> GFQL pipeline on CPU and GPU backends.
 
 Designed for DGX-style runs where the graph is loaded once, then the main pipeline is
 benchmarked warm on the resident in-memory graph.
@@ -73,25 +73,22 @@ def load_edges(engine: str, dataset: str, data_dir: Path):
     return pd.read_csv(path, **kwargs)
 
 
-def build_nodes(engine: str, edges, degree_quantile: float):
+def build_nodes(edges, degree_quantile: float):
     src_degree = edges["src"].value_counts().rename("src_degree").reset_index()
     src_degree.columns = ["id", "src_degree"]
     dst_degree = edges["dst"].value_counts().rename("dst_degree").reset_index()
     dst_degree.columns = ["id", "dst_degree"]
-    degree_df = src_degree.merge(dst_degree, on="id", how="outer")
-    degree_df = degree_df.fillna(0)
+    degree_df = src_degree.merge(dst_degree, on="id", how="outer").fillna(0)
     degree_df["degree"] = degree_df["src_degree"].astype("int64") + degree_df["dst_degree"].astype("int64")
     nodes = degree_df[["id", "degree"]].copy()
     cutoff = nodes["degree"].quantile(degree_quantile)
-    if engine == "cudf" and hasattr(cutoff, "to_pandas"):
+    if hasattr(cutoff, "to_pandas"):
         cutoff = cutoff.to_pandas()
-    cutoff_f = float(cutoff)
-    nodes["seed_keep"] = nodes["degree"] >= cutoff_f
-    return nodes, cutoff_f
+    return nodes, float(cutoff)
 
 
-def from_engine_scalar(engine: str, value) -> float:
-    if engine == "cudf" and hasattr(value, "to_pandas"):
+def from_engine_scalar(value) -> float:
+    if hasattr(value, "to_pandas"):
         value = value.to_pandas()
     return float(value)
 
@@ -103,7 +100,7 @@ def count_rows(df) -> int:
 def prepare_graph(dataset: str, engine: str, degree_quantile: float, data_dir: Path):
     t0 = time.perf_counter()
     edges = load_edges(engine, dataset, data_dir)
-    nodes, degree_cutoff = build_nodes(engine, edges, degree_quantile)
+    nodes, degree_cutoff = build_nodes(edges, degree_quantile)
     g = graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
     t1 = time.perf_counter()
     prep = {
@@ -115,26 +112,32 @@ def prepare_graph(dataset: str, engine: str, degree_quantile: float, data_dir: P
     return g, prep
 
 
-def run_pipeline_once(g, engine: str, pagerank_quantile: float):
-    backend = "igraph" if engine == "pandas" else "cugraph"
+def backend_name(engine: str) -> str:
+    return "igraph" if engine == "pandas" else "cugraph"
 
+
+def halo_chain(query: str, *, seed_name: str, edge_name: str):
+    return [
+        n(query=query, name=seed_name),
+        e_undirected(hops=1, name=edge_name),
+        n(name="nbr"),
+    ]
+
+
+def pagerank_call(engine: str) -> str:
+    return f"CALL graphistry.{backend_name(engine)}.pagerank.write()"
+
+
+def run_pipeline_once(g, engine: str, degree_cutoff: float, pagerank_quantile: float):
     t1 = time.perf_counter()
-    q1 = [n({"seed_keep": True}, name="seed"), e_undirected(hops=1, name="reach"), n(name="nbr")]
-    g1 = g.gfql(q1, engine=engine)
+    g1 = g.gfql(halo_chain(f"degree >= {degree_cutoff!r}", seed_name="seed", edge_name="reach"), engine=engine)
     t2 = time.perf_counter()
 
-    if backend == "igraph":
-        g2 = g1.compute_igraph("pagerank", directed=False)
-    else:
-        g2 = g1.compute_cugraph("pagerank", directed=False)
+    g2 = g1.gfql(pagerank_call(engine), engine=engine)
     t3 = time.perf_counter()
 
-    pr_cutoff = from_engine_scalar(engine, g2._nodes["pagerank"].quantile(pagerank_quantile))
-    nodes2 = g2._nodes.copy()
-    nodes2["core_keep"] = nodes2["pagerank"] >= pr_cutoff
-    g2b = g2.nodes(nodes2, g2._node)
-    q2 = [n({"core_keep": True}, name="core"), e_undirected(hops=1, name="halo"), n(name="nbr")]
-    g3 = g2b.gfql(q2, engine=engine)
+    pr_cutoff = from_engine_scalar(g2._nodes["pagerank"].quantile(pagerank_quantile))
+    g3 = g2.gfql(halo_chain(f"pagerank >= {pr_cutoff!r}", seed_name="core", edge_name="halo"), engine=engine)
     t4 = time.perf_counter()
 
     return {
@@ -160,15 +163,15 @@ def benchmark(dataset: str, engine: str, degree_quantile: float, pagerank_quanti
     g, prep = prepare_graph(dataset, engine, degree_quantile, data_dir)
 
     for _ in range(warmup):
-        run_pipeline_once(g, engine, pagerank_quantile)
+        run_pipeline_once(g, engine, prep["degree_cutoff"], pagerank_quantile)
 
-    rows = [run_pipeline_once(g, engine, pagerank_quantile) for _ in range(runs)]
+    rows = [run_pipeline_once(g, engine, prep["degree_cutoff"], pagerank_quantile) for _ in range(runs)]
     first = rows[0]
 
     return {
         "dataset": dataset,
         "engine": engine,
-        "backend": "igraph" if engine == "pandas" else "cugraph",
+        "backend": backend_name(engine),
         "degree_quantile": degree_quantile,
         "pagerank_quantile": pagerank_quantile,
         **prep,

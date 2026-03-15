@@ -125,11 +125,12 @@ def load_breakdown_df() -> pd.DataFrame:
 
 def gplus_lifecycle_df() -> pd.DataFrame:
     summary = gplus_summary()
+    load = {row["engine"]: row for row in gplus_load()["results"]}
     rows = []
-    for key, label in [("gpu", "Graphistry GPU"), ("cpu", "Graphistry CPU")]:
+    for key, engine, label in [("gpu", "cudf", "Graphistry GPU"), ("cpu", "pandas", "Graphistry CPU")]:
         row = summary[key]
         rows.extend([
-            {"system": label, "phase": "Load + shape", "seconds": row["load_prepare_s"]},
+            {"system": label, "phase": "Load + shape", "seconds": load[engine]["total_prepare_median_s"]},
             {"system": label, "phase": "Search + analytics pipeline", "seconds": row["pipeline_total_median_s"]},
         ])
     return pd.DataFrame(rows)
@@ -137,10 +138,10 @@ def gplus_lifecycle_df() -> pd.DataFrame:
 
 def pipeline_overview_df() -> pd.DataFrame:
     return pd.DataFrame([
-        {"Phase": "Data loading", "What happens": "Read cached SNAP edge list into a dataframe", "Why it matters": "Shows dataframe-native ingest cost, not just graph runtime"},
-        {"Phase": "Data shaping", "What happens": "Compute node degree and materialize seed flags", "Why it matters": "Benchmarks the dataframe wrangling before any traversal"},
-        {"Phase": "Graph search", "What happens": "Run GFQL neighborhood expansion around interesting nodes", "Why it matters": "Measures query/search on top of columnar data"},
-        {"Phase": "Graph analytics", "What happens": "Run PageRank with igraph/cugraph or Neo4j GDS", "Why it matters": "Shows backend graph algorithm acceleration"},
+        {"Phase": "Data loading", "What happens": "Read a cached SNAP edge list into a dataframe", "Why it matters": "Shows dataframe-native ingest cost, not just graph runtime"},
+        {"Phase": "Data shaping", "What happens": "Compute node degree once and keep it as node metadata", "Why it matters": "Benchmarks the columnar prep that later GFQL stages query directly"},
+        {"Phase": "Graph search", "What happens": "Run GFQL `n(query=...)` + `e_undirected(...)` neighborhood expansion", "Why it matters": "Measures graph-preserving search directly on dataframe-backed graphs"},
+        {"Phase": "Graph analytics", "What happens": "Run local Cypher `CALL graphistry.{igraph,cugraph}.pagerank.write()`", "Why it matters": "Shows backend graph algorithm acceleration while keeping the enriched graph resident"},
         {"Phase": "Downstream use", "What happens": "Keep the final enriched subgraph for visualization or follow-on analysis", "Why it matters": "No external DB required; it stays in Python dataframes/graph objects"},
     ])
 

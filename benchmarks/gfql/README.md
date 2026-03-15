@@ -235,7 +235,7 @@ uv run python benchmarks/gfql/where_opt_matrix.py \
 
 ## GFQL filter + PageRank CPU vs GPU
 
-Benchmark a realistic GFQL -> PageRank -> GFQL pipeline on large SNAP social graphs, comparing `pandas+igraph` against `cudf+cugraph`.
+Benchmark a realistic GFQL search -> local Cypher `CALL ... .write()` PageRank -> GFQL search pipeline on large SNAP social graphs, comparing `pandas+igraph` against `cudf+cugraph`.
 The graph is loaded once, then the main pipeline is benchmarked warm on the resident graph.
 
 ```bash
@@ -270,19 +270,20 @@ python benchmarks/gfql/filter_pagerank/filter_pagerank_pipeline_cpu_gpu.py \
 ```
 
 Selected DGX result (`gplus`, `degree_q=0.995`, `pagerank_q=0.9995`):
-- Warm CPU pipeline: `82.48s`
-- Warm GPU pipeline: `4.08s`
-- Warm speedup: `20.24x`
+- Warm CPU pipeline: `89.79s`
+- Warm GPU pipeline: `3.76s`
+- Warm speedup: `23.88x`
+- This benchmark now uses GFQL `n(query=...)` search stages plus local Cypher `CALL graphistry.{igraph,cugraph}.pagerank.write()` for the PageRank stage.
 - Stage medians:
-  - GFQL filter 1: `47.47s` CPU vs `2.92s` GPU (`16.26x`)
-  - PageRank: `22.43s` CPU vs `0.58s` GPU (`38.91x`)
-  - GFQL filter 2: `12.58s` CPU vs `0.58s` GPU (`21.72x`)
+  - GFQL filter 1: `55.23s` CPU vs `2.67s` GPU (`20.69x`)
+  - PageRank via local Cypher write: `22.18s` CPU vs `0.50s` GPU (`44.74x`)
+  - GFQL filter 2: `12.38s` CPU vs `0.59s` GPU (`20.83x`)
 - Graph sizes:
   - Full graph: `107,614` nodes / `30,494,866` edges on both engines
   - After GFQL filter 1: `73,010` nodes / `11,755,106` edges on both engines
   - Final graph after PageRank cutoff + GFQL filter 2:
-    - CPU (`igraph`): `56,725` nodes / `1,556,371` edges
-    - GPU (`cugraph`): `56,930` nodes / `1,367,990` edges
+    - CPU (`igraph`): `41,147` nodes / `1,341,817` edges
+    - GPU (`cugraph`): `42,002` nodes / `1,278,572` edges
 - Note: the final graph differs modestly because `igraph` and `cugraph` produce slightly different PageRank score distributions, so the top-quantile cutoff lands on a different boundary.
 - Raw notes: `plans/gfql-gpu-pagerank-benchmark/results/gplus_q995_pr9995_summary.md`
 - Notebook walkthrough: `demos/gfql/benchmark_filter_pagerank_cpu_gpu.ipynb`

@@ -44,7 +44,7 @@ The pipeline is intentionally simple and representative:
 1. **Data loading**
    Read a cached SNAP edge list into a dataframe.
 2. **Data shaping**
-   Compute degree, build seed flags, and materialize node metadata.
+   Compute node degree and materialize the node metadata later queried by GFQL.
 3. **Graph search**
    Use GFQL to expand around interesting nodes and extract a subgraph.
 4. **Graph analytics**
@@ -59,59 +59,35 @@ The important detail is that these are not separate systems stitched together. T
 What the actual benchmarked pipelines look like
 ----------------------------------------------
 
-The Graphistry side of this benchmark did **not** use Cypher strings. It used direct GFQL/PyGraphistry calls so the timing reflects dataframe-native query/runtime behavior and the igraph/cugraph backend step, not parser overhead.
+The Graphistry side of this benchmark now uses the cleanest currently supported mixed flow on ``master``:
 
-Graphistry CPU path (``pandas + igraph``):
+- GFQL handles the graph-preserving search stages via ``n(query=...)`` + ``e_undirected(...)``
+- the PageRank stage uses the new local Cypher ``CALL graphistry.{igraph,cugraph}.pagerank.write()`` surface
+- that is deliberate: graph-preserving ``CALL ... .write()`` works today, but only as a standalone local query, not as a single pure-Cypher ``MATCH ... CALL ... MATCH ...`` program
 
-.. code-block:: python
-
-   from graphistry.compute.ast import e_undirected, n
-
-   q1 = [
-       n({"seed_keep": True}, name="seed"),
-       e_undirected(hops=1, name="reach"),
-       n(name="nbr"),
-   ]
-   g1 = g.gfql(q1, engine="pandas")
-   g2 = g1.compute_igraph("pagerank", directed=False)
-
-   pr_cutoff = float(g2._nodes["pagerank"].quantile(pagerank_quantile))
-   nodes2 = g2._nodes.copy()
-   nodes2["core_keep"] = nodes2["pagerank"] >= pr_cutoff
-   g2b = g2.nodes(nodes2, g2._node)
-
-   q2 = [
-       n({"core_keep": True}, name="core"),
-       e_undirected(hops=1, name="halo"),
-       n(name="nbr"),
-   ]
-   g3 = g2b.gfql(q2, engine="pandas")
-
-Graphistry GPU path (``cudf + cugraph``):
+Same Graphistry pipeline shape on CPU and GPU:
 
 .. code-block:: python
 
    from graphistry.compute.ast import e_undirected, n
 
-   q1 = [
-       n({"seed_keep": True}, name="seed"),
-       e_undirected(hops=1, name="reach"),
-       n(name="nbr"),
-   ]
-   g1 = g.gfql(q1, engine="cudf")
-   g2 = g1.compute_cugraph("pagerank", directed=False)
+   def halo(query: str, *, seed_name: str, edge_name: str):
+       return [
+           n(query=query, name=seed_name),
+           e_undirected(hops=1, name=edge_name),
+           n(name="nbr"),
+       ]
 
-   pr_cutoff = float(g2._nodes["pagerank"].quantile(pagerank_quantile).to_pandas())
-   nodes2 = g2._nodes.copy()
-   nodes2["core_keep"] = nodes2["pagerank"] >= pr_cutoff
-   g2b = g2.nodes(nodes2, g2._node)
+   g1 = g.gfql(halo(f"degree >= {degree_cutoff!r}", seed_name="seed", edge_name="reach"), engine=engine)
+   g2 = g1.gfql(f"CALL graphistry.{backend}.pagerank.write()", engine=engine)
 
-   q2 = [
-       n({"core_keep": True}, name="core"),
-       e_undirected(hops=1, name="halo"),
-       n(name="nbr"),
-   ]
-   g3 = g2b.gfql(q2, engine="cudf")
+   pagerank_cutoff = float(g2._nodes["pagerank"].quantile(pagerank_quantile))
+   g3 = g2.gfql(halo(f"pagerank >= {pagerank_cutoff!r}", seed_name="core", edge_name="halo"), engine=engine)
+
+Where:
+
+- CPU uses ``engine="pandas"`` and ``backend="igraph"``
+- GPU uses ``engine="cudf"`` and ``backend="cugraph"``
 
 Neo4j + GDS analog (Cypher + projection + PageRank write):
 
@@ -170,8 +146,8 @@ The Twitter-sized run is the cleanest exact apples-to-apples comparison because 
 
 Takeaways:
 
-- Graphistry GPU: ``0.31s``
-- Graphistry CPU: ``2.32s``
+- Graphistry GPU: ``0.28s``
+- Graphistry CPU: ``2.29s``
 - Neo4j + GDS: ``13.51s``
 - Graphistry GPU is the fastest end-to-end path.
 - Graphistry CPU is still materially faster than Neo4j for the same Twitter workload.
@@ -204,8 +180,8 @@ The GPlus run is where the CPU-vs-GPU story becomes especially compelling. It is
 
 Takeaways:
 
-- Graphistry GPU total lifecycle on GPlus: about ``8.01s`` (``3.93s`` load/shape + ``4.08s`` warm pipeline)
-- Graphistry CPU total lifecycle on GPlus: about ``91.20s`` (``8.72s`` load/shape + ``82.48s`` warm pipeline)
+- Graphistry GPU total lifecycle on GPlus: about ``7.69s`` (``3.93s`` load/shape + ``3.76s`` warm pipeline)
+- Graphistry CPU total lifecycle on GPlus: about ``98.50s`` (``8.72s`` load/shape + ``89.79s`` warm pipeline)
 - Neo4j is shown honestly as a lower bound here: it exceeded ``3m07s`` before the main transaction even finished closing.
 - On GPlus, the Graphistry GPU path reduces a minute-scale CPU pipeline to a few seconds.
 - The big win is not just one algorithm; it is the combination of dataframe-native loading/shaping, graph search, and graph analytics.
