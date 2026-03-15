@@ -221,8 +221,10 @@ Procedure And Multi-Branch Forms
 
 - Bare procedures without ``.write()`` stay row-returning even when you omit
   ``YIELD ... RETURN ...``. For example, ``CALL graphistry.degree()`` projects
-  its default outputs into ``_nodes`` and clears ``_edges``; use ``.write()``
-  when you want enrich-then-``MATCH`` graph workflows.
+  its default outputs into ``_nodes`` and leaves an empty placeholder
+  ``_edges`` frame (for example, ``assert result._edges.empty``); use
+  ``.write()`` when you want enrich-then-``MATCH`` graph workflows with
+  traversable edges (for example, ``assert not result._edges.empty``).
 
 - ``cypher_to_gfql()`` stays stricter than direct execution and intentionally
   rejects ``UNION`` / ``UNION ALL`` and row-returning ``CALL`` flows because

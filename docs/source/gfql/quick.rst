@@ -568,6 +568,7 @@ Run graph algorithms like PageRank, community detection, and layouts directly wi
   .. code-block:: python
 
       g_enriched = g.gfql("CALL graphistry.degree.write()")
+      assert not g_enriched._edges.empty
       top_degree = g_enriched.gfql(
           "MATCH (n) WHERE n.degree >= 2 RETURN n.id AS id, n.degree AS degree ORDER BY degree DESC LIMIT 10"
       )
@@ -580,6 +581,7 @@ Run graph algorithms like PageRank, community detection, and layouts directly wi
   .. code-block:: python
 
       degree_rows = g.gfql("CALL graphistry.degree()")
+      assert degree_rows._edges.empty
 
       # Row state: _nodes has nodeId/degree columns and _edges is empty
       degree_rows._nodes

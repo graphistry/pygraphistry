@@ -148,6 +148,7 @@ Example: Enrich a graph locally, keep graph state, then run a later `MATCH`.
 .. code-block:: python
 
     g_enriched = g.gfql("CALL graphistry.degree.write()")
+    assert not g_enriched._edges.empty
     top_degree = g_enriched.gfql(
         "MATCH (n) "
         "WHERE n.degree >= 2 "
@@ -165,6 +166,7 @@ Example: Omit `.write()` when you want procedure rows instead of an enriched gra
 .. code-block:: python
 
     degree_rows = g.gfql("CALL graphistry.degree()")
+    assert degree_rows._edges.empty
     degree_rows._nodes
 
 This row result uses ``nodeId`` as the row identifier, stores the projected procedure outputs in ``_nodes``, and clears ``_edges``. Use ``.write()`` when the next step needs graph topology.

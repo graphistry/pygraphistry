@@ -372,8 +372,8 @@ Run GPU-accelerated graph algorithms using `cuGraph <https://github.com/rapidsai
 
 **Local Cypher Modes:**
 
-- **Row mode:** ``g.gfql("CALL graphistry.cugraph.pagerank()")`` returns row state with default ``nodeId`` and ``score`` columns in ``_nodes`` and clears ``_edges``. Add ``YIELD ... RETURN ...`` when you want to rename, filter, or sort those rows.
-- **Graph mode:** ``g.gfql("CALL graphistry.cugraph.pagerank.write()")`` writes the default ``pagerank`` node property and keeps the result in graph state for later matches.
+- **Row mode:** ``g.gfql("CALL graphistry.cugraph.pagerank()")`` returns row state with default ``nodeId`` and ``score`` columns in ``_nodes`` and an empty placeholder ``_edges`` frame (for example, ``assert result._edges.empty``). Add ``YIELD ... RETURN ...`` when you want to rename, filter, or sort those rows.
+- **Graph mode:** ``g.gfql("CALL graphistry.cugraph.pagerank.write()")`` writes the default ``pagerank`` node property and keeps the result in graph state with traversable edges (for example, ``assert not result._edges.empty``) for later matches.
 
 **Parameter Discovery:** For detailed algorithm parameters, see the `cuGraph documentation <https://docs.rapids.ai/api/cugraph/stable/>`_. Parameters are passed via the ``params`` dictionary.
 
@@ -457,8 +457,8 @@ Similar to cuGraph but on CPU, including:
 
 **Local Cypher Modes:**
 
-- **Row mode:** ``g.gfql("CALL graphistry.igraph.pagerank()")`` returns row state with default ``nodeId`` and ``score`` columns in ``_nodes`` and clears ``_edges``. Add ``YIELD ... RETURN ...`` when you want to rename, filter, or sort those rows.
-- **Graph mode:** ``g.gfql("CALL graphistry.igraph.pagerank.write()")`` writes the default ``pagerank`` node property and keeps the result in graph state for later matches.
+- **Row mode:** ``g.gfql("CALL graphistry.igraph.pagerank()")`` returns row state with default ``nodeId`` and ``score`` columns in ``_nodes`` and an empty placeholder ``_edges`` frame (for example, ``assert result._edges.empty``). Add ``YIELD ... RETURN ...`` when you want to rename, filter, or sort those rows.
+- **Graph mode:** ``g.gfql("CALL graphistry.igraph.pagerank.write()")`` writes the default ``pagerank`` node property and keeps the result in graph state with traversable edges (for example, ``assert not result._edges.empty``) for later matches.
 
 **Parameter Discovery:** For detailed algorithm parameters, see the `Python igraph documentation <https://igraph.org/python/>`_. Parameters are passed via the ``params`` dictionary.
 
@@ -523,8 +523,8 @@ Calculate degree centrality for nodes (in-degree, out-degree, and total degree).
 
 **Local Cypher Modes:**
 
-- **Row mode:** ``g.gfql("CALL graphistry.degree()")`` returns row state with default ``nodeId``, ``degree``, ``degree_in``, and ``degree_out`` columns in ``_nodes`` and clears ``_edges``. Add ``YIELD ... RETURN ...`` when you want to project or sort those rows explicitly.
-- **Graph mode:** ``g.gfql("CALL graphistry.degree.write()")`` materializes ``degree``, ``degree_in``, and ``degree_out`` on nodes while preserving the graph for later matches.
+- **Row mode:** ``g.gfql("CALL graphistry.degree()")`` returns row state with default ``nodeId``, ``degree``, ``degree_in``, and ``degree_out`` columns in ``_nodes`` and an empty placeholder ``_edges`` frame (for example, ``assert result._edges.empty``). Add ``YIELD ... RETURN ...`` when you want to project or sort those rows explicitly.
+- **Graph mode:** ``g.gfql("CALL graphistry.degree.write()")`` materializes ``degree``, ``degree_in``, and ``degree_out`` on nodes while preserving the graph for later matches with traversable edges (for example, ``assert not result._edges.empty``).
 
 get_indegrees
 ~~~~~~~~~~~~~
