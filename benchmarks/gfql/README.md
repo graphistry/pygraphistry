@@ -239,7 +239,7 @@ Benchmark a realistic GFQL -> PageRank -> GFQL pipeline on large SNAP social gra
 The graph is loaded once, then the main pipeline is benchmarked warm on the resident graph.
 
 ```bash
-uv run python benchmarks/gfql/filter_pagerank_pipeline_cpu_gpu.py \
+uv run python benchmarks/gfql/filter_pagerank/filter_pagerank_pipeline_cpu_gpu.py \
   --dataset twitter \
   --engine both \
   --degree-quantile 0.99 \
@@ -251,7 +251,7 @@ DGX-sized GPlus example:
 
 ```bash
 # GPU
-python benchmarks/gfql/filter_pagerank_pipeline_cpu_gpu.py \
+python benchmarks/gfql/filter_pagerank/filter_pagerank_pipeline_cpu_gpu.py \
   --dataset gplus \
   --engine cudf \
   --degree-quantile 0.995 \
@@ -260,7 +260,7 @@ python benchmarks/gfql/filter_pagerank_pipeline_cpu_gpu.py \
   --output-json plans/gfql-gpu-pagerank-benchmark/results/gplus_gpu_q995_pr9995.json
 
 # CPU
-python benchmarks/gfql/filter_pagerank_pipeline_cpu_gpu.py \
+python benchmarks/gfql/filter_pagerank/filter_pagerank_pipeline_cpu_gpu.py \
   --dataset gplus \
   --engine pandas \
   --degree-quantile 0.995 \
@@ -296,7 +296,7 @@ This measures only local cached file -> in-memory graph preparation:
 - Graphistry bind (`nodes(...).edges(...)`)
 
 ```bash
-uv run python benchmarks/gfql/load_prepare_cpu_gpu.py \
+uv run python benchmarks/gfql/filter_pagerank/load_prepare_cpu_gpu.py \
   --dataset gplus \
   --engine both \
   --degree-quantile 0.995 \
@@ -344,7 +344,7 @@ Tracked manual benchmark script for the Neo4j + GDS analog:
 
 ```bash
 uv run --no-project --with neo4j \
-  python benchmarks/gfql/filter_pagerank_pipeline_neo4j.py \
+  python benchmarks/gfql/filter_pagerank/filter_pagerank_pipeline_neo4j.py \
   --dataset twitter \
   --degree-quantile 0.99 \
   --pagerank-quantile 0.99 \

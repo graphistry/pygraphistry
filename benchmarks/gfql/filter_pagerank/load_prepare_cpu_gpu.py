@@ -20,7 +20,7 @@ from typing import Dict, List
 
 import graphistry
 
-from benchmarks.gfql.filter_pagerank_pipeline_cpu_gpu import dataset_spec, download
+from filter_pagerank_pipeline_cpu_gpu import dataset_spec, download
 
 
 def ensure_cached(dataset: str, data_dir: Path) -> Path:
