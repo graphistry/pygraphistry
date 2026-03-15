@@ -305,3 +305,22 @@ Current measured environment for the selected GPlus run:
 The benchmark reports both full pipeline timings and split stage timings so we can separate:
 - GFQL/dataframe acceleration (`pandas` vs `cudf`)
 - graph algorithm acceleration (`igraph` vs `cugraph`)
+
+
+### Neo4j exploratory comparison
+
+DGX exploratory results for a Neo4j + GDS analog of the same benchmark shape:
+
+- Twitter exact analog (`degree_q=0.99`, `pagerank_q=0.99`):
+  - warm pipeline: `13.16s`
+  - stage medians: filter1 `5.31s`, pagerank `4.51s`, filter2 `3.34s`
+- GPlus exact analog (`degree_q=0.995`, `pagerank_q=0.9995`):
+  - imported and runnable in Neo4j after switching import IDs to `string`
+  - naive single-transaction seed expansion OOMed at `dbms.memory.transaction.total.max`
+  - batched seed/core expansion fixed the OOM
+  - even with batching, the full pipeline exceeded `3m07s` before the main transaction reached `Closing`
+
+So the honest current comparison is:
+- Neo4j is workable for the smaller Twitter analog.
+- On the selected GPlus benchmark shape, Neo4j is already dramatically slower than Graphistry CPU (`82.48s`) and Graphistry GPU (`4.08s`) before teardown/cleanup is even done.
+- Raw notes: `plans/gfql-gpu-pagerank-benchmark/results/neo4j_summary.md`
