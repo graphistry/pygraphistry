@@ -3759,8 +3759,12 @@ def test_cypher_to_gfql_rejects_union_programs() -> None:
     ("query", "procedure", "result_kind"),
     [
         ("CALL graphistry.degree()", "graphistry.degree", "rows"),
+        ("CALL graphistry.igraph.pagerank()", "graphistry.igraph.pagerank", "rows"),
         ("CALL graphistry.cugraph.pagerank()", "graphistry.cugraph.pagerank", "rows"),
+        ("CALL graphistry.nx.pagerank()", "graphistry.nx.pagerank", "rows"),
         ("CALL graphistry.degree.write()", "graphistry.degree.write", "graph"),
+        ("CALL graphistry.igraph.pagerank.write()", "graphistry.igraph.pagerank.write", "graph"),
+        ("CALL graphistry.cugraph.pagerank.write()", "graphistry.cugraph.pagerank.write", "graph"),
         ("CALL graphistry.nx.pagerank.write()", "graphistry.nx.pagerank.write", "graph"),
     ],
 )
@@ -3873,6 +3877,29 @@ def test_string_cypher_executes_graph_preserving_degree_call() -> None:
         {"id": "b", "degree_in": 1, "degree_out": 1, "degree": 2},
         {"id": "c", "degree_in": 1, "degree_out": 0, "degree": 1},
     ]
+    assert result._edges.to_dict(orient="records") == [
+        {"s": "a", "d": "b"},
+        {"s": "b", "d": "c"},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("module_name", "query"),
+    [
+        ("igraph", "CALL graphistry.igraph.pagerank.write()"),
+        ("networkx", "CALL graphistry.nx.pagerank.write()"),
+    ],
+)
+def test_string_cypher_executes_graph_preserving_pagerank_write_call(
+    module_name: str,
+    query: str,
+) -> None:
+    pytest.importorskip(module_name)
+
+    result = _mk_simple_path_graph().gfql(query)
+
+    assert "pagerank" in result._nodes.columns
+    assert result._nodes["pagerank"].gt(0).all()
     assert result._edges.to_dict(orient="records") == [
         {"s": "a", "d": "b"},
         {"s": "b", "d": "c"},

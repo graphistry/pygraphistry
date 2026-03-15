@@ -71,10 +71,10 @@ Use the entrypoint that matches where the query executes:
 
 GFQL pipelines also have two practical result kinds:
 
-- **Graph state**: Traversable graph results with meaningful `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, and `let()` / `ref()` DAG stages stay in graph state.
+- **Graph state**: Traversable graph results with meaningful `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, `let()` / `ref()` DAG stages, and local Cypher `CALL graphistry.*.write()` queries stay in graph state.
 - **Row state**: Tabular results stored in `_nodes`, with `_edges` reduced to an empty placeholder frame. Row-pipeline steps like `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning local Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
 
-If you need to enrich a graph and keep matching today, prefer graph-preserving `call()` / `let()` composition rather than a row-returning local Cypher `CALL`.
+If you need to enrich a graph and keep matching locally, use graph-preserving `call()` / `let()` composition or a bare local Cypher `CALL graphistry.*.write()`. Supported local graph-preserving procedures today are `graphistry.degree.write()`, `graphistry.igraph.pagerank.write()`, `graphistry.cugraph.pagerank.write()`, and `graphistry.nx.pagerank.write()`.
 
 Quick Examples
 ~~~~~~~~~~~~~~~
@@ -139,6 +139,23 @@ Example: Match people, filter rows, project columns, then sort/limit.
     ])
 
     top_people._nodes
+
+**Local Cypher `CALL ... .write()` Example**
+
+Example: Enrich a graph locally, keep graph state, then run a later `MATCH`.
+
+.. code-block:: python
+
+    g_enriched = g.gfql("CALL graphistry.degree.write()")
+    top_degree = g_enriched.gfql(
+        "MATCH (n) "
+        "WHERE n.degree >= 2 "
+        "RETURN n.id AS id, n.degree AS degree "
+        "ORDER BY degree DESC, id ASC "
+        "LIMIT 10"
+    )
+
+    top_degree._nodes
 
 Example visualization (static):
 

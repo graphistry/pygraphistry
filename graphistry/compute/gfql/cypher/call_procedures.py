@@ -37,6 +37,38 @@ class CompiledCypherProcedureCall:
     write_property: Optional[str] = None
 
 
+_PAGERANK_OUTPUTS: Tuple[str, ...] = ("nodeId", "score")
+_PAGERANK_PROCEDURES: Tuple[Tuple[str, str], ...] = (
+    ("igraph", "igraph"),
+    ("cugraph", "cugraph"),
+    ("nx", "networkx"),
+)
+_GRAPH_PAGERANK_WRITE_METHODS: Dict[str, str] = {
+    "igraph_pagerank_write": "compute_igraph",
+    "cugraph_pagerank_write": "compute_cugraph",
+}
+
+
+def _pagerank_procedure_defs(
+    backend_prefix: str,
+    kind_prefix: str,
+) -> Dict[str, _ProcedureDefinition]:
+    procedure_prefix = f"graphistry.{backend_prefix}.pagerank"
+    return {
+        procedure_prefix: _ProcedureDefinition(
+            procedure=procedure_prefix,
+            kind=f"{kind_prefix}_pagerank",
+            default_outputs=_PAGERANK_OUTPUTS,
+        ),
+        f"{procedure_prefix}.write": _ProcedureDefinition(
+            procedure=f"{procedure_prefix}.write",
+            kind=f"{kind_prefix}_pagerank_write",
+            result_kind="graph",
+            write_property="pagerank",
+        ),
+    }
+
+
 _PROCEDURE_DEFS: Dict[str, _ProcedureDefinition] = {
     "graphistry.degree": _ProcedureDefinition(
         procedure="graphistry.degree",
@@ -48,39 +80,11 @@ _PROCEDURE_DEFS: Dict[str, _ProcedureDefinition] = {
         kind="degree_write",
         result_kind="graph",
     ),
-    "graphistry.igraph.pagerank": _ProcedureDefinition(
-        procedure="graphistry.igraph.pagerank",
-        kind="igraph_pagerank",
-        default_outputs=("nodeId", "score"),
-    ),
-    "graphistry.igraph.pagerank.write": _ProcedureDefinition(
-        procedure="graphistry.igraph.pagerank.write",
-        kind="igraph_pagerank_write",
-        result_kind="graph",
-        write_property="pagerank",
-    ),
-    "graphistry.cugraph.pagerank": _ProcedureDefinition(
-        procedure="graphistry.cugraph.pagerank",
-        kind="cugraph_pagerank",
-        default_outputs=("nodeId", "score"),
-    ),
-    "graphistry.cugraph.pagerank.write": _ProcedureDefinition(
-        procedure="graphistry.cugraph.pagerank.write",
-        kind="cugraph_pagerank_write",
-        result_kind="graph",
-        write_property="pagerank",
-    ),
-    "graphistry.nx.pagerank": _ProcedureDefinition(
-        procedure="graphistry.nx.pagerank",
-        kind="networkx_pagerank",
-        default_outputs=("nodeId", "score"),
-    ),
-    "graphistry.nx.pagerank.write": _ProcedureDefinition(
-        procedure="graphistry.nx.pagerank.write",
-        kind="networkx_pagerank_write",
-        result_kind="graph",
-        write_property="pagerank",
-    ),
+    **{
+        procedure: definition
+        for backend_prefix, kind_prefix in _PAGERANK_PROCEDURES
+        for procedure, definition in _pagerank_procedure_defs(backend_prefix, kind_prefix).items()
+    },
 }
 
 
@@ -357,13 +361,9 @@ def _merge_node_property_rows(
 def _execute_graph_call(base_graph: Plottable, compiled_call: CompiledCypherProcedureCall) -> Plottable:
     if compiled_call.kind == "degree_write":
         return _materialized_graph(base_graph).get_degrees()
-    if compiled_call.kind == "igraph_pagerank_write":
-        return _materialized_graph(base_graph).compute_igraph(
-            "pagerank",
-            out_col=compiled_call.write_property or "pagerank",
-        )
-    if compiled_call.kind == "cugraph_pagerank_write":
-        return _materialized_graph(base_graph).compute_cugraph(
+    graph_method = _GRAPH_PAGERANK_WRITE_METHODS.get(compiled_call.kind)
+    if graph_method is not None:
+        return getattr(_materialized_graph(base_graph), graph_method)(
             "pagerank",
             out_col=compiled_call.write_property or "pagerank",
         )

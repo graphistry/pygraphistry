@@ -370,6 +370,8 @@ Run GPU-accelerated graph algorithms using `cuGraph <https://github.com/rapidsai
 
 **Schema Effects:** Adds one column to nodes with the algorithm result.
 
+**Local Cypher Equivalent:** ``g.gfql("CALL graphistry.cugraph.pagerank.write()")`` writes the default ``pagerank`` node property and keeps the result in graph state for later matches.
+
 **Parameter Discovery:** For detailed algorithm parameters, see the `cuGraph documentation <https://docs.rapids.ai/api/cugraph/stable/>`_. Parameters are passed via the ``params`` dictionary.
 
 .. note::
@@ -450,6 +452,8 @@ Similar to cuGraph but on CPU, including:
 
 **Schema Effects:** Adds one column to nodes with the algorithm result.
 
+**Local Cypher Equivalent:** ``g.gfql("CALL graphistry.igraph.pagerank.write()")`` writes the default ``pagerank`` node property and keeps the result in graph state for later matches.
+
 **Parameter Discovery:** For detailed algorithm parameters, see the `Python igraph documentation <https://igraph.org/python/>`_. Parameters are passed via the ``params`` dictionary.
 
 .. note::
@@ -510,6 +514,8 @@ Calculate degree centrality for nodes (in-degree, out-degree, and total degree).
     }))
 
 **Schema Effects:** Adds up to 3 columns to nodes (based on parameters provided).
+
+**Local Cypher Equivalent:** ``g.gfql("CALL graphistry.degree.write()")`` materializes ``degree``, ``degree_in``, and ``degree_out`` on nodes while preserving the graph for later matches.
 
 get_indegrees
 ~~~~~~~~~~~~~
