@@ -51,6 +51,7 @@ See also:
    overview
    remote
    GFQL CPU & GPU Acceleration <performance>
+   End-to-End Benchmark <benchmark_filter_pagerank>
    translate
    combo
    quick
