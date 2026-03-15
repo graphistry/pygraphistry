@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, Literal, Mapping, Optional, Sequence, Tuple, cast
 
 import pandas as pd
@@ -65,7 +65,7 @@ class CompiledCypherProcedureCall:
     result_kind: Literal["rows", "graph"] = "rows"
     row_kind: _ROW_KIND = "node"
     call_function: Optional[str] = None
-    call_params: Mapping[str, Any] = ()
+    call_params: Mapping[str, Any] = field(default_factory=dict)
     line: int = 1
     column: int = 1
 
