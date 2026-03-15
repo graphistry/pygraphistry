@@ -368,6 +368,7 @@ def hop(self: Plottable,
     current_hop = 0
     max_reached_hop = 0
     skip_full_loop = False
+    visited_edge_ids = None
     if fast_path_enabled:
         frontier_ids = _domain_unique(starting_nodes[node_col])
         visited_node_ids = None
@@ -381,6 +382,8 @@ def hop(self: Plottable,
             current_hop += 1
 
             hop_edges = pairs[pairs[FROM_COL].isin(frontier_ids)]
+            if to_fixed_point and not _domain_is_empty(visited_edge_ids):
+                hop_edges = hop_edges[~hop_edges[EDGE_ID].isin(visited_edge_ids)]
             cand_nodes = _domain_unique(hop_edges[TO_COL])
             seed_ids_domain = None
             if visited_node_ids is None and not return_as_wave_front:
@@ -475,11 +478,17 @@ def hop(self: Plottable,
                 logger.debug('new_node_ids after precomputed filtering:\n%s', new_node_ids)
                 logger.debug('hop_edges filtered by precomputed nodes:\n%s', hop_edges)
 
+        if to_fixed_point and not _domain_is_empty(visited_edge_ids):
+            hop_edges = hop_edges[~hop_edges[EDGE_ID].isin(visited_edge_ids)]
+            new_node_ids = hop_edges[[TO_COL]].rename(columns={TO_COL: node_col}).drop_duplicates()
+
         matches_edges = concat(
             [matches_edges, hop_edges[[EDGE_ID]]],
             ignore_index=True,
             sort=False
         ).drop_duplicates(subset=[EDGE_ID])
+        if len(hop_edges) > 0:
+            visited_edge_ids = _domain_union(visited_edge_ids, _domain_unique(hop_edges[EDGE_ID]))
 
         if len(new_node_ids) > 0:
             max_reached_hop = current_hop

@@ -167,6 +167,21 @@ class TestMultiHopForward():
             {'s': 'd', 'd': 'e'}
         ]
 
+    def test_hop_fixedpoint_undirected_does_not_revisit_seed_via_same_edge(self, g_long_forwards_chain: CGFull, n_a):
+        g2 = g_long_forwards_chain.hop(
+            nodes=n_a,
+            to_fixed_point=True,
+            direction='undirected',
+            return_as_wave_front=True
+        )
+        assert set(g2._nodes['v'].tolist()) == {'b', 'c', 'd', 'e'}
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'b'},
+            {'s': 'b', 'd': 'c'},
+            {'s': 'c', 'd': 'd'},
+            {'s': 'd', 'd': 'e'}
+        ]
+
     def test_hop_long_back(self, g_long_forwards_chain: CGFull, n_d, n_a):
         g_reverse = g_long_forwards_chain.nodes(
             g_long_forwards_chain._nodes[
