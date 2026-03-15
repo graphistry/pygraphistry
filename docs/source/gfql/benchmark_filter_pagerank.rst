@@ -57,7 +57,7 @@ The pipeline is intentionally simple and representative:
 The important detail is that these are not separate systems stitched together. The Graphistry CPU and GPU paths both keep the workflow dataframe-native, and the GPU path accelerates both the dataframe work and the graph algorithm work.
 
 What the actual benchmarked pipelines look like
-----------------------------------------------
+--------------------------------------------------------
 
 The Graphistry side of this benchmark now uses the cleanest currently supported mixed flow on ``master``:
 
