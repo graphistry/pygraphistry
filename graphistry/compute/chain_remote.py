@@ -1,6 +1,6 @@
 from inspect import getmodule
 from io import BytesIO
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 from typing_extensions import Literal
 import json
 import pandas as pd
@@ -12,7 +12,7 @@ import zipfile
 from graphistry.Engine import Engine, EngineAbstractType, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.client_session import DatasetInfo
-from graphistry.compute.ast import ASTObject
+from graphistry.compute.ast import ASTLet, ASTObject, from_json as ast_from_json
 from graphistry.compute.chain import Chain
 from graphistry.io.metadata import deserialize_plottable_metadata
 from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType, output_types_graph
@@ -20,9 +20,64 @@ from graphistry.utils.json import JSONVal
 from graphistry.otel import inject_trace_headers
 
 
+_LEGACY_GFQL_COMPAT_422 = 'Missing required "gfql_operations" field in payload.'
+
+
+def _normalize_gfql_query(
+    query: Union[ASTObject, Chain, Dict[str, JSONVal], List[Any]],
+    *,
+    validate: bool,
+) -> Dict[str, Any]:
+    if isinstance(query, Chain):
+        return cast(Dict[str, Any], query.to_json(validate=validate))
+    if isinstance(query, list):
+        return cast(Dict[str, Any], Chain(query, validate=validate).to_json(validate=False))
+    if isinstance(query, ASTObject):
+        if validate:
+            query.validate()
+        return cast(Dict[str, Any], query.to_json(validate=False))
+
+    assert isinstance(query, dict)
+    if "type" in query:
+        if query["type"] == "Chain":
+            if validate:
+                Chain.from_json(query, validate=True)
+        elif validate:
+            ast_from_json(query, validate=True)
+        return cast(Dict[str, Any], query)
+    if "chain" in query:
+        if validate:
+            Chain.from_json(query, validate=True)
+        return {"type": "Chain", **query}
+
+    dag = ASTLet(query, validate=validate)
+    return cast(Dict[str, Any], dag.to_json(validate=False))
+
+
+def _legacy_gfql_operations(query_json: Dict[str, Any]) -> Optional[List[Any]]:
+    query_type = query_json.get("type")
+    if query_type == "Chain":
+        return cast(List[Any], query_json["chain"])
+    if query_type in ("Node", "Edge", "Call"):
+        return [query_json]
+    return None
+
+
+def _response_content_type(response: requests.Response) -> str:
+    headers = getattr(response, "headers", {}) or {}
+    if isinstance(headers, dict):
+        value = headers.get("content-type", "")
+    else:
+        try:
+            value = headers.get("content-type", "")
+        except Exception:
+            value = ""
+    return value if isinstance(value, str) else str(value)
+
+
 def chain_remote_generic(
     self: Plottable,
-    chain: Union[Chain, Dict[str, JSONVal], List[Any]],
+    chain: Union[ASTObject, Chain, Dict[str, JSONVal], List[Any]],
     api_token: Optional[str] = None,
     dataset_id: Optional[str] = None,
     output_type: OutputTypeGraph = "all",
@@ -32,7 +87,8 @@ def chain_remote_generic(
     edge_col_subset: Optional[List[str]] = None,
     engine: EngineAbstractType = 'auto',
     validate: bool = True,
-    persist: bool = False
+    persist: bool = False,
+    output: Optional[str] = None
 ) -> Union[Plottable, pd.DataFrame]:
 
     if not api_token:
@@ -71,21 +127,15 @@ def chain_remote_generic(
         raise ValueError(f"persist=True is not supported with output_type='{output_type}'. "
                         f"Use output_type='all' for persistence support.")
 
-    if isinstance(chain, Chain):
-        chain_json = chain.to_json()
-    elif isinstance(chain, list):
-        chain_json = Chain(chain).to_json()
-    else:
-        assert isinstance(chain, dict)
-        chain_json = chain
-
-    if validate:
-        Chain.from_json(chain_json)
+    query_json = _normalize_gfql_query(chain, validate=validate)
+    legacy_ops = _legacy_gfql_operations(query_json)
 
     request_body: Dict[str, Any] = {
-        "gfql_operations": chain_json['chain'],  # unwrap
+        "gfql_query": query_json,
         "format": format
     }
+    if legacy_ops is not None:
+        request_body["gfql_operations"] = legacy_ops
 
     if node_col_subset is not None:
         request_body["node_col_subset"] = node_col_subset
@@ -100,6 +150,8 @@ def chain_remote_generic(
         # Include privacy settings for persisted dataset
         if hasattr(self, '_privacy') and self._privacy is not None:
             request_body["privacy"] = dict(self._privacy)
+    if output is not None:
+        request_body["output"] = output
 
     url = f"{self.base_url_server()}/api/v2/etl/datasets/{dataset_id}/gfql/{output_type}"
 
@@ -116,14 +168,34 @@ def chain_remote_generic(
     if not response.ok:
         try:
             # Try to parse JSON error response for more details
-            if response.headers.get('content-type', '').startswith('application/json'):
+            if _response_content_type(response).startswith('application/json'):
                 error_data = response.json()
-                error_msg = error_data.get('error', str(error_data))
+                if (
+                    response.status_code == 422
+                    and isinstance(error_data, dict)
+                    and error_data.get("message") == _LEGACY_GFQL_COMPAT_422
+                    and "gfql_operations" not in request_body
+                ):
+                    raise ValueError(
+                        "GFQL remote operation failed: this server only supports legacy "
+                        "gfql_operations chains. The requested query requires gfql_query "
+                        "typed transport, so upgrade the server or rewrite the query as a "
+                        "legacy chain-compatible form. (HTTP 422)"
+                    )
+                error_msg = (
+                    error_data.get('error')
+                    if isinstance(error_data, dict)
+                    else None
+                ) or (
+                    error_data.get('message')
+                    if isinstance(error_data, dict)
+                    else None
+                ) or str(error_data)
                 raise ValueError(f"GFQL remote operation failed: {error_msg} (HTTP {response.status_code})")
             else:
                 # Fallback to generic error with response text
                 raise ValueError(f"GFQL remote operation failed: {response.text[:500]} (HTTP {response.status_code})")
-        except (ValueError,) as ve:
+        except ValueError as ve:
             # Re-raise our custom ValueError
             raise ve
         except Exception:
@@ -226,9 +298,17 @@ def chain_remote_generic(
             # Server likely returned an error response instead of zip data
             # Try to parse the response as JSON for a better error message
             try:
-                if response.headers.get('content-type', '').startswith('application/json'):
+                if _response_content_type(response).startswith('application/json'):
                     error_data = response.json()
-                    error_msg = error_data.get('error', str(error_data))
+                    error_msg = (
+                        error_data.get('error')
+                        if isinstance(error_data, dict)
+                        else None
+                    ) or (
+                        error_data.get('message')
+                        if isinstance(error_data, dict)
+                        else None
+                    ) or str(error_data)
                     raise ValueError(f"GFQL remote operation failed with validation error: {error_msg}")
                 else:
                     # Show the response text for debugging
@@ -294,7 +374,7 @@ def chain_remote_generic(
 
 def chain_remote_shape(
     self: Plottable,
-    chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]],
+    chain: Union[ASTObject, Chain, List[ASTObject], Dict[str, JSONVal]],
     api_token: Optional[str] = None,
     dataset_id: Optional[str] = None,
     format: Optional[FormatType] = None,
@@ -303,7 +383,8 @@ def chain_remote_shape(
     edge_col_subset: Optional[List[str]] = None,
     engine: EngineAbstractType = 'auto',
     validate: bool = True,
-    persist: bool = False
+    persist: bool = False,
+    output: Optional[str] = None
 ) -> pd.DataFrame:
     """
     Like chain_remote(), except instead of returning a Plottable, returns a pd.DataFrame of the shape of the resulting graph.
@@ -344,14 +425,15 @@ def chain_remote_shape(
         edge_col_subset,
         engine,
         validate,
-        persist
+        persist,
+        output
     )
     assert isinstance(out_df, pd.DataFrame)
     return out_df
 
 def chain_remote(
     self: Plottable,
-    chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]],
+    chain: Union[ASTObject, Chain, List[ASTObject], Dict[str, JSONVal]],
     api_token: Optional[str] = None,
     dataset_id: Optional[str] = None,
     output_type: OutputTypeGraph = "all",
@@ -361,7 +443,8 @@ def chain_remote(
     edge_col_subset: Optional[List[str]] = None,
     engine: EngineAbstractType = 'auto',
     validate: bool = True,
-    persist: bool = False
+    persist: bool = False,
+    output: Optional[str] = None
 ) -> Plottable:
     """Remotely run GFQL chain query on a remote dataset.
     
@@ -448,7 +531,8 @@ def chain_remote(
         edge_col_subset,
         engine,
         validate,
-        persist
+        persist,
+        output
     )
     assert isinstance(g, Plottable)
     return g

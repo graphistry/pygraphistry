@@ -1,7 +1,7 @@
 from abc import abstractmethod
 import logging
 from typing import (
-    Any, TYPE_CHECKING, Dict, Iterable, List, Optional, Sequence, Tuple, Union, cast
+    Any, TYPE_CHECKING, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union, cast
 )
 from typing_extensions import Literal
 
@@ -982,10 +982,10 @@ class ASTLet(ASTObject):
 
             # GraphOperation now includes all AST types
             # ASTNode/ASTEdge are now allowed and will operate on the root graph
-            if not isinstance(v, (ASTNode, ASTEdge, ASTRef, ASTCall, ASTRemoteGraph, ASTLet, Plottable, ChainClass)):
+            if not isinstance(v, (ASTNode, ASTEdge, ASTRef, ASTCall, ASTRemoteGraph, ASTLet, ASTQuery, Plottable, ChainClass)):
                 raise GFQLTypeError(
                     ErrorCode.E201,
-                    "binding value must be a valid operation (ASTNode, ASTEdge, Chain, ASTRef, ASTCall, ASTRemoteGraph, ASTLet, or Plottable)",
+                    "binding value must be a valid operation (ASTNode, ASTEdge, Chain, ASTRef, ASTCall, ASTRemoteGraph, ASTLet, ASTQuery, or Plottable)",
                     field=f"bindings.{k}",
                     value=type(v).__name__,
                     suggestion="Use a valid graph operation or matcher"
@@ -1172,6 +1172,115 @@ class ASTRemoteGraph(ASTObject):
         raise NotImplementedError("RemoteGraph reversal not supported")
 
 
+class ASTQuery(ASTObject):
+    """Execute a typed string query as part of GFQL composition.
+
+    Query objects are valid as top-level ``g.gfql(query(...))`` inputs and as
+    values inside ``let()`` / ``ref()`` DAG composition. They are intentionally
+    not valid chain steps; use a top-level query or ``ref(name, query(...))``
+    instead of embedding query programs inside ``Chain([...])``.
+    """
+
+    def __init__(
+        self,
+        query: str,
+        language: str = "cypher",
+        params: Optional[Mapping[str, Any]] = None,
+        expect: Optional[str] = None,
+    ) -> None:
+        super().__init__()
+        self.query = query
+        self.language = language
+        self.params = dict(params) if params is not None else None
+        self.expect = expect
+
+    def _validate_fields(self) -> None:
+        if not isinstance(self.query, str):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "query must be a string",
+                field="query",
+                value=type(self.query).__name__,
+            )
+
+        if len(self.query.strip()) == 0:
+            raise GFQLTypeError(
+                ErrorCode.E106,
+                "query cannot be empty",
+                field="query",
+                value=self.query,
+            )
+
+        if not isinstance(self.language, str):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "language must be a string",
+                field="language",
+                value=type(self.language).__name__,
+            )
+
+        if len(self.language.strip()) == 0:
+            raise GFQLTypeError(
+                ErrorCode.E106,
+                "language cannot be empty",
+                field="language",
+                value=self.language,
+            )
+
+        if self.params is not None and not isinstance(self.params, dict):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "params must be a dictionary or None",
+                field="params",
+                value=type(self.params).__name__,
+            )
+
+        if self.expect is not None and self.expect not in ("graph", "rows"):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "expect must be 'graph', 'rows', or None",
+                field="expect",
+                value=self.expect,
+            )
+
+    def to_json(self, validate: bool = True) -> Dict[str, Any]:
+        if validate:
+            self.validate()
+        result: Dict[str, Any] = {
+            "type": "Query",
+            "query": self.query,
+            "language": self.language,
+        }
+        if self.params is not None:
+            result["params"] = self.params
+        if self.expect is not None:
+            result["expect"] = self.expect
+        return result
+
+    @classmethod
+    def from_json(cls, d: Dict[str, Any], validate: bool = True) -> "ASTQuery":
+        assert "query" in d, "Query missing query"
+        out = cls(
+            query=d["query"],
+            language=d.get("language", "cypher"),
+            params=d.get("params"),
+            expect=d.get("expect"),
+        )
+        if validate:
+            out.validate()
+        return out
+
+    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
+                 target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
+        raise NotImplementedError(
+            "ASTQuery cannot be used directly inside Chain([...]). "
+            "Use g.gfql(query(...)) or ref(name, query(...)) instead."
+        )
+
+    def reverse(self) -> "ASTQuery":
+        raise NotImplementedError("Query reversal not supported")
+
+
 class ASTRef(ASTObject):
     """Execute a chain of operations starting from a DAG binding reference.
     
@@ -1180,7 +1289,7 @@ class ASTRef(ASTObject):
     
     :param ref: Name of the binding to reference from the DAG
     :type ref: str
-    :param chain: List of operations to apply to the referenced graph
+    :param chain: Optional list of operations to apply to the referenced graph
     :type chain: List[ASTObject]
     
     :raises GFQLTypeError: If ref is not a string or chain is not a list
@@ -1190,17 +1299,27 @@ class ASTRef(ASTObject):
         # Reference 'persons' binding and find their friends
         friends = ASTRef('persons', [e_forward({'rel': 'friend'})])
     """
-    def __init__(self, ref: str, chain: List['ASTObject']) -> None:
+    def __init__(self, ref: str, chain: Optional[Union[List['ASTObject'], ASTQuery]] = None) -> None:
         """Initialize Ref with reference name and operation chain.
         
         :param ref: Name of the binding to reference
         :type ref: str
-        :param chain: List of operations to apply
-        :type chain: List[ASTObject]
+        :param chain: List of operations to apply, or a query program to run against the binding
+        :type chain: Optional[Union[List[ASTObject], ASTQuery]]
         """
         super().__init__()
         self.ref = ref
-        self.chain = chain
+        self.chain: Optional[List[ASTObject]]
+        self.query: Optional[ASTQuery]
+        if isinstance(chain, ASTQuery):
+            self.chain = None
+            self.query = chain
+        elif chain is None:
+            self.chain = []
+            self.query = None
+        else:
+            self.chain = chain
+            self.query = None
     
     def _validate_fields(self) -> None:
         """Validate Ref fields."""
@@ -1220,27 +1339,61 @@ class ASTRef(ASTObject):
                 value=self.ref
             )
         
-        if not isinstance(self.chain, list):
+        if self.query is not None and self.chain is not None:
             raise GFQLTypeError(
                 ErrorCode.E201,
-                "chain must be a list",
-                field="chain",
-                value=type(self.chain).__name__
+                "ref must use either chain or query, not both",
+                field="ref",
+                value=self.ref,
             )
-        
-        for i, op in enumerate(self.chain):
-            if not isinstance(op, ASTObject):
+
+        if self.query is None:
+            if self.chain is None:
                 raise GFQLTypeError(
                     ErrorCode.E201,
-                    f"chain[{i}] must be ASTObject",
-                    field=f"chain[{i}]",
-                    value=type(op).__name__
+                    "chain must be a list",
+                    field="chain",
+                    value=type(self.chain).__name__,
+                )
+
+            if not isinstance(self.chain, list):
+                raise GFQLTypeError(
+                    ErrorCode.E201,
+                    "chain must be a list",
+                    field="chain",
+                    value=type(self.chain).__name__
+                )
+
+            for i, op in enumerate(self.chain):
+                if not isinstance(op, ASTObject):
+                    raise GFQLTypeError(
+                        ErrorCode.E201,
+                        f"chain[{i}] must be ASTObject",
+                        field=f"chain[{i}]",
+                        value=type(op).__name__
+                    )
+                if isinstance(op, ASTQuery):
+                    raise GFQLTypeError(
+                        ErrorCode.E201,
+                        "ASTQuery cannot be embedded inside ref(..., [ ... ]) chain steps",
+                        field=f"chain[{i}]",
+                        value="ASTQuery",
+                        suggestion="Use ref(name, query(...)) instead.",
+                    )
+        else:
+            if not isinstance(self.query, ASTQuery):
+                raise GFQLTypeError(
+                    ErrorCode.E201,
+                    "query must be an ASTQuery",
+                    field="query",
+                    value=type(self.query).__name__,
                 )
     
     def _get_child_validators(self) -> Sequence['ASTSerializable']:
         """Return child AST nodes that need validation."""
-        # ASTObject inherits from ASTSerializable, so this is safe
-        return self.chain
+        if self.query is not None:
+            return [self.query]
+        return self.chain or []
     
     def to_json(self, validate: bool = True) -> Dict[str, Any]:
         """Convert Ref to JSON representation.
@@ -1252,30 +1405,40 @@ class ASTRef(ASTObject):
         """
         if validate:
             self.validate()
-        return {
+        result = {
             'type': 'Ref',
             'ref': self.ref,
-            'chain': [op.to_json() for op in self.chain]
         }
+        if self.query is not None:
+            result['query'] = self.query.to_json()
+        else:
+            result['chain'] = [op.to_json() for op in (self.chain or [])]
+        return result
     
     @classmethod
     def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTRef':
         """Create ASTRef from JSON representation.
         
-        :param d: JSON dictionary with 'ref' and 'chain' fields
+        :param d: JSON dictionary with 'ref' and either 'chain' or 'query' fields
         :type d: dict
         :param validate: Whether to validate after creation
         :type validate: bool
         :returns: New ASTRef instance
         :rtype: ASTRef
-        :raises AssertionError: If 'ref' or 'chain' fields are missing
+        :raises AssertionError: If 'ref' or both 'chain' and 'query' fields are missing
         """
         assert 'ref' in d, "Ref missing ref"
-        assert 'chain' in d, "Ref missing chain"
-        out = cls(
-            ref=d['ref'],
-            chain=[from_json(op, validate=validate) for op in d['chain']]
-        )
+        assert 'chain' in d or 'query' in d, "Ref missing chain or query"
+        if 'query' in d:
+            out = cls(
+                ref=d['ref'],
+                chain=ASTQuery.from_json(d['query'], validate=validate)
+            )
+        else:
+            out = cls(
+                ref=d['ref'],
+                chain=[from_json(op, validate=validate) for op in d['chain']]
+            )
         if validate:
             out.validate()
         return out
@@ -1288,8 +1451,10 @@ class ASTRef(ASTObject):
         )
     
     def reverse(self) -> 'ASTRef':
+        if self.query is not None:
+            raise NotImplementedError("Ref reversal is not supported for query refs")
         # Reverse the chain operations
-        return ASTRef(self.ref, [op.reverse() for op in reversed(self.chain)])
+        return ASTRef(self.ref, [op.reverse() for op in reversed(self.chain or [])])
 
 
 class ASTCall(ASTObject):
@@ -1450,16 +1615,16 @@ class ASTCall(ASTObject):
 
 ###
 
-def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTRef, ASTCall]:
+def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTQuery, ASTRef, ASTCall]:
     if not isinstance(o, dict):
         raise GFQLSyntaxError(ErrorCode.E101, "AST JSON must be a dictionary", value=type(o).__name__)
 
     if 'type' not in o:
         raise GFQLSyntaxError(
-            ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'Let', 'RemoteGraph', or 'ChainRef'"
+            ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'Let', 'RemoteGraph', 'Query', or 'Ref'"
         )
 
-    out: Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTRef, ASTCall]
+    out: Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTQuery, ASTRef, ASTCall]
     if o['type'] == 'Node':
         out = ASTNode.from_json(o, validate=validate)
     elif o['type'] == 'Edge':
@@ -1491,6 +1656,8 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
         out = ASTLet.from_json(o, validate=validate)
     elif o['type'] == 'RemoteGraph':
         out = ASTRemoteGraph.from_json(o, validate=validate)
+    elif o['type'] == 'Query':
+        out = ASTQuery.from_json(o, validate=validate)
     elif o['type'] == 'ChainRef':
         out = ASTRef.from_json(o, validate=validate)
     elif o['type'] == 'Ref':
@@ -1503,7 +1670,7 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
             f"Unknown AST type: {o['type']}",
             field="type",
             value=o["type"],
-            suggestion="Use 'Node', 'Edge', 'Let', 'RemoteGraph', 'ChainRef', 'Ref', or 'Call'",
+            suggestion="Use 'Node', 'Edge', 'Let', 'RemoteGraph', 'Query', 'ChainRef', 'Ref', or 'Call'",
         )
     return out
 
@@ -1514,6 +1681,7 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
 let = ASTLet  # noqa: E305
 remote = ASTRemoteGraph  # noqa: E305
 ref = ASTRef  # noqa: E305
+query = ASTQuery  # noqa: E305
 
 # Import type-safe call() function from models/gfql/types/call
 # This provides overloaded signatures for IDE autocomplete and type checking

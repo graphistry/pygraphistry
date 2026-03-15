@@ -541,7 +541,7 @@ class ComputeMixin(Plottable):
 
     def gfql_remote(
         self,
-        chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]],
+        chain: Union[ASTObject, Chain, List[ASTObject], Dict[str, JSONVal]],
         api_token: Optional[str] = None,
         dataset_id: Optional[str] = None,
         output_type: OutputTypeGraph = "all",
@@ -551,7 +551,8 @@ class ComputeMixin(Plottable):
         edge_col_subset: Optional[List[str]] = None,
         engine: EngineAbstractType = 'auto',
         validate: bool = True,
-        persist: bool = False
+        persist: bool = False,
+        output: Optional[str] = None,
     ) -> Plottable:
         """Run GFQL query remotely.
 
@@ -570,12 +571,12 @@ class ComputeMixin(Plottable):
         """
         return chain_remote_base(
             self, chain, api_token, dataset_id, output_type, format,
-            df_export_args, node_col_subset, edge_col_subset, engine, validate, persist
+            df_export_args, node_col_subset, edge_col_subset, engine, validate, persist, output
         )
     
     def gfql_remote_shape(
         self,
-        chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]],
+        chain: Union[ASTObject, Chain, List[ASTObject], Dict[str, JSONVal]],
         api_token: Optional[str] = None,
         dataset_id: Optional[str] = None,
         format: Optional[FormatType] = None,
@@ -584,7 +585,8 @@ class ComputeMixin(Plottable):
         edge_col_subset: Optional[List[str]] = None,
         engine: EngineAbstractType = 'auto',
         validate: bool = True,
-        persist: bool = False
+        persist: bool = False,
+        output: Optional[str] = None,
     ) -> pd.DataFrame:
         """Get shape metadata for remote GFQL query execution.
 
@@ -595,7 +597,7 @@ class ComputeMixin(Plottable):
         """
         return chain_remote_shape_base(
             self, chain, api_token, dataset_id, format, df_export_args,
-            node_col_subset, edge_col_subset, engine, validate, persist
+            node_col_subset, edge_col_subset, engine, validate, persist, output
         )
 
     def python_remote_g(self, *args, **kwargs) -> Any:

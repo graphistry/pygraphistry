@@ -5,7 +5,7 @@ import pytest
 
 import graphistry
 from graphistry import n, e
-from graphistry.compute.ast import ASTLet, ASTRef, ASTCall, ASTRemoteGraph, ASTNode
+from graphistry.compute.ast import ASTLet, ASTRef, ASTCall, ASTRemoteGraph, ASTNode, ASTQuery
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 
@@ -67,6 +67,13 @@ class TestGraphOperationTypeConstraints:
         node = ASTNode({'type': 'person'})
 
         let_dag = ASTLet({'valid': node}, validate=False)
+        let_dag.validate()  # Should not raise
+
+    def test_valid_astquery_binding(self):
+        """Test that ASTQuery instances are accepted in Let bindings."""
+        query_obj = ASTQuery("MATCH (n) RETURN n")
+
+        let_dag = ASTLet({'valid': query_obj}, validate=False)
         let_dag.validate()  # Should not raise
         
     def test_valid_astedge_binding(self):

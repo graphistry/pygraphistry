@@ -8,6 +8,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **GFQL / query AST**: Added first-class `query(...)` objects for GFQL composition, including top-level `g.gfql(query(...))` execution and `let()/ref()` DAG composition via `ref(name, query(...))`.
+
+### Changed
+- **GFQL / remote client**: `gfql_remote()` now builds canonical typed `gfql_query` payloads client-side, while still sending legacy `gfql_operations` for direct-remote forms that honestly lower to the old chain transport.
+
+### Fixed
+- **GFQL / remote compatibility**: Typed-only remote GFQL forms now fail with a clear server-upgrade-required error against older servers instead of pretending legacy compatibility.
+
+### Tests
+- **GFQL / query + remote transport**: Added coverage for `query(...)` AST validation/execution, `let()/ref()` query composition, canonical remote payload shape, legacy fallback transport, and old-server compatibility error translation.
+
 ### Docs
 - **GFQL / Cypher docs**: Clarified the currently supported direct `g.gfql("MATCH ...")` Cypher surface, documented that `[*n]`, `[*m..n]`, and `[*]` multihop patterns are native-GFQL rewrites rather than accepted direct string syntax today, and added an internal hand-off note for aligning direct Cypher multihop support with existing GFQL hop semantics.
 

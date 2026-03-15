@@ -1,6 +1,6 @@
 """Tests for Let bindings and related AST nodes validation"""
 import pytest
-from graphistry.compute.ast import ASTLet, ASTRemoteGraph, ASTRef, n, e
+from graphistry.compute.ast import ASTLet, ASTQuery, ASTRemoteGraph, ASTRef, n, e, query
 from graphistry.compute.chain import Chain
 from graphistry.compute.execution_context import ExecutionContext
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
@@ -93,6 +93,9 @@ class TestChainRefValidation:
         
         cr_empty = ASTRef('myref', [])
         cr_empty.validate()  # Empty chain is valid
+
+        cr_query = ASTRef('myref', query("MATCH (n) RETURN n"))
+        cr_query.validate()  # Query refs are valid
     
     def test_chainRef_invalid_ref_type(self):
         """ChainRef with non-string ref should fail"""
@@ -130,6 +133,32 @@ class TestChainRefValidation:
         """ChainRef should validate nested operations"""
         cr = ASTRef('ref', [n({'type': 'person'}), e()])
         cr.validate()  # Should validate nested nodes
+
+    def test_chainRef_query_round_trip(self):
+        """ChainRef should round-trip JSON for query refs."""
+        cr = ASTRef('ref', query("MATCH (n) RETURN n", params={"limit": 1}, expect="graph"))
+        restored = ASTRef.from_json(cr.to_json())
+
+        assert restored.ref == 'ref'
+        assert restored.query is not None
+        assert restored.query.query == "MATCH (n) RETURN n"
+        assert restored.query.params == {"limit": 1}
+        assert restored.query.expect == "graph"
+
+
+class TestQueryValidation:
+    """Test validation for ASTQuery."""
+
+    def test_query_valid(self):
+        q = ASTQuery("MATCH (n) RETURN n")
+        q.validate()
+
+    def test_query_invalid_expect(self):
+        q = ASTQuery("MATCH (n) RETURN n", expect="auto")  # type: ignore[arg-type]
+        with pytest.raises(GFQLTypeError) as exc_info:
+            q.validate()
+        assert exc_info.value.code == ErrorCode.E201
+        assert "expect must be 'graph', 'rows', or None" in str(exc_info.value)
 
 
 class TestExecutionContext:

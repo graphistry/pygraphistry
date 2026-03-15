@@ -4,7 +4,7 @@ import pandas as pd
 from graphistry.Engine import Engine, EngineAbstract, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
-from .ast import ASTObject, ASTLet, ASTRef, ASTRemoteGraph, ASTNode, ASTEdge, ASTCall
+from .ast import ASTObject, ASTLet, ASTRef, ASTRemoteGraph, ASTNode, ASTEdge, ASTCall, ASTQuery
 from .execution_context import ExecutionContext
 from .engine_coercion import ensure_engine_match
 from .gfql.policy import PolicyContext, PolicyException
@@ -30,9 +30,11 @@ def extract_dependencies(ast_obj: Union[ASTObject, 'Chain', 'Plottable']) -> Set
     
     if isinstance(ast_obj, ASTRef):
         deps.add(ast_obj.ref)
-        # Also check chain operations
-        for op in ast_obj.chain:
+        # Also check any follow-on operation or query
+        for op in ast_obj.chain or []:
             deps.update(extract_dependencies(op))
+        if ast_obj.query is not None:
+            deps.update(extract_dependencies(ast_obj.query))
     
     elif isinstance(ast_obj, ASTLet):
         # Nested let bindings
@@ -216,6 +218,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     Handles different GraphOperation types:
     - ASTLet: Recursive let execution
     - ASTRef: Reference resolution and chain execution
+    - ASTQuery: Embedded string query execution
     - ASTCall: Method calls on graphs
     - ASTRemoteGraph: Remote graph loading
     - Chain: Chain operations on graphs
@@ -239,6 +242,13 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
     if isinstance(ast_obj, ASTLet):
         # Nested let execution
         result = chain_let_impl(g, ast_obj, EngineAbstract(engine.value), policy=policy, context=context)
+    elif isinstance(ast_obj, ASTQuery):
+        original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
+        result = original_g.gfql(
+            ast_obj,
+            engine=EngineAbstract(engine.value),
+            policy=policy,
+        )
     elif isinstance(ast_obj, ASTRef):
         # Resolve reference from context
         try:
@@ -251,7 +261,13 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
             ) from e
 
         # Execute the chain on the referenced result
-        if ast_obj.chain:
+        if ast_obj.query is not None:
+            result = referenced_result.gfql(
+                ast_obj.query,
+                engine=EngineAbstract(engine.value),
+                policy=policy,
+            )
+        elif ast_obj.chain:
             # Import chain function to execute the operations
             from .chain import chain as chain_impl
             chain_result = chain_impl(

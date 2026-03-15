@@ -82,4 +82,11 @@ class TestSerializationErrors:
         with pytest.raises(AssertionError) as exc_info:
             from_json({"type": "Ref", "ref": "test"})
         
-        assert "Ref missing chain" in str(exc_info.value)
+        assert "Ref missing chain or query" in str(exc_info.value)
+
+    def test_query_missing_query(self):
+        """Test clear error when Query missing query text."""
+        with pytest.raises(AssertionError) as exc_info:
+            from_json({"type": "Query"})
+
+        assert "Query missing query" in str(exc_info.value)

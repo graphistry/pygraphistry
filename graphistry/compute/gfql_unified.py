@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Union,
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine
 from graphistry.util import setup_logger
-from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
+from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall, ASTQuery
 from .chain import Chain, chain as chain_impl
 from .chain_let import chain_let as chain_let_impl
 from .execution_context import ExecutionContext
@@ -431,6 +431,9 @@ def _gfql_otel_attrs(
             attrs["gfql.has_where"] = True
     elif isinstance(query, ASTLet):
         attrs["gfql.binding_count"] = len(query.bindings)
+    elif isinstance(query, ASTQuery):
+        attrs["gfql.language"] = query.language
+        attrs["gfql.has_params"] = query.params is not None
     elif isinstance(query, dict):
         attrs["gfql.binding_count"] = len(query)
         if "chain" in query and isinstance(query["chain"], list):
@@ -448,6 +451,8 @@ def _gfql_otel_attrs(
 def detect_query_type(query: Any) -> QueryType:
     if isinstance(query, ASTLet):
         return "dag"
+    elif isinstance(query, ASTQuery):
+        return "single"
     elif isinstance(query, str):
         return "chain"
     elif isinstance(query, (list, Chain)):
@@ -473,6 +478,14 @@ def _compile_string_query(
             language="gfql",
         )
     return compile_cypher(query, params=params)
+
+
+def _prepare_ast_query(query: ASTQuery) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery]:
+    return _compile_string_query(
+        query.query,
+        language=cast(Optional[Literal["cypher", "gremlin"]], query.language),
+        params=query.params,
+    )
 
 
 @otel_traced("gfql.run", attrs_fn=_gfql_otel_attrs)
@@ -695,6 +708,16 @@ def gfql(self: Plottable,
             if language is None and not _looks_like_cypher_query(query):
                 raise TypeError("Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. Got str")
             compiled_query = _compile_string_query(query, language=language, params=params)
+            if isinstance(compiled_query, CompiledCypherQuery):
+                query = compiled_query.chain
+        elif isinstance(query, ASTQuery):
+            if where_param:
+                raise ValueError("where cannot be combined with query(...) programs; embed predicates in the query itself")
+            if language is not None:
+                raise ValueError("language is only supported when query is a raw string")
+            if params is not None:
+                raise ValueError("params is only supported when query is a raw string")
+            compiled_query = _prepare_ast_query(query)
             if isinstance(compiled_query, CompiledCypherQuery):
                 query = compiled_query.chain
         else:

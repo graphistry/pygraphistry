@@ -8,7 +8,7 @@ from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.Engine import safe_merge
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
-from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
+from .ast import ASTObject, ASTNode, ASTEdge, ASTQuery, from_json as ASTObject_from_json
 from .typing import DataFrameT
 from .util import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
@@ -72,6 +72,14 @@ class Chain(ASTSerializable):
                     actual_type=type(op).__name__,
                     suggestion="Use n() for nodes, e() for edges, or other GFQL operations"
                 ))
+            elif isinstance(op, ASTQuery):
+                errors.append(GFQLTypeError(
+                    ErrorCode.E101,
+                    "ASTQuery cannot be embedded inside Chain([...]).",
+                    operation_index=i,
+                    actual_type=type(op).__name__,
+                    suggestion="Use g.gfql(query(...)) or ref(name, query(...)) instead."
+                ))
         
         for child in self._get_child_validators():
             child_errors = child.validate(collect_all=True)
@@ -97,6 +105,14 @@ class Chain(ASTSerializable):
                     operation_index=i,
                     actual_type=type(op).__name__,
                     suggestion="Use n() for nodes, e() for edges, or other GFQL operations"
+                )
+            if isinstance(op, ASTQuery):
+                raise GFQLTypeError(
+                    ErrorCode.E101,
+                    "ASTQuery cannot be embedded inside Chain([...]).",
+                    operation_index=i,
+                    actual_type=type(op).__name__,
+                    suggestion="Use g.gfql(query(...)) or ref(name, query(...)) instead."
                 )
     
     def _get_child_validators(self) -> List[ASTSerializable]:

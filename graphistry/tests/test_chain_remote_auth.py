@@ -9,6 +9,8 @@ import pytest
 from unittest.mock import Mock, MagicMock, patch, PropertyMock
 import pandas as pd
 
+from graphistry import let, query
+from graphistry.compute.ast import ASTCall, ASTNode
 from graphistry.compute.chain_remote import chain_remote_generic
 from graphistry.compute.python_remote import python_remote_generic
 
@@ -157,6 +159,85 @@ class TestChainRemoteAuth:
 
                 headers = mock_post.call_args[1]["headers"]
                 assert headers["traceparent"] == traceparent
+
+
+class TestGFQLRemoteTransport:
+    """Test canonical gfql_query transport and legacy fallback behavior."""
+
+    def _mock_plottable(self):
+        mock_plottable = Mock()
+        mock_plottable.session = Mock()
+        mock_plottable.session.api_token = "session_token_123"
+        mock_plottable.session.certificate_validation = True
+        mock_plottable._pygraphistry = Mock()
+        mock_plottable._dataset_id = "dataset_123"
+        mock_plottable.base_url_server = Mock(return_value="https://test.server")
+        mock_plottable._edges = pd.DataFrame()
+        mock_plottable._nodes = pd.DataFrame()
+        mock_plottable.edges = Mock(return_value=mock_plottable)
+        mock_plottable.nodes = Mock(return_value=mock_plottable)
+        return mock_plottable
+
+    @patch('graphistry.compute.chain_remote.requests.post')
+    def test_lowerable_single_ast_sends_both_query_and_legacy_ops(self, mock_post):
+        mock_plottable = self._mock_plottable()
+        mock_response = Mock()
+        mock_response.ok = True
+        mock_response.json = Mock(return_value={"nodes": [], "edges": []})
+        mock_post.return_value = mock_response
+
+        chain_remote_generic(
+            mock_plottable,
+            ASTCall('hop', {'hops': 1}),
+            api_token='explicit_token',
+            output_type='shape',
+            validate=False,
+        )
+
+        body = mock_post.call_args[1]['json']
+        assert body['gfql_query']['type'] == 'Call'
+        assert body['gfql_operations'] == [body['gfql_query']]
+
+    @patch('graphistry.compute.chain_remote.requests.post')
+    def test_typed_dag_sends_query_without_legacy_ops(self, mock_post):
+        mock_plottable = self._mock_plottable()
+        mock_response = Mock()
+        mock_response.ok = True
+        mock_response.json = Mock(return_value={"nodes": [], "edges": []})
+        mock_post.return_value = mock_response
+
+        dag = let({'picked': ASTNode()})
+        chain_remote_generic(
+            mock_plottable,
+            dag,
+            api_token='explicit_token',
+            output_type='shape',
+        )
+
+        body = mock_post.call_args[1]['json']
+        assert body['gfql_query']['type'] == 'Let'
+        assert 'gfql_operations' not in body
+
+    @patch('graphistry.compute.chain_remote.requests.post')
+    def test_old_server_compat_error_is_translated_for_typed_only_queries(self, mock_post):
+        mock_plottable = self._mock_plottable()
+        mock_response = Mock()
+        mock_response.ok = False
+        mock_response.status_code = 422
+        mock_response.headers = {'content-type': 'application/json'}
+        mock_response.json = Mock(return_value={
+            'message': 'Missing required "gfql_operations" field in payload.'
+        })
+        mock_response.text = '{"message":"Missing required \\"gfql_operations\\" field in payload."}'
+        mock_post.return_value = mock_response
+
+        with pytest.raises(ValueError, match='gfql_query typed transport'):
+            chain_remote_generic(
+                mock_plottable,
+                query("MATCH (n) RETURN n"),
+                api_token='explicit_token',
+                output_type='shape',
+            )
 
 
 class TestPythonRemoteAuth:
