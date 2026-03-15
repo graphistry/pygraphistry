@@ -13,6 +13,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 - **GFQL / Cypher validation**: Tightened direct local Cypher fail-fast boundaries for unsupported variable-length subfamilies, including path/list-carrier uses of relationship aliases, exact/bounded `WHERE` pattern predicates, connected patterns that mix variable-length and standard relationships, and unsupported multi-alias `RETURN *` projections.
+- **GFQL / Cypher pandas parity**: Normalized direct local Cypher row semantics across pandas 2/3 for stringified-list subscripts and string `min` / `max` aggregations with nulls, removing the last sibling TCK contract split on the current supported surface.
 
 ### Docs
 - **GFQL / Cypher docs**: Clarified the current direct `g.gfql("MATCH ...")` multihop support boundary: endpoint-only `[*n]`, `[*m..n]`, and `[*]` relationship patterns are supported, while path-carrier and mixed-pattern residuals remain explicit validation failures.
