@@ -232,3 +232,76 @@ uv run python benchmarks/gfql/where_opt_matrix.py \
   --profiles baseline,auto,vector \
   --runs 5 --warmup 1
 ```
+
+## GFQL filter + PageRank CPU vs GPU
+
+Benchmark a realistic GFQL -> PageRank -> GFQL pipeline on large SNAP social graphs, comparing `pandas+igraph` against `cudf+cugraph`.
+The graph is loaded once, then the main pipeline is benchmarked warm on the resident graph.
+
+```bash
+uv run python benchmarks/gfql/filter_pagerank_pipeline_cpu_gpu.py \
+  --dataset twitter \
+  --engine both \
+  --degree-quantile 0.99 \
+  --pagerank-quantile 0.99 \
+  --warmup 1 --runs 3
+```
+
+DGX-sized GPlus example:
+
+```bash
+# GPU
+python benchmarks/gfql/filter_pagerank_pipeline_cpu_gpu.py \
+  --dataset gplus \
+  --engine cudf \
+  --degree-quantile 0.995 \
+  --pagerank-quantile 0.9995 \
+  --warmup 1 --runs 2 \
+  --output-json plans/gfql-gpu-pagerank-benchmark/results/gplus_gpu_q995_pr9995.json
+
+# CPU
+python benchmarks/gfql/filter_pagerank_pipeline_cpu_gpu.py \
+  --dataset gplus \
+  --engine pandas \
+  --degree-quantile 0.995 \
+  --pagerank-quantile 0.9995 \
+  --warmup 1 --runs 1 \
+  --output-json plans/gfql-gpu-pagerank-benchmark/results/gplus_cpu_q995_pr9995.json
+```
+
+Selected DGX result (`gplus`, `degree_q=0.995`, `pagerank_q=0.9995`):
+- Warm CPU pipeline: `82.48s`
+- Warm GPU pipeline: `4.08s`
+- Warm speedup: `20.24x`
+- Stage medians:
+  - GFQL filter 1: `47.47s` CPU vs `2.92s` GPU (`16.26x`)
+  - PageRank: `22.43s` CPU vs `0.58s` GPU (`38.91x`)
+  - GFQL filter 2: `12.58s` CPU vs `0.58s` GPU (`21.72x`)
+- Graph sizes:
+  - Full graph: `107,614` nodes / `30,494,866` edges on both engines
+  - After GFQL filter 1: `73,010` nodes / `11,755,106` edges on both engines
+  - Final graph after PageRank cutoff + GFQL filter 2:
+    - CPU (`igraph`): `56,725` nodes / `1,556,371` edges
+    - GPU (`cugraph`): `56,930` nodes / `1,367,990` edges
+- Note: the final graph differs modestly because `igraph` and `cugraph` produce slightly different PageRank score distributions, so the top-quantile cutoff lands on a different boundary.
+- Raw notes: `plans/gfql-gpu-pagerank-benchmark/results/gplus_q995_pr9995_summary.md`
+- Notebook walkthrough: `demos/gfql/benchmark_filter_pagerank_cpu_gpu.ipynb`
+
+
+## DGX configuration
+
+Current measured environment for the selected GPlus run:
+
+- Host: `dgx-spark`
+- GPU: `NVIDIA GB10`
+- Driver: `580.126.09`
+- Container: `graphistry/test-gpu:latest`
+- Python: `3.12.12`
+- pandas: `2.3.3`
+- cudf: `25.12.00`
+- cugraph: `25.12.02`
+- igraph: `1.0.0`
+
+The benchmark reports both full pipeline timings and split stage timings so we can separate:
+- GFQL/dataframe acceleration (`pandas` vs `cudf`)
+- graph algorithm acceleration (`igraph` vs `cugraph`)
