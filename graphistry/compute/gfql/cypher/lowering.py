@@ -4894,20 +4894,48 @@ def _reject_unsupported_variable_length_where_pattern_predicates(query: CypherQu
 
 def _reject_nonterminal_variable_length_relationship_patterns(query: CypherQuery) -> None:
     def _check_clause(clause: MatchClause) -> None:
-        pattern = _normalized_match_pattern(clause)
-        relationship_count = sum(1 for element in pattern if isinstance(element, RelationshipPattern))
-        if relationship_count <= 1:
+        relationship_patterns = [
+            pattern
+            for pattern in clause.patterns
+            if any(isinstance(element, RelationshipPattern) for element in pattern)
+        ]
+        if not relationship_patterns:
             return
-        for element in pattern:
-            if not isinstance(element, RelationshipPattern) or not _is_variable_length_relationship_pattern(element):
-                continue
-            raise _unsupported(
-                "Cypher variable-length relationships are currently only supported as the only relationship in a connected pattern",
-                field="match",
-                value=relationship_count,
-                line=element.span.line,
-                column=element.span.column,
+
+        for pattern in relationship_patterns:
+            relationship_count = sum(
+                1 for element in pattern if isinstance(element, RelationshipPattern)
             )
+            if relationship_count <= 1:
+                continue
+            for element in pattern:
+                if (
+                    isinstance(element, RelationshipPattern)
+                    and _is_variable_length_relationship_pattern(element)
+                ):
+                    raise _unsupported(
+                        "Cypher variable-length relationships are currently only supported as the only relationship in a connected pattern",
+                        field="match",
+                        value=relationship_count,
+                        line=element.span.line,
+                        column=element.span.column,
+                    )
+
+        if len(relationship_patterns) <= 1:
+            return
+        for pattern in relationship_patterns:
+            for element in pattern:
+                if (
+                    isinstance(element, RelationshipPattern)
+                    and _is_variable_length_relationship_pattern(element)
+                ):
+                    raise _unsupported(
+                        "Cypher variable-length relationships are currently only supported as the only relationship in a connected pattern",
+                        field="match",
+                        value=len(relationship_patterns),
+                        line=element.span.line,
+                        column=element.span.column,
+                    )
 
     for clause in query.matches:
         _check_clause(clause)

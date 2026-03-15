@@ -445,7 +445,15 @@ def combine_steps(
                     if prev_step_nodes is not None
                     else []
                 )
-                hop_col = prev_hop_cols[0] if prev_hop_cols else None
+                hop_col = None
+                if prev_hop_cols:
+                    preferred = prev_hop_cols[0]
+                    if preferred in out_df.columns:
+                        hop_col = preferred
+                    elif f'{preferred}_x' in out_df.columns:
+                        hop_col = f'{preferred}_x'
+                    elif f'{preferred}_y' in out_df.columns:
+                        hop_col = f'{preferred}_y'
                 min_hop = (
                     prev_op.output_min_hops
                     if prev_op.output_min_hops is not None
