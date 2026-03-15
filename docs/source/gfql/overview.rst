@@ -75,7 +75,7 @@ GFQL pipelines also have two practical result kinds:
 - **Row state**: Tabular results stored in `_nodes`, with `_edges` reduced to an empty placeholder frame. Row-pipeline steps like `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning local Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
 - A bare local Cypher procedure call without `.write()` is also row-returning. For example, `CALL graphistry.degree()` materializes the default procedure output columns into `_nodes` and clears `_edges`.
 
-If you need to enrich a graph and keep matching locally, use graph-preserving `call()` / `let()` composition or a bare local Cypher `CALL graphistry.*.write()`. The local Cypher compiler currently supports `graphistry.degree.write()` plus `graphistry.igraph.<alg>.write()` and `graphistry.cugraph.<alg>.write()` for algorithms exposed through `compute_igraph()` / `compute_cugraph()`, along with the limited compatibility subset `graphistry.nx.pagerank.write()`.
+If you need to enrich a graph and keep matching locally, use graph-preserving `call()` / `let()` composition or a bare local Cypher `CALL graphistry.*.write()`. The local Cypher compiler currently supports `graphistry.degree.write()` plus `graphistry.igraph.<alg>.write()` and `graphistry.cugraph.<alg>.write()` for algorithms exposed through `compute_igraph()` / `compute_cugraph()`, along with the smaller compatibility subset `graphistry.nx.pagerank.write()`, `graphistry.nx.betweenness_centrality.write()`, `graphistry.nx.edge_betweenness_centrality.write()`, and `graphistry.nx.k_core.write()`.
 
 Quick Examples
 ~~~~~~~~~~~~~~~

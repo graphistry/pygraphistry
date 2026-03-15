@@ -34,10 +34,15 @@ _BACKEND = Literal["degree", "cugraph", "igraph", "networkx"]
 _DEGREE_OUTPUTS: Tuple[str, ...] = ("nodeId", "degree", "degree_in", "degree_out")
 _CUGRAPH_RESERVED_KEYS = frozenset({"out_col", "params", "kind", "directed", "G"})
 _IGRAPH_RESERVED_KEYS = frozenset({"out_col", "directed", "use_vids", "params"})
-_NETWORKX_RESERVED_KEYS = frozenset({"out_col", "params"})
+_NETWORKX_RESERVED_KEYS = frozenset({"out_col", "params", "directed"})
 _NETWORKX_NODE_ALGORITHMS: Dict[str, Tuple[str, ...]] = {
     "pagerank": ("pagerank",),
+    "betweenness_centrality": ("betweenness_centrality",),
 }
+_NETWORKX_EDGE_ALGORITHMS: Dict[str, Tuple[str, ...]] = {
+    "edge_betweenness_centrality": ("edge_betweenness_centrality",),
+}
+_NETWORKX_GRAPH_ALGORITHMS = frozenset({"k_core"})
 
 
 @dataclass(frozen=True)
@@ -76,7 +81,7 @@ def _unsupported_call(message: str, *, call: CallClause, value: Any) -> GFQLVali
         message,
         field="call",
         value=value,
-        suggestion="Use graphistry.degree, supported graphistry.igraph.* / graphistry.cugraph.* procedures, or the limited graphistry.nx.pagerank subset.",
+        suggestion="Use graphistry.degree, supported graphistry.igraph.* / graphistry.cugraph.* procedures, or the limited graphistry.nx pagerank / betweenness / edge_betweenness / k_core subset.",
         line=call.span.line,
         column=call.span.column,
         language="cypher",
@@ -161,9 +166,15 @@ def _resolve_procedure_definition(call: CallClause) -> _ProcedureDefinition:
         )
 
     if backend_name == "nx":
-        if algorithm not in _NETWORKX_NODE_ALGORITHMS:
+        if algorithm in _NETWORKX_NODE_ALGORITHMS:
+            nx_row_kind: _ROW_KIND = "node"
+        elif algorithm in _NETWORKX_EDGE_ALGORITHMS:
+            nx_row_kind = "edge"
+        elif algorithm in _NETWORKX_GRAPH_ALGORITHMS:
+            nx_row_kind = "graph_only"
+        else:
             raise _unsupported_call(
-                "Only the limited graphistry.nx.pagerank local Cypher CALL subset is currently supported",
+                "Only the limited graphistry.nx pagerank / betweenness / edge_betweenness / k_core local Cypher CALL subset is currently supported",
                 call=call,
                 value=call.procedure,
             )
@@ -173,7 +184,7 @@ def _resolve_procedure_definition(call: CallClause) -> _ProcedureDefinition:
             algorithm=algorithm,
             call_function="networkx",
             result_kind="graph" if is_write else "rows",
-            row_kind="node",
+            row_kind=nx_row_kind,
         )
 
     assert backend_name == "cugraph"
@@ -184,18 +195,18 @@ def _resolve_procedure_definition(call: CallClause) -> _ProcedureDefinition:
             value=call.procedure,
         )
     if algorithm in node_compute_algs_to_attr:
-        row_kind: _ROW_KIND = "node"
+        cugraph_row_kind: _ROW_KIND = "node"
     elif algorithm in edge_compute_algs_to_attr:
-        row_kind = "edge"
+        cugraph_row_kind = "edge"
     else:
-        row_kind = "graph_only"
+        cugraph_row_kind = "graph_only"
     return _ProcedureDefinition(
         procedure=call.procedure,
         backend="cugraph",
         algorithm=algorithm,
         call_function="compute_cugraph",
         result_kind="graph" if is_write else "rows",
-        row_kind=row_kind,
+        row_kind=cugraph_row_kind,
     )
 
 
@@ -322,7 +333,24 @@ def _normalized_value_columns(
 
     if definition.backend == "networkx":
         assert definition.algorithm is not None
-        return (cast(str, call_params.get("out_col", definition.algorithm)),)
+        if definition.algorithm in _NETWORKX_NODE_ALGORITHMS:
+            value_cols = list(_NETWORKX_NODE_ALGORITHMS[definition.algorithm])
+        elif definition.algorithm in _NETWORKX_EDGE_ALGORITHMS:
+            value_cols = list(_NETWORKX_EDGE_ALGORITHMS[definition.algorithm])
+        else:
+            return ()
+        if call_params.get("out_col") is not None:
+            if len(value_cols) > 1:
+                raise GFQLValidationError(
+                    ErrorCode.E108,
+                    "Graphistry Cypher CALL does not allow out_col for multi-column procedures",
+                    field="call.args.out_col",
+                    value=call_params["out_col"],
+                    suggestion="Remove out_col or choose a procedure with a single value column.",
+                    language="cypher",
+                )
+            value_cols[0] = cast(str, call_params["out_col"])
+        return tuple(value_cols)
 
     assert definition.backend == "cugraph"
     assert definition.algorithm is not None
@@ -346,7 +374,7 @@ def _normalized_value_columns(
                 language="cypher",
             )
         value_cols[0] = cast(str, call_params["out_col"])
-    elif definition.algorithm in node_compute_algs_to_attr:
+    elif definition.algorithm in node_compute_algs_to_attr and len(value_cols) == 1:
         value_cols[0] = definition.algorithm
     return tuple(value_cols)
 
@@ -420,6 +448,14 @@ def _normalize_call_params(
                 call=call,
                 value=out_col,
                 field="call.args.out_col",
+            )
+        directed = call_params.get("directed")
+        if directed is not None and not isinstance(directed, bool):
+            raise _invalid_call_argument(
+                "graphistry.nx.* directed must be a boolean when provided",
+                call=call,
+                value=directed,
+                field="call.args.directed",
             )
         return call_params
     assert definition.call_function is not None
@@ -601,6 +637,49 @@ def _merge_node_property_rows(
     return graph_with_nodes.nodes(merged_nodes, node=node_col)
 
 
+def _merge_edge_property_rows(
+    base_graph: Plottable,
+    rows_df: DataFrameT,
+    *,
+    source_value_col: str,
+    output_value_col: str,
+) -> Plottable:
+    graph_with_edges = base_graph.bind()
+    if (
+        graph_with_edges._edges is None
+        or graph_with_edges._source is None
+        or graph_with_edges._destination is None
+    ):
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Graphistry Cypher CALL requires an edge table for edge-enriching procedures",
+            field="call",
+            value="edges",
+            suggestion="Bind edges before using edge-returning graphistry.* CALL procedures.",
+            language="cypher",
+        )
+    source_col = graph_with_edges._source
+    destination_col = graph_with_edges._destination
+    edges_df = graph_with_edges._edges
+    merge_base = (
+        cast(DataFrameT, edges_df.drop(columns=[output_value_col]))
+        if output_value_col in edges_df.columns
+        else edges_df
+    )
+    projected_rows = rows_df.rename(
+        columns={
+            "source": source_col,
+            "destination": destination_col,
+            source_value_col: output_value_col,
+        }
+    )[[source_col, destination_col, output_value_col]]
+    merged_edges = cast(
+        DataFrameT,
+        safe_merge(merge_base, projected_rows, on=[source_col, destination_col], how="left"),
+    )
+    return graph_with_edges.edges(merged_edges, source_col, destination_col)
+
+
 def _raise_missing_backend_dependency(
     compiled_call: CompiledCypherProcedureCall,
     *,
@@ -634,7 +713,13 @@ def _networkx_pagerank_scores(
 
     base_score = 1.0 / node_count
     scores: Dict[Any, float] = {node: base_score for node in nodes}
-    dangling_nodes = [node for node in nodes if graph_nx.out_degree(node) == 0]
+    if graph_nx.is_directed():
+        degree_fn = graph_nx.out_degree
+        predecessor_fn = graph_nx.predecessors
+    else:
+        degree_fn = graph_nx.degree
+        predecessor_fn = graph_nx.neighbors
+    dangling_nodes = [node for node in nodes if degree_fn(node) == 0]
 
     for _ in range(max_iter):
         dangling_mass = alpha * sum(scores[node] for node in dangling_nodes) / node_count
@@ -642,8 +727,8 @@ def _networkx_pagerank_scores(
         delta = 0.0
         for node in nodes:
             inbound_mass = 0.0
-            for predecessor in graph_nx.predecessors(node):
-                out_degree = graph_nx.out_degree(predecessor)
+            for predecessor in predecessor_fn(node):
+                out_degree = degree_fn(predecessor)
                 if out_degree > 0:
                     inbound_mass += scores[predecessor] / out_degree
             next_score = ((1.0 - alpha) / node_count) + dangling_mass + (alpha * inbound_mass)
@@ -653,6 +738,36 @@ def _networkx_pagerank_scores(
         if delta <= tol * node_count:
             break
     return scores
+
+
+def _networkx_graph(base_graph: Plottable, *, directed: bool) -> Tuple[Plottable, Any]:
+    try:
+        import networkx as nx
+    except ImportError as exc:
+        raise exc
+
+    graph_with_nodes = _materialized_graph(base_graph)
+    assert graph_with_nodes._nodes is not None
+    assert graph_with_nodes._node is not None
+    assert graph_with_nodes._source is not None
+    assert graph_with_nodes._destination is not None
+
+    nodes_pdf = _as_pandas_frame(graph_with_nodes._nodes, (graph_with_nodes._node,))
+    edges_df = getattr(graph_with_nodes, "_edges", None)
+    edge_columns = (graph_with_nodes._source, graph_with_nodes._destination)
+    edges_pdf = pd.DataFrame(columns=list(edge_columns)) if edges_df is None else _as_pandas_frame(edges_df, edge_columns)
+
+    graph_nx = nx.DiGraph() if directed else nx.Graph()
+    graph_nx.add_nodes_from(nodes_pdf[graph_with_nodes._node].tolist())
+    if not edges_pdf.empty:
+        graph_nx.add_edges_from(edges_pdf[list(edge_columns)].itertuples(index=False, name=None))
+    return graph_with_nodes, graph_nx
+
+
+def _networkx_common_inputs(compiled_call: CompiledCypherProcedureCall) -> Tuple[bool, Dict[str, Any]]:
+    directed = cast(bool, compiled_call.call_params.get("directed", True))
+    params = dict(cast(Mapping[str, Any], compiled_call.call_params.get("params", {})))
+    return directed, params
 
 
 def _networkx_node_rows(base_graph: Plottable, compiled_call: CompiledCypherProcedureCall) -> DataFrameT:
@@ -666,34 +781,23 @@ def _networkx_node_rows(base_graph: Plottable, compiled_call: CompiledCypherProc
             exc=exc,
         )
 
-    graph_with_nodes = _materialized_graph(base_graph)
-    assert graph_with_nodes._nodes is not None
+    directed, params = _networkx_common_inputs(compiled_call)
+    graph_with_nodes, graph_nx = _networkx_graph(base_graph, directed=directed)
     assert graph_with_nodes._node is not None
-    assert graph_with_nodes._source is not None
-    assert graph_with_nodes._destination is not None
-
     nodes_pdf = _as_pandas_frame(graph_with_nodes._nodes, (graph_with_nodes._node,))
-    edges_df = getattr(graph_with_nodes, "_edges", None)
-    edge_columns = (graph_with_nodes._source, graph_with_nodes._destination)
-    edges_pdf = pd.DataFrame(columns=list(edge_columns)) if edges_df is None else _as_pandas_frame(edges_df, edge_columns)
 
-    graph_nx = nx.DiGraph()
-    graph_nx.add_nodes_from(nodes_pdf[graph_with_nodes._node].tolist())
-    if not edges_pdf.empty:
-        graph_nx.add_edges_from(edges_pdf[list(edge_columns)].itertuples(index=False, name=None))
-
-    params = dict(cast(Mapping[str, Any], compiled_call.call_params.get("params", {})))
-    if compiled_call.algorithm != "pagerank":
-        raise ValueError(f"Unexpected graphistry.nx procedure: {compiled_call.algorithm}")
     try:
-        scores = _networkx_pagerank_scores(graph_nx, **params)
+        if compiled_call.algorithm == "pagerank":
+            scores = _networkx_pagerank_scores(graph_nx, **params)
+        else:
+            scores = getattr(nx, cast(str, compiled_call.algorithm))(graph_nx, **params)
     except TypeError as exc:
         raise GFQLValidationError(
             ErrorCode.E108,
-            "graphistry.nx.pagerank() received unsupported algorithm parameters",
+            f"{compiled_call.procedure} received unsupported algorithm parameters",
             field="call.args",
             value=params,
-            suggestion="Use pagerank parameters supported by the local nx subset, such as alpha, max_iter, and tol.",
+            suggestion="Use parameters supported by the local graphistry.nx subset for this algorithm.",
             line=compiled_call.line,
             column=compiled_call.column,
             language="cypher",
@@ -705,11 +809,90 @@ def _networkx_node_rows(base_graph: Plottable, compiled_call: CompiledCypherProc
     return cast(DataFrameT, rows_pdf)
 
 
-def _execute_backend_call(base_graph: Plottable, compiled_call: CompiledCypherProcedureCall) -> Plottable:
-    if compiled_call.backend == "degree":
-        return _materialized_graph(base_graph).get_degrees()
+def _networkx_edge_rows(base_graph: Plottable, compiled_call: CompiledCypherProcedureCall) -> DataFrameT:
+    try:
+        import networkx as nx
+    except ImportError as exc:
+        _raise_missing_backend_dependency(
+            compiled_call,
+            dependency="networkx",
+            suggestion="Install networkx or use graphistry.igraph.* / graphistry.cugraph.* procedures.",
+            exc=exc,
+        )
 
-    if compiled_call.call_function == "networkx":
+    directed, params = _networkx_common_inputs(compiled_call)
+    graph_with_nodes, graph_nx = _networkx_graph(base_graph, directed=directed)
+    assert graph_with_nodes._source is not None
+    assert graph_with_nodes._destination is not None
+    edge_columns = (graph_with_nodes._source, graph_with_nodes._destination)
+    edges_df = getattr(graph_with_nodes, "_edges", None)
+    edges_pdf = pd.DataFrame(columns=list(edge_columns)) if edges_df is None else _as_pandas_frame(edges_df, edge_columns)
+
+    try:
+        scores = getattr(nx, cast(str, compiled_call.algorithm))(graph_nx, **params)
+    except TypeError as exc:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            f"{compiled_call.procedure} received unsupported algorithm parameters",
+            field="call.args",
+            value=params,
+            suggestion="Use parameters supported by the local graphistry.nx subset for this algorithm.",
+            line=compiled_call.line,
+            column=compiled_call.column,
+            language="cypher",
+        ) from exc
+
+    out_col = cast(str, compiled_call.call_params.get("out_col", compiled_call.algorithm or "edge_betweenness_centrality"))
+    rows_pdf = edges_pdf.rename(columns={graph_with_nodes._source: "source", graph_with_nodes._destination: "destination"}).copy()
+    if directed:
+        rows_pdf[out_col] = rows_pdf.apply(lambda row: scores.get((row["source"], row["destination"]), 0.0), axis=1)
+    else:
+        rows_pdf[out_col] = rows_pdf.apply(
+            lambda row: scores.get((row["source"], row["destination"]), scores.get((row["destination"], row["source"]), 0.0)),
+            axis=1,
+        )
+    return cast(DataFrameT, rows_pdf)
+
+
+def _merge_networkx_projected_graph(base_graph: Plottable, graph_nx: Any) -> Plottable:
+    graph_with_nodes = _materialized_graph(base_graph)
+    projected = graph_with_nodes.from_networkx(graph_nx)
+
+    if projected._nodes is not None and graph_with_nodes._nodes is not None and graph_with_nodes._node is not None:
+        base_nodes_trimmed = graph_with_nodes._nodes[
+            [x for x in graph_with_nodes._nodes.columns if x not in projected._nodes.columns or x == graph_with_nodes._node]
+        ]
+        merged_nodes = cast(DataFrameT, safe_merge(projected._nodes, base_nodes_trimmed, on=graph_with_nodes._node, how="left"))
+        projected = projected.nodes(merged_nodes, graph_with_nodes._node)
+
+    if (
+        projected._edges is not None
+        and graph_with_nodes._edges is not None
+        and graph_with_nodes._source is not None
+        and graph_with_nodes._destination is not None
+    ):
+        edge_keys = [graph_with_nodes._source, graph_with_nodes._destination]
+        base_edges_trimmed = graph_with_nodes._edges[
+            [x for x in graph_with_nodes._edges.columns if x not in projected._edges.columns or x in edge_keys]
+        ]
+        merged_edges = cast(DataFrameT, safe_merge(projected._edges, base_edges_trimmed, on=edge_keys, how="left"))
+        projected = projected.edges(merged_edges, graph_with_nodes._source, graph_with_nodes._destination)
+
+    return projected
+
+
+def _execute_networkx_graph_call(base_graph: Plottable, compiled_call: CompiledCypherProcedureCall) -> Plottable:
+    try:
+        import networkx as nx
+    except ImportError as exc:
+        _raise_missing_backend_dependency(
+            compiled_call,
+            dependency="networkx",
+            suggestion="Install networkx or use graphistry.igraph.* / graphistry.cugraph.* procedures.",
+            exc=exc,
+        )
+
+    if compiled_call.row_kind == "node":
         rows_df = _networkx_node_rows(base_graph, compiled_call)
         out_col = cast(str, compiled_call.call_params.get("out_col", compiled_call.algorithm or "pagerank"))
         return _merge_node_property_rows(
@@ -718,6 +901,40 @@ def _execute_backend_call(base_graph: Plottable, compiled_call: CompiledCypherPr
             source_value_col=out_col,
             output_value_col=out_col,
         )
+    if compiled_call.row_kind == "edge":
+        rows_df = _networkx_edge_rows(base_graph, compiled_call)
+        out_col = cast(str, compiled_call.call_params.get("out_col", compiled_call.algorithm or "edge_betweenness_centrality"))
+        return _merge_edge_property_rows(
+            base_graph,
+            rows_df,
+            source_value_col=out_col,
+            output_value_col=out_col,
+        )
+
+    directed, params = _networkx_common_inputs(compiled_call)
+    _, graph_nx = _networkx_graph(base_graph, directed=directed)
+    try:
+        projected_graph = getattr(nx, cast(str, compiled_call.algorithm))(graph_nx, **params)
+    except TypeError as exc:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            f"{compiled_call.procedure} received unsupported algorithm parameters",
+            field="call.args",
+            value=params,
+            suggestion="Use parameters supported by the local graphistry.nx subset for this algorithm.",
+            line=compiled_call.line,
+            column=compiled_call.column,
+            language="cypher",
+        ) from exc
+    return _merge_networkx_projected_graph(base_graph, projected_graph)
+
+
+def _execute_backend_call(base_graph: Plottable, compiled_call: CompiledCypherProcedureCall) -> Plottable:
+    if compiled_call.backend == "degree":
+        return _materialized_graph(base_graph).get_degrees()
+
+    if compiled_call.call_function == "networkx":
+        return _execute_networkx_graph_call(base_graph, compiled_call)
 
     if compiled_call.call_function == "compute_igraph":
         try:
@@ -818,7 +1035,12 @@ def execute_cypher_call(base_graph: Plottable, compiled_call: CompiledCypherProc
     if compiled_call.backend == "degree":
         default_rows = _degree_rows(base_graph)
     elif compiled_call.backend == "networkx":
-        default_rows = _networkx_node_rows(base_graph, compiled_call)
+        if compiled_call.row_kind == "graph_only":
+            raise _graph_only_row_error(compiled_call)
+        if compiled_call.row_kind == "edge":
+            default_rows = _networkx_edge_rows(base_graph, compiled_call)
+        else:
+            default_rows = _networkx_node_rows(base_graph, compiled_call)
     else:
         computed = _execute_backend_call(base_graph, compiled_call)
         value_columns = _normalized_value_columns(

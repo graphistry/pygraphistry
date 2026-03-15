@@ -11,6 +11,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [0.52.0 - 2026-03-15]
 
 ### Added
+<<<<<<< HEAD
 - **GFQL / Cypher**: Added direct local Cypher multihop support for single variable-length relationship endpoint traversals through `g.gfql("MATCH ...")`, including `[*n]`, `[*m..n]`, and `[*]` in forward, reverse, undirected, and typed forms.
 
 ### Fixed
