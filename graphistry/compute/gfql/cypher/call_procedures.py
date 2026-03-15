@@ -374,7 +374,13 @@ def _normalized_value_columns(
                 language="cypher",
             )
         value_cols[0] = cast(str, call_params["out_col"])
-    elif definition.algorithm in node_compute_algs_to_attr and len(value_cols) == 1:
+    elif definition.backend == "cugraph":
+        assert definition.algorithm is not None
+        if definition.algorithm in node_compute_algs_to_attr and value_cols:
+            value_cols[0] = definition.algorithm
+        elif len(value_cols) == 1:
+            value_cols[0] = definition.algorithm
+    elif len(value_cols) == 1:
         value_cols[0] = definition.algorithm
     return tuple(value_cols)
 
@@ -392,6 +398,101 @@ def _default_output_names(
     if definition.row_kind == "edge":
         return ("source", "destination") + value_cols
     return ()
+
+
+def _source_value_columns(definition: _ProcedureDefinition) -> Tuple[str, ...]:
+    if definition.backend == "degree":
+        return _DEGREE_OUTPUTS[1:]
+
+    if definition.backend == "igraph":
+        assert definition.algorithm is not None
+        return (definition.algorithm,)
+
+    if definition.backend == "networkx":
+        assert definition.algorithm is not None
+        if definition.algorithm in _NETWORKX_NODE_ALGORITHMS:
+            return tuple(_NETWORKX_NODE_ALGORITHMS[definition.algorithm])
+        if definition.algorithm in _NETWORKX_EDGE_ALGORITHMS:
+            return tuple(_NETWORKX_EDGE_ALGORITHMS[definition.algorithm])
+        return ()
+
+    assert definition.backend == "cugraph"
+    assert definition.algorithm is not None
+
+    if definition.algorithm in node_compute_algs_to_attr:
+        raw_cols = node_compute_algs_to_attr[definition.algorithm]
+    elif definition.algorithm in edge_compute_algs_to_attr:
+        raw_cols = edge_compute_algs_to_attr[definition.algorithm]
+    else:
+        return ()
+    return tuple(raw_cols) if isinstance(raw_cols, list) else (raw_cols,)
+
+
+def _align_computed_result_columns(
+    computed_graph: Plottable,
+    compiled_call: CompiledCypherProcedureCall,
+) -> Plottable:
+    definition = _ProcedureDefinition(
+        procedure=compiled_call.procedure,
+        backend=compiled_call.backend,
+        algorithm=compiled_call.algorithm,
+        call_function=compiled_call.call_function,
+        result_kind=compiled_call.result_kind,
+        row_kind=compiled_call.row_kind,
+    )
+    source_columns = _source_value_columns(definition)
+    output_columns = _normalized_value_columns(definition, compiled_call.call_params)
+
+    if len(source_columns) != len(output_columns):
+        return computed_graph
+
+    if compiled_call.row_kind == "edge":
+        if (
+            computed_graph._edges is None
+            or computed_graph._source is None
+            or computed_graph._destination is None
+        ):
+            return computed_graph
+        rename_map = {
+            source_name: output_name
+            for source_name, output_name in zip(source_columns, output_columns)
+            if source_name != output_name
+            and source_name in computed_graph._edges.columns
+            and output_name not in computed_graph._edges.columns
+        }
+        if not rename_map:
+            return computed_graph
+        return cast(
+            Plottable,
+            computed_graph.edges(
+                computed_graph._edges.rename(columns=rename_map),
+                computed_graph._source,
+                computed_graph._destination,
+                computed_graph._edge,
+            ),
+        )
+
+    if compiled_call.row_kind in {"node", "node_or_graph"}:
+        if computed_graph._nodes is None or computed_graph._node is None:
+            return computed_graph
+        rename_map = {
+            source_name: output_name
+            for source_name, output_name in zip(source_columns, output_columns)
+            if source_name != output_name
+            and source_name in computed_graph._nodes.columns
+            and output_name not in computed_graph._nodes.columns
+        }
+        if not rename_map:
+            return computed_graph
+        return cast(
+            Plottable,
+            computed_graph.nodes(
+                computed_graph._nodes.rename(columns=rename_map),
+                computed_graph._node,
+            ),
+        )
+
+    return computed_graph
 
 
 def _normalize_call_params(
@@ -949,7 +1050,8 @@ def _execute_backend_call(base_graph: Plottable, compiled_call: CompiledCypherPr
 
     if compiled_call.call_function == "compute_cugraph":
         try:
-            return base_graph.compute_cugraph(**dict(compiled_call.call_params))
+            computed = base_graph.compute_cugraph(**dict(compiled_call.call_params))
+            return _align_computed_result_columns(computed, compiled_call)
         except ImportError as exc:
             _raise_missing_backend_dependency(
                 compiled_call,

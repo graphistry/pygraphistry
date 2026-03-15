@@ -211,7 +211,7 @@ node_compute_algs_to_attr : Dict[str, Union[str, List[str]]] = {
 #'src'/'dst' or 'source'/'destination' +
 edge_compute_algs_to_attr: Dict[str, str] = {
     'batched_ego_graphs': 'unknown',
-    'edge_betweenness_centrality': 'edge_betweenness_centrality',
+    'edge_betweenness_centrality': 'betweenness_centrality',
     'jaccard': 'jaccard_coeff',
     'jaccard_w': 'jaccard_coeff',
     'overlap': 'overlap_coeff',
