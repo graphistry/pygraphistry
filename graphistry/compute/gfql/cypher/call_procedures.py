@@ -53,6 +53,7 @@ def _pagerank_procedure_defs(
     backend_prefix: str,
     kind_prefix: str,
 ) -> Dict[str, _ProcedureDefinition]:
+    # Keep pagerank row/write variants defined from the same source of truth.
     procedure_prefix = f"graphistry.{backend_prefix}.pagerank"
     return {
         procedure_prefix: _ProcedureDefinition(
