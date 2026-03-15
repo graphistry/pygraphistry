@@ -57,7 +57,7 @@ def download_if_needed(dataset: str, data_dir: Path) -> Path:
     data_dir.mkdir(parents=True, exist_ok=True)
     path = data_dir / str(spec["filename"])
     if not path.exists():
-        print(f"[download] {spec[url]} -> {path}", flush=True)
+        print(f"[download] {spec['url']} -> {path}", flush=True)
         urllib.request.urlretrieve(str(spec["url"]), path)
     return path
 

@@ -287,6 +287,37 @@ Selected DGX result (`gplus`, `degree_q=0.995`, `pagerank_q=0.9995`):
 - Raw notes: `plans/gfql-gpu-pagerank-benchmark/results/gplus_q995_pr9995_summary.md`
 - Notebook walkthrough: `demos/gfql/benchmark_filter_pagerank_cpu_gpu.ipynb`
 
+## Cached load/prep CPU vs GPU
+
+Benchmark cached SNAP ingest/prep separately from the warm GFQL -> PageRank -> GFQL pipeline.
+This measures only local cached file -> in-memory graph preparation:
+- edge-list read (`pandas.read_csv` / `cudf.read_csv`)
+- node materialization (degree table + seed flag)
+- Graphistry bind (`nodes(...).edges(...)`)
+
+```bash
+uv run python benchmarks/gfql/load_prepare_cpu_gpu.py \
+  --dataset gplus \
+  --engine both \
+  --degree-quantile 0.995 \
+  --warmup 2 --runs 5
+```
+
+Selected DGX cached-load results:
+- Twitter (`degree_q=0.99`):
+  - CPU prepare: `0.2756s`
+  - GPU prepare: `0.1013s`
+  - total speedup: `2.72x`
+  - stage medians: read `0.2156s` vs `0.0862s`, node prep `0.0620s` vs `0.0148s`, bind ~`0.0001s` on both
+- GPlus (`degree_q=0.995`):
+  - CPU prepare: `8.7160s`
+  - GPU prepare: `3.9323s`
+  - total speedup: `2.22x`
+  - stage medians: read `6.9096s` vs `3.0395s`, node prep `1.8097s` vs `0.8613s`, bind ~`0.0001s` on both
+- Raw outputs: `plans/gfql-gpu-pagerank-benchmark/results/twitter_load_prepare_infer.json`, `plans/gfql-gpu-pagerank-benchmark/results/gplus_load_prepare_infer.json`
+
+Optimization note:
+- An explicit integer-dtype probe was not adopted. It was slightly slower on Twitter and overflowed on GPlus in pandas, so the benchmark keeps parser inference for now.
 
 ## DGX configuration
 
