@@ -2884,6 +2884,14 @@ def _build_projection_plan(
         projected_expr_binding = False
         simple_ref = True
         if item.expression.text == "*":
+            if len(alias_targets) > 1:
+                raise _unsupported(
+                    "Cypher RETURN * currently requires a single MATCH alias in the local compiler",
+                    field=f"{clause.kind}.items",
+                    value=item.expression.text,
+                    line=item.span.line,
+                    column=item.span.column,
+                )
             if active_alias is not None:
                 alias_name = active_alias
             elif len(alias_targets) == 1:
@@ -4851,6 +4859,62 @@ def _reject_unsupported_where_expr_forms(query: CypherQuery) -> None:
         )
 
 
+def _is_variable_length_relationship_pattern(relationship: RelationshipPattern) -> bool:
+    return (
+        relationship.min_hops is not None
+        or relationship.max_hops is not None
+        or relationship.to_fixed_point
+    )
+
+
+def _reject_unsupported_variable_length_where_pattern_predicates(query: CypherQuery) -> None:
+    if query.where is None:
+        return
+    for predicate in query.where.predicates:
+        if not isinstance(predicate, WherePatternPredicate):
+            continue
+        relationships = [
+            element
+            for element in predicate.pattern
+            if isinstance(element, RelationshipPattern)
+        ]
+        for relationship in relationships:
+            if not _is_variable_length_relationship_pattern(relationship):
+                continue
+            if relationship.min_hops is None and relationship.max_hops is None and relationship.to_fixed_point:
+                continue
+            raise _unsupported(
+                "Cypher WHERE pattern predicates currently support only bare variable-length fixed-point relationships, not exact or bounded hop counts",
+                field="where",
+                value=query.where.expr.text if query.where.expr is not None else None,
+                line=predicate.span.line,
+                column=predicate.span.column,
+            )
+
+
+def _reject_nonterminal_variable_length_relationship_patterns(query: CypherQuery) -> None:
+    def _check_clause(clause: MatchClause) -> None:
+        pattern = _normalized_match_pattern(clause)
+        relationship_count = sum(1 for element in pattern if isinstance(element, RelationshipPattern))
+        if relationship_count <= 1:
+            return
+        for element in pattern:
+            if not isinstance(element, RelationshipPattern) or not _is_variable_length_relationship_pattern(element):
+                continue
+            raise _unsupported(
+                "Cypher variable-length relationships are currently only supported as the only relationship in a connected pattern",
+                field="match",
+                value=relationship_count,
+                line=element.span.line,
+                column=element.span.column,
+            )
+
+    for clause in query.matches:
+        _check_clause(clause)
+    for clause in query.reentry_matches:
+        _check_clause(clause)
+
+
 def _variable_length_relationship_aliases(
     alias_targets: Mapping[str, ASTObject],
 ) -> Set[str]:
@@ -5740,8 +5804,10 @@ def compile_cypher_query(
             union_kind=query.union_kind,
         )
 
+    _reject_unsupported_variable_length_where_pattern_predicates(query)
     query = _rewrite_where_pattern_predicates_to_matches(query)
     _reject_unsupported_where_expr_forms(query)
+    _reject_nonterminal_variable_length_relationship_patterns(query)
     if query.reentry_matches:
         return _compile_bounded_reentry_query(query, params=params)
     if query.call is not None:

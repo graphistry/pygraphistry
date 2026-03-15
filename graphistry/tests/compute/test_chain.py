@@ -95,6 +95,28 @@ class TestMultiHopChainForward():
         assert sorted(g2._nodes.loc[g2._nodes['seed'], 'v'].tolist()) == ['a']
         assert sorted(g2._nodes.loc[g2._nodes['hit'], 'v'].tolist()) == ['d']
 
+    def test_chain_exact_multihop_then_single_hop_marks_following_terminal_alias(self, g_long_forwards_chain):
+        g2 = g_long_forwards_chain.gfql([
+            n({'v': 'a'}, name='seed'),
+            e_forward(min_hops=1, max_hops=1),
+            n(name='mid'),
+            e_forward(),
+            n(name='hit'),
+        ])
+        assert sorted(g2._nodes.loc[g2._nodes['mid'], 'v'].tolist()) == ['b']
+        assert sorted(g2._nodes.loc[g2._nodes['hit'], 'v'].tolist()) == ['c']
+
+    def test_chain_single_hop_then_exact_multihop_marks_following_terminal_alias(self, g_long_forwards_chain):
+        g2 = g_long_forwards_chain.gfql([
+            n({'v': 'a'}, name='seed'),
+            e_forward(),
+            n(name='mid'),
+            e_forward(min_hops=2, max_hops=2),
+            n(name='hit'),
+        ])
+        assert sorted(g2._nodes.loc[g2._nodes['mid'], 'v'].tolist()) == ['b']
+        assert sorted(g2._nodes.loc[g2._nodes['hit'], 'v'].tolist()) == ['d']
+
     def test_chain_predicates_ok_source(self, g_long_forwards_chain):
         g2 = g_long_forwards_chain.gfql([
             n({'v': 'a'}),

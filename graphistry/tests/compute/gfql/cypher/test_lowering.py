@@ -2472,6 +2472,47 @@ def test_string_cypher_failfast_rejects_variable_length_relationship_alias_path_
 @pytest.mark.parametrize(
     "query",
     [
+        "MATCH (a:A) MATCH (a)-[:LIKES*1]->()-[:LIKES]->(c) RETURN c.name",
+        "MATCH (a:A) MATCH (a)-[:LIKES*2]->()-[:LIKES]->(c) RETURN c.name",
+        "MATCH (a:A) MATCH (a)-[:LIKES]->()-[:LIKES*3]->(c) RETURN c.name",
+        "MATCH (a:A) MATCH (a)<-[:LIKES]-()-[:LIKES*3]->(c) RETURN c.name",
+    ],
+)
+def test_string_cypher_failfast_rejects_nonterminal_variable_length_relationship_patterns(
+    query: str,
+) -> None:
+    graph = _mk_empty_graph()
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(query)
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert "only relationship in a connected pattern" in exc_info.value.message
+
+
+def test_string_cypher_failfast_rejects_bounded_variable_length_where_pattern_predicates() -> None:
+    graph = _mk_empty_graph()
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql("MATCH (n) WHERE (n)-[:REL1*2]-() RETURN n")
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert "WHERE pattern predicates" in exc_info.value.message
+
+
+def test_string_cypher_failfast_rejects_multi_alias_return_star_projection() -> None:
+    graph = _mk_empty_graph()
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql("MATCH (a)-[]->(b) RETURN *")
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert "RETURN * currently requires a single MATCH alias" in exc_info.value.message
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
         "MATCH (n:A) WITH n MATCH (m:B), (n)-->(x:X) RETURN *",
         "MATCH (n:A) WITH n LIMIT 1 MATCH (m:B), (n)-->(x:X) RETURN *",
         "MATCH (n:A) WITH n SKIP 0 LIMIT 1 MATCH (m:B), (n)-->(x:X) RETURN *",

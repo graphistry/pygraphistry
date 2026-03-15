@@ -433,13 +433,19 @@ def combine_steps(
                         out_df[hc] = out_df[hc].where(out_df[hc].notna(), mapped_vals)
 
         if hop_cols:
-            hop_col = hop_cols[0]
             for idx, (op, _g_step) in enumerate(steps):
                 if op._name is None or not isinstance(op, ASTNode) or op._name not in out_df.columns or idx == 0:
                     continue
                 prev_op, _ = steps[idx - 1]
                 if not isinstance(prev_op, ASTEdge):
                     continue
+                prev_step_nodes = label_steps[idx - 1][1]._nodes if idx - 1 < len(label_steps) else None
+                prev_hop_cols = (
+                    [c for c in prev_step_nodes.columns if 'hop' in c.lower()]
+                    if prev_step_nodes is not None
+                    else []
+                )
+                hop_col = prev_hop_cols[0] if prev_hop_cols else None
                 min_hop = (
                     prev_op.output_min_hops
                     if prev_op.output_min_hops is not None
@@ -461,9 +467,9 @@ def combine_steps(
                 if prev_op.to_fixed_point:
                     max_hop = None
                 label_mask = out_df[op._name].fillna(False).astype(bool)
-                if min_hop > 1:
+                if hop_col is not None and min_hop > 1:
                     label_mask = label_mask & out_df[hop_col].notna() & (out_df[hop_col] >= min_hop)
-                if max_hop is not None:
+                if hop_col is not None and max_hop is not None:
                     label_mask = label_mask & out_df[hop_col].notna() & (out_df[hop_col] <= max_hop)
                 out_df[op._name] = label_mask
 
