@@ -205,6 +205,8 @@ def hop(self: Plottable,
 
     assert g2._source is not None, "Source binding checked above"
     assert g2._destination is not None, "Destination binding checked above"
+    source_col = g2._source
+    destination_col = g2._destination
 
     node_src_conflict = g2._node == g2._source
     node_dst_conflict = g2._node == g2._destination
@@ -695,12 +697,12 @@ def hop(self: Plottable,
     ) -> set:
         if len(edges_df) == 0 or len(seed_nodes_df) == 0:
             return set()
-        edges_pdf = edges_df[[g2._source, g2._destination]].to_pandas() if hasattr(edges_df, "to_pandas") else edges_df[[g2._source, g2._destination]].copy()
+        edges_pdf = edges_df[[source_col, destination_col]].to_pandas() if hasattr(edges_df, "to_pandas") else edges_df[[source_col, destination_col]].copy()
         seeds_pdf = seed_nodes_df[[node_col]].to_pandas() if hasattr(seed_nodes_df, "to_pandas") else seed_nodes_df[[node_col]].copy()
         adjacency: Dict[Any, set] = {}
         for row in edges_pdf.itertuples(index=False):
-            src = getattr(row, g2._source)
-            dst = getattr(row, g2._destination)
+            src = getattr(row, source_col)
+            dst = getattr(row, destination_col)
             adjacency.setdefault(src, set()).add(dst)
             adjacency.setdefault(dst, set()).add(src)
         seeds = set(seeds_pdf[node_col].drop_duplicates().tolist())
@@ -728,16 +730,16 @@ def hop(self: Plottable,
     def _undirected_cycle_nodes(edges_df: DataFrameT) -> set:
         if len(edges_df) == 0:
             return set()
-        edges_pdf = edges_df[[g2._source, g2._destination]].to_pandas() if hasattr(edges_df, "to_pandas") else edges_df[[g2._source, g2._destination]].copy()
+        edges_pdf = edges_df[[source_col, destination_col]].to_pandas() if hasattr(edges_df, "to_pandas") else edges_df[[source_col, destination_col]].copy()
         loop_nodes = set(
-            edges_pdf.loc[edges_pdf[g2._source] == edges_pdf[g2._destination], g2._source].tolist()
+            edges_pdf.loc[edges_pdf[source_col] == edges_pdf[destination_col], source_col].tolist()
         )
-        simple_edges = edges_pdf.loc[edges_pdf[g2._source] != edges_pdf[g2._destination]]
+        simple_edges = edges_pdf.loc[edges_pdf[source_col] != edges_pdf[destination_col]]
         adjacency: Dict[Any, set] = {}
         degrees: Dict[Any, int] = {}
         for row in simple_edges.itertuples(index=False):
-            src = getattr(row, g2._source)
-            dst = getattr(row, g2._destination)
+            src = getattr(row, source_col)
+            dst = getattr(row, destination_col)
             adjacency.setdefault(src, set()).add(dst)
             adjacency.setdefault(dst, set()).add(src)
         for node_id, neighbors in adjacency.items():

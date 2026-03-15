@@ -735,7 +735,7 @@ def _build_transformer(source: str) -> _TransformerLike:
         def pattern(self, _meta: Any, items: Sequence[Any]) -> Tuple[PatternElement, ...]:
             return tuple(cast(PatternElement, item) for item in items)
 
-        def bound_pattern(self, _meta: Any, items: Sequence[Any]) -> Tuple[PatternElement, ...]:
+        def bound_pattern(self, _meta: Any, items: Sequence[Any]) -> _BoundPattern:
             if len(items) != 2:
                 raise _to_syntax_error("Invalid bound MATCH pattern")
             return _BoundPattern(alias=str(items[0]), pattern=cast(Tuple[PatternElement, ...], items[1]))
