@@ -676,14 +676,13 @@ g.gfql([
 ## Graph Constructors and the Wire Protocol
 
 GFQL's Cypher extensions (`GRAPH { }` constructors, `GRAPH g = ...` bindings,
-`USE g` graph switching) do **not** require new wire-protocol message types.
-They compile locally to the same `Chain`, `Call`, and `Let` primitives that the
-wire protocol already supports.
+`USE g` graph switching) serialize using the existing `Let`, `Chain`, `Call`,
+and `ChainRef` wire-protocol primitives. No new message types are needed.
 
-### Why No New Types
+### Serialization
 
-Graph constructors are a **compilation-layer concept**, not a wire-protocol
-concept. When you write:
+A multi-stage graph pipeline maps to a `Let` whose bindings are `Chain` or
+`Call` values, with `ChainRef` for `USE` references:
 
 ```
 GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 10 }
@@ -691,33 +690,51 @@ GRAPH g2 = GRAPH { USE g1 CALL graphistry.degree.write() }
 USE g2 MATCH (n) RETURN n.id, n.degree ORDER BY n.degree DESC
 ```
 
-The compiler produces a sequence of Chain/Call executions:
+```json
+{
+  "type": "Let",
+  "bindings": {
+    "g1": {
+      "type": "Chain",
+      "chain": [
+        {"type": "Node", "filter_dict": {"score": {"type": "GT", "val": 10}}, "name": "a"},
+        {"type": "Edge", "direction": "forward", "name": "r"},
+        {"type": "Node", "name": "b"}
+      ]
+    },
+    "g2": {
+      "type": "ChainRef",
+      "ref": "g1",
+      "chain": [
+        {"type": "Call", "function": "graphistry.degree.write", "params": {}}
+      ]
+    },
+    "__result__": {
+      "type": "ChainRef",
+      "ref": "g2",
+      "chain": [
+        {"type": "Node", "name": "n"},
+        {"type": "Call", "function": "rows", "params": {"table": "nodes", "source": "n"}},
+        {"type": "Call", "function": "select", "params": {"items": [["id", "n.id"], ["degree", "n.degree"]]}},
+        {"type": "Call", "function": "order_by", "params": {"keys": [["degree", "desc"]]}}
+      ]
+    }
+  }
+}
+```
 
-1. **g1**: A `Chain` matching `(a)-[r]->(b)` with `where` filter — standard wire type
-2. **g2**: A `Call` to `graphistry.degree.write` — standard wire type
-3. **final**: A `Chain` with row-pipeline steps — standard wire type
-
-The graph-binding scope (which graph each step runs against) is resolved at
-execution time, not encoded in the wire format. For `g.gfql_remote()`, the
-entire pipeline currently compiles locally before the final Chain/Call is sent
-to the server.
+The entire pipeline is a single `Let` message — one request, server-side
+evaluation.
 
 ### Desugaring Reference
 
 | GFQL Extension | Wire Equivalent |
 |----------------|-----------------|
 | `GRAPH { MATCH ... WHERE ... }` | `{"type": "Chain", "chain": [...], "where": [...]}` |
-| `GRAPH { CALL graphistry.degree.write() }` | `{"type": "Call", "function": "graphistry.degree.write", "params": {}}` |
-| `GRAPH g = GRAPH { ... }` | Named binding — the body is a standard `Chain` or `Call`; the binding name is resolved during sequential execution |
-| `USE g` | Graph context switch — the next `Chain`/`Call` executes against the result of binding `g` |
-
-### Remote Execution
-
-Multi-graph pipelines desugar to a sequence of standard Chain/Call messages.
-Each step in the pipeline is individually representable in the existing wire
-format, so remote execution can evaluate them sequentially — no new wire types
-are required. A future optimization could batch the full pipeline into a
-single request, but the current primitives are sufficient.
+| `GRAPH { CALL graphistry.*.write() }` | `{"type": "Call", "function": "...", "params": {}}` |
+| `GRAPH g = GRAPH { ... }` | Named `Let` binding — body is a `Chain` or `Call` |
+| `USE g` | `ChainRef` with `"ref": "g"` — subsequent operations execute against `g`'s result |
+| `USE g MATCH ... RETURN ...` | `ChainRef` with `"ref": "g"` and the query chain as its body |
 
 ## Best Practices
 
