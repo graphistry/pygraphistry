@@ -140,6 +140,39 @@ The Neo4j equivalent of the same pipeline:
    MATCH (c)-[r:LINK]-(target:Node)
    SET target.final = true, r.final = true;
 
+Why the GFQL pipeline is shorter
+---------------------------------
+
+The difference in pipeline length above is not accidental. It reflects a
+design difference in how graphs flow through the system:
+
+**Graphs as first-class values.** GFQL's ``GRAPH { }`` constructors treat
+graphs as composable values that flow between pipeline stages. Each stage
+receives a graph, transforms it, and passes a graph to the next stage.
+Standard Cypher and GQL are constrained to paths and rows as output values,
+which forces the Neo4j pipeline into explicit property-flag marking,
+separate GDS projections, and batched write-back steps.
+
+**Multi-language, single engine.** The GFQL engine is being designed to
+support Cypher, and over time additional property graph query languages,
+all compiled to the same vectorized columnar execution backend. Users write
+in whichever declarative syntax they prefer; the engine handles CPU/GPU
+dispatch transparently. See :doc:`cypher` for the current Cypher surface
+and :doc:`overview` for the broader GFQL design.
+
+**Modern execution without legacy constraints.** Because GFQL does not
+inherit a database storage layer or a row-at-a-time execution model, it can
+represent intermediate graph results natively in columnar memory (Arrow /
+pandas / cuDF). That is what makes the CPU-to-GPU switch a configuration
+flag (``engine="cudf"``) rather than a rewrite, and what keeps ETL, search,
+and analytics in the same in-process pipeline.
+
+For more on the GFQL design and supported surface:
+
+- :doc:`cypher` — Cypher syntax through ``g.gfql("MATCH ...")``
+- :doc:`overview` — GFQL design, features, and GPU acceleration
+- :doc:`about` — 10-minute introduction to GFQL
+
 Benchmark environment
 ---------------------
 
