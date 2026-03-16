@@ -1,6 +1,11 @@
 GFQL Cypher Benchmark: CPU/GPU DataFrames vs Neo4j
 ==================================================
 
+.. image:: _static/gfql-mascot.png
+   :alt: GFQL mascot
+   :width: 160px
+   :align: right
+
 Run Cypher graph queries and analytics directly on Python dataframes —
 no database required. This benchmark compares **Graphistry's local Cypher**
 (CPU and GPU) against **Neo4j + GDS** on the same end-to-end pipeline.

@@ -3,6 +3,11 @@
 10 Minutes to GFQL
 ==================
 
+.. image:: _static/gfql-mascot.png
+   :alt: GFQL mascot
+   :width: 200px
+   :align: center
+
 Welcome to **GFQL (GraphFrame Query Language)**, the first **dataframe-native graph query language**. GFQL is designed to bring the power of graph queries to your data science workflows without the need for external graph databases or complex infrastructure. It integrates seamlessly with the **PyData**, **Apache Arrow**, and **GPU acceleration** ecosystems, allowing you to process massive graphs efficiently.
 
 In this guide, we'll explore the basics of GFQL in just 10 minutes. You'll learn how to:
