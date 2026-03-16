@@ -1,5 +1,5 @@
 GFQL Cypher Benchmark: CPU/GPU DataFrames vs Neo4j
-==========================================================
+==================================================
 
 Run Cypher graph queries and analytics directly on Python dataframes —
 no database required. This benchmark compares **Graphistry's local Cypher**
@@ -68,8 +68,8 @@ The same pipeline shape, different backends:
 The Neo4j equivalent requires ~30 lines of Cypher + GDS projection + batched
 writes (see :ref:`neo4j-analog` below).
 
-Twitter: exact 3-way comparison
---------------------------------
+Twitter (2.4M edges): exact 3-way comparison
+--------------------------------------------
 
 .. image:: _static/filter_pagerank/twitter_lifecycle.svg
    :alt: Twitter end-to-end: Neo4j vs GFQL Cypher CPU vs GFQL Cypher GPU
@@ -80,8 +80,8 @@ Stacked by workload phase: **ETL** (load + shape), **Search** (graph queries), *
 - GFQL Cypher CPU: ~2.8s — **8x faster than Neo4j**
 - GFQL Cypher GPU: ~0.4s — **54x faster than Neo4j**
 
-GPlus: larger graph
---------------------
+GPlus (30M edges): larger graph
+-------------------------------
 
 .. image:: _static/filter_pagerank/gplus_lifecycle.svg
    :alt: GPlus: Neo4j (lower bound) vs GFQL Cypher CPU vs GFQL Cypher GPU
@@ -104,7 +104,7 @@ under the same GFQL Cypher surface.
 .. _neo4j-analog:
 
 Neo4j + GDS analog
--------------------
+------------------
 
 The Neo4j equivalent of the same pipeline:
 
@@ -141,7 +141,7 @@ The Neo4j equivalent of the same pipeline:
    SET target.final = true, r.final = true;
 
 Why the GFQL pipeline is shorter
----------------------------------
+--------------------------------
 
 The difference in pipeline length above is not accidental. It reflects a
 design difference in how graphs flow through the system:
