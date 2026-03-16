@@ -80,13 +80,13 @@ def twitter_three_way_df() -> pd.DataFrame:
     cpu_gpu = {row["engine"]: row for row in twitter_cpu_gpu()["results"]}
     neo = twitter_neo4j()
     rows = [
-        {"system": "Graphistry GPU\n(cudf + cugraph)", "family": "Graphistry GPU", "seconds": cpu_gpu["cudf"]["pipeline_total_median_s"]},
-        {"system": "Graphistry CPU\n(pandas + igraph)", "family": "Graphistry CPU", "seconds": cpu_gpu["pandas"]["pipeline_total_median_s"]},
         {"system": "Neo4j + GDS", "family": "Neo4j", "seconds": neo["pipeline_total_median_s"]},
+        {"system": "Graphistry CPU\n(pandas + igraph)", "family": "Graphistry CPU", "seconds": cpu_gpu["pandas"]["pipeline_total_median_s"]},
+        {"system": "Graphistry GPU\n(cudf + cugraph)", "family": "Graphistry GPU", "seconds": cpu_gpu["cudf"]["pipeline_total_median_s"]},
     ]
     df = pd.DataFrame(rows)
-    fastest = float(df["seconds"].min())
-    df["vs_fastest_x"] = (df["seconds"] / fastest).round(2)
+    neo4j_s = float(df["seconds"].iloc[0])
+    df["speedup_vs_neo4j"] = (neo4j_s / df["seconds"]).round(1)
     return df
 
 
@@ -98,17 +98,17 @@ def twitter_stage_df() -> pd.DataFrame:
         ("Search + PageRank", "search_enrich_median_s"),
         ("Final search", "gfql_filter2_median_s"),
     ]
-    for system, payload in [
-        ("Graphistry GPU\n(cudf + cugraph)", cpu_gpu["cudf"]),
-        ("Graphistry CPU\n(pandas + igraph)", cpu_gpu["pandas"]),
-    ]:
-        for stage, key in stages:
-            rows.append({"system": system, "stage": stage, "seconds": payload[key]})
-    # Neo4j still has the old 3-stage keys; combine filter1 + pagerank
+    # Neo4j first (worst), then CPU, then GPU (best) — left to right improvement
     rows.append({"system": "Neo4j + GDS", "stage": "Search + PageRank",
                  "seconds": neo["gfql_filter1_median_s"] + neo["pagerank_median_s"]})
     rows.append({"system": "Neo4j + GDS", "stage": "Final search",
                  "seconds": neo["gfql_filter2_median_s"]})
+    for system, payload in [
+        ("Graphistry CPU\n(pandas + igraph)", cpu_gpu["pandas"]),
+        ("Graphistry GPU\n(cudf + cugraph)", cpu_gpu["cudf"]),
+    ]:
+        for stage, key in stages:
+            rows.append({"system": system, "stage": stage, "seconds": payload[key]})
     return pd.DataFrame(rows)
 
 
@@ -130,8 +130,12 @@ def load_breakdown_df() -> pd.DataFrame:
 def gplus_lifecycle_df() -> pd.DataFrame:
     summary = gplus_summary()
     load = {row["engine"]: row for row in gplus_load()["results"]}
-    rows = []
-    for key, engine, label in [("gpu", "cudf", "Graphistry GPU"), ("cpu", "pandas", "Graphistry CPU")]:
+    rows = [
+        # Neo4j first (worst) — lower bound only, no load/shape split
+        {"system": "Neo4j + GDS\n(lower bound)", "phase": "Search + analytics pipeline", "seconds": NEO4J_GPLUS_LOWER_BOUND_S},
+        {"system": "Neo4j + GDS\n(lower bound)", "phase": "Load + shape", "seconds": 0.0},
+    ]
+    for key, engine, label in [("cpu", "pandas", "Graphistry CPU"), ("gpu", "cudf", "Graphistry GPU")]:
         row = summary[key]
         rows.extend([
             {"system": label, "phase": "Load + shape", "seconds": load[engine]["total_prepare_median_s"]},
@@ -198,8 +202,9 @@ def plot_twitter_three_way(ax=None):
     ax.tick_params(axis="x", pad=10)
     top = _top_with_headroom(df["seconds"].tolist(), pad_ratio=0.22, min_pad=0.18)
     ax.set_ylim(0, top)
-    for bar, seconds, mult in zip(bars, df["seconds"], df["vs_fastest_x"]):
-        _label_box(ax, bar.get_x() + bar.get_width() / 2, bar.get_height() + top * 0.02, f"{seconds:.2f}s\n{mult:.2f}x vs best")
+    for bar, seconds, speedup in zip(bars, df["seconds"], df["speedup_vs_neo4j"]):
+        label = f"{seconds:.2f}s" if speedup == 1.0 else f"{seconds:.2f}s\n{speedup:.0f}x vs Neo4j"
+        _label_box(ax, bar.get_x() + bar.get_width() / 2, bar.get_height() + top * 0.02, label)
     fig.tight_layout(pad=1.4)
     return fig, ax
 
@@ -273,42 +278,43 @@ def plot_load_breakdown():
 def plot_gplus_lifecycle(ax=None):
     setup_matplotlib()
     if ax is None:
-        fig, ax = plt.subplots(figsize=(9.6, 5.8))
+        fig, ax = plt.subplots(figsize=(10.4, 5.8))
     else:
         fig = ax.figure
     df = gplus_lifecycle_df()
-    systems = ["Graphistry GPU", "Graphistry CPU"]
-    phases = ["Load + shape", "Search + analytics pipeline"]
+    systems = list(df["system"].drop_duplicates())  # Neo4j, CPU, GPU order
+    phases = ["Search + analytics pipeline", "Load + shape"]
     bottoms = [0.0] * len(systems)
     phase_colors = {"Load + shape": COLORS["Load"], "Search + analytics pipeline": "#d17c2f"}
+    bar_colors_override = {systems[0]: COLORS["Neo4j"]}  # Neo4j bar uses Neo4j color
     for phase in phases:
         vals = df[df["phase"] == phase].set_index("system").reindex(systems)["seconds"].tolist()
-        ax.bar(systems, vals, bottom=bottoms, label=phase, color=phase_colors[phase], width=0.58)
+        colors = [bar_colors_override.get(s, phase_colors[phase]) for s in systems]
+        ax.bar(systems, vals, bottom=bottoms, label=phase, color=colors, width=0.58)
         bottoms = [a + b for a, b in zip(bottoms, vals)]
-    top = max(_top_with_headroom(bottoms, pad_ratio=0.2, min_pad=6.0), NEO4J_GPLUS_LOWER_BOUND_S + 22)
+    top = _top_with_headroom(bottoms, pad_ratio=0.2, min_pad=12.0)
     ax.set_ylim(0, top)
-    ax.axhline(NEO4J_GPLUS_LOWER_BOUND_S, color=COLORS["Neo4j"], linestyle="--", linewidth=2.2)
-    ax.annotate(
-        "Neo4j lower bound > 187s",
-        xy=(1.25, NEO4J_GPLUS_LOWER_BOUND_S),
-        xytext=(1.33, NEO4J_GPLUS_LOWER_BOUND_S + 12),
-        ha="right",
-        va="bottom",
-        fontsize=10,
-        color=COLORS["Neo4j"],
-        arrowprops={"arrowstyle": "-", "color": COLORS["Neo4j"], "lw": 1.4},
-        bbox={"boxstyle": "round,pad=0.28", "facecolor": "white", "edgecolor": "#CBD5E1", "linewidth": 0.9},
-        clip_on=False,
-    )
-    ax.set_title("GPlus lifecycle on a larger graph")
+    ax.set_title("GPlus full lifecycle: Neo4j vs Graphistry CPU vs GPU")
     ax.set_ylabel("Seconds")
     ax.grid(axis="y", alpha=0.55)
     ax.set_axisbelow(True)
     _style_axes(ax)
     ax.tick_params(axis="x", pad=10)
-    ax.legend(ncol=2, loc="upper center", bbox_to_anchor=(0.5, 1.1))
+    # Custom legend (Neo4j is single-phase, others are stacked)
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor=COLORS["Neo4j"], label="Neo4j (pipeline lower bound)"),
+        Patch(facecolor="#d17c2f", label="Search + analytics pipeline"),
+        Patch(facecolor=COLORS["Load"], label="Load + shape"),
+    ]
+    ax.legend(handles=legend_elements, ncol=3, loc="upper center", bbox_to_anchor=(0.5, 1.1))
+    neo4j_total = bottoms[0]
     for i, total in enumerate(bottoms):
-        _label_box(ax, i, total + top * 0.012, f"{total:.1f}s")
+        if i == 0:
+            _label_box(ax, i, total + top * 0.012, f">{total:.0f}s")
+        else:
+            speedup = neo4j_total / total
+            _label_box(ax, i, total + top * 0.012, f"{total:.1f}s\n{speedup:.0f}x vs Neo4j")
     fig.tight_layout(rect=(0, 0, 1, 0.94), pad=1.4)
     return fig, ax
 
