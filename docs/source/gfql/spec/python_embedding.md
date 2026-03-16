@@ -404,7 +404,8 @@ queries to `language="cypher"`.
   Cypher results
 
 If you want a traversable graph/subgraph back in both `_nodes` and `_edges`,
-prefer native GFQL chain syntax instead of Cypher `RETURN` projections.
+use native GFQL chain syntax or the `GRAPH { }` constructor (a GFQL extension
+to Cypher that keeps results in graph state instead of flattening to rows).
 
 ```python
 from graphistry import n, e_forward
@@ -416,8 +417,16 @@ df = result._nodes
 entity_rows = g.gfql("MATCH (p:Person) RETURN p")
 entity_df = entity_rows._nodes
 
-# If you want a graph/subgraph back, use native GFQL chain syntax.
+# If you want a graph/subgraph back, use native GFQL chain syntax...
 g2 = g.gfql([n({"type": "Person"}), e_forward(), n()])
+
+# ...or the GRAPH { } constructor (GFQL extension).
+g3 = g.gfql(
+    "GRAPH { "
+    "  MATCH (p:Person)-[r]->(q) "
+    "  WHERE p.score >= 10 "
+    "}"
+)
 
 limited = g.gfql(
     "MATCH (p:Person) RETURN p.name AS name ORDER BY name DESC LIMIT $top_n",

@@ -71,7 +71,7 @@ Use the entrypoint that matches where the query executes:
 
 GFQL pipelines also have two practical result kinds:
 
-- **Graph state**: Traversable graph results with meaningful `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, `let()` / `ref()` DAG stages, and local Cypher `CALL graphistry.*.write()` queries stay in graph state.
+- **Graph state**: Traversable graph results with meaningful `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, `let()` / `ref()` DAG stages, local Cypher `CALL graphistry.*.write()` queries, and local Cypher `GRAPH { MATCH ... }` constructors stay in graph state.
 - **Row state**: Tabular results stored in `_nodes`, with `_edges` reduced to an empty placeholder frame. Row-pipeline steps like `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning local Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
 - A bare local Cypher procedure call without `.write()` is also row-returning. For example, `CALL graphistry.degree()` materializes the default procedure output columns into `_nodes` and clears `_edges`.
 

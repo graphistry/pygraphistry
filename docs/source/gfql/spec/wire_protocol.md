@@ -673,6 +673,69 @@ g.gfql([
 ```
 
 
+## Graph Constructors and the Wire Protocol
+
+GFQL's Cypher extensions (`GRAPH { }` constructors, `GRAPH g = ...` bindings,
+`USE g` graph switching) serialize using the existing `Let`, `Chain`, `Call`,
+and `ChainRef` wire-protocol primitives. No new message types are needed.
+
+### Serialization
+
+A multi-stage graph pipeline maps to a `Let` whose bindings are `Chain` or
+`Call` values, with `ChainRef` for `USE` references:
+
+```
+GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 10 }
+GRAPH g2 = GRAPH { USE g1 CALL graphistry.degree.write() }
+USE g2 MATCH (n) RETURN n.id, n.degree ORDER BY n.degree DESC
+```
+
+```json
+{
+  "type": "Let",
+  "bindings": {
+    "g1": {
+      "type": "Chain",
+      "chain": [
+        {"type": "Node", "filter_dict": {"score": {"type": "GT", "val": 10}}, "name": "a"},
+        {"type": "Edge", "direction": "forward", "name": "r"},
+        {"type": "Node", "name": "b"}
+      ]
+    },
+    "g2": {
+      "type": "ChainRef",
+      "ref": "g1",
+      "chain": [
+        {"type": "Call", "function": "graphistry.degree.write", "params": {}}
+      ]
+    },
+    "__result__": {
+      "type": "ChainRef",
+      "ref": "g2",
+      "chain": [
+        {"type": "Node", "name": "n"},
+        {"type": "Call", "function": "rows", "params": {"table": "nodes", "source": "n"}},
+        {"type": "Call", "function": "select", "params": {"items": [["id", "n.id"], ["degree", "n.degree"]]}},
+        {"type": "Call", "function": "order_by", "params": {"keys": [["degree", "desc"]]}}
+      ]
+    }
+  }
+}
+```
+
+The entire pipeline is a single `Let` message — one request, server-side
+evaluation.
+
+### Desugaring Reference
+
+| GFQL Extension | Wire Equivalent |
+|----------------|-----------------|
+| `GRAPH { MATCH ... WHERE ... }` | `{"type": "Chain", "chain": [...], "where": [...]}` |
+| `GRAPH { CALL graphistry.*.write() }` | `{"type": "Call", "function": "...", "params": {}}` |
+| `GRAPH g = GRAPH { ... }` | Named `Let` binding — body is a `Chain` or `Call` |
+| `USE g` | `ChainRef` with `"ref": "g"` — subsequent operations execute against `g`'s result |
+| `USE g MATCH ... RETURN ...` | `ChainRef` with `"ref": "g"` and the query chain as its body |
+
 ## Best Practices
 
 1. **Always include type fields**: Every object must have a `type`

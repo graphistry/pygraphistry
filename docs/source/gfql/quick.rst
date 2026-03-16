@@ -43,7 +43,7 @@ Choose The Right Entrypoint
 Graph State Vs Row State
 ------------------------
 
-- **Graph state** keeps a traversable graph in `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, `let()` / `ref()` graph DAG stages, and local Cypher `CALL graphistry.*.write()` queries stay in graph state.
+- **Graph state** keeps a traversable graph in `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, `let()` / `ref()` graph DAG stages, local Cypher `CALL graphistry.*.write()` queries, and local Cypher `GRAPH { MATCH ... }` constructors stay in graph state. (`GRAPH { }` is a GFQL extension — see :doc:`cypher` for details.)
 - **Row state** stores tabular results in `_nodes` and uses an empty placeholder `_edges` frame. Row-pipeline steps such as `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning local Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
 - A bare local Cypher procedure call without `.write()` also moves into row state. For example, `CALL graphistry.degree()` projects its default output columns into `_nodes` and clears `_edges`.
 - If you want to enrich a graph and keep matching locally, use a graph-preserving `call()` / `let()` pattern or a bare local Cypher `CALL graphistry.*.write()`. The local Cypher compiler currently supports `graphistry.degree.write()` plus `graphistry.igraph.<alg>.write()` and `graphistry.cugraph.<alg>.write()` for algorithms exposed through `compute_igraph()` / `compute_cugraph()`, along with the smaller compatibility subset `graphistry.nx.pagerank.write()`, `graphistry.nx.betweenness_centrality.write()`, `graphistry.nx.edge_betweenness_centrality.write()`, and `graphistry.nx.k_core.write()`.

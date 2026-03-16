@@ -35,6 +35,14 @@ class ErrorCode:
     E303 = "invalid-node-reference"
     E304 = "invalid-edge-reference"
 
+    # Graph constructor errors (E150-E159)
+    E150 = "duplicate-graph-binding"
+    E151 = "unresolved-graph-reference"
+    E152 = "forward-graph-reference"
+    E153 = "circular-graph-reference"
+    E154 = "disallowed-graph-constructor-clause"
+    E155 = "empty-graph-constructor"
+
 
 class GFQLValidationError(Exception):
     """Base class for GFQL validation errors with structured information."""

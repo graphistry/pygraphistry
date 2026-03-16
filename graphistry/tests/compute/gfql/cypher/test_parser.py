@@ -7,6 +7,7 @@ import pytest
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.cypher import (
     CallClause,
+    CypherGraphQuery,
     CypherQuery,
     ExpressionText,
     LabelRef,
@@ -18,6 +19,7 @@ from graphistry.compute.gfql.cypher import (
     WherePatternPredicate,
     parse_cypher,
 )
+from graphistry.compute.gfql.cypher.ast import GraphBinding, GraphConstructor, UseClause
 
 
 def _parse_query(query: str) -> CypherQuery:
@@ -38,6 +40,135 @@ def test_parse_minimal_match_return() -> None:
     assert parsed.skip is None
     assert parsed.limit is None
     assert parsed.trailing_semicolon is False
+
+
+def test_parse_graph_property_access_allowed() -> None:
+    parsed = _parse_query("MATCH (n) RETURN n.graph")
+
+    assert parsed.return_.items[0].expression.text == "n.graph"
+
+
+def test_parse_rejects_reserved_graph_identifier_for_aliases_and_variables() -> None:
+    with pytest.raises(GFQLSyntaxError):
+        _parse_query("MATCH (graph) RETURN n")
+
+    with pytest.raises(GFQLSyntaxError):
+        _parse_query("MATCH (n) RETURN n.id AS graph")
+
+
+def test_parse_standalone_graph_constructor() -> None:
+    parsed = parse_cypher("GRAPH { MATCH (a)-[r]->(b) }")
+
+    assert isinstance(parsed, CypherGraphQuery)
+    assert len(parsed.constructor.matches) == 1
+    assert parsed.constructor.where is None
+    assert parsed.constructor.use is None
+    assert parsed.graph_bindings == ()
+
+
+def test_parse_standalone_graph_constructor_with_where() -> None:
+    parsed = parse_cypher("GRAPH { MATCH (a)-[r]->(b) WHERE a.id = 'x' }")
+
+    assert isinstance(parsed, CypherGraphQuery)
+    assert parsed.constructor.where is not None
+
+
+def test_parse_graph_binding() -> None:
+    parsed = parse_cypher(
+        "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) } "
+        "USE g1 MATCH (x) RETURN x"
+    )
+
+    assert isinstance(parsed, CypherQuery)
+    assert len(parsed.graph_bindings) == 1
+    assert parsed.graph_bindings[0].name == "g1"
+    assert parsed.use is not None
+    assert parsed.use.ref == "g1"
+
+
+def test_parse_multi_graph_binding() -> None:
+    parsed = parse_cypher(
+        "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) } "
+        "GRAPH g2 = GRAPH { MATCH (c)-[s]->(d) } "
+        "USE g2 MATCH (x) RETURN x"
+    )
+
+    assert isinstance(parsed, CypherQuery)
+    assert len(parsed.graph_bindings) == 2
+    assert parsed.graph_bindings[0].name == "g1"
+    assert parsed.graph_bindings[1].name == "g2"
+
+
+def test_parse_graph_constructor_with_use_inside() -> None:
+    parsed = parse_cypher(
+        "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) } "
+        "GRAPH { USE g1 MATCH (c)-[s]->(d) }"
+    )
+
+    assert isinstance(parsed, CypherGraphQuery)
+    assert len(parsed.graph_bindings) == 1
+    assert parsed.constructor.use is not None
+    assert parsed.constructor.use.ref == "g1"
+
+
+def test_parse_graph_constructor_with_call() -> None:
+    parsed = parse_cypher("GRAPH { CALL graphistry.degree.write() }")
+
+    assert isinstance(parsed, CypherGraphQuery)
+    assert parsed.constructor.call is not None
+    assert parsed.constructor.call.procedure == "graphistry.degree.write"
+    assert parsed.constructor.matches == ()
+
+
+def test_parse_rejects_match_and_call_in_graph_constructor() -> None:
+    with pytest.raises(GFQLSyntaxError):
+        parse_cypher("GRAPH { MATCH (a)-[r]->(b) CALL graphistry.degree.write() }")
+
+
+def test_parse_rejects_empty_graph_constructor() -> None:
+    with pytest.raises(GFQLSyntaxError):
+        parse_cypher("GRAPH { }")
+
+
+def test_parse_rejects_return_inside_graph_constructor() -> None:
+    with pytest.raises(GFQLSyntaxError):
+        parse_cypher("GRAPH { MATCH (a) RETURN a }")
+
+
+def test_parse_rejects_unwind_inside_graph_constructor() -> None:
+    with pytest.raises(GFQLSyntaxError):
+        parse_cypher("GRAPH { UNWIND [1,2] AS x }")
+
+
+def test_parse_rejects_duplicate_graph_binding_name() -> None:
+    with pytest.raises(GFQLValidationError):
+        parse_cypher(
+            "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) } "
+            "GRAPH g1 = GRAPH { MATCH (c)-[s]->(d) } "
+            "MATCH (x) RETURN x"
+        )
+
+
+def test_parse_rejects_unresolved_use_reference() -> None:
+    with pytest.raises(GFQLValidationError):
+        parse_cypher("USE missing MATCH (x) RETURN x")
+
+
+def test_parse_rejects_forward_use_reference() -> None:
+    with pytest.raises(GFQLValidationError):
+        parse_cypher(
+            "GRAPH g1 = GRAPH { USE g2 MATCH (a)-[r]->(b) } "
+            "GRAPH g2 = GRAPH { MATCH (c)-[s]->(d) } "
+            "MATCH (x) RETURN x"
+        )
+
+
+def test_parse_rejects_self_referential_use() -> None:
+    with pytest.raises(GFQLValidationError):
+        parse_cypher(
+            "GRAPH g1 = GRAPH { USE g1 MATCH (a)-[r]->(b) } "
+            "MATCH (x) RETURN x"
+        )
 
 
 def test_parse_linear_pattern_with_labels_properties_and_aliases() -> None:

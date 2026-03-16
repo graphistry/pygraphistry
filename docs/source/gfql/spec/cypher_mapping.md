@@ -449,6 +449,60 @@ analysis = g.gfql([
 | **Comparisons** | `gt(30)` | `{"type": "GT", "val": 30}` |
 | **Collections** | `is_in([...])` | `{"type": "IsIn", "options": [...]}` |
 
+## GFQL Extension: Graph Constructors (`GRAPH { }`)
+
+Standard Cypher and GQL's first edition (ISO/IEC 39075:2024) have no way to
+return a graph from a query — every result is a flat table of binding rows.
+GFQL extends Cypher with graph constructors that keep results in graph state,
+enabling composable graph-in / graph-out pipelines.
+
+### Syntax and Desugaring
+
+Graph constructors compile down to the same Chain/Call wire-protocol primitives
+as regular queries — **no new wire types are needed**.
+
+| Cypher (GFQL extension) | Desugars to |
+|--------------------------|-------------|
+| `GRAPH { MATCH (a)-[r]->(b) WHERE a.x > 10 }` | `Chain([n("a"), e_forward("r"), n("b")], where=[...])` — executed in graph state |
+| `GRAPH { CALL graphistry.degree.write() }` | `Call("graphistry.degree.write")` — graph-preserving procedure |
+| `GRAPH g = GRAPH { ... }` | Named binding (like `Let`) whose value is the Chain/Call result |
+| `USE g MATCH ... RETURN ...` | Execute the following query against binding `g`'s graph |
+
+### Examples
+
+**Standalone graph constructor (graph state out):**
+
+```python
+# Cypher extension
+g2 = g.gfql("GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 10 }")
+
+# Equivalent native GFQL (inherently graph-returning)
+g2 = g.gfql([n({"score": ge(10)}), e_forward(), n()])
+```
+
+**Multi-stage pipeline in one expression:**
+
+```python
+result = g.gfql(
+    "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 10 } "
+    "GRAPH g2 = GRAPH { USE g1 CALL graphistry.degree.write() } "
+    "USE g2 MATCH (n) RETURN n.id, n.degree ORDER BY n.degree DESC"
+)
+```
+
+**Wire protocol** — the pipeline above compiles locally to a sequence of
+Chain + Call executions against resolved graph bindings. The server sees
+ordinary Chain/Call messages, not graph-constructor-specific wire types.
+
+### Design Notes
+
+- `GRAPH { }` is a **closed scope** — pattern variables inside do not leak
+- `USE` is **lexically scoped** — bindings must be defined before USE
+- Only graph-preserving `CALL ... .write()` procedures are allowed inside
+  constructors (row-returning CALL is rejected)
+- `cypher_to_gfql()` rejects multi-graph pipelines (they can't be represented
+  as a single Chain); use `g.gfql("...")` for direct execution instead
+
 ## Not Supported
 - `CREATE`, `DELETE`, `SET`: GFQL is read-only.
 - `OPTIONAL MATCH`: direct `g.gfql("MATCH ...")` execution supports a bounded subset,

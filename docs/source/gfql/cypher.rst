@@ -64,6 +64,100 @@ Use ``params=...`` instead of manual string interpolation:
 
     limited._nodes
 
+Graph Constructors (``GRAPH { }``)
+-----------------------------------
+
+.. note::
+
+   ``GRAPH { }`` is a **GFQL extension** — not part of openCypher, and GQL's
+   first edition (ISO/IEC 39075:2024) deferred graph constructors to a future
+   revision. Standard Cypher and GQL both force query results through
+   row/path-centric serialization. ``GRAPH { }`` closes that gap by keeping
+   results in **graph state** (both ``_nodes`` and ``_edges``), enabling
+   composable graph-pipeline workflows.
+
+Use ``GRAPH { MATCH ... }`` when you want the matched subgraph back in graph
+state instead of a row table:
+
+.. code-block:: python
+
+    subgraph = g.gfql(
+        "GRAPH { "
+        "  MATCH (seed)-[reach]-(nbr) "
+        "  WHERE seed.degree >= $degree_cutoff "
+        "}",
+        params={"degree_cutoff": 10},
+    )
+
+    subgraph._nodes
+    subgraph._edges
+
+Use ``GRAPH g = GRAPH { ... }`` to bind a named graph, then ``USE g`` to
+query it:
+
+.. code-block:: python
+
+    result = g.gfql(
+        "GRAPH g1 = GRAPH { "
+        "  MATCH (seed)-[reach]-(nbr) "
+        "  WHERE seed.degree >= $degree_cutoff "
+        "} "
+        "USE g1 "
+        "MATCH (n) "
+        "RETURN n.id AS id, n.degree AS degree "
+        "ORDER BY degree DESC LIMIT 10",
+        params={"degree_cutoff": 10},
+    )
+
+Multi-stage graph pipelines chain constructors:
+
+.. code-block:: python
+
+    g1 = g.gfql(
+        "GRAPH { "
+        "  MATCH (seed)-[reach]-(nbr) "
+        "  WHERE seed.degree >= $degree_cutoff "
+        "}",
+        params={"degree_cutoff": 10},
+    )
+
+    g2 = g1.gfql("CALL graphistry.cugraph.pagerank.write()", engine="cudf")
+
+    g3 = g2.gfql(
+        "GRAPH { "
+        "  MATCH (core)-[halo]-(nbr) "
+        "  WHERE core.pagerank >= $pagerank_cutoff "
+        "}",
+        params={"pagerank_cutoff": 0.25},
+    )
+
+The graph constructor surface supports:
+
+- ``MATCH`` and ``WHERE`` clauses inside ``GRAPH { }``
+- Graph-preserving ``CALL graphistry.*.write()`` inside ``GRAPH { }``
+- ``GRAPH g = GRAPH { }`` named bindings with lexical scoping
+- ``USE g`` to switch the current graph (works both inside constructors and
+  in the outer query)
+- Variable scoping: pattern variables inside ``GRAPH { }`` do not leak
+
+This enables single-expression pipelines that filter, enrich, and query:
+
+.. code-block:: python
+
+    result = g.gfql(
+        "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 10 } "
+        "GRAPH g2 = GRAPH { USE g1 CALL graphistry.degree.write() } "
+        "USE g2 "
+        "MATCH (n) RETURN n.id AS id, n.degree AS degree "
+        "ORDER BY degree DESC LIMIT 10"
+    )
+
+Inside ``GRAPH { }``, only ``MATCH``, ``WHERE``, ``USE``, and graph-preserving
+``CALL graphistry.*.write()`` are allowed. Row-oriented clauses (``RETURN``,
+``ORDER BY``, ``SKIP``, ``LIMIT``, ``DISTINCT``, ``UNWIND``, ``WITH``) and
+row-returning ``CALL`` (without ``.write()``) are not allowed inside the
+constructor — use them in the outer query after ``USE``.
+
 Supported Cypher Surface Through ``g.gfql()``
 ---------------------------------------------
 
@@ -93,6 +187,11 @@ Support Matrix
    * - ``MATCH`` / ``WHERE`` / ``RETURN`` / ``WITH`` / ``ORDER BY`` / ``SKIP`` / ``LIMIT`` / ``DISTINCT``
      - Supported
      - Core read-only Cypher-in-GFQL path.
+   * - ``GRAPH { MATCH ... }`` / ``GRAPH g = ...`` / ``USE g``
+     - Partial
+     - **GFQL extension** (not in openCypher; GQL deferred graph constructors).
+       Returns matched subgraph in graph state. Supports named bindings and
+       scoped graph switching via USE.
    * - ``OPTIONAL MATCH``
      - Partial
      - Supported for a bounded Cypher-in-GFQL subset, not the full Cypher null-extension surface.

@@ -8,6 +8,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **GFQL / Cypher**: Added `GRAPH { MATCH ... }` graph constructors, `GRAPH g = GRAPH { ... }` named bindings, and `USE g` scoped graph switching as GFQL extensions to Cypher. These replace the earlier `RETURN GRAPH` syntax with a design aligned with GQL's deferred graph constructor direction and G-CORE's composable graph-in/graph-out vision. Graph constructors keep query results in graph state instead of flattening to rows, enabling multi-stage graph pipelines.
+
+### Changed
+- **GFQL / Cypher**: Replaced `RETURN GRAPH` with `GRAPH { }` constructors to avoid overloading `RETURN` (row projection) with graph semantics.
+
+### Docs
+- **GFQL / Cypher docs**: Documented `GRAPH { }` constructors, `GRAPH g = ...` bindings, and `USE g` graph switching as GFQL extensions aligned with the GQL/G-CORE direction.
+
 ## [0.52.0 - 2026-03-15]
 
 ### Added

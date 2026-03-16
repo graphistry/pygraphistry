@@ -9,11 +9,14 @@ from typing import Any, List, Literal, Optional, Protocol, Sequence, Tuple, Type
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.cypher.ast import (
     CallClause,
+    CypherGraphQuery,
     CypherLiteral,
     CypherPageValue,
     CypherQuery,
     CypherUnionQuery,
     CypherYieldItem,
+    GraphBinding,
+    GraphConstructor,
     LimitClause,
     LabelRef,
     OrderByClause,
@@ -32,6 +35,7 @@ from graphistry.compute.gfql.cypher.ast import (
     SkipClause,
     SourceSpan,
     UnwindClause,
+    UseClause,
     WhereClause,
     WherePatternPredicate,
     WherePredicate,
@@ -39,7 +43,23 @@ from graphistry.compute.gfql.cypher.ast import (
 
 
 _GRAMMAR = r"""
-?start: union_query
+?start: graph_query
+
+graph_query: graph_binding* union_query          -> graph_query_with_bindings
+           | graph_binding* graph_constructor     -> graph_query_standalone
+
+graph_binding: "GRAPH"i NAME "=" graph_constructor
+
+graph_constructor: "GRAPH"i "{" graph_constructor_body "}"
+
+graph_constructor_body: graph_constructor_item+
+
+graph_constructor_item: match_clause
+                      | where_clause
+                      | call_clause
+                      | use_clause
+
+use_clause: "USE"i NAME
 
 union_query: query_body (union_op query_body)* SEMI?
 query_body: query_item+
@@ -50,6 +70,7 @@ query_item: match_clause
           | where_clause
           | call_clause
           | unwind_clause
+          | use_clause
           | stage
 
 stage: with_stage
@@ -276,6 +297,7 @@ BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
 """
 
 _BARE_LABEL_PREDICATE_RE = re.compile(r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)((?::[A-Za-z_][A-Za-z0-9_]*)+)$")
+_RESERVED_IDENTIFIER_GRAPH = "graph"
 _WHERE_PATTERN_ITEM_RE = re.compile(
     r"\([^)\n]*\)\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\)"
     r"(?:\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\))*"
@@ -1261,11 +1283,26 @@ def _build_transformer(source: str) -> _TransformerLike:
             reentry_where_clause: Optional[WhereClause] = None
             call_clause: Optional[CallClause] = None
             unwind_clauses: List[UnwindClause] = []
+            use_clause_node: Optional[UseClause] = None
             stages: List[ProjectionStage] = []
             ordered_row_items: List[Union[ProjectionStage, UnwindClause]] = []
             seen_stage = False
             for item in items:
-                if isinstance(item, MatchClause):
+                if isinstance(item, UseClause):
+                    if use_clause_node is not None:
+                        raise _to_syntax_error(
+                            "Only one USE clause is allowed per query scope",
+                            line=item.span.line,
+                            column=item.span.column,
+                        )
+                    if match_clauses or stages or call_clause is not None:
+                        raise _to_syntax_error(
+                            "USE must appear before MATCH/RETURN/CALL clauses in the query body",
+                            line=item.span.line,
+                            column=item.span.column,
+                        )
+                    use_clause_node = item
+                elif isinstance(item, MatchClause):
                     if seen_stage:
                         reentry_match_clauses.append(item)
                     else:
@@ -1412,6 +1449,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 span=_span_from_meta(meta),
                 reentry_matches=tuple(reentry_match_clauses),
                 reentry_where=reentry_where_clause,
+                use=use_clause_node,
             )
 
         def union_all(self, meta: Any, _items: Sequence[Any]) -> str:
@@ -1476,10 +1514,157 @@ def _build_transformer(source: str) -> _TransformerLike:
                 span=_span_from_meta(meta),
             )
 
+        def use_clause(self, meta: Any, items: Sequence[Any]) -> UseClause:
+            name = str(items[0])
+            return UseClause(ref=name, span=_span_from_meta(meta))
+
+        def graph_constructor_item(self, meta: Any, items: Sequence[Any]) -> Any:
+            if len(items) != 1:
+                raise _to_syntax_error("Invalid graph constructor item", line=meta.line, column=meta.column)
+            return items[0]
+
+        def graph_constructor_body(self, meta: Any, items: Sequence[Any]) -> Any:
+            return list(items)
+
+        def graph_constructor(self, meta: Any, items: Sequence[Any]) -> GraphConstructor:
+            span = _span_from_meta(meta)
+            body_items = items[0] if items and isinstance(items[0], list) else list(items)
+            matches: List[MatchClause] = []
+            where: Optional[WhereClause] = None
+            use: Optional[UseClause] = None
+            call: Optional[CallClause] = None
+            for item in body_items:
+                if isinstance(item, MatchClause):
+                    if call is not None:
+                        raise _to_syntax_error(
+                            "MATCH and CALL cannot be combined inside a graph constructor",
+                            line=item.span.line, column=item.span.column,
+                        )
+                    matches.append(item)
+                elif isinstance(item, WhereClause):
+                    if where is not None:
+                        raise _to_syntax_error(
+                            "Only one WHERE clause is allowed inside a graph constructor",
+                            line=item.span.line, column=item.span.column,
+                        )
+                    where = item
+                elif isinstance(item, CallClause):
+                    if call is not None:
+                        raise _to_syntax_error(
+                            "Only one CALL clause is allowed inside a graph constructor",
+                            line=item.span.line, column=item.span.column,
+                        )
+                    if matches:
+                        raise _to_syntax_error(
+                            "MATCH and CALL cannot be combined inside a graph constructor",
+                            line=item.span.line, column=item.span.column,
+                        )
+                    if where is not None:
+                        raise _to_syntax_error(
+                            "WHERE is not allowed with CALL inside a graph constructor",
+                            line=item.span.line, column=item.span.column,
+                        )
+                    call = item
+                elif isinstance(item, UseClause):
+                    if use is not None:
+                        raise _to_syntax_error(
+                            "Only one USE clause is allowed inside a graph constructor",
+                            line=item.span.line, column=item.span.column,
+                        )
+                    use = item
+                else:
+                    raise _to_syntax_error(
+                        "Only MATCH, WHERE, CALL, and USE clauses are allowed inside a graph constructor",
+                        line=span.line, column=span.column,
+                    )
+            if not matches and call is None:
+                raise _to_syntax_error(
+                    "Graph constructor must contain at least one MATCH or CALL clause",
+                    line=span.line, column=span.column,
+                )
+            return GraphConstructor(
+                matches=tuple(matches),
+                where=where,
+                use=use,
+                span=span,
+                call=call,
+            )
+
+        def graph_binding(self, meta: Any, items: Sequence[Any]) -> GraphBinding:
+            name = str(items[0])
+            constructor = items[1]
+            return GraphBinding(name=name, constructor=constructor, span=_span_from_meta(meta))
+
+        def graph_query_with_bindings(
+            self, meta: Any, items: Sequence[Any]
+        ) -> Union[CypherQuery, CypherUnionQuery]:
+            bindings: List[GraphBinding] = []
+            query: Optional[Union[CypherQuery, CypherUnionQuery]] = None
+            for item in items:
+                if isinstance(item, GraphBinding):
+                    bindings.append(item)
+                elif isinstance(item, (CypherQuery, CypherUnionQuery)):
+                    query = item
+            if query is None:
+                raise _to_syntax_error(
+                    "Graph query must contain a query body after graph bindings",
+                    line=meta.line, column=meta.column,
+                )
+            if not bindings and not isinstance(query, CypherUnionQuery):
+                # Check for USE in the query body (already parsed as part of query_item)
+                return query
+            if bindings:
+                if isinstance(query, CypherUnionQuery):
+                    raise _to_unsupported(
+                        "GRAPH bindings with UNION queries are not yet supported",
+                        line=meta.line, column=meta.column,
+                    )
+                return CypherQuery(
+                    matches=query.matches,
+                    where=query.where,
+                    call=query.call,
+                    unwinds=query.unwinds,
+                    with_stages=query.with_stages,
+                    return_=query.return_,
+                    order_by=query.order_by,
+                    skip=query.skip,
+                    limit=query.limit,
+                    row_sequence=query.row_sequence,
+                    trailing_semicolon=query.trailing_semicolon,
+                    span=query.span,
+                    reentry_matches=query.reentry_matches,
+                    reentry_where=query.reentry_where,
+                    graph_bindings=tuple(bindings),
+                    use=query.use,
+                )
+            return query
+
+        def graph_query_standalone(
+            self, meta: Any, items: Sequence[Any]
+        ) -> CypherGraphQuery:
+            bindings: List[GraphBinding] = []
+            constructor: Optional[GraphConstructor] = None
+            for item in items:
+                if isinstance(item, GraphBinding):
+                    bindings.append(item)
+                elif isinstance(item, GraphConstructor):
+                    constructor = item
+            if constructor is None:
+                raise _to_syntax_error(
+                    "Standalone graph query must end with a GRAPH { } constructor",
+                    line=meta.line, column=meta.column,
+                )
+            return CypherGraphQuery(
+                graph_bindings=tuple(bindings),
+                constructor=constructor,
+                trailing_semicolon=False,
+                span=_span_from_meta(meta),
+            )
+
     return cast(_TransformerLike, _CypherAstBuilder())
 
 
-def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery]:
+def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery, CypherGraphQuery]:
     """Parse supported Cypher text into the typed AST used by GFQL's Cypher compiler.
 
     The returned AST preserves the clause structure needed by the current GFQL
@@ -1511,7 +1696,7 @@ def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery]:
                 canonical_transformer = _build_transformer(canonical_query)
                 tree = parser.parse(canonical_query)
                 node = canonical_transformer.transform(tree)
-                if not isinstance(node, (CypherQuery, CypherUnionQuery)):
+                if not isinstance(node, (CypherQuery, CypherUnionQuery, CypherGraphQuery)):
                     raise _to_syntax_error("Cypher parser did not produce a query")
                 return node
             mixed_where_error = _mixed_where_pattern_expr_error(query)
@@ -1522,6 +1707,105 @@ def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery]:
             raise _to_syntax_error("Invalid Cypher query syntax", line=err_line, column=err_column) from exc
         raise _to_syntax_error("Invalid Cypher query syntax") from exc
 
-    if not isinstance(node, (CypherQuery, CypherUnionQuery)):
+    if not isinstance(node, (CypherQuery, CypherUnionQuery, CypherGraphQuery)):
         raise _to_syntax_error("Cypher parser did not produce a query")
+    _validate_reserved_identifiers(node)
+    if isinstance(node, (CypherQuery, CypherGraphQuery)):
+        _validate_graph_bindings(node)
     return node
+
+
+def _validate_graph_bindings(node: Union[CypherQuery, CypherGraphQuery]) -> None:
+    """Validate graph binding names: no duplicates, no forward/circular refs."""
+    if isinstance(node, CypherGraphQuery):
+        bindings = node.graph_bindings
+    else:
+        bindings = node.graph_bindings
+
+    seen: dict[str, GraphBinding] = {}
+    for binding in bindings:
+        lower_name = binding.name.lower()
+        if lower_name in seen:
+            raise GFQLValidationError(
+                ErrorCode.E150,
+                f"Duplicate graph binding name '{binding.name}'. Each GRAPH binding must have a unique name.",
+            )
+        if binding.constructor.use is not None:
+            ref_lower = binding.constructor.use.ref.lower()
+            if ref_lower == lower_name:
+                raise GFQLValidationError(
+                    ErrorCode.E153,
+                    f"Graph binding '{binding.name}' cannot USE itself.",
+                )
+            if ref_lower not in seen:
+                raise GFQLValidationError(
+                    ErrorCode.E152,
+                    f"USE refers to graph '{binding.constructor.use.ref}' which has not been defined yet. "
+                    f"GRAPH bindings must appear before the USE that references them.",
+                )
+        seen[lower_name] = binding
+
+    # Validate USE in the final query/constructor references a known binding
+    if isinstance(node, CypherGraphQuery):
+        if node.constructor.use is not None:
+            ref_lower = node.constructor.use.ref.lower()
+            if ref_lower not in seen:
+                raise GFQLValidationError(
+                    ErrorCode.E151,
+                    f"USE refers to graph '{node.constructor.use.ref}' which has not been defined. "
+                    f"Define it with GRAPH {node.constructor.use.ref} = GRAPH {{ ... }} before USE.",
+                )
+    elif isinstance(node, CypherQuery) and node.use is not None:
+        ref_lower = node.use.ref.lower()
+        if ref_lower not in seen:
+            raise GFQLValidationError(
+                ErrorCode.E151,
+                f"USE refers to graph '{node.use.ref}' which has not been defined. "
+                f"Define it with GRAPH {node.use.ref} = GRAPH {{ ... }} before USE.",
+            )
+
+
+def _validate_reserved_identifiers(node: Union[CypherQuery, CypherUnionQuery, CypherGraphQuery]) -> None:
+    if isinstance(node, CypherUnionQuery):
+        for branch in node.branches:
+            _validate_reserved_identifiers(branch)
+        return
+    if isinstance(node, CypherGraphQuery):
+        # Graph constructors have their own identifier space; skip RETURN/WITH checks
+        return
+
+    def _check_identifier(name: Optional[str], *, line: int, column: int) -> None:
+        if name is not None and name.lower() == _RESERVED_IDENTIFIER_GRAPH:
+            raise _to_syntax_error(
+                "Cypher identifier GRAPH is reserved in the local compiler",
+                line=line,
+                column=column,
+            )
+
+    for match in (*node.matches, *node.reentry_matches):
+        for alias in match.pattern_aliases:
+            _check_identifier(alias, line=match.span.line, column=match.span.column)
+        for pattern in match.patterns:
+            for element in pattern:
+                if isinstance(element, NodePattern):
+                    _check_identifier(element.variable, line=element.span.line, column=element.span.column)
+                elif isinstance(element, RelationshipPattern):
+                    _check_identifier(element.variable, line=element.span.line, column=element.span.column)
+
+    for unwind in node.unwinds:
+        _check_identifier(unwind.alias, line=unwind.span.line, column=unwind.span.column)
+
+    for stage in (*node.with_stages, ProjectionStage(
+        clause=node.return_,
+        where=None,
+        order_by=node.order_by,
+        skip=node.skip,
+        limit=node.limit,
+        span=node.return_.span,
+    ),):
+        for item in stage.clause.items:
+            _check_identifier(item.alias, line=item.span.line, column=item.span.column)
+
+    if node.call is not None:
+        for yield_item in node.call.yield_items:
+            _check_identifier(yield_item.alias, line=yield_item.span.line, column=yield_item.span.column)
