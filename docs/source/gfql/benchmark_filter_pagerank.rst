@@ -34,20 +34,21 @@ One ``g.gfql(...)`` call — search, enrich with PageRank, search again:
 
 .. code-block:: python
 
-   result = g.gfql(
-       "GRAPH g1 = GRAPH { "
-       "  MATCH (n)-[e]-(m) "
-       "  WHERE n.degree >= $degree_cutoff "
-       "} "
-       "GRAPH g2 = GRAPH { "
-       "  USE g1 "
-       f"  CALL graphistry.{backend}.pagerank.write() "
-       "} "
-       "GRAPH { "
-       "  USE g2 "
-       "  MATCH (n)-[e]-(m) "
-       "  WHERE n.pagerank >= $pagerank_cutoff "
-       "}",
+   result = g.gfql(f"""
+       GRAPH g1 = GRAPH {{
+         MATCH (n)-[e]-(m)
+         WHERE n.degree >= $degree_cutoff
+       }}
+       GRAPH g2 = GRAPH {{
+         USE g1
+         CALL graphistry.{backend}.pagerank.write()
+       }}
+       GRAPH {{
+         USE g2
+         MATCH (n)-[e]-(m)
+         WHERE n.pagerank >= $pagerank_cutoff
+       }}
+   """,
        params={
            "degree_cutoff": degree_cutoff,
            "pagerank_cutoff": pagerank_cutoff,
