@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark a local Cypher graph-search -> CALL write -> graph-search pipeline on CPU and GPU backends.
+"""Benchmark a local Cypher GRAPH { } -> CALL write -> GRAPH { } pipeline on CPU and GPU backends.
 
 Designed for DGX-style runs where the graph is loaded once, then the main pipeline is
 benchmarked warm on the resident in-memory graph.
@@ -114,18 +114,20 @@ def backend_name(engine: str) -> str:
     return "igraph" if engine == "pandas" else "cugraph"
 
 
-def return_graph_search_query(*, metric: str) -> str:
+def graph_constructor_query(*, metric: str) -> str:
     if metric == "degree":
         return (
+            "GRAPH { "
             "MATCH (seed)-[reach]-(nbr) "
             "WHERE seed.degree >= $cutoff "
-            "RETURN GRAPH"
+            "}"
         )
     if metric == "pagerank":
         return (
+            "GRAPH { "
             "MATCH (core)-[halo]-(nbr) "
             "WHERE core.pagerank >= $cutoff "
-            "RETURN GRAPH"
+            "}"
         )
     raise ValueError(f"Unknown search metric: {metric}")
 
@@ -137,7 +139,7 @@ def pagerank_call(engine: str) -> str:
 def run_pipeline_once(g, engine: str, degree_cutoff: float, pagerank_quantile: float):
     t1 = time.perf_counter()
     g1 = g.gfql(
-        return_graph_search_query(metric="degree"),
+        graph_constructor_query(metric="degree"),
         params={"cutoff": degree_cutoff},
         engine=engine,
     )
@@ -148,7 +150,7 @@ def run_pipeline_once(g, engine: str, degree_cutoff: float, pagerank_quantile: f
 
     pr_cutoff = from_engine_scalar(g2._nodes["pagerank"].quantile(pagerank_quantile))
     g3 = g2.gfql(
-        return_graph_search_query(metric="pagerank"),
+        graph_constructor_query(metric="pagerank"),
         params={"cutoff": pr_cutoff},
         engine=engine,
     )

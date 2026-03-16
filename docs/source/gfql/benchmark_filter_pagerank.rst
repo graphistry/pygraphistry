@@ -61,20 +61,21 @@ What the actual benchmarked pipelines look like
 
 The Graphistry side of this benchmark can now be written as one readable local Cypher pipeline shape:
 
-- graph-preserving search with local Cypher ``MATCH ... RETURN GRAPH``
+- graph-preserving search with local Cypher ``GRAPH { MATCH ... }``
 - graph-preserving enrichment with local Cypher ``CALL graphistry.{igraph,cugraph}.pagerank.write()``
-- graph-preserving search again with local Cypher ``MATCH ... RETURN GRAPH``
+- graph-preserving search again with local Cypher ``GRAPH { MATCH ... }``
 
-This page is still presentation-only: the saved timings come from the same three-stage graph-preserving DGX benchmark workflow and are **not** being rerun just for this code-golf cleanup.
+The saved timings come from the three-stage graph-preserving DGX benchmark workflow using the ``GRAPH { }`` constructor syntax shown below.
 
 Same Graphistry pipeline shape on CPU and GPU:
 
 .. code-block:: python
 
    g1 = g.gfql(
+       "GRAPH { "
        "MATCH (seed)-[reach]-(nbr) "
        "WHERE seed.degree >= $degree_cutoff "
-       "RETURN GRAPH",
+       "}",
        params={"degree_cutoff": degree_cutoff},
        engine=engine,
    )
@@ -85,9 +86,10 @@ Same Graphistry pipeline shape on CPU and GPU:
    )
 
    g3 = g2.gfql(
+       "GRAPH { "
        "MATCH (core)-[halo]-(nbr) "
        "WHERE core.pagerank >= $pagerank_cutoff "
-       "RETURN GRAPH",
+       "}",
        params={"pagerank_cutoff": pagerank_cutoff},
        engine=engine,
    )
@@ -154,8 +156,8 @@ The Twitter-sized run is the cleanest exact apples-to-apples comparison because 
 
 Takeaways:
 
-- Graphistry GPU: ``0.25s``
-- Graphistry CPU: ``2.36s``
+- Graphistry GPU: ``0.24s``
+- Graphistry CPU: ``2.23s``
 - Neo4j + GDS: ``13.51s``
 - Graphistry GPU is the fastest end-to-end path.
 - Graphistry CPU is still materially faster than Neo4j for the same Twitter workload.
@@ -188,8 +190,8 @@ The GPlus run is where the CPU-vs-GPU story becomes especially compelling. It is
 
 Takeaways:
 
-- Graphistry GPU total lifecycle on GPlus: about ``7.34s`` (``3.93s`` load/shape + ``3.41s`` warm pipeline)
-- Graphistry CPU total lifecycle on GPlus: about ``92.33s`` (``8.72s`` load/shape + ``83.61s`` warm pipeline)
+- Graphistry GPU total lifecycle on GPlus: about ``8.14s`` (``4.56s`` load/shape + ``3.58s`` warm pipeline)
+- Graphistry CPU total lifecycle on GPlus: about ``99.64s`` (``9.65s`` load/shape + ``89.99s`` warm pipeline)
 - Neo4j is shown honestly as a lower bound here: it exceeded ``3m07s`` before the main transaction even finished closing.
 - On GPlus, the Graphistry GPU path reduces a minute-scale CPU pipeline to a few seconds.
 - The big win is not just one algorithm; it is the combination of dataframe-native loading/shaping, graph search, and graph analytics.

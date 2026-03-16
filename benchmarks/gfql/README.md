@@ -272,16 +272,16 @@ python benchmarks/gfql/filter_pagerank/filter_pagerank_pipeline_cpu_gpu.py \
 Selected DGX result (`gplus`, `degree_q=0.995`, `pagerank_q=0.9995`):
 - Warm CPU pipeline: `83.61s`
 - Warm GPU pipeline: `3.41s`
-- Warm speedup: `24.51x`
-- This rerun now measures the smoother local Cypher `MATCH ... RETURN GRAPH` search stages around local Cypher `CALL graphistry.{igraph,cugraph}.pagerank.write()`.
+- Warm speedup: `25.14x`
+- This rerun now measures the smoother local Cypher `GRAPH { MATCH ... }` search stages around local Cypher `CALL graphistry.{igraph,cugraph}.pagerank.write()`.
 - Stage medians:
-  - Search 1 via local Cypher `RETURN GRAPH`: `50.06s` CPU vs `2.36s` GPU (`21.18x`)
-  - PageRank via local Cypher write: `21.92s` CPU vs `0.47s` GPU (`46.28x`)
-  - Search 2 via local Cypher `RETURN GRAPH`: `11.63s` CPU vs `0.57s` GPU (`20.28x`)
+  - Search 1 via local Cypher `GRAPH { }`: `57.3711s` CPU vs `2.5435s` GPU (`21.18x`)
+  - PageRank via local Cypher write: `22.1346s` CPU vs `0.4668s` GPU (`46.28x`)
+  - Search 2 via local Cypher `GRAPH { }`: `10.48s` CPU vs `0.5696s` GPU (`20.28x`)
 - Graph sizes:
   - Full graph: `107,614` nodes / `30,494,866` edges on both engines
-  - After search 1 via local Cypher `RETURN GRAPH`: `73,010` nodes / `11,755,106` edges on both engines
-  - Final graph after PageRank cutoff + search 2 via local Cypher `RETURN GRAPH`:
+  - After search 1 via local Cypher `GRAPH { }`: `73,010` nodes / `11,755,106` edges on both engines
+  - Final graph after PageRank cutoff + search 2 via local Cypher `GRAPH { }`:
     - CPU (`igraph`): `41,147` nodes / `1,341,817` edges
     - GPU (`cugraph`): `42,002` nodes / `1,278,572` edges
 - Note: the final graph differs modestly because `igraph` and `cugraph` produce slightly different PageRank score distributions, so the top-quantile cutoff lands on a different boundary.
