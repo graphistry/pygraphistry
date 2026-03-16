@@ -223,7 +223,7 @@ def _execute_graph_constructor_compiled(
     *,
     procedure_call: Any = None,
     engine: Union[EngineAbstract, str],
-    policy: Optional[PolicyDict],
+    policy: Optional[Dict[str, PolicyFunction]],
     context: ExecutionContext,
 ) -> Plottable:
     """Execute a compiled graph constructor (MATCH-based or CALL-based)."""
@@ -238,7 +238,7 @@ def _resolve_graph_bindings(
     scope: Optional[Dict[str, Plottable]] = None,
     *,
     engine: Union[EngineAbstract, str],
-    policy: Optional[PolicyDict],
+    policy: Optional[Dict[str, PolicyFunction]],
     context: ExecutionContext,
 ) -> Dict[str, Plottable]:
     """Execute graph bindings in order, building a scope of named graphs.
@@ -269,7 +269,7 @@ def _execute_graph_query(
     compiled: CompiledCypherGraphQuery,
     *,
     engine: Union[EngineAbstract, str],
-    policy: Optional[PolicyDict],
+    policy: Optional[Dict[str, PolicyFunction]],
     context: ExecutionContext,
 ) -> Plottable:
     """Execute a standalone GRAPH { ... } query (returns graph state)."""
@@ -293,7 +293,7 @@ def _execute_query_with_graph_context(
     compiled: CompiledCypherQuery,
     *,
     engine: Union[EngineAbstract, str],
-    policy: Optional[PolicyDict],
+    policy: Optional[Dict[str, PolicyFunction]],
     context: ExecutionContext,
 ) -> Plottable:
     """Execute a query that has GRAPH bindings and/or USE."""
