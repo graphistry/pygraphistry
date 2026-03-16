@@ -708,14 +708,16 @@ to the server.
 |----------------|-----------------|
 | `GRAPH { MATCH ... WHERE ... }` | `{"type": "Chain", "chain": [...], "where": [...]}` |
 | `GRAPH { CALL graphistry.degree.write() }` | `{"type": "Call", "function": "graphistry.degree.write", "params": {}}` |
-| `GRAPH g = GRAPH { ... }` | Named binding (execution-layer; not serialized) |
-| `USE g` | Graph context switch (execution-layer; not serialized) |
+| `GRAPH g = GRAPH { ... }` | Named binding — the body is a standard `Chain` or `Call`; the binding name is resolved during sequential execution |
+| `USE g` | Graph context switch — the next `Chain`/`Call` executes against the result of binding `g` |
 
-### Future Considerations
+### Remote Execution
 
-If `g.gfql_remote()` needs to support multi-graph pipelines natively on the
-server, the wire protocol would need graph-binding and USE message types.
-That is deferred; the current approach compiles graph constructors locally.
+Multi-graph pipelines desugar to a sequence of standard Chain/Call messages.
+Each step in the pipeline is individually representable in the existing wire
+format, so remote execution can evaluate them sequentially — no new wire types
+are required. A future optimization could batch the full pipeline into a
+single request, but the current primitives are sufficient.
 
 ## Best Practices
 
