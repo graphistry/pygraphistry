@@ -272,7 +272,7 @@ python benchmarks/gfql/filter_pagerank/filter_pagerank_pipeline_cpu_gpu.py \
 Selected DGX result (`gplus`, `degree_q=0.995`, `pagerank_q=0.9995`):
 - Warm CPU pipeline: `83.61s`
 - Warm GPU pipeline: `3.41s`
-- Warm speedup: `25.14x`
+- Warm speedup: `17.53x`
 - This rerun now measures the smoother local Cypher `GRAPH { MATCH ... }` search stages around local Cypher `CALL graphistry.{igraph,cugraph}.pagerank.write()`.
 - Stage medians:
   - Search 1 via local Cypher `GRAPH { }`: `57.3711s` CPU vs `2.5435s` GPU (`21.18x`)
