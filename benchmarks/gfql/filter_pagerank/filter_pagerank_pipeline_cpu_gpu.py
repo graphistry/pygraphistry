@@ -119,8 +119,8 @@ def compound_search_enrich_query(engine: str) -> str:
     backend = backend_name(engine)
     return (
         "GRAPH g1 = GRAPH { "
-        "MATCH (seed)-[reach]-(nbr) "
-        "WHERE seed.degree >= $degree_cutoff "
+        "MATCH (n)-[e]-(m) "
+        "WHERE n.degree >= $degree_cutoff "
         "} "
         "GRAPH { "
         "USE g1 "
@@ -133,8 +133,8 @@ def final_search_query() -> str:
     """Stage 3: graph-preserving search on the PageRank-enriched graph."""
     return (
         "GRAPH { "
-        "MATCH (core)-[halo]-(nbr) "
-        "WHERE core.pagerank >= $pagerank_cutoff "
+        "MATCH (n)-[e]-(m) "
+        "WHERE n.pagerank >= $pagerank_cutoff "
         "}"
     )
 
@@ -144,8 +144,8 @@ def full_pipeline_query(engine: str) -> str:
     backend = backend_name(engine)
     return (
         "GRAPH g1 = GRAPH { "
-        "MATCH (seed)-[reach]-(nbr) "
-        "WHERE seed.degree >= $degree_cutoff "
+        "MATCH (n)-[e]-(m) "
+        "WHERE n.degree >= $degree_cutoff "
         "} "
         "GRAPH g2 = GRAPH { "
         "USE g1 "
@@ -153,8 +153,8 @@ def full_pipeline_query(engine: str) -> str:
         "} "
         "GRAPH { "
         "USE g2 "
-        "MATCH (core)-[halo]-(nbr) "
-        "WHERE core.pagerank >= $pagerank_cutoff "
+        "MATCH (n)-[e]-(m) "
+        "WHERE n.pagerank >= $pagerank_cutoff "
         "}"
     )
 

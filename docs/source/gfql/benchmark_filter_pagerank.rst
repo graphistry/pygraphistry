@@ -1,73 +1,43 @@
-End-to-End GFQL Benchmark: Dataframes, Search, Analytics, No Database
-======================================================================
+GFQL Cypher Benchmark: Local Cypher on DataFrames vs Neo4j
+==========================================================
 
-This benchmark is meant to answer a simple question:
+Run Cypher graph queries and analytics directly on Python dataframes —
+no database required. This benchmark compares **Graphistry's local Cypher**
+(CPU and GPU) against **Neo4j + GDS** on the same end-to-end pipeline.
 
-**If your graph already lives in Python dataframes, how much of a real graph pipeline can you run there directly, and how fast is it on CPU vs GPU?**
+.. list-table::
+   :header-rows: 1
+   :widths: 30 20 20 20 20
 
-The answer here is unusually strong because the benchmark is not just one graph algorithm in isolation. It is an end-to-end workflow that stays in open-source Python tooling:
+   * -
+     - Neo4j + GDS
+     - GFQL Cypher (CPU)
+     - GFQL Cypher (GPU)
+     - GPU speedup vs Neo4j
+   * - **Twitter** (2.4M edges)
+     - 13.83s
+     - 2.55s
+     - **0.30s**
+     - **46x**
+   * - **GPlus** (30M edges)
+     - >187s
+     - 75.78s
+     - **3.33s**
+     - **>56x**
 
-- load a large graph from a cached edge list
-- shape node metadata in a dataframe
-- run graph search / subgraph extraction with GFQL
-- run PageRank on the selected graph
-- keep the resulting graph for downstream analysis or visualization
+*Warm median of 5 runs, 2 warmup iterations. DGX dgx-spark, GB10 GPU.*
 
-Benchmark environment
----------------------
+The pipeline
+------------
 
-- Host: ``dgx-spark``
-- GPU: ``GB10``
-- NVIDIA driver: ``580.126.09``
-- Container/runtime: ``graphistry/test-gpu:latest``
-- Presentation mode: this page renders only saved JSON outputs under ``plans/gfql-gpu-pagerank-benchmark/results/`` and does **not** rerun the benchmarks
-
-Why this matters
-----------------
-
-- **GFQL** is Graphistry's dataframe-native graph query language.
-- It executes directly on Python dataframes and graph objects instead of requiring an external graph database.
-- The same workflow can run on:
-  - **CPU** with ``pandas + igraph``
-  - **GPU** with ``cudf + cugraph``
-- The benchmark also includes a **Neo4j + GDS** comparison where we can make an honest apples-to-apples comparison.
-
-This means the benchmark is testing a practical claim, not just a microbenchmark:
-
-**Can you get database-style graph search + graph analytics directly on your dataframe, and does the GPU path materially change the answer?**
-
-What is being benchmarked
--------------------------
-
-The pipeline is intentionally simple and representative:
-
-1. **Data loading**
-   Read a cached SNAP edge list into a dataframe.
-2. **Data shaping**
-   Compute node degree and materialize the node metadata later queried by GFQL.
-3. **Graph search**
-   Use GFQL to expand around interesting nodes and extract a subgraph.
-4. **Graph analytics**
-   Run PageRank on the resulting graph.
-5. **Graph search again**
-   Keep the high-PageRank core and its local neighborhood.
-6. **Downstream use**
-   Keep the final graph directly in Python for follow-on analysis or visualization.
-
-The important detail is that these are not separate systems stitched together. The Graphistry CPU and GPU paths both keep the workflow dataframe-native, and the GPU path accelerates both the dataframe work and the graph algorithm work.
-
-What the actual benchmarked pipelines look like
---------------------------------------------------------
-
-The Graphistry side of this benchmark is a single compound local Cypher expression
-that chains graph-preserving search, enrichment, and search in one ``g.gfql(...)`` call:
+One ``g.gfql(...)`` call — search, enrich with PageRank, search again:
 
 .. code-block:: python
 
    result = g.gfql(
        "GRAPH g1 = GRAPH { "
-       "  MATCH (seed)-[reach]-(nbr) "
-       "  WHERE seed.degree >= $degree_cutoff "
+       "  MATCH (n)-[e]-(m) "
+       "  WHERE n.degree >= $degree_cutoff "
        "} "
        "GRAPH g2 = GRAPH { "
        "  USE g1 "
@@ -75,125 +45,111 @@ that chains graph-preserving search, enrichment, and search in one ``g.gfql(...)
        "} "
        "GRAPH { "
        "  USE g2 "
-       "  MATCH (core)-[halo]-(nbr) "
-       "  WHERE core.pagerank >= $pagerank_cutoff "
+       "  MATCH (n)-[e]-(m) "
+       "  WHERE n.pagerank >= $pagerank_cutoff "
        "}",
        params={
            "degree_cutoff": degree_cutoff,
            "pagerank_cutoff": pagerank_cutoff,
        },
-       engine=engine,
+       engine=engine,  # "pandas" for CPU, "cudf" for GPU
    )
 
-Where:
+- ``GRAPH g1``: find high-degree nodes and their neighbors
+- ``GRAPH g2``: enrich ``g1`` with PageRank scores (igraph on CPU, cugraph on GPU)
+- Final ``GRAPH``: keep high-PageRank nodes and their neighbors
 
-- CPU uses ``engine="pandas"`` and ``backend="igraph"``
-- GPU uses ``engine="cudf"`` and ``backend="cugraph"``
-- ``GRAPH g1 = GRAPH { ... }`` binds a named subgraph from the degree-filtered match
-- ``GRAPH g2 = GRAPH { USE g1 CALL ... }`` enriches that subgraph with PageRank
-- The terminal ``GRAPH { USE g2 MATCH ... }`` returns the final graph in graph state
+The same pipeline shape, different backends:
 
-Neo4j + GDS analog (Cypher + projection + PageRank write):
+- **CPU**: ``engine="pandas"``, ``backend="igraph"``
+- **GPU**: ``engine="cudf"``, ``backend="cugraph"``
+
+The Neo4j equivalent requires ~30 lines of Cypher + GDS projection + batched
+writes (see :ref:`neo4j-analog` below).
+
+Twitter: exact 3-way comparison
+--------------------------------
+
+.. image:: _static/filter_pagerank/twitter_lifecycle.svg
+   :alt: Twitter end-to-end: Neo4j vs GFQL Cypher CPU vs GFQL Cypher GPU
+
+Stacked by workload phase: **ETL** (load + shape), **Search** (graph queries), **Analytics** (PageRank).
+
+- Neo4j total lifecycle: ~21.6s (6.0s import + 1.7s prep + 13.8s pipeline)
+- GFQL Cypher CPU: ~2.8s — **8x faster than Neo4j**
+- GFQL Cypher GPU: ~0.4s — **54x faster than Neo4j**
+
+GPlus: larger graph
+--------------------
+
+.. image:: _static/filter_pagerank/gplus_lifecycle.svg
+   :alt: GPlus: Neo4j (lower bound) vs GFQL Cypher CPU vs GFQL Cypher GPU
+
+- Neo4j: **>187s** (lower bound — the transaction did not finish)
+- GFQL Cypher CPU: ~85.5s — still faster than Neo4j's incomplete run
+- GFQL Cypher GPU: ~7.1s — **>26x faster than Neo4j**
+
+Why this matters
+----------------
+
+The CPU path already beats Neo4j without a GPU. You get Cypher-style graph
+search + PageRank directly on your dataframe, no database to stand up or
+maintain.
+
+The GPU path accelerates everything — ETL, search, and analytics — because
+``cudf`` and ``cugraph`` are drop-in replacements for ``pandas`` and ``igraph``
+under the same GFQL Cypher surface.
+
+.. _neo4j-analog:
+
+Neo4j + GDS analog
+-------------------
+
+The Neo4j equivalent of the same pipeline:
 
 .. code-block:: cypher
 
+   -- 1. Mark seed nodes by degree
    MATCH (n:Node)
-   SET n.seed_keep = n.degree >= $cutoff,
-       n.sub1_keep = false,
-       n.core_keep = false,
-       n.final_keep = false
-   REMOVE n.pagerank;
+   SET n.seed = n.degree >= $cutoff;
 
-   MATCH (n:Node)
-   WHERE n.seed_keep
-   SET n.sub1_keep = true;
-
+   -- 2. Expand one hop from seeds
    UNWIND $seed_ids AS sid
    MATCH (s:Node) WHERE id(s) = sid
-   MATCH (s)-[r:LINK]-(nbr:Node)
-   SET nbr.sub1_keep = true, r.sub1_keep = true;
+   MATCH (s)-[r:LINK]-(target:Node)
+   SET target.in_subgraph = true, r.in_subgraph = true;
 
+   -- 3. Project subgraph and run PageRank
    CALL gds.graph.project.cypher(
-     'sub1',
-     'MATCH (n:Node) WHERE n.sub1_keep RETURN id(n) AS id',
-     'MATCH (a:Node)-[r:LINK]->(b:Node) WHERE r.sub1_keep RETURN id(a) AS source, id(b) AS target
+     'subgraph',
+     'MATCH (n:Node) WHERE n.in_subgraph RETURN id(n) AS id',
+     'MATCH (a)-[r:LINK]->(b) WHERE r.in_subgraph
+      RETURN id(a) AS source, id(b) AS target
       UNION ALL
-      MATCH (a:Node)-[r:LINK]->(b:Node) WHERE r.sub1_keep RETURN id(b) AS source, id(a) AS target'
+      MATCH (a)-[r:LINK]->(b) WHERE r.in_subgraph
+      RETURN id(b) AS source, id(a) AS target'
    );
-   CALL gds.pageRank.write('sub1', {writeProperty: 'pagerank'});
+   CALL gds.pageRank.write('subgraph', {writeProperty: 'pagerank'});
 
-   MATCH (n:Node)
-   SET n.core_keep = coalesce(n.sub1_keep, false)
-                     AND coalesce(n.pagerank, 0.0) >= $cutoff,
-       n.final_keep = false;
-
+   -- 4. Keep high-PageRank core + one hop
+   MATCH (n:Node) WHERE n.pagerank >= $cutoff
+   SET n.core = true;
    UNWIND $core_ids AS cid
    MATCH (c:Node) WHERE id(c) = cid
-   MATCH (c)-[r:LINK]-(nbr:Node)
-   SET nbr.final_keep = true, r.final_keep = true;
+   MATCH (c)-[r:LINK]-(target:Node)
+   SET target.final = true, r.final = true;
 
-That means the comparison is honest about what each system is actually doing:
+Benchmark environment
+---------------------
 
-- Graphistry CPU/GPU: native Python dataframe + graph runtime
-- Neo4j: Cypher + GDS projection/write pipeline inside the database
-
-Exact 3-way comparison on Twitter
----------------------------------
-
-Twitter is the cleanest exact comparison: all three engines finish comfortably on the same workload, and we can measure the full lifecycle including data loading.
-
-.. image:: _static/filter_pagerank/twitter_lifecycle.svg
-   :alt: Twitter end-to-end lifecycle: Neo4j vs Graphistry CPU vs Graphistry GPU, stacked by ETL, Search, and Analytics
-
-The stacked bars break the lifecycle into three workload phases:
-
-- **ETL**: data loading and shaping (CSV import + degree computation)
-- **Search**: graph-preserving subgraph extraction (GFQL ``GRAPH { MATCH ... }``, or Neo4j seed expansion)
-- **Analytics**: PageRank computation (igraph / cugraph / GDS)
-
-Takeaways:
-
-- Neo4j total: ``~21.6s`` (5.99s ETL + 10.2s search + 3.5s analytics + 1.7s prep)
-- Graphistry CPU total: ``~2.8s`` (0.28s ETL + 2.55s pipeline) — **~8x faster than Neo4j**
-- Graphistry GPU total: ``~0.4s`` (0.10s ETL + 0.30s pipeline) — **~54x faster than Neo4j**
-- The GPU advantage compounds across every phase: ETL, search, and analytics are all faster.
-
-Larger-graph story on GPlus
----------------------------
-
-GPlus (30M edges) is where the story becomes especially compelling. Neo4j becomes expensive enough that the honest result is only a lower bound.
-
-.. image:: _static/filter_pagerank/gplus_lifecycle.svg
-   :alt: GPlus lifecycle: Neo4j (lower bound) vs Graphistry CPU vs Graphistry GPU
-
-Takeaways:
-
-- Neo4j: **>187s** (lower bound — the transaction did not finish)
-- Graphistry CPU: ``~85.5s`` (9.7s ETL + 75.8s pipeline) — still faster than Neo4j's incomplete run
-- Graphistry GPU: ``~7.1s`` (3.9s ETL + 3.3s pipeline) — **>26x faster than Neo4j**
-- On GPlus, the Graphistry GPU path reduces a minute-scale CPU pipeline to a few seconds.
-
-Why the CPU and GPU versions are both interesting
--------------------------------------------------
-
-This benchmark is interesting even before the GPU enters the picture.
-The CPU path already shows that you can run a real graph-search + PageRank workflow directly on your dataframe without standing up a graph database.
-
-The GPU path matters because it keeps the same general workflow while accelerating:
-
-- the dataframe-native parts
-- the graph-search parts
-- the graph-analytics parts
-
-That is why the story is stronger than "GPU PageRank is faster":
-
-**the whole open-source Python graph pipeline is faster, while staying local to your dataframes.**
+- Host: ``dgx-spark``, GPU: ``GB10``, driver ``580.126.09``
+- Container: ``graphistry/test-gpu:latest``
+- Datasets: `SNAP <https://snap.stanford.edu/data/>`_ Twitter (2.4M edges) and GPlus (30M edges)
+- Measurement: median of 5 runs after 2 warmup iterations
+- Results rendered from saved JSON — this page does **not** rerun benchmarks
 
 Notebook version
 ----------------
 
-For a notebook-oriented version of this writeup, see:
-
-- ``demos/gfql/benchmark_filter_pagerank_cpu_gpu.ipynb``
-
-That notebook is presentation-first and uses the same saved DGX result files used by this page. It does not rerun the benchmarks.
+See ``demos/gfql/benchmark_filter_pagerank_cpu_gpu.ipynb`` for a notebook
+version of this writeup using the same saved DGX results.
