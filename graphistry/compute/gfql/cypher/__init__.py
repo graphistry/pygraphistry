@@ -2,10 +2,13 @@
 
 from .ast import (
     CallClause,
+    CypherGraphQuery,
     CypherQuery,
     CypherUnionQuery,
     CypherYieldItem,
     ExpressionText,
+    GraphBinding,
+    GraphConstructor,
     LabelRef,
     LimitClause,
     MatchClause,
@@ -21,6 +24,7 @@ from .ast import (
     SkipClause,
     SourceSpan,
     UnwindClause,
+    UseClause,
     WhereClause,
     WherePatternPredicate,
     WherePredicate,

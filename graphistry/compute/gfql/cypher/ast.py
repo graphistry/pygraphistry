@@ -161,7 +161,6 @@ class ReturnClause:
     distinct: bool
     kind: Literal["return", "with"]
     span: SourceSpan
-    result_kind: Literal["rows", "graph"] = "rows"
 
 
 @dataclass(frozen=True)
@@ -200,6 +199,27 @@ class LimitClause:
 
 
 @dataclass(frozen=True)
+class UseClause:
+    ref: str
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
+class GraphConstructor:
+    matches: Tuple[MatchClause, ...]
+    where: Optional[WhereClause]
+    use: Optional[UseClause]
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
+class GraphBinding:
+    name: str
+    constructor: GraphConstructor
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
 class CypherQuery:
     matches: Tuple[MatchClause, ...]
     where: Optional[WhereClause]
@@ -215,12 +235,23 @@ class CypherQuery:
     span: SourceSpan
     reentry_matches: Tuple[MatchClause, ...] = ()
     reentry_where: Optional[WhereClause] = None
+    graph_bindings: Tuple[GraphBinding, ...] = ()
+    use: Optional[UseClause] = None
 
     @property
     def match(self) -> Optional[MatchClause]:
         if not self.matches:
             return None
         return self.matches[-1]
+
+
+@dataclass(frozen=True)
+class CypherGraphQuery:
+    """A query whose final result is a graph (from a standalone GRAPH { } constructor)."""
+    graph_bindings: Tuple[GraphBinding, ...]
+    constructor: GraphConstructor
+    trailing_semicolon: bool
+    span: SourceSpan
 
 
 @dataclass(frozen=True)

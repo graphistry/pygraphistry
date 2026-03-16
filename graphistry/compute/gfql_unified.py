@@ -25,7 +25,7 @@ from graphistry.compute.gfql.same_path_types import (
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.api import compile_cypher
-from graphistry.compute.gfql.cypher.lowering import CompiledCypherQuery, CompiledCypherUnionQuery
+from graphistry.compute.gfql.cypher.lowering import CompiledCypherGraphQuery, CompiledCypherQuery, CompiledCypherUnionQuery
 from graphistry.compute.gfql.cypher.call_procedures import execute_cypher_call
 from graphistry.compute.gfql.cypher.result_postprocess import WholeRowProjectionMeta, apply_result_projection
 from graphistry.compute.gfql.df_executor import (
@@ -42,7 +42,7 @@ from graphistry.otel import otel_traced, otel_detail_enabled
 logger = setup_logger(__name__)
 
 _CYPHER_LEAD_RE = re.compile(
-    r"^\s*(?:MATCH|OPTIONAL\s+MATCH|WITH|RETURN|UNWIND|CALL|CREATE|MERGE|DELETE|DETACH\s+DELETE|SET|REMOVE|FOREACH)\b",
+    r"^\s*(?:MATCH|OPTIONAL\s+MATCH|WITH|RETURN|UNWIND|CALL|CREATE|MERGE|DELETE|DETACH\s+DELETE|SET|REMOVE|FOREACH|GRAPH|USE)\b",
     re.IGNORECASE,
 )
 
@@ -214,6 +214,112 @@ def _apply_optional_projection_row_guard(
         value={"expected_rows": expected_rows, "actual_rows": actual_rows},
         suggestion="Use a simpler OPTIONAL MATCH projection shape in the local compiler.",
         language="cypher",
+    )
+
+
+def _execute_graph_constructor_chain(
+    base_graph: Plottable,
+    chain: Chain,
+    *,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+) -> Plottable:
+    """Execute a graph constructor chain and return the resulting graph (graph state)."""
+    return _chain_dispatch(base_graph, chain, engine, policy, context)
+
+
+def _resolve_graph_bindings(
+    base_graph: Plottable,
+    bindings: tuple,
+    *,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+) -> Dict[str, Plottable]:
+    """Execute graph bindings in order, building a scope of named graphs."""
+    scope: Dict[str, Plottable] = {}
+    for binding in bindings:
+        # If the constructor's USE references a prior binding, use that graph
+        # Otherwise use the default base graph
+        # Note: USE ref validation already happened at parse time
+        target_graph = base_graph
+        # We need to check the original AST for USE info, but compiled bindings
+        # only have name + chain. The USE was resolved during lowering by the
+        # constructor compilation against the default graph. For USE inside a
+        # constructor to work at runtime, we need to execute against the referenced
+        # graph. However, the current lowering compiles the constructor body against
+        # the default graph. To properly support USE inside constructors, we would
+        # need to pass the USE ref through CompiledGraphBinding.
+        # For v1: constructors always execute against base_graph. USE inside
+        # constructors is a compile-time validation only (the ref must exist),
+        # but execution still operates on the base graph's topology.
+        # TODO: Phase 2+ - execute constructor against USE'd graph
+        result = _execute_graph_constructor_chain(
+            target_graph, binding.chain,
+            engine=engine, policy=policy, context=context,
+        )
+        scope[binding.name.lower()] = result
+    return scope
+
+
+def _execute_graph_query(
+    base_graph: Plottable,
+    compiled: CompiledCypherGraphQuery,
+    *,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+) -> Plottable:
+    """Execute a standalone GRAPH { ... } query (returns graph state)."""
+    scope = _resolve_graph_bindings(
+        base_graph, compiled.graph_bindings,
+        engine=engine, policy=policy, context=context,
+    )
+    # The final constructor — execute against base_graph or USE'd graph
+    # For now: always base_graph (USE resolution is TODO for v2)
+    return _execute_graph_constructor_chain(
+        base_graph, compiled.chain,
+        engine=engine, policy=policy, context=context,
+    )
+
+
+def _execute_query_with_graph_context(
+    base_graph: Plottable,
+    compiled: CompiledCypherQuery,
+    *,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+) -> Plottable:
+    """Execute a query that has GRAPH bindings and/or USE."""
+    scope = _resolve_graph_bindings(
+        base_graph, compiled.graph_bindings,
+        engine=engine, policy=policy, context=context,
+    )
+    # If USE is specified, execute the main query against the USE'd graph
+    if compiled.use_ref is not None:
+        target_graph = scope.get(compiled.use_ref.lower(), base_graph)
+    else:
+        target_graph = base_graph
+    # Strip graph context from the compiled query and execute normally
+    plain_query = CompiledCypherQuery(
+        chain=compiled.chain,
+        seed_rows=compiled.seed_rows,
+        procedure_call=compiled.procedure_call,
+        result_projection=compiled.result_projection,
+        empty_result_row=compiled.empty_result_row,
+        optional_null_fill=compiled.optional_null_fill,
+        optional_projection_row_guard=compiled.optional_projection_row_guard,
+        start_nodes_query=compiled.start_nodes_query,
+        start_nodes_output_name=compiled.start_nodes_output_name,
+    )
+    return _execute_compiled_query(
+        target_graph,
+        compiled_query=plain_query,
+        engine=engine,
+        policy=policy,
+        context=context,
     )
 
 
@@ -695,7 +801,11 @@ def gfql(self: Plottable,
             if language is None and not _looks_like_cypher_query(query):
                 raise TypeError("Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. Got str")
             compiled_query = _compile_string_query(query, language=language, params=params)
+            if isinstance(compiled_query, CompiledCypherGraphQuery):
+                return _execute_graph_query(self, compiled_query, engine=engine, policy=policy, context=context)
             if isinstance(compiled_query, CompiledCypherQuery):
+                if compiled_query.graph_bindings or compiled_query.use_ref:
+                    return _execute_query_with_graph_context(self, compiled_query, engine=engine, policy=policy, context=context)
                 query = compiled_query.chain
         else:
             if language is not None:

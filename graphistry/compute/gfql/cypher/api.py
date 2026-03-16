@@ -5,7 +5,7 @@ from typing import Any, Mapping, Optional, Union
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 
-from .lowering import CompiledCypherQuery, CompiledCypherUnionQuery, compile_cypher_query
+from .lowering import CompiledCypherGraphQuery, CompiledCypherQuery, CompiledCypherUnionQuery, compile_cypher_query
 from .parser import parse_cypher
 
 
@@ -39,12 +39,28 @@ def cypher_to_gfql(
             suggestion="Execute the query through g.gfql(\"...\", language=\"cypher\") instead of cypher_to_gfql().",
             language="cypher",
         )
+    if isinstance(compiled, CompiledCypherGraphQuery):
+        if compiled.graph_bindings:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Multi-graph GRAPH binding pipelines cannot be represented as a single GFQL Chain",
+                suggestion="Execute the query through g.gfql(\"...\", language=\"cypher\") instead of cypher_to_gfql().",
+                language="cypher",
+            )
+        return compiled.chain
     if compiled.procedure_call is not None:
         raise GFQLValidationError(
             ErrorCode.E108,
             "Cypher CALL cannot be represented as a single GFQL Chain",
             field="call",
             value=compiled.procedure_call.procedure,
+            suggestion="Execute the query through g.gfql(\"...\", language=\"cypher\") instead of cypher_to_gfql().",
+            language="cypher",
+        )
+    if compiled.graph_bindings:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Multi-graph GRAPH binding pipelines cannot be represented as a single GFQL Chain",
             suggestion="Execute the query through g.gfql(\"...\", language=\"cypher\") instead of cypher_to_gfql().",
             language="cypher",
         )
@@ -64,7 +80,7 @@ def compile_cypher(
     query: str,
     *,
     params: Optional[Mapping[str, Any]] = None,
-) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery]:
+) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
     """Parse and lower a supported Cypher query into a compiled program.
 
     This is the lowest-level public helper for inspecting GFQL's Cypher

@@ -57,10 +57,13 @@ from graphistry.compute.gfql.expr_parser import (
 )
 from graphistry.compute.gfql.cypher.ast import (
     CallClause,
+    CypherGraphQuery,
     CypherLiteral,
     CypherQuery,
     CypherUnionQuery,
     ExpressionText,
+    GraphBinding,
+    GraphConstructor,
     LabelRef,
     MatchClause,
     NodePattern,
@@ -113,12 +116,28 @@ class CompiledCypherQuery:
     optional_projection_row_guard: Optional["OptionalProjectionRowGuardPlan"] = None
     start_nodes_query: Optional["CompiledCypherQuery"] = None
     start_nodes_output_name: Optional[str] = None
+    graph_bindings: Tuple["CompiledGraphBinding", ...] = ()
+    use_ref: Optional[str] = None
 
 
 @dataclass(frozen=True)
 class CompiledCypherUnionQuery:
     branches: Tuple[CompiledCypherQuery, ...]
     union_kind: Literal["distinct", "all"]
+
+
+@dataclass(frozen=True)
+class CompiledGraphBinding:
+    """A named graph binding: GRAPH g = GRAPH { ... } compiled to a chain."""
+    name: str
+    chain: Chain
+
+
+@dataclass(frozen=True)
+class CompiledCypherGraphQuery:
+    """A query whose final result is a graph (from standalone GRAPH { })."""
+    graph_bindings: Tuple[CompiledGraphBinding, ...]
+    chain: Chain
 
 
 @dataclass(frozen=True)
@@ -5692,14 +5711,6 @@ def _lower_general_row_projection(
 
 
 def _cypher_return_output_names(clause: ReturnClause) -> Tuple[str, ...]:
-    if clause.result_kind == "graph":
-        raise _unsupported(
-            "Cypher UNION does not yet support RETURN GRAPH branches in the local compiler",
-            field="return",
-            value="GRAPH",
-            line=clause.span.line,
-            column=clause.span.column,
-        )
     names: List[str] = []
     for item in clause.items:
         if item.expression.text == "*":
@@ -5713,66 +5724,6 @@ def _cypher_return_output_names(clause: ReturnClause) -> Tuple[str, ...]:
         names.append(item.alias or item.expression.text)
     return tuple(names)
 
-
-def _compile_return_graph_query(
-    query: CypherQuery,
-    *,
-    params: Optional[Mapping[str, Any]] = None,
-) -> CompiledCypherQuery:
-    if not query.matches:
-        raise _unsupported(
-            "Cypher RETURN GRAPH requires at least one MATCH clause in the local compiler",
-            field="return",
-            value="GRAPH",
-            line=query.return_.span.line,
-            column=query.return_.span.column,
-        )
-    if query.call is not None:
-        raise _unsupported(
-            "Cypher RETURN GRAPH does not yet support CALL in the same query",
-            field="return",
-            value="GRAPH",
-            line=query.return_.span.line,
-            column=query.return_.span.column,
-        )
-    if query.unwinds:
-        raise _unsupported(
-            "Cypher RETURN GRAPH does not yet support UNWIND in the same query",
-            field="return",
-            value="GRAPH",
-            line=query.return_.span.line,
-            column=query.return_.span.column,
-        )
-    if query.with_stages or query.reentry_matches:
-        raise _unsupported(
-            "Cypher RETURN GRAPH currently supports MATCH ... WHERE ... RETURN GRAPH only",
-            field="return",
-            value="GRAPH",
-            line=query.return_.span.line,
-            column=query.return_.span.column,
-        )
-    if query.order_by is not None or query.skip is not None or query.limit is not None:
-        raise _unsupported(
-            "Cypher RETURN GRAPH does not yet support ORDER BY / SKIP / LIMIT",
-            field="return",
-            value="GRAPH",
-            line=query.return_.span.line,
-            column=query.return_.span.column,
-        )
-    if query.return_.distinct:
-        raise _unsupported(
-            "Cypher RETURN GRAPH does not support DISTINCT",
-            field="return",
-            value="GRAPH",
-            line=query.return_.span.line,
-            column=query.return_.span.column,
-        )
-
-    lowered = lower_match_query(query, params=params)
-    return CompiledCypherQuery(
-        Chain(lowered.query, where=lowered.where),
-        seed_rows=False,
-    )
 
 
 def lower_cypher_query(
@@ -5988,11 +5939,72 @@ def _compile_call_query(
     )
 
 
-def compile_cypher_query(
-    query: Union[CypherQuery, CypherUnionQuery],
+def _compile_graph_constructor(
+    constructor: GraphConstructor,
     *,
     params: Optional[Mapping[str, Any]] = None,
-) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery]:
+) -> Chain:
+    """Compile a GRAPH { MATCH ... WHERE ... } constructor body into a Chain."""
+    # Build a synthetic CypherQuery from the constructor's matches + where,
+    # then reuse lower_match_query to produce the chain.
+    if not constructor.matches:
+        raise _unsupported(
+            "Graph constructor must contain at least one MATCH clause",
+            field="graph_constructor",
+            value="GRAPH { }",
+            line=constructor.span.line,
+            column=constructor.span.column,
+        )
+    # Create a synthetic CypherQuery just for the match lowering
+    synthetic = CypherQuery(
+        matches=constructor.matches,
+        where=constructor.where,
+        call=None,
+        unwinds=(),
+        with_stages=(),
+        # Synthetic return — not used for graph constructors
+        return_=ReturnClause(
+            items=(),
+            distinct=False,
+            kind="return",
+            span=constructor.span,
+        ),
+        order_by=None,
+        skip=None,
+        limit=None,
+        row_sequence=(),
+        trailing_semicolon=False,
+        span=constructor.span,
+    )
+    lowered = lower_match_query(synthetic, params=params)
+    return Chain(lowered.query, where=lowered.where)
+
+
+def _compile_graph_bindings(
+    bindings: Tuple[GraphBinding, ...],
+    *,
+    params: Optional[Mapping[str, Any]] = None,
+) -> Tuple[CompiledGraphBinding, ...]:
+    """Compile a sequence of GRAPH g = GRAPH { ... } bindings."""
+    compiled: List[CompiledGraphBinding] = []
+    for binding in bindings:
+        chain = _compile_graph_constructor(binding.constructor, params=params)
+        compiled.append(CompiledGraphBinding(name=binding.name, chain=chain))
+    return tuple(compiled)
+
+
+def compile_cypher_query(
+    query: Union[CypherQuery, CypherUnionQuery, CypherGraphQuery],
+    *,
+    params: Optional[Mapping[str, Any]] = None,
+) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
+    if isinstance(query, CypherGraphQuery):
+        compiled_bindings = _compile_graph_bindings(query.graph_bindings, params=params)
+        chain = _compile_graph_constructor(query.constructor, params=params)
+        return CompiledCypherGraphQuery(
+            graph_bindings=compiled_bindings,
+            chain=chain,
+        )
     if isinstance(query, CypherUnionQuery):
         branch_output_names: Optional[Tuple[str, ...]] = None
         compiled_branches: List[CompiledCypherQuery] = []
@@ -6023,19 +6035,42 @@ def compile_cypher_query(
             union_kind=query.union_kind,
         )
 
+    # Capture graph bindings/use before lowering the regular query
+    _graph_bindings = query.graph_bindings
+    _use_ref = query.use.ref if query.use is not None else None
+    if _graph_bindings:
+        compiled_bindings = _compile_graph_bindings(_graph_bindings, params=params)
+    else:
+        compiled_bindings = ()
+
+    def _attach_graph_context(result: CompiledCypherQuery) -> CompiledCypherQuery:
+        if not compiled_bindings and _use_ref is None:
+            return result
+        return CompiledCypherQuery(
+            chain=result.chain,
+            seed_rows=result.seed_rows,
+            procedure_call=result.procedure_call,
+            result_projection=result.result_projection,
+            empty_result_row=result.empty_result_row,
+            optional_null_fill=result.optional_null_fill,
+            optional_projection_row_guard=result.optional_projection_row_guard,
+            start_nodes_query=result.start_nodes_query,
+            start_nodes_output_name=result.start_nodes_output_name,
+            graph_bindings=compiled_bindings,
+            use_ref=_use_ref,
+        )
+
     _reject_unsupported_variable_length_where_pattern_predicates(query)
     _reject_variable_length_path_alias_references(query, params=params)
     query = _rewrite_where_pattern_predicates_to_matches(query)
     _reject_unsupported_where_expr_forms(query)
     _reject_nonterminal_variable_length_relationship_patterns(query)
-    if query.return_.result_kind == "graph":
-        return _compile_return_graph_query(query, params=params)
     if query.reentry_matches:
-        return _compile_bounded_reentry_query(query, params=params)
+        return _attach_graph_context(_compile_bounded_reentry_query(query, params=params))
     if query.call is not None:
-        return _compile_call_query(query, params=params)
+        return _attach_graph_context(_compile_call_query(query, params=params))
     if query.row_sequence:
-        return _lower_row_only_sequence(query, params=params)
+        return _attach_graph_context(_lower_row_only_sequence(query, params=params))
 
     merged_match = _merged_match_clause(query)
     lowered = (
@@ -6093,11 +6128,11 @@ def compile_cypher_query(
             stage_steps, _next_scope = _lower_row_column_stage(final_stage, scope=scope, params=params)
             row_steps.extend(stage_steps)
 
-        return CompiledCypherQuery(
+        return _attach_graph_context(CompiledCypherQuery(
             Chain(lowered.query + row_steps, where=lowered.where),
             seed_rows=scope.seed_rows,
             result_projection=result_projection,
-        )
+        ))
 
     if merged_match is not None and not query.unwinds:
         alias_targets = _alias_target(lowered.query)
@@ -6178,14 +6213,14 @@ def compile_cypher_query(
                         line=query.return_.span.line,
                         column=query.return_.span.column,
                     )
-            return CompiledCypherQuery(
+            return _attach_graph_context(CompiledCypherQuery(
                 Chain(_lower_projection_chain(query, lowered, params=params, plan=plan), where=lowered.where),
                 seed_rows=False,
                 result_projection=_result_projection_plan(plan, alias_targets=alias_targets),
                 empty_result_row=empty_result_row,
                 optional_null_fill=optional_null_fill,
                 optional_projection_row_guard=optional_projection_row_guard,
-            )
+            ))
 
     alias_targets = _alias_target(lowered.query)
     _reject_variable_length_relationship_alias_path_carriers(
@@ -6193,4 +6228,4 @@ def compile_cypher_query(
         alias_targets=alias_targets,
         params=params,
     )
-    return _lower_general_row_projection(query, lowered, params=params)
+    return _attach_graph_context(_lower_general_row_projection(query, lowered, params=params))

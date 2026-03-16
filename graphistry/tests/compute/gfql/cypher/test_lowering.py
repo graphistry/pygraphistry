@@ -740,55 +740,60 @@ def test_string_cypher_formats_single_edge_entity_projection() -> None:
     ]
 
 
-def test_string_cypher_return_graph_returns_matched_subgraph() -> None:
-    nodes = pd.DataFrame(
-        {
-            "id": ["a", "b", "c", "z"],
-            "score": [10, 5, 1, 0],
-        }
-    )
-    edges = pd.DataFrame(
-        {
-            "s": ["a", "b"],
-            "d": ["b", "c"],
-            "weight": [7, 9],
-        }
-    )
-
+def test_standalone_graph_constructor_returns_subgraph() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "z"], "score": [10, 5, 1, 0]})
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "weight": [7, 9]})
     result = _mk_graph(nodes, edges).gfql(
-        "MATCH (a)-[r]->(b) WHERE a.id = 'a' RETURN GRAPH"
+        "GRAPH { MATCH (a)-[r]->(b) WHERE a.id = 'a' }"
     )
-
     assert set(_to_pandas_df(result._nodes)["id"].tolist()) == {"a", "b"}
     assert _to_pandas_df(result._edges)[["s", "d", "weight"]].to_dict(orient="records") == [
         {"s": "a", "d": "b", "weight": 7}
     ]
 
 
-def test_string_cypher_return_graph_supports_cudf_graph_state() -> None:
+def test_graph_binding_with_use_returns_rows() -> None:
+    result = _mk_simple_path_graph().gfql(
+        "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) WHERE a.id = 'a' } "
+        "USE g1 MATCH (x) RETURN x.id AS id ORDER BY id"
+    )
+    assert sorted(_to_pandas_df(result._nodes)["id"].tolist()) == ["a", "b"]
+
+
+def test_graph_constructor_empty_match_returns_empty_graph() -> None:
+    result = _mk_simple_path_graph().gfql(
+        "GRAPH { MATCH (a)-[r]->(b) WHERE a.id = 'nonexistent' }"
+    )
+    assert len(result._nodes) == 0
+    assert len(result._edges) == 0
+
+
+def test_standalone_graph_constructor_preserves_columns() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"], "score": [10, 5, 1]})
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "weight": [7, 9]})
+    result = _mk_graph(nodes, edges).gfql(
+        "GRAPH { MATCH (a)-[r]->(b) WHERE a.id = 'a' }"
+    )
+    assert "score" in _to_pandas_df(result._nodes).columns
+    assert "weight" in _to_pandas_df(result._edges).columns
+
+
+def test_graph_constructor_cudf_support() -> None:
     result = _mk_path_with_isolate_graph_cudf().gfql(
-        "MATCH (a)-[r]->(b) WHERE a.id = 'b' RETURN GRAPH",
+        "GRAPH { MATCH (a)-[r]->(b) WHERE a.id = 'b' }",
         engine="cudf",
     )
-
     assert set(_to_pandas_df(result._nodes)["id"].tolist()) == {"b", "c"}
     assert _to_pandas_df(result._edges)[["s", "d"]].to_dict(orient="records") == [
         {"s": "b", "d": "c"}
     ]
 
 
-def test_cypher_to_gfql_supports_return_graph() -> None:
-    chain = cypher_to_gfql("MATCH (a)-[r]->(b) WHERE a.id = 'a' RETURN GRAPH")
-
+def test_cypher_to_gfql_supports_standalone_graph_constructor() -> None:
+    chain = cypher_to_gfql("GRAPH { MATCH (a)-[r]->(b) WHERE a.id = 'a' }")
     result = _mk_simple_path_graph().gfql(chain)
-
     assert set(result._nodes["id"].tolist()) == {"a", "b"}
     assert result._edges[["s", "d"]].to_dict(orient="records") == [{"s": "a", "d": "b"}]
-
-
-def test_string_cypher_return_graph_rejects_row_pipeline_modifiers() -> None:
-    with pytest.raises(GFQLSyntaxError):
-        _mk_simple_path_graph().gfql("MATCH (a)-[r]->(b) RETURN GRAPH ORDER BY a.id")
 
 
 def test_string_cypher_formats_filtered_edge_entity_projection_on_cudf() -> None:

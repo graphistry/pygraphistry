@@ -64,52 +64,83 @@ Use ``params=...`` instead of manual string interpolation:
 
     limited._nodes
 
-Returning A Graph Instead Of Rows
----------------------------------
+Graph Constructors (``GRAPH { }``)
+-----------------------------------
 
-Use ``RETURN GRAPH`` when you want the matched subgraph back in graph state
-instead of a row table:
+.. note::
+
+   ``GRAPH { }`` is a **GFQL extension** — not part of openCypher, and GQL's
+   first edition (ISO/IEC 39075:2024) deferred graph constructors to a future
+   revision. Standard Cypher and GQL both force query results through
+   row/path-centric serialization. ``GRAPH { }`` closes that gap by keeping
+   results in **graph state** (both ``_nodes`` and ``_edges``), enabling
+   composable graph-pipeline workflows.
+
+Use ``GRAPH { MATCH ... }`` when you want the matched subgraph back in graph
+state instead of a row table:
 
 .. code-block:: python
 
     subgraph = g.gfql(
-        "MATCH (seed)-[reach]-(nbr) "
-        "WHERE seed.degree >= $degree_cutoff "
-        "RETURN GRAPH",
+        "GRAPH { "
+        "  MATCH (seed)-[reach]-(nbr) "
+        "  WHERE seed.degree >= $degree_cutoff "
+        "}",
         params={"degree_cutoff": 10},
     )
 
     subgraph._nodes
     subgraph._edges
 
-The current local ``RETURN GRAPH`` subset is intentionally small:
+Use ``GRAPH g = GRAPH { ... }`` to bind a named graph, then ``USE g`` to
+query it:
 
-- it returns the matched subgraph
-- it preserves the original node and edge columns
-- it does not yet support ``ORDER BY``, ``SKIP``, ``LIMIT``, ``DISTINCT``,
-  ``UNWIND``, ``WITH``, ``CALL``, or graph-specific projection syntax in the
-  same query
+.. code-block:: python
 
-That is enough to express a clean graph-search -> analytics -> graph-search
-pipeline:
+    result = g.gfql(
+        "GRAPH g1 = GRAPH { "
+        "  MATCH (seed)-[reach]-(nbr) "
+        "  WHERE seed.degree >= $degree_cutoff "
+        "} "
+        "USE g1 "
+        "MATCH (n) "
+        "RETURN n.id AS id, n.degree AS degree "
+        "ORDER BY degree DESC LIMIT 10",
+        params={"degree_cutoff": 10},
+    )
+
+Multi-stage graph pipelines chain constructors:
 
 .. code-block:: python
 
     g1 = g.gfql(
-        "MATCH (seed)-[reach]-(nbr) "
-        "WHERE seed.degree >= $degree_cutoff "
-        "RETURN GRAPH",
+        "GRAPH { "
+        "  MATCH (seed)-[reach]-(nbr) "
+        "  WHERE seed.degree >= $degree_cutoff "
+        "}",
         params={"degree_cutoff": 10},
     )
 
     g2 = g1.gfql("CALL graphistry.cugraph.pagerank.write()", engine="cudf")
 
     g3 = g2.gfql(
-        "MATCH (core)-[halo]-(nbr) "
-        "WHERE core.pagerank >= $pagerank_cutoff "
-        "RETURN GRAPH",
+        "GRAPH { "
+        "  MATCH (core)-[halo]-(nbr) "
+        "  WHERE core.pagerank >= $pagerank_cutoff "
+        "}",
         params={"pagerank_cutoff": 0.25},
     )
+
+The v1 graph constructor surface supports:
+
+- ``MATCH`` and ``WHERE`` clauses inside ``GRAPH { }``
+- ``GRAPH g = GRAPH { }`` named bindings with lexical scoping
+- ``USE g`` to switch the current graph for the following query
+- Variable scoping: pattern variables inside ``GRAPH { }`` do not leak
+
+It does not yet support ``ORDER BY``, ``SKIP``, ``LIMIT``, ``DISTINCT``,
+``UNWIND``, ``WITH``, ``CALL``, or ``RETURN`` inside the constructor body.
+Use those clauses in the outer query after ``USE``.
 
 Supported Cypher Surface Through ``g.gfql()``
 ---------------------------------------------
@@ -140,10 +171,11 @@ Support Matrix
    * - ``MATCH`` / ``WHERE`` / ``RETURN`` / ``WITH`` / ``ORDER BY`` / ``SKIP`` / ``LIMIT`` / ``DISTINCT``
      - Supported
      - Core read-only Cypher-in-GFQL path.
-   * - ``MATCH`` / ``WHERE`` / ``RETURN GRAPH``
+   * - ``GRAPH { MATCH ... }`` / ``GRAPH g = ...`` / ``USE g``
      - Partial
-     - Returns the matched subgraph in graph state. Current local subset is
-       intentionally limited to match/filter plus whole-graph return.
+     - **GFQL extension** (not in openCypher; GQL deferred graph constructors).
+       Returns matched subgraph in graph state. Supports named bindings and
+       scoped graph switching via USE.
    * - ``OPTIONAL MATCH``
      - Partial
      - Supported for a bounded Cypher-in-GFQL subset, not the full Cypher null-extension surface.
