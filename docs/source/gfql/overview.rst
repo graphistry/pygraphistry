@@ -2,6 +2,11 @@
 Overview of GFQL
 =================
 
+.. image:: _static/gfql-mascot.png
+   :alt: GFQL mascot
+   :width: 200px
+   :align: center
+
 New to GFQL, the open source dataframe-native graph query language? This article overviews the gaps it fills, special features like GPU accelerations, and where to go next.
 
 
