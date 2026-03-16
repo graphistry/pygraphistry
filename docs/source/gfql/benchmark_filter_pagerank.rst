@@ -1,4 +1,4 @@
-GFQL Cypher Benchmark: Local Cypher on DataFrames vs Neo4j
+GFQL Cypher Benchmark: CPU/GPU DataFrames vs Neo4j
 ==========================================================
 
 Run Cypher graph queries and analytics directly on Python dataframes —
