@@ -20,8 +20,8 @@ NEO4J_GPLUS_LOWER_BOUND_S = 187.0
 
 COLORS = {
     "Neo4j": "#8f3b2f",
-    "Graphistry CPU": "#425466",
-    "Graphistry GPU": "#14866d",
+    "GFQL CPU": "#425466",
+    "GFQL GPU": "#14866d",
     "ETL": "#6c8fb3",
     "Search": "#557a95",
     "Analytics": "#d17c2f",
@@ -105,25 +105,25 @@ def twitter_lifecycle_df() -> pd.DataFrame:
         {"system": "Neo4j + GDS", "family": "Neo4j", "phase": "Search", "seconds": neo_search},
         {"system": "Neo4j + GDS", "family": "Neo4j", "phase": "Analytics", "seconds": neo_analytics},
     ])
-    # Graphistry CPU
+    # GFQL CPU
     cpu = cpu_gpu["pandas"]
     cpu_etl = load["pandas"]["total_prepare_median_s"]
     cpu_search = cpu["search_enrich_median_s"] - _approx_pagerank_fraction(cpu) + cpu["gfql_filter2_median_s"]
     cpu_analytics = _approx_pagerank_fraction(cpu)
     rows.extend([
-        {"system": "Graphistry CPU\n(pandas + igraph)", "family": "Graphistry CPU", "phase": "ETL", "seconds": cpu_etl},
-        {"system": "Graphistry CPU\n(pandas + igraph)", "family": "Graphistry CPU", "phase": "Search", "seconds": cpu_search},
-        {"system": "Graphistry CPU\n(pandas + igraph)", "family": "Graphistry CPU", "phase": "Analytics", "seconds": cpu_analytics},
+        {"system": "GFQL CPU\n(pandas + igraph)", "family": "GFQL CPU", "phase": "ETL", "seconds": cpu_etl},
+        {"system": "GFQL CPU\n(pandas + igraph)", "family": "GFQL CPU", "phase": "Search", "seconds": cpu_search},
+        {"system": "GFQL CPU\n(pandas + igraph)", "family": "GFQL CPU", "phase": "Analytics", "seconds": cpu_analytics},
     ])
-    # Graphistry GPU
+    # GFQL GPU
     gpu = cpu_gpu["cudf"]
     gpu_etl = load["cudf"]["total_prepare_median_s"]
     gpu_search = gpu["search_enrich_median_s"] - _approx_pagerank_fraction(gpu) + gpu["gfql_filter2_median_s"]
     gpu_analytics = _approx_pagerank_fraction(gpu)
     rows.extend([
-        {"system": "Graphistry GPU\n(cudf + cugraph)", "family": "Graphistry GPU", "phase": "ETL", "seconds": gpu_etl},
-        {"system": "Graphistry GPU\n(cudf + cugraph)", "family": "Graphistry GPU", "phase": "Search", "seconds": gpu_search},
-        {"system": "Graphistry GPU\n(cudf + cugraph)", "family": "Graphistry GPU", "phase": "Analytics", "seconds": gpu_analytics},
+        {"system": "GFQL GPU\n(cudf + cugraph)", "family": "GFQL GPU", "phase": "ETL", "seconds": gpu_etl},
+        {"system": "GFQL GPU\n(cudf + cugraph)", "family": "GFQL GPU", "phase": "Search", "seconds": gpu_search},
+        {"system": "GFQL GPU\n(cudf + cugraph)", "family": "GFQL GPU", "phase": "Analytics", "seconds": gpu_analytics},
     ])
     return pd.DataFrame(rows)
 
@@ -149,7 +149,7 @@ def gplus_lifecycle_df() -> pd.DataFrame:
         # Neo4j: only have a pipeline lower bound, no phase split
         {"system": "Neo4j + GDS\n(lower bound)", "family": "Neo4j", "phase": "Pipeline (lower bound)", "seconds": NEO4J_GPLUS_LOWER_BOUND_S},
     ]
-    for key, engine, label in [("cpu", "pandas", "Graphistry CPU"), ("gpu", "cudf", "Graphistry GPU")]:
+    for key, engine, label in [("cpu", "pandas", "GFQL CPU"), ("gpu", "cudf", "GFQL GPU")]:
         r = summary[key]
         rows.extend([
             {"system": label, "family": label, "phase": "ETL", "seconds": load[engine]["total_prepare_median_s"]},
@@ -164,8 +164,8 @@ def twitter_three_way_df() -> pd.DataFrame:
     neo = twitter_neo4j()
     rows = [
         {"system": "Neo4j + GDS", "family": "Neo4j", "seconds": neo["pipeline_total_median_s"]},
-        {"system": "Graphistry CPU\n(pandas + igraph)", "family": "Graphistry CPU", "seconds": cpu_gpu["pandas"]["pipeline_total_median_s"]},
-        {"system": "Graphistry GPU\n(cudf + cugraph)", "family": "Graphistry GPU", "seconds": cpu_gpu["cudf"]["pipeline_total_median_s"]},
+        {"system": "GFQL CPU\n(pandas + igraph)", "family": "GFQL CPU", "seconds": cpu_gpu["pandas"]["pipeline_total_median_s"]},
+        {"system": "GFQL GPU\n(cudf + cugraph)", "family": "GFQL GPU", "seconds": cpu_gpu["cudf"]["pipeline_total_median_s"]},
     ]
     df = pd.DataFrame(rows)
     neo4j_s = float(df["seconds"].iloc[0])
