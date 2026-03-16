@@ -20,6 +20,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Docs
 - **GFQL / Cypher docs**: Documented `GRAPH { }` constructors, `GRAPH g = ...` bindings, and `USE g` graph switching as GFQL extensions aligned with the GQL/G-CORE direction.
+- **GFQL / translate guide**: Added Cypher-string and `GRAPH { }` examples to the SQL/Pandas/Cypher/GFQL translation guide, showing `g.gfql("MATCH ...")` alongside native chain syntax for each translation pattern.
 - **GFQL / Benchmark docs**: Added story-first RTD benchmark page at `docs/source/gfql/benchmark_filter_pagerank.rst` with comparison charts for Graphistry GPU, Graphistry CPU, and Neo4j across Twitter and GPlus datasets.
 
 ## [0.52.0 - 2026-03-15]
