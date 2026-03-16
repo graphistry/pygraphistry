@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.53.2 - 2026-03-16]
+
+### Docs
+- **GFQL**: Added GFQL mascot to key docs pages (10 Minutes to GFQL, Overview, Cypher Benchmark).
+- **GFQL / Cypher Benchmark**: Added GPU DataFrame ecosystem mention (Apache Arrow, NVIDIA RAPIDS / cuDF, cugraph) to benchmark notebook.
+
 ## [0.53.1 - 2026-03-16]
 
 ### Changed
