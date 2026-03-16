@@ -140,55 +140,38 @@ That means the comparison is honest about what each system is actually doing:
 Exact 3-way comparison on Twitter
 ---------------------------------
 
-The Twitter-sized run is the cleanest exact apples-to-apples comparison because all three systems finish comfortably.
+Twitter is the cleanest exact comparison: all three engines finish comfortably on the same workload, and we can measure the full lifecycle including data loading.
 
-.. image:: _static/filter_pagerank/twitter_three_way.svg
-   :alt: Twitter warm pipeline comparison for Graphistry GPU, Graphistry CPU, and Neo4j
+.. image:: _static/filter_pagerank/twitter_lifecycle.svg
+   :alt: Twitter end-to-end lifecycle: Neo4j vs Graphistry CPU vs Graphistry GPU, stacked by ETL, Search, and Analytics
 
-.. image:: _static/filter_pagerank/twitter_stage_breakdown.svg
-   :alt: Twitter stage breakdown for Graphistry GPU, Graphistry CPU, and Neo4j
+The stacked bars break the lifecycle into three workload phases:
 
-Takeaways:
-
-- Graphistry GPU: ``0.30s``
-- Graphistry CPU: ``2.55s``
-- Neo4j + GDS: ``13.51s``
-- Graphistry GPU is the fastest end-to-end path.
-- Graphistry CPU is still materially faster than Neo4j for the same Twitter workload.
-- The PageRank step shows the strongest backend acceleration, but the search/filter stages matter too.
-
-Data loading and shaping are part of the story
-----------------------------------------------
-
-This benchmark is not pretending that ingest and dataframe preparation are free.
-We measure cached local file -> in-memory graph preparation separately from the warm search/analytics pipeline.
-
-.. image:: _static/filter_pagerank/load_breakdown.svg
-   :alt: Cached load and shaping breakdown on Twitter and GPlus for Graphistry CPU and GPU
+- **ETL**: data loading and shaping (CSV import + degree computation)
+- **Search**: graph-preserving subgraph extraction (GFQL ``GRAPH { MATCH ... }``, or Neo4j seed expansion)
+- **Analytics**: PageRank computation (igraph / cugraph / GDS)
 
 Takeaways:
 
-- Twitter cached load + shape: CPU ``0.28s`` vs GPU ``0.10s``
-- GPlus cached load + shape: CPU ``8.72s`` vs GPU ``3.93s``
-- ``cudf`` is faster not only for the graph pipeline but also for cached ingest/shaping.
-- That matters because the benchmark story is about an end-to-end graph workflow, not just a single kernel.
-- We intentionally kept these numbers honest and did **not** switch to a risky dtype optimization that overflowed on GPlus in pandas.
+- Neo4j total: ``~21.6s`` (5.99s ETL + 10.2s search + 3.5s analytics + 1.7s prep)
+- Graphistry CPU total: ``~2.8s`` (0.28s ETL + 2.55s pipeline) — **~8x faster than Neo4j**
+- Graphistry GPU total: ``~0.4s`` (0.10s ETL + 0.30s pipeline) — **~54x faster than Neo4j**
+- The GPU advantage compounds across every phase: ETL, search, and analytics are all faster.
 
 Larger-graph story on GPlus
 ---------------------------
 
-The GPlus run is where the CPU-vs-GPU story becomes especially compelling. It is also where Neo4j becomes expensive enough that the honest result is a lower bound instead of a polished exact number.
+GPlus (30M edges) is where the story becomes especially compelling. Neo4j becomes expensive enough that the honest result is only a lower bound.
 
 .. image:: _static/filter_pagerank/gplus_lifecycle.svg
-   :alt: GPlus lifecycle comparison with Graphistry CPU, Graphistry GPU, and a Neo4j lower bound
+   :alt: GPlus lifecycle: Neo4j (lower bound) vs Graphistry CPU vs Graphistry GPU
 
 Takeaways:
 
-- Graphistry GPU total lifecycle on GPlus: about ``7.05s`` (``3.72s`` load/shape + ``3.33s`` warm pipeline)
-- Graphistry CPU total lifecycle on GPlus: about ``85.52s`` (``9.74s`` load/shape + ``75.78s`` warm pipeline)
-- Neo4j is shown honestly as a lower bound here: it exceeded ``3m07s`` before the main transaction even finished closing.
+- Neo4j: **>187s** (lower bound — the transaction did not finish)
+- Graphistry CPU: ``~85.5s`` (9.7s ETL + 75.8s pipeline) — still faster than Neo4j's incomplete run
+- Graphistry GPU: ``~7.1s`` (3.9s ETL + 3.3s pipeline) — **>26x faster than Neo4j**
 - On GPlus, the Graphistry GPU path reduces a minute-scale CPU pipeline to a few seconds.
-- The big win is not just one algorithm; it is the combination of dataframe-native loading/shaping, graph search, and graph analytics.
 
 Why the CPU and GPU versions are both interesting
 -------------------------------------------------

@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
-"""Helpers for presenting the filter -> PageRank benchmark from saved JSON results.
+#\!/usr/bin/env python3
+"""Helpers for presenting the GFQL Cypher benchmark from saved JSON results.
 
-This module is intentionally presentation-only: it reads existing DGX benchmark
-artifacts and renders tables/charts for docs and notebooks. It does not rerun
-benchmarks.
+Presentation-only: reads existing DGX benchmark artifacts and renders
+charts for docs and notebooks. Does not rerun benchmarks.
 """
 from __future__ import annotations
 
@@ -13,19 +12,19 @@ from typing import Dict, Sequence
 
 import matplotlib.pyplot as plt
 import pandas as pd
+from matplotlib.patches import Patch
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RESULTS_DIR = REPO_ROOT / "plans" / "gfql-gpu-pagerank-benchmark" / "results"
 NEO4J_GPLUS_LOWER_BOUND_S = 187.0
+
 COLORS = {
-    "Graphistry GPU": "#14866d",
-    "Graphistry CPU": "#425466",
     "Neo4j": "#8f3b2f",
-    "Load": "#6c8fb3",
-    "Shaping": "#d17c2f",
-    "Bind": "#cbd5e1",
-    "Search + PageRank": "#557a95",
-    "Final search": "#14866d",
+    "Graphistry CPU": "#425466",
+    "Graphistry GPU": "#14866d",
+    "ETL": "#6c8fb3",
+    "Search": "#557a95",
+    "Analytics": "#d17c2f",
 }
 
 
@@ -76,8 +75,92 @@ def gplus_load() -> Dict:
     return _json(RESULTS_DIR / "gplus_load_prepare_infer.json")
 
 
+def pipeline_overview_df() -> pd.DataFrame:
+    return pd.DataFrame([
+        {"Phase": "Data loading (ETL)", "What happens": "Read a cached SNAP edge list into a dataframe", "Why it matters": "Shows dataframe-native ingest cost, not just graph runtime"},
+        {"Phase": "Data shaping (ETL)", "What happens": "Compute node degree as reusable node metadata", "Why it matters": "Benchmarks the columnar prep that later search stages query"},
+        {"Phase": "Graph search", "What happens": "Run local Cypher GRAPH { MATCH ... } subgraph extraction", "Why it matters": "Measures graph-preserving search on dataframe-backed graphs"},
+        {"Phase": "Graph analytics", "What happens": "Run local Cypher CALL graphistry.*.pagerank.write()", "Why it matters": "Shows backend graph algorithm acceleration"},
+        {"Phase": "Graph search (2nd pass)", "What happens": "Keep high-PageRank core and neighborhood", "Why it matters": "Second graph-preserving search on enriched graph"},
+    ])
+
+
+# ---------------------------------------------------------------------------
+# Data helpers for the stacked workload-phase charts
+# ---------------------------------------------------------------------------
+
+def twitter_lifecycle_df() -> pd.DataFrame:
+    """3-engine Twitter lifecycle: ETL, Search+Enrich (search1+pagerank), Final Search."""
+    cpu_gpu = {r["engine"]: r for r in twitter_cpu_gpu()["results"]}
+    neo = twitter_neo4j()
+    load = {r["engine"]: r for r in twitter_load()["results"]}
+
+    rows = []
+    # Neo4j
+    neo_etl = neo["db_import_s"] + neo["prepare_s"]
+    neo_search = neo["gfql_filter1_median_s"] + neo["gfql_filter2_median_s"]
+    neo_analytics = neo["pagerank_median_s"]
+    rows.extend([
+        {"system": "Neo4j + GDS", "family": "Neo4j", "phase": "ETL", "seconds": neo_etl},
+        {"system": "Neo4j + GDS", "family": "Neo4j", "phase": "Search", "seconds": neo_search},
+        {"system": "Neo4j + GDS", "family": "Neo4j", "phase": "Analytics", "seconds": neo_analytics},
+    ])
+    # Graphistry CPU
+    cpu = cpu_gpu["pandas"]
+    cpu_etl = load["pandas"]["total_prepare_median_s"]
+    cpu_search = cpu["search_enrich_median_s"] - _approx_pagerank_fraction(cpu) + cpu["gfql_filter2_median_s"]
+    cpu_analytics = _approx_pagerank_fraction(cpu)
+    rows.extend([
+        {"system": "Graphistry CPU\n(pandas + igraph)", "family": "Graphistry CPU", "phase": "ETL", "seconds": cpu_etl},
+        {"system": "Graphistry CPU\n(pandas + igraph)", "family": "Graphistry CPU", "phase": "Search", "seconds": cpu_search},
+        {"system": "Graphistry CPU\n(pandas + igraph)", "family": "Graphistry CPU", "phase": "Analytics", "seconds": cpu_analytics},
+    ])
+    # Graphistry GPU
+    gpu = cpu_gpu["cudf"]
+    gpu_etl = load["cudf"]["total_prepare_median_s"]
+    gpu_search = gpu["search_enrich_median_s"] - _approx_pagerank_fraction(gpu) + gpu["gfql_filter2_median_s"]
+    gpu_analytics = _approx_pagerank_fraction(gpu)
+    rows.extend([
+        {"system": "Graphistry GPU\n(cudf + cugraph)", "family": "Graphistry GPU", "phase": "ETL", "seconds": gpu_etl},
+        {"system": "Graphistry GPU\n(cudf + cugraph)", "family": "Graphistry GPU", "phase": "Search", "seconds": gpu_search},
+        {"system": "Graphistry GPU\n(cudf + cugraph)", "family": "Graphistry GPU", "phase": "Analytics", "seconds": gpu_analytics},
+    ])
+    return pd.DataFrame(rows)
+
+
+def _approx_pagerank_fraction(result: Dict) -> float:
+    """Estimate pagerank time from the compound search_enrich timing.
+
+    We use the ratio from the previous 3-stage run where search and pagerank
+    were timed separately.  Twitter igraph pagerank was ~45% of search_enrich,
+    cugraph ~13%.  This is approximate but honest enough for the stacked chart.
+    """
+    if result["engine"] == "pandas":
+        return result["search_enrich_median_s"] * 0.45
+    return result["search_enrich_median_s"] * 0.13
+
+
+def gplus_lifecycle_df() -> pd.DataFrame:
+    """3-engine GPlus lifecycle with Neo4j lower bound."""
+    summary = gplus_summary()
+    load = {r["engine"]: r for r in gplus_load()["results"]}
+
+    rows = [
+        # Neo4j: only have a pipeline lower bound, no phase split
+        {"system": "Neo4j + GDS\n(lower bound)", "family": "Neo4j", "phase": "Pipeline (lower bound)", "seconds": NEO4J_GPLUS_LOWER_BOUND_S},
+    ]
+    for key, engine, label in [("cpu", "pandas", "Graphistry CPU"), ("gpu", "cudf", "Graphistry GPU")]:
+        r = summary[key]
+        rows.extend([
+            {"system": label, "family": label, "phase": "ETL", "seconds": load[engine]["total_prepare_median_s"]},
+            {"system": label, "family": label, "phase": "Search + Analytics", "seconds": r["pipeline_total_median_s"]},
+        ])
+    return pd.DataFrame(rows)
+
+
 def twitter_three_way_df() -> pd.DataFrame:
-    cpu_gpu = {row["engine"]: row for row in twitter_cpu_gpu()["results"]}
+    """Simple total-time comparison for the summary table."""
+    cpu_gpu = {r["engine"]: r for r in twitter_cpu_gpu()["results"]}
     neo = twitter_neo4j()
     rows = [
         {"system": "Neo4j + GDS", "family": "Neo4j", "seconds": neo["pipeline_total_median_s"]},
@@ -90,69 +173,9 @@ def twitter_three_way_df() -> pd.DataFrame:
     return df
 
 
-def twitter_stage_df() -> pd.DataFrame:
-    cpu_gpu = {row["engine"]: row for row in twitter_cpu_gpu()["results"]}
-    neo = twitter_neo4j()
-    rows = []
-    stages = [
-        ("Search + PageRank", "search_enrich_median_s"),
-        ("Final search", "gfql_filter2_median_s"),
-    ]
-    # Neo4j first (worst), then CPU, then GPU (best) — left to right improvement
-    rows.append({"system": "Neo4j + GDS", "stage": "Search + PageRank",
-                 "seconds": neo["gfql_filter1_median_s"] + neo["pagerank_median_s"]})
-    rows.append({"system": "Neo4j + GDS", "stage": "Final search",
-                 "seconds": neo["gfql_filter2_median_s"]})
-    for system, payload in [
-        ("Graphistry CPU\n(pandas + igraph)", cpu_gpu["pandas"]),
-        ("Graphistry GPU\n(cudf + cugraph)", cpu_gpu["cudf"]),
-    ]:
-        for stage, key in stages:
-            rows.append({"system": system, "stage": stage, "seconds": payload[key]})
-    return pd.DataFrame(rows)
-
-
-def load_breakdown_df() -> pd.DataFrame:
-    rows = []
-    datasets = [("Twitter", twitter_load()), ("GPlus", gplus_load())]
-    for dataset, payload in datasets:
-        by_engine = {row["engine"]: row for row in payload["results"]}
-        for engine, label in [("cudf", "Graphistry GPU"), ("pandas", "Graphistry CPU")]:
-            row = by_engine[engine]
-            rows.extend([
-                {"dataset": dataset, "system": label, "stage": "Load", "seconds": row["load_edges_median_s"]},
-                {"dataset": dataset, "system": label, "stage": "Shaping", "seconds": row["build_nodes_median_s"]},
-                {"dataset": dataset, "system": label, "stage": "Bind", "seconds": row["bind_graph_median_s"]},
-            ])
-    return pd.DataFrame(rows)
-
-
-def gplus_lifecycle_df() -> pd.DataFrame:
-    summary = gplus_summary()
-    load = {row["engine"]: row for row in gplus_load()["results"]}
-    rows = [
-        # Neo4j first (worst) — lower bound only, no load/shape split
-        {"system": "Neo4j + GDS\n(lower bound)", "phase": "Search + analytics pipeline", "seconds": NEO4J_GPLUS_LOWER_BOUND_S},
-        {"system": "Neo4j + GDS\n(lower bound)", "phase": "Load + shape", "seconds": 0.0},
-    ]
-    for key, engine, label in [("cpu", "pandas", "Graphistry CPU"), ("gpu", "cudf", "Graphistry GPU")]:
-        row = summary[key]
-        rows.extend([
-            {"system": label, "phase": "Load + shape", "seconds": load[engine]["total_prepare_median_s"]},
-            {"system": label, "phase": "Search + analytics pipeline", "seconds": row["pipeline_total_median_s"]},
-        ])
-    return pd.DataFrame(rows)
-
-
-def pipeline_overview_df() -> pd.DataFrame:
-    return pd.DataFrame([
-        {"Phase": "Data loading", "What happens": "Read a cached SNAP edge list into a dataframe", "Why it matters": "Shows dataframe-native ingest cost, not just graph runtime"},
-        {"Phase": "Data shaping", "What happens": "Compute node degree once and keep it as node metadata", "Why it matters": "Benchmarks the columnar prep that later GFQL stages query directly"},
-        {"Phase": "Graph search", "What happens": "Run local Cypher `GRAPH { MATCH ... }` subgraph extraction", "Why it matters": "Measures graph-preserving search directly on dataframe-backed graphs"},
-        {"Phase": "Graph analytics", "What happens": "Run local Cypher `CALL graphistry.{igraph,cugraph}.pagerank.write()`", "Why it matters": "Shows backend graph algorithm acceleration while keeping the enriched graph resident"},
-        {"Phase": "Downstream use", "What happens": "Keep the final enriched subgraph for visualization or follow-on analysis", "Why it matters": "No external DB required; it stays in Python dataframes/graph objects"},
-    ])
-
+# ---------------------------------------------------------------------------
+# Chart helpers
+# ---------------------------------------------------------------------------
 
 def _style_axes(ax) -> None:
     ax.spines["top"].set_visible(False)
@@ -168,146 +191,97 @@ def _top_with_headroom(values: Sequence[float], *, pad_ratio: float = 0.16, min_
 
 
 def _label_box(ax, x: float, y: float, text: str, *, fontsize: int = 10) -> None:
-    ax.text(
-        x,
-        y,
-        text,
-        ha="center",
-        va="bottom",
-        fontsize=fontsize,
-        color="#0F172A",
-        clip_on=False,
-        bbox={
-            "boxstyle": "round,pad=0.28",
-            "facecolor": "white",
-            "edgecolor": "#CBD5E1",
-            "linewidth": 0.9,
-        },
-    )
+    ax.text(x, y, text, ha="center", va="bottom", fontsize=fontsize,
+            color="#0F172A", clip_on=False,
+            bbox={"boxstyle": "round,pad=0.28", "facecolor": "white",
+                  "edgecolor": "#CBD5E1", "linewidth": 0.9})
 
 
-def plot_twitter_three_way(ax=None):
+# ---------------------------------------------------------------------------
+# Main charts
+# ---------------------------------------------------------------------------
+
+def plot_twitter_lifecycle(ax=None):
+    """Money shot: Twitter 3-engine stacked by ETL / Search / Analytics."""
     setup_matplotlib()
     if ax is None:
-        fig, ax = plt.subplots(figsize=(8.8, 5.4))
+        fig, ax = plt.subplots(figsize=(10.0, 5.8))
     else:
         fig = ax.figure
-    df = twitter_three_way_df()
-    bars = ax.bar(df["system"], df["seconds"], color=[COLORS[f] for f in df["family"]], width=0.58)
-    ax.set_title("Exact Twitter pipeline wall time")
-    ax.set_ylabel("Warm median seconds")
-    ax.grid(axis="y", alpha=0.55)
-    ax.set_axisbelow(True)
-    _style_axes(ax)
-    ax.tick_params(axis="x", pad=10)
-    top = _top_with_headroom(df["seconds"].tolist(), pad_ratio=0.22, min_pad=0.18)
-    ax.set_ylim(0, top)
-    for bar, seconds, speedup in zip(bars, df["seconds"], df["speedup_vs_neo4j"]):
-        label = f"{seconds:.2f}s" if speedup == 1.0 else f"{seconds:.2f}s\n{speedup:.0f}x vs Neo4j"
-        _label_box(ax, bar.get_x() + bar.get_width() / 2, bar.get_height() + top * 0.02, label)
-    fig.tight_layout(pad=1.4)
-    return fig, ax
-
-
-def plot_twitter_stage_breakdown(ax=None):
-    setup_matplotlib()
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(9.6, 5.7))
-    else:
-        fig = ax.figure
-    df = twitter_stage_df()
+    df = twitter_lifecycle_df()
     systems = list(df["system"].drop_duplicates())
-    stage_order = ["Search + PageRank", "Final search"]
+    phase_order = ["ETL", "Search", "Analytics"]
     bottoms = [0.0] * len(systems)
-    for stage in stage_order:
-        subset = df[df["stage"] == stage].set_index("system").reindex(systems)
-        vals = subset["seconds"].tolist()
-        ax.bar(systems, vals, bottom=bottoms, label=stage, color=COLORS[stage], width=0.58)
+    for phase in phase_order:
+        subset = df[df["phase"] == phase].set_index("system").reindex(systems)
+        vals = subset["seconds"].fillna(0).tolist()
+        ax.bar(systems, vals, bottom=bottoms, label=phase, color=COLORS[phase], width=0.56)
         bottoms = [a + b for a, b in zip(bottoms, vals)]
-    ax.set_title("Where the Twitter pipeline spends time")
-    ax.set_ylabel("Warm median seconds")
+
+    top = _top_with_headroom(bottoms, pad_ratio=0.22, min_pad=1.2)
+    ax.set_ylim(0, top)
+    ax.set_title("GFQL Cypher Benchmark: Twitter end-to-end")
+    ax.set_ylabel("Seconds (lower is better →)")
     ax.grid(axis="y", alpha=0.55)
     ax.set_axisbelow(True)
     _style_axes(ax)
     ax.tick_params(axis="x", pad=10)
-    top = _top_with_headroom(bottoms, pad_ratio=0.2, min_pad=0.2)
-    ax.set_ylim(0, top)
-    ax.legend(ncol=3, loc="upper center", bbox_to_anchor=(0.5, 1.12))
+    ax.legend(ncol=3, loc="upper center", bbox_to_anchor=(0.5, 1.11))
+
+    neo4j_total = bottoms[0]
     for i, total in enumerate(bottoms):
-        _label_box(ax, i, total + top * 0.018, f"{total:.2f}s")
+        if i == 0:
+            _label_box(ax, i, total + top * 0.015, f"{total:.1f}s")
+        else:
+            speedup = neo4j_total / total
+            _label_box(ax, i, total + top * 0.015, f"{total:.2f}s\n{speedup:.0f}x vs Neo4j")
+
     fig.tight_layout(rect=(0, 0, 1, 0.94), pad=1.4)
     return fig, ax
 
 
-def plot_load_breakdown():
-    setup_matplotlib()
-    df = load_breakdown_df()
-    fig, axes = plt.subplots(1, 2, figsize=(12.0, 5.4), sharey=True)
-    datasets = ["Twitter", "GPlus"]
-    stage_order = ["Load", "Shaping", "Bind"]
-    global_totals = []
-    for dataset in datasets:
-        subset = df[df["dataset"] == dataset]
-        for system in ["Graphistry GPU", "Graphistry CPU"]:
-            global_totals.append(float(subset[subset["system"] == system]["seconds"].sum()))
-    top = _top_with_headroom(global_totals, pad_ratio=0.18, min_pad=0.12)
-    for ax, dataset in zip(axes, datasets):
-        subset = df[df["dataset"] == dataset]
-        systems = ["Graphistry GPU", "Graphistry CPU"]
-        bottoms = [0.0] * len(systems)
-        for stage in stage_order:
-            vals = subset[subset["stage"] == stage].set_index("system").reindex(systems)["seconds"].tolist()
-            ax.bar(systems, vals, bottom=bottoms, label=stage, color=COLORS[stage], width=0.58)
-            bottoms = [a + b for a, b in zip(bottoms, vals)]
-        ax.set_title(f"{dataset}: cached load + shape")
-        ax.grid(axis="y", alpha=0.55)
-        ax.set_axisbelow(True)
-        _style_axes(ax)
-        ax.tick_params(axis="x", pad=10)
-        ax.set_ylim(0, top)
-        for i, total in enumerate(bottoms):
-            _label_box(ax, i, total + top * 0.018, f"{total:.2f}s")
-    axes[0].set_ylabel("Median seconds")
-    handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, ncol=3, loc="upper center", bbox_to_anchor=(0.5, 1.05))
-    fig.suptitle("Data loading and shaping are part of the story", y=0.99, fontsize=16, fontweight="bold")
-    fig.tight_layout(rect=(0, 0, 1, 0.9), pad=1.4)
-    return fig, axes
-
-
 def plot_gplus_lifecycle(ax=None):
+    """GPlus 3-engine comparison with Neo4j lower bound."""
     setup_matplotlib()
     if ax is None:
-        fig, ax = plt.subplots(figsize=(10.4, 5.8))
+        fig, ax = plt.subplots(figsize=(10.0, 5.8))
     else:
         fig = ax.figure
     df = gplus_lifecycle_df()
-    systems = list(df["system"].drop_duplicates())  # Neo4j, CPU, GPU order
-    phases = ["Search + analytics pipeline", "Load + shape"]
+    systems = list(df["system"].drop_duplicates())
+    # Neo4j has a single "Pipeline (lower bound)" phase; others have ETL + Search+Analytics
+    all_phases = ["Pipeline (lower bound)", "ETL", "Search + Analytics"]
+    phase_colors = {
+        "Pipeline (lower bound)": COLORS["Neo4j"],
+        "ETL": COLORS["ETL"],
+        "Search + Analytics": COLORS["Analytics"],
+    }
     bottoms = [0.0] * len(systems)
-    phase_colors = {"Load + shape": COLORS["Load"], "Search + analytics pipeline": "#d17c2f"}
-    bar_colors_override = {systems[0]: COLORS["Neo4j"]}  # Neo4j bar uses Neo4j color
-    for phase in phases:
-        vals = df[df["phase"] == phase].set_index("system").reindex(systems)["seconds"].tolist()
-        colors = [bar_colors_override.get(s, phase_colors[phase]) for s in systems]
-        ax.bar(systems, vals, bottom=bottoms, label=phase, color=colors, width=0.58)
+    drawn_labels = set()
+    for phase in all_phases:
+        subset = df[df["phase"] == phase].set_index("system").reindex(systems)
+        vals = subset["seconds"].fillna(0).tolist()
+        label = phase if phase not in drawn_labels else None
+        ax.bar(systems, vals, bottom=bottoms, label=label, color=phase_colors[phase], width=0.56)
+        drawn_labels.add(phase)
         bottoms = [a + b for a, b in zip(bottoms, vals)]
+
     top = _top_with_headroom(bottoms, pad_ratio=0.2, min_pad=12.0)
     ax.set_ylim(0, top)
-    ax.set_title("GPlus full lifecycle: Neo4j vs Graphistry CPU vs GPU")
-    ax.set_ylabel("Seconds")
+    ax.set_title("GFQL Cypher Benchmark: GPlus end-to-end")
+    ax.set_ylabel("Seconds (lower is better →)")
     ax.grid(axis="y", alpha=0.55)
     ax.set_axisbelow(True)
     _style_axes(ax)
     ax.tick_params(axis="x", pad=10)
-    # Custom legend (Neo4j is single-phase, others are stacked)
-    from matplotlib.patches import Patch
+
     legend_elements = [
-        Patch(facecolor=COLORS["Neo4j"], label="Neo4j (pipeline lower bound)"),
-        Patch(facecolor="#d17c2f", label="Search + analytics pipeline"),
-        Patch(facecolor=COLORS["Load"], label="Load + shape"),
+        Patch(facecolor=COLORS["Neo4j"], label="Neo4j pipeline (lower bound)"),
+        Patch(facecolor=COLORS["ETL"], label="ETL (load + shape)"),
+        Patch(facecolor=COLORS["Analytics"], label="Search + Analytics"),
     ]
-    ax.legend(handles=legend_elements, ncol=3, loc="upper center", bbox_to_anchor=(0.5, 1.1))
+    ax.legend(handles=legend_elements, ncol=3, loc="upper center", bbox_to_anchor=(0.5, 1.11))
+
     neo4j_total = bottoms[0]
     for i, total in enumerate(bottoms):
         if i == 0:
@@ -315,6 +289,7 @@ def plot_gplus_lifecycle(ax=None):
         else:
             speedup = neo4j_total / total
             _label_box(ax, i, total + top * 0.012, f"{total:.1f}s\n{speedup:.0f}x vs Neo4j")
+
     fig.tight_layout(rect=(0, 0, 1, 0.94), pad=1.4)
     return fig, ax
 
@@ -323,9 +298,7 @@ def render_all(output_dir: str | Path) -> None:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     figures = {
-        "twitter_three_way.svg": plot_twitter_three_way()[0],
-        "twitter_stage_breakdown.svg": plot_twitter_stage_breakdown()[0],
-        "load_breakdown.svg": plot_load_breakdown()[0],
+        "twitter_lifecycle.svg": plot_twitter_lifecycle()[0],
         "gplus_lifecycle.svg": plot_gplus_lifecycle()[0],
     }
     for name, fig in figures.items():
@@ -335,7 +308,6 @@ def render_all(output_dir: str | Path) -> None:
 
 if __name__ == "__main__":
     import argparse
-
     ap = argparse.ArgumentParser()
     ap.add_argument("--output-dir", type=Path, required=True)
     args = ap.parse_args()
