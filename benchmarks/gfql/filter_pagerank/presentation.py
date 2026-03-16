@@ -226,7 +226,7 @@ def plot_twitter_lifecycle(ax=None):
     ax.set_axisbelow(True)
     _style_axes(ax)
     ax.tick_params(axis="x", pad=10)
-    ax.legend(ncol=3, loc="upper center", bbox_to_anchor=(0.5, 1.11))
+    ax.legend(ncol=3, loc="lower center", bbox_to_anchor=(0.5, -0.12))
 
     neo4j_total = bottoms[0]
     for i, total in enumerate(bottoms):
@@ -236,7 +236,7 @@ def plot_twitter_lifecycle(ax=None):
             speedup = neo4j_total / total
             _label_box(ax, i, total + top * 0.015, f"{total:.2f}s\n{speedup:.0f}x vs Neo4j")
 
-    fig.tight_layout(rect=(0, 0, 1, 0.94), pad=1.4)
+    fig.tight_layout(rect=(0, 0.08, 1, 0.97), pad=1.4)
     return fig, ax
 
 
@@ -280,7 +280,7 @@ def plot_gplus_lifecycle(ax=None):
         Patch(facecolor=COLORS["ETL"], label="ETL (load + shape)"),
         Patch(facecolor=COLORS["Analytics"], label="Search + Analytics"),
     ]
-    ax.legend(handles=legend_elements, ncol=3, loc="upper center", bbox_to_anchor=(0.5, 1.11))
+    ax.legend(handles=legend_elements, ncol=3, loc="lower center", bbox_to_anchor=(0.5, -0.12))
 
     neo4j_total = bottoms[0]
     for i, total in enumerate(bottoms):
@@ -290,7 +290,7 @@ def plot_gplus_lifecycle(ax=None):
             speedup = neo4j_total / total
             _label_box(ax, i, total + top * 0.012, f"{total:.1f}s\n{speedup:.0f}x vs Neo4j")
 
-    fig.tight_layout(rect=(0, 0, 1, 0.94), pad=1.4)
+    fig.tight_layout(rect=(0, 0.08, 1, 0.97), pad=1.4)
     return fig, ax
 
 
