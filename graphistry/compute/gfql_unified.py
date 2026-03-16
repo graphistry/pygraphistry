@@ -223,7 +223,7 @@ def _execute_graph_constructor_compiled(
     *,
     procedure_call: Any = None,
     engine: Union[EngineAbstract, str],
-    policy: Optional[Dict[str, PolicyFunction]],
+    policy: Optional[PolicyDict],
     context: ExecutionContext,
 ) -> Plottable:
     """Execute a compiled graph constructor (MATCH-based or CALL-based)."""
@@ -238,7 +238,7 @@ def _resolve_graph_bindings(
     scope: Optional[Dict[str, Plottable]] = None,
     *,
     engine: Union[EngineAbstract, str],
-    policy: Optional[Dict[str, PolicyFunction]],
+    policy: Optional[PolicyDict],
     context: ExecutionContext,
 ) -> Dict[str, Plottable]:
     """Execute graph bindings in order, building a scope of named graphs.
@@ -269,7 +269,7 @@ def _execute_graph_query(
     compiled: CompiledCypherGraphQuery,
     *,
     engine: Union[EngineAbstract, str],
-    policy: Optional[Dict[str, PolicyFunction]],
+    policy: Optional[PolicyDict],
     context: ExecutionContext,
 ) -> Plottable:
     """Execute a standalone GRAPH { ... } query (returns graph state)."""
@@ -293,7 +293,7 @@ def _execute_query_with_graph_context(
     compiled: CompiledCypherQuery,
     *,
     engine: Union[EngineAbstract, str],
-    policy: Optional[Dict[str, PolicyFunction]],
+    policy: Optional[PolicyDict],
     context: ExecutionContext,
 ) -> Plottable:
     """Execute a query that has GRAPH bindings and/or USE."""
@@ -806,10 +806,10 @@ def gfql(self: Plottable,
                 raise TypeError("Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. Got str")
             compiled_query = _compile_string_query(query, language=language, params=params)
             if isinstance(compiled_query, CompiledCypherGraphQuery):
-                return _execute_graph_query(self, compiled_query, engine=engine, policy=policy, context=context)
+                return _execute_graph_query(self, compiled_query, engine=engine, policy=expanded_policy, context=context)
             if isinstance(compiled_query, CompiledCypherQuery):
                 if compiled_query.graph_bindings or compiled_query.use_ref:
-                    return _execute_query_with_graph_context(self, compiled_query, engine=engine, policy=policy, context=context)
+                    return _execute_query_with_graph_context(self, compiled_query, engine=engine, policy=expanded_policy, context=context)
                 query = compiled_query.chain
         else:
             if language is not None:
