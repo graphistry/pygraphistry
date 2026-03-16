@@ -59,38 +59,29 @@ The important detail is that these are not separate systems stitched together. T
 What the actual benchmarked pipelines look like
 --------------------------------------------------------
 
-The Graphistry side of this benchmark can now be written as one readable local Cypher pipeline shape:
-
-- graph-preserving search with local Cypher ``GRAPH { MATCH ... }``
-- graph-preserving enrichment with local Cypher ``CALL graphistry.{igraph,cugraph}.pagerank.write()``
-- graph-preserving search again with local Cypher ``GRAPH { MATCH ... }``
-
-The saved timings come from the three-stage graph-preserving DGX benchmark workflow using the ``GRAPH { }`` constructor syntax shown below.
-
-Same Graphistry pipeline shape on CPU and GPU:
+The Graphistry side of this benchmark is a single compound local Cypher expression
+that chains graph-preserving search, enrichment, and search in one ``g.gfql(...)`` call:
 
 .. code-block:: python
 
-   g1 = g.gfql(
+   result = g.gfql(
+       "GRAPH g1 = GRAPH { "
+       "  MATCH (seed)-[reach]-(nbr) "
+       "  WHERE seed.degree >= $degree_cutoff "
+       "} "
+       "GRAPH g2 = GRAPH { "
+       "  USE g1 "
+       f"  CALL graphistry.{backend}.pagerank.write() "
+       "} "
        "GRAPH { "
-       "MATCH (seed)-[reach]-(nbr) "
-       "WHERE seed.degree >= $degree_cutoff "
+       "  USE g2 "
+       "  MATCH (core)-[halo]-(nbr) "
+       "  WHERE core.pagerank >= $pagerank_cutoff "
        "}",
-       params={"degree_cutoff": degree_cutoff},
-       engine=engine,
-   )
-
-   g2 = g1.gfql(
-       f"CALL graphistry.{backend}.pagerank.write()",
-       engine=engine,
-   )
-
-   g3 = g2.gfql(
-       "GRAPH { "
-       "MATCH (core)-[halo]-(nbr) "
-       "WHERE core.pagerank >= $pagerank_cutoff "
-       "}",
-       params={"pagerank_cutoff": pagerank_cutoff},
+       params={
+           "degree_cutoff": degree_cutoff,
+           "pagerank_cutoff": pagerank_cutoff,
+       },
        engine=engine,
    )
 
@@ -98,6 +89,9 @@ Where:
 
 - CPU uses ``engine="pandas"`` and ``backend="igraph"``
 - GPU uses ``engine="cudf"`` and ``backend="cugraph"``
+- ``GRAPH g1 = GRAPH { ... }`` binds a named subgraph from the degree-filtered match
+- ``GRAPH g2 = GRAPH { USE g1 CALL ... }`` enriches that subgraph with PageRank
+- The terminal ``GRAPH { USE g2 MATCH ... }`` returns the final graph in graph state
 
 Neo4j + GDS analog (Cypher + projection + PageRank write):
 
@@ -156,8 +150,8 @@ The Twitter-sized run is the cleanest exact apples-to-apples comparison because 
 
 Takeaways:
 
-- Graphistry GPU: ``0.24s``
-- Graphistry CPU: ``2.23s``
+- Graphistry GPU: ``0.29s``
+- Graphistry CPU: ``2.30s``
 - Neo4j + GDS: ``13.51s``
 - Graphistry GPU is the fastest end-to-end path.
 - Graphistry CPU is still materially faster than Neo4j for the same Twitter workload.
@@ -190,8 +184,8 @@ The GPlus run is where the CPU-vs-GPU story becomes especially compelling. It is
 
 Takeaways:
 
-- Graphistry GPU total lifecycle on GPlus: about ``8.14s`` (``4.56s`` load/shape + ``3.58s`` warm pipeline)
-- Graphistry CPU total lifecycle on GPlus: about ``99.64s`` (``9.65s`` load/shape + ``89.99s`` warm pipeline)
+- Graphistry GPU total lifecycle on GPlus: about ``8.16s`` (``3.72s`` load/shape + ``4.44s`` warm pipeline)
+- Graphistry CPU total lifecycle on GPlus: about ``87.48s`` (``9.62s`` load/shape + ``77.86s`` warm pipeline)
 - Neo4j is shown honestly as a lower bound here: it exceeded ``3m07s`` before the main transaction even finished closing.
 - On GPlus, the Graphistry GPU path reduces a minute-scale CPU pipeline to a few seconds.
 - The big win is not just one algorithm; it is the combination of dataframe-native loading/shaping, graph search, and graph analytics.

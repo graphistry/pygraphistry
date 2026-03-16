@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark a local Cypher GRAPH { } -> CALL write -> GRAPH { } pipeline on CPU and GPU backends.
+"""Benchmark a compound local Cypher GRAPH { } pipeline on CPU and GPU backends.
 
 Designed for DGX-style runs where the graph is loaded once, then the main pipeline is
 benchmarked warm on the resident in-memory graph.
@@ -114,56 +114,75 @@ def backend_name(engine: str) -> str:
     return "igraph" if engine == "pandas" else "cugraph"
 
 
-def graph_constructor_query(*, metric: str) -> str:
-    if metric == "degree":
-        return (
-            "GRAPH { "
-            "MATCH (seed)-[reach]-(nbr) "
-            "WHERE seed.degree >= $cutoff "
-            "}"
-        )
-    if metric == "pagerank":
-        return (
-            "GRAPH { "
-            "MATCH (core)-[halo]-(nbr) "
-            "WHERE core.pagerank >= $cutoff "
-            "}"
-        )
-    raise ValueError(f"Unknown search metric: {metric}")
+def compound_search_enrich_query(engine: str) -> str:
+    """Stages 1 + 2 as a single compound GRAPH { } expression."""
+    backend = backend_name(engine)
+    return (
+        "GRAPH g1 = GRAPH { "
+        "MATCH (seed)-[reach]-(nbr) "
+        "WHERE seed.degree >= $degree_cutoff "
+        "} "
+        "GRAPH { "
+        "USE g1 "
+        f"CALL graphistry.{backend}.pagerank.write() "
+        "}"
+    )
 
 
-def pagerank_call(engine: str) -> str:
-    return f"CALL graphistry.{backend_name(engine)}.pagerank.write()"
+def final_search_query() -> str:
+    """Stage 3: graph-preserving search on the PageRank-enriched graph."""
+    return (
+        "GRAPH { "
+        "MATCH (core)-[halo]-(nbr) "
+        "WHERE core.pagerank >= $pagerank_cutoff "
+        "}"
+    )
+
+
+def full_pipeline_query(engine: str) -> str:
+    """Full 3-stage compound pipeline as a single expression (requires known cutoffs)."""
+    backend = backend_name(engine)
+    return (
+        "GRAPH g1 = GRAPH { "
+        "MATCH (seed)-[reach]-(nbr) "
+        "WHERE seed.degree >= $degree_cutoff "
+        "} "
+        "GRAPH g2 = GRAPH { "
+        "USE g1 "
+        f"CALL graphistry.{backend}.pagerank.write() "
+        "} "
+        "GRAPH { "
+        "USE g2 "
+        "MATCH (core)-[halo]-(nbr) "
+        "WHERE core.pagerank >= $pagerank_cutoff "
+        "}"
+    )
 
 
 def run_pipeline_once(g, engine: str, degree_cutoff: float, pagerank_quantile: float):
+    # Stages 1+2: compound search + PageRank enrichment
     t1 = time.perf_counter()
-    g1 = g.gfql(
-        graph_constructor_query(metric="degree"),
-        params={"cutoff": degree_cutoff},
+    g2 = g.gfql(
+        compound_search_enrich_query(engine),
+        params={"degree_cutoff": degree_cutoff},
         engine=engine,
     )
     t2 = time.perf_counter()
 
-    g2 = g1.gfql(pagerank_call(engine), engine=engine)
-    t3 = time.perf_counter()
-
+    # Dynamic PageRank cutoff, then stage 3
     pr_cutoff = from_engine_scalar(g2._nodes["pagerank"].quantile(pagerank_quantile))
     g3 = g2.gfql(
-        graph_constructor_query(metric="pagerank"),
-        params={"cutoff": pr_cutoff},
+        final_search_query(),
+        params={"pagerank_cutoff": pr_cutoff},
         engine=engine,
     )
-    t4 = time.perf_counter()
+    t3 = time.perf_counter()
 
     return {
-        "gfql_filter1_s": t2 - t1,
-        "pagerank_s": t3 - t2,
-        "gfql_filter2_s": t4 - t3,
-        "pipeline_total_s": t4 - t1,
+        "search_enrich_s": t2 - t1,
+        "gfql_filter2_s": t3 - t2,
+        "pipeline_total_s": t3 - t1,
         "pagerank_cutoff": pr_cutoff,
-        "stage1_nodes": count_rows(g1._nodes),
-        "stage1_edges": count_rows(g1._edges),
         "stage2_nodes": count_rows(g2._nodes),
         "stage2_edges": count_rows(g2._edges),
         "stage3_nodes": count_rows(g3._nodes),
@@ -196,13 +215,11 @@ def benchmark(dataset: str, engine: str, degree_quantile: float, pagerank_quanti
         "warmup_runs": warmup,
         "cold_total_first_s": round(prep["load_prepare_s"] + first["pipeline_total_s"], 4),
         "pipeline_total_first_s": round(first["pipeline_total_s"], 4),
-        "gfql_filter1_median_s": round(median([r["gfql_filter1_s"] for r in rows]), 4),
-        "pagerank_median_s": round(median([r["pagerank_s"] for r in rows]), 4),
+        "search_enrich_first_s": round(first["search_enrich_s"], 4),
+        "search_enrich_median_s": round(median([r["search_enrich_s"] for r in rows]), 4),
         "gfql_filter2_median_s": round(median([r["gfql_filter2_s"] for r in rows]), 4),
         "pipeline_total_median_s": round(median([r["pipeline_total_s"] for r in rows]), 4),
         "pipeline_total_runs_s": [round(r["pipeline_total_s"], 4) for r in rows],
-        "stage1_nodes": first["stage1_nodes"],
-        "stage1_edges": first["stage1_edges"],
         "stage2_nodes": first["stage2_nodes"],
         "stage2_edges": first["stage2_edges"],
         "stage3_nodes": first["stage3_nodes"],
@@ -214,8 +231,7 @@ def summarize(cpu: Dict, gpu: Dict) -> Dict[str, float]:
     return {
         "cold_speedup_x": round(cpu["cold_total_first_s"] / gpu["cold_total_first_s"], 2),
         "warm_speedup_x": round(cpu["pipeline_total_median_s"] / gpu["pipeline_total_median_s"], 2),
-        "gfql_filter1_speedup_x": round(cpu["gfql_filter1_median_s"] / gpu["gfql_filter1_median_s"], 2),
-        "pagerank_speedup_x": round(cpu["pagerank_median_s"] / gpu["pagerank_median_s"], 2),
+        "search_enrich_speedup_x": round(cpu["search_enrich_median_s"] / gpu["search_enrich_median_s"], 2),
         "gfql_filter2_speedup_x": round(cpu["gfql_filter2_median_s"] / gpu["gfql_filter2_median_s"], 2),
     }
 

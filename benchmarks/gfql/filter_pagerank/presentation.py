@@ -24,9 +24,8 @@ COLORS = {
     "Load": "#6c8fb3",
     "Shaping": "#d17c2f",
     "Bind": "#cbd5e1",
-    "Search 1": "#557a95",
-    "PageRank": "#d17c2f",
-    "Search 2": "#14866d",
+    "Search + PageRank": "#557a95",
+    "Final search": "#14866d",
 }
 
 
@@ -96,18 +95,20 @@ def twitter_stage_df() -> pd.DataFrame:
     neo = twitter_neo4j()
     rows = []
     stages = [
-        ("Search 1", "gfql_filter1_median_s"),
-        ("PageRank", "pagerank_median_s"),
-        ("Search 2", "gfql_filter2_median_s"),
+        ("Search + PageRank", "search_enrich_median_s"),
+        ("Final search", "gfql_filter2_median_s"),
     ]
-    systems = [
+    for system, payload in [
         ("Graphistry GPU\n(cudf + cugraph)", cpu_gpu["cudf"]),
         ("Graphistry CPU\n(pandas + igraph)", cpu_gpu["pandas"]),
-        ("Neo4j + GDS", neo),
-    ]
-    for system, payload in systems:
+    ]:
         for stage, key in stages:
             rows.append({"system": system, "stage": stage, "seconds": payload[key]})
+    # Neo4j still has the old 3-stage keys; combine filter1 + pagerank
+    rows.append({"system": "Neo4j + GDS", "stage": "Search + PageRank",
+                 "seconds": neo["gfql_filter1_median_s"] + neo["pagerank_median_s"]})
+    rows.append({"system": "Neo4j + GDS", "stage": "Final search",
+                 "seconds": neo["gfql_filter2_median_s"]})
     return pd.DataFrame(rows)
 
 
@@ -211,7 +212,7 @@ def plot_twitter_stage_breakdown(ax=None):
         fig = ax.figure
     df = twitter_stage_df()
     systems = list(df["system"].drop_duplicates())
-    stage_order = ["Search 1", "PageRank", "Search 2"]
+    stage_order = ["Search + PageRank", "Final search"]
     bottoms = [0.0] * len(systems)
     for stage in stage_order:
         subset = df[df["stage"] == stage].set_index("system").reindex(systems)
@@ -279,7 +280,7 @@ def plot_gplus_lifecycle(ax=None):
     systems = ["Graphistry GPU", "Graphistry CPU"]
     phases = ["Load + shape", "Search + analytics pipeline"]
     bottoms = [0.0] * len(systems)
-    phase_colors = {"Load + shape": COLORS["Load"], "Search + analytics pipeline": COLORS["PageRank"]}
+    phase_colors = {"Load + shape": COLORS["Load"], "Search + analytics pipeline": "#d17c2f"}
     for phase in phases:
         vals = df[df["phase"] == phase].set_index("system").reindex(systems)["seconds"].tolist()
         ax.bar(systems, vals, bottom=bottoms, label=phase, color=phase_colors[phase], width=0.58)
