@@ -150,8 +150,8 @@ The Twitter-sized run is the cleanest exact apples-to-apples comparison because 
 
 Takeaways:
 
-- Graphistry GPU: ``0.29s``
-- Graphistry CPU: ``2.30s``
+- Graphistry GPU: ``0.30s``
+- Graphistry CPU: ``2.55s``
 - Neo4j + GDS: ``13.51s``
 - Graphistry GPU is the fastest end-to-end path.
 - Graphistry CPU is still materially faster than Neo4j for the same Twitter workload.
@@ -184,8 +184,8 @@ The GPlus run is where the CPU-vs-GPU story becomes especially compelling. It is
 
 Takeaways:
 
-- Graphistry GPU total lifecycle on GPlus: about ``8.16s`` (``3.72s`` load/shape + ``4.44s`` warm pipeline)
-- Graphistry CPU total lifecycle on GPlus: about ``87.48s`` (``9.62s`` load/shape + ``77.86s`` warm pipeline)
+- Graphistry GPU total lifecycle on GPlus: about ``7.05s`` (``3.72s`` load/shape + ``3.33s`` warm pipeline)
+- Graphistry CPU total lifecycle on GPlus: about ``85.52s`` (``9.74s`` load/shape + ``75.78s`` warm pipeline)
 - Neo4j is shown honestly as a lower bound here: it exceeded ``3m07s`` before the main transaction even finished closing.
 - On GPlus, the Graphistry GPU path reduces a minute-scale CPU pipeline to a few seconds.
 - The big win is not just one algorithm; it is the combination of dataframe-native loading/shaping, graph search, and graph analytics.
