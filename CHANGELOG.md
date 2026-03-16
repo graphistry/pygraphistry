@@ -8,8 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.53.0 - 2026-03-16]
+
 ### Added
 - **GFQL / Cypher**: Added `GRAPH { MATCH ... }` graph constructors, `GRAPH g = GRAPH { ... }` named bindings, and `USE g` scoped graph switching as GFQL extensions to Cypher. These replace the earlier `RETURN GRAPH` syntax with a design aligned with GQL's deferred graph constructor direction and G-CORE's composable graph-in/graph-out vision. Graph constructors keep query results in graph state instead of flattening to rows, enabling multi-stage graph pipelines.
+- **GFQL / Cypher**: Added `CALL graphistry.*.write()` support inside `GRAPH { }` constructors, enabling single-expression graph pipelines that chain search, enrichment, and analytics.
+- **Benchmarks**: Added end-to-end GFQL CPU/GPU/Neo4j benchmark suite under `benchmarks/gfql/filter_pagerank/` with a filter → PageRank → filter pipeline on SNAP social graphs. Includes benchmark scripts, RTD docs page, presentation notebook, and rendered SVG charts. GPlus warm speedup: 25x GPU vs CPU; Twitter 3-way: GPU 54x faster than Neo4j.
 
 ### Changed
 - **GFQL / Cypher**: Replaced `RETURN GRAPH` with `GRAPH { }` constructors to avoid overloading `RETURN` (row projection) with graph semantics.
@@ -17,6 +21,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Docs
 - **GFQL / Cypher docs**: Documented `GRAPH { }` constructors, `GRAPH g = ...` bindings, and `USE g` graph switching as GFQL extensions aligned with the GQL/G-CORE direction.
 - **GFQL / translate guide**: Added Cypher-string and `GRAPH { }` examples to the SQL/Pandas/Cypher/GFQL translation guide, showing `g.gfql("MATCH ...")` alongside native chain syntax for each translation pattern.
+- **GFQL / Benchmark docs**: Added story-first RTD benchmark page at `docs/source/gfql/benchmark_filter_pagerank.rst` with comparison charts for Graphistry GPU, Graphistry CPU, and Neo4j across Twitter and GPlus datasets.
 
 ## [0.52.0 - 2026-03-15]
 
