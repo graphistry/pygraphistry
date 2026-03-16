@@ -131,16 +131,31 @@ Multi-stage graph pipelines chain constructors:
         params={"pagerank_cutoff": 0.25},
     )
 
-The v1 graph constructor surface supports:
+The graph constructor surface supports:
 
 - ``MATCH`` and ``WHERE`` clauses inside ``GRAPH { }``
+- Graph-preserving ``CALL graphistry.*.write()`` inside ``GRAPH { }``
 - ``GRAPH g = GRAPH { }`` named bindings with lexical scoping
-- ``USE g`` to switch the current graph for the following query
+- ``USE g`` to switch the current graph (works both inside constructors and
+  in the outer query)
 - Variable scoping: pattern variables inside ``GRAPH { }`` do not leak
 
-It does not yet support ``ORDER BY``, ``SKIP``, ``LIMIT``, ``DISTINCT``,
-``UNWIND``, ``WITH``, ``CALL``, or ``RETURN`` inside the constructor body.
-Use those clauses in the outer query after ``USE``.
+This enables single-expression pipelines that filter, enrich, and query:
+
+.. code-block:: python
+
+    result = g.gfql(
+        "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 10 } "
+        "GRAPH g2 = GRAPH { USE g1 CALL graphistry.degree.write() } "
+        "USE g2 "
+        "MATCH (n) RETURN n.id AS id, n.degree AS degree "
+        "ORDER BY degree DESC LIMIT 10"
+    )
+
+``GRAPH { }`` does not support ``ORDER BY``, ``SKIP``, ``LIMIT``,
+``DISTINCT``, ``UNWIND``, ``WITH``, ``RETURN``, or row-returning ``CALL``
+(without ``.write()``) inside the constructor body. Use those clauses in the
+outer query after ``USE``.
 
 Supported Cypher Surface Through ``g.gfql()``
 ---------------------------------------------

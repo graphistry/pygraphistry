@@ -673,6 +673,50 @@ g.gfql([
 ```
 
 
+## Graph Constructors and the Wire Protocol
+
+GFQL's Cypher extensions (`GRAPH { }` constructors, `GRAPH g = ...` bindings,
+`USE g` graph switching) do **not** require new wire-protocol message types.
+They compile locally to the same `Chain`, `Call`, and `Let` primitives that the
+wire protocol already supports.
+
+### Why No New Types
+
+Graph constructors are a **compilation-layer concept**, not a wire-protocol
+concept. When you write:
+
+```
+GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 10 }
+GRAPH g2 = GRAPH { USE g1 CALL graphistry.degree.write() }
+USE g2 MATCH (n) RETURN n.id, n.degree ORDER BY n.degree DESC
+```
+
+The compiler produces a sequence of Chain/Call executions:
+
+1. **g1**: A `Chain` matching `(a)-[r]->(b)` with `where` filter — standard wire type
+2. **g2**: A `Call` to `graphistry.degree.write` — standard wire type
+3. **final**: A `Chain` with row-pipeline steps — standard wire type
+
+The graph-binding scope (which graph each step runs against) is resolved at
+execution time, not encoded in the wire format. For `g.gfql_remote()`, the
+entire pipeline currently compiles locally before the final Chain/Call is sent
+to the server.
+
+### Desugaring Reference
+
+| GFQL Extension | Wire Equivalent |
+|----------------|-----------------|
+| `GRAPH { MATCH ... WHERE ... }` | `{"type": "Chain", "chain": [...], "where": [...]}` |
+| `GRAPH { CALL graphistry.degree.write() }` | `{"type": "Call", "function": "graphistry.degree.write", "params": {}}` |
+| `GRAPH g = GRAPH { ... }` | Named binding (execution-layer; not serialized) |
+| `USE g` | Graph context switch (execution-layer; not serialized) |
+
+### Future Considerations
+
+If `g.gfql_remote()` needs to support multi-graph pipelines natively on the
+server, the wire protocol would need graph-binding and USE message types.
+That is deferred; the current approach compiles graph constructors locally.
+
 ## Best Practices
 
 1. **Always include type fields**: Every object must have a `type`
