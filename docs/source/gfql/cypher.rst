@@ -152,10 +152,11 @@ This enables single-expression pipelines that filter, enrich, and query:
         "ORDER BY degree DESC LIMIT 10"
     )
 
-``GRAPH { }`` does not support ``ORDER BY``, ``SKIP``, ``LIMIT``,
-``DISTINCT``, ``UNWIND``, ``WITH``, ``RETURN``, or row-returning ``CALL``
-(without ``.write()``) inside the constructor body. Use those clauses in the
-outer query after ``USE``.
+Inside ``GRAPH { }``, only ``MATCH``, ``WHERE``, ``USE``, and graph-preserving
+``CALL graphistry.*.write()`` are allowed. Row-oriented clauses (``RETURN``,
+``ORDER BY``, ``SKIP``, ``LIMIT``, ``DISTINCT``, ``UNWIND``, ``WITH``) and
+row-returning ``CALL`` (without ``.write()``) are not allowed inside the
+constructor — use them in the outer query after ``USE``.
 
 Supported Cypher Surface Through ``g.gfql()``
 ---------------------------------------------
