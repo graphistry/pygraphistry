@@ -8,6 +8,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.53.1 - 2026-03-16]
+
+### Changed
+- **GFQL / Cypher Benchmark**: Rewrote benchmark to use compound ``GRAPH { }`` pipeline (single ``g.gfql(...)`` call), retitled to "GFQL Cypher Benchmark: CPU/GPU DataFrames vs Neo4j", added Neo4j ETL timing, tightened to 2 lifecycle charts (ETL/Search/Analytics stacked bars, Neo4j → CPU → GPU ordering), and reran all benchmarks with warmup=2 runs=5. GPlus: 22.7x GPU vs CPU; Twitter 3-way: GPU 46x faster than Neo4j.
+
+### Docs
+- **GFQL / translate guide**: Added Cypher-string and ``GRAPH { }`` examples to the SQL/Pandas/Cypher/GFQL translation guide.
+- **GFQL / Cypher Benchmark docs**: Added "Why the GFQL pipeline is shorter" design callout covering first-class graph values, multi-language single engine, and modern columnar execution.
+
 ## [0.53.0 - 2026-03-16]
 
 ### Added
