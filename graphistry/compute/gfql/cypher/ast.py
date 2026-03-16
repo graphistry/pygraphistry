@@ -210,6 +210,7 @@ class GraphConstructor:
     where: Optional[WhereClause]
     use: Optional[UseClause]
     span: SourceSpan
+    call: Optional[CallClause] = None
 
 
 @dataclass(frozen=True)

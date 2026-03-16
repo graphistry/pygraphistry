@@ -128,9 +128,11 @@ class CompiledCypherUnionQuery:
 
 @dataclass(frozen=True)
 class CompiledGraphBinding:
-    """A named graph binding: GRAPH g = GRAPH { ... } compiled to a chain."""
+    """A named graph binding: GRAPH g = GRAPH { ... } compiled to a chain or procedure call."""
     name: str
     chain: Chain
+    procedure_call: Optional[CompiledCypherProcedureCall] = None
+    use_ref: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -138,6 +140,8 @@ class CompiledCypherGraphQuery:
     """A query whose final result is a graph (from standalone GRAPH { })."""
     graph_bindings: Tuple[CompiledGraphBinding, ...]
     chain: Chain
+    procedure_call: Optional[CompiledCypherProcedureCall] = None
+    use_ref: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -5943,26 +5947,45 @@ def _compile_graph_constructor(
     constructor: GraphConstructor,
     *,
     params: Optional[Mapping[str, Any]] = None,
-) -> Chain:
-    """Compile a GRAPH { MATCH ... WHERE ... } constructor body into a Chain."""
-    # Build a synthetic CypherQuery from the constructor's matches + where,
-    # then reuse lower_match_query to produce the chain.
-    if not constructor.matches:
+) -> CompiledCypherQuery:
+    """Compile a GRAPH { ... } constructor body into a CompiledCypherQuery.
+
+    Supports both MATCH-based constructors (subgraph extraction) and
+    CALL-based constructors (graph-preserving procedure execution).
+    """
+    if not constructor.matches and constructor.call is None:
         raise _unsupported(
-            "Graph constructor must contain at least one MATCH clause",
+            "Graph constructor must contain at least one MATCH or CALL clause",
             field="graph_constructor",
             value="GRAPH { }",
             line=constructor.span.line,
             column=constructor.span.column,
         )
-    # Create a synthetic CypherQuery just for the match lowering
+
+    if constructor.call is not None:
+        # CALL-based constructor: compile the procedure call
+        compiled_call = compile_cypher_call(constructor.call)
+        if compiled_call.result_kind != "graph":
+            raise _unsupported(
+                "Only graph-preserving CALL procedures (with .write()) are allowed inside a graph constructor",
+                field="graph_constructor",
+                value=constructor.call.procedure,
+                line=constructor.call.span.line,
+                column=constructor.call.span.column,
+            )
+        return CompiledCypherQuery(
+            Chain([]),
+            seed_rows=False,
+            procedure_call=compiled_call,
+        )
+
+    # MATCH-based constructor: lower match + where into a chain
     synthetic = CypherQuery(
         matches=constructor.matches,
         where=constructor.where,
         call=None,
         unwinds=(),
         with_stages=(),
-        # Synthetic return — not used for graph constructors
         return_=ReturnClause(
             items=(),
             distinct=False,
@@ -5977,7 +6000,10 @@ def _compile_graph_constructor(
         span=constructor.span,
     )
     lowered = lower_match_query(synthetic, params=params)
-    return Chain(lowered.query, where=lowered.where)
+    return CompiledCypherQuery(
+        Chain(lowered.query, where=lowered.where),
+        seed_rows=False,
+    )
 
 
 def _compile_graph_bindings(
@@ -5988,8 +6014,14 @@ def _compile_graph_bindings(
     """Compile a sequence of GRAPH g = GRAPH { ... } bindings."""
     compiled: List[CompiledGraphBinding] = []
     for binding in bindings:
-        chain = _compile_graph_constructor(binding.constructor, params=params)
-        compiled.append(CompiledGraphBinding(name=binding.name, chain=chain))
+        compiled_query = _compile_graph_constructor(binding.constructor, params=params)
+        use_ref = binding.constructor.use.ref if binding.constructor.use is not None else None
+        compiled.append(CompiledGraphBinding(
+            name=binding.name,
+            chain=compiled_query.chain,
+            procedure_call=compiled_query.procedure_call,
+            use_ref=use_ref,
+        ))
     return tuple(compiled)
 
 
@@ -6000,10 +6032,13 @@ def compile_cypher_query(
 ) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
     if isinstance(query, CypherGraphQuery):
         compiled_bindings = _compile_graph_bindings(query.graph_bindings, params=params)
-        chain = _compile_graph_constructor(query.constructor, params=params)
+        compiled_constructor = _compile_graph_constructor(query.constructor, params=params)
+        use_ref = query.constructor.use.ref if query.constructor.use is not None else None
         return CompiledCypherGraphQuery(
             graph_bindings=compiled_bindings,
-            chain=chain,
+            chain=compiled_constructor.chain,
+            procedure_call=compiled_constructor.procedure_call,
+            use_ref=use_ref,
         )
     if isinstance(query, CypherUnionQuery):
         branch_output_names: Optional[Tuple[str, ...]] = None

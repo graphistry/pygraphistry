@@ -789,6 +789,36 @@ def test_graph_constructor_cudf_support() -> None:
     ]
 
 
+def test_graph_constructor_with_call_write() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"], "score": [10, 5, 1]})
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "weight": [7, 9]})
+    result = _mk_graph(nodes, edges).gfql("GRAPH { CALL graphistry.degree.write() }")
+    assert "degree" in _to_pandas_df(result._nodes).columns
+    assert not result._edges.empty
+
+
+def test_graph_constructor_call_with_use_pipeline() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "z"], "score": [10, 5, 1, 0]})
+    edges = pd.DataFrame({"s": ["a", "b", "b"], "d": ["b", "c", "a"]})
+    g = _mk_graph(nodes, edges)
+    result = g.gfql(
+        "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 3 } "
+        "GRAPH g2 = GRAPH { USE g1 CALL graphistry.degree.write() } "
+        "USE g2 "
+        "MATCH (n) RETURN n.id AS id, n.degree AS degree "
+        "ORDER BY degree DESC, id ASC"
+    )
+    ids = _to_pandas_df(result._nodes)["id"].tolist()
+    assert "a" in ids
+    assert "b" in ids
+    assert "degree" in _to_pandas_df(result._nodes).columns
+
+
+def test_graph_constructor_rejects_non_write_call() -> None:
+    with pytest.raises(GFQLValidationError):
+        _mk_simple_path_graph().gfql("GRAPH { CALL graphistry.degree() }")
+
+
 def test_cypher_to_gfql_supports_standalone_graph_constructor() -> None:
     chain = cypher_to_gfql("GRAPH { MATCH (a)-[r]->(b) WHERE a.id = 'a' }")
     result = _mk_simple_path_graph().gfql(chain)

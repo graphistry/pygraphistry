@@ -217,46 +217,47 @@ def _apply_optional_projection_row_guard(
     )
 
 
-def _execute_graph_constructor_chain(
+def _execute_graph_constructor_compiled(
     base_graph: Plottable,
     chain: Chain,
     *,
+    procedure_call: Any = None,
     engine: Union[EngineAbstract, str],
     policy: Optional[PolicyDict],
     context: ExecutionContext,
 ) -> Plottable:
-    """Execute a graph constructor chain and return the resulting graph (graph state)."""
+    """Execute a compiled graph constructor (MATCH-based or CALL-based)."""
+    if procedure_call is not None:
+        return execute_cypher_call(base_graph, procedure_call)
     return _chain_dispatch(base_graph, chain, engine, policy, context)
 
 
 def _resolve_graph_bindings(
     base_graph: Plottable,
     bindings: tuple,
+    scope: Optional[Dict[str, Plottable]] = None,
     *,
     engine: Union[EngineAbstract, str],
     policy: Optional[PolicyDict],
     context: ExecutionContext,
 ) -> Dict[str, Plottable]:
-    """Execute graph bindings in order, building a scope of named graphs."""
-    scope: Dict[str, Plottable] = {}
+    """Execute graph bindings in order, building a scope of named graphs.
+
+    Each binding's USE clause (if present) is resolved against previously
+    bound graphs in the scope. The resolved graph becomes the base for
+    that binding's execution.
+    """
+    if scope is None:
+        scope = {}
     for binding in bindings:
-        # If the constructor's USE references a prior binding, use that graph
-        # Otherwise use the default base graph
-        # Note: USE ref validation already happened at parse time
         target_graph = base_graph
-        # We need to check the original AST for USE info, but compiled bindings
-        # only have name + chain. The USE was resolved during lowering by the
-        # constructor compilation against the default graph. For USE inside a
-        # constructor to work at runtime, we need to execute against the referenced
-        # graph. However, the current lowering compiles the constructor body against
-        # the default graph. To properly support USE inside constructors, we would
-        # need to pass the USE ref through CompiledGraphBinding.
-        # For v1: constructors always execute against base_graph. USE inside
-        # constructors is a compile-time validation only (the ref must exist),
-        # but execution still operates on the base graph's topology.
-        # TODO: Phase 2+ - execute constructor against USE'd graph
-        result = _execute_graph_constructor_chain(
+        # USE ref inside the binding's constructor was already validated at
+        # parse time. At runtime, resolve it against the scope.
+        if binding.use_ref is not None:
+            target_graph = scope.get(binding.use_ref.lower(), base_graph)
+        result = _execute_graph_constructor_compiled(
             target_graph, binding.chain,
+            procedure_call=binding.procedure_call,
             engine=engine, policy=policy, context=context,
         )
         scope[binding.name.lower()] = result
@@ -276,10 +277,13 @@ def _execute_graph_query(
         base_graph, compiled.graph_bindings,
         engine=engine, policy=policy, context=context,
     )
-    # The final constructor — execute against base_graph or USE'd graph
-    # For now: always base_graph (USE resolution is TODO for v2)
-    return _execute_graph_constructor_chain(
-        base_graph, compiled.chain,
+    # Resolve USE for the final constructor
+    target_graph = base_graph
+    if compiled.use_ref is not None:
+        target_graph = scope.get(compiled.use_ref.lower(), base_graph)
+    return _execute_graph_constructor_compiled(
+        target_graph, compiled.chain,
+        procedure_call=compiled.procedure_call,
         engine=engine, policy=policy, context=context,
     )
 

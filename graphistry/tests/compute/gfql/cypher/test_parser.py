@@ -111,6 +111,20 @@ def test_parse_graph_constructor_with_use_inside() -> None:
     assert parsed.constructor.use.ref == "g1"
 
 
+def test_parse_graph_constructor_with_call() -> None:
+    parsed = parse_cypher("GRAPH { CALL graphistry.degree.write() }")
+
+    assert isinstance(parsed, CypherGraphQuery)
+    assert parsed.constructor.call is not None
+    assert parsed.constructor.call.procedure == "graphistry.degree.write"
+    assert parsed.constructor.matches == ()
+
+
+def test_parse_rejects_match_and_call_in_graph_constructor() -> None:
+    with pytest.raises(GFQLSyntaxError):
+        parse_cypher("GRAPH { MATCH (a)-[r]->(b) CALL graphistry.degree.write() }")
+
+
 def test_parse_rejects_empty_graph_constructor() -> None:
     with pytest.raises(GFQLSyntaxError):
         parse_cypher("GRAPH { }")

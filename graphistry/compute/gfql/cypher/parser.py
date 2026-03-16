@@ -56,6 +56,7 @@ graph_constructor_body: graph_constructor_item+
 
 graph_constructor_item: match_clause
                       | where_clause
+                      | call_clause
                       | use_clause
 
 use_clause: "USE"i NAME
@@ -1531,8 +1532,14 @@ def _build_transformer(source: str) -> _TransformerLike:
             matches: List[MatchClause] = []
             where: Optional[WhereClause] = None
             use: Optional[UseClause] = None
+            call: Optional[CallClause] = None
             for item in body_items:
                 if isinstance(item, MatchClause):
+                    if call is not None:
+                        raise _to_syntax_error(
+                            "MATCH and CALL cannot be combined inside a graph constructor",
+                            line=item.span.line, column=item.span.column,
+                        )
                     matches.append(item)
                 elif isinstance(item, WhereClause):
                     if where is not None:
@@ -1541,6 +1548,23 @@ def _build_transformer(source: str) -> _TransformerLike:
                             line=item.span.line, column=item.span.column,
                         )
                     where = item
+                elif isinstance(item, CallClause):
+                    if call is not None:
+                        raise _to_syntax_error(
+                            "Only one CALL clause is allowed inside a graph constructor",
+                            line=item.span.line, column=item.span.column,
+                        )
+                    if matches:
+                        raise _to_syntax_error(
+                            "MATCH and CALL cannot be combined inside a graph constructor",
+                            line=item.span.line, column=item.span.column,
+                        )
+                    if where is not None:
+                        raise _to_syntax_error(
+                            "WHERE is not allowed with CALL inside a graph constructor",
+                            line=item.span.line, column=item.span.column,
+                        )
+                    call = item
                 elif isinstance(item, UseClause):
                     if use is not None:
                         raise _to_syntax_error(
@@ -1550,12 +1574,12 @@ def _build_transformer(source: str) -> _TransformerLike:
                     use = item
                 else:
                     raise _to_syntax_error(
-                        "Only MATCH, WHERE, and USE clauses are allowed inside a graph constructor",
+                        "Only MATCH, WHERE, CALL, and USE clauses are allowed inside a graph constructor",
                         line=span.line, column=span.column,
                     )
-            if not matches:
+            if not matches and call is None:
                 raise _to_syntax_error(
-                    "Graph constructor must contain at least one MATCH clause",
+                    "Graph constructor must contain at least one MATCH or CALL clause",
                     line=span.line, column=span.column,
                 )
             return GraphConstructor(
@@ -1563,6 +1587,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 where=where,
                 use=use,
                 span=span,
+                call=call,
             )
 
         def graph_binding(self, meta: Any, items: Sequence[Any]) -> GraphBinding:
