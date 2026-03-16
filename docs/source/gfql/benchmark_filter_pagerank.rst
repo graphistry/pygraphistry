@@ -34,6 +34,7 @@ One ``g.gfql(...)`` call — search, enrich with PageRank, search again:
 
 .. code-block:: python
 
+   # pip install graphistry
    result = g.gfql(f"""
        GRAPH g1 = GRAPH {{
          MATCH (n)-[e]-(m)
