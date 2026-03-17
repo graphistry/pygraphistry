@@ -563,7 +563,7 @@ class ComputeMixin(Plottable):
         WHERE clauses); ``gfql_operations`` carries a flat array for backward
         compatibility with older servers.
 
-        :param query: GFQL query — Chain, List[ASTObject], ASTLet, Dict, or
+        :param chain: GFQL query — Chain, List[ASTObject], ASTLet, Dict, or
             Cypher string (compiled locally before sending).
 
         Example::

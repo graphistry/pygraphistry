@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -166,6 +166,42 @@ class TestCypherStringSupport:
         assert "g1" in body["gfql_query"]["bindings"]
         assert "__result__" in body["gfql_query"]["bindings"]
         assert body["gfql_operations"] == []
+
+    @patch("graphistry.compute.chain_remote.requests.post")
+    def test_graph_constructor_with_call_write_sends_let(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = MagicMock(ok=True, json=lambda: {"nodes": [], "edges": []},
+                                           headers={"content-type": "application/json"})
+        mock_self = _mock_plottable()
+
+        chain_remote_generic(
+            mock_self,
+            "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) } "
+            "GRAPH { USE g1 CALL graphistry.degree.write() }",
+            format="json",
+        )
+
+        body = mock_post.call_args.kwargs["json"]
+        assert body["gfql_query"]["type"] == "Let"
+        assert "g1" in body["gfql_query"]["bindings"]
+        # The final constructor should be a ChainRef with a CALL
+        result_binding = body["gfql_query"]["bindings"]["__result__"]
+        assert result_binding["type"] == "ChainRef"
+        assert result_binding["ref"] == "g1"
+
+    @patch("graphistry.compute.chain_remote.requests.post")
+    def test_standalone_call_write_sends_chain(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = MagicMock(ok=True, json=lambda: {"nodes": [], "edges": []},
+                                           headers={"content-type": "application/json"})
+        mock_self = _mock_plottable()
+
+        chain_remote_generic(
+            mock_self,
+            "GRAPH { CALL graphistry.degree.write() }",
+            format="json",
+        )
+
+        body = mock_post.call_args.kwargs["json"]
+        assert "gfql_query" in body
 
     def test_union_cypher_raises(self) -> None:
         mock_self = _mock_plottable()

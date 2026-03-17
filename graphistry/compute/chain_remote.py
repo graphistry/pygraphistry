@@ -20,10 +20,19 @@ from graphistry.utils.json import JSONVal
 from graphistry.otel import inject_trace_headers
 
 
+def _procedure_call_to_json(proc: Any) -> Dict[str, Any]:
+    """Serialize a compiled procedure call to wire format."""
+    return {
+        "type": "Call",
+        "function": proc.procedure,
+        "params": dict(proc.call_params) if proc.call_params else {},
+    }
+
+
 def _binding_to_json(b: Any) -> Dict[str, Any]:
     """Serialize a single compiled graph binding to wire format."""
     if b.procedure_call is not None:
-        val: Dict[str, Any] = {"type": "Call", "function": b.procedure_call.procedure, "params": {}}
+        val: Dict[str, Any] = _procedure_call_to_json(b.procedure_call)
     else:
         val = b.chain.to_json()
     if b.use_ref is not None:
@@ -34,7 +43,7 @@ def _binding_to_json(b: Any) -> Dict[str, Any]:
 def _final_to_json(compiled: Any) -> Dict[str, Any]:
     """Serialize the final clause of a compiled query to wire format."""
     if getattr(compiled, 'procedure_call', None) is not None:
-        val: Dict[str, Any] = {"type": "Call", "function": compiled.procedure_call.procedure, "params": {}}
+        val: Dict[str, Any] = _procedure_call_to_json(compiled.procedure_call)
     else:
         val = compiled.chain.to_json()
     if getattr(compiled, 'use_ref', None) is not None:
