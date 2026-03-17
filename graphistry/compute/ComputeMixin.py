@@ -551,7 +551,8 @@ class ComputeMixin(Plottable):
         edge_col_subset: Optional[List[str]] = None,
         engine: EngineAbstractType = 'auto',
         validate: bool = True,
-        persist: bool = False
+        persist: bool = False,
+        params: Optional[Dict[str, Any]] = None,
     ) -> Plottable:
         """Run GFQL query remotely.
 
@@ -565,27 +566,29 @@ class ComputeMixin(Plottable):
 
         :param chain: GFQL query — Chain, List[ASTObject], ASTLet, Dict, or
             Cypher string (compiled locally before sending).
+        :param params: Optional parameter dict for Cypher string queries
+            (e.g., ``params={"val": 10}`` for ``$val`` references).
 
         Example::
 
             # Chain (existing)
             g.gfql_remote([n(), e(), n()])
 
-            # Cypher string (new)
-            g.gfql_remote("MATCH (a)-[r]->(b) WHERE a.x > 10 RETURN a, b")
+            # Cypher string with params
+            g.gfql_remote(
+                "MATCH (n) WHERE n.score > $cutoff RETURN n",
+                params={"cutoff": 10},
+            )
 
-            # GRAPH constructor (new)
+            # GRAPH constructor
             g.gfql_remote("GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 5 }")
-
-            # Let DAG (new)
-            from graphistry import let, ref, n, e
-            g.gfql_remote(let({'people': n({'type': 'person'})}))
 
         See :meth:`chain_remote` for additional parameter documentation.
         """
         return chain_remote_base(
             self, chain, api_token, dataset_id, output_type, format,
-            df_export_args, node_col_subset, edge_col_subset, engine, validate, persist
+            df_export_args, node_col_subset, edge_col_subset, engine, validate, persist,
+            params=params,
         )
     
     def gfql_remote_shape(

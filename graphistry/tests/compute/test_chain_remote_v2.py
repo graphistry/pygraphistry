@@ -33,11 +33,11 @@ _JSON_RESPONSE = MagicMock(
 )
 
 
-def _send(query: Any) -> Dict[str, Any]:
+def _send(query: Any, **kwargs: Any) -> Dict[str, Any]:
     """Send query through chain_remote_generic, return the request body JSON."""
     with patch("graphistry.compute.chain_remote.requests.post") as mock_post:
         mock_post.return_value = _JSON_RESPONSE
-        chain_remote_generic(_mock_plottable(), query, format="json")
+        chain_remote_generic(_mock_plottable(), query, format="json", **kwargs)
         return mock_post.call_args.kwargs["json"]
 
 
@@ -130,6 +130,11 @@ class TestCypherStringSupport:
         assert call_ops, f"Expected Call in result binding, got: {result}"
         params = call_ops[0]["params"]
         assert params.get("params", params).get("damping") == 0.85
+
+    def test_cypher_with_params(self) -> None:
+        body = _send("MATCH (n:Person) WHERE n.score > $cutoff RETURN n.id AS id", params={"cutoff": 10})
+        assert body["gfql_query"]["type"] == "Chain"
+        assert len(body["gfql_operations"]) > 0
 
     def test_union_raises(self) -> None:
         with pytest.raises((ValueError, Exception)):

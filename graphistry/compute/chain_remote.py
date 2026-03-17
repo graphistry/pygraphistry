@@ -65,7 +65,8 @@ def chain_remote_generic(
     edge_col_subset: Optional[List[str]] = None,
     engine: EngineAbstractType = 'auto',
     validate: bool = True,
-    persist: bool = False
+    persist: bool = False,
+    params: Optional[Dict[str, Any]] = None,
 ) -> Union[Plottable, pd.DataFrame]:
 
     if not api_token:
@@ -111,7 +112,7 @@ def chain_remote_generic(
     if isinstance(chain, str):
         # Cypher string: compile locally, serialize result
         from graphistry.compute.gfql.cypher.api import compile_cypher
-        compiled = compile_cypher(chain)
+        compiled = compile_cypher(chain, params=params)
         if isinstance(compiled, CompiledCypherUnionQuery):
             raise ValueError(
                 "UNION queries are not yet supported for remote execution via gfql_remote(). "
@@ -436,7 +437,8 @@ def chain_remote(
     edge_col_subset: Optional[List[str]] = None,
     engine: EngineAbstractType = 'auto',
     validate: bool = True,
-    persist: bool = False
+    persist: bool = False,
+    params: Optional[Dict[str, Any]] = None,
 ) -> Plottable:
     """Remotely run GFQL chain query on a remote dataset.
     
@@ -523,7 +525,8 @@ def chain_remote(
         edge_col_subset,
         engine,
         validate,
-        persist
+        persist,
+        params=params,
     )
     assert isinstance(g, Plottable)
     return g
