@@ -84,6 +84,33 @@ class TestWherePassthrough:
         assert body["gfql_query"]["type"] == "Chain"
 
 
+    @patch("graphistry.compute.chain_remote.requests.post")
+    def test_cypher_with_cross_step_where_preserves_where(self, mock_post: MagicMock) -> None:
+        """Regression: Cypher with cross-step WHERE must preserve WHERE in gfql_query.
+
+        This is the exact P0 scenario end-to-end: a Cypher string that compiles
+        to a Chain with WHERE constraints. The WHERE must appear in gfql_query.
+        """
+        mock_post.return_value = MagicMock(ok=True, json=lambda: {"nodes": [], "edges": []},
+                                           headers={"content-type": "application/json"})
+        mock_self = _mock_plottable()
+
+        chain_remote_generic(
+            mock_self,
+            "MATCH (a:Person)-[r]->(b:Person) WHERE a.team = b.team RETURN a.name AS name",
+            format="json",
+        )
+
+        body = mock_post.call_args.kwargs["json"]
+        assert body["gfql_query"]["type"] == "Chain"
+        assert "where" in body["gfql_query"], (
+            f"Cypher cross-step WHERE must be in gfql_query, got keys: {list(body['gfql_query'].keys())}"
+        )
+        assert len(body["gfql_query"]["where"]) > 0, "WHERE clause should not be empty"
+        # gfql_operations should also have content (the flat chain for old servers)
+        assert len(body["gfql_operations"]) > 0
+
+
 class TestLetSupport:
     """P1: ASTLet and Let dicts must serialize correctly."""
 
@@ -147,6 +174,7 @@ class TestCypherStringSupport:
         body = mock_post.call_args.kwargs["json"]
         assert "gfql_query" in body
         assert body["gfql_query"]["type"] == "Chain"
+        assert len(body["gfql_operations"]) > 0
 
     @patch("graphistry.compute.chain_remote.requests.post")
     def test_graph_binding_with_use_sends_let(self, mock_post: MagicMock) -> None:
@@ -202,6 +230,8 @@ class TestCypherStringSupport:
 
         body = mock_post.call_args.kwargs["json"]
         assert "gfql_query" in body
+        # Should be a Chain with a Call inside, not a Let (no bindings)
+        assert body["gfql_query"]["type"] == "Chain"
 
     @patch("graphistry.compute.chain_remote.requests.post")
     def test_call_with_params_preserves_params(self, mock_post: MagicMock) -> None:

@@ -31,11 +31,11 @@ def _procedure_call_to_json(proc: Any) -> Dict[str, Any]:
 
 def _binding_to_json(b: Any) -> Dict[str, Any]:
     """Serialize a single compiled graph binding to wire format."""
-    if b.procedure_call is not None:
+    if getattr(b, 'procedure_call', None) is not None:
         val: Dict[str, Any] = _procedure_call_to_json(b.procedure_call)
     else:
         val = b.chain.to_json()
-    if b.use_ref is not None:
+    if getattr(b, 'use_ref', None) is not None:
         return {"type": "ChainRef", "ref": b.use_ref, "chain": val.get('chain', [val])}
     return val
 
