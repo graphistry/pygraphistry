@@ -19,7 +19,6 @@ from graphistry.compute.gfql.cypher.lowering import (
     CompiledCypherGraphQuery,
     CompiledCypherQuery,
     CompiledCypherUnionQuery,
-    CompiledGraphBinding,
 )
 from graphistry.io.metadata import deserialize_plottable_metadata
 from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType, output_types_graph
@@ -27,43 +26,30 @@ from graphistry.utils.json import JSONVal
 from graphistry.otel import inject_trace_headers
 
 
-def _procedure_call_to_json(proc: CompiledCypherProcedureCall) -> Dict[str, Any]:
-    """Serialize a compiled procedure call to wire format."""
-    return {
-        "type": "Call",
-        "function": proc.procedure,
-        "params": dict(proc.call_params) if proc.call_params else {},
-    }
-
-
-def _binding_to_json(b: CompiledGraphBinding) -> Dict[str, Any]:
-    """Serialize a single compiled graph binding to wire format."""
-    if b.procedure_call is not None:
-        val: Dict[str, Any] = _procedure_call_to_json(b.procedure_call)
-    else:
-        val = b.chain.to_json()
-    if b.use_ref is not None:
-        return {"type": "ChainRef", "ref": b.use_ref, "chain": val.get('chain', [val])}
+def _step_to_json(
+    chain: Chain,
+    procedure_call: Optional[CompiledCypherProcedureCall],
+    use_ref: Optional[str],
+) -> Dict[str, Any]:
+    """Serialize one graph-pipeline step (binding or final clause) to wire format."""
+    val: Dict[str, Any] = (
+        {"type": "Call", "function": procedure_call.procedure,
+         "params": dict(procedure_call.call_params) if procedure_call.call_params else {}}
+        if procedure_call is not None
+        else chain.to_json()
+    )
+    if use_ref is not None:
+        return {"type": "ChainRef", "ref": use_ref, "chain": val.get('chain', [val])}
     return val
 
 
-def _final_to_json(compiled: Union["CompiledCypherQuery", "CompiledCypherGraphQuery"]) -> Dict[str, Any]:
-    """Serialize the final clause of a compiled query to wire format."""
-    if compiled.procedure_call is not None:
-        val: Dict[str, Any] = _procedure_call_to_json(compiled.procedure_call)
-    else:
-        val = compiled.chain.to_json()
-    if compiled.use_ref is not None:
-        return {"type": "ChainRef", "ref": compiled.use_ref, "chain": val.get('chain', [val])}
-    return val
-
-
-def _compiled_to_let_json(compiled: Union["CompiledCypherQuery", "CompiledCypherGraphQuery"]) -> Dict[str, Any]:
+def _compiled_to_let_json(compiled: Union[CompiledCypherQuery, CompiledCypherGraphQuery]) -> Dict[str, Any]:
     """Convert a compiled query with graph_bindings to Let wire format."""
-    bindings: Dict[str, Any] = {}
-    for b in compiled.graph_bindings:
-        bindings[b.name] = _binding_to_json(b)
-    bindings["__result__"] = _final_to_json(compiled)
+    bindings: Dict[str, Any] = {
+        b.name: _step_to_json(b.chain, b.procedure_call, b.use_ref)
+        for b in compiled.graph_bindings
+    }
+    bindings["__result__"] = _step_to_json(compiled.chain, compiled.procedure_call, compiled.use_ref)
     return {"type": "Let", "bindings": bindings}
 
 
@@ -131,22 +117,13 @@ def chain_remote_generic(
                 "UNION queries are not yet supported for remote execution via gfql_remote(). "
                 "Execute locally with g.gfql() instead."
             )
-        if isinstance(compiled, CompiledCypherGraphQuery):
-            # Standalone GRAPH { } or multi-graph pipeline
-            if compiled.graph_bindings:
-                # Multi-graph -> Let envelope
-                chain_json = _compiled_to_let_json(compiled)
-                is_let = True
-            else:
-                chain_json = compiled.chain.to_json()
-        elif isinstance(compiled, CompiledCypherQuery):
-            if compiled.graph_bindings or compiled.use_ref:
-                chain_json = _compiled_to_let_json(compiled)
-                is_let = True
-            else:
-                chain_json = compiled.chain.to_json()
-        else:
+        if not isinstance(compiled, (CompiledCypherQuery, CompiledCypherGraphQuery)):
             raise TypeError(f"Unexpected compiled Cypher type: {type(compiled)}")
+        if compiled.graph_bindings or compiled.use_ref:
+            chain_json = _compiled_to_let_json(compiled)
+            is_let = True
+        else:
+            chain_json = compiled.chain.to_json()
     elif isinstance(chain, ASTLet):
         chain_json = chain.to_json()
         is_let = True
