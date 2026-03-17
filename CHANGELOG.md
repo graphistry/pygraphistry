@@ -8,12 +8,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.53.4 - 2026-03-17]
+
 ### Fixed
 - **GFQL / Remote**: Fixed `gfql_remote()` silently dropping WHERE clauses — queries with same-path constraints (e.g., `WHERE a.x = b.y`) now send the full Chain envelope via a new `gfql_query` request field. The existing `gfql_operations` flat array is still sent for backward compatibility with older servers.
 
 ### Added
 - **GFQL / Remote**: `gfql_remote()` now accepts ASTLet/Let dict input for DAG queries, serialized as `{"type": "Let", ...}` in the `gfql_query` field.
 - **GFQL / Remote**: `gfql_remote()` now accepts Cypher strings (compiled locally, sent as Chain or Let wire format). Supports `MATCH ... RETURN`, `GRAPH { ... }`, and `GRAPH g = ... USE g ...` forms.
+- **GFQL / Remote**: `gfql_remote()` now accepts `params` for parameterized Cypher queries (e.g., `params={"cutoff": 10}` for `$cutoff` references).
+
+### Docs
+- **GFQL / Remote docs**: Updated remote mode guide with Cypher string, GRAPH constructor, multi-stage pipeline, and params examples.
 
 ## [0.53.3 - 2026-03-16]
 
