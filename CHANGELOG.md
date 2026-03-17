@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.53.3 - 2026-03-16]
+
+### Docs
+- **GFQL / Cypher Benchmark**: Fixed double-brace rendering in docs code example by replacing f-string with plain string.
+
 ## [0.53.2 - 2026-03-16]
 
 ### Docs
