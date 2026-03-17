@@ -8,7 +8,7 @@ from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, resolv
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
-from .ast import ASTObject
+from .ast import ASTLet, ASTObject
 from .chain import Chain, chain as chain_base
 from .chain_let import chain_let as chain_let_base
 from .gfql_unified import gfql as gfql_base
@@ -541,7 +541,7 @@ class ComputeMixin(Plottable):
 
     def gfql_remote(
         self,
-        chain: Union[Chain, List[ASTObject], 'ASTLet', Dict[str, JSONVal], str],
+        chain: Union[Chain, List[ASTObject], ASTLet, Dict[str, JSONVal], str],
         api_token: Optional[str] = None,
         dataset_id: Optional[str] = None,
         output_type: OutputTypeGraph = "all",
