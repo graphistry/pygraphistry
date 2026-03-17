@@ -203,6 +203,35 @@ class TestCypherStringSupport:
         body = mock_post.call_args.kwargs["json"]
         assert "gfql_query" in body
 
+    @patch("graphistry.compute.chain_remote.requests.post")
+    def test_call_with_params_preserves_params(self, mock_post: MagicMock) -> None:
+        """Regression: CALL procedure params must not be dropped (was hardcoded to {})."""
+        mock_post.return_value = MagicMock(ok=True, json=lambda: {"nodes": [], "edges": []},
+                                           headers={"content-type": "application/json"})
+        mock_self = _mock_plottable()
+
+        chain_remote_generic(
+            mock_self,
+            "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) } "
+            "GRAPH { USE g1 CALL graphistry.cugraph.pagerank.write({damping: 0.85}) }",
+            format="json",
+        )
+
+        body = mock_post.call_args.kwargs["json"]
+        # Find the CALL binding in the Let
+        result_binding = body["gfql_query"]["bindings"]["__result__"]
+        # The CALL should be inside the ChainRef chain
+        call_items = result_binding.get("chain", [])
+        call_ops = [op for op in call_items if isinstance(op, dict) and op.get("type") == "Call"]
+        assert len(call_ops) > 0, f"Expected Call operation in result binding, got: {result_binding}"
+        call_op = call_ops[0]
+        # call_params nests algorithm params under 'params' key
+        params = call_op["params"]
+        nested = params.get("params", params)
+        assert nested.get("damping") == 0.85, (
+            f"CALL params should include damping=0.85, got: {params}"
+        )
+
     def test_union_cypher_raises(self) -> None:
         mock_self = _mock_plottable()
         with pytest.raises((ValueError, Exception)):
