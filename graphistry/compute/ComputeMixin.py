@@ -541,7 +541,7 @@ class ComputeMixin(Plottable):
 
     def gfql_remote(
         self,
-        chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]],
+        chain: Union[Chain, List[ASTObject], 'ASTLet', Dict[str, JSONVal], str],
         api_token: Optional[str] = None,
         dataset_id: Optional[str] = None,
         output_type: OutputTypeGraph = "all",
@@ -555,18 +555,33 @@ class ComputeMixin(Plottable):
     ) -> Plottable:
         """Run GFQL query remotely.
 
-        This is the remote execution version of :meth:`gfql`. It supports both simple chains
-        and complex DAG patterns with Let bindings, including transformations like hypergraph.
+        This is the remote execution version of :meth:`gfql`. It supports chains,
+        Let/DAG patterns, and Cypher strings.
 
-        Example:
-            # Remote hypergraph transformation
-            hg = g.gfql_remote(call('hypergraph', {'entity_types': ['user', 'product']}))
+        The query is compiled locally and sent to the server as wire-protocol
+        JSON. A ``gfql_query`` field carries the full typed envelope (including
+        WHERE clauses); ``gfql_operations`` carries a flat array for backward
+        compatibility with older servers.
 
-            # Or using typed builder
-            from graphistry.compute import hypergraph
-            hg = g.gfql_remote(hypergraph(entity_types=['user', 'product']))
+        :param query: GFQL query — Chain, List[ASTObject], ASTLet, Dict, or
+            Cypher string (compiled locally before sending).
 
-        See :meth:`chain_remote` for detailed documentation (chain_remote is deprecated).
+        Example::
+
+            # Chain (existing)
+            g.gfql_remote([n(), e(), n()])
+
+            # Cypher string (new)
+            g.gfql_remote("MATCH (a)-[r]->(b) WHERE a.x > 10 RETURN a, b")
+
+            # GRAPH constructor (new)
+            g.gfql_remote("GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 5 }")
+
+            # Let DAG (new)
+            from graphistry import let, ref, n, e
+            g.gfql_remote(let({'people': n({'type': 'person'})}))
+
+        See :meth:`chain_remote` for additional parameter documentation.
         """
         return chain_remote_base(
             self, chain, api_token, dataset_id, output_type, format,
