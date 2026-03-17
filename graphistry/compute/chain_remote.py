@@ -14,13 +14,20 @@ from graphistry.Plottable import Plottable
 from graphistry.client_session import DatasetInfo
 from graphistry.compute.ast import ASTLet, ASTObject
 from graphistry.compute.chain import Chain
+from graphistry.compute.gfql.cypher.call_procedures import CompiledCypherProcedureCall
+from graphistry.compute.gfql.cypher.lowering import (
+    CompiledCypherGraphQuery,
+    CompiledCypherQuery,
+    CompiledCypherUnionQuery,
+    CompiledGraphBinding,
+)
 from graphistry.io.metadata import deserialize_plottable_metadata
 from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType, output_types_graph
 from graphistry.utils.json import JSONVal
 from graphistry.otel import inject_trace_headers
 
 
-def _procedure_call_to_json(proc: Any) -> Dict[str, Any]:
+def _procedure_call_to_json(proc: CompiledCypherProcedureCall) -> Dict[str, Any]:
     """Serialize a compiled procedure call to wire format."""
     return {
         "type": "Call",
@@ -29,29 +36,29 @@ def _procedure_call_to_json(proc: Any) -> Dict[str, Any]:
     }
 
 
-def _binding_to_json(b: Any) -> Dict[str, Any]:
+def _binding_to_json(b: CompiledGraphBinding) -> Dict[str, Any]:
     """Serialize a single compiled graph binding to wire format."""
-    if getattr(b, 'procedure_call', None) is not None:
+    if b.procedure_call is not None:
         val: Dict[str, Any] = _procedure_call_to_json(b.procedure_call)
     else:
         val = b.chain.to_json()
-    if getattr(b, 'use_ref', None) is not None:
+    if b.use_ref is not None:
         return {"type": "ChainRef", "ref": b.use_ref, "chain": val.get('chain', [val])}
     return val
 
 
-def _final_to_json(compiled: Any) -> Dict[str, Any]:
+def _final_to_json(compiled: Union["CompiledCypherQuery", "CompiledCypherGraphQuery"]) -> Dict[str, Any]:
     """Serialize the final clause of a compiled query to wire format."""
-    if getattr(compiled, 'procedure_call', None) is not None:
+    if compiled.procedure_call is not None:
         val: Dict[str, Any] = _procedure_call_to_json(compiled.procedure_call)
     else:
         val = compiled.chain.to_json()
-    if getattr(compiled, 'use_ref', None) is not None:
+    if compiled.use_ref is not None:
         return {"type": "ChainRef", "ref": compiled.use_ref, "chain": val.get('chain', [val])}
     return val
 
 
-def _compiled_to_let_json(compiled: Any) -> Dict[str, Any]:
+def _compiled_to_let_json(compiled: Union["CompiledCypherQuery", "CompiledCypherGraphQuery"]) -> Dict[str, Any]:
     """Convert a compiled query with graph_bindings to Let wire format."""
     bindings: Dict[str, Any] = {}
     for b in compiled.graph_bindings:
@@ -118,11 +125,6 @@ def chain_remote_generic(
     if isinstance(chain, str):
         # Cypher string: compile locally, serialize result
         from graphistry.compute.gfql.cypher.api import compile_cypher
-        from graphistry.compute.gfql.cypher.lowering import (
-            CompiledCypherGraphQuery,
-            CompiledCypherQuery,
-            CompiledCypherUnionQuery,
-        )
         compiled = compile_cypher(chain)
         if isinstance(compiled, CompiledCypherUnionQuery):
             raise ValueError(
