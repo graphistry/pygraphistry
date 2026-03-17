@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.53.5 - 2026-03-17]
+
+### Fixed
+- **GFQL**: Fixed `g.gfql()` rejecting pre-serialized Let dict envelopes (`{"type": "Let", "bindings": {...}}`). The dict dispatch now recognizes typed Let envelopes and deserializes via `ASTLet.from_json()` instead of misinterpreting them as bare binding dicts. This unblocks the ETL server from passing `gfql_query` Let payloads to `g.gfql()`.
+
 ## [0.53.4 - 2026-03-17]
 
 ### Fixed

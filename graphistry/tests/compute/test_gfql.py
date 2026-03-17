@@ -427,3 +427,38 @@ class TestGFQLDictConversion:
         assert result_list is not None
         assert hasattr(result_list, '_nodes')
         assert len(result_list._nodes) >= 0  # Ensure execution succeeds
+
+    def test_gfql_let_dict_envelope(self):
+        """g.gfql() must accept a pre-serialized Let dict (issue #963).
+
+        The ETL server receives Let envelopes from gfql_remote() and passes
+        them to g.gfql(). The dict dispatch must recognize {"type": "Let"}
+        and deserialize via ASTLet.from_json() instead of treating it as a
+        bare binding dict.
+        """
+        g = _mk_people_company_graph3()
+        from graphistry.compute.ast import ASTLet, ASTNode
+
+        # Serialize a Let to JSON dict (this is what gfql_remote sends)
+        let_obj = ASTLet({'people': ASTNode(filter_dict={'type': 'person'})})
+        let_dict = let_obj.to_json()
+        assert let_dict['type'] == 'Let'
+
+        # g.gfql() must accept this and produce correct results
+        result = g.gfql(let_dict)
+        assert len(result._nodes) == 2
+        assert all(result._nodes['type'] == 'person')
+
+    def test_gfql_chain_dict_envelope(self):
+        """g.gfql() must accept a pre-serialized Chain dict with WHERE."""
+        g = _mk_people_company_graph3()
+        from graphistry.compute.chain import Chain
+        from graphistry.compute.ast import ASTNode, ASTEdge
+
+        chain = Chain([ASTNode(filter_dict={'type': 'person'})])
+        chain_dict = chain.to_json()
+        assert chain_dict['type'] == 'Chain'
+
+        result = g.gfql(chain_dict)
+        assert len(result._nodes) == 2
+        assert all(result._nodes['type'] == 'person')

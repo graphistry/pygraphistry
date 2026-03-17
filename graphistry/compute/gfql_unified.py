@@ -817,7 +817,10 @@ def gfql(self: Plottable,
             if params is not None:
                 raise ValueError("params is only supported when query is a string")
 
-        if isinstance(query, dict) and "chain" in query:
+        if isinstance(query, dict) and query.get("type") == "Let":
+            from .ast import ASTLet as _ASTLet
+            query = _ASTLet.from_json(query)
+        elif isinstance(query, dict) and "chain" in query:
             chain_items: List[ASTObject] = []
             for item in query["chain"]:
                 if isinstance(item, dict):
