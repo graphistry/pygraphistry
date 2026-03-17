@@ -29,12 +29,6 @@ def _mock_plottable(**overrides: Any) -> MagicMock:
     return mock
 
 
-def _capture_request_body(mock_plottable: MagicMock) -> Dict[str, Any]:
-    """Extract the request body from the mocked requests.post call."""
-    call_args = mock_plottable._last_request_post_kwargs
-    return call_args["json"]
-
-
 class TestWherePassthrough:
     """P0: WHERE clauses must be included in gfql_query field."""
 
@@ -201,3 +195,50 @@ class TestBackwardCompat:
         body = mock_post.call_args.kwargs["json"]
         assert body["gfql_operations"] == [{"type": "Node", "filter_dict": {"type": "Person"}}]
         assert body["gfql_query"] == legacy_dict
+
+    @patch("graphistry.compute.chain_remote.requests.post")
+    def test_empty_chain_sends_gfql_query(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = MagicMock(ok=True, json=lambda: {"nodes": [], "edges": []},
+                                           headers={"content-type": "application/json"})
+        mock_self = _mock_plottable()
+
+        chain_remote_generic(mock_self, [], format="json")
+
+        body = mock_post.call_args.kwargs["json"]
+        assert "gfql_query" in body
+        assert body["gfql_operations"] == []
+
+
+class TestEdgeCases:
+    """Edge cases and error handling."""
+
+    def test_invalid_cypher_raises_parse_error(self) -> None:
+        mock_self = _mock_plottable()
+        with pytest.raises(Exception):
+            chain_remote_generic(mock_self, "hello world not cypher", format="json")
+
+    def test_invalid_type_raises_type_error(self) -> None:
+        mock_self = _mock_plottable()
+        with pytest.raises(TypeError, match="gfql_remote"):
+            chain_remote_generic(mock_self, 42, format="json")  # type: ignore
+
+    @patch("graphistry.compute.chain_remote.requests.post")
+    def test_let_emits_warning(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = MagicMock(ok=True, json=lambda: {"nodes": [], "edges": []},
+                                           headers={"content-type": "application/json"})
+        mock_self = _mock_plottable()
+
+        let_query = ASTLet({"people": ASTNode(filter_dict={"type": "person"})})
+        # Capture warnings via monkeypatching (avoids Python's once-per-location filter)
+        captured: list = []
+        import graphistry.compute.chain_remote as _cr
+        _orig = _cr.warnings.warn
+        def _capture(*a: Any, **kw: Any) -> None:
+            captured.append(a)
+            _orig(*a, **kw)
+        _cr.warnings.warn = _capture  # type: ignore
+        try:
+            chain_remote_generic(mock_self, let_query, format="json")
+        finally:
+            _cr.warnings.warn = _orig  # type: ignore
+        assert any("Let/DAG" in str(a[0]) for a in captured), f"Expected Let/DAG warning, got: {captured}"

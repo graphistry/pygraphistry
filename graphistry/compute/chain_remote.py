@@ -20,54 +20,40 @@ from graphistry.utils.json import JSONVal
 from graphistry.otel import inject_trace_headers
 
 
-def _compiled_graph_query_to_let_json(compiled: Any) -> Dict[str, Any]:
-    """Convert a CompiledCypherGraphQuery to Let wire format."""
-    bindings: Dict[str, Any] = {}
-    for b in compiled.graph_bindings:
-        if b.procedure_call is not None:
-            binding_val: Dict[str, Any] = {"type": "Call", "function": b.procedure_call.procedure, "params": {}}
-        else:
-            binding_val = b.chain.to_json()
-        if b.use_ref is not None:
-            bindings[b.name] = {"type": "ChainRef", "ref": b.use_ref, "chain": binding_val.get('chain', [binding_val])}
-        else:
-            bindings[b.name] = binding_val
-    # Final constructor
-    if compiled.procedure_call is not None:
-        final_val: Dict[str, Any] = {"type": "Call", "function": compiled.procedure_call.procedure, "params": {}}
+def _binding_to_json(b: Any) -> Dict[str, Any]:
+    """Serialize a single compiled graph binding to wire format."""
+    if b.procedure_call is not None:
+        val: Dict[str, Any] = {"type": "Call", "function": b.procedure_call.procedure, "params": {}}
     else:
-        final_val = compiled.chain.to_json()
-    if compiled.use_ref is not None:
-        bindings["__result__"] = {"type": "ChainRef", "ref": compiled.use_ref, "chain": final_val.get('chain', [final_val])}
-    else:
-        bindings["__result__"] = final_val
-    return {"type": "Let", "bindings": bindings}
+        val = b.chain.to_json()
+    if b.use_ref is not None:
+        return {"type": "ChainRef", "ref": b.use_ref, "chain": val.get('chain', [val])}
+    return val
 
 
-def _compiled_query_to_let_json(compiled: Any) -> Dict[str, Any]:
-    """Convert a CompiledCypherQuery with graph_bindings/use_ref to Let wire format."""
+def _final_to_json(compiled: Any) -> Dict[str, Any]:
+    """Serialize the final clause of a compiled query to wire format."""
+    if getattr(compiled, 'procedure_call', None) is not None:
+        val: Dict[str, Any] = {"type": "Call", "function": compiled.procedure_call.procedure, "params": {}}
+    else:
+        val = compiled.chain.to_json()
+    if getattr(compiled, 'use_ref', None) is not None:
+        return {"type": "ChainRef", "ref": compiled.use_ref, "chain": val.get('chain', [val])}
+    return val
+
+
+def _compiled_to_let_json(compiled: Any) -> Dict[str, Any]:
+    """Convert a compiled query with graph_bindings to Let wire format."""
     bindings: Dict[str, Any] = {}
     for b in compiled.graph_bindings:
-        if b.procedure_call is not None:
-            binding_val: Dict[str, Any] = {"type": "Call", "function": b.procedure_call.procedure, "params": {}}
-        else:
-            binding_val = b.chain.to_json()
-        if b.use_ref is not None:
-            bindings[b.name] = {"type": "ChainRef", "ref": b.use_ref, "chain": binding_val.get('chain', [binding_val])}
-        else:
-            bindings[b.name] = binding_val
-    # Final query chain
-    final_chain = compiled.chain.to_json()
-    if compiled.use_ref is not None:
-        bindings["__result__"] = {"type": "ChainRef", "ref": compiled.use_ref, "chain": final_chain.get('chain', [])}
-    else:
-        bindings["__result__"] = final_chain
+        bindings[b.name] = _binding_to_json(b)
+    bindings["__result__"] = _final_to_json(compiled)
     return {"type": "Let", "bindings": bindings}
 
 
 def chain_remote_generic(
     self: Plottable,
-    chain: Union[Chain, Dict[str, JSONVal], List[Any]],
+    chain: Union[Chain, Dict[str, JSONVal], List[Any], 'ASTLet', str],
     api_token: Optional[str] = None,
     dataset_id: Optional[str] = None,
     output_type: OutputTypeGraph = "all",
@@ -138,18 +124,18 @@ def chain_remote_generic(
             # Standalone GRAPH { } or multi-graph pipeline
             if compiled.graph_bindings:
                 # Multi-graph -> Let envelope
-                chain_json = _compiled_graph_query_to_let_json(compiled)
+                chain_json = _compiled_to_let_json(compiled)
                 is_let = True
             else:
                 chain_json = compiled.chain.to_json()
         elif isinstance(compiled, CompiledCypherQuery):
             if compiled.graph_bindings or compiled.use_ref:
-                chain_json = _compiled_query_to_let_json(compiled)
+                chain_json = _compiled_to_let_json(compiled)
                 is_let = True
             else:
                 chain_json = compiled.chain.to_json()
         else:
-            chain_json = compiled.chain.to_json()
+            raise TypeError(f"Unexpected compiled Cypher type: {type(compiled)}")
     elif isinstance(chain, ASTLet):
         chain_json = chain.to_json()
         is_let = True
@@ -168,6 +154,14 @@ def chain_remote_generic(
 
     # --- Build request body (dual-field for backward compat) ---
     if is_let:
+        warnings.warn(
+            "gfql_remote() is sending a Let/DAG query. Servers that do not support "
+            "the gfql_query field will receive an empty gfql_operations array and "
+            "return the original graph unchanged. Upgrade to a server that reads "
+            "gfql_query for full Let/DAG support.",
+            UserWarning,
+            stacklevel=2,
+        )
         request_body: Dict[str, Any] = {
             "gfql_operations": [],        # empty for old servers (safe no-op)
             "gfql_query": chain_json,     # full Let envelope for new servers
