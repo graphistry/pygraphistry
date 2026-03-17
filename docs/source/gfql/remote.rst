@@ -28,6 +28,12 @@ Run chain remotely and fetch results
     # Cypher string (compiled locally, sent as Chain wire format)
     g2 = g1.gfql_remote("MATCH (a)-[r]->(b) WHERE a.score > 10 RETURN a, b")
 
+    # Cypher string with params
+    g2 = g1.gfql_remote(
+        "MATCH (n) WHERE n.score > $cutoff RETURN n",
+        params={"cutoff": 10},
+    )
+
     # GRAPH constructor (compiled locally, sent as Chain wire format)
     g2 = g1.gfql_remote("GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 10 }")
 
