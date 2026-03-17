@@ -151,14 +151,14 @@ def chain_remote_generic(
             stacklevel=2,
         )
         request_body: Dict[str, Any] = {
-            "gfql_operations": [],        # empty for old servers (safe no-op)
-            "gfql_query": chain_json,     # full Let envelope for new servers
+            "gfql_operations": [],
+            "gfql_query": chain_json,
             "format": format
         }
     else:
-        request_body: Dict[str, Any] = {
-            "gfql_operations": chain_json.get('chain', []),  # flat array for old servers
-            "gfql_query": chain_json,                         # full envelope for new servers (preserves WHERE)
+        request_body = {
+            "gfql_operations": chain_json.get('chain', []),
+            "gfql_query": chain_json,
             "format": format
         }
 
@@ -369,7 +369,7 @@ def chain_remote_generic(
 
 def chain_remote_shape(
     self: Plottable,
-    chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]],
+    chain: Union[Chain, List[ASTObject], Dict[str, JSONVal], ASTLet, str],
     api_token: Optional[str] = None,
     dataset_id: Optional[str] = None,
     format: Optional[FormatType] = None,
@@ -426,7 +426,7 @@ def chain_remote_shape(
 
 def chain_remote(
     self: Plottable,
-    chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]],
+    chain: Union[Chain, List[ASTObject], Dict[str, JSONVal], ASTLet, str],
     api_token: Optional[str] = None,
     dataset_id: Optional[str] = None,
     output_type: OutputTypeGraph = "all",
