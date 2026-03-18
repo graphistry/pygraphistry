@@ -32,7 +32,7 @@ All GFQL wire protocol messages are JSON objects with a `type` field:
 ### Supported Message Types
 - `Chain`: Complete query chain
 - `Let`: DAG pattern with named bindings
-- `ChainRef`: Reference to Let binding with optional chain
+- `Ref`: Reference to Let binding with optional chain
 - `RemoteGraph`: Reference to remote dataset
 - `Call`: Algorithm/transformation invocation
 - `Node`: Node matcher operation
@@ -47,7 +47,7 @@ All GFQL wire protocol messages are JSON objects with a `type` field that identi
 ### Type Identification
 
 Each object includes a `type` field:
-- Operations: `"Node"`, `"Edge"`, `"Chain"`, `"Let"`, `"ChainRef"`, `"RemoteGraph"`, `"Call"`
+- Operations: `"Node"`, `"Edge"`, `"Chain"`, `"Let"`, `"Ref"`, `"RemoteGraph"`, `"Call"`
 - Predicates: `"GT"`, `"LT"`, `"IsIn"`, etc.
 - Temporal values: `"datetime"`, `"date"`, `"time"`
 
@@ -233,7 +233,7 @@ let({
       "filter_dict": {"type": "Person"}
     },
     "adults": {
-      "type": "ChainRef",
+      "type": "Ref",
       "ref": "persons",
       "chain": [{
         "type": "Node",
@@ -246,9 +246,9 @@ let({
 }
 ```
 
-### ChainRef Operation
+### Ref Operation
 
-ChainRef executes on the referenced graph; bindings used for edge traversal should retain edges
+Ref executes on the referenced graph; bindings used for edge traversal should retain edges
 (for example, from an ``Edge`` or ``Chain`` binding).
 
 **Python**:
@@ -262,7 +262,7 @@ ref('base_graph', [
 **Wire Format**:
 ```json
 {
-  "type": "ChainRef",
+  "type": "Ref",
   "ref": "base_graph",
   "chain": [
     {
@@ -677,12 +677,12 @@ g.gfql([
 
 GFQL's Cypher extensions (`GRAPH { }` constructors, `GRAPH g = ...` bindings,
 `USE g` graph switching) serialize using the existing `Let`, `Chain`, `Call`,
-and `ChainRef` wire-protocol primitives. No new message types are needed.
+and `Ref` wire-protocol primitives. No new message types are needed.
 
 ### Serialization
 
 A multi-stage graph pipeline maps to a `Let` whose bindings are `Chain` or
-`Call` values, with `ChainRef` for `USE` references:
+`Call` values, with `Ref` for `USE` references:
 
 ```
 GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 10 }
@@ -703,14 +703,14 @@ USE g2 MATCH (n) RETURN n.id, n.degree ORDER BY n.degree DESC
       ]
     },
     "g2": {
-      "type": "ChainRef",
+      "type": "Ref",
       "ref": "g1",
       "chain": [
         {"type": "Call", "function": "graphistry.degree.write", "params": {}}
       ]
     },
     "__result__": {
-      "type": "ChainRef",
+      "type": "Ref",
       "ref": "g2",
       "chain": [
         {"type": "Node", "name": "n"},
@@ -733,8 +733,8 @@ evaluation.
 | `GRAPH { MATCH ... WHERE ... }` | `{"type": "Chain", "chain": [...], "where": [...]}` |
 | `GRAPH { CALL graphistry.*.write() }` | `{"type": "Call", "function": "...", "params": {}}` |
 | `GRAPH g = GRAPH { ... }` | Named `Let` binding — body is a `Chain` or `Call` |
-| `USE g` | `ChainRef` with `"ref": "g"` — subsequent operations execute against `g`'s result |
-| `USE g MATCH ... RETURN ...` | `ChainRef` with `"ref": "g"` and the query chain as its body |
+| `USE g` | `Ref` with `"ref": "g"` — subsequent operations execute against `g`'s result |
+| `USE g MATCH ... RETURN ...` | `Ref` with `"ref": "g"` and the query chain as its body |
 
 ## Best Practices
 

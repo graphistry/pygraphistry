@@ -1456,7 +1456,7 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
 
     if 'type' not in o:
         raise GFQLSyntaxError(
-            ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'Let', 'RemoteGraph', or 'ChainRef'"
+            ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'Let', 'RemoteGraph', 'Ref', or 'Call'"
         )
 
     out: Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTRef, ASTCall]
@@ -1491,8 +1491,6 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
         out = ASTLet.from_json(o, validate=validate)
     elif o['type'] == 'RemoteGraph':
         out = ASTRemoteGraph.from_json(o, validate=validate)
-    elif o['type'] == 'ChainRef':
-        out = ASTRef.from_json(o, validate=validate)
     elif o['type'] == 'Ref':
         out = ASTRef.from_json(o, validate=validate)
     elif o['type'] == 'Call':
@@ -1503,7 +1501,7 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
             f"Unknown AST type: {o['type']}",
             field="type",
             value=o["type"],
-            suggestion="Use 'Node', 'Edge', 'Let', 'RemoteGraph', 'ChainRef', 'Ref', or 'Call'",
+            suggestion="Use 'Node', 'Edge', 'Let', 'RemoteGraph', 'Ref', or 'Call'",
         )
     return out
 

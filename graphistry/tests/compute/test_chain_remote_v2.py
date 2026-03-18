@@ -84,6 +84,13 @@ class TestLetSupport:
         assert body["gfql_query"]["type"] == "Let"
         assert body["gfql_operations"] == []
 
+    def test_let_with_output(self) -> None:
+        body = _send(
+            ASTLet({"people": ASTNode(filter_dict={"type": "person"})}),
+            output="people",
+        )
+        assert body["gfql_output"] == "people"
+
 
 class TestCypherStringSupport:
     """P2: Cypher strings must compile locally and serialize."""
@@ -112,7 +119,7 @@ class TestCypherStringSupport:
         )
         assert body["gfql_query"]["type"] == "Let"
         result = body["gfql_query"]["bindings"]["__result__"]
-        assert result["type"] == "ChainRef"
+        assert result["type"] == "Ref"
         assert result["ref"] == "g1"
 
     def test_standalone_call_write(self) -> None:

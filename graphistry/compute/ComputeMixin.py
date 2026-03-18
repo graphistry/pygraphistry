@@ -553,6 +553,7 @@ class ComputeMixin(Plottable):
         validate: bool = True,
         persist: bool = False,
         params: Optional[Dict[str, Any]] = None,
+        output: Optional[str] = None,
     ) -> Plottable:
         """Run GFQL query remotely.
 
@@ -588,7 +589,7 @@ class ComputeMixin(Plottable):
         return chain_remote_base(
             self, chain, api_token, dataset_id, output_type, format,
             df_export_args, node_col_subset, edge_col_subset, engine, validate, persist,
-            params=params,
+            params=params, output=output,
         )
     
     def gfql_remote_shape(
