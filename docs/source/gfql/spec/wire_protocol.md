@@ -32,7 +32,7 @@ All GFQL wire protocol messages are JSON objects with a `type` field:
 ### Supported Message Types
 - `Chain`: Complete query chain
 - `Let`: DAG pattern with named bindings
-- `ChainRef`: Reference to Let binding with optional chain
+- `Ref` (also known as `ChainRef`): Reference to Let binding with optional chain
 - `RemoteGraph`: Reference to remote dataset
 - `Call`: Algorithm/transformation invocation
 - `Node`: Node matcher operation
@@ -47,7 +47,7 @@ All GFQL wire protocol messages are JSON objects with a `type` field that identi
 ### Type Identification
 
 Each object includes a `type` field:
-- Operations: `"Node"`, `"Edge"`, `"Chain"`, `"Let"`, `"ChainRef"`, `"RemoteGraph"`, `"Call"`
+- Operations: `"Node"`, `"Edge"`, `"Chain"`, `"Let"`, `"Ref"` (also accepted as `"ChainRef"`), `"RemoteGraph"`, `"Call"`
 - Predicates: `"GT"`, `"LT"`, `"IsIn"`, etc.
 - Temporal values: `"datetime"`, `"date"`, `"time"`
 

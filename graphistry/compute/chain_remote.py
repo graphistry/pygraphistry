@@ -39,7 +39,7 @@ def _step_to_json(
         else chain.to_json()
     )
     if use_ref is not None:
-        return {"type": "ChainRef", "ref": use_ref, "chain": val.get('chain', [val])}
+        return {"type": "Ref", "ref": use_ref, "chain": val.get('chain', [val])}
     return val
 
 
@@ -67,6 +67,7 @@ def chain_remote_generic(
     validate: bool = True,
     persist: bool = False,
     params: Optional[Dict[str, Any]] = None,
+    output: Optional[str] = None,
 ) -> Union[Plottable, pd.DataFrame]:
 
     if not api_token:
@@ -156,6 +157,8 @@ def chain_remote_generic(
             "gfql_query": chain_json,
             "format": format
         }
+        if output is not None:
+            request_body["gfql_output"] = output
     else:
         request_body = {
             "gfql_operations": chain_json.get('chain', []),
@@ -439,6 +442,7 @@ def chain_remote(
     validate: bool = True,
     persist: bool = False,
     params: Optional[Dict[str, Any]] = None,
+    output: Optional[str] = None,
 ) -> Plottable:
     """Remotely run GFQL chain query on a remote dataset.
     
@@ -527,6 +531,7 @@ def chain_remote(
         validate,
         persist,
         params=params,
+        output=output,
     )
     assert isinstance(g, Plottable)
     return g
