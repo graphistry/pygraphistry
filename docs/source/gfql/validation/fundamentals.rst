@@ -67,8 +67,6 @@ Common Errors and Fixes
 Invalid Parameters
 ^^^^^^^^^^^^^^^^^^
 
-.. doc-test: skip
-
 .. code-block:: python
 
    # Wrong - negative hops
@@ -76,14 +74,12 @@ Invalid Parameters
        chain = Chain([n(), e_forward(hops=-1)])
    except GFQLTypeError as e:
        print(f"Error: {e.message}")  # "hops must be a positive integer"
-   
+
    # Correct
    chain = Chain([n(), e_forward(hops=2)])
 
 Missing Columns
 ^^^^^^^^^^^^^^^
-
-.. doc-test: skip
 
 .. code-block:: python
 
@@ -93,14 +89,12 @@ Missing Columns
    except GFQLSchemaError as e:
        print(f"Error: {e.message}")  # Column "category" does not exist
        print(f"Suggestion: {e.context.get('suggestion')}")
-   
+
    # Correct - use existing columns
    result = g.chain([n({'type': 'customer'})])
 
 Type Mismatches
 ^^^^^^^^^^^^^^^
-
-.. doc-test: skip
 
 .. code-block:: python
 
@@ -109,7 +103,7 @@ Type Mismatches
        result = g.chain([n({'score': 'high'})])
    except GFQLSchemaError as e:
        print(f"Error: {e.message}")  # Type mismatch
-   
+
    # Correct - use numeric predicate
    from graphistry.compute.predicates.numeric import gt
    result = g.chain([n({'score': gt(80)})])
@@ -144,13 +138,11 @@ Default Behavior
 
 GFQL validates automatically - just write your queries and run them:
 
-.. doc-test: skip
-
 .. code-block:: python
 
    # Validation happens automatically
    result = g.chain([n({'type': 'customer'})])
-   
+
    # Errors are caught and reported clearly
    try:
        result = g.chain([n({'invalid_column': 'value'})])

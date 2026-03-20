@@ -30,7 +30,7 @@ from datetime import datetime, date, time, timedelta
 - [`time`](https://docs.python.org/3/library/datetime.html#datetime.time) - Time only (no date)
 - Wire protocol dicts - For ISO strings and JSON compatibility
 
-<!-- doc-test: skip -->
+<!-- doc-test: xfail -->
 ```python
 # Use datetime objects
 gt(pd.Timestamp("2023-01-01 12:00:00"))
@@ -436,7 +436,7 @@ q1_2023 = g.gfql([
 
 ## Error Handling
 
-<!-- doc-test: skip -->
+<!-- doc-test: xfail -->
 ```python
 # Strings raise ValueError - always use datetime objects
 gt("2023-01-01")                # ValueError: Raw string not allowed

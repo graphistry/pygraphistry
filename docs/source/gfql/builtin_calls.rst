@@ -1306,11 +1306,10 @@ Generate a node table from edges when only edges are provided.
 
 **Example:**
 
-.. doc-test: skip
-
 .. code-block:: python
 
     # Create nodes from edges
+    g_edges_only = graphistry.edges(edges, 's', 'd')
     g_edges_only.gfql([
         call('materialize_nodes')
     ])

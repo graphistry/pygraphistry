@@ -72,6 +72,18 @@ try:
 except ImportError:
     pass
 from graphistry.compute.ast import ASTCall as call, ASTLet as let, ASTRef as ref
+from graphistry.compute.chain import Chain
+from graphistry.compute.exceptions import (
+    GFQLValidationError, GFQLSyntaxError,
+    GFQLTypeError, GFQLSchemaError,
+)
+from graphistry import col, compare
+from graphistry.compute import (
+    rows, where_rows, return_, order_by, limit,
+    skip, distinct, with_, select, group_by, unwind,
+    remote,
+)
+from graphistry.compute.validate_schema import validate_chain_schema
 from datetime import datetime, date, time, timedelta
 nodes = pd.DataFrame({
     'id': ['a', 'b', 'c', 'd'],

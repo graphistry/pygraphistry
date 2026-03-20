@@ -327,7 +327,6 @@ ref('base_graph', [
 ### RemoteGraph Operation
 
 **Python**:
-<!-- doc-test: skip -->
 ```python
 remote(dataset_id='fraud-network-2024')
 ```
@@ -601,7 +600,6 @@ Example:
 ### `MATCH ... RETURN` Row Pipeline
 
 **Python**:
-<!-- doc-test: skip -->
 ```python
 g.gfql([
     n({"type": "Person"}),

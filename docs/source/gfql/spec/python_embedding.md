@@ -246,11 +246,12 @@ Use deferred validation to avoid re-validating nested `Chain`/`Let` wrappers dur
 You have two options for validating queries against your data schema:
 
 1. **Validate-only** (no execution): Use `validate_chain_schema()` to check compatibility without running the query
-2. **Validate-and-run**: Use `g.gfql(..., validate_schema=True)` to validate before execution
+2. **Runtime validation** (automatic): `g.gfql(...)` validates columns during execution and raises `GFQLSchemaError` for missing or mismatched columns
 
-<!-- doc-test: skip -->
 ```python
 # Method 1: Validate-only (no execution)
+from graphistry import Chain
+from graphistry.compute.exceptions import GFQLSchemaError
 from graphistry.compute.validate_schema import validate_chain_schema
 
 chain = Chain([n({'missing_column': 'value'})])
@@ -268,15 +269,6 @@ try:
     ])  # Validates during execution, raises GFQLSchemaError
 except GFQLSchemaError as e:
     print(f"Runtime validation error: {e}")
-
-# Method 3: Validate-and-run (pre-execution validation)
-try:
-    result = g.gfql([
-        n({'missing_column': 'value'})
-    ], validate_schema=True)  # Validates first, only executes if valid
-except GFQLSchemaError as e:
-    print(f"Pre-execution validation failed: {e}")
-    print("Query was not executed")
 ```
 
 ### Error Types
