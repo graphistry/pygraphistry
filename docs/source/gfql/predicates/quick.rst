@@ -79,8 +79,8 @@ See :doc:`/gfql/where` (same-path constraints) and :doc:`/gfql/return`
      - Value is in ``values`` list.
      - ``n({ "type": is_in(["person", "company"]) })``
    * - ``is_not_in(values)``
-     - Value is not in ``values`` list. *(Not yet implemented — use* ``query=`` *as a workaround.)*
-     - ``n(query="type not in ['bot', 'spam']")``
+     - Value is not in ``values`` list. *(Not yet implemented.)*
+     - Use ``n(query="type not in ['bot', 'spam']")``
    * - ``duplicated(keep='first')``
      - Marks duplicated values.
      - ``n({ "email": duplicated() })``
