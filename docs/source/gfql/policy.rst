@@ -613,7 +613,7 @@ Policies work with different GFQL query patterns:
 
 .. code-block:: python
 
-    # query_type will be 'call', precall and postcall phases triggered
+    # query_type will be 'single', precall and postcall phases triggered
     from graphistry.compute.ast import call
     g.gfql(call('hop', {'hops': 2}), policy={
         'precall': my_precall_policy,

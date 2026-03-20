@@ -75,7 +75,7 @@ Filter nodes or edges based on datetime values:
 ```python
 import pandas as pd
 from datetime import datetime
-from graphistry import n
+from graphistry import n, e_forward
 from graphistry.compute import gt, lt, between
 
 # Filter nodes created after a specific datetime
@@ -85,10 +85,10 @@ recent_nodes = g.gfql([
 
 # Filter edges within a date range
 date_range_edges = g.gfql([
-    n(edge_match={"timestamp": between(
+    n(), e_forward(edge_match={"timestamp": between(
         datetime(2023, 1, 1),
         datetime(2023, 12, 31)
-    )})
+    )}), n()
 ])
 ```
 
@@ -281,9 +281,9 @@ Use temporal filters in complex graph traversals:
 ```python
 # Find all transactions after a date, then their related accounts
 recent_transactions = g.gfql([
-    n(filter_dict={"type": eq("transaction"), 
+    n(filter_dict={"type": eq("transaction"),
                    "date": gt(date(2023, 6, 1))}),
-    n(edge_match={"relationship": eq("involves")}),
+    e_forward(edge_match={"relationship": eq("involves")}),
     n(filter_dict={"type": eq("account")})
 ])
 ```

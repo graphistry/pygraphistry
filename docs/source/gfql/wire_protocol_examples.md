@@ -87,7 +87,7 @@ pred3 = gt({"type": "datetime", "value": "2023-01-01T00:00:00", "timezone": "UTC
 ```python
 import pandas as pd
 from datetime import datetime
-from graphistry import n
+from graphistry import n, e_forward
 from graphistry.compute import gt, between
 
 # Using pandas Timestamp
@@ -96,7 +96,7 @@ filter1 = n(filter_dict={
 })
 
 # Using Python datetime
-filter2 = n(edge_match={
+filter2 = e_forward(edge_match={
     "timestamp": between(
         datetime(2023, 1, 1),
         datetime(2023, 12, 31, 23, 59, 59)
@@ -221,6 +221,7 @@ filter2 = n(filter_dict={
 ### Python API
 ```python
 from datetime import time
+from graphistry import n, e_forward
 from graphistry.compute import is_in, between
 
 # Specific times
@@ -233,7 +234,7 @@ filter1 = n(filter_dict={
 })
 
 # Time range
-filter2 = n(edge_match={
+filter2 = e_forward(edge_match={
     "daily_schedule": between(
         time(9, 0, 0),
         time(17, 30, 0)
@@ -321,7 +322,8 @@ from datetime import datetime, timedelta
 # Multi-hop query with temporal filters
 chain = g.gfql([
     # Recent transactions
-    n(edge_match={
+    n(),
+    e_forward(edge_match={
         "timestamp": gt(datetime.now() - timedelta(days=7)),
         "amount": gt(1000)
     }),
@@ -485,11 +487,11 @@ wire_data = json.dumps(json_query)
 received_data = json.loads(wire_data)
 
 # 4. Deserialize on receiving end
-from graphistry.compute.ast import Chain
+from graphistry import Chain
 reconstructed_query = Chain.from_json(received_data)
 
 # 5. Apply to graph data
-result = g.gfql(reconstructed_query.queries)
+result = g.gfql(reconstructed_query.chain)
 ```
 
 ## Wire Protocol Structure

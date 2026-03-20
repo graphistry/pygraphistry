@@ -642,7 +642,7 @@ Reference graphs on remote servers for distributed computing:
 
   .. code-block:: python
 
-      from graphistry import remote
+      from graphistry.compute import remote
 
       result = g.gfql([
           remote(dataset_id='fraud-network-2024'),
@@ -653,6 +653,8 @@ Reference graphs on remote servers for distributed computing:
 - **Combine remote and local data in Let:**
 
   .. code-block:: python
+
+      from graphistry.compute import remote
 
       result = g.gfql(let({
           'remote_data': remote(dataset_id='historical-2023'),

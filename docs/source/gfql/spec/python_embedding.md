@@ -208,7 +208,7 @@ from graphistry.compute.ast import n, e_forward
 # Automatic validation on construction
 chain = Chain([
     n({'type': 'person'}),
-    e_forward({'hops': -1})  # Raises GFQLTypeError: hops must be positive
+    e_forward(hops=-1)  # Raises GFQLTypeError: hops must be positive
 ])
 ```
 
@@ -218,7 +218,7 @@ For advanced flows (large/nested ASTs or staged assembly), you can defer structu
 # Defer validation while building
 chain = Chain([
     n({'type': 'person'}),
-    e_forward({'hops': -1})
+    e_forward(hops=-1)
 ], validate=False)  # No validation yet
 
 # Later, validate once (or let g.gfql validate it)
@@ -532,7 +532,7 @@ so edge traversals need a binding that preserves edges (for example, via a list 
 # Basic reference - just the binding result
 result = g.gfql(let({
     'base': n({'status': 'active'}),
-    'extended': ref('base')  # Just references 'base'
+    'extended': ref('base', [n()])  # Just references 'base'
 }))
 
 # Reference with additional operations (node-only refinements)
@@ -580,7 +580,7 @@ result = g.gfql(let({
 For distributed computing, `remote()` allows referencing graphs on remote servers:
 
 ```python
-from graphistry import remote
+from graphistry.compute import remote
 
 # Reference a remote dataset
 result = g.gfql([

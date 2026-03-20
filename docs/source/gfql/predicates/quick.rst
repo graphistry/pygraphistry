@@ -78,9 +78,6 @@ See :doc:`/gfql/where` (same-path constraints) and :doc:`/gfql/return`
    * - ``is_in(values)``
      - Value is in ``values`` list.
      - ``n({ "type": is_in(["person", "company"]) })``
-   * - ``is_not_in(values)``
-     - Value is not in ``values`` list.
-     - ``n({ "type": is_not_in(["bot", "spam"]) })``
    * - ``duplicated(keep='first')``
      - Marks duplicated values.
      - ``n({ "email": duplicated() })``
@@ -256,11 +253,11 @@ Usage Examples
 Additional Notes
 ----------------
 
-- **Lambda Functions**: You can use lambda functions for custom conditions.
+- **Predicate Functions**: Use predicate instances for custom conditions.
 
   .. code-block:: python
 
-      n({ "score": lambda x: (x > 50) & (x % 2 == 0) })
+      n({ "score": gt(50) })
 
 - **Importing Operators**: Remember to import the necessary functions.
 
@@ -268,10 +265,10 @@ Additional Notes
 
       from graphistry import n, e_forward, gt, contains
 
-- **Combining Conditions**: Use logical operators within lambdas for complex expressions.
+- **Combining Conditions**: Use range predicates for complex expressions.
 
   .. code-block:: python
 
-      n({ "age": lambda x: (x > 18) & (x < 65) })
+      n({ "age": between(19, 64) })
 
 - **Predicates Module**: Operators are available in the `graphistry.predicates` module.
