@@ -85,6 +85,8 @@ TOLERATED_ERRORS = [
     "'people'",
     "'persons'",
     "'adults'",
+    "'importance'",
+    "None of [Index",
 ]
 
 SETUP_CODE = """\

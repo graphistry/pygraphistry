@@ -1224,6 +1224,12 @@ Remove nodes based on a column value.
         call('drop_nodes', {'nodes': ['node_id_1', 'node_id_2']})
     ])
 
+    # Drop nodes matching a filter — use filter_nodes_by_dict first, then drop
+    inactive = g._nodes[g._nodes['status'] == 'inactive']['id'].tolist()
+    g.gfql([
+        call('drop_nodes', {'nodes': inactive})
+    ])
+
 **Schema Effects:** None (only removes nodes).
 
 keep_nodes
@@ -1253,6 +1259,11 @@ Keep only nodes where a column is True.
     # Keep specific nodes by ID
     g.gfql([
         call('keep_nodes', {'nodes': ['node_id_1', 'node_id_2']})
+    ])
+
+    # Keep nodes matching a filter — use dict form for column-based filtering
+    g.gfql([
+        call('keep_nodes', {'nodes': {'importance': [True]}})
     ])
 
 **Schema Effects:** None (only filters nodes).
