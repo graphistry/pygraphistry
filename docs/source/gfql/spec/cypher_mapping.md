@@ -175,6 +175,7 @@ WHERE n1.a > n2.b AND e1.x = e2.y
 ```
 
 **Python:**
+<!-- doc-test: skip -->
 ```python
 from graphistry import n, e_forward, col, compare
 
@@ -308,6 +309,7 @@ WHERE fof.active = true
 ```
 
 **Python:**
+<!-- doc-test: skip -->
 ```python
 g.gfql([
     n({"type": "User", "name": "Alice"}),
@@ -334,6 +336,7 @@ WHERE a.owner_id = c.owner_id
 ```
 
 **Python:**
+<!-- doc-test: skip -->
 ```python
 from graphistry import n, e_forward, col, compare
 
@@ -361,6 +364,7 @@ WHERE t.amount > 10000 AND t.date > date('2024-01-01')
 ```
 
 **Python:**
+<!-- doc-test: skip -->
 ```python
 g.gfql([
     n({"type": "Account"}),
@@ -398,6 +402,7 @@ LIMIT 10
 ```
 
 **Python:**
+<!-- doc-test: skip -->
 ```python
 from datetime import date
 from graphistry import n, e_forward, gt

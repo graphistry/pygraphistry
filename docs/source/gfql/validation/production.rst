@@ -235,6 +235,8 @@ GFQL is designed with security in mind to prevent arbitrary code execution:
 
 Instead of generating Python code directly, generate JSON and use GFQL's validation:
 
+.. doc-test: skip
+
 .. code-block:: python
 
    # DON'T: Generate Python code (security risk)

@@ -6,6 +6,8 @@ Policy hooks provide external control over GFQL query execution, enabling securi
 Quick Start
 -----------
 
+.. doc-test: skip
+
 .. code-block:: python
 
     from graphistry.compute.gfql.policy import PolicyException
@@ -127,6 +129,8 @@ Examples
 
 **Limit Data Size**
 
+.. doc-test: skip
+
 .. code-block:: python
 
     def size_limit_policy(context):
@@ -143,6 +147,8 @@ Examples
 
 
 **Control Operation Execution and Performance**
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -193,6 +199,8 @@ Examples
 
 **Control Remote Access**
 
+.. doc-test: skip
+
 .. code-block:: python
 
     def remote_access_policy(context):
@@ -210,6 +218,8 @@ Examples
 
 
 **Per-Binding Control**
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -252,6 +262,8 @@ Examples
 
 **Track Usage**
 
+.. doc-test: skip
+
 .. code-block:: python
 
     def create_usage_tracker():
@@ -280,6 +292,8 @@ Examples
 
 
 **Shared Handler**
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -348,6 +362,8 @@ To reduce boilerplate in common patterns, GFQL policies support shortcuts that e
 
 Without shortcuts (10 keys):
 
+.. doc-test: skip
+
 .. code-block:: python
 
     # Traditional approach - verbose
@@ -365,6 +381,8 @@ Without shortcuts (10 keys):
     }
 
 With shortcuts (2 keys):
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -415,6 +433,8 @@ When multiple shortcuts apply to the same hook, their handlers automatically com
 
 Shortcuts compose naturally for scenarios where multiple orthogonal policies need to be applied:
 
+.. doc-test: skip
+
 .. code-block:: python
 
     # Server scenario: telemetry + security + resource limits
@@ -434,6 +454,8 @@ Shortcuts compose naturally for scenarios where multiple orthogonal policies nee
 **Debug Helper**
 
 Use ``debug_policy()`` to see how shortcuts expand:
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -472,6 +494,8 @@ Output:
 **OpenTelemetry Example**
 
 Using shortcuts, OpenTelemetry span tracing reduces from 10 hook keys to just 2:
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -540,6 +564,8 @@ PolicyException
 
 Deny operations by raising ``PolicyException``:
 
+.. doc-test: skip
+
 .. code-block:: python
 
     from graphistry.compute.gfql.policy import PolicyException
@@ -597,6 +623,8 @@ Policies work with different GFQL query patterns:
 
 **Chain queries** - Sequential operations:
 
+.. doc-test: skip
+
 .. code-block:: python
 
     # query_type will be 'chain'
@@ -604,12 +632,16 @@ Policies work with different GFQL query patterns:
 
 **DAG queries** - Named bindings with dependencies:
 
+.. doc-test: skip
+
 .. code-block:: python
 
     # query_type will be 'dag'
     g.gfql({'persons': n({'type': 'person'})}, policy=policy_dict)
 
 **Call operations** - Method invocations:
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -661,6 +693,8 @@ Advanced Topics
 **Policy Composition**
 
 Combine multiple policies using composition patterns:
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -770,6 +804,8 @@ API Reference
 -------------
 
 **Main Interface**
+
+.. doc-test: skip
 
 .. code-block:: python
 

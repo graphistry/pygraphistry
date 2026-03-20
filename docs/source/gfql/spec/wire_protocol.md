@@ -327,6 +327,7 @@ ref('base_graph', [
 ### RemoteGraph Operation
 
 **Python**:
+<!-- doc-test: skip -->
 ```python
 remote(dataset_id='fraud-network-2024')
 ```
@@ -600,6 +601,7 @@ Example:
 ### `MATCH ... RETURN` Row Pipeline
 
 **Python**:
+<!-- doc-test: skip -->
 ```python
 g.gfql([
     n({"type": "Person"}),
@@ -633,6 +635,7 @@ g.gfql([
 ### User 360 Query
 
 **Python**:
+<!-- doc-test: skip -->
 ```python
 g.gfql([
     n({"customer_id": "C123"}),
@@ -676,6 +679,7 @@ g.gfql([
 ### Cyber Security Pattern
 
 **Python**:
+<!-- doc-test: skip -->
 ```python
 g.gfql([
     n({"ip": is_in(["192.168.1.100", "192.168.1.101"])}),

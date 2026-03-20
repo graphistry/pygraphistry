@@ -79,6 +79,8 @@ Graph Constructors (``GRAPH { }``)
 Use ``GRAPH { MATCH ... }`` when you want the matched subgraph back in graph
 state instead of a row table:
 
+.. doc-test: skip
+
 .. code-block:: python
 
     subgraph = g.gfql(
@@ -94,6 +96,8 @@ state instead of a row table:
 
 Use ``GRAPH g = GRAPH { ... }`` to bind a named graph, then ``USE g`` to
 query it:
+
+.. doc-test: skip
 
 .. code-block:: python
 

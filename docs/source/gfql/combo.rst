@@ -131,6 +131,8 @@ Handle Multiple Node Columns with Hypergraphs
 
 **Code**
 
+.. doc-test: skip
+
 .. code-block:: python
     
     g = graphistry.hypergraph(df, entity_types=['a', 'b', 'c'])['graph']

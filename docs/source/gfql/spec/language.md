@@ -62,6 +62,7 @@ Multiple WHERE comparisons are conjunctive (AND).
 
 **Python example:**
 
+<!-- doc-test: skip -->
 ```python
 from graphistry import n, e_forward, col, compare
 
@@ -356,6 +357,7 @@ g.gfql(query)
 
 ### Comparison Predicates
 
+<!-- doc-test: skip -->
 ```python
 gt(value)    # Greater than
 lt(value)    # Less than
@@ -367,12 +369,14 @@ ne(value)    # Not equal
 
 ### Membership Predicate
 
+<!-- doc-test: skip -->
 ```python
 is_in([value1, value2, ...])  # Value in list
 ```
 
 ### Range Predicate
 
+<!-- doc-test: skip -->
 ```python
 between(lower, upper, inclusive=True)  # Value in range
 ```
@@ -380,6 +384,7 @@ between(lower, upper, inclusive=True)  # Value in range
 ### String Predicates
 
 Pattern matching predicates:
+<!-- doc-test: skip -->
 ```python
 contains(pat, case=True, regex=True)     # Contains pattern (substring or regex)
 startswith(prefix, case=True)            # Starts with prefix
@@ -389,6 +394,7 @@ fullmatch(pat, case=True, flags=0)       # Matches regex against entire string
 ```
 
 String type checking predicates:
+<!-- doc-test: skip -->
 ```python
 isalpha()    # Alphabetic characters only
 isnumeric()  # Numeric characters only
@@ -400,6 +406,7 @@ islower()    # All lowercase
 
 ### Null Predicates
 
+<!-- doc-test: skip -->
 ```python
 isnull()     # Is null/None
 notnull()    # Is not null/None
@@ -409,6 +416,7 @@ notna()      # Is not NaN
 
 ### Temporal Predicates
 
+<!-- doc-test: skip -->
 ```python
 is_month_start()    # First day of month
 is_month_end()      # Last day of month
@@ -425,6 +433,7 @@ is_leap_year()      # Is leap year
 
 GFQL supports calling Plottable methods through the `call()` operation, providing controlled access to graph transformation and analysis capabilities:
 
+<!-- doc-test: skip -->
 ```python
 call(function: str, params: dict) -> ASTCall
 ```
@@ -556,6 +565,7 @@ GFQL follows a declarative execution model similar to Neo4j's Cypher:
 Query execution returns graph and/or row-tabular outputs according to the
 embedding implementation.
 
+<!-- doc-test: skip -->
 ```python
 result = g.gfql([...])
 # accessors are embedding-specific
@@ -568,6 +578,7 @@ For Python accessor details (including row-pipeline result materialization), see
 
 Operations with `name` parameter add boolean columns to mark matched entities:
 
+<!-- doc-test: skip -->
 ```python
 result = g.gfql([
     n({"type": "person"}, name="people"),

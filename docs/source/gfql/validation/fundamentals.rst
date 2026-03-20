@@ -67,6 +67,8 @@ Common Errors and Fixes
 Invalid Parameters
 ^^^^^^^^^^^^^^^^^^
 
+.. doc-test: skip
+
 .. code-block:: python
 
    # Wrong - negative hops
@@ -80,6 +82,8 @@ Invalid Parameters
 
 Missing Columns
 ^^^^^^^^^^^^^^^
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -96,6 +100,8 @@ Missing Columns
 Type Mismatches
 ^^^^^^^^^^^^^^^
 
+.. doc-test: skip
+
 .. code-block:: python
 
    # Wrong - string value on numeric column
@@ -110,6 +116,8 @@ Type Mismatches
 
 Temporal Comparisons
 ^^^^^^^^^^^^^^^^^^^^
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -135,6 +143,8 @@ Default Behavior
 ^^^^^^^^^^^^^^^^
 
 GFQL validates automatically - just write your queries and run them:
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -171,6 +181,8 @@ Error Collection
 ^^^^^^^^^^^^^^^^
 
 Choose between fail-fast and collect-all modes:
+
+.. doc-test: skip
 
 .. code-block:: python
 

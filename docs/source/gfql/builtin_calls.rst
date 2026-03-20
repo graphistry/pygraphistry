@@ -425,6 +425,8 @@ Current supported names include:
 
 **Examples:**
 
+.. doc-test: skip
+
 .. code-block:: python
 
     # PageRank using igraph
@@ -612,6 +614,8 @@ Compute topological levels for directed acyclic graphs (DAGs).
 
 **Example:**
 
+.. doc-test: skip
+
 .. code-block:: python
 
     # Compute DAG levels
@@ -758,6 +762,8 @@ Compute CPU-based graph layouts using igraph.
 
 **Example:**
 
+.. doc-test: skip
+
 .. code-block:: python
 
     g.gfql([
@@ -866,6 +872,8 @@ Apply ForceAtlas2 layout algorithm (CPU-based implementation).
 
 **Example:**
 
+.. doc-test: skip
+
 .. code-block:: python
 
     g.gfql([
@@ -951,6 +959,8 @@ PyGraphistry's implementation is optimized for large graphs on both CPU and GPU.
      - Engine ('auto', 'cpu', 'gpu', 'pandas', 'cudf')
 
 **Examples:**
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -1120,6 +1130,8 @@ Traverse the graph N steps from current nodes.
 
 **Examples:**
 
+.. doc-test: skip
+
 .. code-block:: python
 
     # Simple N-hop traversal
@@ -1182,6 +1194,8 @@ Merge nodes based on a shared attribute value.
      - Whether to keep self-edges
 
 **Example:**
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -1254,6 +1268,8 @@ Keep only nodes where a column is True.
 
 **Example:**
 
+.. doc-test: skip
+
 .. code-block:: python
 
     # Keep specific nodes by ID
@@ -1289,6 +1305,8 @@ Generate a node table from edges when only edges are provided.
      - Whether to reuse existing node table
 
 **Example:**
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -1361,6 +1379,8 @@ Map node attributes to colors.
 
 **Example:**
 
+.. doc-test: skip
+
 .. code-block:: python
 
     # Categorical color mapping
@@ -1428,6 +1448,8 @@ Map edge attributes to colors.
 
 **Example:**
 
+.. doc-test: skip
+
 .. code-block:: python
 
     g.gfql([
@@ -1473,6 +1495,8 @@ Map node attributes to sizes.
 
 **Example:**
 
+.. doc-test: skip
+
 .. code-block:: python
 
     g.gfql([
@@ -1517,6 +1541,8 @@ Map node attributes to icons.
      - Default icon
 
 **Example:**
+
+.. doc-test: skip
 
 .. code-block:: python
 

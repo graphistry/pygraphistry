@@ -5,27 +5,44 @@ Extracts ``.. code-block:: python`` (RST) and ```python (MD) blocks from
 docs/source/gfql/, runs them sequentially per file in a shared namespace
 (like a notebook), and reports failures.
 
-Skips GPU-only, remote-only, file-IO, and ML examples automatically.
-Tolerates column-not-found and undefined-variable errors from conceptual
-blocks that reference prose context.
+Blocks can be marked in the doc source to control test behavior:
+
+RST (invisible comment before the code-block):
+
+    .. doc-test: skip
+    .. doc-test: xfail
+
+    .. code-block:: python
+
+        code_here()
+
+Markdown (HTML comment before the fenced block):
+
+    <!-- doc-test: skip -->
+    ```python
+    code_here()
+    ```
+
+Unmarked blocks are auto-skipped if they contain GPU/remote/file-IO
+patterns (see SKIP_PATTERNS). All other unmarked blocks must pass.
 
 Run locally:
     uv run --no-project --with python-igraph --with lark -- pytest docs/test_doc_examples.py -v
-
-In CI, runs inside the docs docker container where graphistry is installed.
 """
 from __future__ import annotations
 
+import os
 import re
-import warnings
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Literal, Optional, Tuple
 
 import pytest
 
 GFQL_DOCS = Path(__file__).resolve().parent / "source" / "gfql"
 
-# Blocks containing any of these are auto-skipped (GPU, remote, file I/O, ML)
+# ---------------------------------------------------------------------------
+# Auto-skip: blocks containing these are infrastructure-untestable
+# ---------------------------------------------------------------------------
 SKIP_PATTERNS = [
     "cudf", "cugraph", 'engine="cudf"', "engine='cudf'",
     "gfql_remote", "upload()", "python_remote",
@@ -38,57 +55,9 @@ SKIP_PATTERNS = [
     "compute_cugraph",
 ]
 
-# These errors are noise — the example assumes different data or prose context
-TOLERATED_ERRORS = [
-    # Column/schema mismatches with our sample graph
-    "column-not-found",
-    "does not exist in node dataframe",
-    "does not exist in edge dataframe",
-    "does not exist in dataframe",
-    "missing column",
-    "references missing column",
-    "Available columns:",
-    "no node/edge bindings",
-    "unsupported token in row expression",
-    # Undefined variables from conceptual/prose blocks
-    "is not defined",
-    # File I/O that slipped past skip patterns
-    "No such file or directory",
-    "No module named",
-    # Vertex attribute conflicts with sample graph's 'name' column
-    "Vertex attribute conflict",
-    # Expected validation errors in demo blocks
-    "invalid-hops-value",
-    # Cyclic graph errors from sample graph topology
-    "Cyclic graph",
-    # fa2 requires GPU
-    "fa2_layout requires",
-    # Multi-alias RETURN not yet supported
-    "supports one MATCH source alias",
-    # Raw datetime string ambiguity
-    "Raw string",
-    # Type mismatches from temporal wire protocol examples
-    "val must be numeric",
-    # Key errors from sample graph missing expected columns/node IDs
-    "KeyError",
-    # Hypergraph requires specific graph setup
-    "Hypergraph requires",
-    # Spec pseudocode with bare syntax / ellipsis
-    "invalid syntax",
-    "Got ellipsis",
-    # Where clause form not yet supported
-    "must use StepColumnRef",
-    # Conceptual examples referencing undefined graph attributes / columns
-    "'src'",
-    "'source'",
-    "'weight'",
-    "'people'",
-    "'persons'",
-    "'adults'",
-    "'importance'",
-    "None of [Index",
-]
-
+# ---------------------------------------------------------------------------
+# Setup namespace
+# ---------------------------------------------------------------------------
 SETUP_CODE = """\
 import sys, os, warnings
 sys.path.insert(0, os.environ.get('PYGRAPHISTRY_ROOT', '.'))
@@ -124,19 +93,29 @@ edges = pd.DataFrame({
 g = graphistry.nodes(nodes, 'id').edges(edges, 's', 'd')
 """
 
+# ---------------------------------------------------------------------------
+# Block extraction with doc-test markers
+# ---------------------------------------------------------------------------
 
-def _extract_code_blocks(path: Path) -> List[Tuple[int, str]]:
+Marker = Literal["skip", "xfail", None]
+
+
+def _extract_code_blocks(path: Path) -> List[Tuple[int, str, Marker]]:
+    """Extract code blocks with their doc-test marker (if any)."""
     text = path.read_text()
-    blocks: List[Tuple[int, str]] = []
+    blocks: List[Tuple[int, str, Marker]] = []
 
     if path.suffix == ".rst":
+        # Look for optional ``.. doc-test: <marker>`` comment before code-block
         pattern = re.compile(
+            r"(?:^\.\.\s+doc-test:\s*(skip|xfail)\s*\n\s*\n)?"
             r"^\.\.\s+code-block::\s+python\s*\n"
             r"((?:\n|\s*\n|[ \t]+[^\n]*\n)*)",
             re.MULTILINE,
         )
         for m in pattern.finditer(text):
-            raw = m.group(1)
+            marker = m.group(1)  # "skip", "xfail", or None
+            raw = m.group(2)
             lines = raw.split("\n")
             code_lines = [ln for ln in lines if ln.strip()]
             if not code_lines:
@@ -144,14 +123,20 @@ def _extract_code_blocks(path: Path) -> List[Tuple[int, str]]:
             indent = min(len(ln) - len(ln.lstrip()) for ln in code_lines)
             code = "\n".join(ln[indent:] for ln in lines).strip()
             line_no = text[: m.start()].count("\n") + 1
-            blocks.append((line_no, code))
+            blocks.append((line_no, code, marker))
 
     elif path.suffix == ".md":
-        pattern = re.compile(r"^```python\s*\n(.*?)^```", re.MULTILINE | re.DOTALL)
+        # Look for optional <!-- doc-test: <marker> --> before ```python
+        pattern = re.compile(
+            r"(?:^<!--\s*doc-test:\s*(skip|xfail)\s*-->\s*\n)?"
+            r"^```python\s*\n(.*?)^```",
+            re.MULTILINE | re.DOTALL,
+        )
         for m in pattern.finditer(text):
-            code = m.group(1).strip()
+            marker = m.group(1)
+            code = m.group(2).strip()
             line_no = text[: m.start()].count("\n") + 1
-            blocks.append((line_no, code))
+            blocks.append((line_no, code, marker))
 
     return blocks
 
@@ -163,47 +148,47 @@ def _should_skip(code: str) -> Optional[str]:
     return None
 
 
-def _is_tolerated(err_str: str) -> bool:
-    return any(pat in err_str for pat in TOLERATED_ERRORS)
+# ---------------------------------------------------------------------------
+# Per-file runner
+# ---------------------------------------------------------------------------
 
-
-def _collect_doc_files() -> List[Path]:
-    return sorted(p for p in GFQL_DOCS.rglob("*") if p.suffix in (".rst", ".md"))
-
-
-def _run_file_blocks(path: Path) -> List[Tuple[int, str, Optional[str]]]:
-    """Run all blocks in a file sequentially. Return [(line, code, error_or_None)]."""
+def _run_file_blocks(path: Path) -> List[Tuple[int, str, Optional[str], Marker]]:
+    """Run all blocks in a file. Return [(line, snippet, error_or_None, marker)]."""
     blocks = _extract_code_blocks(path)
-    results: List[Tuple[int, str, Optional[str]]] = []
+    results: List[Tuple[int, str, Optional[str], Marker]] = []
 
     ns: dict = {}
     try:
         exec(compile(SETUP_CODE, "setup", "exec"), ns)
     except Exception as e:
-        return [(0, "SETUP", str(e))]
+        return [(0, "SETUP", str(e), None)]
 
-    for line_no, code in blocks:
-        skip = _should_skip(code)
-        if skip:
-            continue  # silently skip, not a test case
+    for line_no, code, marker in blocks:
+        # Explicit doc-test: skip
+        if marker == "skip":
+            continue
+
+        # Auto-skip GPU/remote/etc
+        if _should_skip(code):
+            continue
 
         try:
             exec(compile(code, f"{path.name}:{line_no}", "exec"), ns)
-            results.append((line_no, code[:80], None))
+            results.append((line_no, code[:80], None, marker))
         except Exception as e:
-            err = str(e)
-            if _is_tolerated(err):
-                continue  # noise, not a test case
-            results.append((line_no, code[:80], err.split("\n")[0][:200]))
+            err = str(e).split("\n")[0][:200]
+            results.append((line_no, code[:80], err, marker))
 
     return results
 
 
 # ---------------------------------------------------------------------------
-# Pytest parametrization: one test per file
+# Pytest
 # ---------------------------------------------------------------------------
 
-_doc_files = _collect_doc_files()
+_doc_files = sorted(
+    p for p in GFQL_DOCS.rglob("*") if p.suffix in (".rst", ".md")
+)
 
 
 @pytest.mark.parametrize(
@@ -212,16 +197,22 @@ _doc_files = _collect_doc_files()
     ids=[str(p.relative_to(GFQL_DOCS)) for p in _doc_files],
 )
 def test_gfql_doc_examples(doc_path: Path) -> None:
-    """All non-skipped, non-tolerated code blocks in a GFQL doc file must execute."""
-    import os
+    """All non-skipped code blocks in a GFQL doc file must execute (or be marked xfail)."""
     os.environ.setdefault("PYGRAPHISTRY_ROOT", str(Path(__file__).resolve().parent.parent))
     results = _run_file_blocks(doc_path)
     if not results:
         pytest.skip("no runnable code blocks")
-    failures = [(line, code, err) for line, code, err in results if err is not None]
-    if failures:
-        msg_parts = [f"  {doc_path.name}:{line}: {err}" for line, _, err in failures]
+
+    # xfail blocks that fail are fine; xfail blocks that pass get noted
+    real_failures = []
+    for line, code, err, marker in results:
+        if err is not None and marker != "xfail":
+            real_failures.append((line, err))
+        # xfail that passes — not an error, just means we could un-xfail it
+
+    if real_failures:
+        msg = [f"  {doc_path.name}:{line}: {err}" for line, err in real_failures]
         pytest.fail(
-            f"{len(failures)} code example(s) failed in {doc_path.name}:\n"
-            + "\n".join(msg_parts)
+            f"{len(real_failures)} code example(s) failed in {doc_path.name}:\n"
+            + "\n".join(msg)
         )

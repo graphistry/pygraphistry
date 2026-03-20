@@ -18,6 +18,8 @@ Basic Usage
 
 **Chaining Operations**
 
+.. doc-test: skip
+
 .. code-block:: python
 
     g.gfql([...], engine=EngineAbstract.AUTO)
@@ -54,6 +56,8 @@ Cypher Strings Through ``g.gfql()``
 Use ``g.gfql("MATCH ...")`` when you want Cypher syntax and declarative graph
 semantics on a bound graph instead of writing the equivalent GFQL chain by
 hand:
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -216,6 +220,8 @@ Where (Same-Path Constraints)
 -----------------------------
 
 Use `where` to relate attributes across named steps in a chain.
+
+.. doc-test: skip
 
 .. code-block:: python
 

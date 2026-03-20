@@ -8,6 +8,7 @@ This document describes the Python-specific implementation of GFQL using pandas 
 
 In Python, graphs are created with user-defined column names:
 
+<!-- doc-test: skip -->
 ```python
 import graphistry
 assert 'src_col' in df.columns and 'dst_col' in df.columns
@@ -76,6 +77,7 @@ is an empty placeholder frame in row mode.
 
 ### Same-Path Constraints (WHERE)
 
+<!-- doc-test: skip -->
 ```python
 from graphistry import n, e_forward, col, compare
 
@@ -95,6 +97,7 @@ Multiple WHERE comparisons are ANDed.
 WHERE is validated before same-path execution starts, so invalid references fail
 early with clean errors.
 
+<!-- doc-test: skip -->
 ```python
 from graphistry import n, e_forward, col, compare
 
@@ -131,6 +134,7 @@ Exception class depends on validation phase:
 - expression/shape checks usually raise `GFQLTypeError`
 - schema/column checks usually raise `GFQLSchemaError`
 
+<!-- doc-test: skip -->
 ```python
 from graphistry.compute import rows, where_rows, return_
 
@@ -182,6 +186,7 @@ pd.Timedelta(hours=24)
 
 Results can be further processed using standard pandas operations:
 
+<!-- doc-test: skip -->
 ```python
 # Using boolean columns from named operations
 people_nodes = result._nodes[result._nodes["people"]]
@@ -201,6 +206,7 @@ GFQL provides comprehensive validation to catch errors early:
 
 Chains validate on construction by default. Nodes, edges, predicates, refs, calls, and remote graphs are validated when a parent `Chain`/`Let` validates them or when you call `.validate()` directly. Schema validation is a separate, data-aware pass.
 
+<!-- doc-test: xfail -->
 ```python
 from graphistry.compute.chain import Chain
 from graphistry.compute.ast import n, e_forward
@@ -214,6 +220,7 @@ chain = Chain([
 
 For advanced flows (large/nested ASTs or staged assembly), you can defer structural validation and run it once after assembly:
 
+<!-- doc-test: xfail -->
 ```python
 # Defer validation while building
 chain = Chain([
@@ -241,6 +248,7 @@ You have two options for validating queries against your data schema:
 1. **Validate-only** (no execution): Use `validate_chain_schema()` to check compatibility without running the query
 2. **Validate-and-run**: Use `g.gfql(..., validate_schema=True)` to validate before execution
 
+<!-- doc-test: skip -->
 ```python
 # Method 1: Validate-only (no execution)
 from graphistry.compute.validate_schema import validate_chain_schema
@@ -292,6 +300,7 @@ GFQL uses structured exceptions with error codes:
 
 ### Validation Modes
 
+<!-- doc-test: xfail -->
 ```python
 # Fail-fast mode (default) - raises on first error
 chain.validate()
@@ -349,6 +358,7 @@ n({"created": gt(pd.Timestamp("2024-01-01"))})
 
 ### Schema Validation
 
+<!-- doc-test: skip -->
 ```python
 # Check available columns before querying
 print(g._nodes.columns)  # ['id', 'type', 'name']
@@ -362,6 +372,7 @@ g.gfql([n({"name": "Alice"})])
 
 ### Unsupported Operations
 
+<!-- doc-test: skip -->
 ```python
 # Supported in row pipeline - grouped aggregation
 from graphistry.compute import rows, group_by
@@ -459,6 +470,7 @@ selection:
 ## Best Practices
 
 ### Query Construction
+<!-- doc-test: skip -->
 ```python
 # Good: Build queries programmatically
 node_filters = {"type": "User"}
@@ -471,6 +483,7 @@ g.gfql([n(query=f"type == 'User' and age > {min_age}")])  # SQL injection risk
 ```
 
 ### Memory Efficiency
+<!-- doc-test: skip -->
 ```python
 # Good: Filter early and use named results
 result = g.gfql([
@@ -502,6 +515,7 @@ GFQL supports directed acyclic graph (DAG) patterns using Let bindings, which al
 
 ### Let Bindings
 
+<!-- doc-test: skip -->
 ```python
 from graphistry import let, ref, n, e_forward, ge
 
@@ -528,6 +542,7 @@ The `ref()` function creates references to named bindings within a Let.
 Ref chains run on the referenced graph; bindings created by `n()` contain nodes only,
 so edge traversals need a binding that preserves edges (for example, via a list or `Chain([...])`).
 
+<!-- doc-test: skip -->
 ```python
 # Basic reference - just the binding result
 result = g.gfql(let({
@@ -555,6 +570,7 @@ result = g.gfql(let({
 
 ### Complex DAG Patterns
 
+<!-- doc-test: skip -->
 ```python
 # Multi-level analysis pattern
 result = g.gfql(let({
@@ -579,6 +595,7 @@ result = g.gfql(let({
 
 For distributed computing, `remote()` allows referencing graphs on remote servers:
 
+<!-- doc-test: skip -->
 ```python
 from graphistry.compute import remote
 

@@ -215,6 +215,8 @@ Usage Examples
 
 **Example 3: Filtering Edges with String Conditions**
 
+.. doc-test: skip
+
 .. code-block:: python
 
     from graphistry import e_forward, contains
@@ -239,6 +241,8 @@ Usage Examples
     ])
 
 **Example 5: Same-Path Constraint with WHERE**
+
+.. doc-test: skip
 
 .. code-block:: python
 
