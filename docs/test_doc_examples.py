@@ -93,6 +93,23 @@ nodes = pd.DataFrame({
     'country': ['USA', 'UK', 'USA', 'UK'],
     'name': ['Alice', 'Bob', 'Charlie', 'Dave'],
     'status': ['active', 'active', 'inactive', 'active'],
+    'active': [True, True, False, True],
+    'degree': [2, 3, 1, 0],
+    'owner_id': ['x1', 'x1', 'x2', 'x2'],
+    'org_id': ['org1', 'org1', 'org2', 'org2'],
+    'department': ['sales', 'eng', 'sales', 'eng'],
+    'importance': [0.9, 0.5, 0.1, 0.7],
+    'risk_score': [3, 7, 1, 9],
+    'created_at': pd.to_datetime(['2023-06-15', '2023-03-01', '2022-11-20', '2024-01-10']),
+    'timestamp': pd.to_datetime(['2023-06-15 10:30', '2023-03-01 14:00', '2022-11-20 09:15', '2024-01-10 16:45']),
+    'event_date': [date(2023, 6, 15), date(2023, 3, 1), date(2022, 11, 20), date(2024, 1, 10)],
+    'date': [date(2023, 6, 15), date(2023, 3, 1), date(2022, 11, 20), date(2024, 1, 10)],
+    'event_time': [time(10, 30), time(14, 0), time(9, 15), time(16, 45)],
+    'daily_event': [time(10, 30), time(14, 0), time(9, 15), time(16, 45)],
+    'start_date': [date(2023, 1, 1), date(2023, 2, 1), date(2023, 3, 1), date(2023, 4, 1)],
+    'priority': [1, 3, 2, 1],
+    'category': ['A', 'B', 'A', 'C'],
+    'infected': [False, True, False, True],
 })
 edges = pd.DataFrame({
     's': ['a', 'b', 'c', 'a'],
@@ -101,8 +118,32 @@ edges = pd.DataFrame({
     'status': ['active', 'active', 'inactive', 'active'],
     'type': ['knows', 'works_at', 'knows', 'likes'],
     'label': ['knows', 'works_at', 'knows', 'likes'],
+    'timestamp': pd.to_datetime(['2023-06-15', '2023-07-20', '2023-08-10', '2023-09-05']),
+    'relationship': ['friend', 'colleague', 'friend', 'manager'],
+    'protocol': ['TCP', 'UDP', 'TCP', 'HTTP'],
+    'e_type': ['internal', 'external', 'internal', 'external'],
 })
 g = graphistry.nodes(nodes, 'id').edges(edges, 's', 'd')
+# Aliases for translate.rst pandas examples
+nodes_df = nodes
+edges_df = edges
+# Graph without 'name' column for igraph compatibility
+nodes_no_name = nodes.drop(columns=['name'])
+g_no_name = graphistry.nodes(nodes_no_name, 'id').edges(edges, 's', 'd')
+g_edges_only = graphistry.edges(edges, 's', 'd')
+# Aliases for translate.rst examples that use src/dst column names
+edges_df['src'] = edges_df['s']
+edges_df['dst'] = edges_df['d']
+# Add date column to edges for datetime examples
+edges['date'] = [date(2023, 6, 15), date(2023, 7, 20), date(2023, 8, 10), date(2023, 9, 5)]
+# Extra node columns for remaining examples
+nodes['risk1'] = [3, 7, 1, 9]
+nodes['risk2'] = [1, 5, 8, 2]
+nodes['amount'] = [100, 500, 200, 1000]
+nodes['balance'] = [1000, 5000, 200, 50000]
+# Dummy policy variables for policy.rst conceptual blocks
+query = [n()]
+policy_dict = {}
 """
 
 # ---------------------------------------------------------------------------

@@ -62,7 +62,6 @@ Multiple WHERE comparisons are conjunctive (AND).
 
 **Python example:**
 
-<!-- doc-test: skip -->
 ```python
 from graphistry import n, e_forward, col, compare
 
@@ -578,7 +577,6 @@ For Python accessor details (including row-pipeline result materialization), see
 
 Operations with `name` parameter add boolean columns to mark matched entities:
 
-<!-- doc-test: skip -->
 ```python
 result = g.gfql([
     n({"type": "person"}, name="people"),

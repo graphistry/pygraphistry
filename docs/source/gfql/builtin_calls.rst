@@ -1130,8 +1130,6 @@ Traverse the graph N steps from current nodes.
 
 **Examples:**
 
-.. doc-test: skip
-
 .. code-block:: python
 
     # Simple N-hop traversal
@@ -1378,8 +1376,6 @@ Map node attributes to colors.
 
 **Example:**
 
-.. doc-test: skip
-
 .. code-block:: python
 
     # Categorical color mapping
@@ -1493,8 +1489,6 @@ Map node attributes to sizes.
      - Default size
 
 **Example:**
-
-.. doc-test: skip
 
 .. code-block:: python
 

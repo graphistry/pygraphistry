@@ -73,7 +73,6 @@ Note: The `timezone` field is optional for DateTimeWire and defaults to "UTC" if
 
 Filter nodes or edges based on datetime values:
 
-<!-- doc-test: skip -->
 ```python
 import pandas as pd
 from datetime import datetime
@@ -167,7 +166,6 @@ g.gfql([
 
 For date comparisons (ignoring time):
 
-<!-- doc-test: skip -->
 ```python
 from datetime import date
 from graphistry.compute import eq, ge
@@ -187,7 +185,6 @@ after_date = g.gfql([
 
 Filter based on time of day:
 
-<!-- doc-test: skip -->
 ```python
 from datetime import time
 from graphistry.compute import is_in, between
@@ -212,7 +209,6 @@ business_hours = g.gfql([
 
 ## Timezone Support
 
-<!-- doc-test: skip -->
 ```python
 # Timezone-aware filtering
 tz_aware_filter = g.gfql([
@@ -230,7 +226,6 @@ Comparisons automatically handle timezone conversions.
 
 Combine temporal predicates with other filters:
 
-<!-- doc-test: skip -->
 ```python
 from graphistry.compute import gt, lt, eq
 
@@ -248,7 +243,6 @@ complex_filter = g.gfql([
 
 You can pass wire protocol dictionaries directly to predicates, which is useful for programmatic predicate creation or when working with JSON configurations:
 
-<!-- doc-test: skip -->
 ```python
 # Pass wire protocol dictionaries directly
 filter_with_dict = g.gfql([
@@ -286,7 +280,6 @@ This is the same format used by the wire protocol, making it easy to:
 
 Use temporal filters in complex graph traversals:
 
-<!-- doc-test: skip -->
 ```python
 # Find all transactions after a date, then their related accounts
 recent_transactions = g.gfql([
@@ -305,7 +298,6 @@ PyGraphistry provides three temporal value classes for precise control:
 
 For full datetime with optional timezone:
 
-<!-- doc-test: skip -->
 ```python
 from graphistry.compute import DateTimeValue, gt
 
@@ -322,7 +314,6 @@ filter_dt = g.gfql([
 
 For date-only comparisons:
 
-<!-- doc-test: skip -->
 ```python
 from graphistry.compute import DateValue, between
 
@@ -340,7 +331,6 @@ year_filter = g.gfql([
 
 For time-of-day comparisons:
 
-<!-- doc-test: skip -->
 ```python
 from graphistry.compute import TimeValue, is_in
 
@@ -369,7 +359,6 @@ time_filter = g.gfql([
 ### Duration/Interval Support
 Currently, PyGraphistry does not support duration or interval types (e.g., ISO 8601 durations like "P1D" or "PT2H"). For duration-based queries:
 
-<!-- doc-test: skip -->
 ```python
 # Instead of duration literals, calculate explicit timestamps
 from datetime import datetime, timedelta
@@ -396,7 +385,6 @@ business_days = g.gfql([
 
 ### Filter Recent Data
 
-<!-- doc-test: skip -->
 ```python
 from datetime import datetime, timedelta
 
@@ -409,7 +397,6 @@ recent_data = g.gfql([
 
 ### Business Hours Filtering
 
-<!-- doc-test: skip -->
 ```python
 # Filter events during business hours
 business_hours = g.gfql([
@@ -421,7 +408,6 @@ business_hours = g.gfql([
 
 ### Quarterly Data Analysis
 
-<!-- doc-test: skip -->
 ```python
 # Q1 2023 data
 q1_2023 = g.gfql([

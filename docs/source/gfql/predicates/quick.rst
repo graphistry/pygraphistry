@@ -242,8 +242,6 @@ Usage Examples
 
 **Example 5: Same-Path Constraint with WHERE**
 
-.. doc-test: skip
-
 .. code-block:: python
 
     from graphistry import n, e_forward, col, compare

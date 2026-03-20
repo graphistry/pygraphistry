@@ -77,7 +77,6 @@ is an empty placeholder frame in row mode.
 
 ### Same-Path Constraints (WHERE)
 
-<!-- doc-test: skip -->
 ```python
 from graphistry import n, e_forward, col, compare
 

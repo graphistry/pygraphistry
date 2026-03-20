@@ -6,8 +6,6 @@ Policy hooks provide external control over GFQL query execution, enabling securi
 Quick Start
 -----------
 
-.. doc-test: skip
-
 .. code-block:: python
 
     from graphistry.compute.gfql.policy import PolicyException
@@ -129,8 +127,6 @@ Examples
 
 **Limit Data Size**
 
-.. doc-test: skip
-
 .. code-block:: python
 
     def size_limit_policy(context):
@@ -147,8 +143,6 @@ Examples
 
 
 **Control Operation Execution and Performance**
-
-.. doc-test: skip
 
 .. code-block:: python
 
@@ -198,8 +192,6 @@ Examples
 
 
 **Control Remote Access**
-
-.. doc-test: skip
 
 .. code-block:: python
 
@@ -262,8 +254,6 @@ Examples
 
 **Track Usage**
 
-.. doc-test: skip
-
 .. code-block:: python
 
     def create_usage_tracker():
@@ -292,8 +282,6 @@ Examples
 
 
 **Shared Handler**
-
-.. doc-test: skip
 
 .. code-block:: python
 
@@ -623,16 +611,12 @@ Policies work with different GFQL query patterns:
 
 **Chain queries** - Sequential operations:
 
-.. doc-test: skip
-
 .. code-block:: python
 
     # query_type will be 'chain'
     g.gfql([n(), e(), n()], policy=policy_dict)
 
 **DAG queries** - Named bindings with dependencies:
-
-.. doc-test: skip
 
 .. code-block:: python
 

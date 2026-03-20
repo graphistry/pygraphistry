@@ -111,8 +111,6 @@ Example: Find 2-hop paths where edges have `"interesting": True`.
 
 Example: Match an account and its owner when both steps share an attribute.
 
-.. doc-test: skip
-
 .. code-block:: python
 
     from graphistry import n, e_forward, col, compare
@@ -233,8 +231,6 @@ Example: Find recent transactions using temporal predicates.
 
 Example: Find transaction nodes between two kinds of risky nodes.
 
-.. doc-test: skip
-
 .. code-block:: python
 
     from graphistry import n, e_forward, e_reverse
@@ -252,8 +248,6 @@ Example: Find transaction nodes between two kinds of risky nodes.
 **Filter by Multiple Node Types Using `is_in`**
 
 Example: Filter nodes and edges by multiple types.
-
-.. doc-test: skip
 
 .. code-block:: python
 

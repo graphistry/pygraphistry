@@ -309,7 +309,6 @@ WHERE fof.active = true
 ```
 
 **Python:**
-<!-- doc-test: skip -->
 ```python
 g.gfql([
     n({"type": "User", "name": "Alice"}),
@@ -336,7 +335,6 @@ WHERE a.owner_id = c.owner_id
 ```
 
 **Python:**
-<!-- doc-test: skip -->
 ```python
 from graphistry import n, e_forward, col, compare
 
