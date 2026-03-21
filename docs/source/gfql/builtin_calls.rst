@@ -425,7 +425,7 @@ Current supported names include:
 
 **Examples:**
 
-.. doc-test: skip
+.. doc-test: xfail
 
 .. code-block:: python
 
@@ -614,7 +614,7 @@ Compute topological levels for directed acyclic graphs (DAGs).
 
 **Example:**
 
-.. doc-test: skip
+.. doc-test: xfail
 
 .. code-block:: python
 
@@ -762,7 +762,7 @@ Compute CPU-based graph layouts using igraph.
 
 **Example:**
 
-.. doc-test: skip
+.. doc-test: xfail
 
 .. code-block:: python
 
@@ -872,7 +872,7 @@ Apply ForceAtlas2 layout algorithm (CPU-based implementation).
 
 **Example:**
 
-.. doc-test: skip
+.. doc-test: xfail
 
 .. code-block:: python
 
@@ -960,7 +960,7 @@ PyGraphistry's implementation is optimized for large graphs on both CPU and GPU.
 
 **Examples:**
 
-.. doc-test: skip
+.. doc-test: xfail
 
 .. code-block:: python
 
@@ -1193,7 +1193,7 @@ Merge nodes based on a shared attribute value.
 
 **Example:**
 
-.. doc-test: skip
+.. doc-test: xfail
 
 .. code-block:: python
 
@@ -1266,7 +1266,7 @@ Keep only nodes where a column is True.
 
 **Example:**
 
-.. doc-test: skip
+.. doc-test: xfail
 
 .. code-block:: python
 
@@ -1442,8 +1442,6 @@ Map edge attributes to colors.
      - Default color for unmapped values
 
 **Example:**
-
-.. doc-test: skip
 
 .. code-block:: python
 

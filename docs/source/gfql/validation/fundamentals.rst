@@ -111,7 +111,7 @@ Type Mismatches
 Temporal Comparisons
 ^^^^^^^^^^^^^^^^^^^^
 
-.. doc-test: skip
+.. doc-test: xfail
 
 .. code-block:: python
 

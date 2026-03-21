@@ -164,7 +164,7 @@ Validation checks include:
 
 Common failures:
 
-.. doc-test: skip
+.. doc-test: xfail
 
 .. code-block:: python
 

@@ -362,7 +362,7 @@ WHERE t.amount > 10000 AND t.date > date('2024-01-01')
 ```
 
 **Python:**
-<!-- doc-test: skip -->
+<!-- doc-test: xfail -->
 ```python
 g.gfql([
     n({"type": "Account"}),

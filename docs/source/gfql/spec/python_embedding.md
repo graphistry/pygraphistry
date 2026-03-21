@@ -96,7 +96,7 @@ Multiple WHERE comparisons are ANDed.
 WHERE is validated before same-path execution starts, so invalid references fail
 early with clean errors.
 
-<!-- doc-test: skip -->
+<!-- doc-test: xfail -->
 ```python
 from graphistry import n, e_forward, col, compare
 
@@ -363,7 +363,7 @@ g.gfql([n({"name": "Alice"})])
 
 ### Unsupported Operations
 
-<!-- doc-test: skip -->
+<!-- doc-test: xfail -->
 ```python
 # Supported in row pipeline - grouped aggregation
 from graphistry.compute import rows, group_by

@@ -120,8 +120,12 @@ edges = pd.DataFrame({
     'label': ['knows', 'works_at', 'knows', 'likes'],
     'timestamp': pd.to_datetime(['2023-06-15', '2023-07-20', '2023-08-10', '2023-09-05']),
     'relationship': ['friend', 'colleague', 'friend', 'manager'],
+    'relationship_type': ['friend', 'colleague', 'friend', 'manager'],
     'protocol': ['TCP', 'UDP', 'TCP', 'HTTP'],
     'e_type': ['internal', 'external', 'internal', 'external'],
+    'time': [time(10, 30), time(14, 0), time(9, 15), time(16, 45)],
+    'category': ['urgent', 'normal', 'urgent', 'low'],
+    'source': ['web', 'api', 'web', 'api'],
 })
 g = graphistry.nodes(nodes, 'id').edges(edges, 's', 'd')
 # Aliases for translate.rst pandas examples

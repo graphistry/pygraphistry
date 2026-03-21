@@ -205,8 +205,6 @@ Example: Find nodes up to 2 hops away from node `"a"` and label each hop.
 
 Example: Find recent transactions using temporal predicates.
 
-.. doc-test: skip
-
 .. code-block:: python
 
     from graphistry import n, e_forward

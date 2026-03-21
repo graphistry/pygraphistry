@@ -144,7 +144,7 @@ filter2 = e_forward(edge_match={
 ```
 
 ### Round-trip Example
-<!-- doc-test: skip -->
+<!-- doc-test: xfail -->
 ```python
 # Create predicate
 from graphistry.compute import gt
@@ -464,7 +464,7 @@ dt_from_json = temporal_value_from_json(json_dt)
 
 ## 7. Full Round-Trip Example
 
-<!-- doc-test: skip -->
+<!-- doc-test: xfail -->
 ```python
 # 1. Create a complex query with temporal predicates
 from graphistry import n, Chain

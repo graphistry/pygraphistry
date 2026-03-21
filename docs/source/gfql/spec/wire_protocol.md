@@ -633,7 +633,7 @@ g.gfql([
 ### User 360 Query
 
 **Python**:
-<!-- doc-test: skip -->
+<!-- doc-test: xfail -->
 ```python
 g.gfql([
     n({"customer_id": "C123"}),

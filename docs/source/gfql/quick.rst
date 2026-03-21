@@ -57,7 +57,7 @@ Use ``g.gfql("MATCH ...")`` when you want Cypher syntax and declarative graph
 semantics on a bound graph instead of writing the equivalent GFQL chain by
 hand:
 
-.. doc-test: skip
+.. doc-test: xfail
 
 .. code-block:: python
 
