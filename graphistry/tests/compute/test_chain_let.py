@@ -43,13 +43,13 @@ class TestChainDagHelpers:
         nested = ASTRef('a', [ASTRef('b', [n()])])
         deps = extract_dependencies(nested)
         assert deps == {'a', 'b'}
-        
-        # Nested DAG
+
+        # Nested ASTLet is an opaque unit — no external dependencies
         dag = ASTLet({
             'inner': ASTRef('outer', [n()])
         })
         deps = extract_dependencies(dag)
-        assert deps == {'outer'}
+        assert deps == set(), "Nested ASTLet should be opaque (no external deps)"
     
     def test_build_dependency_graph(self):
         """Test building dependency and dependent mappings"""
@@ -1297,4 +1297,149 @@ class TestChainDagInternal:
         error_msg = str(exc_info.value)
         assert "Output binding 'missing' not found" in error_msg
         assert "Available bindings: ['node1']" in error_msg
+
+class TestNestedLetScopeIsolation:
+    """Test nested ASTLet scope isolation (issue #968).
+
+    Inner let bindings must NOT leak into the outer scope.
+    Nested ASTLet should be treated as an opaque execution unit
+    in the outer DAG's dependency graph.
+    """
+
+    @staticmethod
+    def _mk_graph():
+        """Standard test graph: persons + asset, knows + owns edges."""
+        nodes_df = pd.DataFrame({
+            'id': ['a', 'b', 'c', 'd'],
+            'type': ['person', 'person', 'person', 'asset']
+        })
+        edges_df = pd.DataFrame({
+            's': ['a', 'a', 'b', 'c'],
+            'd': ['b', 'c', 'c', 'd'],
+            'rel': ['knows', 'knows', 'knows', 'owns']
+        })
+        return CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+
+    # ------------------------------------------------------------------
+    # Unit: extract_dependencies treats nested ASTLet as leaf
+    # ------------------------------------------------------------------
+
+    def test_extract_dependencies_nested_let_is_leaf(self):
+        """Nested ASTLet should produce zero external dependencies."""
+        inner = ASTLet({
+            'people': Chain([n({'type': 'person'})]),
+            'friends': ASTRef('people', [e(), n()])
+        })
+        deps = extract_dependencies(inner)
+        assert deps == set(), (
+            f"Nested ASTLet should be a leaf node (no deps), got {deps}"
+        )
+
+    def test_validate_dependencies_nested_let_opaque(self):
+        """validate_dependencies must not reject a nested let + outer ref."""
+        inner = ASTLet({
+            'people': Chain([n({'type': 'person'})]),
+            'friends': ASTRef('people', [e(), n()])
+        })
+        bindings = {
+            'inner_dag': inner,
+            'final': ASTRef('inner_dag', [])
+        }
+        dependencies, _ = build_dependency_graph(bindings)
+        # Should NOT raise — inner_dag's children are its own scope
+        validate_dependencies(bindings, dependencies)
+
+    def test_determine_execution_order_nested_let(self):
+        """Topo sort should treat nested let as a leaf (no deps)."""
+        inner = ASTLet({
+            'x': Chain([n()]),
+            'y': ASTRef('x', [e(), n()])
+        })
+        bindings = {
+            'inner': inner,
+            'outer': ASTRef('inner', [])
+        }
+        from graphistry.compute.chain_let import determine_execution_order
+        order = determine_execution_order(bindings)
+        assert order == ['inner', 'outer']
+
+    # ------------------------------------------------------------------
+    # Integration: nested let executes end-to-end
+    # ------------------------------------------------------------------
+
+    def test_nested_let_executes_as_opaque_unit(self):
+        """g.gfql(let({inner: let({...}), final: ref('inner', ...)})) should work."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'inner': ASTLet({
+                'people': Chain([n({'type': 'person'})]),
+            }),
+            'final': ASTRef('inner', [])
+        })
+        result = g.gfql(dag)
+        assert result is not None
+        # inner DAG filters to persons only; final refs that result
+        assert all(result._nodes['type'] == 'person')
+
+    def test_nested_let_scope_isolation(self):
+        """Inner binding names must NOT be visible in outer scope."""
+        g = self._mk_graph()
+        # 'people' lives inside 'inner' — outer ref to 'people' must fail
+        dag = ASTLet({
+            'inner': ASTLet({
+                'people': Chain([n({'type': 'person'})]),
+            }),
+            'bad': ASTRef('people', [])   # 'people' is NOT in outer scope
+        })
+        with pytest.raises(ValueError, match="references undefined nodes"):
+            g.gfql(dag)
+
+    def test_nested_let_validate_then_execute_agreement(self):
+        """If validate() passes, g.gfql() must not raise a structural error."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'inner': ASTLet({
+                'people': Chain([n({'type': 'person'})]),
+                'friends': ASTRef('people', [e(), n()])
+            }),
+            'final': ASTRef('inner', [])
+        })
+        # validate() must pass ...
+        dag.validate()
+        # ... and so must execution
+        result = g.gfql(dag)
+        assert result is not None
+
+    def test_nested_let_parallel_independent_dags(self):
+        """Two sibling inner lets + outer ref (parallel-ready pattern)."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'social': ASTLet({
+                'people': Chain([n({'type': 'person'})]),
+            }),
+            'assets': ASTLet({
+                'things': Chain([n({'type': 'asset'})]),
+            }),
+            'from_social': ASTRef('social', [])
+        })
+        result = g.gfql(dag, output='from_social')
+        assert result is not None
+        assert all(result._nodes['type'] == 'person')
+
+    def test_nested_let_with_output_selection(self):
+        """g.gfql(dag, output='inner') returns inner DAG result."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'inner': ASTLet({
+                'people': Chain([n({'type': 'person'})]),
+            }),
+            'other': Chain([n({'type': 'asset'})])
+        })
+        result = g.gfql(dag, output='inner')
+        assert all(result._nodes['type'] == 'person')
+
+        result2 = g.gfql(dag, output='other')
+        assert all(result2._nodes['type'] == 'asset')
+
+
 # CI: no functional change

@@ -246,6 +246,49 @@ let({
 }
 ```
 
+#### Nested Let (Scope Isolation)
+
+A ``Let`` binding value may itself be a ``Let``. The inner ``Let`` executes as an opaque unit: its internal bindings are **not** visible in the outer scope. The outer ``Let`` sees only the binding name and the inner DAG's result.
+
+**Python**:
+```python
+let({
+    'stage1': let({
+        'people': n({'type': 'Person'}),
+        'friends': ref('people', [e_forward(), n()])
+    }),
+    'stage2': ref('stage1', [e_forward(), n()])
+})
+```
+
+**Wire Format**:
+```json
+{
+  "type": "Let",
+  "bindings": {
+    "stage1": {
+      "type": "Let",
+      "bindings": {
+        "people": {"type": "Node", "filter_dict": {"type": "Person"}},
+        "friends": {
+          "type": "Ref", "ref": "people",
+          "chain": [{"type": "Edge", "direction": "forward"}, {"type": "Node"}]
+        }
+      }
+    },
+    "stage2": {
+      "type": "Ref", "ref": "stage1",
+      "chain": [{"type": "Edge", "direction": "forward"}, {"type": "Node"}]
+    }
+  }
+}
+```
+
+**Scope rules**:
+- ``stage2`` can reference ``stage1`` (an outer binding)
+- ``stage2`` **cannot** reference ``people`` or ``friends`` (inner bindings)
+- The inner ``Let`` result is the last executed binding in its own scope
+
 ### Ref Operation
 
 Ref executes on the referenced graph; bindings used for edge traversal should retain edges

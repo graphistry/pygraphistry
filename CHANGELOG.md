@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+- **GFQL / Let**: Fixed nested `let()` inside `let()` failing at execution time despite passing `validate()`. The dependency resolver now treats nested `ASTLet` bindings as opaque execution units instead of walking into their internal bindings, which caused false "references undefined nodes" errors (#968).
+
+### Docs
+- **GFQL**: Documented nested let scope isolation rules in wire protocol spec and LLM guide.
+
 ### Added
 - **Docker / RAPIDS**: Added `docker/test-rapids-official-matrix.sh` to run the official RAPIDS compatibility matrix sequentially across `25.02` and `26.02` for `basic`, `gfql`, and `ai`.
 

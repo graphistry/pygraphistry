@@ -35,9 +35,9 @@ def extract_dependencies(ast_obj: Union[ASTObject, 'Chain', 'Plottable']) -> Set
             deps.update(extract_dependencies(op))
     
     elif isinstance(ast_obj, ASTLet):
-        # Nested let bindings
-        for binding in ast_obj.bindings.values():
-            deps.update(extract_dependencies(binding))
+        # Nested let is an opaque execution unit — no external dependencies.
+        # Inner bindings are resolved in the inner DAG's own scope.
+        pass
     
     elif isinstance(ast_obj, Chain):
         # Chain may contain ASTRef operations
