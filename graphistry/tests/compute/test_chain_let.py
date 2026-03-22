@@ -1441,5 +1441,178 @@ class TestNestedLetScopeIsolation:
         result2 = g.gfql(dag, output='other')
         assert all(result2._nodes['type'] == 'asset')
 
+    # ------------------------------------------------------------------
+    # Amplified: deeper nesting, name collisions, disallowed patterns
+    # ------------------------------------------------------------------
+
+    def test_three_level_nesting(self):
+        """Three levels of nested let should execute correctly."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'level1': ASTLet({
+                'level2': ASTLet({
+                    'leaf': Chain([n({'type': 'person'})]),
+                }),
+                'use_leaf': ASTRef('level2', [])
+            }),
+            'final': ASTRef('level1', [])
+        })
+        dag.validate()
+        result = g.gfql(dag)
+        assert all(result._nodes['type'] == 'person')
+
+    def test_sibling_inner_lets_same_binding_names(self):
+        """Sibling inner lets may reuse binding names without collision."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'left': ASTLet({
+                'data': Chain([n({'type': 'person'})]),  # 'data' in left scope
+            }),
+            'right': ASTLet({
+                'data': Chain([n({'type': 'asset'})]),   # 'data' in right scope
+            }),
+            'use_left': ASTRef('left', []),
+            'use_right': ASTRef('right', [])
+        })
+        dag.validate()
+        left_result = g.gfql(dag, output='use_left')
+        right_result = g.gfql(dag, output='use_right')
+        assert all(left_result._nodes['type'] == 'person')
+        assert all(right_result._nodes['type'] == 'asset')
+
+    def test_empty_inner_let(self):
+        """Empty inner let returns the input graph unchanged."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'empty': ASTLet({}),
+            'after': ASTRef('empty', [])
+        })
+        result = g.gfql(dag, output='after')
+        # Empty let returns input graph, so all nodes survive
+        assert len(result._nodes) == len(g._nodes)
+
+    def test_inner_let_diamond_on_result(self):
+        """Multiple outer refs to the same inner let result."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'shared': ASTLet({
+                'people': Chain([n({'type': 'person'})]),
+            }),
+            'branch_a': ASTRef('shared', []),
+            'branch_b': ASTRef('shared', [])
+        })
+        a = g.gfql(dag, output='branch_a')
+        b = g.gfql(dag, output='branch_b')
+        assert len(a._nodes) == len(b._nodes)
+        assert all(a._nodes['type'] == 'person')
+
+    # ------------------------------------------------------------------
+    # Scope semantics: inner let shares execution context with outer
+    # ------------------------------------------------------------------
+
+    def test_inner_let_can_read_outer_binding_via_shared_context(self):
+        """Inner let can access outer bindings via the shared execution context.
+
+        The dependency graph treats nested let as opaque (no deps leak upward),
+        but the runtime context is shared — inner refs to already-executed
+        outer bindings resolve successfully. This is analogous to lexical closures.
+        """
+        g = self._mk_graph()
+        dag = ASTLet({
+            'outer_data': Chain([n({'type': 'person'})]),
+            'inner': ASTLet({
+                # outer_data is accessible via shared context
+                'reuse': ASTRef('outer_data', [])
+            }),
+        })
+        result = g.gfql(dag, output='inner')
+        assert all(result._nodes['type'] == 'person')
+
+    def test_outer_ref_to_inner_binding_fails(self):
+        """Outer scope CANNOT reference inner binding names.
+
+        This is the core invariant: inner names do not leak upward.
+        """
+        g = self._mk_graph()
+        dag = ASTLet({
+            'inner': ASTLet({
+                'secret': Chain([n({'type': 'person'})]),
+            }),
+            'bad': ASTRef('secret', [])  # 'secret' is NOT in outer scope
+        })
+        with pytest.raises(ValueError, match="references undefined nodes"):
+            g.gfql(dag)
+
+    # ------------------------------------------------------------------
+    # Serialization: nested let survives JSON round-trip
+    # ------------------------------------------------------------------
+
+    def test_nested_let_json_round_trip(self):
+        """Nested let serializes to JSON and deserializes correctly."""
+        original = ASTLet({
+            'inner': ASTLet({
+                'people': Chain([n({'type': 'person'})]),
+                'friends': ASTRef('people', [e(), n()])
+            }),
+            'final': ASTRef('inner', [])
+        })
+        json_repr = original.to_json()
+        assert json_repr['type'] == 'Let'
+        assert json_repr['bindings']['inner']['type'] == 'Let'
+
+        restored = ASTLet.from_json(json_repr)
+        restored.validate()
+
+        # Execute both and compare
+        g = self._mk_graph()
+        result_orig = g.gfql(original)
+        result_restored = g.gfql(restored)
+        assert len(result_orig._nodes) == len(result_restored._nodes)
+
+    def test_nested_let_dict_dispatch(self):
+        """g.gfql({type: Let, bindings: {inner: {type: Let, ...}}}) works."""
+        g = self._mk_graph()
+        result = g.gfql({
+            'type': 'Let',
+            'bindings': {
+                'inner': {
+                    'type': 'Let',
+                    'bindings': {
+                        'people': {
+                            'type': 'Chain',
+                            'chain': [{'type': 'Node', 'filter_dict': {'type': 'person'}}]
+                        }
+                    }
+                },
+                'final': {
+                    'type': 'Ref',
+                    'ref': 'inner',
+                    'chain': []
+                }
+            }
+        })
+        assert all(result._nodes['type'] == 'person')
+
+    # ------------------------------------------------------------------
+    # extract_dependencies unit coverage
+    # ------------------------------------------------------------------
+
+    def test_extract_deps_ref_wrapping_nested_let(self):
+        """ASTRef whose chain contains a nested let: the ref dep is extracted,
+        but the let inside the chain is opaque."""
+        inner = ASTLet({'x': Chain([n()])})
+        ref_with_let = ASTRef('source', [inner])
+        deps = extract_dependencies(ref_with_let)
+        # 'source' is the ref dep; the nested let contributes nothing
+        assert deps == {'source'}
+
+    def test_extract_deps_chain_containing_nested_let(self):
+        """Chain containing a nested ASTLet: the let is opaque."""
+        inner = ASTLet({'x': Chain([n()])})
+        from graphistry.compute.chain import Chain as ChainClass
+        c = ChainClass([inner])
+        deps = extract_dependencies(c)
+        assert deps == set()
+
 
 # CI: no functional change
