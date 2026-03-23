@@ -1309,10 +1309,18 @@ class TestNestedLetScopeIsolation:
     - Dependency graph and runtime must agree on all of the above
     """
 
-    # Reusable fragments — avoid repeating Chain([n({type: X})]) everywhere
-    _PERSONS = Chain([n({'type': 'person'})])
-    _ASSETS = Chain([n({'type': 'asset'})])
-    _ALL_NODES = Chain([n()])
+    # Reusable DAG fragments — functions to avoid mutable singleton sharing
+    @staticmethod
+    def _persons():
+        return Chain([n({'type': 'person'})])
+
+    @staticmethod
+    def _assets():
+        return Chain([n({'type': 'asset'})])
+
+    @staticmethod
+    def _all_nodes():
+        return Chain([n()])
 
     @staticmethod
     def _mk_graph():
@@ -1344,18 +1352,9 @@ class TestNestedLetScopeIsolation:
 
     # ==================================================================
     # A. DEPENDENCY GRAPH — nested let is opaque (unit tests)
+    #    Note: basic extract_dependencies coverage is in
+    #    TestChainDagHelpers.test_extract_dependencies_nested
     # ==================================================================
-
-    def test_extract_dependencies_nested_let_is_leaf(self):
-        """Nested ASTLet should produce zero external dependencies."""
-        inner = ASTLet({
-            'people': Chain([n({'type': 'person'})]),
-            'friends': ASTRef('people', [e(), n()])
-        })
-        deps = extract_dependencies(inner)
-        assert deps == set(), (
-            f"Nested ASTLet should be a leaf node (no deps), got {deps}"
-        )
 
     def test_validate_dependencies_nested_let_opaque(self):
         """validate_dependencies must not reject a nested let + outer ref."""
@@ -1407,28 +1406,17 @@ class TestNestedLetScopeIsolation:
         """Basic: inner let + outer ref works end-to-end."""
         g = self._mk_graph()
         dag = ASTLet({
-            'inner': ASTLet({'people': self._PERSONS}),
+            'inner': ASTLet({'people': self._persons()}),
             'final': ASTRef('inner', [])
         })
-        self._assert_persons(g.gfql(dag))
-
-    def test_nested_let_validate_then_execute_agreement(self):
-        """If validate() passes, g.gfql() must not raise a structural error."""
-        g = self._mk_graph()
-        dag = ASTLet({
-            'inner': ASTLet({'people': self._PERSONS}),
-            'final': ASTRef('inner', [])
-        })
-        dag.validate()
-        # Must not raise — and must produce correct result
         self._assert_persons(g.gfql(dag))
 
     def test_nested_let_with_output_selection(self):
         """output= selects among outer bindings including nested let results."""
         g = self._mk_graph()
         dag = ASTLet({
-            'inner': ASTLet({'people': self._PERSONS}),
-            'other': self._ASSETS
+            'inner': ASTLet({'people': self._persons()}),
+            'other': self._assets()
         })
         self._assert_persons(g.gfql(dag, output='inner'))
         self._assert_assets(g.gfql(dag, output='other'))
@@ -1438,7 +1426,7 @@ class TestNestedLetScopeIsolation:
         g = self._mk_graph()
         dag = ASTLet({
             'level1': ASTLet({
-                'level2': ASTLet({'leaf': self._PERSONS}),
+                'level2': ASTLet({'leaf': self._persons()}),
                 'use_leaf': ASTRef('level2', [])
             }),
             'final': ASTRef('level1', [])
@@ -1459,7 +1447,7 @@ class TestNestedLetScopeIsolation:
         """Multiple outer refs to the same inner let result."""
         g = self._mk_graph()
         dag = ASTLet({
-            'shared': ASTLet({'people': self._PERSONS}),
+            'shared': ASTLet({'people': self._persons()}),
             'branch_a': ASTRef('shared', []),
             'branch_b': ASTRef('shared', [])
         })
@@ -1470,8 +1458,8 @@ class TestNestedLetScopeIsolation:
         """Two independent inner lets + outer refs."""
         g = self._mk_graph()
         dag = ASTLet({
-            'social': ASTLet({'people': self._PERSONS}),
-            'assets': ASTLet({'things': self._ASSETS}),
+            'social': ASTLet({'people': self._persons()}),
+            'assets': ASTLet({'things': self._assets()}),
             'from_social': ASTRef('social', [])
         })
         self._assert_persons(g.gfql(dag, output='from_social'))
@@ -1481,20 +1469,11 @@ class TestNestedLetScopeIsolation:
     # C. LEXICAL SCOPING — inner reads outer (closure semantics)
     # ==================================================================
 
-    def test_inner_reads_outer_binding(self):
-        """Inner let can read an already-executed outer binding (lexical closure)."""
-        g = self._mk_graph()
-        dag = ASTLet({
-            'outer_data': self._PERSONS,
-            'inner': ASTLet({'reuse': ASTRef('outer_data', [])}),
-        })
-        self._assert_persons(g.gfql(dag, output='inner'))
-
     def test_inner_reads_outer_two_levels_deep(self):
         """Level-2 inner let reads a level-0 outer binding."""
         g = self._mk_graph()
         dag = ASTLet({
-            'root_data': self._PERSONS,
+            'root_data': self._persons(),
             'mid': ASTLet({
                 'deep': ASTLet({'use_root': ASTRef('root_data', [])}),
                 'relay': ASTRef('deep', [])
@@ -1511,7 +1490,7 @@ class TestNestedLetScopeIsolation:
         """Outer scope CANNOT reference inner binding names."""
         g = self._mk_graph()
         dag = ASTLet({
-            'inner': ASTLet({'secret': self._PERSONS}),
+            'inner': ASTLet({'secret': self._persons()}),
             'bad': ASTRef('secret', [])
         })
         with pytest.raises(ValueError, match="references undefined nodes"):
@@ -1525,8 +1504,8 @@ class TestNestedLetScopeIsolation:
         """
         g = self._mk_graph()
         dag = ASTLet({
-            'left': ASTLet({'data': self._PERSONS}),
-            'right': ASTLet({'data': self._ASSETS}),
+            'left': ASTLet({'data': self._persons()}),
+            'right': ASTLet({'data': self._assets()}),
             'use_left': ASTRef('left', []),
             'use_right': ASTRef('right', [])
         })
@@ -1541,8 +1520,8 @@ class TestNestedLetScopeIsolation:
         """Inner 'x' = assets must not overwrite outer 'x' = persons."""
         g = self._mk_graph()
         dag = ASTLet({
-            'x': self._PERSONS,
-            'inner': ASTLet({'x': self._ASSETS}),
+            'x': self._persons(),
+            'inner': ASTLet({'x': self._assets()}),
             'after': ASTRef('x', [])
         })
         self._assert_persons(g.gfql(dag, output='after'))
@@ -1551,9 +1530,9 @@ class TestNestedLetScopeIsolation:
         """Inner ref('x') resolves to inner's 'x' = assets, not outer's persons."""
         g = self._mk_graph()
         dag = ASTLet({
-            'x': self._PERSONS,
+            'x': self._persons(),
             'inner': ASTLet({
-                'x': self._ASSETS,
+                'x': self._assets(),
                 'check': ASTRef('x', [])
             }),
         })
@@ -1563,10 +1542,10 @@ class TestNestedLetScopeIsolation:
         """Each level shadows 'x' — outer 'x' = persons must survive."""
         g = self._mk_graph()
         dag = ASTLet({
-            'x': self._PERSONS,
+            'x': self._persons(),
             'mid': ASTLet({
-                'x': self._ASSETS,
-                'deep': ASTLet({'x': self._ALL_NODES}),
+                'x': self._assets(),
+                'deep': ASTLet({'x': self._all_nodes()}),
                 'use_deep': ASTRef('deep', [])
             }),
             'after': ASTRef('x', [])
@@ -1585,7 +1564,7 @@ class TestNestedLetScopeIsolation:
         """
         g = self._mk_graph()
         dag = ASTLet({
-            'outer_data': self._PERSONS,
+            'outer_data': self._persons(),
             'inner': ASTLet({'reuse': ASTRef('outer_data', [])}),
             'final': ASTRef('inner', [])
         })
@@ -1595,7 +1574,7 @@ class TestNestedLetScopeIsolation:
         """Second inner let reads first's outer binding name (not internals)."""
         g = self._mk_graph()
         dag = ASTLet({
-            'first_inner': ASTLet({'people': self._PERSONS}),
+            'first_inner': ASTLet({'people': self._persons()}),
             'second_inner': ASTLet({
                 'reuse': ASTRef('first_inner', [])
             }),
@@ -1611,7 +1590,7 @@ class TestNestedLetScopeIsolation:
         """Inner let cannot reference a sibling inner let's internal binding."""
         g = self._mk_graph()
         dag = ASTLet({
-            'left': ASTLet({'people': self._PERSONS}),
+            'left': ASTLet({'people': self._persons()}),
             'right': ASTLet({'bad': ASTRef('people', [])}),
         })
         with pytest.raises((ValueError, RuntimeError)):
@@ -1635,7 +1614,7 @@ class TestNestedLetScopeIsolation:
         """Nested let survives to_json / from_json round-trip."""
         original = ASTLet({
             'inner': ASTLet({
-                'people': self._PERSONS,
+                'people': self._persons(),
                 'friends': ASTRef('people', [e(), n()])
             }),
             'final': ASTRef('inner', [])
