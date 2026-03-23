@@ -284,9 +284,12 @@ let({
 }
 ```
 
-**Scope rules**:
+**Scope rules** (lexical scoping):
 - ``stage2`` can reference ``stage1`` (an outer binding)
-- ``stage2`` **cannot** reference ``people`` or ``friends`` (inner bindings)
+- ``stage2`` **cannot** reference ``people`` or ``friends`` (inner bindings — they do not leak upward)
+- Inner bindings **can** read outer bindings (e.g., ``people`` could use ``ref('stage2')`` if ``stage2`` had already executed)
+- Sibling inner ``Let`` blocks may reuse the same binding names without collision
+- If an inner binding has the same name as an outer binding, the inner shadows the outer within its scope without corrupting the outer value
 - The inner ``Let`` result is the last executed binding in its own scope
 
 ### Ref Operation
