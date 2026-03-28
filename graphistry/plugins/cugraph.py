@@ -297,6 +297,13 @@ def compute_cugraph_core(
 
     import cugraph
 
+    # Weighted variants (jaccard_w, overlap_w, sorensen_w) were removed in cugraph 26.02;
+    # fall back to the base algorithm with use_weight=True
+    _w_fallbacks = {'jaccard_w': 'jaccard', 'overlap_w': 'overlap', 'sorensen_w': 'sorensen'}
+    if alg in _w_fallbacks and not hasattr(cugraph, alg):
+        alg = _w_fallbacks[alg]
+        params.setdefault('use_weight', True)
+
     if G is None:
         G = to_cugraph(self, kind=kind, directed=directed)
 

@@ -159,7 +159,11 @@ def dbscan_fit_inplace(
         import cupy as cp
         from cuml import DBSCAN
         assert isinstance(dbscan, DBSCAN), f'Expected cuml.DBSCAN, got: {type(dbscan)}'
-        dbscan.fit(X, calc_core_sample_indices=True)
+        import inspect
+        if 'calc_core_sample_indices' in inspect.signature(dbscan.fit).parameters:
+            dbscan.fit(X, calc_core_sample_indices=True)
+        else:
+            dbscan.fit(X)
         labels = dbscan.labels_
         core_sample_indices = dbscan.core_sample_indices_
 

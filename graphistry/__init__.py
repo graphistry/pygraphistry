@@ -1,5 +1,17 @@
 """PyGraphistry: A visual graph analytics library for big graphs."""
 
+# RAPIDS 26.02+ removed cudf.DataFrame.from_pandas() and cudf.Series.from_pandas().
+# Restore them so existing code (ours and downstream) keeps working on all versions.
+try:
+    import cudf as _cudf
+    if not hasattr(_cudf.DataFrame, 'from_pandas'):
+        _cudf.DataFrame.from_pandas = staticmethod(_cudf.from_pandas)
+    if not hasattr(_cudf.Series, 'from_pandas'):
+        _cudf.Series.from_pandas = staticmethod(_cudf.from_pandas)
+    del _cudf
+except ImportError:
+    pass
+
 from graphistry.pygraphistry import (  # noqa: E402, F401
     client_protocol_hostname,
     protocol,

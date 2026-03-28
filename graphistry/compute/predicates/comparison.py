@@ -49,26 +49,31 @@ class ComparisonPredicate(ASTPredicate):
             # Normalize series to target timezone for comparison
             if hasattr(s, 'dt') and hasattr(s.dt, 'tz_localize'):
                 tzinfo = _resolve_timezone(temporal_val.timezone) or temporal_val.timezone
-                if s.dt.tz is None:
-                    return s.dt.tz_localize('UTC').dt.tz_convert(tzinfo)
+                if getattr(s.dt, 'tz', None) is None:
+                    result = s.dt.tz_localize('UTC').dt.tz_convert(tzinfo)
                 else:
-                    return s.dt.tz_convert(tzinfo)
+                    result = s.dt.tz_convert(tzinfo)
+                # cudf does not support binary ops on tz-aware Series (RAPIDS 26.02+);
+                # strip tz after conversion — values are already in the target timezone
+                if 'cudf' in str(type(result)):
+                    result = result.dt.tz_localize(None)
+                return result
             return s
-        
+
         elif isinstance(temporal_val, DateValue):
             # Extract date from datetime series if needed
             if hasattr(s, 'dt'):
                 return s.dt.date
             return s
-        
+
         elif isinstance(temporal_val, TimeValue):
             # Extract time from datetime series if needed
             if hasattr(s, 'dt'):
                 return s.dt.time
             return s
-        
+
         raise TypeError(f"Unknown temporal value type: {type(temporal_val)}")
-    
+
     def _get_temporal_comparison_value(self, temporal_val: TemporalValue) -> Union[pd.Timestamp, date, time]:
         """Get the appropriate comparison value from a TemporalValue"""
         if isinstance(temporal_val, DateTimeValue):
@@ -76,6 +81,23 @@ class ComparisonPredicate(ASTPredicate):
         elif isinstance(temporal_val, (DateValue, TimeValue)):
             return temporal_val._parsed
         raise TypeError(f"Unknown temporal value type: {type(temporal_val)}")
+
+    def _prepare_temporal_comparison(self, s: SeriesT, temporal_val: TemporalValue):
+        """Prepare both series and comparison value for temporal comparison.
+
+        Handles cudf compatibility: when the series had tz stripped (because cudf
+        does not support tz-aware binary ops), also strip tz from the scalar.
+        """
+        prepared_s = self._prepare_temporal_series(s, temporal_val)
+        comparison_val = self._get_temporal_comparison_value(temporal_val)
+        # Match: if series was made tz-naive for cudf, make scalar naive too
+        if (
+            'cudf' in str(type(prepared_s))
+            and isinstance(comparison_val, pd.Timestamp)
+            and comparison_val.tzinfo is not None
+        ):
+            comparison_val = comparison_val.tz_localize(None)
+        return prepared_s, comparison_val
     
     
     def _validate_fields(self) -> None:
@@ -121,8 +143,7 @@ class GT(ComparisonPredicate):
         if isinstance(self.val, (int, float)):
             return s > self.val
         elif isinstance(self.val, TemporalValue):
-            prepared_s = self._prepare_temporal_series(s, self.val)
-            comparison_val = self._get_temporal_comparison_value(self.val)
+            prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
             return prepared_s > comparison_val
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
@@ -139,8 +160,7 @@ class LT(ComparisonPredicate):
         if isinstance(self.val, (int, float)):
             return s < self.val
         elif isinstance(self.val, TemporalValue):
-            prepared_s = self._prepare_temporal_series(s, self.val)
-            comparison_val = self._get_temporal_comparison_value(self.val)
+            prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
             return prepared_s < comparison_val
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
@@ -157,8 +177,7 @@ class GE(ComparisonPredicate):
         if isinstance(self.val, (int, float)):
             return s >= self.val
         elif isinstance(self.val, TemporalValue):
-            prepared_s = self._prepare_temporal_series(s, self.val)
-            comparison_val = self._get_temporal_comparison_value(self.val)
+            prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
             return prepared_s >= comparison_val
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
@@ -175,8 +194,7 @@ class LE(ComparisonPredicate):
         if isinstance(self.val, (int, float)):
             return s <= self.val
         elif isinstance(self.val, TemporalValue):
-            prepared_s = self._prepare_temporal_series(s, self.val)
-            comparison_val = self._get_temporal_comparison_value(self.val)
+            prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
             return prepared_s <= comparison_val
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
@@ -212,8 +230,7 @@ class EQ(ComparisonPredicate):
         if isinstance(self.val, (int, float, str)):
             return s == self.val
         elif isinstance(self.val, TemporalValue):
-            prepared_s = self._prepare_temporal_series(s, self.val)
-            comparison_val = self._get_temporal_comparison_value(self.val)
+            prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
             return prepared_s == comparison_val
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
@@ -237,8 +254,7 @@ class NE(ComparisonPredicate):
         if isinstance(self.val, (int, float)):
             return s != self.val
         elif isinstance(self.val, TemporalValue):
-            prepared_s = self._prepare_temporal_series(s, self.val)
-            comparison_val = self._get_temporal_comparison_value(self.val)
+            prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
             return prepared_s != comparison_val
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
