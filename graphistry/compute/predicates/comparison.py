@@ -55,7 +55,7 @@ class ComparisonPredicate(ASTPredicate):
                     result = s.dt.tz_convert(tzinfo)
                 # cudf does not support binary ops on tz-aware Series (RAPIDS 26.02+);
                 # strip tz after conversion — values are already in the target timezone
-                if 'cudf' in str(type(result)):
+                if hasattr(result, '__module__') and 'cudf' in result.__module__:
                     result = result.dt.tz_localize(None)
                 return result
             return s
@@ -92,7 +92,7 @@ class ComparisonPredicate(ASTPredicate):
         comparison_val = self._get_temporal_comparison_value(temporal_val)
         # Match: if series was made tz-naive for cudf, make scalar naive too
         if (
-            'cudf' in str(type(prepared_s))
+            hasattr(prepared_s, '__module__') and 'cudf' in prepared_s.__module__
             and isinstance(comparison_val, pd.Timestamp)
             and comparison_val.tzinfo is not None
         ):

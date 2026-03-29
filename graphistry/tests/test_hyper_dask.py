@@ -70,7 +70,7 @@ def honeypot_pdf() -> pd.DataFrame:
         date_parser=lambda v: pd.to_datetime(int(float(v))),
     )
     dtypes = df.dtypes.to_dict()
-    parsed_date_cols = {"time(max)", "time(min)"}
+    parsed_date_cols = ("time(max)", "time(min)")
     for col, dtype in base_csv_dtypes.items():
         if col not in parsed_date_cols:
             assert dtypes[col] == dtype
