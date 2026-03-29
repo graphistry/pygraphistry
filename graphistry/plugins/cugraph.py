@@ -222,6 +222,10 @@ edge_compute_algs_to_attr: Dict[str, str] = {
     'sorensen_w': 'sorensen_coeff',
 
 }
+
+# Weighted variants removed in cugraph 24.04; remap to base algorithm with use_weight=True
+_W_FALLBACKS = {'jaccard_w': 'jaccard', 'overlap_w': 'overlap', 'sorensen_w': 'sorensen'}
+
 graph_compute_algs = [
     'ego_graph',
     #'k_truss',  # not implemented in CUDA 11.4 for 22.04
@@ -296,6 +300,12 @@ def compute_cugraph_core(
     """
 
     import cugraph
+
+    if alg in _W_FALLBACKS and not hasattr(cugraph, alg):
+        logger.debug('Falling back from removed %s to %s with use_weight=True', alg, _W_FALLBACKS[alg])
+        alg = _W_FALLBACKS[alg]
+        params = {**params, 'use_weight': params.get('use_weight', True)}
+        params.pop('weights', None)
 
     if G is None:
         G = to_cugraph(self, kind=kind, directed=directed)

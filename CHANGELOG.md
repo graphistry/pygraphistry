@@ -8,6 +8,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.53.6 - 2026-03-28]
+
+### Fixed
+- **RAPIDS 26.02 compatibility**: Added backward-compatible shim in `lazy_cudf_import()` restoring `cudf.DataFrame.from_pandas()` and `cudf.Series.from_pandas()` class methods removed in RAPIDS 26.02, so all existing code paths and downstream users keep working across RAPIDS 24.12–26.02+.
+- **RAPIDS 26.02 compatibility**: Fixed pre-existing bug where `calc_core_sample_indices=True` was passed to `cuml.DBSCAN.fit()` (never a valid `fit()` parameter on any cuml version — it is an `__init__()` parameter only).
+- **RAPIDS 26.02 compatibility**: Added fallback for `cugraph.jaccard_w`, `cugraph.overlap_w`, and `cugraph.sorensen_w` weighted similarity functions removed in cugraph 24.04 — automatically reroutes to base algorithm with `use_weight=True` when unavailable, native call on older versions.
+- **GFQL**: Fixed timezone-aware temporal comparisons (GT, LT, GE, LE, EQ, NE) crashing on cudf with `NotImplementedError: Binary operations with timezone aware operands is not supported`. Values are now compared as naive timestamps after tz conversion. Also fixed `s.dt.tz` attribute access that was missing on cudf < 26.02.
+- **TigerGraph**: Replaced removed `pandas.Series.append()` with `pd.concat()` for pandas 2.0+ compatibility.
+
+### Tests
+- **Hypergraph**: Fixed contradictory dtype assertion in `honeypot_pdf()` test helper where datetime-parsed columns were asserted as both `float64` and `datetime64`.
+
 ## [0.53.5 - 2026-03-17]
 
 ### Fixed
