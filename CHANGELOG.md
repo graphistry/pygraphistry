@@ -8,6 +8,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **Docker / RAPIDS**: Added `docker/test-rapids-official-matrix.sh` to run the official RAPIDS compatibility matrix sequentially across `25.02` and `26.02` for `basic`, `gfql`, and `ai`.
+
+### Changed
+- **Docker / RAPIDS AI**: Official RAPIDS `ai` validation now preinstalls `torch==2.11.0+cpu` from the PyTorch CPU index before `-e .[test,testai,ai]`, preventing pip from layering CUDA 13 Torch wheels onto CUDA 12 RAPIDS images.
+
+### Tests
+- **Docker / RAPIDS matrix**: Validated no-GPU official-image cells for `25.02/basic`, `25.02/gfql`, `25.02/ai`, `26.02/basic`, `26.02/gfql`, and `26.02/ai`, using smoke imports of `cudf`, `cugraph`, `cuml`, `dask_cudf`, and `graphistry` plus focused `basic`, `gfql`, and `ai` test slices.
+
 ## [0.53.6 - 2026-03-28]
 
 ### Fixed
