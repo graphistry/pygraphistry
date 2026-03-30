@@ -5108,6 +5108,21 @@ def test_string_cypher_executes_with_match_reentry_carried_scalar_shapes(query: 
     assert result._nodes.to_dict(orient="records") == expected
 
 
+def test_string_cypher_reentry_carried_scalars_ignore_internal_hidden_column_collisions() -> None:
+    g = _mk_reentry_carried_scalar_graph()
+    g._nodes = g._nodes.assign(__cypher_reentry_property__=["orig1", "orig2", None, None])
+
+    result = g.gfql(
+        "MATCH (a:A) "
+        "WITH a, a.num AS property "
+        "MATCH (a)-->(b) "
+        "RETURN property "
+        "ORDER BY property DESC"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"property": 2}, {"property": 1}]
+
+
 @pytest.mark.parametrize(
     ("query", "match"),
     [

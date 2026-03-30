@@ -657,3 +657,28 @@ class TestGFQLCypherReentryCarrier:
             },
             expect_same_graph=False,
         )
+
+    def test_reentry_state_overrides_internal_hidden_column_collisions(self):
+        g = _mk_reentry_scalar_graph()
+        g._nodes = g._nodes.assign(__cypher_reentry_property__=["orig1", "orig2", None, None])
+
+        self._assert_reentry_state(
+            g=g,
+            compiled=self._compile_reentry_query(),
+            prefix_result=self._bind_reentry_prefix_result(
+                g,
+                rows={"property": [2, 1]},
+                ids=["a2", "a1"],
+            ),
+            expected_rows=[
+                {"id": "a2", "label__A": True, "num": 2, "__cypher_reentry_property__": 2},
+                {"id": "a1", "label__A": True, "num": 1, "__cypher_reentry_property__": 1},
+            ],
+            expected_carry={
+                "a1": {"__cypher_reentry_property__": 1},
+                "a2": {"__cypher_reentry_property__": 2},
+            },
+            expect_same_graph=False,
+        )
+
+        assert g._nodes["__cypher_reentry_property__"].tolist() == ["orig1", "orig2", None, None]
