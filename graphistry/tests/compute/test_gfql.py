@@ -5,6 +5,7 @@ from graphistry.compute.ast import ASTLet, ASTRef, n, e
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.cypher import compile_cypher
+from graphistry.compute.gfql.cypher.lowering import _reentry_hidden_column_name
 from graphistry.compute.gfql_unified import _compiled_query_reentry_state
 from graphistry.tests.test_compute import CGFull
 
@@ -487,6 +488,11 @@ class TestGFQLDictConversion:
 
 class TestGFQLCypherReentryCarrier:
 
+    _BASE_A_ROWS = {
+        "a1": {"id": "a1", "label__A": True, "num": 1},
+        "a2": {"id": "a2", "label__A": True, "num": 2},
+    }
+
     @staticmethod
     def _compile_reentry_query(
         with_clause: str = "a, a.num AS property",
@@ -529,6 +535,30 @@ class TestGFQLCypherReentryCarrier:
         }
 
     @staticmethod
+    def _hidden_updates(**values: Any) -> Dict[str, Any]:
+        return {
+            _reentry_hidden_column_name(output_name): value
+            for output_name, value in values.items()
+        }
+
+    @classmethod
+    def _expected_reentry_rows(cls, ordered_ids: List[str], carry_values_by_id: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [
+            {
+                **cls._BASE_A_ROWS[node_id],
+                **cls._hidden_updates(**carry_values_by_id.get(node_id, {})),
+            }
+            for node_id in ordered_ids
+        ]
+
+    @classmethod
+    def _expected_carry(cls, carry_values_by_id: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        return {
+            node_id: cls._hidden_updates(**values)
+            for node_id, values in carry_values_by_id.items()
+        }
+
+    @staticmethod
     def _run_reentry_state(g, compiled, prefix_result):
         return _compiled_query_reentry_state(
             g,
@@ -536,6 +566,17 @@ class TestGFQLCypherReentryCarrier:
             prefix_result,
             engine="pandas",
         )
+
+    @staticmethod
+    def _assert_hidden_columns_preserved(g, expected_values_by_column: Dict[str, List[Any]]):
+        for column, expected_values in expected_values_by_column.items():
+            series = g._nodes[column].reset_index(drop=True)
+            assert len(series) == len(expected_values)
+            for actual, expected in zip(series.tolist(), expected_values):
+                if pd.isna(expected):
+                    assert pd.isna(actual)
+                else:
+                    assert actual == expected
 
     def _assert_reentry_state(
         self,
@@ -563,10 +604,7 @@ class TestGFQLCypherReentryCarrier:
                 "RETURN b.id AS bid"
             ),
             prefix_result=g.gfql("MATCH (a:A) WITH a ORDER BY a.num DESC RETURN a"),
-            expected_rows=[
-                {"id": "a2", "label__A": True, "num": 2},
-                {"id": "a1", "label__A": True, "num": 1},
-            ],
+            expected_rows=self._expected_reentry_rows(["a2", "a1"], {}),
             expected_carry={},
             expect_same_graph=True,
         )
@@ -581,14 +619,19 @@ class TestGFQLCypherReentryCarrier:
                 "WITH a, a.num AS property ORDER BY property DESC "
                 "RETURN a, property"
             ),
-            expected_rows=[
-                {"id": "a2", "label__A": True, "num": 2, "__cypher_reentry_property__": 2},
-                {"id": "a1", "label__A": True, "num": 1, "__cypher_reentry_property__": 1},
-            ],
-            expected_carry={
-                "a1": {"__cypher_reentry_property__": 1},
-                "a2": {"__cypher_reentry_property__": 2},
-            },
+            expected_rows=self._expected_reentry_rows(
+                ["a2", "a1"],
+                {
+                    "a1": {"property": 1},
+                    "a2": {"property": 2},
+                },
+            ),
+            expected_carry=self._expected_carry(
+                {
+                    "a1": {"property": 1},
+                    "a2": {"property": 2},
+                }
+            ),
             expect_same_graph=False,
         )
 
@@ -602,32 +645,19 @@ class TestGFQLCypherReentryCarrier:
                 rows={"property": [2, 1], "property2": [12, 11]},
                 ids=["a2", "a1"],
             ),
-            expected_rows=[
+            expected_rows=self._expected_reentry_rows(
+                ["a2", "a1"],
                 {
-                    "id": "a2",
-                    "label__A": True,
-                    "num": 2,
-                    "__cypher_reentry_property__": 2,
-                    "__cypher_reentry_property2__": 12,
+                    "a1": {"property": 1, "property2": 11},
+                    "a2": {"property": 2, "property2": 12},
                 },
+            ),
+            expected_carry=self._expected_carry(
                 {
-                    "id": "a1",
-                    "label__A": True,
-                    "num": 1,
-                    "__cypher_reentry_property__": 1,
-                    "__cypher_reentry_property2__": 11,
-                },
-            ],
-            expected_carry={
-                "a1": {
-                    "__cypher_reentry_property__": 1,
-                    "__cypher_reentry_property2__": 11,
-                },
-                "a2": {
-                    "__cypher_reentry_property__": 2,
-                    "__cypher_reentry_property2__": 12,
-                },
-            },
+                    "a1": {"property": 1, "property2": 11},
+                    "a2": {"property": 2, "property2": 12},
+                }
+            ),
             expect_same_graph=False,
         )
 
@@ -657,41 +687,72 @@ class TestGFQLCypherReentryCarrier:
                 rows={"property": [10, 20, 30]},
                 ids=["a1", None, "a2"],
             ),
-            expected_rows=[
-                {"id": "a1", "label__A": True, "num": 1, "__cypher_reentry_property__": 10},
-                {"id": "a2", "label__A": True, "num": 2, "__cypher_reentry_property__": 30},
-            ],
-            expected_carry={
-                "a1": {"__cypher_reentry_property__": 10},
-                "a2": {"__cypher_reentry_property__": 30},
-            },
+            expected_rows=self._expected_reentry_rows(
+                ["a1", "a2"],
+                {
+                    "a1": {"property": 10},
+                    "a2": {"property": 30},
+                },
+            ),
+            expected_carry=self._expected_carry(
+                {
+                    "a1": {"property": 10},
+                    "a2": {"property": 30},
+                }
+            ),
             expect_same_graph=False,
         )
 
-    def test_reentry_state_overrides_internal_hidden_column_collisions(self):
+    @pytest.mark.parametrize(
+        ("with_clause", "rows", "carry_values_by_id", "existing_hidden_values"),
+        [
+            (
+                "a, a.num AS property",
+                {"property": [2, 1]},
+                {
+                    "a1": {"property": 1},
+                    "a2": {"property": 2},
+                },
+                {"__cypher_reentry_property__": ["orig1", "orig2", None, None]},
+            ),
+            (
+                "a, a.num AS property, a.num + 10 AS property2",
+                {"property": [2, 1], "property2": [12, 11]},
+                {
+                    "a1": {"property": 1, "property2": 11},
+                    "a2": {"property": 2, "property2": 12},
+                },
+                {
+                    "__cypher_reentry_property__": ["orig1", "orig2", None, None],
+                    "__cypher_reentry_property2__": ["keep1", "keep2", None, None],
+                },
+            ),
+        ],
+    )
+    def test_reentry_state_overrides_internal_hidden_column_collisions(
+        self,
+        with_clause,
+        rows,
+        carry_values_by_id,
+        existing_hidden_values,
+    ):
         g = _mk_reentry_scalar_graph()
-        g._nodes = g._nodes.assign(__cypher_reentry_property__=["orig1", "orig2", None, None])
+        g._nodes = g._nodes.assign(**existing_hidden_values)
 
         self._assert_reentry_state(
             g=g,
-            compiled=self._compile_reentry_query(),
+            compiled=self._compile_reentry_query(with_clause),
             prefix_result=self._bind_reentry_prefix_result(
                 g,
-                rows={"property": [2, 1]},
+                rows=rows,
                 ids=["a2", "a1"],
             ),
-            expected_rows=[
-                {"id": "a2", "label__A": True, "num": 2, "__cypher_reentry_property__": 2},
-                {"id": "a1", "label__A": True, "num": 1, "__cypher_reentry_property__": 1},
-            ],
-            expected_carry={
-                "a1": {"__cypher_reentry_property__": 1},
-                "a2": {"__cypher_reentry_property__": 2},
-            },
+            expected_rows=self._expected_reentry_rows(["a2", "a1"], carry_values_by_id),
+            expected_carry=self._expected_carry(carry_values_by_id),
             expect_same_graph=False,
         )
 
-        assert g._nodes["__cypher_reentry_property__"].tolist() == ["orig1", "orig2", None, None]
+        self._assert_hidden_columns_preserved(g, existing_hidden_values)
 
     def test_reentry_state_uses_projected_whole_row_alias_for_contract(self):
         g = _mk_reentry_scalar_graph()
@@ -704,13 +765,18 @@ class TestGFQLCypherReentryCarrier:
                 ids=["a2", "a1"],
                 output_name="x",
             ),
-            expected_rows=[
-                {"id": "a2", "label__A": True, "num": 2, "__cypher_reentry_property__": 2},
-                {"id": "a1", "label__A": True, "num": 1, "__cypher_reentry_property__": 1},
-            ],
-            expected_carry={
-                "a1": {"__cypher_reentry_property__": 1},
-                "a2": {"__cypher_reentry_property__": 2},
-            },
+            expected_rows=self._expected_reentry_rows(
+                ["a2", "a1"],
+                {
+                    "a1": {"property": 1},
+                    "a2": {"property": 2},
+                },
+            ),
+            expected_carry=self._expected_carry(
+                {
+                    "a1": {"property": 1},
+                    "a2": {"property": 2},
+                }
+            ),
             expect_same_graph=False,
         )
