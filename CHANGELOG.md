@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Docs
+- **GFQL**: Show Cypher string syntax above the fold in "10 Minutes to GFQL" and "Overview" pages so the first code a reader sees is familiar Cypher, not the native chain API.
+
 ## [0.53.7 - 2026-03-29]
 
 ### Fixed
