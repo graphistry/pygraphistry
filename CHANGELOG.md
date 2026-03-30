@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.53.4 - 2026-03-29]
+
 ### Fixed
 - **GFQL docs**: Fixed 29 broken code examples across 12 doc files — wrong API params (`n(edge_match=...)`→`e_forward(edge_match=...)`), wrong imports (`remote`, `Chain`, `eq`), nonexistent classes (`PlottableValidator`, `is_not_in`), and wrong param names (`col_in`/`col_out`, `entity_cols`).
 - **GFQL / Let**: Fixed nested `let()` inside `let()` failing at execution time despite passing `validate()`. The dependency resolver now treats nested `ASTLet` bindings as opaque execution units instead of walking into their internal bindings, which caused false "references undefined nodes" errors (#968).
