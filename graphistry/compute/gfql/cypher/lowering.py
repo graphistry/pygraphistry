@@ -65,6 +65,7 @@ from graphistry.compute.gfql.cypher.ast import (
     GraphBinding,
     GraphConstructor,
     LabelRef,
+    LimitClause,
     MatchClause,
     NodePattern,
     ParameterRef,
@@ -5986,6 +5987,27 @@ def _exclude_reentry_hidden_columns(
     )
 
 
+def _literal_limit_value(limit_clause: Optional[LimitClause]) -> Optional[int]:
+    if limit_clause is None:
+        return None
+    text = limit_clause.value.text.strip()
+    if not re.fullmatch(r"\d+", text):
+        return None
+    return int(text)
+
+
+def _bounded_reentry_prefix_order_is_safe(
+    *,
+    prefix_stage: ProjectionStage,
+    query: CypherQuery,
+) -> bool:
+    if prefix_stage.order_by is None:
+        return True
+    if query.order_by is not None:
+        return True
+    return prefix_stage.skip is None and _literal_limit_value(prefix_stage.limit) == 1
+
+
 def _first_pattern_node_alias(clause: MatchClause) -> Optional[str]:
     if len(clause.patterns) != 1:
         raise _unsupported(
@@ -6065,6 +6087,18 @@ def _compile_bounded_reentry_query(
         query=query,
         prefix_stage=prefix_stage,
     )
+    if not _bounded_reentry_prefix_order_is_safe(prefix_stage=prefix_stage, query=query):
+        raise _unsupported(
+            "Cypher MATCH after WITH does not yet preserve prefix WITH row ordering across MATCH re-entry for multi-row result shapes",
+            field="with.order_by",
+            value=(
+                [item.expression.text for item in prefix_stage.order_by.items]
+                if prefix_stage.order_by is not None
+                else None
+            ),
+            line=prefix_stage.order_by.span.line if prefix_stage.order_by is not None else prefix_stage.span.line,
+            column=prefix_stage.order_by.span.column if prefix_stage.order_by is not None else prefix_stage.span.column,
+        )
     whole_row_column = next(column for column in prefix_projection.columns if column.kind == "whole_row")
     if prefix_projection.table != "nodes":
         raise _unsupported(

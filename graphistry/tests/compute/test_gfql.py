@@ -3,6 +3,8 @@ import pytest
 from graphistry.compute.ast import ASTLet, ASTRef, n, e
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
+from graphistry.compute.gfql.cypher import compile_cypher
+from graphistry.compute.gfql_unified import _compiled_query_reentry_state
 from graphistry.tests.test_compute import CGFull
 
 # Suppress deprecation warnings for chain() method in this test file
@@ -36,6 +38,24 @@ def _mk_people_company_graph4():
 
 def _mk_empty_graph():
     return _mk_graph(ids=[], types=[], src=[], dst=[])
+
+
+def _mk_reentry_scalar_graph():
+    nodes_df = pd.DataFrame(
+        {
+            "id": ["a1", "a2", "b1", "b2"],
+            "label__A": [True, True, False, False],
+            "num": [1, 2, 1, 3],
+        }
+    )
+    edges_df = pd.DataFrame(
+        {
+            "s": ["a1", "a2"],
+            "d": ["b1", "b2"],
+            "type": ["R", "R"],
+        }
+    )
+    return CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
 
 
 class TestGFQLAPI:
@@ -462,3 +482,89 @@ class TestGFQLDictConversion:
         result = g.gfql(chain_dict)
         assert len(result._nodes) == 2
         assert all(result._nodes['type'] == 'person')
+
+
+class TestGFQLCypherReentryCarrier:
+
+    def test_reentry_state_preserves_prefix_order_without_carried_columns(self):
+        g = _mk_reentry_scalar_graph()
+        compiled = compile_cypher(
+            "MATCH (a:A) "
+            "WITH a "
+            "MATCH (a)-->(b) "
+            "RETURN b.id AS bid"
+        )
+        prefix_result = g.gfql("MATCH (a:A) WITH a ORDER BY a.num DESC RETURN a")
+
+        dispatch_graph, start_nodes = _compiled_query_reentry_state(
+            g,
+            compiled,
+            prefix_result,
+            engine="pandas",
+        )
+
+        assert dispatch_graph is g
+        assert start_nodes.to_dict(orient="records") == [
+            {"id": "a2", "label__A": True, "num": 2},
+            {"id": "a1", "label__A": True, "num": 1},
+        ]
+
+    def test_reentry_state_preserves_prefix_order_with_carried_columns(self):
+        g = _mk_reentry_scalar_graph()
+        compiled = compile_cypher(
+            "MATCH (a:A) "
+            "WITH a, a.num AS property "
+            "MATCH (a)-->(b) "
+            "RETURN b.id AS bid"
+        )
+        prefix_result = g.gfql(
+            "MATCH (a:A) "
+            "WITH a, a.num AS property ORDER BY property DESC "
+            "RETURN a, property"
+        )
+
+        dispatch_graph, start_nodes = _compiled_query_reentry_state(
+            g,
+            compiled,
+            prefix_result,
+            engine="pandas",
+        )
+
+        assert dispatch_graph is not g
+        assert start_nodes.to_dict(orient="records") == [
+            {"id": "a2", "label__A": True, "num": 2, "__cypher_reentry_property__": 2},
+            {"id": "a1", "label__A": True, "num": 1, "__cypher_reentry_property__": 1},
+        ]
+        carry_by_id = {
+            row["id"]: row["__cypher_reentry_property__"]
+            for row in dispatch_graph._nodes.to_dict(orient="records")
+            if row["id"] in {"a1", "a2"}
+        }
+        assert carry_by_id == {"a1": 1, "a2": 2}
+
+    def test_reentry_state_rejects_duplicate_carried_scalar_rows(self):
+        g = _mk_reentry_scalar_graph()
+        compiled = compile_cypher(
+            "MATCH (a:A) "
+            "WITH a, a.num AS property "
+            "MATCH (a)-->(b) "
+            "RETURN b.id AS bid"
+        )
+        prefix_result = g.bind()
+        prefix_result._nodes = pd.DataFrame({"property": [1, 1]})
+        prefix_result._cypher_entity_projection_meta = {
+            "a": {
+                "table": "nodes",
+                "alias": "a",
+                "id_column": "id",
+                "ids": pd.Series(["a1", "a1"], name="id"),
+            }
+        }
+
+        with pytest.raises(GFQLValidationError, match="unique carried node rows"):
+            _compiled_query_reentry_state(
+                g,
+                compiled,
+                prefix_result,
+                engine="pandas",
+            )

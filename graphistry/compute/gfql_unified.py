@@ -485,7 +485,11 @@ def _compiled_query_reentry_state(
 
     carried_columns = compiled_query.start_nodes_carried_columns
     if not carried_columns:
-        start_nodes = cast(DataFrameT, safe_merge(base_nodes, carried_node_ids, on=id_column, how="inner"))
+        start_nodes = _ordered_reentry_start_nodes(
+            node_rows=base_nodes,
+            carried_node_ids=carried_node_ids,
+            id_column=id_column,
+        )
         return base_graph, start_nodes
 
     prefix_rows = getattr(prefix_result, "_nodes", None)
@@ -510,6 +514,33 @@ def _compiled_query_reentry_state(
             language="cypher",
         )
 
+    carry_payload = _reentry_carry_payload(
+        carried_node_ids=carried_node_ids,
+        prefix_rows=prefix_rows,
+        carried_columns=compiled_query.start_nodes_carried_columns,
+    )
+
+    enriched_nodes = cast(DataFrameT, safe_merge(base_nodes, carry_payload, on=id_column, how="left"))
+    start_nodes = _ordered_reentry_start_nodes(
+        node_rows=enriched_nodes,
+        carried_node_ids=carried_node_ids,
+        id_column=id_column,
+    )
+
+    dispatch_graph = base_graph.bind()
+    dispatch_graph._nodes = enriched_nodes
+    edges_df = getattr(base_graph, "_edges", None)
+    if edges_df is not None:
+        dispatch_graph._edges = edges_df
+    return dispatch_graph, start_nodes
+
+
+def _reentry_carry_payload(
+    *,
+    carried_node_ids: DataFrameT,
+    prefix_rows: DataFrameT,
+    carried_columns: Sequence[Any],
+) -> DataFrameT:
     carry_payload = cast(DataFrameT, carried_node_ids.copy())
     for column in carried_columns:
         if column.output_name not in prefix_rows.columns:
@@ -529,16 +560,17 @@ def _compiled_query_reentry_state(
                 }
             ),
         )
+    return carry_payload
 
-    enriched_nodes = cast(DataFrameT, safe_merge(base_nodes, carry_payload, on=id_column, how="left"))
-    start_nodes = cast(DataFrameT, safe_merge(enriched_nodes, carried_node_ids, on=id_column, how="inner"))
 
-    dispatch_graph = base_graph.bind()
-    dispatch_graph._nodes = enriched_nodes
-    edges_df = getattr(base_graph, "_edges", None)
-    if edges_df is not None:
-        dispatch_graph._edges = edges_df
-    return dispatch_graph, start_nodes
+def _ordered_reentry_start_nodes(
+    *,
+    node_rows: DataFrameT,
+    carried_node_ids: DataFrameT,
+    id_column: str,
+) -> DataFrameT:
+    # MATCH re-entry must preserve the WITH row order, not the base node-table order.
+    return cast(DataFrameT, safe_merge(carried_node_ids, node_rows, on=id_column, how="left"))
 
 
 def _materialize_split_alias_columns(
