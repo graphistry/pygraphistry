@@ -480,7 +480,11 @@ def _compiled_query_reentry_state(
             language="cypher",
         )
     concrete_engine = resolve_engine(cast(Any, engine), base_graph)
-    carried_ids = cast(SeriesT, ids.dropna().reset_index(drop=True))
+    carried_ids, aligned_prefix_rows = _aligned_reentry_rows(
+        ids=cast(SeriesT, ids),
+        prefix_rows=getattr(prefix_result, "_nodes", None),
+        output_name=output_name,
+    )
     carried_node_ids = cast(DataFrameT, df_cons(concrete_engine)({id_column: carried_ids}))
 
     carried_columns = compiled_query.start_nodes_carried_columns
@@ -516,7 +520,7 @@ def _compiled_query_reentry_state(
 
     carry_payload = _reentry_carry_payload(
         carried_node_ids=carried_node_ids,
-        prefix_rows=prefix_rows,
+        prefix_rows=aligned_prefix_rows,
         carried_columns=compiled_query.start_nodes_carried_columns,
     )
 
@@ -535,6 +539,38 @@ def _compiled_query_reentry_state(
     return dispatch_graph, start_nodes
 
 
+def _aligned_reentry_rows(
+    *,
+    ids: SeriesT,
+    prefix_rows: Optional[DataFrameT],
+    output_name: Optional[str],
+) -> Tuple[SeriesT, Optional[DataFrameT]]:
+    if prefix_rows is not None and len(prefix_rows) != len(ids):
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher MATCH after WITH metadata row counts disagreed with prefix rows during re-entry",
+            field="with",
+            value=output_name,
+            suggestion="Retry with a direct whole-row carry through WITH or inspect intermediate row-shaping before MATCH re-entry.",
+            language="cypher",
+        )
+    if not hasattr(ids, "notna"):
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher MATCH after WITH could not align carried node identities from the prefix stage",
+            field="with",
+            value=output_name,
+            suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
+            language="cypher",
+        )
+
+    non_null_mask = cast(SeriesT, ids.notna())
+    carried_ids = cast(SeriesT, ids[non_null_mask].reset_index(drop=True))
+    if prefix_rows is None:
+        return carried_ids, None
+    return carried_ids, cast(DataFrameT, prefix_rows.loc[non_null_mask].reset_index(drop=True))
+
+
 def _reentry_carry_payload(
     *,
     carried_node_ids: DataFrameT,
@@ -542,6 +578,7 @@ def _reentry_carry_payload(
     carried_columns: Sequence[Any],
 ) -> DataFrameT:
     carry_payload = cast(DataFrameT, carried_node_ids.copy())
+    column_updates: Dict[str, SeriesT] = {}
     for column in carried_columns:
         if column.output_name not in prefix_rows.columns:
             raise GFQLValidationError(
@@ -552,14 +589,9 @@ def _reentry_carry_payload(
                 suggestion="Project the scalar column explicitly before MATCH re-entry.",
                 language="cypher",
             )
-        carry_payload = cast(
-            DataFrameT,
-            carry_payload.assign(
-                **{
-                    column.hidden_column: cast(SeriesT, prefix_rows[column.output_name]).reset_index(drop=True)
-                }
-            ),
-        )
+        column_updates[column.hidden_column] = cast(SeriesT, prefix_rows[column.output_name]).reset_index(drop=True)
+    if column_updates:
+        carry_payload = cast(DataFrameT, carry_payload.assign(**column_updates))
     return carry_payload
 
 
