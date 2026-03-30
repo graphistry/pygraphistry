@@ -4,7 +4,7 @@
 import re
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Union, cast
 from graphistry.Plottable import Plottable
-from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine, safe_merge
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
 from .chain import Chain, chain as chain_impl
@@ -317,6 +317,8 @@ def _execute_query_with_graph_context(
         optional_projection_row_guard=compiled.optional_projection_row_guard,
         start_nodes_query=compiled.start_nodes_query,
         start_nodes_output_name=compiled.start_nodes_output_name,
+        start_nodes_alias=compiled.start_nodes_alias,
+        start_nodes_carried_columns=compiled.start_nodes_carried_columns,
     )
     return _execute_compiled_query(
         target_graph,
@@ -425,12 +427,13 @@ def _execute_compiled_query(
     return result
 
 
-def _compiled_query_start_nodes(
+def _compiled_query_reentry_state(
+    base_graph: Plottable,
     compiled_query: CompiledCypherQuery,
     prefix_result: Plottable,
     *,
     engine: Union[EngineAbstract, str],
-) -> DataFrameT:
+) -> tuple[Plottable, DataFrameT]:
     output_name = compiled_query.start_nodes_output_name
     entity_meta = cast(
         Optional[Dict[str, WholeRowProjectionMeta]],
@@ -466,10 +469,76 @@ def _compiled_query_start_nodes(
             suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
             language="cypher",
         )
-    concrete_engine = resolve_engine(cast(Any, engine), prefix_result)
-    df_ctor = df_cons(concrete_engine)
+    base_nodes = getattr(base_graph, "_nodes", None)
+    if base_nodes is None or id_column not in base_nodes.columns:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher MATCH after WITH could not recover the base node table for re-entry",
+            field="with",
+            value=id_column,
+            suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
+            language="cypher",
+        )
+    concrete_engine = resolve_engine(cast(Any, engine), base_graph)
     carried_ids = cast(SeriesT, ids.dropna().reset_index(drop=True))
-    return df_ctor({id_column: carried_ids})
+    carried_node_ids = cast(DataFrameT, df_cons(concrete_engine)({id_column: carried_ids}))
+
+    carried_columns = compiled_query.start_nodes_carried_columns
+    if not carried_columns:
+        start_nodes = cast(DataFrameT, safe_merge(base_nodes, carried_node_ids, on=id_column, how="inner"))
+        return base_graph, start_nodes
+
+    prefix_rows = getattr(prefix_result, "_nodes", None)
+    if prefix_rows is None:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher MATCH after WITH could not recover carried row columns from the prefix stage",
+            field="with",
+            value=output_name,
+            suggestion="Carry scalar columns through WITH before MATCH re-entry.",
+            language="cypher",
+        )
+    duplicate_mask = carried_ids.duplicated()
+    has_duplicates = bool(duplicate_mask.any()) if hasattr(duplicate_mask, "any") else False
+    if has_duplicates:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher MATCH after WITH carried scalar columns currently require unique carried node rows",
+            field="with",
+            value=compiled_query.start_nodes_alias or output_name,
+            suggestion="Use a single-node seed WITH shape, or avoid carrying scalar columns into MATCH re-entry.",
+            language="cypher",
+        )
+
+    carry_payload = cast(DataFrameT, carried_node_ids.copy())
+    for column in carried_columns:
+        if column.output_name not in prefix_rows.columns:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Cypher MATCH after WITH could not recover a carried scalar column from the prefix stage",
+                field="with",
+                value=column.output_name,
+                suggestion="Project the scalar column explicitly before MATCH re-entry.",
+                language="cypher",
+            )
+        carry_payload = cast(
+            DataFrameT,
+            carry_payload.assign(
+                **{
+                    column.hidden_column: cast(SeriesT, prefix_rows[column.output_name]).reset_index(drop=True)
+                }
+            ),
+        )
+
+    enriched_nodes = cast(DataFrameT, safe_merge(base_nodes, carry_payload, on=id_column, how="left"))
+    start_nodes = cast(DataFrameT, safe_merge(enriched_nodes, carried_node_ids, on=id_column, how="inner"))
+
+    dispatch_graph = base_graph.bind()
+    dispatch_graph._nodes = enriched_nodes
+    edges_df = getattr(base_graph, "_edges", None)
+    if edges_df is not None:
+        dispatch_graph._edges = edges_df
+    return dispatch_graph, start_nodes
 
 
 def _materialize_split_alias_columns(
@@ -871,6 +940,7 @@ def gfql(self: Plottable,
                         raise ValueError("where provided for Chain that already includes where")
                     query = Chain(query.chain, where=where_param)
                 if compiled_query is not None:
+                    compiled_base_graph = self
                     start_nodes = None
                     if compiled_query.start_nodes_query is not None:
                         prefix_result = _execute_compiled_query(
@@ -880,9 +950,14 @@ def gfql(self: Plottable,
                             policy=expanded_policy,
                             context=context,
                         )
-                        start_nodes = _compiled_query_start_nodes(compiled_query, prefix_result, engine=engine)
+                        compiled_base_graph, start_nodes = _compiled_query_reentry_state(
+                            self,
+                            compiled_query,
+                            prefix_result,
+                            engine=engine,
+                        )
                     return _execute_compiled_query(
-                        self,
+                        compiled_base_graph,
                         compiled_query=compiled_query,
                         engine=engine,
                         policy=expanded_policy,
