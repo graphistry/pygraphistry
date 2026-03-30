@@ -488,22 +488,32 @@ class TestGFQLDictConversion:
 class TestGFQLCypherReentryCarrier:
 
     @staticmethod
-    def _compile_reentry_query(with_clause: str = "a, a.num AS property"):
+    def _compile_reentry_query(
+        with_clause: str = "a, a.num AS property",
+        *,
+        match_alias: str = "a",
+    ):
         return compile_cypher(
             "MATCH (a:A) "
             f"WITH {with_clause} "
-            "MATCH (a)-->(b) "
+            f"MATCH ({match_alias})-->(b) "
             "RETURN b.id AS bid"
         )
 
     @staticmethod
-    def _bind_reentry_prefix_result(g, rows: Dict[str, List[Any]], ids: List[Any]):
+    def _bind_reentry_prefix_result(
+        g,
+        rows: Dict[str, List[Any]],
+        ids: List[Any],
+        *,
+        output_name: str = "a",
+    ):
         prefix_result = g.bind()
         prefix_result._nodes = pd.DataFrame(rows)
         prefix_result._cypher_entity_projection_meta = {
-            "a": {
+            output_name: {
                 "table": "nodes",
-                "alias": "a",
+                "alias": output_name,
                 "id_column": "id",
                 "ids": pd.Series(ids, name="id"),
             }
@@ -682,3 +692,25 @@ class TestGFQLCypherReentryCarrier:
         )
 
         assert g._nodes["__cypher_reentry_property__"].tolist() == ["orig1", "orig2", None, None]
+
+    def test_reentry_state_uses_projected_whole_row_alias_for_contract(self):
+        g = _mk_reentry_scalar_graph()
+        self._assert_reentry_state(
+            g=g,
+            compiled=self._compile_reentry_query("a AS x, a.num AS property", match_alias="x"),
+            prefix_result=self._bind_reentry_prefix_result(
+                g,
+                rows={"property": [2, 1]},
+                ids=["a2", "a1"],
+                output_name="x",
+            ),
+            expected_rows=[
+                {"id": "a2", "label__A": True, "num": 2, "__cypher_reentry_property__": 2},
+                {"id": "a1", "label__A": True, "num": 1, "__cypher_reentry_property__": 1},
+            ],
+            expected_carry={
+                "a1": {"__cypher_reentry_property__": 1},
+                "a2": {"__cypher_reentry_property__": 2},
+            },
+            expect_same_graph=False,
+        )

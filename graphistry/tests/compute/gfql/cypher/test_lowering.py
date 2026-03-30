@@ -5046,7 +5046,7 @@ def test_string_cypher_executes_with_match_reentry_multihop_shape() -> None:
 
 
 @pytest.mark.parametrize(
-    ("query", "expected_columns"),
+    ("query", "expected_whole_row_output", "expected_columns"),
     [
         (
             "MATCH (a:A) "
@@ -5054,6 +5054,7 @@ def test_string_cypher_executes_with_match_reentry_multihop_shape() -> None:
             "MATCH (a)-->(b) "
             "RETURN property "
             "ORDER BY property DESC",
+            "a",
             ("property",),
         ),
         (
@@ -5062,21 +5063,43 @@ def test_string_cypher_executes_with_match_reentry_multihop_shape() -> None:
             "MATCH (a)-->(b) "
             "RETURN property, property2 "
             "ORDER BY property DESC",
+            "a",
             ("property", "property2"),
+        ),
+        (
+            "MATCH (a:A) "
+            "WITH a AS x, a.num AS property "
+            "MATCH (x)-->(b) "
+            "RETURN property "
+            "ORDER BY property DESC",
+            "x",
+            ("property",),
         ),
     ],
 )
-def test_compile_cypher_tracks_reentry_carried_scalar_columns(query: str, expected_columns: Tuple[str, ...]) -> None:
+def test_compile_cypher_tracks_reentry_carried_scalar_columns(
+    query: str,
+    expected_whole_row_output: str,
+    expected_columns: Tuple[str, ...],
+) -> None:
     compiled = _compile_query(query)
     whole_row_output, carried_columns = _compiled_reentry_projection_outputs(compiled)
 
-    assert whole_row_output == "a"
+    assert whole_row_output == expected_whole_row_output
     assert carried_columns == expected_columns
 
 
 @pytest.mark.parametrize(
     ("query", "expected"),
     [
+        (
+            "MATCH (a:A) "
+            "WITH a AS x "
+            "MATCH (x)-->(b) "
+            "RETURN b.id AS bid "
+            "ORDER BY bid",
+            [{"bid": "b1"}, {"bid": "b2"}],
+        ),
         (
             "MATCH (a:A) "
             "WITH a, a.num AS property "
@@ -5100,6 +5123,14 @@ def test_compile_cypher_tracks_reentry_carried_scalar_columns(query: str, expect
             "RETURN property, property2 "
             "ORDER BY property DESC",
             [{"property": 2, "property2": 12}, {"property": 1, "property2": 11}],
+        ),
+        (
+            "MATCH (a:A) "
+            "WITH a AS x, a.num AS property "
+            "MATCH (x)-->(b) "
+            "RETURN x, property "
+            "ORDER BY property DESC",
+            [{"x": "(:A {num: 2})", "property": 2}, {"x": "(:A {num: 1})", "property": 1}],
         ),
     ],
 )
