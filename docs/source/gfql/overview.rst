@@ -52,8 +52,8 @@ Key GFQL Concepts
 GFQL works on the same graphs as the rest of the PyGraphistry library. The operations run on top of the dataframe engine of your choice, with initial support for Pandas dataframes (CPU) and cuDF dataframes (GPU). 
 
 - **Nodes and Edges**: Represented using dataframes, making integration with Pandas and cuDF seamless
-- **Functional**: Build queries by layering operations, similar to functional method chaining in Pandas
-- **Query**: Run graph pattern matching using method `chain()` in a style similar to the popoular OpenCypher graph query language
+- **Cypher strings**: Write queries as Cypher strings — ``g.gfql("MATCH (n) WHERE n.score > 5 RETURN n")``
+- **Native chains**: Or compose queries as Python objects — ``g.gfql([n({"score": gt(5)})])``
 - **Predicates**: Apply conditions to filter nodes and edges based on their properties, reusing the optimized native operations of the underlying dataframe engine
 - **Same-path constraints (WHERE)**: Relate attributes across steps in a chain using `where`
 - **Row pipelines (`MATCH ... RETURN` style)**: Move from graph pattern matches to tabular results with `rows()`, `where_rows()`, `return_()`, `order_by()`, `group_by()`, `skip()`, and `limit()`
@@ -85,27 +85,35 @@ If you need to enrich a graph and keep matching locally, use graph-preserving `c
 Quick Examples
 ~~~~~~~~~~~~~~~
 
+GFQL supports Cypher strings and native Python chains through the same ``g.gfql(...)`` entrypoint:
+
 **Find Nodes of a Certain Type**
 
-Example: Find all nodes where the `type` is `"person"`.
-
 .. code-block:: python
 
+    # Cypher string — returns a DataFrame of matching nodes
+    nodes_df = g.gfql("MATCH (n {type: 'person'}) RETURN n")._nodes
+
+    # Equivalent native chain
     from graphistry import n
+    nodes_df = g.gfql([ n({"type": "person"}) ])._nodes
 
-    people_nodes_df = g.gfql([ n({"type": "person"}) ])._nodes
-    print('Number of person nodes:', len(people_nodes_df))
-
-**Visualize 2-Hop Edge Sequences with an Attribute**
-
-Example: Find 2-hop paths where edges have `"interesting": True`.
+**Extract a Subgraph**
 
 .. code-block:: python
 
-    from graphistry import n, e_forward
+    # Cypher string — GRAPH { } returns a subgraph with ._nodes and ._edges
+    g2 = g.gfql(
+        "GRAPH { "
+        "MATCH (a)-[e]->(b) "
+        "WHERE e.interesting = true "
+        "}"
+    )
 
-    g_2_hops = g.gfql([n(), e_forward({"interesting": True}, hops=2) ])
-    g_2_hops.plot()
+    # Equivalent native chain
+    from graphistry import n, e_forward
+    g2 = g.gfql([n(), e_forward({"interesting": True}, hops=2) ])
+    g2.plot()
 
 **Same-Path Constraints (WHERE)**
 
