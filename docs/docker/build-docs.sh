@@ -15,9 +15,7 @@ fi
 
 # Validate GFQL doc code examples
 echo "Running GFQL doc example audit..."
-PYGRAPHISTRY_ROOT=/docs python3 -m pytest /docs/test_doc_examples.py -v --tb=short || {
-    echo "WARNING: GFQL doc example audit found failures (non-blocking for now)"
-}
+PYGRAPHISTRY_ROOT=/docs python3 -m pytest /docs/test_doc_examples.py -v --tb=short
 
 build_html() {
     sphinx-build -b html -d /docs/doctrees . /docs/_build/html
