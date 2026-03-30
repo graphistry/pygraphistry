@@ -1687,4 +1687,4 @@ class TestNestedLetScopeIsolation:
         assert merged == {'a': 1, 'b': 20, 'c': 30}
 
 
-# CI: no functional change
+# CI: rebase touchpoint — no functional change
