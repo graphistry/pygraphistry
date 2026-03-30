@@ -79,7 +79,7 @@ See :doc:`/gfql/where` (same-path constraints) and :doc:`/gfql/return`
      - Value is in ``values`` list.
      - ``n({ "type": is_in(["person", "company"]) })``
    * - ``is_not_in(values)``
-     - Value is not in ``values`` list. *(Not yet implemented —* `#966 <https://github.com/graphistry/pygraphistry/issues/966>`_ *)*
+     - Value is not in ``values`` list. *(Not yet implemented.)*
      - Use ``n(query="type not in ['bot', 'spam']")``
    * - ``duplicated(keep='first')``
      - Marks duplicated values.
@@ -277,8 +277,7 @@ Additional Notes
      are no longer supported because ``filter_dict`` values must be
      JSON-serializable for the wire protocol and remote execution. Use
      predicates like ``gt()``, ``between()``, or ``query=`` strings for
-     compound conditions. See `#966 <https://github.com/graphistry/pygraphistry/issues/966>`_
-     for discussion on restoring lambda support in local-only flows.
+     compound conditions.
 
 - **Importing Operators**: Remember to import the necessary functions.
 
