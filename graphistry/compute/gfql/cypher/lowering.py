@@ -6064,11 +6064,9 @@ def _compile_bounded_reentry_query(
             line=prefix_stage.span.line,
             column=prefix_stage.span.column,
         )
-    prefix_query = CypherQuery(
-        matches=query.matches,
-        where=query.where,
+    prefix_query = replace(
+        query,
         call=None,
-        unwinds=query.unwinds,
         with_stages=(),
         return_=ReturnClause(
             items=prefix_stage.clause.items,
@@ -6081,7 +6079,10 @@ def _compile_bounded_reentry_query(
         limit=prefix_stage.limit,
         row_sequence=(),
         trailing_semicolon=False,
-        span=query.span,
+        reentry_matches=(),
+        reentry_where=None,
+        graph_bindings=(),
+        use=None,
     )
     prefix_compiled = compile_cypher_query(prefix_query, params=params)
     if not isinstance(prefix_compiled, CompiledCypherQuery):
@@ -6195,7 +6196,8 @@ def _compile_bounded_reentry_query(
                 for item in reentry_order_by.items
             ),
         )
-    suffix_query = CypherQuery(
+    suffix_query = replace(
+        query,
         matches=query.reentry_matches,
         where=reentry_where,
         call=None,
@@ -6203,11 +6205,11 @@ def _compile_bounded_reentry_query(
         with_stages=(),
         return_=reentry_return,
         order_by=reentry_order_by,
-        skip=query.skip,
-        limit=query.limit,
         row_sequence=(),
-        trailing_semicolon=query.trailing_semicolon,
-        span=query.span,
+        reentry_matches=(),
+        reentry_where=None,
+        graph_bindings=(),
+        use=None,
     )
     suffix_compiled = compile_cypher_query(suffix_query, params=params)
     if not isinstance(suffix_compiled, CompiledCypherQuery):
