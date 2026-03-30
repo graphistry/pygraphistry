@@ -25,7 +25,12 @@ from graphistry.compute.gfql.same_path_types import (
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.api import compile_cypher
-from graphistry.compute.gfql.cypher.lowering import CompiledCypherGraphQuery, CompiledCypherQuery, CompiledCypherUnionQuery
+from graphistry.compute.gfql.cypher.lowering import (
+    CompiledCypherGraphQuery,
+    CompiledCypherQuery,
+    CompiledCypherUnionQuery,
+    _reentry_hidden_column_name,
+)
 from graphistry.compute.gfql.cypher.call_procedures import execute_cypher_call
 from graphistry.compute.gfql.cypher.result_postprocess import WholeRowProjectionMeta, apply_result_projection
 from graphistry.compute.gfql.df_executor import (
@@ -317,7 +322,6 @@ def _execute_query_with_graph_context(
         optional_projection_row_guard=compiled.optional_projection_row_guard,
         start_nodes_query=compiled.start_nodes_query,
         start_nodes_output_name=compiled.start_nodes_output_name,
-        start_nodes_alias=compiled.start_nodes_alias,
         start_nodes_carried_columns=compiled.start_nodes_carried_columns,
     )
     return _execute_compiled_query(
@@ -513,7 +517,7 @@ def _compiled_query_reentry_state(
             ErrorCode.E108,
             "Cypher MATCH after WITH carried scalar columns currently require unique carried node rows",
             field="with",
-            value=compiled_query.start_nodes_alias or output_name,
+            value=output_name,
             suggestion="Use a single-node seed WITH shape, or avoid carrying scalar columns into MATCH re-entry.",
             language="cypher",
         )
@@ -575,21 +579,21 @@ def _reentry_carry_payload(
     *,
     carried_node_ids: DataFrameT,
     prefix_rows: DataFrameT,
-    carried_columns: Sequence[Any],
+    carried_columns: Sequence[str],
 ) -> DataFrameT:
     carry_payload = cast(DataFrameT, carried_node_ids.copy())
     column_updates: Dict[str, SeriesT] = {}
-    for column in carried_columns:
-        if column.output_name not in prefix_rows.columns:
+    for output_name in carried_columns:
+        if output_name not in prefix_rows.columns:
             raise GFQLValidationError(
                 ErrorCode.E108,
                 "Cypher MATCH after WITH could not recover a carried scalar column from the prefix stage",
                 field="with",
-                value=column.output_name,
+                value=output_name,
                 suggestion="Project the scalar column explicitly before MATCH re-entry.",
                 language="cypher",
             )
-        column_updates[column.hidden_column] = cast(SeriesT, prefix_rows[column.output_name]).reset_index(drop=True)
+        column_updates[_reentry_hidden_column_name(output_name)] = cast(SeriesT, prefix_rows[output_name]).reset_index(drop=True)
     if column_updates:
         carry_payload = cast(DataFrameT, carry_payload.assign(**column_updates))
     return carry_payload

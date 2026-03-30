@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
-from typing import Any, cast
+from typing import Any, Dict, List, Tuple, cast
 
 from graphistry.compute.ast import ASTCall, ASTNode, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLValidationError
@@ -4977,81 +4977,101 @@ def test_string_cypher_executes_with_match_reentry_multihop_shape() -> None:
     assert result._nodes.to_dict(orient="records") == [{"id": "c"}]
 
 
-def test_compile_cypher_tracks_reentry_carried_scalar_columns() -> None:
-    compiled = _compile_query(
-        "MATCH (a:A) "
-        "WITH a, a.num AS property "
-        "MATCH (a)-->(b) "
-        "RETURN property "
-        "ORDER BY property DESC"
-    )
+@pytest.mark.parametrize(
+    ("query", "expected_columns"),
+    [
+        (
+            "MATCH (a:A) "
+            "WITH a, a.num AS property "
+            "MATCH (a)-->(b) "
+            "RETURN property "
+            "ORDER BY property DESC",
+            ("property",),
+        ),
+        (
+            "MATCH (a:A) "
+            "WITH a, a.num AS property, a.num + 10 AS property2 "
+            "MATCH (a)-->(b) "
+            "RETURN property, property2 "
+            "ORDER BY property DESC",
+            ("property", "property2"),
+        ),
+    ],
+)
+def test_compile_cypher_tracks_reentry_carried_scalar_columns(query: str, expected_columns: Tuple[str, ...]) -> None:
+    compiled = _compile_query(query)
 
     assert compiled.start_nodes_query is not None
     assert compiled.start_nodes_output_name == "a"
-    assert compiled.start_nodes_alias == "a"
-    assert [(column.output_name, column.hidden_column) for column in compiled.start_nodes_carried_columns] == [
-        ("property", "__cypher_reentry_property__")
-    ]
+    assert compiled.start_nodes_carried_columns == expected_columns
 
 
-def test_string_cypher_failfast_rejects_with_match_reentry_carried_scalar_cross_alias_where_shape() -> None:
-    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time"):
-        _mk_reentry_carried_scalar_graph().gfql(
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "MATCH (a:A) "
+            "WITH a, a.num AS property "
+            "MATCH (a)-->(b) "
+            "RETURN property "
+            "ORDER BY property DESC",
+            [{"property": 2}, {"property": 1}],
+        ),
+        (
+            "MATCH (a:A) "
+            "WITH a, a.num AS property "
+            "MATCH (a)-->(b) "
+            "RETURN a "
+            "ORDER BY property DESC",
+            [{"a": "(:A {num: 2})"}, {"a": "(:A {num: 1})"}],
+        ),
+        (
+            "MATCH (a:A) "
+            "WITH a, a.num AS property, a.num + 10 AS property2 "
+            "MATCH (a)-->(b) "
+            "RETURN property, property2 "
+            "ORDER BY property DESC",
+            [{"property": 2, "property2": 12}, {"property": 1, "property2": 11}],
+        ),
+    ],
+)
+def test_string_cypher_executes_with_match_reentry_carried_scalar_shapes(query: str, expected: List[Dict[str, Any]]) -> None:
+    result = _mk_reentry_carried_scalar_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected
+
+
+@pytest.mark.parametrize(
+    ("query", "match"),
+    [
+        (
             "MATCH (a:A) "
             "WITH a, a.num AS property "
             "MATCH (a)-->(b) "
             "WHERE property = b.num "
-            "RETURN b.id AS id"
-        )
-
-
-def test_string_cypher_executes_with_match_reentry_carried_scalar_projection_shape() -> None:
-    result = _mk_reentry_carried_scalar_graph().gfql(
-        "MATCH (a:A) "
-        "WITH a, a.num AS property "
-        "MATCH (a)-->(b) "
-        "RETURN property "
-        "ORDER BY property DESC"
-    )
-
-    assert result._nodes.to_dict(orient="records") == [{"property": 2}, {"property": 1}]
-
-
-def test_string_cypher_executes_with_match_reentry_carried_scalar_whole_row_shape() -> None:
-    result = _mk_reentry_carried_scalar_graph().gfql(
-        "MATCH (a:A) "
-        "WITH a, a.num AS property "
-        "MATCH (a)-->(b) "
-        "RETURN a "
-        "ORDER BY property DESC"
-    )
-
-    assert result._nodes.to_dict(orient="records") == [
-        {"a": "(:A {num: 2})"},
-        {"a": "(:A {num: 1})"},
-    ]
-
-
-def test_string_cypher_failfast_rejects_prefix_order_carry_forward_for_with_match_reentry_shape() -> None:
-    with pytest.raises(GFQLValidationError, match="does not yet preserve prefix WITH row ordering"):
-        _mk_reentry_carried_scalar_graph().gfql(
+            "RETURN b.id AS id",
+            "one MATCH source alias at a time",
+        ),
+        (
             "MATCH (a:A) "
             "WITH a "
             "ORDER BY a.num DESC "
             "MATCH (a)-->(b) "
-            "RETURN b.id AS bid"
-        )
-
-
-def test_string_cypher_failfast_rejects_prefix_order_carry_forward_for_with_match_reentry_carried_scalar_shape() -> None:
-    with pytest.raises(GFQLValidationError, match="does not yet preserve prefix WITH row ordering"):
-        _mk_reentry_carried_scalar_graph().gfql(
+            "RETURN b.id AS bid",
+            "does not yet preserve prefix WITH row ordering",
+        ),
+        (
             "MATCH (a:A) "
             "WITH a, a.num AS property "
             "ORDER BY property DESC "
             "MATCH (a)-->(b) "
-            "RETURN b.id AS bid"
-        )
+            "RETURN b.id AS bid",
+            "does not yet preserve prefix WITH row ordering",
+        ),
+    ],
+)
+def test_string_cypher_failfast_rejects_with_match_reentry_unsupported_shapes(query: str, match: str) -> None:
+    with pytest.raises(GFQLValidationError, match=match):
+        _mk_reentry_carried_scalar_graph().gfql(query)
 
 
 def test_string_cypher_executes_seeded_multihop_then_with_match_reentry_shape() -> None:
