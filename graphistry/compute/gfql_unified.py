@@ -1,6 +1,7 @@
 """GFQL unified entrypoint for chains, DAGs, and local string-compiled queries."""
 # ruff: noqa: E501
 
+from dataclasses import replace
 import re
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple, Union, cast
 from graphistry.Plottable import Plottable
@@ -312,18 +313,7 @@ def _execute_query_with_graph_context(
     else:
         target_graph = base_graph
     # Strip graph context from the compiled query and execute normally
-    plain_query = CompiledCypherQuery(
-        chain=compiled.chain,
-        seed_rows=compiled.seed_rows,
-        procedure_call=compiled.procedure_call,
-        result_projection=compiled.result_projection,
-        empty_result_row=compiled.empty_result_row,
-        optional_null_fill=compiled.optional_null_fill,
-        optional_projection_row_guard=compiled.optional_projection_row_guard,
-        start_nodes_query=compiled.start_nodes_query,
-        start_nodes_output_name=compiled.start_nodes_output_name,
-        start_nodes_carried_columns=compiled.start_nodes_carried_columns,
-    )
+    plain_query = replace(compiled, graph_bindings=(), use_ref=None)
     return _execute_compiled_query(
         target_graph,
         compiled_query=plain_query,
@@ -438,7 +428,7 @@ def _compiled_query_reentry_state(
     *,
     engine: Union[EngineAbstract, str],
 ) -> Tuple[Plottable, DataFrameT]:
-    output_name = compiled_query.start_nodes_output_name
+    output_name, carried_columns = _compiled_query_reentry_contract(compiled_query)
     entity_meta = cast(
         Optional[Dict[str, WholeRowProjectionMeta]],
         getattr(prefix_result, "_cypher_entity_projection_meta", None),
@@ -491,7 +481,6 @@ def _compiled_query_reentry_state(
     )
     carried_node_ids = cast(DataFrameT, df_cons(concrete_engine)({id_column: carried_ids}))
 
-    carried_columns = compiled_query.start_nodes_carried_columns
     if not carried_columns:
         start_nodes = _ordered_reentry_start_nodes(
             node_rows=base_nodes,
@@ -540,6 +529,38 @@ def _compiled_query_reentry_state(
     if edges_df is not None:
         dispatch_graph._edges = edges_df
     return dispatch_graph, start_nodes
+
+
+def _compiled_query_reentry_contract(
+    compiled_query: CompiledCypherQuery,
+) -> Tuple[str, Tuple[str, ...]]:
+    prefix_query = compiled_query.start_nodes_query
+    prefix_projection = None if prefix_query is None else prefix_query.result_projection
+    if prefix_projection is None:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher MATCH after WITH could not recover the prefix projection contract for re-entry",
+            field="with",
+            value=None,
+            suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
+            language="cypher",
+        )
+    whole_row_columns = tuple(
+        column.output_name for column in prefix_projection.columns if column.kind == "whole_row"
+    )
+    if len(whole_row_columns) != 1:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher MATCH after WITH could not recover exactly one whole-row alias from the prefix projection",
+            field="with",
+            value=whole_row_columns,
+            suggestion="Carry exactly one whole-row node alias through WITH before MATCH re-entry.",
+            language="cypher",
+        )
+    carried_columns = tuple(
+        column.output_name for column in prefix_projection.columns if column.kind != "whole_row"
+    )
+    return whole_row_columns[0], carried_columns
 
 
 def _aligned_reentry_rows(

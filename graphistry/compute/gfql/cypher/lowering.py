@@ -116,8 +116,6 @@ class CompiledCypherQuery:
     optional_null_fill: Optional["OptionalNullFillPlan"] = None
     optional_projection_row_guard: Optional["OptionalProjectionRowGuardPlan"] = None
     start_nodes_query: Optional["CompiledCypherQuery"] = None
-    start_nodes_output_name: Optional[str] = None
-    start_nodes_carried_columns: Tuple[str, ...] = ()
     graph_bindings: Tuple["CompiledGraphBinding", ...] = ()
     use_ref: Optional[str] = None
 
@@ -5963,7 +5961,6 @@ def _compile_bounded_reentry_query(
             line=prefix_stage.order_by.span.line if prefix_stage.order_by is not None else prefix_stage.span.line,
             column=prefix_stage.order_by.span.column if prefix_stage.order_by is not None else prefix_stage.span.column,
         )
-    whole_row_column = next(column for column in prefix_projection.columns if column.kind == "whole_row")
     if prefix_projection.table != "nodes":
         raise _unsupported(
             "Cypher MATCH after WITH currently supports node re-entry only",
@@ -6079,8 +6076,6 @@ def _compile_bounded_reentry_query(
         suffix_compiled,
         result_projection=result_projection,
         start_nodes_query=prefix_compiled,
-        start_nodes_output_name=whole_row_column.output_name,
-        start_nodes_carried_columns=carry_columns,
     )
 
 
@@ -6276,20 +6271,7 @@ def compile_cypher_query(
     def _attach_graph_context(result: CompiledCypherQuery) -> CompiledCypherQuery:
         if not compiled_bindings and _use_ref is None:
             return result
-        return CompiledCypherQuery(
-            chain=result.chain,
-            seed_rows=result.seed_rows,
-            procedure_call=result.procedure_call,
-            result_projection=result.result_projection,
-            empty_result_row=result.empty_result_row,
-            optional_null_fill=result.optional_null_fill,
-            optional_projection_row_guard=result.optional_projection_row_guard,
-            start_nodes_query=result.start_nodes_query,
-            start_nodes_output_name=result.start_nodes_output_name,
-            start_nodes_carried_columns=result.start_nodes_carried_columns,
-            graph_bindings=compiled_bindings,
-            use_ref=_use_ref,
-        )
+        return replace(result, graph_bindings=compiled_bindings, use_ref=_use_ref)
 
     _reject_unsupported_variable_length_where_pattern_predicates(query)
     _reject_variable_length_path_alias_references(query, params=params)
