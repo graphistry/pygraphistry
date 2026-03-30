@@ -633,6 +633,7 @@ g.gfql([
 ### User 360 Query
 
 **Python**:
+<!-- doc-test: xfail -->
 ```python
 g.gfql([
     n({"customer_id": "C123"}),
@@ -676,6 +677,7 @@ g.gfql([
 ### Cyber Security Pattern
 
 **Python**:
+<!-- doc-test: skip -->
 ```python
 g.gfql([
     n({"ip": is_in(["192.168.1.100", "192.168.1.101"])}),

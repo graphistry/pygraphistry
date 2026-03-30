@@ -74,7 +74,7 @@ Invalid Parameters
        chain = Chain([n(), e_forward(hops=-1)])
    except GFQLTypeError as e:
        print(f"Error: {e.message}")  # "hops must be a positive integer"
-   
+
    # Correct
    chain = Chain([n(), e_forward(hops=2)])
 
@@ -89,7 +89,7 @@ Missing Columns
    except GFQLSchemaError as e:
        print(f"Error: {e.message}")  # Column "category" does not exist
        print(f"Suggestion: {e.context.get('suggestion')}")
-   
+
    # Correct - use existing columns
    result = g.chain([n({'type': 'customer'})])
 
@@ -103,13 +103,15 @@ Type Mismatches
        result = g.chain([n({'score': 'high'})])
    except GFQLSchemaError as e:
        print(f"Error: {e.message}")  # Type mismatch
-   
+
    # Correct - use numeric predicate
    from graphistry.compute.predicates.numeric import gt
    result = g.chain([n({'score': gt(80)})])
 
 Temporal Comparisons
 ^^^^^^^^^^^^^^^^^^^^
+
+.. doc-test: xfail
 
 .. code-block:: python
 
@@ -140,7 +142,7 @@ GFQL validates automatically - just write your queries and run them:
 
    # Validation happens automatically
    result = g.chain([n({'type': 'customer'})])
-   
+
    # Errors are caught and reported clearly
    try:
        result = g.chain([n({'invalid_column': 'value'})])
@@ -150,28 +152,22 @@ GFQL validates automatically - just write your queries and run them:
 Pre-Execution Validation Options
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-You have two options for validating queries:
-
-1. **Validate-only** (no execution): Use ``validate_chain_schema()`` to check compatibility without running the query
-2. **Validate-and-run**: Use ``g.gfql(..., validate_schema=True)`` to validate before execution
+Use ``validate_chain_schema()`` to check compatibility without running the query, then execute separately:
 
 .. code-block:: python
 
-   # Method 1: Validate-only (no execution)
    from graphistry.compute.validate_schema import validate_chain_schema
-   
+
+   # Step 1: Validate (no execution)
    try:
        validate_chain_schema(g, chain)  # Only validates, doesn't execute
        print("Chain is valid for this graph schema")
    except GFQLSchemaError as e:
        print(f"Schema incompatibility: {e}")
-   
-   # Method 2: Validate-and-run
-   try:
-       result = g.gfql(chain.chain, validate_schema=True)  # Validates, then executes if valid
-       print(f"Query executed: {len(result._nodes)} nodes")
-   except GFQLSchemaError as e:
-       print(f"Validation failed, query not executed: {e}")
+
+   # Step 2: Execute (after validation passes)
+   result = g.gfql(chain.chain)
+   print(f"Query executed: {len(result._nodes)} nodes")
 
 Error Collection
 ^^^^^^^^^^^^^^^^

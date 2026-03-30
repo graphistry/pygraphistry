@@ -18,6 +18,8 @@ Basic Usage
 
 **Chaining Operations**
 
+.. doc-test: skip
+
 .. code-block:: python
 
     g.gfql([...], engine=EngineAbstract.AUTO)
@@ -54,6 +56,8 @@ Cypher Strings Through ``g.gfql()``
 Use ``g.gfql("MATCH ...")`` when you want Cypher syntax and declarative graph
 semantics on a bound graph instead of writing the equivalent GFQL chain by
 hand:
+
+.. doc-test: xfail
 
 .. code-block:: python
 
@@ -642,7 +646,7 @@ Reference graphs on remote servers for distributed computing:
 
   .. code-block:: python
 
-      from graphistry import remote
+      from graphistry.compute import remote
 
       result = g.gfql([
           remote(dataset_id='fraud-network-2024'),
@@ -653,6 +657,8 @@ Reference graphs on remote servers for distributed computing:
 - **Combine remote and local data in Let:**
 
   .. code-block:: python
+
+      from graphistry.compute import remote
 
       result = g.gfql(let({
           'remote_data': remote(dataset_id='historical-2023'),

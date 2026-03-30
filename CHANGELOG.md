@@ -9,7 +9,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Fixed
+- **GFQL docs**: Fixed 29 broken code examples across 12 doc files — wrong API params (`n(edge_match=...)`→`e_forward(edge_match=...)`), wrong imports (`remote`, `Chain`, `eq`), nonexistent classes (`PlottableValidator`, `is_not_in`), and wrong param names (`col_in`/`col_out`, `entity_cols`).
 - **GFQL / Let**: Fixed nested `let()` inside `let()` failing at execution time despite passing `validate()`. The dependency resolver now treats nested `ASTLet` bindings as opaque execution units instead of walking into their internal bindings, which caused false "references undefined nodes" errors (#968).
+
+### Tests
+- **GFQL doc examples**: Added automated test harness (`docs/test_doc_examples.py`) that extracts and runs code examples from all GFQL doc files. Runs in CI via the docs docker build. Uses `.. doc-test: skip` / `xfail` markers for blocks that need special handling. 33 skip + 23 xfail markers on genuinely untestable blocks.
 - **GFQL / Let**: Fixed nested let runtime scope isolation. Inner let bindings no longer leak into the outer scope's `ExecutionContext`. Added `child_context()` with read-through (lexical closure) and write-local semantics. Fixes name collisions between sibling inner lets and shadowing corruption (#968).
 - **GFQL / Let**: Fixed nested let receiving the accumulated result instead of the original graph. Inner lets now filter from the outer scope's original graph independently, matching the behavior of Chain/Node bindings (#968).
 

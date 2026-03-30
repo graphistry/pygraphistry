@@ -415,6 +415,8 @@ All Paths and Connectivity
 
 **Pandas**
 
+.. doc-test: skip
+
 .. code-block:: python
 
     def find_paths_fixed_point(edges_df, nodes_df, start_node, end_node):
@@ -593,11 +595,13 @@ Time-Windowed Graph Analytics
 
 .. code-block:: python
 
+    from graphistry import n, e_forward, is_in
+
     past_week = pd.Timestamp.now() - pd.Timedelta(7)
     g.gfql([
-        n({"id": {"$in": ["Alice", "Bob"]}}), 
-        e_forward(edge_query=f'timestamp >= "{past_week}"'), 
-        n({"id": {"$in": ["Alice", "Bob"]}})
+        n({"id": is_in(["Alice", "Bob"])}),
+        e_forward(edge_query=f'timestamp >= "{past_week}"'),
+        n({"id": is_in(["Alice", "Bob"])})
     ])._edges
 
 **Explanation**:
@@ -642,12 +646,12 @@ Parallel Pathfinding
 
 .. code-block:: python
 
-    from graphistry import n, e_forward
+    from graphistry import n, e_forward, is_in
 
     # g._nodes: cudf.DataFrame[['src', 'dst', ...]]
     g.gfql([
-        n({"id": "Alice"}), 
-        e_forward(to_fixed_point=False), 
+        n({"id": "Alice"}),
+        e_forward(to_fixed_point=False),
         n({"id": is_in(["Bob", "Charlie"])})
     ], engine='cudf')
 
@@ -655,7 +659,7 @@ Parallel Pathfinding
 
 
 - **Cypher**: Cypher processes paths individually and does not support native parallelism. Libraries like APOC or GDS offer a way to achieve parallel execution, but this adds complexity.
-  
+
 - **GFQL**: GFQL natively supports parallel pathfinding using a bulk wavefront algorithm, processing all paths at once, making it highly efficient in GPU-accelerated environments.
 
 ---
@@ -681,12 +685,12 @@ GPU Execution
 
 .. code-block:: python
 
-    from graphistry import n, e_forward
+    from graphistry import n, e_forward, is_in
 
     # Executing pathfinding queries in parallel
     g.gfql([
-        n({"id": "Alice"}), 
-        e_forward(to_fixed_point=False), 
+        n({"id": "Alice"}),
+        e_forward(to_fixed_point=False),
         n({"id": is_in(["Bob", "Charlie"])})
     ], engine='cudf')
 

@@ -425,6 +425,8 @@ Current supported names include:
 
 **Examples:**
 
+.. doc-test: xfail
+
 .. code-block:: python
 
     # PageRank using igraph
@@ -484,11 +486,11 @@ Calculate degree centrality for nodes (in-degree, out-degree, and total degree).
      - string
      - No
      - Column name for total degree
-   * - col_in
+   * - degree_in
      - string
      - No
      - Column name for in-degree
-   * - col_out
+   * - degree_out
      - string
      - No
      - Column name for out-degree
@@ -501,8 +503,8 @@ Calculate degree centrality for nodes (in-degree, out-degree, and total degree).
     g.gfql([
         call('get_degrees', {
             'col': 'total_degree',
-            'col_in': 'in_degree',
-            'col_out': 'out_degree'
+            'degree_in': 'in_degree',
+            'degree_out': 'out_degree'
         })
     ])
     
@@ -612,6 +614,8 @@ Compute topological levels for directed acyclic graphs (DAGs).
 
 **Example:**
 
+.. doc-test: xfail
+
 .. code-block:: python
 
     # Compute DAG levels
@@ -713,7 +717,7 @@ Compute CPU-based graph layouts using igraph.
      - Description
    * - layout
      - string
-     - No
+     - Yes
      - Layout algorithm name
    * - params
      - dict
@@ -758,12 +762,14 @@ Compute CPU-based graph layouts using igraph.
 
 **Example:**
 
+.. doc-test: xfail
+
 .. code-block:: python
 
     g.gfql([
         call('layout_igraph', {
             'layout': 'fruchterman_reingold',
-            'params': {'iterations': 500}
+            'params': {'niter': 500}
         })
     ])
 
@@ -866,6 +872,8 @@ Apply ForceAtlas2 layout algorithm (CPU-based implementation).
 
 **Example:**
 
+.. doc-test: xfail
+
 .. code-block:: python
 
     g.gfql([
@@ -951,6 +959,8 @@ PyGraphistry's implementation is optimized for large graphs on both CPU and GPU.
      - Engine ('auto', 'cpu', 'gpu', 'pandas', 'cudf')
 
 **Examples:**
+
+.. doc-test: xfail
 
 .. code-block:: python
 
@@ -1183,6 +1193,8 @@ Merge nodes based on a shared attribute value.
 
 **Example:**
 
+.. doc-test: xfail
+
 .. code-block:: python
 
     # Collapse by department
@@ -1210,19 +1222,24 @@ Remove nodes based on a column value.
      - Type
      - Required
      - Description
-   * - column
-     - string
+   * - nodes
+     - list or dict
      - Yes
-     - Boolean column indicating nodes to drop
+     - Node IDs to drop (list) or filter specification (dict)
 
 **Example:**
 
 .. code-block:: python
 
-    # Mark and drop nodes
+    # Drop specific nodes by ID
     g.gfql([
-        n({'status': 'inactive'}, name='to_remove'),
-        call('drop_nodes', {'column': 'to_remove'})
+        call('drop_nodes', {'nodes': ['node_id_1', 'node_id_2']})
+    ])
+
+    # Drop nodes matching a filter — use filter_nodes_by_dict first, then drop
+    inactive = g._nodes[g._nodes['status'] == 'inactive']['id'].tolist()
+    g.gfql([
+        call('drop_nodes', {'nodes': inactive})
     ])
 
 **Schema Effects:** None (only removes nodes).
@@ -1242,19 +1259,25 @@ Keep only nodes where a column is True.
      - Type
      - Required
      - Description
-   * - column
-     - string
+   * - nodes
+     - list or dict
      - Yes
-     - Boolean column indicating nodes to keep
+     - Node IDs to keep (list) or filter specification (dict)
 
 **Example:**
 
+.. doc-test: xfail
+
 .. code-block:: python
 
-    # Mark and keep nodes
+    # Keep specific nodes by ID
     g.gfql([
-        n({'importance': gt(0.5)}, name='important'),
-        call('keep_nodes', {'column': 'important'})
+        call('keep_nodes', {'nodes': ['node_id_1', 'node_id_2']})
+    ])
+
+    # Keep nodes matching a filter — use dict form for column-based filtering
+    g.gfql([
+        call('keep_nodes', {'nodes': {'importance': [True]}})
     ])
 
 **Schema Effects:** None (only filters nodes).
@@ -1284,6 +1307,7 @@ Generate a node table from edges when only edges are provided.
 .. code-block:: python
 
     # Create nodes from edges
+    g_edges_only = graphistry.edges(edges, 's', 'd')
     g_edges_only.gfql([
         call('materialize_nodes')
     ])
@@ -1668,8 +1692,8 @@ Best Practices
        g.gfql(let({
            'enriched': call('get_degrees', {
                'col': 'total',
-               'col_in': 'incoming',
-               'col_out': 'outgoing'
+               'degree_in': 'incoming',
+               'degree_out': 'outgoing'
            }),
            'filtered': ref('enriched', [n({'total': gt(10)})])  # Filter on degree
        }))

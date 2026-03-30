@@ -214,15 +214,15 @@ Example: Find recent transactions using temporal predicates.
 
     # Find transactions after a specific date
     recent = g.gfql([
-        n(edge_match={"timestamp": gt(pd.Timestamp("2023-01-01"))})
+        n(), e_forward(edge_match={"timestamp": gt(pd.Timestamp("2023-01-01"))}), n()
     ])
-    
+
     # Find transactions in a date range during business hours
     business_hours_txns = g.gfql([
-        n(edge_match={
+        n(), e_forward(edge_match={
             "date": between(date(2023, 6, 1), date(2023, 6, 30)),
             "time": between(time(9, 0), time(17, 0))
-        })
+        }), n()
     ])
 
 **Query for Transaction Nodes Between Risky Nodes**
@@ -276,6 +276,8 @@ Traditional Python approach (manual variable management):
     # Each step requires careful tracking of which graph to operate on
 
 GFQL Let approach (declarative DAG with named bindings):
+
+.. doc-test: skip
 
 .. code-block:: python
 
