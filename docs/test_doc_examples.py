@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pytest-based audit of code examples in GFQL documentation.
 
-Extracts ``.. code-block:: python`` (RST) and ```python`` (MD) blocks from
+Extracts ``.. code-block:: python`` (RST) and fenced ``python`` (MD) blocks from
 docs/source/gfql/, runs them sequentially per file in a shared namespace
 (like a notebook), and reports failures.
 
