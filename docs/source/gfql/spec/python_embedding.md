@@ -355,7 +355,6 @@ n({"created": gt(pd.Timestamp("2024-01-01"))})
 
 ### Schema Validation
 
-<!-- doc-test: skip -->
 ```python
 # Check available columns before querying
 print(g._nodes.columns)  # ['id', 'type', 'name']
@@ -467,7 +466,6 @@ selection:
 ## Best Practices
 
 ### Query Construction
-<!-- doc-test: skip -->
 ```python
 # Good: Build queries programmatically
 node_filters = {"type": "User"}

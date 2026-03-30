@@ -1533,8 +1533,6 @@ Map node attributes to icons.
 
 **Example:**
 
-.. doc-test: skip
-
 .. code-block:: python
 
     g.gfql([

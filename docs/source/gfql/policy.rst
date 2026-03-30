@@ -350,8 +350,6 @@ To reduce boilerplate in common patterns, GFQL policies support shortcuts that e
 
 Without shortcuts (10 keys):
 
-.. doc-test: skip
-
 .. code-block:: python
 
     # Traditional approach - verbose
@@ -369,8 +367,6 @@ Without shortcuts (10 keys):
     }
 
 With shortcuts (2 keys):
-
-.. doc-test: skip
 
 .. code-block:: python
 
@@ -624,8 +620,6 @@ Policies work with different GFQL query patterns:
     g.gfql({'persons': n({'type': 'person'})}, policy=policy_dict)
 
 **Call operations** - Method invocations:
-
-.. doc-test: skip
 
 .. code-block:: python
 

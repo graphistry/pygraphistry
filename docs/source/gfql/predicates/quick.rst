@@ -215,8 +215,6 @@ Usage Examples
 
 **Example 3: Filtering Edges with String Conditions**
 
-.. doc-test: skip
-
 .. code-block:: python
 
     from graphistry import e_forward, contains

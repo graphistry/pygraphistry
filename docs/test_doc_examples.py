@@ -145,9 +145,36 @@ nodes['risk1'] = [3, 7, 1, 9]
 nodes['risk2'] = [1, 5, 8, 2]
 nodes['amount'] = [100, 500, 200, 1000]
 nodes['balance'] = [1000, 5000, 200, 50000]
+# Extra node columns for where/encoding examples
+nodes['username'] = ['alice', 'bob', 'charlie', 'dave']
+nodes['ip'] = ['10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.4']
+nodes['recent'] = [True, False, True, False]
+nodes['device_type'] = ['server', 'laptop', 'server', 'phone']
+nodes['a'] = [1, 2, 3, 4]
+# Extra edge columns
+edges['relation'] = ['manages', 'reports_to', 'manages', 'peers']
+edges['destination'] = edges['d']
+# Alias for conceptual examples
+df = nodes
+result = g
+from graphistry.Engine import EngineAbstract
 # Dummy policy variables for policy.rst conceptual blocks
 query = [n()]
 policy_dict = {}
+def create_span(name): pass
+def end_span(span): pass
+def create_otel_span(name): pass
+auth = {'token': 'test'}
+my_query = [n()]
+kwargs = {}
+size_limit_policy = lambda ctx: None
+preload_function = lambda ctx: None
+my_precall_policy = lambda ctx: None
+my_postcall_policy = lambda ctx: None
+rate_limit_policy = lambda ctx: None
+using_gpu = False
+user_input = '{"chain": []}'
+min_age = 18
 """
 
 # ---------------------------------------------------------------------------
