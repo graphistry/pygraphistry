@@ -3892,7 +3892,7 @@ def _lower_match_alias_stage(
     if stage.where is not None:
         where_expr = stage.where
         where_alias_targets = scope.alias_targets
-        where_active_alias = scope.active_alias
+        where_active_alias: Optional[str] = scope.active_alias
         where_visible_columns: Set[str] = set()
         if not plan.whole_row_output_names and stage.clause.kind == "with":
             source_props = _collect_active_alias_property_refs(

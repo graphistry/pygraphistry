@@ -95,6 +95,30 @@ def _apply_empty_result_row(
     return out
 
 
+def _entity_projection_meta_entry(
+    result: Plottable,
+    *,
+    output_name: str,
+    field: str,
+    message: str,
+    suggestion: str,
+) -> WholeRowProjectionMeta:
+    entity_meta = cast(
+        Optional[Dict[str, WholeRowProjectionMeta]],
+        getattr(result, "_cypher_entity_projection_meta", None),
+    )
+    if not isinstance(entity_meta, dict) or output_name not in entity_meta:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            message,
+            field=field,
+            value=output_name,
+            suggestion=suggestion,
+            language="cypher",
+        )
+    return entity_meta[output_name]
+
+
 def _apply_optional_null_fill(
     result: Plottable,
     *,
@@ -111,20 +135,13 @@ def _apply_optional_null_fill(
 
     rows_df = getattr(result, "_nodes", None)
     actual_rows = 0 if rows_df is None else len(rows_df)
-    entity_meta = cast(
-        Optional[Dict[str, WholeRowProjectionMeta]],
-        getattr(alignment_result, "_cypher_entity_projection_meta", None),
-    )
-    if not isinstance(entity_meta, dict) or alignment_output_name not in entity_meta:
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            "Cypher OPTIONAL MATCH null-row alignment could not recover matched seed identities",
-            field="match",
-            value=alignment_output_name,
-            suggestion="Use a simpler OPTIONAL MATCH projection shape in the local compiler.",
-            language="cypher",
-        )
-    matched_ids = entity_meta[alignment_output_name]["ids"]
+    matched_ids = _entity_projection_meta_entry(
+        alignment_result,
+        output_name=alignment_output_name,
+        field="match",
+        message="Cypher OPTIONAL MATCH null-row alignment could not recover matched seed identities",
+        suggestion="Use a simpler OPTIONAL MATCH projection shape in the local compiler.",
+    )["ids"]
     if not hasattr(matched_ids, "tolist"):
         raise GFQLValidationError(
             ErrorCode.E108,
@@ -429,20 +446,13 @@ def _compiled_query_reentry_state(
     engine: Union[EngineAbstract, str],
 ) -> Tuple[Plottable, DataFrameT]:
     output_name, carried_columns = _compiled_query_reentry_contract(compiled_query)
-    entity_meta = cast(
-        Optional[Dict[str, WholeRowProjectionMeta]],
-        getattr(prefix_result, "_cypher_entity_projection_meta", None),
+    meta = _entity_projection_meta_entry(
+        prefix_result,
+        output_name=output_name,
+        field="with",
+        message="Cypher MATCH after WITH could not recover carried node identities from the prefix stage",
+        suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
     )
-    if not isinstance(entity_meta, dict) or output_name not in entity_meta:
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            "Cypher MATCH after WITH could not recover carried node identities from the prefix stage",
-            field="with",
-            value=output_name,
-            suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
-            language="cypher",
-        )
-    meta = entity_meta[output_name]
     if meta["table"] != "nodes":
         raise GFQLValidationError(
             ErrorCode.E108,
@@ -515,8 +525,9 @@ def _compiled_query_reentry_state(
         prefix_rows=aligned_prefix_rows,
         carried_columns=carried_columns,
     )
-
-    enriched_nodes = cast(DataFrameT, safe_merge(base_nodes, carry_payload, on=id_column, how="left"))
+    hidden_columns = [name for name in carry_payload.columns if name != id_column and name in base_nodes.columns]
+    merge_base = cast(DataFrameT, base_nodes.drop(columns=hidden_columns)) if hidden_columns else base_nodes
+    enriched_nodes = cast(DataFrameT, safe_merge(merge_base, carry_payload, on=id_column, how="left"))
     start_nodes = _ordered_reentry_start_nodes(
         node_rows=enriched_nodes,
         carried_node_ids=carried_node_ids,
