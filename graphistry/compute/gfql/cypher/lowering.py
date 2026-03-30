@@ -5990,7 +5990,12 @@ def _exclude_reentry_hidden_columns(
 def _literal_limit_value(limit_clause: Optional[LimitClause]) -> Optional[int]:
     if limit_clause is None:
         return None
-    text = limit_clause.value.text.strip()
+    value = limit_clause.value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, ParameterRef):
+        return None
+    text = value.text.strip()
     if not re.fullmatch(r"\d+", text):
         return None
     return int(text)
