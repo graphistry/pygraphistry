@@ -500,8 +500,7 @@ def _compiled_query_reentry_state(
         )
         return base_graph, start_nodes
 
-    prefix_rows = getattr(prefix_result, "_nodes", None)
-    if prefix_rows is None:
+    if aligned_prefix_rows is None:
         raise GFQLValidationError(
             ErrorCode.E108,
             "Cypher MATCH after WITH could not recover carried row columns from the prefix stage",
@@ -525,7 +524,7 @@ def _compiled_query_reentry_state(
     carry_payload = _reentry_carry_payload(
         carried_node_ids=carried_node_ids,
         prefix_rows=aligned_prefix_rows,
-        carried_columns=compiled_query.start_nodes_carried_columns,
+        carried_columns=carried_columns,
     )
 
     enriched_nodes = cast(DataFrameT, safe_merge(base_nodes, carry_payload, on=id_column, how="left"))
@@ -594,9 +593,7 @@ def _reentry_carry_payload(
                 language="cypher",
             )
         column_updates[_reentry_hidden_column_name(output_name)] = cast(SeriesT, prefix_rows[output_name]).reset_index(drop=True)
-    if column_updates:
-        carry_payload = cast(DataFrameT, carry_payload.assign(**column_updates))
-    return carry_payload
+    return cast(DataFrameT, carry_payload.assign(**column_updates)) if column_updates else carry_payload
 
 
 def _ordered_reentry_start_nodes(
