@@ -5032,6 +5032,28 @@ def test_string_cypher_executes_with_match_reentry_carried_scalar_whole_row_shap
     ]
 
 
+def test_string_cypher_failfast_rejects_prefix_order_carry_forward_for_with_match_reentry_shape() -> None:
+    with pytest.raises(GFQLValidationError, match="does not yet preserve prefix WITH row ordering"):
+        _mk_reentry_carried_scalar_graph().gfql(
+            "MATCH (a:A) "
+            "WITH a "
+            "ORDER BY a.num DESC "
+            "MATCH (a)-->(b) "
+            "RETURN b.id AS bid"
+        )
+
+
+def test_string_cypher_failfast_rejects_prefix_order_carry_forward_for_with_match_reentry_carried_scalar_shape() -> None:
+    with pytest.raises(GFQLValidationError, match="does not yet preserve prefix WITH row ordering"):
+        _mk_reentry_carried_scalar_graph().gfql(
+            "MATCH (a:A) "
+            "WITH a, a.num AS property "
+            "ORDER BY property DESC "
+            "MATCH (a)-->(b) "
+            "RETURN b.id AS bid"
+        )
+
+
 def test_string_cypher_executes_seeded_multihop_then_with_match_reentry_shape() -> None:
     nodes = pd.DataFrame(
         {
