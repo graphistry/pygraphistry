@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
-from typing import Any, Dict, List, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from graphistry.compute.ast import ASTCall, ASTNode, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLValidationError
@@ -114,6 +114,23 @@ def _compiled_reentry_projection_outputs(compiled: CompiledCypherQuery) -> Tuple
     carried_columns = tuple(column.output_name for column in projection.columns if column.kind != "whole_row")
     assert len(whole_row_columns) == 1
     return whole_row_columns[0], carried_columns
+
+
+def _reentry_query(
+    with_clause: str,
+    *,
+    return_clause: str,
+    match_alias: str = "a",
+    order_by: Optional[str] = None,
+    where_clause: Optional[str] = None,
+) -> str:
+    parts = ["MATCH (a:A) ", f"WITH {with_clause} ", f"MATCH ({match_alias})-->(b) "]
+    if where_clause is not None:
+        parts.append(f"WHERE {where_clause} ")
+    parts.append(f"RETURN {return_clause}")
+    if order_by is not None:
+        parts.append(f" ORDER BY {order_by}")
+    return "".join(parts)
 
 
 def _assert_query_rows(
@@ -5049,29 +5066,26 @@ def test_string_cypher_executes_with_match_reentry_multihop_shape() -> None:
     ("query", "expected_whole_row_output", "expected_columns"),
     [
         (
-            "MATCH (a:A) "
-            "WITH a, a.num AS property "
-            "MATCH (a)-->(b) "
-            "RETURN property "
-            "ORDER BY property DESC",
+            _reentry_query("a, a.num AS property", return_clause="property", order_by="property DESC"),
             "a",
             ("property",),
         ),
         (
-            "MATCH (a:A) "
-            "WITH a, a.num AS property, a.num + 10 AS property2 "
-            "MATCH (a)-->(b) "
-            "RETURN property, property2 "
-            "ORDER BY property DESC",
+            _reentry_query(
+                "a, a.num AS property, a.num + 10 AS property2",
+                return_clause="property, property2",
+                order_by="property DESC",
+            ),
             "a",
             ("property", "property2"),
         ),
         (
-            "MATCH (a:A) "
-            "WITH a AS x, a.num AS property "
-            "MATCH (x)-->(b) "
-            "RETURN property "
-            "ORDER BY property DESC",
+            _reentry_query(
+                "a AS x, a.num AS property",
+                match_alias="x",
+                return_clause="property",
+                order_by="property DESC",
+            ),
             "x",
             ("property",),
         ),
@@ -5093,43 +5107,32 @@ def test_compile_cypher_tracks_reentry_carried_scalar_columns(
     ("query", "expected"),
     [
         (
-            "MATCH (a:A) "
-            "WITH a AS x "
-            "MATCH (x)-->(b) "
-            "RETURN b.id AS bid "
-            "ORDER BY bid",
+            _reentry_query("a AS x", match_alias="x", return_clause="b.id AS bid", order_by="bid"),
             [{"bid": "b1"}, {"bid": "b2"}],
         ),
         (
-            "MATCH (a:A) "
-            "WITH a, a.num AS property "
-            "MATCH (a)-->(b) "
-            "RETURN property "
-            "ORDER BY property DESC",
+            _reentry_query("a, a.num AS property", return_clause="property", order_by="property DESC"),
             [{"property": 2}, {"property": 1}],
         ),
         (
-            "MATCH (a:A) "
-            "WITH a, a.num AS property "
-            "MATCH (a)-->(b) "
-            "RETURN a "
-            "ORDER BY property DESC",
+            _reentry_query("a, a.num AS property", return_clause="a", order_by="property DESC"),
             [{"a": "(:A {num: 2})"}, {"a": "(:A {num: 1})"}],
         ),
         (
-            "MATCH (a:A) "
-            "WITH a, a.num AS property, a.num + 10 AS property2 "
-            "MATCH (a)-->(b) "
-            "RETURN property, property2 "
-            "ORDER BY property DESC",
+            _reentry_query(
+                "a, a.num AS property, a.num + 10 AS property2",
+                return_clause="property, property2",
+                order_by="property DESC",
+            ),
             [{"property": 2, "property2": 12}, {"property": 1, "property2": 11}],
         ),
         (
-            "MATCH (a:A) "
-            "WITH a AS x, a.num AS property "
-            "MATCH (x)-->(b) "
-            "RETURN x, property "
-            "ORDER BY property DESC",
+            _reentry_query(
+                "a AS x, a.num AS property",
+                match_alias="x",
+                return_clause="x, property",
+                order_by="property DESC",
+            ),
             [{"x": "(:A {num: 2})", "property": 2}, {"x": "(:A {num: 1})", "property": 1}],
         ),
     ],
@@ -5143,13 +5146,7 @@ def test_string_cypher_reentry_carried_scalars_ignore_internal_hidden_column_col
     g = _mk_reentry_carried_scalar_graph()
     g._nodes = g._nodes.assign(__cypher_reentry_property__=["orig1", "orig2", None, None])
 
-    result = g.gfql(
-        "MATCH (a:A) "
-        "WITH a, a.num AS property "
-        "MATCH (a)-->(b) "
-        "RETURN property "
-        "ORDER BY property DESC"
-    )
+    result = g.gfql(_reentry_query("a, a.num AS property", return_clause="property", order_by="property DESC"))
 
     assert result._nodes.to_dict(orient="records") == [{"property": 2}, {"property": 1}]
 
@@ -5158,11 +5155,11 @@ def test_string_cypher_reentry_carried_scalars_ignore_internal_hidden_column_col
     ("query", "match"),
     [
         (
-            "MATCH (a:A) "
-            "WITH a, a.num AS property "
-            "MATCH (a)-->(b) "
-            "WHERE property = b.num "
-            "RETURN b.id AS id",
+            _reentry_query(
+                "a, a.num AS property",
+                return_clause="b.id AS id",
+                where_clause="property = b.num",
+            ),
             "one MATCH source alias at a time",
         ),
         (
