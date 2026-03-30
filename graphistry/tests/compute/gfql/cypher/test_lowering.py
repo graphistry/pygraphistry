@@ -87,6 +87,25 @@ def _mk_empty_graph() -> _CypherTestGraph:
     return _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 
 
+def _mk_reentry_carried_scalar_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b1", "b2"],
+                "label__A": [True, True, False, False],
+                "num": [1, 2, 1, 3],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a1", "a2"],
+                "d": ["b1", "b2"],
+                "type": ["R", "R"],
+            }
+        ),
+    )
+
+
 def _assert_query_rows(
     query: str,
     expected_rows: list[dict[str, object]],
@@ -4956,6 +4975,61 @@ def test_string_cypher_executes_with_match_reentry_multihop_shape() -> None:
     )
 
     assert result._nodes.to_dict(orient="records") == [{"id": "c"}]
+
+
+def test_compile_cypher_tracks_reentry_carried_scalar_columns() -> None:
+    compiled = _compile_query(
+        "MATCH (a:A) "
+        "WITH a, a.num AS property "
+        "MATCH (a)-->(b) "
+        "RETURN property "
+        "ORDER BY property DESC"
+    )
+
+    assert compiled.start_nodes_query is not None
+    assert compiled.start_nodes_output_name == "a"
+    assert compiled.start_nodes_alias == "a"
+    assert [(column.output_name, column.hidden_column) for column in compiled.start_nodes_carried_columns] == [
+        ("property", "__cypher_reentry_property__")
+    ]
+
+
+def test_string_cypher_failfast_rejects_with_match_reentry_carried_scalar_cross_alias_where_shape() -> None:
+    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time"):
+        _mk_reentry_carried_scalar_graph().gfql(
+            "MATCH (a:A) "
+            "WITH a, a.num AS property "
+            "MATCH (a)-->(b) "
+            "WHERE property = b.num "
+            "RETURN b.id AS id"
+        )
+
+
+def test_string_cypher_executes_with_match_reentry_carried_scalar_projection_shape() -> None:
+    result = _mk_reentry_carried_scalar_graph().gfql(
+        "MATCH (a:A) "
+        "WITH a, a.num AS property "
+        "MATCH (a)-->(b) "
+        "RETURN property "
+        "ORDER BY property DESC"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"property": 2}, {"property": 1}]
+
+
+def test_string_cypher_executes_with_match_reentry_carried_scalar_whole_row_shape() -> None:
+    result = _mk_reentry_carried_scalar_graph().gfql(
+        "MATCH (a:A) "
+        "WITH a, a.num AS property "
+        "MATCH (a)-->(b) "
+        "RETURN a "
+        "ORDER BY property DESC"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:A {num: 2})"},
+        {"a": "(:A {num: 1})"},
+    ]
 
 
 def test_string_cypher_executes_seeded_multihop_then_with_match_reentry_shape() -> None:

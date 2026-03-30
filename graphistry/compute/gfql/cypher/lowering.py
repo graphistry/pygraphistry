@@ -106,6 +106,12 @@ _CYPHER_INT64_MAX = (2**63) - 1
 
 
 @dataclass(frozen=True)
+class ReentryCarryColumn:
+    output_name: str
+    hidden_column: str
+
+
+@dataclass(frozen=True)
 class CompiledCypherQuery:
     chain: Chain
     seed_rows: bool = False
@@ -116,6 +122,8 @@ class CompiledCypherQuery:
     optional_projection_row_guard: Optional["OptionalProjectionRowGuardPlan"] = None
     start_nodes_query: Optional["CompiledCypherQuery"] = None
     start_nodes_output_name: Optional[str] = None
+    start_nodes_alias: Optional[str] = None
+    start_nodes_carried_columns: Tuple["ReentryCarryColumn", ...] = ()
     graph_bindings: Tuple["CompiledGraphBinding", ...] = ()
     use_ref: Optional[str] = None
 
@@ -5799,6 +5807,185 @@ def lower_cypher_query(
     return compiled.chain
 
 
+def _reentry_hidden_column_name(output_name: str) -> str:
+    return f"__cypher_reentry_{output_name}__"
+
+
+def _rewrite_reentry_expr_to_hidden_properties(
+    expr: ExpressionText,
+    *,
+    carried_alias: str,
+    carried_columns: Sequence[ReentryCarryColumn],
+    field: str,
+) -> ExpressionText:
+    if not carried_columns:
+        return expr
+    try:
+        node = parse_expr(expr.text)
+    except (GFQLExprParseError, ImportError) as exc:
+        raise _unsupported(
+            "Cypher MATCH after WITH carried-column rewrite requires a locally supported scalar expression",
+            field=field,
+            value=expr.text,
+            line=expr.span.line,
+            column=expr.span.column,
+        ) from exc
+    replacements = {
+        column.output_name: f"{carried_alias}.{column.hidden_column}"
+        for column in carried_columns
+    }
+    identifiers = collect_identifiers(node)
+    if not any(identifier in replacements for identifier in identifiers):
+        return expr
+    return ExpressionText(
+        text=_render_expr_node(_rewrite_expr_identifiers(node, replacements)),
+        span=expr.span,
+    )
+
+
+def _rewrite_reentry_where_clause(
+    clause: Optional[WhereClause],
+    *,
+    carried_alias: str,
+    carried_columns: Sequence[ReentryCarryColumn],
+) -> Optional[WhereClause]:
+    if clause is None or clause.expr is None or not carried_columns:
+        return clause
+    return replace(
+        clause,
+        expr=_rewrite_reentry_expr_to_hidden_properties(
+            clause.expr,
+            carried_alias=carried_alias,
+            carried_columns=carried_columns,
+            field="where",
+        ),
+    )
+
+
+def _rewrite_reentry_return_clause(
+    clause: ReturnClause,
+    *,
+    carried_alias: str,
+    carried_columns: Sequence[ReentryCarryColumn],
+) -> ReturnClause:
+    if not carried_columns:
+        return clause
+    rewritten_items: List[ReturnItem] = []
+    for item in clause.items:
+        rewritten_expr = _rewrite_reentry_expr_to_hidden_properties(
+            item.expression,
+            carried_alias=carried_alias,
+            carried_columns=carried_columns,
+            field=clause.kind,
+        )
+        rewritten_items.append(
+            replace(
+                item,
+                expression=rewritten_expr,
+                alias=item.alias or (item.expression.text if rewritten_expr.text != item.expression.text else None),
+            )
+        )
+    return replace(clause, items=tuple(rewritten_items))
+
+
+def _rewrite_reentry_order_by_clause(
+    clause: Optional[OrderByClause],
+    *,
+    carried_alias: str,
+    carried_columns: Sequence[ReentryCarryColumn],
+) -> Optional[OrderByClause]:
+    if clause is None or not carried_columns:
+        return clause
+    return replace(
+        clause,
+        items=tuple(
+            replace(
+                item,
+                expression=_rewrite_reentry_expr_to_hidden_properties(
+                    item.expression,
+                    carried_alias=carried_alias,
+                    carried_columns=carried_columns,
+                    field="order_by",
+                ),
+            )
+            for item in clause.items
+        ),
+    )
+
+
+def _bounded_reentry_carry_columns(
+    prefix_projection: ResultProjectionPlan,
+    *,
+    query: CypherQuery,
+    prefix_stage: ProjectionStage,
+) -> Tuple[ReentryCarryColumn, ...]:
+    whole_row_columns = [column for column in prefix_projection.columns if column.kind == "whole_row"]
+    if len(whole_row_columns) != 1:
+        raise _unsupported(
+            "Cypher MATCH after WITH currently requires the prefix WITH stage to project exactly one whole-row alias",
+            field="with",
+            value=[item.expression.text for item in prefix_stage.clause.items],
+            line=prefix_stage.span.line,
+            column=prefix_stage.span.column,
+        )
+    if len(prefix_projection.columns) == 1:
+        return ()
+    seed_alias = _single_node_seed_alias(query.matches[0]) if len(query.matches) == 1 else None
+    if seed_alias is None or seed_alias != prefix_projection.alias:
+        raise _unsupported(
+            "Cypher MATCH after WITH carried scalar columns currently require a single-node prefix MATCH seed",
+            field="with",
+            value=[item.expression.text for item in prefix_stage.clause.items],
+            line=prefix_stage.span.line,
+            column=prefix_stage.span.column,
+        )
+    carried_columns: List[ReentryCarryColumn] = []
+    hidden_names: Set[str] = set()
+    for column in prefix_projection.columns:
+        if column.kind == "whole_row":
+            continue
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", column.output_name):
+            raise _unsupported(
+                "Cypher MATCH after WITH carried scalar columns currently require identifier-style WITH aliases",
+                field="with",
+                value=column.output_name,
+                line=prefix_stage.span.line,
+                column=prefix_stage.span.column,
+            )
+        hidden_column = _reentry_hidden_column_name(column.output_name)
+        if hidden_column in hidden_names:
+            raise _unsupported(
+                "Cypher MATCH after WITH carried scalar columns currently require distinct WITH aliases",
+                field="with",
+                value=column.output_name,
+                line=prefix_stage.span.line,
+                column=prefix_stage.span.column,
+            )
+        hidden_names.add(hidden_column)
+        carried_columns.append(
+            ReentryCarryColumn(
+                output_name=column.output_name,
+                hidden_column=hidden_column,
+            )
+        )
+    return tuple(carried_columns)
+
+
+def _exclude_reentry_hidden_columns(
+    projection: Optional[ResultProjectionPlan],
+    *,
+    carried_alias: str,
+    carried_columns: Sequence[ReentryCarryColumn],
+) -> Optional[ResultProjectionPlan]:
+    if projection is None or projection.alias != carried_alias or not carried_columns:
+        return projection
+    hidden_columns = tuple(column.hidden_column for column in carried_columns)
+    return replace(
+        projection,
+        exclude_columns=tuple(dict.fromkeys(projection.exclude_columns + hidden_columns)),
+    )
+
+
 def _first_pattern_node_alias(clause: MatchClause) -> Optional[str]:
     if len(clause.patterns) != 1:
         raise _unsupported(
@@ -5865,7 +6052,7 @@ def _compile_bounded_reentry_query(
             column=prefix_stage.span.column,
         )
     prefix_projection = prefix_compiled.result_projection
-    if prefix_projection is None or len(prefix_projection.columns) != 1 or prefix_projection.columns[0].kind != "whole_row":
+    if prefix_projection is None:
         raise _unsupported(
             "Cypher MATCH after WITH currently requires the prefix WITH stage to project exactly one whole-row alias",
             field="with",
@@ -5873,6 +6060,12 @@ def _compile_bounded_reentry_query(
             line=prefix_stage.span.line,
             column=prefix_stage.span.column,
         )
+    carry_columns = _bounded_reentry_carry_columns(
+        prefix_projection,
+        query=query,
+        prefix_stage=prefix_stage,
+    )
+    whole_row_column = next(column for column in prefix_projection.columns if column.kind == "whole_row")
     if prefix_projection.table != "nodes":
         raise _unsupported(
             "Cypher MATCH after WITH currently supports node re-entry only",
@@ -5903,12 +6096,24 @@ def _compile_bounded_reentry_query(
 
     suffix_query = CypherQuery(
         matches=query.reentry_matches,
-        where=query.reentry_where,
+        where=_rewrite_reentry_where_clause(
+            query.reentry_where,
+            carried_alias=prefix_projection.alias,
+            carried_columns=carry_columns,
+        ),
         call=None,
         unwinds=(),
         with_stages=(),
-        return_=query.return_,
-        order_by=query.order_by,
+        return_=_rewrite_reentry_return_clause(
+            query.return_,
+            carried_alias=prefix_projection.alias,
+            carried_columns=carry_columns,
+        ),
+        order_by=_rewrite_reentry_order_by_clause(
+            query.order_by,
+            carried_alias=prefix_projection.alias,
+            carried_columns=carry_columns,
+        ),
         skip=query.skip,
         limit=query.limit,
         row_sequence=(),
@@ -5926,8 +6131,15 @@ def _compile_bounded_reentry_query(
         )
     return replace(
         suffix_compiled,
+        result_projection=_exclude_reentry_hidden_columns(
+            suffix_compiled.result_projection,
+            carried_alias=prefix_projection.alias,
+            carried_columns=carry_columns,
+        ),
         start_nodes_query=prefix_compiled,
-        start_nodes_output_name=prefix_projection.columns[0].output_name,
+        start_nodes_output_name=whole_row_column.output_name,
+        start_nodes_alias=prefix_projection.alias,
+        start_nodes_carried_columns=carry_columns,
     )
 
 
@@ -6133,6 +6345,8 @@ def compile_cypher_query(
             optional_projection_row_guard=result.optional_projection_row_guard,
             start_nodes_query=result.start_nodes_query,
             start_nodes_output_name=result.start_nodes_output_name,
+            start_nodes_alias=result.start_nodes_alias,
+            start_nodes_carried_columns=result.start_nodes_carried_columns,
             graph_bindings=compiled_bindings,
             use_ref=_use_ref,
         )
