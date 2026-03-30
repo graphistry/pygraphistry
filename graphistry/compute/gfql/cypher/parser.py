@@ -107,6 +107,7 @@ rel_bidirectional_simple: REL_BIDIR_SIMPLE
 
 rel_types: ":" LABEL_NAME ("|" ":"? LABEL_NAME)*
 rel_range: "*" INT ".." INT      -> rel_range_bounded
+         | "*" INT ".."          -> rel_range_open_max
          | "*" INT               -> rel_range_exact
          | "*"                   -> rel_range_fixed
 
@@ -724,6 +725,23 @@ def _build_transformer(source: str) -> _TransformerLike:
                     value=self._slice(_span_from_meta(meta)),
                 )
             return {"min_hops": min_hops, "max_hops": max_hops, "to_fixed_point": False}
+
+        def rel_range_open_max(self, meta: Any, items: Sequence[Any]) -> dict[str, Any]:
+            if len(items) != 1:
+                raise _to_syntax_error("Invalid relationship range", line=meta.line, column=meta.column)
+            try:
+                value = int(str(items[0]))
+            except Exception as exc:
+                raise _to_syntax_error("Invalid relationship range bound", line=meta.line, column=meta.column) from exc
+            if value < 0:
+                raise _to_unsupported(
+                    "Cypher negative-hop relationship ranges are not supported",
+                    line=meta.line,
+                    column=meta.column,
+                    field="match",
+                    value=self._slice(_span_from_meta(meta)),
+                )
+            return {"min_hops": value, "max_hops": None, "to_fixed_point": True}
 
         def rel_range_fixed(self, meta: Any, _items: Sequence[Any]) -> dict[str, Any]:
             return {"min_hops": None, "max_hops": None, "to_fixed_point": True}
