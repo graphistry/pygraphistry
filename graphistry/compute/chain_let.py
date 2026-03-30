@@ -35,9 +35,9 @@ def extract_dependencies(ast_obj: Union[ASTObject, 'Chain', 'Plottable']) -> Set
             deps.update(extract_dependencies(op))
     
     elif isinstance(ast_obj, ASTLet):
-        # Nested let bindings
-        for binding in ast_obj.bindings.values():
-            deps.update(extract_dependencies(binding))
+        # Nested let is an opaque execution unit — no external dependencies.
+        # Inner bindings are resolved in the inner DAG's own scope.
+        pass
     
     elif isinstance(ast_obj, Chain):
         # Chain may contain ASTRef operations
@@ -237,8 +237,14 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
 
     # Handle different AST object types
     if isinstance(ast_obj, ASTLet):
-        # Nested let execution
-        result = chain_let_impl(g, ast_obj, EngineAbstract(engine.value), policy=policy, context=context)
+        # Nested let executes in a child context (lexical scoping):
+        # - reads fall through to parent (inner can see outer bindings)
+        # - writes stay local (inner bindings don't leak to outer scope)
+        child_ctx = context.child_context()
+        # Pass the original graph (not accumulated_result) so the inner let
+        # filters independently, same as Chain/ASTNode bindings in the outer scope.
+        original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
+        result = chain_let_impl(original_g, ast_obj, EngineAbstract(engine.value), policy=policy, context=child_ctx)
     elif isinstance(ast_obj, ASTRef):
         # Resolve reference from context
         try:

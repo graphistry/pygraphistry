@@ -126,6 +126,18 @@
 {"type": "Let", "bindings": {"name": Chain | Ref}}
 ```
 
+Bindings may themselves be ``Let`` (nested let). Scope follows lexical rules:
+- Inner bindings do **not** leak upward (outer cannot see `a` or `b` below)
+- Inner bindings **can** read outer bindings (lexical closure)
+- Sibling inner ``Let`` blocks may reuse names without collision
+- Shadowing: inner name same as outer does not corrupt the outer value
+```json
+{"type": "Let", "bindings": {
+  "stage1": {"type": "Let", "bindings": {"a": ..., "b": ...}},
+  "stage2": {"type": "Ref", "ref": "stage1", "chain": [...]}
+}}
+```
+
 ### Ref (Reference)
 ```json
 {"type": "Ref", "ref": "name", "chain": [operations]}

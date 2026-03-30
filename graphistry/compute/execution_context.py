@@ -144,3 +144,49 @@ class ExecutionContext:
             return self.operation_path.rsplit('.', 1)[0]
         else:
             return 'query'
+
+    def child_context(self) -> 'ExecutionContext':
+        """Create a child context that reads through to this parent.
+
+        The child has its own binding namespace — writes go to the child only.
+        Reads fall through to the parent if the child doesn't have the binding.
+        This implements lexical scoping for nested let execution.
+
+        :returns: A new child ExecutionContext
+        :rtype: ExecutionContext
+        """
+        child = _ChildExecutionContext(self)
+        return child
+
+
+class _ChildExecutionContext(ExecutionContext):
+    """Child context with read-through to parent, write-local semantics."""
+
+    def __init__(self, parent: ExecutionContext) -> None:
+        super().__init__()
+        self._parent = parent
+        # Inherit depth and path from parent
+        self.execution_depth = parent.execution_depth
+        self.operation_path = parent.operation_path
+        self.policy_depth = parent.policy_depth
+
+    def get_binding(self, name: str) -> Any:
+        """Read from local bindings first, fall through to parent."""
+        if not isinstance(name, str):
+            raise TypeError(f"Binding name must be string, got {type(name)}")
+        if name in self._bindings:
+            return self._bindings[name]
+        # Fall through to parent (lexical scoping)
+        return self._parent.get_binding(name)
+
+    def has_binding(self, name: str) -> bool:
+        """Check local bindings first, then parent."""
+        if not isinstance(name, str):
+            raise TypeError(f"Binding name must be string, got {type(name)}")
+        return name in self._bindings or self._parent.has_binding(name)
+
+    def get_all_bindings(self) -> Dict[str, Any]:
+        """Merge parent bindings with local (local wins on conflict)."""
+        merged = self._parent.get_all_bindings()
+        merged.update(self._bindings)
+        return merged

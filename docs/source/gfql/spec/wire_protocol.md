@@ -246,6 +246,52 @@ let({
 }
 ```
 
+#### Nested Let (Scope Isolation)
+
+A ``Let`` binding value may itself be a ``Let``. The inner ``Let`` executes as an opaque unit: its internal bindings are **not** visible in the outer scope. The outer ``Let`` sees only the binding name and the inner DAG's result.
+
+**Python**:
+```python
+let({
+    'stage1': let({
+        'people': n({'type': 'Person'}),
+        'friends': ref('people', [e_forward(), n()])
+    }),
+    'stage2': ref('stage1', [e_forward(), n()])
+})
+```
+
+**Wire Format**:
+```json
+{
+  "type": "Let",
+  "bindings": {
+    "stage1": {
+      "type": "Let",
+      "bindings": {
+        "people": {"type": "Node", "filter_dict": {"type": "Person"}},
+        "friends": {
+          "type": "Ref", "ref": "people",
+          "chain": [{"type": "Edge", "direction": "forward"}, {"type": "Node"}]
+        }
+      }
+    },
+    "stage2": {
+      "type": "Ref", "ref": "stage1",
+      "chain": [{"type": "Edge", "direction": "forward"}, {"type": "Node"}]
+    }
+  }
+}
+```
+
+**Scope rules** (lexical scoping):
+- ``stage2`` can reference ``stage1`` (an outer binding)
+- ``stage2`` **cannot** reference ``people`` or ``friends`` (inner bindings — they do not leak upward)
+- Inner bindings **can** read outer bindings (e.g., ``people`` could use ``ref('stage2')`` if ``stage2`` had already executed)
+- Sibling inner ``Let`` blocks may reuse the same binding names without collision
+- If an inner binding has the same name as an outer binding, the inner shadows the outer within its scope without corrupting the outer value
+- The inner ``Let`` result is the last executed binding in its own scope
+
 ### Ref Operation
 
 Ref executes on the referenced graph; bindings used for edge traversal should retain edges

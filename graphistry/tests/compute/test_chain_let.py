@@ -43,13 +43,13 @@ class TestChainDagHelpers:
         nested = ASTRef('a', [ASTRef('b', [n()])])
         deps = extract_dependencies(nested)
         assert deps == {'a', 'b'}
-        
-        # Nested DAG
+
+        # Nested ASTLet is an opaque unit — no external dependencies
         dag = ASTLet({
             'inner': ASTRef('outer', [n()])
         })
         deps = extract_dependencies(dag)
-        assert deps == {'outer'}
+        assert deps == set(), "Nested ASTLet should be opaque (no external deps)"
     
     def test_build_dependency_graph(self):
         """Test building dependency and dependent mappings"""
@@ -1297,4 +1297,394 @@ class TestChainDagInternal:
         error_msg = str(exc_info.value)
         assert "Output binding 'missing' not found" in error_msg
         assert "Available bindings: ['node1']" in error_msg
-# CI: no functional change
+
+class TestNestedLetScopeIsolation:
+    """Comprehensive nested ASTLet scope semantics (issue #968).
+
+    Scope rules (lexical scoping):
+    - Inner let bindings do NOT leak into outer scope
+    - Inner let CAN read outer bindings (lexical closure)
+    - Sibling inner lets are isolated from each other
+    - Name shadowing in inner scope does not corrupt outer scope
+    - Dependency graph and runtime must agree on all of the above
+    """
+
+    # Reusable DAG fragments — functions to avoid mutable singleton sharing
+    @staticmethod
+    def _persons():
+        return Chain([n({'type': 'person'})])
+
+    @staticmethod
+    def _assets():
+        return Chain([n({'type': 'asset'})])
+
+    @staticmethod
+    def _all_nodes():
+        return Chain([n()])
+
+    @staticmethod
+    def _mk_graph():
+        """Standard test graph: 3 persons + 1 asset, knows + owns edges."""
+        nodes_df = pd.DataFrame({
+            'id': ['a', 'b', 'c', 'd'],
+            'type': ['person', 'person', 'person', 'asset']
+        })
+        edges_df = pd.DataFrame({
+            's': ['a', 'a', 'b', 'c'],
+            'd': ['b', 'c', 'c', 'd'],
+            'rel': ['knows', 'knows', 'knows', 'owns']
+        })
+        return CGFull().nodes(nodes_df, 'id').edges(edges_df, 's', 'd')
+
+    def _assert_persons(self, result, expected_count=3):
+        """Assert result contains exactly expected_count person nodes."""
+        assert len(result._nodes) == expected_count, (
+            f"expected {expected_count} person nodes, got {len(result._nodes)}"
+        )
+        assert set(result._nodes['type']) == {'person'}
+
+    def _assert_assets(self, result, expected_count=1):
+        """Assert result contains exactly expected_count asset nodes."""
+        assert len(result._nodes) == expected_count, (
+            f"expected {expected_count} asset nodes, got {len(result._nodes)}"
+        )
+        assert set(result._nodes['type']) == {'asset'}
+
+    # ==================================================================
+    # A. DEPENDENCY GRAPH — nested let is opaque (unit tests)
+    #    Note: basic extract_dependencies coverage is in
+    #    TestChainDagHelpers.test_extract_dependencies_nested
+    # ==================================================================
+
+    def test_validate_dependencies_nested_let_opaque(self):
+        """validate_dependencies must not reject a nested let + outer ref."""
+        inner = ASTLet({
+            'people': Chain([n({'type': 'person'})]),
+            'friends': ASTRef('people', [e(), n()])
+        })
+        bindings = {
+            'inner_dag': inner,
+            'final': ASTRef('inner_dag', [])
+        }
+        dependencies, _ = build_dependency_graph(bindings)
+        validate_dependencies(bindings, dependencies)
+
+    def test_determine_execution_order_nested_let(self):
+        """Topo sort should treat nested let as a leaf (no deps)."""
+        inner = ASTLet({
+            'x': Chain([n()]),
+            'y': ASTRef('x', [e(), n()])
+        })
+        bindings = {
+            'inner': inner,
+            'outer': ASTRef('inner', [])
+        }
+        from graphistry.compute.chain_let import determine_execution_order
+        order = determine_execution_order(bindings)
+        assert order == ['inner', 'outer']
+
+    def test_extract_deps_ref_wrapping_nested_let(self):
+        """ASTRef whose chain contains a nested let: ref dep extracted, let opaque."""
+        inner = ASTLet({'x': Chain([n()])})
+        ref_with_let = ASTRef('source', [inner])
+        deps = extract_dependencies(ref_with_let)
+        assert deps == {'source'}
+
+    def test_extract_deps_chain_containing_nested_let(self):
+        """Chain containing a nested ASTLet: the let is opaque."""
+        inner = ASTLet({'x': Chain([n()])})
+        from graphistry.compute.chain import Chain as ChainClass
+        c = ChainClass([inner])
+        deps = extract_dependencies(c)
+        assert deps == set()
+
+    # ==================================================================
+    # B. POSITIVE EXECUTION — patterns that must work
+    # ==================================================================
+
+    def test_nested_let_executes_as_opaque_unit(self):
+        """Basic: inner let + outer ref works end-to-end."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'inner': ASTLet({'people': self._persons()}),
+            'final': ASTRef('inner', [])
+        })
+        self._assert_persons(g.gfql(dag))
+
+    def test_nested_let_with_output_selection(self):
+        """output= selects among outer bindings including nested let results."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'inner': ASTLet({'people': self._persons()}),
+            'other': self._assets()
+        })
+        self._assert_persons(g.gfql(dag, output='inner'))
+        self._assert_assets(g.gfql(dag, output='other'))
+
+    def test_three_level_nesting(self):
+        """let(let(let(...))) three deep."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'level1': ASTLet({
+                'level2': ASTLet({'leaf': self._persons()}),
+                'use_leaf': ASTRef('level2', [])
+            }),
+            'final': ASTRef('level1', [])
+        })
+        dag.validate()
+        self._assert_persons(g.gfql(dag))
+
+    def test_empty_inner_let(self):
+        """Empty inner let returns the input graph unchanged."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'empty': ASTLet({}),
+            'after': ASTRef('empty', [])
+        })
+        assert len(g.gfql(dag, output='after')._nodes) == len(g._nodes)
+
+    def test_inner_let_diamond_on_result(self):
+        """Multiple outer refs to the same inner let result."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'shared': ASTLet({'people': self._persons()}),
+            'branch_a': ASTRef('shared', []),
+            'branch_b': ASTRef('shared', [])
+        })
+        self._assert_persons(g.gfql(dag, output='branch_a'))
+        self._assert_persons(g.gfql(dag, output='branch_b'))
+
+    def test_parallel_sibling_inner_lets(self):
+        """Two independent inner lets + outer refs."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'social': ASTLet({'people': self._persons()}),
+            'assets': ASTLet({'things': self._assets()}),
+            'from_social': ASTRef('social', [])
+        })
+        self._assert_persons(g.gfql(dag, output='from_social'))
+        self._assert_assets(g.gfql(dag, output='assets'))
+
+    # ==================================================================
+    # C. LEXICAL SCOPING — inner reads outer (closure semantics)
+    # ==================================================================
+
+    def test_inner_reads_outer_two_levels_deep(self):
+        """Level-2 inner let reads a level-0 outer binding."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'root_data': self._persons(),
+            'mid': ASTLet({
+                'deep': ASTLet({'use_root': ASTRef('root_data', [])}),
+                'relay': ASTRef('deep', [])
+            }),
+            'final': ASTRef('mid', [])
+        })
+        self._assert_persons(g.gfql(dag))
+
+    # ==================================================================
+    # D. SCOPE ISOLATION — inner does NOT leak into outer or siblings
+    # ==================================================================
+
+    def test_outer_ref_to_inner_binding_fails(self):
+        """Outer scope CANNOT reference inner binding names."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'inner': ASTLet({'secret': self._persons()}),
+            'bad': ASTRef('secret', [])
+        })
+        with pytest.raises(ValueError, match="references undefined nodes"):
+            g.gfql(dag)
+
+    def test_sibling_inner_lets_same_binding_names_no_collision(self):
+        """Sibling inner lets reuse 'data' — each gets its own result.
+
+        Critical isolation test: if inner bindings leaked into the shared
+        context, right's 'data' would overwrite left's 'data'.
+        """
+        g = self._mk_graph()
+        dag = ASTLet({
+            'left': ASTLet({'data': self._persons()}),
+            'right': ASTLet({'data': self._assets()}),
+            'use_left': ASTRef('left', []),
+            'use_right': ASTRef('right', [])
+        })
+        self._assert_persons(g.gfql(dag, output='use_left'))
+        self._assert_assets(g.gfql(dag, output='use_right'))
+
+    # ==================================================================
+    # E. SHADOWING — inner name same as outer name
+    # ==================================================================
+
+    def test_inner_shadows_outer_name_does_not_corrupt_outer(self):
+        """Inner 'x' = assets must not overwrite outer 'x' = persons."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'x': self._persons(),
+            'inner': ASTLet({'x': self._assets()}),
+            'after': ASTRef('x', [])
+        })
+        self._assert_persons(g.gfql(dag, output='after'))
+
+    def test_inner_shadows_outer_inner_sees_own_value(self):
+        """Inner ref('x') resolves to inner's 'x' = assets, not outer's persons."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'x': self._persons(),
+            'inner': ASTLet({
+                'x': self._assets(),
+                'check': ASTRef('x', [])
+            }),
+        })
+        self._assert_assets(g.gfql(dag, output='inner'))
+
+    def test_shadowing_three_levels(self):
+        """Each level shadows 'x' — outer 'x' = persons must survive."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'x': self._persons(),
+            'mid': ASTLet({
+                'x': self._assets(),
+                'deep': ASTLet({'x': self._all_nodes()}),
+                'use_deep': ASTRef('deep', [])
+            }),
+            'after': ASTRef('x', [])
+        })
+        self._assert_persons(g.gfql(dag, output='after'))
+
+    # ==================================================================
+    # F. SEQUENCING — execution order edge cases
+    # ==================================================================
+
+    def test_inner_reads_outer_leaf_binding(self):
+        """Inner let reads an outer leaf binding.
+
+        Both are leaves (no deps) — Kahn's algorithm processes in insertion
+        order for equal in-degree, so outer_data runs first.
+        """
+        g = self._mk_graph()
+        dag = ASTLet({
+            'outer_data': self._persons(),
+            'inner': ASTLet({'reuse': ASTRef('outer_data', [])}),
+            'final': ASTRef('inner', [])
+        })
+        self._assert_persons(g.gfql(dag, output='inner'))
+
+    def test_sequential_inner_lets_second_reads_first(self):
+        """Second inner let reads first's outer binding name (not internals)."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'first_inner': ASTLet({'people': self._persons()}),
+            'second_inner': ASTLet({
+                'reuse': ASTRef('first_inner', [])
+            }),
+            'final': ASTRef('second_inner', [])
+        })
+        self._assert_persons(g.gfql(dag))
+
+    # ==================================================================
+    # G. NEGATIVE — patterns that must fail
+    # ==================================================================
+
+    def test_cross_sibling_inner_ref_fails(self):
+        """Inner let cannot reference a sibling inner let's internal binding."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'left': ASTLet({'people': self._persons()}),
+            'right': ASTLet({'bad': ASTRef('people', [])}),
+        })
+        with pytest.raises((ValueError, RuntimeError)):
+            g.gfql(dag)
+
+    def test_inner_ref_to_not_yet_executed_outer_fails(self):
+        """Inner let cannot read an outer binding that hasn't executed yet."""
+        g = self._mk_graph()
+        dag = ASTLet({
+            'inner': ASTLet({'bad': ASTRef('outer_late', [])}),
+            'outer_late': ASTRef('inner', [])
+        })
+        with pytest.raises((ValueError, RuntimeError, KeyError)):
+            g.gfql(dag)
+
+    # ==================================================================
+    # H. SERIALIZATION — JSON round-trip and dict dispatch
+    # ==================================================================
+
+    def test_nested_let_json_round_trip(self):
+        """Nested let survives to_json / from_json round-trip."""
+        original = ASTLet({
+            'inner': ASTLet({
+                'people': self._persons(),
+                'friends': ASTRef('people', [e(), n()])
+            }),
+            'final': ASTRef('inner', [])
+        })
+        json_repr = original.to_json()
+        assert json_repr['bindings']['inner']['type'] == 'Let'
+
+        restored = ASTLet.from_json(json_repr)
+        restored.validate()
+
+        g = self._mk_graph()
+        assert len(g.gfql(original)._nodes) == len(g.gfql(restored)._nodes)
+
+    def test_nested_let_dict_dispatch(self):
+        """g.gfql({type: Let, ...}) with nested Let works."""
+        g = self._mk_graph()
+        result = g.gfql({
+            'type': 'Let',
+            'bindings': {
+                'inner': {
+                    'type': 'Let',
+                    'bindings': {
+                        'people': {
+                            'type': 'Chain',
+                            'chain': [{'type': 'Node', 'filter_dict': {'type': 'person'}}]
+                        }
+                    }
+                },
+                'final': {'type': 'Ref', 'ref': 'inner', 'chain': []}
+            }
+        })
+        self._assert_persons(result)
+
+    # ==================================================================
+    # I. CONTEXT ISOLATION (ExecutionContext internals)
+    # ==================================================================
+
+    def test_child_context_reads_parent(self):
+        """child_context() reads through to parent."""
+        parent = ExecutionContext()
+        parent.set_binding('x', 42)
+        child = parent.child_context()
+        assert child.get_binding('x') == 42
+
+    def test_child_context_writes_do_not_leak_to_parent(self):
+        """Writes in child context do not appear in parent."""
+        parent = ExecutionContext()
+        child = parent.child_context()
+        child.set_binding('y', 99)
+        assert not parent.has_binding('y')
+
+    def test_child_context_shadows_parent(self):
+        """Child can shadow a parent binding without corrupting parent."""
+        parent = ExecutionContext()
+        parent.set_binding('x', 'parent_value')
+        child = parent.child_context()
+        child.set_binding('x', 'child_value')
+        assert child.get_binding('x') == 'child_value'
+        assert parent.get_binding('x') == 'parent_value'
+
+    def test_child_context_get_all_bindings_merges(self):
+        """get_all_bindings() merges parent + child, child wins on conflict."""
+        parent = ExecutionContext()
+        parent.set_binding('a', 1)
+        parent.set_binding('b', 2)
+        child = parent.child_context()
+        child.set_binding('b', 20)
+        child.set_binding('c', 30)
+        merged = child.get_all_bindings()
+        assert merged == {'a': 1, 'b': 20, 'c': 30}
+
+
+# CI: rebase touchpoint — no functional change

@@ -8,6 +8,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+- **GFQL / Let**: Fixed nested `let()` inside `let()` failing at execution time despite passing `validate()`. The dependency resolver now treats nested `ASTLet` bindings as opaque execution units instead of walking into their internal bindings, which caused false "references undefined nodes" errors (#968).
+- **GFQL / Let**: Fixed nested let runtime scope isolation. Inner let bindings no longer leak into the outer scope's `ExecutionContext`. Added `child_context()` with read-through (lexical closure) and write-local semantics. Fixes name collisions between sibling inner lets and shadowing corruption (#968).
+- **GFQL / Let**: Fixed nested let receiving the accumulated result instead of the original graph. Inner lets now filter from the outer scope's original graph independently, matching the behavior of Chain/Node bindings (#968).
+
+### Docs
+- **GFQL**: Documented nested let lexical scope rules (read-through, write-local, shadowing, sibling isolation) in wire protocol spec and LLM guide.
+
 ### Added
 - **Docker / RAPIDS**: Added `docker/test-rapids-official-matrix.sh` to run the official RAPIDS compatibility matrix sequentially across `25.02` and `26.02` for `basic`, `gfql`, and `ai`.
 
