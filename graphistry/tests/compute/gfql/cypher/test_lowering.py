@@ -106,6 +106,16 @@ def _mk_reentry_carried_scalar_graph() -> _CypherTestGraph:
     )
 
 
+def _compiled_reentry_projection_outputs(compiled: CompiledCypherQuery) -> Tuple[str, Tuple[str, ...]]:
+    assert compiled.start_nodes_query is not None
+    projection = compiled.start_nodes_query.result_projection
+    assert projection is not None
+    whole_row_columns = tuple(column.output_name for column in projection.columns if column.kind == "whole_row")
+    carried_columns = tuple(column.output_name for column in projection.columns if column.kind != "whole_row")
+    assert len(whole_row_columns) == 1
+    return whole_row_columns[0], carried_columns
+
+
 def _assert_query_rows(
     query: str,
     expected_rows: list[dict[str, object]],
@@ -5000,10 +5010,10 @@ def test_string_cypher_executes_with_match_reentry_multihop_shape() -> None:
 )
 def test_compile_cypher_tracks_reentry_carried_scalar_columns(query: str, expected_columns: Tuple[str, ...]) -> None:
     compiled = _compile_query(query)
+    whole_row_output, carried_columns = _compiled_reentry_projection_outputs(compiled)
 
-    assert compiled.start_nodes_query is not None
-    assert compiled.start_nodes_output_name == "a"
-    assert compiled.start_nodes_carried_columns == expected_columns
+    assert whole_row_output == "a"
+    assert carried_columns == expected_columns
 
 
 @pytest.mark.parametrize(

@@ -515,148 +515,145 @@ class TestGFQLCypherReentryCarrier:
         return {
             row["id"]: {key: value for key, value in row.items() if key.startswith("__cypher_reentry_")}
             for row in dispatch_graph._nodes.to_dict(orient="records")
-            if row["id"] in {"a1", "a2"}
+            if row["id"] in {"a1", "a2"} and any(key.startswith("__cypher_reentry_") for key in row)
         }
+
+    @staticmethod
+    def _run_reentry_state(g, compiled, prefix_result):
+        return _compiled_query_reentry_state(
+            g,
+            compiled,
+            prefix_result,
+            engine="pandas",
+        )
+
+    def _assert_reentry_state(
+        self,
+        *,
+        g,
+        compiled,
+        prefix_result,
+        expected_rows,
+        expected_carry,
+        expect_same_graph,
+    ):
+        dispatch_graph, start_nodes = self._run_reentry_state(g, compiled, prefix_result)
+        assert (dispatch_graph is g) is expect_same_graph
+        assert start_nodes.to_dict(orient="records") == expected_rows
+        assert self._carry_by_id(dispatch_graph) == expected_carry
 
     def test_reentry_state_preserves_prefix_order_without_carried_columns(self):
         g = _mk_reentry_scalar_graph()
-        compiled = compile_cypher(
-            "MATCH (a:A) "
-            "WITH a "
-            "MATCH (a)-->(b) "
-            "RETURN b.id AS bid"
+        self._assert_reentry_state(
+            g=g,
+            compiled=compile_cypher(
+                "MATCH (a:A) "
+                "WITH a "
+                "MATCH (a)-->(b) "
+                "RETURN b.id AS bid"
+            ),
+            prefix_result=g.gfql("MATCH (a:A) WITH a ORDER BY a.num DESC RETURN a"),
+            expected_rows=[
+                {"id": "a2", "label__A": True, "num": 2},
+                {"id": "a1", "label__A": True, "num": 1},
+            ],
+            expected_carry={},
+            expect_same_graph=True,
         )
-        prefix_result = g.gfql("MATCH (a:A) WITH a ORDER BY a.num DESC RETURN a")
-
-        dispatch_graph, start_nodes = _compiled_query_reentry_state(
-            g,
-            compiled,
-            prefix_result,
-            engine="pandas",
-        )
-
-        assert dispatch_graph is g
-        assert start_nodes.to_dict(orient="records") == [
-            {"id": "a2", "label__A": True, "num": 2},
-            {"id": "a1", "label__A": True, "num": 1},
-        ]
 
     def test_reentry_state_preserves_prefix_order_with_carried_columns(self):
         g = _mk_reentry_scalar_graph()
-        compiled = self._compile_reentry_query()
-        prefix_result = g.gfql(
-            "MATCH (a:A) "
-            "WITH a, a.num AS property ORDER BY property DESC "
-            "RETURN a, property"
+        self._assert_reentry_state(
+            g=g,
+            compiled=self._compile_reentry_query(),
+            prefix_result=g.gfql(
+                "MATCH (a:A) "
+                "WITH a, a.num AS property ORDER BY property DESC "
+                "RETURN a, property"
+            ),
+            expected_rows=[
+                {"id": "a2", "label__A": True, "num": 2, "__cypher_reentry_property__": 2},
+                {"id": "a1", "label__A": True, "num": 1, "__cypher_reentry_property__": 1},
+            ],
+            expected_carry={
+                "a1": {"__cypher_reentry_property__": 1},
+                "a2": {"__cypher_reentry_property__": 2},
+            },
+            expect_same_graph=False,
         )
-
-        dispatch_graph, start_nodes = _compiled_query_reentry_state(
-            g,
-            compiled,
-            prefix_result,
-            engine="pandas",
-        )
-
-        assert dispatch_graph is not g
-        assert start_nodes.to_dict(orient="records") == [
-            {"id": "a2", "label__A": True, "num": 2, "__cypher_reentry_property__": 2},
-            {"id": "a1", "label__A": True, "num": 1, "__cypher_reentry_property__": 1},
-        ]
-        assert self._carry_by_id(dispatch_graph) == {
-            "a1": {"__cypher_reentry_property__": 1},
-            "a2": {"__cypher_reentry_property__": 2},
-        }
 
     def test_reentry_state_preserves_multiple_carried_columns(self):
         g = _mk_reentry_scalar_graph()
-        compiled = self._compile_reentry_query("a, a.num AS property, a.num + 10 AS property2")
-        prefix_result = self._bind_reentry_prefix_result(
-            g,
-            rows={"property": [2, 1], "property2": [12, 11]},
-            ids=["a2", "a1"],
-        )
-
-        dispatch_graph, start_nodes = _compiled_query_reentry_state(
-            g,
-            compiled,
-            prefix_result,
-            engine="pandas",
-        )
-
-        assert start_nodes.to_dict(orient="records") == [
-            {
-                "id": "a2",
-                "label__A": True,
-                "num": 2,
-                "__cypher_reentry_property__": 2,
-                "__cypher_reentry_property2__": 12,
-            },
-            {
-                "id": "a1",
-                "label__A": True,
-                "num": 1,
-                "__cypher_reentry_property__": 1,
-                "__cypher_reentry_property2__": 11,
-            },
-        ]
-        assert self._carry_by_id(dispatch_graph) == {
-            "a1": {
-                "__cypher_reentry_property__": 1,
-                "__cypher_reentry_property2__": 11,
-            },
-            "a2": {
-                "__cypher_reentry_property__": 2,
-                "__cypher_reentry_property2__": 12,
-            },
-        }
-
-    def test_reentry_state_rejects_duplicate_carried_scalar_rows(self):
-        g = _mk_reentry_scalar_graph()
-        compiled = self._compile_reentry_query()
-        prefix_result = self._bind_reentry_prefix_result(g, rows={"property": [1, 1]}, ids=["a1", "a1"])
-
-        with pytest.raises(GFQLValidationError, match="unique carried node rows"):
-            _compiled_query_reentry_state(
+        self._assert_reentry_state(
+            g=g,
+            compiled=self._compile_reentry_query("a, a.num AS property, a.num + 10 AS property2"),
+            prefix_result=self._bind_reentry_prefix_result(
                 g,
-                compiled,
-                prefix_result,
-                engine="pandas",
+                rows={"property": [2, 1], "property2": [12, 11]},
+                ids=["a2", "a1"],
+            ),
+            expected_rows=[
+                {
+                    "id": "a2",
+                    "label__A": True,
+                    "num": 2,
+                    "__cypher_reentry_property__": 2,
+                    "__cypher_reentry_property2__": 12,
+                },
+                {
+                    "id": "a1",
+                    "label__A": True,
+                    "num": 1,
+                    "__cypher_reentry_property__": 1,
+                    "__cypher_reentry_property2__": 11,
+                },
+            ],
+            expected_carry={
+                "a1": {
+                    "__cypher_reentry_property__": 1,
+                    "__cypher_reentry_property2__": 11,
+                },
+                "a2": {
+                    "__cypher_reentry_property__": 2,
+                    "__cypher_reentry_property2__": 12,
+                },
+            },
+            expect_same_graph=False,
+        )
+
+    @pytest.mark.parametrize(
+        ("rows", "ids", "match"),
+        [
+            ({"property": [1, 1]}, ["a1", "a1"], "unique carried node rows"),
+            ({"property": [1]}, ["a1", "a2"], "metadata row counts disagreed"),
+        ],
+    )
+    def test_reentry_state_rejects_invalid_carried_scalar_rows(self, rows, ids, match):
+        g = _mk_reentry_scalar_graph()
+        with pytest.raises(GFQLValidationError, match=match):
+            self._run_reentry_state(
+                g,
+                self._compile_reentry_query(),
+                self._bind_reentry_prefix_result(g, rows=rows, ids=ids),
             )
 
     def test_reentry_state_filters_null_carried_ids_before_aligning_scalar_payload(self):
         g = _mk_reentry_scalar_graph()
-        compiled = self._compile_reentry_query()
-        prefix_result = self._bind_reentry_prefix_result(
-            g,
-            rows={"property": [10, 20, 30]},
-            ids=["a1", None, "a2"],
-        )
-
-        dispatch_graph, start_nodes = _compiled_query_reentry_state(
-            g,
-            compiled,
-            prefix_result,
-            engine="pandas",
-        )
-
-        assert start_nodes.to_dict(orient="records") == [
-            {"id": "a1", "label__A": True, "num": 1, "__cypher_reentry_property__": 10},
-            {"id": "a2", "label__A": True, "num": 2, "__cypher_reentry_property__": 30},
-        ]
-        assert self._carry_by_id(dispatch_graph) == {
-            "a1": {"__cypher_reentry_property__": 10},
-            "a2": {"__cypher_reentry_property__": 30},
-        }
-
-    def test_reentry_state_rejects_prefix_row_count_drift_from_entity_metadata(self):
-        g = _mk_reentry_scalar_graph()
-        compiled = self._compile_reentry_query()
-        prefix_result = self._bind_reentry_prefix_result(g, rows={"property": [1]}, ids=["a1", "a2"])
-
-        with pytest.raises(GFQLValidationError, match="metadata row counts disagreed"):
-            _compiled_query_reentry_state(
+        self._assert_reentry_state(
+            g=g,
+            compiled=self._compile_reentry_query(),
+            prefix_result=self._bind_reentry_prefix_result(
                 g,
-                compiled,
-                prefix_result,
-                engine="pandas",
-            )
+                rows={"property": [10, 20, 30]},
+                ids=["a1", None, "a2"],
+            ),
+            expected_rows=[
+                {"id": "a1", "label__A": True, "num": 1, "__cypher_reentry_property__": 10},
+                {"id": "a2", "label__A": True, "num": 2, "__cypher_reentry_property__": 30},
+            ],
+            expected_carry={
+                "a1": {"__cypher_reentry_property__": 10},
+                "a2": {"__cypher_reentry_property__": 30},
+            },
+            expect_same_graph=False,
+        )
