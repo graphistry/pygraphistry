@@ -174,8 +174,6 @@ Error Collection
 
 Choose between fail-fast and collect-all modes:
 
-.. doc-test: skip
-
 .. code-block:: python
 
    # Fail-fast (default)

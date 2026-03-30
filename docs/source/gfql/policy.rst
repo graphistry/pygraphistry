@@ -548,7 +548,7 @@ PolicyException
 
 Deny operations by raising ``PolicyException``:
 
-.. doc-test: skip
+.. doc-test: xfail
 
 .. code-block:: python
 
@@ -671,8 +671,6 @@ Advanced Topics
 **Policy Composition**
 
 Combine multiple policies using composition patterns:
-
-.. doc-test: skip
 
 .. code-block:: python
 

@@ -75,8 +75,6 @@ Key Semantics
 `where_rows(expr="...")`: expression language
 ---------------------------------------------
 
-.. doc-test: skip
-
 .. code-block:: python
 
     from graphistry import n

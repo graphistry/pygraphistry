@@ -172,9 +172,25 @@ preload_function = lambda ctx: None
 my_precall_policy = lambda ctx: None
 my_postcall_policy = lambda ctx: None
 rate_limit_policy = lambda ctx: None
+tier_policy = lambda ctx: None
+postload_function = lambda ctx: None
+def end_otel_span(span): pass
+def rate_limit(key, limit): return True
 using_gpu = False
 user_input = '{"chain": []}'
 min_age = 18
+problematic_operations = [n()]
+chain = Chain([n(), e_forward(), n()])
+# Extra node columns for remaining examples
+nodes['user_id'] = ['u1', 'u2', 'u3', 'u4']
+nodes['critical'] = [True, False, True, False]
+nodes['verified'] = [True, True, False, True]
+nodes['cutoff_ts'] = pd.to_datetime(['2023-06-01', '2023-06-01', '2023-06-01', '2023-06-01'])
+nodes['manager_id'] = ['m1', 'm1', 'm2', 'm2']
+# Extra edge columns
+edges['amount'] = [100.0, 250.0, 50.0, 500.0]
+edges['risk'] = [3, 7, 1, 9]
+edges['org_id'] = ['org1', 'org1', 'org2', 'org2']
 """
 
 # ---------------------------------------------------------------------------

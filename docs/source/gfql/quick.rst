@@ -221,8 +221,6 @@ Where (Same-Path Constraints)
 
 Use `where` to relate attributes across named steps in a chain.
 
-.. doc-test: skip
-
 .. code-block:: python
 
     from graphistry import n, e_forward, col, compare

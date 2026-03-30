@@ -68,8 +68,6 @@ Parse and Validate
 Validate Query Syntax
 ^^^^^^^^^^^^^^^^^^^^^
 
-.. doc-test: skip
-
 .. code-block:: python
 
    # Validate syntax and structure
@@ -82,8 +80,6 @@ Validate Query Syntax
 
 Validate Against Schema
 ^^^^^^^^^^^^^^^^^^^^^^^
-
-.. doc-test: skip
 
 .. code-block:: python
 

@@ -400,7 +400,6 @@ LIMIT 10
 ```
 
 **Python:**
-<!-- doc-test: skip -->
 ```python
 from datetime import date
 from graphistry import n, e_forward, gt

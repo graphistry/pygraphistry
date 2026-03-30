@@ -124,7 +124,6 @@ See also:
 
 ### Temporal WHERE Examples (Valid vs Invalid)
 
-<!-- doc-test: skip -->
 ```python
 import pandas as pd
 from datetime import datetime
