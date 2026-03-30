@@ -261,14 +261,20 @@ except GFQLSchemaError as e:
     print(f"Schema incompatibility: {e}")
     print("No query was executed")
 
-# Method 2: Runtime validation (automatic)
+# Method 2: Validate-and-run (automatic — gfql() validates before executing)
 try:
     result = g.gfql([
         n({'missing_column': 'value'})
-    ])  # Validates during execution, raises GFQLSchemaError
+    ])  # Schema is validated automatically; raises GFQLSchemaError before execution
 except GFQLSchemaError as e:
-    print(f"Runtime validation error: {e}")
+    print(f"Pre-execution validation failed: {e}")
+    print("Query was not executed")
 ```
+
+> **Note:** `g.gfql()` always validates the schema before executing.
+> There is no need for a separate `validate_schema=True` flag — validation
+> is built in. Use Method 1 (`validate_chain_schema`) when you want to
+> check validity without executing at all.
 
 ### Error Types
 
