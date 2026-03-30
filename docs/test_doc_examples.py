@@ -151,7 +151,11 @@ nodes['ip'] = ['10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.4']
 nodes['recent'] = [True, False, True, False]
 nodes['device_type'] = ['server', 'laptop', 'server', 'phone']
 nodes['a'] = [1, 2, 3, 4]
+nodes['b'] = [4, 3, 2, 1]
+nodes['min_risk'] = [2, 5, 0, 3]
 # Extra edge columns
+edges['x'] = [10, 20, 30, 40]
+edges['y'] = [40, 30, 20, 10]
 edges['relation'] = ['manages', 'reports_to', 'manages', 'peers']
 edges['destination'] = edges['d']
 # Alias for conceptual examples

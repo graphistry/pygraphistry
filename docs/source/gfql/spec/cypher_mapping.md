@@ -175,7 +175,6 @@ WHERE n1.a > n2.b AND e1.x = e2.y
 ```
 
 **Python:**
-<!-- doc-test: skip -->
 ```python
 from graphistry import n, e_forward, col, compare
 

@@ -43,8 +43,6 @@ Boolean Semantics (`where=[...]`)
 `where` is a Python list of comparison clauses. Commas in that list mean
 logical AND.
 
-.. doc-test: skip
-
 .. code-block:: python
 
     from graphistry import n, e_forward, col, compare
@@ -82,7 +80,7 @@ Same-path `where=[...]` is currently restricted to column-vs-column
 comparisons across aliases so the validator can statically verify aliases and
 columns before execution in both pandas and cuDF vectorized paths.
 
-.. doc-test: skip
+.. doc-test: xfail
 
 .. code-block:: python
 
@@ -109,8 +107,6 @@ When to use predicates vs WHERE
 
 Predicates live inside `n(...)`/`e_forward(...)` filter dicts and apply to
 one step. WHERE compares fields across steps.
-
-.. doc-test: skip
 
 .. code-block:: python
 
