@@ -568,3 +568,67 @@ class TestGFQLCypherReentryCarrier:
                 prefix_result,
                 engine="pandas",
             )
+
+    def test_reentry_state_filters_null_carried_ids_before_aligning_scalar_payload(self):
+        g = _mk_reentry_scalar_graph()
+        compiled = compile_cypher(
+            "MATCH (a:A) "
+            "WITH a, a.num AS property "
+            "MATCH (a)-->(b) "
+            "RETURN b.id AS bid"
+        )
+        prefix_result = g.bind()
+        prefix_result._nodes = pd.DataFrame({"property": [10, 20, 30]})
+        prefix_result._cypher_entity_projection_meta = {
+            "a": {
+                "table": "nodes",
+                "alias": "a",
+                "id_column": "id",
+                "ids": pd.Series(["a1", None, "a2"], name="id"),
+            }
+        }
+
+        dispatch_graph, start_nodes = _compiled_query_reentry_state(
+            g,
+            compiled,
+            prefix_result,
+            engine="pandas",
+        )
+
+        assert start_nodes.to_dict(orient="records") == [
+            {"id": "a1", "label__A": True, "num": 1, "__cypher_reentry_property__": 10},
+            {"id": "a2", "label__A": True, "num": 2, "__cypher_reentry_property__": 30},
+        ]
+        carry_by_id = {
+            row["id"]: row["__cypher_reentry_property__"]
+            for row in dispatch_graph._nodes.to_dict(orient="records")
+            if row["id"] in {"a1", "a2"}
+        }
+        assert carry_by_id == {"a1": 10, "a2": 30}
+
+    def test_reentry_state_rejects_prefix_row_count_drift_from_entity_metadata(self):
+        g = _mk_reentry_scalar_graph()
+        compiled = compile_cypher(
+            "MATCH (a:A) "
+            "WITH a, a.num AS property "
+            "MATCH (a)-->(b) "
+            "RETURN b.id AS bid"
+        )
+        prefix_result = g.bind()
+        prefix_result._nodes = pd.DataFrame({"property": [1]})
+        prefix_result._cypher_entity_projection_meta = {
+            "a": {
+                "table": "nodes",
+                "alias": "a",
+                "id_column": "id",
+                "ids": pd.Series(["a1", "a2"], name="id"),
+            }
+        }
+
+        with pytest.raises(GFQLValidationError, match="metadata row counts disagreed"):
+            _compiled_query_reentry_state(
+                g,
+                compiled,
+                prefix_result,
+                engine="pandas",
+            )
