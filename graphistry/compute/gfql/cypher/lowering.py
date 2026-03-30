@@ -1020,6 +1020,45 @@ def _rewrite_alias_properties_to_outputs(
         return _rebuild_expr_node(node_in, rewrite=_rewrite, error_context="alias property rewrite")
 
     return _render_expr_node(_rewrite(node))
+
+
+def _collect_active_alias_property_refs(
+    expr_text: str,
+    *,
+    source_alias: str,
+    params: Optional[Mapping[str, Any]],
+    alias_targets: Mapping[str, ASTObject],
+    field: str,
+    line: int,
+    column: int,
+) -> Set[str]:
+    node = _parse_row_expr(
+        expr_text,
+        params=params,
+        alias_targets=alias_targets,
+        field=field,
+        line=line,
+        column=column,
+    )
+    refs: Set[str] = set()
+
+    def _enter(current: ExprNode) -> None:
+        if not isinstance(current, PropertyAccessExpr) or not isinstance(current.value, Identifier):
+            return
+        alias_name, prop = _qualified_ref_from_node(
+            current,
+            field=field,
+            value=expr_text,
+            line=line,
+            column=column,
+        )
+        if alias_name == source_alias and prop is not None:
+            refs.add(prop)
+
+    walk_expr_nodes(node, enter=_enter)
+    return refs
+
+
 def _rewrite_expr_to_output_names(
     expr_text: str,
     *,
@@ -3767,6 +3806,83 @@ def _lower_match_alias_stage(
         projected_columns=scope.projected_columns,
         params=params,
     )
+    if (
+        stage.clause.kind == "with"
+        and not final_stage
+        and plan.whole_row_output_names
+        and any(output_name != plan.source_alias for output_name in plan.whole_row_output_names)
+    ):
+        projection_items: List[Tuple[str, Any]] = []
+        available_columns: Set[str] = set()
+        expr_to_output: Dict[str, str] = {}
+        next_projected_columns: Dict[str, _StageColumnBinding] = {}
+        materialized_entity = _render_expr_node(
+            _entity_wrapper_call(plan.source_alias, alias_targets=scope.alias_targets)
+        )
+
+        for output_name in plan.whole_row_output_names:
+            projection_items.append((output_name, materialized_entity))
+            available_columns.add(output_name)
+        for output_name, runtime_expr in plan.projection_items:
+            projection_items.append((output_name, runtime_expr))
+            available_columns.add(output_name)
+        for item in stage.clause.items:
+            _add_output_mapping(
+                expr_to_output,
+                source_expr=item.expression.text,
+                output_name=item.alias or item.expression.text,
+                alias_name=item.alias,
+            )
+
+        materialized_row_steps: List[ASTObject] = [with_(projection_items)]
+        if stage.clause.distinct:
+            materialized_row_steps.append(distinct())
+        if stage.where is not None:
+            _validate_row_expr_scope(
+                stage.where.text,
+                alias_targets={},
+                active_match_alias=None,
+                unwind_aliases=available_columns,
+                params=params,
+                field="with.where",
+                line=stage.where.span.line,
+                column=stage.where.span.column,
+            )
+            materialized_row_steps.append(
+                where_rows(
+                    expr=_row_expr_arg(
+                        stage.where,
+                        params=params,
+                        alias_targets={},
+                        field="with.where",
+                    )
+                )
+            )
+        if stage.order_by is not None:
+            materialized_row_steps.append(
+                _lower_order_by_outputs(
+                    stage.order_by,
+                    available_columns=available_columns,
+                    expr_to_output=expr_to_output,
+                    params=params,
+                )
+            )
+        _append_page_ops_values(
+            materialized_row_steps,
+            skip_clause=stage.skip,
+            limit_clause=stage.limit,
+            params=params,
+        )
+        return materialized_row_steps, _StageScope(
+            mode="row_columns",
+            alias_targets={},
+            active_alias=None,
+            row_columns=set(available_columns),
+            projected_columns=next_projected_columns,
+            table=None,
+            seed_rows=scope.seed_rows,
+            relationship_count=scope.relationship_count,
+        ), None
     row_steps: List[ASTObject] = []
     if not plan.whole_row_output_names:
         projection_fn = with_ if stage.clause.kind == "with" else return_
@@ -3774,11 +3890,48 @@ def _lower_match_alias_stage(
     if stage.clause.distinct:
         row_steps.append(distinct())
     if stage.where is not None:
+        where_expr = stage.where
+        where_alias_targets = scope.alias_targets
+        where_active_alias = scope.active_alias
+        where_visible_columns: Set[str] = set()
+        if not plan.whole_row_output_names and stage.clause.kind == "with":
+            source_props = _collect_active_alias_property_refs(
+                stage.where.text,
+                source_alias=plan.source_alias,
+                params=params,
+                alias_targets=scope.alias_targets,
+                field="with.where",
+                line=stage.where.span.line,
+                column=stage.where.span.column,
+            )
+            if source_props and source_props.issubset(plan.projected_property_outputs):
+                rewritten_where = _rewrite_alias_properties_to_outputs(
+                    stage.where.text,
+                    source_alias=plan.source_alias,
+                    property_outputs=plan.projected_property_outputs,
+                    params=params,
+                    alias_targets=scope.alias_targets,
+                    field="with.where",
+                    line=stage.where.span.line,
+                    column=stage.where.span.column,
+                )
+                if not _expr_match_aliases(
+                    rewritten_where,
+                    alias_targets=scope.alias_targets,
+                    params=params,
+                    field="with.where",
+                    line=stage.where.span.line,
+                    column=stage.where.span.column,
+                ):
+                    where_expr = ExpressionText(text=rewritten_where, span=stage.where.span)
+                    where_alias_targets = {}
+                    where_active_alias = None
+                    where_visible_columns = set(plan.available_columns)
         _validate_row_expr_scope(
-            stage.where.text,
-            alias_targets=scope.alias_targets,
-            active_match_alias=scope.active_alias,
-            unwind_aliases=set(),
+            where_expr.text,
+            alias_targets=where_alias_targets,
+            active_match_alias=where_active_alias,
+            unwind_aliases=where_visible_columns,
             params=params,
             field="with.where",
             line=stage.where.span.line,
@@ -3787,9 +3940,9 @@ def _lower_match_alias_stage(
         row_steps.append(
             where_rows(
                 expr=_row_expr_arg(
-                    stage.where,
+                    where_expr,
                     params=params,
-                    alias_targets=scope.alias_targets,
+                    alias_targets=where_alias_targets,
                     field="with.where",
                 )
             )
@@ -3820,10 +3973,14 @@ def _lower_match_alias_stage(
             for column in plan.projection_columns
             if column.source_name is not None and column.kind in {"property", "expr"}
         }
+        next_alias_targets = {
+            output_name: scope.alias_targets[plan.source_alias]
+            for output_name in plan.whole_row_output_names
+        }
         next_scope = _StageScope(
             mode="match_alias",
-            alias_targets=scope.alias_targets,
-            active_alias=plan.source_alias,
+            alias_targets=next_alias_targets,
+            active_alias=next(iter(next_alias_targets.keys()), plan.source_alias),
             row_columns=set(),
             projected_columns=next_projected_columns,
             table=cast(Optional[Literal["nodes", "edges"]], plan.table),
