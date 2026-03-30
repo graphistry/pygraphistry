@@ -2,7 +2,7 @@
 # ruff: noqa: E501
 
 import re
-from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Union, cast
+from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple, Union, cast
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine, safe_merge
 from graphistry.util import setup_logger
@@ -433,7 +433,7 @@ def _compiled_query_reentry_state(
     prefix_result: Plottable,
     *,
     engine: Union[EngineAbstract, str],
-) -> tuple[Plottable, DataFrameT]:
+) -> Tuple[Plottable, DataFrameT]:
     output_name = compiled_query.start_nodes_output_name
     entity_meta = cast(
         Optional[Dict[str, WholeRowProjectionMeta]],
