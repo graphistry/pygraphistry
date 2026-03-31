@@ -1,4 +1,4 @@
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Sequence, cast
 
 import pandas as pd
 
@@ -18,6 +18,14 @@ def df_cons(template_df: DataFrameT, data: dict) -> DataFrameT:
     if is_cudf_obj(template_df):
         return cudf.DataFrame(data)  # type: ignore[call-arg]
     return pd.DataFrame(data)
+
+
+def column_frame(df: DataFrameT, col: str) -> DataFrameT:
+    return cast(DataFrameT, df[[col]])
+
+
+def column_values(df: DataFrameT, col: str) -> SeriesT:
+    return cast(SeriesT, df[col])
 
 
 def concat_frames(frames: Sequence[DataFrameT]) -> Optional[DataFrameT]:
