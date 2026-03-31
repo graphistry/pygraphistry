@@ -626,6 +626,7 @@ class TestGFQLCypherReentryCarrier:
     ):
         dispatch_graph, start_nodes = self._run_reentry_state(g, compiled, prefix_result, engine=engine)
         assert (dispatch_graph is g) is expect_same_graph
+        # Assert rows first so backend-neutral carrier assertions can key off the same ordered ids.
         assert _to_pandas_df(start_nodes).to_dict(orient="records") == self._expected_reentry_rows(
             ordered_ids,
             carry_values_by_id,
