@@ -5002,11 +5002,10 @@ def test_string_cypher_executes_seeded_multihop_then_with_optional_match_reentry
     assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
 
 
-def test_cypher_to_gfql_rejects_multi_alias_projection() -> None:
-    with pytest.raises(GFQLValidationError) as exc_info:
-        cypher_to_gfql("MATCH (p)-[r]->(q) RETURN p.id, q.id")
-
-    assert exc_info.value.code == ErrorCode.E108
+def test_cypher_to_gfql_supports_multi_alias_scalar_projection() -> None:
+    """Multi-alias scalar projections are supported via bindings table."""
+    chain = cypher_to_gfql("MATCH (p)-[r]->(q) RETURN p.id, q.id")
+    assert chain is not None
 
 
 def test_compile_cypher_tracks_seeded_top_level_row_query() -> None:

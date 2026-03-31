@@ -2680,8 +2680,14 @@ class RowPipelineMixin:
         return out
 
     def rows(
-        self, table: str = "nodes", source: Optional[str] = None
+        self,
+        table: str = "nodes",
+        source: Optional[str] = None,
+        alias_endpoints: Optional[Dict[str, str]] = None,
     ) -> "Plottable":
+        if alias_endpoints is not None:
+            return self._gfql_bindings_row_table(alias_endpoints)
+
         if table not in {"nodes", "edges"}:
             raise ValueError(
                 f"rows(table=...) must be one of 'nodes' or 'edges', got {table!r}"
@@ -2709,6 +2715,62 @@ class RowPipelineMixin:
             table_df = table_df.loc[mask.astype(bool)]
 
         return self._gfql_row_table(table_df)
+
+    def _gfql_bindings_row_table(
+        self, alias_endpoints: Dict[str, str]
+    ) -> "Plottable":
+        """Build a bindings table by joining edges with node properties.
+
+        Each edge row becomes one binding row.  For each alias in
+        *alias_endpoints*, node properties are joined via the corresponding
+        edge endpoint column (``src`` or ``dst``) and prefixed with
+        ``alias.`` so that downstream ``return_()`` / ``select()`` can
+        resolve ``alias.prop`` expressions directly as column lookups.
+        """
+        edges = self._edges
+        nodes = self._nodes
+        if edges is None or nodes is None:
+            return self._gfql_row_table(pd.DataFrame())
+
+        node_id = self._node
+        src_col = self._source
+        dst_col = self._destination
+        if node_id is None or src_col is None or dst_col is None:
+            raise ValueError(
+                "bindings row table requires node id, source, and destination columns"
+            )
+
+        bindings = edges.copy()
+        for alias, endpoint in alias_endpoints.items():
+            join_col = src_col if endpoint == "src" else dst_col
+            # Build alias-prefixed lookup from nodes
+            lookup = nodes[[node_id]].copy()
+            lookup[f"{alias}.{node_id}"] = nodes[node_id]
+            for col in nodes.columns:
+                if col == node_id:
+                    continue
+                lookup[f"{alias}.{col}"] = nodes[col]
+            bindings = bindings.merge(
+                lookup,
+                left_on=join_col,
+                right_on=node_id,
+                how="left",
+                suffixes=("", f"__{alias}_join__"),
+            )
+            # Drop the duplicate node_id column from the merge
+            dup_col = f"{node_id}__{alias}_join__"
+            if dup_col in bindings.columns:
+                bindings = bindings.drop(columns=[dup_col])
+
+        # Also prefix edge properties for edge aliases
+        for alias, endpoint in alias_endpoints.items():
+            if endpoint == "edge":
+                for col in edges.columns:
+                    if col in (src_col, dst_col):
+                        continue
+                    bindings[f"{alias}.{col}"] = edges[col]
+
+        return self._gfql_row_table(bindings)
 
     def select(self, items: List[Any]) -> "Plottable":
         table_df = self._gfql_get_active_table()

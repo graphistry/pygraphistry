@@ -216,11 +216,12 @@ def _group_by_requires_node_cols(params: Dict[str, object]) -> List[str]:
 
 SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     'rows': _method_entry(
-        allowed_params={'table', 'source'},
+        allowed_params={'table', 'source', 'alias_endpoints'},
         required_params=set(),
         param_validators={
             'table': lambda v: v in ['nodes', 'edges'],
             'source': is_string_or_none,
+            'alias_endpoints': lambda v: isinstance(v, dict),
         },
         description='Set active row table from nodes/edges, optionally filtered by source alias',
         schema_effects=_schema_effects(

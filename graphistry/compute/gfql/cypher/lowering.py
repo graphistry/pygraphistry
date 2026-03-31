@@ -1826,9 +1826,25 @@ def _active_match_alias_for_stage(
         referenced.update(non_aggregate_aliases)
         aggregate_only_referenced.update(aggregate_aliases - non_aggregate_aliases)
 
-    if len(referenced) >= 1:
+    if len(referenced) > 1:
+        raise _unsupported(
+            "Cypher row lowering currently supports one MATCH source alias at a time",
+            field="return",
+            value=sorted(referenced),
+            line=clause.span.line,
+            column=clause.span.column,
+        )
+    if len(referenced) == 1:
         return next(iter(referenced))
-    if len(aggregate_only_referenced) >= 1:
+    if len(aggregate_only_referenced) > 1:
+        raise _unsupported(
+            "Cypher row lowering currently supports one MATCH source alias at a time",
+            field="return",
+            value=sorted(aggregate_only_referenced),
+            line=clause.span.line,
+            column=clause.span.column,
+        )
+    if len(aggregate_only_referenced) == 1:
         return next(iter(aggregate_only_referenced))
     return next(iter(alias_targets))
 
@@ -2601,6 +2617,33 @@ def _single_node_seed_alias(clause: MatchClause) -> Optional[str]:
     if len(pattern) != 1 or not isinstance(pattern[0], NodePattern):
         return None
     return pattern[0].variable
+
+
+def _build_alias_endpoints(
+    ops: Sequence[ASTObject],
+    alias_targets: Mapping[str, ASTObject],
+) -> Dict[str, str]:
+    """Map node alias names to edge endpoint roles ("src" or "dst").
+
+    Walks the lowered chain ops and assigns each named node alias to "src"
+    (before the first edge) or "dst" (after the first edge).  Only node
+    aliases that appear in *alias_targets* are included.
+    """
+    endpoints: Dict[str, str] = {}
+    seen_edge = False
+    for op in ops:
+        if isinstance(op, ASTEdge):
+            seen_edge = True
+            alias = getattr(op, "_name", None)
+            if alias is not None and alias in alias_targets:
+                endpoints[alias] = "edge"
+            continue
+        alias = getattr(op, "_name", None)
+        if alias is None or alias not in alias_targets:
+            continue
+        if isinstance(op, ASTNode):
+            endpoints[alias] = "dst" if seen_edge else "src"
+    return endpoints
 
 
 def _alias_target(ops: Sequence[ASTObject]) -> Dict[str, ASTObject]:
@@ -3575,14 +3618,48 @@ def _lower_projection_chain(
     plan: Optional[_ProjectionPlan] = None,
 ) -> List[ASTObject]:
     alias_targets = _alias_target(lowered.query)
-    plan = plan or _build_projection_plan(
-        query.return_,
-        alias_targets=alias_targets,
-        active_alias=_active_match_alias(query, alias_targets=alias_targets, params=params),
-        params=params,
-    )
+    if plan is None:
+        try:
+            active = _active_match_alias(query, alias_targets=alias_targets, params=params)
+        except GFQLValidationError:
+            # Multi-alias scalar projection — build bindings table instead
+            plan = _build_projection_plan(
+                query.return_,
+                alias_targets=alias_targets,
+                active_alias=next(iter(alias_targets)) if alias_targets else None,
+                params=params,
+            )
+            alias_ep = _build_alias_endpoints(lowered.query, alias_targets)
+            row_steps: List[ASTObject] = [rows(alias_endpoints=alias_ep)]
+            if not plan.whole_row_output_names:
+                projection_fn = with_ if plan.clause_kind == "with" else return_
+                row_steps.append(projection_fn(plan.projection_items))
+            if query.return_.distinct:
+                row_steps.append(distinct())
+            if query.order_by is not None:
+                row_steps.append(
+                    _lower_order_by_clause(
+                        query.order_by,
+                        plan=plan,
+                        alias_targets=alias_targets,
+                        params=params,
+                    )
+                )
+            _append_page_ops(row_steps, query=query, params=params)
+            return lowered.query + row_steps
+        else:
+            plan = _build_projection_plan(
+                query.return_,
+                alias_targets=alias_targets,
+                active_alias=active,
+                params=params,
+            )
 
-    row_steps: List[ASTObject] = [rows(table=plan.table, source=plan.source_alias)]
+    if plan.all_source_aliases is not None:
+        alias_ep = _build_alias_endpoints(lowered.query, alias_targets)
+        row_steps: List[ASTObject] = [rows(alias_endpoints=alias_ep)]
+    else:
+        row_steps = [rows(table=plan.table, source=plan.source_alias)]
     _append_match_row_where(
         row_steps,
         lowered=lowered,
@@ -6169,10 +6246,14 @@ def compile_cypher_query(
             for item in query.return_.items
         )
         if not has_aggregates:
+            try:
+                active = _active_match_alias(query, alias_targets=alias_targets, params=params)
+            except GFQLValidationError:
+                active = next(iter(alias_targets)) if alias_targets else None
             plan = _build_projection_plan(
                 query.return_,
                 alias_targets=alias_targets,
-                active_alias=_active_match_alias(query, alias_targets=alias_targets, params=params),
+                active_alias=active,
                 params=params,
             )
             seed_alias = _single_node_seed_alias(query.matches[0]) if len(query.matches) == 2 else None
