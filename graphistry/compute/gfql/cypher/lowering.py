@@ -6006,7 +6006,7 @@ def _bounded_reentry_carry_columns(
     query: CypherQuery,
     prefix_stage: ProjectionStage,
 ) -> Tuple[str, Tuple[str, ...]]:
-    whole_row_columns = [column for column in prefix_projection.columns if column.kind == "whole_row"]
+    whole_row_columns = tuple(column.output_name for column in prefix_projection.columns if column.kind == "whole_row")
     if len(whole_row_columns) != 1:
         raise _unsupported_at_span(
             "Cypher MATCH after WITH currently requires the prefix WITH stage to project exactly one whole-row alias",
@@ -6014,8 +6014,9 @@ def _bounded_reentry_carry_columns(
             value=[item.expression.text for item in prefix_stage.clause.items],
             span=prefix_stage.span,
         )
-    if len(prefix_projection.columns) == 1:
-        return whole_row_columns[0].output_name, ()
+    carried_columns = tuple(column.output_name for column in prefix_projection.columns if column.kind != "whole_row")
+    if not carried_columns:
+        return whole_row_columns[0], ()
     seed_alias = _single_node_seed_alias(query.matches[0]) if len(query.matches) == 1 else None
     if seed_alias is None or seed_alias != prefix_projection.alias:
         raise _unsupported_at_span(
@@ -6024,29 +6025,22 @@ def _bounded_reentry_carry_columns(
             value=[item.expression.text for item in prefix_stage.clause.items],
             span=prefix_stage.span,
         )
-    carried_columns: List[str] = []
-    hidden_names: Set[str] = set()
-    for column in prefix_projection.columns:
-        if column.kind == "whole_row":
-            continue
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", column.output_name):
-            raise _unsupported_at_span(
-                "Cypher MATCH after WITH carried scalar columns currently require identifier-style WITH aliases",
-                field="with",
-                value=column.output_name,
-                span=prefix_stage.span,
-            )
-        hidden_column = _reentry_hidden_column_name(column.output_name)
-        if hidden_column in hidden_names:
-            raise _unsupported_at_span(
-                "Cypher MATCH after WITH carried scalar columns currently require distinct WITH aliases",
-                field="with",
-                value=column.output_name,
-                span=prefix_stage.span,
-            )
-        hidden_names.add(hidden_column)
-        carried_columns.append(column.output_name)
-    return whole_row_columns[0].output_name, tuple(carried_columns)
+    invalid_output = next((name for name in carried_columns if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)), None)
+    if invalid_output is not None:
+        raise _unsupported_at_span(
+            "Cypher MATCH after WITH carried scalar columns currently require identifier-style WITH aliases",
+            field="with",
+            value=invalid_output,
+            span=prefix_stage.span,
+        )
+    if len(set(carried_columns)) != len(carried_columns):
+        raise _unsupported_at_span(
+            "Cypher MATCH after WITH carried scalar columns currently require distinct WITH aliases",
+            field="with",
+            value=carried_columns,
+            span=prefix_stage.span,
+        )
+    return whole_row_columns[0], carried_columns
 
 
 def _literal_limit_value(limit_clause: Optional[LimitClause]) -> Optional[int]:
