@@ -185,6 +185,7 @@ class _ProjectionPlan:
     projected_property_outputs: Dict[str, str]
     output_to_source_property: Dict[str, str]
     output_to_expr_source: Dict[str, str]
+    all_source_aliases: Optional[Set[str]] = None
 
 
 @dataclass(frozen=True)
@@ -1825,25 +1826,9 @@ def _active_match_alias_for_stage(
         referenced.update(non_aggregate_aliases)
         aggregate_only_referenced.update(aggregate_aliases - non_aggregate_aliases)
 
-    if len(referenced) > 1:
-        raise _unsupported(
-            "Cypher row lowering currently supports one MATCH source alias at a time",
-            field="return",
-            value=sorted(referenced),
-            line=clause.span.line,
-            column=clause.span.column,
-        )
-    if len(referenced) == 1:
+    if len(referenced) >= 1:
         return next(iter(referenced))
-    if len(aggregate_only_referenced) > 1:
-        raise _unsupported(
-            "Cypher row lowering currently supports one MATCH source alias at a time",
-            field="return",
-            value=sorted(aggregate_only_referenced),
-            line=clause.span.line,
-            column=clause.span.column,
-        )
-    if len(aggregate_only_referenced) == 1:
+    if len(aggregate_only_referenced) >= 1:
         return next(iter(aggregate_only_referenced))
     return next(iter(alias_targets))
 
@@ -2899,6 +2884,7 @@ def _build_projection_plan(
     params: Optional[Mapping[str, Any]] = None,
 ) -> _ProjectionPlan:
     source_alias: Optional[str] = None
+    all_source_aliases: Optional[Set[str]] = None
     whole_row_output_names: List[str] = []
     projection_items: List[Tuple[str, Any]] = []
     projection_columns: List[ResultProjectionColumn] = []
@@ -3017,16 +3003,9 @@ def _build_projection_plan(
         if source_alias is None:
             source_alias = alias_name
         elif source_alias != alias_name:
-            raise GFQLValidationError(
-                ErrorCode.E108,
-                "Cypher row projection currently supports one source alias at a time",
-                field=f"{clause.kind}.items",
-                value=[entry.expression.text for entry in clause.items],
-                suggestion="Project from one alias only, or wait for multi-alias row projection support.",
-                line=item.span.line,
-                column=item.span.column,
-                language="cypher",
-            )
+            if all_source_aliases is None:
+                all_source_aliases = {source_alias}
+            all_source_aliases.add(alias_name)
         if item.expression.text == "*":
             output_name = item.alias or alias_name
             if output_name in available_columns or output_name in whole_row_output_names:
@@ -3143,6 +3122,7 @@ def _build_projection_plan(
         projected_property_outputs=projected_property_outputs,
         output_to_source_property=output_to_source_property,
         output_to_expr_source=output_to_expr_source,
+        all_source_aliases=all_source_aliases,
     )
 
 
