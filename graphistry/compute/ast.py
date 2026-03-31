@@ -1660,4 +1660,3 @@ def group_by(
 ) -> ASTCall:
     """Create grouped aggregation operation for row pipelines."""
     return ASTCall("group_by", {"keys": list(keys), "aggregations": list(aggregations)})
-# TCK xfail contract updated
