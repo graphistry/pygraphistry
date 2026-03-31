@@ -3622,38 +3622,14 @@ def _lower_projection_chain(
         try:
             active = _active_match_alias(query, alias_targets=alias_targets, params=params)
         except GFQLValidationError:
-            # Multi-alias scalar projection — build bindings table instead
-            plan = _build_projection_plan(
-                query.return_,
-                alias_targets=alias_targets,
-                active_alias=next(iter(alias_targets)) if alias_targets else None,
-                params=params,
-            )
-            alias_ep = _build_alias_endpoints(lowered.query, alias_targets)
-            row_steps: List[ASTObject] = [rows(alias_endpoints=alias_ep)]
-            if not plan.whole_row_output_names:
-                projection_fn = with_ if plan.clause_kind == "with" else return_
-                row_steps.append(projection_fn(plan.projection_items))
-            if query.return_.distinct:
-                row_steps.append(distinct())
-            if query.order_by is not None:
-                row_steps.append(
-                    _lower_order_by_clause(
-                        query.order_by,
-                        plan=plan,
-                        alias_targets=alias_targets,
-                        params=params,
-                    )
-                )
-            _append_page_ops(row_steps, query=query, params=params)
-            return lowered.query + row_steps
-        else:
-            plan = _build_projection_plan(
-                query.return_,
-                alias_targets=alias_targets,
-                active_alias=active,
-                params=params,
-            )
+            # Multi-alias scalar projection — fall through to bindings path
+            active = next(iter(alias_targets)) if alias_targets else None
+        plan = _build_projection_plan(
+            query.return_,
+            alias_targets=alias_targets,
+            active_alias=active,
+            params=params,
+        )
 
     if plan.all_source_aliases is not None:
         alias_ep = _build_alias_endpoints(lowered.query, alias_targets)

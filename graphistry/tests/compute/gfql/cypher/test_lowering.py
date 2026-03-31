@@ -5008,6 +5008,56 @@ def test_cypher_to_gfql_supports_multi_alias_scalar_projection() -> None:
     assert chain is not None
 
 
+def test_multi_alias_return_basic() -> None:
+    """MATCH (a)-[:R]->(b) RETURN a.id, b.id produces one row per binding."""
+    g = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"], "label__A": [True, False], "label__B": [False, True]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+    )
+    result = g.gfql("MATCH (a:A)-[:R]->(b:B) RETURN a.id AS a_id, b.id AS b_id")
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert len(records) == 1
+    assert records[0]["a_id"] == "a"
+    assert records[0]["b_id"] == "b"
+
+
+def test_multi_alias_return_multiple_bindings() -> None:
+    """Multiple edges produce multiple binding rows."""
+    g = _mk_graph(
+        pd.DataFrame({"id": ["x", "y", "z"], "label__X": [True, False, False], "label__Y": [False, True, True]}),
+        pd.DataFrame({"s": ["x", "x"], "d": ["y", "z"], "type": ["R", "R"]}),
+    )
+    result = g.gfql("MATCH (a:X)-[:R]->(b:Y) RETURN a.id AS a_id, b.id AS b_id ORDER BY b_id")
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert len(records) == 2
+    assert records[0]["b_id"] == "y"
+    assert records[1]["b_id"] == "z"
+
+
+def test_multi_alias_return_empty_match() -> None:
+    """No matching pattern produces empty result."""
+    g = _mk_graph(
+        pd.DataFrame({"id": ["a"], "label__A": [True]}),
+        pd.DataFrame({"s": pd.Series(dtype="str"), "d": pd.Series(dtype="str"), "type": pd.Series(dtype="str")}),
+    )
+    result = g.gfql("MATCH (a:A)-[:R]->(b) RETURN a.id AS a_id, b.id AS b_id")
+    assert len(result._nodes) == 0
+
+
+def test_multi_alias_return_with_edge_alias_property() -> None:
+    """Edge alias properties are accessible in multi-alias RETURN (#982)."""
+    g = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"], "label__A": [True, False], "label__B": [False, True], "firstName": ["Alice", "Bob"]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["KNOWS"], "creationDate": [123]}),
+    )
+    result = g.gfql("MATCH (a:A)-[r:KNOWS]->(b:B) RETURN a.id AS a_id, r.creationDate AS cd, b.firstName AS name")
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert len(records) == 1
+    assert records[0]["a_id"] == "a"
+    assert records[0]["cd"] == 123
+    assert records[0]["name"] == "Bob"
+
+
 def test_compile_cypher_tracks_seeded_top_level_row_query() -> None:
     compiled = _compile_query("UNWIND [1, 2, 3] AS x RETURN x ORDER BY x DESC LIMIT 2")
 
