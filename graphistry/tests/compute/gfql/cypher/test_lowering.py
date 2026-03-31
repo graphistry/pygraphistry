@@ -4759,6 +4759,38 @@ def test_string_cypher_supports_return_star_after_with_distinct_row_projection()
     assert result._nodes.to_dict(orient="records") == [{"name": "C"}]
 
 
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "MATCH (a) "
+            "WITH DISTINCT a.name2 AS name "
+            "WHERE a.name2 = 'B' "
+            "RETURN *",
+            [{"name": "B"}],
+        ),
+        (
+            "MATCH (a) "
+            "WITH a.name2 AS name "
+            "WHERE name = 'B' OR a.name2 = 'C' "
+            "RETURN * "
+            "ORDER BY name",
+            [{"name": "B"}, {"name": "C"}],
+        ),
+    ],
+)
+def test_string_cypher_supports_with_where_using_projected_source_properties(
+    query: str,
+    expected: List[Dict[str, Any]],
+) -> None:
+    result = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"], "name2": ["A", "B", "C"]}),
+        pd.DataFrame({"s": [], "d": []}),
+    ).gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == expected
+
+
 def test_string_cypher_rejects_out_of_scope_order_by_after_multiple_with_stages() -> None:
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 

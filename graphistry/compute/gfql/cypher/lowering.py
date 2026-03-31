@@ -3828,6 +3828,21 @@ def _lower_match_alias_stage(
     if stage.clause.distinct:
         row_steps.append(distinct())
     if stage.where is not None:
+        where_expr = stage.where
+        if not plan.whole_row_output_names:
+            where_expr = ExpressionText(
+                text=_rewrite_alias_properties_to_outputs(
+                    stage.where.text,
+                    source_alias=plan.source_alias,
+                    property_outputs=plan.projected_property_outputs,
+                    params=params,
+                    alias_targets=scope.alias_targets,
+                    field="with.where",
+                    line=stage.where.span.line,
+                    column=stage.where.span.column,
+                ),
+                span=stage.where.span,
+            )
         _validate_row_expr_scope(
             stage.where.text,
             alias_targets=scope.alias_targets,
@@ -3841,7 +3856,7 @@ def _lower_match_alias_stage(
         row_steps.append(
             where_rows(
                 expr=_row_expr_arg(
-                    stage.where,
+                    where_expr,
                     params=params,
                     alias_targets=scope.alias_targets,
                     field="with.where",
