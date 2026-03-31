@@ -17,6 +17,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 - **GFQL / Cypher**: Added bounded direct local Cypher reentry support for the vectorized same-alias `MATCH ... WITH ... MATCH ...` subset, including carried scalar projections and trailing `RETURN` / `ORDER BY` use on the carried alias.
+- **GFQL / Cypher**: Support variable-length relationships in connected multi-relationship patterns. `MATCH (a)-[:R*2]->()-[:R]->(c) RETURN c` now works — variable-length hops at any position (start, middle, end) are supported with exact, range, and open-range forms (#973).
 
 ### Fixed
 - **GFQL / Cypher**: Unsupported cross-alias, fresh row-seeded, and prefix-order-dependent bounded reentry shapes now fail fast instead of silently miscompiling.

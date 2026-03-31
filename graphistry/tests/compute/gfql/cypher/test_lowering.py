@@ -2953,6 +2953,64 @@ def test_string_cypher_accepts_nonterminal_variable_length_relationship_patterns
     assert result._nodes is not None
 
 
+def _mk_chain_graph() -> "Plottable":
+    """a->b->c->d->e linear chain with LIKES edges."""
+    return _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d", "e"], "label__S": [True, False, False, False, False]}),
+        pd.DataFrame({"s": ["a", "b", "c", "d"], "d": ["b", "c", "d", "e"], "type": ["R", "R", "R", "R"]}),
+    )
+
+
+@pytest.mark.parametrize(
+    "query,expected_ids",
+    [
+        ("MATCH (s:S)-[:R*1]->()-[:R]->(c) RETURN c.id AS id", ["c"]),
+        ("MATCH (s:S)-[:R*2]->()-[:R]->(c) RETURN c.id AS id", ["d"]),
+        ("MATCH (s:S)-[:R*3]->()-[:R]->(c) RETURN c.id AS id", ["e"]),
+        ("MATCH (s:S)-[:R*1..2]->()-[:R]->(c) RETURN c.id AS id ORDER BY id", ["c", "d"]),
+        ("MATCH (s:S)-[:R*1..3]->()-[:R]->(c) RETURN c.id AS id ORDER BY id", ["c", "d", "e"]),
+        ("MATCH (s:S)-[:R]->()-[:R*2]->(c) RETURN c.id AS id", ["d"]),
+        ("MATCH (s:S)-[:R]->()-[:R*1..2]->(c) RETURN c.id AS id ORDER BY id", ["c", "d"]),
+        ("MATCH (s:S)-[:R]->()-[:R*2]->()-[:R]->(c) RETURN c.id AS id", ["e"]),
+    ],
+)
+def test_connected_variable_length_exact_results(query: str, expected_ids: list) -> None:
+    """Connected patterns with variable-length rels produce correct endpoint results."""
+    g = _mk_chain_graph()
+    result = g.gfql(query)
+    ids = sorted(_to_pandas_df(result._nodes)["id"].tolist())
+    assert ids == expected_ids
+
+
+def test_connected_variable_length_branching() -> None:
+    """Star graph: *1 then fixed reaches all leaf neighbors."""
+    g = _mk_graph(
+        pd.DataFrame({"id": ["root", "a", "b", "c", "d"], "label__Root": [True, False, False, False, False]}),
+        pd.DataFrame({"s": ["root", "root", "a", "b"], "d": ["a", "b", "c", "d"], "type": ["R", "R", "R", "R"]}),
+    )
+    result = g.gfql("MATCH (r:Root)-[:R*1]->()-[:R]->(c) RETURN c.id AS id ORDER BY id")
+    ids = sorted(_to_pandas_df(result._nodes)["id"].tolist())
+    assert ids == ["c", "d"]
+
+
+def test_connected_variable_length_reverse() -> None:
+    """Reverse direction: <-[:R*2]-()<-[:R]- works."""
+    g = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"], "label__E": [False, False, False, True]}),
+        pd.DataFrame({"s": ["a", "b", "c"], "d": ["b", "c", "d"], "type": ["R", "R", "R"]}),
+    )
+    result = g.gfql("MATCH (e:E)<-[:R*2]-()<-[:R]-(c) RETURN c.id AS id")
+    ids = _to_pandas_df(result._nodes)["id"].tolist()
+    assert ids == ["a"]
+
+
+def test_connected_variable_length_no_match() -> None:
+    """Non-matching type produces empty result."""
+    g = _mk_chain_graph()
+    result = g.gfql("MATCH (s:S)-[:X*2]->()-[:R]->(c) RETURN c.id AS id")
+    assert len(result._nodes) == 0
+
+
 @pytest.mark.parametrize(
     "query",
     [
