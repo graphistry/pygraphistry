@@ -5058,6 +5058,44 @@ def test_multi_alias_return_with_edge_alias_property() -> None:
     assert records[0]["name"] == "Bob"
 
 
+def test_multi_alias_return_star_graph() -> None:
+    """Star graph: 1 hub -> 3 leaves produces 3 binding rows."""
+    g = _mk_graph(
+        pd.DataFrame({"id": ["hub", "a", "b", "c"], "label__Hub": [True, False, False, False], "label__Leaf": [False, True, True, True]}),
+        pd.DataFrame({"s": ["hub", "hub", "hub"], "d": ["a", "b", "c"], "type": ["R", "R", "R"]}),
+    )
+    result = g.gfql("MATCH (h:Hub)-[:R]->(l:Leaf) RETURN h.id AS hub, l.id AS leaf ORDER BY leaf")
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert len(records) == 3
+    assert [r["leaf"] for r in records] == ["a", "b", "c"]
+    assert all(r["hub"] == "hub" for r in records)
+
+
+def test_multi_alias_return_bidirectional() -> None:
+    """Bidirectional edges produce one binding per directed edge."""
+    g = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"], "label__X": [True, True], "val": [1, 2]}),
+        pd.DataFrame({"s": ["a", "b"], "d": ["b", "a"], "type": ["R", "R"]}),
+    )
+    result = g.gfql("MATCH (x:X)-[:R]->(y:X) RETURN x.id AS x_id, y.id AS y_id, x.val AS x_val, y.val AS y_val ORDER BY x_id")
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert len(records) == 2
+    assert records[0]["x_id"] == "a"
+    assert records[0]["y_val"] == 2
+    assert records[1]["x_id"] == "b"
+    assert records[1]["y_val"] == 1
+
+
+def test_multi_alias_return_duplicate_edges() -> None:
+    """Duplicate edges produce one binding per edge."""
+    g = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"], "label__X": [True, False], "label__Y": [False, True]}),
+        pd.DataFrame({"s": ["a", "a"], "d": ["b", "b"], "type": ["R", "R"]}),
+    )
+    result = g.gfql("MATCH (x:X)-[:R]->(y:Y) RETURN x.id AS x_id, y.id AS y_id")
+    assert len(result._nodes) == 2
+
+
 def test_compile_cypher_tracks_seeded_top_level_row_query() -> None:
     compiled = _compile_query("UNWIND [1, 2, 3] AS x RETURN x ORDER BY x DESC LIMIT 2")
 
