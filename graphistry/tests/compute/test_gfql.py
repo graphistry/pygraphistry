@@ -593,9 +593,28 @@ class TestGFQLCypherReentryCarrier:
         assert start_nodes.to_dict(orient="records") == expected_rows
         assert self._carry_by_id(dispatch_graph) == expected_carry
 
+    def _assert_reentry_state_by_id(
+        self,
+        *,
+        g,
+        compiled,
+        prefix_result,
+        ordered_ids,
+        carry_values_by_id,
+        expect_same_graph,
+    ):
+        self._assert_reentry_state(
+            g=g,
+            compiled=compiled,
+            prefix_result=prefix_result,
+            expected_rows=self._expected_reentry_rows(ordered_ids, carry_values_by_id),
+            expected_carry=self._expected_carry(carry_values_by_id),
+            expect_same_graph=expect_same_graph,
+        )
+
     def test_reentry_state_preserves_prefix_order_without_carried_columns(self):
         g = _mk_reentry_scalar_graph()
-        self._assert_reentry_state(
+        self._assert_reentry_state_by_id(
             g=g,
             compiled=compile_cypher(
                 "MATCH (a:A) "
@@ -604,14 +623,14 @@ class TestGFQLCypherReentryCarrier:
                 "RETURN b.id AS bid"
             ),
             prefix_result=g.gfql("MATCH (a:A) WITH a ORDER BY a.num DESC RETURN a"),
-            expected_rows=self._expected_reentry_rows(["a2", "a1"], {}),
-            expected_carry={},
+            ordered_ids=["a2", "a1"],
+            carry_values_by_id={},
             expect_same_graph=True,
         )
 
     def test_reentry_state_preserves_prefix_order_with_carried_columns(self):
         g = _mk_reentry_scalar_graph()
-        self._assert_reentry_state(
+        self._assert_reentry_state_by_id(
             g=g,
             compiled=self._compile_reentry_query(),
             prefix_result=g.gfql(
@@ -619,25 +638,17 @@ class TestGFQLCypherReentryCarrier:
                 "WITH a, a.num AS property ORDER BY property DESC "
                 "RETURN a, property"
             ),
-            expected_rows=self._expected_reentry_rows(
-                ["a2", "a1"],
-                {
-                    "a1": {"property": 1},
-                    "a2": {"property": 2},
-                },
-            ),
-            expected_carry=self._expected_carry(
-                {
-                    "a1": {"property": 1},
-                    "a2": {"property": 2},
-                }
-            ),
+            ordered_ids=["a2", "a1"],
+            carry_values_by_id={
+                "a1": {"property": 1},
+                "a2": {"property": 2},
+            },
             expect_same_graph=False,
         )
 
     def test_reentry_state_preserves_multiple_carried_columns(self):
         g = _mk_reentry_scalar_graph()
-        self._assert_reentry_state(
+        self._assert_reentry_state_by_id(
             g=g,
             compiled=self._compile_reentry_query("a, a.num AS property, a.num + 10 AS property2"),
             prefix_result=self._bind_reentry_prefix_result(
@@ -645,19 +656,11 @@ class TestGFQLCypherReentryCarrier:
                 rows={"property": [2, 1], "property2": [12, 11]},
                 ids=["a2", "a1"],
             ),
-            expected_rows=self._expected_reentry_rows(
-                ["a2", "a1"],
-                {
-                    "a1": {"property": 1, "property2": 11},
-                    "a2": {"property": 2, "property2": 12},
-                },
-            ),
-            expected_carry=self._expected_carry(
-                {
-                    "a1": {"property": 1, "property2": 11},
-                    "a2": {"property": 2, "property2": 12},
-                }
-            ),
+            ordered_ids=["a2", "a1"],
+            carry_values_by_id={
+                "a1": {"property": 1, "property2": 11},
+                "a2": {"property": 2, "property2": 12},
+            },
             expect_same_graph=False,
         )
 
@@ -679,7 +682,7 @@ class TestGFQLCypherReentryCarrier:
 
     def test_reentry_state_filters_null_carried_ids_before_aligning_scalar_payload(self):
         g = _mk_reentry_scalar_graph()
-        self._assert_reentry_state(
+        self._assert_reentry_state_by_id(
             g=g,
             compiled=self._compile_reentry_query(),
             prefix_result=self._bind_reentry_prefix_result(
@@ -687,19 +690,11 @@ class TestGFQLCypherReentryCarrier:
                 rows={"property": [10, 20, 30]},
                 ids=["a1", None, "a2"],
             ),
-            expected_rows=self._expected_reentry_rows(
-                ["a1", "a2"],
-                {
-                    "a1": {"property": 10},
-                    "a2": {"property": 30},
-                },
-            ),
-            expected_carry=self._expected_carry(
-                {
-                    "a1": {"property": 10},
-                    "a2": {"property": 30},
-                }
-            ),
+            ordered_ids=["a1", "a2"],
+            carry_values_by_id={
+                "a1": {"property": 10},
+                "a2": {"property": 30},
+            },
             expect_same_graph=False,
         )
 
@@ -739,7 +734,7 @@ class TestGFQLCypherReentryCarrier:
         g = _mk_reentry_scalar_graph()
         g._nodes = g._nodes.assign(**existing_hidden_values)
 
-        self._assert_reentry_state(
+        self._assert_reentry_state_by_id(
             g=g,
             compiled=self._compile_reentry_query(with_clause),
             prefix_result=self._bind_reentry_prefix_result(
@@ -747,8 +742,8 @@ class TestGFQLCypherReentryCarrier:
                 rows=rows,
                 ids=["a2", "a1"],
             ),
-            expected_rows=self._expected_reentry_rows(["a2", "a1"], carry_values_by_id),
-            expected_carry=self._expected_carry(carry_values_by_id),
+            ordered_ids=["a2", "a1"],
+            carry_values_by_id=carry_values_by_id,
             expect_same_graph=False,
         )
 
@@ -756,7 +751,7 @@ class TestGFQLCypherReentryCarrier:
 
     def test_reentry_state_uses_projected_whole_row_alias_for_contract(self):
         g = _mk_reentry_scalar_graph()
-        self._assert_reentry_state(
+        self._assert_reentry_state_by_id(
             g=g,
             compiled=self._compile_reentry_query("a AS x, a.num AS property", match_alias="x"),
             prefix_result=self._bind_reentry_prefix_result(
@@ -765,18 +760,10 @@ class TestGFQLCypherReentryCarrier:
                 ids=["a2", "a1"],
                 output_name="x",
             ),
-            expected_rows=self._expected_reentry_rows(
-                ["a2", "a1"],
-                {
-                    "a1": {"property": 1},
-                    "a2": {"property": 2},
-                },
-            ),
-            expected_carry=self._expected_carry(
-                {
-                    "a1": {"property": 1},
-                    "a2": {"property": 2},
-                }
-            ),
+            ordered_ids=["a2", "a1"],
+            carry_values_by_id={
+                "a1": {"property": 1},
+                "a2": {"property": 2},
+            },
             expect_same_graph=False,
         )
