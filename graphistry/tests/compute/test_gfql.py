@@ -20,6 +20,13 @@ def _mk_graph(ids, types, src, dst):
     return CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
 
 
+def _mk_cudf_graph(ids, types, src, dst):
+    cudf = pytest.importorskip("cudf")
+    nodes_df = cudf.from_pandas(pd.DataFrame({"id": ids, "type": types}))
+    edges_df = cudf.from_pandas(pd.DataFrame({"s": src, "d": dst}))
+    return CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+
 def _mk_people_company_graph3():
     return _mk_graph(
         ids=["a", "b", "c"],
@@ -58,6 +65,33 @@ def _mk_reentry_scalar_graph():
         }
     )
     return CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+
+def _mk_reentry_scalar_graph_cudf():
+    cudf = pytest.importorskip("cudf")
+    nodes_df = cudf.from_pandas(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b1", "b2"],
+                "label__A": [True, True, False, False],
+                "num": [1, 2, 1, 3],
+            }
+        )
+    )
+    edges_df = cudf.from_pandas(
+        pd.DataFrame(
+            {
+                "s": ["a1", "a2"],
+                "d": ["b1", "b2"],
+                "type": ["R", "R"],
+            }
+        )
+    )
+    return CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+
+def _to_pandas_df(df):
+    return df.to_pandas() if hasattr(df, "to_pandas") else df
 
 
 class TestGFQLAPI:
@@ -513,15 +547,22 @@ class TestGFQLCypherReentryCarrier:
         ids: List[Any],
         *,
         output_name: str = "a",
+        engine: str = "pandas",
     ):
         prefix_result = g.bind()
-        prefix_result._nodes = pd.DataFrame(rows)
+        if engine == "cudf":
+            cudf = pytest.importorskip("cudf")
+            prefix_result._nodes = cudf.from_pandas(pd.DataFrame(rows))
+            meta_ids = cudf.Series(ids, name="id")
+        else:
+            prefix_result._nodes = pd.DataFrame(rows)
+            meta_ids = pd.Series(ids, name="id")
         prefix_result._cypher_entity_projection_meta = {
             output_name: {
                 "table": "nodes",
                 "alias": output_name,
                 "id_column": "id",
-                "ids": pd.Series(ids, name="id"),
+                "ids": meta_ids,
             }
         }
         return prefix_result
@@ -530,7 +571,7 @@ class TestGFQLCypherReentryCarrier:
     def _carry_by_id(dispatch_graph):
         return {
             row["id"]: {key: value for key, value in row.items() if key.startswith("__cypher_reentry_")}
-            for row in dispatch_graph._nodes.to_dict(orient="records")
+            for row in _to_pandas_df(dispatch_graph._nodes).to_dict(orient="records")
             if row["id"] in {"a1", "a2"} and any(key.startswith("__cypher_reentry_") for key in row)
         }
 
@@ -552,18 +593,18 @@ class TestGFQLCypherReentryCarrier:
         ]
 
     @staticmethod
-    def _run_reentry_state(g, compiled, prefix_result):
+    def _run_reentry_state(g, compiled, prefix_result, *, engine: str = "pandas"):
         return _compiled_query_reentry_state(
             g,
             compiled,
             prefix_result,
-            engine="pandas",
+            engine=engine,
         )
 
     @staticmethod
     def _assert_hidden_columns_preserved(g, expected_values_by_column: Dict[str, List[Any]]):
         for column, expected_values in expected_values_by_column.items():
-            series = g._nodes[column].reset_index(drop=True)
+            series = _to_pandas_df(g._nodes[[column]])[column].reset_index(drop=True)
             assert len(series) == len(expected_values)
             for actual, expected in zip(series.tolist(), expected_values):
                 if pd.isna(expected):
@@ -580,10 +621,14 @@ class TestGFQLCypherReentryCarrier:
         ordered_ids,
         carry_values_by_id,
         expect_same_graph,
+        engine: str = "pandas",
     ):
-        dispatch_graph, start_nodes = self._run_reentry_state(g, compiled, prefix_result)
+        dispatch_graph, start_nodes = self._run_reentry_state(g, compiled, prefix_result, engine=engine)
         assert (dispatch_graph is g) is expect_same_graph
-        assert start_nodes.to_dict(orient="records") == self._expected_reentry_rows(ordered_ids, carry_values_by_id)
+        assert _to_pandas_df(start_nodes).to_dict(orient="records") == self._expected_reentry_rows(
+            ordered_ids,
+            carry_values_by_id,
+        )
         assert self._carry_by_id(dispatch_graph) == {
             node_id: self._hidden_updates(**values)
             for node_id, values in carry_values_by_id.items()
@@ -603,6 +648,27 @@ class TestGFQLCypherReentryCarrier:
             ordered_ids=["a2", "a1"],
             carry_values_by_id={},
             expect_same_graph=True,
+        )
+
+    def test_reentry_state_preserves_cudf_backend_without_carried_columns(self):
+        pytest.importorskip("cudf")
+        g = _mk_reentry_scalar_graph_cudf()
+        compiled = compile_cypher(
+            "MATCH (a:A) "
+            "WITH a "
+            "MATCH (a)-->(b) "
+            "RETURN b.id AS bid"
+        )
+        prefix_result = g.gfql("MATCH (a:A) WITH a ORDER BY a.num DESC RETURN a", engine="cudf")
+
+        dispatch_graph, start_nodes = self._run_reentry_state(g, compiled, prefix_result, engine="cudf")
+
+        assert dispatch_graph is g
+        assert type(dispatch_graph._nodes).__module__.startswith("cudf")
+        assert type(start_nodes).__module__.startswith("cudf")
+        assert _to_pandas_df(start_nodes).to_dict(orient="records") == self._expected_reentry_rows(
+            ["a2", "a1"],
+            {},
         )
 
     @pytest.mark.parametrize(
@@ -637,6 +703,25 @@ class TestGFQLCypherReentryCarrier:
                 "a2": {"property": 30},
             },
             expect_same_graph=False,
+        )
+
+    def test_reentry_state_preserves_cudf_backend_with_carried_scalars(self):
+        pytest.importorskip("cudf")
+        g = _mk_reentry_scalar_graph_cudf()
+        compiled = self._compile_reentry_query()
+        prefix_result = g.gfql(
+            "MATCH (a:A) WITH a, a.num AS property RETURN a, property ORDER BY property DESC",
+            engine="cudf",
+        )
+
+        dispatch_graph, start_nodes = self._run_reentry_state(g, compiled, prefix_result, engine="cudf")
+
+        assert dispatch_graph is not g
+        assert type(dispatch_graph._nodes).__module__.startswith("cudf")
+        assert type(start_nodes).__module__.startswith("cudf")
+        assert _to_pandas_df(start_nodes).to_dict(orient="records") == self._expected_reentry_rows(
+            ["a2", "a1"],
+            {"a1": {"property": 1}, "a2": {"property": 2}},
         )
 
     @pytest.mark.parametrize(
@@ -689,3 +774,27 @@ class TestGFQLCypherReentryCarrier:
         )
 
         self._assert_hidden_columns_preserved(g, existing_hidden_values)
+
+    def test_reentry_state_preserves_cudf_backend_when_hidden_columns_collide(self):
+        pytest.importorskip("cudf")
+        g = _mk_reentry_scalar_graph_cudf()
+        g._nodes = g._nodes.assign(__cypher_reentry_property__=["orig1", "orig2", None, None])
+
+        dispatch_graph, start_nodes = self._run_reentry_state(
+            g,
+            self._compile_reentry_query(),
+            g.gfql(
+                "MATCH (a:A) WITH a, a.num AS property RETURN a, property ORDER BY property DESC",
+                engine="cudf",
+            ),
+            engine="cudf",
+        )
+
+        assert dispatch_graph is not g
+        assert type(dispatch_graph._nodes).__module__.startswith("cudf")
+        assert type(start_nodes).__module__.startswith("cudf")
+        assert _to_pandas_df(start_nodes).to_dict(orient="records") == self._expected_reentry_rows(
+            ["a2", "a1"],
+            {"a1": {"property": 1}, "a2": {"property": 2}},
+        )
+        self._assert_hidden_columns_preserved(g, {"__cypher_reentry_property__": ["orig1", "orig2", None, None]})
