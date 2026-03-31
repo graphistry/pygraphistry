@@ -3621,15 +3621,19 @@ def _lower_projection_chain(
     if plan is None:
         try:
             active = _active_match_alias(query, alias_targets=alias_targets, params=params)
-        except GFQLValidationError:
-            # Multi-alias scalar projection — fall through to bindings path
+        except GFQLValidationError as exc:
             active = next(iter(alias_targets)) if alias_targets else None
+            _multi_alias_exc = exc
+        else:
+            _multi_alias_exc = None
         plan = _build_projection_plan(
             query.return_,
             alias_targets=alias_targets,
             active_alias=active,
             params=params,
         )
+        if _multi_alias_exc is not None and plan.whole_row_output_names:
+            raise _multi_alias_exc
 
     if plan.all_source_aliases is not None:
         alias_ep = _build_alias_endpoints(lowered.query, alias_targets)
@@ -6224,14 +6228,19 @@ def compile_cypher_query(
         if not has_aggregates:
             try:
                 active = _active_match_alias(query, alias_targets=alias_targets, params=params)
-            except GFQLValidationError:
+            except GFQLValidationError as exc:
                 active = next(iter(alias_targets)) if alias_targets else None
+                _multi_alias_exc = exc
+            else:
+                _multi_alias_exc = None
             plan = _build_projection_plan(
                 query.return_,
                 alias_targets=alias_targets,
                 active_alias=active,
                 params=params,
             )
+            if _multi_alias_exc is not None and plan.whole_row_output_names:
+                raise _multi_alias_exc
             seed_alias = _single_node_seed_alias(query.matches[0]) if len(query.matches) == 2 else None
             if (
                 seed_alias is not None
