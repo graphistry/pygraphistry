@@ -1518,15 +1518,25 @@ ref = ASTRef  # noqa: E305
 from graphistry.models.gfql.types.call import call  # noqa: E305 E402 F401
 
 
-def rows(table: str = "nodes", source: Optional[str] = None) -> ASTCall:
+def rows(
+    table: str = "nodes",
+    source: Optional[str] = None,
+    alias_endpoints: Optional[Dict[str, str]] = None,
+) -> ASTCall:
     """Create a row-source operation for GFQL row pipelines.
 
     This operation converts graph outputs into a row table context (nodes or edges),
     optionally constrained to a named alias/source tag.
+
+    When *alias_endpoints* is provided, builds a bindings table by joining edges
+    with node properties for each alias.  Keys are alias names, values are
+    ``"src"`` or ``"dst"`` indicating which edge endpoint maps to that alias.
     """
     params: Dict[str, Any] = {"table": table}
     if source is not None:
         params["source"] = source
+    if alias_endpoints is not None:
+        params["alias_endpoints"] = alias_endpoints
     return ASTCall("rows", params)
 
 

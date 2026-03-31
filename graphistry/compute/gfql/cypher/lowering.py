@@ -185,6 +185,7 @@ class _ProjectionPlan:
     projected_property_outputs: Dict[str, str]
     output_to_source_property: Dict[str, str]
     output_to_expr_source: Dict[str, str]
+    all_source_aliases: Optional[Set[str]] = None
 
 
 @dataclass(frozen=True)
@@ -2618,6 +2619,33 @@ def _single_node_seed_alias(clause: MatchClause) -> Optional[str]:
     return pattern[0].variable
 
 
+def _build_alias_endpoints(
+    ops: Sequence[ASTObject],
+    alias_targets: Mapping[str, ASTObject],
+) -> Dict[str, str]:
+    """Map node alias names to edge endpoint roles ("src" or "dst").
+
+    Walks the lowered chain ops and assigns each named node alias to "src"
+    (before the first edge) or "dst" (after the first edge).  Only node
+    aliases that appear in *alias_targets* are included.
+    """
+    endpoints: Dict[str, str] = {}
+    seen_edge = False
+    for op in ops:
+        if isinstance(op, ASTEdge):
+            seen_edge = True
+            alias = getattr(op, "_name", None)
+            if alias is not None and alias in alias_targets:
+                endpoints[alias] = "edge"
+            continue
+        alias = getattr(op, "_name", None)
+        if alias is None or alias not in alias_targets:
+            continue
+        if isinstance(op, ASTNode):
+            endpoints[alias] = "dst" if seen_edge else "src"
+    return endpoints
+
+
 def _alias_target(ops: Sequence[ASTObject]) -> Dict[str, ASTObject]:
     targets: Dict[str, ASTObject] = {}
     for op in ops:
@@ -2899,6 +2927,7 @@ def _build_projection_plan(
     params: Optional[Mapping[str, Any]] = None,
 ) -> _ProjectionPlan:
     source_alias: Optional[str] = None
+    all_source_aliases: Optional[Set[str]] = None
     whole_row_output_names: List[str] = []
     projection_items: List[Tuple[str, Any]] = []
     projection_columns: List[ResultProjectionColumn] = []
@@ -3017,16 +3046,9 @@ def _build_projection_plan(
         if source_alias is None:
             source_alias = alias_name
         elif source_alias != alias_name:
-            raise GFQLValidationError(
-                ErrorCode.E108,
-                "Cypher row projection currently supports one source alias at a time",
-                field=f"{clause.kind}.items",
-                value=[entry.expression.text for entry in clause.items],
-                suggestion="Project from one alias only, or wait for multi-alias row projection support.",
-                line=item.span.line,
-                column=item.span.column,
-                language="cypher",
-            )
+            if all_source_aliases is None:
+                all_source_aliases = {source_alias}
+            all_source_aliases.add(alias_name)
         if item.expression.text == "*":
             output_name = item.alias or alias_name
             if output_name in available_columns or output_name in whole_row_output_names:
@@ -3143,6 +3165,7 @@ def _build_projection_plan(
         projected_property_outputs=projected_property_outputs,
         output_to_source_property=output_to_source_property,
         output_to_expr_source=output_to_expr_source,
+        all_source_aliases=all_source_aliases,
     )
 
 
@@ -3595,14 +3618,33 @@ def _lower_projection_chain(
     plan: Optional[_ProjectionPlan] = None,
 ) -> List[ASTObject]:
     alias_targets = _alias_target(lowered.query)
-    plan = plan or _build_projection_plan(
-        query.return_,
-        alias_targets=alias_targets,
-        active_alias=_active_match_alias(query, alias_targets=alias_targets, params=params),
-        params=params,
-    )
+    if plan is None:
+        try:
+            active = _active_match_alias(query, alias_targets=alias_targets, params=params)
+        except GFQLValidationError as exc:
+            active = next(iter(alias_targets)) if alias_targets else None
+            _multi_alias_exc: Optional[GFQLValidationError] = exc
+        else:
+            _multi_alias_exc = None
+        plan = _build_projection_plan(
+            query.return_,
+            alias_targets=alias_targets,
+            active_alias=active,
+            params=params,
+        )
+        if _multi_alias_exc is not None:
+            # Only allow bindings path for pure scalar node alias.prop projections
+            has_non_scalar = bool(plan.whole_row_output_names) or bool(plan.output_to_expr_source)
+            all_refs = (plan.all_source_aliases or set()) | {plan.source_alias}
+            all_are_edges = all(isinstance(alias_targets.get(a), ASTEdge) for a in all_refs)
+            if has_non_scalar or all_are_edges:
+                raise _multi_alias_exc
 
-    row_steps: List[ASTObject] = [rows(table=plan.table, source=plan.source_alias)]
+    if plan.all_source_aliases is not None:
+        alias_ep = _build_alias_endpoints(lowered.query, alias_targets)
+        row_steps: List[ASTObject] = [rows(alias_endpoints=alias_ep)]
+    else:
+        row_steps = [rows(table=plan.table, source=plan.source_alias)]
     _append_match_row_where(
         row_steps,
         lowered=lowered,
@@ -6189,12 +6231,25 @@ def compile_cypher_query(
             for item in query.return_.items
         )
         if not has_aggregates:
+            try:
+                active = _active_match_alias(query, alias_targets=alias_targets, params=params)
+            except GFQLValidationError as exc:
+                active = next(iter(alias_targets)) if alias_targets else None
+                _multi_alias_exc2: Optional[GFQLValidationError] = exc
+            else:
+                _multi_alias_exc2 = None
             plan = _build_projection_plan(
                 query.return_,
                 alias_targets=alias_targets,
-                active_alias=_active_match_alias(query, alias_targets=alias_targets, params=params),
+                active_alias=active,
                 params=params,
             )
+            if _multi_alias_exc2 is not None:
+                has_non_scalar = bool(plan.whole_row_output_names) or bool(plan.output_to_expr_source)
+                all_refs = (plan.all_source_aliases or set()) | {plan.source_alias}
+                all_are_edges = all(isinstance(alias_targets.get(a), ASTEdge) for a in all_refs)
+                if has_non_scalar or all_are_edges:
+                    raise _multi_alias_exc2
             seed_alias = _single_node_seed_alias(query.matches[0]) if len(query.matches) == 2 else None
             if (
                 seed_alias is not None

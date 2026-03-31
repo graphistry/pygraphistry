@@ -10,6 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 - **GFQL / GPU traversal**: Added a narrow one-hop undirected `hop()` fast path that avoids doubled edge-pair materialization for the common no-predicate traversal shape. On DGX-backed RAPIDS validation, warm `gplus` pipeline time improved `-39.67%` on `25.02` and `-39.27%` on `26.02`.
 
+### Added
+- **GFQL / Cypher**: Support multi-alias scalar `RETURN` projections in direct Cypher queries. `MATCH (a)-[:R]->(b) RETURN a.id AS a_id, b.id AS b_id` now works by building a bindings table from edges joined with node properties (#981).
+- **GFQL / Cypher**: Edge alias property access in multi-alias `RETURN`. `MATCH (a)-[r:KNOWS]->(b) RETURN a.id, r.creationDate, b.firstName` now works — edge properties are accessible alongside node properties (#982).
+
 ## [0.53.8 - 2026-03-31]
 
 ### Added
