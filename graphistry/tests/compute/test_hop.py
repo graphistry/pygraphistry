@@ -7,6 +7,45 @@ from graphistry.compute.ast import ASTNode, ASTEdge, n, e
 from graphistry.tests.test_compute import CGFull
 
 
+def _sorted_records(df: pd.DataFrame):
+    cols = sorted(df.columns)
+    if not cols:
+        return []
+    return df.sort_values(cols).reset_index(drop=True).to_dict(orient='records')
+
+
+def _assert_one_hop_undirected_matches_fallback(
+    g: CGFull,
+    seed_nodes: pd.DataFrame,
+    *,
+    return_as_wave_front: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv('GRAPHISTRY_HOP_FAST_PATH', raising=False)
+    fast = g.hop(
+        nodes=seed_nodes,
+        hops=1,
+        to_fixed_point=False,
+        direction='undirected',
+        return_as_wave_front=return_as_wave_front,
+    )
+
+    monkeypatch.setenv('GRAPHISTRY_HOP_FAST_PATH', '0')
+    slow = g.hop(
+        nodes=seed_nodes,
+        hops=1,
+        to_fixed_point=False,
+        direction='undirected',
+        return_as_wave_front=return_as_wave_front,
+    )
+    monkeypatch.delenv('GRAPHISTRY_HOP_FAST_PATH', raising=False)
+
+    assert sorted(fast._nodes.columns.tolist()) == sorted(slow._nodes.columns.tolist())
+    assert sorted(fast._edges.columns.tolist()) == sorted(slow._edges.columns.tolist())
+    assert _sorted_records(fast._nodes) == _sorted_records(slow._nodes)
+    assert _sorted_records(fast._edges) == _sorted_records(slow._edges)
+
+
 @pytest.fixture(scope='module')
 def g_long_forwards_chain() -> CGFull:
     """
@@ -181,6 +220,242 @@ class TestMultiHopForward():
             {'s': 'c', 'd': 'd'},
             {'s': 'd', 'd': 'e'}
         ]
+
+    def test_hop_one_hop_undirected_keeps_rediscovered_seed_from_other_seed(self, g_long_forwards_chain: CGFull):
+        seed_nodes = g_long_forwards_chain._nodes[g_long_forwards_chain._nodes['v'].isin(['a', 'b'])]
+
+        g2 = g_long_forwards_chain.hop(
+            nodes=seed_nodes,
+            hops=1,
+            to_fixed_point=False,
+            direction='undirected',
+            return_as_wave_front=True
+        )
+        assert set(g2._nodes['v'].tolist()) == {'a', 'b', 'c'}
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'b'},
+            {'s': 'b', 'd': 'c'}
+        ]
+
+    def test_hop_one_hop_undirected_excludes_disconnected_explicit_seed(self):
+        g_disconnected = (
+            CGFull()
+            .edges(
+                pd.DataFrame(
+                    {
+                        's': ['a'],
+                        'd': ['b'],
+                    }
+                ),
+                's',
+                'd',
+            )
+            .nodes(pd.DataFrame({'v': ['a', 'b', 'x']}), 'v')
+        )
+        seed_nodes = g_disconnected._nodes[g_disconnected._nodes['v'].isin(['a', 'x'])]
+
+        g2 = g_disconnected.hop(
+            nodes=seed_nodes,
+            hops=1,
+            to_fixed_point=False,
+            direction='undirected',
+            return_as_wave_front=False
+        )
+        assert set(g2._nodes['v'].tolist()) == {'a', 'b'}
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'b'}
+        ]
+
+    @pytest.mark.parametrize('return_as_wave_front', [False, True])
+    def test_hop_one_hop_undirected_duplicate_seed_rows_match_fallback(self, g_long_forwards_chain: CGFull, return_as_wave_front: bool, monkeypatch: pytest.MonkeyPatch):
+        seed_nodes = pd.DataFrame({'v': ['a', 'a', 'b']})
+
+        _assert_one_hop_undirected_matches_fallback(
+            g_long_forwards_chain,
+            seed_nodes,
+            return_as_wave_front=return_as_wave_front,
+            monkeypatch=monkeypatch,
+        )
+
+    @pytest.mark.parametrize('return_as_wave_front', [False, True])
+    def test_hop_one_hop_undirected_numeric_ids_match_fallback(self, return_as_wave_front: bool, monkeypatch: pytest.MonkeyPatch):
+        g_numeric = (
+            CGFull()
+            .edges(
+                pd.DataFrame(
+                    {
+                        's': [0, 1, 1, 2],
+                        'd': [1, 2, 2, 3],
+                    }
+                ),
+                's',
+                'd',
+            )
+            .nodes(pd.DataFrame({'v': [0, 1, 2, 3]}), 'v')
+        )
+        seed_nodes = g_numeric._nodes[g_numeric._nodes['v'].isin([0, 1])]
+
+        _assert_one_hop_undirected_matches_fallback(
+            g_numeric,
+            seed_nodes,
+            return_as_wave_front=return_as_wave_front,
+            monkeypatch=monkeypatch,
+        )
+
+    @pytest.mark.parametrize('return_as_wave_front', [False, True])
+    def test_hop_one_hop_undirected_self_loop_matches_fallback(self, return_as_wave_front: bool, monkeypatch: pytest.MonkeyPatch):
+        g_loop = (
+            CGFull()
+            .edges(
+                pd.DataFrame(
+                    {
+                        's': ['a', 'a'],
+                        'd': ['a', 'b'],
+                    }
+                ),
+                's',
+                'd',
+            )
+            .nodes(pd.DataFrame({'v': ['a', 'b']}), 'v')
+        )
+        seed_nodes = g_loop._nodes[g_loop._nodes['v'].isin(['a'])]
+
+        _assert_one_hop_undirected_matches_fallback(
+            g_loop,
+            seed_nodes,
+            return_as_wave_front=return_as_wave_front,
+            monkeypatch=monkeypatch,
+        )
+
+    @pytest.mark.parametrize('return_as_wave_front', [False, True])
+    def test_hop_one_hop_undirected_parallel_edges_match_fallback(self, return_as_wave_front: bool, monkeypatch: pytest.MonkeyPatch):
+        g_parallel = (
+            CGFull()
+            .edges(
+                pd.DataFrame(
+                    {
+                        's': ['a', 'a', 'b'],
+                        'd': ['b', 'b', 'c'],
+                    }
+                ),
+                's',
+                'd',
+            )
+            .nodes(pd.DataFrame({'v': ['a', 'b', 'c']}), 'v')
+        )
+        seed_nodes = g_parallel._nodes[g_parallel._nodes['v'].isin(['a'])]
+
+        _assert_one_hop_undirected_matches_fallback(
+            g_parallel,
+            seed_nodes,
+            return_as_wave_front=return_as_wave_front,
+            monkeypatch=monkeypatch,
+        )
+
+    @pytest.mark.parametrize('return_as_wave_front', [False, True])
+    def test_hop_one_hop_undirected_overlapping_seed_neighborhood_matches_fallback(self, return_as_wave_front: bool, monkeypatch: pytest.MonkeyPatch):
+        g_overlap = (
+            CGFull()
+            .edges(
+                pd.DataFrame(
+                    {
+                        's': ['a', 'b', 'b', 'c'],
+                        'd': ['b', 'c', 'd', 'e'],
+                    }
+                ),
+                's',
+                'd',
+            )
+            .nodes(pd.DataFrame({'v': ['a', 'b', 'c', 'd', 'e']}), 'v')
+        )
+        seed_nodes = g_overlap._nodes[g_overlap._nodes['v'].isin(['a', 'c'])]
+
+        _assert_one_hop_undirected_matches_fallback(
+            g_overlap,
+            seed_nodes,
+            return_as_wave_front=return_as_wave_front,
+            monkeypatch=monkeypatch,
+        )
+
+    @pytest.mark.parametrize('return_as_wave_front', [False, True])
+    def test_hop_one_hop_undirected_node_source_conflict_matches_fallback(self, return_as_wave_front: bool, monkeypatch: pytest.MonkeyPatch):
+        g_conflict = (
+            CGFull()
+            .edges(
+                pd.DataFrame(
+                    {
+                        'id': ['a', 'b'],
+                        'dst': ['b', 'c'],
+                        'weight': [1.5, 2.5],
+                    }
+                ),
+                'id',
+                'dst',
+            )
+            .nodes(pd.DataFrame({'id': ['a', 'b', 'c'], 'group': ['x', 'y', 'z']}), 'id')
+        )
+        seed_nodes = g_conflict._nodes[g_conflict._nodes['id'].isin(['a'])]
+
+        _assert_one_hop_undirected_matches_fallback(
+            g_conflict,
+            seed_nodes,
+            return_as_wave_front=return_as_wave_front,
+            monkeypatch=monkeypatch,
+        )
+
+    @pytest.mark.parametrize('return_as_wave_front', [False, True])
+    def test_hop_one_hop_undirected_node_destination_conflict_matches_fallback(self, return_as_wave_front: bool, monkeypatch: pytest.MonkeyPatch):
+        g_conflict = (
+            CGFull()
+            .edges(
+                pd.DataFrame(
+                    {
+                        'src': ['a', 'b'],
+                        'id': ['b', 'c'],
+                        'weight': [1.5, 2.5],
+                    }
+                ),
+                'src',
+                'id',
+            )
+            .nodes(pd.DataFrame({'id': ['a', 'b', 'c'], 'group': ['x', 'y', 'z']}), 'id')
+        )
+        seed_nodes = g_conflict._nodes[g_conflict._nodes['id'].isin(['b'])]
+
+        _assert_one_hop_undirected_matches_fallback(
+            g_conflict,
+            seed_nodes,
+            return_as_wave_front=return_as_wave_front,
+            monkeypatch=monkeypatch,
+        )
+
+    @pytest.mark.parametrize('return_as_wave_front', [False, True])
+    def test_hop_one_hop_undirected_explicit_edge_id_and_attrs_match_fallback(self, return_as_wave_front: bool, monkeypatch: pytest.MonkeyPatch):
+        g_attr = (
+            CGFull()
+            .edges(
+                pd.DataFrame(
+                    {
+                        's': ['a', 'a', 'b'],
+                        'd': ['b', 'b', 'c'],
+                        'eid': ['e1', 'e2', 'e3'],
+                        'weight': [1.0, 2.0, 3.0],
+                    }
+                ),
+                's',
+                'd',
+                'eid',
+            )
+            .nodes(pd.DataFrame({'v': ['a', 'b', 'c'], 'color': ['red', 'blue', 'green']}), 'v')
+        )
+        seed_nodes = g_attr._nodes[g_attr._nodes['v'].isin(['a'])]
+
+        _assert_one_hop_undirected_matches_fallback(
+            g_attr,
+            seed_nodes,
+            return_as_wave_front=return_as_wave_front,
+            monkeypatch=monkeypatch,
+        )
 
     def test_hop_fixedpoint_undirected_keeps_seed_when_reachable_via_real_cycle(self):
         g_cycle = (
