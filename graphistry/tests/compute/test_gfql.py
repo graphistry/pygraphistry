@@ -569,6 +569,7 @@ class TestGFQLCypherReentryCarrier:
 
     @staticmethod
     def _carry_by_id(dispatch_graph):
+        # Compare hidden carrier columns by node id so pandas and cudf assert the same contract.
         return {
             row["id"]: {key: value for key, value in row.items() if key.startswith("__cypher_reentry_")}
             for row in _to_pandas_df(dispatch_graph._nodes).to_dict(orient="records")
