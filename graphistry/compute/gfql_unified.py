@@ -47,6 +47,9 @@ from graphistry.otel import otel_traced, otel_detail_enabled
 
 logger = setup_logger(__name__)
 
+_REENTRY_WHOLE_ROW_SUGGESTION = "Carry a whole-row node alias through WITH before MATCH re-entry."
+_REENTRY_SCALAR_SUGGESTION = "Carry scalar columns through WITH before MATCH re-entry."
+
 _CYPHER_LEAD_RE = re.compile(
     r"^\s*(?:MATCH|OPTIONAL\s+MATCH|WITH|RETURN|UNWIND|CALL|CREATE|MERGE|DELETE|DETACH\s+DELETE|SET|REMOVE|FOREACH|GRAPH|USE)\b",
     re.IGNORECASE,
@@ -117,6 +120,23 @@ def _entity_projection_meta_entry(
             language="cypher",
         )
     return entity_meta[output_name]
+
+
+def _reentry_validation_error(
+    message: str,
+    *,
+    value: Any,
+    suggestion: str,
+    field: str = "with",
+) -> GFQLValidationError:
+    return GFQLValidationError(
+        ErrorCode.E108,
+        message,
+        field=field,
+        value=value,
+        suggestion=suggestion,
+        language="cypher",
+    )
 
 
 def _apply_optional_null_fill(
@@ -451,37 +471,28 @@ def _compiled_query_reentry_state(
         output_name=output_name,
         field="with",
         message="Cypher MATCH after WITH could not recover carried node identities from the prefix stage",
-        suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
+        suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
     )
     if meta["table"] != "nodes":
-        raise GFQLValidationError(
-            ErrorCode.E108,
+        raise _reentry_validation_error(
             "Cypher MATCH after WITH currently supports node re-entry only",
-            field="with",
             value=output_name,
-            suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
-            language="cypher",
+            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
         )
     ids = meta["ids"]
     id_column = meta["id_column"]
     if not hasattr(ids, "dropna"):
-        raise GFQLValidationError(
-            ErrorCode.E108,
+        raise _reentry_validation_error(
             "Cypher MATCH after WITH could not recover carried node identities from the prefix stage",
-            field="with",
             value=output_name,
-            suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
-            language="cypher",
+            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
         )
     base_nodes = getattr(base_graph, "_nodes", None)
     if base_nodes is None or id_column not in base_nodes.columns:
-        raise GFQLValidationError(
-            ErrorCode.E108,
+        raise _reentry_validation_error(
             "Cypher MATCH after WITH could not recover the base node table for re-entry",
-            field="with",
             value=id_column,
-            suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
-            language="cypher",
+            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
         )
     concrete_engine = resolve_engine(cast(Any, engine), base_graph)
     carried_ids, aligned_prefix_rows = _aligned_reentry_rows(
@@ -490,55 +501,44 @@ def _compiled_query_reentry_state(
         output_name=output_name,
     )
     carried_node_ids = cast(DataFrameT, df_cons(concrete_engine)({id_column: carried_ids}))
+    node_rows = base_nodes
+    dispatch_graph = base_graph
+    if carried_columns:
+        if aligned_prefix_rows is None:
+            raise _reentry_validation_error(
+                "Cypher MATCH after WITH could not recover carried row columns from the prefix stage",
+                value=output_name,
+                suggestion=_REENTRY_SCALAR_SUGGESTION,
+            )
+        duplicate_mask = carried_ids.duplicated()
+        has_duplicates = bool(duplicate_mask.any()) if hasattr(duplicate_mask, "any") else False
+        if has_duplicates:
+            raise _reentry_validation_error(
+                "Cypher MATCH after WITH carried scalar columns currently require unique carried node rows",
+                value=output_name,
+                suggestion="Use a single-node seed WITH shape, or avoid carrying scalar columns into MATCH re-entry.",
+            )
 
-    if not carried_columns:
-        start_nodes = _ordered_reentry_start_nodes(
-            node_rows=base_nodes,
+        carry_payload = _reentry_carry_payload(
             carried_node_ids=carried_node_ids,
-            id_column=id_column,
+            prefix_rows=aligned_prefix_rows,
+            carried_columns=carried_columns,
         )
-        return base_graph, start_nodes
+        hidden_columns = [name for name in carry_payload.columns if name != id_column and name in base_nodes.columns]
+        merge_base = cast(DataFrameT, base_nodes.drop(columns=hidden_columns)) if hidden_columns else base_nodes
+        node_rows = cast(DataFrameT, safe_merge(merge_base, carry_payload, on=id_column, how="left"))
 
-    if aligned_prefix_rows is None:
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            "Cypher MATCH after WITH could not recover carried row columns from the prefix stage",
-            field="with",
-            value=output_name,
-            suggestion="Carry scalar columns through WITH before MATCH re-entry.",
-            language="cypher",
-        )
-    duplicate_mask = carried_ids.duplicated()
-    has_duplicates = bool(duplicate_mask.any()) if hasattr(duplicate_mask, "any") else False
-    if has_duplicates:
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            "Cypher MATCH after WITH carried scalar columns currently require unique carried node rows",
-            field="with",
-            value=output_name,
-            suggestion="Use a single-node seed WITH shape, or avoid carrying scalar columns into MATCH re-entry.",
-            language="cypher",
-        )
+        dispatch_graph = base_graph.bind()
+        dispatch_graph._nodes = node_rows
+        edges_df = getattr(base_graph, "_edges", None)
+        if edges_df is not None:
+            dispatch_graph._edges = edges_df
 
-    carry_payload = _reentry_carry_payload(
-        carried_node_ids=carried_node_ids,
-        prefix_rows=aligned_prefix_rows,
-        carried_columns=carried_columns,
-    )
-    hidden_columns = [name for name in carry_payload.columns if name != id_column and name in base_nodes.columns]
-    merge_base = cast(DataFrameT, base_nodes.drop(columns=hidden_columns)) if hidden_columns else base_nodes
-    enriched_nodes = cast(DataFrameT, safe_merge(merge_base, carry_payload, on=id_column, how="left"))
     start_nodes = _ordered_reentry_start_nodes(
-        node_rows=enriched_nodes,
+        node_rows=node_rows,
         carried_node_ids=carried_node_ids,
         id_column=id_column,
     )
-
-    dispatch_graph = base_graph.bind()
-    dispatch_graph._nodes = enriched_nodes
-    edges_df = getattr(base_graph, "_edges", None)
-    if edges_df is not None:
-        dispatch_graph._edges = edges_df
     return dispatch_graph, start_nodes
 
 
@@ -548,25 +548,19 @@ def _compiled_query_reentry_contract(
     prefix_query = compiled_query.start_nodes_query
     prefix_projection = None if prefix_query is None else prefix_query.result_projection
     if prefix_projection is None:
-        raise GFQLValidationError(
-            ErrorCode.E108,
+        raise _reentry_validation_error(
             "Cypher MATCH after WITH could not recover the prefix projection contract for re-entry",
-            field="with",
             value=None,
-            suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
-            language="cypher",
+            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
         )
     whole_row_columns = tuple(
         column.output_name for column in prefix_projection.columns if column.kind == "whole_row"
     )
     if len(whole_row_columns) != 1:
-        raise GFQLValidationError(
-            ErrorCode.E108,
+        raise _reentry_validation_error(
             "Cypher MATCH after WITH could not recover exactly one whole-row alias from the prefix projection",
-            field="with",
             value=whole_row_columns,
             suggestion="Carry exactly one whole-row node alias through WITH before MATCH re-entry.",
-            language="cypher",
         )
     carried_columns = tuple(
         column.output_name for column in prefix_projection.columns if column.kind != "whole_row"
@@ -581,22 +575,16 @@ def _aligned_reentry_rows(
     output_name: Optional[str],
 ) -> Tuple[SeriesT, Optional[DataFrameT]]:
     if prefix_rows is not None and len(prefix_rows) != len(ids):
-        raise GFQLValidationError(
-            ErrorCode.E108,
+        raise _reentry_validation_error(
             "Cypher MATCH after WITH metadata row counts disagreed with prefix rows during re-entry",
-            field="with",
             value=output_name,
             suggestion="Retry with a direct whole-row carry through WITH or inspect intermediate row-shaping before MATCH re-entry.",
-            language="cypher",
         )
     if not hasattr(ids, "notna"):
-        raise GFQLValidationError(
-            ErrorCode.E108,
+        raise _reentry_validation_error(
             "Cypher MATCH after WITH could not align carried node identities from the prefix stage",
-            field="with",
             value=output_name,
-            suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
-            language="cypher",
+            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
         )
 
     non_null_mask = cast(SeriesT, ids.notna())
@@ -616,13 +604,10 @@ def _reentry_carry_payload(
     column_updates: Dict[str, SeriesT] = {}
     for output_name in carried_columns:
         if output_name not in prefix_rows.columns:
-            raise GFQLValidationError(
-                ErrorCode.E108,
+            raise _reentry_validation_error(
                 "Cypher MATCH after WITH could not recover a carried scalar column from the prefix stage",
-                field="with",
                 value=output_name,
                 suggestion="Project the scalar column explicitly before MATCH re-entry.",
-                language="cypher",
             )
         column_updates[_reentry_hidden_column_name(output_name)] = cast(SeriesT, prefix_rows[output_name]).reset_index(drop=True)
     return cast(DataFrameT, carry_payload.assign(**column_updates)) if column_updates else carry_payload
