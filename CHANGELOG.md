@@ -8,16 +8,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 ### Fixed
-- **GFQL / GPU traversal**: Added a narrow one-hop undirected `hop()` fast path that avoids doubled edge-pair materialization for the common no-predicate traversal shape, reducing warm GPU GFQL search cost on benchmarked workloads.
-- **cuGraph projection**: `to_cugraph()` now auto-skips cuGraph renumbering only for already-safe zero-based contiguous signed integer IDs, with targeted regression coverage for sparse, nullable, string, offset, and disconnected topologies.
-- **RAPIDS / AI compatibility**: Hardened GPU AI/text/UMAP/DBSCAN paths across official RAPIDS `25.02-cuda12.8` and `26.02-cuda13` by routing fragile cudf host conversions through shared compat helpers, avoiding crash-prone cudf `query()` filtering on GPU text paths, and using the safer cuML UMAP input/binding path on the known-bad `25.x` DGX arm64 stack.
-
-### Added
-- **Benchmarks / RAPIDS GPU**: Added official-image GPU benchmark runners for GFQL stage breakdowns and direct `to_cugraph()` measurement across RAPIDS/CUDA variants, plus synthetic graph families that isolate sparse integer vs repeated string-ID graph-build behavior.
-
-### Changed
-- **GFQL / RAPIDS perf triage**: Added a pure cuDF/cuGraph reproducer for the RAPIDS `25.02 -> 26.02` string-ID graph-build regression and tracked follow-ups in issues `#977` and `#978`.
-- **Tests / RAPIDS AI**: Amplified direct regression coverage around the new compat helpers and stabilized the DGX-only DBSCAN parity comparison with seeded UMAP kwargs; confirmed `test-text`, `test-features`, `test-umap-learn-core`, and `test-dbscan` pass on official RAPIDS `25.02-cuda12.8` and `26.02-cuda13`.
+- **GFQL / GPU traversal**: Added a narrow one-hop undirected `hop()` fast path that avoids doubled edge-pair materialization for the common no-predicate traversal shape. On DGX-backed RAPIDS validation, warm `gplus` pipeline time improved `-39.67%` on `25.02` and `-39.27%` on `26.02`.
 
 ## [0.53.8 - 2026-03-31]
 
