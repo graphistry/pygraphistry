@@ -8,18 +8,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.53.10 - 2026-03-31]
+
+### Added
+- **GFQL / Cypher**: Added bounded direct local Cypher reentry support for the vectorized same-alias `MATCH ... WITH ... MATCH ...` subset, including carried scalar projections and trailing `RETURN` / `ORDER BY` use on the carried alias.
+
+### Fixed
+- **GFQL / Cypher**: Unsupported cross-alias, fresh row-seeded, and prefix-order-dependent bounded reentry shapes now fail fast instead of silently miscompiling.
+
+### Tests
+- **GFQL / Cypher / cuDF**: Added pandas and cuDF regression coverage for bounded reentry at both the helper and end-to-end lowering layers, including targeted DGX validation on official RAPIDS `26.02` `cuda13`.
+
 ## [0.53.9 - 2026-03-31]
 
 ### Fixed
 - **GFQL / GPU traversal**: Added a narrow one-hop undirected `hop()` fast path that avoids doubled edge-pair materialization for the common no-predicate traversal shape. On DGX-backed RAPIDS validation, warm `gplus` pipeline time improved `-39.67%` on `25.02` and `-39.27%` on `26.02`.
-- **GFQL / Cypher**: Added bounded direct local Cypher reentry support for the vectorized same-alias `MATCH ... WITH ... MATCH ...` subset, including carried scalar projections and trailing `RETURN` / `ORDER BY` use on the carried alias. Unsupported cross-alias, fresh row-seeded, and prefix-order-dependent shapes now fail fast instead of silently miscompiling.
 
 ### Added
 - **GFQL / Cypher**: Support multi-alias scalar `RETURN` projections in direct Cypher queries. `MATCH (a)-[:R]->(b) RETURN a.id AS a_id, b.id AS b_id` now works by building a bindings table from edges joined with node properties (#981).
 - **GFQL / Cypher**: Edge alias property access in multi-alias `RETURN`. `MATCH (a)-[r:KNOWS]->(b) RETURN a.id, r.creationDate, b.firstName` now works — edge properties are accessible alongside node properties (#982).
-
-### Tests
-- **GFQL / Cypher / cuDF**: Added pandas and cuDF regression coverage for bounded reentry at both the helper and end-to-end lowering layers, including targeted DGX validation on official RAPIDS `26.02` `cuda13`.
 
 ## [0.53.8 - 2026-03-31]
 
