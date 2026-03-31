@@ -6003,6 +6003,7 @@ def _rewrite_reentry_expr_to_hidden_properties(
 def _bounded_reentry_carry_columns(
     prefix_projection: ResultProjectionPlan,
     *,
+    projection_items: Sequence[str],
     query: CypherQuery,
     prefix_stage: ProjectionStage,
 ) -> Tuple[str, Tuple[str, ...]]:
@@ -6011,7 +6012,7 @@ def _bounded_reentry_carry_columns(
         raise _unsupported_at_span(
             "Cypher MATCH after WITH currently requires the prefix WITH stage to project exactly one whole-row alias",
             field="with",
-            value=[item.expression.text for item in prefix_stage.clause.items],
+            value=projection_items,
             span=prefix_stage.span,
         )
     carried_columns = tuple(column.output_name for column in prefix_projection.columns if column.kind != "whole_row")
@@ -6022,7 +6023,7 @@ def _bounded_reentry_carry_columns(
         raise _unsupported_at_span(
             "Cypher MATCH after WITH carried scalar columns currently require a single-node prefix MATCH seed",
             field="with",
-            value=[item.expression.text for item in prefix_stage.clause.items],
+            value=projection_items,
             span=prefix_stage.span,
         )
     invalid_output = next((name for name in carried_columns if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)), None)
@@ -6105,6 +6106,7 @@ def _compile_bounded_reentry_query(
             span=query.return_.span,
         )
     prefix_stage = query.with_stages[0]
+    projection_items = [item.expression.text for item in prefix_stage.clause.items]
     if prefix_stage.where is not None:
         raise _unsupported_at_span(
             "Cypher MATCH after WITH does not yet support WITH ... WHERE in the prefix stage",
@@ -6115,12 +6117,7 @@ def _compile_bounded_reentry_query(
     prefix_query = _reentry_query_clone(
         query,
         with_stages=(),
-        return_=ReturnClause(
-            items=prefix_stage.clause.items,
-            distinct=prefix_stage.clause.distinct,
-            kind="return",
-            span=prefix_stage.clause.span,
-        ),
+        return_=replace(prefix_stage.clause, kind="return"),
         order_by=prefix_stage.order_by,
         skip=prefix_stage.skip,
         limit=prefix_stage.limit,
@@ -6139,11 +6136,12 @@ def _compile_bounded_reentry_query(
         raise _unsupported_at_span(
             "Cypher MATCH after WITH currently requires the prefix WITH stage to project exactly one whole-row alias",
             field="with",
-            value=[item.expression.text for item in prefix_stage.clause.items],
+            value=projection_items,
             span=prefix_stage.span,
         )
     reentry_alias, carry_columns = _bounded_reentry_carry_columns(
         prefix_projection,
+        projection_items=projection_items,
         query=query,
         prefix_stage=prefix_stage,
     )
@@ -6184,19 +6182,24 @@ def _compile_bounded_reentry_query(
             span=reentry_match.span,
         )
 
+    hidden_columns = tuple(_reentry_hidden_column_name(output_name) for output_name in carry_columns)
+
+    def rewrite_expr(expr: ExpressionText, field: str) -> ExpressionText:
+        return _rewrite_reentry_expr_to_hidden_properties(
+            expr,
+            carried_alias=reentry_alias,
+            carried_columns=carry_columns,
+            field=field,
+        )
+
     reentry_where = query.reentry_where
-    if reentry_where is not None and reentry_where.expr is not None and carry_columns:
+    if reentry_where is not None and reentry_where.expr is not None and hidden_columns:
         reentry_where = replace(
             reentry_where,
-            expr=_rewrite_reentry_expr_to_hidden_properties(
-                reentry_where.expr,
-                carried_alias=reentry_alias,
-                carried_columns=carry_columns,
-                field="where",
-            ),
+            expr=rewrite_expr(reentry_where.expr, "where"),
         )
     reentry_return = query.return_
-    if carry_columns:
+    if hidden_columns:
         reentry_return = replace(
             query.return_,
             items=tuple(
@@ -6206,29 +6209,17 @@ def _compile_bounded_reentry_query(
                     alias=item.alias or (item.expression.text if rewritten_expr.text != item.expression.text else None),
                 )
                 for item in query.return_.items
-                for rewritten_expr in (
-                    _rewrite_reentry_expr_to_hidden_properties(
-                        item.expression,
-                        carried_alias=reentry_alias,
-                        carried_columns=carry_columns,
-                        field=query.return_.kind,
-                    ),
-                )
+                for rewritten_expr in (rewrite_expr(item.expression, query.return_.kind),)
             ),
         )
     reentry_order_by = query.order_by
-    if reentry_order_by is not None and carry_columns:
+    if reentry_order_by is not None and hidden_columns:
         reentry_order_by = replace(
             reentry_order_by,
             items=tuple(
                 replace(
                     item,
-                    expression=_rewrite_reentry_expr_to_hidden_properties(
-                        item.expression,
-                        carried_alias=reentry_alias,
-                        carried_columns=carry_columns,
-                        field="order_by",
-                    ),
+                    expression=rewrite_expr(item.expression, "order_by"),
                 )
                 for item in reentry_order_by.items
             ),
@@ -6251,13 +6242,12 @@ def _compile_bounded_reentry_query(
             span=reentry_match.span,
         )
     result_projection = suffix_compiled.result_projection
-    if result_projection is not None and result_projection.alias == reentry_alias and carry_columns:
+    if result_projection is not None and result_projection.alias == reentry_alias and hidden_columns:
         result_projection = replace(
             result_projection,
             exclude_columns=tuple(
                 dict.fromkeys(
-                    result_projection.exclude_columns
-                    + tuple(_reentry_hidden_column_name(output_name) for output_name in carry_columns)
+                    result_projection.exclude_columns + hidden_columns
                 )
             ),
         )

@@ -501,45 +501,45 @@ def _compiled_query_reentry_state(
         output_name=output_name,
     )
     carried_node_ids = cast(DataFrameT, df_cons(concrete_engine)({id_column: carried_ids}))
-    node_rows = base_nodes
-    dispatch_graph = base_graph
-    if carried_columns:
-        if aligned_prefix_rows is None:
-            raise _reentry_validation_error(
-                "Cypher MATCH after WITH could not recover carried row columns from the prefix stage",
-                value=output_name,
-                suggestion=_REENTRY_SCALAR_SUGGESTION,
-            )
-        duplicate_mask = carried_ids.duplicated()
-        has_duplicates = bool(duplicate_mask.any()) if hasattr(duplicate_mask, "any") else False
-        if has_duplicates:
-            raise _reentry_validation_error(
-                "Cypher MATCH after WITH carried scalar columns currently require unique carried node rows",
-                value=output_name,
-                suggestion="Use a single-node seed WITH shape, or avoid carrying scalar columns into MATCH re-entry.",
-            )
-
-        carry_payload = _reentry_carry_payload(
+    if not carried_columns:
+        return base_graph, _ordered_reentry_start_nodes(
+            node_rows=base_nodes,
             carried_node_ids=carried_node_ids,
-            prefix_rows=aligned_prefix_rows,
-            carried_columns=carried_columns,
+            id_column=id_column,
         )
-        hidden_columns = [name for name in carry_payload.columns if name != id_column and name in base_nodes.columns]
-        merge_base = cast(DataFrameT, base_nodes.drop(columns=hidden_columns)) if hidden_columns else base_nodes
-        node_rows = cast(DataFrameT, safe_merge(merge_base, carry_payload, on=id_column, how="left"))
+    if aligned_prefix_rows is None:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH could not recover carried row columns from the prefix stage",
+            value=output_name,
+            suggestion=_REENTRY_SCALAR_SUGGESTION,
+        )
+    duplicate_mask = carried_ids.duplicated()
+    if bool(duplicate_mask.any()) if hasattr(duplicate_mask, "any") else False:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH carried scalar columns currently require unique carried node rows",
+            value=output_name,
+            suggestion="Use a single-node seed WITH shape, or avoid carrying scalar columns into MATCH re-entry.",
+        )
 
-        dispatch_graph = base_graph.bind()
-        dispatch_graph._nodes = node_rows
-        edges_df = getattr(base_graph, "_edges", None)
-        if edges_df is not None:
-            dispatch_graph._edges = edges_df
+    carry_payload = _reentry_carry_payload(
+        carried_node_ids=carried_node_ids,
+        prefix_rows=aligned_prefix_rows,
+        carried_columns=carried_columns,
+    )
+    hidden_columns = [name for name in map(_reentry_hidden_column_name, carried_columns) if name in base_nodes.columns]
+    merge_base = cast(DataFrameT, base_nodes.drop(columns=hidden_columns)) if hidden_columns else base_nodes
+    node_rows = cast(DataFrameT, safe_merge(merge_base, carry_payload, on=id_column, how="left"))
 
-    start_nodes = _ordered_reentry_start_nodes(
+    dispatch_graph = base_graph.bind()
+    dispatch_graph._nodes = node_rows
+    edges_df = getattr(base_graph, "_edges", None)
+    if edges_df is not None:
+        dispatch_graph._edges = edges_df
+    return dispatch_graph, _ordered_reentry_start_nodes(
         node_rows=node_rows,
         carried_node_ids=carried_node_ids,
         id_column=id_column,
     )
-    return dispatch_graph, start_nodes
 
 
 def _compiled_query_reentry_contract(
@@ -600,17 +600,22 @@ def _reentry_carry_payload(
     prefix_rows: DataFrameT,
     carried_columns: Sequence[str],
 ) -> DataFrameT:
-    carry_payload = cast(DataFrameT, carried_node_ids.copy())
-    column_updates: Dict[str, SeriesT] = {}
-    for output_name in carried_columns:
-        if output_name not in prefix_rows.columns:
-            raise _reentry_validation_error(
-                "Cypher MATCH after WITH could not recover a carried scalar column from the prefix stage",
-                value=output_name,
-                suggestion="Project the scalar column explicitly before MATCH re-entry.",
-            )
-        column_updates[_reentry_hidden_column_name(output_name)] = cast(SeriesT, prefix_rows[output_name]).reset_index(drop=True)
-    return cast(DataFrameT, carry_payload.assign(**column_updates)) if column_updates else carry_payload
+    missing_column = next((name for name in carried_columns if name not in prefix_rows.columns), None)
+    if missing_column is not None:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH could not recover a carried scalar column from the prefix stage",
+            value=missing_column,
+            suggestion="Project the scalar column explicitly before MATCH re-entry.",
+        )
+    return cast(
+        DataFrameT,
+        carried_node_ids.assign(
+            **{
+                _reentry_hidden_column_name(output_name): cast(SeriesT, prefix_rows[output_name]).reset_index(drop=True)
+                for output_name in carried_columns
+            }
+        ),
+    )
 
 
 def _ordered_reentry_start_nodes(
