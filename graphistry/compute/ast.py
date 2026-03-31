@@ -286,6 +286,7 @@ class ASTEdge(ASTObject):
         destination_node_query: Optional[str] = None,
         edge_query: Optional[str] = None,
         name: Optional[str] = None,
+        prune_to_endpoints: bool = False,
     ):
 
         super().__init__(name)
@@ -315,6 +316,7 @@ class ASTEdge(ASTObject):
         self.source_node_query = source_node_query
         self.destination_node_query = destination_node_query
         self.edge_query = edge_query
+        self.prune_to_endpoints = prune_to_endpoints
 
     def __repr__(self) -> str:
         return f'ASTEdge(direction={self.direction}, edge_match={self.edge_match}, hops={self.hops}, min_hops={self.min_hops}, max_hops={self.max_hops}, output_min_hops={self.output_min_hops}, output_max_hops={self.output_max_hops}, label_node_hops={self.label_node_hops}, label_edge_hops={self.label_edge_hops}, label_seeds={self.label_seeds}, to_fixed_point={self.to_fixed_point}, source_node_match={self.source_node_match}, destination_node_match={self.destination_node_match}, name={self._name}, source_node_query={self.source_node_query}, destination_node_query={self.destination_node_query}, edge_query={self.edge_query})'
@@ -591,7 +593,7 @@ class ASTEdge(ASTObject):
 
         label_node_hops = self.label_node_hops
         label_edge_hops = self.label_edge_hops
-        needs_auto_labels = wants_output_slice or (self.min_hops is not None and self.min_hops > 0)
+        needs_auto_labels = wants_output_slice or (self.min_hops is not None and self.min_hops > 0) or self.prune_to_endpoints
         if return_wavefront and needs_auto_labels:
             # Ensure hop labels exist for post-filtering even if user didn't request explicit labels
             label_node_hops = label_node_hops or '__gfql_output_node_hop__'
@@ -618,6 +620,40 @@ class ASTEdge(ASTObject):
             destination_node_query=self.destination_node_query,
             edge_query=self.edge_query
         )
+
+        if self.prune_to_endpoints and out_g._nodes is not None and out_g._edges is not None:
+            # Prune graph to only max-distance endpoint nodes + their edges.
+            # Used when a variable-length hop is followed by another hop in
+            # a connected pattern, so the next hop starts from the correct
+            # intermediate nodes only.
+            #
+            # Use the auto-generated edge hop labels to find the max-distance
+            # edges, then keep only their destination nodes (forward) or
+            # source nodes (reverse).
+            edge_hop_col = label_edge_hops
+            src_col = out_g._source
+            dst_col = out_g._destination
+            node_col = out_g._node
+            if (
+                edge_hop_col is not None
+                and edge_hop_col in out_g._edges.columns
+                and src_col is not None
+                and dst_col is not None
+                and node_col is not None
+            ):
+                max_hop = out_g._edges[edge_hop_col].max()
+                max_edges = out_g._edges[out_g._edges[edge_hop_col] == max_hop]
+                if self.direction == "reverse":
+                    endpoint_ids = max_edges[src_col]
+                else:
+                    endpoint_ids = max_edges[dst_col]
+                node_mask = out_g._nodes[node_col].isin(endpoint_ids)
+                pruned_nodes = out_g._nodes[node_mask]
+                edge_mask = (
+                    out_g._edges[src_col].isin(pruned_nodes[node_col])
+                    & out_g._edges[dst_col].isin(pruned_nodes[node_col])
+                )
+                out_g = out_g.nodes(pruned_nodes).edges(out_g._edges[edge_mask])
 
         if self._name is not None:
             out_g = out_g.edges(out_g._edges.assign(**{self._name: True}))
@@ -682,6 +718,7 @@ class ASTEdgeForward(ASTEdge):
         source_node_query: Optional[str] = None,
         destination_node_query: Optional[str] = None,
         edge_query: Optional[str] = None,
+        prune_to_endpoints: bool = False,
     ):
         super().__init__(
             direction='forward',
@@ -701,6 +738,7 @@ class ASTEdgeForward(ASTEdge):
             source_node_query=source_node_query,
             destination_node_query=destination_node_query,
             edge_query=edge_query,
+            prune_to_endpoints=prune_to_endpoints,
         )
 
     @classmethod
@@ -753,6 +791,7 @@ class ASTEdgeReverse(ASTEdge):
         source_node_query: Optional[str] = None,
         destination_node_query: Optional[str] = None,
         edge_query: Optional[str] = None,
+        prune_to_endpoints: bool = False,
     ):
         super().__init__(
             direction='reverse',
@@ -772,6 +811,7 @@ class ASTEdgeReverse(ASTEdge):
             source_node_query=source_node_query,
             destination_node_query=destination_node_query,
             edge_query=edge_query,
+            prune_to_endpoints=prune_to_endpoints,
         )
 
     @classmethod
@@ -824,6 +864,7 @@ class ASTEdgeUndirected(ASTEdge):
         source_node_query: Optional[str] = None,
         destination_node_query: Optional[str] = None,
         edge_query: Optional[str] = None,
+        prune_to_endpoints: bool = False,
     ):
         super().__init__(
             direction='undirected',
@@ -843,6 +884,7 @@ class ASTEdgeUndirected(ASTEdge):
             source_node_query=source_node_query,
             destination_node_query=destination_node_query,
             edge_query=edge_query,
+            prune_to_endpoints=prune_to_endpoints,
         )
 
     @classmethod

@@ -2941,16 +2941,16 @@ def test_string_cypher_supports_unused_named_path_alias_for_endpoint_projection(
         "MATCH (a:A) MATCH (a)<-[:LIKES]-()-[:LIKES*3]->(c) RETURN c.name",
     ],
 )
-def test_string_cypher_failfast_rejects_nonterminal_variable_length_relationship_patterns(
+def test_string_cypher_accepts_nonterminal_variable_length_relationship_patterns(
     query: str,
 ) -> None:
-    graph = _mk_empty_graph()
-
-    with pytest.raises(GFQLValidationError) as exc_info:
-        graph.gfql(query)
-
-    assert exc_info.value.code == ErrorCode.E108
-    assert "only relationship in a connected pattern" in exc_info.value.message
+    """Connected patterns with non-terminal variable-length relationships are now supported."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"], "label__A": [True, False, False, False], "name": ["A", "B", "C", "D"]}),
+        pd.DataFrame({"s": ["a", "b", "c"], "d": ["b", "c", "d"], "type": ["LIKES", "LIKES", "LIKES"]}),
+    )
+    result = graph.gfql(query)
+    assert result._nodes is not None
 
 
 @pytest.mark.parametrize(
