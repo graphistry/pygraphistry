@@ -3633,9 +3633,11 @@ def _lower_projection_chain(
             params=params,
         )
         if _multi_alias_exc is not None:
-            # Only allow bindings path for pure scalar alias.prop projections
+            # Only allow bindings path for pure scalar node alias.prop projections
             has_non_scalar = bool(plan.whole_row_output_names) or bool(plan.output_to_expr_source)
-            if has_non_scalar:
+            all_refs = (plan.all_source_aliases or set()) | {plan.source_alias}
+            all_are_edges = all(isinstance(alias_targets.get(a), ASTEdge) for a in all_refs)
+            if has_non_scalar or all_are_edges:
                 raise _multi_alias_exc
 
     if plan.all_source_aliases is not None:
@@ -6244,7 +6246,9 @@ def compile_cypher_query(
             )
             if _multi_alias_exc2 is not None:
                 has_non_scalar = bool(plan.whole_row_output_names) or bool(plan.output_to_expr_source)
-                if has_non_scalar:
+                all_refs = (plan.all_source_aliases or set()) | {plan.source_alias}
+                all_are_edges = all(isinstance(alias_targets.get(a), ASTEdge) for a in all_refs)
+                if has_non_scalar or all_are_edges:
                     raise _multi_alias_exc2
             seed_alias = _single_node_seed_alias(query.matches[0]) if len(query.matches) == 2 else None
             if (
