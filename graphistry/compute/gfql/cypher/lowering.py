@@ -5011,12 +5011,12 @@ def _reject_unsupported_variable_length_where_pattern_predicates(query: CypherQu
             )
 
 
-def _reject_nonterminal_variable_length_relationship_patterns(query: CypherQuery) -> None:
+def _reject_nonterminal_variable_length_relationship_patterns(query: CypherQuery) -> None:  # noqa: ARG001
     """No-op: variable-length rels in connected patterns are now supported.
 
     The lowering sets ``prune_to_endpoints=True`` on non-terminal
     variable-length edges so the next hop starts from the correct
-    wavefront endpoints only.
+    wavefront endpoints only.  See #1001 for reentry-match follow-up.
     """
 
 
