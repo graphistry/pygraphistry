@@ -1,10 +1,11 @@
 """GFQL unified entrypoint for chains, DAGs, and local string-compiled queries."""
 # ruff: noqa: E501
 
+from dataclasses import replace
 import re
-from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Union, cast
+from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple, Union, cast
 from graphistry.Plottable import Plottable
-from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine, safe_merge
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
 from .chain import Chain, chain as chain_impl
@@ -25,7 +26,12 @@ from graphistry.compute.gfql.same_path_types import (
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.api import compile_cypher
-from graphistry.compute.gfql.cypher.lowering import CompiledCypherGraphQuery, CompiledCypherQuery, CompiledCypherUnionQuery
+from graphistry.compute.gfql.cypher.lowering import (
+    CompiledCypherGraphQuery,
+    CompiledCypherQuery,
+    CompiledCypherUnionQuery,
+    _reentry_hidden_column_name,
+)
 from graphistry.compute.gfql.cypher.call_procedures import execute_cypher_call
 from graphistry.compute.gfql.cypher.result_postprocess import WholeRowProjectionMeta, apply_result_projection
 from graphistry.compute.gfql.df_executor import (
@@ -40,6 +46,9 @@ from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.otel import otel_traced, otel_detail_enabled
 
 logger = setup_logger(__name__)
+
+_REENTRY_WHOLE_ROW_SUGGESTION = "Carry a whole-row node alias through WITH before MATCH re-entry."
+_REENTRY_SCALAR_SUGGESTION = "Carry scalar columns through WITH before MATCH re-entry."
 
 _CYPHER_LEAD_RE = re.compile(
     r"^\s*(?:MATCH|OPTIONAL\s+MATCH|WITH|RETURN|UNWIND|CALL|CREATE|MERGE|DELETE|DETACH\s+DELETE|SET|REMOVE|FOREACH|GRAPH|USE)\b",
@@ -89,6 +98,47 @@ def _apply_empty_result_row(
     return out
 
 
+def _entity_projection_meta_entry(
+    result: Plottable,
+    *,
+    output_name: str,
+    field: str,
+    message: str,
+    suggestion: str,
+) -> WholeRowProjectionMeta:
+    entity_meta = cast(
+        Optional[Dict[str, WholeRowProjectionMeta]],
+        getattr(result, "_cypher_entity_projection_meta", None),
+    )
+    if not isinstance(entity_meta, dict) or output_name not in entity_meta:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            message,
+            field=field,
+            value=output_name,
+            suggestion=suggestion,
+            language="cypher",
+        )
+    return entity_meta[output_name]
+
+
+def _reentry_validation_error(
+    message: str,
+    *,
+    value: Any,
+    suggestion: str,
+    field: str = "with",
+) -> GFQLValidationError:
+    return GFQLValidationError(
+        ErrorCode.E108,
+        message,
+        field=field,
+        value=value,
+        suggestion=suggestion,
+        language="cypher",
+    )
+
+
 def _apply_optional_null_fill(
     result: Plottable,
     *,
@@ -105,20 +155,13 @@ def _apply_optional_null_fill(
 
     rows_df = getattr(result, "_nodes", None)
     actual_rows = 0 if rows_df is None else len(rows_df)
-    entity_meta = cast(
-        Optional[Dict[str, WholeRowProjectionMeta]],
-        getattr(alignment_result, "_cypher_entity_projection_meta", None),
-    )
-    if not isinstance(entity_meta, dict) or alignment_output_name not in entity_meta:
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            "Cypher OPTIONAL MATCH null-row alignment could not recover matched seed identities",
-            field="match",
-            value=alignment_output_name,
-            suggestion="Use a simpler OPTIONAL MATCH projection shape in the local compiler.",
-            language="cypher",
-        )
-    matched_ids = entity_meta[alignment_output_name]["ids"]
+    matched_ids = _entity_projection_meta_entry(
+        alignment_result,
+        output_name=alignment_output_name,
+        field="match",
+        message="Cypher OPTIONAL MATCH null-row alignment could not recover matched seed identities",
+        suggestion="Use a simpler OPTIONAL MATCH projection shape in the local compiler.",
+    )["ids"]
     if not hasattr(matched_ids, "tolist"):
         raise GFQLValidationError(
             ErrorCode.E108,
@@ -307,17 +350,7 @@ def _execute_query_with_graph_context(
     else:
         target_graph = base_graph
     # Strip graph context from the compiled query and execute normally
-    plain_query = CompiledCypherQuery(
-        chain=compiled.chain,
-        seed_rows=compiled.seed_rows,
-        procedure_call=compiled.procedure_call,
-        result_projection=compiled.result_projection,
-        empty_result_row=compiled.empty_result_row,
-        optional_null_fill=compiled.optional_null_fill,
-        optional_projection_row_guard=compiled.optional_projection_row_guard,
-        start_nodes_query=compiled.start_nodes_query,
-        start_nodes_output_name=compiled.start_nodes_output_name,
-    )
+    plain_query = replace(compiled, graph_bindings=(), use_ref=None)
     return _execute_compiled_query(
         target_graph,
         compiled_query=plain_query,
@@ -425,51 +458,174 @@ def _execute_compiled_query(
     return result
 
 
-def _compiled_query_start_nodes(
+def _compiled_query_reentry_state(
+    base_graph: Plottable,
     compiled_query: CompiledCypherQuery,
     prefix_result: Plottable,
     *,
     engine: Union[EngineAbstract, str],
-) -> DataFrameT:
-    output_name = compiled_query.start_nodes_output_name
-    entity_meta = cast(
-        Optional[Dict[str, WholeRowProjectionMeta]],
-        getattr(prefix_result, "_cypher_entity_projection_meta", None),
+) -> Tuple[Plottable, DataFrameT]:
+    output_name, carried_columns = _compiled_query_reentry_contract(compiled_query)
+    meta = _entity_projection_meta_entry(
+        prefix_result,
+        output_name=output_name,
+        field="with",
+        message="Cypher MATCH after WITH could not recover carried node identities from the prefix stage",
+        suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
     )
-    if not isinstance(entity_meta, dict) or output_name not in entity_meta:
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            "Cypher MATCH after WITH could not recover carried node identities from the prefix stage",
-            field="with",
-            value=output_name,
-            suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
-            language="cypher",
-        )
-    meta = entity_meta[output_name]
     if meta["table"] != "nodes":
-        raise GFQLValidationError(
-            ErrorCode.E108,
+        raise _reentry_validation_error(
             "Cypher MATCH after WITH currently supports node re-entry only",
-            field="with",
             value=output_name,
-            suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
-            language="cypher",
+            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
         )
     ids = meta["ids"]
     id_column = meta["id_column"]
     if not hasattr(ids, "dropna"):
-        raise GFQLValidationError(
-            ErrorCode.E108,
+        raise _reentry_validation_error(
             "Cypher MATCH after WITH could not recover carried node identities from the prefix stage",
-            field="with",
             value=output_name,
-            suggestion="Carry a whole-row node alias through WITH before MATCH re-entry.",
-            language="cypher",
+            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
         )
-    concrete_engine = resolve_engine(cast(Any, engine), prefix_result)
-    df_ctor = df_cons(concrete_engine)
-    carried_ids = cast(SeriesT, ids.dropna().reset_index(drop=True))
-    return df_ctor({id_column: carried_ids})
+    base_nodes = getattr(base_graph, "_nodes", None)
+    if base_nodes is None or id_column not in base_nodes.columns:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH could not recover the base node table for re-entry",
+            value=id_column,
+            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
+        )
+    concrete_engine = resolve_engine(cast(Any, engine), base_graph)
+    carried_ids, aligned_prefix_rows = _aligned_reentry_rows(
+        ids=cast(SeriesT, ids),
+        prefix_rows=getattr(prefix_result, "_nodes", None),
+        output_name=output_name,
+    )
+    carried_node_ids = cast(DataFrameT, df_cons(concrete_engine)({id_column: carried_ids}))
+    if not carried_columns:
+        return base_graph, _ordered_reentry_start_nodes(
+            node_rows=base_nodes,
+            carried_node_ids=carried_node_ids,
+            id_column=id_column,
+        )
+    if aligned_prefix_rows is None:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH could not recover carried row columns from the prefix stage",
+            value=output_name,
+            suggestion=_REENTRY_SCALAR_SUGGESTION,
+        )
+    duplicate_mask = carried_ids.duplicated()
+    if bool(duplicate_mask.any()) if hasattr(duplicate_mask, "any") else False:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH carried scalar columns currently require unique carried node rows",
+            value=output_name,
+            suggestion="Use a single-node seed WITH shape, or avoid carrying scalar columns into MATCH re-entry.",
+        )
+
+    carry_payload = _reentry_carry_payload(
+        carried_node_ids=carried_node_ids,
+        prefix_rows=aligned_prefix_rows,
+        carried_columns=carried_columns,
+    )
+    hidden_columns = [name for name in map(_reentry_hidden_column_name, carried_columns) if name in base_nodes.columns]
+    merge_base = cast(DataFrameT, base_nodes.drop(columns=hidden_columns)) if hidden_columns else base_nodes
+    node_rows = cast(DataFrameT, safe_merge(merge_base, carry_payload, on=id_column, how="left"))
+
+    dispatch_graph = base_graph.bind()
+    dispatch_graph._nodes = node_rows
+    edges_df = getattr(base_graph, "_edges", None)
+    if edges_df is not None:
+        dispatch_graph._edges = edges_df
+    return dispatch_graph, _ordered_reentry_start_nodes(
+        node_rows=node_rows,
+        carried_node_ids=carried_node_ids,
+        id_column=id_column,
+    )
+
+
+def _compiled_query_reentry_contract(
+    compiled_query: CompiledCypherQuery,
+) -> Tuple[str, Tuple[str, ...]]:
+    prefix_query = compiled_query.start_nodes_query
+    prefix_projection = None if prefix_query is None else prefix_query.result_projection
+    if prefix_projection is None:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH could not recover the prefix projection contract for re-entry",
+            value=None,
+            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
+        )
+    whole_row_columns = tuple(
+        column.output_name for column in prefix_projection.columns if column.kind == "whole_row"
+    )
+    if len(whole_row_columns) != 1:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH could not recover exactly one whole-row alias from the prefix projection",
+            value=whole_row_columns,
+            suggestion="Carry exactly one whole-row node alias through WITH before MATCH re-entry.",
+        )
+    carried_columns = tuple(
+        column.output_name for column in prefix_projection.columns if column.kind != "whole_row"
+    )
+    return whole_row_columns[0], carried_columns
+
+
+def _aligned_reentry_rows(
+    *,
+    ids: SeriesT,
+    prefix_rows: Optional[DataFrameT],
+    output_name: Optional[str],
+) -> Tuple[SeriesT, Optional[DataFrameT]]:
+    if prefix_rows is not None and len(prefix_rows) != len(ids):
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH metadata row counts disagreed with prefix rows during re-entry",
+            value=output_name,
+            suggestion="Retry with a direct whole-row carry through WITH or inspect intermediate row-shaping before MATCH re-entry.",
+        )
+    if not hasattr(ids, "notna"):
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH could not align carried node identities from the prefix stage",
+            value=output_name,
+            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
+        )
+
+    non_null_mask = cast(SeriesT, ids.notna())
+    carried_ids = cast(SeriesT, ids[non_null_mask].reset_index(drop=True))
+    if prefix_rows is None:
+        return carried_ids, None
+    return carried_ids, cast(DataFrameT, prefix_rows.loc[non_null_mask].reset_index(drop=True))
+
+
+def _reentry_carry_payload(
+    *,
+    carried_node_ids: DataFrameT,
+    prefix_rows: DataFrameT,
+    carried_columns: Sequence[str],
+) -> DataFrameT:
+    missing_column = next((name for name in carried_columns if name not in prefix_rows.columns), None)
+    if missing_column is not None:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH could not recover a carried scalar column from the prefix stage",
+            value=missing_column,
+            suggestion="Project the scalar column explicitly before MATCH re-entry.",
+        )
+    return cast(
+        DataFrameT,
+        carried_node_ids.assign(
+            **{
+                _reentry_hidden_column_name(output_name): cast(SeriesT, prefix_rows[output_name]).reset_index(drop=True)
+                for output_name in carried_columns
+            }
+        ),
+    )
+
+
+def _ordered_reentry_start_nodes(
+    *,
+    node_rows: DataFrameT,
+    carried_node_ids: DataFrameT,
+    id_column: str,
+) -> DataFrameT:
+    # MATCH re-entry must preserve the WITH row order, not the base node-table order.
+    return cast(DataFrameT, safe_merge(carried_node_ids, node_rows, on=id_column, how="left"))
 
 
 def _materialize_split_alias_columns(
@@ -871,6 +1027,7 @@ def gfql(self: Plottable,
                         raise ValueError("where provided for Chain that already includes where")
                     query = Chain(query.chain, where=where_param)
                 if compiled_query is not None:
+                    compiled_base_graph = self
                     start_nodes = None
                     if compiled_query.start_nodes_query is not None:
                         prefix_result = _execute_compiled_query(
@@ -880,9 +1037,14 @@ def gfql(self: Plottable,
                             policy=expanded_policy,
                             context=context,
                         )
-                        start_nodes = _compiled_query_start_nodes(compiled_query, prefix_result, engine=engine)
+                        compiled_base_graph, start_nodes = _compiled_query_reentry_state(
+                            self,
+                            compiled_query,
+                            prefix_result,
+                            engine=engine,
+                        )
                     return _execute_compiled_query(
-                        self,
+                        compiled_base_graph,
                         compiled_query=compiled_query,
                         engine=engine,
                         policy=expanded_policy,

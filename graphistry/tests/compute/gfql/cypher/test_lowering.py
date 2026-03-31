@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
-from typing import Any, cast
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from graphistry.compute.ast import ASTCall, ASTNode, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLValidationError
@@ -85,6 +85,71 @@ def _mk_path_with_isolate_graph_cudf() -> _CypherTestGraph:
 
 def _mk_empty_graph() -> _CypherTestGraph:
     return _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+
+def _mk_reentry_carried_scalar_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b1", "b2"],
+                "label__A": [True, True, False, False],
+                "num": [1, 2, 1, 3],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a1", "a2"],
+                "d": ["b1", "b2"],
+                "type": ["R", "R"],
+            }
+        ),
+    )
+
+
+def _mk_reentry_carried_scalar_graph_cudf() -> _CypherTestGraph:
+    return _mk_cudf_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b1", "b2"],
+                "label__A": [True, True, False, False],
+                "num": [1, 2, 1, 3],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a1", "a2"],
+                "d": ["b1", "b2"],
+                "type": ["R", "R"],
+            }
+        ),
+    )
+
+
+def _compiled_reentry_projection_outputs(compiled: CompiledCypherQuery) -> Tuple[str, Tuple[str, ...]]:
+    assert compiled.start_nodes_query is not None
+    projection = compiled.start_nodes_query.result_projection
+    assert projection is not None
+    whole_row_columns = tuple(column.output_name for column in projection.columns if column.kind == "whole_row")
+    carried_columns = tuple(column.output_name for column in projection.columns if column.kind != "whole_row")
+    assert len(whole_row_columns) == 1
+    return whole_row_columns[0], carried_columns
+
+
+def _reentry_query(
+    with_clause: str,
+    *,
+    return_clause: str,
+    match_alias: str = "a",
+    order_by: Optional[str] = None,
+    where_clause: Optional[str] = None,
+) -> str:
+    parts = ["MATCH (a:A) ", f"WITH {with_clause} ", f"MATCH ({match_alias})-->(b) "]
+    if where_clause is not None:
+        parts.append(f"WHERE {where_clause} ")
+    parts.append(f"RETURN {return_clause}")
+    if order_by is not None:
+        parts.append(f" ORDER BY {order_by}")
+    return "".join(parts)
 
 
 def _assert_query_rows(
@@ -4713,6 +4778,38 @@ def test_string_cypher_supports_return_star_after_with_distinct_row_projection()
     assert result._nodes.to_dict(orient="records") == [{"name": "C"}]
 
 
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "MATCH (a) "
+            "WITH DISTINCT a.name2 AS name "
+            "WHERE a.name2 = 'B' "
+            "RETURN *",
+            [{"name": "B"}],
+        ),
+        (
+            "MATCH (a) "
+            "WITH a.name2 AS name "
+            "WHERE name = 'B' OR a.name2 = 'C' "
+            "RETURN * "
+            "ORDER BY name",
+            [{"name": "B"}, {"name": "C"}],
+        ),
+    ],
+)
+def test_string_cypher_supports_with_where_using_projected_source_properties(
+    query: str,
+    expected: List[Dict[str, Any]],
+) -> None:
+    result = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"], "name2": ["A", "B", "C"]}),
+        pd.DataFrame({"s": [], "d": []}),
+    ).gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == expected
+
+
 def test_string_cypher_rejects_out_of_scope_order_by_after_multiple_with_stages() -> None:
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 
@@ -4936,6 +5033,36 @@ def test_string_cypher_executes_with_match_reentry_limit_shape() -> None:
     assert result._nodes.to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
 
 
+def test_string_cypher_executes_with_match_reentry_limit_shape_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    nodes = cudf.DataFrame.from_pandas(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b1", "b2"],
+                "label__A": [True, True, False, False],
+                "name": ["alpha", "beta", None, None],
+            }
+        )
+    )
+    edges = cudf.DataFrame.from_pandas(
+        pd.DataFrame(
+            {
+                "s": ["a1", "a2"],
+                "d": ["b1", "b2"],
+            }
+        )
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A) WITH a ORDER BY a.name LIMIT 1 MATCH (a)-->(b) RETURN a",
+        engine="cudf",
+    )
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
+
+
 def test_string_cypher_executes_with_match_reentry_multihop_shape() -> None:
     nodes = pd.DataFrame(
         {
@@ -4956,6 +5083,174 @@ def test_string_cypher_executes_with_match_reentry_multihop_shape() -> None:
     )
 
     assert result._nodes.to_dict(orient="records") == [{"id": "c"}]
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_whole_row_output", "expected_columns"),
+    [
+        (
+            _reentry_query("a, a.num AS property", return_clause="property", order_by="property DESC"),
+            "a",
+            ("property",),
+        ),
+        (
+            _reentry_query(
+                "a, a.num AS property, a.num + 10 AS property2",
+                return_clause="property, property2",
+                order_by="property DESC",
+            ),
+            "a",
+            ("property", "property2"),
+        ),
+        (
+            _reentry_query(
+                "a AS x, a.num AS property",
+                match_alias="x",
+                return_clause="property",
+                order_by="property DESC",
+            ),
+            "x",
+            ("property",),
+        ),
+    ],
+)
+def test_compile_cypher_tracks_reentry_carried_scalar_columns(
+    query: str,
+    expected_whole_row_output: str,
+    expected_columns: Tuple[str, ...],
+) -> None:
+    compiled = _compile_query(query)
+    whole_row_output, carried_columns = _compiled_reentry_projection_outputs(compiled)
+
+    assert whole_row_output == expected_whole_row_output
+    assert carried_columns == expected_columns
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            _reentry_query("a AS x", match_alias="x", return_clause="b.id AS bid", order_by="bid"),
+            [{"bid": "b1"}, {"bid": "b2"}],
+        ),
+        (
+            _reentry_query("a, a.num AS property", return_clause="property", order_by="property DESC"),
+            [{"property": 2}, {"property": 1}],
+        ),
+        (
+            _reentry_query("a, a.num AS property", return_clause="a", order_by="property DESC"),
+            [{"a": "(:A {num: 2})"}, {"a": "(:A {num: 1})"}],
+        ),
+        (
+            _reentry_query(
+                "a, a.num AS property, a.num + 10 AS property2",
+                return_clause="property, property2",
+                order_by="property DESC",
+            ),
+            [{"property": 2, "property2": 12}, {"property": 1, "property2": 11}],
+        ),
+        (
+            _reentry_query(
+                "a AS x, a.num AS property",
+                match_alias="x",
+                return_clause="x, property",
+                order_by="property DESC",
+            ),
+            [{"x": "(:A {num: 2})", "property": 2}, {"x": "(:A {num: 1})", "property": 1}],
+        ),
+    ],
+)
+def test_string_cypher_executes_with_match_reentry_carried_scalar_shapes(query: str, expected: List[Dict[str, Any]]) -> None:
+    result = _mk_reentry_carried_scalar_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            _reentry_query("a, a.num AS property", return_clause="property", order_by="property DESC"),
+            [{"property": 2}, {"property": 1}],
+        ),
+        (
+            _reentry_query(
+                "a AS x, a.num AS property",
+                match_alias="x",
+                return_clause="x, property",
+                order_by="property DESC",
+            ),
+            [{"x": "(:A {num: 2})", "property": 2}, {"x": "(:A {num: 1})", "property": 1}],
+        ),
+    ],
+)
+def test_string_cypher_executes_with_match_reentry_carried_scalar_shapes_on_cudf(
+    query: str,
+    expected: List[Dict[str, Any]],
+) -> None:
+    pytest.importorskip("cudf")
+
+    result = _mk_reentry_carried_scalar_graph_cudf().gfql(query, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == expected
+
+
+def test_string_cypher_reentry_carried_scalars_ignore_internal_hidden_column_collisions() -> None:
+    g = _mk_reentry_carried_scalar_graph()
+    g._nodes = g._nodes.assign(__cypher_reentry_property__=["orig1", "orig2", None, None])
+
+    result = g.gfql(_reentry_query("a, a.num AS property", return_clause="property", order_by="property DESC"))
+
+    assert result._nodes.to_dict(orient="records") == [{"property": 2}, {"property": 1}]
+
+
+def test_string_cypher_reentry_carried_scalars_ignore_internal_hidden_column_collisions_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    g = _mk_reentry_carried_scalar_graph_cudf()
+    g._nodes = g._nodes.assign(__cypher_reentry_property__=["orig1", "orig2", None, None])
+
+    result = g.gfql(
+        _reentry_query("a, a.num AS property", return_clause="property", order_by="property DESC"),
+        engine="cudf",
+    )
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"property": 2}, {"property": 1}]
+
+
+@pytest.mark.parametrize(
+    ("query", "match"),
+    [
+        (
+            _reentry_query(
+                "a, a.num AS property",
+                return_clause="b.id AS id",
+                where_clause="property = b.num",
+            ),
+            "one MATCH source alias at a time",
+        ),
+        (
+            "MATCH (a:A) "
+            "WITH a "
+            "ORDER BY a.num DESC "
+            "MATCH (a)-->(b) "
+            "RETURN b.id AS bid",
+            "does not yet preserve prefix WITH row ordering",
+        ),
+        (
+            "MATCH (a:A) "
+            "WITH a, a.num AS property "
+            "ORDER BY property DESC "
+            "MATCH (a)-->(b) "
+            "RETURN b.id AS bid",
+            "does not yet preserve prefix WITH row ordering",
+        ),
+    ],
+)
+def test_string_cypher_failfast_rejects_with_match_reentry_unsupported_shapes(query: str, match: str) -> None:
+    with pytest.raises(GFQLValidationError, match=match):
+        _mk_reentry_carried_scalar_graph().gfql(query)
 
 
 def test_string_cypher_executes_seeded_multihop_then_with_match_reentry_shape() -> None:
