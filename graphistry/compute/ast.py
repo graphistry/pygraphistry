@@ -621,7 +621,7 @@ class ASTEdge(ASTObject):
             edge_query=self.edge_query
         )
 
-        if self.prune_to_endpoints and out_g._nodes is not None and out_g._edges is not None:
+        if self.prune_to_endpoints and out_g._nodes is not None and out_g._edges is not None and len(out_g._edges) > 0:
             # Prune graph to only max-distance endpoint nodes + their edges.
             # Used when a variable-length hop is followed by another hop in
             # a connected pattern, so the next hop starts from the correct
@@ -640,13 +640,18 @@ class ASTEdge(ASTObject):
                 and src_col is not None
                 and dst_col is not None
                 and node_col is not None
+                and len(out_g._edges) > 0
             ):
-                max_hop = out_g._edges[edge_hop_col].max()
-                max_edges = out_g._edges[out_g._edges[edge_hop_col] == max_hop]
+                # For ranges (min_hops != max_hops), keep all distances in
+                # the range. For exact hops, keep only the max distance.
+                prune_min = self.min_hops if self.min_hops is not None else (
+                    self.hops if self.hops is not None else 1
+                )
+                target_edges = out_g._edges[out_g._edges[edge_hop_col] >= prune_min]
                 if self.direction == "reverse":
-                    endpoint_ids = max_edges[src_col]
+                    endpoint_ids = target_edges[src_col]
                 else:
-                    endpoint_ids = max_edges[dst_col]
+                    endpoint_ids = target_edges[dst_col]
                 node_mask = out_g._nodes[node_col].isin(endpoint_ids)
                 pruned_nodes = out_g._nodes[node_mask]
                 edge_mask = (
