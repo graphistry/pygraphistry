@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.53.8 - 2026-03-31]
+
 ### Added
 - **GFQL / Cypher**: Support `*0..`, `*1..`, and other open-max variable-length relationship ranges in direct Cypher queries. For example, `MATCH (m)-[:REPLY_OF*0..]->(p) RETURN p` now parses and executes correctly, matching zero or more hops (#983).
 
