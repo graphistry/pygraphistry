@@ -2709,6 +2709,25 @@ def test_string_cypher_with_unwind_reentry_progresses_past_parser_to_row_scope_b
     assert "one MATCH source alias at a time" in exc_info.value.message
 
 
+def test_string_cypher_rejects_with_unwind_reentry_when_unwind_source_is_not_collected_alias() -> None:
+    query = (
+        "MATCH (root:S)-[:X]->(b1:B) "
+        "WITH collect(b1) AS bees "
+        "UNWIND other_bees AS b2 "
+        "MATCH (b2)-[:Y]->(c:C) "
+        "RETURN c"
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        compile_cypher(query)
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert (
+        "currently supports only a single WITH collect([distinct] alias) AS list "
+        "UNWIND list AS alias MATCH ... RETURN shape"
+    ) in exc_info.value.message
+
+
 def test_string_cypher_executes_exact_multihop_relationship_pattern() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c", "d", "e", "f"]}),
