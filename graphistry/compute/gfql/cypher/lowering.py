@@ -6233,19 +6233,19 @@ def compile_cypher_query(
                 active = _active_match_alias(query, alias_targets=alias_targets, params=params)
             except GFQLValidationError as exc:
                 active = next(iter(alias_targets)) if alias_targets else None
-                _multi_alias_exc = exc
+                _multi_alias_exc2: Optional[GFQLValidationError] = exc
             else:
-                _multi_alias_exc = None
+                _multi_alias_exc2 = None
             plan = _build_projection_plan(
                 query.return_,
                 alias_targets=alias_targets,
                 active_alias=active,
                 params=params,
             )
-            if _multi_alias_exc is not None:
+            if _multi_alias_exc2 is not None:
                 has_non_scalar = bool(plan.whole_row_output_names) or bool(plan.output_to_expr_source)
                 if has_non_scalar:
-                    raise _multi_alias_exc
+                    raise _multi_alias_exc2
             seed_alias = _single_node_seed_alias(query.matches[0]) if len(query.matches) == 2 else None
             if (
                 seed_alias is not None
