@@ -2953,7 +2953,7 @@ def test_string_cypher_accepts_nonterminal_variable_length_relationship_patterns
     assert result._nodes is not None
 
 
-def _mk_chain_graph() -> "Plottable":
+def _mk_chain_graph():
     """a->b->c->d->e linear chain with LIKES edges."""
     return _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c", "d", "e"], "label__S": [True, False, False, False, False]}),
