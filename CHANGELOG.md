@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **GFQL / Cypher**: Support multi-alias scalar `RETURN` projections in direct Cypher queries. `MATCH (a)-[:R]->(b) RETURN a.id AS a_id, b.id AS b_id` now works by building a bindings table from edges joined with node properties (#981).
+- **GFQL / Cypher**: Edge alias property access in multi-alias `RETURN`. `MATCH (a)-[r:KNOWS]->(b) RETURN a.id, r.creationDate, b.firstName` now works — edge properties are accessible alongside node properties (#982).
+
 ## [0.53.8 - 2026-03-31]
 
 ### Added
