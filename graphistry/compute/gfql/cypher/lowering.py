@@ -6042,6 +6042,14 @@ def _first_pattern_node_alias(clause: MatchClause) -> Optional[str]:
     return pattern[0].variable
 
 
+def _reentry_query_clone(query: CypherQuery, **overrides: Any) -> CypherQuery:
+    return replace(
+        query, call=None, row_sequence=(), reentry_matches=(), reentry_where=None,
+        graph_bindings=(), use=None,
+        **overrides,
+    )
+
+
 def _compile_bounded_reentry_query(
     query: CypherQuery,
     *,
@@ -6062,9 +6070,8 @@ def _compile_bounded_reentry_query(
             value=prefix_stage.where.text,
             span=prefix_stage.span,
         )
-    prefix_query = replace(
+    prefix_query = _reentry_query_clone(
         query,
-        call=None,
         with_stages=(),
         return_=ReturnClause(
             items=prefix_stage.clause.items,
@@ -6075,12 +6082,7 @@ def _compile_bounded_reentry_query(
         order_by=prefix_stage.order_by,
         skip=prefix_stage.skip,
         limit=prefix_stage.limit,
-        row_sequence=(),
         trailing_semicolon=False,
-        reentry_matches=(),
-        reentry_where=None,
-        graph_bindings=(),
-        use=None,
     )
     prefix_compiled = compile_cypher_query(prefix_query, params=params)
     if not isinstance(prefix_compiled, CompiledCypherQuery):
@@ -6189,20 +6191,14 @@ def _compile_bounded_reentry_query(
                 for item in reentry_order_by.items
             ),
         )
-    suffix_query = replace(
+    suffix_query = _reentry_query_clone(
         query,
         matches=query.reentry_matches,
         where=reentry_where,
-        call=None,
         unwinds=(),
         with_stages=(),
         return_=reentry_return,
         order_by=reentry_order_by,
-        row_sequence=(),
-        reentry_matches=(),
-        reentry_where=None,
-        graph_bindings=(),
-        use=None,
     )
     suffix_compiled = compile_cypher_query(suffix_query, params=params)
     if not isinstance(suffix_compiled, CompiledCypherQuery):
