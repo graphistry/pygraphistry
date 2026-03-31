@@ -439,6 +439,10 @@ def test_parse_relationship_type_alternation_with_repeated_colon() -> None:
         ("MATCH (a)<-[*4]-(b) RETURN b", "reverse", 4, 4, False, ()),
         ("MATCH (a)-[*]->(b) RETURN b", "forward", None, None, True, ()),
         ("MATCH (a)-[:R|:S*2..4]-(b) RETURN b", "undirected", 2, 4, False, ("R", "S")),
+        ("MATCH (a)-[*0..]->(b) RETURN b", "forward", 0, None, True, ()),
+        ("MATCH (a)-[*1..]->(b) RETURN b", "forward", 1, None, True, ()),
+        ("MATCH (a)-[:R*0..]-(b) RETURN b", "undirected", 0, None, True, ("R",)),
+        ("MATCH (a)<-[:R*2..]-(b) RETURN b", "reverse", 2, None, True, ("R",)),
     ],
 )
 def test_parse_variable_length_relationship_patterns(
