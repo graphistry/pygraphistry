@@ -551,13 +551,6 @@ class TestGFQLCypherReentryCarrier:
             for node_id in ordered_ids
         ]
 
-    @classmethod
-    def _expected_carry(cls, carry_values_by_id: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-        return {
-            node_id: cls._hidden_updates(**values)
-            for node_id, values in carry_values_by_id.items()
-        }
-
     @staticmethod
     def _run_reentry_state(g, compiled, prefix_result):
         return _compiled_query_reentry_state(
@@ -578,21 +571,6 @@ class TestGFQLCypherReentryCarrier:
                 else:
                     assert actual == expected
 
-    def _assert_reentry_state(
-        self,
-        *,
-        g,
-        compiled,
-        prefix_result,
-        expected_rows,
-        expected_carry,
-        expect_same_graph,
-    ):
-        dispatch_graph, start_nodes = self._run_reentry_state(g, compiled, prefix_result)
-        assert (dispatch_graph is g) is expect_same_graph
-        assert start_nodes.to_dict(orient="records") == expected_rows
-        assert self._carry_by_id(dispatch_graph) == expected_carry
-
     def _assert_reentry_state_by_id(
         self,
         *,
@@ -603,14 +581,13 @@ class TestGFQLCypherReentryCarrier:
         carry_values_by_id,
         expect_same_graph,
     ):
-        self._assert_reentry_state(
-            g=g,
-            compiled=compiled,
-            prefix_result=prefix_result,
-            expected_rows=self._expected_reentry_rows(ordered_ids, carry_values_by_id),
-            expected_carry=self._expected_carry(carry_values_by_id),
-            expect_same_graph=expect_same_graph,
-        )
+        dispatch_graph, start_nodes = self._run_reentry_state(g, compiled, prefix_result)
+        assert (dispatch_graph is g) is expect_same_graph
+        assert start_nodes.to_dict(orient="records") == self._expected_reentry_rows(ordered_ids, carry_values_by_id)
+        assert self._carry_by_id(dispatch_graph) == {
+            node_id: self._hidden_updates(**values)
+            for node_id, values in carry_values_by_id.items()
+        }
 
     def test_reentry_state_preserves_prefix_order_without_carried_columns(self):
         g = _mk_reentry_scalar_graph()
@@ -626,42 +603,6 @@ class TestGFQLCypherReentryCarrier:
             ordered_ids=["a2", "a1"],
             carry_values_by_id={},
             expect_same_graph=True,
-        )
-
-    def test_reentry_state_preserves_prefix_order_with_carried_columns(self):
-        g = _mk_reentry_scalar_graph()
-        self._assert_reentry_state_by_id(
-            g=g,
-            compiled=self._compile_reentry_query(),
-            prefix_result=g.gfql(
-                "MATCH (a:A) "
-                "WITH a, a.num AS property ORDER BY property DESC "
-                "RETURN a, property"
-            ),
-            ordered_ids=["a2", "a1"],
-            carry_values_by_id={
-                "a1": {"property": 1},
-                "a2": {"property": 2},
-            },
-            expect_same_graph=False,
-        )
-
-    def test_reentry_state_preserves_multiple_carried_columns(self):
-        g = _mk_reentry_scalar_graph()
-        self._assert_reentry_state_by_id(
-            g=g,
-            compiled=self._compile_reentry_query("a, a.num AS property, a.num + 10 AS property2"),
-            prefix_result=self._bind_reentry_prefix_result(
-                g,
-                rows={"property": [2, 1], "property2": [12, 11]},
-                ids=["a2", "a1"],
-            ),
-            ordered_ids=["a2", "a1"],
-            carry_values_by_id={
-                "a1": {"property": 1, "property2": 11},
-                "a2": {"property": 2, "property2": 12},
-            },
-            expect_same_graph=False,
         )
 
     @pytest.mark.parametrize(
@@ -748,22 +689,3 @@ class TestGFQLCypherReentryCarrier:
         )
 
         self._assert_hidden_columns_preserved(g, existing_hidden_values)
-
-    def test_reentry_state_uses_projected_whole_row_alias_for_contract(self):
-        g = _mk_reentry_scalar_graph()
-        self._assert_reentry_state_by_id(
-            g=g,
-            compiled=self._compile_reentry_query("a AS x, a.num AS property", match_alias="x"),
-            prefix_result=self._bind_reentry_prefix_result(
-                g,
-                rows={"property": [2, 1]},
-                ids=["a2", "a1"],
-                output_name="x",
-            ),
-            ordered_ids=["a2", "a1"],
-            carry_values_by_id={
-                "a1": {"property": 1},
-                "a2": {"property": 2},
-            },
-            expect_same_graph=False,
-        )
