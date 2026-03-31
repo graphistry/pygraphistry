@@ -3623,7 +3623,7 @@ def _lower_projection_chain(
             active = _active_match_alias(query, alias_targets=alias_targets, params=params)
         except GFQLValidationError as exc:
             active = next(iter(alias_targets)) if alias_targets else None
-            _multi_alias_exc = exc
+            _multi_alias_exc: Optional[GFQLValidationError] = exc
         else:
             _multi_alias_exc = None
         plan = _build_projection_plan(
@@ -3632,8 +3632,11 @@ def _lower_projection_chain(
             active_alias=active,
             params=params,
         )
-        if _multi_alias_exc is not None and plan.whole_row_output_names:
-            raise _multi_alias_exc
+        if _multi_alias_exc is not None:
+            # Only allow bindings path for pure scalar alias.prop projections
+            has_non_scalar = bool(plan.whole_row_output_names) or bool(plan.output_to_expr_source)
+            if has_non_scalar:
+                raise _multi_alias_exc
 
     if plan.all_source_aliases is not None:
         alias_ep = _build_alias_endpoints(lowered.query, alias_targets)
@@ -6239,8 +6242,10 @@ def compile_cypher_query(
                 active_alias=active,
                 params=params,
             )
-            if _multi_alias_exc is not None and plan.whole_row_output_names:
-                raise _multi_alias_exc
+            if _multi_alias_exc is not None:
+                has_non_scalar = bool(plan.whole_row_output_names) or bool(plan.output_to_expr_source)
+                if has_non_scalar:
+                    raise _multi_alias_exc
             seed_alias = _single_node_seed_alias(query.matches[0]) if len(query.matches) == 2 else None
             if (
                 seed_alias is not None
