@@ -2592,6 +2592,38 @@ def test_string_cypher_failfast_rejects_graph_backed_unwind_after_with_as_valida
     assert "UNWIND after WITH/RETURN" in exc_info.value.message
 
 
+def test_string_cypher_executes_graph_backed_unwind_after_with_into_post_with_match() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["s", "b1", "b2", "c1", "c2"],
+                "label__S": [True, False, False, False, False],
+                "label__B": [False, True, True, False, False],
+                "label__C": [False, False, False, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["s", "s", "b1", "b2"],
+                "d": ["b1", "b2", "c1", "c2"],
+                "type": ["X", "X", "Y", "Y"],
+            }
+        ),
+    )
+
+    _assert_query_rows(
+        "MATCH (root:S)-[:X]->(b1:B) "
+        "WITH collect(b1) AS bees "
+        "UNWIND bees AS b2 "
+        "MATCH (b2)-[:Y]->(c:C) "
+        "RETURN c.id AS id "
+        "ORDER BY id",
+        [{"id": "c1"}, {"id": "c2"}],
+        nodes_df=graph._nodes,
+        edges_df=graph._edges,
+    )
+
+
 def test_string_cypher_executes_exact_multihop_relationship_pattern() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c", "d", "e", "f"]}),

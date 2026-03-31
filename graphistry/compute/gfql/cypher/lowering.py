@@ -5953,11 +5953,66 @@ def _reentry_query_clone(query: CypherQuery, **overrides: Any) -> CypherQuery:
     )
 
 
+def _rewrite_collect_unwind_reentry_query(query: CypherQuery) -> Optional[CypherQuery]:
+    if len(query.with_stages) != 1 or len(query.unwinds) != 1 or len(query.reentry_matches) != 1:
+        return None
+    prefix_stage = query.with_stages[0]
+    if (
+        prefix_stage.where is not None
+        or prefix_stage.order_by is not None
+        or prefix_stage.skip is not None
+        or prefix_stage.limit is not None
+        or len(prefix_stage.clause.items) != 1
+    ):
+        return None
+    collected_item = prefix_stage.clause.items[0]
+    collected_output_name = collected_item.alias or collected_item.expression.text
+    unwind_clause = query.unwinds[0]
+    if unwind_clause.expression.text != collected_output_name:
+        return None
+    collected_match = re.fullmatch(
+        r"collect\(\s*(distinct\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\)",
+        collected_item.expression.text,
+        flags=re.IGNORECASE,
+    )
+    if collected_match is None:
+        return None
+    reentry_alias = _first_pattern_node_alias(query.reentry_matches[0])
+    if reentry_alias is None or reentry_alias != unwind_clause.alias:
+        return None
+    source_alias = collected_match.group(2)
+    rewritten_item = replace(
+        collected_item,
+        expression=ExpressionText(text=source_alias, span=collected_item.expression.span),
+        alias=unwind_clause.alias,
+    )
+    rewritten_prefix_stage = replace(
+        prefix_stage,
+        clause=replace(
+            prefix_stage.clause,
+            items=(rewritten_item,),
+            distinct=bool(collected_match.group(1)),
+        ),
+    )
+    return replace(query, with_stages=(rewritten_prefix_stage,), unwinds=())
+
+
 def _compile_bounded_reentry_query(
     query: CypherQuery,
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> CompiledCypherQuery:
+    if query.unwinds:
+        rewritten_query = _rewrite_collect_unwind_reentry_query(query)
+        if rewritten_query is None:
+            first_unwind = query.unwinds[0]
+            raise _unsupported_at_span(
+                "Cypher UNWIND after WITH/RETURN currently supports only a single WITH collect([distinct] alias) AS list UNWIND list AS alias MATCH ... RETURN shape",
+                field="unwind",
+                value=first_unwind.expression.text,
+                span=first_unwind.span,
+            )
+        query = rewritten_query
     if len(query.with_stages) != 1 or len(query.reentry_matches) != 1:
         raise _unsupported_at_span(
             "Cypher MATCH after WITH is only supported for a single MATCH ... WITH ... MATCH ... RETURN shape in the local compiler",
