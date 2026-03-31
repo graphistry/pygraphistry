@@ -5096,6 +5096,16 @@ def test_multi_alias_return_duplicate_edges() -> None:
     assert len(result._nodes) == 2
 
 
+def test_multi_alias_with_stage_still_rejected() -> None:
+    """WITH multi-alias scalar projections are not yet supported (separate code path)."""
+    g = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"], "label__A": [True, False], "label__B": [False, True]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+    )
+    with pytest.raises(GFQLValidationError, match="one MATCH source alias"):
+        g.gfql("MATCH (a:A)-[:R]->(b:B) WITH a.id AS a_id, b.id AS b_id RETURN a_id, b_id")
+
+
 def test_compile_cypher_tracks_seeded_top_level_row_query() -> None:
     compiled = _compile_query("UNWIND [1, 2, 3] AS x RETURN x ORDER BY x DESC LIMIT 2")
 
