@@ -298,6 +298,16 @@ def _unsupported(message: str, *, field: str, value: Any, line: int, column: int
     )
 
 
+def _unsupported_at_span(message: str, *, field: str, value: Any, span: SourceSpan) -> GFQLValidationError:
+    return _unsupported(
+        message,
+        field=field,
+        value=value,
+        line=span.line,
+        column=span.column,
+    )
+
+
 def _rewrite_unquoted_expr_segments(
     expr_text: str,
     *,
@@ -5956,23 +5966,21 @@ def _bounded_reentry_carry_columns(
 ) -> Tuple[str, Tuple[str, ...]]:
     whole_row_columns = [column for column in prefix_projection.columns if column.kind == "whole_row"]
     if len(whole_row_columns) != 1:
-        raise _unsupported(
+        raise _unsupported_at_span(
             "Cypher MATCH after WITH currently requires the prefix WITH stage to project exactly one whole-row alias",
             field="with",
             value=[item.expression.text for item in prefix_stage.clause.items],
-            line=prefix_stage.span.line,
-            column=prefix_stage.span.column,
+            span=prefix_stage.span,
         )
     if len(prefix_projection.columns) == 1:
         return whole_row_columns[0].output_name, ()
     seed_alias = _single_node_seed_alias(query.matches[0]) if len(query.matches) == 1 else None
     if seed_alias is None or seed_alias != prefix_projection.alias:
-        raise _unsupported(
+        raise _unsupported_at_span(
             "Cypher MATCH after WITH carried scalar columns currently require a single-node prefix MATCH seed",
             field="with",
             value=[item.expression.text for item in prefix_stage.clause.items],
-            line=prefix_stage.span.line,
-            column=prefix_stage.span.column,
+            span=prefix_stage.span,
         )
     carried_columns: List[str] = []
     hidden_names: Set[str] = set()
@@ -5980,21 +5988,19 @@ def _bounded_reentry_carry_columns(
         if column.kind == "whole_row":
             continue
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", column.output_name):
-            raise _unsupported(
+            raise _unsupported_at_span(
                 "Cypher MATCH after WITH carried scalar columns currently require identifier-style WITH aliases",
                 field="with",
                 value=column.output_name,
-                line=prefix_stage.span.line,
-                column=prefix_stage.span.column,
+                span=prefix_stage.span,
             )
         hidden_column = _reentry_hidden_column_name(column.output_name)
         if hidden_column in hidden_names:
-            raise _unsupported(
+            raise _unsupported_at_span(
                 "Cypher MATCH after WITH carried scalar columns currently require distinct WITH aliases",
                 field="with",
                 value=column.output_name,
-                line=prefix_stage.span.line,
-                column=prefix_stage.span.column,
+                span=prefix_stage.span,
             )
         hidden_names.add(hidden_column)
         carried_columns.append(column.output_name)
@@ -6048,21 +6054,19 @@ def _compile_bounded_reentry_query(
     params: Optional[Mapping[str, Any]] = None,
 ) -> CompiledCypherQuery:
     if len(query.with_stages) != 1 or len(query.reentry_matches) != 1:
-        raise _unsupported(
+        raise _unsupported_at_span(
             "Cypher MATCH after WITH is only supported for a single MATCH ... WITH ... MATCH ... RETURN shape in the local compiler",
             field="match",
             value=len(query.reentry_matches),
-            line=query.return_.span.line,
-            column=query.return_.span.column,
+            span=query.return_.span,
         )
     prefix_stage = query.with_stages[0]
     if prefix_stage.where is not None:
-        raise _unsupported(
+        raise _unsupported_at_span(
             "Cypher MATCH after WITH does not yet support WITH ... WHERE in the prefix stage",
             field="with.where",
             value=prefix_stage.where.text,
-            line=prefix_stage.span.line,
-            column=prefix_stage.span.column,
+            span=prefix_stage.span,
         )
     prefix_query = replace(
         query,
@@ -6086,21 +6090,19 @@ def _compile_bounded_reentry_query(
     )
     prefix_compiled = compile_cypher_query(prefix_query, params=params)
     if not isinstance(prefix_compiled, CompiledCypherQuery):
-        raise _unsupported(
+        raise _unsupported_at_span(
             "Cypher MATCH after WITH prefix compilation produced an unexpected UNION program",
             field="with",
             value="union",
-            line=prefix_stage.span.line,
-            column=prefix_stage.span.column,
+            span=prefix_stage.span,
         )
     prefix_projection = prefix_compiled.result_projection
     if prefix_projection is None:
-        raise _unsupported(
+        raise _unsupported_at_span(
             "Cypher MATCH after WITH currently requires the prefix WITH stage to project exactly one whole-row alias",
             field="with",
             value=[item.expression.text for item in prefix_stage.clause.items],
-            line=prefix_stage.span.line,
-            column=prefix_stage.span.column,
+            span=prefix_stage.span,
         )
     reentry_alias, carry_columns = _bounded_reentry_carry_columns(
         prefix_projection,
@@ -6120,31 +6122,28 @@ def _compile_bounded_reentry_query(
             column=prefix_stage.order_by.span.column if prefix_stage.order_by is not None else prefix_stage.span.column,
         )
     if prefix_projection.table != "nodes":
-        raise _unsupported(
+        raise _unsupported_at_span(
             "Cypher MATCH after WITH currently supports node re-entry only",
             field="with",
             value=prefix_projection.table,
-            line=prefix_stage.span.line,
-            column=prefix_stage.span.column,
+            span=prefix_stage.span,
         )
     if len(query.return_.items) == 1 and query.return_.items[0].expression.text == "*":
-        raise _unsupported(
+        raise _unsupported_at_span(
             "Cypher MATCH after WITH does not yet support RETURN * from the trailing MATCH re-entry stage",
             field=query.return_.kind,
             value="*",
-            line=query.return_.span.line,
-            column=query.return_.span.column,
+            span=query.return_.span,
         )
 
     reentry_match = query.reentry_matches[0]
     first_alias = _first_pattern_node_alias(reentry_match)
     if first_alias is None or first_alias != reentry_alias:
-        raise _unsupported(
+        raise _unsupported_at_span(
             "Cypher MATCH after WITH currently requires the trailing MATCH to start from the same carried node alias",
             field="match",
             value=first_alias,
-            line=reentry_match.span.line,
-            column=reentry_match.span.column,
+            span=reentry_match.span,
         )
 
     reentry_where = query.reentry_where
@@ -6213,12 +6212,11 @@ def _compile_bounded_reentry_query(
     )
     suffix_compiled = compile_cypher_query(suffix_query, params=params)
     if not isinstance(suffix_compiled, CompiledCypherQuery):
-        raise _unsupported(
+        raise _unsupported_at_span(
             "Cypher MATCH after WITH suffix compilation produced an unexpected UNION program",
             field="match",
             value="union",
-            line=reentry_match.span.line,
-            column=reentry_match.span.column,
+            span=reentry_match.span,
         )
     result_projection = suffix_compiled.result_projection
     if result_projection is not None and result_projection.alias == reentry_alias and carry_columns:
