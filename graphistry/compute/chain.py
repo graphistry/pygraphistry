@@ -501,6 +501,50 @@ def combine_steps(
     return out_df
 
 
+def _inject_binding_ops_if_needed(
+    middle: List[ASTObject],
+    suffix: List[ASTObject],
+) -> List[ASTObject]:
+    """Inject serialized middle ops into a bare ``rows()`` call in the suffix.
+
+    When the middle contains named traversal ops (``n(name=...)``, ``e(name=...)``)
+    and the suffix starts with a ``rows()`` call that has no explicit ``binding_ops``,
+    serialize the middle ops and inject them so that ``rows()`` materializes a
+    multi-alias bindings table instead of a single-table view.  (#880)
+    """
+    from graphistry.compute.ast import ASTCall, rows as rows_fn
+
+    if not middle or not suffix:
+        return suffix
+
+    # Check if any middle op has a name (alias)
+    has_named = any(getattr(op, "_name", None) is not None for op in middle)
+    if not has_named:
+        return suffix
+
+    first_suffix = suffix[0]
+    if not isinstance(first_suffix, ASTCall):
+        return suffix
+    if first_suffix.function != "rows":
+        return suffix
+    # Don't override if binding_ops or source already provided
+    if first_suffix.params.get("binding_ops") is not None:
+        return suffix
+    if first_suffix.params.get("source") is not None:
+        return suffix
+
+    # Serialize middle ops as binding_ops
+    binding_ops = []
+    for op in middle:
+        if not isinstance(op, (ASTNode, ASTEdge)):
+            return suffix  # Can't serialize non-traversal ops
+        binding_ops.append(op.to_json(validate=False))
+
+    # Create a new rows() call with binding_ops injected
+    new_rows = rows_fn(binding_ops=binding_ops)
+    return [new_rows] + list(suffix[1:])
+
+
 def _get_boundary_calls(ops: List[ASTObject]) -> Tuple[List[ASTObject], List[ASTObject], List[ASTObject]]:
     """Split ops into call-prefix, traversal middle, and call-suffix segments.
 
@@ -606,6 +650,10 @@ def _handle_boundary_calls(
         if start_nodes is not None:
             setattr(g_temp, "_gfql_start_nodes", start_nodes)
         setattr(g_temp, "_gfql_rows_base_graph", suffix_base_graph)
+        # #880: If middle has named ops and suffix starts with rows(),
+        # inject the middle ops as binding_ops so rows() can materialize
+        # a multi-alias bindings table instead of a single-table view.
+        suffix = _inject_binding_ops_if_needed(middle, suffix)
         g_temp = _chain_impl(
             g_temp,
             suffix,

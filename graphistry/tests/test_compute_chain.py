@@ -4,7 +4,7 @@ import logging
 import pandas as pd
 
 from common import NoAuthTestCase
-from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, is_in
+from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, is_in, rows, select
 from graphistry.tests.test_compute import CGFull
 from graphistry.tests.test_compute_hops import hops_graph
 from graphistry.util import setup_logger
@@ -843,3 +843,97 @@ class TestComputeChainQuery(NoAuthTestCase):
         ])
         assert g2._nodes.to_dict(orient='records') == [{'n': 'a'}, {'n': 'b'}]
         assert g2._edges.to_dict(orient='records') == [{'s': 'a', 'd': 'b'}]
+
+
+class TestChainBindingsTable(NoAuthTestCase):
+    """#880: native chain rows() should materialize multi-alias bindings table."""
+
+    def _mk_graph(self, nodes_df, edges_df):
+        return CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+    def test_native_chain_rows_bindings_basic(self):
+        """Basic: n(a)->e->n(b) with rows() should produce alias-prefixed columns."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "label__X": [True, False], "label__Y": [False, True], "val": [1, 2]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+        )
+        result = g.gfql([
+            n({"label__X": True}, name="x"),
+            e_forward({"type": "R"}),
+            n({"label__Y": True}, name="y"),
+            rows(),
+        ])
+        df = result._nodes
+        assert len(df) == 1
+        assert "x.id" in df.columns
+        assert "y.id" in df.columns
+        assert df["x.id"].iloc[0] == "a"
+        assert df["y.id"].iloc[0] == "b"
+
+    def test_native_chain_rows_bindings_with_select(self):
+        """rows() + select() should allow alias-prefixed projection."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "label__X": [True, False], "label__Y": [False, True], "val": [1, 2]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+        )
+        result = g.gfql([
+            n({"label__X": True}, name="x"),
+            e_forward({"type": "R"}),
+            n({"label__Y": True}, name="y"),
+            rows(),
+            select([("x_val", "x.val"), ("y_val", "y.val")]),
+        ])
+        records = result._nodes.to_dict(orient="records")
+        assert len(records) == 1
+        assert records[0]["x_val"] == 1
+        assert records[0]["y_val"] == 2
+
+    def test_native_chain_rows_bindings_star_graph(self):
+        """Star graph: 1 hub -> 3 leaves produces 3 binding rows."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["h", "a", "b", "c"], "label__Hub": [True, False, False, False], "label__Leaf": [False, True, True, True]}),
+            pd.DataFrame({"s": ["h", "h", "h"], "d": ["a", "b", "c"], "type": ["R", "R", "R"]}),
+        )
+        result = g.gfql([
+            n({"label__Hub": True}, name="hub"),
+            e_forward({"type": "R"}),
+            n({"label__Leaf": True}, name="leaf"),
+            rows(),
+        ])
+        df = result._nodes
+        assert len(df) == 3
+        assert sorted(df["leaf.id"].tolist()) == ["a", "b", "c"]
+        assert all(df["hub.id"] == "h")
+
+    def test_native_chain_rows_bindings_undirected(self):
+        """#994 shape via native chain: undirected edge with incoming storage."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": [1, 2], "label__P": [True, True], "name": ["Alice", "Bob"]}),
+            pd.DataFrame({"s": [2], "d": [1], "type": ["KNOWS"]}),
+        )
+        result = g.gfql([
+            n({"id": 1, "label__P": True}, name="seed"),
+            e_undirected({"type": "KNOWS"}),
+            n({"label__P": True}, name="friend"),
+            rows(),
+        ])
+        df = result._nodes
+        assert len(df) == 1
+        assert df["friend.id"].iloc[0] == 2
+        assert df["friend.name"].iloc[0] == "Bob"
+
+    def test_native_chain_rows_bindings_edge_alias(self):
+        """#982: edge alias properties should be accessible."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "label__X": [True, True]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"], "weight": [42]}),
+        )
+        result = g.gfql([
+            n(name="x"),
+            e_forward({"type": "R"}, name="r"),
+            n(name="y"),
+            rows(),
+        ])
+        df = result._nodes
+        assert len(df) >= 1
+        assert "r.weight" in df.columns or "r.type" in df.columns
