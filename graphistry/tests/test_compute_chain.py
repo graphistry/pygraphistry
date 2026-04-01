@@ -938,6 +938,23 @@ class TestChainBindingsTable(NoAuthTestCase):
         assert len(df) >= 1
         assert "r.weight" in df.columns or "r.type" in df.columns
 
+    def test_native_chain_rows_bindings_unnamed_first_node(self):
+        """First node unnamed, second named — bindings still produced for named alias."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "val": [1, 2]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+        )
+        result = g.gfql([
+            n({"id": "a"}),  # unnamed
+            e_forward({"type": "R"}, name="r"),
+            n(name="y"),
+            rows(),
+        ])
+        df = result._nodes
+        assert len(df) == 1
+        assert "y.id" in df.columns
+        assert df["y.id"].iloc[0] == "b"
+
     def test_native_chain_rows_without_names_returns_single_table(self):
         """rows() without named ops should return standard single-table view."""
         g = self._mk_graph(
