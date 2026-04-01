@@ -197,7 +197,10 @@ Support Matrix
      - Supported for a bounded Cypher-in-GFQL subset, not the full Cypher null-extension surface.
    * - ``UNWIND``
      - Partial
-     - Supported in the current Cypher-in-GFQL subset, but not in every placement and combination.
+     - Supported at top level, after ``MATCH``, in row-only pipelines, and in
+       the narrow graph-backed
+       ``MATCH ... WITH collect([DISTINCT] alias) AS list UNWIND list AS alias MATCH ... RETURN``
+       continuation shape, but not in arbitrary graph/row interleavings.
    * - ``UNION`` / ``UNION ALL`` and ``CALL graphistry.*``
      - Partial
      - Execute directly through ``g.gfql("...")``. Helper translation to a single ``Chain`` is stricter.
@@ -383,8 +386,10 @@ Bounded / Partial Forms
 
 - ``OPTIONAL MATCH`` works for a bounded subset, including top-level and
   bound optional rows, but not the full Cypher null-extension surface.
-- ``UNWIND`` works at top level, after ``MATCH``, and in row-only pipelines,
-  but not in every graph/row interleaving.
+- ``UNWIND`` works at top level, after ``MATCH``, in row-only pipelines, and
+  in the narrow graph-backed
+  ``MATCH ... WITH collect([DISTINCT] alias) AS list UNWIND list AS alias MATCH ... RETURN``
+  continuation shape, but not in arbitrary graph/row interleavings.
 - ``MATCH ... WITH ... MATCH ... RETURN`` is limited to the bounded single
   re-entry shape and does not generalize to arbitrary re-entry plans.
 
