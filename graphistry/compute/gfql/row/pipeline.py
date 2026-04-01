@@ -2742,6 +2742,16 @@ class RowPipelineMixin:
             RowPipelineMixin._gfql_bindings_error(
                 "Cypher multi-alias row bindings currently require a single connected alternating node/edge path"
             )
+        seen_aliases = set()
+        for op in ops:
+            alias = getattr(op, "_name", None)
+            if not isinstance(alias, str):
+                continue
+            if alias in seen_aliases:
+                RowPipelineMixin._gfql_bindings_error(
+                    f"Cypher multi-alias row bindings require unique aliases; duplicate alias '{alias}' found"
+                )
+            seen_aliases.add(alias)
 
     def _gfql_multihop_binding_rows(
         self,

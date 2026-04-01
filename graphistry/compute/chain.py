@@ -8,7 +8,7 @@ from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.Engine import safe_merge
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
-from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
+from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json, serialize_binding_ops
 from .typing import DataFrameT
 from .util import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
@@ -552,12 +552,10 @@ def _inject_binding_ops_if_needed(
     if first_suffix.params.get("alias_endpoints") is not None:
         return suffix
 
-    # Serialize middle ops as binding_ops
-    binding_ops = []
-    for op in middle:
-        if not isinstance(op, (ASTNode, ASTEdge)):
-            return suffix  # Can't serialize non-traversal ops
-        binding_ops.append(op.to_json(validate=False))
+    if any(not isinstance(op, (ASTNode, ASTEdge)) for op in middle):
+        return suffix  # Can't serialize non-traversal ops
+
+    binding_ops = serialize_binding_ops(middle)
 
     # Create a new rows() call with binding_ops injected
     new_rows = rows_fn(binding_ops=binding_ops)

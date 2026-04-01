@@ -6,6 +6,7 @@ import pandas as pd
 from common import NoAuthTestCase
 import pytest
 from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, is_in, rows, select
+from graphistry.compute.chain import _inject_binding_ops_if_needed
 from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.tests.test_compute import CGFull
 from graphistry.tests.test_compute_hops import hops_graph
@@ -1164,3 +1165,44 @@ class TestChainBindingsTable(NoAuthTestCase):
         assert len(df) == 1
         assert df["dst.id"].iloc[0] == "b"
         assert df["src.id"].iloc[0] == "a"
+
+    def test_direct_rows_binding_ops_rejects_duplicate_alias_names(self):
+        """Direct rows(binding_ops=...) should reject duplicate aliases."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "val": [1, 2]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+        )
+        binding_ops = [
+            n(name="x").to_json(validate=False),
+            e_forward().to_json(validate=False),
+            n(name="x").to_json(validate=False),
+        ]
+        with pytest.raises(GFQLValidationError) as exc_info:
+            g.gfql([rows(binding_ops=binding_ops)])
+        assert "duplicate alias" in exc_info.value.message.lower()
+
+    def test_inject_binding_ops_skips_existing_alias_endpoints(self):
+        """Injection helper should not override explicit alias_endpoints rows()."""
+        middle = [n(name="x"), e_forward(), n(name="y")]
+        suffix = [rows(alias_endpoints={"x": "src", "y": "dst"})]
+        out = _inject_binding_ops_if_needed(middle, suffix)
+        assert out == suffix
+        assert out[0].params["alias_endpoints"] == {"x": "src", "y": "dst"}
+        assert "binding_ops" not in out[0].params
+
+    def test_inject_binding_ops_skips_existing_binding_ops(self):
+        """Injection helper should preserve an explicitly provided binding_ops payload."""
+        middle = [n(name="x"), e_forward(), n(name="y")]
+        existing = [n(name="seed").to_json(validate=False)]
+        suffix = [rows(binding_ops=existing)]
+        out = _inject_binding_ops_if_needed(middle, suffix)
+        assert out == suffix
+        assert out[0].params["binding_ops"] == existing
+
+    def test_inject_binding_ops_skips_non_traversal_middle(self):
+        """Injection helper should not serialize non-node/edge middle operations."""
+        middle = [n(name="x"), select([("xid", "x.id")]), n(name="y")]
+        suffix = [rows()]
+        out = _inject_binding_ops_if_needed(middle, suffix)
+        assert out == suffix
+        assert "binding_ops" not in out[0].params

@@ -1594,6 +1594,18 @@ def rows(
     return ASTCall("rows", params)
 
 
+def serialize_binding_ops(ops: Sequence[ASTObject]) -> List[Dict[str, Any]]:
+    """Serialize an alternating node/edge path for ``rows(binding_ops=...)``."""
+    binding_ops: List[Dict[str, Any]] = []
+    for op in ops:
+        if not isinstance(op, (ASTNode, ASTEdge)):
+            raise ValueError(
+                "Connected bindings-row lowering expects only ASTNode/ASTEdge ops"
+            )
+        binding_ops.append(cast(Dict[str, Any], op.to_json(validate=False)))
+    return binding_ops
+
+
 ProjectionItem = Union[str, Tuple[str, Any]]
 
 
