@@ -4,7 +4,9 @@ import logging
 import pandas as pd
 
 from common import NoAuthTestCase
+import pytest
 from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, is_in, rows, select
+from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.tests.test_compute import CGFull
 from graphistry.tests.test_compute_hops import hops_graph
 from graphistry.util import setup_logger
@@ -1023,3 +1025,17 @@ class TestChainBindingsTable(NoAuthTestCase):
         # start=a, mid=b, end=c (one path)
         assert len(df) >= 1
         assert df["start.id"].iloc[0] == "a"
+
+    def test_native_chain_rejects_duplicate_alias_names(self):
+        """Duplicate alias names in a chain should raise, not silently overwrite."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "val": [1, 2]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"]}),
+        )
+        with pytest.raises(GFQLValidationError) as exc_info:
+            g.gfql([
+                n(name="hit"),
+                e_forward(),
+                n(name="hit"),
+            ])
+        assert "Duplicate alias" in exc_info.value.message

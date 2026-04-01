@@ -331,6 +331,23 @@ def combine_steps(
                 logger.debug('adding nodes to concat: %s', g_step._nodes[[g_step._node]])
 
     logger.debug('combine_steps ops: %s', [op for (op, _) in steps])
+
+    # Reject duplicate alias names — silent overwrite would lose data
+    seen_names: Dict[str, int] = {}
+    for idx, (op, _) in enumerate(steps):
+        if op._name is not None and isinstance(op, op_type):
+            if op._name in seen_names:
+                from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
+                raise GFQLValidationError(
+                    code=ErrorCode.E201,
+                    message=(
+                        f"Duplicate alias name '{op._name}' in chain "
+                        f"(steps {seen_names[op._name]} and {idx})"
+                    ),
+                    suggestion="Use distinct alias names for each step in the chain",
+                )
+            seen_names[op._name] = idx
+
     for idx, (op, g_step) in enumerate(steps):
         if op._name is not None and isinstance(op, op_type):
             logger.debug('tagging kind [%s] name %s', op_type, op._name)
