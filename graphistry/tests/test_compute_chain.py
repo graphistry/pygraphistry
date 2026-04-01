@@ -925,6 +925,37 @@ class TestChainBindingsTable(NoAuthTestCase):
         assert df["friend.id"].iloc[0] == 2
         assert df["friend.name"].iloc[0] == "Bob"
 
+    def test_native_chain_rows_select_undirected_edge_alias_projection(self):
+        """#982: undirected traversal should project edge alias properties after rows()."""
+        g = self._mk_graph(
+            pd.DataFrame(
+                {
+                    "id": ["a", "b"],
+                    "label__Person": [True, True],
+                    "firstName": ["Alice", "Bob"],
+                }
+            ),
+            pd.DataFrame({"s": ["b"], "d": ["a"], "type": ["KNOWS"], "creationDate": [123]}),
+        )
+        result = g.gfql([
+            n({"id": "a", "label__Person": True}, name="n"),
+            e_undirected({"type": "KNOWS"}, name="r"),
+            n({"label__Person": True}, name="friend"),
+            rows(),
+            select([
+                ("personId", "friend.id"),
+                ("firstName", "friend.firstName"),
+                ("friendshipCreationDate", "r.creationDate"),
+            ]),
+        ])
+        assert result._nodes.to_dict(orient="records") == [
+            {
+                "personId": "b",
+                "firstName": "Bob",
+                "friendshipCreationDate": 123,
+            }
+        ]
+
     def test_native_chain_rows_bindings_edge_alias(self):
         """#982: edge alias properties should be accessible."""
         g = self._mk_graph(

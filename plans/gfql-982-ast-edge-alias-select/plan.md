@@ -8,16 +8,20 @@ description: Native GFQL rows/select edge-alias property projection after traver
 **Priority**: p2
 **Branch**: `fix/issue-982-ast-edge-alias-select`
 **Base**: `origin/master`
-**PR**: pending
+**PR**: #1015 https://github.com/graphistry/pygraphistry/pull/1015
 
 ## Status
 
-**PLANNING SCAFFOLD CREATED**
+**VERIFIED ON CURRENT MASTER; REGRESSION COVERAGE ADDED**
 
 Known current state from the issue and recent #880 work:
 - Direct Cypher multi-alias projection already supports edge alias properties via bindings rows
-- Native GFQL `rows() + select()` is reported to still fail on edge alias property access such as `r.creationDate`
-- #880 landed the native chain `rows(binding_ops=...)` injection path, so #982 may already be partially or fully unblocked on latest `master`
+- The exact #982 native GFQL repro now succeeds on latest `origin/master` and returns `friendshipCreationDate=123`
+- #880 landed the native chain `rows(binding_ops=...)` injection path, which appears to have closed the runtime gap described in #982
+- The remaining branch work is closeout only: the exact undirected traversal shape is now locked into regression coverage
+- Local verification on April 1, 2026:
+  - `python3.12 -B -m pytest -q graphistry/tests/test_compute_chain.py -k "ChainBindingsTable and (undirected_edge_alias_projection or edge_alias or missing_column or reverse_edge)"` -> `6 passed, 49 deselected`
+  - `python3.12 -B -m pytest -q graphistry/tests/compute/gfql/cypher/test_lowering.py -k "multi_alias_undirected_incoming_edge_returns_peer_not_seed or multi_alias_undirected_outgoing_edge_returns_peer or multi_alias_return_with_edge_alias_property"` -> `3 passed, 547 deselected`
 
 ## Problem statement
 
@@ -46,12 +50,12 @@ Expected behavior:
 
 ## Working hypothesis
 
-There are two plausible states to verify on current `master`:
+There were two plausible states to verify on current `master`:
 
-1. **Already fixed by #880**
+1. **Already fixed by #880**  <- confirmed
 - Native chain `rows()` now injects `binding_ops`
 - `_gfql_connected_bindings_row_table()` already materializes edge alias columns like `r.creationDate`
-- If so, #982 only needs verification, regression tests, changelog/docs issue closure
+- #982 now only needs verification, regression tests, and issue/PR closure
 
 2. **Still partially broken**
 - The bindings table may materialize edge alias properties, but the native `select()`
@@ -81,15 +85,15 @@ Primary:
 - `graphistry/tests/compute/gfql/cypher/test_lowering.py`
 
 Focused repro commands:
-- native AST repro from issue body
+- native AST repro from issue body  -> passes on current branch
 - `bash bin/pytest.sh graphistry/tests/test_compute_chain.py -k 'edge_alias or ChainBindingsTable' -q`
 - `python3.12 -B -m pytest -q graphistry/tests/compute/gfql/cypher/test_lowering.py -k 'edge_alias'`
 
 ## Implementation plan
 
 ### Step 1: Re-verify #982 on latest master
-- Run the exact issue repro on current branch
-- Confirm whether the bug still exists after #880 / v0.53.16
+- Run the exact issue repro on current branch  -> completed
+- Confirm whether the bug still exists after #880 / v0.53.16  -> it does not
 
 ### Step 2: Map the exact failing surface
 - Check forward, reverse, and undirected traversals
@@ -105,7 +109,7 @@ Focused repro commands:
 - Keep Cypher overlap coverage only where it validates shared runtime behavior
 
 ### Step 5: Closeout
-- Update `CHANGELOG.md` if behavior changes on this branch
+- Update `CHANGELOG.md` only if behavior changes on this branch
 - Push branch and open/update PR
 - If latest `master` is already correct, convert the branch into a verification-only closure PR or close it with findings
 
