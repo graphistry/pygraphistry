@@ -8,6 +8,7 @@ from typing_extensions import Literal
 
 import pandas as pd
 from graphistry.Engine import Engine, EngineAbstract, resolve_engine
+from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.dataframe_utils import concat_frames
 from graphistry.compute.gfql.row.order_expr import (
     extract_temporal_duration_sort_ast,
@@ -2684,7 +2685,10 @@ class RowPipelineMixin:
         table: str = "nodes",
         source: Optional[str] = None,
         alias_endpoints: Optional[Dict[str, str]] = None,
+        binding_ops: Optional[List[Dict[str, Any]]] = None,
     ) -> "Plottable":
+        if binding_ops is not None:
+            return self._gfql_connected_bindings_row_table(binding_ops)
         if alias_endpoints is not None:
             return self._gfql_bindings_row_table(alias_endpoints)
 
@@ -2715,6 +2719,265 @@ class RowPipelineMixin:
             table_df = table_df.loc[mask.astype(bool)]
 
         return self._gfql_row_table(table_df)
+
+    @staticmethod
+    def _gfql_bindings_error(message: str) -> None:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            message,
+            field="rows",
+            value="binding_ops",
+            suggestion="Use a single connected scalar path or a simpler Cypher projection.",
+            language="cypher",
+        )
+
+    @staticmethod
+    def _gfql_validate_binding_ops(ops: Sequence[Any]) -> None:
+        if (
+            len(ops) == 0
+            or len(ops) % 2 == 0
+            or any((idx % 2 == 0) != hasattr(op, "filter_dict") for idx, op in enumerate(ops))
+            or any((idx % 2 == 1) != hasattr(op, "edge_match") for idx, op in enumerate(ops))
+        ):
+            RowPipelineMixin._gfql_bindings_error(
+                "Cypher multi-alias row bindings currently require a single connected alternating node/edge path"
+            )
+
+    def _gfql_multihop_binding_rows(
+        self,
+        state_df: Any,
+        step_pairs: Any,
+        *,
+        min_hops: int,
+        max_hops: Optional[int],
+        to_fixed_point: bool,
+    ) -> Any:
+        reachable: List[Any] = []
+        current = state_df
+        if min_hops == 0:
+            reachable.append(current.copy())
+        max_iters = max_hops if max_hops is not None else max(len(step_pairs), 1) + 1
+        exhausted = False
+        for hop in range(1, max_iters + 1):
+            current = current.merge(step_pairs, left_on="__current__", right_on="__from__", how="inner")
+            if len(current) == 0:
+                exhausted = True
+                break
+            current = current.drop(columns=["__current__", "__from__"]).rename(columns={"__to__": "__current__"})
+            if hop >= min_hops:
+                reachable.append(current.copy())
+            if max_hops is not None and hop >= max_hops:
+                break
+        if max_hops is None and to_fixed_point and not exhausted:
+            self._gfql_bindings_error(
+                "Cypher multi-alias row bindings currently require terminating variable-length segments"
+            )
+        merged = concat_frames(reachable)
+        if merged is None:
+            return state_df.iloc[0:0]
+        return merged
+
+    def _gfql_connected_bindings_state(self, ops: Sequence[Any]) -> Tuple[Any, Dict[str, Any]]:
+        from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
+        from graphistry.compute.ast import ASTEdge, ASTNode
+
+        if self._nodes is None or self._edges is None:
+            return pd.DataFrame(), {}
+
+        RowPipelineMixin._gfql_validate_binding_ops(ops)
+        base_graph = getattr(self, "_gfql_rows_base_graph", None)
+        if base_graph is None:
+            base_graph = getattr(self, "_g", None)
+        if base_graph is None:
+            self._gfql_bindings_error(
+                "Cypher multi-alias row bindings require a graph-backed row pipeline context"
+            )
+        node_id_col = getattr(base_graph, "_node", None)
+        src_col = getattr(base_graph, "_source", None)
+        dst_col = getattr(base_graph, "_destination", None)
+        if node_id_col is None or src_col is None or dst_col is None:
+            self._gfql_bindings_error(
+                "Cypher multi-alias row bindings require node id, edge source, and edge destination columns"
+            )
+        src_col = str(src_col)
+        dst_col = str(dst_col)
+        base_nodes = getattr(base_graph, "_nodes", None)
+        if base_nodes is None or node_id_col not in base_nodes.columns:
+            return self._nodes.iloc[0:0].copy(), {}
+
+        base_df = self._nodes if self._nodes is not None else self._edges
+        engine = resolve_engine(EngineAbstract.AUTO, base_df)
+        start_nodes = getattr(self, "_gfql_start_nodes", None)
+        first_nodes = ops[0](
+            g=base_graph,
+            prev_node_wavefront=start_nodes,
+            target_wave_front=None,
+            engine=engine,
+        )._nodes
+        if first_nodes is None or node_id_col not in first_nodes.columns:
+            return self._nodes.iloc[0:0].copy(), {}
+        state_df = first_nodes[[node_id_col]].copy().rename(columns={node_id_col: "__current__"})
+        alias_frames: Dict[str, Any] = {}
+        first_alias = getattr(ops[0], "_name", None)
+        if isinstance(first_alias, str):
+            state_df[first_alias] = state_df["__current__"]
+            alias_frames[first_alias] = first_nodes
+
+        for edge_idx in range(1, len(ops), 2):
+            edge_op = ops[edge_idx]
+            if not isinstance(edge_op, ASTEdge):
+                self._gfql_bindings_error(
+                    "Cypher multi-alias row bindings currently require edge steps in odd positions"
+                )
+            current_nodes = base_nodes[base_nodes[node_id_col].isin(state_df["__current__"])].copy()
+            if len(current_nodes) == 0:
+                return state_df.iloc[0:0], alias_frames
+            edges_df_step = edge_op(
+                g=base_graph,
+                prev_node_wavefront=current_nodes,
+                target_wave_front=None,
+                engine=engine,
+            )._edges
+            sem = EdgeSemantics.from_edge(edge_op)
+            edge_alias = getattr(edge_op, "_name", None)
+            if sem.is_multihop and edge_alias is not None:
+                self._gfql_bindings_error(
+                    "Cypher multi-alias row bindings do not yet support variable-length relationship aliases"
+                )
+            if not sem.is_multihop and (edges_df_step is None or len(edges_df_step) == 0):
+                return state_df.iloc[0:0], alias_frames
+
+            rename_map = {}
+            if isinstance(edge_alias, str) and edges_df_step is not None:
+                rename_map = {
+                    col: f"{edge_alias}.{col}"
+                    for col in edges_df_step.columns
+                    if col not in {src_col, dst_col}
+                }
+            if edges_df_step is None or len(edges_df_step) == 0:
+                oriented = pd.DataFrame(columns=["__from__", "__to__"])
+            else:
+                oriented = sem.orient_edges(
+                    edges_df_step,
+                    src_col,
+                    dst_col,
+                    dedupe=False,
+                ).rename(columns=rename_map)
+
+            if sem.is_multihop:
+                if sem.is_undirected:
+                    self._gfql_bindings_error(
+                        "Cypher multi-alias row bindings do not yet support undirected variable-length segments"
+                    )
+                step_pairs = oriented[["__from__", "__to__"]]
+                out_counts = step_pairs.groupby("__from__").size()
+                if len(out_counts) > 0 and int(out_counts.max()) > 1:
+                    self._gfql_bindings_error(
+                        "Cypher multi-alias row bindings currently require variable-length segments with at most one outgoing match per source row"
+                    )
+                min_hops = edge_op.min_hops if edge_op.min_hops is not None else (
+                    edge_op.hops if edge_op.hops is not None else 1
+                )
+                max_hops = edge_op.max_hops if edge_op.max_hops is not None else (
+                    edge_op.hops if edge_op.hops is not None else None
+                )
+                state_df = self._gfql_multihop_binding_rows(
+                    state_df,
+                    step_pairs,
+                    min_hops=min_hops,
+                    max_hops=max_hops,
+                    to_fixed_point=bool(edge_op.to_fixed_point),
+                )
+            else:
+                state_df = state_df.merge(oriented, left_on="__current__", right_on="__from__", how="inner")
+                state_df = state_df.drop(columns=["__current__", "__from__"]).rename(columns={"__to__": "__current__"})
+
+            if len(state_df) == 0:
+                return state_df, alias_frames
+
+            next_node_idx = edge_idx + 1
+            next_node_op = ops[next_node_idx]
+            if not isinstance(next_node_op, ASTNode):
+                self._gfql_bindings_error(
+                    "Cypher multi-alias row bindings currently require node steps in even positions"
+                )
+            candidate_nodes = base_nodes[base_nodes[node_id_col].isin(state_df["__current__"])].copy()
+            next_nodes = next_node_op(
+                g=base_graph,
+                prev_node_wavefront=candidate_nodes,
+                target_wave_front=None,
+                engine=engine,
+            )._nodes
+            if next_nodes is None or node_id_col not in next_nodes.columns:
+                return state_df.iloc[0:0], alias_frames
+            state_df = state_df[state_df["__current__"].isin(next_nodes[node_id_col])].copy()
+            node_alias = getattr(next_node_op, "_name", None)
+            if isinstance(node_alias, str):
+                state_df[node_alias] = state_df["__current__"]
+                alias_frames[node_alias] = next_nodes
+
+        return state_df, alias_frames
+
+    def _gfql_connected_bindings_row_table(
+        self,
+        binding_ops: List[Dict[str, Any]],
+    ) -> "Plottable":
+        from graphistry.compute.ast import ASTEdge, ASTNode, from_json as ast_from_json
+
+        if self._nodes is None or self._edges is None:
+            return self._gfql_row_table(pd.DataFrame())
+
+        ops = [ast_from_json(op_json, validate=False) for op_json in binding_ops]
+        state_df, alias_frames = self._gfql_connected_bindings_state(ops)
+
+        node_id = self._node
+        if node_id is None:
+            self._gfql_bindings_error(
+                "Cypher multi-alias row bindings require a node id column"
+            )
+        base_graph = getattr(self, "_gfql_rows_base_graph", None)
+        if base_graph is None:
+            base_graph = getattr(self, "_g", None)
+        base_nodes = getattr(base_graph, "_nodes", None) if base_graph is not None else None
+        empty_lookup_source = (
+            base_nodes.iloc[0:0].copy()
+            if base_nodes is not None and node_id in base_nodes.columns
+            else pd.DataFrame({node_id: pd.Series(dtype="object")})
+        )
+
+        bindings = state_df.copy()
+        node_aliases = [
+            getattr(op, "_name", None)
+            for op in ops
+            if isinstance(op, ASTNode) and isinstance(getattr(op, "_name", None), str)
+        ]
+        for alias in node_aliases:
+            alias = str(alias)
+            lookup_source = alias_frames.get(alias)
+            if lookup_source is None or node_id not in lookup_source.columns:
+                lookup_source = empty_lookup_source
+            if alias not in bindings.columns:
+                bindings[alias] = pd.Series(index=bindings.index, dtype=lookup_source[node_id].dtype)
+            lookup = lookup_source[[node_id]].copy()
+            lookup[f"{alias}.{node_id}"] = lookup_source[node_id]
+            for col in lookup_source.columns:
+                if col == node_id:
+                    continue
+                lookup[f"{alias}.{col}"] = lookup_source[col]
+            bindings = bindings.merge(
+                lookup,
+                left_on=alias,
+                right_on=node_id,
+                how="left",
+                suffixes=("", f"__{alias}_join__"),
+            )
+            dup_col = f"{node_id}__{alias}_join__"
+            if dup_col in bindings.columns:
+                bindings = bindings.drop(columns=[dup_col])
+
+        drop_cols = ["__current__", *node_aliases]
+        bindings = bindings.drop(columns=[col for col in drop_cols if col in bindings.columns])
+        return self._gfql_row_table(bindings)
 
     def _gfql_bindings_row_table(
         self, alias_endpoints: Dict[str, str]
@@ -3238,6 +3501,8 @@ class _RowPipelineAdapter(RowPipelineMixin):
 
     def __init__(self, g: "Plottable") -> None:
         self._g = g
+        self._gfql_start_nodes = getattr(g, "_gfql_start_nodes", None)
+        self._gfql_rows_base_graph = getattr(g, "_gfql_rows_base_graph", None)
         self._nodes = getattr(g, "_nodes", None)
         self._edges = getattr(g, "_edges", None)
         self._node = getattr(g, "_node", None)

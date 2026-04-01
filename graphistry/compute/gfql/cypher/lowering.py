@@ -2642,31 +2642,15 @@ def _single_node_seed_alias(clause: MatchClause) -> Optional[str]:
     return pattern[0].variable
 
 
-def _build_alias_endpoints(
-    ops: Sequence[ASTObject],
-    alias_targets: Mapping[str, ASTObject],
-) -> Dict[str, str]:
-    """Map node alias names to edge endpoint roles ("src" or "dst").
-
-    Walks the lowered chain ops and assigns each named node alias to "src"
-    (before the first edge) or "dst" (after the first edge).  Only node
-    aliases that appear in *alias_targets* are included.
-    """
-    endpoints: Dict[str, str] = {}
-    seen_edge = False
+def _serialize_binding_ops(ops: Sequence[ASTObject]) -> List[Dict[str, Any]]:
+    binding_ops: List[Dict[str, Any]] = []
     for op in ops:
-        if isinstance(op, ASTEdge):
-            seen_edge = True
-            alias = getattr(op, "_name", None)
-            if alias is not None and alias in alias_targets:
-                endpoints[alias] = "edge"
-            continue
-        alias = getattr(op, "_name", None)
-        if alias is None or alias not in alias_targets:
-            continue
-        if isinstance(op, ASTNode):
-            endpoints[alias] = "dst" if seen_edge else "src"
-    return endpoints
+        if not isinstance(op, (ASTNode, ASTEdge)):
+            raise ValueError(
+                "Connected bindings-row lowering expects only ASTNode/ASTEdge ops"
+            )
+        binding_ops.append(cast(Dict[str, Any], op.to_json(validate=False)))
+    return binding_ops
 
 
 def _alias_target(ops: Sequence[ASTObject]) -> Dict[str, ASTObject]:
@@ -3663,9 +3647,23 @@ def _lower_projection_chain(
             if has_non_scalar or all_are_edges:
                 raise _multi_alias_exc
 
+    if plan.all_source_aliases is not None and len(lowered.query) > 3:
+        edge_alias_refs = sorted(
+            alias
+            for alias in plan.all_source_aliases
+            if isinstance(alias_targets.get(alias), ASTEdge)
+        )
+        if edge_alias_refs:
+            raise _unsupported(
+                "Connected multi-pattern relationship alias projections are not yet supported in this phase",
+                field=plan.clause_kind,
+                value=", ".join(edge_alias_refs),
+                line=query.return_.span.line,
+                column=query.return_.span.column,
+            )
+
     if plan.all_source_aliases is not None:
-        alias_ep = _build_alias_endpoints(lowered.query, alias_targets)
-        row_steps: List[ASTObject] = [rows(alias_endpoints=alias_ep)]
+        row_steps: List[ASTObject] = [rows(binding_ops=_serialize_binding_ops(lowered.query))]
     else:
         row_steps = [rows(table=plan.table, source=plan.source_alias)]
     _append_match_row_where(
@@ -5908,15 +5906,7 @@ def _bounded_reentry_prefix_order_is_safe(
 
 
 def _first_pattern_node_alias(clause: MatchClause) -> Optional[str]:
-    if len(clause.patterns) != 1:
-        raise _unsupported(
-            "Cypher MATCH after WITH currently supports a single trailing MATCH pattern",
-            field="match",
-            value=len(clause.patterns),
-            line=clause.span.line,
-            column=clause.span.column,
-        )
-    pattern = clause.pattern
+    pattern = _normalized_match_pattern(clause)
     if not pattern or not isinstance(pattern[0], NodePattern):
         return None
     return pattern[0].variable

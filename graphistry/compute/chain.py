@@ -574,6 +574,7 @@ def _handle_boundary_calls(
                 len(prefix), len(middle), len(suffix))
 
     g_temp = self
+    suffix_base_graph = g_temp
 
     if prefix:
         logger.debug('Executing boundary prefix calls: %s', prefix)
@@ -586,6 +587,7 @@ def _handle_boundary_calls(
             context,
             start_nodes
         )
+        suffix_base_graph = g_temp
 
     if middle:
         logger.debug('Executing middle operations: %s', middle)
@@ -601,6 +603,9 @@ def _handle_boundary_calls(
 
     if suffix:
         logger.debug('Executing boundary suffix calls: %s', suffix)
+        if start_nodes is not None:
+            setattr(g_temp, "_gfql_start_nodes", start_nodes)
+        setattr(g_temp, "_gfql_rows_base_graph", suffix_base_graph)
         g_temp = _chain_impl(
             g_temp,
             suffix,
