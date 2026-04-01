@@ -3004,34 +3004,8 @@ class RowPipelineMixin:
             )
 
         bindings = edges.copy()
-
-        # For undirected patterns, the seed node can be on either side of
-        # the stored edge.  Detect which side is the seed by checking
-        # which node has the "src" alias boolean mask set to True.
-        has_undirected = any(e == "undirected_peer" for e in alias_endpoints.values())
-        src_alias_name = next((a for a, e in alias_endpoints.items() if e == "src"), None)
-        if has_undirected and src_alias_name is not None and nodes is not None:
-            # The src alias's boolean mask column tells us which node is the seed.
-            # For each edge: seed_id = src if nodes[src].src_alias else dst
-            src_mask = nodes[src_alias_name] if src_alias_name in nodes.columns else False
-            seed_on_src = bindings[src_col].isin(
-                nodes.loc[src_mask == True, node_id]  # noqa: E712
-            )
-            bindings["__seed_id__"] = bindings[src_col].where(seed_on_src, bindings[dst_col])
-            bindings["__peer_id__"] = bindings[dst_col].where(seed_on_src, bindings[src_col])
-
         for alias, endpoint in alias_endpoints.items():
-            if endpoint == "undirected_peer":
-                join_col = "__peer_id__"
-            elif endpoint == "src" and has_undirected:
-                join_col = "__seed_id__"
-            elif endpoint == "src":
-                join_col = src_col
-            elif endpoint == "edge":
-                continue  # edge aliases handled separately below
-            else:
-                join_col = dst_col
-
+            join_col = src_col if endpoint == "src" else dst_col
             # Build alias-prefixed lookup from nodes
             lookup = nodes[[node_id]].copy()
             lookup[f"{alias}.{node_id}"] = nodes[node_id]
@@ -3050,11 +3024,6 @@ class RowPipelineMixin:
             dup_col = f"{node_id}__{alias}_join__"
             if dup_col in bindings.columns:
                 bindings = bindings.drop(columns=[dup_col])
-
-        # Clean up temp columns
-        for tmp in ("__seed_id__", "__peer_id__"):
-            if tmp in bindings.columns:
-                bindings = bindings.drop(columns=[tmp])
 
         # Also prefix edge properties for edge aliases
         for alias, endpoint in alias_endpoints.items():
