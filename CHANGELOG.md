@@ -8,6 +8,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.53.15 - 2026-04-01]
+
+### Added
+- **GFQL / Cypher**: `shortestPath()` and `allShortestPaths()` syntax now parses and raises a clear "not yet supported" validation error instead of a generic syntax error (#997).
+- **GFQL / Cypher**: Pattern existence expressions (`not((a)-[:R]-(b))`, `exists { ... }`) now detected and raise a clear validation error instead of a generic syntax error (#998).
+
+### Fixed
+- **GFQL / Cypher**: Fixed undirected MATCH returning the seed node instead of the peer when the stored edge is incoming (#994). The connected bindings row materializer now correctly orients undirected edges in both directions.
+
 ## [0.53.14 - 2026-04-01]
 
 ### Added
@@ -17,11 +26,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 - **GFQL / Cypher**: Support connected multi-alias row bindings for direct Cypher scalar projections and bounded `WITH ... MATCH` reentry. Connected single-path and connected multi-pattern shapes like `MATCH (a)-[:R]->(b), (b)-[:S]->(c) RETURN a.id, c.id` and the benchmark-facing `WITH ... MATCH` continuation behind `interactive-short-2` now materialize row bindings correctly while branching multihop and connected relationship-alias projection shapes remain explicit fail-fast boundaries.
-- **GFQL / Cypher**: `shortestPath()` and `allShortestPaths()` syntax now parses and raises a clear "not yet supported" validation error instead of a generic syntax error (#997).
-- **GFQL / Cypher**: Pattern existence expressions (`not((a)-[:R]-(b))`, `exists { ... }`) now detected and raise a clear validation error instead of a generic syntax error (#998).
-
-### Fixed
-- **GFQL / Cypher**: Fixed undirected MATCH returning the seed node instead of the peer when the stored edge is incoming (#994). The connected bindings row materializer now correctly orients undirected edges in both directions.
 
 ## [0.53.12 - 2026-04-01]
 
