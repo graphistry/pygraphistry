@@ -1039,3 +1039,128 @@ class TestChainBindingsTable(NoAuthTestCase):
                 n(name="hit"),
             ])
         assert "Duplicate alias" in exc_info.value.message
+
+    def test_native_chain_rejects_duplicate_edge_alias_names(self):
+        """Duplicate edge alias names should also be rejected."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b", "c"]}),
+            pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]}),
+        )
+        with pytest.raises(GFQLValidationError) as exc_info:
+            g.gfql([
+                n(name="x"),
+                e_forward(name="r"),
+                n(name="y"),
+                e_forward(name="r"),
+                n(name="z"),
+            ])
+        assert "Duplicate alias" in exc_info.value.message
+
+    def test_native_chain_rows_bindings_four_hops(self):
+        """Four-hop chain: a->b->c->d->e with all aliases."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b", "c", "d", "e"], "val": [1, 2, 3, 4, 5]}),
+            pd.DataFrame({
+                "s": ["a", "b", "c", "d"],
+                "d": ["b", "c", "d", "e"],
+                "type": ["R", "R", "R", "R"],
+            }),
+        )
+        result = g.gfql([
+            n({"id": "a"}, name="n1"),
+            e_forward({"type": "R"}),
+            n(name="n2"),
+            e_forward({"type": "R"}),
+            n(name="n3"),
+            e_forward({"type": "R"}),
+            n(name="n4"),
+            rows(),
+        ])
+        df = result._nodes
+        assert len(df) == 1
+        assert df["n1.id"].iloc[0] == "a"
+        assert df["n2.id"].iloc[0] == "b"
+        assert df["n3.id"].iloc[0] == "c"
+        assert df["n4.id"].iloc[0] == "d"
+
+    def test_native_chain_rows_bindings_no_match_first_node(self):
+        """First node filter matches nothing → empty bindings."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "label__X": [True, False]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"]}),
+        )
+        result = g.gfql([
+            n({"label__X": False, "id": "NOPE"}, name="x"),
+            e_forward(),
+            n(name="y"),
+            rows(),
+        ])
+        assert len(result._nodes) == 0
+
+    def test_native_chain_rows_bindings_mid_chain_empty(self):
+        """Second edge matches nothing → empty bindings."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b", "c"]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+        )
+        result = g.gfql([
+            n({"id": "a"}, name="x"),
+            e_forward({"type": "R"}),
+            n(name="y"),
+            e_forward({"type": "MISSING"}),
+            n(name="z"),
+            rows(),
+        ])
+        assert len(result._nodes) == 0
+
+    def test_native_chain_rows_select_edge_alias_projection(self):
+        """select() should project edge alias properties from bindings."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "label__X": [True, True]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"], "weight": [42]}),
+        )
+        result = g.gfql([
+            n(name="x"),
+            e_forward({"type": "R"}, name="r"),
+            n(name="y"),
+            rows(),
+            select([("w", "r.weight"), ("xid", "x.id"), ("yid", "y.id")]),
+        ])
+        records = result._nodes.to_dict(orient="records")
+        assert len(records) == 1
+        assert records[0]["w"] == 42
+        assert records[0]["xid"] == "a"
+        assert records[0]["yid"] == "b"
+
+    def test_native_chain_rows_select_missing_column_raises(self):
+        """select() with nonexistent alias.col should raise, not silently succeed."""
+        from graphistry.compute.exceptions import GFQLTypeError
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"]}),
+        )
+        with pytest.raises(GFQLTypeError):
+            g.gfql([
+                n(name="x"),
+                e_forward(),
+                n(name="y"),
+                rows(),
+                select([("xid", "x.id"), ("missing", "x.nonexistent")]),
+            ])
+
+    def test_native_chain_rows_bindings_reverse_edge(self):
+        """Reverse edge direction should still produce correct bindings."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "val": [1, 2]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+        )
+        result = g.gfql([
+            n({"id": "b"}, name="dst"),
+            e_reverse({"type": "R"}),
+            n(name="src"),
+            rows(),
+        ])
+        df = result._nodes
+        assert len(df) == 1
+        assert df["dst.id"].iloc[0] == "b"
+        assert df["src.id"].iloc[0] == "a"
