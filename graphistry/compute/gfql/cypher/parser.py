@@ -83,6 +83,8 @@ match_clause: "MATCH"i match_item ("," match_item)*              -> match_clause
             | "OPTIONAL"i "MATCH"i match_item ("," match_item)*  -> optional_match_clause
 match_item: pattern
           | NAME "=" pattern               -> bound_pattern
+          | NAME "=" "shortestPath"i "(" pattern ")"          -> shortest_path_pattern
+          | NAME "=" "allShortestPaths"i "(" pattern ")"      -> all_shortest_paths_pattern
 pattern: node_pattern (relationship_pattern node_pattern)*
 
 node_pattern: "(" variable? labels? properties? ")"
@@ -779,6 +781,24 @@ def _build_transformer(source: str) -> _TransformerLike:
             if len(items) != 2:
                 raise _to_syntax_error("Invalid bound MATCH pattern")
             return _BoundPattern(alias=str(items[0]), pattern=cast(Tuple[PatternElement, ...], items[1]))
+
+        def shortest_path_pattern(self, meta: Any, items: Sequence[Any]) -> _BoundPattern:
+            raise _to_unsupported(
+                "shortestPath() is not yet supported in the local Cypher compiler",
+                line=meta.line,
+                column=meta.column,
+                field="match",
+                value="shortestPath",
+            )
+
+        def all_shortest_paths_pattern(self, meta: Any, items: Sequence[Any]) -> _BoundPattern:
+            raise _to_unsupported(
+                "allShortestPaths() is not yet supported in the local Cypher compiler",
+                line=meta.line,
+                column=meta.column,
+                field="match",
+                value="allShortestPaths",
+            )
 
         def match_item(self, _meta: Any, items: Sequence[Any]) -> Union[Tuple[PatternElement, ...], _BoundPattern]:
             if len(items) != 1:
@@ -1702,6 +1722,29 @@ def _build_transformer(source: str) -> _TransformerLike:
     return cast(_TransformerLike, _CypherAstBuilder())
 
 
+_PATTERN_EXISTENCE_RE = re.compile(
+    r"""
+    (?:not\s*)\(\s*\(\s*\w+\s*\)\s*-\s*\[  # not((a)-[
+    |
+    not\s+exists\s*\{                        # not exists {
+    |
+    exists\s*\{                              # exists {
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _check_unsupported_syntax_patterns(query: str) -> None:
+    """Detect known-but-unsupported Cypher syntax and raise a clear error."""
+    if _PATTERN_EXISTENCE_RE.search(query):
+        raise _to_unsupported(
+            "Pattern existence expressions (e.g., not((a)-[:R]-(b)) or exists { ... }) "
+            "are not yet supported in the local Cypher compiler",
+            field="expression",
+            value="pattern_existence",
+        )
+
+
 def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery, CypherGraphQuery]:
     """Parse supported Cypher text into the typed AST used by GFQL's Cypher compiler.
 
@@ -1715,6 +1758,9 @@ def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery, CypherGraph
     """
     if not isinstance(query, str) or query.strip() == "":
         raise _to_syntax_error("Cypher query must be a non-empty string")
+
+    # Pre-parse detection of known-but-unsupported Cypher forms
+    _check_unsupported_syntax_patterns(query)
 
     parser = _parser()
     transformer = _build_transformer(query)

@@ -3308,6 +3308,39 @@ def test_string_cypher_failfast_rejects_bounded_variable_length_where_pattern_pr
 
 
 @pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH path = shortestPath((a)-[:KNOWS*]-(b)) RETURN length(path)",
+        "MATCH (a), path = shortestPath((a)-[:KNOWS*]-(b)) RETURN a.id",
+        "MATCH path = allShortestPaths((a)-[:KNOWS*]-(b)) RETURN length(path)",
+    ],
+)
+def test_string_cypher_failfast_rejects_shortest_path(query: str) -> None:
+    """#997: shortestPath/allShortestPaths parse but fail-fast with clear message."""
+    graph = _mk_empty_graph()
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(query)
+    assert "shortestpath" in exc_info.value.message.lower() or "allshortestpaths" in exc_info.value.message.lower()
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (a)-[:KNOWS]-(b) RETURN not((a)-[:KNOWS]-(b)) AS isNew",
+        "MATCH (a) RETURN exists { (a)-[:KNOWS]-() } AS has",
+        "MATCH (a) RETURN not exists { (a)-[:KNOWS]-() } AS no",
+        "MATCH (a) WHERE exists { (a)-[:KNOWS]-() } RETURN a.id",
+    ],
+)
+def test_string_cypher_failfast_rejects_pattern_existence(query: str) -> None:
+    """#998: pattern existence expressions fail-fast with clear message."""
+    graph = _mk_empty_graph()
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(query)
+    assert "pattern existence" in exc_info.value.message.lower()
+
+
+@pytest.mark.parametrize(
     "query,expected_rows",
     [
         (
@@ -5504,6 +5537,24 @@ def test_string_cypher_executes_with_match_reentry_limit_shape() -> None:
     assert result._nodes.to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
 
 
+def test_string_cypher_rejects_reentry_with_parameterized_limit_and_order() -> None:
+    """Regression for 992f2fc1: ParameterRef in LIMIT must not crash _literal_limit_value."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "a2", "b1"],
+            "label__A": [True, True, False],
+            "name": ["alpha", "beta", None],
+        }
+    )
+    edges = pd.DataFrame({"s": ["a1", "a2"], "d": ["b1", "b1"]})
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _mk_graph(nodes, edges).gfql(
+            "MATCH (a:A) WITH a ORDER BY a.name LIMIT $n MATCH (a)-->(b) RETURN a",
+            params={"n": 1},
+        )
+    assert "order" in exc_info.value.message.lower()
+
+
 def test_string_cypher_executes_with_match_reentry_limit_shape_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
@@ -6172,6 +6223,133 @@ def test_multi_alias_return_with_edge_alias_property() -> None:
     assert records[0]["a_id"] == "a"
     assert records[0]["cd"] == 123
     assert records[0]["name"] == "Bob"
+
+
+def test_multi_alias_undirected_incoming_edge_returns_peer_not_seed() -> None:
+    """#994: undirected MATCH with incoming edge must return peer, not seed."""
+    g = _mk_graph(
+        pd.DataFrame({"id": [1, 2], "label__Person": [True, True], "firstName": ["Alice", "Bob"]}),
+        pd.DataFrame({"s": [2], "d": [1], "type": ["KNOWS"], "creationDate": [10]}),
+    )
+    result = g.gfql(
+        "MATCH (n:Person {id: $pid})-[r:KNOWS]-(friend) "
+        "RETURN friend.id AS fid, friend.firstName AS fname, r.creationDate AS cd",
+        params={"pid": 1},
+    )
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert len(records) == 1
+    assert records[0]["fid"] == 2
+    assert records[0]["fname"] == "Bob"
+    assert records[0]["cd"] == 10
+
+
+def test_multi_alias_undirected_outgoing_edge_returns_peer() -> None:
+    """#994 regression: outgoing edge should still return peer correctly."""
+    g = _mk_graph(
+        pd.DataFrame({"id": [1, 2], "label__Person": [True, True], "firstName": ["Alice", "Bob"]}),
+        pd.DataFrame({"s": [1], "d": [2], "type": ["KNOWS"], "creationDate": [10]}),
+    )
+    result = g.gfql(
+        "MATCH (n:Person {id: $pid})-[r:KNOWS]-(friend) "
+        "RETURN friend.id AS fid, friend.firstName AS fname, r.creationDate AS cd",
+        params={"pid": 1},
+    )
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert len(records) == 1
+    assert records[0]["fid"] == 2
+    assert records[0]["fname"] == "Bob"
+
+
+def test_multi_alias_undirected_bidirectional_edges() -> None:
+    """#994 adversarial: both incoming and outgoing edges to same peer."""
+    g = _mk_graph(
+        pd.DataFrame({"id": [1, 2], "label__Person": [True, True], "firstName": ["Alice", "Bob"]}),
+        pd.DataFrame({"s": [1, 2], "d": [2, 1], "type": ["KNOWS", "KNOWS"], "creationDate": [10, 20]}),
+    )
+    result = g.gfql(
+        "MATCH (n:Person {id: $pid})-[r:KNOWS]-(friend) "
+        "RETURN friend.id AS fid, r.creationDate AS cd "
+        "ORDER BY cd",
+        params={"pid": 1},
+    )
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert len(records) == 2
+    assert all(r["fid"] == 2 for r in records), f"Both rows should reference Bob, got {records}"
+
+
+def test_multi_alias_undirected_multiple_edges_same_nodes() -> None:
+    """#994 amplification: 3 edges between same pair, undirected query returns all 3."""
+    g = _mk_graph(
+        pd.DataFrame({"id": [1, 2], "label__Person": [True, True], "firstName": ["Alice", "Bob"]}),
+        pd.DataFrame({
+            "s": [1, 1, 2],
+            "d": [2, 2, 1],
+            "type": ["KNOWS", "LIKES", "KNOWS"],
+            "weight": [10, 20, 30],
+        }),
+    )
+    result = g.gfql(
+        "MATCH (n:Person {id: $pid})-[r]-(friend) "
+        "RETURN friend.id AS fid, r.weight AS w "
+        "ORDER BY w",
+        params={"pid": 1},
+    )
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert len(records) == 3, f"Expected 3 rows (one per edge), got {records}"
+    assert all(r["fid"] == 2 for r in records), f"All rows should reference Bob, got {records}"
+    assert [r["w"] for r in records] == [10, 20, 30]
+
+
+def test_multi_alias_undirected_star_multiple_peers() -> None:
+    """#994 amplification: undirected star — seed node 1 has edges to peers 2, 3, 4."""
+    g = _mk_graph(
+        pd.DataFrame({
+            "id": [1, 2, 3, 4],
+            "label__Person": [True, True, True, True],
+            "firstName": ["Alice", "Bob", "Carol", "Dave"],
+        }),
+        pd.DataFrame({
+            "s": [2, 1, 4],
+            "d": [1, 3, 1],
+            "type": ["KNOWS", "KNOWS", "KNOWS"],
+        }),
+    )
+    result = g.gfql(
+        "MATCH (n:Person {id: $pid})-[r:KNOWS]-(friend) "
+        "RETURN friend.id AS fid, friend.firstName AS fname "
+        "ORDER BY fid",
+        params={"pid": 1},
+    )
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert len(records) == 3, f"Expected 3 peers, got {records}"
+    assert [r["fid"] for r in records] == [2, 3, 4]
+    assert [r["fname"] for r in records] == ["Bob", "Carol", "Dave"]
+
+
+def test_multi_alias_undirected_self_loop() -> None:
+    """#994 amplification: self-loop edge where src==dst."""
+    g = _mk_graph(
+        pd.DataFrame({"id": [1, 2], "label__Person": [True, True], "firstName": ["Alice", "Bob"]}),
+        pd.DataFrame({
+            "s": [1, 1],
+            "d": [1, 2],
+            "type": ["SELF", "KNOWS"],
+            "weight": [99, 10],
+        }),
+    )
+    result = g.gfql(
+        "MATCH (n:Person {id: $pid})-[r]-(friend) "
+        "RETURN friend.id AS fid, r.weight AS w "
+        "ORDER BY w",
+        params={"pid": 1},
+    )
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    # Self-loop in undirected traversal matches both directions → 2 rows for the self-loop.
+    # KNOWS edge: 1 row with fid=2. Total: 3 rows.
+    assert len(records) == 3, f"Expected 3 rows (self-loop×2 + KNOWS), got {records}"
+    assert records[0]["w"] == 10  # KNOWS edge first (weight 10)
+    assert records[0]["fid"] == 2
+    assert all(r["fid"] == 1 for r in records[1:]), f"Self-loop rows should reference self, got {records}"
 
 
 def test_multi_alias_return_star_graph() -> None:
