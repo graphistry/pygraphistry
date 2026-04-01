@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.53.12 - 2026-04-01]
+
 ### Added
 - **GFQL / Cypher**: Support variable-length relationships in connected multi-relationship patterns. `MATCH (a)-[:R*2]->()-[:R]->(c) RETURN c` now works — variable-length hops at any position (start, middle, end) are supported with exact, range, and open-range forms (#973).
 
