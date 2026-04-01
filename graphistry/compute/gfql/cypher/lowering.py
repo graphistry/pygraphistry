@@ -5878,14 +5878,6 @@ def _bounded_reentry_carry_columns(
     carried_columns = tuple(column.output_name for column in prefix_projection.columns if column.kind != "whole_row")
     if not carried_columns:
         return whole_row_columns[0], ()
-    seed_alias = _single_node_seed_alias(query.matches[0]) if len(query.matches) == 1 else None
-    if seed_alias is None or seed_alias != prefix_projection.alias:
-        raise _unsupported_at_span(
-            "Cypher MATCH after WITH carried scalar columns currently require a single-node prefix MATCH seed",
-            field="with",
-            value=projection_items,
-            span=prefix_stage.span,
-        )
     invalid_output = next((name for name in carried_columns if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)), None)
     if invalid_output is not None:
         raise _unsupported_at_span(
