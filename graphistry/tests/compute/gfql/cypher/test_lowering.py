@@ -3011,6 +3011,17 @@ def test_connected_variable_length_no_match() -> None:
     assert len(result._nodes) == 0
 
 
+def test_connected_variable_length_typed_mixed() -> None:
+    """Typed varlen followed by different-type fixed hop."""
+    g = _mk_graph(
+        pd.DataFrame({"id": list("abcde"), "label__S": [True, False, False, False, False]}),
+        pd.DataFrame({"s": list("abcd"), "d": list("bcde"), "type": ["A", "A", "B", "B"]}),
+    )
+    result = g.gfql("MATCH (s:S)-[:A*2]->()-[:B]->(c) RETURN c.id AS id")
+    ids = _to_pandas_df(result._nodes)["id"].tolist()
+    assert ids == ["d"]
+
+
 @pytest.mark.parametrize(
     "query",
     [

@@ -257,7 +257,7 @@ jobs:
     runs-on: ubuntu-latest
     # Python 3.14 minimal runs are now close to the hosted-runner wall clock budget
     # even when the suite passes cleanly, so keep a small buffer for env setup.
-    timeout-minutes: 8
+    timeout-minutes: 12
 
     strategy:
       matrix:
