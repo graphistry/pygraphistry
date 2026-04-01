@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal, Sequence, TypedDict, cast
+from typing import Any, Literal, Optional, Sequence, TypedDict, cast
 
 import pandas as pd
 
@@ -433,6 +433,8 @@ def _project_expr_column(
 ) -> SeriesT:
     if column.source_name is None:
         raise ValueError(f"projection expression not found: {column.output_name!r}")
+    if column.source_name in rows_df.columns:
+        return cast(SeriesT, rows_df[column.source_name])
     adapter = _RowPipelineAdapter(result)
     value = adapter._gfql_eval_string_expr(rows_df, column.source_name)
     return cast(SeriesT, value if hasattr(value, "astype") else _broadcast_projected_scalar(adapter, rows_df, value))
@@ -454,18 +456,40 @@ def _whole_row_projection_meta(
     }
 
 
+def _binding_alias_projection_rows(
+    rows_df: DataFrameT,
+    *,
+    alias: str,
+) -> Optional[DataFrameT]:
+    prefix = f"{alias}."
+    alias_columns = [column for column in rows_df.columns if str(column).startswith(prefix)]
+    if not alias_columns:
+        return None
+    return cast(
+        DataFrameT,
+        rows_df[alias_columns].rename(columns={column: str(column)[len(prefix):] for column in alias_columns}),
+    )
+
+
 def apply_result_projection(result: Plottable, projection: ResultProjectionPlan) -> Plottable:
     rows_df = cast(DataFrameT, getattr(result, "_nodes", None))
-    if rows_df is None or projection.alias not in rows_df.columns:
+    if rows_df is None:
+        return result
+    alias_rows_df = (
+        rows_df
+        if projection.alias in rows_df.columns
+        else _binding_alias_projection_rows(rows_df, alias=projection.alias)
+    )
+    if alias_rows_df is None or projection.alias not in alias_rows_df.columns:
         return result
 
     entity_series = (
-        _format_node_entities(rows_df, projection)
+        _format_node_entities(alias_rows_df, projection)
         if projection.table == "nodes"
-        else _format_edge_entities(rows_df, projection)
+        else _format_edge_entities(alias_rows_df, projection)
     )
     projected_data: dict[str, SeriesT] = {}
-    whole_row_meta = _whole_row_projection_meta(result, rows_df, projection)
+    whole_row_meta = _whole_row_projection_meta(result, alias_rows_df, projection)
     projected_entity_meta: dict[str, WholeRowProjectionMeta] = {}
     for column in projection.columns:
         if column.kind == "whole_row":
@@ -478,14 +502,20 @@ def apply_result_projection(result: Plottable, projection: ResultProjectionPlan)
                     "ids": whole_row_meta["ids"],
                 }
         else:
-            projected_data[column.output_name] = (
-                _project_property_column(rows_df, column=column)
-                if column.kind == "property"
-                else _project_expr_column(result, rows_df, column=column)
-            )
-    projected_rows = rows_df
+            if column.kind == "property":
+                property_rows_df = alias_rows_df
+                if (
+                    column.source_name is not None
+                    and column.source_name not in alias_rows_df.columns
+                    and column.source_name in rows_df.columns
+                ):
+                    property_rows_df = rows_df
+                projected_data[column.output_name] = _project_property_column(property_rows_df, column=column)
+            else:
+                projected_data[column.output_name] = _project_expr_column(result, rows_df, column=column)
+    projected_rows = alias_rows_df
     if rows_df.__class__.__module__.startswith("cudf") and any(isinstance(value, pd.Series) for value in projected_data.values()):
-        projected_rows = cast(DataFrameT, cast(Any, rows_df).to_pandas())
+        projected_rows = cast(DataFrameT, cast(Any, alias_rows_df).to_pandas())
         projected_data = {
             key: cast(SeriesT, value.to_pandas() if hasattr(value, "to_pandas") else value)
             for key, value in projected_data.items()

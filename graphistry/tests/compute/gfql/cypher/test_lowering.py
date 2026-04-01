@@ -230,6 +230,50 @@ def _mk_connected_multi_pattern_fanout_graph_cudf() -> _CypherTestGraph:
     )
 
 
+def _mk_multi_stage_reentry_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d", "e"],
+                "label__A": [True, False, False, False, False],
+                "label__B": [False, True, False, False, False],
+                "label__C": [False, False, True, False, False],
+                "label__D": [False, False, False, True, False],
+                "label__E": [False, False, False, False, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c", "a", "b"],
+                "d": ["b", "c", "d", "e", "e"],
+                "type": ["R", "S", "T", "R", "S"],
+            }
+        ),
+    )
+
+
+def _mk_multi_stage_reentry_graph_cudf() -> _CypherTestGraph:
+    return _mk_cudf_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d", "e"],
+                "label__A": [True, False, False, False, False],
+                "label__B": [False, True, False, False, False],
+                "label__C": [False, False, True, False, False],
+                "label__D": [False, False, False, True, False],
+                "label__E": [False, False, False, False, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c", "a", "b"],
+                "d": ["b", "c", "d", "e", "e"],
+                "type": ["R", "S", "T", "R", "S"],
+            }
+        ),
+    )
+
+
 def _mk_multi_alias_edge_projection_graph() -> _CypherTestGraph:
     return _mk_graph(
         pd.DataFrame(
@@ -5847,7 +5891,7 @@ def test_string_cypher_failfast_rejects_with_match_reentry_multiple_trailing_mat
         "RETURN bid, d.id AS did"
     )
 
-    with pytest.raises(GFQLValidationError, match="single MATCH \\.\\.\\. WITH \\.\\.\\. MATCH \\.\\.\\. RETURN shape"):
+    with pytest.raises(GFQLSyntaxError, match="alternating MATCH \\.\\.\\. WITH \\.\\.\\. MATCH"):
         _mk_connected_multi_pattern_reentry_graph().gfql(query, params={"seed": "a1"})
 
 
@@ -5876,7 +5920,7 @@ def test_string_cypher_failfast_rejects_with_match_reentry_multiple_whole_row_al
         _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
 
 
-def test_string_cypher_failfast_rejects_with_match_reentry_cross_alias_carried_scalars_from_connected_prefix_shape() -> None:
+def test_string_cypher_executes_with_match_reentry_cross_alias_carried_scalars_from_connected_prefix_shape() -> None:
     query = (
         "MATCH (a:A {id: $seed})-[:R]->(b:B) "
         "WITH b, a.id AS aid "
@@ -5884,8 +5928,9 @@ def test_string_cypher_failfast_rejects_with_match_reentry_cross_alias_carried_s
         "RETURN aid, c.id AS cid"
     )
 
-    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time"):
-        _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a1", "cid": "c1"}]
 
 
 def test_string_cypher_reentry_carried_scalars_ignore_internal_hidden_column_collisions() -> None:
@@ -5988,6 +6033,89 @@ def test_string_cypher_executes_seeded_multihop_then_with_optional_match_reentry
     )
 
     assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
+
+
+def test_string_cypher_executes_connected_whole_row_plus_scalar_projection() -> None:
+    result = _mk_multi_stage_reentry_graph().gfql(
+        "MATCH (b:B)-[:S]->(c:C) "
+        "RETURN c, b.id AS bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"c": "(:C)", "bid": "b"}]
+
+
+def test_string_cypher_executes_multi_stage_with_match_reentry_connected_shape() -> None:
+    result = _mk_multi_stage_reentry_graph().gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH c "
+        "MATCH (c)-[:T]->(d:D) "
+        "RETURN d.id AS id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
+
+
+def test_string_cypher_executes_multi_stage_with_match_reentry_carried_scalar_shape() -> None:
+    result = _mk_multi_stage_reentry_graph().gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH c, bid "
+        "MATCH (c)-[:T]->(d:D) "
+        "RETURN bid, d.id AS id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "d"}]
+
+
+def test_string_cypher_executes_multi_stage_with_match_reentry_connected_shape_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    result = _mk_multi_stage_reentry_graph_cudf().gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH c "
+        "MATCH (c)-[:T]->(d:D) "
+        "RETURN d.id AS id",
+        engine="cudf",
+    )
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"id": "d"}]
+
+
+def test_string_cypher_executes_multi_stage_with_match_reentry_empty_result_shape() -> None:
+    result = _mk_multi_stage_reentry_graph().gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH c "
+        "MATCH (c)-[:X]->(z:D) "
+        "RETURN z.id AS id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_string_cypher_failfast_rejects_multi_stage_with_match_reentry_with_intermediate_where() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "WITH c "
+        "MATCH (c)-[:T]->(d:D) "
+        "RETURN d.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLSyntaxError,
+        match="Cypher WITH after post-WITH MATCH WHERE is not yet supported",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
 
 
 def test_cypher_to_gfql_supports_multi_alias_scalar_projection() -> None:
