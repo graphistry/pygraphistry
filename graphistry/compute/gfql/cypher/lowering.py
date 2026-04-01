@@ -2254,6 +2254,7 @@ def _lower_relationship(
     relationship: RelationshipPattern,
     *,
     params: Optional[Mapping[str, Any]],
+    prune_to_endpoints: bool = False,
 ) -> ASTObject:
     edge_match = _filter_dict_from_entries(
         discriminator_key="type",
@@ -2283,6 +2284,7 @@ def _lower_relationship(
                 max_hops=relationship.max_hops,
                 to_fixed_point=relationship.to_fixed_point,
                 name=relationship.variable,
+                prune_to_endpoints=prune_to_endpoints,
             ),
         )
     if relationship.direction == "reverse":
@@ -2295,6 +2297,7 @@ def _lower_relationship(
                 max_hops=relationship.max_hops,
                 to_fixed_point=relationship.to_fixed_point,
                 name=relationship.variable,
+                prune_to_endpoints=prune_to_endpoints,
             ),
         )
     return cast(
@@ -2306,6 +2309,7 @@ def _lower_relationship(
             max_hops=relationship.max_hops,
             to_fixed_point=relationship.to_fixed_point,
             name=relationship.variable,
+            prune_to_endpoints=prune_to_endpoints,
         ),
     )
 
@@ -2459,14 +2463,18 @@ def _lower_match_clause_with_alias_equalities(
     where_out: List[WhereComparison] = []
     seen_alias_kinds: Dict[str, Literal["node", "edge"]] = {}
     seen_alias_ops: Dict[str, ASTObject] = {}
-    pattern = _normalized_match_pattern(clause)
+    pattern = list(_normalized_match_pattern(clause))
     existing_aliases: Set[str] = {
         cast(str, element.variable)
         for element in pattern
         if getattr(element, "variable", None) is not None
     }
 
-    for element in pattern:
+    # Pre-compute last relationship index for prune_to_endpoints
+    rel_indices = [i for i, el in enumerate(pattern) if isinstance(el, RelationshipPattern)]
+    last_rel_idx = rel_indices[-1] if rel_indices else -1
+
+    for idx, element in enumerate(pattern):
         if isinstance(element, NodePattern):
             alias = element.variable
             if alias is None or alias not in seen_alias_kinds:
@@ -2516,7 +2524,12 @@ def _lower_match_clause_with_alias_equalities(
             )
         if alias is not None:
             seen_alias_kinds[alias] = "edge"
-        lowered_edge = _lower_relationship(element, params=params)
+        is_varlen = _is_variable_length_relationship_pattern(element)
+        lowered_edge = _lower_relationship(
+            element,
+            params=params,
+            prune_to_endpoints=is_varlen and idx < last_rel_idx,
+        )
         if alias is not None:
             seen_alias_ops[alias] = lowered_edge
         out.append(lowered_edge)
@@ -4873,11 +4886,25 @@ def lower_match_clause(
     params: Optional[Mapping[str, Any]] = None,
 ) -> List[ASTObject]:
     out: List[ASTObject] = []
-    for element in _normalized_match_pattern(clause):
+    elements = list(_normalized_match_pattern(clause))
+    relationships = [
+        (i, el) for i, el in enumerate(elements) if isinstance(el, RelationshipPattern)
+    ]
+    last_rel_idx = relationships[-1][0] if relationships else -1
+    for i, element in enumerate(elements):
         if isinstance(element, NodePattern):
             out.append(_lower_node(element, params=params))
         else:
-            out.append(_lower_relationship(element, params=params))
+            # Prune intermediate graph after variable-length hops that are
+            # not the last relationship in a connected pattern, so the next
+            # hop only expands from the wavefront endpoints.
+            is_varlen = _is_variable_length_relationship_pattern(element)
+            is_nonterminal = i < last_rel_idx
+            out.append(_lower_relationship(
+                element,
+                params=params,
+                prune_to_endpoints=is_varlen and is_nonterminal,
+            ))
     return out
 
 
@@ -4984,55 +5011,13 @@ def _reject_unsupported_variable_length_where_pattern_predicates(query: CypherQu
             )
 
 
-def _reject_nonterminal_variable_length_relationship_patterns(query: CypherQuery) -> None:
-    def _check_clause(clause: MatchClause) -> None:
-        relationship_patterns = [
-            pattern
-            for pattern in clause.patterns
-            if any(isinstance(element, RelationshipPattern) for element in pattern)
-        ]
-        if not relationship_patterns:
-            return
+def _reject_nonterminal_variable_length_relationship_patterns(query: CypherQuery) -> None:  # noqa: ARG001
+    """No-op: variable-length rels in connected patterns are now supported.
 
-        for pattern in relationship_patterns:
-            relationship_count = sum(
-                1 for element in pattern if isinstance(element, RelationshipPattern)
-            )
-            if relationship_count <= 1:
-                continue
-            for element in pattern:
-                if (
-                    isinstance(element, RelationshipPattern)
-                    and _is_variable_length_relationship_pattern(element)
-                ):
-                    raise _unsupported(
-                        "Cypher variable-length relationships are currently only supported as the only relationship in a connected pattern",
-                        field="match",
-                        value=relationship_count,
-                        line=element.span.line,
-                        column=element.span.column,
-                    )
-
-        if len(relationship_patterns) <= 1:
-            return
-        for pattern in relationship_patterns:
-            for element in pattern:
-                if (
-                    isinstance(element, RelationshipPattern)
-                    and _is_variable_length_relationship_pattern(element)
-                ):
-                    raise _unsupported(
-                        "Cypher variable-length relationships are currently only supported as the only relationship in a connected pattern",
-                        field="match",
-                        value=len(relationship_patterns),
-                        line=element.span.line,
-                        column=element.span.column,
-                    )
-
-    for clause in query.matches:
-        _check_clause(clause)
-    for clause in query.reentry_matches:
-        _check_clause(clause)
+    The lowering sets ``prune_to_endpoints=True`` on non-terminal
+    variable-length edges so the next hop starts from the correct
+    wavefront endpoints only.  See #1001 for reentry-match follow-up.
+    """
 
 
 def _variable_length_relationship_aliases(

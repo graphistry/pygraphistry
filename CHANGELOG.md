@@ -8,10 +8,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **GFQL / Cypher**: Support variable-length relationships in connected multi-relationship patterns. `MATCH (a)-[:R*2]->()-[:R]->(c) RETURN c` now works — variable-length hops at any position (start, middle, end) are supported with exact, range, and open-range forms (#973).
+
+### Infra
+- **CI**: Bump `test-minimal-python` timeout from 8 to 12 minutes (Python 3.14 suite exceeds 8 minutes on hosted runners).
+
 ## [0.53.11 - 2026-03-31]
 
 ### Fixed
-- **GFQL / Cypher**: Added direct local Cypher support for the narrow graph-backed `MATCH ... WITH collect([DISTINCT] alias) AS list UNWIND list AS alias MATCH ... RETURN` reentry shape, moving those queries past the earlier parser rejection while preserving explicit fail-fast behavior for older unsupported multi-alias row-scope cases.
+- **GFQL / Cypher**: Added direct local Cypher support for the narrow graph-backed `MATCH ... With collect([DISTINCT] alias) AS list UNWIND list AS alias MATCH ... RETURN` reentry shape, moving those queries past the earlier parser rejection while preserving explicit fail-fast behavior for older unsupported multi-alias row-scope cases.
 
 ## [0.53.10 - 2026-03-31]
 
