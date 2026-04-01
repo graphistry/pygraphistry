@@ -527,10 +527,12 @@ def _inject_binding_ops_if_needed(
         return suffix
     if first_suffix.function != "rows":
         return suffix
-    # Don't override if binding_ops or source already provided
+    # Don't override if binding_ops, source, or alias_endpoints already provided
     if first_suffix.params.get("binding_ops") is not None:
         return suffix
     if first_suffix.params.get("source") is not None:
+        return suffix
+    if first_suffix.params.get("alias_endpoints") is not None:
         return suffix
 
     # Serialize middle ops as binding_ops

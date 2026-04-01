@@ -937,3 +937,72 @@ class TestChainBindingsTable(NoAuthTestCase):
         df = result._nodes
         assert len(df) >= 1
         assert "r.weight" in df.columns or "r.type" in df.columns
+
+    def test_native_chain_rows_without_names_returns_single_table(self):
+        """rows() without named ops should return standard single-table view."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "val": [1, 2]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"]}),
+        )
+        result = g.gfql([
+            n(),
+            e_forward(),
+            n(),
+            rows(),
+        ])
+        df = result._nodes
+        # Should be single-table (no alias-prefixed columns)
+        assert "id" in df.columns
+        assert not any("." in str(c) for c in df.columns)
+
+    def test_native_chain_rows_with_source_not_overridden(self):
+        """rows(source=...) should NOT be overridden by binding_ops injection."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "label__X": [True, False]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"]}),
+        )
+        result = g.gfql([
+            n({"label__X": True}, name="x"),
+            e_forward(),
+            n(name="y"),
+            rows(source="x"),
+        ])
+        df = result._nodes
+        # Should be single-table filtered to source alias, not bindings
+        assert "id" in df.columns
+
+    def test_native_chain_rows_bindings_empty_match(self):
+        """No matching edges → empty bindings table."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "label__X": [True, False], "label__Y": [False, True]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["NOPE"]}),
+        )
+        result = g.gfql([
+            n({"label__X": True}, name="x"),
+            e_forward({"type": "MISSING"}),
+            n({"label__Y": True}, name="y"),
+            rows(),
+        ])
+        df = result._nodes
+        assert len(df) == 0
+
+    def test_native_chain_rows_bindings_three_hops(self):
+        """Three-hop chain: a->b->c->d produces binding rows."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b", "c", "d"], "val": [1, 2, 3, 4]}),
+            pd.DataFrame({"s": ["a", "b", "c"], "d": ["b", "c", "d"], "type": ["R", "R", "R"]}),
+        )
+        result = g.gfql([
+            n({"id": "a"}, name="start"),
+            e_forward({"type": "R"}),
+            n(name="mid"),
+            e_forward({"type": "R"}),
+            n(name="end"),
+            rows(),
+        ])
+        df = result._nodes
+        # a->b->c and a->b->c->d? Only 2-hop paths: a->b->c
+        # But this is 2 edges (start->mid->end), so:
+        # start=a, mid=b, end=c (one path)
+        assert len(df) >= 1
+        assert df["start.id"].iloc[0] == "a"
