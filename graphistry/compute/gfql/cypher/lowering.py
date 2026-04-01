@@ -2653,6 +2653,45 @@ def _serialize_binding_ops(ops: Sequence[ASTObject]) -> List[Dict[str, Any]]:
     return binding_ops
 
 
+def _build_alias_endpoints(
+    ops: Sequence[ASTObject],
+    alias_targets: Mapping[str, ASTObject],
+) -> Dict[str, str]:
+    """Map node alias names to edge endpoint roles.
+
+    Walks the lowered chain ops and assigns each named node alias to:
+    - ``"src"`` (before the first edge)
+    - ``"dst"`` (after a directed forward edge)
+    - ``"undirected_peer"`` (after an undirected edge — peer of src)
+    - ``"edge"`` (edge alias)
+
+    Only node aliases that appear in *alias_targets* are included.
+    """
+    endpoints: Dict[str, str] = {}
+    seen_edge = False
+    last_edge_undirected = False
+    for op in ops:
+        if isinstance(op, ASTEdge):
+            seen_edge = True
+            last_edge_undirected = getattr(op, "direction", "forward") == "undirected"
+            alias = getattr(op, "_name", None)
+            if alias is not None and alias in alias_targets:
+                endpoints[alias] = "edge"
+            continue
+        alias = getattr(op, "_name", None)
+        if alias is None or alias not in alias_targets:
+            continue
+        if isinstance(op, ASTNode):
+            if not seen_edge:
+                endpoints[alias] = "src"
+            elif last_edge_undirected:
+                endpoints[alias] = "undirected_peer"
+            else:
+                endpoints[alias] = "dst"
+    return endpoints
+
+
+
 def _alias_target(ops: Sequence[ASTObject]) -> Dict[str, ASTObject]:
     targets: Dict[str, ASTObject] = {}
     for op in ops:
