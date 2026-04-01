@@ -6174,6 +6174,58 @@ def test_multi_alias_return_with_edge_alias_property() -> None:
     assert records[0]["name"] == "Bob"
 
 
+def test_multi_alias_undirected_incoming_edge_returns_peer_not_seed() -> None:
+    """#994: undirected MATCH with incoming edge must return peer, not seed."""
+    g = _mk_graph(
+        pd.DataFrame({"id": [1, 2], "label__Person": [True, True], "firstName": ["Alice", "Bob"]}),
+        pd.DataFrame({"s": [2], "d": [1], "type": ["KNOWS"], "creationDate": [10]}),
+    )
+    result = g.gfql(
+        "MATCH (n:Person {id: $pid})-[r:KNOWS]-(friend) "
+        "RETURN friend.id AS fid, friend.firstName AS fname, r.creationDate AS cd",
+        params={"pid": 1},
+    )
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert len(records) == 1
+    assert records[0]["fid"] == 2
+    assert records[0]["fname"] == "Bob"
+    assert records[0]["cd"] == 10
+
+
+def test_multi_alias_undirected_outgoing_edge_returns_peer() -> None:
+    """#994 regression: outgoing edge should still return peer correctly."""
+    g = _mk_graph(
+        pd.DataFrame({"id": [1, 2], "label__Person": [True, True], "firstName": ["Alice", "Bob"]}),
+        pd.DataFrame({"s": [1], "d": [2], "type": ["KNOWS"], "creationDate": [10]}),
+    )
+    result = g.gfql(
+        "MATCH (n:Person {id: $pid})-[r:KNOWS]-(friend) "
+        "RETURN friend.id AS fid, friend.firstName AS fname, r.creationDate AS cd",
+        params={"pid": 1},
+    )
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert len(records) == 1
+    assert records[0]["fid"] == 2
+    assert records[0]["fname"] == "Bob"
+
+
+def test_multi_alias_undirected_bidirectional_edges() -> None:
+    """#994 adversarial: both incoming and outgoing edges to same peer."""
+    g = _mk_graph(
+        pd.DataFrame({"id": [1, 2], "label__Person": [True, True], "firstName": ["Alice", "Bob"]}),
+        pd.DataFrame({"s": [1, 2], "d": [2, 1], "type": ["KNOWS", "KNOWS"], "creationDate": [10, 20]}),
+    )
+    result = g.gfql(
+        "MATCH (n:Person {id: $pid})-[r:KNOWS]-(friend) "
+        "RETURN friend.id AS fid, r.creationDate AS cd "
+        "ORDER BY cd",
+        params={"pid": 1},
+    )
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert len(records) == 2
+    assert all(r["fid"] == 2 for r in records), f"Both rows should reference Bob, got {records}"
+
+
 def test_multi_alias_return_star_graph() -> None:
     """Star graph: 1 hub -> 3 leaves produces 3 binding rows."""
     g = _mk_graph(
