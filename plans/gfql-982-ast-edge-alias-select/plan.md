@@ -12,16 +12,24 @@ description: Native GFQL rows/select edge-alias property projection after traver
 
 ## Status
 
-**VERIFIED ON CURRENT MASTER; REGRESSION COVERAGE ADDED**
+**VERIFIED ON CURRENT MASTER; AMPLIFICATION PASS COMPLETE**
 
 Known current state from the issue and recent #880 work:
 - Direct Cypher multi-alias projection already supports edge alias properties via bindings rows
 - The exact #982 native GFQL repro now succeeds on latest `origin/master` and returns `friendshipCreationDate=123`
 - #880 landed the native chain `rows(binding_ops=...)` injection path, which appears to have closed the runtime gap described in #982
-- The remaining branch work is closeout only: the exact undirected traversal shape is now locked into regression coverage
+- The remaining branch work is closeout only: the exact undirected traversal shape and adjacent native bindings-table cases are now locked into regression coverage
+- Added native regressions for:
+  - reverse edge-alias projection
+  - missing edge-alias properties yielding `null`
+  - duplicate parallel edges preserving distinct binding rows
+  - undirected self-loop duplication semantics
+  - direct `rows(binding_ops=...)` parity and named-multihop rejection
 - Local verification on April 1, 2026:
   - `python3.12 -B -m pytest -q graphistry/tests/test_compute_chain.py -k "ChainBindingsTable and (undirected_edge_alias_projection or edge_alias or missing_column or reverse_edge)"` -> `6 passed, 49 deselected`
   - `python3.12 -B -m pytest -q graphistry/tests/compute/gfql/cypher/test_lowering.py -k "multi_alias_undirected_incoming_edge_returns_peer_not_seed or multi_alias_undirected_outgoing_edge_returns_peer or multi_alias_return_with_edge_alias_property"` -> `3 passed, 547 deselected`
+  - `python3.12 -B -m pytest -q graphistry/tests/test_compute_chain.py -k "ChainBindingsTable and (undirected_edge_alias_projection or reverse_edge_alias_projection or missing_edge_property_returns_null or parallel_edges_preserve_distinct_rows or undirected_self_loop_duplicates_both_directions or direct_rows_binding_ops_supports_undirected_edge_alias_projection or direct_rows_binding_ops_rejects_named_multihop_edge_alias or edge_alias or missing_column or reverse_edge)"` -> `12 passed, 49 deselected`
+  - `python3.12 -B -m pytest -q graphistry/tests/compute/gfql/cypher/test_lowering.py -k "multi_alias_return_with_edge_alias_property or multi_alias_undirected_incoming_edge_returns_peer_not_seed or multi_alias_undirected_outgoing_edge_returns_peer or multi_alias_undirected_bidirectional_edges or multi_alias_undirected_multiple_edges_same_nodes or multi_alias_undirected_self_loop or test_string_cypher_failfast_rejects_unsupported_multihop_row_bindings"` -> `10 passed, 540 deselected`
 
 ## Problem statement
 
