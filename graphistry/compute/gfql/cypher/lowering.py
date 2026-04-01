@@ -3123,12 +3123,13 @@ def _build_projection_plan(
         available_columns.add(output_name)
         if simple_ref and prop is not None:
             projected_property_outputs.setdefault(prop, output_name)
-            output_to_source_property[output_name] = prop
+            source_property_name = prop if alias_name == source_alias else f"{alias_name}.{prop}"
+            output_to_source_property[output_name] = source_property_name
             projection_columns.append(
                 ResultProjectionColumn(
                     output_name=output_name,
                     kind="property",
-                    source_name=prop,
+                    source_name=source_property_name,
                 )
             )
         else:
@@ -3174,6 +3175,31 @@ def _build_projection_plan(
         output_to_expr_source=output_to_expr_source,
         all_source_aliases=all_source_aliases,
     )
+
+
+def _can_lower_multi_alias_projection_bindings(
+    plan: _ProjectionPlan,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+) -> bool:
+    all_refs = (plan.all_source_aliases or set()) | {plan.source_alias}
+    all_are_edges = all(isinstance(alias_targets.get(alias_name), ASTEdge) for alias_name in all_refs)
+    has_non_scalar = bool(plan.whole_row_output_names) or bool(plan.output_to_expr_source)
+    if not has_non_scalar:
+        return not all_are_edges
+    if len(plan.whole_row_output_names) != 1:
+        return False
+    if isinstance(alias_targets.get(plan.source_alias), ASTEdge):
+        return False
+    simple_qualified_ref = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$")
+    for source_name in plan.output_to_expr_source.values():
+        match = simple_qualified_ref.fullmatch(source_name)
+        if match is None:
+            return False
+        alias_name = source_name.split(".", 1)[0]
+        if isinstance(alias_targets.get(alias_name), ASTEdge):
+            return False
+    return True
 
 
 def _result_projection_plan(
@@ -3640,11 +3666,7 @@ def _lower_projection_chain(
             params=params,
         )
         if _multi_alias_exc is not None:
-            # Only allow bindings path for pure scalar node alias.prop projections
-            has_non_scalar = bool(plan.whole_row_output_names) or bool(plan.output_to_expr_source)
-            all_refs = (plan.all_source_aliases or set()) | {plan.source_alias}
-            all_are_edges = all(isinstance(alias_targets.get(a), ASTEdge) for a in all_refs)
-            if has_non_scalar or all_are_edges:
+            if not _can_lower_multi_alias_projection_bindings(plan, alias_targets=alias_targets):
                 raise _multi_alias_exc
 
     if plan.all_source_aliases is not None and len(lowered.query) > 3:
@@ -5912,11 +5934,59 @@ def _first_pattern_node_alias(clause: MatchClause) -> Optional[str]:
     return pattern[0].variable
 
 
-def _reentry_query_clone(query: CypherQuery, **overrides: Any) -> CypherQuery:
+def _attach_reentry_prefix_query(
+    compiled_query: CompiledCypherQuery,
+    prefix_query: CompiledCypherQuery,
+) -> CompiledCypherQuery:
+    if compiled_query.start_nodes_query is None:
+        return replace(compiled_query, start_nodes_query=prefix_query)
     return replace(
-        query, call=None, row_sequence=(), reentry_matches=(), reentry_where=None,
-        graph_bindings=(), use=None,
-        **overrides,
+        compiled_query,
+        start_nodes_query=_attach_reentry_prefix_query(compiled_query.start_nodes_query, prefix_query),
+    )
+
+
+def _rewrite_reentry_projection_clause(
+    clause: ReturnClause,
+    *,
+    rewrite_expr: Callable[[ExpressionText, str], ExpressionText],
+) -> ReturnClause:
+    return replace(
+        clause,
+        items=tuple(
+            replace(
+                item,
+                expression=rewritten_expr,
+                alias=item.alias or (item.expression.text if rewritten_expr.text != item.expression.text else None),
+            )
+            for item in clause.items
+            for rewritten_expr in (rewrite_expr(item.expression, clause.kind),)
+        ),
+    )
+
+
+def _rewrite_reentry_projection_stage(
+    stage: ProjectionStage,
+    *,
+    rewrite_expr: Callable[[ExpressionText, str], ExpressionText],
+) -> ProjectionStage:
+    rewritten_order_by = None
+    if stage.order_by is not None:
+        rewritten_order_by = replace(
+            stage.order_by,
+            items=tuple(
+                replace(
+                    item,
+                    expression=rewrite_expr(item.expression, "order_by"),
+                )
+                for item in stage.order_by.items
+            ),
+        )
+    return replace(
+        stage,
+        clause=_rewrite_reentry_projection_clause(stage.clause, rewrite_expr=rewrite_expr),
+        where=None if stage.where is None else rewrite_expr(stage.where, "where"),
+        order_by=rewritten_order_by,
     )
 
 
@@ -5980,9 +6050,9 @@ def _compile_bounded_reentry_query(
                 span=first_unwind.span,
             )
         query = rewritten_query
-    if len(query.with_stages) != 1 or len(query.reentry_matches) != 1:
+    if not query.reentry_matches or len(query.with_stages) != len(query.reentry_matches):
         raise _unsupported_at_span(
-            "Cypher MATCH after WITH is only supported for a single MATCH ... WITH ... MATCH ... RETURN shape in the local compiler",
+            "Cypher MATCH after WITH is only supported for alternating MATCH ... WITH ... MATCH ... [WITH ... MATCH ...] ... RETURN read shapes in the local compiler",
             field="match",
             value=len(query.reentry_matches),
             span=query.return_.span,
@@ -5996,8 +6066,14 @@ def _compile_bounded_reentry_query(
             value=prefix_stage.where.text,
             span=prefix_stage.span,
         )
-    prefix_query = _reentry_query_clone(
+    prefix_query = replace(
         query,
+        call=None,
+        row_sequence=(),
+        reentry_matches=(),
+        reentry_where=None,
+        graph_bindings=(),
+        use=None,
         with_stages=(),
         return_=replace(prefix_stage.clause, kind="return"),
         order_by=prefix_stage.order_by,
@@ -6055,6 +6131,8 @@ def _compile_bounded_reentry_query(
         )
 
     reentry_match = query.reentry_matches[0]
+    remaining_with_stages = query.with_stages[1:]
+    remaining_reentry_matches = query.reentry_matches[1:]
     first_alias = _first_pattern_node_alias(reentry_match)
     if first_alias is None or first_alias != reentry_alias:
         raise _unsupported_at_span(
@@ -6074,46 +6152,54 @@ def _compile_bounded_reentry_query(
             field=field,
         )
 
-    reentry_where = query.reentry_where
-    if reentry_where is not None and reentry_where.expr is not None and hidden_columns:
-        reentry_where = replace(
-            reentry_where,
-            expr=rewrite_expr(reentry_where.expr, "where"),
-        )
+    reentry_where = None
     reentry_return = query.return_
-    if hidden_columns:
-        reentry_return = replace(
-            query.return_,
-            items=tuple(
-                replace(
-                    item,
-                    expression=rewritten_expr,
-                    alias=item.alias or (item.expression.text if rewritten_expr.text != item.expression.text else None),
-                )
-                for item in query.return_.items
-                for rewritten_expr in (rewrite_expr(item.expression, query.return_.kind),)
-            ),
-        )
     reentry_order_by = query.order_by
-    if reentry_order_by is not None and hidden_columns:
-        reentry_order_by = replace(
-            reentry_order_by,
-            items=tuple(
-                replace(
-                    item,
-                    expression=rewrite_expr(item.expression, "order_by"),
-                )
-                for item in reentry_order_by.items
-            ),
+    rewritten_with_stages = remaining_with_stages
+    rewritten_reentry_where = query.reentry_where if remaining_reentry_matches else None
+    if hidden_columns:
+        rewritten_with_stages = tuple(
+            _rewrite_reentry_projection_stage(stage, rewrite_expr=rewrite_expr)
+            for stage in remaining_with_stages
         )
-    suffix_query = _reentry_query_clone(
+        if remaining_reentry_matches:
+            reentry_where = None
+        elif query.reentry_where is not None and query.reentry_where.expr is not None:
+            reentry_where = replace(
+                query.reentry_where,
+                expr=rewrite_expr(query.reentry_where.expr, "where"),
+            )
+        else:
+            reentry_where = query.reentry_where
+        if not remaining_reentry_matches:
+            reentry_return = _rewrite_reentry_projection_clause(query.return_, rewrite_expr=rewrite_expr)
+            if reentry_order_by is not None:
+                reentry_order_by = replace(
+                    reentry_order_by,
+                    items=tuple(
+                        replace(
+                            item,
+                            expression=rewrite_expr(item.expression, "order_by"),
+                        )
+                        for item in reentry_order_by.items
+                    ),
+                )
+    else:
+        reentry_where = None if remaining_reentry_matches else query.reentry_where
+    suffix_query = replace(
         query,
-        matches=query.reentry_matches,
+        call=None,
+        row_sequence=(),
+        graph_bindings=(),
+        use=None,
+        matches=(reentry_match,),
         where=reentry_where,
         unwinds=(),
-        with_stages=(),
+        with_stages=rewritten_with_stages,
         return_=reentry_return,
         order_by=reentry_order_by,
+        reentry_matches=remaining_reentry_matches,
+        reentry_where=rewritten_reentry_where,
     )
     suffix_compiled = compile_cypher_query(suffix_query, params=params)
     if not isinstance(suffix_compiled, CompiledCypherQuery):
@@ -6134,9 +6220,8 @@ def _compile_bounded_reentry_query(
             ),
         )
     return replace(
-        suffix_compiled,
+        _attach_reentry_prefix_query(suffix_compiled, prefix_compiled),
         result_projection=result_projection,
-        start_nodes_query=prefix_compiled,
     )
 
 
@@ -6442,10 +6527,7 @@ def compile_cypher_query(
                 params=params,
             )
             if _multi_alias_exc2 is not None:
-                has_non_scalar = bool(plan.whole_row_output_names) or bool(plan.output_to_expr_source)
-                all_refs = (plan.all_source_aliases or set()) | {plan.source_alias}
-                all_are_edges = all(isinstance(alias_targets.get(a), ASTEdge) for a in all_refs)
-                if has_non_scalar or all_are_edges:
+                if not _can_lower_multi_alias_projection_bindings(plan, alias_targets=alias_targets):
                     raise _multi_alias_exc2
             seed_alias = _single_node_seed_alias(query.matches[0]) if len(query.matches) == 2 else None
             if (

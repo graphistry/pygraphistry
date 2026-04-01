@@ -458,6 +458,49 @@ def _execute_compiled_query(
     return result
 
 
+def _execute_compiled_query_with_reentry(
+    base_graph: Plottable,
+    *,
+    compiled_query: Union[CompiledCypherQuery, CompiledCypherUnionQuery],
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+) -> Plottable:
+    if isinstance(compiled_query, CompiledCypherUnionQuery):
+        return _execute_compiled_query(
+            base_graph,
+            compiled_query=compiled_query,
+            engine=engine,
+            policy=policy,
+            context=context,
+        )
+
+    compiled_base_graph = base_graph
+    start_nodes = None
+    if compiled_query.start_nodes_query is not None:
+        prefix_result = _execute_compiled_query_with_reentry(
+            base_graph,
+            compiled_query=compiled_query.start_nodes_query,
+            engine=engine,
+            policy=policy,
+            context=context,
+        )
+        compiled_base_graph, start_nodes = _compiled_query_reentry_state(
+            base_graph,
+            compiled_query,
+            prefix_result,
+            engine=engine,
+        )
+    return _execute_compiled_query(
+        compiled_base_graph,
+        compiled_query=compiled_query,
+        engine=engine,
+        policy=policy,
+        context=context,
+        start_nodes=start_nodes,
+    )
+
+
 def _compiled_query_reentry_state(
     base_graph: Plottable,
     compiled_query: CompiledCypherQuery,
@@ -1027,29 +1070,12 @@ def gfql(self: Plottable,
                         raise ValueError("where provided for Chain that already includes where")
                     query = Chain(query.chain, where=where_param)
                 if compiled_query is not None:
-                    compiled_base_graph = self
-                    start_nodes = None
-                    if compiled_query.start_nodes_query is not None:
-                        prefix_result = _execute_compiled_query(
-                            self,
-                            compiled_query=compiled_query.start_nodes_query,
-                            engine=engine,
-                            policy=expanded_policy,
-                            context=context,
-                        )
-                        compiled_base_graph, start_nodes = _compiled_query_reentry_state(
-                            self,
-                            compiled_query,
-                            prefix_result,
-                            engine=engine,
-                        )
-                    return _execute_compiled_query(
-                        compiled_base_graph,
+                    return _execute_compiled_query_with_reentry(
+                        self,
                         compiled_query=compiled_query,
                         engine=engine,
                         policy=expanded_policy,
                         context=context,
-                        start_nodes=start_nodes,
                     )
                 return _chain_dispatch(dispatch_self, query, engine, expanded_policy, context)
             elif isinstance(query, ASTObject):

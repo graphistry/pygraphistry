@@ -1322,6 +1322,12 @@ def _build_transformer(source: str) -> _TransformerLike:
                         )
                     use_clause_node = item
                 elif isinstance(item, MatchClause):
+                    if reentry_where_clause is not None:
+                        raise _to_syntax_error(
+                            "Cypher MATCH after post-WITH WHERE is not yet supported in the current GFQL Cypher compiler",
+                            line=item.span.line,
+                            column=item.span.column,
+                        )
                     if seen_stage:
                         reentry_match_clauses.append(item)
                     else:
@@ -1375,7 +1381,13 @@ def _build_transformer(source: str) -> _TransformerLike:
                             line=item.span.line,
                             column=item.span.column,
                         )
-                    if reentry_match_clauses and item.clause.kind != "return":
+                    if reentry_where_clause is not None and item.clause.kind != "return":
+                        raise _to_syntax_error(
+                            "Cypher WITH after post-WITH MATCH WHERE is not yet supported in the current GFQL Cypher compiler",
+                            line=item.span.line,
+                            column=item.span.column,
+                        )
+                    if reentry_match_clauses and item.clause.kind != "return" and item.clause.kind != "with":
                         raise _to_syntax_error(
                             "Cypher WITH after post-WITH MATCH is not yet supported in the current GFQL Cypher compiler",
                             line=item.span.line,
@@ -1404,10 +1416,15 @@ def _build_transformer(source: str) -> _TransformerLike:
                 elif idx != len(stages) - 1:
                     with_stages.append(stage)
             if reentry_match_clauses:
-                if len(stages) != 2 or stages[0].clause.kind != "with" or stages[-1].clause.kind != "return":
+                if (
+                    stages[0].clause.kind != "with"
+                    or stages[-1].clause.kind != "return"
+                    or any(stage.clause.kind != "with" for stage in stages[:-1])
+                    or len(with_stages) != len(reentry_match_clauses)
+                ):
                     first_match = reentry_match_clauses[0]
                     raise _to_syntax_error(
-                        "Cypher MATCH after WITH is only supported for a single MATCH ... WITH ... MATCH ... RETURN shape in the current GFQL Cypher compiler",
+                        "Cypher MATCH after WITH is only supported for alternating MATCH ... WITH ... MATCH ... [WITH ... MATCH ...] ... RETURN read shapes in the current GFQL Cypher compiler",
                         line=first_match.span.line,
                         column=first_match.span.column,
                     )

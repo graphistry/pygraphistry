@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **GFQL / Cypher**: Support bounded alternating multi-stage reentry read shapes in direct local Cypher, including `MATCH ... WITH ... MATCH ... WITH ... MATCH ... RETURN` for connected vectorized pipelines, plus nested reentry runtime composition and bindings-backed whole-row/scalar projection handling needed by this shape (#999).
+
 ## [0.53.13 - 2026-04-01]
 
 ### Added
