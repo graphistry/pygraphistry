@@ -854,6 +854,24 @@ class TestChainBindingsTable(NoAuthTestCase):
     def _mk_graph(self, nodes_df, edges_df):
         return CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
 
+    def _rows_df(self, g, match_ops, items=None):
+        steps = [*match_ops, rows()]
+        if items is not None:
+            steps.append(select(items))
+        return g.gfql(steps)._nodes
+
+    def _rows_records(self, g, match_ops, items=None, sort_by=None):
+        df = self._rows_df(g, match_ops, items=items)
+        if sort_by is not None:
+            df = df.sort_values(sort_by)
+        return df.to_dict(orient="records")
+
+    def _binding_rows_records(self, g, binding_ops, items, sort_by=None):
+        df = g.gfql([rows(binding_ops=binding_ops), select(items)])._nodes
+        if sort_by is not None:
+            df = df.sort_values(sort_by)
+        return df.to_dict(orient="records")
+
     def test_native_chain_rows_bindings_basic(self):
         """Basic: n(a)->e->n(b) with rows() should produce alias-prefixed columns."""
         g = self._mk_graph(
@@ -879,14 +897,15 @@ class TestChainBindingsTable(NoAuthTestCase):
             pd.DataFrame({"id": ["a", "b"], "label__X": [True, False], "label__Y": [False, True], "val": [1, 2]}),
             pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
         )
-        result = g.gfql([
-            n({"label__X": True}, name="x"),
-            e_forward({"type": "R"}),
-            n({"label__Y": True}, name="y"),
-            rows(),
-            select([("x_val", "x.val"), ("y_val", "y.val")]),
-        ])
-        records = result._nodes.to_dict(orient="records")
+        records = self._rows_records(
+            g,
+            [
+                n({"label__X": True}, name="x"),
+                e_forward({"type": "R"}),
+                n({"label__Y": True}, name="y"),
+            ],
+            items=[("x_val", "x.val"), ("y_val", "y.val")],
+        )
         assert len(records) == 1
         assert records[0]["x_val"] == 1
         assert records[0]["y_val"] == 2
@@ -937,18 +956,20 @@ class TestChainBindingsTable(NoAuthTestCase):
             ),
             pd.DataFrame({"s": ["b"], "d": ["a"], "type": ["KNOWS"], "creationDate": [123]}),
         )
-        result = g.gfql([
-            n({"id": "a", "label__Person": True}, name="n"),
-            e_undirected({"type": "KNOWS"}, name="r"),
-            n({"label__Person": True}, name="friend"),
-            rows(),
-            select([
+        records = self._rows_records(
+            g,
+            [
+                n({"id": "a", "label__Person": True}, name="n"),
+                e_undirected({"type": "KNOWS"}, name="r"),
+                n({"label__Person": True}, name="friend"),
+            ],
+            items=[
                 ("personId", "friend.id"),
                 ("firstName", "friend.firstName"),
                 ("friendshipCreationDate", "r.creationDate"),
-            ]),
-        ])
-        assert result._nodes.to_dict(orient="records") == [
+            ],
+        )
+        assert records == [
             {
                 "personId": "b",
                 "firstName": "Bob",
@@ -1151,14 +1172,11 @@ class TestChainBindingsTable(NoAuthTestCase):
             pd.DataFrame({"id": ["a", "b"], "label__X": [True, True]}),
             pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"], "weight": [42]}),
         )
-        result = g.gfql([
-            n(name="x"),
-            e_forward({"type": "R"}, name="r"),
-            n(name="y"),
-            rows(),
-            select([("w", "r.weight"), ("xid", "x.id"), ("yid", "y.id")]),
-        ])
-        records = result._nodes.to_dict(orient="records")
+        records = self._rows_records(
+            g,
+            [n(name="x"), e_forward({"type": "R"}, name="r"), n(name="y")],
+            items=[("w", "r.weight"), ("xid", "x.id"), ("yid", "y.id")],
+        )
         assert len(records) == 1
         assert records[0]["w"] == 42
         assert records[0]["xid"] == "a"
@@ -1170,14 +1188,12 @@ class TestChainBindingsTable(NoAuthTestCase):
             pd.DataFrame({"id": ["a", "b"], "label__X": [True, True]}),
             pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"], "creationDate": [77]}),
         )
-        result = g.gfql([
-            n({"id": "b"}, name="dst"),
-            e_reverse({"type": "R"}, name="r"),
-            n(name="src"),
-            rows(),
-            select([("srcId", "src.id"), ("dstId", "dst.id"), ("created", "r.creationDate")]),
-        ])
-        assert result._nodes.to_dict(orient="records") == [
+        records = self._rows_records(
+            g,
+            [n({"id": "b"}, name="dst"), e_reverse({"type": "R"}, name="r"), n(name="src")],
+            items=[("srcId", "src.id"), ("dstId", "dst.id"), ("created", "r.creationDate")],
+        )
+        assert records == [
             {"srcId": "a", "dstId": "b", "created": 77}
         ]
 
@@ -1187,14 +1203,11 @@ class TestChainBindingsTable(NoAuthTestCase):
             pd.DataFrame({"id": ["a", "b"]}),
             pd.DataFrame({"s": ["a"], "d": ["b"]}),
         )
-        result = g.gfql([
-            n(name="x"),
-            e_forward(),
-            n(name="y"),
-            rows(),
-            select([("xid", "x.id"), ("missing", "x.nonexistent")]),
-        ])
-        records = result._nodes.to_dict(orient="records")
+        records = self._rows_records(
+            g,
+            [n(name="x"), e_forward(), n(name="y")],
+            items=[("xid", "x.id"), ("missing", "x.nonexistent")],
+        )
         assert len(records) == 1
         assert records[0]["xid"] == "a"
         assert records[0]["missing"] is None or pd.isna(records[0]["missing"])
@@ -1205,14 +1218,11 @@ class TestChainBindingsTable(NoAuthTestCase):
             pd.DataFrame({"id": ["a", "b"]}),
             pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
         )
-        result = g.gfql([
-            n({"id": "a"}, name="x"),
-            e_forward({"type": "R"}, name="r"),
-            n(name="y"),
-            rows(),
-            select([("xid", "x.id"), ("missing", "r.nonexistent")]),
-        ])
-        records = result._nodes.to_dict(orient="records")
+        records = self._rows_records(
+            g,
+            [n({"id": "a"}, name="x"), e_forward({"type": "R"}, name="r"), n(name="y")],
+            items=[("xid", "x.id"), ("missing", "r.nonexistent")],
+        )
         assert len(records) == 1
         assert records[0]["xid"] == "a"
         assert records[0]["missing"] is None or pd.isna(records[0]["missing"])
@@ -1225,14 +1235,12 @@ class TestChainBindingsTable(NoAuthTestCase):
                 {"s": ["a", "a"], "d": ["b", "b"], "type": ["R", "R"], "weight": [10, 20]}
             ),
         )
-        result = g.gfql([
-            n({"id": "a"}, name="x"),
-            e_forward({"type": "R"}, name="r"),
-            n({"id": "b"}, name="y"),
-            rows(),
-            select([("w", "r.weight"), ("xid", "x.id"), ("yid", "y.id")]),
-        ])
-        records = result._nodes.sort_values("w").to_dict(orient="records")
+        records = self._rows_records(
+            g,
+            [n({"id": "a"}, name="x"), e_forward({"type": "R"}, name="r"), n({"id": "b"}, name="y")],
+            items=[("w", "r.weight"), ("xid", "x.id"), ("yid", "y.id")],
+            sort_by="w",
+        )
         assert records == [
             {"w": 10, "xid": "a", "yid": "b"},
             {"w": 20, "xid": "a", "yid": "b"},
@@ -1261,14 +1269,16 @@ class TestChainBindingsTable(NoAuthTestCase):
             pd.DataFrame({"id": ["a"], "label__Person": [True], "firstName": ["Alice"]}),
             pd.DataFrame({"s": ["a"], "d": ["a"], "type": ["KNOWS"], "weight": [7]}),
         )
-        result = g.gfql([
-            n({"id": "a", "label__Person": True}, name="seed"),
-            e_undirected({"type": "KNOWS"}, name="r"),
-            n({"label__Person": True}, name="friend"),
-            rows(),
-            select([("seedId", "seed.id"), ("friendId", "friend.id"), ("w", "r.weight")]),
-        ])
-        assert result._nodes.to_dict(orient="records") == [
+        records = self._rows_records(
+            g,
+            [
+                n({"id": "a", "label__Person": True}, name="seed"),
+                e_undirected({"type": "KNOWS"}, name="r"),
+                n({"label__Person": True}, name="friend"),
+            ],
+            items=[("seedId", "seed.id"), ("friendId", "friend.id"), ("w", "r.weight")],
+        )
+        assert records == [
             {"seedId": "a", "friendId": "a", "w": 7},
             {"seedId": "a", "friendId": "a", "w": 7},
         ]
@@ -1290,11 +1300,12 @@ class TestChainBindingsTable(NoAuthTestCase):
             e_undirected({"type": "KNOWS"}, name="r").to_json(validate=False),
             n({"label__Person": True}, name="friend").to_json(validate=False),
         ]
-        result = g.gfql([
-            rows(binding_ops=binding_ops),
-            select([("personId", "friend.id"), ("created", "r.creationDate")]),
-        ])
-        assert result._nodes.to_dict(orient="records") == [
+        records = self._binding_rows_records(
+            g,
+            binding_ops,
+            items=[("personId", "friend.id"), ("created", "r.creationDate")],
+        )
+        assert records == [
             {"personId": "b", "created": 123}
         ]
 
