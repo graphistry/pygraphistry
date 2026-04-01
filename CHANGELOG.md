@@ -7,7 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
-<!-- Intended next tag on release: 0.53.16 -->
+
+## [0.53.16 - 2026-04-01]
 
 ### Added
 - **GFQL / native chain**: Support connected multi-alias bindings-table materialization from native GFQL chains ending in bare `rows()`. Named traversal chains like `g.gfql([n(name="a"), e_forward(), n(name="b"), rows()])` now reuse connected `binding_ops` row materialization and expose alias-prefixed columns such as `a.id`, `b.id`, and edge alias properties (#880).
