@@ -1301,6 +1301,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             reentry_where_clause: Optional[WhereClause] = None
             call_clause: Optional[CallClause] = None
             unwind_clauses: List[UnwindClause] = []
+            staged_graph_unwind_span: Optional[SourceSpan] = None
             use_clause_node: Optional[UseClause] = None
             stages: List[ProjectionStage] = []
             ordered_row_items: List[Union[ProjectionStage, UnwindClause]] = []
@@ -1364,11 +1365,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                             column=item.span.column,
                         )
                     if match_clauses and seen_stage:
-                        raise _to_unsupported(
-                            "Cypher UNWIND after WITH/RETURN is not yet supported once MATCH has introduced graph aliases",
-                            line=item.span.line,
-                            column=item.span.column,
-                        )
+                        staged_graph_unwind_span = item.span
                     unwind_clauses.append(item)
                     ordered_row_items.append(item)
                 elif isinstance(item, ProjectionStage):
@@ -1414,6 +1411,12 @@ def _build_transformer(source: str) -> _TransformerLike:
                         line=first_match.span.line,
                         column=first_match.span.column,
                     )
+            elif staged_graph_unwind_span is not None:
+                raise _to_unsupported(
+                    "Cypher UNWIND after WITH/RETURN is not yet supported once MATCH has introduced graph aliases",
+                    line=staged_graph_unwind_span.line,
+                    column=staged_graph_unwind_span.column,
+                )
             final_stage: Optional[ProjectionStage] = return_stage or (stages[-1] if stages else None)
             if where_clause is not None and not match_clauses:
                 raise _to_syntax_error(

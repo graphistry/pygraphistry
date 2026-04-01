@@ -383,6 +383,25 @@ def test_parse_match_after_with_reentry_shape() -> None:
     assert parsed.reentry_where is None
 
 
+def test_parse_match_with_unwind_then_reentry_shape() -> None:
+    parsed = _parse_query(
+        "MATCH (root:S)-[:X]->(b1:B) "
+        "WITH collect(b1) AS bees "
+        "UNWIND bees AS b2 "
+        "MATCH (b2)-[:Y]->(c:C) "
+        "RETURN c"
+    )
+
+    assert len(parsed.matches) == 1
+    assert len(parsed.with_stages) == 1
+    assert parsed.with_stages[0].clause.items[0].expression.text == "collect(b1)"
+    assert len(parsed.unwinds) == 1
+    assert parsed.unwinds[0].expression.text == "bees"
+    assert parsed.unwinds[0].alias == "b2"
+    assert len(parsed.reentry_matches) == 1
+    assert parsed.reentry_where is None
+
+
 def test_parse_where_label_predicate() -> None:
     parsed = _parse_query("MATCH (a)-->(b) WHERE b:Foo:Bar RETURN b")
 

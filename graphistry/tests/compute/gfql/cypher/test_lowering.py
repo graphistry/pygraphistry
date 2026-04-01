@@ -2592,6 +2592,142 @@ def test_string_cypher_failfast_rejects_graph_backed_unwind_after_with_as_valida
     assert "UNWIND after WITH/RETURN" in exc_info.value.message
 
 
+def test_string_cypher_executes_graph_backed_unwind_after_with_into_post_with_match() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["s", "b1", "b2", "c1", "c2"],
+                "label__S": [True, False, False, False, False],
+                "label__B": [False, True, True, False, False],
+                "label__C": [False, False, False, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["s", "s", "b1", "b2"],
+                "d": ["b1", "b2", "c1", "c2"],
+                "type": ["X", "X", "Y", "Y"],
+            }
+        ),
+    )
+
+    _assert_query_rows(
+        "MATCH (root:S)-[:X]->(b1:B) "
+        "WITH collect(b1) AS bees "
+        "UNWIND bees AS b2 "
+        "MATCH (b2)-[:Y]->(c:C) "
+        "RETURN c.id AS id "
+        "ORDER BY id",
+        [{"id": "c1"}, {"id": "c2"}],
+        nodes_df=graph._nodes,
+        edges_df=graph._edges,
+    )
+
+
+def test_string_cypher_executes_graph_backed_distinct_unwind_after_with_into_post_with_match() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["s", "b1", "b2", "c1", "c2"],
+                "label__S": [True, False, False, False, False],
+                "label__B": [False, True, True, False, False],
+                "label__C": [False, False, False, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["s", "s", "s", "b1", "b2"],
+                "d": ["b1", "b1", "b2", "c1", "c2"],
+                "type": ["X", "X", "X", "Y", "Y"],
+            }
+        ),
+    )
+
+    _assert_query_rows(
+        "MATCH (root:S)-[:X]->(b1:B) "
+        "WITH collect(DISTINCT b1) AS bees "
+        "UNWIND bees AS b2 "
+        "MATCH (b2)-[:Y]->(c:C) "
+        "RETURN c.id AS id "
+        "ORDER BY id",
+        [{"id": "c1"}, {"id": "c2"}],
+        nodes_df=graph._nodes,
+        edges_df=graph._edges,
+    )
+
+
+def test_string_cypher_executes_graph_backed_unwind_after_with_into_post_with_match_on_cudf() -> None:
+    graph = _mk_cudf_graph(
+        pd.DataFrame(
+            {
+                "id": ["s", "b1", "b2", "c1", "c2"],
+                "label__S": [True, False, False, False, False],
+                "label__B": [False, True, True, False, False],
+                "label__C": [False, False, False, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["s", "s", "b1", "b2"],
+                "d": ["b1", "b2", "c1", "c2"],
+                "type": ["X", "X", "Y", "Y"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (root:S)-[:X]->(b1:B) "
+        "WITH collect(b1) AS bees "
+        "UNWIND bees AS b2 "
+        "MATCH (b2)-[:Y]->(c:C) "
+        "RETURN c.id AS id "
+        "ORDER BY id",
+        engine="cudf",
+    )
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"id": "c1"},
+        {"id": "c2"},
+    ]
+
+
+def test_string_cypher_with_unwind_reentry_progresses_past_parser_to_row_scope_boundary() -> None:
+    query = (
+        "MATCH (root:S)-[:X]->(friend:B) "
+        "WITH collect(friend) AS friends "
+        "UNWIND friends AS friend "
+        "MATCH (friend)-[:Y]->(foaf:C) "
+        "WHERE NOT friend = root "
+        "RETURN foaf"
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        compile_cypher(query)
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert "one MATCH source alias at a time" in exc_info.value.message
+
+
+def test_string_cypher_rejects_with_unwind_reentry_when_unwind_source_is_not_collected_alias() -> None:
+    query = (
+        "MATCH (root:S)-[:X]->(b1:B) "
+        "WITH collect(b1) AS bees "
+        "UNWIND other_bees AS b2 "
+        "MATCH (b2)-[:Y]->(c:C) "
+        "RETURN c"
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        compile_cypher(query)
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert (
+        "currently supports only a single WITH collect([distinct] alias) AS list "
+        "UNWIND list AS alias MATCH ... RETURN shape"
+    ) in exc_info.value.message
+
+
 def test_string_cypher_executes_exact_multihop_relationship_pattern() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c", "d", "e", "f"]}),
