@@ -21,7 +21,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / Cypher**: Pattern existence expressions (`not((a)-[:R]-(b))`, `exists { ... }`) now detected and raise a clear validation error instead of a generic syntax error (#998).
 
 ### Fixed
-- **GFQL / Cypher**: Fixed undirected MATCH returning the seed node instead of the peer when the stored edge is incoming (#994). The multi-alias bindings table now correctly detects which edge endpoint is the seed vs peer per-row for undirected patterns.
+- **GFQL / Cypher**: Fixed undirected MATCH returning the seed node instead of the peer when the stored edge is incoming (#994). The connected bindings row materializer now correctly orients undirected edges in both directions.
 
 ## [0.53.12 - 2026-04-01]
 
