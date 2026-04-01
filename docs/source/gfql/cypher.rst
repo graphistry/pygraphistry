@@ -206,10 +206,12 @@ Support Matrix
      - Execute directly through ``g.gfql("...")``. Helper translation to a single ``Chain`` is stricter.
    * - Variable-length relationship patterns
      - Partial
-     - Direct Cypher supports endpoint-only single variable-length relationship
-       traversals such as ``[*2]``, ``[*1..3]``, ``[*]``, and typed forms like
-       ``[:R*2..4]``. Path/list-carrier uses, bounded/exact ``WHERE`` pattern
-       predicates, and mixed connected patterns still fail fast.
+     - Direct Cypher supports endpoint-only traversals such as ``[*2]``,
+       ``[*1..3]``, ``[*]``, and typed forms like ``[:R*2..4]``, plus bounded
+       connected multi-relationship patterns where the row shape stays in the
+       current supported subset. Path/list-carrier uses, bounded/exact
+       ``WHERE`` pattern predicates, and broader branching/path-shaping cases
+       still fail fast.
    * - ``CREATE`` / ``DELETE`` / ``SET``
      - Not supported
      - GFQL's Cypher surface is read-only.
@@ -263,14 +265,16 @@ Variable-Length Relationship Boundary
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Direct Cypher multihop support is intentionally narrow in the current landing
-slice. The supported direct forms are endpoint traversals where the
-variable-length relationship is the only relationship in the connected pattern,
-for example:
+slice. The supported direct forms include endpoint traversals and bounded
+connected multi-relationship patterns where the result stays in the current
+row-shaping subset, for example:
 
 - ``MATCH (a)-[*2]->(b) RETURN b``
 - ``MATCH (a)-[:R*1..3]->(b) RETURN b``
 - ``MATCH (a)<-[*2]-(b) RETURN b``
 - ``MATCH (a)-[:R*1..2]-(b) RETURN b``
+- ``MATCH (a)-[:R*2]->(b)-[:S]->(c) RETURN c``
+- ``MATCH (a)-[:R]->(b), (b)-[:S*1..2]->(c) RETURN a.id AS a_id, c.id AS c_id``
 
 The current compiler explicitly rejects these remaining subfamilies with
 ``GFQLValidationError`` instead of attempting unsound execution:
@@ -282,8 +286,11 @@ The current compiler explicitly rejects these remaining subfamilies with
 - top-level ``OR`` / ``NOT`` around variable-length ``WHERE`` pattern
   predicates, or more than one positive pattern predicate in the same
   ``WHERE`` clause
-- connected patterns containing more than one relationship when any one of
-  them is variable-length
+- branching connected multihop patterns, or shapes that would require
+  unsupported path/relationship-carrier row shaping around a variable-length
+  segment
+- connected multi-pattern relationship-alias projection such as
+  ``RETURN r`` / ``r.prop`` when it would require unsupported row shaping
 - multi-alias ``RETURN *`` projections that would require unsupported
   path/multi-source row shaping
 
@@ -300,7 +307,11 @@ Row And Row-Pipeline Forms
   ``collect(DISTINCT ...)``, ``sum``, ``max``, and ``size(...)``.
 - Top-level ``UNWIND ... RETURN ...`` queries.
 - Mixed graph/row queries such as ``MATCH ... UNWIND ... RETURN ...``.
-- The bounded ``MATCH ... WITH ... MATCH ... RETURN`` re-entry shape.
+- Connected multi-alias scalar projection such as
+  ``MATCH (a)-[:R]->(b), (b)-[:S]->(c) RETURN a.id AS a_id, c.id AS c_id``.
+- The bounded ``MATCH ... WITH ... MATCH ... RETURN`` re-entry shape,
+  including connected suffix projections in the current supported row-binding
+  subset.
 
 Procedure And Multi-Branch Forms
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -391,7 +402,9 @@ Bounded / Partial Forms
   ``MATCH ... WITH collect([DISTINCT] alias) AS list UNWIND list AS alias MATCH ... RETURN``
   continuation shape, but not in arbitrary graph/row interleavings.
 - ``MATCH ... WITH ... MATCH ... RETURN`` is limited to the bounded single
-  re-entry shape and does not generalize to arbitrary re-entry plans.
+  re-entry shape. Connected suffix projections with whole-row and carried
+  scalar bindings are supported in the current subset, but this still does not
+  generalize to arbitrary re-entry plans.
 
 Not Supported Today
 ~~~~~~~~~~~~~~~~~~~
@@ -400,8 +413,8 @@ Not Supported Today
   ``RETURN r`` or ``count(r)``.
 - Exact or bounded variable-length ``WHERE`` pattern predicates such as
   ``WHERE (n)-[:R*2]-()``.
-- Connected patterns that mix a variable-length relationship with other
-  relationship segments in the same connected pattern.
+- Branching connected multihop patterns, or connected multihop shapes that
+  still require unsupported path/relationship-carrier row shaping.
 - Multiple disconnected ``MATCH`` patterns used as arbitrary joins.
 - Multi-pattern re-entry shapes beyond the bounded single
   ``MATCH ... WITH ... MATCH ... RETURN`` form.
