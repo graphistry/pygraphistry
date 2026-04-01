@@ -3013,8 +3013,9 @@ class RowPipelineMixin:
         if has_undirected and src_alias_name is not None and nodes is not None:
             # The src alias's boolean mask column tells us which node is the seed.
             # For each edge: seed_id = src if nodes[src].src_alias else dst
+            src_mask = nodes[src_alias_name] if src_alias_name in nodes.columns else False
             seed_on_src = bindings[src_col].isin(
-                nodes.loc[nodes.get(src_alias_name, False) == True, node_id]  # noqa: E712
+                nodes.loc[src_mask == True, node_id]  # noqa: E712
             )
             bindings["__seed_id__"] = bindings[src_col].where(seed_on_src, bindings[dst_col])
             bindings["__peer_id__"] = bindings[dst_col].where(seed_on_src, bindings[src_col])
