@@ -6225,6 +6225,19 @@ def test_multi_alias_return_with_edge_alias_property() -> None:
     assert records[0]["name"] == "Bob"
 
 
+def test_multi_alias_return_missing_property_yields_null() -> None:
+    """Missing alias-prefixed properties should project as null, not error."""
+    g = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"], "label__A": [True, False], "label__B": [False, True]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+    )
+    result = g.gfql("MATCH (a:A)-[:R]->(b:B) RETURN a.id AS a_id, a.nonexistent AS missing")
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert len(records) == 1
+    assert records[0]["a_id"] == "a"
+    assert records[0]["missing"] is None or pd.isna(records[0]["missing"])
+
+
 def test_multi_alias_undirected_incoming_edge_returns_peer_not_seed() -> None:
     """#994: undirected MATCH with incoming edge must return peer, not seed."""
     g = _mk_graph(

@@ -14,6 +14,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 - **GFQL / bindings rows**: Reject duplicate aliases both in legacy named-chain execution and in direct `rows(binding_ops=...)` execution instead of silently overwriting labels or producing corrupted duplicate-prefixed row output.
+- **GFQL / bindings rows**: Missing alias-prefixed properties on bindings tables now project as null in row expressions instead of failing with the generic `unsupported token in row expression` error. This aligns native-chain `rows() ... select()` behavior with the existing direct Cypher multi-alias projection path.
 
 ### Tests
 - **GFQL / bindings rows**: Added regression coverage for direct `binding_ops` duplicate aliases and for native-chain injection guards that must preserve explicit `rows(source=...)`, `rows(alias_endpoints=...)`, `rows(binding_ops=...)`, and non-traversal middle segments.

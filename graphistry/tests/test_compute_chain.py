@@ -1133,21 +1133,23 @@ class TestChainBindingsTable(NoAuthTestCase):
         assert records[0]["xid"] == "a"
         assert records[0]["yid"] == "b"
 
-    def test_native_chain_rows_select_missing_column_raises(self):
-        """select() with nonexistent alias.col should raise, not silently succeed."""
-        from graphistry.compute.exceptions import GFQLTypeError
+    def test_native_chain_rows_select_missing_column_returns_null(self):
+        """Missing alias-prefixed bindings columns should resolve to null, not error."""
         g = self._mk_graph(
             pd.DataFrame({"id": ["a", "b"]}),
             pd.DataFrame({"s": ["a"], "d": ["b"]}),
         )
-        with pytest.raises(GFQLTypeError):
-            g.gfql([
-                n(name="x"),
-                e_forward(),
-                n(name="y"),
-                rows(),
-                select([("xid", "x.id"), ("missing", "x.nonexistent")]),
-            ])
+        result = g.gfql([
+            n(name="x"),
+            e_forward(),
+            n(name="y"),
+            rows(),
+            select([("xid", "x.id"), ("missing", "x.nonexistent")]),
+        ])
+        records = result._nodes.to_dict(orient="records")
+        assert len(records) == 1
+        assert records[0]["xid"] == "a"
+        assert records[0]["missing"] is None or pd.isna(records[0]["missing"])
 
     def test_native_chain_rows_bindings_reverse_edge(self):
         """Reverse edge direction should still produce correct bindings."""

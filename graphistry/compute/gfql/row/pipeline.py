@@ -121,6 +121,11 @@ class RowPipelineMixin:
     _GFQL_ALIAS_PROP_RE = re.compile(r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\.(?P<prop>[A-Za-z_][A-Za-z0-9_]*)$")
 
     @staticmethod
+    def _gfql_has_bindings_alias_prefix(table_df: Any, alias: str) -> bool:
+        prefix = f"{alias}."
+        return any(isinstance(col, str) and col.startswith(prefix) for col in table_df.columns)
+
+    @staticmethod
     def _gfql_fresh_col_name(columns: Any, prefix: str) -> str:
         col = prefix
         while col in columns:
@@ -509,6 +514,11 @@ class RowPipelineMixin:
         if isinstance(node, PropertyAccessExpr):
             if isinstance(node.value, Identifier):
                 alias_name = node.value.name
+                if "." not in alias_name and RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, alias_name):
+                    binding_col = f"{alias_name}.{node.property}"
+                    if binding_col in table_df.columns:
+                        return True, table_df[binding_col]
+                    return True, self._gfql_broadcast_scalar(table_df, pd.NA)
                 has_bound_graph_table = (
                     (self._node is not None and self._node in table_df.columns)
                     or (self._edge is not None and self._edge in table_df.columns)
@@ -2194,6 +2204,8 @@ class RowPipelineMixin:
         if prop_match is not None:
             alias = prop_match.group("alias")
             prop = prop_match.group("prop")
+            if RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, alias):
+                return self._gfql_broadcast_scalar(table_df, pd.NA)
             if (
                 alias in table_df.columns
                 and hasattr(table_df[alias], "str")
