@@ -1569,6 +1569,7 @@ def rows(
     table: str = "nodes",
     source: Optional[str] = None,
     alias_endpoints: Optional[Dict[str, str]] = None,
+    binding_ops: Optional[List[Dict[str, Any]]] = None,
 ) -> ASTCall:
     """Create a row-source operation for GFQL row pipelines.
 
@@ -1576,14 +1577,20 @@ def rows(
     optionally constrained to a named alias/source tag.
 
     When *alias_endpoints* is provided, builds a bindings table by joining edges
-    with node properties for each alias.  Keys are alias names, values are
+    with node properties for each alias. Keys are alias names, values are
     ``"src"`` or ``"dst"`` indicating which edge endpoint maps to that alias.
+
+    When *binding_ops* is provided, builds a connected-path bindings table from
+    a serialized same-path node/edge chain. This is the preferred path for
+    direct Cypher scalar multi-alias projections.
     """
     params: Dict[str, Any] = {"table": table}
     if source is not None:
         params["source"] = source
     if alias_endpoints is not None:
         params["alias_endpoints"] = alias_endpoints
+    if binding_ops is not None:
+        params["binding_ops"] = binding_ops
     return ASTCall("rows", params)
 
 

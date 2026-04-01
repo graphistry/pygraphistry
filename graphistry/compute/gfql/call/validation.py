@@ -172,6 +172,10 @@ def is_where_rows_filter_dict(v: object) -> bool:
     return True
 
 
+def is_list_of_dicts(v: object) -> bool:
+    return isinstance(v, list) and all(isinstance(item, dict) for item in v)
+
+
 def is_where_rows_expr(v: object) -> bool:
     if not is_non_empty_string(v):
         return False
@@ -216,12 +220,13 @@ def _group_by_requires_node_cols(params: Dict[str, object]) -> List[str]:
 
 SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     'rows': _method_entry(
-        allowed_params={'table', 'source', 'alias_endpoints'},
+        allowed_params={'table', 'source', 'alias_endpoints', 'binding_ops'},
         required_params=set(),
         param_validators={
             'table': lambda v: v in ['nodes', 'edges'],
             'source': is_string_or_none,
             'alias_endpoints': lambda v: isinstance(v, dict),
+            'binding_ops': is_list_of_dicts,
         },
         description='Set active row table from nodes/edges, optionally filtered by source alias',
         schema_effects=_schema_effects(

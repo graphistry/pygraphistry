@@ -167,6 +167,125 @@ def _mk_connected_reentry_carried_scalar_graph_cudf() -> _CypherTestGraph:
     )
 
 
+def _mk_connected_multi_pattern_reentry_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b1", "b2", "c1", "c2", "d1", "d2"],
+                "label__A": [True, True, False, False, False, False, False, False],
+                "label__B": [False, False, True, True, False, False, False, False],
+                "label__C": [False, False, False, False, True, True, False, False],
+                "label__D": [False, False, False, False, False, False, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a1", "a2", "b1", "b2", "c1", "c2"],
+                "d": ["b1", "b2", "c1", "c2", "d1", "d2"],
+                "type": ["R", "R", "S", "S", "T", "T"],
+            }
+        ),
+    )
+
+
+def _mk_multi_alias_edge_projection_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b1", "b2"],
+                "label__A": [True, True, False, False],
+                "label__B": [False, False, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a1", "a2"],
+                "d": ["b1", "b2"],
+                "type": ["R", "R"],
+                "creationDate": [10, 20],
+            }
+        ),
+    )
+
+
+def _mk_recent_message_reentry_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["viewer", "author1", "post1", "post2", "comment1"],
+                "label__Person": [True, True, False, False, False],
+                "label__Message": [False, False, True, True, True],
+                "label__Post": [False, False, True, True, False],
+                "label__Comment": [False, False, False, False, True],
+                "creationDate": [None, None, 5, 20, 10],
+                "imageFile": [None, None, None, None, None],
+                "content": [None, None, "post1", "post2", "comment1"],
+                "firstName": ["View", "Ada", None, None, None],
+                "lastName": ["Er", "Lovelace", None, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["comment1", "post2", "post1", "comment1"],
+                "d": ["viewer", "viewer", "author1", "post1"],
+                "type": ["HAS_CREATOR", "HAS_CREATOR", "HAS_CREATOR", "REPLY_OF"],
+            }
+        ),
+    )
+
+
+def _mk_recent_message_reentry_graph_cudf() -> _CypherTestGraph:
+    return _mk_cudf_graph(
+        pd.DataFrame(
+            {
+                "id": ["viewer", "author1", "post1", "post2", "comment1"],
+                "label__Person": [True, True, False, False, False],
+                "label__Message": [False, False, True, True, True],
+                "label__Post": [False, False, True, True, False],
+                "label__Comment": [False, False, False, False, True],
+                "creationDate": [None, None, 5, 20, 10],
+                "imageFile": [None, None, None, None, None],
+                "content": [None, None, "post1", "post2", "comment1"],
+                "firstName": ["View", "Ada", None, None, None],
+                "lastName": ["Er", "Lovelace", None, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["comment1", "post2", "post1", "comment1"],
+                "d": ["viewer", "viewer", "author1", "post1"],
+                "type": ["HAS_CREATOR", "HAS_CREATOR", "HAS_CREATOR", "REPLY_OF"],
+            }
+        ),
+    )
+
+
+def _mk_recent_message_reentry_graph_branching() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["viewer", "author1", "author2", "post1", "post2", "comment1"],
+                "label__Person": [True, True, True, False, False, False],
+                "label__Message": [False, False, False, True, True, True],
+                "label__Post": [False, False, False, True, True, False],
+                "label__Comment": [False, False, False, False, False, True],
+                "creationDate": [None, None, None, 5, 6, 10],
+                "imageFile": [None, None, None, None, None, None],
+                "content": [None, None, None, "post1", "post2", "comment1"],
+                "firstName": ["View", "Ada", "Grace", None, None, None],
+                "lastName": ["Er", "Lovelace", "Hopper", None, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["comment1", "post1", "post2", "comment1", "comment1"],
+                "d": ["viewer", "author1", "author2", "post1", "post2"],
+                "type": ["HAS_CREATOR", "HAS_CREATOR", "HAS_CREATOR", "REPLY_OF", "REPLY_OF"],
+            }
+        ),
+    )
+
+
 def _compiled_reentry_projection_outputs(compiled: CompiledCypherQuery) -> Tuple[str, Tuple[str, ...]]:
     assert compiled.start_nodes_query is not None
     projection = compiled.start_nodes_query.result_projection
@@ -5482,6 +5601,119 @@ def test_string_cypher_executes_with_match_reentry_carried_scalars_from_connecte
 
     assert type(result._nodes).__module__.startswith("cudf")
     assert result._nodes.to_pandas().to_dict(orient="records") == [{"bid": "b1", "cid": "c1"}]
+
+
+def test_string_cypher_executes_plain_connected_multi_pattern_scalar_projection() -> None:
+    result = _mk_connected_multi_pattern_reentry_graph().gfql(
+        "MATCH (b:B)-[:S]->(c:C), (c)-[:T]->(d:D) RETURN c.id AS cid, d.id AS did ORDER BY cid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"cid": "c1", "did": "d1"},
+        {"cid": "c2", "did": "d2"},
+    ]
+
+
+def test_string_cypher_executes_plain_multi_alias_edge_scalar_projection() -> None:
+    result = _mk_multi_alias_edge_projection_graph().gfql(
+        "MATCH (a:A)-[r:R]->(b:B) RETURN a.id AS aid, r.creationDate AS created, b.id AS bid ORDER BY aid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"aid": "a1", "created": 10, "bid": "b1"},
+        {"aid": "a2", "created": 20, "bid": "b2"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_whole_row_into_connected_multi_pattern_shape() -> None:
+    result = _mk_connected_multi_pattern_reentry_graph().gfql(
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C), (c)-[:T]->(d:D) "
+        "RETURN d.id AS did",
+        params={"seed": "a1"},
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"did": "d1"}]
+
+
+def test_string_cypher_executes_with_match_reentry_carried_scalar_into_connected_multi_pattern_shape() -> None:
+    result = _mk_connected_multi_pattern_reentry_graph().gfql(
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C), (c)-[:T]->(d:D) "
+        "RETURN bid, d.id AS did",
+        params={"seed": "a1"},
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1", "did": "d1"}]
+
+
+def test_string_cypher_executes_recent_message_reentry_multihop_scalar_projection() -> None:
+    result = _mk_recent_message_reentry_graph().gfql(
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message) "
+        "WITH message, message.id AS messageId, message.creationDate AS messageCreationDate "
+        "ORDER BY messageCreationDate DESC, messageId ASC "
+        "LIMIT 10 "
+        "MATCH (message)-[:REPLY_OF*0..]->(post:Post), (post)-[:HAS_CREATOR]->(person) "
+        "RETURN messageId, messageCreationDate, post.id AS postId, person.id AS personId "
+        "ORDER BY messageCreationDate DESC, messageId ASC",
+        params={"personId": "viewer"},
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"messageId": "post2", "messageCreationDate": 20, "postId": "post2", "personId": "viewer"},
+        {"messageId": "comment1", "messageCreationDate": 10, "postId": "post1", "personId": "author1"},
+    ]
+
+
+def test_string_cypher_executes_recent_message_reentry_multihop_scalar_projection_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    result = _mk_recent_message_reentry_graph_cudf().gfql(
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message) "
+        "WITH message, message.id AS messageId, message.creationDate AS messageCreationDate "
+        "ORDER BY messageCreationDate DESC, messageId ASC "
+        "LIMIT 10 "
+        "MATCH (message)-[:REPLY_OF*0..]->(post:Post), (post)-[:HAS_CREATOR]->(person) "
+        "RETURN messageId, messageCreationDate, post.id AS postId, person.id AS personId "
+        "ORDER BY messageCreationDate DESC, messageId ASC",
+        params={"personId": "viewer"},
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"messageId": "post2", "messageCreationDate": 20, "postId": "post2", "personId": "viewer"},
+        {"messageId": "comment1", "messageCreationDate": 10, "postId": "post1", "personId": "author1"},
+    ]
+
+
+def test_string_cypher_failfast_rejects_branching_multihop_row_bindings() -> None:
+    query = (
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message) "
+        "WITH message, message.id AS messageId "
+        "MATCH (message)-[:REPLY_OF*0..]->(post:Post), (post)-[:HAS_CREATOR]->(person) "
+        "RETURN messageId, post.id AS postId, person.id AS personId"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="variable-length segments with at most one outgoing match per source row",
+    ):
+        _mk_recent_message_reentry_graph_branching().gfql(query, params={"personId": "viewer"})
+
+
+def test_string_cypher_failfast_rejects_with_match_reentry_multiple_trailing_match_clauses() -> None:
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "MATCH (c)-[:T]->(d:D) "
+        "RETURN bid, d.id AS did"
+    )
+
+    with pytest.raises(GFQLValidationError, match="single MATCH \\.\\.\\. WITH \\.\\.\\. MATCH \\.\\.\\. RETURN shape"):
+        _mk_connected_multi_pattern_reentry_graph().gfql(query, params={"seed": "a1"})
 
 
 def test_string_cypher_failfast_rejects_with_match_reentry_multiple_whole_row_aliases_with_carried_scalars() -> None:
