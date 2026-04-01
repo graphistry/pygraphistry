@@ -125,6 +125,48 @@ def _mk_reentry_carried_scalar_graph_cudf() -> _CypherTestGraph:
     )
 
 
+def _mk_connected_reentry_carried_scalar_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b1", "b2", "c1", "c2"],
+                "label__A": [True, True, False, False, False, False],
+                "label__B": [False, False, True, True, False, False],
+                "label__C": [False, False, False, False, True, True],
+                "score": [None, None, 10, 20, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a1", "a2", "b1", "b2"],
+                "d": ["b1", "b2", "c1", "c2"],
+                "type": ["R", "R", "S", "S"],
+            }
+        ),
+    )
+
+
+def _mk_connected_reentry_carried_scalar_graph_cudf() -> _CypherTestGraph:
+    return _mk_cudf_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b1", "b2", "c1", "c2"],
+                "label__A": [True, True, False, False, False, False],
+                "label__B": [False, False, True, True, False, False],
+                "label__C": [False, False, False, False, True, True],
+                "score": [None, None, 10, 20, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a1", "a2", "b1", "b2"],
+                "d": ["b1", "b2", "c1", "c2"],
+                "type": ["R", "R", "S", "S"],
+            }
+        ),
+    )
+
+
 def _compiled_reentry_projection_outputs(compiled: CompiledCypherQuery) -> Tuple[str, Tuple[str, ...]]:
     assert compiled.start_nodes_query is not None
     projection = compiled.start_nodes_query.result_projection
@@ -5329,6 +5371,72 @@ def test_string_cypher_executes_with_match_reentry_carried_scalar_shapes_on_cudf
 
     assert type(result._nodes).__module__.startswith("cudf")
     assert result._nodes.to_pandas().to_dict(orient="records") == expected
+
+
+def test_string_cypher_executes_with_match_reentry_carried_scalars_from_connected_prefix_shape() -> None:
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN bid, c.id AS cid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1", "cid": "c1"}]
+
+
+def test_string_cypher_executes_with_match_reentry_multiple_carried_scalars_from_connected_prefix_shape() -> None:
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH b, b.id AS bid, b.score AS bscore "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN bid, bscore, c.id AS cid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1", "bscore": 10, "cid": "c1"}]
+
+
+def test_string_cypher_executes_with_match_reentry_carried_scalars_from_connected_prefix_shape_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN bid, c.id AS cid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph_cudf().gfql(query, params={"seed": "a1"}, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"bid": "b1", "cid": "c1"}]
+
+
+def test_string_cypher_failfast_rejects_with_match_reentry_multiple_whole_row_aliases_with_carried_scalars() -> None:
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH a, b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN bid, c.id AS cid"
+    )
+
+    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time"):
+        _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+
+def test_string_cypher_failfast_rejects_with_match_reentry_cross_alias_carried_scalars_from_connected_prefix_shape() -> None:
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH b, a.id AS aid "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN aid, c.id AS cid"
+    )
+
+    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time"):
+        _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
 
 
 def test_string_cypher_reentry_carried_scalars_ignore_internal_hidden_column_collisions() -> None:
