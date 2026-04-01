@@ -3308,6 +3308,38 @@ def test_string_cypher_failfast_rejects_bounded_variable_length_where_pattern_pr
 
 
 @pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH path = shortestPath((a)-[:KNOWS*]-(b)) RETURN length(path)",
+        "MATCH (a), path = shortestPath((a)-[:KNOWS*]-(b)) RETURN a.id",
+        "MATCH path = allShortestPaths((a)-[:KNOWS*]-(b)) RETURN length(path)",
+    ],
+)
+def test_string_cypher_failfast_rejects_shortest_path(query: str) -> None:
+    """#997: shortestPath/allShortestPaths parse but fail-fast with clear message."""
+    graph = _mk_empty_graph()
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(query)
+    assert "shortestpath" in exc_info.value.message.lower() or "allshortestpaths" in exc_info.value.message.lower()
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (a)-[:KNOWS]-(b) RETURN not((a)-[:KNOWS]-(b)) AS isNew",
+        "MATCH (a) RETURN exists { (a)-[:KNOWS]-() } AS has",
+        "MATCH (a) RETURN not exists { (a)-[:KNOWS]-() } AS no",
+    ],
+)
+def test_string_cypher_failfast_rejects_pattern_existence(query: str) -> None:
+    """#998: pattern existence expressions fail-fast with clear message."""
+    graph = _mk_empty_graph()
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(query)
+    assert "pattern existence" in exc_info.value.message.lower()
+
+
+@pytest.mark.parametrize(
     "query,expected_rows",
     [
         (
