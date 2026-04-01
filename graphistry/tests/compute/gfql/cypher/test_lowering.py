@@ -5537,6 +5537,24 @@ def test_string_cypher_executes_with_match_reentry_limit_shape() -> None:
     assert result._nodes.to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
 
 
+def test_string_cypher_rejects_reentry_with_parameterized_limit_and_order() -> None:
+    """Regression for 992f2fc1: ParameterRef in LIMIT must not crash _literal_limit_value."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "a2", "b1"],
+            "label__A": [True, True, False],
+            "name": ["alpha", "beta", None],
+        }
+    )
+    edges = pd.DataFrame({"s": ["a1", "a2"], "d": ["b1", "b1"]})
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _mk_graph(nodes, edges).gfql(
+            "MATCH (a:A) WITH a ORDER BY a.name LIMIT $n MATCH (a)-->(b) RETURN a",
+            params={"n": 1},
+        )
+    assert "order" in exc_info.value.message.lower()
+
+
 def test_string_cypher_executes_with_match_reentry_limit_shape_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
