@@ -19,6 +19,7 @@ from graphistry.compute.ast import (
     order_by,
     return_,
     rows,
+    serialize_binding_ops,
     select,
     skip,
     unwind,
@@ -2642,17 +2643,6 @@ def _single_node_seed_alias(clause: MatchClause) -> Optional[str]:
     return pattern[0].variable
 
 
-def _serialize_binding_ops(ops: Sequence[ASTObject]) -> List[Dict[str, Any]]:
-    binding_ops: List[Dict[str, Any]] = []
-    for op in ops:
-        if not isinstance(op, (ASTNode, ASTEdge)):
-            raise ValueError(
-                "Connected bindings-row lowering expects only ASTNode/ASTEdge ops"
-            )
-        binding_ops.append(cast(Dict[str, Any], op.to_json(validate=False)))
-    return binding_ops
-
-
 def _alias_target(ops: Sequence[ASTObject]) -> Dict[str, ASTObject]:
     targets: Dict[str, ASTObject] = {}
     for op in ops:
@@ -3685,7 +3675,7 @@ def _lower_projection_chain(
             )
 
     if plan.all_source_aliases is not None:
-        row_steps: List[ASTObject] = [rows(binding_ops=_serialize_binding_ops(lowered.query))]
+        row_steps: List[ASTObject] = [rows(binding_ops=serialize_binding_ops(lowered.query))]
     else:
         row_steps = [rows(table=plan.table, source=plan.source_alias)]
     _append_match_row_where(

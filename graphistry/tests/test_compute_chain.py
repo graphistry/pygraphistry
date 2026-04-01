@@ -4,7 +4,10 @@ import logging
 import pandas as pd
 
 from common import NoAuthTestCase
-from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, is_in
+import pytest
+from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, is_in, rows, select
+from graphistry.compute.chain import _inject_binding_ops_if_needed
+from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.tests.test_compute import CGFull
 from graphistry.tests.test_compute_hops import hops_graph
 from graphistry.util import setup_logger
@@ -843,3 +846,365 @@ class TestComputeChainQuery(NoAuthTestCase):
         ])
         assert g2._nodes.to_dict(orient='records') == [{'n': 'a'}, {'n': 'b'}]
         assert g2._edges.to_dict(orient='records') == [{'s': 'a', 'd': 'b'}]
+
+
+class TestChainBindingsTable(NoAuthTestCase):
+    """#880: native chain rows() should materialize multi-alias bindings table."""
+
+    def _mk_graph(self, nodes_df, edges_df):
+        return CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+    def test_native_chain_rows_bindings_basic(self):
+        """Basic: n(a)->e->n(b) with rows() should produce alias-prefixed columns."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "label__X": [True, False], "label__Y": [False, True], "val": [1, 2]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+        )
+        result = g.gfql([
+            n({"label__X": True}, name="x"),
+            e_forward({"type": "R"}),
+            n({"label__Y": True}, name="y"),
+            rows(),
+        ])
+        df = result._nodes
+        assert len(df) == 1
+        assert "x.id" in df.columns
+        assert "y.id" in df.columns
+        assert df["x.id"].iloc[0] == "a"
+        assert df["y.id"].iloc[0] == "b"
+
+    def test_native_chain_rows_bindings_with_select(self):
+        """rows() + select() should allow alias-prefixed projection."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "label__X": [True, False], "label__Y": [False, True], "val": [1, 2]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+        )
+        result = g.gfql([
+            n({"label__X": True}, name="x"),
+            e_forward({"type": "R"}),
+            n({"label__Y": True}, name="y"),
+            rows(),
+            select([("x_val", "x.val"), ("y_val", "y.val")]),
+        ])
+        records = result._nodes.to_dict(orient="records")
+        assert len(records) == 1
+        assert records[0]["x_val"] == 1
+        assert records[0]["y_val"] == 2
+
+    def test_native_chain_rows_bindings_star_graph(self):
+        """Star graph: 1 hub -> 3 leaves produces 3 binding rows."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["h", "a", "b", "c"], "label__Hub": [True, False, False, False], "label__Leaf": [False, True, True, True]}),
+            pd.DataFrame({"s": ["h", "h", "h"], "d": ["a", "b", "c"], "type": ["R", "R", "R"]}),
+        )
+        result = g.gfql([
+            n({"label__Hub": True}, name="hub"),
+            e_forward({"type": "R"}),
+            n({"label__Leaf": True}, name="leaf"),
+            rows(),
+        ])
+        df = result._nodes
+        assert len(df) == 3
+        assert sorted(df["leaf.id"].tolist()) == ["a", "b", "c"]
+        assert all(df["hub.id"] == "h")
+
+    def test_native_chain_rows_bindings_undirected(self):
+        """#994 shape via native chain: undirected edge with incoming storage."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": [1, 2], "label__P": [True, True], "name": ["Alice", "Bob"]}),
+            pd.DataFrame({"s": [2], "d": [1], "type": ["KNOWS"]}),
+        )
+        result = g.gfql([
+            n({"id": 1, "label__P": True}, name="seed"),
+            e_undirected({"type": "KNOWS"}),
+            n({"label__P": True}, name="friend"),
+            rows(),
+        ])
+        df = result._nodes
+        assert len(df) == 1
+        assert df["friend.id"].iloc[0] == 2
+        assert df["friend.name"].iloc[0] == "Bob"
+
+    def test_native_chain_rows_bindings_edge_alias(self):
+        """#982: edge alias properties should be accessible."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "label__X": [True, True]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"], "weight": [42]}),
+        )
+        result = g.gfql([
+            n(name="x"),
+            e_forward({"type": "R"}, name="r"),
+            n(name="y"),
+            rows(),
+        ])
+        df = result._nodes
+        assert len(df) >= 1
+        assert "r.weight" in df.columns or "r.type" in df.columns
+
+    def test_native_chain_rows_bindings_unnamed_first_node(self):
+        """First node unnamed, second named — bindings still produced for named alias."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "val": [1, 2]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+        )
+        result = g.gfql([
+            n({"id": "a"}),  # unnamed
+            e_forward({"type": "R"}, name="r"),
+            n(name="y"),
+            rows(),
+        ])
+        df = result._nodes
+        assert len(df) == 1
+        assert "y.id" in df.columns
+        assert df["y.id"].iloc[0] == "b"
+
+    def test_native_chain_rows_without_names_returns_single_table(self):
+        """rows() without named ops should return standard single-table view."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "val": [1, 2]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"]}),
+        )
+        result = g.gfql([
+            n(),
+            e_forward(),
+            n(),
+            rows(),
+        ])
+        df = result._nodes
+        # Should be single-table (no alias-prefixed columns)
+        assert "id" in df.columns
+        assert not any("." in str(c) for c in df.columns)
+
+    def test_native_chain_rows_with_source_not_overridden(self):
+        """rows(source=...) should NOT be overridden by binding_ops injection."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "label__X": [True, False]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"]}),
+        )
+        result = g.gfql([
+            n({"label__X": True}, name="x"),
+            e_forward(),
+            n(name="y"),
+            rows(source="x"),
+        ])
+        df = result._nodes
+        # Should be single-table filtered to source alias, not bindings
+        assert "id" in df.columns
+
+    def test_native_chain_rows_bindings_empty_match(self):
+        """No matching edges → empty bindings table."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "label__X": [True, False], "label__Y": [False, True]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["NOPE"]}),
+        )
+        result = g.gfql([
+            n({"label__X": True}, name="x"),
+            e_forward({"type": "MISSING"}),
+            n({"label__Y": True}, name="y"),
+            rows(),
+        ])
+        df = result._nodes
+        assert len(df) == 0
+
+    def test_native_chain_rows_bindings_three_hops(self):
+        """Three-hop chain: a->b->c->d produces binding rows."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b", "c", "d"], "val": [1, 2, 3, 4]}),
+            pd.DataFrame({"s": ["a", "b", "c"], "d": ["b", "c", "d"], "type": ["R", "R", "R"]}),
+        )
+        result = g.gfql([
+            n({"id": "a"}, name="start"),
+            e_forward({"type": "R"}),
+            n(name="mid"),
+            e_forward({"type": "R"}),
+            n(name="end"),
+            rows(),
+        ])
+        df = result._nodes
+        # a->b->c and a->b->c->d? Only 2-hop paths: a->b->c
+        # But this is 2 edges (start->mid->end), so:
+        # start=a, mid=b, end=c (one path)
+        assert len(df) >= 1
+        assert df["start.id"].iloc[0] == "a"
+
+    def test_native_chain_rejects_duplicate_alias_names(self):
+        """Duplicate alias names in a chain should raise, not silently overwrite."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "val": [1, 2]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"]}),
+        )
+        with pytest.raises(GFQLValidationError) as exc_info:
+            g.gfql([
+                n(name="hit"),
+                e_forward(),
+                n(name="hit"),
+            ])
+        assert "Duplicate alias" in exc_info.value.message
+
+    def test_native_chain_rejects_duplicate_edge_alias_names(self):
+        """Duplicate edge alias names should also be rejected."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b", "c"]}),
+            pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]}),
+        )
+        with pytest.raises(GFQLValidationError) as exc_info:
+            g.gfql([
+                n(name="x"),
+                e_forward(name="r"),
+                n(name="y"),
+                e_forward(name="r"),
+                n(name="z"),
+            ])
+        assert "Duplicate alias" in exc_info.value.message
+
+    def test_native_chain_rows_bindings_four_hops(self):
+        """Four-hop chain: a->b->c->d->e with all aliases."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b", "c", "d", "e"], "val": [1, 2, 3, 4, 5]}),
+            pd.DataFrame({
+                "s": ["a", "b", "c", "d"],
+                "d": ["b", "c", "d", "e"],
+                "type": ["R", "R", "R", "R"],
+            }),
+        )
+        result = g.gfql([
+            n({"id": "a"}, name="n1"),
+            e_forward({"type": "R"}),
+            n(name="n2"),
+            e_forward({"type": "R"}),
+            n(name="n3"),
+            e_forward({"type": "R"}),
+            n(name="n4"),
+            rows(),
+        ])
+        df = result._nodes
+        assert len(df) == 1
+        assert df["n1.id"].iloc[0] == "a"
+        assert df["n2.id"].iloc[0] == "b"
+        assert df["n3.id"].iloc[0] == "c"
+        assert df["n4.id"].iloc[0] == "d"
+
+    def test_native_chain_rows_bindings_no_match_first_node(self):
+        """First node filter matches nothing → empty bindings."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "label__X": [True, False]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"]}),
+        )
+        result = g.gfql([
+            n({"label__X": False, "id": "NOPE"}, name="x"),
+            e_forward(),
+            n(name="y"),
+            rows(),
+        ])
+        assert len(result._nodes) == 0
+
+    def test_native_chain_rows_bindings_mid_chain_empty(self):
+        """Second edge matches nothing → empty bindings."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b", "c"]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+        )
+        result = g.gfql([
+            n({"id": "a"}, name="x"),
+            e_forward({"type": "R"}),
+            n(name="y"),
+            e_forward({"type": "MISSING"}),
+            n(name="z"),
+            rows(),
+        ])
+        assert len(result._nodes) == 0
+
+    def test_native_chain_rows_select_edge_alias_projection(self):
+        """select() should project edge alias properties from bindings."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "label__X": [True, True]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"], "weight": [42]}),
+        )
+        result = g.gfql([
+            n(name="x"),
+            e_forward({"type": "R"}, name="r"),
+            n(name="y"),
+            rows(),
+            select([("w", "r.weight"), ("xid", "x.id"), ("yid", "y.id")]),
+        ])
+        records = result._nodes.to_dict(orient="records")
+        assert len(records) == 1
+        assert records[0]["w"] == 42
+        assert records[0]["xid"] == "a"
+        assert records[0]["yid"] == "b"
+
+    def test_native_chain_rows_select_missing_column_returns_null(self):
+        """Missing alias-prefixed bindings columns should resolve to null, not error."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"]}),
+        )
+        result = g.gfql([
+            n(name="x"),
+            e_forward(),
+            n(name="y"),
+            rows(),
+            select([("xid", "x.id"), ("missing", "x.nonexistent")]),
+        ])
+        records = result._nodes.to_dict(orient="records")
+        assert len(records) == 1
+        assert records[0]["xid"] == "a"
+        assert records[0]["missing"] is None or pd.isna(records[0]["missing"])
+
+    def test_native_chain_rows_bindings_reverse_edge(self):
+        """Reverse edge direction should still produce correct bindings."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "val": [1, 2]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+        )
+        result = g.gfql([
+            n({"id": "b"}, name="dst"),
+            e_reverse({"type": "R"}),
+            n(name="src"),
+            rows(),
+        ])
+        df = result._nodes
+        assert len(df) == 1
+        assert df["dst.id"].iloc[0] == "b"
+        assert df["src.id"].iloc[0] == "a"
+
+    def test_direct_rows_binding_ops_rejects_duplicate_alias_names(self):
+        """Direct rows(binding_ops=...) should reject duplicate aliases."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "val": [1, 2]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+        )
+        binding_ops = [
+            n(name="x").to_json(validate=False),
+            e_forward().to_json(validate=False),
+            n(name="x").to_json(validate=False),
+        ]
+        with pytest.raises(GFQLValidationError) as exc_info:
+            g.gfql([rows(binding_ops=binding_ops)])
+        assert "duplicate alias" in exc_info.value.message.lower()
+
+    def test_inject_binding_ops_skips_existing_alias_endpoints(self):
+        """Injection helper should not override explicit alias_endpoints rows()."""
+        middle = [n(name="x"), e_forward(), n(name="y")]
+        suffix = [rows(alias_endpoints={"x": "src", "y": "dst"})]
+        out = _inject_binding_ops_if_needed(middle, suffix)
+        assert out == suffix
+        assert out[0].params["alias_endpoints"] == {"x": "src", "y": "dst"}
+        assert "binding_ops" not in out[0].params
+
+    def test_inject_binding_ops_skips_existing_binding_ops(self):
+        """Injection helper should preserve an explicitly provided binding_ops payload."""
+        middle = [n(name="x"), e_forward(), n(name="y")]
+        existing = [n(name="seed").to_json(validate=False)]
+        suffix = [rows(binding_ops=existing)]
+        out = _inject_binding_ops_if_needed(middle, suffix)
+        assert out == suffix
+        assert out[0].params["binding_ops"] == existing
+
+    def test_inject_binding_ops_skips_non_traversal_middle(self):
+        """Injection helper should not serialize non-node/edge middle operations."""
+        middle = [n(name="x"), select([("xid", "x.id")]), n(name="y")]
+        suffix = [rows()]
+        out = _inject_binding_ops_if_needed(middle, suffix)
+        assert out == suffix
+        assert "binding_ops" not in out[0].params

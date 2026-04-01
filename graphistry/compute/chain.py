@@ -8,7 +8,7 @@ from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.Engine import safe_merge
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
-from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
+from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json, serialize_binding_ops
 from .typing import DataFrameT
 from .util import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
@@ -331,6 +331,23 @@ def combine_steps(
                 logger.debug('adding nodes to concat: %s', g_step._nodes[[g_step._node]])
 
     logger.debug('combine_steps ops: %s', [op for (op, _) in steps])
+
+    # Reject duplicate alias names — silent overwrite would lose data
+    seen_names: Dict[str, int] = {}
+    for idx, (op, _) in enumerate(steps):
+        if op._name is not None and isinstance(op, op_type):
+            if op._name in seen_names:
+                from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
+                raise GFQLValidationError(
+                    code=ErrorCode.E201,
+                    message=(
+                        f"Duplicate alias name '{op._name}' in chain "
+                        f"(steps {seen_names[op._name]} and {idx})"
+                    ),
+                    suggestion="Use distinct alias names for each step in the chain",
+                )
+            seen_names[op._name] = idx
+
     for idx, (op, g_step) in enumerate(steps):
         if op._name is not None and isinstance(op, op_type):
             logger.debug('tagging kind [%s] name %s', op_type, op._name)
@@ -501,6 +518,50 @@ def combine_steps(
     return out_df
 
 
+def _inject_binding_ops_if_needed(
+    middle: List[ASTObject],
+    suffix: List[ASTObject],
+) -> List[ASTObject]:
+    """Inject serialized middle ops into a bare ``rows()`` call in the suffix.
+
+    When the middle contains named traversal ops (``n(name=...)``, ``e(name=...)``)
+    and the suffix starts with a ``rows()`` call that has no explicit ``binding_ops``,
+    serialize the middle ops and inject them so that ``rows()`` materializes a
+    multi-alias bindings table instead of a single-table view.  (#880)
+    """
+    from graphistry.compute.ast import ASTCall, rows as rows_fn
+
+    if not middle or not suffix:
+        return suffix
+
+    # Check if any middle op has a name (alias)
+    has_named = any(getattr(op, "_name", None) is not None for op in middle)
+    if not has_named:
+        return suffix
+
+    first_suffix = suffix[0]
+    if not isinstance(first_suffix, ASTCall):
+        return suffix
+    if first_suffix.function != "rows":
+        return suffix
+    # Don't override if binding_ops, source, or alias_endpoints already provided
+    if first_suffix.params.get("binding_ops") is not None:
+        return suffix
+    if first_suffix.params.get("source") is not None:
+        return suffix
+    if first_suffix.params.get("alias_endpoints") is not None:
+        return suffix
+
+    if any(not isinstance(op, (ASTNode, ASTEdge)) for op in middle):
+        return suffix  # Can't serialize non-traversal ops
+
+    binding_ops = serialize_binding_ops(middle)
+
+    # Create a new rows() call with binding_ops injected
+    new_rows = rows_fn(binding_ops=binding_ops)
+    return [new_rows] + list(suffix[1:])
+
+
 def _get_boundary_calls(ops: List[ASTObject]) -> Tuple[List[ASTObject], List[ASTObject], List[ASTObject]]:
     """Split ops into call-prefix, traversal middle, and call-suffix segments.
 
@@ -606,6 +667,10 @@ def _handle_boundary_calls(
         if start_nodes is not None:
             setattr(g_temp, "_gfql_start_nodes", start_nodes)
         setattr(g_temp, "_gfql_rows_base_graph", suffix_base_graph)
+        # #880: If middle has named ops and suffix starts with rows(),
+        # inject the middle ops as binding_ops so rows() can materialize
+        # a multi-alias bindings table instead of a single-table view.
+        suffix = _inject_binding_ops_if_needed(middle, suffix)
         g_temp = _chain_impl(
             g_temp,
             suffix,
