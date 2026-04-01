@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 from graphistry.compute.ast import ASTCall, ASTNode, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLValidationError
@@ -188,6 +188,48 @@ def _mk_connected_multi_pattern_reentry_graph() -> _CypherTestGraph:
     )
 
 
+def _mk_connected_multi_pattern_fanout_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "b1", "c1", "d1", "d2"],
+                "label__A": [True, False, False, False, False],
+                "label__B": [False, True, False, False, False],
+                "label__C": [False, False, True, False, False],
+                "label__D": [False, False, False, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a1", "b1", "c1", "c1"],
+                "d": ["b1", "c1", "d1", "d2"],
+                "type": ["R", "S", "T", "T"],
+            }
+        ),
+    )
+
+
+def _mk_connected_multi_pattern_fanout_graph_cudf() -> _CypherTestGraph:
+    return _mk_cudf_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "b1", "c1", "d1", "d2"],
+                "label__A": [True, False, False, False, False],
+                "label__B": [False, True, False, False, False],
+                "label__C": [False, False, True, False, False],
+                "label__D": [False, False, False, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a1", "b1", "c1", "c1"],
+                "d": ["b1", "c1", "d1", "d2"],
+                "type": ["R", "S", "T", "T"],
+            }
+        ),
+    )
+
+
 def _mk_multi_alias_edge_projection_graph() -> _CypherTestGraph:
     return _mk_graph(
         pd.DataFrame(
@@ -281,6 +323,25 @@ def _mk_recent_message_reentry_graph_branching() -> _CypherTestGraph:
                 "s": ["comment1", "post1", "post2", "comment1", "comment1"],
                 "d": ["viewer", "author1", "author2", "post1", "post2"],
                 "type": ["HAS_CREATOR", "HAS_CREATOR", "HAS_CREATOR", "REPLY_OF", "REPLY_OF"],
+            }
+        ),
+    )
+
+
+def _mk_multihop_row_binding_cycle_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "label__A": [True, False],
+                "label__B": [False, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a", "b"],
+                "d": ["b", "a"],
+                "type": ["R", "R"],
             }
         ),
     )
@@ -5649,6 +5710,53 @@ def test_string_cypher_executes_with_match_reentry_carried_scalar_into_connected
     assert result._nodes.to_dict(orient="records") == [{"bid": "b1", "did": "d1"}]
 
 
+def test_string_cypher_executes_plain_connected_multi_pattern_scalar_projection_fanout() -> None:
+    result = _mk_connected_multi_pattern_fanout_graph().gfql(
+        "MATCH (b:B)-[:S]->(c:C), (c)-[:T]->(d:D) RETURN c.id AS cid, d.id AS did ORDER BY did"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"cid": "c1", "did": "d1"},
+        {"cid": "c1", "did": "d2"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_carried_scalar_into_connected_multi_pattern_fanout_shape() -> None:
+    result = _mk_connected_multi_pattern_fanout_graph().gfql(
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C), (c)-[:T]->(d:D) "
+        "RETURN bid, d.id AS did "
+        "ORDER BY did",
+        params={"seed": "a1"},
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"bid": "b1", "did": "d1"},
+        {"bid": "b1", "did": "d2"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_carried_scalar_into_connected_multi_pattern_fanout_shape_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    result = _mk_connected_multi_pattern_fanout_graph_cudf().gfql(
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C), (c)-[:T]->(d:D) "
+        "RETURN bid, d.id AS did "
+        "ORDER BY did",
+        params={"seed": "a1"},
+        engine="cudf",
+    )
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"bid": "b1", "did": "d1"},
+        {"bid": "b1", "did": "d2"},
+    ]
+
+
 def test_string_cypher_executes_recent_message_reentry_multihop_scalar_projection() -> None:
     result = _mk_recent_message_reentry_graph().gfql(
         "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message) "
@@ -5688,19 +5796,46 @@ def test_string_cypher_executes_recent_message_reentry_multihop_scalar_projectio
     ]
 
 
-def test_string_cypher_failfast_rejects_branching_multihop_row_bindings() -> None:
-    query = (
-        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message) "
-        "WITH message, message.id AS messageId "
-        "MATCH (message)-[:REPLY_OF*0..]->(post:Post), (post)-[:HAS_CREATOR]->(person) "
-        "RETURN messageId, post.id AS postId, person.id AS personId"
-    )
-
-    with pytest.raises(
-        GFQLValidationError,
-        match="variable-length segments with at most one outgoing match per source row",
-    ):
-        _mk_recent_message_reentry_graph_branching().gfql(query, params={"personId": "viewer"})
+@pytest.mark.parametrize(
+    ("graph_factory", "query", "params", "match"),
+    [
+        (
+            _mk_recent_message_reentry_graph_branching,
+            "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message) "
+            "WITH message, message.id AS messageId "
+            "MATCH (message)-[:REPLY_OF*0..]->(post:Post), (post)-[:HAS_CREATOR]->(person) "
+            "RETURN messageId, post.id AS postId, person.id AS personId",
+            {"personId": "viewer"},
+            "variable-length segments with at most one outgoing match per source row",
+        ),
+        (
+            _mk_multihop_row_binding_cycle_graph,
+            "MATCH (a:A)-[r:R*1..2]->(b) RETURN a.id AS aid, b.id AS bid",
+            None,
+            "do not yet support variable-length relationship aliases",
+        ),
+        (
+            _mk_multihop_row_binding_cycle_graph,
+            "MATCH (a:A)-[:R*1..2]-(b) RETURN a.id AS aid, b.id AS bid",
+            None,
+            "do not yet support undirected variable-length segments",
+        ),
+        (
+            _mk_multihop_row_binding_cycle_graph,
+            "MATCH (a:A)-[:R*0..]->(b) RETURN a.id AS aid, b.id AS bid",
+            None,
+            "currently require terminating variable-length segments",
+        ),
+    ],
+)
+def test_string_cypher_failfast_rejects_unsupported_multihop_row_bindings(
+    graph_factory: Callable[[], _CypherTestGraph],
+    query: str,
+    params: Optional[Dict[str, Any]],
+    match: str,
+) -> None:
+    with pytest.raises(GFQLValidationError, match=match):
+        graph_factory().gfql(query, params=params)
 
 
 def test_string_cypher_failfast_rejects_with_match_reentry_multiple_trailing_match_clauses() -> None:
@@ -5714,6 +5849,19 @@ def test_string_cypher_failfast_rejects_with_match_reentry_multiple_trailing_mat
 
     with pytest.raises(GFQLValidationError, match="single MATCH \\.\\.\\. WITH \\.\\.\\. MATCH \\.\\.\\. RETURN shape"):
         _mk_connected_multi_pattern_reentry_graph().gfql(query, params={"seed": "a1"})
+
+
+def test_string_cypher_failfast_rejects_connected_multi_pattern_relationship_alias_projection() -> None:
+    query = (
+        "MATCH (b:B)-[s:S]->(c:C), (c)-[t:T]->(d:D) "
+        "RETURN t.type AS tt, d.id AS did"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="Connected multi-pattern relationship alias projections are not yet supported",
+    ):
+        _mk_connected_multi_pattern_reentry_graph().gfql(query)
 
 
 def test_string_cypher_failfast_rejects_with_match_reentry_multiple_whole_row_aliases_with_carried_scalars() -> None:
