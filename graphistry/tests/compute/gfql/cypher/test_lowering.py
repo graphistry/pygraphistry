@@ -5990,6 +5990,68 @@ def test_string_cypher_executes_seeded_multihop_then_with_optional_match_reentry
     assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
 
 
+def test_string_cypher_executes_multi_stage_with_match_reentry_connected_shape() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e"],
+            "label__A": [True, False, False, False, False],
+            "label__B": [False, True, False, False, False],
+            "label__C": [False, False, True, False, False],
+            "label__D": [False, False, False, True, False],
+            "label__E": [False, False, False, False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "b", "c", "a", "b"],
+            "d": ["b", "c", "d", "e", "e"],
+            "type": ["R", "S", "T", "R", "S"],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH c "
+        "MATCH (c)-[:T]->(d:D) "
+        "RETURN d.id AS id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
+
+
+def test_string_cypher_executes_multi_stage_with_match_reentry_carried_scalar_shape() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e"],
+            "label__A": [True, False, False, False, False],
+            "label__B": [False, True, False, False, False],
+            "label__C": [False, False, True, False, False],
+            "label__D": [False, False, False, True, False],
+            "label__E": [False, False, False, False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "b", "c", "a", "b"],
+            "d": ["b", "c", "d", "e", "e"],
+            "type": ["R", "S", "T", "R", "S"],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH c, bid "
+        "MATCH (c)-[:T]->(d:D) "
+        "RETURN bid, d.id AS id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "d"}]
+
+
 def test_cypher_to_gfql_supports_multi_alias_scalar_projection() -> None:
     """Multi-alias scalar projections are supported via bindings table."""
     chain = cypher_to_gfql("MATCH (p)-[r]->(q) RETURN p.id, q.id")
