@@ -854,6 +854,24 @@ class TestChainBindingsTable(NoAuthTestCase):
     def _mk_graph(self, nodes_df, edges_df):
         return CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
 
+    def _rows_df(self, g, match_ops, items=None):
+        steps = [*match_ops, rows()]
+        if items is not None:
+            steps.append(select(items))
+        return g.gfql(steps)._nodes
+
+    def _rows_records(self, g, match_ops, items=None, sort_by=None):
+        df = self._rows_df(g, match_ops, items=items)
+        if sort_by is not None:
+            df = df.sort_values(sort_by)
+        return df.to_dict(orient="records")
+
+    def _binding_rows_records(self, g, binding_ops, items, sort_by=None):
+        df = g.gfql([rows(binding_ops=binding_ops), select(items)])._nodes
+        if sort_by is not None:
+            df = df.sort_values(sort_by)
+        return df.to_dict(orient="records")
+
     def test_native_chain_rows_bindings_basic(self):
         """Basic: n(a)->e->n(b) with rows() should produce alias-prefixed columns."""
         g = self._mk_graph(
@@ -879,14 +897,15 @@ class TestChainBindingsTable(NoAuthTestCase):
             pd.DataFrame({"id": ["a", "b"], "label__X": [True, False], "label__Y": [False, True], "val": [1, 2]}),
             pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
         )
-        result = g.gfql([
-            n({"label__X": True}, name="x"),
-            e_forward({"type": "R"}),
-            n({"label__Y": True}, name="y"),
-            rows(),
-            select([("x_val", "x.val"), ("y_val", "y.val")]),
-        ])
-        records = result._nodes.to_dict(orient="records")
+        records = self._rows_records(
+            g,
+            [
+                n({"label__X": True}, name="x"),
+                e_forward({"type": "R"}),
+                n({"label__Y": True}, name="y"),
+            ],
+            items=[("x_val", "x.val"), ("y_val", "y.val")],
+        )
         assert len(records) == 1
         assert records[0]["x_val"] == 1
         assert records[0]["y_val"] == 2
@@ -924,6 +943,39 @@ class TestChainBindingsTable(NoAuthTestCase):
         assert len(df) == 1
         assert df["friend.id"].iloc[0] == 2
         assert df["friend.name"].iloc[0] == "Bob"
+
+    def test_native_chain_rows_select_undirected_edge_alias_projection(self):
+        """#982: undirected traversal should project edge alias properties after rows()."""
+        g = self._mk_graph(
+            pd.DataFrame(
+                {
+                    "id": ["a", "b"],
+                    "label__Person": [True, True],
+                    "firstName": ["Alice", "Bob"],
+                }
+            ),
+            pd.DataFrame({"s": ["b"], "d": ["a"], "type": ["KNOWS"], "creationDate": [123]}),
+        )
+        records = self._rows_records(
+            g,
+            [
+                n({"id": "a", "label__Person": True}, name="n"),
+                e_undirected({"type": "KNOWS"}, name="r"),
+                n({"label__Person": True}, name="friend"),
+            ],
+            items=[
+                ("personId", "friend.id"),
+                ("firstName", "friend.firstName"),
+                ("friendshipCreationDate", "r.creationDate"),
+            ],
+        )
+        assert records == [
+            {
+                "personId": "b",
+                "firstName": "Bob",
+                "friendshipCreationDate": 123,
+            }
+        ]
 
     def test_native_chain_rows_bindings_edge_alias(self):
         """#982: edge alias properties should be accessible."""
@@ -1146,18 +1198,30 @@ class TestChainBindingsTable(NoAuthTestCase):
             pd.DataFrame({"id": ["a", "b"], "label__X": [True, True]}),
             pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"], "weight": [42]}),
         )
-        result = g.gfql([
-            n(name="x"),
-            e_forward({"type": "R"}, name="r"),
-            n(name="y"),
-            rows(),
-            select([("w", "r.weight"), ("xid", "x.id"), ("yid", "y.id")]),
-        ])
-        records = result._nodes.to_dict(orient="records")
+        records = self._rows_records(
+            g,
+            [n(name="x"), e_forward({"type": "R"}, name="r"), n(name="y")],
+            items=[("w", "r.weight"), ("xid", "x.id"), ("yid", "y.id")],
+        )
         assert len(records) == 1
         assert records[0]["w"] == 42
         assert records[0]["xid"] == "a"
         assert records[0]["yid"] == "b"
+
+    def test_native_chain_rows_select_reverse_edge_alias_projection(self):
+        """Reverse traversals should project edge alias properties from bindings."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "label__X": [True, True]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"], "creationDate": [77]}),
+        )
+        records = self._rows_records(
+            g,
+            [n({"id": "b"}, name="dst"), e_reverse({"type": "R"}, name="r"), n(name="src")],
+            items=[("srcId", "src.id"), ("dstId", "dst.id"), ("created", "r.creationDate")],
+        )
+        assert records == [
+            {"srcId": "a", "dstId": "b", "created": 77}
+        ]
 
     def test_native_chain_rows_select_missing_column_returns_null(self):
         """Missing alias-prefixed bindings columns should resolve to null, not error."""
@@ -1165,17 +1229,48 @@ class TestChainBindingsTable(NoAuthTestCase):
             pd.DataFrame({"id": ["a", "b"]}),
             pd.DataFrame({"s": ["a"], "d": ["b"]}),
         )
-        result = g.gfql([
-            n(name="x"),
-            e_forward(),
-            n(name="y"),
-            rows(),
-            select([("xid", "x.id"), ("missing", "x.nonexistent")]),
-        ])
-        records = result._nodes.to_dict(orient="records")
+        records = self._rows_records(
+            g,
+            [n(name="x"), e_forward(), n(name="y")],
+            items=[("xid", "x.id"), ("missing", "x.nonexistent")],
+        )
         assert len(records) == 1
         assert records[0]["xid"] == "a"
         assert records[0]["missing"] is None or pd.isna(records[0]["missing"])
+
+    def test_native_chain_rows_select_missing_edge_property_returns_null(self):
+        """Missing edge alias properties should resolve to null, not error."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"]}),
+            pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+        )
+        records = self._rows_records(
+            g,
+            [n({"id": "a"}, name="x"), e_forward({"type": "R"}, name="r"), n(name="y")],
+            items=[("xid", "x.id"), ("missing", "r.nonexistent")],
+        )
+        assert len(records) == 1
+        assert records[0]["xid"] == "a"
+        assert records[0]["missing"] is None or pd.isna(records[0]["missing"])
+
+    def test_native_chain_rows_select_parallel_edges_preserve_distinct_rows(self):
+        """Duplicate edges between the same nodes should preserve distinct edge-alias rows."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b"], "label__X": [True, True]}),
+            pd.DataFrame(
+                {"s": ["a", "a"], "d": ["b", "b"], "type": ["R", "R"], "weight": [10, 20]}
+            ),
+        )
+        records = self._rows_records(
+            g,
+            [n({"id": "a"}, name="x"), e_forward({"type": "R"}, name="r"), n({"id": "b"}, name="y")],
+            items=[("w", "r.weight"), ("xid", "x.id"), ("yid", "y.id")],
+            sort_by="w",
+        )
+        assert records == [
+            {"w": 10, "xid": "a", "yid": "b"},
+            {"w": 20, "xid": "a", "yid": "b"},
+        ]
 
     def test_native_chain_rows_bindings_reverse_edge(self):
         """Reverse edge direction should still produce correct bindings."""
@@ -1194,6 +1289,137 @@ class TestChainBindingsTable(NoAuthTestCase):
         assert df["dst.id"].iloc[0] == "b"
         assert df["src.id"].iloc[0] == "a"
 
+    def test_native_chain_rows_select_undirected_self_loop_duplicates_both_directions(self):
+        """Undirected self-loops should surface both orientations in bindings rows."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a"], "label__Person": [True], "firstName": ["Alice"]}),
+            pd.DataFrame({"s": ["a"], "d": ["a"], "type": ["KNOWS"], "weight": [7]}),
+        )
+        records = self._rows_records(
+            g,
+            [
+                n({"id": "a", "label__Person": True}, name="seed"),
+                e_undirected({"type": "KNOWS"}, name="r"),
+                n({"label__Person": True}, name="friend"),
+            ],
+            items=[("seedId", "seed.id"), ("friendId", "friend.id"), ("w", "r.weight")],
+        )
+        assert records == [
+            {"seedId": "a", "friendId": "a", "w": 7},
+            {"seedId": "a", "friendId": "a", "w": 7},
+        ]
+
+    def test_direct_rows_binding_ops_supports_undirected_edge_alias_projection(self):
+        """Direct rows(binding_ops=...) should match chain-injected undirected edge alias behavior."""
+        g = self._mk_graph(
+            pd.DataFrame(
+                {
+                    "id": ["a", "b"],
+                    "label__Person": [True, True],
+                    "firstName": ["Alice", "Bob"],
+                }
+            ),
+            pd.DataFrame({"s": ["b"], "d": ["a"], "type": ["KNOWS"], "creationDate": [123]}),
+        )
+        binding_ops = [
+            n({"id": "a", "label__Person": True}, name="n").to_json(validate=False),
+            e_undirected({"type": "KNOWS"}, name="r").to_json(validate=False),
+            n({"label__Person": True}, name="friend").to_json(validate=False),
+        ]
+        records = self._binding_rows_records(
+            g,
+            binding_ops,
+            items=[("personId", "friend.id"), ("created", "r.creationDate")],
+        )
+        assert records == [
+            {"personId": "b", "created": 123}
+        ]
+
+    def test_native_chain_rows_bindings_open_range_continues_after_multihop(self):
+        """IS6-style open-range reply chains should continue into downstream bindings."""
+        g = self._mk_graph(
+            pd.DataFrame(
+                [
+                    {"id": "c1", "labels": ["Comment"], "label__Comment": True},
+                    {"id": "m1", "labels": ["Message"], "label__Message": True},
+                    {"id": "p1", "labels": ["Post"], "label__Post": True},
+                    {"id": "f1", "labels": ["Forum"], "label__Forum": True, "title": "Forum"},
+                    {
+                        "id": "u1",
+                        "labels": ["Person"],
+                        "label__Person": True,
+                        "firstName": "Mod",
+                        "lastName": "Erator",
+                    },
+                ]
+            ),
+            pd.DataFrame(
+                [
+                    {"s": "c1", "d": "m1", "type": "REPLY_OF"},
+                    {"s": "m1", "d": "p1", "type": "REPLY_OF"},
+                    {"s": "f1", "d": "p1", "type": "CONTAINER_OF"},
+                    {"s": "f1", "d": "u1", "type": "HAS_MODERATOR"},
+                ]
+            ),
+        )
+        records = self._rows_records(
+            g,
+            [
+                n({"id": "c1", "label__Comment": True}, name="message"),
+                e_forward({"type": "REPLY_OF"}, min_hops=0, to_fixed_point=True),
+                n({"label__Post": True}, name="post"),
+                e_reverse({"type": "CONTAINER_OF"}),
+                n({"label__Forum": True}, name="forum"),
+                e_forward({"type": "HAS_MODERATOR"}),
+                n({"label__Person": True}, name="moderator"),
+            ],
+            items=[("forumId", "forum.id"), ("moderatorId", "moderator.id")],
+        )
+        assert records == [{"forumId": "f1", "moderatorId": "u1"}]
+
+    def test_direct_rows_binding_ops_supports_open_range_multihop_continuation(self):
+        """Direct rows(binding_ops=...) should preserve open-range multihop semantics."""
+        g = self._mk_graph(
+            pd.DataFrame(
+                [
+                    {"id": "c1", "labels": ["Comment"], "label__Comment": True},
+                    {"id": "m1", "labels": ["Message"], "label__Message": True},
+                    {"id": "p1", "labels": ["Post"], "label__Post": True},
+                    {"id": "f1", "labels": ["Forum"], "label__Forum": True, "title": "Forum"},
+                    {
+                        "id": "u1",
+                        "labels": ["Person"],
+                        "label__Person": True,
+                        "firstName": "Mod",
+                        "lastName": "Erator",
+                    },
+                ]
+            ),
+            pd.DataFrame(
+                [
+                    {"s": "c1", "d": "m1", "type": "REPLY_OF"},
+                    {"s": "m1", "d": "p1", "type": "REPLY_OF"},
+                    {"s": "f1", "d": "p1", "type": "CONTAINER_OF"},
+                    {"s": "f1", "d": "u1", "type": "HAS_MODERATOR"},
+                ]
+            ),
+        )
+        binding_ops = [
+            n({"id": "c1", "label__Comment": True}, name="message").to_json(validate=False),
+            e_forward({"type": "REPLY_OF"}, min_hops=0, to_fixed_point=True).to_json(validate=False),
+            n({"label__Post": True}, name="post").to_json(validate=False),
+            e_reverse({"type": "CONTAINER_OF"}).to_json(validate=False),
+            n({"label__Forum": True}, name="forum").to_json(validate=False),
+            e_forward({"type": "HAS_MODERATOR"}).to_json(validate=False),
+            n({"label__Person": True}, name="moderator").to_json(validate=False),
+        ]
+        records = self._binding_rows_records(
+            g,
+            binding_ops,
+            items=[("forumId", "forum.id"), ("moderatorId", "moderator.id")],
+        )
+        assert records == [{"forumId": "f1", "moderatorId": "u1"}]
+
     def test_direct_rows_binding_ops_rejects_duplicate_alias_names(self):
         """Direct rows(binding_ops=...) should reject duplicate aliases."""
         g = self._mk_graph(
@@ -1208,6 +1434,20 @@ class TestChainBindingsTable(NoAuthTestCase):
         with pytest.raises(GFQLValidationError) as exc_info:
             g.gfql([rows(binding_ops=binding_ops)])
         assert "duplicate alias" in exc_info.value.message.lower()
+
+    def test_direct_rows_binding_ops_rejects_named_multihop_edge_alias(self):
+        """Direct rows(binding_ops=...) should preserve explicit multihop edge-alias rejection."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b", "c"], "val": [1, 2, 3]}),
+            pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "type": ["R", "R"]}),
+        )
+        binding_ops = [
+            n({"id": "a"}, name="x").to_json(validate=False),
+            e_forward({"type": "R"}, name="r", min_hops=1, max_hops=2).to_json(validate=False),
+            n(name="y").to_json(validate=False),
+        ]
+        with pytest.raises(Exception, match="variable-length relationship aliases"):
+            g.gfql([rows(binding_ops=binding_ops)])
 
     def test_inject_binding_ops_skips_existing_alias_endpoints(self):
         """Injection helper should not override explicit alias_endpoints rows()."""
