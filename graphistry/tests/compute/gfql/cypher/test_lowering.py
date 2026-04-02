@@ -997,6 +997,31 @@ def test_string_cypher_supports_cartesian_dynamic_pattern_property_global_count(
     assert result._nodes.to_dict(orient="records") == [{"cnt": 1}]
 
 
+def test_string_cypher_supports_cartesian_dynamic_pattern_property_grouped_count() -> None:
+    graph = _mk_cartesian_dynamic_pattern_graph()
+
+    result = graph.gfql(
+        "MATCH (a:A), (b:B {num: a.num}) "
+        "RETURN a.id AS aid, count(*) AS cnt "
+        "ORDER BY aid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a1", "cnt": 1}]
+
+
+def test_string_cypher_supports_cartesian_dynamic_pattern_property_with_stage_projection() -> None:
+    graph = _mk_cartesian_dynamic_pattern_graph()
+
+    result = graph.gfql(
+        "MATCH (a:A), (b:B {num: a.num}) "
+        "WITH a.id AS aid, b.id AS bid "
+        "RETURN aid, bid "
+        "ORDER BY aid, bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a1", "bid": "b1"}]
+
+
 def test_string_cypher_supports_cartesian_node_only_global_count() -> None:
     result = _mk_cartesian_node_graph().gfql(
         "MATCH (n), (m) "
@@ -6824,6 +6849,20 @@ def test_string_cypher_executes_multi_stage_with_match_reentry_with_intermediate
     assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
 
 
+def test_string_cypher_executes_post_with_reentry_where_direct_return() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "RETURN c.id AS cid"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"cid": "c"}]
+
+
 def test_string_cypher_executes_multi_stage_with_match_reentry_with_intermediate_where_and_carried_scalar() -> None:
     query = (
         "MATCH (a:A)-[:R]->(b:B) "
@@ -6833,6 +6872,23 @@ def test_string_cypher_executes_multi_stage_with_match_reentry_with_intermediate
         "WITH c, bid "
         "MATCH (c)-[:T]->(d:D) "
         "RETURN bid, d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "d"}]
+
+
+def test_string_cypher_executes_multi_stage_with_match_reentry_with_intermediate_where_and_order_by() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "WITH c, bid "
+        "MATCH (c)-[:T]->(d:D) "
+        "RETURN bid, d.id AS id "
+        "ORDER BY id DESC, bid ASC"
     )
 
     result = _mk_multi_stage_reentry_graph().gfql(query)
