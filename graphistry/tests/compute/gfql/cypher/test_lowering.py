@@ -223,6 +223,25 @@ def _mk_collect_unwind_reentry_graph() -> _CypherTestGraph:
     )
 
 
+def _issue_1000_ic6_query() -> str:
+    return (
+        "MATCH (knownTag:Tag { name: $tagName }) "
+        "WITH knownTag.id as knownTagId "
+        "MATCH (person:Person { id: $personId })-[:KNOWS*1..2]-(friend) "
+        "WHERE NOT person=friend "
+        "WITH knownTagId, collect(distinct friend) as friends "
+        "UNWIND friends as f "
+        "MATCH (f)<-[:HAS_CREATOR]-(post:Post), "
+        "(post)-[:HAS_TAG]->(t:Tag{id: knownTagId}), "
+        "(post)-[:HAS_TAG]->(tag:Tag) "
+        "WHERE NOT t = tag "
+        "WITH tag.name as tagName, count(post) as postCount "
+        "RETURN tagName, postCount "
+        "ORDER BY postCount DESC, tagName ASC "
+        "LIMIT 10"
+    )
+
+
 def _mk_connected_multi_pattern_fanout_graph() -> _CypherTestGraph:
     return _mk_graph(
         pd.DataFrame(
@@ -3427,6 +3446,17 @@ def test_string_cypher_rejects_with_unwind_reentry_when_unwind_source_is_not_col
         "currently supports only a single WITH collect([distinct] alias) AS list "
         "UNWIND list AS alias MATCH ... RETURN shape"
     ) in exc_info.value.message
+
+
+def test_string_cypher_repro_issue_1000_ic6_current_parser_gap() -> None:
+    with pytest.raises(GFQLSyntaxError, match="Invalid Cypher query syntax"):
+        compile_cypher(
+            _issue_1000_ic6_query(),
+            params={
+                "personId": 4398046511333,
+                "tagName": "Carl_Gustaf_Emil_Mannerheim",
+            },
+        )
 
 
 def test_string_cypher_executes_exact_multihop_relationship_pattern() -> None:
