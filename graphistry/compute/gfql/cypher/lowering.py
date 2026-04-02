@@ -6121,13 +6121,21 @@ def _rewrite_reentry_expr_to_hidden_properties(
 ) -> ExpressionText:
     if not carried_columns:
         return expr
+    normalized_text = expr.text
+    for output_name in carried_columns:
+        hidden_name = _reentry_hidden_column_name(output_name)
+        normalized_text = re.sub(
+            rf"(?<![A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*\.{re.escape(hidden_name)}(?![A-Za-z0-9_])",
+            f"{carried_alias}.{hidden_name}",
+            normalized_text,
+        )
     try:
-        node = parse_expr(expr.text)
+        node = parse_expr(normalized_text)
     except (GFQLExprParseError, ImportError) as exc:
         raise _unsupported(
             "Cypher MATCH after WITH carried-column rewrite requires a locally supported scalar expression",
             field=field,
-            value=expr.text,
+            value=normalized_text,
             line=expr.span.line,
             column=expr.span.column,
         ) from exc
@@ -6137,7 +6145,9 @@ def _rewrite_reentry_expr_to_hidden_properties(
     }
     identifiers = collect_identifiers(node)
     if not any(identifier in replacements for identifier in identifiers):
-        return expr
+        if normalized_text == expr.text:
+            return expr
+        return ExpressionText(text=normalized_text, span=expr.span)
     return ExpressionText(
         text=_render_expr_node(_rewrite_expr_identifiers(node, replacements)),
         span=expr.span,

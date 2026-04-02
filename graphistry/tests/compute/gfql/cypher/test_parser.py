@@ -453,6 +453,38 @@ def test_parse_reentry_match_with_collect_unwind_then_reentry_shape() -> None:
     assert parsed.reentry_unwinds[0].alias == "c2"
 
 
+def test_parse_rejects_multiple_reentry_unwinds() -> None:
+    with pytest.raises(
+        GFQLSyntaxError,
+        match="Cypher only supports one UNWIND after post-WITH MATCH",
+    ):
+        _parse_query(
+            "MATCH (a:A)-[:R]->(b:B) "
+            "WITH b "
+            "MATCH (b)-[:S]->(c:C) "
+            "UNWIND [c] AS c2 "
+            "UNWIND [c2] AS c3 "
+            "RETURN c3"
+        )
+
+
+def test_parse_rejects_match_after_reentry_unwind() -> None:
+    with pytest.raises(
+        GFQLSyntaxError,
+        match="Cypher MATCH after post-WITH MATCH UNWIND is not yet supported",
+    ):
+        _parse_query(
+            "MATCH (a:A)-[:R]->(b:B) "
+            "WITH b "
+            "MATCH (b)-[:S]->(c:C) "
+            "WITH collect(distinct c) AS cs "
+            "UNWIND cs AS c2 "
+            "MATCH (c2)-[:T]->(d:D) "
+            "MATCH (d)-[:Z]->(e) "
+            "RETURN e"
+        )
+
+
 def test_parse_where_label_predicate() -> None:
     parsed = _parse_query("MATCH (a)-->(b) WHERE b:Foo:Bar RETURN b")
 

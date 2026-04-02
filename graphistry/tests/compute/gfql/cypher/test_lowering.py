@@ -7002,6 +7002,46 @@ def test_string_cypher_executes_post_with_match_collect_unwind_match_with_carrie
     assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "d"}]
 
 
+def test_string_cypher_failfast_rejects_post_with_match_collect_unwind_match_final_with_carried_scalar() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH bid, collect(distinct c) AS cs "
+        "UNWIND cs AS c2 "
+        "MATCH (c2)-[:T]->(d:D) "
+        "WITH d, bid "
+        "RETURN bid, d.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="Cypher row lowering currently supports one MATCH source alias at a time",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
+def test_string_cypher_failfast_rejects_post_with_match_collect_unwind_match_final_with_order_by_limit() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH bid, collect(distinct c) AS cs "
+        "UNWIND cs AS c2 "
+        "MATCH (c2)-[:T]->(d:D) "
+        "WITH d, bid "
+        "ORDER BY d.id DESC "
+        "LIMIT 1 "
+        "RETURN bid, d.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="Cypher row lowering currently supports one MATCH source alias at a time",
+    ):
+        _mk_connected_multi_pattern_fanout_graph().gfql(query)
+
+
 def test_string_cypher_executes_post_with_match_collect_unwind_match_empty_result() -> None:
     query = (
         "MATCH (a:A)-[:R]->(b:B) "
@@ -7049,6 +7089,42 @@ def test_string_cypher_failfast_rejects_post_with_match_unwind_after_reentry_wit
     with pytest.raises(
         GFQLValidationError,
         match="Cypher UNWIND after WITH/RETURN is not yet supported once MATCH has introduced graph aliases",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
+def test_string_cypher_failfast_rejects_multiple_post_with_match_unwinds() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "UNWIND [c] AS c2 "
+        "UNWIND [c2] AS c3 "
+        "RETURN c3.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLSyntaxError,
+        match="Cypher only supports one UNWIND after post-WITH MATCH",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
+def test_string_cypher_failfast_rejects_match_after_post_with_match_unwind() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH collect(distinct c) AS cs "
+        "UNWIND cs AS c2 "
+        "MATCH (c2)-[:T]->(d:D) "
+        "MATCH (d)-[:Z]->(e) "
+        "RETURN e.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLSyntaxError,
+        match="Cypher MATCH after post-WITH MATCH UNWIND is not yet supported",
     ):
         _mk_multi_stage_reentry_graph().gfql(query)
 
