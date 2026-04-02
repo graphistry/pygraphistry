@@ -2998,6 +2998,40 @@ def test_string_cypher_executes_graph_backed_distinct_unwind_after_with_into_pos
     )
 
 
+def test_string_cypher_executes_graph_backed_unwind_with_carried_scalar_into_post_with_match() -> None:
+    """IC-6 shape: WITH scalar, collect(alias) AS list UNWIND list AS alias MATCH ... RETURN (#1000)."""
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["s", "b1", "b2", "c1", "c2"],
+                "label__S": [True, False, False, False, False],
+                "label__B": [False, True, True, False, False],
+                "label__C": [False, False, False, True, True],
+                "val": [0, 10, 20, 100, 200],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["s", "s", "b1", "b2"],
+                "d": ["b1", "b2", "c1", "c2"],
+                "type": ["X", "X", "Y", "Y"],
+            }
+        ),
+    )
+
+    _assert_query_rows(
+        "MATCH (root:S)-[:X]->(b1:B) "
+        "WITH root.val AS rv, collect(b1) AS bees "
+        "UNWIND bees AS b2 "
+        "MATCH (b2)-[:Y]->(c:C) "
+        "RETURN rv, c.id AS cid "
+        "ORDER BY cid",
+        [{"rv": 0, "cid": "c1"}, {"rv": 0, "cid": "c2"}],
+        nodes_df=graph._nodes,
+        edges_df=graph._edges,
+    )
+
+
 def test_string_cypher_executes_graph_backed_unwind_after_with_into_post_with_match_on_cudf() -> None:
     graph = _mk_cudf_graph(
         pd.DataFrame(
