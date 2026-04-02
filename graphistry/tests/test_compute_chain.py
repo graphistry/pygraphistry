@@ -1239,6 +1239,32 @@ class TestChainBindingsTable(NoAuthTestCase):
         ])
         assert len(result._nodes) == 0
 
+    def test_native_chain_rows_bindings_multi_hop_edge_alias(self):
+        """Multi-hop with edge aliases should produce edge properties in bindings (#880).
+
+        Edge alias names must not collide with the graph's source/destination columns
+        ('s'/'d' in this test fixture) — use 'r1'/'r2' instead.
+        """
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b", "c"], "label__X": [True, True, True]}),
+            pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "type": ["R", "S"], "weight": [10, 20]}),
+        )
+        result = g.gfql([
+            n(name="x"),
+            e_forward({"type": "R"}, name="r1"),
+            n(name="y"),
+            e_forward({"type": "S"}, name="r2"),
+            n(name="z"),
+            rows(),
+        ])
+        df = result._nodes
+        assert len(df) == 1
+        assert df["x.id"].iloc[0] == "a"
+        assert df["y.id"].iloc[0] == "b"
+        assert df["z.id"].iloc[0] == "c"
+        assert df["r1.weight"].iloc[0] == 10
+        assert df["r2.weight"].iloc[0] == 20
+
     def test_native_chain_rows_select_edge_alias_projection(self):
         """select() should project edge alias properties from bindings."""
         g = self._mk_graph(
