@@ -2223,6 +2223,14 @@ class RowPipelineMixin:
                         f"unsupported row expression: property access requires a graph element alias in {token!r}"
                     )
                 return self._gfql_broadcast_scalar(table_df, pd.NA)
+        # Bare alias name on a bindings-row table: resolve to the alias's
+        # identity column (alias.{node_id_col}).  This lets expressions like
+        # count(post) work when the table has post.id, post.name, etc. (#880)
+        if "." not in txt and RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, txt):
+            node_id = getattr(self, "_node", None)
+            id_col = f"{txt}.{node_id}" if node_id else None
+            if id_col is not None and id_col in table_df.columns:
+                return table_df[id_col]
         raise ValueError(f"unsupported token in row expression: {token!r}")
 
     def _gfql_eval_dynamic_list_subscript(

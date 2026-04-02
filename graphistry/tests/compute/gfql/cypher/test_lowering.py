@@ -7730,10 +7730,6 @@ def test_string_cypher_multi_alias_with_distinct_property_where() -> None:
     ]
 
 
-@pytest.mark.xfail(
-    reason="Multi-alias WITH aggregation: row expression evaluator does not resolve alias-prefixed columns from bindings table (#880)",
-    strict=True,
-)
 def test_string_cypher_multi_alias_with_distinct_count_projection() -> None:
     """IC-4 shape: WITH DISTINCT two aliases, then count aggregation (#880)."""
     graph = _mk_ic4_shape_graph()
