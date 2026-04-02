@@ -7747,6 +7747,41 @@ def test_string_cypher_multi_alias_with_distinct_count_projection() -> None:
     ]
 
 
+def test_string_cypher_multi_alias_with_distinct_sum_aggregation() -> None:
+    """Multi-alias WITH DISTINCT + sum() over alias property (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "RETURN tag.name AS tagName, sum(post.creationDate) AS totalDate "
+        "ORDER BY tagName",
+        params={"pid": "p1"},
+    )
+    records = result._nodes.to_dict(orient="records")
+    assert len(records) == 2
+    # TagA: post1(100) + post2(200) = 300; TagB: post3(300)
+    assert records[0] == {"tagName": "TagA", "totalDate": 300}
+    assert records[1] == {"tagName": "TagB", "totalDate": 300}
+
+
+def test_string_cypher_multi_alias_with_distinct_count_star() -> None:
+    """Multi-alias WITH DISTINCT + count(*) (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "RETURN tag.name AS tagName, count(*) AS cnt "
+        "ORDER BY cnt DESC, tagName ASC",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tagName": "TagA", "cnt": 2},
+        {"tagName": "TagB", "cnt": 1},
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Issue #996: MATCH (connected) OPTIONAL MATCH ... RETURN mixed + CASE
 # ---------------------------------------------------------------------------
