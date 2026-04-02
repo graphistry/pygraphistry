@@ -110,19 +110,23 @@ jobs:
         echo "docs_only_latest=${docs_only}" >> "$GITHUB_OUTPUT"
 
   no-plans-in-repo:
-    # Reject PRs that add or modify files under plans/ (gitignored working directory)
+    # Reject PRs that add or modify files under plans/ (gitignored working directory).
+    # Uses the PR head ref (not merge ref) to avoid false positives from
+    # plans/ files that already exist on the base branch.
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 1
     steps:
     - uses: actions/checkout@v3
       with:
+        ref: ${{ github.event.pull_request.head.sha }}
         fetch-depth: 0
-    - name: Check for plans/ files in diff
+    - name: Reject plans/ files added by this PR
       run: |
-        plans_files=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- 'plans/' || true)
+        merge_base=$(git merge-base origin/${{ github.base_ref }} HEAD)
+        plans_files=$(git diff --name-only --diff-filter=ACMR "$merge_base"..HEAD -- 'plans/' || true)
         if [ -n "$plans_files" ]; then
-          echo "::error::PR contains files under plans/ which is gitignored and must not be committed:"
+          echo "::error::PR adds or modifies files under plans/ which is gitignored and must not be committed:"
           echo "$plans_files"
           exit 1
         fi
