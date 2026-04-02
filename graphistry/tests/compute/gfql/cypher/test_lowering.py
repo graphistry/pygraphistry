@@ -7687,6 +7687,49 @@ def test_string_cypher_multi_alias_with_distinct_order_by_limit() -> None:
     assert records[1]["postId"] == "post2"
 
 
+def test_string_cypher_multi_alias_with_distinct_three_aliases() -> None:
+    """Three-alias WITH DISTINCT from single connected pattern (#880)."""
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id": ["a", "b", "c", "d"],
+            "label__A": [True, False, False, False],
+            "val": [1, 2, 3, 4],
+        }),
+        pd.DataFrame({
+            "s": ["a", "a", "b", "c"],
+            "d": ["b", "c", "d", "d"],
+            "type": ["R", "R", "S", "S"],
+        }),
+    )
+    result = graph.gfql(
+        "MATCH (a:A)-[:R]->(b)-[:S]->(c) "
+        "WITH DISTINCT a, b, c "
+        "RETURN a.id AS aid, b.id AS bid, c.id AS cid "
+        "ORDER BY bid",
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"aid": "a", "bid": "b", "cid": "d"},
+        {"aid": "a", "bid": "c", "cid": "d"},
+    ]
+
+
+def test_string_cypher_multi_alias_with_distinct_property_where() -> None:
+    """Multi-alias WITH DISTINCT + WHERE on alias property (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        'WHERE tag.name = "TagA" '
+        "RETURN post.id AS postId ORDER BY postId",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"postId": "post1"},
+        {"postId": "post2"},
+    ]
+
+
 @pytest.mark.xfail(
     reason="Multi-alias WITH aggregation: row expression evaluator does not resolve alias-prefixed columns from bindings table (#880)",
     strict=True,
