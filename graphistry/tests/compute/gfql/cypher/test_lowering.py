@@ -5946,17 +5946,18 @@ def test_string_cypher_failfast_rejects_with_match_reentry_multiple_trailing_mat
         _mk_connected_multi_pattern_reentry_graph().gfql(query, params={"seed": "a1"})
 
 
-def test_string_cypher_failfast_rejects_connected_multi_pattern_relationship_alias_projection() -> None:
+def test_string_cypher_connected_multi_pattern_relationship_alias_projection() -> None:
+    """Multi-hop edge alias projection should produce correct bindings rows (#880)."""
     query = (
-        "MATCH (b:B)-[s:S]->(c:C), (c)-[t:T]->(d:D) "
+        "MATCH (b:B)-[r:S]->(c:C), (c)-[t:T]->(d:D) "
         "RETURN t.type AS tt, d.id AS did"
     )
 
-    with pytest.raises(
-        GFQLValidationError,
-        match="Connected multi-pattern relationship alias projections are not yet supported",
-    ):
-        _mk_connected_multi_pattern_reentry_graph().gfql(query)
+    result = _mk_connected_multi_pattern_reentry_graph().gfql(query)
+    records = sorted(result._nodes.to_dict(orient="records"), key=lambda r: r["did"])
+    assert len(records) == 2
+    assert records[0] == {"tt": "T", "did": "d1"}
+    assert records[1] == {"tt": "T", "did": "d2"}
 
 
 def test_string_cypher_failfast_rejects_with_match_reentry_multiple_whole_row_aliases_with_carried_scalars() -> None:

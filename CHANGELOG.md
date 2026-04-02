@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+- **GFQL / Cypher**: Removed guard that rejected multi-hop connected patterns with edge alias projections (e.g., `MATCH (a)-[r:R]->(b)-[s:S]->(c) RETURN r.since, c.id`). The runtime bindings table already handles this correctly (#880).
+
 ## [0.53.16 - 2026-04-01]
 
 ### Added

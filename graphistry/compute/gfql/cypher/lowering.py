@@ -3659,21 +3659,6 @@ def _lower_projection_chain(
             if not _can_lower_multi_alias_projection_bindings(plan, alias_targets=alias_targets):
                 raise _multi_alias_exc
 
-    if plan.all_source_aliases is not None and len(lowered.query) > 3:
-        edge_alias_refs = sorted(
-            alias
-            for alias in plan.all_source_aliases
-            if isinstance(alias_targets.get(alias), ASTEdge)
-        )
-        if edge_alias_refs:
-            raise _unsupported(
-                "Connected multi-pattern relationship alias projections are not yet supported in this phase",
-                field=plan.clause_kind,
-                value=", ".join(edge_alias_refs),
-                line=query.return_.span.line,
-                column=query.return_.span.column,
-            )
-
     if plan.all_source_aliases is not None:
         row_steps: List[ASTObject] = [rows(binding_ops=serialize_binding_ops(lowered.query))]
     else:
