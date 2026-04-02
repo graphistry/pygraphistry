@@ -743,7 +743,13 @@ class RowPipelineMixin:
                         return False, None
                 source_alias = entity_alias_names[0]
                 if source_alias not in table_df.columns:
-                    return False, None
+                    # On bindings-row tables, resolve alias to alias.{node_id} (#880)
+                    node_id = getattr(self, "_node", None)
+                    id_col = f"{source_alias}.{node_id}" if node_id else None
+                    if id_col is not None and id_col in table_df.columns:
+                        source_alias = id_col
+                    else:
+                        return False, None
                 out = self._gfql_format_entity_series(
                     table_df,
                     alias_col=source_alias,
