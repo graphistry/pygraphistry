@@ -977,6 +977,26 @@ def test_string_cypher_supports_cartesian_node_only_row_filter_between_aliases()
     ]
 
 
+def test_string_cypher_supports_cartesian_dynamic_pattern_property_projection() -> None:
+    graph = _mk_cartesian_dynamic_pattern_graph()
+
+    result = graph.gfql(
+        "MATCH (a:A), (b:B {num: a.num}) "
+        "RETURN a.id AS aid, b.id AS bid "
+        "ORDER BY aid, bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a1", "bid": "b1"}]
+
+
+def test_string_cypher_supports_cartesian_dynamic_pattern_property_global_count() -> None:
+    graph = _mk_cartesian_dynamic_pattern_graph()
+
+    result = graph.gfql("MATCH (a:A), (b:B {num: a.num}) RETURN count(*) AS cnt")
+
+    assert result._nodes.to_dict(orient="records") == [{"cnt": 1}]
+
+
 def test_string_cypher_supports_cartesian_node_only_global_count() -> None:
     result = _mk_cartesian_node_graph().gfql(
         "MATCH (n), (m) "
@@ -6838,6 +6858,59 @@ def test_string_cypher_executes_multi_stage_with_match_reentry_with_intermediate
     result = _mk_multi_stage_reentry_graph().gfql(query)
 
     assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "d"}]
+
+
+def test_string_cypher_executes_multi_stage_with_match_reentry_with_intermediate_where_empty_result() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'x' "
+        "WITH c, bid "
+        "MATCH (c)-[:T]->(d:D) "
+        "RETURN bid, d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_string_cypher_failfast_rejects_direct_match_after_post_with_where_without_intervening_with() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "MATCH (c)-[:T]->(d:D) "
+        "RETURN d.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLSyntaxError,
+        match="Cypher MATCH after post-WITH WHERE is not yet supported",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
+def test_string_cypher_failfast_rejects_multiple_post_with_where_clauses() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "WITH c "
+        "MATCH (c)-[:T]->(d:D) "
+        "WHERE d.id = 'd' "
+        "WITH d "
+        "RETURN d.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLSyntaxError,
+        match="Cypher only supports one WHERE clause after post-WITH MATCH",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
 
 
 def test_issue_1000_ic6_after_phase2_now_stops_at_post_with_match_unwind() -> None:
