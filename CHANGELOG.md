@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **GFQL / Cypher**: Support multi-alias `WITH DISTINCT` projections from connected MATCH patterns (e.g., `MATCH (a)-[:R]->(b)-[:S]->(c) WITH DISTINCT b, c RETURN b.name, c.id`). Enables IC-4-shaped queries where multiple whole-row aliases flow through WITH into scalar RETURN projections (#880).
+
 ### Fixed
 - **GFQL / Cypher**: Support `WITH scalar, collect(alias) AS list UNWIND list AS alias MATCH ... RETURN` queries where carried scalars accompany the `collect()`. Previously only the single-item `WITH collect(alias) AS list` shape was supported (#1000).
 - **GFQL / bindings rows**: Native `rows()` and direct `rows(binding_ops=...)` now preserve open-range / fixed-point edge semantics during bindings serialization instead of collapsing those segments back to a single hop. This restores IS6-style multihop continuation row shaping from native GFQL chains under `#880`.

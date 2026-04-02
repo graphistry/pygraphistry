@@ -3795,6 +3795,24 @@ def _build_initial_row_scope(
     alias_targets = _alias_target(lowered.query) if query.match is not None else {}
     merged_match = _merged_match_clause(query)
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+    # For connected multi-pattern MATCH (not cartesian), enable binding-row
+    # aliases when the first WITH/RETURN stage projects multiple whole-row
+    # match aliases and all targets are nodes.  This allows multi-alias WITH
+    # projections to flow through the bindings-row path (#880).
+    if (
+        not binding_row_aliases
+        and query.match is not None
+        and len(alias_targets) > 1
+        and all(isinstance(t, ASTNode) for t in alias_targets.values())
+    ):
+        # Check if the stage clause references 2+ whole-row match aliases
+        whole_row_refs = {
+            item.expression.text
+            for item in stage_clause.items
+            if item.expression.text in alias_targets
+        }
+        if len(whole_row_refs) > 1:
+            binding_row_aliases = set(alias_targets.keys())
     active_match_alias = _active_match_alias_for_stage(
         unwinds=query.unwinds,
         clause=stage_clause,
