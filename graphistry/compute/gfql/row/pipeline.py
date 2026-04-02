@@ -2205,6 +2205,9 @@ class RowPipelineMixin:
             alias = prop_match.group("alias")
             prop = prop_match.group("prop")
             if RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, alias):
+                qualified = f"{alias}.{prop}"
+                if qualified in table_df.columns:
+                    return table_df[qualified]
                 return self._gfql_broadcast_scalar(table_df, pd.NA)
             if (
                 alias in table_df.columns
