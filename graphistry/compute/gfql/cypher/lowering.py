@@ -5974,36 +5974,51 @@ def _rewrite_collect_unwind_reentry_query(query: CypherQuery) -> Optional[Cypher
         or prefix_stage.order_by is not None
         or prefix_stage.skip is not None
         or prefix_stage.limit is not None
-        or len(prefix_stage.clause.items) != 1
+        or len(prefix_stage.clause.items) < 1
     ):
         return None
-    collected_item = prefix_stage.clause.items[0]
-    collected_output_name = collected_item.alias or collected_item.expression.text
     unwind_clause = query.unwinds[0]
-    if unwind_clause.expression.text != collected_output_name:
-        return None
-    collected_match = re.fullmatch(
-        r"collect\(\s*(distinct\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\)",
-        collected_item.expression.text,
-        flags=re.IGNORECASE,
-    )
-    if collected_match is None:
+    # Find the collect(...) item that feeds the UNWIND
+    collected_idx: Optional[int] = None
+    collected_match_result: Optional[re.Match[str]] = None
+    for idx, item in enumerate(prefix_stage.clause.items):
+        output_name = item.alias or item.expression.text
+        if output_name != unwind_clause.expression.text:
+            continue
+        m = re.fullmatch(
+            r"collect\(\s*(distinct\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\)",
+            item.expression.text,
+            flags=re.IGNORECASE,
+        )
+        if m is not None:
+            collected_idx = idx
+            collected_match_result = m
+            break
+    if collected_idx is None or collected_match_result is None:
         return None
     reentry_alias = _first_pattern_node_alias(query.reentry_matches[0])
     if reentry_alias is None or reentry_alias != unwind_clause.alias:
         return None
-    source_alias = collected_match.group(2)
+    collected_item = prefix_stage.clause.items[collected_idx]
+    source_alias = collected_match_result.group(2)
     rewritten_item = replace(
         collected_item,
         expression=ExpressionText(text=source_alias, span=collected_item.expression.span),
         alias=unwind_clause.alias,
     )
+    # Rebuild items: put the whole-row alias first, then carried scalars.
+    # The reentry machinery expects the whole-row alias to be the primary
+    # projection source, so it must come first.
+    other_items = tuple(
+        item for i, item in enumerate(prefix_stage.clause.items) if i != collected_idx
+    )
+    rewritten_items = (rewritten_item,) + other_items
     rewritten_prefix_stage = replace(
         prefix_stage,
         clause=replace(
             prefix_stage.clause,
-            items=(rewritten_item,),
-            distinct=bool(collected_match.group(1)),
+            items=rewritten_items,
+            distinct=bool(collected_match_result.group(1)),
         ),
     )
     return replace(query, with_stages=(rewritten_prefix_stage,), unwinds=())
