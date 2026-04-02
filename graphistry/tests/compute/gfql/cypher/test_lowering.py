@@ -7637,6 +7637,56 @@ def test_string_cypher_multi_alias_with_distinct_scalar_projection() -> None:
     ]
 
 
+def test_string_cypher_multi_alias_with_distinct_simple_two_hop() -> None:
+    """Simpler shape: single connected pattern, two aliases, WITH DISTINCT (#880)."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"], "label__A": [True, False, False], "label__B": [False, True, False], "label__C": [False, False, True], "val": [1, 2, 3]}),
+        pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "type": ["R", "S"]}),
+    )
+    result = graph.gfql(
+        "MATCH (a:A)-[:R]->(b:B)-[:S]->(c:C) "
+        "WITH DISTINCT b, c "
+        "RETURN b.val AS bv, c.val AS cv",
+    )
+    assert result._nodes.to_dict(orient="records") == [{"bv": 2, "cv": 3}]
+
+
+def test_string_cypher_multi_alias_with_distinct_where_filter() -> None:
+    """Multi-alias WITH DISTINCT + WHERE filter on projected alias (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WHERE post.creationDate > 100 "
+        "RETURN tag.name AS tagName, post.id AS postId "
+        "ORDER BY tagName, postId",
+        params={"pid": "p1"},
+    )
+    records = result._nodes.to_dict(orient="records")
+    # post1 has creationDate=100 (excluded by >100), post2=200, post3=300
+    assert all(r["postId"] != "post1" for r in records)
+    assert len(records) >= 1
+
+
+def test_string_cypher_multi_alias_with_distinct_order_by_limit() -> None:
+    """Multi-alias WITH DISTINCT + ORDER BY + LIMIT (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "RETURN tag.name AS tagName, post.id AS postId "
+        "ORDER BY postId "
+        "LIMIT 2",
+        params={"pid": "p1"},
+    )
+    records = result._nodes.to_dict(orient="records")
+    assert len(records) == 2
+    assert records[0]["postId"] == "post1"
+    assert records[1]["postId"] == "post2"
+
+
 @pytest.mark.xfail(
     reason="Multi-alias WITH aggregation not yet supported — runtime collapses rows before aggregation (#880)",
     strict=True,
