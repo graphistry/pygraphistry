@@ -1309,6 +1309,91 @@ class TestChainBindingsTable(NoAuthTestCase):
             {"personId": "b", "created": 123}
         ]
 
+    def test_native_chain_rows_bindings_open_range_continues_after_multihop(self):
+        """IS6-style open-range reply chains should continue into downstream bindings."""
+        g = self._mk_graph(
+            pd.DataFrame(
+                [
+                    {"id": "c1", "labels": ["Comment"], "label__Comment": True},
+                    {"id": "m1", "labels": ["Message"], "label__Message": True},
+                    {"id": "p1", "labels": ["Post"], "label__Post": True},
+                    {"id": "f1", "labels": ["Forum"], "label__Forum": True, "title": "Forum"},
+                    {
+                        "id": "u1",
+                        "labels": ["Person"],
+                        "label__Person": True,
+                        "firstName": "Mod",
+                        "lastName": "Erator",
+                    },
+                ]
+            ),
+            pd.DataFrame(
+                [
+                    {"s": "c1", "d": "m1", "type": "REPLY_OF"},
+                    {"s": "m1", "d": "p1", "type": "REPLY_OF"},
+                    {"s": "f1", "d": "p1", "type": "CONTAINER_OF"},
+                    {"s": "f1", "d": "u1", "type": "HAS_MODERATOR"},
+                ]
+            ),
+        )
+        records = self._rows_records(
+            g,
+            [
+                n({"id": "c1", "label__Comment": True}, name="message"),
+                e_forward({"type": "REPLY_OF"}, min_hops=0, to_fixed_point=True),
+                n({"label__Post": True}, name="post"),
+                e_reverse({"type": "CONTAINER_OF"}),
+                n({"label__Forum": True}, name="forum"),
+                e_forward({"type": "HAS_MODERATOR"}),
+                n({"label__Person": True}, name="moderator"),
+            ],
+            items=[("forumId", "forum.id"), ("moderatorId", "moderator.id")],
+        )
+        assert records == [{"forumId": "f1", "moderatorId": "u1"}]
+
+    def test_direct_rows_binding_ops_supports_open_range_multihop_continuation(self):
+        """Direct rows(binding_ops=...) should preserve open-range multihop semantics."""
+        g = self._mk_graph(
+            pd.DataFrame(
+                [
+                    {"id": "c1", "labels": ["Comment"], "label__Comment": True},
+                    {"id": "m1", "labels": ["Message"], "label__Message": True},
+                    {"id": "p1", "labels": ["Post"], "label__Post": True},
+                    {"id": "f1", "labels": ["Forum"], "label__Forum": True, "title": "Forum"},
+                    {
+                        "id": "u1",
+                        "labels": ["Person"],
+                        "label__Person": True,
+                        "firstName": "Mod",
+                        "lastName": "Erator",
+                    },
+                ]
+            ),
+            pd.DataFrame(
+                [
+                    {"s": "c1", "d": "m1", "type": "REPLY_OF"},
+                    {"s": "m1", "d": "p1", "type": "REPLY_OF"},
+                    {"s": "f1", "d": "p1", "type": "CONTAINER_OF"},
+                    {"s": "f1", "d": "u1", "type": "HAS_MODERATOR"},
+                ]
+            ),
+        )
+        binding_ops = [
+            n({"id": "c1", "label__Comment": True}, name="message").to_json(validate=False),
+            e_forward({"type": "REPLY_OF"}, min_hops=0, to_fixed_point=True).to_json(validate=False),
+            n({"label__Post": True}, name="post").to_json(validate=False),
+            e_reverse({"type": "CONTAINER_OF"}).to_json(validate=False),
+            n({"label__Forum": True}, name="forum").to_json(validate=False),
+            e_forward({"type": "HAS_MODERATOR"}).to_json(validate=False),
+            n({"label__Person": True}, name="moderator").to_json(validate=False),
+        ]
+        records = self._binding_rows_records(
+            g,
+            binding_ops,
+            items=[("forumId", "forum.id"), ("moderatorId", "moderator.id")],
+        )
+        assert records == [{"forumId": "f1", "moderatorId": "u1"}]
+
     def test_direct_rows_binding_ops_rejects_duplicate_alias_names(self):
         """Direct rows(binding_ops=...) should reject duplicate aliases."""
         g = self._mk_graph(
