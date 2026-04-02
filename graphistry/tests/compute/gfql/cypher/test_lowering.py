@@ -738,6 +738,32 @@ def test_compile_cypher_supports_cartesian_node_only_bindings_rows() -> None:
     assert [op.get("name") for op in binding_ops] == ["n", "m"]
 
 
+def test_compile_cypher_records_cartesian_multi_whole_row_projection_sources() -> None:
+    compiled = _compile_query("MATCH (a), (b) WHERE a = b RETURN a, b")
+
+    assert compiled.result_projection is not None
+    assert [column.output_name for column in compiled.result_projection.columns] == ["a", "b"]
+    assert [column.kind for column in compiled.result_projection.columns] == ["whole_row", "whole_row"]
+    assert [column.source_name for column in compiled.result_projection.columns] == ["a", "b"]
+
+
+def test_compile_cypher_records_cartesian_aliased_whole_row_projection_sources() -> None:
+    compiled = _compile_query("MATCH (a), (b) WHERE a = b RETURN a AS left, b AS right")
+
+    assert compiled.result_projection is not None
+    assert [column.output_name for column in compiled.result_projection.columns] == ["left", "right"]
+    assert [column.kind for column in compiled.result_projection.columns] == ["whole_row", "whole_row"]
+    assert [column.source_name for column in compiled.result_projection.columns] == ["a", "b"]
+
+
+def test_lower_match_query_converts_cartesian_property_join_to_row_where_expression() -> None:
+    lowered = lower_match_query(_parse_query("MATCH (a:A), (b:B) WHERE a.k = b.k RETURN a, b"))
+
+    assert lowered.where == []
+    assert lowered.row_where is not None
+    assert lowered.row_where.text == "a.k = b.k"
+
+
 def test_string_cypher_supports_cartesian_node_only_scalar_projection() -> None:
     result = _mk_cartesian_node_graph().gfql(
         "MATCH (n), (m) "
@@ -817,6 +843,68 @@ def test_string_cypher_supports_cartesian_node_only_with_stage_filter() -> None:
     assert result._nodes.to_dict(orient="records") == [
         {"n_num": 1, "m_num": 2},
     ]
+
+
+def test_string_cypher_supports_cartesian_node_identity_join_with_whole_row_projection() -> None:
+    result = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "label__A": [True, False],
+                "label__B": [False, True],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    ).gfql("MATCH (a), (b) WHERE a = b RETURN a, b ORDER BY a.id")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:A)", "b": "(:A)"},
+        {"a": "(:B)", "b": "(:B)"},
+    ]
+    entity_meta = getattr(result, "_cypher_entity_projection_meta")
+    assert entity_meta["a"]["alias"] == "a"
+    assert entity_meta["a"]["ids"].tolist() == ["a", "b"]
+    assert entity_meta["b"]["alias"] == "b"
+    assert entity_meta["b"]["ids"].tolist() == ["a", "b"]
+
+
+def test_string_cypher_supports_cartesian_node_property_join_with_whole_row_projection() -> None:
+    result = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b2", "b3"],
+                "label__A": [True, True, False, False],
+                "label__B": [False, False, True, True],
+                "k": [1, 2, 2, 3],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    ).gfql("MATCH (a:A), (b:B) WHERE a.k = b.k RETURN a, b")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:A {k: 2})", "b": "(:B {k: 2})"},
+    ]
+
+
+def test_string_cypher_supports_cartesian_whole_row_projection_aliases() -> None:
+    result = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "label__A": [True, False],
+                "label__B": [False, True],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    ).gfql("MATCH (a), (b) WHERE a = b RETURN a AS left, b AS right ORDER BY left.id")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"left": "(:A)", "right": "(:A)"},
+        {"left": "(:B)", "right": "(:B)"},
+    ]
+    entity_meta = getattr(result, "_cypher_entity_projection_meta")
+    assert entity_meta["left"]["alias"] == "a"
+    assert entity_meta["right"]["alias"] == "b"
 
 
 def test_lower_match_query_rejects_bare_where_pattern_predicate_without_relationship() -> None:

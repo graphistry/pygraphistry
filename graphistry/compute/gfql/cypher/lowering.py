@@ -179,6 +179,7 @@ class _ProjectionPlan:
     source_alias: str
     table: str
     whole_row_output_names: List[str]
+    whole_row_sources: Dict[str, str]
     clause_kind: str
     projection_items: List[Tuple[str, Any]]
     projection_columns: List[ResultProjectionColumn]
@@ -1828,14 +1829,14 @@ def _active_match_alias_for_stage(
 
     referenced: Set[str] = set()
     aggregate_only_referenced: Set[str] = set()
-    for expr_text, line, column, field in expr_texts:
+    for expr_text, line, column, field_name in expr_texts:
         if expr_text == "*":
             continue
         non_aggregate_aliases, aggregate_aliases = _expr_match_alias_usage(
             expr_text,
             alias_targets=alias_targets,
             params=params,
-            field=field,
+            field=field_name,
             line=line,
             column=column,
         )
@@ -2989,6 +2990,7 @@ def _build_projection_plan(
     source_alias: Optional[str] = None
     all_source_aliases: Optional[Set[str]] = None
     whole_row_output_names: List[str] = []
+    whole_row_sources: Dict[str, str] = {}
     projection_items: List[Tuple[str, Any]] = []
     projection_columns: List[ResultProjectionColumn] = []
     available_columns: Set[str] = set()
@@ -3123,6 +3125,7 @@ def _build_projection_plan(
                     language="cypher",
                 )
             whole_row_output_names.append(output_name)
+            whole_row_sources[output_name] = alias_name
             continue
         if simple_ref and prop is None:
             output_name = item.alias or alias_name
@@ -3138,6 +3141,7 @@ def _build_projection_plan(
                     language="cypher",
                 )
             whole_row_output_names.append(output_name)
+            whole_row_sources[output_name] = alias_name
             continue
         output_name = item.alias or item.expression.text
         if output_name in available_columns or output_name in whole_row_output_names:
@@ -3219,6 +3223,7 @@ def _build_projection_plan(
         source_alias=source_alias,
         table=table,
         whole_row_output_names=whole_row_output_names,
+        whole_row_sources=whole_row_sources,
         clause_kind=clause.kind,
         projection_items=projection_items,
         projection_columns=projection_columns,
@@ -3264,7 +3269,13 @@ def _result_projection_plan(
         return None
     columns: List[ResultProjectionColumn] = []
     for output_name in plan.whole_row_output_names:
-        columns.append(ResultProjectionColumn(output_name=output_name, kind="whole_row"))
+        columns.append(
+            ResultProjectionColumn(
+                output_name=output_name,
+                kind="whole_row",
+                source_name=plan.whole_row_sources.get(output_name, plan.source_alias),
+            )
+        )
     columns.extend(plan.projection_columns)
     return ResultProjectionPlan(
         alias=plan.source_alias,
@@ -3339,6 +3350,7 @@ def _optional_null_fill_plan(
         source_alias=seed_alias,
         table=alignment_table,
         whole_row_output_names=[alignment_output_name],
+        whole_row_sources={alignment_output_name: seed_alias},
         clause_kind="return",
         projection_items=[],
         projection_columns=[],
@@ -3484,7 +3496,12 @@ def _lower_order_by_clause(
                 else:
                     order_key = alias_name
             else:
-                if alias_name != plan.source_alias:
+                source_alias = (
+                    plan.whole_row_sources.get(alias_name, plan.source_alias)
+                    if alias_name in plan.whole_row_output_names
+                    else alias_name
+                )
+                if source_alias != plan.source_alias and alias_name not in plan.whole_row_output_names:
                     raise GFQLValidationError(
                         ErrorCode.E108,
                         "ORDER BY expressions must reference the active RETURN/WITH source alias",
@@ -3496,7 +3513,7 @@ def _lower_order_by_clause(
                         language="cypher",
                     )
                 order_key = (
-                    f"{alias_name}.{prop}"
+                    f"{source_alias}.{prop}"
                     if plan.whole_row_output_names
                     else plan.projected_property_outputs.get(prop, prop)
                 )
@@ -5418,9 +5435,9 @@ def _render_row_where_operand_text(value: Union[PropertyRef, CypherLiteral]) -> 
 def _row_where_predicate_text(predicate: WherePredicate) -> Optional[str]:
     if isinstance(predicate.left, LabelRef) or predicate.right is None:
         return None
-    op_map = {"=": "==", "<>": "!="}
+    op_map = {"==": "=", "<>": "!="}
     rendered_op = op_map.get(predicate.op, predicate.op)
-    if rendered_op not in {"==", "!=", "<", "<=", ">", ">="}:
+    if rendered_op not in {"=", "!=", "<", "<=", ">", ">="}:
         return None
     return (
         f"{_render_row_where_operand_text(predicate.left)} "
