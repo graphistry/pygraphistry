@@ -6665,17 +6665,38 @@ def test_string_cypher_reentry_carried_scalars_ignore_internal_hidden_column_col
     assert result._nodes.to_pandas().to_dict(orient="records") == [{"property": 2}, {"property": 1}]
 
 
+def test_string_cypher_executes_with_match_reentry_carried_scalar_where() -> None:
+    query = _reentry_query(
+        "a, a.num AS property",
+        return_clause="property, b.id AS id",
+        where_clause="property = b.num",
+        order_by="id",
+    )
+
+    result = _mk_reentry_carried_scalar_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"property": 1, "id": "b1"}]
+
+
+def test_string_cypher_executes_with_match_reentry_carried_scalar_where_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    query = _reentry_query(
+        "a, a.num AS property",
+        return_clause="property, b.id AS id",
+        where_clause="property = b.num",
+        order_by="id",
+    )
+
+    result = _mk_reentry_carried_scalar_graph_cudf().gfql(query, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"property": 1, "id": "b1"}]
+
+
 @pytest.mark.parametrize(
     ("query", "match"),
     [
-        (
-            _reentry_query(
-                "a, a.num AS property",
-                return_clause="b.id AS id",
-                where_clause="property = b.num",
-            ),
-            "one MATCH source alias at a time",
-        ),
         (
             "MATCH (a:A) "
             "WITH a "
