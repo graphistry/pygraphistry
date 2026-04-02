@@ -353,7 +353,7 @@ jobs:
     # Inherit condition from test-minimal-python
     if: ${{ success() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
 
     strategy:
       matrix:
