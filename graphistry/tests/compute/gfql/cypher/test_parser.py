@@ -227,6 +227,16 @@ def test_parse_identifier_valued_pattern_property_entry() -> None:
     assert right.properties[0].value.text == "carriedId"
 
 
+def test_parse_relationship_expression_valued_pattern_property_entry() -> None:
+    parsed = _parse_query("MATCH (a)-[r:R {weight: a.num}]->(b) RETURN r")
+
+    assert parsed.match is not None
+    rel = parsed.match.pattern[1]
+    assert isinstance(rel, RelationshipPattern)
+    assert isinstance(rel.properties[0].value, ExpressionText)
+    assert rel.properties[0].value.text == "a.num"
+
+
 @pytest.mark.parametrize(
     "query,direction",
     [

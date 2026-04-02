@@ -2562,6 +2562,27 @@ def _binding_row_aliases_for_match(
     return set(alias_targets.keys())
 
 
+def _binding_row_aliases_for_row_where(
+    row_where: Optional[ExpressionText],
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+) -> Set[str]:
+    if row_where is None:
+        return set()
+    referenced = _expr_match_aliases(
+        row_where.text,
+        alias_targets=alias_targets,
+        params=params,
+        field="where",
+        line=row_where.span.line,
+        column=row_where.span.column,
+    )
+    if len(referenced) <= 1:
+        return set()
+    return set(alias_targets.keys())
+
+
 def _first_allowed_alias(
     alias_targets: Mapping[str, ASTObject],
     allowed_match_aliases: AbstractSet[str],
@@ -3781,6 +3802,13 @@ def _lower_projection_chain(
 ) -> List[ASTObject]:
     alias_targets = _alias_target(lowered.query)
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+    binding_row_aliases.update(
+        _binding_row_aliases_for_row_where(
+            lowered.row_where,
+            alias_targets=alias_targets,
+            params=params,
+        )
+    )
     if plan is None:
         try:
             active = _active_match_alias(
@@ -3805,7 +3833,9 @@ def _lower_projection_chain(
                 raise _multi_alias_exc
 
     allowed_match_aliases = (
-        ({plan.source_alias} | plan.all_source_aliases) if plan.all_source_aliases is not None else binding_row_aliases
+        ({plan.source_alias} | plan.all_source_aliases | binding_row_aliases)
+        if plan.all_source_aliases is not None
+        else binding_row_aliases
     )
     if plan.all_source_aliases is not None or binding_row_aliases:
         row_steps: List[ASTObject] = [rows(binding_ops=serialize_binding_ops(lowered.query))]
@@ -3870,6 +3900,13 @@ def _build_initial_row_scope(
         }
         if len(whole_row_refs) > 1:
             binding_row_aliases = set(alias_targets.keys())
+    binding_row_aliases.update(
+        _binding_row_aliases_for_row_where(
+            lowered.row_where,
+            alias_targets=alias_targets,
+            params=params,
+        )
+    )
     active_match_alias = _active_match_alias_for_stage(
         unwinds=query.unwinds,
         clause=stage_clause,
@@ -5482,12 +5519,12 @@ def lower_match_query(
                 right=cast(Optional[CypherLiteral], predicate.right),
                 params=params,
             )
-        if row_where_predicates:
-            combined_expr = " and ".join(row_where_predicates)
-            row_where = ExpressionText(
-                text=combined_expr if row_where is None else f"({row_where.text}) and ({combined_expr})",
-                span=query.where.span,
-            )
+    if row_where_predicates:
+        combined_expr = " and ".join(row_where_predicates)
+        row_where = ExpressionText(
+            text=combined_expr if row_where is None else f"({row_where.text}) and ({combined_expr})",
+            span=query.where.span if query.where is not None else merged_match.span,
+        )
 
     return LoweredCypherMatch(query=ops, where=where_out, row_where=row_where)
 
