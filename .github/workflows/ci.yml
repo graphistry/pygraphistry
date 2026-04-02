@@ -109,6 +109,24 @@ jobs:
 
         echo "docs_only_latest=${docs_only}" >> "$GITHUB_OUTPUT"
 
+  no-plans-in-repo:
+    # Reject PRs that add or modify files under plans/ (gitignored working directory)
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    - name: Check for plans/ files in diff
+      run: |
+        plans_files=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- 'plans/' || true)
+        if [ -n "$plans_files" ]; then
+          echo "::error::PR contains files under plans/ which is gitignored and must not be committed:"
+          echo "$plans_files"
+          exit 1
+        fi
+
   tck-gfql:
     needs: changes
     if: ${{ (needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
