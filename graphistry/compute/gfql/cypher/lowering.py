@@ -7311,7 +7311,6 @@ def _compile_connected_match_join(
 
 def _apply_where_to_ops(
     where: Optional[WhereClause],
-    ops: List[ASTObject],
     alias_targets: Dict[str, ASTObject],
     *,
     params: Optional[Mapping[str, Any]],
@@ -7381,7 +7380,7 @@ def _compile_connected_optional_match(
     base_ops = lower_match_clause(base_clause, params=params)
     base_alias_targets = _alias_target(base_ops)
     base_aliases = _match_clause_aliases(base_clause)
-    base_where = _apply_where_to_ops(base_clause.where, base_ops, base_alias_targets, params=params)
+    base_where = _apply_where_to_ops(base_clause.where, base_alias_targets, params=params)
     base_chain = Chain(base_ops, where=base_where)
 
     # Build one arm per OPTIONAL MATCH clause.
@@ -7420,7 +7419,7 @@ def _compile_connected_optional_match(
                 column=opt_clause.span.column,
             )
 
-        opt_where = _apply_where_to_ops(opt_clause.where, opt_ops, opt_alias_targets, params=params)
+        opt_where = _apply_where_to_ops(opt_clause.where, opt_alias_targets, params=params)
         arms.append(_OptionalMatchArm(
             chain=Chain(opt_ops, where=opt_where),
             shared_node_aliases=tuple(shared_node_aliases),

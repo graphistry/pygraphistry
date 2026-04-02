@@ -9880,3 +9880,67 @@ def test_audit_multi_optional_order_by_limit() -> None:
 
     rows = result._nodes.to_dict(orient="records")
     assert rows == [{"yid": "b"}]
+
+
+def test_audit_single_node_base_where_plus_three_optionals() -> None:
+    """Single-node base with WHERE label + 3 optionals — full combo."""
+    nodes = pd.DataFrame({
+        "id": ["a", "b", "c", "d", "e"],
+        "label__X": [True, True, False, False, False],
+    })
+    edges = pd.DataFrame({
+        "s": ["a", "a", "a", "b", "b"],
+        "d": ["c", "d", "e", "c", "d"],
+        "type": ["T1", "T2", "T3", "T1", "T2"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x) "
+        "WHERE x:X "
+        "OPTIONAL MATCH (x)-[r1:T1]->(y1) "
+        "OPTIONAL MATCH (x)-[r2:T2]->(y2) "
+        "OPTIONAL MATCH (x)-[r3:T3]->(y3) "
+        "RETURN x.id AS xid, y1.id AS y1id, y2.id AS y2id, y3.id AS y3id "
+        "ORDER BY xid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    # a:X has T1->c, T2->d, T3->e
+    # b:X has T1->c, T2->d, no T3
+    assert len(rows) == 2
+    assert rows[0]["xid"] == "a"
+    assert rows[0]["y1id"] == "c"
+    assert rows[0]["y2id"] == "d"
+    assert rows[0]["y3id"] == "e"
+    assert rows[1]["xid"] == "b"
+    assert rows[1]["y1id"] == "c"
+    assert rows[1]["y2id"] == "d"
+    # y3 null for b (no T3)
+
+
+def test_audit_cross_alias_property_where_on_base() -> None:
+    """Cross-alias property comparison in WHERE on connected base MATCH."""
+    nodes = pd.DataFrame({
+        "id": ["a", "b", "c"],
+        "score": [100, 50, 200],
+    })
+    edges = pd.DataFrame({
+        "s": ["a", "a"],
+        "d": ["b", "c"],
+        "type": ["R1", "R1"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x)-[r1:R1]->(y) "
+        "WHERE x.score > y.score "
+        "OPTIONAL MATCH (y)-[r2:R1]->(z) "
+        "RETURN x.id AS xid, y.id AS yid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    # a.score=100 > b.score=50 → (a, b) passes
+    # a.score=100 > c.score=200 → fails
+    assert len(rows) == 1
+    assert rows[0] == {"xid": "a", "yid": "b"}
