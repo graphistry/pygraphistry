@@ -6808,7 +6808,7 @@ def test_string_cypher_executes_multi_stage_with_match_reentry_empty_result_shap
     assert result._nodes.to_dict(orient="records") == []
 
 
-def test_string_cypher_failfast_rejects_multi_stage_with_match_reentry_with_intermediate_where() -> None:
+def test_string_cypher_executes_multi_stage_with_match_reentry_with_intermediate_where() -> None:
     query = (
         "MATCH (a:A)-[:R]->(b:B) "
         "WITH b "
@@ -6819,11 +6819,65 @@ def test_string_cypher_failfast_rejects_multi_stage_with_match_reentry_with_inte
         "RETURN d.id AS id"
     )
 
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
+
+
+def test_string_cypher_executes_multi_stage_with_match_reentry_with_intermediate_where_and_carried_scalar() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "WITH c, bid "
+        "MATCH (c)-[:T]->(d:D) "
+        "RETURN bid, d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "d"}]
+
+
+def test_issue_1000_ic6_after_phase2_now_stops_at_post_with_match_unwind() -> None:
+    query = """
+MATCH (knownTag:Tag { name: $tagName })
+WITH knownTag.id as knownTagId
+
+MATCH (person:Person { id: $personId })-[:KNOWS*1..2]-(friend)
+WHERE NOT person=friend
+WITH
+    knownTagId,
+    collect(distinct friend) as friends
+UNWIND friends as f
+    MATCH (f)<-[:HAS_CREATOR]-(post:Post),
+          (post)-[:HAS_TAG]->(t:Tag{id: knownTagId}),
+          (post)-[:HAS_TAG]->(tag:Tag)
+    WHERE NOT t = tag
+    WITH
+        tag.name as tagName,
+        count(post) as postCount
+RETURN
+    tagName,
+    postCount
+ORDER BY
+    postCount DESC,
+    tagName ASC
+LIMIT 10
+"""
+
     with pytest.raises(
         GFQLSyntaxError,
-        match="Cypher WITH after post-WITH MATCH WHERE is not yet supported",
+        match="Cypher UNWIND after post-WITH MATCH is not yet supported",
     ):
-        _mk_multi_stage_reentry_graph().gfql(query)
+        compile_cypher(
+            query,
+            params={
+                "personId": 4398046511333,
+                "tagName": "Carl_Gustaf_Emil_Mannerheim",
+            },
+        )
 
 
 def test_cypher_to_gfql_supports_multi_alias_scalar_projection() -> None:

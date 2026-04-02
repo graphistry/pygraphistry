@@ -6488,11 +6488,11 @@ def _compile_bounded_reentry_query(
             field=field,
         )
 
-    reentry_where = None
+    reentry_where = query.reentry_where
     reentry_return = query.return_
     reentry_order_by = query.order_by
     rewritten_with_stages = remaining_with_stages
-    rewritten_reentry_where = query.reentry_where if remaining_reentry_matches else None
+    rewritten_reentry_where = None
     rewritten_reentry_match = reentry_match
     rewritten_remaining_reentry_matches = remaining_reentry_matches
     if hidden_columns:
@@ -6505,15 +6505,11 @@ def _compile_bounded_reentry_query(
             _rewrite_reentry_projection_stage(stage, rewrite_expr=rewrite_expr)
             for stage in remaining_with_stages
         )
-        if remaining_reentry_matches:
-            reentry_where = None
-        elif query.reentry_where is not None and query.reentry_where.expr is not None:
+        if query.reentry_where is not None and query.reentry_where.expr is not None:
             reentry_where = replace(
                 query.reentry_where,
                 expr=rewrite_expr(query.reentry_where.expr, "where"),
             )
-        else:
-            reentry_where = query.reentry_where
         if not remaining_reentry_matches:
             reentry_return = _rewrite_reentry_projection_clause(query.return_, rewrite_expr=rewrite_expr)
             if reentry_order_by is not None:
@@ -6527,8 +6523,6 @@ def _compile_bounded_reentry_query(
                         for item in reentry_order_by.items
                     ),
                 )
-    else:
-        reentry_where = None if remaining_reentry_matches else query.reentry_where
     suffix_query = replace(
         query,
         call=None,
