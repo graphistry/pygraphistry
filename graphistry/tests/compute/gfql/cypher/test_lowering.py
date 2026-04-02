@@ -430,6 +430,28 @@ def _mk_connected_post_tag_fanout_graph() -> _CypherTestGraph:
     )
 
 
+def _mk_connected_post_tag_fanout_graph_cudf() -> _CypherTestGraph:
+    return _mk_cudf_graph(
+        pd.DataFrame(
+            {
+                "id": ["tag_known", "tag_other", "person1", "post1"],
+                "label__Tag": [True, True, False, False],
+                "label__Person": [False, False, True, False],
+                "label__Post": [False, False, False, True],
+                "name": ["topic", "other", None, None],
+                "tagId": [101, 202, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["post1", "post1", "post1"],
+                "d": ["person1", "tag_known", "tag_other"],
+                "type": ["HAS_CREATOR", "HAS_TAG", "HAS_TAG"],
+            }
+        ),
+    )
+
+
 def _prefix_scalar_reentry_query(
     *,
     tag_name: str = "topic",
@@ -7360,7 +7382,7 @@ def test_string_cypher_executes_post_with_match_with_before_return() -> None:
     assert result._nodes.to_dict(orient="records") == [{"id": "c"}]
 
 
-def test_issue_1000_ic6_after_phase5_now_stops_at_reentry_comma_pattern_fanout() -> None:
+def test_issue_1000_ic6_compiles_after_phase6_connected_star_fanout() -> None:
     query = """
 MATCH (knownTag:Tag { name: $tagName })
 WITH knownTag.id as knownTagId
@@ -7387,17 +7409,15 @@ ORDER BY
 LIMIT 10
 """
 
-    with pytest.raises(
-        GFQLValidationError,
-        match="Comma-separated Cypher MATCH patterns are only supported for a single linear connected path with shared endpoint aliases",
-    ):
-        compile_cypher(
-            query,
-            params={
-                "personId": 4398046511333,
-                "tagName": "Carl_Gustaf_Emil_Mannerheim",
-            },
-        )
+    compiled = compile_cypher(
+        query,
+        params={
+            "personId": 4398046511333,
+            "tagName": "Carl_Gustaf_Emil_Mannerheim",
+        },
+    )
+
+    assert compiled is not None
 
 
 def test_string_cypher_executes_scalar_only_prefix_with_match_reentry() -> None:
@@ -7506,7 +7526,7 @@ def test_string_cypher_failfast_rejects_scalar_only_prefix_alias_reused_as_node_
             "MATCH (a:A) WITH [a] AS users MATCH (users)-->(messages) RETURN messages.id AS mid"
         )
 
-def test_string_cypher_failfast_rejects_scalar_prefix_reentry_connected_star_comma_fanout() -> None:
+def test_string_cypher_executes_scalar_prefix_reentry_connected_star_comma_fanout() -> None:
     query = (
         "MATCH (knownTag:Tag { name: 'topic' }) "
         "WITH knownTag.tagId AS knownTagId "
@@ -7518,11 +7538,60 @@ def test_string_cypher_failfast_rejects_scalar_prefix_reentry_connected_star_com
         "ORDER BY postId, tagName"
     )
 
-    with pytest.raises(
-        GFQLValidationError,
-        match="Comma-separated Cypher MATCH patterns are only supported for a single linear connected path with shared endpoint aliases",
-    ):
-        _mk_connected_post_tag_fanout_graph().gfql(query)
+    result = _mk_connected_post_tag_fanout_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"postId": "post1", "tagName": "other"}]
+
+
+def test_string_cypher_executes_scalar_prefix_reentry_connected_star_comma_fanout_grouped_count() -> None:
+    query = (
+        "MATCH (knownTag:Tag { name: 'topic' }) "
+        "WITH knownTag.tagId AS knownTagId "
+        "MATCH (f:Person)<-[:HAS_CREATOR]-(post:Post), "
+        "(post)-[:HAS_TAG]->(t:Tag {tagId: knownTagId}), "
+        "(post)-[:HAS_TAG]->(tag:Tag) "
+        "WHERE NOT t = tag "
+        "WITH tag.name AS tagName, count(post) AS postCount "
+        "RETURN tagName, postCount"
+    )
+
+    result = _mk_connected_post_tag_fanout_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"tagName": "other", "postCount": 1}]
+
+
+def test_string_cypher_executes_connected_star_comma_fanout_grouped_count_without_reentry() -> None:
+    query = (
+        "MATCH (f:Person)<-[:HAS_CREATOR]-(post:Post), "
+        "(post)-[:HAS_TAG]->(t:Tag {tagId: 101}), "
+        "(post)-[:HAS_TAG]->(tag:Tag) "
+        "WHERE NOT t = tag "
+        "RETURN tag.name AS tagName, count(post) AS postCount"
+    )
+
+    result = _mk_connected_post_tag_fanout_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"tagName": "other", "postCount": 1}]
+
+
+def test_string_cypher_executes_scalar_prefix_reentry_connected_star_comma_fanout_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    query = (
+        "MATCH (knownTag:Tag { name: 'topic' }) "
+        "WITH knownTag.tagId AS knownTagId "
+        "MATCH (f:Person)<-[:HAS_CREATOR]-(post:Post), "
+        "(post)-[:HAS_TAG]->(t:Tag {tagId: knownTagId}), "
+        "(post)-[:HAS_TAG]->(tag:Tag) "
+        "WHERE NOT t = tag "
+        "RETURN post.id AS postId, tag.name AS tagName "
+        "ORDER BY postId, tagName"
+    )
+
+    result = _mk_connected_post_tag_fanout_graph_cudf().gfql(query, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"postId": "post1", "tagName": "other"}]
 
 
 def test_string_cypher_failfast_rejects_connected_multi_pattern_grouped_aggregate_overlap() -> None:
