@@ -6970,18 +6970,68 @@ def test_string_cypher_failfast_rejects_multiple_post_with_where_clauses() -> No
         _mk_multi_stage_reentry_graph().gfql(query)
 
 
-def test_string_cypher_failfast_rejects_post_with_match_unwind_before_return() -> None:
+def test_string_cypher_executes_post_with_match_collect_unwind_match_before_return() -> None:
     query = (
         "MATCH (a:A)-[:R]->(b:B) "
         "WITH b "
         "MATCH (b)-[:S]->(c:C) "
+        "WITH collect(distinct c) AS cs "
+        "UNWIND cs AS c2 "
+        "MATCH (c2)-[:T]->(d:D) "
+        "RETURN d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
+
+
+def test_string_cypher_executes_post_with_match_collect_unwind_match_with_carried_scalar() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH bid, collect(distinct c) AS cs "
+        "UNWIND cs AS c2 "
+        "MATCH (c2)-[:T]->(d:D) "
+        "RETURN bid, d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "d"}]
+
+
+def test_string_cypher_executes_post_with_match_collect_unwind_match_empty_result() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH collect(distinct c) AS cs "
+        "UNWIND cs AS c2 "
+        "MATCH (c2)-[:X]->(d:D) "
+        "RETURN d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_string_cypher_failfast_rejects_post_with_match_non_collect_unwind_match_shape() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH c "
         "UNWIND [c] AS c2 "
-        "RETURN c2.id AS id"
+        "MATCH (c2)-[:T]->(d:D) "
+        "RETURN d.id AS id"
     )
 
     with pytest.raises(
-        GFQLSyntaxError,
-        match="Cypher UNWIND after post-WITH MATCH is not yet supported",
+        GFQLValidationError,
+        match="supports only a single WITH collect\\(\\[distinct\\] alias\\) AS list UNWIND list AS alias MATCH \\.\\.\\. RETURN shape",
     ):
         _mk_multi_stage_reentry_graph().gfql(query)
 
@@ -6997,13 +7047,27 @@ def test_string_cypher_failfast_rejects_post_with_match_unwind_after_reentry_wit
     )
 
     with pytest.raises(
-        GFQLSyntaxError,
-        match="Cypher UNWIND after post-WITH MATCH is not yet supported",
+        GFQLValidationError,
+        match="Cypher UNWIND after WITH/RETURN is not yet supported once MATCH has introduced graph aliases",
     ):
         _mk_multi_stage_reentry_graph().gfql(query)
 
 
-def test_issue_1000_ic6_after_phase2_now_stops_at_post_with_match_unwind() -> None:
+def test_string_cypher_executes_post_with_match_with_before_return() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH c "
+        "RETURN c.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "c"}]
+
+
+def test_issue_1000_ic6_after_phase3_now_stops_at_second_reentry_where() -> None:
     query = """
 MATCH (knownTag:Tag { name: $tagName })
 WITH knownTag.id as knownTagId
@@ -7032,7 +7096,7 @@ LIMIT 10
 
     with pytest.raises(
         GFQLSyntaxError,
-        match="Cypher UNWIND after post-WITH MATCH is not yet supported",
+        match="Cypher only supports one WHERE clause after post-WITH MATCH",
     ):
         compile_cypher(
             query,

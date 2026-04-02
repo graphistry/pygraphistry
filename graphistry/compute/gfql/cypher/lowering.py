@@ -6312,9 +6312,10 @@ def _rewrite_reentry_projection_stage(
 
 
 def _rewrite_collect_unwind_reentry_query(query: CypherQuery) -> Optional[CypherQuery]:
-    if len(query.with_stages) != 1 or len(query.unwinds) != 1 or len(query.reentry_matches) != 1:
+    if not query.with_stages or len(query.unwinds) != 1 or len(query.reentry_matches) != 1:
         return None
     prefix_stage = query.with_stages[0]
+    remaining_with_stages = query.with_stages[1:]
     if (
         prefix_stage.where is not None
         or prefix_stage.order_by is not None
@@ -6367,7 +6368,11 @@ def _rewrite_collect_unwind_reentry_query(query: CypherQuery) -> Optional[Cypher
             distinct=bool(collected_match_result.group(1)),
         ),
     )
-    return replace(query, with_stages=(rewritten_prefix_stage,), unwinds=())
+    return replace(
+        query,
+        with_stages=(rewritten_prefix_stage,) + remaining_with_stages,
+        unwinds=(),
+    )
 
 
 def _compile_bounded_reentry_query(
@@ -6386,9 +6391,12 @@ def _compile_bounded_reentry_query(
                 span=first_unwind.span,
             )
         query = rewritten_query
-    if not query.reentry_matches or len(query.with_stages) != len(query.reentry_matches):
+    if not query.reentry_matches or len(query.with_stages) not in {
+        len(query.reentry_matches),
+        len(query.reentry_matches) + 1,
+    }:
         raise _unsupported_at_span(
-            "Cypher MATCH after WITH is only supported for alternating MATCH ... WITH ... MATCH ... [WITH ... MATCH ...] ... RETURN read shapes in the local compiler",
+            "Cypher MATCH after WITH is only supported for alternating MATCH ... WITH ... MATCH ... [WITH ... MATCH ...] ... [WITH] RETURN read shapes in the local compiler",
             field="match",
             value=len(query.reentry_matches),
             span=query.return_.span,
@@ -6416,6 +6424,7 @@ def _compile_bounded_reentry_query(
         skip=prefix_stage.skip,
         limit=prefix_stage.limit,
         trailing_semicolon=False,
+        reentry_unwinds=(),
     )
     prefix_compiled = compile_cypher_query(prefix_query, params=params)
     if not isinstance(prefix_compiled, CompiledCypherQuery):
@@ -6492,6 +6501,7 @@ def _compile_bounded_reentry_query(
     reentry_return = query.return_
     reentry_order_by = query.order_by
     rewritten_with_stages = remaining_with_stages
+    rewritten_reentry_unwinds = query.reentry_unwinds
     rewritten_reentry_where = None
     rewritten_reentry_match = reentry_match
     rewritten_remaining_reentry_matches = remaining_reentry_matches
@@ -6504,6 +6514,13 @@ def _compile_bounded_reentry_query(
         rewritten_with_stages = tuple(
             _rewrite_reentry_projection_stage(stage, rewrite_expr=rewrite_expr)
             for stage in remaining_with_stages
+        )
+        rewritten_reentry_unwinds = tuple(
+            replace(
+                unwind_clause,
+                expression=rewrite_expr(unwind_clause.expression, "unwind"),
+            )
+            for unwind_clause in query.reentry_unwinds
         )
         if query.reentry_where is not None and query.reentry_where.expr is not None:
             reentry_where = replace(
@@ -6523,6 +6540,14 @@ def _compile_bounded_reentry_query(
                         for item in reentry_order_by.items
                     ),
                 )
+    if rewritten_reentry_unwinds and rewritten_with_stages and not rewritten_remaining_reentry_matches:
+        first_unwind = rewritten_reentry_unwinds[0]
+        raise _unsupported_at_span(
+            "Cypher UNWIND after WITH/RETURN is not yet supported once MATCH has introduced graph aliases",
+            field="unwind",
+            value=first_unwind.expression.text,
+            span=first_unwind.span,
+        )
     suffix_query = replace(
         query,
         call=None,
@@ -6531,12 +6556,13 @@ def _compile_bounded_reentry_query(
         use=None,
         matches=(rewritten_reentry_match,),
         where=reentry_where,
-        unwinds=(),
+        unwinds=rewritten_reentry_unwinds,
         with_stages=rewritten_with_stages,
         return_=reentry_return,
         order_by=reentry_order_by,
         reentry_matches=rewritten_remaining_reentry_matches,
         reentry_where=rewritten_reentry_where,
+        reentry_unwinds=(),
     )
     suffix_compiled = compile_cypher_query(suffix_query, params=params)
     if not isinstance(suffix_compiled, CompiledCypherQuery):
@@ -6671,6 +6697,7 @@ def _compile_graph_constructor(
         row_sequence=(),
         trailing_semicolon=False,
         span=constructor.span,
+        reentry_unwinds=(),
     )
     lowered = lower_match_query(synthetic, params=params)
     return CompiledCypherQuery(

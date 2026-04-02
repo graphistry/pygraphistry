@@ -432,6 +432,27 @@ def test_parse_match_with_unwind_then_reentry_shape() -> None:
     assert parsed.reentry_where is None
 
 
+def test_parse_reentry_match_with_collect_unwind_then_reentry_shape() -> None:
+    parsed = _parse_query(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH collect(distinct c) AS cs "
+        "UNWIND cs AS c2 "
+        "MATCH (c2)-[:T]->(d:D) "
+        "WITH d "
+        "RETURN d.id AS id"
+    )
+
+    assert len(parsed.matches) == 1
+    assert len(parsed.with_stages) == 3
+    assert parsed.with_stages[1].clause.items[0].expression.text == "collect(distinct c)"
+    assert len(parsed.reentry_matches) == 2
+    assert len(parsed.reentry_unwinds) == 1
+    assert parsed.reentry_unwinds[0].expression.text == "cs"
+    assert parsed.reentry_unwinds[0].alias == "c2"
+
+
 def test_parse_where_label_predicate() -> None:
     parsed = _parse_query("MATCH (a)-->(b) WHERE b:Foo:Bar RETURN b")
 
