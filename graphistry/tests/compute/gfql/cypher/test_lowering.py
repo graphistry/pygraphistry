@@ -75,6 +75,20 @@ def _mk_cartesian_node_graph() -> _CypherTestGraph:
     )
 
 
+def _mk_cartesian_dynamic_pattern_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b1", "b2"],
+                "label__A": [True, True, False, False],
+                "label__B": [False, False, True, True],
+                "num": [1, 2, 1, 3],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+
 def _mk_path_with_isolate_graph() -> _CypherTestGraph:
     return _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c", "z"]}),
@@ -925,6 +939,16 @@ def test_lower_match_query_converts_cartesian_property_join_to_row_where_express
     assert lowered.row_where.text == "a.k = b.k"
 
 
+def test_lower_match_query_converts_cartesian_dynamic_pattern_property_to_row_where_expression() -> None:
+    lowered = lower_match_query(
+        _parse_query("MATCH (a:A), (b:B {num: a.num}) RETURN a.id AS aid, b.id AS bid")
+    )
+
+    assert lowered.where == []
+    assert lowered.row_where is not None
+    assert lowered.row_where.text == "b.num = (a.num)"
+
+
 def test_string_cypher_supports_cartesian_node_only_scalar_projection() -> None:
     result = _mk_cartesian_node_graph().gfql(
         "MATCH (n), (m) "
@@ -962,6 +986,26 @@ def test_string_cypher_supports_cartesian_node_only_global_count() -> None:
     assert result._nodes.to_dict(orient="records") == [
         {"cnt": 4},
     ]
+
+
+def test_string_cypher_supports_cartesian_dynamic_pattern_property_projection() -> None:
+    graph = _mk_cartesian_dynamic_pattern_graph()
+
+    result = graph.gfql(
+        "MATCH (a:A), (b:B {num: a.num}) "
+        "RETURN a.id AS aid, b.id AS bid "
+        "ORDER BY aid, bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a1", "bid": "b1"}]
+
+
+def test_string_cypher_supports_cartesian_dynamic_pattern_property_global_count() -> None:
+    graph = _mk_cartesian_dynamic_pattern_graph()
+
+    result = graph.gfql("MATCH (a:A), (b:B {num: a.num}) RETURN count(*) AS cnt")
+
+    assert result._nodes.to_dict(orient="records") == [{"cnt": 1}]
 
 
 def test_string_cypher_supports_cartesian_node_only_grouped_count() -> None:

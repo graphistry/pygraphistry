@@ -2276,6 +2276,7 @@ def _dynamic_property_entry_constraints(
 ) -> Tuple[List[WhereComparison], List[str]]:
     where_out: List[WhereComparison] = []
     row_predicates: List[str] = []
+    force_row_predicates = _cartesian_node_only_patterns(clause) is not None
     for element in _match_pattern_elements(clause):
         alias = getattr(element, "variable", None)
         properties = getattr(element, "properties", ())
@@ -2300,7 +2301,11 @@ def _dynamic_property_entry_constraints(
             )
             if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
                 source_alias = node.value.name
-                if source_alias in alias_targets and not _is_hidden_reentry_property(node.property):
+                if (
+                    source_alias in alias_targets
+                    and not _is_hidden_reentry_property(node.property)
+                    and not force_row_predicates
+                ):
                     where_out.append(compare(col(alias, entry.key), "==", col(source_alias, node.property)))
                     continue
             row_predicates.append(
@@ -5709,6 +5714,15 @@ def _lower_general_row_projection(
                 source=active_match_alias,
             )
         ]
+
+    _append_match_row_where(
+        row_steps,
+        lowered=lowered,
+        alias_targets=alias_targets,
+        active_alias=active_match_alias,
+        allowed_match_aliases=binding_row_aliases or None,
+        params=params,
+    )
 
     unwind_aliases: Set[str] = set()
     for unwind_clause in query.unwinds:
