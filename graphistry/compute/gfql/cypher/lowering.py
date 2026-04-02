@@ -6539,15 +6539,19 @@ def _first_pattern_node_alias(clause: MatchClause) -> Optional[str]:
     return pattern[0].variable
 
 
-def _attach_reentry_prefix_query(
+def _map_terminal_reentry_query(
     compiled_query: CompiledCypherQuery,
-    prefix_query: CompiledCypherQuery,
+    *,
+    transform: Callable[[CompiledCypherQuery], CompiledCypherQuery],
 ) -> CompiledCypherQuery:
     if compiled_query.start_nodes_query is None:
-        return replace(compiled_query, start_nodes_query=prefix_query)
+        return transform(compiled_query)
     return replace(
         compiled_query,
-        start_nodes_query=_attach_reentry_prefix_query(compiled_query.start_nodes_query, prefix_query),
+        start_nodes_query=_map_terminal_reentry_query(
+            compiled_query.start_nodes_query,
+            transform=transform,
+        ),
     )
 
 
@@ -6934,21 +6938,26 @@ def _compile_bounded_reentry_query(
             value="union",
             span=reentry_match.span,
         )
-    result_projection = suffix_compiled.result_projection
-    if result_projection is not None and result_projection.alias == reentry_alias and hidden_columns:
-        result_projection = replace(
-            result_projection,
-            exclude_columns=tuple(
-                dict.fromkeys(
-                    result_projection.exclude_columns + hidden_columns
-                )
-            ),
+    def attach_current_reentry(target: CompiledCypherQuery) -> CompiledCypherQuery:
+        target_projection = target.result_projection
+        if target_projection is not None and target_projection.alias == reentry_alias and hidden_columns:
+            target_projection = replace(
+                target_projection,
+                exclude_columns=tuple(
+                    dict.fromkeys(target_projection.exclude_columns + hidden_columns)
+                ),
+            )
+        return replace(
+            target,
+            start_nodes_query=prefix_compiled,
+            result_projection=target_projection,
+            scalar_reentry_alias=reentry_alias if scalar_only_prefix else target.scalar_reentry_alias,
+            scalar_reentry_columns=carry_columns if scalar_only_prefix else target.scalar_reentry_columns,
         )
-    return replace(
-        _attach_reentry_prefix_query(suffix_compiled, prefix_compiled),
-        result_projection=result_projection,
-        scalar_reentry_alias=reentry_alias if scalar_only_prefix else None,
-        scalar_reentry_columns=carry_columns if scalar_only_prefix else (),
+
+    return _map_terminal_reentry_query(
+        suffix_compiled,
+        transform=attach_current_reentry,
     )
 
 

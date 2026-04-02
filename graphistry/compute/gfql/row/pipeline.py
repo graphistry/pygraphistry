@@ -2812,11 +2812,15 @@ class RowPipelineMixin:
         min_hops: int,
         max_hops: Optional[int],
         to_fixed_point: bool,
+        avoid_immediate_backtrack: bool = False,
     ) -> Any:
         reachable: List[Any] = []
-        current = state_df
+        current = state_df.copy()
+        prev_col = "__gfql_prev__"
+        if avoid_immediate_backtrack and prev_col not in current.columns:
+            current[prev_col] = pd.NA
         if min_hops == 0:
-            reachable.append(current.copy())
+            reachable.append(current.drop(columns=[prev_col], errors="ignore").copy())
         max_iters = max_hops if max_hops is not None else max(len(step_pairs), 1) + 1
         exhausted = False
         for hop in range(1, max_iters + 1):
@@ -2824,9 +2828,20 @@ class RowPipelineMixin:
             if len(current) == 0:
                 exhausted = True
                 break
-            current = current.drop(columns=["__current__", "__from__"]).rename(columns={"__to__": "__current__"})
+            if avoid_immediate_backtrack:
+                prev_values = current[prev_col].where(current[prev_col].notna(), "__gfql_no_prev__")
+                backtrack_mask = current[prev_col].isna() | current["__to__"].ne(prev_values)
+                current = current[backtrack_mask]
+                if len(current) == 0:
+                    exhausted = True
+                    break
+                current = current.drop(columns=["__current__", prev_col]).rename(
+                    columns={"__from__": prev_col, "__to__": "__current__"}
+                )
+            else:
+                current = current.drop(columns=["__current__", "__from__"]).rename(columns={"__to__": "__current__"})
             if hop >= min_hops:
-                reachable.append(current.copy())
+                reachable.append(current.drop(columns=[prev_col], errors="ignore").copy())
             if max_hops is not None and hop >= max_hops:
                 break
         if max_hops is None and to_fixed_point and not exhausted:
@@ -2926,16 +2941,7 @@ class RowPipelineMixin:
                 ).rename(columns=rename_map)
 
             if sem.is_multihop:
-                if sem.is_undirected:
-                    self._gfql_bindings_error(
-                        "Cypher multi-alias row bindings do not yet support undirected variable-length segments"
-                    )
                 step_pairs = oriented[["__from__", "__to__"]]
-                out_counts = step_pairs.groupby("__from__").size()
-                if len(out_counts) > 0 and int(out_counts.max()) > 1:
-                    self._gfql_bindings_error(
-                        "Cypher multi-alias row bindings currently require variable-length segments with at most one outgoing match per source row"
-                    )
                 min_hops = edge_op.min_hops if edge_op.min_hops is not None else (
                     edge_op.hops if edge_op.hops is not None else 1
                 )
@@ -2948,6 +2954,7 @@ class RowPipelineMixin:
                     min_hops=min_hops,
                     max_hops=max_hops,
                     to_fixed_point=bool(edge_op.to_fixed_point),
+                    avoid_immediate_backtrack=sem.is_undirected,
                 )
             else:
                 state_df = state_df.merge(oriented, left_on="__current__", right_on="__from__", how="inner")
@@ -3031,7 +3038,7 @@ class RowPipelineMixin:
             if dup_col in bindings.columns:
                 bindings = bindings.drop(columns=[dup_col])
 
-        drop_cols = ["__current__", *node_aliases]
+        drop_cols = ["__current__"]
         bindings = bindings.drop(columns=[col for col in drop_cols if col in bindings.columns])
         return self._gfql_row_table(bindings)
 
