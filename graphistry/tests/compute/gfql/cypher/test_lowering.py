@@ -9696,3 +9696,187 @@ def test_issue_1025_chained_optionals_with_case() -> None:
     assert rows[0]["bid"] == "b"
     assert rows[0]["has_t1"] is True
     assert rows[0]["has_nope"] is False
+
+
+# ---------------------------------------------------------------------------
+# Audit-driven amplification: fragile boundary tests
+# ---------------------------------------------------------------------------
+
+
+def test_audit_chained_optionals_share_non_base_alias() -> None:
+    """opt2 shares alias 'c' with opt1 (not base) — transitive join key."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c"],
+        "d": ["b", "c", "d"],
+        "type": ["R1", "T1", "T2"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (a)-[r:R1]->(b) "
+        "OPTIONAL MATCH (b)-[r1:T1]->(c) "
+        "OPTIONAL MATCH (c)-[r2:T2]->(d) "
+        "RETURN a.id AS aid, b.id AS bid, c.id AS cid, d.id AS did"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert len(rows) == 1
+    assert rows[0]["aid"] == "a"
+    assert rows[0]["bid"] == "b"
+    assert rows[0]["cid"] == "c"
+    assert rows[0]["did"] == "d"
+
+
+def test_audit_chained_optionals_transitive_miss() -> None:
+    """opt1 matches but opt2 (sharing opt1 alias) doesn't — null on opt2 only."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({
+        "s": ["a", "b"],
+        "d": ["b", "c"],
+        "type": ["R1", "T1"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (a)-[r:R1]->(b) "
+        "OPTIONAL MATCH (b)-[r1:T1]->(c) "
+        "OPTIONAL MATCH (c)-[r2:NOPE]->(d) "
+        "RETURN b.id AS bid, c.id AS cid, d.id AS did"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert len(rows) == 1
+    assert rows[0]["bid"] == "b"
+    assert rows[0]["cid"] == "c"
+    # d should be null — no NOPE edges from c
+
+
+def test_audit_where_on_three_optionals() -> None:
+    """WHERE on base + 2 optionals — all three WHERE clauses scoped correctly."""
+    nodes = pd.DataFrame({
+        "id": ["a", "b", "c", "d", "e"],
+        "label__X": [True, False, False, False, False],
+        "label__Y": [False, True, False, False, False],
+        "label__Z": [False, False, True, False, False],
+    })
+    edges = pd.DataFrame({
+        "s": ["a", "a", "a", "a"],
+        "d": ["b", "c", "d", "e"],
+        "type": ["R1", "R1", "T1", "T2"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x)-[r:R1]->(y) "
+        "WHERE y:Y "
+        "OPTIONAL MATCH (x)-[r1:T1]->(z1) "
+        "OPTIONAL MATCH (x)-[r2:T2]->(z2) "
+        "RETURN y.id AS yid, z1.id AS z1id, z2.id AS z2id"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    # base: x=a, y=b (only b is :Y). opt1: a-T1->d. opt2: a-T2->e.
+    assert len(rows) == 1
+    assert rows[0]["yid"] == "b"
+    assert rows[0]["z1id"] == "d"
+    assert rows[0]["z2id"] == "e"
+
+
+def test_audit_single_node_base_three_optionals() -> None:
+    """Single-node base + 3 optional clauses."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+    edges = pd.DataFrame({
+        "s": ["a", "a", "a"],
+        "d": ["b", "c", "d"],
+        "type": ["T1", "T2", "T3"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (a) "
+        "OPTIONAL MATCH (a)-[r1:T1]->(b) "
+        "OPTIONAL MATCH (a)-[r2:T2]->(c) "
+        "OPTIONAL MATCH (a)-[r3:T3]->(d) "
+        "RETURN a.id AS aid, b.id AS bid, c.id AS cid, d.id AS did"
+    )
+
+    a_rows = [r for r in result._nodes.to_dict(orient="records") if r["aid"] == "a"]
+    assert len(a_rows) == 1
+    assert a_rows[0]["bid"] == "b"
+    assert a_rows[0]["cid"] == "c"
+    assert a_rows[0]["did"] == "d"
+
+
+def test_audit_multi_optional_partial_null_fill() -> None:
+    """Three optionals: first matches, second doesn't, third matches."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({
+        "s": ["a", "a"],
+        "d": ["b", "c"],
+        "type": ["T1", "T3"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (a) "
+        "OPTIONAL MATCH (a)-[r1:T1]->(x1) "
+        "OPTIONAL MATCH (a)-[r2:T2]->(x2) "
+        "OPTIONAL MATCH (a)-[r3:T3]->(x3) "
+        "RETURN a.id AS aid, x1.id AS x1id, x2.id AS x2id, x3.id AS x3id"
+    )
+
+    a_rows = [r for r in result._nodes.to_dict(orient="records") if r["aid"] == "a"]
+    assert len(a_rows) == 1
+    assert a_rows[0]["x1id"] == "b"
+    # x2 should be null — no T2 edges
+    assert a_rows[0]["x3id"] == "c"
+
+
+def test_audit_where_property_comparison_filters_optional_results() -> None:
+    """Property WHERE on optional filters to matching rows only."""
+    nodes = pd.DataFrame({
+        "id": ["a", "b", "c"],
+        "score": [10, 20, 5],
+    })
+    edges = pd.DataFrame({
+        "s": ["a", "a"],
+        "d": ["b", "c"],
+        "type": ["R1", "T"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x)-[r1:R1]->(y) "
+        "OPTIONAL MATCH (x)-[r2:T]->(z) "
+        "WHERE z.score > 3 "
+        "RETURN y.id AS yid, z.id AS zid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert len(rows) == 1
+    assert rows[0]["yid"] == "b"
+    assert rows[0]["zid"] == "c"  # c has score=5 > 3
+
+
+def test_audit_multi_optional_order_by_limit() -> None:
+    """ORDER BY + LIMIT across multi-optional results."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+    edges = pd.DataFrame({
+        "s": ["a", "a", "b", "c"],
+        "d": ["b", "c", "d", "d"],
+        "type": ["R1", "R1", "T1", "T2"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x)-[r:R1]->(y) "
+        "OPTIONAL MATCH (y)-[r1:T1]->(z1) "
+        "OPTIONAL MATCH (y)-[r2:T2]->(z2) "
+        "RETURN y.id AS yid "
+        "ORDER BY yid "
+        "LIMIT 1"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert rows == [{"yid": "b"}]
