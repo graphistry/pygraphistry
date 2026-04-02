@@ -5946,18 +5946,56 @@ def test_string_cypher_failfast_rejects_with_match_reentry_multiple_trailing_mat
         _mk_connected_multi_pattern_reentry_graph().gfql(query, params={"seed": "a1"})
 
 
-def test_string_cypher_connected_multi_pattern_relationship_alias_projection() -> None:
-    """Multi-hop edge alias projection should produce correct bindings rows (#880)."""
+def test_string_cypher_connected_multi_pattern_relationship_alias_projection_second_edge() -> None:
+    """Multi-hop: project edge alias from second hop (#880)."""
     query = (
         "MATCH (b:B)-[r:S]->(c:C), (c)-[t:T]->(d:D) "
         "RETURN t.type AS tt, d.id AS did"
     )
+    result = _mk_connected_multi_pattern_reentry_graph().gfql(query)
+    records = sorted(result._nodes.to_dict(orient="records"), key=lambda r: r["did"])
+    assert records == [{"tt": "T", "did": "d1"}, {"tt": "T", "did": "d2"}]
 
+
+def test_string_cypher_connected_multi_pattern_relationship_alias_projection_first_edge() -> None:
+    """Multi-hop: project edge alias from first hop (#880)."""
+    query = (
+        "MATCH (b:B)-[r:S]->(c:C), (c)-[t:T]->(d:D) "
+        "RETURN r.type AS rt, d.id AS did"
+    )
+    result = _mk_connected_multi_pattern_reentry_graph().gfql(query)
+    records = sorted(result._nodes.to_dict(orient="records"), key=lambda r: r["did"])
+    assert records == [{"rt": "S", "did": "d1"}, {"rt": "S", "did": "d2"}]
+
+
+def test_string_cypher_connected_multi_pattern_relationship_alias_projection_both_edges() -> None:
+    """Multi-hop: project both edge aliases (#880)."""
+    query = (
+        "MATCH (b:B)-[r:S]->(c:C), (c)-[t:T]->(d:D) "
+        "RETURN r.type AS rt, t.type AS tt, d.id AS did"
+    )
+    result = _mk_connected_multi_pattern_reentry_graph().gfql(query)
+    records = sorted(result._nodes.to_dict(orient="records"), key=lambda r: r["did"])
+    assert records == [
+        {"rt": "S", "tt": "T", "did": "d1"},
+        {"rt": "S", "tt": "T", "did": "d2"},
+    ]
+
+
+def test_string_cypher_connected_multi_pattern_mixed_node_and_edge_alias_projection() -> None:
+    """Multi-hop: mixed node + edge alias projection (#880)."""
+    query = (
+        "MATCH (b:B)-[r:S]->(c:C), (c)-[t:T]->(d:D) "
+        "RETURN b.id AS bid, r.type AS rt, c.id AS cid, t.type AS tt, d.id AS did"
+    )
     result = _mk_connected_multi_pattern_reentry_graph().gfql(query)
     records = sorted(result._nodes.to_dict(orient="records"), key=lambda r: r["did"])
     assert len(records) == 2
-    assert records[0] == {"tt": "T", "did": "d1"}
-    assert records[1] == {"tt": "T", "did": "d2"}
+    assert records[0]["bid"] == "b1"
+    assert records[0]["rt"] == "S"
+    assert records[0]["cid"] == "c1"
+    assert records[0]["tt"] == "T"
+    assert records[0]["did"] == "d1"
 
 
 def test_string_cypher_failfast_rejects_with_match_reentry_multiple_whole_row_aliases_with_carried_scalars() -> None:
