@@ -456,6 +456,19 @@ def _whole_row_projection_meta(
     }
 
 
+def _projection_alias_rows(
+    rows_df: DataFrameT,
+    *,
+    alias: str,
+) -> Optional[DataFrameT]:
+    binding_rows = _binding_alias_projection_rows(rows_df, alias=alias)
+    if binding_rows is not None and alias in binding_rows.columns:
+        return binding_rows
+    if alias in rows_df.columns:
+        return rows_df
+    return None
+
+
 def _binding_alias_projection_rows(
     rows_df: DataFrameT,
     *,
@@ -465,35 +478,42 @@ def _binding_alias_projection_rows(
     alias_columns = [column for column in rows_df.columns if str(column).startswith(prefix)]
     if not alias_columns:
         return None
-    return cast(
+    alias_rows = cast(
         DataFrameT,
         rows_df[alias_columns].rename(columns={column: str(column)[len(prefix):] for column in alias_columns}),
     )
+    if alias in rows_df.columns and alias not in alias_rows.columns:
+        alias_rows = cast(DataFrameT, alias_rows.assign(**{alias: rows_df[alias]}))
+    return alias_rows
 
 
 def apply_result_projection(result: Plottable, projection: ResultProjectionPlan) -> Plottable:
     rows_df = cast(DataFrameT, getattr(result, "_nodes", None))
     if rows_df is None:
         return result
-    alias_rows_df = (
-        rows_df
-        if projection.alias in rows_df.columns
-        else _binding_alias_projection_rows(rows_df, alias=projection.alias)
-    )
+    alias_rows_df = _projection_alias_rows(rows_df, alias=projection.alias)
     if alias_rows_df is None or projection.alias not in alias_rows_df.columns:
         return result
-
-    entity_series = (
-        _format_node_entities(alias_rows_df, projection)
-        if projection.table == "nodes"
-        else _format_edge_entities(alias_rows_df, projection)
-    )
     projected_data: dict[str, SeriesT] = {}
-    whole_row_meta = _whole_row_projection_meta(result, alias_rows_df, projection)
     projected_entity_meta: dict[str, WholeRowProjectionMeta] = {}
     for column in projection.columns:
         if column.kind == "whole_row":
-            projected_data[column.output_name] = entity_series
+            source_alias = column.source_name or projection.alias
+            source_rows_df = _projection_alias_rows(rows_df, alias=source_alias)
+            if source_rows_df is None or source_alias not in source_rows_df.columns:
+                raise ValueError(f"whole-row projection source alias not found: {source_alias!r}")
+            source_projection = projection if source_alias == projection.alias else ResultProjectionPlan(
+                alias=source_alias,
+                table=projection.table,
+                columns=projection.columns,
+                exclude_columns=projection.exclude_columns,
+            )
+            projected_data[column.output_name] = (
+                _format_node_entities(source_rows_df, source_projection)
+                if projection.table == "nodes"
+                else _format_edge_entities(source_rows_df, source_projection)
+            )
+            whole_row_meta = _whole_row_projection_meta(result, source_rows_df, source_projection)
             if whole_row_meta is not None:
                 projected_entity_meta[column.output_name] = {
                     "table": whole_row_meta["table"],

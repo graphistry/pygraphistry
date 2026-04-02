@@ -906,6 +906,18 @@ class TestChainBindingsTable(NoAuthTestCase):
             ),
         )
 
+    def _mk_cartesian_node_graph(self):
+        return self._mk_graph(
+            pd.DataFrame(
+                {
+                    "id": ["a", "b"],
+                    "num": [1, 2],
+                    "ts": [10, 20],
+                }
+            ),
+            pd.DataFrame({"s": [], "d": []}),
+        )
+
     def _forum_moderator_match_ops(self, reply_edge):
         return [
             n({"id": "c1", "label__Comment": True}, name="message"),
@@ -1482,6 +1494,40 @@ class TestChainBindingsTable(NoAuthTestCase):
         ]
         with pytest.raises(Exception, match="variable-length relationship aliases"):
             g.gfql([rows(binding_ops=binding_ops)])
+
+    def test_direct_rows_binding_ops_supports_node_only_cartesian_projection(self):
+        """Direct rows(binding_ops=...) should cross-join disconnected node aliases."""
+        g = self._mk_cartesian_node_graph()
+        binding_ops = self._to_binding_ops([n(name="n"), n(name="m")])
+        records = self._binding_rows_records(
+            g,
+            binding_ops,
+            items=[("n_num", "n.num"), ("m_num", "m.num")],
+            sort_by=["n_num", "m_num"],
+        )
+        assert records == [
+            {"n_num": 1, "m_num": 1},
+            {"n_num": 1, "m_num": 2},
+            {"n_num": 2, "m_num": 1},
+            {"n_num": 2, "m_num": 2},
+        ]
+
+    def test_direct_rows_binding_ops_supports_node_only_cartesian_expression(self):
+        """Direct rows(binding_ops=...) should evaluate row expressions across cartesian aliases."""
+        g = self._mk_cartesian_node_graph()
+        binding_ops = self._to_binding_ops([n(name="n"), n(name="m")])
+        records = self._binding_rows_records(
+            g,
+            binding_ops,
+            items=[("lt", "n.ts < m.ts")],
+            sort_by=["lt"],
+        )
+        assert records == [
+            {"lt": False},
+            {"lt": False},
+            {"lt": False},
+            {"lt": True},
+        ]
 
     def test_inject_binding_ops_skips_existing_alias_endpoints(self):
         """Injection helper should not override explicit alias_endpoints rows()."""

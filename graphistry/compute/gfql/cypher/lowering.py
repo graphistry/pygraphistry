@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import math
 import re
 from typing import AbstractSet, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
@@ -179,6 +179,7 @@ class _ProjectionPlan:
     source_alias: str
     table: str
     whole_row_output_names: List[str]
+    whole_row_sources: Dict[str, str]
     clause_kind: str
     projection_items: List[Tuple[str, Any]]
     projection_columns: List[ResultProjectionColumn]
@@ -224,6 +225,7 @@ class _StageScope:
     table: Optional[Literal["nodes", "edges"]]
     seed_rows: bool
     relationship_count: int
+    allowed_match_aliases: Set[str] = field(default_factory=set)
 
 
 _CYPHER_PARAM_RE = re.compile(r"^\$([A-Za-z_][A-Za-z0-9_]*)$")
@@ -1395,13 +1397,16 @@ def _validate_row_expr_scope(
     *,
     alias_targets: Mapping[str, ASTObject],
     active_match_alias: Optional[str],
+    allowed_match_aliases: Optional[AbstractSet[str]] = None,
     unwind_aliases: Iterable[str],
     params: Optional[Mapping[str, Any]] = None,
     field: str,
     line: int,
     column: int,
 ) -> None:
-    allowed_unwind_roots = set(unwind_aliases)
+    allowed_roots = set(unwind_aliases)
+    if allowed_match_aliases is not None:
+        allowed_roots.update(allowed_match_aliases)
     for root in _expr_match_aliases(
         expr_text,
         alias_targets=alias_targets,
@@ -1410,7 +1415,7 @@ def _validate_row_expr_scope(
         line=line,
         column=column,
     ):
-        if active_match_alias is None:
+        if active_match_alias is None and root not in allowed_roots:
             raise _unsupported(
                 "Cypher row expressions cannot reference MATCH aliases when no row source is active",
                 field=field,
@@ -1418,7 +1423,7 @@ def _validate_row_expr_scope(
                 line=line,
                 column=column,
             )
-        if root != active_match_alias and root not in allowed_unwind_roots:
+        if active_match_alias is not None and root != active_match_alias and root not in allowed_roots:
             raise _unsupported(
                 "Cypher row lowering currently supports one MATCH source alias at a time",
                 field=field,
@@ -1786,6 +1791,7 @@ def _active_match_alias_for_stage(
     clause: ReturnClause,
     order_by_clause: Optional[OrderByClause],
     alias_targets: Mapping[str, ASTObject],
+    allowed_match_aliases: Optional[AbstractSet[str]] = None,
     params: Optional[Mapping[str, Any]] = None,
 ) -> Optional[str]:
     if not alias_targets:
@@ -1823,14 +1829,14 @@ def _active_match_alias_for_stage(
 
     referenced: Set[str] = set()
     aggregate_only_referenced: Set[str] = set()
-    for expr_text, line, column, field in expr_texts:
+    for expr_text, line, column, field_name in expr_texts:
         if expr_text == "*":
             continue
         non_aggregate_aliases, aggregate_aliases = _expr_match_alias_usage(
             expr_text,
             alias_targets=alias_targets,
             params=params,
-            field=field,
+            field=field_name,
             line=line,
             column=column,
         )
@@ -1838,6 +1844,8 @@ def _active_match_alias_for_stage(
         aggregate_only_referenced.update(aggregate_aliases - non_aggregate_aliases)
 
     if len(referenced) > 1:
+        if allowed_match_aliases is not None and referenced <= allowed_match_aliases:
+            return _first_allowed_alias(alias_targets, allowed_match_aliases, referenced)
         raise _unsupported(
             "Cypher row lowering currently supports one MATCH source alias at a time",
             field="return",
@@ -1848,6 +1856,8 @@ def _active_match_alias_for_stage(
     if len(referenced) == 1:
         return next(iter(referenced))
     if len(aggregate_only_referenced) > 1:
+        if allowed_match_aliases is not None and aggregate_only_referenced <= allowed_match_aliases:
+            return _first_allowed_alias(alias_targets, allowed_match_aliases, aggregate_only_referenced)
         raise _unsupported(
             "Cypher row lowering currently supports one MATCH source alias at a time",
             field="return",
@@ -1857,6 +1867,10 @@ def _active_match_alias_for_stage(
         )
     if len(aggregate_only_referenced) == 1:
         return next(iter(aggregate_only_referenced))
+    if allowed_match_aliases is not None:
+        allowed_alias = _first_allowed_alias(alias_targets, allowed_match_aliases, set())
+        if allowed_alias is not None:
+            return allowed_alias
     return next(iter(alias_targets))
 
 
@@ -1865,6 +1879,7 @@ def _validate_aggregate_expr_scope(
     *,
     alias_targets: Mapping[str, ASTObject],
     active_match_alias: Optional[str],
+    allowed_match_aliases: Optional[AbstractSet[str]] = None,
     unwind_aliases: Iterable[str],
     params: Optional[Mapping[str, Any]],
     field: str,
@@ -1875,6 +1890,7 @@ def _validate_aggregate_expr_scope(
         agg_spec.expr_text,
         alias_targets=alias_targets,
         active_match_alias=active_match_alias,
+        allowed_match_aliases=allowed_match_aliases,
         unwind_aliases=unwind_aliases,
         params=params,
         field=field,
@@ -1892,7 +1908,7 @@ def _is_multiplicity_sensitive_aggregate(agg_spec: _AggregateSpec) -> bool:
 
 
 def _match_relationship_count(clause: MatchClause) -> int:
-    return sum(1 for element in _normalized_match_pattern(clause) if isinstance(element, RelationshipPattern))
+    return sum(1 for element in _match_pattern_elements(clause) if isinstance(element, RelationshipPattern))
 
 
 def _reject_unsound_relationship_multiplicity_aggregates_common(
@@ -2015,6 +2031,7 @@ def _active_match_alias(
     query: CypherQuery,
     *,
     alias_targets: Mapping[str, ASTObject],
+    allowed_match_aliases: Optional[AbstractSet[str]] = None,
     params: Optional[Mapping[str, Any]] = None,
 ) -> Optional[str]:
     return _active_match_alias_for_stage(
@@ -2022,6 +2039,7 @@ def _active_match_alias(
         clause=query.return_,
         order_by_clause=query.order_by,
         alias_targets=alias_targets,
+        allowed_match_aliases=allowed_match_aliases,
         params=params,
     )
 
@@ -2455,6 +2473,52 @@ def _normalized_match_pattern(clause: MatchClause) -> Tuple[PatternElement, ...]
     return tuple(pattern)
 
 
+def _cartesian_node_only_patterns(clause: MatchClause) -> Optional[Tuple[NodePattern, ...]]:
+    if len(clause.patterns) <= 1:
+        return None
+    out: List[NodePattern] = []
+    for pattern in clause.patterns:
+        if len(pattern) != 1 or not isinstance(pattern[0], NodePattern):
+            return None
+        out.append(pattern[0])
+    return tuple(out)
+
+
+def _match_pattern_elements(clause: MatchClause) -> Tuple[PatternElement, ...]:
+    cartesian_nodes = _cartesian_node_only_patterns(clause)
+    if cartesian_nodes is not None:
+        return cast(Tuple[PatternElement, ...], cartesian_nodes)
+    return _normalized_match_pattern(clause)
+
+
+def _binding_row_aliases_for_match(
+    clause: Optional[MatchClause],
+    *,
+    alias_targets: Mapping[str, ASTObject],
+) -> Set[str]:
+    if clause is None or _cartesian_node_only_patterns(clause) is None:
+        return set()
+    if len(alias_targets) <= 1:
+        return set()
+    if not all(isinstance(target, ASTNode) for target in alias_targets.values()):
+        return set()
+    return set(alias_targets.keys())
+
+
+def _first_allowed_alias(
+    alias_targets: Mapping[str, ASTObject],
+    allowed_match_aliases: AbstractSet[str],
+    fallback_aliases: AbstractSet[str],
+) -> Optional[str]:
+    candidates = fallback_aliases & allowed_match_aliases
+    if not candidates:
+        candidates = set(allowed_match_aliases)
+    for alias_name in alias_targets:
+        if alias_name in candidates:
+            return alias_name
+    return next(iter(candidates)) if candidates else None
+
+
 def _lower_match_clause_with_alias_equalities(
     clause: MatchClause,
     *,
@@ -2464,7 +2528,7 @@ def _lower_match_clause_with_alias_equalities(
     where_out: List[WhereComparison] = []
     seen_alias_kinds: Dict[str, Literal["node", "edge"]] = {}
     seen_alias_ops: Dict[str, ASTObject] = {}
-    pattern = list(_normalized_match_pattern(clause))
+    pattern = list(_match_pattern_elements(clause))
     existing_aliases: Set[str] = {
         cast(str, element.variable)
         for element in pattern
@@ -2542,7 +2606,7 @@ def _duplicate_node_aliases(match: Optional[MatchClause]) -> Set[str]:
     if match is None:
         return set()
     counts: Dict[str, int] = {}
-    for element in _normalized_match_pattern(match):
+    for element in _match_pattern_elements(match):
         if isinstance(element, NodePattern) and element.variable is not None:
             counts[element.variable] = counts.get(element.variable, 0) + 1
     return {alias for alias, count in counts.items() if count > 1}
@@ -2620,7 +2684,7 @@ def _merged_match_clause(query: CypherQuery) -> Optional[MatchClause]:
 def _match_clause_aliases(clause: MatchClause) -> Set[str]:
     return {
         cast(str, element.variable)
-        for element in _normalized_match_pattern(clause)
+        for element in _match_pattern_elements(clause)
         if getattr(element, "variable", None) is not None
     }
 
@@ -2926,6 +2990,7 @@ def _build_projection_plan(
     source_alias: Optional[str] = None
     all_source_aliases: Optional[Set[str]] = None
     whole_row_output_names: List[str] = []
+    whole_row_sources: Dict[str, str] = {}
     projection_items: List[Tuple[str, Any]] = []
     projection_columns: List[ResultProjectionColumn] = []
     available_columns: Set[str] = set()
@@ -3060,6 +3125,7 @@ def _build_projection_plan(
                     language="cypher",
                 )
             whole_row_output_names.append(output_name)
+            whole_row_sources[output_name] = alias_name
             continue
         if simple_ref and prop is None:
             output_name = item.alias or alias_name
@@ -3075,6 +3141,7 @@ def _build_projection_plan(
                     language="cypher",
                 )
             whole_row_output_names.append(output_name)
+            whole_row_sources[output_name] = alias_name
             continue
         output_name = item.alias or item.expression.text
         if output_name in available_columns or output_name in whole_row_output_names:
@@ -3156,6 +3223,7 @@ def _build_projection_plan(
         source_alias=source_alias,
         table=table,
         whole_row_output_names=whole_row_output_names,
+        whole_row_sources=whole_row_sources,
         clause_kind=clause.kind,
         projection_items=projection_items,
         projection_columns=projection_columns,
@@ -3201,7 +3269,13 @@ def _result_projection_plan(
         return None
     columns: List[ResultProjectionColumn] = []
     for output_name in plan.whole_row_output_names:
-        columns.append(ResultProjectionColumn(output_name=output_name, kind="whole_row"))
+        columns.append(
+            ResultProjectionColumn(
+                output_name=output_name,
+                kind="whole_row",
+                source_name=plan.whole_row_sources.get(output_name, plan.source_alias),
+            )
+        )
     columns.extend(plan.projection_columns)
     return ResultProjectionPlan(
         alias=plan.source_alias,
@@ -3276,6 +3350,7 @@ def _optional_null_fill_plan(
         source_alias=seed_alias,
         table=alignment_table,
         whole_row_output_names=[alignment_output_name],
+        whole_row_sources={alignment_output_name: seed_alias},
         clause_kind="return",
         projection_items=[],
         projection_columns=[],
@@ -3421,7 +3496,12 @@ def _lower_order_by_clause(
                 else:
                     order_key = alias_name
             else:
-                if alias_name != plan.source_alias:
+                source_alias = (
+                    plan.whole_row_sources.get(alias_name, plan.source_alias)
+                    if alias_name in plan.whole_row_output_names
+                    else alias_name
+                )
+                if source_alias != plan.source_alias and alias_name not in plan.whole_row_output_names:
                     raise GFQLValidationError(
                         ErrorCode.E108,
                         "ORDER BY expressions must reference the active RETURN/WITH source alias",
@@ -3433,7 +3513,7 @@ def _lower_order_by_clause(
                         language="cypher",
                     )
                 order_key = (
-                    f"{alias_name}.{prop}"
+                    f"{source_alias}.{prop}"
                     if plan.whole_row_output_names
                     else plan.projected_property_outputs.get(prop, prop)
                 )
@@ -3606,6 +3686,7 @@ def _append_match_row_where(
     lowered: LoweredCypherMatch,
     alias_targets: Mapping[str, ASTObject],
     active_alias: Optional[str],
+    allowed_match_aliases: Optional[AbstractSet[str]],
     params: Optional[Mapping[str, Any]],
 ) -> None:
     expr = lowered.row_where
@@ -3615,6 +3696,7 @@ def _append_match_row_where(
         expr.text,
         alias_targets=alias_targets,
         active_match_alias=active_alias,
+        allowed_match_aliases=allowed_match_aliases,
         unwind_aliases=set(),
         params=params,
         field="where",
@@ -3641,9 +3723,15 @@ def _lower_projection_chain(
     plan: Optional[_ProjectionPlan] = None,
 ) -> List[ASTObject]:
     alias_targets = _alias_target(lowered.query)
+    binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
     if plan is None:
         try:
-            active = _active_match_alias(query, alias_targets=alias_targets, params=params)
+            active = _active_match_alias(
+                query,
+                alias_targets=alias_targets,
+                allowed_match_aliases=binding_row_aliases or None,
+                params=params,
+            )
         except GFQLValidationError as exc:
             active = next(iter(alias_targets)) if alias_targets else None
             _multi_alias_exc: Optional[GFQLValidationError] = exc
@@ -3659,7 +3747,10 @@ def _lower_projection_chain(
             if not _can_lower_multi_alias_projection_bindings(plan, alias_targets=alias_targets):
                 raise _multi_alias_exc
 
-    if plan.all_source_aliases is not None:
+    allowed_match_aliases = (
+        ({plan.source_alias} | plan.all_source_aliases) if plan.all_source_aliases is not None else binding_row_aliases
+    )
+    if plan.all_source_aliases is not None or binding_row_aliases:
         row_steps: List[ASTObject] = [rows(binding_ops=serialize_binding_ops(lowered.query))]
     else:
         row_steps = [rows(table=plan.table, source=plan.source_alias)]
@@ -3668,6 +3759,7 @@ def _lower_projection_chain(
         lowered=lowered,
         alias_targets=alias_targets,
         active_alias=plan.source_alias,
+        allowed_match_aliases=allowed_match_aliases or None,
         params=params,
     )
 
@@ -3687,6 +3779,8 @@ def _lower_projection_chain(
             )
         )
     _append_page_ops(row_steps, query=query, params=params)
+    if binding_row_aliases:
+        return row_steps
     return lowered.query + row_steps
 
 
@@ -3700,11 +3794,13 @@ def _build_initial_row_scope(
 ) -> Tuple[List[ASTObject], _StageScope]:
     alias_targets = _alias_target(lowered.query) if query.match is not None else {}
     merged_match = _merged_match_clause(query)
+    binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
     active_match_alias = _active_match_alias_for_stage(
         unwinds=query.unwinds,
         clause=stage_clause,
         order_by_clause=stage_order_by,
         alias_targets=alias_targets,
+        allowed_match_aliases=binding_row_aliases or None,
         params=params,
     )
     seed_rows = query.match is None
@@ -3713,6 +3809,10 @@ def _build_initial_row_scope(
         row_steps: List[ASTObject] = [rows(table="nodes")]
         table: Optional[Literal["nodes", "edges"]] = None
         scope_mode: Literal["match_alias", "row_columns"] = "row_columns"
+    elif binding_row_aliases:
+        row_steps = [rows(binding_ops=serialize_binding_ops(lowered.query))]
+        table = None
+        scope_mode = "match_alias"
     else:
         table = cast(
             Literal["nodes", "edges"],
@@ -3730,6 +3830,7 @@ def _build_initial_row_scope(
         lowered=lowered,
         alias_targets=alias_targets,
         active_alias=active_match_alias,
+        allowed_match_aliases=binding_row_aliases or None,
         params=params,
     )
 
@@ -3747,6 +3848,7 @@ def _build_initial_row_scope(
             unwind_clause.expression.text,
             alias_targets=alias_targets,
             active_match_alias=active_match_alias,
+            allowed_match_aliases=binding_row_aliases or None,
             unwind_aliases=unwind_aliases,
             params=params,
             field="unwind",
@@ -3770,6 +3872,7 @@ def _build_initial_row_scope(
             mode=scope_mode,
             alias_targets=dict(alias_targets),
             active_alias=active_match_alias,
+            allowed_match_aliases=set(binding_row_aliases),
             row_columns=set(unwind_aliases),
             projected_columns={},
             table=table,
@@ -3855,6 +3958,7 @@ def _lower_match_alias_stage(
             stage.where.text,
             alias_targets=scope.alias_targets,
             active_match_alias=scope.active_alias,
+            allowed_match_aliases=scope.allowed_match_aliases or None,
             unwind_aliases=set(),
             params=params,
             field="with.where",
@@ -3901,6 +4005,7 @@ def _lower_match_alias_stage(
             mode="match_alias",
             alias_targets=scope.alias_targets,
             active_alias=plan.source_alias,
+            allowed_match_aliases=set(scope.allowed_match_aliases),
             row_columns=set(),
             projected_columns=next_projected_columns,
             table=cast(Optional[Literal["nodes", "edges"]], plan.table),
@@ -3912,6 +4017,7 @@ def _lower_match_alias_stage(
             mode="row_columns",
             alias_targets={},
             active_alias=None,
+            allowed_match_aliases=set(),
             row_columns=set(plan.available_columns),
             projected_columns={},
             table=None,
@@ -4021,6 +4127,7 @@ def _lower_match_alias_aggregate_stage(
             item.expression.text,
             alias_targets=scope.alias_targets,
             active_match_alias=active_alias,
+            allowed_match_aliases=scope.allowed_match_aliases or None,
             unwind_aliases=set(),
             params=params,
             field=stage.clause.kind,
@@ -4074,6 +4181,7 @@ def _lower_match_alias_aggregate_stage(
             agg_spec,
             alias_targets=scope.alias_targets,
             active_match_alias=active_alias,
+            allowed_match_aliases=scope.allowed_match_aliases or None,
             unwind_aliases=set(),
             params=params,
             field=stage.clause.kind,
@@ -4179,6 +4287,7 @@ def _lower_match_alias_aggregate_stage(
         mode="row_columns",
         alias_targets={},
         active_alias=None,
+        allowed_match_aliases=set(),
         row_columns=set(available_columns),
         projected_columns={},
         table=None,
@@ -4428,6 +4537,7 @@ def _lower_row_column_stage(
         table=None,
         seed_rows=scope.seed_rows,
         relationship_count=scope.relationship_count,
+        allowed_match_aliases=set(),
     )
 
 
@@ -4449,6 +4559,7 @@ def _lower_row_only_sequence_with_scope(
         table=None,
         seed_rows=seed_rows,
         relationship_count=0,
+        allowed_match_aliases=set(),
     )
 
     for item in query.row_sequence:
@@ -4488,6 +4599,7 @@ def _lower_row_only_sequence_with_scope(
                 table=None,
                 seed_rows=scope.seed_rows,
                 relationship_count=scope.relationship_count,
+                allowed_match_aliases=set(),
             )
             continue
 
@@ -4733,6 +4845,7 @@ def _lower_row_column_aggregate_stage(
         table=None,
         seed_rows=scope.seed_rows,
         relationship_count=scope.relationship_count,
+        allowed_match_aliases=set(),
     )
 
 
@@ -4881,7 +4994,7 @@ def lower_match_clause(
     params: Optional[Mapping[str, Any]] = None,
 ) -> List[ASTObject]:
     out: List[ASTObject] = []
-    elements = list(_normalized_match_pattern(clause))
+    elements = list(_match_pattern_elements(clause))
     relationships = [
         (i, el) for i, el in enumerate(elements) if isinstance(el, RelationshipPattern)
     ]
@@ -5227,9 +5340,11 @@ def lower_match_query(
         )
     ops, duplicate_alias_where = _lower_match_clause_with_alias_equalities(merged_match, params=params)
     alias_targets = _alias_target(ops)
+    binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
     where_out: List[WhereComparison] = list(duplicate_alias_where)
 
     row_where: Optional[ExpressionText] = None
+    row_where_predicates: List[str] = []
     if query.where is not None:
         if query.where.expr is not None:
             type_where = _extract_relationship_type_where(
@@ -5260,6 +5375,11 @@ def lower_match_query(
             if isinstance(predicate.left, LabelRef):
                 _apply_label_where(alias_targets, left=predicate.left)
                 continue
+            if binding_row_aliases:
+                row_predicate_expr = _row_where_predicate_text(predicate)
+                if row_predicate_expr is not None:
+                    row_where_predicates.append(row_predicate_expr)
+                    continue
             if isinstance(predicate.right, PropertyRef):
                 assert isinstance(predicate.left, PropertyRef)
                 where_out.append(
@@ -5277,6 +5397,12 @@ def lower_match_query(
                 right=cast(Optional[CypherLiteral], predicate.right),
                 params=params,
             )
+        if row_where_predicates:
+            combined_expr = " and ".join(row_where_predicates)
+            row_where = ExpressionText(
+                text=combined_expr if row_where is None else f"({row_where.text}) and ({combined_expr})",
+                span=query.where.span,
+            )
 
     return LoweredCypherMatch(query=ops, where=where_out, row_where=row_where)
 
@@ -5289,6 +5415,35 @@ def _fresh_temp_name(existing: Set[str], prefix: str) -> str:
         candidate = f"{prefix}{counter}"
     existing.add(candidate)
     return candidate
+
+
+def _render_row_where_operand_text(value: Union[PropertyRef, CypherLiteral]) -> str:
+    if isinstance(value, PropertyRef):
+        return f"{value.alias}.{value.property}"
+    if isinstance(value, ParameterRef):
+        return f"${value.name}"
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+        return f"'{escaped}'"
+    return str(value)
+
+
+def _row_where_predicate_text(predicate: WherePredicate) -> Optional[str]:
+    if isinstance(predicate.left, LabelRef) or predicate.right is None:
+        return None
+    op_map = {"==": "=", "<>": "!="}
+    rendered_op = op_map.get(predicate.op, predicate.op)
+    if rendered_op not in {"=", "!=", "<", "<=", ">", ">="}:
+        return None
+    return (
+        f"{_render_row_where_operand_text(predicate.left)} "
+        f"{rendered_op} "
+        f"{_render_row_where_operand_text(predicate.right)}"
+    )
 
 
 def _distinct_aggregate_expr_text(
@@ -5407,11 +5562,19 @@ def _lower_general_row_projection(
     params: Optional[Mapping[str, Any]],
 ) -> CompiledCypherQuery:
     alias_targets = _alias_target(lowered.query) if query.match is not None else {}
-    active_match_alias = _active_match_alias(query, alias_targets=alias_targets, params=params)
+    binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+    active_match_alias = _active_match_alias(
+        query,
+        alias_targets=alias_targets,
+        allowed_match_aliases=binding_row_aliases or None,
+        params=params,
+    )
     seed_rows = query.match is None
 
     if active_match_alias is None:
         row_steps: List[ASTObject] = [rows(table="nodes")]
+    elif binding_row_aliases:
+        row_steps = [rows(binding_ops=serialize_binding_ops(lowered.query))]
     else:
         row_steps = [
             rows(
@@ -5439,6 +5602,7 @@ def _lower_general_row_projection(
             unwind_clause.expression.text,
             alias_targets=alias_targets,
             active_match_alias=active_match_alias,
+            allowed_match_aliases=binding_row_aliases or None,
             unwind_aliases=unwind_aliases,
             params=params,
             field="unwind",
@@ -5544,6 +5708,7 @@ def _lower_general_row_projection(
                 item.expression.text,
                 alias_targets=alias_targets,
                 active_match_alias=active_match_alias,
+                allowed_match_aliases=binding_row_aliases or None,
                 unwind_aliases=unwind_aliases,
                 params=params,
                 field=query.return_.kind,
@@ -5584,6 +5749,7 @@ def _lower_general_row_projection(
                 agg_spec,
                 alias_targets=alias_targets,
                 active_match_alias=active_match_alias,
+                allowed_match_aliases=binding_row_aliases or None,
                 unwind_aliases=unwind_aliases,
                 params=params,
                 field=query.return_.kind,
@@ -5687,7 +5853,7 @@ def _lower_general_row_projection(
         elif not key_names:
             row_steps.append(projection_fn([(agg.output_name, agg.output_name) for agg in aggregate_specs]))
     else:
-        if query.match is not None and not query.unwinds:
+        if query.match is not None and not query.unwinds and not binding_row_aliases:
             return CompiledCypherQuery(
                 Chain(_lower_projection_chain(query, lowered, params=params), where=lowered.where),
                 seed_rows=False,
@@ -5707,6 +5873,7 @@ def _lower_general_row_projection(
                 item.expression.text,
                 alias_targets=alias_targets,
                 active_match_alias=active_match_alias,
+                allowed_match_aliases=binding_row_aliases or None,
                 unwind_aliases=unwind_aliases,
                 params=params,
                 field=query.return_.kind,
@@ -5754,8 +5921,9 @@ def _lower_general_row_projection(
             )
         )
     _append_page_ops(row_steps, query=query, params=params)
+    exec_steps = row_steps if binding_row_aliases else lowered.query + row_steps
     return CompiledCypherQuery(
-        Chain(lowered.query + row_steps, where=lowered.where),
+        Chain(exec_steps, where=lowered.where),
         seed_rows=seed_rows,
         empty_result_row=empty_result_row,
     )
@@ -5903,7 +6071,7 @@ def _bounded_reentry_prefix_order_is_safe(
 
 
 def _first_pattern_node_alias(clause: MatchClause) -> Optional[str]:
-    pattern = _normalized_match_pattern(clause)
+    pattern = _match_pattern_elements(clause)
     if not pattern or not isinstance(pattern[0], NodePattern):
         return None
     return pattern[0].variable
@@ -6430,6 +6598,7 @@ def compile_cypher_query(
 
     if query.with_stages:
         alias_targets = _alias_target(lowered.query)
+        binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
         _reject_variable_length_relationship_alias_path_carriers(
             query,
             alias_targets=alias_targets,
@@ -6478,13 +6647,14 @@ def compile_cypher_query(
             row_steps.extend(stage_steps)
 
         return _attach_graph_context(CompiledCypherQuery(
-            Chain(lowered.query + row_steps, where=lowered.where),
+            Chain(row_steps if binding_row_aliases else lowered.query + row_steps, where=lowered.where),
             seed_rows=scope.seed_rows,
             result_projection=result_projection,
         ))
 
     if merged_match is not None and not query.unwinds:
         alias_targets = _alias_target(lowered.query)
+        binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
         _reject_variable_length_relationship_alias_path_carriers(
             query,
             alias_targets=alias_targets,
@@ -6504,20 +6674,35 @@ def compile_cypher_query(
         )
         if not has_aggregates:
             try:
-                active = _active_match_alias(query, alias_targets=alias_targets, params=params)
+                active = _active_match_alias(
+                    query,
+                    alias_targets=alias_targets,
+                    allowed_match_aliases=binding_row_aliases or None,
+                    params=params,
+                )
             except GFQLValidationError as exc:
                 active = next(iter(alias_targets)) if alias_targets else None
                 _multi_alias_exc2: Optional[GFQLValidationError] = exc
             else:
                 _multi_alias_exc2 = None
-            plan = _build_projection_plan(
-                query.return_,
-                alias_targets=alias_targets,
-                active_alias=active,
-                params=params,
-            )
+            try:
+                plan = _build_projection_plan(
+                    query.return_,
+                    alias_targets=alias_targets,
+                    active_alias=active,
+                    params=params,
+                )
+            except GFQLValidationError:
+                if binding_row_aliases:
+                    plan = None
+                else:
+                    raise
+            if plan is None:
+                return _attach_graph_context(_lower_general_row_projection(query, lowered, params=params))
             if _multi_alias_exc2 is not None:
                 if not _can_lower_multi_alias_projection_bindings(plan, alias_targets=alias_targets):
+                    if binding_row_aliases:
+                        return _attach_graph_context(_lower_general_row_projection(query, lowered, params=params))
                     raise _multi_alias_exc2
             seed_alias = _single_node_seed_alias(query.matches[0]) if len(query.matches) == 2 else None
             if (

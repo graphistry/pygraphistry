@@ -12,9 +12,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / Cypher**: Support `WITH scalar, collect(alias) AS list UNWIND list AS alias MATCH ... RETURN` queries where carried scalars accompany the `collect()`. Previously only the single-item `WITH collect(alias) AS list` shape was supported (#1000).
 - **GFQL / bindings rows**: Native `rows()` and direct `rows(binding_ops=...)` now preserve open-range / fixed-point edge semantics during bindings serialization instead of collapsing those segments back to a single hop. This restores IS6-style multihop continuation row shaping from native GFQL chains under `#880`.
 - **GFQL / Cypher**: Removed guard that rejected multi-hop connected patterns with edge alias projections (e.g., `MATCH (a)-[r:R]->(b)-[s:S]->(c) RETURN r.since, c.id`). The runtime bindings table already handles this correctly (#880).
+- **GFQL / Cypher**: Direct local Cypher now supports comma-separated node-only `MATCH` cartesian products such as `MATCH (n), (m) RETURN n.num, m.num`, including cross-alias row filters, grouped/global aggregates, and `WITH`-staged row execution. This unlocks the `#990` prerequisite lane for `#1010`.
 
 ### Tests
 - **GFQL / bindings rows**: Added benchmark-shaped regressions for native IS6-style multihop continuation plus direct Cypher IS1 / IS3 / IS6 projection shapes.
+- **GFQL / Cypher**: Added cartesian `MATCH` regressions covering scalar projection, non-simple row expressions, grouped/global aggregates, staged `WITH` filters, and direct `rows(binding_ops=[Node, Node])` cartesian row materialization.
 
 ## [0.53.16 - 2026-04-01]
 

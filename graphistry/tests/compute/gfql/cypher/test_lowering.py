@@ -62,6 +62,19 @@ def _mk_triangle_graph() -> _CypherTestGraph:
     )
 
 
+def _mk_cartesian_node_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "num": [1, 2],
+                "ts": [10, 20],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+
 def _mk_path_with_isolate_graph() -> _CypherTestGraph:
     return _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c", "z"]}),
@@ -729,6 +742,262 @@ def test_gfql_executes_positive_where_pattern_predicate_between_bound_aliases_fo
     )
 
     assert result._nodes.to_dict(orient="records") == [{"n_id": "a"}]
+
+
+def test_compile_cypher_supports_cartesian_node_only_bindings_rows() -> None:
+    compiled = _compile_query(
+        "MATCH (n), (m) RETURN n.num AS n_num, m.num AS m_num ORDER BY n_num, m_num"
+    )
+
+    row_call = next(
+        op for op in compiled.chain.chain
+        if isinstance(op, ASTCall) and op.function == "rows"
+    )
+    binding_ops = row_call.params.get("binding_ops")
+
+    assert isinstance(binding_ops, list)
+    assert [op["type"] for op in binding_ops] == ["Node", "Node"]
+    assert [op.get("name") for op in binding_ops] == ["n", "m"]
+
+
+def test_compile_cypher_records_cartesian_multi_whole_row_projection_sources() -> None:
+    compiled = _compile_query("MATCH (a), (b) WHERE a = b RETURN a, b")
+
+    assert compiled.result_projection is not None
+    assert [column.output_name for column in compiled.result_projection.columns] == ["a", "b"]
+    assert [column.kind for column in compiled.result_projection.columns] == ["whole_row", "whole_row"]
+    assert [column.source_name for column in compiled.result_projection.columns] == ["a", "b"]
+
+
+def test_compile_cypher_records_cartesian_aliased_whole_row_projection_sources() -> None:
+    compiled = _compile_query("MATCH (a), (b) WHERE a = b RETURN a AS left, b AS right")
+
+    assert compiled.result_projection is not None
+    assert [column.output_name for column in compiled.result_projection.columns] == ["left", "right"]
+    assert [column.kind for column in compiled.result_projection.columns] == ["whole_row", "whole_row"]
+    assert [column.source_name for column in compiled.result_projection.columns] == ["a", "b"]
+
+
+def test_lower_match_query_converts_cartesian_property_join_to_row_where_expression() -> None:
+    lowered = lower_match_query(_parse_query("MATCH (a:A), (b:B) WHERE a.k = b.k RETURN a, b"))
+
+    assert lowered.where == []
+    assert lowered.row_where is not None
+    assert lowered.row_where.text == "a.k = b.k"
+
+
+def test_string_cypher_supports_cartesian_node_only_scalar_projection() -> None:
+    result = _mk_cartesian_node_graph().gfql(
+        "MATCH (n), (m) "
+        "RETURN n.num AS n_num, m.num AS m_num "
+        "ORDER BY n_num, m_num"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"n_num": 1, "m_num": 1},
+        {"n_num": 1, "m_num": 2},
+        {"n_num": 2, "m_num": 1},
+        {"n_num": 2, "m_num": 2},
+    ]
+
+
+def test_string_cypher_supports_cartesian_node_only_row_filter_between_aliases() -> None:
+    result = _mk_cartesian_node_graph().gfql(
+        "MATCH (n), (m) "
+        "WHERE n.num < m.num "
+        "RETURN n.num AS n_num, m.num AS m_num "
+        "ORDER BY n_num, m_num"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"n_num": 1, "m_num": 2},
+    ]
+
+
+def test_string_cypher_supports_cartesian_node_only_global_count() -> None:
+    result = _mk_cartesian_node_graph().gfql(
+        "MATCH (n), (m) "
+        "RETURN count(*) AS cnt"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"cnt": 4},
+    ]
+
+
+def test_string_cypher_supports_cartesian_node_only_grouped_count() -> None:
+    result = _mk_cartesian_node_graph().gfql(
+        "MATCH (n), (m) "
+        "RETURN n.num AS n_num, count(*) AS cnt "
+        "ORDER BY n_num"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"n_num": 1, "cnt": 2},
+        {"n_num": 2, "cnt": 2},
+    ]
+
+
+def test_string_cypher_supports_cartesian_node_only_non_simple_scalar_expression() -> None:
+    result = _mk_cartesian_node_graph().gfql(
+        "MATCH (n), (m) "
+        "RETURN n.ts < m.ts AS lt "
+        "ORDER BY lt"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"lt": False},
+        {"lt": False},
+        {"lt": False},
+        {"lt": True},
+    ]
+
+
+def test_string_cypher_supports_cartesian_node_only_with_stage_filter() -> None:
+    result = _mk_cartesian_node_graph().gfql(
+        "MATCH (n), (m) "
+        "WITH n.num AS n_num, m.num AS m_num "
+        "WHERE n_num < m_num "
+        "RETURN n_num, m_num "
+        "ORDER BY n_num, m_num"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"n_num": 1, "m_num": 2},
+    ]
+
+
+def test_string_cypher_supports_cartesian_with_stage_identity_join_whole_row_projection() -> None:
+    result = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "label__A": [True, False],
+                "label__B": [False, True],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    ).gfql("MATCH (a), (b) WITH a, b WHERE a = b RETURN a, b ORDER BY a.id")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:A)", "b": "(:A)"},
+        {"a": "(:B)", "b": "(:B)"},
+    ]
+
+
+def test_string_cypher_supports_cartesian_with_stage_property_join_whole_row_projection() -> None:
+    result = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b2", "b3"],
+                "label__A": [True, True, False, False],
+                "label__B": [False, False, True, True],
+                "k": [1, 2, 2, 3],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    ).gfql("MATCH (a:A), (b:B) WITH a, b WHERE a.k = b.k RETURN a, b")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:A {k: 2})", "b": "(:B {k: 2})"},
+    ]
+
+
+def test_string_cypher_supports_cartesian_with_stage_inequality_join_whole_row_projection() -> None:
+    result = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "label__A": [True, False],
+                "label__B": [False, True],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    ).gfql("MATCH (a), (b) WITH a, b WHERE a <> b RETURN a, b ORDER BY a.id, b.id")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:A)", "b": "(:B)"},
+        {"a": "(:B)", "b": "(:A)"},
+    ]
+
+
+def test_string_cypher_supports_cartesian_aggregate_order_by_expression() -> None:
+    result = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "x1", "x2"],
+                "label__A": [True, False, False],
+                "label__X": [False, True, True],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    ).gfql("MATCH (a:A), (b:X) RETURN count(a) * 10 + count(b) * 5 AS x ORDER BY x")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"x": 30},
+    ]
+
+
+def test_string_cypher_supports_cartesian_node_identity_join_with_whole_row_projection() -> None:
+    result = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "label__A": [True, False],
+                "label__B": [False, True],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    ).gfql("MATCH (a), (b) WHERE a = b RETURN a, b ORDER BY a.id")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:A)", "b": "(:A)"},
+        {"a": "(:B)", "b": "(:B)"},
+    ]
+    entity_meta = getattr(result, "_cypher_entity_projection_meta")
+    assert entity_meta["a"]["alias"] == "a"
+    assert entity_meta["a"]["ids"].tolist() == ["a", "b"]
+    assert entity_meta["b"]["alias"] == "b"
+    assert entity_meta["b"]["ids"].tolist() == ["a", "b"]
+
+
+def test_string_cypher_supports_cartesian_node_property_join_with_whole_row_projection() -> None:
+    result = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b2", "b3"],
+                "label__A": [True, True, False, False],
+                "label__B": [False, False, True, True],
+                "k": [1, 2, 2, 3],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    ).gfql("MATCH (a:A), (b:B) WHERE a.k = b.k RETURN a, b")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": "(:A {k: 2})", "b": "(:B {k: 2})"},
+    ]
+
+
+def test_string_cypher_supports_cartesian_whole_row_projection_aliases() -> None:
+    result = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "label__A": [True, False],
+                "label__B": [False, True],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    ).gfql("MATCH (a), (b) WHERE a = b RETURN a AS left, b AS right ORDER BY left.id")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"left": "(:A)", "right": "(:A)"},
+        {"left": "(:B)", "right": "(:B)"},
+    ]
+    entity_meta = getattr(result, "_cypher_entity_projection_meta")
+    assert entity_meta["left"]["alias"] == "a"
+    assert entity_meta["right"]["alias"] == "b"
 
 
 def test_lower_match_query_rejects_bare_where_pattern_predicate_without_relationship() -> None:
