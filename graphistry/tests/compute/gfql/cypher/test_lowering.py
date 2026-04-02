@@ -1451,7 +1451,7 @@ def test_cypher_to_gfql_supports_standalone_graph_constructor() -> None:
 def test_string_cypher_formats_filtered_edge_entity_projection_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
-    nodes = cudf.DataFrame.from_pandas(
+    nodes = cudf.from_pandas(
         pd.DataFrame(
             {
                 "id": ["a", "b", "c"],
@@ -1460,7 +1460,7 @@ def test_string_cypher_formats_filtered_edge_entity_projection_on_cudf() -> None
             }
         )
     )
-    edges = cudf.DataFrame.from_pandas(
+    edges = cudf.from_pandas(
         pd.DataFrame(
             {
                 "s": ["a", "a", "a"],
@@ -1489,7 +1489,7 @@ def test_string_cypher_formats_filtered_edge_entity_projection_on_cudf() -> None
 def test_string_cypher_formats_optional_match_projection_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
-    nodes = cudf.DataFrame.from_pandas(
+    nodes = cudf.from_pandas(
         pd.DataFrame(
             {
                 "id": ["s", "a", "b", "c"],
@@ -1502,7 +1502,7 @@ def test_string_cypher_formats_optional_match_projection_on_cudf() -> None:
             }
         )
     )
-    edges = cudf.DataFrame.from_pandas(
+    edges = cudf.from_pandas(
         pd.DataFrame(
             {
                 "s": ["s", "s", "a", "b"],
@@ -1530,7 +1530,7 @@ def test_string_cypher_formats_optional_match_projection_on_cudf() -> None:
 def test_string_cypher_formats_small_float_node_entity_projection_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
-    nodes = cudf.DataFrame.from_pandas(
+    nodes = cudf.from_pandas(
         pd.DataFrame(
             {
                 "id": ["b"],
@@ -1541,7 +1541,7 @@ def test_string_cypher_formats_small_float_node_entity_projection_on_cudf() -> N
             }
         )
     )
-    edges = cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []}))
+    edges = cudf.from_pandas(pd.DataFrame({"s": [], "d": []}))
 
     result = _mk_graph(nodes, edges).gfql("MATCH (a) RETURN a", engine="cudf")
 
@@ -2302,8 +2302,8 @@ def test_string_cypher_supports_post_aggregate_size_collect_projection() -> None
 def test_string_cypher_supports_post_aggregate_size_collect_projection_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
-    nodes = cudf.DataFrame.from_pandas(pd.DataFrame({"id": [f"n{i}" for i in range(11)], "labels": [[] for _ in range(11)]}))
-    edges = cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []}))
+    nodes = cudf.from_pandas(pd.DataFrame({"id": [f"n{i}" for i in range(11)], "labels": [[] for _ in range(11)]}))
+    edges = cudf.from_pandas(pd.DataFrame({"s": [], "d": []}))
 
     result = _mk_graph(nodes, edges).gfql("MATCH (a) RETURN size(collect(a)) AS n", engine="cudf")
 
@@ -2448,8 +2448,8 @@ def test_string_cypher_supports_static_row_expr_null_propagation_on_cudf() -> No
     cudf = pytest.importorskip("cudf")
 
     graph = _mk_graph(
-        cudf.DataFrame.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
-        cudf.DataFrame.from_pandas(pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")})),
+        cudf.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
+        cudf.from_pandas(pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")})),
     )
 
     result = graph.gfql("RETURN 4 IN [1, null, 3] AS result", engine="cudf")
@@ -2461,8 +2461,8 @@ def test_string_cypher_supports_list_append_precedence_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
     graph = _mk_graph(
-        cudf.DataFrame.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
-        cudf.DataFrame.from_pandas(pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")})),
+        cudf.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
+        cudf.from_pandas(pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")})),
     )
 
     result = graph.gfql(
@@ -2479,8 +2479,8 @@ def test_string_cypher_supports_list_membership_append_precedence_on_cudf() -> N
     cudf = pytest.importorskip("cudf")
 
     graph = _mk_graph(
-        cudf.DataFrame.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
-        cudf.DataFrame.from_pandas(pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")})),
+        cudf.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
+        cudf.from_pandas(pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")})),
     )
 
     result = graph.gfql(
@@ -4254,7 +4254,7 @@ def test_string_cypher_supports_keys_for_mixed_node_property_sets() -> None:
 def test_string_cypher_supports_unwind_keys_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
-    nodes = cudf.DataFrame.from_pandas(
+    nodes = cudf.from_pandas(
         pd.DataFrame(
             {
                 "id": ["a"],
@@ -4265,7 +4265,7 @@ def test_string_cypher_supports_unwind_keys_on_cudf() -> None:
             }
         )
     )
-    edges = cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []}))
+    edges = cudf.from_pandas(pd.DataFrame({"s": [], "d": []}))
 
     result = _mk_graph(nodes, edges).gfql(
         "MATCH (n:Person) UNWIND keys(n) AS x RETURN DISTINCT x AS theProps ORDER BY theProps",
@@ -4397,7 +4397,7 @@ def test_string_cypher_supports_graph_functions_on_list_wrapped_entities() -> No
 def test_string_cypher_supports_graph_functions_on_list_wrapped_entities_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
-    nodes = cudf.DataFrame.from_pandas(
+    nodes = cudf.from_pandas(
         pd.DataFrame(
             {
                 "id": ["a", "b"],
@@ -4406,7 +4406,7 @@ def test_string_cypher_supports_graph_functions_on_list_wrapped_entities_on_cudf
             }
         )
     )
-    edges = cudf.DataFrame.from_pandas(
+    edges = cudf.from_pandas(
         pd.DataFrame(
             {
                 "s": ["a"],
@@ -4470,10 +4470,10 @@ def test_string_cypher_supports_top_level_optional_match_null_rows_for_labels_on
     cudf = pytest.importorskip("cudf")
 
     graph = _mk_graph(
-        cudf.DataFrame.from_pandas(
+        cudf.from_pandas(
             pd.DataFrame({"id": pd.Series(dtype="object"), "labels": pd.Series(dtype="object")})
         ),
-        cudf.DataFrame.from_pandas(
+        cudf.from_pandas(
             pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")})
         ),
     )
@@ -4490,7 +4490,7 @@ def test_string_cypher_supports_optional_match_inline_missing_label_on_cudf() ->
     cudf = pytest.importorskip("cudf")
 
     graph = _mk_graph(
-        cudf.DataFrame.from_pandas(
+        cudf.from_pandas(
             pd.DataFrame(
                 {
                     "id": ["a"],
@@ -4499,7 +4499,7 @@ def test_string_cypher_supports_optional_match_inline_missing_label_on_cudf() ->
                 }
             )
         ),
-        cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []})),
+        cudf.from_pandas(pd.DataFrame({"s": [], "d": []})),
     )
 
     result = graph.gfql(
@@ -4607,8 +4607,8 @@ def test_string_cypher_supports_dynamic_graph_property_lookup_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
     graph = _mk_graph(
-        cudf.DataFrame.from_pandas(pd.DataFrame({"id": ["a"], "name": ["Apa"]})),
-        cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []})),
+        cudf.from_pandas(pd.DataFrame({"id": ["a"], "name": ["Apa"]})),
+        cudf.from_pandas(pd.DataFrame({"s": [], "d": []})),
     )
 
     result = graph.gfql("MATCH (n {name: 'Apa'}) RETURN n['nam' + 'e'] AS value", engine="cudf")
@@ -4663,7 +4663,7 @@ def test_string_cypher_supports_property_access_on_list_wrapped_node_and_relatio
 def test_string_cypher_supports_property_access_on_list_wrapped_node_and_relationship_entities_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
-    nodes = cudf.DataFrame.from_pandas(
+    nodes = cudf.from_pandas(
         pd.DataFrame(
             {
                 "id": ["a", "b"],
@@ -4672,7 +4672,7 @@ def test_string_cypher_supports_property_access_on_list_wrapped_node_and_relatio
             }
         )
     )
-    edges = cudf.DataFrame.from_pandas(
+    edges = cudf.from_pandas(
         pd.DataFrame(
             {
                 "s": ["a"],
@@ -4719,8 +4719,8 @@ def test_string_cypher_supports_property_access_on_list_wrapped_map_values_on_cu
     cudf = pytest.importorskip("cudf")
 
     graph = _mk_graph(
-        cudf.DataFrame.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
-        cudf.DataFrame.from_pandas(pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")})),
+        cudf.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
+        cudf.from_pandas(pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")})),
     )
 
     result = graph.gfql(
@@ -5993,7 +5993,7 @@ def test_string_cypher_rejects_reentry_with_parameterized_limit_and_order() -> N
 def test_string_cypher_executes_with_match_reentry_limit_shape_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
-    nodes = cudf.DataFrame.from_pandas(
+    nodes = cudf.from_pandas(
         pd.DataFrame(
             {
                 "id": ["a1", "a2", "b1", "b2"],
@@ -6002,7 +6002,7 @@ def test_string_cypher_executes_with_match_reentry_limit_shape_on_cudf() -> None
             }
         )
     )
-    edges = cudf.DataFrame.from_pandas(
+    edges = cudf.from_pandas(
         pd.DataFrame(
             {
                 "s": ["a1", "a2"],
@@ -7098,7 +7098,7 @@ def test_gfql_executes_aggregate_return_query() -> None:
 def test_gfql_executes_aggregate_order_by_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
-    nodes = cudf.DataFrame.from_pandas(
+    nodes = cudf.from_pandas(
         pd.DataFrame(
             {
                 "id": ["anon_1", "anon_2", "anon_3", "anon_4"],
@@ -7108,7 +7108,7 @@ def test_gfql_executes_aggregate_order_by_on_cudf() -> None:
             }
         )
     )
-    edges = cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []}))
+    edges = cudf.from_pandas(pd.DataFrame({"s": [], "d": []}))
 
     result = _mk_graph(nodes, edges).gfql(
         "MATCH (n)\nRETURN n.division, max(n.age)\nORDER BY max(n.age)",
@@ -7125,7 +7125,7 @@ def test_gfql_executes_aggregate_order_by_on_cudf() -> None:
 def test_gfql_preserves_group_order_for_aggregate_order_ties_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
-    nodes = cudf.DataFrame.from_pandas(
+    nodes = cudf.from_pandas(
         pd.DataFrame(
             {
                 "id": ["a", "b", "c"],
@@ -7136,7 +7136,7 @@ def test_gfql_preserves_group_order_for_aggregate_order_ties_on_cudf() -> None:
             }
         )
     )
-    edges = cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []}))
+    edges = cudf.from_pandas(pd.DataFrame({"s": [], "d": []}))
 
     result = _mk_graph(nodes, edges).gfql(
         "MATCH (a)\nRETURN a, count(*)\nORDER BY count(*)",
@@ -7153,8 +7153,8 @@ def test_gfql_preserves_group_order_for_aggregate_order_ties_on_cudf() -> None:
 def test_gfql_executes_boolean_list_comprehension_order_check_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
-    nodes = cudf.DataFrame.from_pandas(pd.DataFrame({"id": []}))
-    edges = cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []}))
+    nodes = cudf.from_pandas(pd.DataFrame({"id": []}))
+    edges = cudf.from_pandas(pd.DataFrame({"s": [], "d": []}))
 
     result = _mk_graph(nodes, edges).gfql(
         "WITH [true, false] AS values\n"
@@ -7173,8 +7173,8 @@ def test_gfql_executes_boolean_list_comprehension_order_check_on_cudf() -> None:
 def test_gfql_executes_integer_list_comprehension_order_check_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
-    nodes = cudf.DataFrame.from_pandas(pd.DataFrame({"id": []}))
-    edges = cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []}))
+    nodes = cudf.from_pandas(pd.DataFrame({"id": []}))
+    edges = cudf.from_pandas(pd.DataFrame({"s": [], "d": []}))
 
     result = _mk_graph(nodes, edges).gfql(
         "WITH [351, -3974856, 93, -3, 123, 0, 3, -2, 20934587, 1, 20934585, 20934586, -10] AS values\n"
@@ -7193,8 +7193,8 @@ def test_gfql_executes_integer_list_comprehension_order_check_on_cudf() -> None:
 def test_gfql_executes_nested_list_comprehension_order_check_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
-    nodes = cudf.DataFrame.from_pandas(pd.DataFrame({"id": []}))
-    edges = cudf.DataFrame.from_pandas(pd.DataFrame({"s": [], "d": []}))
+    nodes = cudf.from_pandas(pd.DataFrame({"id": []}))
+    edges = cudf.from_pandas(pd.DataFrame({"s": [], "d": []}))
 
     result = _mk_graph(nodes, edges).gfql(
         "WITH [[2, 2], [2, -2], [1, 2], [], [1], [300, 0], [1, -20], [2, -2, 100]] AS values\n"
@@ -7556,8 +7556,8 @@ def test_string_cypher_supports_map_quantifier_predicates_on_cudf() -> None:
     cudf = pytest.importorskip("cudf")
 
     g = _mk_graph(
-        cudf.DataFrame.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
-        cudf.DataFrame.from_pandas(pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object"), "type": pd.Series(dtype="object")})),
+        cudf.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
+        cudf.from_pandas(pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object"), "type": pd.Series(dtype="object")})),
     )
 
     result = g.gfql(
@@ -7706,3 +7706,451 @@ def test_string_cypher_multi_alias_with_distinct_count_projection() -> None:
         {"tagName": "TagA", "postCount": 2},
         {"tagName": "TagB", "postCount": 1},
     ]
+
+
+# ---------------------------------------------------------------------------
+# Issue #996: MATCH (connected) OPTIONAL MATCH ... RETURN mixed + CASE
+# ---------------------------------------------------------------------------
+
+
+def _mk_996_graph() -> _CypherTestGraph:
+    """Small graph exercising connected-path MATCH + OPTIONAL MATCH.
+
+    Nodes: a->b->c with types R1, R2.  a->c with type T (the "optional" edge).
+    Node 'd' is connected a->d via R1 but has NO T edge to c, so the optional
+    match should produce null for that row.
+    """
+    nodes = pd.DataFrame({
+        "id": ["a", "b", "c", "d"],
+    })
+    edges = pd.DataFrame({
+        "s": ["a", "b", "a", "a"],
+        "d": ["b", "c", "c", "d"],
+        "type": ["R1", "R2", "T", "R1"],
+    })
+    return _mk_graph(nodes, edges)
+
+
+def test_issue_996_connected_match_optional_match_simple_projection() -> None:
+    """Simplest #996 shape: connected first MATCH + OPTIONAL MATCH + mixed RETURN."""
+    graph = _mk_996_graph()
+
+    result = graph.gfql(
+        "MATCH (a)-[r1:R1]->(b) "
+        "OPTIONAL MATCH (a)-[r2:T]->(c) "
+        "RETURN a.id AS aid, b.id AS bid, c.id AS cid"
+    )
+
+    rows = sorted(
+        result._nodes.to_dict(orient="records"),
+        key=lambda r: (str(r.get("aid", "")), str(r.get("bid", ""))),
+    )
+    # a->b via R1, a->c via T exists => cid='c'
+    # a->d via R1, a->c via T exists => cid='c'
+    assert len(rows) == 2
+    assert rows[0]["aid"] == "a"
+    assert rows[0]["bid"] == "b"
+    assert rows[0]["cid"] == "c"
+    assert rows[1]["aid"] == "a"
+    assert rows[1]["bid"] == "d"
+    assert rows[1]["cid"] == "c"
+
+
+def test_issue_996_connected_match_optional_match_case_null() -> None:
+    """#996 with CASE expression over nullable optional binding."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    # b has a T-edge to c, but c does not
+    edges = pd.DataFrame({
+        "s": ["a", "a", "b"],
+        "d": ["b", "c", "c"],
+        "type": ["R1", "R1", "T"],
+    })
+    graph2 = _mk_graph(nodes, edges)
+
+    result = graph2.gfql(
+        "MATCH (a)-[r1:R1]->(b) "
+        "OPTIONAL MATCH (b)-[r2:T]->(c) "
+        "RETURN b.id AS bid, "
+        "CASE WHEN r2 IS NULL THEN false ELSE true END AS has_t"
+    )
+
+    rows = sorted(
+        result._nodes.to_dict(orient="records"),
+        key=lambda r: str(r.get("bid", "")),
+    )
+    assert len(rows) == 2
+    assert rows[0] == {"bid": "b", "has_t": True}
+    assert rows[1] == {"bid": "c", "has_t": False}
+
+
+# ---------------------------------------------------------------------------
+# Issue #996 amplification: expression breadth + join edge cases
+# ---------------------------------------------------------------------------
+
+
+def _mk_996_rich_graph() -> _CypherTestGraph:
+    """Graph for #996 amplification tests.
+
+    Nodes: p1, p2, p3, p4 with ``score`` and ``label__Person``.
+    Edges:
+      p1 -[FRIEND]-> p2
+      p1 -[FRIEND]-> p3
+      p2 -[KNOWS]-> p3     (optional edge present for p2)
+      p3 has no KNOWS edge (optional will be null for p3)
+      p1 -[FRIEND]-> p4
+      p4 -[KNOWS]-> p1     (optional present, different target)
+    """
+    nodes = pd.DataFrame({
+        "id": ["p1", "p2", "p3", "p4"],
+        "score": [10, 20, 30, 40],
+        "label__Person": [True, True, True, True],
+    })
+    edges = pd.DataFrame({
+        "s": ["p1", "p1", "p2", "p1", "p4"],
+        "d": ["p2", "p3", "p3", "p4", "p1"],
+        "type": ["FRIEND", "FRIEND", "KNOWS", "FRIEND", "KNOWS"],
+        "weight": [1.0, 2.0, 3.0, 4.0, 5.0],
+    })
+    return _mk_graph(nodes, edges)
+
+
+def test_issue_996_type_function_on_optional_edge() -> None:
+    """type() on an optional relationship alias — exercises row pipeline function dispatch."""
+    g = _mk_996_rich_graph()
+
+    result = g.gfql(
+        "MATCH (a)-[r1:FRIEND]->(b) "
+        "OPTIONAL MATCH (b)-[r2:KNOWS]->(c) "
+        "RETURN a.id AS aid, b.id AS bid, type(r2) AS t"
+    )
+
+    rows = sorted(result._nodes.to_dict(orient="records"), key=lambda r: str(r["bid"]))
+    assert len(rows) == 3
+    # p2 has KNOWS->p3
+    assert rows[0]["bid"] == "p2"
+    assert rows[0]["t"] == "KNOWS"
+    # p3 has no KNOWS edge — null may surface as None or NaN after left join
+    assert rows[1]["bid"] == "p3"
+    assert rows[1]["t"] is None or (isinstance(rows[1]["t"], float) and rows[1]["t"] != rows[1]["t"])
+    # p4 has KNOWS->p1
+    assert rows[2]["bid"] == "p4"
+    assert rows[2]["t"] == "KNOWS"
+
+
+def test_issue_996_coalesce_on_optional_property() -> None:
+    """coalesce() over an optional property — null fallback via row pipeline."""
+    g = _mk_996_rich_graph()  # fresh graph — do not reuse across tests
+
+    result = g.gfql(
+        "MATCH (a)-[r1:FRIEND]->(b) "
+        "OPTIONAL MATCH (b)-[r2:KNOWS]->(c) "
+        "RETURN b.id AS bid, coalesce(c.id, 'none') AS target"
+    )
+
+    rows = sorted(result._nodes.to_dict(orient="records"), key=lambda r: str(r["bid"]))
+    assert rows[0] == {"bid": "p2", "target": "p3"}
+    assert rows[1] == {"bid": "p3", "target": "none"}
+    assert rows[2] == {"bid": "p4", "target": "p1"}
+
+
+def test_issue_996_arithmetic_in_return() -> None:
+    """Arithmetic expression over base + optional properties."""
+    g = _mk_996_rich_graph()
+
+    result = g.gfql(
+        "MATCH (a)-[r1:FRIEND]->(b) "
+        "OPTIONAL MATCH (b)-[r2:KNOWS]->(c) "
+        "RETURN b.id AS bid, b.score + 1 AS bumped"
+    )
+
+    rows = sorted(result._nodes.to_dict(orient="records"), key=lambda r: str(r["bid"]))
+    assert rows[0] == {"bid": "p2", "bumped": 21}
+    assert rows[1] == {"bid": "p3", "bumped": 31}
+    assert rows[2] == {"bid": "p4", "bumped": 41}
+
+
+def test_issue_996_order_by_desc() -> None:
+    """ORDER BY DESC on a base-alias column."""
+    g = _mk_996_rich_graph()
+
+    result = g.gfql(
+        "MATCH (a)-[r1:FRIEND]->(b) "
+        "OPTIONAL MATCH (b)-[r2:KNOWS]->(c) "
+        "RETURN b.id AS bid, c.id AS cid "
+        "ORDER BY bid DESC"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert [r["bid"] for r in rows] == ["p4", "p3", "p2"]
+
+
+def test_issue_996_limit() -> None:
+    """LIMIT on connected optional match results."""
+    g = _mk_996_rich_graph()
+
+    result = g.gfql(
+        "MATCH (a)-[r1:FRIEND]->(b) "
+        "OPTIONAL MATCH (b)-[r2:KNOWS]->(c) "
+        "RETURN b.id AS bid "
+        "ORDER BY bid "
+        "LIMIT 2"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert len(rows) == 2
+    assert rows[0]["bid"] == "p2"
+    assert rows[1]["bid"] == "p3"
+
+
+def test_issue_996_skip_limit() -> None:
+    """SKIP + LIMIT on connected optional match results."""
+    g = _mk_996_rich_graph()
+
+    result = g.gfql(
+        "MATCH (a)-[r1:FRIEND]->(b) "
+        "OPTIONAL MATCH (b)-[r2:KNOWS]->(c) "
+        "RETURN b.id AS bid "
+        "ORDER BY bid "
+        "SKIP 1 LIMIT 1"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert rows == [{"bid": "p3"}]
+
+
+def test_issue_996_distinct() -> None:
+    """DISTINCT deduplicates when multiple base rows map to the same optional."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({
+        "s": ["a", "a", "b"],
+        "d": ["b", "c", "c"],
+        "type": ["R1", "R1", "T"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x)-[r1:R1]->(y) "
+        "OPTIONAL MATCH (y)-[r2:T]->(z) "
+        "RETURN DISTINCT z.id AS zid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    # c appears for y=b, null for y=c — DISTINCT should collapse duplicates
+    # Null may surface as None or NaN after left join.
+    non_null_zids = [r["zid"] for r in rows if r["zid"] is not None and not (isinstance(r["zid"], float) and r["zid"] != r["zid"])]
+    null_count = len(rows) - len(non_null_zids)
+    assert sorted(non_null_zids) == ["c"]
+    assert null_count == 1
+
+
+def test_issue_996_no_optional_matches() -> None:
+    """When OPTIONAL MATCH matches nothing, all optional aliases are null."""
+    nodes = pd.DataFrame({"id": ["a", "b"]})
+    edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R1"]})
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x)-[r1:R1]->(y) "
+        "OPTIONAL MATCH (y)-[r2:NONEXISTENT]->(z) "
+        "RETURN x.id AS xid, y.id AS yid, z.id AS zid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert len(rows) == 1
+    assert rows[0] == {"xid": "a", "yid": "b", "zid": None}
+
+
+def test_issue_996_all_rows_match_optional() -> None:
+    """When every base row has an optional match, no null-fill needed."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({
+        "s": ["a", "b"],
+        "d": ["b", "c"],
+        "type": ["R1", "T"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x)-[r1:R1]->(y) "
+        "OPTIONAL MATCH (y)-[r2:T]->(z) "
+        "RETURN y.id AS yid, z.id AS zid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert rows == [{"yid": "b", "zid": "c"}]
+
+
+def test_issue_996_multi_row_optional_match_per_base() -> None:
+    """Multiple optional matches for a single base row produce multiple output rows."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+    edges = pd.DataFrame({
+        "s": ["a", "b", "b"],
+        "d": ["b", "c", "d"],
+        "type": ["R1", "T", "T"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x)-[r1:R1]->(y) "
+        "OPTIONAL MATCH (y)-[r2:T]->(z) "
+        "RETURN y.id AS yid, z.id AS zid "
+        "ORDER BY zid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert len(rows) == 2
+    assert rows[0] == {"yid": "b", "zid": "c"}
+    assert rows[1] == {"yid": "b", "zid": "d"}
+
+
+def test_issue_996_property_access_on_null_optional_node() -> None:
+    """Property access on a null optional node returns null, not an error."""
+    nodes = pd.DataFrame({"id": ["a", "b"], "name": ["alice", "bob"]})
+    edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R1"]})
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x)-[r1:R1]->(y) "
+        "OPTIONAL MATCH (y)-[r2:NOPE]->(z) "
+        "RETURN y.id AS yid, z.name AS zname"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert rows == [{"yid": "b", "zname": None}]
+
+
+def test_issue_996_is_not_null_on_optional_edge() -> None:
+    """IS NOT NULL check on an optional edge alias."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({
+        "s": ["a", "a", "b"],
+        "d": ["b", "c", "c"],
+        "type": ["R1", "R1", "T"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x)-[r1:R1]->(y) "
+        "OPTIONAL MATCH (y)-[r2:T]->(z) "
+        "RETURN y.id AS yid, "
+        "CASE WHEN r2 IS NOT NULL THEN true ELSE false END AS has_edge"
+    )
+
+    rows = sorted(result._nodes.to_dict(orient="records"), key=lambda r: str(r["yid"]))
+    assert rows[0] == {"yid": "b", "has_edge": True}
+    assert rows[1] == {"yid": "c", "has_edge": False}
+
+
+def test_issue_996_empty_base_match() -> None:
+    """When the base MATCH returns no rows, the result is empty."""
+    nodes = pd.DataFrame({"id": ["a"]})
+    edges = pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object"), "type": pd.Series(dtype="object")})
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x)-[r1:R1]->(y) "
+        "OPTIONAL MATCH (y)-[r2:T]->(z) "
+        "RETURN x.id AS xid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_issue_996_two_shared_node_aliases() -> None:
+    """Two shared aliases between MATCH and OPTIONAL MATCH — composite join key."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({
+        "s": ["a", "b", "a"],
+        "d": ["b", "c", "c"],
+        "type": ["R1", "R1", "T"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    # Both a and b are shared between base and optional.
+    result = g.gfql(
+        "MATCH (a)-[r1:R1]->(b) "
+        "OPTIONAL MATCH (a)-[r2:T]->(b) "
+        "RETURN a.id AS aid, b.id AS bid, "
+        "CASE WHEN r2 IS NULL THEN false ELSE true END AS has_t"
+    )
+
+    rows = sorted(
+        result._nodes.to_dict(orient="records"),
+        key=lambda r: (str(r["aid"]), str(r["bid"])),
+    )
+    # a->b via R1, a->b via T? No — T goes a->c. So (a,b) has no T edge.
+    # a->c via R1? No — only R1 edges are a->b and b->c. So base has (a,b) and (b,c).
+    # (a,b): optional T from a->b? No T edge a->b exists. has_t=false
+    # (b,c): optional T from b->c? No T edge b->c exists. has_t=false
+    assert len(rows) == 2
+    assert rows[0] == {"aid": "a", "bid": "b", "has_t": False}
+    assert rows[1] == {"aid": "b", "bid": "c", "has_t": False}
+
+
+def test_issue_996_integer_node_ids() -> None:
+    """Integer node IDs — join must handle non-string keys."""
+    nodes = pd.DataFrame({"id": [1, 2, 3]})
+    edges = pd.DataFrame({
+        "s": [1, 2],
+        "d": [2, 3],
+        "type": ["R1", "T"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (a)-[r1:R1]->(b) "
+        "OPTIONAL MATCH (b)-[r2:T]->(c) "
+        "RETURN a.id AS aid, b.id AS bid, c.id AS cid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert len(rows) == 1
+    assert rows[0]["aid"] == 1
+    assert rows[0]["bid"] == 2
+    assert rows[0]["cid"] == 3
+
+
+def test_issue_996_custom_node_column_name() -> None:
+    """Non-default node ID column name (nid instead of id)."""
+    nodes = pd.DataFrame({"nid": ["a", "b", "c"]})
+    edges = pd.DataFrame({
+        "s": ["a", "b"],
+        "d": ["b", "c"],
+        "type": ["R1", "T"],
+    })
+    g = cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes, "nid").edges(edges, "s", "d"))
+
+    result = g.gfql(
+        "MATCH (x)-[r1:R1]->(y) "
+        "OPTIONAL MATCH (y)-[r2:T]->(z) "
+        "RETURN x.nid AS xid, y.nid AS yid, z.nid AS zid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert len(rows) == 1
+    assert rows[0]["xid"] == "a"
+    assert rows[0]["yid"] == "b"
+    assert rows[0]["zid"] == "c"
+
+
+def test_issue_996_longer_optional_chain() -> None:
+    """Optional MATCH with a longer path (two hops) — multiple optional-only aliases."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c"],
+        "d": ["b", "c", "d"],
+        "type": ["R1", "T", "T"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x)-[r1:R1]->(y) "
+        "OPTIONAL MATCH (y)-[r2:T]->(z)-[r3:T]->(w) "
+        "RETURN y.id AS yid, z.id AS zid, w.id AS wid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert len(rows) == 1
+    assert rows[0]["yid"] == "b"
+    assert rows[0]["zid"] == "c"
+    assert rows[0]["wid"] == "d"
