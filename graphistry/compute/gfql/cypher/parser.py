@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import ast as pyast
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 import re
 from typing import Any, List, Literal, Optional, Protocol, Sequence, Tuple, Type, Union, cast
@@ -1401,6 +1401,11 @@ def _build_transformer(source: str) -> _TransformerLike:
                         reentry_where_clauses[-1] = item
                         reentry_where_pending_with_idx = len(reentry_where_clauses) - 1
                     else:
+                        # Associate the WHERE with its preceding MATCH clause
+                        # so that MATCH ... WHERE ... OPTIONAL MATCH ... WHERE ...
+                        # correctly scopes each predicate to its own clause.
+                        if match_clauses and match_clauses[-1].where is None:
+                            match_clauses[-1] = replace(match_clauses[-1], where=item)
                         where_clause = item
                 elif isinstance(item, CallClause):
                     if call_clause is not None:
