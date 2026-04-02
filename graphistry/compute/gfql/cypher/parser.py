@@ -11,6 +11,7 @@ from graphistry.compute.gfql.cypher.ast import (
     CallClause,
     CypherGraphQuery,
     CypherLiteral,
+    CypherPropertyValue,
     CypherPageValue,
     CypherQuery,
     CypherUnionQuery,
@@ -116,7 +117,7 @@ rel_range: "*" INT ".." INT      -> rel_range_bounded
 variable: NAME
 
 properties: "{" [property_entry ("," property_entry)*] "}"
-property_entry: NAME ":" value
+property_entry: NAME ":" expr
 
 where_clause: "WHERE"i WHERE_PATTERN "AND"i expr -> where_pattern_and_expr_clause
             | "WHERE"i expr "AND"i WHERE_PATTERN -> expr_and_where_pattern_clause
@@ -637,7 +638,23 @@ def _build_transformer(source: str) -> _TransformerLike:
             if len(items) != 2:
                 raise _to_syntax_error("Invalid property entry", line=meta.line, column=meta.column)
             key = str(items[0])
-            value = cast(CypherLiteral, items[1])
+            raw_value = items[1]
+            if isinstance(raw_value, (ParameterRef, type(None), bool, int, float, str)):
+                value = cast(CypherPropertyValue, raw_value)
+            elif isinstance(raw_value, PropertyRef):
+                value = ExpressionText(
+                    text=f"{raw_value.alias}.{raw_value.property}",
+                    span=raw_value.span,
+                )
+            elif isinstance(raw_value, _ExpressionSlice):
+                value = ExpressionText(text=raw_value.text, span=raw_value.span)
+            else:
+                span = _span_from_meta(meta)
+                entry_text = self._slice(span)
+                value = ExpressionText(
+                    text=entry_text.split(":", 1)[1].strip(),
+                    span=span,
+                )
             return PropertyEntry(key=key, value=value, span=_span_from_meta(meta))
 
         def properties(self, _meta: Any, items: Sequence[Any]) -> Tuple[PropertyEntry, ...]:

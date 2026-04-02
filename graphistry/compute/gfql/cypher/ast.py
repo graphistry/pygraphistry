@@ -26,6 +26,7 @@ class ParameterRef:
 
 CypherLiteral = Union[None, bool, int, float, str, ParameterRef]
 CypherPageValue = Union[int, ParameterRef, ExpressionText]
+CypherPropertyValue = Union[CypherLiteral, ExpressionText]
 
 
 @dataclass(frozen=True)
@@ -45,7 +46,7 @@ class LabelRef:
 @dataclass(frozen=True)
 class PropertyEntry:
     key: str
-    value: CypherLiteral
+    value: CypherPropertyValue
     span: SourceSpan
 
 

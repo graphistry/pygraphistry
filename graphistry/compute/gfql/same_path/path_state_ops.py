@@ -265,6 +265,13 @@ def materialize_filtered(executor: "DFSamePathExecutor", state: PathState) -> Pl
         id_col = executor._node_column if binding.kind == "node" else executor._edge_column
         if id_col is None or id_col not in frame.columns:
             continue
+        allowed_domain = (
+            state.allowed_nodes.get(binding.step_index)
+            if binding.kind == "node"
+            else state.allowed_edges.get(binding.step_index)
+        )
+        if allowed_domain is not None:
+            frame = frame[frame[id_col].isin(allowed_domain)]
         required_cols = list(executor.inputs.column_requirements.get(alias, ()))
         if id_col not in required_cols:
             required_cols.append(id_col)

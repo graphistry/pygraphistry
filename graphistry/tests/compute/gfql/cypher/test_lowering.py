@@ -505,6 +505,49 @@ def test_lower_match_clause_to_gfql_ops() -> None:
     assert ops[2]._name == "q"
 
 
+def test_string_cypher_supports_same_path_alias_comparison_where_runtime() -> None:
+    result = _mk_reentry_carried_scalar_graph().gfql(
+        "MATCH (a:A)-[:R]->(b) WHERE b.num = a.num RETURN b.id AS bid ORDER BY bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1"}]
+
+
+def test_string_cypher_supports_same_path_expression_valued_pattern_property() -> None:
+    parsed = _parse_query("MATCH (a:A)-[:R]->(b {num: a.num}) RETURN b.id AS bid ORDER BY bid")
+    lowered = lower_match_query(parsed)
+
+    assert lowered.row_where is None
+    assert lowered.where == [compare(col("b", "num"), "==", col("a", "num"))]
+
+    result = _mk_reentry_carried_scalar_graph().gfql(
+        "MATCH (a:A)-[:R]->(b {num: a.num}) RETURN b.id AS bid ORDER BY bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1"}]
+
+
+def test_lower_match_query_supports_relationship_expression_valued_pattern_property() -> None:
+    parsed = _parse_query("MATCH (a:A)-[r:R {weight: a.num}]->(b) RETURN b.id AS bid ORDER BY bid")
+    lowered = lower_match_query(parsed)
+
+    assert lowered.row_where is None
+    assert lowered.where == [compare(col("r", "weight"), "==", col("a", "num"))]
+
+
+def test_string_cypher_supports_reentry_identifier_valued_pattern_property() -> None:
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b:B {id: bid})-[:S]->(c:C) "
+        "RETURN bid, c.id AS cid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1", "cid": "c1"}]
+
+
 @pytest.mark.parametrize(
     "query,edge_type",
     [
