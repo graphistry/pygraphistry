@@ -2732,33 +2732,6 @@ def _is_node_connected_multi_pattern_clause(clause: MatchClause) -> bool:
     return len(seen) == len(pattern_aliases)
 
 
-def _is_connected_multi_pattern_clause(clause: MatchClause) -> bool:
-    if clause.optional or len(clause.patterns) <= 1:
-        return False
-    if _cartesian_node_only_patterns(clause) is not None:
-        return False
-    try:
-        _normalized_match_pattern(clause)
-        return False
-    except GFQLValidationError as exc:
-        if "shared endpoint aliases" not in str(exc):
-            return False
-    pattern_aliases = [_pattern_node_aliases(pattern) for pattern in clause.patterns]
-    if any(len(alias_set) == 0 for alias_set in pattern_aliases):
-        return False
-    seen = {0}
-    frontier = [0]
-    while frontier:
-        idx = frontier.pop()
-        for other_idx, other_aliases in enumerate(pattern_aliases):
-            if other_idx in seen:
-                continue
-            if pattern_aliases[idx] & other_aliases:
-                seen.add(other_idx)
-                frontier.append(other_idx)
-    return len(seen) == len(pattern_aliases)
-
-
 def _connected_join_alias_targets(
     clause: MatchClause,
     *,
@@ -2785,6 +2758,33 @@ def _clause_has_connected_join_whole_row_alias_passthrough(
         if agg_spec is None and item.expression.text in alias_targets:
             return True
     return False
+
+def _is_connected_multi_pattern_clause(clause: MatchClause) -> bool:
+    if clause.optional or len(clause.patterns) <= 1:
+        return False
+    if _cartesian_node_only_patterns(clause) is not None:
+        return False
+    try:
+        _normalized_match_pattern(clause)
+        return False
+    except GFQLValidationError as exc:
+        if "shared endpoint aliases" not in str(exc):
+            return False
+    pattern_aliases = [_pattern_node_aliases(pattern) for pattern in clause.patterns]
+    if any(len(alias_set) == 0 for alias_set in pattern_aliases):
+        return False
+    seen = {0}
+    frontier = [0]
+    while frontier:
+        idx = frontier.pop()
+        for other_idx, other_aliases in enumerate(pattern_aliases):
+            if other_idx in seen:
+                continue
+            if pattern_aliases[idx] & other_aliases:
+                seen.add(other_idx)
+                frontier.append(other_idx)
+    return len(seen) == len(pattern_aliases)
+
 
 def _query_requires_general_lowering_for_connected_join(
     query: CypherQuery,
