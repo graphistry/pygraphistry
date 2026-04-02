@@ -323,6 +323,28 @@ def _mk_multi_stage_reentry_graph_cudf() -> _CypherTestGraph:
     )
 
 
+def _mk_multi_stage_reentry_graph_with_terminal_u() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d", "e"],
+                "label__A": [True, False, False, False, False],
+                "label__B": [False, True, False, False, False],
+                "label__C": [False, False, True, False, False],
+                "label__D": [False, False, False, True, False],
+                "label__E": [False, False, False, False, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c", "d", "a", "b"],
+                "d": ["b", "c", "d", "e", "e", "e"],
+                "type": ["R", "S", "T", "U", "R", "S"],
+            }
+        ),
+    )
+
+
 def _mk_multi_alias_edge_projection_graph() -> _CypherTestGraph:
     return _mk_graph(
         pd.DataFrame(
@@ -6950,7 +6972,7 @@ def test_string_cypher_failfast_rejects_direct_match_after_post_with_where_witho
         _mk_multi_stage_reentry_graph().gfql(query)
 
 
-def test_string_cypher_failfast_rejects_multiple_post_with_where_clauses() -> None:
+def test_string_cypher_executes_multiple_post_with_where_clauses() -> None:
     query = (
         "MATCH (a:A)-[:R]->(b:B) "
         "WITH b "
@@ -6963,11 +6985,103 @@ def test_string_cypher_failfast_rejects_multiple_post_with_where_clauses() -> No
         "RETURN d.id AS id"
     )
 
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
+
+
+def test_string_cypher_executes_multiple_post_with_where_clauses_with_carried_scalar() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "WITH c, bid "
+        "MATCH (c)-[:T]->(d:D) "
+        "WHERE bid = 'b' AND d.id = 'd' "
+        "WITH d, bid "
+        "RETURN bid, d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "d"}]
+
+
+def test_string_cypher_executes_sparse_multiple_post_with_where_clauses() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH c "
+        "MATCH (c)-[:T]->(d:D) "
+        "WHERE d.id = 'd' "
+        "WITH d "
+        "RETURN d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
+
+
+def test_string_cypher_executes_multiple_post_with_where_clauses_empty_second_stage() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "WITH c "
+        "MATCH (c)-[:T]->(d:D) "
+        "WHERE d.id = 'x' "
+        "WITH d "
+        "RETURN d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_string_cypher_executes_multiple_post_with_where_clauses_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "WITH c "
+        "MATCH (c)-[:T]->(d:D) "
+        "WHERE d.id = 'd' "
+        "WITH d "
+        "RETURN d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph_cudf().gfql(query, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"id": "d"}]
+
+
+def test_string_cypher_failfast_rejects_direct_match_after_second_post_with_where_without_intervening_with() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "WITH c "
+        "MATCH (c)-[:T]->(d:D) "
+        "WHERE d.id = 'd' "
+        "MATCH (d)-[:U]->(e) "
+        "RETURN e.id AS id"
+    )
+
     with pytest.raises(
         GFQLSyntaxError,
-        match="Cypher only supports one WHERE clause after post-WITH MATCH",
+        match="Cypher MATCH after post-WITH WHERE is not yet supported",
     ):
-        _mk_multi_stage_reentry_graph().gfql(query)
+        _mk_multi_stage_reentry_graph_with_terminal_u().gfql(query)
 
 
 def test_string_cypher_executes_post_with_match_collect_unwind_match_before_return() -> None:
@@ -7143,7 +7257,7 @@ def test_string_cypher_executes_post_with_match_with_before_return() -> None:
     assert result._nodes.to_dict(orient="records") == [{"id": "c"}]
 
 
-def test_issue_1000_ic6_after_phase3_now_stops_at_second_reentry_where() -> None:
+def test_issue_1000_ic6_after_phase4_now_stops_at_prefix_scalar_with_reentry_requirement() -> None:
     query = """
 MATCH (knownTag:Tag { name: $tagName })
 WITH knownTag.id as knownTagId
@@ -7171,8 +7285,8 @@ LIMIT 10
 """
 
     with pytest.raises(
-        GFQLSyntaxError,
-        match="Cypher only supports one WHERE clause after post-WITH MATCH",
+        GFQLValidationError,
+        match="Cypher MATCH after WITH currently requires the prefix WITH stage to project exactly one whole-row alias",
     ):
         compile_cypher(
             query,

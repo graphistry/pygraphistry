@@ -236,7 +236,7 @@ class CypherQuery:
     trailing_semicolon: bool
     span: SourceSpan
     reentry_matches: Tuple[MatchClause, ...] = ()
-    reentry_where: Optional[WhereClause] = None
+    reentry_wheres: Tuple[Optional[WhereClause], ...] = ()
     reentry_unwinds: Tuple[UnwindClause, ...] = ()
     graph_bindings: Tuple[GraphBinding, ...] = ()
     use: Optional[UseClause] = None
@@ -246,6 +246,12 @@ class CypherQuery:
         if not self.matches:
             return None
         return self.matches[-1]
+
+    @property
+    def reentry_where(self) -> Optional[WhereClause]:
+        if not self.reentry_wheres:
+            return None
+        return self.reentry_wheres[0]
 
 
 @dataclass(frozen=True)

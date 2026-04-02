@@ -453,6 +453,45 @@ def test_parse_reentry_match_with_collect_unwind_then_reentry_shape() -> None:
     assert parsed.reentry_unwinds[0].alias == "c2"
 
 
+def test_parse_reentry_match_with_multiple_where_stages() -> None:
+    parsed = _parse_query(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "WITH c "
+        "MATCH (c)-[:T]->(d:D) "
+        "WHERE d.id = 'd' "
+        "WITH d "
+        "RETURN d.id AS id"
+    )
+
+    assert len(parsed.reentry_matches) == 2
+    assert len(parsed.reentry_wheres) == 2
+    assert parsed.reentry_wheres[0] is not None
+    assert len(parsed.reentry_wheres[0].predicates) == 1
+    assert parsed.reentry_wheres[1] is not None
+    assert len(parsed.reentry_wheres[1].predicates) == 1
+
+
+def test_parse_reentry_match_with_sparse_where_stages() -> None:
+    parsed = _parse_query(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH c "
+        "MATCH (c)-[:T]->(d:D) "
+        "WHERE d.id = 'd' "
+        "WITH d "
+        "RETURN d.id AS id"
+    )
+
+    assert len(parsed.reentry_matches) == 2
+    assert parsed.reentry_wheres[0] is None
+    assert parsed.reentry_wheres[1] is not None
+    assert len(parsed.reentry_wheres[1].predicates) == 1
+
+
 def test_parse_rejects_multiple_reentry_unwinds() -> None:
     with pytest.raises(
         GFQLSyntaxError,
