@@ -6526,7 +6526,7 @@ def _is_connected_optional_match_query(query: CypherQuery) -> bool:
         return False
     if query.matches[0].optional or not query.matches[1].optional:
         return False
-    if query.with_stages or query.unwinds or query.call is not None or query.row_sequence:
+    if query.where is not None or query.with_stages or query.unwinds or query.call is not None or query.row_sequence:
         return False
     first = query.matches[0]
     # Check for RelationshipPattern directly in the raw patterns to avoid
