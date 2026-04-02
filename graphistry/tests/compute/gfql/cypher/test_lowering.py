@@ -6970,6 +6970,39 @@ def test_string_cypher_failfast_rejects_multiple_post_with_where_clauses() -> No
         _mk_multi_stage_reentry_graph().gfql(query)
 
 
+def test_string_cypher_failfast_rejects_post_with_match_unwind_before_return() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "UNWIND [c] AS c2 "
+        "RETURN c2.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLSyntaxError,
+        match="Cypher UNWIND after post-WITH MATCH is not yet supported",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
+def test_string_cypher_failfast_rejects_post_with_match_unwind_after_reentry_with() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH c, bid "
+        "UNWIND [c] AS c2 "
+        "RETURN bid, c2.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLSyntaxError,
+        match="Cypher UNWIND after post-WITH MATCH is not yet supported",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
 def test_issue_1000_ic6_after_phase2_now_stops_at_post_with_match_unwind() -> None:
     query = """
 MATCH (knownTag:Tag { name: $tagName })
