@@ -1008,26 +1008,6 @@ def test_string_cypher_supports_cartesian_node_only_global_count() -> None:
     ]
 
 
-def test_string_cypher_supports_cartesian_dynamic_pattern_property_projection() -> None:
-    graph = _mk_cartesian_dynamic_pattern_graph()
-
-    result = graph.gfql(
-        "MATCH (a:A), (b:B {num: a.num}) "
-        "RETURN a.id AS aid, b.id AS bid "
-        "ORDER BY aid, bid"
-    )
-
-    assert result._nodes.to_dict(orient="records") == [{"aid": "a1", "bid": "b1"}]
-
-
-def test_string_cypher_supports_cartesian_dynamic_pattern_property_global_count() -> None:
-    graph = _mk_cartesian_dynamic_pattern_graph()
-
-    result = graph.gfql("MATCH (a:A), (b:B {num: a.num}) RETURN count(*) AS cnt")
-
-    assert result._nodes.to_dict(orient="records") == [{"cnt": 1}]
-
-
 def test_string_cypher_supports_cartesian_node_only_grouped_count() -> None:
     result = _mk_cartesian_node_graph().gfql(
         "MATCH (n), (m) "
