@@ -507,9 +507,24 @@ class ASTEdge(ASTObject):
     def to_json(self, validate=True) -> Dict[str, Any]:
         if validate:
             self.validate()
+        # Range and fixed-point edges carry their traversal bounds via
+        # min/max/to_fixed_point. Keeping the constructor default hops=1 in the
+        # serialized form narrows downstream binding-op replay back to a single hop.
+        serialized_hops = self.hops
+        if (
+            serialized_hops == DEFAULT_HOPS
+            and (
+                self.min_hops is not None
+                or self.max_hops is not None
+                or self.output_min_hops is not None
+                or self.output_max_hops is not None
+                or self.to_fixed_point
+            )
+        ):
+            serialized_hops = None
         return {
             'type': 'Edge',
-            'hops': self.hops,
+            'hops': serialized_hops,
             **({'min_hops': self.min_hops} if self.min_hops is not None else {}),
             **({'max_hops': self.max_hops} if self.max_hops is not None else {}),
             **({'output_min_hops': self.output_min_hops} if self.output_min_hops is not None else {}),

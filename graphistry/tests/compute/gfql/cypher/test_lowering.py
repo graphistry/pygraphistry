@@ -1270,6 +1270,82 @@ def test_string_cypher_formats_single_node_entity_projection_with_alias() -> Non
     assert entity_meta["ColumnName"]["ids"].tolist() == ["a"]
 
 
+def test_string_cypher_supports_is1_seed_city_projection_shape() -> None:
+    nodes = pd.DataFrame(
+        [
+            {"id": "p1", "labels": ["Person"], "label__Person": True, "firstName": "A"},
+            {"id": "c1", "labels": ["Place"], "label__Place": True, "name": "City"},
+        ]
+    )
+    edges = pd.DataFrame([{"s": "p1", "d": "c1", "type": "IS_LOCATED_IN"}])
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (person:Person {id: 'p1'}) "
+        "MATCH (person)-[:IS_LOCATED_IN]->(city:Place) "
+        "RETURN person.id AS personId, city.id AS cityId, person.firstName AS firstName"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"personId": "p1", "cityId": "c1", "firstName": "A"}
+    ]
+
+
+def test_string_cypher_supports_is3_seed_expand_projection_shape() -> None:
+    nodes = pd.DataFrame(
+        [
+            {"id": "p1", "labels": ["Person"], "label__Person": True, "firstName": "Seed"},
+            {"id": "p2", "labels": ["Person"], "label__Person": True, "firstName": "Friend"},
+        ]
+    )
+    edges = pd.DataFrame([{"s": "p2", "d": "p1", "type": "KNOWS", "creationDate": 123}])
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (person:Person {id: 'p1'}) "
+        "MATCH (person)-[k:KNOWS]-(friend:Person) "
+        "RETURN friend.id AS friendId, friend.firstName AS firstName, k.creationDate AS friendshipCreationDate"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"friendId": "p2", "firstName": "Friend", "friendshipCreationDate": 123}
+    ]
+
+
+def test_string_cypher_supports_is6_open_range_continuation_projection_shape() -> None:
+    nodes = pd.DataFrame(
+        [
+            {"id": "c1", "labels": ["Comment"], "label__Comment": True},
+            {"id": "m1", "labels": ["Message"], "label__Message": True},
+            {"id": "p1", "labels": ["Post"], "label__Post": True},
+            {"id": "f1", "labels": ["Forum"], "label__Forum": True, "title": "Forum"},
+            {
+                "id": "u1",
+                "labels": ["Person"],
+                "label__Person": True,
+                "firstName": "Mod",
+                "lastName": "Erator",
+            },
+        ]
+    )
+    edges = pd.DataFrame(
+        [
+            {"s": "c1", "d": "m1", "type": "REPLY_OF"},
+            {"s": "m1", "d": "p1", "type": "REPLY_OF"},
+            {"s": "f1", "d": "p1", "type": "CONTAINER_OF"},
+            {"s": "f1", "d": "u1", "type": "HAS_MODERATOR"},
+        ]
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (message:Comment {id: 'c1'})-[:REPLY_OF*0..]->(post:Post)"
+        "<-[:CONTAINER_OF]-(forum:Forum)-[:HAS_MODERATOR]->(moderator:Person) "
+        "RETURN forum.id AS forumId, moderator.id AS moderatorId"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"forumId": "f1", "moderatorId": "u1"}
+    ]
+
+
 def test_compile_cypher_records_mixed_whole_row_projection_plan() -> None:
     compiled = _compile_query("MATCH (p:Person) RETURN p AS person, p.name AS person_name")
 
