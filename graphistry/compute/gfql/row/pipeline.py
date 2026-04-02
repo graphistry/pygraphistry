@@ -2700,7 +2700,7 @@ class RowPipelineMixin:
         binding_ops: Optional[List[Dict[str, Any]]] = None,
     ) -> "Plottable":
         if binding_ops is not None:
-            return self._gfql_connected_bindings_row_table(binding_ops)
+            return self._gfql_binding_ops_row_table(binding_ops)
         if alias_endpoints is not None:
             return self._gfql_bindings_row_table(alias_endpoints)
 
@@ -2745,14 +2745,18 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_validate_binding_ops(ops: Sequence[Any]) -> None:
-        if (
-            len(ops) == 0
-            or len(ops) % 2 == 0
+        if len(ops) == 0:
+            RowPipelineMixin._gfql_bindings_error(
+                "Cypher multi-alias row bindings require at least one node or edge operation"
+            )
+        all_nodes = all(hasattr(op, "filter_dict") and not hasattr(op, "edge_match") for op in ops)
+        if not all_nodes and (
+            len(ops) % 2 == 0
             or any((idx % 2 == 0) != hasattr(op, "filter_dict") for idx, op in enumerate(ops))
             or any((idx % 2 == 1) != hasattr(op, "edge_match") for idx, op in enumerate(ops))
         ):
             RowPipelineMixin._gfql_bindings_error(
-                "Cypher multi-alias row bindings currently require a single connected alternating node/edge path"
+                "Cypher multi-alias row bindings currently require either node-only cartesian bindings or a single connected alternating node/edge path"
             )
         seen_aliases = set()
         for op in ops:
@@ -2764,6 +2768,24 @@ class RowPipelineMixin:
                     f"Cypher multi-alias row bindings require unique aliases; duplicate alias '{alias}' found"
                 )
             seen_aliases.add(alias)
+
+    @staticmethod
+    def _gfql_binding_ops_mode(ops: Sequence[Any]) -> Literal["connected_path", "node_cartesian"]:
+        RowPipelineMixin._gfql_validate_binding_ops(ops)
+        if all(hasattr(op, "filter_dict") and not hasattr(op, "edge_match") for op in ops):
+            return "node_cartesian"
+        return "connected_path"
+
+    @staticmethod
+    def _gfql_node_alias_lookup_frame(lookup_source: Any, node_id: str, alias: str) -> Any:
+        lookup = lookup_source[[node_id]].copy()
+        lookup[alias] = lookup_source[node_id]
+        lookup[f"{alias}.{node_id}"] = lookup_source[node_id]
+        for col in lookup_source.columns:
+            if col == node_id:
+                continue
+            lookup[f"{alias}.{col}"] = lookup_source[col]
+        return lookup
 
     def _gfql_multihop_binding_rows(
         self,
@@ -2980,12 +3002,7 @@ class RowPipelineMixin:
                 lookup_source = empty_lookup_source
             if alias not in bindings.columns:
                 bindings[alias] = pd.Series(index=bindings.index, dtype=lookup_source[node_id].dtype)
-            lookup = lookup_source[[node_id]].copy()
-            lookup[f"{alias}.{node_id}"] = lookup_source[node_id]
-            for col in lookup_source.columns:
-                if col == node_id:
-                    continue
-                lookup[f"{alias}.{col}"] = lookup_source[col]
+            lookup = self._gfql_node_alias_lookup_frame(lookup_source, node_id, alias)
             bindings = bindings.merge(
                 lookup,
                 left_on=alias,
@@ -3000,6 +3017,69 @@ class RowPipelineMixin:
         drop_cols = ["__current__", *node_aliases]
         bindings = bindings.drop(columns=[col for col in drop_cols if col in bindings.columns])
         return self._gfql_row_table(bindings)
+
+    def _gfql_cartesian_node_bindings_row_table(
+        self,
+        ops: Sequence[Any],
+    ) -> "Plottable":
+        if self._nodes is None:
+            return self._gfql_row_table(pd.DataFrame())
+
+        base_graph = getattr(self, "_gfql_rows_base_graph", None)
+        if base_graph is None:
+            base_graph = getattr(self, "_g", None)
+        if base_graph is None:
+            self._gfql_bindings_error(
+                "Cypher multi-alias row bindings require a graph-backed row pipeline context"
+            )
+        node_id = getattr(base_graph, "_node", None)
+        base_nodes = getattr(base_graph, "_nodes", None)
+        if node_id is None or base_nodes is None or node_id not in base_nodes.columns:
+            return self._gfql_row_table(pd.DataFrame())
+
+        base_df = self._nodes if self._nodes is not None else self._edges
+        engine = resolve_engine(EngineAbstract.AUTO, base_df)
+        start_nodes = getattr(self, "_gfql_start_nodes", None)
+        join_col = RowPipelineMixin._gfql_fresh_col_name(base_nodes.columns, "__gfql_bindings_join__")
+        bindings: Optional[Any] = None
+        anonymous_cols: List[str] = []
+
+        for idx, node_op in enumerate(ops):
+            matched_nodes = node_op(
+                g=base_graph,
+                prev_node_wavefront=start_nodes,
+                target_wave_front=None,
+                engine=engine,
+            )._nodes
+            if matched_nodes is None or node_id not in matched_nodes.columns:
+                return self._gfql_row_table(base_nodes.iloc[0:0].copy())
+
+            alias = getattr(node_op, "_name", None)
+            if isinstance(alias, str):
+                frame = self._gfql_node_alias_lookup_frame(matched_nodes, str(node_id), alias)
+            else:
+                anon_col = RowPipelineMixin._gfql_fresh_col_name(matched_nodes.columns, f"__gfql_binding_node_{idx}__")
+                frame = matched_nodes[[node_id]].copy().rename(columns={node_id: anon_col})
+                anonymous_cols.append(anon_col)
+            frame[join_col] = 1
+            bindings = frame if bindings is None else bindings.merge(frame, on=join_col, how="inner", sort=False)
+
+        if bindings is None:
+            return self._gfql_row_table(pd.DataFrame())
+        bindings = bindings.drop(columns=[join_col] + anonymous_cols, errors="ignore")
+        return self._gfql_row_table(bindings)
+
+    def _gfql_binding_ops_row_table(
+        self,
+        binding_ops: List[Dict[str, Any]],
+    ) -> "Plottable":
+        from graphistry.compute.ast import from_json as ast_from_json
+
+        ops = [ast_from_json(op_json, validate=False) for op_json in binding_ops]
+        mode = self._gfql_binding_ops_mode(ops)
+        if mode == "node_cartesian":
+            return self._gfql_cartesian_node_bindings_row_table(ops)
+        return self._gfql_connected_bindings_row_table(binding_ops)
 
     def _gfql_bindings_row_table(
         self, alias_endpoints: Dict[str, str]

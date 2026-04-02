@@ -1595,9 +1595,11 @@ def rows(
     with node properties for each alias. Keys are alias names, values are
     ``"src"`` or ``"dst"`` indicating which edge endpoint maps to that alias.
 
-    When *binding_ops* is provided, builds a connected-path bindings table from
-    a serialized same-path node/edge chain. This is the preferred path for
-    direct Cypher scalar multi-alias projections.
+    When *binding_ops* is provided, builds a bindings table from serialized
+    node/edge operations. Alternating node/edge chains materialize connected
+    same-path bindings, while node-only sequences materialize cartesian
+    bindings rows. This is the preferred path for direct Cypher multi-alias
+    scalar and aggregate projections.
     """
     params: Dict[str, Any] = {"table": table}
     if source is not None:
@@ -1610,7 +1612,7 @@ def rows(
 
 
 def serialize_binding_ops(ops: Sequence[ASTObject]) -> List[Dict[str, Any]]:
-    """Serialize an alternating node/edge path for ``rows(binding_ops=...)``."""
+    """Serialize node/edge bindings for ``rows(binding_ops=...)``."""
     binding_ops: List[Dict[str, Any]] = []
     for op in ops:
         if not isinstance(op, (ASTNode, ASTEdge)):

@@ -24,6 +24,30 @@ def _coerce_chain_ops(ops: Union[List[ASTObject], 'Chain']) -> List[ASTObject]:
     return cast(List[ASTObject], ops)
 
 
+def _binding_rows_output_node_columns(binding_ops: object, node_columns: Set[str], edge_columns: Set[str]) -> Set[str]:
+    if not isinstance(binding_ops, list):
+        return set()
+    out: Set[str] = set()
+    edge_hidden = {"s", "d", "src", "dst"}
+    for op in binding_ops:
+        if not isinstance(op, dict):
+            continue
+        alias = op.get("name")
+        if not isinstance(alias, str) or alias == "":
+            continue
+        out.add(alias)
+        op_type = op.get("type")
+        if op_type == "Node":
+            for col in node_columns:
+                out.add(f"{alias}.{col}")
+        elif isinstance(op_type, str) and op_type.startswith("Edge"):
+            for col in edge_columns:
+                if col in edge_hidden:
+                    continue
+                out.add(f"{alias}.{col}")
+    return out
+
+
 def trace_chain_schema(
     g: Plottable,
     ops: Union[List[ASTObject], 'Chain'],
@@ -381,6 +405,10 @@ def _apply_call_schema_effects(
 
     if op.function == "rows":
         table = op.params.get("table")
+        binding_ops = op.params.get("binding_ops")
+        if binding_ops is not None:
+            node_columns.update(_binding_rows_output_node_columns(binding_ops, node_columns, edge_columns))
+            return "nodes"
         if table in {"nodes", "edges"}:
             return cast(Literal["nodes", "edges"], table)
 
