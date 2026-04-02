@@ -7782,6 +7782,28 @@ def test_string_cypher_multi_alias_with_distinct_count_star() -> None:
     ]
 
 
+@pytest.mark.xfail(
+    reason="Multi-stage WITH chain: intermediate projected columns not forwarded through scope (#880)",
+    strict=True,
+)
+def test_string_cypher_multi_alias_with_three_stage_chain() -> None:
+    """IC-4 full shape: WITH DISTINCT → WITH scalar → RETURN aggregation (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, post.creationDate AS cd "
+        "RETURN tag.name AS tagName, sum(cd) AS totalDate "
+        "ORDER BY tagName",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tagName": "TagA", "totalDate": 300},
+        {"tagName": "TagB", "totalDate": 300},
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Issue #996: MATCH (connected) OPTIONAL MATCH ... RETURN mixed + CASE
 # ---------------------------------------------------------------------------
