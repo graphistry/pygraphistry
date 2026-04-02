@@ -30,6 +30,7 @@ from graphistry.compute.gfql.cypher.lowering import (
     CompiledCypherGraphQuery,
     CompiledCypherQuery,
     CompiledCypherUnionQuery,
+    ConnectedOptionalMatchPlan,
     _reentry_hidden_column_name,
 )
 from graphistry.compute.gfql.cypher.call_procedures import execute_cypher_call
@@ -260,6 +261,104 @@ def _apply_optional_projection_row_guard(
     )
 
 
+def _apply_connected_optional_match(
+    base_graph: Plottable,
+    plan: ConnectedOptionalMatchPlan,
+    *,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+) -> Plottable:
+    """Execute a connected MATCH + OPTIONAL MATCH as a left-outer-join.
+
+    1. Run each chain with rows(binding_ops) to produce binding-row tables.
+    2. Left-outer-join on shared node aliases.
+    3. Delegate RETURN / ORDER BY / SKIP / LIMIT to the standard row pipeline
+       via the pre-compiled post_join_chain.
+    """
+    import pandas as pd
+    from graphistry.compute.ast import ASTCall, serialize_binding_ops
+
+    base_binding_ops = serialize_binding_ops(plan.base_chain.chain)
+    opt_binding_ops = serialize_binding_ops(plan.opt_chain.chain)
+
+    base_with_rows = Chain(
+        list(plan.base_chain.chain) + [ASTCall("rows", {"binding_ops": base_binding_ops})],
+        where=plan.base_chain.where,
+    )
+    opt_with_rows = Chain(
+        list(plan.opt_chain.chain) + [ASTCall("rows", {"binding_ops": opt_binding_ops})],
+        where=plan.opt_chain.where,
+    )
+
+    base_rows_result = _chain_dispatch(base_graph, base_with_rows, engine, policy, context)
+    opt_rows_result = _chain_dispatch(base_graph, opt_with_rows, engine, policy, context)
+
+    base_rows_df = getattr(base_rows_result, "_nodes", None)
+    opt_rows_df = getattr(opt_rows_result, "_nodes", None)
+
+    concrete_engine = resolve_engine(cast(Any, engine), base_graph)
+    df_ctor = df_cons(concrete_engine)
+
+    if base_rows_df is None or len(base_rows_df) == 0:
+        out = base_graph.bind()
+        out._nodes = df_ctor()
+        out._edges = df_ctor()
+        return out
+
+    # Left-outer-join on shared node aliases.
+    # Binding-row columns use "alias.property" format (e.g., "a.id").
+    node_col = getattr(base_graph, "_node", "id")
+    join_cols = [
+        f"{alias}.{node_col}"
+        for alias in plan.shared_node_aliases
+        if f"{alias}.{node_col}" in base_rows_df.columns
+        and opt_rows_df is not None
+        and f"{alias}.{node_col}" in opt_rows_df.columns
+    ]
+    if not join_cols:
+        join_cols = [
+            alias for alias in plan.shared_node_aliases
+            if alias in base_rows_df.columns
+            and opt_rows_df is not None
+            and alias in opt_rows_df.columns
+        ]
+
+    if opt_rows_df is not None and len(opt_rows_df) > 0 and join_cols:
+        opt_only_cols = [c for c in opt_rows_df.columns if c not in base_rows_df.columns or c in join_cols]
+        joined = base_rows_df.merge(opt_rows_df[opt_only_cols], on=join_cols, how="left")
+    else:
+        joined = base_rows_df.copy()
+        for alias in plan.opt_only_aliases:
+            joined[alias] = None
+
+    # Add bare alias columns for edge aliases so the row pipeline can resolve
+    # identifiers like ``r2`` in expressions such as ``CASE WHEN r2 IS NULL``.
+    # The binding table stores edges as ``r2.type``, ``r2.r2`` etc. but not ``r2``.
+    import math
+    for alias in plan.opt_only_aliases:
+        if alias in joined.columns:
+            continue
+        # Look for any prefixed column to determine if the alias is bound.
+        prefix = f"{alias}."
+        marker_col = next((c for c in joined.columns if c.startswith(prefix)), None)
+        if marker_col is not None:
+            # Use the marker column: non-null → alias is bound, NaN → null.
+            marker = joined[marker_col]
+            joined[alias] = marker.where(
+                marker.apply(lambda v: v is not None and not (isinstance(v, float) and math.isnan(v))),
+                other=None,
+            )
+
+    # Build a Plottable from the joined rows and delegate RETURN / ORDER BY /
+    # SKIP / LIMIT to the standard row pipeline via the pre-compiled chain.
+    joined_plottable = base_graph.bind()
+    joined_plottable._nodes = joined
+    joined_plottable._edges = df_ctor()
+
+    return _chain_dispatch(joined_plottable, plan.post_join_chain, engine, policy, context)
+
+
 def _execute_graph_constructor_compiled(
     base_graph: Plottable,
     chain: Chain,
@@ -454,6 +553,14 @@ def _execute_compiled_query(
             alignment_output_name=compiled_query.optional_null_fill.alignment_output_name,
             engine=engine,
             null_row=compiled_query.optional_null_fill.null_row,
+        )
+    if compiled_query.connected_optional_match is not None:
+        result = _apply_connected_optional_match(
+            base_graph,
+            compiled_query.connected_optional_match,
+            engine=engine,
+            policy=policy,
+            context=context,
         )
     return result
 
