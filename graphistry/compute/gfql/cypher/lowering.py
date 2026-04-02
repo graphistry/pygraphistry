@@ -3796,6 +3796,24 @@ def _build_initial_row_scope(
     alias_targets = _alias_target(lowered.query) if query.match is not None else {}
     merged_match = _merged_match_clause(query)
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+    # For connected multi-pattern MATCH (not cartesian), enable binding-row
+    # aliases when the first WITH/RETURN stage projects multiple whole-row
+    # match aliases and all targets are nodes.  This allows multi-alias WITH
+    # projections to flow through the bindings-row path (#880).
+    if (
+        not binding_row_aliases
+        and query.match is not None
+        and len(alias_targets) > 1
+        and all(isinstance(t, ASTNode) for t in alias_targets.values())
+    ):
+        # Check if the stage clause references 2+ whole-row match aliases
+        whole_row_refs = {
+            item.expression.text
+            for item in stage_clause.items
+            if item.expression.text in alias_targets
+        }
+        if len(whole_row_refs) > 1:
+            binding_row_aliases = set(alias_targets.keys())
     active_match_alias = _active_match_alias_for_stage(
         unwinds=query.unwinds,
         clause=stage_clause,
@@ -4050,16 +4068,20 @@ def _lower_match_alias_aggregate_stage(
         )
 
     projection_fn = with_ if stage.clause.kind == "with" else return_
-    _reject_unsound_relationship_multiplicity_aggregates_common(
-        aggregate_specs=aggregate_specs,
-        alias_targets=scope.alias_targets,
-        active_match_alias=active_alias,
-        relationship_count=scope.relationship_count,
-        field=stage.clause.kind,
-        value=[item.expression.text for item in stage.clause.items],
-        line=stage.clause.span.line,
-        column=stage.clause.span.column,
-    )
+    # On the bindings-row path (allowed_match_aliases populated), the row
+    # table preserves per-row multiplicity from the MATCH, so relationship-
+    # count aggregation guards do not apply (#880).
+    if not scope.allowed_match_aliases:
+        _reject_unsound_relationship_multiplicity_aggregates_common(
+            aggregate_specs=aggregate_specs,
+            alias_targets=scope.alias_targets,
+            active_match_alias=active_alias,
+            relationship_count=scope.relationship_count,
+            field=stage.clause.kind,
+            value=[item.expression.text for item in stage.clause.items],
+            line=stage.clause.span.line,
+            column=stage.clause.span.column,
+        )
     pre_items: List[Tuple[str, Any]] = []
     key_names: List[str] = []
     temp_names: Set[str] = set()

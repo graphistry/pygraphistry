@@ -743,7 +743,13 @@ class RowPipelineMixin:
                         return False, None
                 source_alias = entity_alias_names[0]
                 if source_alias not in table_df.columns:
-                    return False, None
+                    # On bindings-row tables, resolve alias to alias.{node_id} (#880)
+                    node_id = getattr(self, "_node", None)
+                    id_col = f"{source_alias}.{node_id}" if node_id else None
+                    if id_col is not None and id_col in table_df.columns:
+                        source_alias = id_col
+                    else:
+                        return False, None
                 out = self._gfql_format_entity_series(
                     table_df,
                     alias_col=source_alias,
@@ -2205,6 +2211,9 @@ class RowPipelineMixin:
             alias = prop_match.group("alias")
             prop = prop_match.group("prop")
             if RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, alias):
+                qualified = f"{alias}.{prop}"
+                if qualified in table_df.columns:
+                    return table_df[qualified]
                 return self._gfql_broadcast_scalar(table_df, pd.NA)
             if (
                 alias in table_df.columns
@@ -2223,6 +2232,14 @@ class RowPipelineMixin:
                         f"unsupported row expression: property access requires a graph element alias in {token!r}"
                     )
                 return self._gfql_broadcast_scalar(table_df, pd.NA)
+        # Bare alias name on a bindings-row table: resolve to the alias's
+        # identity column (alias.{node_id_col}).  This lets expressions like
+        # count(post) work when the table has post.id, post.name, etc. (#880)
+        if "." not in txt and RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, txt):
+            node_id = getattr(self, "_node", None)
+            id_col = f"{txt}.{node_id}" if node_id else None
+            if id_col is not None and id_col in table_df.columns:
+                return table_df[id_col]
         raise ValueError(f"unsupported token in row expression: {token!r}")
 
     def _gfql_eval_dynamic_list_subscript(

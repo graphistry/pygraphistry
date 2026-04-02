@@ -7586,6 +7586,224 @@ def test_string_cypher_rejects_obviously_non_boolean_operands_in_boolean_ops(que
         g.gfql(query)
 
 
+# ── Multi-alias WITH projection from connected MATCH (#880 / IC-4 shape) ──
+
+
+def _mk_ic4_shape_graph() -> _CypherTestGraph:
+    """Graph for IC-4 multi-alias WITH tests: person-KNOWS-friend, post-HAS_CREATOR->friend, post-HAS_TAG->tag."""
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "f1", "f2", "post1", "post2", "post3", "tag1", "tag2"],
+                "label__Person": [True, True, True, False, False, False, False, False],
+                "label__Post": [False, False, False, True, True, True, False, False],
+                "label__Tag": [False, False, False, False, False, False, True, True],
+                "name": ["", "", "", "", "", "", "TagA", "TagB"],
+                "creationDate": [0, 0, 0, 100, 200, 300, 0, 0],
+            }
+        ),
+        pd.DataFrame(
+            {
+                # KNOWS: p1↔f1, p1↔f2 (undirected)
+                # HAS_CREATOR: post→friend (post is creator-of friend's content)
+                # HAS_TAG: post→tag
+                "s": ["p1", "p1", "post1", "post2", "post3", "post1", "post2", "post3"],
+                "d": ["f1", "f2", "f1", "f1", "f2", "tag1", "tag1", "tag2"],
+                "type": [
+                    "KNOWS", "KNOWS",
+                    "HAS_CREATOR", "HAS_CREATOR", "HAS_CREATOR",
+                    "HAS_TAG", "HAS_TAG", "HAS_TAG",
+                ],
+            }
+        ),
+    )
+
+
+def test_string_cypher_multi_alias_with_distinct_scalar_projection() -> None:
+    """IC-4 shape: MATCH multi-pattern, WITH DISTINCT two aliases, RETURN scalars (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "RETURN tag.name AS tagName, post.id AS postId "
+        "ORDER BY tagName, postId",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tagName": "TagA", "postId": "post1"},
+        {"tagName": "TagA", "postId": "post2"},
+        {"tagName": "TagB", "postId": "post3"},
+    ]
+
+
+def test_string_cypher_multi_alias_with_distinct_simple_two_hop() -> None:
+    """Simpler shape: single connected pattern, two aliases, WITH DISTINCT (#880)."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"], "label__A": [True, False, False], "label__B": [False, True, False], "label__C": [False, False, True], "val": [1, 2, 3]}),
+        pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "type": ["R", "S"]}),
+    )
+    result = graph.gfql(
+        "MATCH (a:A)-[:R]->(b:B)-[:S]->(c:C) "
+        "WITH DISTINCT b, c "
+        "RETURN b.val AS bv, c.val AS cv",
+    )
+    assert result._nodes.to_dict(orient="records") == [{"bv": 2, "cv": 3}]
+
+
+def test_string_cypher_multi_alias_with_distinct_where_filter() -> None:
+    """Multi-alias WITH DISTINCT + WHERE filter on projected alias (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WHERE post.creationDate > 100 "
+        "RETURN tag.name AS tagName, post.id AS postId "
+        "ORDER BY tagName, postId",
+        params={"pid": "p1"},
+    )
+    records = result._nodes.to_dict(orient="records")
+    # post1 has creationDate=100 (excluded by >100), post2=200, post3=300
+    assert all(r["postId"] != "post1" for r in records)
+    assert len(records) >= 1
+
+
+def test_string_cypher_multi_alias_with_distinct_order_by_limit() -> None:
+    """Multi-alias WITH DISTINCT + ORDER BY + LIMIT (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "RETURN tag.name AS tagName, post.id AS postId "
+        "ORDER BY postId "
+        "LIMIT 2",
+        params={"pid": "p1"},
+    )
+    records = result._nodes.to_dict(orient="records")
+    assert len(records) == 2
+    assert records[0]["postId"] == "post1"
+    assert records[1]["postId"] == "post2"
+
+
+def test_string_cypher_multi_alias_with_distinct_three_aliases() -> None:
+    """Three-alias WITH DISTINCT from single connected pattern (#880)."""
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id": ["a", "b", "c", "d"],
+            "label__A": [True, False, False, False],
+            "val": [1, 2, 3, 4],
+        }),
+        pd.DataFrame({
+            "s": ["a", "a", "b", "c"],
+            "d": ["b", "c", "d", "d"],
+            "type": ["R", "R", "S", "S"],
+        }),
+    )
+    result = graph.gfql(
+        "MATCH (a:A)-[:R]->(b)-[:S]->(c) "
+        "WITH DISTINCT a, b, c "
+        "RETURN a.id AS aid, b.id AS bid, c.id AS cid "
+        "ORDER BY bid",
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"aid": "a", "bid": "b", "cid": "d"},
+        {"aid": "a", "bid": "c", "cid": "d"},
+    ]
+
+
+def test_string_cypher_multi_alias_with_distinct_property_where() -> None:
+    """Multi-alias WITH DISTINCT + WHERE on alias property (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        'WHERE tag.name = "TagA" '
+        "RETURN post.id AS postId ORDER BY postId",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"postId": "post1"},
+        {"postId": "post2"},
+    ]
+
+
+def test_string_cypher_multi_alias_with_distinct_count_projection() -> None:
+    """IC-4 shape: WITH DISTINCT two aliases, then count aggregation (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "RETURN tag.name AS tagName, count(post) AS postCount "
+        "ORDER BY postCount DESC, tagName ASC",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tagName": "TagA", "postCount": 2},
+        {"tagName": "TagB", "postCount": 1},
+    ]
+
+
+def test_string_cypher_multi_alias_with_distinct_sum_aggregation() -> None:
+    """Multi-alias WITH DISTINCT + sum() over alias property (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "RETURN tag.name AS tagName, sum(post.creationDate) AS totalDate "
+        "ORDER BY tagName",
+        params={"pid": "p1"},
+    )
+    records = result._nodes.to_dict(orient="records")
+    assert len(records) == 2
+    # TagA: post1(100) + post2(200) = 300; TagB: post3(300)
+    assert records[0] == {"tagName": "TagA", "totalDate": 300}
+    assert records[1] == {"tagName": "TagB", "totalDate": 300}
+
+
+def test_string_cypher_multi_alias_with_distinct_count_star() -> None:
+    """Multi-alias WITH DISTINCT + count(*) (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "RETURN tag.name AS tagName, count(*) AS cnt "
+        "ORDER BY cnt DESC, tagName ASC",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tagName": "TagA", "cnt": 2},
+        {"tagName": "TagB", "cnt": 1},
+    ]
+
+
+@pytest.mark.xfail(
+    reason="Multi-stage WITH chain: intermediate projected columns not forwarded through scope (#880)",
+    strict=True,
+)
+def test_string_cypher_multi_alias_with_three_stage_chain() -> None:
+    """IC-4 full shape: WITH DISTINCT → WITH scalar → RETURN aggregation (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, post.creationDate AS cd "
+        "RETURN tag.name AS tagName, sum(cd) AS totalDate "
+        "ORDER BY tagName",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tagName": "TagA", "totalDate": 300},
+        {"tagName": "TagB", "totalDate": 300},
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Issue #996: MATCH (connected) OPTIONAL MATCH ... RETURN mixed + CASE
 # ---------------------------------------------------------------------------
