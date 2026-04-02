@@ -4068,16 +4068,20 @@ def _lower_match_alias_aggregate_stage(
         )
 
     projection_fn = with_ if stage.clause.kind == "with" else return_
-    _reject_unsound_relationship_multiplicity_aggregates_common(
-        aggregate_specs=aggregate_specs,
-        alias_targets=scope.alias_targets,
-        active_match_alias=active_alias,
-        relationship_count=scope.relationship_count,
-        field=stage.clause.kind,
-        value=[item.expression.text for item in stage.clause.items],
-        line=stage.clause.span.line,
-        column=stage.clause.span.column,
-    )
+    # On the bindings-row path (allowed_match_aliases populated), the row
+    # table preserves per-row multiplicity from the MATCH, so relationship-
+    # count aggregation guards do not apply (#880).
+    if not scope.allowed_match_aliases:
+        _reject_unsound_relationship_multiplicity_aggregates_common(
+            aggregate_specs=aggregate_specs,
+            alias_targets=scope.alias_targets,
+            active_match_alias=active_alias,
+            relationship_count=scope.relationship_count,
+            field=stage.clause.kind,
+            value=[item.expression.text for item in stage.clause.items],
+            line=stage.clause.span.line,
+            column=stage.clause.span.column,
+        )
     pre_items: List[Tuple[str, Any]] = []
     key_names: List[str] = []
     temp_names: Set[str] = set()

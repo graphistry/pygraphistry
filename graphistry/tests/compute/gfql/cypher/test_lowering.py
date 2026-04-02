@@ -7688,7 +7688,7 @@ def test_string_cypher_multi_alias_with_distinct_order_by_limit() -> None:
 
 
 @pytest.mark.xfail(
-    reason="Multi-alias WITH aggregation not yet supported — runtime collapses rows before aggregation (#880)",
+    reason="Multi-alias WITH aggregation: row expression evaluator does not resolve alias-prefixed columns from bindings table (#880)",
     strict=True,
 )
 def test_string_cypher_multi_alias_with_distinct_count_projection() -> None:
