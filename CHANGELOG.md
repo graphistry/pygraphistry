@@ -8,15 +8,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **GFQL / Cypher**: Support connected `MATCH ... OPTIONAL MATCH ... RETURN` queries where the non-optional MATCH is a connected path (not just a single node). The compiler lowers each clause independently, left-outer-joins the binding-row tables on shared node aliases, and delegates RETURN / ORDER BY / SKIP / LIMIT to the standard row pipeline. This unblocks LDBC SNB Interactive `interactive-short-7` (IS7) and any query shape that combines a connected traversal with an optional extension and mixed-alias or `CASE`-expression projections (#996).
+
 ### Fixed
 - **GFQL / Cypher**: Support `WITH scalar, collect(alias) AS list UNWIND list AS alias MATCH ... RETURN` queries where carried scalars accompany the `collect()`. Previously only the single-item `WITH collect(alias) AS list` shape was supported (#1000).
 - **GFQL / bindings rows**: Native `rows()` and direct `rows(binding_ops=...)` now preserve open-range / fixed-point edge semantics during bindings serialization instead of collapsing those segments back to a single hop. This restores IS6-style multihop continuation row shaping from native GFQL chains under `#880`.
 - **GFQL / Cypher**: Removed guard that rejected multi-hop connected patterns with edge alias projections (e.g., `MATCH (a)-[r:R]->(b)-[s:S]->(c) RETURN r.since, c.id`). The runtime bindings table already handles this correctly (#880).
 - **GFQL / Cypher**: Direct local Cypher now supports comma-separated node-only `MATCH` cartesian products such as `MATCH (n), (m) RETURN n.num, m.num`, including cross-alias row filters, grouped/global aggregates, and `WITH`-staged row execution. This unlocks the `#990` prerequisite lane for `#1010`.
+- **Tests / RAPIDS compat**: Replace `cudf.DataFrame.from_pandas()` with `cudf.from_pandas()` across GFQL Cypher test suite for RAPIDS 25.02 + 26.02 compatibility.
 
 ### Tests
 - **GFQL / bindings rows**: Added benchmark-shaped regressions for native IS6-style multihop continuation plus direct Cypher IS1 / IS3 / IS6 projection shapes.
 - **GFQL / Cypher**: Added cartesian `MATCH` regressions covering scalar projection, non-simple row expressions, grouped/global aggregates, staged `WITH` filters, and direct `rows(binding_ops=[Node, Node])` cartesian row materialization.
+- **GFQL / Cypher**: Added 19 connected `MATCH + OPTIONAL MATCH` regression tests covering expression breadth (`type()`, `coalesce()`, arithmetic, `CASE WHEN ... IS NULL`), join edge cases (no matches, all match, multi-row, empty base, two shared aliases, integer IDs, custom node column, longer optional chains), and post-projection ops (ORDER BY, SKIP, LIMIT, DISTINCT) (#996).
 
 ## [0.53.16 - 2026-04-01]
 
