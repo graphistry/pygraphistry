@@ -1493,6 +1493,29 @@ class TestChainBindingsTable(NoAuthTestCase):
             expected=[{"seedId": "a", "extraId": "x"}],
         )
 
+    def test_direct_rows_binding_ops_supports_reverse_bounded_range_multihop_continuation_on_cudf(self):
+        """Reverse bounded multihop replay should stay on cuDF."""
+        pandas_graph = self._mk_reverse_range_continuation_graph()
+        g = self._mk_cudf_graph(pandas_graph._nodes, pandas_graph._edges)
+        binding_ops = self._to_binding_ops(
+            self._reverse_range_continuation_match_ops(
+                e_reverse({"type": "R"}, min_hops=0, max_hops=2)
+            )
+        )
+
+        result = g.gfql(
+            [
+                rows(binding_ops=binding_ops),
+                select([("seedId", "seed.id"), ("extraId", "extra.id")]),
+            ],
+            engine="cudf",
+        )
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert result._nodes.to_pandas().to_dict(orient="records") == [
+            {"seedId": "a", "extraId": "x"}
+        ]
+
     def test_direct_rows_binding_ops_supports_undirected_bounded_multihop_without_backtracking(self):
         """Undirected bounded multihop replay should not immediately bounce back to the seed."""
         g = self._mk_graph(
@@ -1517,6 +1540,36 @@ class TestChainBindingsTable(NoAuthTestCase):
         assert records == [
             {"seedId": "a", "peerId": "b"},
             {"seedId": "a", "peerId": "c"},
+        ]
+
+    def test_direct_rows_binding_ops_supports_undirected_bounded_multihop_without_backtracking_on_cudf(self):
+        """Undirected bounded multihop replay with integer ids should stay dtype-safe on cuDF."""
+        g = self._mk_cudf_graph(
+            pd.DataFrame({"id": [1, 2, 3, 4]}),
+            pd.DataFrame(
+                {
+                    "s": [1, 2, 3],
+                    "d": [2, 3, 4],
+                    "type": ["R", "R", "R"],
+                }
+            ),
+        )
+        binding_ops = self._to_binding_ops(
+            [n({"id": 1}, name="seed"), e_undirected({"type": "R"}, min_hops=1, max_hops=2), n(name="peer")]
+        )
+
+        result = g.gfql(
+            [
+                rows(binding_ops=binding_ops),
+                select([("seedId", "seed.id"), ("peerId", "peer.id")]),
+            ],
+            engine="cudf",
+        )
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert result._nodes.to_pandas().sort_values(["seedId", "peerId"]).to_dict(orient="records") == [
+            {"seedId": 1, "peerId": 2},
+            {"seedId": 1, "peerId": 3},
         ]
 
     def test_direct_rows_binding_ops_supports_bare_alias_token_expressions(self):
