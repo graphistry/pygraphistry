@@ -2738,6 +2738,56 @@ def _is_connected_multi_pattern_clause(clause: MatchClause) -> bool:
     return len(seen) == len(pattern_aliases)
 
 
+def _connected_join_alias_targets(
+    clause: MatchClause,
+    *,
+    params: Optional[Mapping[str, Any]],
+) -> Mapping[str, ASTObject]:
+    combined_alias_targets: Dict[str, ASTObject] = {}
+    for pattern in clause.patterns:
+        single_clause = replace(clause, patterns=(pattern,), pattern_aliases=(None,))
+        ops, _ = _lower_match_clause_with_alias_equalities(single_clause, params=params)
+        for alias, target in _alias_target(ops).items():
+            if alias not in combined_alias_targets:
+                combined_alias_targets[alias] = target
+    return combined_alias_targets
+
+
+def _clause_has_connected_join_whole_row_alias_passthrough(
+    clause: ReturnClause,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+) -> bool:
+    for item in clause.items:
+        agg_spec = _aggregate_spec(item, params=params, alias_targets=alias_targets)
+        if agg_spec is None and item.expression.text in alias_targets:
+            return True
+    return False
+
+
+def _query_requires_general_lowering_for_connected_join(
+    query: CypherQuery,
+    *,
+    params: Optional[Mapping[str, Any]],
+) -> bool:
+    if len(query.matches) != 1 or not _is_connected_multi_pattern_clause(query.matches[0]):
+        return False
+    alias_targets = _connected_join_alias_targets(query.matches[0], params=params)
+    return any(
+        _clause_has_connected_join_whole_row_alias_passthrough(
+            stage.clause,
+            alias_targets=alias_targets,
+            params=params,
+        )
+        for stage in query.with_stages
+    ) or _clause_has_connected_join_whole_row_alias_passthrough(
+        query.return_,
+        alias_targets=alias_targets,
+        params=params,
+    )
+
+
 def _binding_row_aliases_for_match(
     clause: Optional[MatchClause],
     *,
@@ -7375,7 +7425,11 @@ def compile_cypher_query(
         return _attach_graph_context(_compile_call_query(query, params=params))
     if query.row_sequence:
         return _attach_graph_context(_lower_row_only_sequence(query, params=params))
-    if len(query.matches) == 1 and _is_connected_multi_pattern_clause(query.matches[0]):
+    if (
+        len(query.matches) == 1
+        and _is_connected_multi_pattern_clause(query.matches[0])
+        and not _query_requires_general_lowering_for_connected_join(query, params=params)
+    ):
         return _attach_graph_context(_compile_connected_match_join(query, params=params))
     if _is_connected_optional_match_query(query):
         return _attach_graph_context(_compile_connected_optional_match(query, params=params))
