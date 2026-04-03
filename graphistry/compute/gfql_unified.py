@@ -592,12 +592,20 @@ def _execute_compiled_query_with_reentry(
             policy=policy,
             context=context,
         )
-        compiled_base_graph, start_nodes = _compiled_query_reentry_state(
-            base_graph,
-            compiled_query,
-            prefix_result,
-            engine=engine,
-        )
+        if compiled_query.scalar_reentry_alias is not None:
+            compiled_base_graph, start_nodes = _compiled_query_scalar_reentry_state(
+                base_graph,
+                compiled_query,
+                prefix_result,
+                engine=engine,
+            )
+        else:
+            compiled_base_graph, start_nodes = _compiled_query_reentry_state(
+                base_graph,
+                compiled_query,
+                prefix_result,
+                engine=engine,
+            )
     return _execute_compiled_query(
         compiled_base_graph,
         compiled_query=compiled_query,
@@ -690,6 +698,75 @@ def _compiled_query_reentry_state(
         carried_node_ids=carried_node_ids,
         id_column=id_column,
     )
+
+
+def _compiled_query_scalar_reentry_state(
+    base_graph: Plottable,
+    compiled_query: CompiledCypherQuery,
+    prefix_result: Plottable,
+    *,
+    engine: Union[EngineAbstract, str],
+) -> Tuple[Plottable, Optional[DataFrameT]]:
+    carried_columns = compiled_query.scalar_reentry_columns
+    if not carried_columns:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH scalar-only prefix stages could not recover carried scalar columns",
+            value=None,
+            suggestion="Project at least one identifier-style scalar column before MATCH re-entry.",
+        )
+    prefix_rows = getattr(prefix_result, "_nodes", None)
+    if prefix_rows is None:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH scalar-only prefix stages could not recover prefix rows",
+            value=None,
+            suggestion="Project scalar columns directly before MATCH re-entry.",
+        )
+    prefix_row_count = len(prefix_rows)
+    base_nodes = getattr(base_graph, "_nodes", None)
+    if prefix_row_count == 0:
+        if base_nodes is None:
+            return base_graph, None
+        dispatch_graph = base_graph.bind()
+        dispatch_graph._nodes = cast(DataFrameT, base_nodes.iloc[0:0])
+        edges_df = getattr(base_graph, "_edges", None)
+        if edges_df is not None:
+            dispatch_graph._edges = cast(DataFrameT, edges_df.iloc[0:0])
+        return dispatch_graph, None
+    if prefix_row_count != 1:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH scalar-only prefix stages currently require exactly one prefix row",
+            value=prefix_row_count,
+            suggestion="Reduce the prefix WITH stage to a single scalar row before MATCH re-entry.",
+        )
+    if base_nodes is None:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH scalar-only prefix stages could not recover the base node table for re-entry",
+            value=None,
+            suggestion="Retry with a node-backed graph before MATCH re-entry.",
+        )
+    missing_column = next((name for name in carried_columns if name not in prefix_rows.columns), None)
+    if missing_column is not None:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH scalar-only prefix stages could not recover a carried scalar column from the prefix stage",
+            value=missing_column,
+            suggestion="Project the scalar column explicitly before MATCH re-entry.",
+        )
+    first_row = prefix_rows.iloc[0]
+    node_rows = cast(
+        DataFrameT,
+        base_nodes.assign(
+            **{
+                _reentry_hidden_column_name(output_name): first_row[output_name]
+                for output_name in carried_columns
+            }
+        ),
+    )
+    dispatch_graph = base_graph.bind()
+    dispatch_graph._nodes = node_rows
+    edges_df = getattr(base_graph, "_edges", None)
+    if edges_df is not None:
+        dispatch_graph._edges = edges_df
+    return dispatch_graph, None
 
 
 def _compiled_query_reentry_contract(

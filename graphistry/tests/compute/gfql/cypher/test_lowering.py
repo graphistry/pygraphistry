@@ -345,6 +345,87 @@ def _mk_multi_stage_reentry_graph_with_terminal_u() -> _CypherTestGraph:
     )
 
 
+def _mk_prefix_scalar_reentry_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["tag1", "tag2", "post1", "post2", "post3"],
+                "label__Tag": [True, True, False, False, False],
+                "label__Post": [False, False, True, True, True],
+                "name": ["topic", "other", None, None, None],
+                "tagId": [101, 202, None, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["post1", "post2", "post3"],
+                "d": ["tag1", "tag1", "tag2"],
+                "type": ["HAS_TAG", "HAS_TAG", "HAS_TAG"],
+            }
+        ),
+    )
+
+
+def _mk_prefix_scalar_reentry_graph_cudf() -> _CypherTestGraph:
+    return _mk_cudf_graph(
+        pd.DataFrame(
+            {
+                "id": ["tag1", "tag2", "post1", "post2", "post3"],
+                "label__Tag": [True, True, False, False, False],
+                "label__Post": [False, False, True, True, True],
+                "name": ["topic", "other", None, None, None],
+                "tagId": [101, 202, None, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["post1", "post2", "post3"],
+                "d": ["tag1", "tag1", "tag2"],
+                "type": ["HAS_TAG", "HAS_TAG", "HAS_TAG"],
+            }
+        ),
+    )
+
+
+def _mk_prefix_scalar_reentry_duplicate_seed_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["tag1", "tag1b", "post1", "post2"],
+                "label__Tag": [True, True, False, False],
+                "label__Post": [False, False, True, True],
+                "name": ["topic", "topic", None, None],
+                "tagId": [101, 101, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["post1", "post2"],
+                "d": ["tag1", "tag1b"],
+                "type": ["HAS_TAG", "HAS_TAG"],
+            }
+        ),
+    )
+
+
+def _prefix_scalar_reentry_query(
+    *,
+    tag_name: str = "topic",
+    with_clause: str = "knownTag.tagId AS knownTagId",
+    return_clause: str = "post.id AS id",
+    order_by: Optional[str] = None,
+) -> str:
+    query = (
+        f"MATCH (knownTag:Tag {{ name: '{tag_name}' }}) "
+        f"WITH {with_clause} "
+        "MATCH (post:Post)-[:HAS_TAG]->(t:Tag {tagId: knownTagId}) "
+        f"RETURN {return_clause}"
+    )
+    if order_by is not None:
+        query += f" ORDER BY {order_by}"
+    return query
+
+
 def _mk_multi_alias_edge_projection_graph() -> _CypherTestGraph:
     return _mk_graph(
         pd.DataFrame(
@@ -7257,7 +7338,7 @@ def test_string_cypher_executes_post_with_match_with_before_return() -> None:
     assert result._nodes.to_dict(orient="records") == [{"id": "c"}]
 
 
-def test_issue_1000_ic6_after_phase4_now_stops_at_prefix_scalar_with_reentry_requirement() -> None:
+def test_issue_1000_ic6_after_phase5_now_stops_at_reentry_comma_pattern_fanout() -> None:
     query = """
 MATCH (knownTag:Tag { name: $tagName })
 WITH knownTag.id as knownTagId
@@ -7286,7 +7367,7 @@ LIMIT 10
 
     with pytest.raises(
         GFQLValidationError,
-        match="Cypher MATCH after WITH currently requires the prefix WITH stage to project exactly one whole-row alias",
+        match="Comma-separated Cypher MATCH patterns are only supported for a single linear connected path with shared endpoint aliases",
     ):
         compile_cypher(
             query,
@@ -7297,6 +7378,112 @@ LIMIT 10
         )
 
 
+def test_string_cypher_executes_scalar_only_prefix_with_match_reentry() -> None:
+    query = _prefix_scalar_reentry_query(order_by="id")
+
+    result = _mk_prefix_scalar_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "post1"}, {"id": "post2"}]
+
+
+def test_string_cypher_executes_scalar_only_prefix_with_match_reentry_scalar_projection() -> None:
+    query = _prefix_scalar_reentry_query(
+        return_clause="knownTagId, post.id AS postId",
+        order_by="postId",
+    )
+
+    result = _mk_prefix_scalar_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"knownTagId": 101, "postId": "post1"},
+        {"knownTagId": 101, "postId": "post2"},
+    ]
+
+
+def test_string_cypher_executes_scalar_only_prefix_with_match_reentry_multiple_scalars() -> None:
+    query = _prefix_scalar_reentry_query(
+        with_clause="knownTag.tagId AS knownTagId, knownTag.name AS knownTagName",
+        return_clause="knownTagId, knownTagName, post.id AS postId",
+        order_by="postId",
+    )
+
+    result = _mk_prefix_scalar_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"knownTagId": 101, "knownTagName": "topic", "postId": "post1"},
+        {"knownTagId": 101, "knownTagName": "topic", "postId": "post2"},
+    ]
+
+
+def test_string_cypher_executes_scalar_only_prefix_with_match_reentry_empty_prefix() -> None:
+    query = _prefix_scalar_reentry_query(tag_name="missing")
+
+    result = _mk_prefix_scalar_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_string_cypher_executes_scalar_only_prefix_with_match_reentry_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    query = _prefix_scalar_reentry_query(order_by="id")
+
+    result = _mk_prefix_scalar_reentry_graph_cudf().gfql(query, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"id": "post1"}, {"id": "post2"}]
+
+
+def test_string_cypher_failfast_rejects_scalar_only_prefix_with_match_reentry_multi_row_prefix() -> None:
+    query = _prefix_scalar_reentry_query()
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="Cypher MATCH after WITH scalar-only prefix stages currently require exactly one prefix row",
+    ):
+        _mk_prefix_scalar_reentry_duplicate_seed_graph().gfql(query)
+
+
+def test_string_cypher_failfast_rejects_scalar_only_prefix_with_match_reentry_prefix_ordering() -> None:
+    query = (
+        "MATCH (knownTag:Tag { name: 'topic' }) "
+        "WITH knownTag.tagId AS knownTagId "
+        "ORDER BY knownTagId DESC "
+        "MATCH (post:Post)-[:HAS_TAG]->(t:Tag {tagId: knownTagId}) "
+        "RETURN post.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="Cypher MATCH after WITH scalar-only prefix stages do not yet support ORDER BY, SKIP, or LIMIT",
+    ):
+        _mk_prefix_scalar_reentry_graph().gfql(query)
+
+
+def test_string_cypher_failfast_rejects_scalar_only_prefix_with_match_reentry_prefix_limit() -> None:
+    query = (
+        "MATCH (knownTag:Tag { name: 'topic' }) "
+        "WITH knownTag.tagId AS knownTagId "
+        "LIMIT 1 "
+        "MATCH (post:Post)-[:HAS_TAG]->(t:Tag {tagId: knownTagId}) "
+        "RETURN post.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="Cypher MATCH after WITH scalar-only prefix stages do not yet support ORDER BY, SKIP, or LIMIT",
+    ):
+        _mk_prefix_scalar_reentry_graph().gfql(query)
+
+def test_string_cypher_failfast_rejects_scalar_only_prefix_alias_reused_as_node_variable() -> None:
+    with pytest.raises(
+        GFQLValidationError,
+        match="Cypher MATCH after WITH scalar-only prefix aliases cannot be reused as node variables",
+    ):
+        _mk_reentry_carried_scalar_graph().gfql(
+            "MATCH (a:A) WITH [a] AS users MATCH (users)-->(messages) RETURN messages.id AS mid"
+        )
+ 
 def test_cypher_to_gfql_supports_multi_alias_scalar_projection() -> None:
     """Multi-alias scalar projections are supported via bindings table."""
     chain = cypher_to_gfql("MATCH (p)-[r]->(q) RETURN p.id, q.id")

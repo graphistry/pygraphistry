@@ -118,6 +118,8 @@ class CompiledCypherQuery:
     optional_projection_row_guard: Optional["OptionalProjectionRowGuardPlan"] = None
     connected_optional_match: Optional["ConnectedOptionalMatchPlan"] = None
     start_nodes_query: Optional["CompiledCypherQuery"] = None
+    scalar_reentry_alias: Optional[str] = None
+    scalar_reentry_columns: Tuple[str, ...] = ()
     graph_bindings: Tuple["CompiledGraphBinding", ...] = ()
     use_ref: Optional[str] = None
 
@@ -6191,6 +6193,47 @@ def _bounded_reentry_carry_columns(
     return whole_row_columns[0], carried_columns
 
 
+def _bounded_reentry_scalar_prefix_columns(
+    prefix_stage: ProjectionStage,
+    *,
+    projection_items: Sequence[str],
+) -> Tuple[str, ...]:
+    if prefix_stage.order_by is not None or prefix_stage.skip is not None or prefix_stage.limit is not None:
+        raise _unsupported_at_span(
+            "Cypher MATCH after WITH scalar-only prefix stages do not yet support ORDER BY, SKIP, or LIMIT",
+            field="with",
+            value=projection_items,
+            span=prefix_stage.span,
+        )
+    carried_columns = tuple(
+        item.alias or item.expression.text
+        for item in prefix_stage.clause.items
+    )
+    if not carried_columns:
+        raise _unsupported_at_span(
+            "Cypher MATCH after WITH scalar-only prefix stages require at least one scalar output",
+            field="with",
+            value=projection_items,
+            span=prefix_stage.span,
+        )
+    invalid_output = next((name for name in carried_columns if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)), None)
+    if invalid_output is not None:
+        raise _unsupported_at_span(
+            "Cypher MATCH after WITH scalar-only prefix stages currently require identifier-style WITH aliases",
+            field="with",
+            value=invalid_output,
+            span=prefix_stage.span,
+        )
+    if len(set(carried_columns)) != len(carried_columns):
+        raise _unsupported_at_span(
+            "Cypher MATCH after WITH scalar-only prefix stages currently require distinct WITH aliases",
+            field="with",
+            value=carried_columns,
+            span=prefix_stage.span,
+        )
+    return carried_columns
+
+
 def _literal_limit_value(limit_clause: Optional[LimitClause]) -> Optional[int]:
     if limit_clause is None:
         return None
@@ -6445,20 +6488,57 @@ def _compile_bounded_reentry_query(
             value="union",
             span=prefix_stage.span,
         )
+    reentry_match = query.reentry_matches[0]
+    remaining_with_stages = query.with_stages[1:]
+    remaining_reentry_matches = query.reentry_matches[1:]
+    first_alias = _first_pattern_node_alias(reentry_match)
     prefix_projection = prefix_compiled.result_projection
-    if prefix_projection is None:
-        raise _unsupported_at_span(
-            "Cypher MATCH after WITH currently requires the prefix WITH stage to project exactly one whole-row alias",
-            field="with",
-            value=projection_items,
-            span=prefix_stage.span,
+    scalar_only_prefix = prefix_projection is None
+    prefix_projection_table: Optional[Literal["nodes", "edges"]] = None
+    if scalar_only_prefix:
+        scalar_prefix_aliases = {
+            item.alias
+            for item in prefix_stage.clause.items
+            if item.alias is not None
+        }
+        reentry_node_aliases = {
+            element.variable
+            for pattern in reentry_match.patterns
+            for element in pattern
+            if isinstance(element, NodePattern) and element.variable is not None
+        }
+        reused_scalar_aliases = sorted(
+            scalar_prefix_aliases
+            & reentry_node_aliases
         )
-    reentry_alias, carry_columns = _bounded_reentry_carry_columns(
-        prefix_projection,
-        projection_items=projection_items,
-        query=query,
-        prefix_stage=prefix_stage,
-    )
+        if reused_scalar_aliases:
+            raise _unsupported_at_span(
+                "Cypher MATCH after WITH scalar-only prefix aliases cannot be reused as node variables in the trailing MATCH",
+                field="match",
+                value=reused_scalar_aliases,
+                span=reentry_match.span,
+            )
+        if first_alias is None:
+            raise _unsupported_at_span(
+                "Cypher MATCH after WITH currently requires the trailing MATCH to start from a named node alias",
+                field="match",
+                value=first_alias,
+                span=reentry_match.span,
+            )
+        reentry_alias = first_alias
+        carry_columns = _bounded_reentry_scalar_prefix_columns(
+            prefix_stage,
+            projection_items=projection_items,
+        )
+    else:
+        assert prefix_projection is not None
+        prefix_projection_table = prefix_projection.table
+        reentry_alias, carry_columns = _bounded_reentry_carry_columns(
+            prefix_projection,
+            projection_items=projection_items,
+            query=query,
+            prefix_stage=prefix_stage,
+        )
     if not _bounded_reentry_prefix_order_is_safe(prefix_stage=prefix_stage, query=query):
         raise _unsupported(
             "Cypher MATCH after WITH does not yet preserve prefix WITH row ordering across MATCH re-entry for multi-row result shapes",
@@ -6471,11 +6551,11 @@ def _compile_bounded_reentry_query(
             line=prefix_stage.order_by.span.line if prefix_stage.order_by is not None else prefix_stage.span.line,
             column=prefix_stage.order_by.span.column if prefix_stage.order_by is not None else prefix_stage.span.column,
         )
-    if prefix_projection.table != "nodes":
+    if prefix_projection_table is not None and prefix_projection_table != "nodes":
         raise _unsupported_at_span(
             "Cypher MATCH after WITH currently supports node re-entry only",
             field="with",
-            value=prefix_projection.table,
+            value=prefix_projection_table,
             span=prefix_stage.span,
         )
     if len(query.return_.items) == 1 and query.return_.items[0].expression.text == "*":
@@ -6485,11 +6565,6 @@ def _compile_bounded_reentry_query(
             value="*",
             span=query.return_.span,
         )
-
-    reentry_match = query.reentry_matches[0]
-    remaining_with_stages = query.with_stages[1:]
-    remaining_reentry_matches = query.reentry_matches[1:]
-    first_alias = _first_pattern_node_alias(reentry_match)
     if first_alias is None or first_alias != reentry_alias:
         raise _unsupported_at_span(
             "Cypher MATCH after WITH currently requires the trailing MATCH to start from the same carried node alias",
@@ -6606,6 +6681,8 @@ def _compile_bounded_reentry_query(
     return replace(
         _attach_reentry_prefix_query(suffix_compiled, prefix_compiled),
         result_projection=result_projection,
+        scalar_reentry_alias=reentry_alias if scalar_only_prefix else None,
+        scalar_reentry_columns=carry_columns if scalar_only_prefix else (),
     )
 
 
