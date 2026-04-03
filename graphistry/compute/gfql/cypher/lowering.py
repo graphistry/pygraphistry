@@ -5316,13 +5316,14 @@ def _reject_variable_length_path_alias_references(
             line=query.where.span.line,
             column=query.where.span.column,
         )
-    if query.reentry_where is not None and query.reentry_where.expr is not None:
-        _check_expr(
-            query.reentry_where.expr.text,
-            field="where",
-            line=query.reentry_where.span.line,
-            column=query.reentry_where.span.column,
-        )
+    for reentry_where in query.reentry_wheres:
+        if reentry_where is not None and reentry_where.expr is not None:
+            _check_expr(
+                reentry_where.expr.text,
+                field="where",
+                line=reentry_where.span.line,
+                column=reentry_where.span.column,
+            )
 
     def _check_projection_clause(clause: ReturnClause) -> None:
         for item in clause.items:
@@ -6425,7 +6426,7 @@ def _compile_bounded_reentry_query(
         call=None,
         row_sequence=(),
         reentry_matches=(),
-        reentry_where=None,
+        reentry_wheres=(),
         graph_bindings=(),
         use=None,
         with_stages=(),
@@ -6512,7 +6513,8 @@ def _compile_bounded_reentry_query(
     reentry_order_by = query.order_by
     rewritten_with_stages = remaining_with_stages
     rewritten_reentry_unwinds = query.reentry_unwinds
-    rewritten_reentry_where = None
+    remaining_reentry_wheres = query.reentry_wheres[1:] if query.reentry_wheres else ()
+    rewritten_remaining_reentry_wheres = remaining_reentry_wheres
     rewritten_reentry_match = reentry_match
     rewritten_remaining_reentry_matches = remaining_reentry_matches
     if hidden_columns:
@@ -6520,6 +6522,15 @@ def _compile_bounded_reentry_query(
         rewritten_remaining_reentry_matches = tuple(
             _rewrite_reentry_match_clause(match_clause, rewrite_expr=rewrite_expr)
             for match_clause in remaining_reentry_matches
+        )
+        rewritten_remaining_reentry_wheres = tuple(
+            None
+            if where_clause is None or where_clause.expr is None
+            else replace(
+                where_clause,
+                expr=rewrite_expr(where_clause.expr, "where"),
+            )
+            for where_clause in remaining_reentry_wheres
         )
         rewritten_with_stages = tuple(
             _rewrite_reentry_projection_stage(stage, rewrite_expr=rewrite_expr)
@@ -6571,7 +6582,7 @@ def _compile_bounded_reentry_query(
         return_=reentry_return,
         order_by=reentry_order_by,
         reentry_matches=rewritten_remaining_reentry_matches,
-        reentry_where=rewritten_reentry_where,
+        reentry_wheres=rewritten_remaining_reentry_wheres,
         reentry_unwinds=(),
     )
     suffix_compiled = compile_cypher_query(suffix_query, params=params)
@@ -6605,7 +6616,9 @@ def _compile_call_query(
 ) -> CompiledCypherQuery:
     if query.call is None:
         raise ValueError("Expected query.call for Cypher CALL compilation")
-    if query.matches or query.where is not None or query.reentry_matches or query.reentry_where is not None:
+    if query.matches or query.where is not None or query.reentry_matches or any(
+        where_clause is not None for where_clause in query.reentry_wheres
+    ):
         raise _unsupported(
             "Cypher CALL is only supported in standalone or row-only local queries",
             field="call",

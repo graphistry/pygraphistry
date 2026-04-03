@@ -1335,8 +1335,8 @@ def _build_transformer(source: str) -> _TransformerLike:
             match_clauses: List[MatchClause] = []
             reentry_match_clauses: List[MatchClause] = []
             where_clause: Optional[WhereClause] = None
-            reentry_where_clause: Optional[WhereClause] = None
-            reentry_where_closed_by_with = False
+            reentry_where_clauses: List[Optional[WhereClause]] = []
+            reentry_where_pending_with_idx: Optional[int] = None
             call_clause: Optional[CallClause] = None
             unwind_clauses: List[UnwindClause] = []
             reentry_unwind_clauses: List[UnwindClause] = []
@@ -1361,7 +1361,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                         )
                     use_clause_node = item
                 elif isinstance(item, MatchClause):
-                    if reentry_where_clause is not None and not reentry_where_closed_by_with:
+                    if reentry_where_pending_with_idx is not None:
                         raise _to_syntax_error(
                             "Cypher MATCH after post-WITH WHERE is not yet supported in the current GFQL Cypher compiler",
                             line=item.span.line,
@@ -1375,6 +1375,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                         )
                     if seen_stage:
                         reentry_match_clauses.append(item)
+                        reentry_where_clauses.append(None)
                     else:
                         match_clauses.append(item)
                 elif isinstance(item, WhereClause):
@@ -1385,13 +1386,20 @@ def _build_transformer(source: str) -> _TransformerLike:
                             column=item.span.column,
                         )
                     if reentry_match_clauses:
-                        if reentry_where_clause is not None:
+                        if not reentry_where_clauses:
                             raise _to_syntax_error(
-                                "Cypher only supports one WHERE clause after post-WITH MATCH in the current GFQL Cypher compiler",
+                                "Cypher WHERE after post-WITH MATCH is not yet supported in the current GFQL Cypher compiler",
                                 line=item.span.line,
                                 column=item.span.column,
                             )
-                        reentry_where_clause = item
+                        if reentry_where_clauses[-1] is not None:
+                            raise _to_syntax_error(
+                                "Cypher only supports one WHERE clause per post-WITH MATCH stage in the current GFQL Cypher compiler",
+                                line=item.span.line,
+                                column=item.span.column,
+                            )
+                        reentry_where_clauses[-1] = item
+                        reentry_where_pending_with_idx = len(reentry_where_clauses) - 1
                     else:
                         where_clause = item
                 elif isinstance(item, CallClause):
@@ -1438,8 +1446,8 @@ def _build_transformer(source: str) -> _TransformerLike:
                     stages.append(item)
                     ordered_row_items.append(item)
                     seen_stage = True
-                    if reentry_where_clause is not None and item.clause.kind == "with":
-                        reentry_where_closed_by_with = True
+                    if reentry_where_pending_with_idx is not None and item.clause.kind == "with":
+                        reentry_where_pending_with_idx = None
             if len(stages) == 0 and call_clause is None:
                 raise _to_syntax_error(
                     "Cypher query must contain a RETURN/WITH clause",
@@ -1531,7 +1539,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 trailing_semicolon=trailing_semicolon,
                 span=_span_from_meta(meta),
                 reentry_matches=tuple(reentry_match_clauses),
-                reentry_where=reentry_where_clause,
+                reentry_wheres=tuple(reentry_where_clauses),
                 reentry_unwinds=tuple(reentry_unwind_clauses),
                 use=use_clause_node,
             )
@@ -1578,7 +1586,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                         trailing_semicolon=True,
                         span=branch.span,
                         reentry_matches=branch.reentry_matches,
-                        reentry_where=branch.reentry_where,
+                        reentry_wheres=branch.reentry_wheres,
                         reentry_unwinds=branch.reentry_unwinds,
                     )
                 return branch
@@ -1718,7 +1726,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                     trailing_semicolon=query.trailing_semicolon,
                     span=query.span,
                     reentry_matches=query.reentry_matches,
-                    reentry_where=query.reentry_where,
+                    reentry_wheres=query.reentry_wheres,
                     reentry_unwinds=query.reentry_unwinds,
                     graph_bindings=tuple(bindings),
                     use=query.use,
