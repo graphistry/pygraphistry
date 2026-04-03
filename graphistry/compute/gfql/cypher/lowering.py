@@ -117,6 +117,7 @@ class CompiledCypherQuery:
     optional_null_fill: Optional["OptionalNullFillPlan"] = None
     optional_projection_row_guard: Optional["OptionalProjectionRowGuardPlan"] = None
     connected_optional_match: Optional["ConnectedOptionalMatchPlan"] = None
+    connected_match_join: Optional["ConnectedMatchJoinPlan"] = None
     start_nodes_query: Optional["CompiledCypherQuery"] = None
     scalar_reentry_alias: Optional[str] = None
     scalar_reentry_columns: Tuple[str, ...] = ()
@@ -1067,6 +1068,153 @@ def _rewrite_expr_to_output_names(
 
     return _render_expr_node(_rewrite(node))
 
+
+def _connected_join_alias_identity_expr(
+    expr_text: str,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+    field: str,
+    line: int,
+    column: int,
+) -> str:
+    node = _parse_row_expr(
+        expr_text,
+        params=params,
+        alias_targets=alias_targets,
+        field=field,
+        line=line,
+        column=column,
+    )
+
+    def _rewrite(node_in: ExprNode) -> ExprNode:
+        if isinstance(node_in, PropertyAccessExpr) and isinstance(node_in.value, Identifier):
+            if "." not in node_in.value.name and node_in.value.name in alias_targets:
+                return node_in
+            return PropertyAccessExpr(cast(ExprNode, _rewrite(node_in.value)), node_in.property)
+        if isinstance(node_in, Identifier) and "." not in node_in.name and node_in.name in alias_targets:
+            target = alias_targets[node_in.name]
+            prop = "id" if isinstance(target, ASTNode) else "__gfql_edge_index_0__"
+            return PropertyAccessExpr(Identifier(node_in.name), prop)
+        return _rebuild_expr_node(node_in, rewrite=_rewrite, error_context="connected join identity rewrite")
+
+    return _render_expr_node(_rewrite(node))
+
+
+def _rewrite_connected_join_return_clause(
+    clause: ReturnClause,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+) -> ReturnClause:
+    return replace(
+        clause,
+        items=tuple(
+            replace(
+                item,
+                expression=ExpressionText(
+                    text=_connected_join_alias_identity_expr(
+                        item.expression.text,
+                        alias_targets=alias_targets,
+                        params=params,
+                        field=clause.kind,
+                        line=item.span.line,
+                        column=item.span.column,
+                    ),
+                    span=item.expression.span,
+                ),
+            )
+            for item in clause.items
+        ),
+    )
+
+
+def _rewrite_connected_join_order_by_clause(
+    clause: Optional[OrderByClause],
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+) -> Optional[OrderByClause]:
+    if clause is None:
+        return None
+    return replace(
+        clause,
+        items=tuple(
+            replace(
+                item,
+                expression=ExpressionText(
+                    text=_connected_join_alias_identity_expr(
+                        item.expression.text,
+                        alias_targets=alias_targets,
+                        params=params,
+                        field="order_by",
+                        line=item.span.line,
+                        column=item.span.column,
+                    ),
+                    span=item.expression.span,
+                ),
+            )
+            for item in clause.items
+        ),
+    )
+
+
+def _rewrite_connected_join_expr(
+    expr: Optional[ExpressionText],
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+    field: str,
+    line: int,
+    column: int,
+) -> Optional[ExpressionText]:
+    if expr is None:
+        return None
+    return ExpressionText(
+        text=_connected_join_alias_identity_expr(
+            expr.text,
+            alias_targets=alias_targets,
+            params=params,
+            field=field,
+            line=line,
+            column=column,
+        ),
+        span=expr.span,
+    )
+
+
+def _reject_unsupported_connected_join_clause_shapes(
+    clause: ReturnClause,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+) -> None:
+    for item in clause.items:
+        if item.expression.text == "*":
+            raise _unsupported(
+                f"Cypher {clause.kind.upper()} * is not yet supported for connected comma-pattern join lowering",
+                field=clause.kind,
+                value="*",
+                line=item.span.line,
+                column=item.span.column,
+            )
+        agg_spec = _aggregate_spec(item, params=params, alias_targets=alias_targets)
+        if agg_spec is not None and agg_spec.func == "collect" and agg_spec.expr_text in alias_targets:
+            raise _unsupported(
+                "Cypher collect(alias) is not yet supported for connected comma-pattern join lowering",
+                field=clause.kind,
+                value=item.expression.text,
+                line=item.span.line,
+                column=item.span.column,
+            )
+        if agg_spec is None and item.expression.text in alias_targets:
+            raise _unsupported(
+                "Cypher whole-row alias projection is not yet supported for connected comma-pattern join lowering",
+                field=clause.kind,
+                value=item.expression.text,
+                line=item.span.line,
+                column=item.span.column,
+            )
 
 def _rewrite_param_expr(
     expr_text: str,
@@ -2553,6 +2701,91 @@ def _match_pattern_elements(clause: MatchClause) -> Tuple[PatternElement, ...]:
     if cartesian_nodes is not None:
         return cast(Tuple[PatternElement, ...], cartesian_nodes)
     return _normalized_match_pattern(clause)
+
+
+def _pattern_node_aliases(pattern: Sequence[PatternElement]) -> Set[str]:
+    return {
+        cast(str, element.variable)
+        for element in pattern
+        if isinstance(element, NodePattern) and element.variable is not None
+    }
+
+
+def _is_connected_multi_pattern_clause(clause: MatchClause) -> bool:
+    if clause.optional or len(clause.patterns) <= 1:
+        return False
+    if _cartesian_node_only_patterns(clause) is not None:
+        return False
+    try:
+        _normalized_match_pattern(clause)
+        return False
+    except GFQLValidationError as exc:
+        if "shared endpoint aliases" not in str(exc):
+            return False
+    pattern_aliases = [_pattern_node_aliases(pattern) for pattern in clause.patterns]
+    if any(len(alias_set) == 0 for alias_set in pattern_aliases):
+        return False
+    seen = {0}
+    frontier = [0]
+    while frontier:
+        idx = frontier.pop()
+        for other_idx, other_aliases in enumerate(pattern_aliases):
+            if other_idx in seen:
+                continue
+            if pattern_aliases[idx] & other_aliases:
+                seen.add(other_idx)
+                frontier.append(other_idx)
+    return len(seen) == len(pattern_aliases)
+
+
+def _connected_join_alias_targets(
+    clause: MatchClause,
+    *,
+    params: Optional[Mapping[str, Any]],
+) -> Mapping[str, ASTObject]:
+    combined_alias_targets: Dict[str, ASTObject] = {}
+    for pattern in clause.patterns:
+        single_clause = replace(clause, patterns=(pattern,), pattern_aliases=(None,))
+        ops, _ = _lower_match_clause_with_alias_equalities(single_clause, params=params)
+        for alias, target in _alias_target(ops).items():
+            if alias not in combined_alias_targets:
+                combined_alias_targets[alias] = target
+    return combined_alias_targets
+
+
+def _clause_has_connected_join_whole_row_alias_passthrough(
+    clause: ReturnClause,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+) -> bool:
+    for item in clause.items:
+        agg_spec = _aggregate_spec(item, params=params, alias_targets=alias_targets)
+        if agg_spec is None and item.expression.text in alias_targets:
+            return True
+    return False
+
+
+def _query_requires_general_lowering_for_connected_join(
+    query: CypherQuery,
+    *,
+    params: Optional[Mapping[str, Any]],
+) -> bool:
+    if len(query.matches) != 1 or not _is_connected_multi_pattern_clause(query.matches[0]):
+        return False
+    alias_targets = _connected_join_alias_targets(query.matches[0], params=params)
+    return any(
+        _clause_has_connected_join_whole_row_alias_passthrough(
+            stage.clause,
+            alias_targets=alias_targets,
+            params=params,
+        )
+        for stage in query.with_stages
+    ) or _clause_has_connected_join_whole_row_alias_passthrough(
+        query.return_,
+        alias_targets=alias_targets,
+        params=params,
+    )
 
 
 def _binding_row_aliases_for_match(
@@ -6261,6 +6494,10 @@ def _bounded_reentry_prefix_order_is_safe(
 
 
 def _first_pattern_node_alias(clause: MatchClause) -> Optional[str]:
+    if clause.patterns:
+        first_pattern = clause.patterns[0]
+        if first_pattern and isinstance(first_pattern[0], NodePattern):
+            return first_pattern[0].variable
     pattern = _match_pattern_elements(clause)
     if not pattern or not isinstance(pattern[0], NodePattern):
         return None
@@ -6501,15 +6738,9 @@ def _compile_bounded_reentry_query(
             for item in prefix_stage.clause.items
             if item.alias is not None
         }
-        reentry_node_aliases = {
-            element.variable
-            for pattern in reentry_match.patterns
-            for element in pattern
-            if isinstance(element, NodePattern) and element.variable is not None
-        }
         reused_scalar_aliases = sorted(
             scalar_prefix_aliases
-            & reentry_node_aliases
+            & set().union(*(_pattern_node_aliases(pattern) for pattern in reentry_match.patterns))
         )
         if reused_scalar_aliases:
             raise _unsupported_at_span(
@@ -6864,6 +7095,165 @@ class ConnectedOptionalMatchPlan:
     post_join_chain: Chain
 
 
+@dataclass(frozen=True)
+class ConnectedMatchJoinPlan:
+    """Plan for a connected non-linear comma MATCH lowered through joined rows."""
+
+    pattern_chains: Tuple[Chain, ...]
+    pattern_shared_node_aliases: Tuple[Tuple[str, ...], ...]
+    post_join_chain: Chain
+
+
+def _compile_connected_match_join(
+    query: CypherQuery,
+    *,
+    params: Optional[Mapping[str, Any]] = None,
+) -> CompiledCypherQuery:
+    clause = query.matches[0]
+    pattern_chains: List[Chain] = []
+    pattern_node_aliases: List[Set[str]] = []
+    combined_alias_targets: Dict[str, ASTObject] = {}
+    pre_join_filters: List[ExpressionText] = []
+
+    for pattern in clause.patterns:
+        single_clause = MatchClause(
+            patterns=(pattern,),
+            optional=clause.optional,
+            span=clause.span,
+            pattern_aliases=(None,),
+        )
+        ops, duplicate_alias_where = _lower_match_clause_with_alias_equalities(single_clause, params=params)
+        alias_targets = _alias_target(ops)
+        dynamic_where_out, dynamic_row_preds = _dynamic_property_entry_constraints(
+            single_clause,
+            alias_targets=alias_targets,
+            params=params,
+        )
+        pattern_chains.append(Chain(ops, where=duplicate_alias_where + dynamic_where_out))
+        pattern_node_aliases.append({alias for alias, target in alias_targets.items() if isinstance(target, ASTNode)})
+        for alias, target in alias_targets.items():
+            if alias not in combined_alias_targets:
+                combined_alias_targets[alias] = target
+        pre_join_filters.extend(
+            ExpressionText(text=expr, span=single_clause.span)
+            for expr in dynamic_row_preds
+        )
+
+    shared_aliases_per_pattern: List[Tuple[str, ...]] = []
+    accumulated_aliases = set(pattern_node_aliases[0])
+    for node_aliases in pattern_node_aliases[1:]:
+        shared = tuple(sorted(accumulated_aliases & node_aliases))
+        if not shared:
+            raise _unsupported(
+                "Cypher connected comma-pattern join lowering requires each additional pattern to share a node alias with the accumulated join graph",
+                field="match",
+                value=None,
+                line=clause.span.line,
+                column=clause.span.column,
+            )
+        shared_aliases_per_pattern.append(shared)
+        accumulated_aliases.update(node_aliases)
+
+    if query.where is not None and query.where.expr is not None:
+        pre_join_filters.append(query.where.expr)
+
+    for projection_clause in [stage.clause for stage in query.with_stages] + [query.return_]:
+        _reject_unsupported_connected_join_clause_shapes(
+            projection_clause,
+            alias_targets=combined_alias_targets,
+            params=params,
+        )
+
+    row_steps: List[ASTObject] = []
+    for expr in pre_join_filters:
+        rewritten = _rewrite_connected_join_expr(
+            expr,
+            alias_targets=combined_alias_targets,
+            params=params,
+            field="where",
+            line=expr.span.line,
+            column=expr.span.column,
+        )
+        if rewritten is None:
+            continue
+        row_steps.append(
+            where_rows(
+                expr=_row_expr_arg(
+                    rewritten,
+                    params=params,
+                    alias_targets={},
+                    field="where",
+                )
+            )
+        )
+
+    scope = _StageScope(
+        mode="row_columns",
+        alias_targets={},
+        active_alias=None,
+        row_columns=set(),
+        projected_columns={},
+        table=None,
+        seed_rows=False,
+        relationship_count=0,
+        allowed_match_aliases=set(),
+    )
+
+    for stage in query.with_stages:
+        rewritten_stage = replace(
+            stage,
+            clause=_rewrite_connected_join_return_clause(
+                stage.clause,
+                alias_targets=combined_alias_targets,
+                params=params,
+            ),
+            where=_rewrite_connected_join_expr(
+                stage.where,
+                alias_targets=combined_alias_targets,
+                params=params,
+                field="with.where",
+                line=stage.span.line,
+                column=stage.span.column,
+            ),
+            order_by=_rewrite_connected_join_order_by_clause(
+                stage.order_by,
+                alias_targets=combined_alias_targets,
+                params=params,
+            ),
+        )
+        stage_steps, scope = _lower_row_column_stage(rewritten_stage, scope=scope, params=params)
+        row_steps.extend(stage_steps)
+
+    final_stage = ProjectionStage(
+        clause=_rewrite_connected_join_return_clause(
+            query.return_,
+            alias_targets=combined_alias_targets,
+            params=params,
+        ),
+        where=None,
+        order_by=_rewrite_connected_join_order_by_clause(
+            query.order_by,
+            alias_targets=combined_alias_targets,
+            params=params,
+        ),
+        skip=query.skip,
+        limit=query.limit,
+        span=query.return_.span,
+    )
+    final_steps, _ = _lower_row_column_stage(final_stage, scope=scope, params=params)
+    row_steps.extend(final_steps)
+
+    return CompiledCypherQuery(
+        chain=Chain([]),
+        seed_rows=False,
+        connected_match_join=ConnectedMatchJoinPlan(
+            pattern_chains=tuple(pattern_chains),
+            pattern_shared_node_aliases=tuple(shared_aliases_per_pattern),
+            post_join_chain=Chain(row_steps),
+        ),
+    )
+
+
 def _compile_connected_optional_match(
     query: CypherQuery,
     *,
@@ -7035,6 +7425,12 @@ def compile_cypher_query(
         return _attach_graph_context(_compile_call_query(query, params=params))
     if query.row_sequence:
         return _attach_graph_context(_lower_row_only_sequence(query, params=params))
+    if (
+        len(query.matches) == 1
+        and _is_connected_multi_pattern_clause(query.matches[0])
+        and not _query_requires_general_lowering_for_connected_join(query, params=params)
+    ):
+        return _attach_graph_context(_compile_connected_match_join(query, params=params))
     if _is_connected_optional_match_query(query):
         return _attach_graph_context(_compile_connected_optional_match(query, params=params))
 
