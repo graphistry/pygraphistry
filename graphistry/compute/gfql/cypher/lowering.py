@@ -2732,33 +2732,6 @@ def _is_node_connected_multi_pattern_clause(clause: MatchClause) -> bool:
     return len(seen) == len(pattern_aliases)
 
 
-def _is_connected_multi_pattern_clause(clause: MatchClause) -> bool:
-    if clause.optional or len(clause.patterns) <= 1:
-        return False
-    if _cartesian_node_only_patterns(clause) is not None:
-        return False
-    try:
-        _normalized_match_pattern(clause)
-        return False
-    except GFQLValidationError as exc:
-        if "shared endpoint aliases" not in str(exc):
-            return False
-    pattern_aliases = [_pattern_node_aliases(pattern) for pattern in clause.patterns]
-    if any(len(alias_set) == 0 for alias_set in pattern_aliases):
-        return False
-    seen = {0}
-    frontier = [0]
-    while frontier:
-        idx = frontier.pop()
-        for other_idx, other_aliases in enumerate(pattern_aliases):
-            if other_idx in seen:
-                continue
-            if pattern_aliases[idx] & other_aliases:
-                seen.add(other_idx)
-                frontier.append(other_idx)
-    return len(seen) == len(pattern_aliases)
-
-
 def _connected_join_alias_targets(
     clause: MatchClause,
     *,
@@ -2785,6 +2758,33 @@ def _clause_has_connected_join_whole_row_alias_passthrough(
         if agg_spec is None and item.expression.text in alias_targets:
             return True
     return False
+
+def _is_connected_multi_pattern_clause(clause: MatchClause) -> bool:
+    if clause.optional or len(clause.patterns) <= 1:
+        return False
+    if _cartesian_node_only_patterns(clause) is not None:
+        return False
+    try:
+        _normalized_match_pattern(clause)
+        return False
+    except GFQLValidationError as exc:
+        if "shared endpoint aliases" not in str(exc):
+            return False
+    pattern_aliases = [_pattern_node_aliases(pattern) for pattern in clause.patterns]
+    if any(len(alias_set) == 0 for alias_set in pattern_aliases):
+        return False
+    seen = {0}
+    frontier = [0]
+    while frontier:
+        idx = frontier.pop()
+        for other_idx, other_aliases in enumerate(pattern_aliases):
+            if other_idx in seen:
+                continue
+            if pattern_aliases[idx] & other_aliases:
+                seen.add(other_idx)
+                frontier.append(other_idx)
+    return len(seen) == len(pattern_aliases)
+
 
 def _query_requires_general_lowering_for_connected_join(
     query: CypherQuery,
@@ -6539,15 +6539,19 @@ def _first_pattern_node_alias(clause: MatchClause) -> Optional[str]:
     return pattern[0].variable
 
 
-def _attach_reentry_prefix_query(
+def _map_terminal_reentry_query(
     compiled_query: CompiledCypherQuery,
-    prefix_query: CompiledCypherQuery,
+    *,
+    transform: Callable[[CompiledCypherQuery], CompiledCypherQuery],
 ) -> CompiledCypherQuery:
     if compiled_query.start_nodes_query is None:
-        return replace(compiled_query, start_nodes_query=prefix_query)
+        return transform(compiled_query)
     return replace(
         compiled_query,
-        start_nodes_query=_attach_reentry_prefix_query(compiled_query.start_nodes_query, prefix_query),
+        start_nodes_query=_map_terminal_reentry_query(
+            compiled_query.start_nodes_query,
+            transform=transform,
+        ),
     )
 
 
@@ -6934,21 +6938,26 @@ def _compile_bounded_reentry_query(
             value="union",
             span=reentry_match.span,
         )
-    result_projection = suffix_compiled.result_projection
-    if result_projection is not None and result_projection.alias == reentry_alias and hidden_columns:
-        result_projection = replace(
-            result_projection,
-            exclude_columns=tuple(
-                dict.fromkeys(
-                    result_projection.exclude_columns + hidden_columns
-                )
-            ),
+    def attach_current_reentry(target: CompiledCypherQuery) -> CompiledCypherQuery:
+        target_projection = target.result_projection
+        if target_projection is not None and target_projection.alias == reentry_alias and hidden_columns:
+            target_projection = replace(
+                target_projection,
+                exclude_columns=tuple(
+                    dict.fromkeys(target_projection.exclude_columns + hidden_columns)
+                ),
+            )
+        return replace(
+            target,
+            start_nodes_query=prefix_compiled,
+            result_projection=target_projection,
+            scalar_reentry_alias=reentry_alias if scalar_only_prefix else target.scalar_reentry_alias,
+            scalar_reentry_columns=carry_columns if scalar_only_prefix else target.scalar_reentry_columns,
         )
-    return replace(
-        _attach_reentry_prefix_query(suffix_compiled, prefix_compiled),
-        result_projection=result_projection,
-        scalar_reentry_alias=reentry_alias if scalar_only_prefix else None,
-        scalar_reentry_columns=carry_columns if scalar_only_prefix else (),
+
+    return _map_terminal_reentry_query(
+        suffix_compiled,
+        transform=attach_current_reentry,
     )
 
 

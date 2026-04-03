@@ -452,6 +452,84 @@ def _mk_connected_post_tag_fanout_graph_cudf() -> _CypherTestGraph:
     )
 
 
+def _issue_1000_ic6_query() -> str:
+    return """
+MATCH (knownTag:Tag { name: $tagName })
+WITH knownTag.id as knownTagId
+
+MATCH (person:Person { id: $personId })-[:KNOWS*1..2]-(friend)
+WHERE NOT person=friend
+WITH
+    knownTagId,
+    collect(distinct friend) as friends
+UNWIND friends as f
+    MATCH (f)<-[:HAS_CREATOR]-(post:Post),
+          (post)-[:HAS_TAG]->(t:Tag{id: knownTagId}),
+          (post)-[:HAS_TAG]->(tag:Tag)
+    WHERE NOT t = tag
+    WITH
+        tag.name as tagName,
+        count(post) as postCount
+RETURN
+    tagName,
+    postCount
+ORDER BY
+    postCount DESC,
+    tagName ASC
+LIMIT 10
+"""
+
+
+def _issue_1000_ic6_params() -> dict[str, object]:
+    return {
+        "personId": 4398046511333,
+        "tagName": "Carl_Gustaf_Emil_Mannerheim",
+    }
+
+
+def _mk_issue_1000_ic6_minimal_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": [501, 502, 503, 4398046511333, 2, 9001, 9002],
+                "label__Tag": [True, True, True, False, False, False, False],
+                "label__Person": [False, False, False, True, True, False, False],
+                "label__Post": [False, False, False, False, False, True, True],
+                "name": [
+                    "Carl_Gustaf_Emil_Mannerheim",
+                    "Alpha",
+                    "Beta",
+                    None,
+                    None,
+                    None,
+                    None,
+                ],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": [4398046511333, 9001, 9001, 9002, 9002],
+                "d": [2, 2, 501, 2, 501],
+                "type": ["KNOWS", "HAS_CREATOR", "HAS_TAG", "HAS_CREATOR", "HAS_TAG"],
+            }
+        ).pipe(
+            lambda df: pd.concat(
+                [
+                    df,
+                    pd.DataFrame(
+                        {
+                            "s": [9001, 9002],
+                            "d": [503, 502],
+                            "type": ["HAS_TAG", "HAS_TAG"],
+                        }
+                    ),
+                ],
+                ignore_index=True,
+            )
+        ),
+    )
+
+
 def _prefix_scalar_reentry_query(
     *,
     tag_name: str = "topic",
@@ -6680,30 +6758,78 @@ def test_string_cypher_executes_recent_message_reentry_multihop_scalar_projectio
         {"messageId": "comment1", "messageCreationDate": 10, "postId": "post1", "personId": "author1"},
     ]
 
+def test_string_cypher_executes_recent_message_reentry_multihop_branching_row_bindings() -> None:
+    query = (
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message) "
+        "WITH message, message.id AS messageId "
+        "MATCH (message)-[:REPLY_OF*0..]->(post:Post), (post)-[:HAS_CREATOR]->(person) "
+        "RETURN messageId, post.id AS postId, person.id AS personId "
+        "ORDER BY messageId, postId, personId"
+    )
+
+    result = _mk_recent_message_reentry_graph_branching().gfql(query, params={"personId": "viewer"})
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"messageId": "comment1", "postId": "post1", "personId": "author1"},
+        {"messageId": "comment1", "postId": "post2", "personId": "author2"},
+    ]
+
+
+def test_string_cypher_executes_undirected_multihop_row_bindings() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c"],
+                "d": ["b", "c", "d"],
+                "type": ["R", "R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (a {id: 'a'})-[:R*1..2]-(b) RETURN a.id AS aid, b.id AS bid ORDER BY aid, bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"aid": "a", "bid": "b"},
+        {"aid": "a", "bid": "c"},
+    ]
+
+
+def test_string_cypher_executes_undirected_multihop_row_bindings_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    graph = _mk_cudf_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c"],
+                "d": ["b", "c", "d"],
+                "type": ["R", "R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (a {id: 'a'})-[:R*1..2]-(b) RETURN a.id AS aid, b.id AS bid ORDER BY aid, bid",
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"aid": "a", "bid": "b"},
+        {"aid": "a", "bid": "c"},
+    ]
+
 
 @pytest.mark.parametrize(
     ("graph_factory", "query", "params", "match"),
     [
         (
-            _mk_recent_message_reentry_graph_branching,
-            "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message) "
-            "WITH message, message.id AS messageId "
-            "MATCH (message)-[:REPLY_OF*0..]->(post:Post), (post)-[:HAS_CREATOR]->(person) "
-            "RETURN messageId, post.id AS postId, person.id AS personId",
-            {"personId": "viewer"},
-            "variable-length segments with at most one outgoing match per source row",
-        ),
-        (
             _mk_multihop_row_binding_cycle_graph,
             "MATCH (a:A)-[r:R*1..2]->(b) RETURN a.id AS aid, b.id AS bid",
             None,
             "do not yet support variable-length relationship aliases",
-        ),
-        (
-            _mk_multihop_row_binding_cycle_graph,
-            "MATCH (a:A)-[:R*1..2]-(b) RETURN a.id AS aid, b.id AS bid",
-            None,
-            "do not yet support undirected variable-length segments",
         ),
         (
             _mk_multihop_row_binding_cycle_graph,
@@ -6713,7 +6839,7 @@ def test_string_cypher_executes_recent_message_reentry_multihop_scalar_projectio
         ),
     ],
 )
-def test_string_cypher_failfast_rejects_unsupported_multihop_row_bindings(
+def test_string_cypher_failfast_rejects_remaining_unsupported_multihop_row_bindings(
     graph_factory: Callable[[], _CypherTestGraph],
     query: str,
     params: Optional[Dict[str, Any]],
@@ -7383,41 +7509,21 @@ def test_string_cypher_executes_post_with_match_with_before_return() -> None:
 
 
 def test_issue_1000_ic6_compiles_after_phase6_connected_star_fanout() -> None:
-    query = """
-MATCH (knownTag:Tag { name: $tagName })
-WITH knownTag.id as knownTagId
-
-MATCH (person:Person { id: $personId })-[:KNOWS*1..2]-(friend)
-WHERE NOT person=friend
-WITH
-    knownTagId,
-    collect(distinct friend) as friends
-UNWIND friends as f
-    MATCH (f)<-[:HAS_CREATOR]-(post:Post),
-          (post)-[:HAS_TAG]->(t:Tag{id: knownTagId}),
-          (post)-[:HAS_TAG]->(tag:Tag)
-    WHERE NOT t = tag
-    WITH
-        tag.name as tagName,
-        count(post) as postCount
-RETURN
-    tagName,
-    postCount
-ORDER BY
-    postCount DESC,
-    tagName ASC
-LIMIT 10
-"""
-
-    compiled = compile_cypher(
-        query,
-        params={
-            "personId": 4398046511333,
-            "tagName": "Carl_Gustaf_Emil_Mannerheim",
-        },
-    )
+    compiled = compile_cypher(_issue_1000_ic6_query(), params=_issue_1000_ic6_params())
 
     assert compiled is not None
+
+
+def test_string_cypher_executes_issue_1000_ic6_exact_runtime_minimal() -> None:
+    result = _mk_issue_1000_ic6_minimal_graph().gfql(
+        _issue_1000_ic6_query(),
+        params=_issue_1000_ic6_params(),
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"tagName": "Alpha", "postCount": 1},
+        {"tagName": "Beta", "postCount": 1},
+    ]
 
 
 def test_string_cypher_executes_scalar_only_prefix_with_match_reentry() -> None:

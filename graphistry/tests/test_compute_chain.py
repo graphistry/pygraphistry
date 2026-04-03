@@ -1466,6 +1466,55 @@ class TestChainBindingsTable(NoAuthTestCase):
             expected=[{"seedId": "a", "extraId": "x"}],
         )
 
+    def test_direct_rows_binding_ops_supports_undirected_bounded_multihop_without_backtracking(self):
+        """Undirected bounded multihop replay should not immediately bounce back to the seed."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+            pd.DataFrame(
+                {
+                    "s": ["a", "b", "c"],
+                    "d": ["b", "c", "d"],
+                    "type": ["R", "R", "R"],
+                }
+            ),
+        )
+        binding_ops = self._to_binding_ops(
+            [n({"id": "a"}, name="seed"), e_undirected({"type": "R"}, min_hops=1, max_hops=2), n(name="peer")]
+        )
+        records = self._binding_rows_records(
+            g,
+            binding_ops,
+            items=[("seedId", "seed.id"), ("peerId", "peer.id")],
+            sort_by=["seedId", "peerId"],
+        )
+        assert records == [
+            {"seedId": "a", "peerId": "b"},
+            {"seedId": "a", "peerId": "c"},
+        ]
+
+    def test_direct_rows_binding_ops_supports_bare_alias_token_expressions(self):
+        """Bare alias ids should be available to downstream row expressions."""
+        g = self._mk_graph(
+            pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+            pd.DataFrame(
+                {
+                    "s": ["a", "b", "c"],
+                    "d": ["b", "c", "d"],
+                    "type": ["R", "R", "R"],
+                }
+            ),
+        )
+        binding_ops = self._to_binding_ops(
+            [n({"id": "a"}, name="seed"), e_undirected({"type": "R"}, min_hops=1, max_hops=2), n(name="peer")]
+        )
+        records = self._binding_rows_records(
+            g,
+            binding_ops,
+            items=[("same", "seed = peer")],
+            sort_by=["same"],
+        )
+        assert records == [{"same": False}, {"same": False}]
+
     def test_direct_rows_binding_ops_rejects_duplicate_alias_names(self):
         """Direct rows(binding_ops=...) should reject duplicate aliases."""
         g = self._mk_graph(
