@@ -2860,8 +2860,8 @@ class RowPipelineMixin:
                 exhausted = True
                 break
             if avoid_immediate_backtrack:
-                prev_values = current[prev_col].where(current[prev_col].notna(), "__gfql_no_prev__")
-                backtrack_mask = current[prev_col].isna() | current["__to__"].ne(prev_values)
+                prev_missing = current[prev_col].isna()
+                backtrack_mask = prev_missing | current["__to__"].ne(current[prev_col]).fillna(False)
                 current = current[backtrack_mask]
                 if len(current) == 0:
                     exhausted = True
