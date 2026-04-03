@@ -7126,6 +7126,10 @@ def _is_connected_optional_match_query(query: CypherQuery) -> bool:
     # handled by the existing _optional_null_fill_plan path.
     if not has_relationship and len(query.matches) == 2:
         return False
+    # Reject comma-separated base MATCH patterns (e.g., (a:A), (b:B)) — the
+    # binding_ops mechanism requires a single connected path.
+    if len(first.patterns) > 1:
+        return False
     # Reject optional clauses with variable-length relationships — binding_ops
     # can handle them for the base chain but the join semantics are untested.
     for m in query.matches[1:]:
