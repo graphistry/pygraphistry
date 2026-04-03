@@ -530,6 +530,11 @@ def _mk_issue_1000_ic6_minimal_graph() -> _CypherTestGraph:
     )
 
 
+def _mk_issue_1000_ic6_minimal_graph_cudf() -> _CypherTestGraph:
+    graph = _mk_issue_1000_ic6_minimal_graph()
+    return _mk_cudf_graph(graph._nodes, graph._edges)
+
+
 def _prefix_scalar_reentry_query(
     *,
     tag_name: str = "topic",
@@ -7521,6 +7526,22 @@ def test_string_cypher_executes_issue_1000_ic6_exact_runtime_minimal() -> None:
     )
 
     assert result._nodes.to_dict(orient="records") == [
+        {"tagName": "Alpha", "postCount": 1},
+        {"tagName": "Beta", "postCount": 1},
+    ]
+
+
+def test_string_cypher_executes_issue_1000_ic6_exact_runtime_minimal_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    result = _mk_issue_1000_ic6_minimal_graph_cudf().gfql(
+        _issue_1000_ic6_query(),
+        params=_issue_1000_ic6_params(),
+        engine="cudf",
+    )
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
         {"tagName": "Alpha", "postCount": 1},
         {"tagName": "Beta", "postCount": 1},
     ]

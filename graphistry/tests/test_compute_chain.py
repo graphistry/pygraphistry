@@ -854,6 +854,10 @@ class TestChainBindingsTable(NoAuthTestCase):
     def _mk_graph(self, nodes_df, edges_df):
         return CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
 
+    def _mk_cudf_graph(self, nodes_df, edges_df):
+        cudf = pytest.importorskip("cudf")
+        return CGFull().nodes(cudf.from_pandas(nodes_df), "id").edges(cudf.from_pandas(edges_df), "s", "d")
+
     def _to_binding_ops(self, match_ops):
         return [op.to_json(validate=False) for op in match_ops]
 
@@ -1442,6 +1446,29 @@ class TestChainBindingsTable(NoAuthTestCase):
             expected=[{"forumId": "f1", "moderatorId": "u1"}],
         )
 
+    def test_direct_rows_binding_ops_supports_open_range_multihop_continuation_on_cudf(self):
+        """Direct rows(binding_ops=...) should stay on cuDF for open-range continuation replay."""
+        pandas_graph = self._mk_forum_moderator_graph()
+        g = self._mk_cudf_graph(pandas_graph._nodes, pandas_graph._edges)
+        binding_ops = self._to_binding_ops(
+            self._forum_moderator_match_ops(
+                e_forward({"type": "REPLY_OF"}, min_hops=0, to_fixed_point=True)
+            )
+        )
+
+        result = g.gfql(
+            [
+                rows(binding_ops=binding_ops),
+                select([("forumId", "forum.id"), ("moderatorId", "moderator.id")]),
+            ],
+            engine="cudf",
+        )
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert result._nodes.to_pandas().to_dict(orient="records") == [
+            {"forumId": "f1", "moderatorId": "u1"}
+        ]
+
     def test_direct_rows_binding_ops_supports_bounded_open_range_multihop_continuation(self):
         """Bounded open-range replay should preserve downstream bindings parity."""
         g = self._mk_forum_moderator_graph()
@@ -1465,6 +1492,29 @@ class TestChainBindingsTable(NoAuthTestCase):
             items=[("seedId", "seed.id"), ("extraId", "extra.id")],
             expected=[{"seedId": "a", "extraId": "x"}],
         )
+
+    def test_direct_rows_binding_ops_supports_reverse_bounded_range_multihop_continuation_on_cudf(self):
+        """Reverse bounded multihop replay should stay on cuDF."""
+        pandas_graph = self._mk_reverse_range_continuation_graph()
+        g = self._mk_cudf_graph(pandas_graph._nodes, pandas_graph._edges)
+        binding_ops = self._to_binding_ops(
+            self._reverse_range_continuation_match_ops(
+                e_reverse({"type": "R"}, min_hops=0, max_hops=2)
+            )
+        )
+
+        result = g.gfql(
+            [
+                rows(binding_ops=binding_ops),
+                select([("seedId", "seed.id"), ("extraId", "extra.id")]),
+            ],
+            engine="cudf",
+        )
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert result._nodes.to_pandas().to_dict(orient="records") == [
+            {"seedId": "a", "extraId": "x"}
+        ]
 
     def test_direct_rows_binding_ops_supports_undirected_bounded_multihop_without_backtracking(self):
         """Undirected bounded multihop replay should not immediately bounce back to the seed."""
@@ -1491,6 +1541,84 @@ class TestChainBindingsTable(NoAuthTestCase):
             {"seedId": "a", "peerId": "b"},
             {"seedId": "a", "peerId": "c"},
         ]
+
+    def test_direct_rows_binding_ops_supports_undirected_bounded_multihop_without_backtracking_on_cudf(self):
+        """Undirected bounded multihop replay with integer ids should stay dtype-safe on cuDF."""
+        g = self._mk_cudf_graph(
+            pd.DataFrame({"id": [1, 2, 3, 4]}),
+            pd.DataFrame(
+                {
+                    "s": [1, 2, 3],
+                    "d": [2, 3, 4],
+                    "type": ["R", "R", "R"],
+                }
+            ),
+        )
+        binding_ops = self._to_binding_ops(
+            [n({"id": 1}, name="seed"), e_undirected({"type": "R"}, min_hops=1, max_hops=2), n(name="peer")]
+        )
+
+        result = g.gfql(
+            [
+                rows(binding_ops=binding_ops),
+                select([("seedId", "seed.id"), ("peerId", "peer.id")]),
+            ],
+            engine="cudf",
+        )
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert result._nodes.to_pandas().sort_values(["seedId", "peerId"]).to_dict(orient="records") == [
+            {"seedId": 1, "peerId": 2},
+            {"seedId": 1, "peerId": 3},
+        ]
+
+    def test_direct_rows_binding_ops_supports_undirected_bounded_multihop_empty_result_on_cudf(self):
+        """Undirected bounded multihop replay should keep empty results on cuDF."""
+        g = self._mk_cudf_graph(
+            pd.DataFrame({"id": [1, 2]}),
+            pd.DataFrame(
+                {
+                    "s": [1],
+                    "d": [2],
+                    "type": ["R"],
+                }
+            ),
+        )
+        binding_ops = self._to_binding_ops(
+            [n({"id": 1}, name="seed"), e_undirected({"type": "R"}, min_hops=2, max_hops=2), n(name="peer")]
+        )
+
+        result = g.gfql(
+            [
+                rows(binding_ops=binding_ops),
+                select([("seedId", "seed.id"), ("peerId", "peer.id")]),
+            ],
+            engine="cudf",
+        )
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert result._nodes.to_pandas().to_dict(orient="records") == []
+
+    def test_direct_rows_binding_ops_supports_zero_hop_empty_multihop_seed_row_on_cudf(self):
+        """Zero-hop multihop replay should keep seed rows on cuDF even with no matching edges."""
+        g = self._mk_cudf_graph(
+            pd.DataFrame({"id": [1]}),
+            pd.DataFrame({"s": [], "d": [], "type": []}),
+        )
+        binding_ops = self._to_binding_ops(
+            [n({"id": 1}, name="seed"), e_undirected({"type": "R"}, min_hops=0, max_hops=2), n(name="peer")]
+        )
+
+        result = g.gfql(
+            [
+                rows(binding_ops=binding_ops),
+                select([("seedId", "seed.id"), ("peerId", "peer.id")]),
+            ],
+            engine="cudf",
+        )
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert result._nodes.to_pandas().to_dict(orient="records") == [{"seedId": 1, "peerId": 1}]
 
     def test_direct_rows_binding_ops_supports_bare_alias_token_expressions(self):
         """Bare alias ids should be available to downstream row expressions."""
@@ -1555,6 +1683,28 @@ class TestChainBindingsTable(NoAuthTestCase):
             sort_by=["n_num", "m_num"],
         )
         assert records == [
+            {"n_num": 1, "m_num": 1},
+            {"n_num": 1, "m_num": 2},
+            {"n_num": 2, "m_num": 1},
+            {"n_num": 2, "m_num": 2},
+        ]
+
+    def test_direct_rows_binding_ops_supports_node_only_cartesian_projection_on_cudf(self):
+        """Node-only cartesian rows(binding_ops=...) should stay on cuDF."""
+        pandas_graph = self._mk_cartesian_node_graph()
+        g = self._mk_cudf_graph(pandas_graph._nodes, pandas_graph._edges)
+        binding_ops = self._to_binding_ops([n(name="n"), n(name="m")])
+
+        result = g.gfql(
+            [
+                rows(binding_ops=binding_ops),
+                select([("n_num", "n.num"), ("m_num", "m.num")]),
+            ],
+            engine="cudf",
+        )
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert result._nodes.to_pandas().sort_values(["n_num", "m_num"]).to_dict(orient="records") == [
             {"n_num": 1, "m_num": 1},
             {"n_num": 1, "m_num": 2},
             {"n_num": 2, "m_num": 1},
