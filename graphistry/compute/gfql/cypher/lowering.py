@@ -7333,6 +7333,14 @@ def _apply_where_to_ops(
         if type_where is not None:
             left, op, right = type_where
             _apply_literal_where(alias_targets, left=left, op=op, right=right, params=params)
+        else:
+            raise _unsupported(
+                "Cypher WHERE expressions that cannot be lowered to node/edge filters are not yet supported in connected OPTIONAL MATCH queries",
+                field="where",
+                value=where.expr.text,
+                line=where.expr.span.line,
+                column=where.expr.span.column,
+            )
     for predicate in where.predicates:
         if isinstance(predicate, WherePatternPredicate):
             raise _unsupported(
