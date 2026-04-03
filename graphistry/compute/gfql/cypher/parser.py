@@ -1339,6 +1339,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             reentry_where_closed_by_with = False
             call_clause: Optional[CallClause] = None
             unwind_clauses: List[UnwindClause] = []
+            reentry_unwind_clauses: List[UnwindClause] = []
             staged_graph_unwind_span: Optional[SourceSpan] = None
             use_clause_node: Optional[UseClause] = None
             stages: List[ProjectionStage] = []
@@ -1363,6 +1364,12 @@ def _build_transformer(source: str) -> _TransformerLike:
                     if reentry_where_clause is not None and not reentry_where_closed_by_with:
                         raise _to_syntax_error(
                             "Cypher MATCH after post-WITH WHERE is not yet supported in the current GFQL Cypher compiler",
+                            line=item.span.line,
+                            column=item.span.column,
+                        )
+                    if reentry_unwind_clauses and len(reentry_match_clauses) >= 2:
+                        raise _to_syntax_error(
+                            "Cypher MATCH after post-WITH MATCH UNWIND is not yet supported in the current GFQL Cypher compiler",
                             line=item.span.line,
                             column=item.span.column,
                         )
@@ -1403,11 +1410,14 @@ def _build_transformer(source: str) -> _TransformerLike:
                     call_clause = item
                 elif isinstance(item, UnwindClause):
                     if reentry_match_clauses:
-                        raise _to_syntax_error(
-                            "Cypher UNWIND after post-WITH MATCH is not yet supported in the current GFQL Cypher compiler",
-                            line=item.span.line,
-                            column=item.span.column,
-                        )
+                        if reentry_unwind_clauses:
+                            raise _to_syntax_error(
+                                "Cypher only supports one UNWIND after post-WITH MATCH in the current GFQL Cypher compiler",
+                                line=item.span.line,
+                                column=item.span.column,
+                            )
+                        reentry_unwind_clauses.append(item)
+                        continue
                     if match_clauses and seen_stage:
                         staged_graph_unwind_span = item.span
                     unwind_clauses.append(item)
@@ -1454,11 +1464,12 @@ def _build_transformer(source: str) -> _TransformerLike:
                     stages[0].clause.kind != "with"
                     or stages[-1].clause.kind != "return"
                     or any(stage.clause.kind != "with" for stage in stages[:-1])
-                    or len(with_stages) != len(reentry_match_clauses)
+                    or len(with_stages) < len(reentry_match_clauses)
+                    or len(with_stages) > len(reentry_match_clauses) + 1
                 ):
                     first_match = reentry_match_clauses[0]
                     raise _to_syntax_error(
-                        "Cypher MATCH after WITH is only supported for alternating MATCH ... WITH ... MATCH ... [WITH ... MATCH ...] ... RETURN read shapes in the current GFQL Cypher compiler",
+                        "Cypher MATCH after WITH is only supported for alternating MATCH ... WITH ... MATCH ... [WITH ... MATCH ...] ... [WITH] RETURN read shapes in the current GFQL Cypher compiler",
                         line=first_match.span.line,
                         column=first_match.span.column,
                     )
@@ -1521,6 +1532,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 span=_span_from_meta(meta),
                 reentry_matches=tuple(reentry_match_clauses),
                 reentry_where=reentry_where_clause,
+                reentry_unwinds=tuple(reentry_unwind_clauses),
                 use=use_clause_node,
             )
 
@@ -1567,6 +1579,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                         span=branch.span,
                         reentry_matches=branch.reentry_matches,
                         reentry_where=branch.reentry_where,
+                        reentry_unwinds=branch.reentry_unwinds,
                     )
                 return branch
             if len(union_kinds) != len(branches) - 1:
@@ -1706,6 +1719,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                     span=query.span,
                     reentry_matches=query.reentry_matches,
                     reentry_where=query.reentry_where,
+                    reentry_unwinds=query.reentry_unwinds,
                     graph_bindings=tuple(bindings),
                     use=query.use,
                 )

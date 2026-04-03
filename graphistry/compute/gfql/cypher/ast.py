@@ -237,6 +237,7 @@ class CypherQuery:
     span: SourceSpan
     reentry_matches: Tuple[MatchClause, ...] = ()
     reentry_where: Optional[WhereClause] = None
+    reentry_unwinds: Tuple[UnwindClause, ...] = ()
     graph_bindings: Tuple[GraphBinding, ...] = ()
     use: Optional[UseClause] = None
 
