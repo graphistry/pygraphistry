@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, 
 from typing_extensions import Literal
 
 import pandas as pd
-from graphistry.Engine import Engine, EngineAbstract, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, resolve_engine, s_cons
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
-from graphistry.compute.dataframe_utils import concat_frames
+from graphistry.compute.dataframe_utils import concat_frames, df_cons as template_df_cons
 from graphistry.compute.gfql.row.order_expr import (
     extract_temporal_duration_sort_ast,
     is_order_aggregate_alias_ast,
@@ -1970,7 +1970,10 @@ class RowPipelineMixin:
                 return table_df.assign(**{tmp_col: repeated})[tmp_col]
             except Exception:
                 if resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF:
-                    return pd.Series(repeated, name=tmp_col)
+                    out = s_cons(Engine.CUDF)(repeated)
+                    if hasattr(out, "name"):
+                        out.name = tmp_col
+                    return out
                 raise
 
         return table_df.assign(**{tmp_col: value})[tmp_col]
@@ -2678,12 +2681,40 @@ class RowPipelineMixin:
             out._node = None
         return out
 
+    def _gfql_empty_frame(
+        self,
+        template_df: Optional[Any] = None,
+        columns: Optional[Sequence[str]] = None,
+    ) -> Any:
+        if template_df is None:
+            if self._nodes is not None:
+                template_df = self._nodes
+            elif self._edges is not None:
+                template_df = self._edges
+            else:
+                base_graph = getattr(self, "_gfql_rows_base_graph", None)
+                if base_graph is None:
+                    base_graph = getattr(self, "_g", None)
+                if base_graph is not None:
+                    template_df = getattr(base_graph, "_nodes", None)
+                    if template_df is None:
+                        template_df = getattr(base_graph, "_edges", None)
+
+        if template_df is not None:
+            if columns is None:
+                return template_df.iloc[0:0].copy()
+            return template_df_cons(template_df, {str(col): [] for col in columns})
+
+        if columns is None:
+            return pd.DataFrame()
+        return pd.DataFrame({str(col): pd.Series(dtype="object") for col in columns})
+
     def _gfql_get_active_table(self) -> Any:
         if self._nodes is not None:
             return self._nodes
         if self._edges is not None:
             return self._edges
-        return pd.DataFrame()
+        return self._gfql_empty_frame()
 
     @staticmethod
     def _gfql_coerce_non_negative_int(value: Any, op_name: str) -> int:
@@ -2733,7 +2764,7 @@ class RowPipelineMixin:
             elif self._edges is not None:
                 table_df = self._edges.iloc[0:0].copy()
             else:
-                table_df = pd.DataFrame()
+                table_df = self._gfql_empty_frame()
         else:
             table_df = table_df.copy()
 
@@ -2818,7 +2849,7 @@ class RowPipelineMixin:
         current = state_df.copy()
         prev_col = "__gfql_prev__"
         if avoid_immediate_backtrack and prev_col not in current.columns:
-            current[prev_col] = pd.NA
+            current = current.assign(**{prev_col: None})
         if min_hops == 0:
             reachable.append(current.drop(columns=[prev_col], errors="ignore").copy())
         max_iters = max_hops if max_hops is not None else max(len(step_pairs), 1) + 1
@@ -2858,7 +2889,7 @@ class RowPipelineMixin:
         from graphistry.compute.ast import ASTEdge, ASTNode
 
         if self._nodes is None or self._edges is None:
-            return pd.DataFrame(), {}
+            return self._gfql_empty_frame(), {}
 
         RowPipelineMixin._gfql_validate_binding_ops(ops)
         base_graph = getattr(self, "_gfql_rows_base_graph", None)
@@ -2931,7 +2962,10 @@ class RowPipelineMixin:
                     if col not in {src_col, dst_col}
                 }
             if edges_df_step is None or len(edges_df_step) == 0:
-                oriented = pd.DataFrame(columns=["__from__", "__to__"])
+                oriented = self._gfql_empty_frame(
+                    edges_df_step if edges_df_step is not None else state_df,
+                    columns=["__from__", "__to__"],
+                )
             else:
                 oriented = sem.orient_edges(
                     edges_df_step,
@@ -2993,7 +3027,7 @@ class RowPipelineMixin:
         from graphistry.compute.ast import ASTEdge, ASTNode, from_json as ast_from_json
 
         if self._nodes is None or self._edges is None:
-            return self._gfql_row_table(pd.DataFrame())
+            return self._gfql_row_table(self._gfql_empty_frame())
 
         ops = [ast_from_json(op_json, validate=False) for op_json in binding_ops]
         state_df, alias_frames = self._gfql_connected_bindings_state(ops)
@@ -3010,7 +3044,7 @@ class RowPipelineMixin:
         empty_lookup_source = (
             base_nodes.iloc[0:0].copy()
             if base_nodes is not None and node_id in base_nodes.columns
-            else pd.DataFrame({node_id: pd.Series(dtype="object")})
+            else self._gfql_empty_frame(base_nodes, columns=[node_id])
         )
 
         bindings = state_df.copy()
@@ -3025,7 +3059,7 @@ class RowPipelineMixin:
             if lookup_source is None or node_id not in lookup_source.columns:
                 lookup_source = empty_lookup_source
             if alias not in bindings.columns:
-                bindings[alias] = pd.Series(index=bindings.index, dtype=lookup_source[node_id].dtype)
+                bindings[alias] = self._gfql_broadcast_scalar(bindings, None)
             lookup = self._gfql_node_alias_lookup_frame(lookup_source, node_id, alias)
             bindings = bindings.merge(
                 lookup,
@@ -3047,7 +3081,7 @@ class RowPipelineMixin:
         ops: Sequence[Any],
     ) -> "Plottable":
         if self._nodes is None:
-            return self._gfql_row_table(pd.DataFrame())
+            return self._gfql_row_table(self._gfql_empty_frame())
 
         base_graph = getattr(self, "_gfql_rows_base_graph", None)
         if base_graph is None:
@@ -3059,7 +3093,7 @@ class RowPipelineMixin:
         node_id = getattr(base_graph, "_node", None)
         base_nodes = getattr(base_graph, "_nodes", None)
         if node_id is None or base_nodes is None or node_id not in base_nodes.columns:
-            return self._gfql_row_table(pd.DataFrame())
+            return self._gfql_row_table(self._gfql_empty_frame(base_nodes))
 
         base_df = self._nodes if self._nodes is not None else self._edges
         engine = resolve_engine(EngineAbstract.AUTO, base_df)
@@ -3089,7 +3123,7 @@ class RowPipelineMixin:
             bindings = frame if bindings is None else bindings.merge(frame, on=join_col, how="inner", sort=False)
 
         if bindings is None:
-            return self._gfql_row_table(pd.DataFrame())
+            return self._gfql_row_table(self._gfql_empty_frame(base_nodes))
         bindings = bindings.drop(columns=[join_col] + anonymous_cols, errors="ignore")
         return self._gfql_row_table(bindings)
 
@@ -3119,7 +3153,7 @@ class RowPipelineMixin:
         edges = self._edges
         nodes = self._nodes
         if edges is None or nodes is None:
-            return self._gfql_row_table(pd.DataFrame())
+            return self._gfql_row_table(self._gfql_empty_frame())
 
         node_id = self._node
         src_col = self._source

@@ -854,6 +854,10 @@ class TestChainBindingsTable(NoAuthTestCase):
     def _mk_graph(self, nodes_df, edges_df):
         return CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
 
+    def _mk_cudf_graph(self, nodes_df, edges_df):
+        cudf = pytest.importorskip("cudf")
+        return CGFull().nodes(cudf.from_pandas(nodes_df), "id").edges(cudf.from_pandas(edges_df), "s", "d")
+
     def _to_binding_ops(self, match_ops):
         return [op.to_json(validate=False) for op in match_ops]
 
@@ -1441,6 +1445,29 @@ class TestChainBindingsTable(NoAuthTestCase):
             items=[("forumId", "forum.id"), ("moderatorId", "moderator.id")],
             expected=[{"forumId": "f1", "moderatorId": "u1"}],
         )
+
+    def test_direct_rows_binding_ops_supports_open_range_multihop_continuation_on_cudf(self):
+        """Direct rows(binding_ops=...) should stay on cuDF for open-range continuation replay."""
+        pandas_graph = self._mk_forum_moderator_graph()
+        g = self._mk_cudf_graph(pandas_graph._nodes, pandas_graph._edges)
+        binding_ops = self._to_binding_ops(
+            self._forum_moderator_match_ops(
+                e_forward({"type": "REPLY_OF"}, min_hops=0, to_fixed_point=True)
+            )
+        )
+
+        result = g.gfql(
+            [
+                rows(binding_ops=binding_ops),
+                select([("forumId", "forum.id"), ("moderatorId", "moderator.id")]),
+            ],
+            engine="cudf",
+        )
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert result._nodes.to_pandas().to_dict(orient="records") == [
+            {"forumId": "f1", "moderatorId": "u1"}
+        ]
 
     def test_direct_rows_binding_ops_supports_bounded_open_range_multihop_continuation(self):
         """Bounded open-range replay should preserve downstream bindings parity."""
