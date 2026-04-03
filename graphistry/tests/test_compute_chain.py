@@ -1689,6 +1689,28 @@ class TestChainBindingsTable(NoAuthTestCase):
             {"n_num": 2, "m_num": 2},
         ]
 
+    def test_direct_rows_binding_ops_supports_node_only_cartesian_projection_on_cudf(self):
+        """Node-only cartesian rows(binding_ops=...) should stay on cuDF."""
+        pandas_graph = self._mk_cartesian_node_graph()
+        g = self._mk_cudf_graph(pandas_graph._nodes, pandas_graph._edges)
+        binding_ops = self._to_binding_ops([n(name="n"), n(name="m")])
+
+        result = g.gfql(
+            [
+                rows(binding_ops=binding_ops),
+                select([("n_num", "n.num"), ("m_num", "m.num")]),
+            ],
+            engine="cudf",
+        )
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert result._nodes.to_pandas().sort_values(["n_num", "m_num"]).to_dict(orient="records") == [
+            {"n_num": 1, "m_num": 1},
+            {"n_num": 1, "m_num": 2},
+            {"n_num": 2, "m_num": 1},
+            {"n_num": 2, "m_num": 2},
+        ]
+
     def test_direct_rows_binding_ops_supports_node_only_cartesian_expression(self):
         """Direct rows(binding_ops=...) should evaluate row expressions across cartesian aliases."""
         g = self._mk_cartesian_node_graph()
