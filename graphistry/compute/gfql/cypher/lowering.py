@@ -6496,6 +6496,22 @@ def _compile_bounded_reentry_query(
     scalar_only_prefix = prefix_projection is None
     prefix_projection_table: Optional[Literal["nodes", "edges"]] = None
     if scalar_only_prefix:
+        scalar_prefix_aliases = {
+            item.alias
+            for item in prefix_stage.clause.items
+            if item.alias is not None
+        }
+        reused_scalar_aliases = sorted(
+            scalar_prefix_aliases
+            & set().union(*(_pattern_node_aliases(pattern) for pattern in reentry_match.patterns))
+        )
+        if reused_scalar_aliases:
+            raise _unsupported_at_span(
+                "Cypher MATCH after WITH scalar-only prefix aliases cannot be reused as node variables in the trailing MATCH",
+                field="match",
+                value=reused_scalar_aliases,
+                span=reentry_match.span,
+            )
         if first_alias is None:
             raise _unsupported_at_span(
                 "Cypher MATCH after WITH currently requires the trailing MATCH to start from a named node alias",

@@ -7475,7 +7475,15 @@ def test_string_cypher_failfast_rejects_scalar_only_prefix_with_match_reentry_pr
     ):
         _mk_prefix_scalar_reentry_graph().gfql(query)
 
-
+def test_string_cypher_failfast_rejects_scalar_only_prefix_alias_reused_as_node_variable() -> None:
+    with pytest.raises(
+        GFQLValidationError,
+        match="Cypher MATCH after WITH scalar-only prefix aliases cannot be reused as node variables",
+    ):
+        _mk_reentry_carried_scalar_graph().gfql(
+            "MATCH (a:A) WITH [a] AS users MATCH (users)-->(messages) RETURN messages.id AS mid"
+        )
+ 
 def test_cypher_to_gfql_supports_multi_alias_scalar_projection() -> None:
     """Multi-alias scalar projections are supported via bindings table."""
     chain = cypher_to_gfql("MATCH (p)-[r]->(q) RETURN p.id, q.id")
