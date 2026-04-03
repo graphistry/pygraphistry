@@ -391,6 +391,7 @@ class _ExpressionSlice:
 class _BoundPattern:
     alias: str
     pattern: Tuple[PatternElement, ...]
+    kind: Literal["pattern", "shortestPath", "allShortestPaths"] = "pattern"
 
 
 @lru_cache(maxsize=1)
@@ -800,12 +801,12 @@ def _build_transformer(source: str) -> _TransformerLike:
             return _BoundPattern(alias=str(items[0]), pattern=cast(Tuple[PatternElement, ...], items[1]))
 
         def shortest_path_pattern(self, meta: Any, items: Sequence[Any]) -> _BoundPattern:
-            raise _to_unsupported(
-                "shortestPath() is not yet supported in the local Cypher compiler",
-                line=meta.line,
-                column=meta.column,
-                field="match",
-                value="shortestPath",
+            if len(items) != 2:
+                raise _to_syntax_error("Invalid shortestPath() MATCH pattern")
+            return _BoundPattern(
+                alias=str(items[0]),
+                pattern=cast(Tuple[PatternElement, ...], items[1]),
+                kind="shortestPath",
             )
 
         def all_shortest_paths_pattern(self, meta: Any, items: Sequence[Any]) -> _BoundPattern:
@@ -827,32 +828,44 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("Cypher MATCH clause cannot be empty", line=meta.line, column=meta.column)
             patterns: List[Tuple[PatternElement, ...]] = []
             pattern_aliases: List[Optional[str]] = []
+            pattern_alias_kinds: List[Literal["pattern", "shortestPath", "allShortestPaths"]] = []
             for item in items:
                 if isinstance(item, _BoundPattern):
                     patterns.append(item.pattern)
                     pattern_aliases.append(item.alias)
+                    pattern_alias_kinds.append(item.kind)
                 else:
                     patterns.append(cast(Tuple[PatternElement, ...], item))
                     pattern_aliases.append(None)
-            return MatchClause(patterns=tuple(patterns), span=_span_from_meta(meta), pattern_aliases=tuple(pattern_aliases))
+                    pattern_alias_kinds.append("pattern")
+            return MatchClause(
+                patterns=tuple(patterns),
+                span=_span_from_meta(meta),
+                pattern_aliases=tuple(pattern_aliases),
+                pattern_alias_kinds=tuple(pattern_alias_kinds),
+            )
 
         def optional_match_clause(self, meta: Any, items: Sequence[Any]) -> MatchClause:
             if len(items) < 1:
                 raise _to_syntax_error("Cypher OPTIONAL MATCH clause cannot be empty", line=meta.line, column=meta.column)
             patterns: List[Tuple[PatternElement, ...]] = []
             pattern_aliases: List[Optional[str]] = []
+            pattern_alias_kinds: List[Literal["pattern", "shortestPath", "allShortestPaths"]] = []
             for item in items:
                 if isinstance(item, _BoundPattern):
                     patterns.append(item.pattern)
                     pattern_aliases.append(item.alias)
+                    pattern_alias_kinds.append(item.kind)
                 else:
                     patterns.append(cast(Tuple[PatternElement, ...], item))
                     pattern_aliases.append(None)
+                    pattern_alias_kinds.append("pattern")
             return MatchClause(
                 patterns=tuple(patterns),
                 span=_span_from_meta(meta),
                 optional=True,
                 pattern_aliases=tuple(pattern_aliases),
+                pattern_alias_kinds=tuple(pattern_alias_kinds),
             )
 
         def distinct(self, _meta: Any, _items: Sequence[Any]) -> bool:

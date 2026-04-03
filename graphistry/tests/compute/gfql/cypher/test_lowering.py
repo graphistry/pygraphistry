@@ -4183,17 +4183,161 @@ def test_string_cypher_failfast_rejects_bounded_variable_length_where_pattern_pr
 @pytest.mark.parametrize(
     "query",
     [
-        "MATCH path = shortestPath((a)-[:KNOWS*]-(b)) RETURN length(path)",
-        "MATCH (a), path = shortestPath((a)-[:KNOWS*]-(b)) RETURN a.id",
         "MATCH path = allShortestPaths((a)-[:KNOWS*]-(b)) RETURN length(path)",
     ],
 )
 def test_string_cypher_failfast_rejects_shortest_path(query: str) -> None:
-    """#997: shortestPath/allShortestPaths parse but fail-fast with clear message."""
+    """allShortestPaths remains out of scope for the local compiler."""
     graph = _mk_empty_graph()
     with pytest.raises(GFQLValidationError) as exc_info:
         graph.gfql(query)
-    assert "shortestpath" in exc_info.value.message.lower() or "allshortestpaths" in exc_info.value.message.lower()
+    assert "allshortestpaths" in exc_info.value.message.lower()
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH path = shortestPath((a)-[:KNOWS*]-(b)) RETURN path",
+        "MATCH path = shortestPath((a)-[:KNOWS*]-(b)) RETURN relationships(path) AS rels",
+        "MATCH path = shortestPath((a)-[:KNOWS*]-(b)) RETURN length(path) AS n ORDER BY path",
+    ],
+)
+def test_string_cypher_failfast_rejects_shortest_path_carrier_forms(query: str) -> None:
+    graph = _mk_empty_graph()
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(query)
+    assert "shortestpath" in exc_info.value.message.lower()
+    assert "length(path)" in exc_info.value.message.lower() or "path is null" in exc_info.value.message.lower()
+
+
+def test_string_cypher_executes_shortest_path_length_case_official_shape() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3"],
+                "label__Person": [True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p2"],
+                "d": ["p2", "p3"],
+                "type": ["KNOWS", "KNOWS"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        """
+        MATCH
+            (person1:Person {id: $person1Id}),
+            (person2:Person {id: $person2Id}),
+            path = shortestPath((person1)-[:KNOWS*]-(person2))
+        RETURN
+            CASE path IS NULL
+                WHEN true THEN -1
+                ELSE length(path)
+            END AS shortestPathLength
+        """,
+        params={"person1Id": "p1", "person2Id": "p3"},
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"shortestPathLength": 2}]
+
+
+def test_string_cypher_executes_shortest_path_length_case_disconnected_returns_minus_one() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3"],
+                "label__Person": [True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1"],
+                "d": ["p2"],
+                "type": ["KNOWS"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        """
+        MATCH
+            (person1:Person {id: $person1Id}),
+            (person2:Person {id: $person2Id}),
+            path = shortestPath((person1)-[:KNOWS*]-(person2))
+        RETURN
+            CASE path IS NULL
+                WHEN true THEN -1
+                ELSE length(path)
+            END AS shortestPathLength
+        """,
+        params={"person1Id": "p1", "person2Id": "p3"},
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"shortestPathLength": -1}]
+
+
+def test_string_cypher_executes_bounded_shortest_path_length_prefers_shorter_alternative() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3", "p4"],
+                "label__Person": [True, True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p1", "p4"],
+                "d": ["p2", "p4", "p3"],
+                "type": ["KNOWS", "KNOWS", "KNOWS"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        """
+        MATCH
+            (person1:Person {id: 'p1'}),
+            (person2:Person {id: 'p3'}),
+            path = shortestPath((person1)-[:KNOWS*1..3]-(person2))
+        RETURN length(path) AS shortestPathLength
+        """,
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"shortestPathLength": 2}]
+
+
+def test_string_cypher_executes_shortest_path_is_null_projection() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3"],
+                "label__Person": [True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1"],
+                "d": ["p2"],
+                "type": ["KNOWS"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        """
+        MATCH
+            (person1:Person {id: 'p1'}),
+            (person2:Person {id: 'p3'}),
+            path = shortestPath((person1)-[:KNOWS*]-(person2))
+        RETURN path IS NULL AS noPath
+        """,
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"noPath": True}]
 
 
 @pytest.mark.parametrize(

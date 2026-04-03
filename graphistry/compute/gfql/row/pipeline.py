@@ -2844,6 +2844,7 @@ class RowPipelineMixin:
         max_hops: Optional[int],
         to_fixed_point: bool,
         avoid_immediate_backtrack: bool = False,
+        hop_column: Optional[str] = None,
     ) -> Any:
         reachable: List[Any] = []
         current = state_df.copy()
@@ -2851,7 +2852,10 @@ class RowPipelineMixin:
         if avoid_immediate_backtrack and prev_col not in current.columns:
             current = current.assign(**{prev_col: None})
         if min_hops == 0:
-            reachable.append(current.drop(columns=[prev_col], errors="ignore").copy())
+            zero_hop = current.drop(columns=[prev_col], errors="ignore").copy()
+            if hop_column is not None:
+                zero_hop[hop_column] = 0
+            reachable.append(zero_hop)
         max_iters = max_hops if max_hops is not None else max(len(step_pairs), 1) + 1
         exhausted = False
         for hop in range(1, max_iters + 1):
@@ -2872,7 +2876,10 @@ class RowPipelineMixin:
             else:
                 current = current.drop(columns=["__current__", "__from__"]).rename(columns={"__to__": "__current__"})
             if hop >= min_hops:
-                reachable.append(current.drop(columns=[prev_col], errors="ignore").copy())
+                reached = current.drop(columns=[prev_col], errors="ignore").copy()
+                if hop_column is not None:
+                    reached[hop_column] = hop
+                reachable.append(reached)
             if max_hops is not None and hop >= max_hops:
                 break
         if max_hops is None and to_fixed_point and not exhausted:
@@ -2939,12 +2946,14 @@ class RowPipelineMixin:
             current_nodes = base_nodes[base_nodes[node_id_col].isin(state_df["__current__"])].copy()
             if len(current_nodes) == 0:
                 return state_df.iloc[0:0], alias_frames
-            edges_df_step = edge_op(
+            edge_result = edge_op(
                 g=base_graph,
                 prev_node_wavefront=current_nodes,
                 target_wave_front=None,
                 engine=engine,
-            )._edges
+            )
+            edges_df_step = edge_result._edges
+            step_nodes = edge_result._nodes
             sem = EdgeSemantics.from_edge(edge_op)
             edge_alias = getattr(edge_op, "_name", None)
             if sem.is_multihop and edge_alias is not None:
@@ -2989,6 +2998,7 @@ class RowPipelineMixin:
                     max_hops=max_hops,
                     to_fixed_point=bool(edge_op.to_fixed_point),
                     avoid_immediate_backtrack=sem.is_undirected,
+                    hop_column=edge_op.label_node_hops,
                 )
             else:
                 state_df = state_df.merge(oriented, left_on="__current__", right_on="__from__", how="inner")
@@ -3003,7 +3013,12 @@ class RowPipelineMixin:
                 self._gfql_bindings_error(
                     "Cypher multi-alias row bindings currently require node steps in even positions"
                 )
-            candidate_nodes = base_nodes[base_nodes[node_id_col].isin(state_df["__current__"])].copy()
+            candidate_source = (
+                step_nodes
+                if step_nodes is not None and node_id_col in step_nodes.columns
+                else base_nodes
+            )
+            candidate_nodes = candidate_source[candidate_source[node_id_col].isin(state_df["__current__"])].copy()
             next_nodes = next_node_op(
                 g=base_graph,
                 prev_node_wavefront=candidate_nodes,
