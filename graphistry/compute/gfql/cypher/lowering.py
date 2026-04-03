@@ -2732,6 +2732,33 @@ def _is_node_connected_multi_pattern_clause(clause: MatchClause) -> bool:
     return len(seen) == len(pattern_aliases)
 
 
+def _is_connected_multi_pattern_clause(clause: MatchClause) -> bool:
+    if clause.optional or len(clause.patterns) <= 1:
+        return False
+    if _cartesian_node_only_patterns(clause) is not None:
+        return False
+    try:
+        _normalized_match_pattern(clause)
+        return False
+    except GFQLValidationError as exc:
+        if "shared endpoint aliases" not in str(exc):
+            return False
+    pattern_aliases = [_pattern_node_aliases(pattern) for pattern in clause.patterns]
+    if any(len(alias_set) == 0 for alias_set in pattern_aliases):
+        return False
+    seen = {0}
+    frontier = [0]
+    while frontier:
+        idx = frontier.pop()
+        for other_idx, other_aliases in enumerate(pattern_aliases):
+            if other_idx in seen:
+                continue
+            if pattern_aliases[idx] & other_aliases:
+                seen.add(other_idx)
+                frontier.append(other_idx)
+    return len(seen) == len(pattern_aliases)
+
+
 def _connected_join_alias_targets(
     clause: MatchClause,
     *,
@@ -2764,7 +2791,7 @@ def _query_requires_general_lowering_for_connected_join(
     *,
     params: Optional[Mapping[str, Any]],
 ) -> bool:
-    if len(query.matches) != 1 or not _is_connected_multi_pattern_clause(query.matches[0]):
+    if len(query.matches) != 1 or not _is_node_connected_multi_pattern_clause(query.matches[0]):
         return False
     alias_targets = _connected_join_alias_targets(query.matches[0], params=params)
     return any(
