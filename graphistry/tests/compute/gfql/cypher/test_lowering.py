@@ -323,6 +323,231 @@ def _mk_multi_stage_reentry_graph_cudf() -> _CypherTestGraph:
     )
 
 
+def _mk_multi_stage_reentry_graph_with_terminal_u() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d", "e"],
+                "label__A": [True, False, False, False, False],
+                "label__B": [False, True, False, False, False],
+                "label__C": [False, False, True, False, False],
+                "label__D": [False, False, False, True, False],
+                "label__E": [False, False, False, False, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c", "d", "a", "b"],
+                "d": ["b", "c", "d", "e", "e", "e"],
+                "type": ["R", "S", "T", "U", "R", "S"],
+            }
+        ),
+    )
+
+
+def _mk_prefix_scalar_reentry_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["tag1", "tag2", "post1", "post2", "post3"],
+                "label__Tag": [True, True, False, False, False],
+                "label__Post": [False, False, True, True, True],
+                "name": ["topic", "other", None, None, None],
+                "tagId": [101, 202, None, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["post1", "post2", "post3"],
+                "d": ["tag1", "tag1", "tag2"],
+                "type": ["HAS_TAG", "HAS_TAG", "HAS_TAG"],
+            }
+        ),
+    )
+
+
+def _mk_prefix_scalar_reentry_graph_cudf() -> _CypherTestGraph:
+    return _mk_cudf_graph(
+        pd.DataFrame(
+            {
+                "id": ["tag1", "tag2", "post1", "post2", "post3"],
+                "label__Tag": [True, True, False, False, False],
+                "label__Post": [False, False, True, True, True],
+                "name": ["topic", "other", None, None, None],
+                "tagId": [101, 202, None, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["post1", "post2", "post3"],
+                "d": ["tag1", "tag1", "tag2"],
+                "type": ["HAS_TAG", "HAS_TAG", "HAS_TAG"],
+            }
+        ),
+    )
+
+
+def _mk_prefix_scalar_reentry_duplicate_seed_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["tag1", "tag1b", "post1", "post2"],
+                "label__Tag": [True, True, False, False],
+                "label__Post": [False, False, True, True],
+                "name": ["topic", "topic", None, None],
+                "tagId": [101, 101, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["post1", "post2"],
+                "d": ["tag1", "tag1b"],
+                "type": ["HAS_TAG", "HAS_TAG"],
+            }
+        ),
+    )
+
+
+def _mk_connected_post_tag_fanout_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["tag_known", "tag_other", "person1", "post1"],
+                "label__Tag": [True, True, False, False],
+                "label__Person": [False, False, True, False],
+                "label__Post": [False, False, False, True],
+                "name": ["topic", "other", None, None],
+                "tagId": [101, 202, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["post1", "post1", "post1"],
+                "d": ["person1", "tag_known", "tag_other"],
+                "type": ["HAS_CREATOR", "HAS_TAG", "HAS_TAG"],
+            }
+        ),
+    )
+
+
+def _mk_connected_post_tag_fanout_graph_cudf() -> _CypherTestGraph:
+    return _mk_cudf_graph(
+        pd.DataFrame(
+            {
+                "id": ["tag_known", "tag_other", "person1", "post1"],
+                "label__Tag": [True, True, False, False],
+                "label__Person": [False, False, True, False],
+                "label__Post": [False, False, False, True],
+                "name": ["topic", "other", None, None],
+                "tagId": [101, 202, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["post1", "post1", "post1"],
+                "d": ["person1", "tag_known", "tag_other"],
+                "type": ["HAS_CREATOR", "HAS_TAG", "HAS_TAG"],
+            }
+        ),
+    )
+
+
+def _issue_1000_ic6_query() -> str:
+    return """
+MATCH (knownTag:Tag { name: $tagName })
+WITH knownTag.id as knownTagId
+
+MATCH (person:Person { id: $personId })-[:KNOWS*1..2]-(friend)
+WHERE NOT person=friend
+WITH
+    knownTagId,
+    collect(distinct friend) as friends
+UNWIND friends as f
+    MATCH (f)<-[:HAS_CREATOR]-(post:Post),
+          (post)-[:HAS_TAG]->(t:Tag{id: knownTagId}),
+          (post)-[:HAS_TAG]->(tag:Tag)
+    WHERE NOT t = tag
+    WITH
+        tag.name as tagName,
+        count(post) as postCount
+RETURN
+    tagName,
+    postCount
+ORDER BY
+    postCount DESC,
+    tagName ASC
+LIMIT 10
+"""
+
+
+def _issue_1000_ic6_params() -> dict[str, object]:
+    return {
+        "personId": 4398046511333,
+        "tagName": "Carl_Gustaf_Emil_Mannerheim",
+    }
+
+
+def _mk_issue_1000_ic6_minimal_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": [501, 502, 503, 4398046511333, 2, 9001, 9002],
+                "label__Tag": [True, True, True, False, False, False, False],
+                "label__Person": [False, False, False, True, True, False, False],
+                "label__Post": [False, False, False, False, False, True, True],
+                "name": [
+                    "Carl_Gustaf_Emil_Mannerheim",
+                    "Alpha",
+                    "Beta",
+                    None,
+                    None,
+                    None,
+                    None,
+                ],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": [4398046511333, 9001, 9001, 9002, 9002],
+                "d": [2, 2, 501, 2, 501],
+                "type": ["KNOWS", "HAS_CREATOR", "HAS_TAG", "HAS_CREATOR", "HAS_TAG"],
+            }
+        ).pipe(
+            lambda df: pd.concat(
+                [
+                    df,
+                    pd.DataFrame(
+                        {
+                            "s": [9001, 9002],
+                            "d": [503, 502],
+                            "type": ["HAS_TAG", "HAS_TAG"],
+                        }
+                    ),
+                ],
+                ignore_index=True,
+            )
+        ),
+    )
+
+
+def _prefix_scalar_reentry_query(
+    *,
+    tag_name: str = "topic",
+    with_clause: str = "knownTag.tagId AS knownTagId",
+    return_clause: str = "post.id AS id",
+    order_by: Optional[str] = None,
+) -> str:
+    query = (
+        f"MATCH (knownTag:Tag {{ name: '{tag_name}' }}) "
+        f"WITH {with_clause} "
+        "MATCH (post:Post)-[:HAS_TAG]->(t:Tag {tagId: knownTagId}) "
+        f"RETURN {return_clause}"
+    )
+    if order_by is not None:
+        query += f" ORDER BY {order_by}"
+    return query
+
+
 def _mk_multi_alias_edge_projection_graph() -> _CypherTestGraph:
     return _mk_graph(
         pd.DataFrame(
@@ -977,17 +1202,6 @@ def test_string_cypher_supports_cartesian_node_only_row_filter_between_aliases()
     ]
 
 
-def test_string_cypher_supports_cartesian_node_only_global_count() -> None:
-    result = _mk_cartesian_node_graph().gfql(
-        "MATCH (n), (m) "
-        "RETURN count(*) AS cnt"
-    )
-
-    assert result._nodes.to_dict(orient="records") == [
-        {"cnt": 4},
-    ]
-
-
 def test_string_cypher_supports_cartesian_dynamic_pattern_property_projection() -> None:
     graph = _mk_cartesian_dynamic_pattern_graph()
 
@@ -1006,6 +1220,42 @@ def test_string_cypher_supports_cartesian_dynamic_pattern_property_global_count(
     result = graph.gfql("MATCH (a:A), (b:B {num: a.num}) RETURN count(*) AS cnt")
 
     assert result._nodes.to_dict(orient="records") == [{"cnt": 1}]
+
+
+def test_string_cypher_supports_cartesian_dynamic_pattern_property_grouped_count() -> None:
+    graph = _mk_cartesian_dynamic_pattern_graph()
+
+    result = graph.gfql(
+        "MATCH (a:A), (b:B {num: a.num}) "
+        "RETURN a.id AS aid, count(*) AS cnt "
+        "ORDER BY aid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a1", "cnt": 1}]
+
+
+def test_string_cypher_supports_cartesian_dynamic_pattern_property_with_stage_projection() -> None:
+    graph = _mk_cartesian_dynamic_pattern_graph()
+
+    result = graph.gfql(
+        "MATCH (a:A), (b:B {num: a.num}) "
+        "WITH a.id AS aid, b.id AS bid "
+        "RETURN aid, bid "
+        "ORDER BY aid, bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a1", "bid": "b1"}]
+
+
+def test_string_cypher_supports_cartesian_node_only_global_count() -> None:
+    result = _mk_cartesian_node_graph().gfql(
+        "MATCH (n), (m) "
+        "RETURN count(*) AS cnt"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"cnt": 4},
+    ]
 
 
 def test_string_cypher_supports_cartesian_node_only_grouped_count() -> None:
@@ -6508,30 +6758,78 @@ def test_string_cypher_executes_recent_message_reentry_multihop_scalar_projectio
         {"messageId": "comment1", "messageCreationDate": 10, "postId": "post1", "personId": "author1"},
     ]
 
+def test_string_cypher_executes_recent_message_reentry_multihop_branching_row_bindings() -> None:
+    query = (
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message) "
+        "WITH message, message.id AS messageId "
+        "MATCH (message)-[:REPLY_OF*0..]->(post:Post), (post)-[:HAS_CREATOR]->(person) "
+        "RETURN messageId, post.id AS postId, person.id AS personId "
+        "ORDER BY messageId, postId, personId"
+    )
+
+    result = _mk_recent_message_reentry_graph_branching().gfql(query, params={"personId": "viewer"})
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"messageId": "comment1", "postId": "post1", "personId": "author1"},
+        {"messageId": "comment1", "postId": "post2", "personId": "author2"},
+    ]
+
+
+def test_string_cypher_executes_undirected_multihop_row_bindings() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c"],
+                "d": ["b", "c", "d"],
+                "type": ["R", "R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (a {id: 'a'})-[:R*1..2]-(b) RETURN a.id AS aid, b.id AS bid ORDER BY aid, bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"aid": "a", "bid": "b"},
+        {"aid": "a", "bid": "c"},
+    ]
+
+
+def test_string_cypher_executes_undirected_multihop_row_bindings_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    graph = _mk_cudf_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c"],
+                "d": ["b", "c", "d"],
+                "type": ["R", "R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (a {id: 'a'})-[:R*1..2]-(b) RETURN a.id AS aid, b.id AS bid ORDER BY aid, bid",
+        engine="cudf",
+    )
+
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"aid": "a", "bid": "b"},
+        {"aid": "a", "bid": "c"},
+    ]
+
 
 @pytest.mark.parametrize(
     ("graph_factory", "query", "params", "match"),
     [
         (
-            _mk_recent_message_reentry_graph_branching,
-            "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message) "
-            "WITH message, message.id AS messageId "
-            "MATCH (message)-[:REPLY_OF*0..]->(post:Post), (post)-[:HAS_CREATOR]->(person) "
-            "RETURN messageId, post.id AS postId, person.id AS personId",
-            {"personId": "viewer"},
-            "variable-length segments with at most one outgoing match per source row",
-        ),
-        (
             _mk_multihop_row_binding_cycle_graph,
             "MATCH (a:A)-[r:R*1..2]->(b) RETURN a.id AS aid, b.id AS bid",
             None,
             "do not yet support variable-length relationship aliases",
-        ),
-        (
-            _mk_multihop_row_binding_cycle_graph,
-            "MATCH (a:A)-[:R*1..2]-(b) RETURN a.id AS aid, b.id AS bid",
-            None,
-            "do not yet support undirected variable-length segments",
         ),
         (
             _mk_multihop_row_binding_cycle_graph,
@@ -6541,7 +6839,7 @@ def test_string_cypher_executes_recent_message_reentry_multihop_scalar_projectio
         ),
     ],
 )
-def test_string_cypher_failfast_rejects_unsupported_multihop_row_bindings(
+def test_string_cypher_failfast_rejects_remaining_unsupported_multihop_row_bindings(
     graph_factory: Callable[[], _CypherTestGraph],
     query: str,
     params: Optional[Dict[str, Any]],
@@ -6829,7 +7127,7 @@ def test_string_cypher_executes_multi_stage_with_match_reentry_empty_result_shap
     assert result._nodes.to_dict(orient="records") == []
 
 
-def test_string_cypher_failfast_rejects_multi_stage_with_match_reentry_with_intermediate_where() -> None:
+def test_string_cypher_executes_multi_stage_with_match_reentry_with_intermediate_where() -> None:
     query = (
         "MATCH (a:A)-[:R]->(b:B) "
         "WITH b "
@@ -6840,13 +7138,620 @@ def test_string_cypher_failfast_rejects_multi_stage_with_match_reentry_with_inte
         "RETURN d.id AS id"
     )
 
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
+
+
+def test_string_cypher_executes_post_with_reentry_where_direct_return() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "RETURN c.id AS cid"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"cid": "c"}]
+
+
+def test_string_cypher_executes_multi_stage_with_match_reentry_with_intermediate_where_and_carried_scalar() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "WITH c, bid "
+        "MATCH (c)-[:T]->(d:D) "
+        "RETURN bid, d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "d"}]
+
+
+def test_string_cypher_executes_multi_stage_with_match_reentry_with_intermediate_where_and_order_by() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "WITH c, bid "
+        "MATCH (c)-[:T]->(d:D) "
+        "RETURN bid, d.id AS id "
+        "ORDER BY id DESC, bid ASC"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "d"}]
+
+
+def test_string_cypher_executes_multi_stage_with_match_reentry_with_intermediate_where_empty_result() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'x' "
+        "WITH c, bid "
+        "MATCH (c)-[:T]->(d:D) "
+        "RETURN bid, d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_string_cypher_failfast_rejects_direct_match_after_post_with_where_without_intervening_with() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "MATCH (c)-[:T]->(d:D) "
+        "RETURN d.id AS id"
+    )
+
     with pytest.raises(
         GFQLSyntaxError,
-        match="Cypher WITH after post-WITH MATCH WHERE is not yet supported",
+        match="Cypher MATCH after post-WITH WHERE is not yet supported",
     ):
         _mk_multi_stage_reentry_graph().gfql(query)
 
 
+def test_string_cypher_executes_multiple_post_with_where_clauses() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "WITH c "
+        "MATCH (c)-[:T]->(d:D) "
+        "WHERE d.id = 'd' "
+        "WITH d "
+        "RETURN d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
+
+
+def test_string_cypher_executes_multiple_post_with_where_clauses_with_carried_scalar() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "WITH c, bid "
+        "MATCH (c)-[:T]->(d:D) "
+        "WHERE bid = 'b' AND d.id = 'd' "
+        "WITH d, bid "
+        "RETURN bid, d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "d"}]
+
+
+def test_string_cypher_executes_sparse_multiple_post_with_where_clauses() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH c "
+        "MATCH (c)-[:T]->(d:D) "
+        "WHERE d.id = 'd' "
+        "WITH d "
+        "RETURN d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
+
+
+def test_string_cypher_executes_multiple_post_with_where_clauses_empty_second_stage() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "WITH c "
+        "MATCH (c)-[:T]->(d:D) "
+        "WHERE d.id = 'x' "
+        "WITH d "
+        "RETURN d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_string_cypher_executes_multiple_post_with_where_clauses_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "WITH c "
+        "MATCH (c)-[:T]->(d:D) "
+        "WHERE d.id = 'd' "
+        "WITH d "
+        "RETURN d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph_cudf().gfql(query, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"id": "d"}]
+
+
+def test_string_cypher_failfast_rejects_direct_match_after_second_post_with_where_without_intervening_with() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE c.id = 'c' "
+        "WITH c "
+        "MATCH (c)-[:T]->(d:D) "
+        "WHERE d.id = 'd' "
+        "MATCH (d)-[:U]->(e) "
+        "RETURN e.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLSyntaxError,
+        match="Cypher MATCH after post-WITH WHERE is not yet supported",
+    ):
+        _mk_multi_stage_reentry_graph_with_terminal_u().gfql(query)
+
+
+def test_string_cypher_executes_post_with_match_collect_unwind_match_before_return() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH collect(distinct c) AS cs "
+        "UNWIND cs AS c2 "
+        "MATCH (c2)-[:T]->(d:D) "
+        "RETURN d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
+
+
+def test_string_cypher_executes_post_with_match_collect_unwind_match_with_carried_scalar() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH bid, collect(distinct c) AS cs "
+        "UNWIND cs AS c2 "
+        "MATCH (c2)-[:T]->(d:D) "
+        "RETURN bid, d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "d"}]
+
+
+def test_string_cypher_failfast_rejects_post_with_match_collect_unwind_match_final_with_carried_scalar() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH bid, collect(distinct c) AS cs "
+        "UNWIND cs AS c2 "
+        "MATCH (c2)-[:T]->(d:D) "
+        "WITH d, bid "
+        "RETURN bid, d.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="Cypher row lowering currently supports one MATCH source alias at a time",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
+def test_string_cypher_failfast_rejects_post_with_match_collect_unwind_match_final_with_order_by_limit() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH bid, collect(distinct c) AS cs "
+        "UNWIND cs AS c2 "
+        "MATCH (c2)-[:T]->(d:D) "
+        "WITH d, bid "
+        "ORDER BY d.id DESC "
+        "LIMIT 1 "
+        "RETURN bid, d.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="Cypher row lowering currently supports one MATCH source alias at a time",
+    ):
+        _mk_connected_multi_pattern_fanout_graph().gfql(query)
+
+
+def test_string_cypher_executes_post_with_match_collect_unwind_match_empty_result() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH collect(distinct c) AS cs "
+        "UNWIND cs AS c2 "
+        "MATCH (c2)-[:X]->(d:D) "
+        "RETURN d.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_string_cypher_failfast_rejects_post_with_match_non_collect_unwind_match_shape() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH c "
+        "UNWIND [c] AS c2 "
+        "MATCH (c2)-[:T]->(d:D) "
+        "RETURN d.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="supports only a single WITH collect\\(\\[distinct\\] alias\\) AS list UNWIND list AS alias MATCH \\.\\.\\. RETURN shape",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
+def test_string_cypher_failfast_rejects_post_with_match_unwind_after_reentry_with() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH c, bid "
+        "UNWIND [c] AS c2 "
+        "RETURN bid, c2.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="Cypher UNWIND after WITH/RETURN is not yet supported once MATCH has introduced graph aliases",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
+def test_string_cypher_failfast_rejects_multiple_post_with_match_unwinds() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "UNWIND [c] AS c2 "
+        "UNWIND [c2] AS c3 "
+        "RETURN c3.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLSyntaxError,
+        match="Cypher only supports one UNWIND after post-WITH MATCH",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
+def test_string_cypher_failfast_rejects_match_after_post_with_match_unwind() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH collect(distinct c) AS cs "
+        "UNWIND cs AS c2 "
+        "MATCH (c2)-[:T]->(d:D) "
+        "MATCH (d)-[:Z]->(e) "
+        "RETURN e.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLSyntaxError,
+        match="Cypher MATCH after post-WITH MATCH UNWIND is not yet supported",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
+def test_string_cypher_executes_post_with_match_with_before_return() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH c "
+        "RETURN c.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "c"}]
+
+
+def test_issue_1000_ic6_compiles_after_phase6_connected_star_fanout() -> None:
+    compiled = compile_cypher(_issue_1000_ic6_query(), params=_issue_1000_ic6_params())
+
+    assert compiled is not None
+
+
+def test_string_cypher_executes_issue_1000_ic6_exact_runtime_minimal() -> None:
+    result = _mk_issue_1000_ic6_minimal_graph().gfql(
+        _issue_1000_ic6_query(),
+        params=_issue_1000_ic6_params(),
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"tagName": "Alpha", "postCount": 1},
+        {"tagName": "Beta", "postCount": 1},
+    ]
+
+
+def test_string_cypher_executes_scalar_only_prefix_with_match_reentry() -> None:
+    query = _prefix_scalar_reentry_query(order_by="id")
+
+    result = _mk_prefix_scalar_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "post1"}, {"id": "post2"}]
+
+
+def test_string_cypher_executes_scalar_only_prefix_with_match_reentry_scalar_projection() -> None:
+    query = _prefix_scalar_reentry_query(
+        return_clause="knownTagId, post.id AS postId",
+        order_by="postId",
+    )
+
+    result = _mk_prefix_scalar_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"knownTagId": 101, "postId": "post1"},
+        {"knownTagId": 101, "postId": "post2"},
+    ]
+
+
+def test_string_cypher_executes_scalar_only_prefix_with_match_reentry_multiple_scalars() -> None:
+    query = _prefix_scalar_reentry_query(
+        with_clause="knownTag.tagId AS knownTagId, knownTag.name AS knownTagName",
+        return_clause="knownTagId, knownTagName, post.id AS postId",
+        order_by="postId",
+    )
+
+    result = _mk_prefix_scalar_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"knownTagId": 101, "knownTagName": "topic", "postId": "post1"},
+        {"knownTagId": 101, "knownTagName": "topic", "postId": "post2"},
+    ]
+
+
+def test_string_cypher_executes_scalar_only_prefix_with_match_reentry_empty_prefix() -> None:
+    query = _prefix_scalar_reentry_query(tag_name="missing")
+
+    result = _mk_prefix_scalar_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_string_cypher_executes_scalar_only_prefix_with_match_reentry_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    query = _prefix_scalar_reentry_query(order_by="id")
+
+    result = _mk_prefix_scalar_reentry_graph_cudf().gfql(query, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"id": "post1"}, {"id": "post2"}]
+
+
+def test_string_cypher_failfast_rejects_scalar_only_prefix_with_match_reentry_multi_row_prefix() -> None:
+    query = _prefix_scalar_reentry_query()
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="Cypher MATCH after WITH scalar-only prefix stages currently require exactly one prefix row",
+    ):
+        _mk_prefix_scalar_reentry_duplicate_seed_graph().gfql(query)
+
+
+def test_string_cypher_failfast_rejects_scalar_only_prefix_with_match_reentry_prefix_ordering() -> None:
+    query = (
+        "MATCH (knownTag:Tag { name: 'topic' }) "
+        "WITH knownTag.tagId AS knownTagId "
+        "ORDER BY knownTagId DESC "
+        "MATCH (post:Post)-[:HAS_TAG]->(t:Tag {tagId: knownTagId}) "
+        "RETURN post.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="Cypher MATCH after WITH scalar-only prefix stages do not yet support ORDER BY, SKIP, or LIMIT",
+    ):
+        _mk_prefix_scalar_reentry_graph().gfql(query)
+
+
+def test_string_cypher_failfast_rejects_scalar_only_prefix_with_match_reentry_prefix_limit() -> None:
+    query = (
+        "MATCH (knownTag:Tag { name: 'topic' }) "
+        "WITH knownTag.tagId AS knownTagId "
+        "LIMIT 1 "
+        "MATCH (post:Post)-[:HAS_TAG]->(t:Tag {tagId: knownTagId}) "
+        "RETURN post.id AS id"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="Cypher MATCH after WITH scalar-only prefix stages do not yet support ORDER BY, SKIP, or LIMIT",
+    ):
+        _mk_prefix_scalar_reentry_graph().gfql(query)
+
+def test_string_cypher_failfast_rejects_scalar_only_prefix_alias_reused_as_node_variable() -> None:
+    with pytest.raises(
+        GFQLValidationError,
+        match="Cypher MATCH after WITH scalar-only prefix aliases cannot be reused as node variables",
+    ):
+        _mk_reentry_carried_scalar_graph().gfql(
+            "MATCH (a:A) WITH [a] AS users MATCH (users)-->(messages) RETURN messages.id AS mid"
+        )
+
+
+def test_string_cypher_executes_scalar_prefix_reentry_connected_star_comma_fanout() -> None:
+    query = (
+        "MATCH (knownTag:Tag { name: 'topic' }) "
+        "WITH knownTag.tagId AS knownTagId "
+        "MATCH (f:Person)<-[:HAS_CREATOR]-(post:Post), "
+        "(post)-[:HAS_TAG]->(t:Tag {tagId: knownTagId}), "
+        "(post)-[:HAS_TAG]->(tag:Tag) "
+        "WHERE NOT t = tag "
+        "RETURN post.id AS postId, tag.name AS tagName "
+        "ORDER BY postId, tagName"
+    )
+
+    result = _mk_connected_post_tag_fanout_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"postId": "post1", "tagName": "other"}]
+
+
+def test_string_cypher_executes_scalar_prefix_reentry_connected_star_comma_fanout_grouped_count() -> None:
+    query = (
+        "MATCH (knownTag:Tag { name: 'topic' }) "
+        "WITH knownTag.tagId AS knownTagId "
+        "MATCH (f:Person)<-[:HAS_CREATOR]-(post:Post), "
+        "(post)-[:HAS_TAG]->(t:Tag {tagId: knownTagId}), "
+        "(post)-[:HAS_TAG]->(tag:Tag) "
+        "WHERE NOT t = tag "
+        "WITH tag.name AS tagName, count(post) AS postCount "
+        "RETURN tagName, postCount"
+    )
+
+    result = _mk_connected_post_tag_fanout_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"tagName": "other", "postCount": 1}]
+
+
+def test_string_cypher_executes_connected_star_comma_fanout_grouped_count_without_reentry() -> None:
+    query = (
+        "MATCH (f:Person)<-[:HAS_CREATOR]-(post:Post), "
+        "(post)-[:HAS_TAG]->(t:Tag {tagId: 101}), "
+        "(post)-[:HAS_TAG]->(tag:Tag) "
+        "WHERE NOT t = tag "
+        "RETURN tag.name AS tagName, count(post) AS postCount"
+    )
+
+    result = _mk_connected_post_tag_fanout_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"tagName": "other", "postCount": 1}]
+
+
+def test_string_cypher_executes_scalar_prefix_reentry_connected_star_comma_fanout_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    query = (
+        "MATCH (knownTag:Tag { name: 'topic' }) "
+        "WITH knownTag.tagId AS knownTagId "
+        "MATCH (f:Person)<-[:HAS_CREATOR]-(post:Post), "
+        "(post)-[:HAS_TAG]->(t:Tag {tagId: knownTagId}), "
+        "(post)-[:HAS_TAG]->(tag:Tag) "
+        "WHERE NOT t = tag "
+        "RETURN post.id AS postId, tag.name AS tagName "
+        "ORDER BY postId, tagName"
+    )
+
+    result = _mk_connected_post_tag_fanout_graph_cudf().gfql(query, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"postId": "post1", "tagName": "other"}]
+
+
+def test_string_cypher_executes_connected_multi_pattern_grouped_aggregate_overlap() -> None:
+    query = (
+        "MATCH (b:B)-[:S]->(c:C), (c)-[:T]->(d:D) "
+        "RETURN c.id AS cid, count(d) AS cnt "
+        "ORDER BY cid"
+    )
+
+    result = _mk_connected_multi_pattern_fanout_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"cid": "c1", "cnt": 2}]
+
+
+def test_string_cypher_executes_connected_multi_pattern_grouped_distinct_aggregate_overlap() -> None:
+    query = (
+        "MATCH (b:B)-[:S]->(c:C), (c)-[:T]->(d:D) "
+        "RETURN c.id AS cid, count(DISTINCT d) AS cnt "
+        "ORDER BY cid"
+    )
+
+    result = _mk_connected_multi_pattern_fanout_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"cid": "c1", "cnt": 2}]
+
+
+def test_string_cypher_executes_with_match_reentry_connected_multi_pattern_grouped_aggregate_overlap() -> None:
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C), (c)-[:T]->(d:D) "
+        "RETURN bid, count(d) AS cnt "
+        "ORDER BY bid"
+    )
+
+    result = _mk_connected_multi_pattern_fanout_graph().gfql(query, params={"seed": "a1"})
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1", "cnt": 2}]
+
+
+def test_string_cypher_executes_connected_multi_pattern_grouped_aggregate_overlap_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    query = (
+        "MATCH (b:B)-[:S]->(c:C), (c)-[:T]->(d:D) "
+        "RETURN c.id AS cid, count(d) AS cnt "
+        "ORDER BY cid"
+    )
+
+    result = _mk_connected_multi_pattern_fanout_graph_cudf().gfql(query, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"cid": "c1", "cnt": 2}]
 def test_cypher_to_gfql_supports_multi_alias_scalar_projection() -> None:
     """Multi-alias scalar projections are supported via bindings table."""
     chain = cypher_to_gfql("MATCH (p)-[r]->(q) RETURN p.id, q.id")

@@ -27,6 +27,7 @@ from graphistry.compute.gfql.same_path_types import (
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.api import compile_cypher
 from graphistry.compute.gfql.cypher.lowering import (
+    ConnectedMatchJoinPlan,
     CompiledCypherGraphQuery,
     CompiledCypherQuery,
     CompiledCypherUnionQuery,
@@ -359,6 +360,115 @@ def _apply_connected_optional_match(
     return _chain_dispatch(joined_plottable, plan.post_join_chain, engine, policy, context)
 
 
+def _binding_join_columns(frame: DataFrameT) -> List[str]:
+    return [
+        column
+        for column in frame.columns
+        if isinstance(column, str) and "." in column
+    ]
+
+
+def _joined_hidden_scalar_columns(frame: DataFrameT) -> DataFrameT:
+    hidden_suffixes: Dict[str, List[str]] = {}
+    for column in frame.columns:
+        if not isinstance(column, str) or "." not in column:
+            continue
+        _, suffix = column.split(".", 1)
+        if suffix.startswith("__cypher_reentry_") or suffix.startswith("__gfql_hidden_"):
+            hidden_suffixes.setdefault(suffix, []).append(column)
+    out = frame
+    for suffix, columns in hidden_suffixes.items():
+        if suffix in out.columns:
+            continue
+        series = out[columns[0]]
+        for column in columns[1:]:
+            if hasattr(series, "combine_first"):
+                series = series.combine_first(out[column])
+        out = out.assign(**{suffix: series})
+    return out
+
+
+def _joined_alias_columns(frame: DataFrameT) -> DataFrameT:
+    alias_candidates: Dict[str, str] = {}
+    for column in frame.columns:
+        if not isinstance(column, str) or "." not in column:
+            continue
+        alias, suffix = column.split(".", 1)
+        if alias in frame.columns:
+            continue
+        if suffix == alias:
+            alias_candidates.setdefault(alias, column)
+        elif suffix == "id" and alias not in alias_candidates:
+            alias_candidates[alias] = column
+    out = frame
+    for alias, source_column in alias_candidates.items():
+        out = out.assign(**{alias: out[source_column]})
+    return out
+
+
+def _apply_connected_match_join(
+    base_graph: Plottable,
+    plan: ConnectedMatchJoinPlan,
+    *,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+) -> Plottable:
+    from graphistry.compute.ast import ASTCall, serialize_binding_ops
+
+    concrete_engine = resolve_engine(cast(Any, engine), base_graph)
+    df_ctor = df_cons(concrete_engine)
+    node_col = getattr(base_graph, "_node", "id")
+
+    joined_rows: Optional[DataFrameT] = None
+    for idx, pattern_chain in enumerate(plan.pattern_chains):
+        with_rows = Chain(
+            list(pattern_chain.chain) + [ASTCall("rows", {"binding_ops": serialize_binding_ops(pattern_chain.chain)})],
+            where=pattern_chain.where,
+        )
+        pattern_result = _chain_dispatch(base_graph, with_rows, engine, policy, context)
+        pattern_rows = cast(Optional[DataFrameT], getattr(pattern_result, "_nodes", None))
+        if pattern_rows is None or len(pattern_rows) == 0:
+            out = base_graph.bind()
+            out._nodes = df_ctor()
+            out._edges = df_ctor()
+            return out
+        pattern_rows = cast(DataFrameT, pattern_rows[_binding_join_columns(pattern_rows)])
+        if joined_rows is None:
+            joined_rows = pattern_rows
+            continue
+        shared_aliases = plan.pattern_shared_node_aliases[idx - 1]
+        join_cols = [
+            f"{alias}.{node_col}"
+            for alias in shared_aliases
+            if f"{alias}.{node_col}" in joined_rows.columns and f"{alias}.{node_col}" in pattern_rows.columns
+        ]
+        if not join_cols:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Cypher connected comma-pattern join lowering could not recover shared node identity columns for the runtime join",
+                field="match",
+                value=list(shared_aliases),
+                suggestion="Use a simpler connected MATCH shape in the local compiler.",
+                language="cypher",
+            )
+        keep_cols = [column for column in pattern_rows.columns if column in join_cols or column not in joined_rows.columns]
+        joined_rows = cast(DataFrameT, joined_rows.merge(pattern_rows[keep_cols], on=join_cols, how="inner"))
+
+    if joined_rows is None or len(joined_rows) == 0:
+        out = base_graph.bind()
+        out._nodes = df_ctor()
+        out._edges = df_ctor()
+        return out
+
+    joined_rows = _joined_hidden_scalar_columns(joined_rows)
+    joined_rows = _joined_alias_columns(joined_rows)
+    joined_plottable = base_graph.bind()
+    joined_plottable._nodes = joined_rows
+    joined_plottable._edges = df_ctor()
+    return _chain_dispatch(joined_plottable, plan.post_join_chain, engine, policy, context)
+
+
 def _execute_graph_constructor_compiled(
     base_graph: Plottable,
     chain: Chain,
@@ -492,6 +602,15 @@ def _execute_compiled_query(
         out._edges = df_ctor()
         return out
 
+    if compiled_query.connected_match_join is not None:
+        return _apply_connected_match_join(
+            base_graph,
+            compiled_query.connected_match_join,
+            engine=engine,
+            policy=policy,
+            context=context,
+        )
+
     dispatch_graph = base_graph
     if compiled_query.procedure_call is not None:
         dispatch_graph = execute_cypher_call(base_graph, compiled_query.procedure_call)
@@ -592,12 +711,20 @@ def _execute_compiled_query_with_reentry(
             policy=policy,
             context=context,
         )
-        compiled_base_graph, start_nodes = _compiled_query_reentry_state(
-            base_graph,
-            compiled_query,
-            prefix_result,
-            engine=engine,
-        )
+        if compiled_query.scalar_reentry_alias is not None:
+            compiled_base_graph, start_nodes = _compiled_query_scalar_reentry_state(
+                base_graph,
+                compiled_query,
+                prefix_result,
+                engine=engine,
+            )
+        else:
+            compiled_base_graph, start_nodes = _compiled_query_reentry_state(
+                base_graph,
+                compiled_query,
+                prefix_result,
+                engine=engine,
+            )
     return _execute_compiled_query(
         compiled_base_graph,
         compiled_query=compiled_query,
@@ -690,6 +817,75 @@ def _compiled_query_reentry_state(
         carried_node_ids=carried_node_ids,
         id_column=id_column,
     )
+
+
+def _compiled_query_scalar_reentry_state(
+    base_graph: Plottable,
+    compiled_query: CompiledCypherQuery,
+    prefix_result: Plottable,
+    *,
+    engine: Union[EngineAbstract, str],
+) -> Tuple[Plottable, Optional[DataFrameT]]:
+    carried_columns = compiled_query.scalar_reentry_columns
+    if not carried_columns:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH scalar-only prefix stages could not recover carried scalar columns",
+            value=None,
+            suggestion="Project at least one identifier-style scalar column before MATCH re-entry.",
+        )
+    prefix_rows = getattr(prefix_result, "_nodes", None)
+    if prefix_rows is None:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH scalar-only prefix stages could not recover prefix rows",
+            value=None,
+            suggestion="Project scalar columns directly before MATCH re-entry.",
+        )
+    prefix_row_count = len(prefix_rows)
+    base_nodes = getattr(base_graph, "_nodes", None)
+    if prefix_row_count == 0:
+        if base_nodes is None:
+            return base_graph, None
+        dispatch_graph = base_graph.bind()
+        dispatch_graph._nodes = cast(DataFrameT, base_nodes.iloc[0:0])
+        edges_df = getattr(base_graph, "_edges", None)
+        if edges_df is not None:
+            dispatch_graph._edges = cast(DataFrameT, edges_df.iloc[0:0])
+        return dispatch_graph, None
+    if prefix_row_count != 1:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH scalar-only prefix stages currently require exactly one prefix row",
+            value=prefix_row_count,
+            suggestion="Reduce the prefix WITH stage to a single scalar row before MATCH re-entry.",
+        )
+    if base_nodes is None:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH scalar-only prefix stages could not recover the base node table for re-entry",
+            value=None,
+            suggestion="Retry with a node-backed graph before MATCH re-entry.",
+        )
+    missing_column = next((name for name in carried_columns if name not in prefix_rows.columns), None)
+    if missing_column is not None:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH scalar-only prefix stages could not recover a carried scalar column from the prefix stage",
+            value=missing_column,
+            suggestion="Project the scalar column explicitly before MATCH re-entry.",
+        )
+    first_row = prefix_rows.iloc[0]
+    node_rows = cast(
+        DataFrameT,
+        base_nodes.assign(
+            **{
+                _reentry_hidden_column_name(output_name): first_row[output_name]
+                for output_name in carried_columns
+            }
+        ),
+    )
+    dispatch_graph = base_graph.bind()
+    dispatch_graph._nodes = node_rows
+    edges_df = getattr(base_graph, "_edges", None)
+    if edges_df is not None:
+        dispatch_graph._edges = edges_df
+    return dispatch_graph, None
 
 
 def _compiled_query_reentry_contract(
