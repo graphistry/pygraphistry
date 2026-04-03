@@ -2245,12 +2245,73 @@ def _filter_dict_from_entries(
     elif discriminator_key is not None and len(discriminator_values) > 1:
         out[discriminator_key] = is_in(list(discriminator_values))
     for entry in properties:
+        if isinstance(entry.value, ExpressionText):
+            continue
         out[entry.key] = _resolve_literal(
             entry.value,
             params=params,
             field=f"{field_prefix}.{entry.key}",
         )
     return out or None
+
+
+def _render_dynamic_property_entry_predicate(
+    *,
+    alias: str,
+    key: str,
+    expr: ExpressionText,
+) -> str:
+    return f"{alias}.{key} = ({expr.text})"
+
+
+def _is_hidden_reentry_property(property_name: str) -> bool:
+    return property_name.startswith("__cypher_reentry_") or property_name.startswith("__gfql_hidden_")
+
+
+def _dynamic_property_entry_constraints(
+    clause: MatchClause,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+) -> Tuple[List[WhereComparison], List[str]]:
+    where_out: List[WhereComparison] = []
+    row_predicates: List[str] = []
+    force_row_predicates = _cartesian_node_only_patterns(clause) is not None
+    for element in _match_pattern_elements(clause):
+        alias = getattr(element, "variable", None)
+        properties = getattr(element, "properties", ())
+        for entry in properties:
+            if not isinstance(entry.value, ExpressionText):
+                continue
+            if alias is None:
+                raise _unsupported(
+                    "Cypher expression-valued pattern properties currently require an explicit alias",
+                    field="match",
+                    value=entry.key,
+                    line=entry.span.line,
+                    column=entry.span.column,
+                )
+            node = _parse_row_expr(
+                entry.value.text,
+                params=params,
+                alias_targets=alias_targets,
+                field=f"match.{alias}.{entry.key}",
+                line=entry.value.span.line,
+                column=entry.value.span.column,
+            )
+            if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
+                source_alias = node.value.name
+                if (
+                    source_alias in alias_targets
+                    and not _is_hidden_reentry_property(node.property)
+                    and not force_row_predicates
+                ):
+                    where_out.append(compare(col(alias, entry.key), "==", col(source_alias, node.property)))
+                    continue
+            row_predicates.append(
+                _render_dynamic_property_entry_predicate(alias=alias, key=entry.key, expr=entry.value)
+            )
+    return where_out, row_predicates
 
 
 def _lower_node(node: NodePattern, *, params: Optional[Mapping[str, Any]]) -> ASTNode:
@@ -2502,6 +2563,27 @@ def _binding_row_aliases_for_match(
     if len(alias_targets) <= 1:
         return set()
     if not all(isinstance(target, ASTNode) for target in alias_targets.values()):
+        return set()
+    return set(alias_targets.keys())
+
+
+def _binding_row_aliases_for_row_where(
+    row_where: Optional[ExpressionText],
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+) -> Set[str]:
+    if row_where is None:
+        return set()
+    referenced = _expr_match_aliases(
+        row_where.text,
+        alias_targets=alias_targets,
+        params=params,
+        field="where",
+        line=row_where.span.line,
+        column=row_where.span.column,
+    )
+    if len(referenced) <= 1:
         return set()
     return set(alias_targets.keys())
 
@@ -3725,6 +3807,13 @@ def _lower_projection_chain(
 ) -> List[ASTObject]:
     alias_targets = _alias_target(lowered.query)
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+    binding_row_aliases.update(
+        _binding_row_aliases_for_row_where(
+            lowered.row_where,
+            alias_targets=alias_targets,
+            params=params,
+        )
+    )
     if plan is None:
         try:
             active = _active_match_alias(
@@ -3749,7 +3838,9 @@ def _lower_projection_chain(
                 raise _multi_alias_exc
 
     allowed_match_aliases = (
-        ({plan.source_alias} | plan.all_source_aliases) if plan.all_source_aliases is not None else binding_row_aliases
+        ({plan.source_alias} | plan.all_source_aliases | binding_row_aliases)
+        if plan.all_source_aliases is not None
+        else binding_row_aliases
     )
     if plan.all_source_aliases is not None or binding_row_aliases:
         row_steps: List[ASTObject] = [rows(binding_ops=serialize_binding_ops(lowered.query))]
@@ -3814,6 +3905,13 @@ def _build_initial_row_scope(
         }
         if len(whole_row_refs) > 1:
             binding_row_aliases = set(alias_targets.keys())
+    binding_row_aliases.update(
+        _binding_row_aliases_for_row_where(
+            lowered.row_where,
+            alias_targets=alias_targets,
+            params=params,
+        )
+    )
     active_match_alias = _active_match_alias_for_stage(
         unwinds=query.unwinds,
         clause=stage_clause,
@@ -5365,9 +5463,15 @@ def lower_match_query(
     alias_targets = _alias_target(ops)
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
     where_out: List[WhereComparison] = list(duplicate_alias_where)
+    dynamic_where_out, dynamic_row_where_predicates = _dynamic_property_entry_constraints(
+        merged_match,
+        alias_targets=alias_targets,
+        params=params,
+    )
+    where_out.extend(dynamic_where_out)
 
     row_where: Optional[ExpressionText] = None
-    row_where_predicates: List[str] = []
+    row_where_predicates: List[str] = list(dynamic_row_where_predicates)
     if query.where is not None:
         if query.where.expr is not None:
             type_where = _extract_relationship_type_where(
@@ -5420,12 +5524,12 @@ def lower_match_query(
                 right=cast(Optional[CypherLiteral], predicate.right),
                 params=params,
             )
-        if row_where_predicates:
-            combined_expr = " and ".join(row_where_predicates)
-            row_where = ExpressionText(
-                text=combined_expr if row_where is None else f"({row_where.text}) and ({combined_expr})",
-                span=query.where.span,
-            )
+    if row_where_predicates:
+        combined_expr = " and ".join(row_where_predicates)
+        row_where = ExpressionText(
+            text=combined_expr if row_where is None else f"({row_where.text}) and ({combined_expr})",
+            span=query.where.span if query.where is not None else merged_match.span,
+        )
 
     return LoweredCypherMatch(query=ops, where=where_out, row_where=row_where)
 
@@ -5610,6 +5714,15 @@ def _lower_general_row_projection(
                 source=active_match_alias,
             )
         ]
+
+    _append_match_row_where(
+        row_steps,
+        lowered=lowered,
+        alias_targets=alias_targets,
+        active_alias=active_match_alias,
+        allowed_match_aliases=binding_row_aliases or None,
+        params=params,
+    )
 
     unwind_aliases: Set[str] = set()
     for unwind_clause in query.unwinds:
@@ -6131,6 +6244,48 @@ def _rewrite_reentry_projection_clause(
     )
 
 
+def _rewrite_reentry_property_entry(
+    entry: PropertyEntry,
+    *,
+    rewrite_expr: Callable[[ExpressionText, str], ExpressionText],
+) -> PropertyEntry:
+    if not isinstance(entry.value, ExpressionText):
+        return entry
+    return replace(
+        entry,
+        value=rewrite_expr(entry.value, "match.property"),
+    )
+
+
+def _rewrite_reentry_pattern_element(
+    element: PatternElement,
+    *,
+    rewrite_expr: Callable[[ExpressionText, str], ExpressionText],
+) -> PatternElement:
+    rewritten_properties = tuple(
+        _rewrite_reentry_property_entry(entry, rewrite_expr=rewrite_expr)
+        for entry in element.properties
+    )
+    return replace(element, properties=rewritten_properties)
+
+
+def _rewrite_reentry_match_clause(
+    clause: MatchClause,
+    *,
+    rewrite_expr: Callable[[ExpressionText, str], ExpressionText],
+) -> MatchClause:
+    return replace(
+        clause,
+        patterns=tuple(
+            tuple(
+                _rewrite_reentry_pattern_element(element, rewrite_expr=rewrite_expr)
+                for element in pattern
+            )
+            for pattern in clause.patterns
+        ),
+    )
+
+
 def _rewrite_reentry_projection_stage(
     stage: ProjectionStage,
     *,
@@ -6338,7 +6493,14 @@ def _compile_bounded_reentry_query(
     reentry_order_by = query.order_by
     rewritten_with_stages = remaining_with_stages
     rewritten_reentry_where = query.reentry_where if remaining_reentry_matches else None
+    rewritten_reentry_match = reentry_match
+    rewritten_remaining_reentry_matches = remaining_reentry_matches
     if hidden_columns:
+        rewritten_reentry_match = _rewrite_reentry_match_clause(reentry_match, rewrite_expr=rewrite_expr)
+        rewritten_remaining_reentry_matches = tuple(
+            _rewrite_reentry_match_clause(match_clause, rewrite_expr=rewrite_expr)
+            for match_clause in remaining_reentry_matches
+        )
         rewritten_with_stages = tuple(
             _rewrite_reentry_projection_stage(stage, rewrite_expr=rewrite_expr)
             for stage in remaining_with_stages
@@ -6373,13 +6535,13 @@ def _compile_bounded_reentry_query(
         row_sequence=(),
         graph_bindings=(),
         use=None,
-        matches=(reentry_match,),
+        matches=(rewritten_reentry_match,),
         where=reentry_where,
         unwinds=(),
         with_stages=rewritten_with_stages,
         return_=reentry_return,
         order_by=reentry_order_by,
-        reentry_matches=remaining_reentry_matches,
+        reentry_matches=rewritten_remaining_reentry_matches,
         reentry_where=rewritten_reentry_where,
     )
     suffix_compiled = compile_cypher_query(suffix_query, params=params)

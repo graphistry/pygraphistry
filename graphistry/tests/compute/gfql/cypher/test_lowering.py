@@ -75,6 +75,20 @@ def _mk_cartesian_node_graph() -> _CypherTestGraph:
     )
 
 
+def _mk_cartesian_dynamic_pattern_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b1", "b2"],
+                "label__A": [True, True, False, False],
+                "label__B": [False, False, True, True],
+                "num": [1, 2, 1, 3],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+
 def _mk_path_with_isolate_graph() -> _CypherTestGraph:
     return _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c", "z"]}),
@@ -505,6 +519,145 @@ def test_lower_match_clause_to_gfql_ops() -> None:
     assert ops[2]._name == "q"
 
 
+def test_string_cypher_supports_same_path_alias_comparison_where_runtime() -> None:
+    result = _mk_reentry_carried_scalar_graph().gfql(
+        "MATCH (a:A)-[:R]->(b) WHERE b.num = a.num RETURN b.id AS bid ORDER BY bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1"}]
+
+
+def test_string_cypher_preserves_alias_frames_for_same_path_multi_column_projection() -> None:
+    result = _mk_reentry_carried_scalar_graph().gfql(
+        "MATCH (a:A)-[:R]->(b) WHERE b.num = a.num RETURN a.id AS aid, b.id AS bid ORDER BY aid, bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a1", "bid": "b1"}]
+
+
+def test_string_cypher_supports_same_path_expression_valued_pattern_property() -> None:
+    parsed = _parse_query("MATCH (a:A)-[:R]->(b {num: a.num}) RETURN b.id AS bid ORDER BY bid")
+    lowered = lower_match_query(parsed)
+
+    assert lowered.row_where is None
+    assert lowered.where == [compare(col("b", "num"), "==", col("a", "num"))]
+
+    result = _mk_reentry_carried_scalar_graph().gfql(
+        "MATCH (a:A)-[:R]->(b {num: a.num}) RETURN b.id AS bid ORDER BY bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1"}]
+
+
+def test_lower_match_query_keeps_literal_pattern_filters_alongside_dynamic_property_entries() -> None:
+    parsed = _parse_query("MATCH (a:A {id: 'a1'})-[:R]->(b {id: 'b1', num: a.num}) RETURN b.id AS bid")
+    lowered = lower_match_query(parsed)
+
+    assert lowered.row_where is None
+    assert lowered.where == [compare(col("b", "num"), "==", col("a", "num"))]
+    assert isinstance(lowered.query[0], ASTNode)
+    assert isinstance(lowered.query[2], ASTNode)
+    assert lowered.query[0].filter_dict == {"id": "a1", "label__A": True}
+    assert lowered.query[2].filter_dict == {"id": "b1"}
+
+
+def test_lower_match_query_falls_back_to_row_where_for_non_property_dynamic_pattern_expression() -> None:
+    parsed = _parse_query("MATCH (a:A)-[:R]->(b {num: a.num + 0}) RETURN b.id AS bid")
+    lowered = lower_match_query(parsed)
+
+    assert lowered.where == []
+    assert lowered.row_where is not None
+    assert lowered.row_where.text == "b.num = (a.num + 0)"
+
+
+def test_string_cypher_supports_non_property_dynamic_pattern_expression_runtime() -> None:
+    result = _mk_reentry_carried_scalar_graph().gfql(
+        "MATCH (a:A)-[:R]->(b {num: a.num + 0}) RETURN b.id AS bid ORDER BY bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1"}]
+
+
+def test_lower_match_query_supports_relationship_expression_valued_pattern_property() -> None:
+    parsed = _parse_query("MATCH (a:A)-[r:R {weight: a.num}]->(b) RETURN b.id AS bid ORDER BY bid")
+    lowered = lower_match_query(parsed)
+
+    assert lowered.row_where is None
+    assert lowered.where == [compare(col("r", "weight"), "==", col("a", "num"))]
+
+
+def test_string_cypher_supports_relationship_expression_valued_pattern_property_runtime() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b1", "b2"],
+                "label__A": [True, True, False, False],
+                "num": [1, 2, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a1", "a2"],
+                "d": ["b1", "b2"],
+                "type": ["R", "R"],
+                "weight": [1, 99],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (a:A)-[r:R {weight: a.num}]->(b) RETURN b.id AS bid ORDER BY bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1"}]
+
+
+def test_string_cypher_supports_reentry_identifier_valued_pattern_property() -> None:
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b:B {id: bid})-[:S]->(c:C) "
+        "RETURN bid, c.id AS cid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1", "cid": "c1"}]
+
+
+def test_string_cypher_supports_reentry_relationship_expression_valued_pattern_property() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "b1", "b2", "c1", "c2"],
+                "label__A": [True, False, False, False, False],
+                "label__B": [False, True, True, False, False],
+                "label__C": [False, False, False, True, True],
+                "score": [None, 10, 20, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a1", "a1", "b1", "b2"],
+                "d": ["b1", "b2", "c1", "c2"],
+                "type": ["R", "R", "S", "S"],
+                "score": [None, None, 10, 99],
+            }
+        ),
+    )
+    query = (
+        "MATCH (a:A {id: 'a1'})-[:R]->(b:B) "
+        "WITH b, b.score AS bscore "
+        "MATCH (b)-[rel:S {score: bscore}]->(c:C) "
+        "RETURN b.id AS bid, c.id AS cid "
+        "ORDER BY bid, cid"
+    )
+
+    result = graph.gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1", "cid": "c1"}]
+
+
 @pytest.mark.parametrize(
     "query,edge_type",
     [
@@ -786,6 +939,16 @@ def test_lower_match_query_converts_cartesian_property_join_to_row_where_express
     assert lowered.row_where.text == "a.k = b.k"
 
 
+def test_lower_match_query_converts_cartesian_dynamic_pattern_property_to_row_where_expression() -> None:
+    lowered = lower_match_query(
+        _parse_query("MATCH (a:A), (b:B {num: a.num}) RETURN a.id AS aid, b.id AS bid")
+    )
+
+    assert lowered.where == []
+    assert lowered.row_where is not None
+    assert lowered.row_where.text == "b.num = (a.num)"
+
+
 def test_string_cypher_supports_cartesian_node_only_scalar_projection() -> None:
     result = _mk_cartesian_node_graph().gfql(
         "MATCH (n), (m) "
@@ -823,6 +986,26 @@ def test_string_cypher_supports_cartesian_node_only_global_count() -> None:
     assert result._nodes.to_dict(orient="records") == [
         {"cnt": 4},
     ]
+
+
+def test_string_cypher_supports_cartesian_dynamic_pattern_property_projection() -> None:
+    graph = _mk_cartesian_dynamic_pattern_graph()
+
+    result = graph.gfql(
+        "MATCH (a:A), (b:B {num: a.num}) "
+        "RETURN a.id AS aid, b.id AS bid "
+        "ORDER BY aid, bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a1", "bid": "b1"}]
+
+
+def test_string_cypher_supports_cartesian_dynamic_pattern_property_global_count() -> None:
+    graph = _mk_cartesian_dynamic_pattern_graph()
+
+    result = graph.gfql("MATCH (a:A), (b:B {num: a.num}) RETURN count(*) AS cnt")
+
+    assert result._nodes.to_dict(orient="records") == [{"cnt": 1}]
 
 
 def test_string_cypher_supports_cartesian_node_only_grouped_count() -> None:
@@ -6482,17 +6665,38 @@ def test_string_cypher_reentry_carried_scalars_ignore_internal_hidden_column_col
     assert result._nodes.to_pandas().to_dict(orient="records") == [{"property": 2}, {"property": 1}]
 
 
+def test_string_cypher_executes_with_match_reentry_carried_scalar_where() -> None:
+    query = _reentry_query(
+        "a, a.num AS property",
+        return_clause="property, b.id AS id",
+        where_clause="property = b.num",
+        order_by="id",
+    )
+
+    result = _mk_reentry_carried_scalar_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"property": 1, "id": "b1"}]
+
+
+def test_string_cypher_executes_with_match_reentry_carried_scalar_where_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    query = _reentry_query(
+        "a, a.num AS property",
+        return_clause="property, b.id AS id",
+        where_clause="property = b.num",
+        order_by="id",
+    )
+
+    result = _mk_reentry_carried_scalar_graph_cudf().gfql(query, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"property": 1, "id": "b1"}]
+
+
 @pytest.mark.parametrize(
     ("query", "match"),
     [
-        (
-            _reentry_query(
-                "a, a.num AS property",
-                return_clause="b.id AS id",
-                where_clause="property = b.num",
-            ),
-            "one MATCH source alias at a time",
-        ),
         (
             "MATCH (a:A) "
             "WITH a "
