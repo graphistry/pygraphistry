@@ -6494,6 +6494,7 @@ def _compile_bounded_reentry_query(
     first_alias = _first_pattern_node_alias(reentry_match)
     prefix_projection = prefix_compiled.result_projection
     scalar_only_prefix = prefix_projection is None
+    prefix_projection_table: Optional[Literal["nodes", "edges"]] = None
     if scalar_only_prefix:
         if first_alias is None:
             raise _unsupported_at_span(
@@ -6508,6 +6509,8 @@ def _compile_bounded_reentry_query(
             projection_items=projection_items,
         )
     else:
+        assert prefix_projection is not None
+        prefix_projection_table = prefix_projection.table
         reentry_alias, carry_columns = _bounded_reentry_carry_columns(
             prefix_projection,
             projection_items=projection_items,
@@ -6526,11 +6529,11 @@ def _compile_bounded_reentry_query(
             line=prefix_stage.order_by.span.line if prefix_stage.order_by is not None else prefix_stage.span.line,
             column=prefix_stage.order_by.span.column if prefix_stage.order_by is not None else prefix_stage.span.column,
         )
-    if not scalar_only_prefix and prefix_projection.table != "nodes":
+    if prefix_projection_table is not None and prefix_projection_table != "nodes":
         raise _unsupported_at_span(
             "Cypher MATCH after WITH currently supports node re-entry only",
             field="with",
-            value=prefix_projection.table,
+            value=prefix_projection_table,
             span=prefix_stage.span,
         )
     if len(query.return_.items) == 1 and query.return_.items[0].expression.text == "*":
