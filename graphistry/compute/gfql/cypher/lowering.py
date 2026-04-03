@@ -6501,9 +6501,15 @@ def _compile_bounded_reentry_query(
             for item in prefix_stage.clause.items
             if item.alias is not None
         }
+        reentry_node_aliases = {
+            element.variable
+            for pattern in reentry_match.patterns
+            for element in pattern
+            if isinstance(element, NodePattern) and element.variable is not None
+        }
         reused_scalar_aliases = sorted(
             scalar_prefix_aliases
-            & set().union(*(_pattern_node_aliases(pattern) for pattern in reentry_match.patterns))
+            & reentry_node_aliases
         )
         if reused_scalar_aliases:
             raise _unsupported_at_span(
