@@ -1572,6 +1572,54 @@ class TestChainBindingsTable(NoAuthTestCase):
             {"seedId": 1, "peerId": 3},
         ]
 
+    def test_direct_rows_binding_ops_supports_undirected_bounded_multihop_empty_result_on_cudf(self):
+        """Undirected bounded multihop replay should keep empty results on cuDF."""
+        g = self._mk_cudf_graph(
+            pd.DataFrame({"id": [1, 2]}),
+            pd.DataFrame(
+                {
+                    "s": [1],
+                    "d": [2],
+                    "type": ["R"],
+                }
+            ),
+        )
+        binding_ops = self._to_binding_ops(
+            [n({"id": 1}, name="seed"), e_undirected({"type": "R"}, min_hops=2, max_hops=2), n(name="peer")]
+        )
+
+        result = g.gfql(
+            [
+                rows(binding_ops=binding_ops),
+                select([("seedId", "seed.id"), ("peerId", "peer.id")]),
+            ],
+            engine="cudf",
+        )
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert result._nodes.to_pandas().to_dict(orient="records") == []
+
+    def test_direct_rows_binding_ops_supports_zero_hop_empty_multihop_seed_row_on_cudf(self):
+        """Zero-hop multihop replay should keep seed rows on cuDF even with no matching edges."""
+        g = self._mk_cudf_graph(
+            pd.DataFrame({"id": [1]}),
+            pd.DataFrame({"s": [], "d": [], "type": []}),
+        )
+        binding_ops = self._to_binding_ops(
+            [n({"id": 1}, name="seed"), e_undirected({"type": "R"}, min_hops=0, max_hops=2), n(name="peer")]
+        )
+
+        result = g.gfql(
+            [
+                rows(binding_ops=binding_ops),
+                select([("seedId", "seed.id"), ("peerId", "peer.id")]),
+            ],
+            engine="cudf",
+        )
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert result._nodes.to_pandas().to_dict(orient="records") == [{"seedId": 1, "peerId": 1}]
+
     def test_direct_rows_binding_ops_supports_bare_alias_token_expressions(self):
         """Bare alias ids should be available to downstream row expressions."""
         g = self._mk_graph(
