@@ -1336,6 +1336,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             reentry_match_clauses: List[MatchClause] = []
             where_clause: Optional[WhereClause] = None
             reentry_where_clause: Optional[WhereClause] = None
+            reentry_where_closed_by_with = False
             call_clause: Optional[CallClause] = None
             unwind_clauses: List[UnwindClause] = []
             staged_graph_unwind_span: Optional[SourceSpan] = None
@@ -1359,7 +1360,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                         )
                     use_clause_node = item
                 elif isinstance(item, MatchClause):
-                    if reentry_where_clause is not None:
+                    if reentry_where_clause is not None and not reentry_where_closed_by_with:
                         raise _to_syntax_error(
                             "Cypher MATCH after post-WITH WHERE is not yet supported in the current GFQL Cypher compiler",
                             line=item.span.line,
@@ -1418,12 +1419,6 @@ def _build_transformer(source: str) -> _TransformerLike:
                             line=item.span.line,
                             column=item.span.column,
                         )
-                    if reentry_where_clause is not None and item.clause.kind != "return":
-                        raise _to_syntax_error(
-                            "Cypher WITH after post-WITH MATCH WHERE is not yet supported in the current GFQL Cypher compiler",
-                            line=item.span.line,
-                            column=item.span.column,
-                        )
                     if reentry_match_clauses and item.clause.kind != "return" and item.clause.kind != "with":
                         raise _to_syntax_error(
                             "Cypher WITH after post-WITH MATCH is not yet supported in the current GFQL Cypher compiler",
@@ -1433,6 +1428,8 @@ def _build_transformer(source: str) -> _TransformerLike:
                     stages.append(item)
                     ordered_row_items.append(item)
                     seen_stage = True
+                    if reentry_where_clause is not None and item.clause.kind == "with":
+                        reentry_where_closed_by_with = True
             if len(stages) == 0 and call_clause is None:
                 raise _to_syntax_error(
                     "Cypher query must contain a RETURN/WITH clause",
