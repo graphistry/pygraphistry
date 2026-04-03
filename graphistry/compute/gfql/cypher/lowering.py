@@ -7126,6 +7126,16 @@ def _is_connected_optional_match_query(query: CypherQuery) -> bool:
     # handled by the existing _optional_null_fill_plan path.
     if not has_relationship and len(query.matches) == 2:
         return False
+    # Reject optional clauses with variable-length relationships — binding_ops
+    # can handle them for the base chain but the join semantics are untested.
+    for m in query.matches[1:]:
+        for pat in m.patterns:
+            for el in pat:
+                if isinstance(el, RelationshipPattern) and (
+                    el.min_hops is not None or el.max_hops is not None
+                    or (el.to_fixed_point if hasattr(el, "to_fixed_point") else False)
+                ):
+                    return False
     return True
 
 
