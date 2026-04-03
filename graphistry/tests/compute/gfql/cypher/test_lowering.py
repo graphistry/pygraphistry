@@ -7526,6 +7526,16 @@ def test_string_cypher_failfast_rejects_scalar_only_prefix_alias_reused_as_node_
             "MATCH (a:A) WITH [a] AS users MATCH (users)-->(messages) RETURN messages.id AS mid"
         )
 
+def test_string_cypher_failfast_rejects_scalar_only_prefix_alias_reused_as_node_variable() -> None:
+    with pytest.raises(
+        GFQLValidationError,
+        match="Cypher MATCH after WITH scalar-only prefix aliases cannot be reused as node variables",
+    ):
+        _mk_reentry_carried_scalar_graph().gfql(
+            "MATCH (a:A) WITH [a] AS users MATCH (users)-->(messages) RETURN messages.id AS mid"
+        )
+
+
 def test_string_cypher_executes_scalar_prefix_reentry_connected_star_comma_fanout() -> None:
     query = (
         "MATCH (knownTag:Tag { name: 'topic' }) "
