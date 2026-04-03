@@ -7595,18 +7595,57 @@ def test_string_cypher_executes_scalar_prefix_reentry_connected_star_comma_fanou
     assert result._nodes.to_pandas().to_dict(orient="records") == [{"postId": "post1", "tagName": "other"}]
 
 
-def test_string_cypher_failfast_rejects_connected_multi_pattern_grouped_aggregate_overlap() -> None:
+def test_string_cypher_executes_connected_multi_pattern_grouped_aggregate_overlap() -> None:
     query = (
         "MATCH (b:B)-[:S]->(c:C), (c)-[:T]->(d:D) "
         "RETURN c.id AS cid, count(d) AS cnt "
         "ORDER BY cid"
     )
 
-    with pytest.raises(
-        GFQLValidationError,
-        match="Cypher row lowering currently supports one MATCH source alias at a time",
-    ):
-        _mk_connected_multi_pattern_fanout_graph().gfql(query)
+    result = _mk_connected_multi_pattern_fanout_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"cid": "c1", "cnt": 2}]
+
+
+def test_string_cypher_executes_connected_multi_pattern_grouped_distinct_aggregate_overlap() -> None:
+    query = (
+        "MATCH (b:B)-[:S]->(c:C), (c)-[:T]->(d:D) "
+        "RETURN c.id AS cid, count(DISTINCT d) AS cnt "
+        "ORDER BY cid"
+    )
+
+    result = _mk_connected_multi_pattern_fanout_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"cid": "c1", "cnt": 2}]
+
+
+def test_string_cypher_executes_with_match_reentry_connected_multi_pattern_grouped_aggregate_overlap() -> None:
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C), (c)-[:T]->(d:D) "
+        "RETURN bid, count(d) AS cnt "
+        "ORDER BY bid"
+    )
+
+    result = _mk_connected_multi_pattern_fanout_graph().gfql(query, params={"seed": "a1"})
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1", "cnt": 2}]
+
+
+def test_string_cypher_executes_connected_multi_pattern_grouped_aggregate_overlap_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    query = (
+        "MATCH (b:B)-[:S]->(c:C), (c)-[:T]->(d:D) "
+        "RETURN c.id AS cid, count(d) AS cnt "
+        "ORDER BY cid"
+    )
+
+    result = _mk_connected_multi_pattern_fanout_graph_cudf().gfql(query, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"cid": "c1", "cnt": 2}]
 def test_cypher_to_gfql_supports_multi_alias_scalar_projection() -> None:
     """Multi-alias scalar projections are supported via bindings table."""
     chain = cypher_to_gfql("MATCH (p)-[r]->(q) RETURN p.id, q.id")
