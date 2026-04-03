@@ -7347,6 +7347,17 @@ def _apply_where_to_ops(
             continue
         if isinstance(predicate.right, PropertyRef):
             assert isinstance(predicate.left, PropertyRef)
+            # Reject cross-clause alias references: both sides must be in
+            # this clause's alias_targets to avoid runtime ValueError.
+            for ref in (predicate.left, predicate.right):
+                if ref.alias not in alias_targets:
+                    raise _unsupported(
+                        f"Cypher WHERE property comparison references alias '{ref.alias}' which is not bound in this MATCH clause",
+                        field="where",
+                        value=f"{predicate.left.alias}.{predicate.left.property} {predicate.op} {predicate.right.alias}.{predicate.right.property}",
+                        line=predicate.span.line,
+                        column=predicate.span.column,
+                    )
             where_out.append(
                 compare(
                     col(predicate.left.alias, predicate.left.property),
