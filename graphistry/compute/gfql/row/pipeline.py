@@ -3194,6 +3194,97 @@ class RowPipelineMixin:
         bindings = bindings.drop(columns=[col for col in drop_cols if col in bindings.columns])
         return bindings
 
+    def _gfql_shortest_path_scalar_native(
+        self,
+        seed_table: Any,
+        ops: Sequence[Any],
+        start_alias: str,
+        end_alias: str,
+        hop_column: str,
+        backend: str = "auto",
+    ) -> Optional[Any]:
+        """
+        Attempt to compute shortestPath hop distances via igraph/cugraph.
+
+        Returns a reachable_hops DataFrame (columns: start_alias, end_alias,
+        hop_column, f"{end_alias}.{hop_column}") on success, or None to
+        signal the caller should fall back to the BFS path.
+        """
+        from graphistry.compute.ast import ASTEdge
+        from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
+        from graphistry.compute.gfql.same_path.native_shortest_path import ShortestPathBackend, try_native_shortest_path
+
+        if self._nodes is None or self._edges is None or len(seed_table) == 0:
+            return None
+
+        base_graph = getattr(self, "_gfql_rows_base_graph", None) or getattr(self, "_g", None)
+        if base_graph is None:
+            return None
+        src_col = getattr(base_graph, "_source", None)
+        dst_col = getattr(base_graph, "_destination", None)
+        if src_col is None or dst_col is None:
+            return None
+        src_col, dst_col = str(src_col), str(dst_col)
+
+        edge_op = cast(ASTEdge, ops[1])
+        sem = EdgeSemantics.from_edge(edge_op)
+        min_hops = edge_op.min_hops if edge_op.min_hops is not None else (
+            edge_op.hops if edge_op.hops is not None else 1
+        )
+        max_hops = edge_op.max_hops if edge_op.max_hops is not None else (
+            edge_op.hops if edge_op.hops is not None else None
+        )
+        # Native backends only handle the shortestPath scalar contract:
+        # min_hops 0 or 1, unbounded or finite max, no edge aliases
+        if min_hops > 1:
+            return None
+
+        base_df = self._nodes if self._nodes is not None else self._edges
+        engine = resolve_engine(EngineAbstract.AUTO, base_df)
+
+        # Get the full filtered edge set by running edge_op across all nodes
+        base_nodes = getattr(base_graph, "_nodes", None)
+        if base_nodes is None:
+            return None
+        edge_result = edge_op(
+            g=base_graph,
+            prev_node_wavefront=base_nodes,
+            target_wave_front=None,
+            engine=engine,
+        )
+        edges_df = edge_result._edges
+        if edges_df is None or len(edges_df) == 0:
+            # No edges → all pairs are unreachable; return all-null result
+            base = seed_table[[start_alias, end_alias]]
+            null_val = self._gfql_broadcast_scalar(base, None)
+            return base.assign(**{hop_column: null_val, f"{end_alias}.{hop_column}": null_val})
+
+        step_pairs = sem.orient_edges(edges_df, src_col, dst_col, dedupe=True)[["__from__", "__to__"]]
+
+        sources = seed_table[start_alias]
+        targets = seed_table[end_alias]
+
+        native_result = try_native_shortest_path(
+            step_pairs, sources, targets,
+            min_hops=min_hops,
+            max_hops=max_hops,
+            directed=not sem.is_undirected,
+            engine=engine,
+            backend=cast(ShortestPathBackend, backend),
+        )
+        if native_result is None:
+            return None
+
+        # native_result has __sp_source__, __sp_target__, __sp_hops__
+        # Rename to match the expected reachable_hops schema
+        reachable_hops = (
+            native_result
+            .rename(columns={"__sp_source__": start_alias, "__sp_target__": end_alias, "__sp_hops__": hop_column})
+            .assign(**{f"{end_alias}.{hop_column}": lambda df: df[hop_column]})
+        )
+        reachable_hops = reachable_hops[reachable_hops[hop_column].notna()]
+        return reachable_hops[[start_alias, end_alias, hop_column, f"{end_alias}.{hop_column}"]]
+
     def _gfql_shortest_path_scalar_bindings_row_table(
         self,
         ops: Sequence[Any],
@@ -3211,19 +3302,26 @@ class RowPipelineMixin:
         if seed_table is None:
             return self._gfql_row_table(self._gfql_empty_frame())
 
-        state_df, alias_frames = self._gfql_connected_bindings_state(ops)
-        if len(state_df) == 0:
-            out = seed_table.copy()
-            out[hop_column] = self._gfql_broadcast_scalar(out, None)
-            out[f"{end_alias}.{hop_column}"] = self._gfql_broadcast_scalar(out, None)
-            return self._gfql_row_table(out)
+        # Try native igraph/cugraph backend first; fall back to BFS
+        sp_backend = getattr(self, "_gfql_shortest_path_backend", "auto")
+        reachable_hops = self._gfql_shortest_path_scalar_native(
+            seed_table, ops, start_alias, end_alias, hop_column, backend=sp_backend
+        )
 
-        reachable = self._gfql_connected_bindings_row_frame_from_state(ops, state_df, alias_frames)
-        reachable_cols = [start_alias, end_alias]
-        for col in [hop_column, f"{end_alias}.{hop_column}"]:
-            if col in reachable.columns and col not in reachable_cols:
-                reachable_cols.append(col)
-        reachable_hops = reachable[reachable_cols].drop_duplicates(subset=[start_alias, end_alias], keep="first")
+        if reachable_hops is None:
+            state_df, alias_frames = self._gfql_connected_bindings_state(ops)
+            if len(state_df) == 0:
+                out = seed_table.copy()
+                out[hop_column] = self._gfql_broadcast_scalar(out, None)
+                out[f"{end_alias}.{hop_column}"] = self._gfql_broadcast_scalar(out, None)
+                return self._gfql_row_table(out)
+
+            reachable = self._gfql_connected_bindings_row_frame_from_state(ops, state_df, alias_frames)
+            reachable_cols = [start_alias, end_alias]
+            for col in [hop_column, f"{end_alias}.{hop_column}"]:
+                if col in reachable.columns and col not in reachable_cols:
+                    reachable_cols.append(col)
+            reachable_hops = reachable[reachable_cols].drop_duplicates(subset=[start_alias, end_alias], keep="first")
         merged = seed_table.merge(
             reachable_hops,
             on=[start_alias, end_alias],

@@ -5894,6 +5894,7 @@ def _shortest_path_empty_result_row_for_row_steps(
             self._g = self
             self._gfql_start_nodes = None
             self._gfql_rows_base_graph = None
+            self._gfql_shortest_path_backend = "auto"
 
         def bind(self) -> "_EmptyRowGraph":
             return _EmptyRowGraph(self._nodes.copy())
@@ -6722,6 +6723,7 @@ def _lower_general_row_projection(
                 self._g = self
                 self._gfql_start_nodes = None
                 self._gfql_rows_base_graph = None
+                self._gfql_shortest_path_backend = "auto"
 
             def bind(self) -> "_EmptyRowGraph":
                 return _EmptyRowGraph(self._nodes.copy())
