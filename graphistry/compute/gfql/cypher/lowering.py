@@ -4164,6 +4164,7 @@ def _build_initial_row_scope(
     if (
         not binding_row_aliases
         and query.match is not None
+        and len(query.matches) <= 1
         and len(alias_targets) > 1
         and all(isinstance(t, ASTNode) for t in alias_targets.values())
     ):
