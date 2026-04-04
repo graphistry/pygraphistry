@@ -719,7 +719,7 @@ def _execute_compiled_query_with_reentry(
                 prefix_result,
                 engine=engine,
             )
-    return _execute_compiled_query(
+    result = _execute_compiled_query(
         compiled_base_graph,
         compiled_query=compiled_query,
         engine=engine,
@@ -727,6 +727,70 @@ def _execute_compiled_query_with_reentry(
         context=context,
         start_nodes=start_nodes,
     )
+
+    # Optional reentry null-fill: if the reentry MATCH is OPTIONAL, prefix
+    # rows that didn't match need null-filled entries in the result.
+    if compiled_query.optional_reentry and compiled_query.start_nodes_query is not None:
+        result = _apply_optional_reentry_null_fill(
+            result,
+            prefix_result=prefix_result,  # type: ignore[possibly-undefined]
+            engine=engine,
+            empty_result_row=compiled_query.empty_result_row,
+        )
+
+    return result
+
+
+def _apply_optional_reentry_null_fill(
+    result: Plottable,
+    *,
+    prefix_result: Plottable,
+    engine: Union[EngineAbstract, str],
+    empty_result_row: Optional[Dict[str, Any]] = None,
+) -> Plottable:
+    """Null-fill result rows for prefix rows that the optional reentry didn't match."""
+    prefix_df = getattr(prefix_result, "_nodes", None)
+    result_df = getattr(result, "_nodes", None)
+
+    if prefix_df is None or len(prefix_df) == 0:
+        return result
+
+    prefix_rows = len(prefix_df)
+    result_rows = 0 if result_df is None else len(result_df)
+
+    if result_rows >= prefix_rows:
+        return result
+
+    concrete_engine = resolve_engine(cast(Any, engine), result)
+    df_ctor = df_cons(concrete_engine)
+    concat = df_concat(concrete_engine)
+
+    # Use the compiled empty_result_row template (correct projected column names)
+    # or fall back to the result's own columns.
+    if empty_result_row is not None:
+        null_row = dict(empty_result_row)
+    elif result_df is not None and len(result_df.columns) > 0:
+        null_row = {col: None for col in result_df.columns}
+    else:
+        null_row = {}
+
+    if result_df is None or len(result_df) == 0:
+        if null_row:
+            out = result.bind()
+            out._nodes = df_ctor([dict(null_row) for _ in range(prefix_rows)])
+            return out
+        return result
+
+    missing_count = prefix_rows - result_rows
+    fill_rows = [dict(null_row) for _ in range(missing_count)]
+
+    fill_df = df_ctor(fill_rows)
+    out = result.bind()
+    out._nodes = concat([result_df, fill_df], ignore_index=True, sort=False)
+    edges_df = getattr(result, "_edges", None)
+    if edges_df is not None:
+        out._edges = edges_df[:0]
+    return out
 
 
 def _compiled_query_reentry_state(

@@ -119,6 +119,7 @@ class CompiledCypherQuery:
     connected_optional_match: Optional["ConnectedOptionalMatchPlan"] = None
     connected_match_join: Optional["ConnectedMatchJoinPlan"] = None
     start_nodes_query: Optional["CompiledCypherQuery"] = None
+    optional_reentry: bool = False
     scalar_reentry_alias: Optional[str] = None
     scalar_reentry_columns: Tuple[str, ...] = ()
     graph_bindings: Tuple["CompiledGraphBinding", ...] = ()
@@ -6951,6 +6952,7 @@ def _compile_bounded_reentry_query(
             target,
             start_nodes_query=prefix_compiled,
             result_projection=target_projection,
+            optional_reentry=reentry_match.optional or target.optional_reentry,
             scalar_reentry_alias=reentry_alias if scalar_only_prefix else target.scalar_reentry_alias,
             scalar_reentry_columns=carry_columns if scalar_only_prefix else target.scalar_reentry_columns,
         )
