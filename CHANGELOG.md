@@ -17,6 +17,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / Cypher**: Support direct local Cypher `shortestPath(...)` scalar execution for the benchmark-facing subset, including `length(path)`, `path IS NULL`, `CASE path IS NULL WHEN true THEN -1 ELSE length(path) END`, and the official comma-seeded `interactive-complex-13` shape. Generic path-carrier projections and `allShortestPaths(...)` remain explicit fail-fast boundaries (#1010).
 
 ### Fixed
+- **GFQL / Cypher**: Extended scalar columns from a bindings-row `WITH` stage (e.g., `WITH tag, post.creationDate AS cd`) are now visible in subsequent non-aggregate stages (`WITH cd ... RETURN cd`). Previously, the next stage resolved the projected column name as an alias-qualified property path and prepended the active alias a second time, producing `None` instead of the actual scalar value (#1045).
+
 - **GFQL / Cypher**: `MATCH (x) WITH x OPTIONAL MATCH (x)-->(y) RETURN ...` now null-fills unmatched rows (left-outer-join semantics) instead of silently dropping them. Previously produced wrong results with inner-join semantics (#1026).
 
 - **GFQL / bindings rows**: `rows(binding_ops=...)` on `engine="cudf"` now preserves active-engine empty/intermediate tables instead of leaking pandas objects into the GPU path, and undirected multihop no-backtrack masking no longer uses a mixed-type sentinel that cuDF rejects. This fixes the `#1040` IC6 cudf/GPU failure class and the adjacent direct multihop/cartesian bindings-row replay cases.
