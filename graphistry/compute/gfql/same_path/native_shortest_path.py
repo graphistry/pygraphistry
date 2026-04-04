@@ -156,7 +156,9 @@ def cugraph_shortest_path_distances(
 
     for src, tgts in source_to_targets.items():
         try:
-            bfs_result = cugraph.bfs(G, start=src, directed=directed)
+            # cugraph.bfs() does not accept a 'directed' param when given a Graph object
+            # (directionality is already encoded in the Graph type)
+            bfs_result = cugraph.bfs(G, start=src)
         except Exception:
             rows_src.extend([src] * len(tgts))
             rows_tgt.extend(tgts)
