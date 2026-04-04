@@ -10194,6 +10194,42 @@ def test_string_cypher_multi_alias_with_extend_scalar_renames() -> None:
     ]
 
 
+def test_string_cypher_multi_alias_with_extend_scalar_order_by() -> None:
+    """Extended scalar visible in ORDER BY on the next WITH stage (#1045)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, post.creationDate AS cd "
+        "WITH tag, cd ORDER BY cd DESC "
+        "RETURN tag.name AS tn, cd",
+        params={"pid": "p1"},
+    )
+    records = result._nodes.to_dict(orient="records")
+    assert [r["cd"] for r in records] == [300, 200, 100]
+
+
+def test_string_cypher_multi_alias_with_extend_scalar_in_case() -> None:
+    """Extended scalar usable in a CASE expression in a subsequent stage (#1045)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, post.creationDate AS cd "
+        "RETURN tag.name AS tn, "
+        "CASE WHEN cd > 150 THEN 'recent' ELSE 'old' END AS era "
+        "ORDER BY tn, era",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tn": "TagA", "era": "old"},
+        {"tn": "TagA", "era": "recent"},
+        {"tn": "TagB", "era": "recent"},
+    ]
+
+
 @pytest.mark.xfail(
     reason="WITH aggregate uses entity blob for whole-row alias, losing per-alias column access in subsequent RETURN (#1045)",
     strict=True,
