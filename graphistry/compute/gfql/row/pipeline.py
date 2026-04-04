@@ -3015,7 +3015,7 @@ class RowPipelineMixin:
                 )
             candidate_source = (
                 step_nodes
-                if step_nodes is not None and node_id_col in step_nodes.columns
+                if step_nodes is not None and node_id_col in step_nodes.columns and len(step_nodes) > 0
                 else base_nodes
             )
             candidate_nodes = candidate_source[candidate_source[node_id_col].isin(state_df["__current__"])].copy()
@@ -3031,6 +3031,21 @@ class RowPipelineMixin:
             node_alias = getattr(next_node_op, "_name", None)
             if isinstance(node_alias, str):
                 state_df[node_alias] = state_df["__current__"]
+                hop_column = edge_op.label_node_hops
+                if hop_column is not None and hop_column in state_df.columns:
+                    hop_lookup = (
+                        state_df[["__current__", hop_column]]
+                        .rename(columns={"__current__": node_id_col})
+                        .groupby(node_id_col, sort=False)[hop_column]
+                        .min()
+                        .reset_index()
+                    )
+                    next_nodes = next_nodes.drop(columns=[hop_column], errors="ignore").merge(
+                        hop_lookup,
+                        on=node_id_col,
+                        how="left",
+                        sort=False,
+                    )
                 alias_frames[node_alias] = next_nodes
 
         return state_df, alias_frames

@@ -2697,11 +2697,17 @@ def _lower_relationship(
         line=relationship.span.line,
         column=relationship.span.column,
     )
+    min_hops = relationship.min_hops
+    max_hops = relationship.max_hops
+    # shortestPath(...*...) should admit the valid zero-hop path when the
+    # endpoints are the same node, unlike generic carrier-style varlen refs.
+    if hop_column is not None and relationship.to_fixed_point and min_hops is None and max_hops is None:
+        min_hops = 0
     hops = (
         None
         if (
-            relationship.min_hops is not None
-            or relationship.max_hops is not None
+            min_hops is not None
+            or max_hops is not None
             or relationship.to_fixed_point
         )
         else 1
@@ -2712,8 +2718,8 @@ def _lower_relationship(
             e_forward(
                 edge_match=edge_match,
                 hops=hops,
-                min_hops=relationship.min_hops,
-                max_hops=relationship.max_hops,
+                min_hops=min_hops,
+                max_hops=max_hops,
                 to_fixed_point=relationship.to_fixed_point,
                 label_node_hops=hop_column,
                 name=relationship.variable,
@@ -2726,8 +2732,8 @@ def _lower_relationship(
             e_reverse(
                 edge_match=edge_match,
                 hops=hops,
-                min_hops=relationship.min_hops,
-                max_hops=relationship.max_hops,
+                min_hops=min_hops,
+                max_hops=max_hops,
                 to_fixed_point=relationship.to_fixed_point,
                 label_node_hops=hop_column,
                 name=relationship.variable,
@@ -2739,8 +2745,8 @@ def _lower_relationship(
         e_undirected(
             edge_match=edge_match,
             hops=hops,
-            min_hops=relationship.min_hops,
-            max_hops=relationship.max_hops,
+            min_hops=min_hops,
+            max_hops=max_hops,
             to_fixed_point=relationship.to_fixed_point,
             label_node_hops=hop_column,
             name=relationship.variable,
