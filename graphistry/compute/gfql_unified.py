@@ -1153,7 +1153,8 @@ def gfql(self: Plottable,
          policy: Optional[Dict[str, PolicyFunction]] = None,
          where: Optional[Sequence[WhereComparison]] = None,
          language: Optional[Literal["cypher", "gremlin"]] = None,
-         params: Optional[Mapping[str, Any]] = None) -> Plottable:
+         params: Optional[Mapping[str, Any]] = None,
+         shortest_path_backend: str = "auto") -> Plottable:
     """
     Execute a GFQL query - either a chain or a DAG
 
@@ -1167,6 +1168,10 @@ def gfql(self: Plottable,
     :param where: Optional same-path constraints for list/Chain queries
     :param language: Optional string-query language selector. Defaults to ``"cypher"`` when ``query`` is a string.
     :param params: Optional parameter dictionary for string-query compilation
+    :param shortest_path_backend: Backend for shortestPath execution: ``"auto"`` (default),
+        ``"igraph"`` (require igraph, raise if missing), ``"cugraph"`` (require cugraph,
+        raise if missing), or ``"bfs"`` (always use DataFrame BFS). ``"auto"`` tries
+        cugraph on CUDF engine, igraph on pandas, falls back to BFS silently.
     :returns: Resulting Plottable
     :rtype: Plottable
 
@@ -1355,6 +1360,7 @@ def gfql(self: Plottable,
                 raise
 
         dispatch_self = self
+        setattr(dispatch_self, "_gfql_shortest_path_backend", shortest_path_backend)
         compiled_query = None
 
         if where_param and isinstance(query, (dict, ASTLet)):

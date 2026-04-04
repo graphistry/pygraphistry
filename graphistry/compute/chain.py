@@ -667,6 +667,7 @@ def _handle_boundary_calls(
         if start_nodes is not None:
             setattr(g_temp, "_gfql_start_nodes", start_nodes)
         setattr(g_temp, "_gfql_rows_base_graph", suffix_base_graph)
+        setattr(g_temp, "_gfql_shortest_path_backend", getattr(g_temp, "_gfql_shortest_path_backend", "auto"))
         # #880: If middle has named ops and suffix starts with rows(),
         # inject the middle ops as binding_ops so rows() can materialize
         # a multi-alias bindings table instead of a single-table view.

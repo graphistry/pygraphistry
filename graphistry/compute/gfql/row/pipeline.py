@@ -3201,6 +3201,7 @@ class RowPipelineMixin:
         start_alias: str,
         end_alias: str,
         hop_column: str,
+        backend: str = "auto",
     ) -> Optional[Any]:
         """
         Attempt to compute shortestPath hop distances via igraph/cugraph.
@@ -3211,7 +3212,7 @@ class RowPipelineMixin:
         """
         from graphistry.compute.ast import ASTEdge
         from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
-        from graphistry.compute.gfql.same_path.native_shortest_path import try_native_shortest_path
+        from graphistry.compute.gfql.same_path.native_shortest_path import ShortestPathBackend, try_native_shortest_path
 
         if self._nodes is None or self._edges is None or len(seed_table) == 0:
             return None
@@ -3268,6 +3269,7 @@ class RowPipelineMixin:
             max_hops=max_hops,
             directed=not sem.is_undirected,
             engine=engine,
+            backend=cast(ShortestPathBackend, backend),
         )
         if native_result is None:
             return None
@@ -3300,8 +3302,9 @@ class RowPipelineMixin:
             return self._gfql_row_table(self._gfql_empty_frame())
 
         # Try native igraph/cugraph backend first; fall back to BFS
+        sp_backend = getattr(self, "_gfql_shortest_path_backend", "auto")
         reachable_hops = self._gfql_shortest_path_scalar_native(
-            seed_table, ops, start_alias, end_alias, hop_column
+            seed_table, ops, start_alias, end_alias, hop_column, backend=sp_backend
         )
 
         if reachable_hops is None:

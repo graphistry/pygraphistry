@@ -23,9 +23,14 @@ Backend selection (try_native_shortest_path):
   3. None     — caller falls back to BFS
 """
 
-from typing import Any, Optional
+import logging
+from typing import Any, Literal, Optional
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+ShortestPathBackend = Literal["auto", "igraph", "cugraph", "bfs"]
 
 
 def igraph_shortest_path_distances(
@@ -173,32 +178,62 @@ def try_native_shortest_path(
     max_hops: Optional[int],
     directed: bool,
     engine: Any,
+    backend: ShortestPathBackend = "auto",
 ) -> Optional[Any]:
     """
-    Attempt to compute shortest-path distances using a native graph library.
+    Compute shortest-path distances using a native graph library.
 
-    Returns a DataFrame with __sp_source__, __sp_target__, __sp_hops__ on
-    success, or None if no native backend is available (caller falls back to BFS).
+    backend controls selection:
+    - "auto"    : try cugraph on CUDF engine, igraph on PANDAS engine, return
+                  None on failure so caller can fall back to BFS
+    - "igraph"  : require igraph; raise ImportError if not available
+    - "cugraph" : require cugraph; raise ImportError if not available
+    - "bfs"     : skip native backends; return None so caller uses BFS
 
-    Dispatch:
-    - Engine.CUDF   → cugraph BFS
-    - Engine.PANDAS → igraph distances
+    Always logs at DEBUG which backend ran (or why it was skipped).
     """
     from graphistry.Engine import Engine as _Engine
 
-    if engine == _Engine.CUDF:
+    if backend == "bfs":
+        logger.debug("shortestPath: backend=bfs, skipping native dispatch")
+        return None
+
+    if backend == "cugraph" or (backend == "auto" and engine == _Engine.CUDF):
         try:
-            return cugraph_shortest_path_distances(
+            result = cugraph_shortest_path_distances(
                 step_pairs, sources, targets,
                 max_hops=max_hops, directed=directed,
             )
-        except Exception:
+            logger.debug("shortestPath: backend=cugraph")
+            return result
+        except ImportError:
+            if backend == "cugraph":
+                raise
+            logger.debug("shortestPath: cugraph not available, falling back to BFS")
+            return None
+        except Exception as e:
+            if backend == "cugraph":
+                raise
+            logger.debug("shortestPath: cugraph failed (%s), falling back to BFS", e)
             return None
 
-    try:
-        return igraph_shortest_path_distances(
-            step_pairs, sources, targets,
-            max_hops=max_hops, directed=directed,
-        )
-    except Exception:
-        return None
+    if backend == "igraph" or backend == "auto":
+        try:
+            result = igraph_shortest_path_distances(
+                step_pairs, sources, targets,
+                max_hops=max_hops, directed=directed,
+            )
+            logger.debug("shortestPath: backend=igraph")
+            return result
+        except ImportError:
+            if backend == "igraph":
+                raise
+            logger.debug("shortestPath: igraph not available, falling back to BFS")
+            return None
+        except Exception as e:
+            if backend == "igraph":
+                raise
+            logger.debug("shortestPath: igraph failed (%s), falling back to BFS", e)
+            return None
+
+    return None
