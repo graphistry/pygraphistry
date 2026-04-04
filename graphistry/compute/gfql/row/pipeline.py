@@ -3254,10 +3254,9 @@ class RowPipelineMixin:
         edges_df = edge_result._edges
         if edges_df is None or len(edges_df) == 0:
             # No edges → all pairs are unreachable; return all-null result
-            result = seed_table[[start_alias, end_alias]].copy()
-            result[hop_column] = self._gfql_broadcast_scalar(result, None)
-            result[f"{end_alias}.{hop_column}"] = self._gfql_broadcast_scalar(result, None)
-            return result
+            base = seed_table[[start_alias, end_alias]]
+            null_val = self._gfql_broadcast_scalar(base, None)
+            return base.assign(**{hop_column: null_val, f"{end_alias}.{hop_column}": null_val})
 
         step_pairs = sem.orient_edges(edges_df, src_col, dst_col, dedupe=True)[["__from__", "__to__"]]
 
@@ -3275,13 +3274,11 @@ class RowPipelineMixin:
 
         # native_result has __sp_source__, __sp_target__, __sp_hops__
         # Rename to match the expected reachable_hops schema
-        reachable_hops = native_result.rename(columns={
-            "__sp_source__": start_alias,
-            "__sp_target__": end_alias,
-            "__sp_hops__": hop_column,
-        })
-        reachable_hops[f"{end_alias}.{hop_column}"] = reachable_hops[hop_column]
-        # Keep only reachable rows (non-null hops); the outer merge handles nulls
+        reachable_hops = (
+            native_result
+            .rename(columns={"__sp_source__": start_alias, "__sp_target__": end_alias, "__sp_hops__": hop_column})
+            .assign(**{f"{end_alias}.{hop_column}": lambda df: df[hop_column]})
+        )
         reachable_hops = reachable_hops[reachable_hops[hop_column].notna()]
         return reachable_hops[[start_alias, end_alias, hop_column, f"{end_alias}.{hop_column}"]]
 
