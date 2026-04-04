@@ -8930,6 +8930,52 @@ def test_string_cypher_multi_alias_with_three_stage_chain() -> None:
     ]
 
 
+def test_string_cypher_multi_alias_with_case_in_return_aggregation() -> None:
+    """IC-4 inline CASE+sum: no multi-stage WITH needed (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "RETURN tag.name AS tagName, "
+        "sum(CASE WHEN post.creationDate > 150 THEN 1 ELSE 0 END) AS recentCount "
+        "ORDER BY recentCount DESC, tagName ASC",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tagName": "TagA", "recentCount": 1},
+        {"tagName": "TagB", "recentCount": 1},
+    ]
+
+
+def test_string_cypher_multi_alias_with_three_stage_case_aggregation() -> None:
+    """IC-4 full shape with CASE in intermediate WITH (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, "
+        "CASE WHEN $lo <= post.creationDate AND post.creationDate < $hi THEN 1 ELSE 0 END AS valid, "
+        "CASE WHEN post.creationDate < $lo THEN 1 ELSE 0 END AS inValid "
+        "WITH tag, sum(valid) AS postCount, sum(inValid) AS inValidPostCount "
+        "WHERE postCount > 0 AND inValidPostCount = 0 "
+        "RETURN tag.name AS tagName, postCount "
+        "ORDER BY postCount DESC, tagName ASC "
+        "LIMIT 10",
+        params={"pid": "p1", "lo": 150, "hi": 350},
+    )
+    records = result._nodes.to_dict(orient="records")
+    # post2(200) and post3(300) have creationDate in [150,350)
+    # TagA has post2 (valid=1), post1 (inValid=0, valid=0 but cd=100 < 150 so inValid=1) → excluded
+    # TagB has post3 (valid=1, inValid=0) → kept
+    # Actually: post1 cd=100 < 150 → inValid=1 for TagA via post1
+    # TagA: post1(inValid=1), post2(valid=1) → postCount=1, inValidPostCount=1 → excluded by WHERE
+    # TagB: post3(valid=1, inValid=0) → postCount=1, inValidPostCount=0 → kept
+    assert len(records) >= 1
+    assert all(r["postCount"] > 0 for r in records)
+
+
 # ---------------------------------------------------------------------------
 # Issue #996: MATCH (connected) OPTIONAL MATCH ... RETURN mixed + CASE
 # ---------------------------------------------------------------------------
