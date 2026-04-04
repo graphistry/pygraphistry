@@ -8,6 +8,7 @@ from typing_extensions import Literal
 import pandas as pd
 
 from graphistry.compute.ast import (
+    ASTCall,
     ASTEdge,
     ASTObject,
     ASTNode,
@@ -5860,6 +5861,51 @@ def _shortest_path_empty_result_seed_df(
     return pd.DataFrame([row])
 
 
+def _shortest_path_empty_result_row_for_row_steps(
+    *,
+    row_steps: Sequence[ASTObject],
+    specs: Mapping[str, _ShortestPathAliasSpec],
+    alias_targets: Mapping[str, ASTObject],
+) -> Optional[Dict[str, Any]]:
+    from graphistry.compute.gfql.row.pipeline import execute_row_pipeline_call
+
+    class _EmptyRowGraph:
+        def __init__(self, table_df: Any) -> None:
+            self._nodes = table_df
+            self._edges = table_df.iloc[0:0].copy()
+            self._node = None
+            self._source = None
+            self._destination = None
+            self._edge = None
+            self._g = self
+            self._gfql_start_nodes = None
+            self._gfql_rows_base_graph = None
+
+        def bind(self) -> "_EmptyRowGraph":
+            return _EmptyRowGraph(self._nodes.copy())
+
+    seed_df = _shortest_path_empty_result_seed_df(
+        specs=specs,
+        alias_targets=alias_targets,
+    )
+    graph: Any = _EmptyRowGraph(seed_df)
+    start_idx = 0
+    if (
+        row_steps
+        and isinstance(row_steps[0], ASTCall)
+        and row_steps[0].function == "rows"
+        and "binding_ops" in row_steps[0].params
+    ):
+        start_idx = 1
+    for step in row_steps[start_idx:]:
+        if not isinstance(step, ASTCall):
+            return None
+        graph = execute_row_pipeline_call(graph, step.function, step.params)
+    if graph._nodes is None or len(graph._nodes) == 0:
+        return None
+    return graph._nodes.iloc[0].to_dict()
+
+
 def _shortest_path_relationship_hop_columns(clause: MatchClause) -> Dict[Tuple[int, int, int, int, int, int], str]:
     out: Dict[Tuple[int, int, int, int, int, int], str] = {}
     pattern_aliases = clause.pattern_aliases or tuple(None for _ in clause.patterns)
@@ -8012,10 +8058,19 @@ def compile_cypher_query(
             stage_steps, _next_scope = _lower_row_column_stage(final_stage, scope=scope, params=params)
             row_steps.extend(stage_steps)
 
+        empty_result_row: Optional[Dict[str, Any]] = None
+        if binding_row_aliases and _query_has_shortest_path_patterns(query) and result_projection is None:
+            empty_result_row = _shortest_path_empty_result_row_for_row_steps(
+                row_steps=row_steps,
+                specs=_shortest_path_alias_specs(query),
+                alias_targets=alias_targets,
+            )
+
         return _attach_graph_context(CompiledCypherQuery(
             Chain(row_steps if binding_row_aliases else lowered.query + row_steps, where=lowered.where),
             seed_rows=scope.seed_rows,
             result_projection=result_projection,
+            empty_result_row=empty_result_row,
         ))
 
     if merged_match is not None and not query.unwinds:
