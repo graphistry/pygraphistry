@@ -63,6 +63,9 @@ def igraph_shortest_path_distances(
     g = ig.Graph(n=len(all_nodes), edges=edges, directed=directed)
     mode = "out" if directed else "all"
 
+    # Self-loop nodes: nodes with at least one self-referencing edge
+    self_loop_nodes = {f for f, t in zip(sp_frm, sp_to) if f == t}
+
     # Group targets per source to batch igraph.distances() calls
     source_to_targets: dict = {}
     for src, tgt in zip(sources_list, targets_list):
@@ -94,6 +97,14 @@ def igraph_shortest_path_distances(
                 # igraph returns float('inf') for unreachable
                 if d == float("inf") or d >= 2**31:
                     hops: Optional[int] = None
+                elif d == 0 and min_hops >= 1 and src == tgt:
+                    # igraph trivially returns 0 for src==target; when min_hops>=1
+                    # the caller requires at least one edge traversal, so use the
+                    # self-loop distance (1) if a self-loop exists, else unreachable.
+                    if src in self_loop_nodes and (max_hops is None or max_hops >= 1):
+                        hops = 1
+                    else:
+                        hops = None
                 elif d < min_hops:
                     hops = None
                 elif max_hops is not None and d > max_hops:

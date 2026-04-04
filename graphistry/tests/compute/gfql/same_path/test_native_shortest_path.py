@@ -94,9 +94,22 @@ class TestIgraphShortestPathDistances:
         assert _hops(result, 1, 3) is None
 
     def test_self_zero_hops(self):
+        # min_hops=0: trivial 0-hop self-distance is valid
         sp = _step_pairs([1], [2])
-        result = igraph_shortest_path_distances(sp, [1], [1], max_hops=None, directed=False)
+        result = igraph_shortest_path_distances(sp, [1], [1], min_hops=0, max_hops=None, directed=False)
         assert _hops(result, 1, 1) == 0
+
+    def test_self_zero_hops_suppressed_when_min_hops_1(self):
+        # min_hops=1 (default): trivial 0-hop self-distance suppressed; no self-loop → None
+        sp = _step_pairs([1], [2])
+        result = igraph_shortest_path_distances(sp, [1], [1], min_hops=1, max_hops=None, directed=False)
+        assert _hops(result, 1, 1) is None
+
+    def test_self_loop_returns_1_when_min_hops_1(self):
+        # self-loop edge exists; min_hops=1 should return 1 (via the loop edge)
+        sp = _step_pairs([1, 1], [2, 1])  # edge 1→1 is the self-loop
+        result = igraph_shortest_path_distances(sp, [1], [1], min_hops=1, max_hops=None, directed=False)
+        assert _hops(result, 1, 1) == 1
 
     def test_max_hops_truncates(self):
         # 1—2—3: distance 2; max_hops=1 should return None
