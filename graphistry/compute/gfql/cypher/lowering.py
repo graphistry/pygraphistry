@@ -13,6 +13,7 @@ from graphistry.compute.ast import (
     ASTObject,
     ASTNode,
     distinct,
+    drop_cols,
     e_forward,
     e_reverse,
     e_undirected,
@@ -4741,33 +4742,41 @@ def _lower_match_alias_aggregate_stage(
                     column=item.span.column,
                 )
             hidden_key_name = _fresh_temp_name(temp_names, "__cypher_group_key__")
-            pre_items.append(
-                (
-                    hidden_key_name,
-                    _whole_row_group_key_expr(
-                        alias_name,
-                        alias_targets=scope.alias_targets,
-                        field=stage.clause.kind,
-                        line=item.span.line,
-                        column=item.span.column,
-                    ),
-                )
+            raw_key_expr = _whole_row_group_key_expr(
+                alias_name,
+                alias_targets=scope.alias_targets,
+                field=stage.clause.kind,
+                line=item.span.line,
+                column=item.span.column,
             )
-            pre_items.append(
-                (
-                    output_name,
-                    _whole_row_group_entity_expr(
-                        alias_name,
-                        alias_targets=scope.alias_targets,
-                        field=stage.clause.kind,
-                        line=item.span.line,
-                        column=item.span.column,
-                    ),
+            if scope.allowed_match_aliases:
+                # Bindings-row path: node/edge property columns are prefixed (e.g. "tag.id").
+                # Use the prefixed id column as the group key.  Skip building the entity blob
+                # column — on this path we keep individual alias.* columns instead.
+                key_expr = f"{alias_name}.{raw_key_expr}"
+                pre_items.append((hidden_key_name, key_expr))
+                key_names.append(hidden_key_name)
+                hidden_group_key_names.add(hidden_key_name)
+                # output_name ("tag") is NOT added to available_columns or key_names here;
+                # alias.* columns will survive via key_prefixes on group_by.
+            else:
+                key_expr = raw_key_expr
+                pre_items.append((hidden_key_name, key_expr))
+                pre_items.append(
+                    (
+                        output_name,
+                        _whole_row_group_entity_expr(
+                            alias_name,
+                            alias_targets=scope.alias_targets,
+                            field=stage.clause.kind,
+                            line=item.span.line,
+                            column=item.span.column,
+                        ),
+                    )
                 )
-            )
-            key_names.extend([hidden_key_name, output_name])
-            hidden_group_key_names.add(hidden_key_name)
-            available_columns.add(output_name)
+                key_names.extend([hidden_key_name, output_name])
+                hidden_group_key_names.add(hidden_key_name)
+                available_columns.add(output_name)
             _add_output_mapping(
                 expr_to_output,
                 source_expr=item.expression.text,
@@ -4877,15 +4886,28 @@ def _lower_match_alias_aggregate_stage(
             alias_name=agg_spec.output_name,
         )
 
+    # On the bindings-row path (allowed_match_aliases non-empty), the row table carries
+    # alias-prefixed property columns (e.g. "tag.id", "tag.name").  When a non-aggregate item
+    # is a whole-row alias reference (e.g. "tag"), we use key_prefixes on group_by so the
+    # active alias's property columns are added as group keys at runtime, surviving into the
+    # output for subsequent RETURN/WITH stages to resolve alias.property references.
+    bindings_row_path = bool(scope.allowed_match_aliases)
+    has_whole_row_alias = bindings_row_path and any(
+        item.expression.text in scope.alias_targets for item in non_aggregate_items
+    )
+    alias_key_prefixes = [f"{active_alias}."] if has_whole_row_alias else None
+
     row_steps: List[ASTObject] = []
     if key_names:
         if pre_items:
-            row_steps.append(with_(pre_items))
-        row_steps.append(group_by(key_names, aggregations))
+            # On the bindings-row path use extend=True so alias-prefixed property columns
+            # (e.g. "tag.name") remain in the table for group_by key_prefixes to pick up.
+            row_steps.append(with_(pre_items, extend=bindings_row_path))
+        row_steps.append(group_by(key_names, aggregations, key_prefixes=alias_key_prefixes))
     else:
         global_key = _fresh_temp_name(temp_names, "__cypher_group__")
         row_steps.append(with_([(global_key, 1)] + pre_items))
-        row_steps.append(group_by([global_key], aggregations))
+        row_steps.append(group_by([global_key], aggregations, key_prefixes=alias_key_prefixes))
         row_steps.append(projection_fn([(agg.output_name, agg.output_name) for agg in aggregate_specs]))
         available_columns = {agg.output_name for agg in aggregate_specs}
         expr_to_output = {agg.source_text: agg.output_name for agg in aggregate_specs}
@@ -4893,10 +4915,37 @@ def _lower_match_alias_aggregate_stage(
         output_to_source_property = {}
 
     if hidden_group_key_names:
-        visible_projection_items = [(item.alias or item.expression.text, item.alias or item.expression.text) for item in non_aggregate_items]
-        visible_projection_items.extend((agg.output_name, agg.output_name) for agg in aggregate_specs)
-        row_steps.append(projection_fn(visible_projection_items))
-        available_columns = {name for name, _ in visible_projection_items}
+        # Drop the temporary group-key columns and the entity blob columns that were only needed
+        # for grouping.  On the bindings-row path we keep alias-prefixed property columns
+        # (e.g. "tag.name") by using drop_cols instead of an explicit select projection so those
+        # columns remain available for subsequent RETURN/WITH stages.
+        if bindings_row_path:
+            # Drop the temp group-key column(s).  Entity blob columns were never created
+            # on this path; alias.* property columns survive as group-by keys.
+            cols_to_drop = list(hidden_group_key_names)
+            row_steps.append(drop_cols(cols_to_drop))
+            agg_output_names = {agg.output_name for agg in aggregate_specs}
+            if final_stage:
+                # Final stage: project explicitly to only the named output columns.
+                visible_projection_items = [(item.alias or item.expression.text, item.alias or item.expression.text) for item in non_aggregate_items if item.expression.text not in scope.alias_targets]
+                visible_projection_items.extend((agg.output_name, agg.output_name) for agg in aggregate_specs)
+                row_steps.append(projection_fn(visible_projection_items))
+                available_columns = {name for name, _ in visible_projection_items}
+            else:
+                available_columns = agg_output_names  # alias.* cols available at runtime
+        else:
+            entity_output_names = [
+                item.alias or item.expression.text
+                for item in non_aggregate_items
+                if item.expression.text in scope.alias_targets
+            ]
+            cols_to_drop = list(hidden_group_key_names) + entity_output_names
+            visible_projection_items = [(item.alias or item.expression.text, item.alias or item.expression.text) for item in non_aggregate_items]
+            visible_projection_items.extend((agg.output_name, agg.output_name) for agg in aggregate_specs)
+            row_steps.append(projection_fn(visible_projection_items))
+            agg_output_names = {agg.output_name for agg in aggregate_specs}
+            non_agg_output_names = {item.alias or item.expression.text for item in non_aggregate_items}
+            available_columns = (agg_output_names | non_agg_output_names) - set(cols_to_drop)
 
     if stage.where is not None:
         _validate_row_expr_scope(
@@ -4935,11 +4984,15 @@ def _lower_match_alias_aggregate_stage(
         params=params,
     )
 
+    # On the bindings-row path, propagate allowed_match_aliases so the next stage's
+    # _validate_row_expr_scope accepts "tag.name"-style references.
+    next_allowed_match_aliases = scope.allowed_match_aliases if bindings_row_path else set()
+
     return row_steps, _StageScope(
         mode="row_columns",
         alias_targets={},
         active_alias=None,
-        allowed_match_aliases=set(),
+        allowed_match_aliases=next_allowed_match_aliases,
         row_columns=set(available_columns),
         projected_columns={},
         table=None,
@@ -5059,19 +5112,29 @@ def _lower_row_column_stage(
                 line=item.span.line,
                 column=item.span.column,
             )
-        rewritten_item = _rewrite_expr_to_projected_sources(
-            item.expression,
-            projected_columns=scope.projected_columns,
-            params=params,
-            alias_targets={},
-            field=stage.clause.kind,
+        # On the bindings-row path, alias-prefixed column names (e.g. "tag.name") are literal
+        # DataFrame column names.  _row_expr_arg would try to parse "tag" as an identifier and
+        # fail.  Short-circuit: if the expression matches an allowed alias prefix, use the
+        # expression text directly as a column reference string.
+        alias_prefixed_shortcircuit = scope.allowed_match_aliases and any(
+            item.expression.text.startswith(f"{a}.") for a in scope.allowed_match_aliases
         )
-        runtime_expr = _row_expr_arg(
-            rewritten_item,
-            params=params,
-            alias_targets={},
-            field=stage.clause.kind,
-        )
+        if alias_prefixed_shortcircuit:
+            runtime_expr: Any = item.expression.text
+        else:
+            rewritten_item = _rewrite_expr_to_projected_sources(
+                item.expression,
+                projected_columns=scope.projected_columns,
+                params=params,
+                alias_targets={},
+                field=stage.clause.kind,
+            )
+            runtime_expr = _row_expr_arg(
+                rewritten_item,
+                params=params,
+                alias_targets={},
+                field=stage.clause.kind,
+            )
         projection_items.append(
             (
                 output_name,
@@ -5079,7 +5142,9 @@ def _lower_row_column_stage(
             )
         )
         available_columns.add(output_name)
-        if isinstance(runtime_expr, str):
+        if isinstance(runtime_expr, str) and not alias_prefixed_shortcircuit:
+            # alias-prefixed short-circuit expressions are literal DataFrame column names
+            # that should not be re-resolved via projected_columns in subsequent stages.
             next_projected_columns[output_name] = _StageColumnBinding(kind="expr", source_name=runtime_expr)
         _add_output_mapping(
             expr_to_output,

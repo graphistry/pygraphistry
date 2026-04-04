@@ -10230,10 +10230,6 @@ def test_string_cypher_multi_alias_with_extend_scalar_in_case() -> None:
     ]
 
 
-@pytest.mark.xfail(
-    reason="WITH aggregate uses entity blob for whole-row alias, losing per-alias column access in subsequent RETURN (#1054)",
-    strict=True,
-)
 def test_string_cypher_multi_alias_with_four_stage_chain() -> None:
     """WITH DISTINCT → WITH scalar → WITH agg → RETURN (#880)."""
     graph = _mk_ic4_shape_graph()
@@ -10246,6 +10242,62 @@ def test_string_cypher_multi_alias_with_four_stage_chain() -> None:
         "RETURN tag.name AS tn, total ORDER BY tn",
         params={"pid": "p1"},
     )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tn": "TagA", "total": 300},
+        {"tn": "TagB", "total": 300},
+    ]
+
+
+def test_string_cypher_multi_alias_with_non_final_agg_multiple_funcs() -> None:
+    """Non-final WITH aggregate with multiple agg functions, then RETURN alias property (#1054)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, post.creationDate AS cd "
+        "WITH tag, sum(cd) AS total, count(*) AS cnt "
+        "RETURN tag.name AS tn, total, cnt ORDER BY tn",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tn": "TagA", "total": 300, "cnt": 2},
+        {"tn": "TagB", "total": 300, "cnt": 1},
+    ]
+
+
+def test_string_cypher_multi_alias_with_non_final_agg_then_scalar_stage() -> None:
+    """Non-final WITH aggregate then another scalar extend stage accessing alias property (#1054)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, post.creationDate AS cd "
+        "WITH tag, sum(cd) AS total "
+        "WITH tag.name AS tn, total "
+        "RETURN tn, total ORDER BY tn",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tn": "TagA", "total": 300},
+        {"tn": "TagB", "total": 300},
+    ]
+
+
+def test_string_cypher_multi_alias_with_non_final_agg_order_by_alias_property() -> None:
+    """Non-final WITH aggregate with ORDER BY on alias.property in next stage (#1054)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, post.creationDate AS cd "
+        "WITH tag, sum(cd) AS total "
+        "RETURN tag.name AS tn, total ORDER BY total DESC, tn",
+        params={"pid": "p1"},
+    )
+    # Both tags have total=300; order by tn breaks the tie → TagA before TagB
     assert result._nodes.to_dict(orient="records") == [
         {"tn": "TagA", "total": 300},
         {"tn": "TagB", "total": 300},
