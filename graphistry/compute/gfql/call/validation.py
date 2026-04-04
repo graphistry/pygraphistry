@@ -20,6 +20,8 @@ from graphistry.compute.gfql.call.support import (
     _rows_requires_edge_cols,
     _rows_requires_node_cols,
     _schema_effects,
+    _select_added_node_cols,
+    is_projection_items,
     _umap_edge_adds,
     _umap_edge_required_cols,
     _umap_node_adds,
@@ -239,7 +241,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
 
     'return_': _projection_row_entry('RETURN-style row projection alias of select()'),
 
-    'with_': _projection_row_entry('WITH-style row projection with scope-reset semantics'),
+    'with_': _method_entry(
+        allowed_params={'items', 'extend'},
+        required_params={'items'},
+        param_validators={'items': is_projection_items},
+        description='WITH-style row projection; extend=True adds columns without dropping existing ones (#880)',
+        schema_effects=_schema_effects(adds_node_cols=_select_added_node_cols),
+    ),
 
     'where_rows': _method_entry(
         allowed_params={'filter_dict', 'expr'},

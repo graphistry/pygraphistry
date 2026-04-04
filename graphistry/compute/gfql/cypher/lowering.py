@@ -4164,6 +4164,7 @@ def _build_initial_row_scope(
     if (
         not binding_row_aliases
         and query.match is not None
+        and len(query.matches) <= 1
         and len(alias_targets) > 1
         and all(isinstance(t, ASTNode) for t in alias_targets.values())
     ):
@@ -4323,6 +4324,11 @@ def _lower_match_alias_stage(
     if not plan.whole_row_output_names:
         projection_fn = with_ if stage.clause.kind == "with" else return_
         row_steps.append(projection_fn(plan.projection_items))
+    elif scope.allowed_match_aliases and plan.projection_items:
+        # Mixed case: whole-row aliases + scalar items on a bindings-row table.
+        # Use extend mode to add scalar columns without dropping the existing
+        # alias-prefixed bindings columns (#880).
+        row_steps.append(with_(plan.projection_items, extend=True))
     if stage.clause.distinct:
         row_steps.append(distinct())
     if stage.where is not None:
