@@ -20,7 +20,7 @@ def treemap(
     Group nodes by partition key and compute treemap cell positions
     Output dictionary format is prop_name -> partition id -> prop_value
     """
-    import squarify
+    from graphistry.layout.gib._squarify import normalize_sizes, squarify as squarify_rects
     from timeit import default_timer as timer
     start = timer()
     
@@ -37,9 +37,9 @@ def treemap(
     ).reset_index()
 
     sorted_box_sizes: List[int] = partitions_sorted_df[self._node].to_numpy().tolist()
-    normalized: List[float] = squarify.normalize_sizes(sorted_box_sizes, w, h)
+    normalized: List[float] = normalize_sizes(sorted_box_sizes, w, h)
     # [ {'x', 'y', 'dx', 'dy'} ]
-    rects: List[dict] = squarify.squarify(normalized, x, y, w, h)
+    rects: List[dict] = squarify_rects(normalized, x, y, w, h)
 
     props = ['x', 'y', 'dx', 'dy']
     propname_to_partition_to_prop = {
