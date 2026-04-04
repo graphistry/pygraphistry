@@ -4635,10 +4635,16 @@ def _lower_match_alias_stage(
     )
 
     if plan.whole_row_output_names:
+        # In extend mode (bindings-row path), scalar columns land in the DataFrame under
+        # their output_name after with_(extend=True).  Using kind="property" would cause the
+        # next stage to form f"{active_alias}.{source_name}" as the runtime expression, which
+        # double-qualifies the column (e.g. "tag.cd" instead of "cd").  Use kind="expr" with
+        # source_name=output_name so the next stage resolves it as a direct DataFrame column.
+        extend_mode = bool(scope.allowed_match_aliases)
         next_projected_columns = {
             column.output_name: _StageColumnBinding(
-                kind=cast(Literal["property", "expr"], column.kind),
-                source_name=cast(str, column.source_name),
+                kind="expr" if extend_mode else cast(Literal["property", "expr"], column.kind),
+                source_name=column.output_name if extend_mode else cast(str, column.source_name),
             )
             for column in plan.projection_columns
             if column.source_name is not None and column.kind in {"property", "expr"}

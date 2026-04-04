@@ -10139,10 +10139,6 @@ def test_string_cypher_multi_alias_with_three_stage_chain() -> None:
     ]
 
 
-@pytest.mark.xfail(
-    reason="Extended scalar columns from bindings-row WITH not visible in subsequent RETURN (#1045)",
-    strict=True,
-)
 def test_string_cypher_multi_alias_with_two_scalars_extend() -> None:
     """WITH DISTINCT → WITH alias + two scalars → RETURN scalars (#880)."""
     graph = _mk_ic4_shape_graph()
@@ -10162,7 +10158,7 @@ def test_string_cypher_multi_alias_with_two_scalars_extend() -> None:
 
 
 @pytest.mark.xfail(
-    reason="Four-stage WITH chain: tag.name lost after aggregation stage (#1045)",
+    reason="WITH aggregate uses entity blob for whole-row alias, losing per-alias column access in subsequent RETURN (#1045)",
     strict=True,
 )
 def test_string_cypher_multi_alias_with_four_stage_chain() -> None:
