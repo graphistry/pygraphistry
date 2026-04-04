@@ -7101,41 +7101,66 @@ def _compile_graph_bindings(
 
 
 def _is_connected_optional_match_query(query: CypherQuery) -> bool:
-    """Detect: exactly 2 MATCH clauses, first non-optional connected, second optional."""
-    if len(query.matches) != 2:
+    """Detect: 1 non-optional MATCH + 1-or-more OPTIONAL MATCH clauses.
+
+    Returns True when the first clause is non-optional and every subsequent
+    clause is optional, and the query has no WITH/UNWIND/CALL stages.
+    The first MATCH may be a single-node or connected pattern.
+    """
+    if len(query.matches) < 2:
         return False
-    if query.matches[0].optional or not query.matches[1].optional:
+    if query.matches[0].optional:
         return False
-    if query.where is not None or query.with_stages or query.unwinds or query.call is not None or query.row_sequence:
+    if not all(m.optional for m in query.matches[1:]):
+        return False
+    if query.with_stages or query.unwinds or query.call is not None or query.row_sequence:
         return False
     first = query.matches[0]
-    # Check for RelationshipPattern directly in the raw patterns to avoid
-    # calling _normalized_match_pattern which may fail on comma-separated
-    # patterns that cannot be stitched.
     has_relationship = any(
         isinstance(el, RelationshipPattern)
         for pat in first.patterns
         for el in pat
     )
-    if not has_relationship:
+    # For single-node first MATCH, only take this path when there are 3+
+    # matches (multiple optionals) — the 2-match single-node case is already
+    # handled by the existing _optional_null_fill_plan path.
+    if not has_relationship and len(query.matches) == 2:
         return False
-    # The existing _merged_match_clause path would fail here because the
-    # connected first MATCH cannot be seed-extracted as a single node pattern.
+    # Reject comma-separated base MATCH patterns (e.g., (a:A), (b:B)) — the
+    # binding_ops mechanism requires a single connected path.
+    if len(first.patterns) > 1:
+        return False
+    # Reject optional clauses with variable-length relationships — binding_ops
+    # can handle them for the base chain but the join semantics are untested.
+    for m in query.matches[1:]:
+        for pat in m.patterns:
+            for el in pat:
+                if isinstance(el, RelationshipPattern) and (
+                    el.min_hops is not None or el.max_hops is not None
+                    or (el.to_fixed_point if hasattr(el, "to_fixed_point") else False)
+                ):
+                    return False
     return True
 
 
 @dataclass(frozen=True)
-class ConnectedOptionalMatchPlan:
-    """Plan for a connected MATCH + OPTIONAL MATCH left-outer-join.
-
-    Execution: run base_chain and opt_chain to produce binding-row tables,
-    left-outer-join on shared_node_aliases, then dispatch post_join_chain
-    (which uses the standard row pipeline) for RETURN / ORDER BY / etc.
-    """
-    base_chain: Chain
-    opt_chain: Chain
+class _OptionalMatchArm:
+    """One OPTIONAL MATCH arm: its chain, join keys, and new aliases."""
+    chain: Chain
     shared_node_aliases: Tuple[str, ...]
     opt_only_aliases: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ConnectedOptionalMatchPlan:
+    """Plan for 1 non-optional MATCH + N OPTIONAL MATCH left-outer-joins.
+
+    Execution: run base_chain, then for each arm run its chain, left-outer-join
+    onto the accumulated result, and finally dispatch post_join_chain for
+    RETURN / ORDER BY / etc.
+    """
+    base_chain: Chain
+    arms: Tuple[_OptionalMatchArm, ...]
     post_join_chain: Chain
 
 
@@ -7298,64 +7323,148 @@ def _compile_connected_match_join(
     )
 
 
+def _apply_where_to_ops(
+    where: Optional[WhereClause],
+    alias_targets: Dict[str, ASTObject],
+    *,
+    params: Optional[Mapping[str, Any]],
+) -> List[WhereComparison]:
+    """Apply a WHERE clause's predicates to already-lowered ops.
+
+    Label predicates mutate the ASTNode filter in *alias_targets* (in-place).
+    Property-comparison predicates are returned as ``WhereComparison`` entries
+    for the chain's ``where`` list.
+    """
+    where_out: List[WhereComparison] = []
+    if where is None:
+        return where_out
+    if where.expr is not None:
+        type_where = _extract_relationship_type_where(
+            where.expr,
+            alias_targets=alias_targets,
+            params=params,
+        )
+        if type_where is not None:
+            left, op, right = type_where
+            _apply_literal_where(alias_targets, left=left, op=op, right=right, params=params)
+        else:
+            raise _unsupported(
+                "Cypher WHERE expressions that cannot be lowered to node/edge filters are not yet supported in connected OPTIONAL MATCH queries",
+                field="where",
+                value=where.expr.text,
+                line=where.expr.span.line,
+                column=where.expr.span.column,
+            )
+    for predicate in where.predicates:
+        if isinstance(predicate, WherePatternPredicate):
+            raise _unsupported(
+                "Cypher WHERE pattern predicates must be rewritten before lowering",
+                field="where",
+                value=None,
+                line=predicate.span.line,
+                column=predicate.span.column,
+            )
+        if isinstance(predicate.left, LabelRef):
+            _apply_label_where(alias_targets, left=predicate.left)
+            continue
+        if isinstance(predicate.right, PropertyRef):
+            assert isinstance(predicate.left, PropertyRef)
+            # Reject cross-clause alias references: both sides must be in
+            # this clause's alias_targets to avoid runtime ValueError.
+            for ref in (predicate.left, predicate.right):
+                if ref.alias not in alias_targets:
+                    raise _unsupported(
+                        f"Cypher WHERE property comparison references alias '{ref.alias}' which is not bound in this MATCH clause",
+                        field="where",
+                        value=f"{predicate.left.alias}.{predicate.left.property} {predicate.op} {predicate.right.alias}.{predicate.right.property}",
+                        line=predicate.span.line,
+                        column=predicate.span.column,
+                    )
+            where_out.append(
+                compare(
+                    col(predicate.left.alias, predicate.left.property),
+                    cast(Any, predicate.op),
+                    col(predicate.right.alias, predicate.right.property),
+                )
+            )
+            continue
+        _apply_literal_where(
+            alias_targets,
+            left=cast(PropertyRef, predicate.left),
+            op=predicate.op,
+            right=cast(Optional[CypherLiteral], predicate.right),
+            params=params,
+        )
+    return where_out
+
+
 def _compile_connected_optional_match(
     query: CypherQuery,
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> CompiledCypherQuery:
-    """Compile a connected MATCH + OPTIONAL MATCH query.
+    """Compile a MATCH + N OPTIONAL MATCH query.
 
-    Lowers the non-optional and optional MATCH clauses as independent chains,
-    builds a post-join row-pipeline chain for RETURN / ORDER BY / SKIP / LIMIT,
-    and emits a ``ConnectedOptionalMatchPlan`` so the executor can left-outer-join
-    the results at runtime then delegate projection to the standard row pipeline.
+    Lowers each clause independently, builds one arm per OPTIONAL MATCH for
+    chained left-outer-joins at runtime, and delegates RETURN / ORDER BY /
+    SKIP / LIMIT to the standard row pipeline.
     """
     base_clause = query.matches[0]
-    opt_clause = query.matches[1]
-
-    base_aliases = _match_clause_aliases(base_clause)
-    opt_aliases = _match_clause_aliases(opt_clause)
-    shared_aliases = base_aliases & opt_aliases
-    opt_only_aliases = opt_aliases - base_aliases
-
-    if not shared_aliases:
-        raise _unsupported(
-            "Cypher connected MATCH + OPTIONAL MATCH requires at least one shared alias between the two patterns",
-            field="match",
-            value=None,
-            line=opt_clause.span.line,
-            column=opt_clause.span.column,
-        )
-
     base_ops = lower_match_clause(base_clause, params=params)
-    opt_ops = lower_match_clause(opt_clause, params=params)
     base_alias_targets = _alias_target(base_ops)
-    opt_alias_targets = _alias_target(opt_ops)
-    shared_node_aliases = sorted(
-        alias for alias in shared_aliases
-        if isinstance(base_alias_targets.get(alias), ASTNode)
-    )
-    if not shared_node_aliases:
-        raise _unsupported(
-            "Cypher connected MATCH + OPTIONAL MATCH requires at least one shared node alias for the join",
-            field="match",
-            value=sorted(shared_aliases),
-            line=opt_clause.span.line,
-            column=opt_clause.span.column,
+    base_aliases = _match_clause_aliases(base_clause)
+    base_where = _apply_where_to_ops(base_clause.where, base_alias_targets, params=params)
+    base_chain = Chain(base_ops, where=base_where)
+
+    # Build one arm per OPTIONAL MATCH clause.
+    arms: List[_OptionalMatchArm] = []
+    # Track all aliases seen so far (base + prior optionals) for shared-alias detection.
+    all_known_aliases = set(base_aliases)
+    combined_alias_targets: Dict[str, ASTObject] = dict(base_alias_targets)
+
+    for opt_clause in query.matches[1:]:
+        opt_ops = lower_match_clause(opt_clause, params=params)
+        opt_alias_targets = _alias_target(opt_ops)
+        opt_aliases = _match_clause_aliases(opt_clause)
+        shared_aliases = all_known_aliases & opt_aliases
+        opt_only_aliases = opt_aliases - all_known_aliases
+
+        if not shared_aliases:
+            raise _unsupported(
+                "Cypher connected MATCH + OPTIONAL MATCH requires at least one shared alias between the two patterns",
+                field="match",
+                value=None,
+                line=opt_clause.span.line,
+                column=opt_clause.span.column,
+            )
+
+        shared_node_aliases = sorted(
+            alias for alias in shared_aliases
+            if isinstance(combined_alias_targets.get(alias), ASTNode)
+            or isinstance(opt_alias_targets.get(alias), ASTNode)
         )
+        if not shared_node_aliases:
+            raise _unsupported(
+                "Cypher connected MATCH + OPTIONAL MATCH requires at least one shared node alias for the join",
+                field="match",
+                value=sorted(shared_aliases),
+                line=opt_clause.span.line,
+                column=opt_clause.span.column,
+            )
 
-    base_chain = Chain(base_ops)
-    opt_chain = Chain(opt_ops)
+        opt_where = _apply_where_to_ops(opt_clause.where, opt_alias_targets, params=params)
+        arms.append(_OptionalMatchArm(
+            chain=Chain(opt_ops, where=opt_where),
+            shared_node_aliases=tuple(shared_node_aliases),
+            opt_only_aliases=tuple(sorted(opt_only_aliases)),
+        ))
 
-    # Build the combined alias_targets so projection can reference any alias.
-    combined_alias_targets: Dict[str, ASTObject] = {}
-    combined_alias_targets.update(base_alias_targets)
-    for alias, target in opt_alias_targets.items():
-        if alias not in combined_alias_targets:
-            combined_alias_targets[alias] = target
+        all_known_aliases.update(opt_aliases)
+        for alias, target in opt_alias_targets.items():
+            if alias not in combined_alias_targets:
+                combined_alias_targets[alias] = target
 
     # Build the row-pipeline ops that will run on the joined DataFrame.
-    # This reuses the same projection infrastructure as the normal path.
     try:
         active = _active_match_alias(query, alias_targets=combined_alias_targets, params=params)
     except GFQLValidationError:
@@ -7368,8 +7477,6 @@ def _compile_connected_optional_match(
         params=params,
     )
 
-    # The post-join chain starts with rows() (the joined DataFrame is
-    # already in binding-row format), then standard projection ops.
     post_join_ops: List[ASTObject] = []
     if not plan.whole_row_output_names:
         post_join_ops.append(return_(plan.projection_items))
@@ -7385,17 +7492,14 @@ def _compile_connected_optional_match(
             )
         )
     _append_page_ops(post_join_ops, query=query, params=params)
-    post_join_chain = Chain(post_join_ops)
 
     return CompiledCypherQuery(
         chain=base_chain,
         seed_rows=False,
         connected_optional_match=ConnectedOptionalMatchPlan(
             base_chain=base_chain,
-            opt_chain=opt_chain,
-            shared_node_aliases=tuple(shared_node_aliases),
-            opt_only_aliases=tuple(sorted(opt_only_aliases)),
-            post_join_chain=post_join_chain,
+            arms=tuple(arms),
+            post_join_chain=Chain(post_join_ops),
         ),
     )
 

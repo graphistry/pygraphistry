@@ -79,6 +79,7 @@ class MatchClause:
     span: SourceSpan
     optional: bool = False
     pattern_aliases: Tuple[Optional[str], ...] = ()
+    where: Optional["WhereClause"] = None
 
     @property
     def pattern(self) -> Tuple[PatternElement, ...]:
