@@ -5290,6 +5290,121 @@ def test_string_cypher_executes_multirow_disconnected_reverse_shortest_path_case
     ]
 
 
+def test_string_cypher_executes_multirow_shortest_path_is_null_ordering() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3", "p4", "p5"],
+                "label__Person": [True, True, True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p2", "p3"],
+                "d": ["p2", "p3", "p4"],
+                "type": ["KNOWS", "KNOWS", "KNOWS"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        """
+        MATCH
+            (person1:Person),
+            (person2:Person),
+            path = shortestPath((person1)-[:KNOWS*]-(person2))
+        WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p3', 'p5']
+        RETURN person1.id AS person1Id, person2.id AS person2Id, path IS NULL AS noPath
+        ORDER BY noPath, person1Id, person2Id
+        """,
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"person1Id": "p1", "person2Id": "p3", "noPath": False},
+        {"person1Id": "p2", "person2Id": "p3", "noPath": False},
+        {"person1Id": "p1", "person2Id": "p5", "noPath": True},
+        {"person1Id": "p2", "person2Id": "p5", "noPath": True},
+    ]
+
+
+def test_string_cypher_executes_multirow_bounded_shortest_path_is_null_stage_ordering() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3", "p4", "p5"],
+                "label__Person": [True, True, True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p2", "p3"],
+                "d": ["p2", "p3", "p4"],
+                "type": ["KNOWS", "KNOWS", "KNOWS"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        """
+        MATCH
+            (person1:Person),
+            (person2:Person),
+            path = shortestPath((person1)-[:KNOWS*1..2]-(person2))
+        WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p3', 'p4', 'p5']
+        WITH person1.id AS person1Id, person2.id AS person2Id, path IS NULL AS noPath
+        RETURN person1Id, person2Id, noPath
+        ORDER BY noPath, person1Id, person2Id
+        """,
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"person1Id": "p1", "person2Id": "p3", "noPath": False},
+        {"person1Id": "p2", "person2Id": "p3", "noPath": False},
+        {"person1Id": "p2", "person2Id": "p4", "noPath": False},
+        {"person1Id": "p1", "person2Id": "p4", "noPath": True},
+        {"person1Id": "p1", "person2Id": "p5", "noPath": True},
+        {"person1Id": "p2", "person2Id": "p5", "noPath": True},
+    ]
+
+
+def test_string_cypher_executes_multirow_reverse_shortest_path_is_null_stage_ordering() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3", "p4", "p5"],
+                "label__Person": [True, True, True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p2", "p3"],
+                "d": ["p2", "p3", "p4"],
+                "type": ["KNOWS", "KNOWS", "KNOWS"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        """
+        MATCH
+            (person1:Person),
+            (person2:Person),
+            path = shortestPath((person1)<-[:KNOWS*]-(person2))
+        WHERE person1.id IN ['p3', 'p5'] AND person2.id IN ['p1', 'p2']
+        WITH person1.id AS person1Id, person2.id AS person2Id, path IS NULL AS noPath
+        RETURN person1Id, person2Id, noPath
+        ORDER BY noPath, person1Id, person2Id
+        """,
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"person1Id": "p3", "person2Id": "p1", "noPath": False},
+        {"person1Id": "p3", "person2Id": "p2", "noPath": False},
+        {"person1Id": "p5", "person2Id": "p1", "noPath": True},
+        {"person1Id": "p5", "person2Id": "p2", "noPath": True},
+    ]
+
+
 @pytest.mark.parametrize(
     "query",
     [
