@@ -207,8 +207,8 @@ jobs:
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
-        python -m pip install --upgrade pip
-        python -m pip install -e .[test]
+        python -m pip install --upgrade pip uv
+        uv pip install -e .[test]
 
     - name: Run GFQL benchmarks (small)
       run: |
@@ -259,8 +259,8 @@ jobs:
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
-        python -m pip install --upgrade pip
-        python -m pip install -e .[test]
+        python -m pip install --upgrade pip uv
+        uv pip install -e .[test]
 
     - name: Lint
       run: |
@@ -304,8 +304,8 @@ jobs:
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
-        python -m pip install --upgrade pip
-        python -m pip install -e .[test]
+        python -m pip install --upgrade pip uv
+        uv pip install -e .[test]
 
     - name: Test pip install (Docker)
       env:
