@@ -4,19 +4,17 @@ Squarified treemap layout — built-in implementation.
 Implements the algorithm from:
   Bruls, Huizing, van Wijk. "Squarified Treemaps." (2000)
 
-Public API (drop-in compatible with the external squarify package):
+Public API:
   normalize_sizes(sizes, dx, dy) -> List[float]
   squarify(sizes, x, y, dx, dy) -> List[dict]
 
 Internal helpers mirror the reference algorithm structure for
-ease of verification, with numpy used for element-wise arithmetic.
+ease of verification. Pure Python — no external dependencies.
 """
 
 from __future__ import annotations
 
 from typing import List
-
-import numpy as np
 
 
 # ---------------------------------------------------------------------------
@@ -26,7 +24,7 @@ import numpy as np
 
 def _layoutrow(sizes: List[float], x: float, y: float, dx: float, dy: float) -> List[dict]:
     """Place a strip of rects filling the full height dy (dx >= dy case)."""
-    covered_area = float(np.sum(sizes))
+    covered_area = sum(sizes)
     width = covered_area / dy
     rects: List[dict] = []
     y_cursor = y
@@ -39,7 +37,7 @@ def _layoutrow(sizes: List[float], x: float, y: float, dx: float, dy: float) -> 
 
 def _layoutcol(sizes: List[float], x: float, y: float, dx: float, dy: float) -> List[dict]:
     """Place a strip of rects filling the full width dx (dx < dy case)."""
-    covered_area = float(np.sum(sizes))
+    covered_area = sum(sizes)
     height = covered_area / dx
     rects: List[dict] = []
     x_cursor = x
@@ -57,13 +55,13 @@ def _layout(sizes: List[float], x: float, y: float, dx: float, dy: float) -> Lis
 
 
 def _leftoverrow(sizes: List[float], x: float, y: float, dx: float, dy: float):
-    covered_area = float(np.sum(sizes))
+    covered_area = sum(sizes)
     width = covered_area / dy
     return x + width, y, dx - width, dy
 
 
 def _leftovercol(sizes: List[float], x: float, y: float, dx: float, dy: float):
-    covered_area = float(np.sum(sizes))
+    covered_area = sum(sizes)
     height = covered_area / dx
     return x, y + height, dx, dy - height
 
@@ -103,7 +101,7 @@ def normalize_sizes(sizes, dx: float, dy: float) -> List[float]:
     arr = list(map(float, sizes))
     if len(arr) == 0:
         return arr
-    total_size = float(np.sum(arr))
+    total_size = sum(arr)
     total_area = float(dx) * float(dy)
     scale = total_area / total_size  # raises ZeroDivisionError if total_size == 0
     return [v * scale for v in arr]
