@@ -5071,15 +5071,12 @@ def test_string_cypher_executes_multirow_bounded_shortest_path_pairs_without_end
 
     assert result._nodes.to_dict(orient="records") == [
         {"person1Id": "p1", "person2Id": "p3", "shortestPathLength": 2},
+        {"person1Id": "p1", "person2Id": "p4", "shortestPathLength": -1},
         {"person1Id": "p2", "person2Id": "p3", "shortestPathLength": 1},
         {"person1Id": "p2", "person2Id": "p4", "shortestPathLength": 2},
     ]
 
 
-@pytest.mark.xfail(
-    reason="Multi-row disconnected shortestPath direct projection still collapses null-extension to a single synthetic row (#1010)",
-    strict=True,
-)
 def test_string_cypher_executes_multirow_disconnected_shortest_path_endpoint_projection() -> None:
     graph = _mk_graph(
         pd.DataFrame(
@@ -5115,10 +5112,6 @@ def test_string_cypher_executes_multirow_disconnected_shortest_path_endpoint_pro
     ]
 
 
-@pytest.mark.xfail(
-    reason="Multi-row disconnected shortestPath staged CASE path still drops null-extended rows (#1010)",
-    strict=True,
-)
 def test_string_cypher_executes_multirow_disconnected_shortest_path_case_stage() -> None:
     graph = _mk_graph(
         pd.DataFrame(
@@ -5152,6 +5145,148 @@ def test_string_cypher_executes_multirow_disconnected_shortest_path_case_stage()
     assert result._nodes.to_dict(orient="records") == [
         {"person1Id": "p1", "person2Id": "p5", "shortestPathLength": -1},
         {"person1Id": "p2", "person2Id": "p5", "shortestPathLength": -1},
+    ]
+
+
+def test_string_cypher_executes_multirow_bounded_disconnected_shortest_path_endpoint_projection() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3", "p4", "p5"],
+                "label__Person": [True, True, True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p2", "p3"],
+                "d": ["p2", "p3", "p4"],
+                "type": ["KNOWS", "KNOWS", "KNOWS"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        """
+        MATCH
+            (person1:Person),
+            (person2:Person),
+            path = shortestPath((person1)-[:KNOWS*1..2]-(person2))
+        WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p5']
+        RETURN person1.id AS person1Id, person2.id AS person2Id, length(path) AS shortestPathLength, path IS NULL AS noPath
+        ORDER BY person1Id, person2Id
+        """,
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"person1Id": "p1", "person2Id": "p5", "shortestPathLength": None, "noPath": True},
+        {"person1Id": "p2", "person2Id": "p5", "shortestPathLength": None, "noPath": True},
+    ]
+
+
+def test_string_cypher_executes_multirow_bounded_disconnected_shortest_path_case_stage() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3", "p4", "p5"],
+                "label__Person": [True, True, True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p2", "p3"],
+                "d": ["p2", "p3", "p4"],
+                "type": ["KNOWS", "KNOWS", "KNOWS"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        """
+        MATCH
+            (person1:Person),
+            (person2:Person),
+            path = shortestPath((person1)-[:KNOWS*1..2]-(person2))
+        WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p5']
+        WITH person1.id AS person1Id, person2.id AS person2Id, CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
+        RETURN person1Id, person2Id, shortestPathLength
+        ORDER BY person1Id, person2Id
+        """,
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"person1Id": "p1", "person2Id": "p5", "shortestPathLength": -1},
+        {"person1Id": "p2", "person2Id": "p5", "shortestPathLength": -1},
+    ]
+
+
+def test_string_cypher_executes_multirow_disconnected_reverse_shortest_path_endpoint_projection() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3", "p4", "p5"],
+                "label__Person": [True, True, True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p2", "p3"],
+                "d": ["p2", "p3", "p4"],
+                "type": ["KNOWS", "KNOWS", "KNOWS"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        """
+        MATCH
+            (person1:Person),
+            (person2:Person),
+            path = shortestPath((person1)<-[:KNOWS*]-(person2))
+        WHERE person1.id IN ['p5'] AND person2.id IN ['p1', 'p2']
+        RETURN person1.id AS person1Id, person2.id AS person2Id, length(path) AS shortestPathLength, path IS NULL AS noPath
+        ORDER BY person1Id, person2Id
+        """,
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"person1Id": "p5", "person2Id": "p1", "shortestPathLength": None, "noPath": True},
+        {"person1Id": "p5", "person2Id": "p2", "shortestPathLength": None, "noPath": True},
+    ]
+
+
+def test_string_cypher_executes_multirow_disconnected_reverse_shortest_path_case_stage() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3", "p4", "p5"],
+                "label__Person": [True, True, True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p2", "p3"],
+                "d": ["p2", "p3", "p4"],
+                "type": ["KNOWS", "KNOWS", "KNOWS"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        """
+        MATCH
+            (person1:Person),
+            (person2:Person),
+            path = shortestPath((person1)<-[:KNOWS*]-(person2))
+        WHERE person1.id IN ['p5'] AND person2.id IN ['p1', 'p2']
+        WITH person1.id AS person1Id, person2.id AS person2Id, CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
+        RETURN person1Id, person2Id, shortestPathLength
+        ORDER BY person1Id, person2Id
+        """,
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"person1Id": "p5", "person2Id": "p1", "shortestPathLength": -1},
+        {"person1Id": "p5", "person2Id": "p2", "shortestPathLength": -1},
     ]
 
 
