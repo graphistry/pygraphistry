@@ -56,7 +56,7 @@ for query, expected, label in cases:
         print(f"  {status}  {label}: cugraph={val} bfs={val_bfs} expected={expected}")
         if status == "FAIL":
             failures.append(label)
-    except Exception as e:
+    except Exception:
         # CASE IS NULL not supported on CUDF — skip parity, just check cugraph alone
         try:
             r_cugraph = g.gfql(query, engine=EngineAbstract.CUDF, shortest_path_backend="cugraph")
