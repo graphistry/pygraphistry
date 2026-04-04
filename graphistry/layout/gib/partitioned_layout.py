@@ -210,7 +210,7 @@ def partitioned_layout(
     g_locally_positioned = self.nodes(normalized_nodes)
 
     # Vectorized global transform: merge treemap offsets once
-    offsets_pdf = pd.DataFrame(partition_offsets)  # partition_id as index, cols: x y dx dy
+    offsets_pdf = df_cons(engine)(partition_offsets)  # partition_id as index, cols: x y dx dy
     local_nodes = g_locally_positioned._nodes
     local_with_offsets = local_nodes.merge(
         offsets_pdf[['x', 'y', 'dx', 'dy']],
