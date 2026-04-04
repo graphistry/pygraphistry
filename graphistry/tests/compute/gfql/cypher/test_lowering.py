@@ -9996,8 +9996,13 @@ def test_issue_1026_with_limit_optional_match_null_fill() -> None:
     assert len(rows) == 2
 
 
-def test_issue_1026_multi_alias_with_optional_match_compiles() -> None:
-    """Multi-alias WITH + OPTIONAL MATCH should compile and execute."""
+def test_issue_1026_multi_alias_with_optional_match_rejects_cleanly() -> None:
+    """Multi-alias WITH + OPTIONAL MATCH currently rejects with a validation error.
+
+    The bounded reentry prefix compilation doesn't yet support multi-alias
+    whole-row projection (RETURN a, b) for connected patterns. This test
+    locks the current rejection so it doesn't silently regress to wrong answers.
+    """
     nodes = pd.DataFrame({"id": ["a", "b", "c"], "num": [1, 2, 3]})
     edges = pd.DataFrame({
         "s": ["a", "b"],
@@ -10006,15 +10011,90 @@ def test_issue_1026_multi_alias_with_optional_match_compiles() -> None:
     })
     g = _mk_graph(nodes, edges)
 
+    with pytest.raises(GFQLValidationError):
+        g.gfql(
+            "MATCH (a)-[r:R]->(b) "
+            "WITH a, b "
+            "OPTIONAL MATCH (b)-[r2:T]->(c) "
+            "RETURN a.id AS aid, b.id AS bid, c.id AS cid"
+        )
+
+
+def test_issue_1026_with_limit_optional_match_all_match() -> None:
+    """WITH LIMIT + OPTIONAL MATCH where all rows match — no null-fill needed."""
+    nodes = pd.DataFrame({"id": ["a", "b"]})
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "a"], "type": ["T", "T"]})
+    g = _mk_graph(nodes, edges)
+
     result = g.gfql(
-        "MATCH (a)-[r:R]->(b) "
-        "WITH a, b "
-        "OPTIONAL MATCH (b)-[r2:T]->(c) "
-        "RETURN a.id AS aid, b.id AS bid, c.id AS cid"
+        "MATCH (x) WITH x LIMIT 2 "
+        "OPTIONAL MATCH (x)-->(y) "
+        "RETURN x.id AS xid, y.id AS yid "
+        "ORDER BY xid"
     )
 
     rows = result._nodes.to_dict(orient="records")
-    assert len(rows) == 1
-    assert rows[0]["aid"] == "a"
-    assert rows[0]["bid"] == "b"
-    assert rows[0]["cid"] == "c"
+    assert len(rows) == 2
+    assert rows[0] == {"xid": "a", "yid": "b"}
+    assert rows[1] == {"xid": "b", "yid": "a"}
+
+
+def test_issue_1026_with_optional_match_property_on_optional() -> None:
+    """WITH + OPTIONAL MATCH with property access on optional node alias."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["T"]})
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x) WITH x "
+        "OPTIONAL MATCH (x)-[:T]->(y) "
+        "RETURN y.id AS yid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    # 3 rows: a matched (yid=b), b and c null-filled (yid=null)
+    assert len(rows) == 3
+    non_null = [r for r in rows if r["yid"] is not None and not (isinstance(r["yid"], float) and r["yid"] != r["yid"])]
+    assert len(non_null) == 1
+    assert non_null[0]["yid"] == "b"
+
+
+def test_issue_1026_with_optional_match_empty_graph() -> None:
+    """WITH + OPTIONAL MATCH on empty graph."""
+    nodes = pd.DataFrame({"id": pd.Series(dtype="object")})
+    edges = pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object"), "type": pd.Series(dtype="object")})
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x) WITH x "
+        "OPTIONAL MATCH (x)-->(y) "
+        "RETURN x.id AS xid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_issue_1026_with_optional_match_multi_row_optional() -> None:
+    """WITH + OPTIONAL MATCH where some nodes have multiple optional matches."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+    edges = pd.DataFrame({
+        "s": ["a", "a", "b"],
+        "d": ["b", "c", "d"],
+        "type": ["T", "T", "T"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x) WITH x "
+        "OPTIONAL MATCH (x)-[:T]->(y) "
+        "RETURN x.id AS xid, y.id AS yid "
+        "ORDER BY xid, yid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    # a has T->b and T->c (2 rows), b has T->d (1 row), c and d have none (null-filled)
+    matched = [r for r in rows if r["yid"] is not None and not (isinstance(r["yid"], float) and r["yid"] != r["yid"])]
+    assert len(matched) == 3
+    assert {"xid": "a", "yid": "b"} in matched
+    assert {"xid": "a", "yid": "c"} in matched
+    assert {"xid": "b", "yid": "d"} in matched

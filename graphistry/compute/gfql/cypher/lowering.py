@@ -6948,11 +6948,15 @@ def _compile_bounded_reentry_query(
                     dict.fromkeys(target_projection.exclude_columns + hidden_columns)
                 ),
             )
+        is_optional = reentry_match.optional or target.optional_reentry
         return replace(
             target,
             start_nodes_query=prefix_compiled,
             result_projection=target_projection,
-            optional_reentry=reentry_match.optional or target.optional_reentry,
+            optional_reentry=is_optional,
+            # Clear empty_result_row when optional_reentry is set — the
+            # reentry null-fill handles missing rows instead.
+            empty_result_row=None if is_optional else target.empty_result_row,
             scalar_reentry_alias=reentry_alias if scalar_only_prefix else target.scalar_reentry_alias,
             scalar_reentry_columns=carry_columns if scalar_only_prefix else target.scalar_reentry_columns,
         )
