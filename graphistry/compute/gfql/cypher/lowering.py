@@ -5,8 +5,10 @@ import math
 import re
 from typing import AbstractSet, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 from typing_extensions import Literal
+import pandas as pd
 
 from graphistry.compute.ast import (
+    ASTCall,
     ASTEdge,
     ASTObject,
     ASTNode,
@@ -72,6 +74,7 @@ from graphistry.compute.gfql.cypher.ast import (
     ParameterRef,
     OrderByClause,
     PatternElement,
+    PathPatternKind,
     ProjectionStage,
     PropertyRef,
     PropertyEntry,
@@ -218,6 +221,15 @@ class _PostAggregateExprPlan:
 class _StageColumnBinding:
     kind: Literal["property", "expr"]
     source_name: str
+
+
+@dataclass(frozen=True)
+class _ShortestPathAliasSpec:
+    alias: str
+    hop_column: str
+    pattern: Tuple[PatternElement, ...]
+    start_alias: Optional[str]
+    end_alias: Optional[str]
 
 
 @dataclass(frozen=True)
@@ -913,6 +925,193 @@ def _rewrite_expr_identifiers(node: ExprNode, replacements: Mapping[str, str]) -
         node,
         rewrite=lambda child: _rewrite_expr_identifiers(child, replacements),
         error_context="identifier rewrite",
+    )
+
+
+def _rewrite_shortest_path_expr_node(
+    node: ExprNode,
+    *,
+    specs: Mapping[str, _ShortestPathAliasSpec],
+    field: str,
+    value: str,
+    line: int,
+    column: int,
+) -> ExprNode:
+    def _hop_expr(spec: _ShortestPathAliasSpec) -> ExprNode:
+        if spec.end_alias is not None:
+            return PropertyAccessExpr(Identifier(spec.end_alias), spec.hop_column)
+        return Identifier(spec.hop_column)
+
+    if isinstance(node, IsNullOp) and isinstance(node.value, Identifier) and node.value.name in specs:
+        return IsNullOp(_hop_expr(specs[node.value.name]), negated=node.negated)
+    if isinstance(node, Identifier):
+        if node.name in specs:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Cypher shortestPath() aliases currently support only length(path) and path IS NULL in the local compiler",
+                field=field,
+                value=value,
+                suggestion="Use length(path), path IS NULL, or CASE expressions built from those forms.",
+                line=line,
+                column=column,
+                language="cypher",
+            )
+        return node
+    if (
+        isinstance(node, FunctionCall)
+        and node.name == "length"
+        and len(node.args) == 1
+        and isinstance(node.args[0], Identifier)
+        and node.args[0].name in specs
+    ):
+        return _hop_expr(specs[node.args[0].name])
+    return _rebuild_expr_node(
+        node,
+        rewrite=lambda child: _rewrite_shortest_path_expr_node(
+            child,
+            specs=specs,
+            field=field,
+            value=value,
+            line=line,
+            column=column,
+        ),
+        error_context="shortestPath rewrite",
+    )
+
+
+def _rewrite_shortest_path_expr_text(
+    expr: ExpressionText,
+    *,
+    specs: Mapping[str, _ShortestPathAliasSpec],
+    field: str,
+) -> ExpressionText:
+    if not specs:
+        return expr
+    node = parse_expr(expr.text)
+    rewritten = _rewrite_shortest_path_expr_node(
+        node,
+        specs=specs,
+        field=field,
+        value=expr.text,
+        line=expr.span.line,
+        column=expr.span.column,
+    )
+    return ExpressionText(text=_render_expr_node(rewritten), span=expr.span)
+
+
+def _rewrite_shortest_path_query(
+    query: CypherQuery,
+) -> CypherQuery:
+    specs = _shortest_path_alias_specs(query)
+    if not specs:
+        return query
+
+    rewritten_matches: List[MatchClause] = []
+    for clause in query.matches:
+        pattern_kinds = _match_pattern_alias_kinds(clause)
+        if len(clause.patterns) <= 1 or "shortestPath" not in pattern_kinds:
+            rewritten_matches.append(clause)
+            continue
+        if clause.optional:
+            raise _unsupported(
+                "Cypher shortestPath() inside OPTIONAL MATCH is not yet supported in the local compiler",
+                field="match",
+                value="shortestPath",
+                line=clause.span.line,
+                column=clause.span.column,
+            )
+        for idx, (pattern, kind) in enumerate(zip(clause.patterns, pattern_kinds)):
+            if kind == "shortestPath":
+                rewritten_matches.append(
+                    MatchClause(
+                        patterns=(pattern,),
+                        span=clause.span,
+                        optional=False,
+                        pattern_aliases=((clause.pattern_aliases[idx] if idx < len(clause.pattern_aliases) else None),),
+                        pattern_alias_kinds=("shortestPath",),
+                    )
+                )
+                continue
+            if len(pattern) != 1 or not isinstance(pattern[0], NodePattern):
+                raise _unsupported(
+                    "Cypher shortestPath() currently supports only node-only seed patterns plus the final shortestPath pattern in the local compiler",
+                    field="match",
+                    value=None,
+                    line=clause.span.line,
+                    column=clause.span.column,
+                )
+            rewritten_matches.append(
+                MatchClause(
+                    patterns=(pattern,),
+                    span=clause.span,
+                    optional=False,
+                    pattern_aliases=(None,),
+                    pattern_alias_kinds=("pattern",),
+                )
+            )
+
+    def _rewrite_clause(clause: ReturnClause) -> ReturnClause:
+        return replace(
+            clause,
+            items=tuple(
+                replace(
+                    item,
+                    expression=_rewrite_shortest_path_expr_text(
+                        item.expression,
+                        specs=specs,
+                        field=clause.kind,
+                    ),
+                )
+                for item in clause.items
+            ),
+        )
+
+    def _rewrite_order(order_by: Optional[OrderByClause]) -> Optional[OrderByClause]:
+        if order_by is None:
+            return None
+        return replace(
+            order_by,
+            items=tuple(
+                replace(
+                    item,
+                    expression=_rewrite_shortest_path_expr_text(
+                        item.expression,
+                        specs=specs,
+                        field="order_by",
+                    ),
+                )
+                for item in order_by.items
+            ),
+        )
+
+    def _rewrite_where(where: Optional[WhereClause]) -> Optional[WhereClause]:
+        if where is None or where.expr is None:
+            return where
+        return replace(
+            where,
+            expr=_rewrite_shortest_path_expr_text(where.expr, specs=specs, field="where"),
+        )
+
+    return replace(
+        query,
+        matches=tuple(rewritten_matches),
+        where=_rewrite_where(query.where),
+        with_stages=tuple(
+            replace(
+                stage,
+                clause=_rewrite_clause(stage.clause),
+                where=None if stage.where is None else _rewrite_shortest_path_expr_text(
+                    stage.where,
+                    specs=specs,
+                    field="with.where",
+                ),
+                order_by=_rewrite_order(stage.order_by),
+            )
+            for stage in query.with_stages
+        ),
+        return_=_rewrite_clause(query.return_),
+        order_by=_rewrite_order(query.order_by),
+        reentry_wheres=tuple(_rewrite_where(where) for where in query.reentry_wheres),
     )
 
 
@@ -2487,6 +2686,7 @@ def _lower_relationship(
     *,
     params: Optional[Mapping[str, Any]],
     prune_to_endpoints: bool = False,
+    hop_column: Optional[str] = None,
 ) -> ASTObject:
     edge_match = _filter_dict_from_entries(
         discriminator_key="type",
@@ -2497,11 +2697,17 @@ def _lower_relationship(
         line=relationship.span.line,
         column=relationship.span.column,
     )
+    min_hops = relationship.min_hops
+    max_hops = relationship.max_hops
+    # shortestPath(...*...) should admit the valid zero-hop path when the
+    # endpoints are the same node, unlike generic carrier-style varlen refs.
+    if hop_column is not None and relationship.to_fixed_point and min_hops is None and max_hops is None:
+        min_hops = 0
     hops = (
         None
         if (
-            relationship.min_hops is not None
-            or relationship.max_hops is not None
+            min_hops is not None
+            or max_hops is not None
             or relationship.to_fixed_point
         )
         else 1
@@ -2512,9 +2718,10 @@ def _lower_relationship(
             e_forward(
                 edge_match=edge_match,
                 hops=hops,
-                min_hops=relationship.min_hops,
-                max_hops=relationship.max_hops,
+                min_hops=min_hops,
+                max_hops=max_hops,
                 to_fixed_point=relationship.to_fixed_point,
+                label_node_hops=hop_column,
                 name=relationship.variable,
                 prune_to_endpoints=prune_to_endpoints,
             ),
@@ -2525,9 +2732,10 @@ def _lower_relationship(
             e_reverse(
                 edge_match=edge_match,
                 hops=hops,
-                min_hops=relationship.min_hops,
-                max_hops=relationship.max_hops,
+                min_hops=min_hops,
+                max_hops=max_hops,
                 to_fixed_point=relationship.to_fixed_point,
+                label_node_hops=hop_column,
                 name=relationship.variable,
                 prune_to_endpoints=prune_to_endpoints,
             ),
@@ -2537,9 +2745,10 @@ def _lower_relationship(
         e_undirected(
             edge_match=edge_match,
             hops=hops,
-            min_hops=relationship.min_hops,
-            max_hops=relationship.max_hops,
+            min_hops=min_hops,
+            max_hops=max_hops,
             to_fixed_point=relationship.to_fixed_point,
+            label_node_hops=hop_column,
             name=relationship.variable,
             prune_to_endpoints=prune_to_endpoints,
         ),
@@ -2704,6 +2913,20 @@ def _match_pattern_elements(clause: MatchClause) -> Tuple[PatternElement, ...]:
     return _normalized_match_pattern(clause)
 
 
+def _match_pattern_alias_kinds(clause: MatchClause) -> Tuple[PathPatternKind, ...]:
+    if clause.pattern_alias_kinds:
+        return clause.pattern_alias_kinds
+    return tuple("pattern" for _ in clause.patterns)
+
+
+def _query_has_shortest_path_patterns(query: CypherQuery) -> bool:
+    return any(
+        kind == "shortestPath"
+        for clause in query.matches + query.reentry_matches
+        for kind in _match_pattern_alias_kinds(clause)
+    )
+
+
 def _pattern_node_aliases(pattern: Sequence[PatternElement]) -> Set[str]:
     return {
         cast(str, element.variable)
@@ -2739,8 +2962,13 @@ def _connected_join_alias_targets(
     params: Optional[Mapping[str, Any]],
 ) -> Mapping[str, ASTObject]:
     combined_alias_targets: Dict[str, ASTObject] = {}
-    for pattern in clause.patterns:
-        single_clause = replace(clause, patterns=(pattern,), pattern_aliases=(None,))
+    for idx, pattern in enumerate(clause.patterns):
+        single_clause = replace(
+            clause,
+            patterns=(pattern,),
+            pattern_aliases=(None,),
+            pattern_alias_kinds=(_match_pattern_alias_kinds(clause)[idx],),
+        )
         ops, _ = _lower_match_clause_with_alias_equalities(single_clause, params=params)
         for alias, target in _alias_target(ops).items():
             if alias not in combined_alias_targets:
@@ -2829,6 +3057,12 @@ def _binding_row_aliases_for_match(
     *,
     alias_targets: Mapping[str, ASTObject],
 ) -> Set[str]:
+    if clause is not None and any(kind == "shortestPath" for kind in _match_pattern_alias_kinds(clause)):
+        return {
+            alias
+            for alias, target in alias_targets.items()
+            if isinstance(target, ASTNode)
+        }
     if clause is None or _cartesian_node_only_patterns(clause) is None:
         return set()
     if len(alias_targets) <= 1:
@@ -2888,6 +3122,7 @@ def _lower_match_clause_with_alias_equalities(
         for element in pattern
         if getattr(element, "variable", None) is not None
     }
+    shortest_path_hop_columns = _shortest_path_relationship_hop_columns(clause)
 
     # Pre-compute last relationship index for prune_to_endpoints
     rel_indices = [i for i, el in enumerate(pattern) if isinstance(el, RelationshipPattern)]
@@ -2943,11 +3178,22 @@ def _lower_match_clause_with_alias_equalities(
             )
         if alias is not None:
             seen_alias_kinds[alias] = "edge"
+        hop_col = shortest_path_hop_columns.get(
+            (
+                element.span.line,
+                element.span.column,
+                element.span.end_line,
+                element.span.end_column,
+                element.span.start_pos,
+                element.span.end_pos,
+            )
+        )
         is_varlen = _is_variable_length_relationship_pattern(element)
         lowered_edge = _lower_relationship(
             element,
             params=params,
             prune_to_endpoints=is_varlen and idx < last_rel_idx,
+            hop_column=hop_col,
         )
         if alias is not None:
             seen_alias_ops[alias] = lowered_edge
@@ -3023,6 +3269,7 @@ def _apply_seed_node_bindings(
         span=clause.span,
         optional=clause.optional,
         pattern_aliases=clause.pattern_aliases[-1:] if clause.pattern_aliases else (),
+        pattern_alias_kinds=_match_pattern_alias_kinds(clause)[-1:] if clause.patterns else (),
     )
 
 
@@ -3763,6 +4010,7 @@ def _optional_projection_row_guard_plan(
             span=base_clause.span,
             optional=False,
             pattern_aliases=((base_clause.pattern_aliases[idx] if idx < len(base_clause.pattern_aliases) else None),),
+            pattern_alias_kinds=(_match_pattern_alias_kinds(base_clause)[idx],),
         )
         base_chains.append(Chain(lower_match_clause(pattern_clause, params=params)))
     return OptionalProjectionRowGuardPlan(base_chains=tuple(base_chains))
@@ -5466,7 +5714,13 @@ def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQu
             expr=query.where.expr,
             span=query.where.span,
         )
-    extra_match = MatchClause(patterns=(first.pattern,), span=first.span, optional=False, pattern_aliases=(None,))
+    extra_match = MatchClause(
+        patterns=(first.pattern,),
+        span=first.span,
+        optional=False,
+        pattern_aliases=(None,),
+        pattern_alias_kinds=("pattern",),
+    )
     return replace(query, matches=query.matches + (extra_match,), where=remaining_where)
 
 
@@ -5542,8 +5796,11 @@ def _variable_length_path_aliases(query: CypherQuery) -> Set[str]:
     out: Set[str] = set()
     for clause in query.matches + query.reentry_matches:
         pattern_aliases = clause.pattern_aliases or tuple(None for _ in clause.patterns)
-        for alias, pattern in zip(pattern_aliases, clause.patterns):
+        pattern_kinds = _match_pattern_alias_kinds(clause)
+        for alias, pattern, kind in zip(pattern_aliases, clause.patterns, pattern_kinds):
             if alias is None:
+                continue
+            if kind != "pattern":
                 continue
             if any(
                 isinstance(element, RelationshipPattern)
@@ -5551,6 +5808,125 @@ def _variable_length_path_aliases(query: CypherQuery) -> Set[str]:
                 for element in pattern
             ):
                 out.add(alias)
+    return out
+
+
+def _shortest_path_alias_specs(query: CypherQuery) -> Dict[str, _ShortestPathAliasSpec]:
+    out: Dict[str, _ShortestPathAliasSpec] = {}
+    for clause in query.matches + query.reentry_matches:
+        pattern_aliases = clause.pattern_aliases or tuple(None for _ in clause.patterns)
+        pattern_kinds = _match_pattern_alias_kinds(clause)
+        for alias, pattern, kind in zip(pattern_aliases, clause.patterns, pattern_kinds):
+            if alias is None or kind != "shortestPath":
+                continue
+            relationships = [element for element in pattern if isinstance(element, RelationshipPattern)]
+            if len(relationships) != 1 or len(pattern) != 3:
+                raise _unsupported(
+                    "Cypher shortestPath() currently supports only single-relationship path patterns in the local compiler",
+                    field="match",
+                    value=alias,
+                    line=clause.span.line,
+                    column=clause.span.column,
+                )
+            relationship = relationships[0]
+            if not _is_variable_length_relationship_pattern(relationship):
+                raise _unsupported(
+                    "Cypher shortestPath() requires a variable-length relationship pattern in the local compiler",
+                    field="match",
+                    value=alias,
+                    line=clause.span.line,
+                    column=clause.span.column,
+                )
+            start_alias = pattern[0].variable if isinstance(pattern[0], NodePattern) else None
+            end_alias = pattern[-1].variable if isinstance(pattern[-1], NodePattern) else None
+            out[alias] = _ShortestPathAliasSpec(
+                alias=alias,
+                hop_column=f"__cypher_shortest_path_hops__{alias}",
+                pattern=pattern,
+                start_alias=start_alias,
+                end_alias=end_alias,
+            )
+    return out
+
+
+def _shortest_path_empty_result_seed_df(
+    *,
+    specs: Mapping[str, _ShortestPathAliasSpec],
+    alias_targets: Mapping[str, ASTObject],
+) -> pd.DataFrame:
+    row: Dict[str, Any] = {}
+    for spec in specs.values():
+        row[spec.hop_column] = pd.NA
+        if spec.end_alias is not None:
+            row[f"{spec.end_alias}.{spec.hop_column}"] = pd.NA
+    for alias, target in alias_targets.items():
+        if not isinstance(target, ASTNode):
+            continue
+        if target.filter_dict is None:
+            continue
+        for key, value in target.filter_dict.items():
+            row[f"{alias}.{key}"] = value
+    return pd.DataFrame([row])
+
+
+def _shortest_path_empty_result_row_for_row_steps(
+    *,
+    row_steps: Sequence[ASTObject],
+    specs: Mapping[str, _ShortestPathAliasSpec],
+    alias_targets: Mapping[str, ASTObject],
+) -> Optional[Dict[str, Any]]:
+    from graphistry.compute.gfql.row.pipeline import execute_row_pipeline_call
+
+    class _EmptyRowGraph:
+        def __init__(self, table_df: Any) -> None:
+            self._nodes = table_df
+            self._edges = table_df.iloc[0:0].copy()
+            self._node = None
+            self._source = None
+            self._destination = None
+            self._edge = None
+            self._g = self
+            self._gfql_start_nodes = None
+            self._gfql_rows_base_graph = None
+
+        def bind(self) -> "_EmptyRowGraph":
+            return _EmptyRowGraph(self._nodes.copy())
+
+    seed_df = _shortest_path_empty_result_seed_df(
+        specs=specs,
+        alias_targets=alias_targets,
+    )
+    graph: Any = _EmptyRowGraph(seed_df)
+    start_idx = 0
+    if (
+        row_steps
+        and isinstance(row_steps[0], ASTCall)
+        and row_steps[0].function == "rows"
+        and "binding_ops" in row_steps[0].params
+    ):
+        start_idx = 1
+    for step in row_steps[start_idx:]:
+        if not isinstance(step, ASTCall):
+            return None
+        graph = execute_row_pipeline_call(graph, step.function, step.params)
+    if graph._nodes is None or len(graph._nodes) == 0:
+        return None
+    return graph._nodes.iloc[0].to_dict()
+
+
+def _shortest_path_relationship_hop_columns(clause: MatchClause) -> Dict[Tuple[int, int, int, int, int, int], str]:
+    out: Dict[Tuple[int, int, int, int, int, int], str] = {}
+    pattern_aliases = clause.pattern_aliases or tuple(None for _ in clause.patterns)
+    pattern_kinds = _match_pattern_alias_kinds(clause)
+    for alias, pattern, kind in zip(pattern_aliases, clause.patterns, pattern_kinds):
+        if alias is None or kind != "shortestPath":
+            continue
+        for element in pattern:
+            if isinstance(element, RelationshipPattern):
+                span = element.span
+                out[(span.line, span.column, span.end_line, span.end_column, span.start_pos, span.end_pos)] = (
+                    f"__cypher_shortest_path_hops__{alias}"
+                )
     return out
 
 
@@ -5725,6 +6101,7 @@ def lower_match_query(
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> LoweredCypherMatch:
+    query = _rewrite_shortest_path_query(query)
     query = _rewrite_where_pattern_predicates_to_matches(query)
     _reject_unsupported_where_expr_forms(query)
     _reject_variable_length_path_alias_references(query, params=params)
@@ -6324,6 +6701,37 @@ def _lower_general_row_projection(
         row_steps.append(projection_fn(projection_items))
         if query.return_.distinct:
             row_steps.append(distinct())
+
+    if empty_result_row is None and binding_row_aliases and _query_has_shortest_path_patterns(query):
+        from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter
+
+        class _EmptyRowGraph:
+            def __init__(self, table_df: Any) -> None:
+                self._nodes = table_df
+                self._edges = table_df.iloc[0:0].copy()
+                self._node = None
+                self._source = None
+                self._destination = None
+                self._edge = None
+                self._g = self
+                self._gfql_start_nodes = None
+                self._gfql_rows_base_graph = None
+
+            def bind(self) -> "_EmptyRowGraph":
+                return _EmptyRowGraph(self._nodes.copy())
+
+        shortest_specs = _shortest_path_alias_specs(query)
+        seed_df = _shortest_path_empty_result_seed_df(
+            specs=shortest_specs,
+            alias_targets=alias_targets,
+        )
+        adapter = _RowPipelineAdapter(cast(Any, _EmptyRowGraph(seed_df)))
+        empty_projection = adapter.select(items=projection_items)
+        empty_result_row = (
+            empty_projection._nodes.iloc[0].to_dict()
+            if empty_projection._nodes is not None and len(empty_projection._nodes) > 0
+            else None
+        )
 
     if query.order_by is not None:
         row_steps.append(
@@ -7196,12 +7604,13 @@ def _compile_connected_match_join(
     combined_alias_targets: Dict[str, ASTObject] = {}
     pre_join_filters: List[ExpressionText] = []
 
-    for pattern in clause.patterns:
+    for idx, pattern in enumerate(clause.patterns):
         single_clause = MatchClause(
             patterns=(pattern,),
             optional=clause.optional,
             span=clause.span,
             pattern_aliases=(None,),
+            pattern_alias_kinds=(_match_pattern_alias_kinds(clause)[idx],),
         )
         ops, duplicate_alias_where = _lower_match_clause_with_alias_equalities(single_clause, params=params)
         alias_targets = _alias_target(ops)
@@ -7428,9 +7837,7 @@ def _compile_connected_optional_match(
     base_where = _apply_where_to_ops(base_clause.where, base_alias_targets, params=params)
     base_chain = Chain(base_ops, where=base_where)
 
-    # Build one arm per OPTIONAL MATCH clause.
     arms: List[_OptionalMatchArm] = []
-    # Track all aliases seen so far (base + prior optionals) for shared-alias detection.
     all_known_aliases = set(base_aliases)
     combined_alias_targets: Dict[str, ASTObject] = dict(base_alias_targets)
 
@@ -7574,6 +7981,7 @@ def compile_cypher_query(
             return result
         return replace(result, graph_bindings=compiled_bindings, use_ref=_use_ref)
 
+    query = _rewrite_shortest_path_query(query)
     _reject_unsupported_variable_length_where_pattern_predicates(query)
     _reject_variable_length_path_alias_references(query, params=params)
     query = _rewrite_where_pattern_predicates_to_matches(query)
@@ -7588,6 +7996,7 @@ def compile_cypher_query(
     if (
         len(query.matches) == 1
         and _is_node_connected_multi_pattern_clause(query.matches[0])
+        and not _query_has_shortest_path_patterns(query)
         and (
             _is_connected_multi_pattern_clause(query.matches[0])
             or _query_has_aggregate_stage(query, params=params)
@@ -7655,10 +8064,19 @@ def compile_cypher_query(
             stage_steps, _next_scope = _lower_row_column_stage(final_stage, scope=scope, params=params)
             row_steps.extend(stage_steps)
 
+        empty_result_row: Optional[Dict[str, Any]] = None
+        if binding_row_aliases and _query_has_shortest_path_patterns(query) and result_projection is None:
+            empty_result_row = _shortest_path_empty_result_row_for_row_steps(
+                row_steps=row_steps,
+                specs=_shortest_path_alias_specs(query),
+                alias_targets=alias_targets,
+            )
+
         return _attach_graph_context(CompiledCypherQuery(
             Chain(row_steps if binding_row_aliases else lowered.query + row_steps, where=lowered.where),
             seed_rows=scope.seed_rows,
             result_projection=result_projection,
+            empty_result_row=empty_result_row,
         ))
 
     if merged_match is not None and not query.unwinds:
@@ -7669,6 +8087,8 @@ def compile_cypher_query(
             alias_targets=alias_targets,
             params=params,
         )
+        if _query_has_shortest_path_patterns(query):
+            return _attach_graph_context(_lower_general_row_projection(query, lowered, params=params))
         duplicated_aliases = _duplicate_node_aliases(merged_match)
         _reject_duplicate_alias_row_refs(
             query,

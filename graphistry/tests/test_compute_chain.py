@@ -952,6 +952,37 @@ class TestChainBindingsTable(NoAuthTestCase):
             ),
         )
 
+    def _mk_recent_message_reentry_graph(self):
+        return self._mk_graph(
+            pd.DataFrame(
+                {
+                    "id": ["viewer", "author1", "post1", "post2", "comment1"],
+                    "label__Person": [True, True, False, False, False],
+                    "label__Message": [False, False, True, True, True],
+                    "label__Post": [False, False, True, True, False],
+                    "label__Comment": [False, False, False, False, True],
+                    "creationDate": [None, None, 5, 20, 10],
+                    "firstName": ["View", "Ada", None, None, None],
+                }
+            ),
+            pd.DataFrame(
+                {
+                    "s": ["comment1", "post2", "post1", "comment1"],
+                    "d": ["viewer", "viewer", "author1", "post1"],
+                    "type": ["HAS_CREATOR", "HAS_CREATOR", "HAS_CREATOR", "REPLY_OF"],
+                }
+            ),
+        )
+
+    def _recent_message_zero_hop_match_ops(self):
+        return [
+            n({"id": is_in(["post2", "comment1"]), "label__Message": True}, name="message"),
+            e_forward({"type": "REPLY_OF"}, min_hops=0, to_fixed_point=True),
+            n({"label__Post": True}, name="post"),
+            e_forward({"type": "HAS_CREATOR"}),
+            n({"label__Person": True}, name="person"),
+        ]
+
     def _reverse_range_continuation_match_ops(self, range_edge):
         return [
             n({"id": "c", "label__Mid": True}, name="tail"),
@@ -1514,6 +1545,40 @@ class TestChainBindingsTable(NoAuthTestCase):
         assert type(result._nodes).__module__.startswith("cudf")
         assert result._nodes.to_pandas().to_dict(orient="records") == [
             {"seedId": "a", "extraId": "x"}
+        ]
+
+    def test_direct_rows_binding_ops_preserve_zero_hop_multihop_reentry_targets(self):
+        """Zero-hop multihop replay should keep carried seed rows through the next node filter."""
+        g = self._mk_recent_message_reentry_graph()
+        self._assert_rows_binding_parity(
+            g,
+            self._recent_message_zero_hop_match_ops(),
+            items=[("messageId", "message.id"), ("postId", "post.id"), ("personId", "person.id")],
+            expected=[
+                {"messageId": "comment1", "postId": "post1", "personId": "author1"},
+                {"messageId": "post2", "postId": "post2", "personId": "viewer"},
+            ],
+            sort_by=["messageId"],
+        )
+
+    def test_direct_rows_binding_ops_preserve_zero_hop_multihop_reentry_targets_on_cudf(self):
+        """The same zero-hop replay should stay correct on cuDF."""
+        pandas_graph = self._mk_recent_message_reentry_graph()
+        g = self._mk_cudf_graph(pandas_graph._nodes, pandas_graph._edges)
+        binding_ops = self._to_binding_ops(self._recent_message_zero_hop_match_ops())
+
+        result = g.gfql(
+            [
+                rows(binding_ops=binding_ops),
+                select([("messageId", "message.id"), ("postId", "post.id"), ("personId", "person.id")]),
+            ],
+            engine="cudf",
+        )
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert result._nodes.to_pandas().sort_values(["messageId"]).to_dict(orient="records") == [
+            {"messageId": "comment1", "postId": "post1", "personId": "author1"},
+            {"messageId": "post2", "postId": "post2", "personId": "viewer"},
         ]
 
     def test_direct_rows_binding_ops_supports_undirected_bounded_multihop_without_backtracking(self):

@@ -237,6 +237,19 @@ def test_parse_relationship_expression_valued_pattern_property_entry() -> None:
     assert rel.properties[0].value.text == "a.num"
 
 
+def test_parse_shortest_path_bound_pattern() -> None:
+    parsed = _parse_query(
+        "MATCH (a:Person {id: $person1Id}), (b:Person {id: $person2Id}), "
+        "path = shortestPath((a)-[:KNOWS*]-(b)) "
+        "RETURN CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength"
+    )
+
+    assert parsed.match is not None
+    assert len(parsed.match.patterns) == 3
+    assert parsed.match.pattern_aliases == (None, None, "path")
+    assert parsed.match.pattern_alias_kinds == ("pattern", "pattern", "shortestPath")
+
+
 @pytest.mark.parametrize(
     "query,direction",
     [

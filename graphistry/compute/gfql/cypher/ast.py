@@ -71,6 +71,7 @@ class RelationshipPattern:
 
 
 PatternElement = Union[NodePattern, RelationshipPattern]
+PathPatternKind = Literal["pattern", "shortestPath", "allShortestPaths"]
 
 
 @dataclass(frozen=True)
@@ -80,6 +81,7 @@ class MatchClause:
     optional: bool = False
     pattern_aliases: Tuple[Optional[str], ...] = ()
     where: Optional["WhereClause"] = None
+    pattern_alias_kinds: Tuple[PathPatternKind, ...] = ()
 
     @property
     def pattern(self) -> Tuple[PatternElement, ...]:

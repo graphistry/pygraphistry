@@ -3,7 +3,7 @@ import re
 from functools import lru_cache
 import math
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, cast
 from typing_extensions import Literal
 
 import pandas as pd
@@ -2844,14 +2844,32 @@ class RowPipelineMixin:
         max_hops: Optional[int],
         to_fixed_point: bool,
         avoid_immediate_backtrack: bool = False,
+        hop_column: Optional[str] = None,
     ) -> Any:
         reachable: List[Any] = []
         current = state_df.copy()
         prev_col = "__gfql_prev__"
+        shortest_path_mode = bool(
+            hop_column is not None and str(hop_column).startswith("__cypher_shortest_path_hops__")
+        )
+
+        def _state_key_cols(frame: Any) -> List[str]:
+            excluded = {prev_col}
+            if hop_column is not None:
+                excluded.add(hop_column)
+            return [col for col in frame.columns if col not in excluded]
+
+        seen_states: Optional[Any] = None
         if avoid_immediate_backtrack and prev_col not in current.columns:
             current = current.assign(**{prev_col: None})
+        key_cols = _state_key_cols(current)
         if min_hops == 0:
-            reachable.append(current.drop(columns=[prev_col], errors="ignore").copy())
+            zero_hop = current.drop(columns=[prev_col], errors="ignore").copy()
+            if hop_column is not None:
+                zero_hop[hop_column] = 0
+            reachable.append(zero_hop)
+            if shortest_path_mode:
+                seen_states = current[key_cols].drop_duplicates(subset=key_cols, keep="first")
         max_iters = max_hops if max_hops is not None else max(len(step_pairs), 1) + 1
         exhausted = False
         for hop in range(1, max_iters + 1):
@@ -2871,8 +2889,35 @@ class RowPipelineMixin:
                 )
             else:
                 current = current.drop(columns=["__current__", "__from__"]).rename(columns={"__to__": "__current__"})
+            if shortest_path_mode:
+                if len(current) > 0:
+                    current = current.drop_duplicates(subset=key_cols, keep="first")
+                if seen_states is not None and len(current) > 0:
+                    seen_flag = "__gfql_seen_state__"
+                    current = current.merge(
+                        seen_states.assign(**{seen_flag: 1}),
+                        on=key_cols,
+                        how="left",
+                        sort=False,
+                    )
+                    current = current[current[seen_flag].isna()].drop(columns=[seen_flag])
+                if len(current) == 0:
+                    exhausted = True
+                    break
+                # current_state contains only newly-reached states (anti-joined above),
+                # so concat with seen_states produces no duplicates.
+                current_state = current[key_cols].drop_duplicates(subset=key_cols, keep="first")
+                if seen_states is None:
+                    seen_states = current_state
+                else:
+                    combined = concat_frames([seen_states, current_state])
+                    if combined is not None:
+                        seen_states = combined
             if hop >= min_hops:
-                reachable.append(current.drop(columns=[prev_col], errors="ignore").copy())
+                reached = current.drop(columns=[prev_col], errors="ignore").copy()
+                if hop_column is not None:
+                    reached[hop_column] = hop
+                reachable.append(reached)
             if max_hops is not None and hop >= max_hops:
                 break
         if max_hops is None and to_fixed_point and not exhausted:
@@ -2882,6 +2927,8 @@ class RowPipelineMixin:
         merged = concat_frames(reachable)
         if merged is None:
             return state_df.iloc[0:0]
+        if shortest_path_mode and len(merged) > 0:
+            merged = merged.drop_duplicates(keep="first")
         return merged
 
     def _gfql_connected_bindings_state(self, ops: Sequence[Any]) -> Tuple[Any, Dict[str, Any]]:
@@ -2939,12 +2986,14 @@ class RowPipelineMixin:
             current_nodes = base_nodes[base_nodes[node_id_col].isin(state_df["__current__"])].copy()
             if len(current_nodes) == 0:
                 return state_df.iloc[0:0], alias_frames
-            edges_df_step = edge_op(
+            edge_result = edge_op(
                 g=base_graph,
                 prev_node_wavefront=current_nodes,
                 target_wave_front=None,
                 engine=engine,
-            )._edges
+            )
+            edges_df_step = edge_result._edges
+            step_nodes = edge_result._nodes
             sem = EdgeSemantics.from_edge(edge_op)
             edge_alias = getattr(edge_op, "_name", None)
             if sem.is_multihop and edge_alias is not None:
@@ -2989,6 +3038,7 @@ class RowPipelineMixin:
                     max_hops=max_hops,
                     to_fixed_point=bool(edge_op.to_fixed_point),
                     avoid_immediate_backtrack=sem.is_undirected,
+                    hop_column=edge_op.label_node_hops,
                 )
             else:
                 state_df = state_df.merge(oriented, left_on="__current__", right_on="__from__", how="inner")
@@ -3003,7 +3053,19 @@ class RowPipelineMixin:
                 self._gfql_bindings_error(
                     "Cypher multi-alias row bindings currently require node steps in even positions"
                 )
-            candidate_nodes = base_nodes[base_nodes[node_id_col].isin(state_df["__current__"])].copy()
+            # Multihop edge expansion can legitimately preserve zero-hop rows that
+            # never appear in edge_result._nodes, so continue node filtering from
+            # the base node table in that case.
+            candidate_source = (
+                base_nodes
+                if sem.is_multihop
+                else (
+                    step_nodes
+                    if step_nodes is not None and node_id_col in step_nodes.columns and len(step_nodes) > 0
+                    else base_nodes
+                )
+            )
+            candidate_nodes = candidate_source[candidate_source[node_id_col].isin(state_df["__current__"])].copy()
             next_nodes = next_node_op(
                 g=base_graph,
                 prev_node_wavefront=candidate_nodes,
@@ -3016,6 +3078,21 @@ class RowPipelineMixin:
             node_alias = getattr(next_node_op, "_name", None)
             if isinstance(node_alias, str):
                 state_df[node_alias] = state_df["__current__"]
+                hop_column = edge_op.label_node_hops
+                if hop_column is not None and hop_column in state_df.columns:
+                    hop_lookup = (
+                        state_df[["__current__", hop_column]]
+                        .rename(columns={"__current__": node_id_col})
+                        .groupby(node_id_col, sort=False)[hop_column]
+                        .min()
+                        .reset_index()
+                    )
+                    next_nodes = next_nodes.drop(columns=[hop_column], errors="ignore").merge(
+                        hop_lookup,
+                        on=node_id_col,
+                        how="left",
+                        sort=False,
+                    )
                 alias_frames[node_alias] = next_nodes
 
         return state_df, alias_frames
@@ -3030,7 +3107,44 @@ class RowPipelineMixin:
             return self._gfql_row_table(self._gfql_empty_frame())
 
         ops = [ast_from_json(op_json, validate=False) for op_json in binding_ops]
+        if self._gfql_is_shortest_path_scalar_binding_ops(ops):
+            return self._gfql_shortest_path_scalar_bindings_row_table(ops)
+        return self._gfql_connected_bindings_row_table_from_ops(ops)
+
+    @staticmethod
+    def _gfql_is_shortest_path_scalar_binding_ops(ops: Sequence[Any]) -> bool:
+        from graphistry.compute.ast import ASTEdge, ASTNode
+
+        if len(ops) != 3:
+            return False
+        start_op, edge_op, end_op = ops
+        if not isinstance(start_op, ASTNode) or not isinstance(edge_op, ASTEdge) or not isinstance(end_op, ASTNode):
+            return False
+        start_alias = getattr(start_op, "_name", None)
+        end_alias = getattr(end_op, "_name", None)
+        hop_column = getattr(edge_op, "label_node_hops", None)
+        return (
+            isinstance(start_alias, str)
+            and isinstance(end_alias, str)
+            and isinstance(hop_column, str)
+            and hop_column.startswith("__cypher_shortest_path_hops__")
+        )
+
+    def _gfql_connected_bindings_row_table_from_ops(
+        self,
+        ops: Sequence[Any],
+    ) -> "Plottable":
         state_df, alias_frames = self._gfql_connected_bindings_state(ops)
+        bindings = self._gfql_connected_bindings_row_frame_from_state(ops, state_df, alias_frames)
+        return self._gfql_row_table(bindings)
+
+    def _gfql_connected_bindings_row_frame_from_state(
+        self,
+        ops: Sequence[Any],
+        state_df: Any,
+        alias_frames: Dict[str, Any],
+    ) -> Any:
+        from graphistry.compute.ast import ASTNode
 
         node_id = self._node
         if node_id is None:
@@ -3071,10 +3185,64 @@ class RowPipelineMixin:
             dup_col = f"{node_id}__{alias}_join__"
             if dup_col in bindings.columns:
                 bindings = bindings.drop(columns=[dup_col])
+            for hop_col in [col for col in bindings.columns if str(col).startswith("__cypher_shortest_path_hops__")]:
+                alias_hop_col = f"{alias}.{hop_col}"
+                if alias_hop_col in bindings.columns:
+                    bindings[alias_hop_col] = bindings[hop_col]
 
         drop_cols = ["__current__"]
         bindings = bindings.drop(columns=[col for col in drop_cols if col in bindings.columns])
-        return self._gfql_row_table(bindings)
+        return bindings
+
+    def _gfql_shortest_path_scalar_bindings_row_table(
+        self,
+        ops: Sequence[Any],
+    ) -> "Plottable":
+        from graphistry.compute.ast import ASTEdge, ASTNode
+
+        start_op = cast(ASTNode, ops[0])
+        edge_op = cast(ASTEdge, ops[1])
+        end_op = cast(ASTNode, ops[2])
+        start_alias = cast(str, getattr(start_op, "_name"))
+        end_alias = cast(str, getattr(end_op, "_name"))
+        hop_column = cast(str, edge_op.label_node_hops)
+
+        seed_table = self._gfql_cartesian_node_bindings_row_table([start_op, end_op])._nodes
+        if seed_table is None:
+            return self._gfql_row_table(self._gfql_empty_frame())
+
+        state_df, alias_frames = self._gfql_connected_bindings_state(ops)
+        if len(state_df) == 0:
+            out = seed_table.copy()
+            out[hop_column] = self._gfql_broadcast_scalar(out, None)
+            out[f"{end_alias}.{hop_column}"] = self._gfql_broadcast_scalar(out, None)
+            return self._gfql_row_table(out)
+
+        reachable = self._gfql_connected_bindings_row_frame_from_state(ops, state_df, alias_frames)
+        reachable_cols = [start_alias, end_alias]
+        for col in [hop_column, f"{end_alias}.{hop_column}"]:
+            if col in reachable.columns and col not in reachable_cols:
+                reachable_cols.append(col)
+        reachable_hops = reachable[reachable_cols].drop_duplicates(subset=[start_alias, end_alias], keep="first")
+        merged = seed_table.merge(
+            reachable_hops,
+            on=[start_alias, end_alias],
+            how="left",
+            sort=False,
+            suffixes=("", "__reachable__"),
+        )
+        for col in [hop_column, f"{end_alias}.{hop_column}"]:
+            dup_col = f"{col}__reachable__"
+            if dup_col in merged.columns:
+                merged[col] = merged[dup_col]
+                merged = merged.drop(columns=[dup_col])
+            elif col not in merged.columns:
+                merged[col] = self._gfql_broadcast_scalar(merged, None)
+            if col in merged.columns:
+                null_mask = merged[col].isna()
+                if bool(null_mask.any()):
+                    merged[col] = merged[col].astype(object).where(~null_mask, None)
+        return self._gfql_row_table(merged)
 
     def _gfql_cartesian_node_bindings_row_table(
         self,

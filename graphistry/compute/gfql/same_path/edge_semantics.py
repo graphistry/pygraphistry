@@ -20,7 +20,7 @@ class EdgeSemantics:
         return EdgeSemantics(
             is_reverse=edge_op.direction == "reverse",
             is_undirected=edge_op.direction == "undirected",
-            is_multihop=min_hops != 1 or max_hops != 1,
+            is_multihop=bool(edge_op.to_fixed_point) or min_hops != 1 or max_hops != 1,
             min_hops=min_hops,
             max_hops=max_hops,
         )
