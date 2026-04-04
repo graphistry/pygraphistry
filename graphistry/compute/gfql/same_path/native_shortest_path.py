@@ -62,7 +62,7 @@ def igraph_shortest_path_distances(
     for src, tgt in zip(sources_list, targets_list):
         source_to_targets.setdefault(src, []).append(tgt)
 
-    rows = []
+    rows: list = []
     for src, tgts in source_to_targets.items():
         if src not in node_index:
             for tgt in tgts:
