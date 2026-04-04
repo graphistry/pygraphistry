@@ -8974,6 +8974,54 @@ def test_string_cypher_multi_alias_with_four_stage_chain() -> None:
     ]
 
 
+def test_string_cypher_multi_alias_with_extend_min_aggregation() -> None:
+    """Extend + min() aggregation on extended column (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, post.creationDate AS cd "
+        "RETURN tag.name AS tn, min(cd) AS earliest ORDER BY tn",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tn": "TagA", "earliest": 100},
+        {"tn": "TagB", "earliest": 300},
+    ]
+
+
+def test_string_cypher_multi_alias_with_extend_count_star() -> None:
+    """Extend + count(*) preserves row cardinality (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, post.creationDate AS cd "
+        "RETURN tag.name AS tn, count(*) AS cnt ORDER BY tn",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tn": "TagA", "cnt": 2},
+        {"tn": "TagB", "cnt": 1},
+    ]
+
+
+def test_string_cypher_multi_alias_with_extend_empty_result() -> None:
+    """Extend on empty match produces empty result (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, post.creationDate AS cd "
+        "RETURN tag.name AS tn, sum(cd) AS total",
+        params={"pid": "nonexistent"},
+    )
+    assert result._nodes.to_dict(orient="records") == []
+
+
 def test_string_cypher_multi_alias_with_case_in_return_aggregation() -> None:
     """IC-4 inline CASE+sum: no multi-stage WITH needed (#880)."""
     graph = _mk_ic4_shape_graph()
