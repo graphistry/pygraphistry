@@ -10231,7 +10231,7 @@ def test_string_cypher_multi_alias_with_extend_scalar_in_case() -> None:
 
 
 @pytest.mark.xfail(
-    reason="WITH aggregate uses entity blob for whole-row alias, losing per-alias column access in subsequent RETURN (#1045)",
+    reason="WITH aggregate uses entity blob for whole-row alias, losing per-alias column access in subsequent RETURN (#1054)",
     strict=True,
 )
 def test_string_cypher_multi_alias_with_four_stage_chain() -> None:
