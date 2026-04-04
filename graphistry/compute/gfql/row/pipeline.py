@@ -2862,13 +2862,13 @@ class RowPipelineMixin:
         seen_states: Optional[Any] = None
         if avoid_immediate_backtrack and prev_col not in current.columns:
             current = current.assign(**{prev_col: None})
+        key_cols = _state_key_cols(current)
         if min_hops == 0:
             zero_hop = current.drop(columns=[prev_col], errors="ignore").copy()
             if hop_column is not None:
                 zero_hop[hop_column] = 0
             reachable.append(zero_hop)
             if shortest_path_mode:
-                key_cols = _state_key_cols(current)
                 seen_states = current[key_cols].drop_duplicates(subset=key_cols, keep="first")
         max_iters = max_hops if max_hops is not None else max(len(step_pairs), 1) + 1
         exhausted = False
@@ -2890,7 +2890,6 @@ class RowPipelineMixin:
             else:
                 current = current.drop(columns=["__current__", "__from__"]).rename(columns={"__to__": "__current__"})
             if shortest_path_mode:
-                key_cols = _state_key_cols(current)
                 if len(current) > 0:
                     current = current.drop_duplicates(subset=key_cols, keep="first")
                 if seen_states is not None and len(current) > 0:
@@ -2905,16 +2904,15 @@ class RowPipelineMixin:
                 if len(current) == 0:
                     exhausted = True
                     break
+                # current_state contains only newly-reached states (anti-joined above),
+                # so concat with seen_states produces no duplicates.
                 current_state = current[key_cols].drop_duplicates(subset=key_cols, keep="first")
                 if seen_states is None:
                     seen_states = current_state
                 else:
-                    combined_states = concat_frames([seen_states, current_state])
-                    seen_states = (
-                        current_state
-                        if combined_states is None
-                        else combined_states.drop_duplicates(subset=key_cols, keep="first")
-                    )
+                    combined = concat_frames([seen_states, current_state])
+                    if combined is not None:
+                        seen_states = combined
             if hop >= min_hops:
                 reached = current.drop(columns=[prev_col], errors="ignore").copy()
                 if hop_column is not None:

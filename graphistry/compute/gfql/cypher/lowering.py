@@ -7837,9 +7837,7 @@ def _compile_connected_optional_match(
     base_where = _apply_where_to_ops(base_clause.where, base_alias_targets, params=params)
     base_chain = Chain(base_ops, where=base_where)
 
-    # Build one arm per OPTIONAL MATCH clause.
     arms: List[_OptionalMatchArm] = []
-    # Track all aliases seen so far (base + prior optionals) for shared-alias detection.
     all_known_aliases = set(base_aliases)
     combined_alias_targets: Dict[str, ASTObject] = dict(base_alias_targets)
 
