@@ -135,8 +135,9 @@ def cugraph_shortest_path_distances(
     import cudf  # type: ignore[import]
     import cugraph  # type: ignore[import]
 
-    sources_list = list(sources)
-    targets_list = list(targets)
+    # cuDF Series is not directly iterable; convert via pandas for host-side grouping
+    sources_list = sources.to_pandas().tolist() if hasattr(sources, "to_pandas") else list(sources)
+    targets_list = targets.to_pandas().tolist() if hasattr(targets, "to_pandas") else list(targets)
 
     edges_gdf = cudf.DataFrame({
         "src": step_pairs["__from__"],
