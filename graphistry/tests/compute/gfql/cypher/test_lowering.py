@@ -10157,6 +10157,43 @@ def test_string_cypher_multi_alias_with_two_scalars_extend() -> None:
     ]
 
 
+def test_string_cypher_multi_alias_with_extend_scalar_where() -> None:
+    """Extended scalar visible in WHERE on the next stage (#1045)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, post.creationDate AS cd "
+        "WITH tag, cd WHERE cd > 150 "
+        "RETURN tag.name AS tn, cd ORDER BY tn, cd",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tn": "TagA", "cd": 200},
+        {"tn": "TagB", "cd": 300},
+    ]
+
+
+def test_string_cypher_multi_alias_with_extend_scalar_renames() -> None:
+    """Extended scalar can be re-aliased in a subsequent WITH (#1045)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, post.creationDate AS cd "
+        "WITH tag, cd AS creationDate "
+        "RETURN tag.name AS tn, creationDate ORDER BY tn, creationDate",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tn": "TagA", "creationDate": 100},
+        {"tn": "TagA", "creationDate": 200},
+        {"tn": "TagB", "creationDate": 300},
+    ]
+
+
 @pytest.mark.xfail(
     reason="WITH aggregate uses entity blob for whole-row alias, losing per-alias column access in subsequent RETURN (#1045)",
     strict=True,
