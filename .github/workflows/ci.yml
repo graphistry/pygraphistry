@@ -497,15 +497,13 @@ jobs:
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
 
-        # Retry pip install up to 3 times with exponential backoff
-        # This handles network issues and transient PyPI problems
+        # Retry uv install up to 3 times with exponential backoff
         for attempt in 1 2 3; do
           echo "==== Attempt $attempt of 3 ===="
 
-          if python -m pip install -e .[test,pygraphviz] \
-              --timeout 120 \
-              --retries 3; then
+          if uv pip install -e .[test,pygraphviz]; then
             echo "✅ Installation successful on attempt $attempt"
             break
           fi
@@ -513,9 +511,7 @@ jobs:
           if [ $attempt -lt 3 ]; then
             wait_time=$((attempt * 30))
             echo "⚠️ Installation failed, retrying in ${wait_time}s..."
-            # Clear pip cache after failure to avoid bad intermediate state
-            echo "🧹 Clearing pip cache to ensure fresh state..."
-            python -m pip cache purge || true
+            uv cache clean || true
             sleep $wait_time
           else
             echo "❌ Installation failed after 3 attempts"
