@@ -3266,6 +3266,7 @@ class RowPipelineMixin:
 
         native_result = try_native_shortest_path(
             step_pairs, sources, targets,
+            min_hops=min_hops,
             max_hops=max_hops,
             directed=not sem.is_undirected,
             engine=engine,

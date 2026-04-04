@@ -38,6 +38,7 @@ def igraph_shortest_path_distances(
     sources: Any,
     targets: Any,
     *,
+    min_hops: int = 1,
     max_hops: Optional[int],
     directed: bool,
 ) -> pd.DataFrame:
@@ -46,7 +47,7 @@ def igraph_shortest_path_distances(
 
     Batches all targets per unique source to avoid redundant BFS.
     Returns a pandas DataFrame with __sp_source__, __sp_target__, __sp_hops__.
-    Unreachable or over-max-hops pairs get __sp_hops__ = None.
+    Unreachable, under-min-hops, or over-max-hops pairs get __sp_hops__ = None.
     """
     import igraph as ig  # type: ignore[import]
 
@@ -93,6 +94,8 @@ def igraph_shortest_path_distances(
                 # igraph returns float('inf') for unreachable
                 if d == float("inf") or d >= 2**31:
                     hops: Optional[int] = None
+                elif d < min_hops:
+                    hops = None
                 elif max_hops is not None and d > max_hops:
                     hops = None
                 else:
@@ -107,6 +110,7 @@ def cugraph_shortest_path_distances(
     sources: Any,
     targets: Any,
     *,
+    min_hops: int = 1,
     max_hops: Optional[int],
     directed: bool,
 ) -> Any:
@@ -115,7 +119,7 @@ def cugraph_shortest_path_distances(
 
     One BFS per unique source node. Results are filtered to requested targets.
     Returns a cuDF DataFrame with __sp_source__, __sp_target__, __sp_hops__.
-    Unreachable or over-max-hops pairs get __sp_hops__ = None.
+    Unreachable, under-min-hops, or over-max-hops pairs get __sp_hops__ = None.
     """
     import cudf  # type: ignore[import]
     import cugraph  # type: ignore[import]
@@ -155,6 +159,8 @@ def cugraph_shortest_path_distances(
             d = dist_map.get(tgt)
             if d is None or d >= 2**31:
                 hops: Optional[int] = None
+            elif d < min_hops:
+                hops = None
             elif max_hops is not None and d > max_hops:
                 hops = None
             else:
@@ -175,6 +181,7 @@ def try_native_shortest_path(
     sources: Any,
     targets: Any,
     *,
+    min_hops: int = 1,
     max_hops: Optional[int],
     directed: bool,
     engine: Any,
@@ -202,7 +209,7 @@ def try_native_shortest_path(
         try:
             result = cugraph_shortest_path_distances(
                 step_pairs, sources, targets,
-                max_hops=max_hops, directed=directed,
+                min_hops=min_hops, max_hops=max_hops, directed=directed,
             )
             logger.debug("shortestPath: backend=cugraph")
             return result
@@ -221,7 +228,7 @@ def try_native_shortest_path(
         try:
             result = igraph_shortest_path_distances(
                 step_pairs, sources, targets,
-                max_hops=max_hops, directed=directed,
+                min_hops=min_hops, max_hops=max_hops, directed=directed,
             )
             logger.debug("shortestPath: backend=igraph")
             return result
