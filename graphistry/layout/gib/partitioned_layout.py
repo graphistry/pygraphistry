@@ -196,34 +196,32 @@ def partitioned_layout(
         'min': 1
     }).max(axis=1)
 
-    # {<col_name> -> {<partition> -> float}}
-    partition_stats = df_to_pdf(node_stats, engine).to_dict()
+    # Vectorized normalize: merge per-partition stats once, no per-row dict lookups
+    node_stats_pdf = df_to_pdf(node_stats, engine)
+    combined_with_stats = combined_nodes.merge(
+        node_stats_pdf[['x_min', 'dx', 'y_min', 'dy']],
+        left_on=partition_key,
+        right_index=True,
+        how='left',
+    )
     normalized_nodes = combined_nodes.copy()
-    normalized_nodes['x'] = (
-        combined_nodes['x']
-        - combined_nodes[partition_key].map(partition_stats['x_min'])
-    ) / combined_nodes[partition_key].map(partition_stats['dx'])
-    normalized_nodes['y'] = (
-        combined_nodes['y']
-        - combined_nodes[partition_key].map(partition_stats['y_min'])
-    ) / combined_nodes[partition_key].map(partition_stats['dy'])
+    normalized_nodes['x'] = (combined_with_stats['x'] - combined_with_stats['x_min']) / combined_with_stats['dx']
+    normalized_nodes['y'] = (combined_with_stats['y'] - combined_with_stats['y_min']) / combined_with_stats['dy']
     g_locally_positioned = self.nodes(normalized_nodes)
 
-    global_nodes = g_locally_positioned._nodes.copy()
-    global_nodes['x'] = (
-        (
-            g_locally_positioned._nodes['x']
-            * g_locally_positioned._nodes[partition_key].map(partition_offsets['dx'])
-        )
-        + g_locally_positioned._nodes[partition_key].map(partition_offsets['x'])
+    # Vectorized global transform: merge treemap offsets once
+    offsets_pdf = pd.DataFrame(partition_offsets)  # partition_id as index, cols: x y dx dy
+    local_nodes = g_locally_positioned._nodes
+    local_with_offsets = local_nodes.merge(
+        offsets_pdf[['x', 'y', 'dx', 'dy']],
+        left_on=partition_key,
+        right_index=True,
+        how='left',
+        suffixes=('_local', '_offset'),
     )
-    global_nodes['y'] = (
-        (
-            g_locally_positioned._nodes['y']
-            * g_locally_positioned._nodes[partition_key].map(partition_offsets['dy'])
-        )
-        + g_locally_positioned._nodes[partition_key].map(partition_offsets['y'])
-    )
+    global_nodes = local_nodes.copy()
+    global_nodes['x'] = local_with_offsets['x_local'] * local_with_offsets['dx_offset'] + local_with_offsets['x_offset']
+    global_nodes['y'] = local_with_offsets['y_local'] * local_with_offsets['dy_offset'] + local_with_offsets['y_offset']
     global_nodes['y'] = -global_nodes['y']
     g_globally_positioned = g_locally_positioned.nodes(global_nodes)
     g_globally_positioned._edge_weight = self._edge_weight

@@ -42,13 +42,10 @@ def treemap(
     rects: List[dict] = squarify_rects(normalized, x, y, w, h)
 
     props = ['x', 'y', 'dx', 'dy']
+    partition_ids = partitions_sorted_df[partition_key].to_numpy()
     propname_to_partition_to_prop = {
-        prop: {
-            p: rects[i][prop]
-            for i, p in enumerate(
-                partitions_sorted_df.reset_index()[partition_key].to_numpy()
-            )
-        } for prop in props
+        prop: {p: rects[i][prop] for i, p in enumerate(partition_ids)}
+        for prop in props
     }
     # propname_to_partition_to_prop.keys(), 'x ->', propname_to_partition_to_prop['x']
 
