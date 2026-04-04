@@ -3143,6 +3143,10 @@ class RowPipelineMixin:
             dup_col = f"{node_id}__{alias}_join__"
             if dup_col in bindings.columns:
                 bindings = bindings.drop(columns=[dup_col])
+            for hop_col in [col for col in bindings.columns if str(col).startswith("__cypher_shortest_path_hops__")]:
+                alias_hop_col = f"{alias}.{hop_col}"
+                if alias_hop_col in bindings.columns:
+                    bindings[alias_hop_col] = bindings[hop_col]
 
         drop_cols = ["__current__"]
         bindings = bindings.drop(columns=[col for col in drop_cols if col in bindings.columns])

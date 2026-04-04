@@ -5001,6 +5001,81 @@ def test_string_cypher_executes_bounded_shortest_path_on_self_loop_without_dupli
     assert result._nodes.to_dict(orient="records") == [{"shortestPathLength": 1}]
 
 
+def test_string_cypher_executes_multirow_shortest_path_pairs_without_zero_hop_collapse() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3", "p4"],
+                "label__Person": [True, True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p2", "p3"],
+                "d": ["p2", "p3", "p4"],
+                "type": ["KNOWS", "KNOWS", "KNOWS"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        """
+        MATCH
+            (person1:Person),
+            (person2:Person),
+            path = shortestPath((person1)-[:KNOWS*]-(person2))
+        WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p3', 'p4']
+        WITH person1.id AS person1Id, person2.id AS person2Id, CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
+        RETURN person1Id, person2Id, shortestPathLength
+        ORDER BY person1Id, person2Id
+        """,
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"person1Id": "p1", "person2Id": "p3", "shortestPathLength": 2},
+        {"person1Id": "p1", "person2Id": "p4", "shortestPathLength": 3},
+        {"person1Id": "p2", "person2Id": "p3", "shortestPathLength": 1},
+        {"person1Id": "p2", "person2Id": "p4", "shortestPathLength": 2},
+    ]
+
+
+def test_string_cypher_executes_multirow_bounded_shortest_path_pairs_without_endpoint_hop_collapse() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3", "p4"],
+                "label__Person": [True, True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p2", "p3"],
+                "d": ["p2", "p3", "p4"],
+                "type": ["KNOWS", "KNOWS", "KNOWS"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        """
+        MATCH
+            (person1:Person),
+            (person2:Person),
+            path = shortestPath((person1)-[:KNOWS*1..2]-(person2))
+        WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p3', 'p4']
+        WITH person1.id AS person1Id, person2.id AS person2Id, CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
+        RETURN person1Id, person2Id, shortestPathLength
+        ORDER BY person1Id, person2Id
+        """,
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"person1Id": "p1", "person2Id": "p3", "shortestPathLength": 2},
+        {"person1Id": "p2", "person2Id": "p3", "shortestPathLength": 1},
+        {"person1Id": "p2", "person2Id": "p4", "shortestPathLength": 2},
+    ]
+
+
 @pytest.mark.parametrize(
     "query",
     [
