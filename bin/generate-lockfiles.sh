@@ -14,7 +14,12 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "$REPO_ROOT"
 
 COOLDOWN_DAYS="${COOLDOWN_DAYS:-6}"
-PYTHON_VERSION="${PYTHON_VERSION:-3.12}"
+# Default Python version for lockfiles. Jobs that run on older Pythons
+# (3.8-3.11) need lockfiles generated at the lowest version they support.
+# AI extras require 3.10+; basic test extras work down to 3.8.
+PYTHON_MIN="${PYTHON_MIN:-3.8}"
+PYTHON_DOCS="${PYTHON_DOCS:-3.10}"
+PYTHON_AI="${PYTHON_AI:-3.10}"
 
 if [ "$COOLDOWN_DAYS" -gt 0 ]; then
     # Portable date arithmetic (works on both GNU and BSD date)
@@ -32,7 +37,10 @@ else
     echo "Lockfile cooldown: DISABLED"
 fi
 
-COMMON_ARGS="--generate-hashes --python-version ${PYTHON_VERSION} ${EXCLUDE_ARG}"
+BASE_ARGS="--generate-hashes ${EXCLUDE_ARG}"
+COMMON_ARGS="${BASE_ARGS} --python-version ${PYTHON_MIN}"
+DOCS_ARGS="${BASE_ARGS} --python-version ${PYTHON_DOCS}"
+AI_ARGS="${BASE_ARGS} --python-version ${PYTHON_AI}"
 
 echo "=== Generating lockfiles ==="
 
@@ -63,21 +71,23 @@ uv pip compile setup.py \
     -o requirements/test-graphviz.lock
 
 # test-umap: UMAP/AI core tests (torch installed separately via pip)
+# AI deps require Python 3.10+
 uv pip compile setup.py \
     --extra test --extra testai --extra umap-learn \
-    ${COMMON_ARGS} \
+    ${AI_ARGS} \
     -o requirements/test-umap.lock
 
 # test-ai: full AI tests (torch installed separately via pip)
+# AI deps require Python 3.10+
 uv pip compile setup.py \
     --extra test --extra testai --extra ai \
-    ${COMMON_ARGS} \
+    ${AI_ARGS} \
     -o requirements/test-ai.lock
 
-# docs: RTD and docs CI
+# docs: RTD and docs CI (docutils requires 3.9+)
 uv pip compile setup.py \
     --extra docs \
-    ${COMMON_ARGS} \
+    ${DOCS_ARGS} \
     -o requirements/docs.lock
 
 # build: package build tests
