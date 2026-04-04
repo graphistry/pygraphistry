@@ -16,6 +16,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / Cypher**: Support multiple `OPTIONAL MATCH` clauses (1 non-optional + N optional) via chained left-outer-joins. Queries like `MATCH (a)-->(b) OPTIONAL MATCH (b)-->(c) OPTIONAL MATCH (c)-->(d) RETURN ...` now execute correctly (#1025).
 
 ### Fixed
+- **GFQL / Cypher**: `MATCH (x) WITH x OPTIONAL MATCH (x)-->(y) RETURN ...` now null-fills unmatched rows (left-outer-join semantics) instead of silently dropping them. Previously produced wrong results with inner-join semantics (#1026).
+
 - **GFQL / bindings rows**: `rows(binding_ops=...)` on `engine="cudf"` now preserves active-engine empty/intermediate tables instead of leaking pandas objects into the GPU path, and undirected multihop no-backtrack masking no longer uses a mixed-type sentinel that cuDF rejects. This fixes the `#1040` IC6 cudf/GPU failure class and the adjacent direct multihop/cartesian bindings-row replay cases.
 - **GFQL / Cypher**: Support `WITH scalar, collect(alias) AS list UNWIND list AS alias MATCH ... RETURN` queries where carried scalars accompany the `collect()`. Previously only the single-item `WITH collect(alias) AS list` shape was supported (#1000).
 - **GFQL / Cypher**: Pattern property maps in direct local Cypher now accept expression-valued entries such as `MATCH (a)-[:R]->(b {num: a.num})` and reentry-carried identifiers such as `MATCH (b {id: bid})`. Literal and parameter-valued property maps keep their existing lowering path.
