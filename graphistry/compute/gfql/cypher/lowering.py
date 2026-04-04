@@ -5856,6 +5856,8 @@ def _shortest_path_empty_result_seed_df(
     for alias, target in alias_targets.items():
         if not isinstance(target, ASTNode):
             continue
+        if target.filter_dict is None:
+            continue
         for key, value in target.filter_dict.items():
             row[f"{alias}.{key}"] = value
     return pd.DataFrame([row])
@@ -6717,7 +6719,7 @@ def _lower_general_row_projection(
             specs=shortest_specs,
             alias_targets=alias_targets,
         )
-        adapter = _RowPipelineAdapter(_EmptyRowGraph(seed_df))
+        adapter = _RowPipelineAdapter(cast(Any, _EmptyRowGraph(seed_df)))
         empty_projection = adapter.select(items=projection_items)
         empty_result_row = (
             empty_projection._nodes.iloc[0].to_dict()

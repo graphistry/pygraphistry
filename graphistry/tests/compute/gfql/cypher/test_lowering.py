@@ -4654,6 +4654,101 @@ def test_string_cypher_executes_bounded_shortest_path_disconnected_with_length_s
     assert result._nodes.to_dict(orient="records") == [{"shortestPathLength": None}]
 
 
+def test_string_cypher_executes_shortest_path_disconnected_with_case_stage() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3"],
+                "label__Person": [True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1"],
+                "d": ["p2"],
+                "type": ["KNOWS"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        """
+        MATCH
+            (person1:Person {id: 'p1'}),
+            (person2:Person {id: 'p3'}),
+            path = shortestPath((person1)-[:KNOWS*]-(person2))
+        WITH CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
+        RETURN shortestPathLength
+        """,
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"shortestPathLength": -1}]
+
+
+def test_string_cypher_executes_reverse_shortest_path_disconnected_with_case_stage() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3"],
+                "label__Person": [True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1"],
+                "d": ["p2"],
+                "type": ["KNOWS"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        """
+        MATCH
+            (person1:Person {id: 'p3'}),
+            (person2:Person {id: 'p1'}),
+            path = shortestPath((person1)<-[:KNOWS*]-(person2))
+        WITH CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
+        RETURN shortestPathLength
+        """,
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"shortestPathLength": -1}]
+
+
+def test_string_cypher_executes_reverse_shortest_path_with_endpoint_and_case_stage() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3"],
+                "label__Person": [True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p2"],
+                "d": ["p2", "p3"],
+                "type": ["KNOWS", "KNOWS"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        """
+        MATCH
+            (person1:Person {id: 'p3'}),
+            (person2:Person {id: 'p1'}),
+            path = shortestPath((person1)<-[:KNOWS*]-(person2))
+        WITH person2.id AS person2Id, CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
+        RETURN person2Id, shortestPathLength
+        """,
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"person2Id": "p1", "shortestPathLength": 2}
+    ]
+
+
 @pytest.mark.parametrize(
     "query",
     [
