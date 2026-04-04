@@ -2849,6 +2849,17 @@ class RowPipelineMixin:
         reachable: List[Any] = []
         current = state_df.copy()
         prev_col = "__gfql_prev__"
+        shortest_path_mode = bool(
+            hop_column is not None and str(hop_column).startswith("__cypher_shortest_path_hops__")
+        )
+
+        def _state_key_cols(frame: Any) -> List[str]:
+            excluded = {prev_col}
+            if hop_column is not None:
+                excluded.add(hop_column)
+            return [col for col in frame.columns if col not in excluded]
+
+        seen_states: Optional[Any] = None
         if avoid_immediate_backtrack and prev_col not in current.columns:
             current = current.assign(**{prev_col: None})
         if min_hops == 0:
@@ -2856,6 +2867,9 @@ class RowPipelineMixin:
             if hop_column is not None:
                 zero_hop[hop_column] = 0
             reachable.append(zero_hop)
+            if shortest_path_mode:
+                key_cols = _state_key_cols(current)
+                seen_states = current[key_cols].drop_duplicates(subset=key_cols, keep="first")
         max_iters = max_hops if max_hops is not None else max(len(step_pairs), 1) + 1
         exhausted = False
         for hop in range(1, max_iters + 1):
@@ -2875,6 +2889,32 @@ class RowPipelineMixin:
                 )
             else:
                 current = current.drop(columns=["__current__", "__from__"]).rename(columns={"__to__": "__current__"})
+            if shortest_path_mode:
+                key_cols = _state_key_cols(current)
+                if len(current) > 0:
+                    current = current.drop_duplicates(subset=key_cols, keep="first")
+                if seen_states is not None and len(current) > 0:
+                    seen_flag = "__gfql_seen_state__"
+                    current = current.merge(
+                        seen_states.assign(**{seen_flag: 1}),
+                        on=key_cols,
+                        how="left",
+                        sort=False,
+                    )
+                    current = current[current[seen_flag].isna()].drop(columns=[seen_flag])
+                if len(current) == 0:
+                    exhausted = True
+                    break
+                current_state = current[key_cols].drop_duplicates(subset=key_cols, keep="first")
+                if seen_states is None:
+                    seen_states = current_state
+                else:
+                    combined_states = concat_frames([seen_states, current_state])
+                    seen_states = (
+                        current_state
+                        if combined_states is None
+                        else combined_states.drop_duplicates(subset=key_cols, keep="first")
+                    )
             if hop >= min_hops:
                 reached = current.drop(columns=[prev_col], errors="ignore").copy()
                 if hop_column is not None:
@@ -2889,6 +2929,8 @@ class RowPipelineMixin:
         merged = concat_frames(reachable)
         if merged is None:
             return state_df.iloc[0:0]
+        if shortest_path_mode and len(merged) > 0:
+            merged = merged.drop_duplicates(keep="first")
         return merged
 
     def _gfql_connected_bindings_state(self, ops: Sequence[Any]) -> Tuple[Any, Dict[str, Any]]:
