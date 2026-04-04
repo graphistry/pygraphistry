@@ -3055,10 +3055,17 @@ class RowPipelineMixin:
                 self._gfql_bindings_error(
                     "Cypher multi-alias row bindings currently require node steps in even positions"
                 )
+            # Multihop edge expansion can legitimately preserve zero-hop rows that
+            # never appear in edge_result._nodes, so continue node filtering from
+            # the base node table in that case.
             candidate_source = (
-                step_nodes
-                if step_nodes is not None and node_id_col in step_nodes.columns and len(step_nodes) > 0
-                else base_nodes
+                base_nodes
+                if sem.is_multihop
+                else (
+                    step_nodes
+                    if step_nodes is not None and node_id_col in step_nodes.columns and len(step_nodes) > 0
+                    else base_nodes
+                )
             )
             candidate_nodes = candidate_source[candidate_source[node_id_col].isin(state_df["__current__"])].copy()
             next_nodes = next_node_op(
