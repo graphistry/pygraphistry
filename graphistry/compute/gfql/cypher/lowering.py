@@ -227,6 +227,8 @@ class _ShortestPathAliasSpec:
     alias: str
     hop_column: str
     pattern: Tuple[PatternElement, ...]
+    start_alias: Optional[str]
+    end_alias: Optional[str]
 
 
 @dataclass(frozen=True)
@@ -934,8 +936,13 @@ def _rewrite_shortest_path_expr_node(
     line: int,
     column: int,
 ) -> ExprNode:
+    def _hop_expr(spec: _ShortestPathAliasSpec) -> ExprNode:
+        if spec.end_alias is not None:
+            return PropertyAccessExpr(Identifier(spec.end_alias), spec.hop_column)
+        return Identifier(spec.hop_column)
+
     if isinstance(node, IsNullOp) and isinstance(node.value, Identifier) and node.value.name in specs:
-        return IsNullOp(Identifier(specs[node.value.name].hop_column), negated=node.negated)
+        return IsNullOp(_hop_expr(specs[node.value.name]), negated=node.negated)
     if isinstance(node, Identifier):
         if node.name in specs:
             raise GFQLValidationError(
@@ -956,7 +963,7 @@ def _rewrite_shortest_path_expr_node(
         and isinstance(node.args[0], Identifier)
         and node.args[0].name in specs
     ):
-        return Identifier(specs[node.args[0].name].hop_column)
+        return _hop_expr(specs[node.args[0].name])
     return _rebuild_expr_node(
         node,
         rewrite=lambda child: _rewrite_shortest_path_expr_node(
@@ -5823,12 +5830,34 @@ def _shortest_path_alias_specs(query: CypherQuery) -> Dict[str, _ShortestPathAli
                     line=clause.span.line,
                     column=clause.span.column,
                 )
+            start_alias = pattern[0].variable if isinstance(pattern[0], NodePattern) else None
+            end_alias = pattern[-1].variable if isinstance(pattern[-1], NodePattern) else None
             out[alias] = _ShortestPathAliasSpec(
                 alias=alias,
                 hop_column=f"__cypher_shortest_path_hops__{alias}",
                 pattern=pattern,
+                start_alias=start_alias,
+                end_alias=end_alias,
             )
     return out
+
+
+def _shortest_path_empty_result_seed_df(
+    *,
+    specs: Mapping[str, _ShortestPathAliasSpec],
+    alias_targets: Mapping[str, ASTObject],
+) -> pd.DataFrame:
+    row: Dict[str, Any] = {}
+    for spec in specs.values():
+        row[spec.hop_column] = pd.NA
+        if spec.end_alias is not None:
+            row[f"{spec.end_alias}.{spec.hop_column}"] = pd.NA
+    for alias, target in alias_targets.items():
+        if not isinstance(target, ASTNode):
+            continue
+        for key, value in target.filter_dict.items():
+            row[f"{alias}.{key}"] = value
+    return pd.DataFrame([row])
 
 
 def _shortest_path_relationship_hop_columns(clause: MatchClause) -> Dict[Tuple[int, int, int, int, int, int], str]:
@@ -6638,7 +6667,10 @@ def _lower_general_row_projection(
                 return _EmptyRowGraph(self._nodes.copy())
 
         shortest_specs = _shortest_path_alias_specs(query)
-        seed_df = pd.DataFrame({spec.hop_column: [pd.NA] for spec in shortest_specs.values()})
+        seed_df = _shortest_path_empty_result_seed_df(
+            specs=shortest_specs,
+            alias_targets=alias_targets,
+        )
         adapter = _RowPipelineAdapter(_EmptyRowGraph(seed_df))
         empty_projection = adapter.select(items=projection_items)
         empty_result_row = (
