@@ -128,17 +128,14 @@ def cugraph_shortest_path_distances(
     """
     Compute pairwise shortest-path distances using cugraph.bfs().
 
-    One BFS per unique source node. Results are filtered to requested targets.
+    One BFS per unique source node; target lookup is a vectorized cuDF join.
     Returns a cuDF DataFrame with __sp_source__, __sp_target__, __sp_hops__.
     Unreachable, under-min-hops, or over-max-hops pairs get __sp_hops__ = None.
     """
     import cudf  # type: ignore[import]
     import cugraph  # type: ignore[import]
 
-    # cuDF Series is not directly iterable; convert via pandas for host-side grouping
-    sources_list = sources.to_pandas().tolist() if hasattr(sources, "to_pandas") else list(sources)
-    targets_list = targets.to_pandas().tolist() if hasattr(targets, "to_pandas") else list(targets)
-
+    # Build the graph from the filtered edge set
     edges_gdf = cudf.DataFrame({
         "src": step_pairs["__from__"],
         "dst": step_pairs["__to__"],
@@ -146,48 +143,54 @@ def cugraph_shortest_path_distances(
     G = cugraph.Graph(directed=directed)
     G.from_cudf_edgelist(edges_gdf, source="src", destination="dst")
 
-    source_to_targets: dict = {}
-    for src, tgt in zip(sources_list, targets_list):
-        source_to_targets.setdefault(src, []).append(tgt)
+    # Pair table: one row per (source, target) request — stays on GPU
+    pair_df = cudf.DataFrame({"__sp_source__": sources, "__sp_target__": targets})
 
-    rows_src: list = []
-    rows_tgt: list = []
-    rows_hops: list = []
-
-    for src, tgts in source_to_targets.items():
+    # BFS once per unique source; collect distance slabs via cuDF joins
+    unique_sources = pair_df["__sp_source__"].unique()
+    slabs: list = []
+    for src in unique_sources.to_arrow().tolist():
         try:
-            # cugraph.bfs() does not accept a 'directed' param when given a Graph object
-            # (directionality is already encoded in the Graph type)
+            # cugraph.bfs() does not accept 'directed' with a Graph object;
+            # directionality is encoded in Graph(directed=...)
             bfs_result = cugraph.bfs(G, start=src)
         except Exception:
-            rows_src.extend([src] * len(tgts))
-            rows_tgt.extend(tgts)
-            rows_hops.extend([None] * len(tgts))
+            # Source not in graph — all targets unreachable
+            tgts = pair_df.loc[pair_df["__sp_source__"] == src, "__sp_target__"]
+            slabs.append(cudf.DataFrame({
+                "__sp_source__": cudf.Series([src] * len(tgts), dtype=pair_df["__sp_source__"].dtype),
+                "__sp_target__": tgts.reset_index(drop=True),
+                "__sp_hops__": cudf.Series([None] * len(tgts), dtype="Int64"),
+            }))
             continue
 
         # bfs_result columns: vertex, distance, predecessor
-        dist_df = bfs_result[bfs_result["vertex"].isin(tgts)][["vertex", "distance"]].to_pandas()
-        dist_map = dict(zip(dist_df["vertex"], dist_df["distance"]))
+        # Join to keep only the targets requested for this source
+        tgts_for_src = pair_df.loc[pair_df["__sp_source__"] == src, ["__sp_target__"]]
+        merged = tgts_for_src.merge(
+            bfs_result[["vertex", "distance"]].rename(columns={"vertex": "__sp_target__", "distance": "__sp_hops__"}),
+            on="__sp_target__",
+            how="left",
+        )
+        merged["__sp_source__"] = src
+        slabs.append(merged[["__sp_source__", "__sp_target__", "__sp_hops__"]])
 
-        for tgt in tgts:
-            d = dist_map.get(tgt)
-            if d is None or d >= 2**31:
-                hops: Optional[int] = None
-            elif d < min_hops:
-                hops = None
-            elif max_hops is not None and d > max_hops:
-                hops = None
-            else:
-                hops = int(d)
-            rows_src.append(src)
-            rows_tgt.append(tgt)
-            rows_hops.append(hops)
+    if not slabs:
+        return cudf.DataFrame({"__sp_source__": [], "__sp_target__": [], "__sp_hops__": []})
 
-    return cudf.DataFrame({
-        "__sp_source__": rows_src,
-        "__sp_target__": rows_tgt,
-        "__sp_hops__": rows_hops,
-    })
+    result = cudf.concat(slabs, ignore_index=True)
+
+    # Apply hop bounds: unreachable (sentinel 2**31-1 or NA), under min, over max → None
+    sentinel = 2 ** 31
+    hops = result["__sp_hops__"]
+    out_of_range = hops.isna() | (hops >= sentinel)
+    if min_hops > 0:
+        out_of_range = out_of_range | (hops < min_hops)
+    if max_hops is not None:
+        out_of_range = out_of_range | (hops > max_hops)
+    result["__sp_hops__"] = hops.where(~out_of_range, other=None)
+
+    return result
 
 
 def try_native_shortest_path(
