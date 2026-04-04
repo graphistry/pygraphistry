@@ -8930,6 +8930,50 @@ def test_string_cypher_multi_alias_with_three_stage_chain() -> None:
     ]
 
 
+@pytest.mark.xfail(
+    reason="Extended scalar columns from bindings-row WITH not visible in subsequent RETURN (#880)",
+    strict=True,
+)
+def test_string_cypher_multi_alias_with_two_scalars_extend() -> None:
+    """WITH DISTINCT → WITH alias + two scalars → RETURN scalars (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, post.creationDate AS cd, post.id AS pid "
+        "RETURN tag.name AS tn, cd, pid ORDER BY tn, pid",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tn": "TagA", "cd": 100, "pid": "post1"},
+        {"tn": "TagA", "cd": 200, "pid": "post2"},
+        {"tn": "TagB", "cd": 300, "pid": "post3"},
+    ]
+
+
+@pytest.mark.xfail(
+    reason="Four-stage WITH chain: tag.name lost after aggregation stage (#880)",
+    strict=True,
+)
+def test_string_cypher_multi_alias_with_four_stage_chain() -> None:
+    """WITH DISTINCT → WITH scalar → WITH agg → RETURN (#880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, post.creationDate AS cd "
+        "WITH tag, sum(cd) AS total "
+        "RETURN tag.name AS tn, total ORDER BY tn",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tn": "TagA", "total": 300},
+        {"tn": "TagB", "total": 300},
+    ]
+
+
 def test_string_cypher_multi_alias_with_case_in_return_aggregation() -> None:
     """IC-4 inline CASE+sum: no multi-stage WITH needed (#880)."""
     graph = _mk_ic4_shape_graph()
