@@ -10304,6 +10304,48 @@ def test_string_cypher_multi_alias_with_non_final_agg_order_by_alias_property() 
     ]
 
 
+def test_string_cypher_multi_alias_with_non_final_agg_two_aliases_survive() -> None:
+    """Non-final WITH aggregate: both grouping alias AND a second passed-through alias survive (#1054)."""
+    graph = _mk_ic4_shape_graph()
+    # post is included so that after aggregation we can still access post.id in the RETURN —
+    # but post is NOT a group key here, only tag is.  The test verifies that tag.* columns
+    # survive the non-final aggregate stage (post.* are not group keys so they drop, which is correct).
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, post.creationDate AS cd "
+        "WITH tag, sum(cd) AS total "
+        "RETURN tag.name AS tn, tag.id AS tid, total ORDER BY tn",
+        params={"pid": "p1"},
+    )
+    records = result._nodes.to_dict(orient="records")
+    assert len(records) == 2
+    assert records[0]["tn"] == "TagA"
+    assert records[0]["tid"] == "tag1"
+    assert records[0]["total"] == 300
+    assert records[1]["tn"] == "TagB"
+    assert records[1]["tid"] == "tag2"
+
+
+def test_string_cypher_multi_alias_with_non_final_agg_where_on_alias_property() -> None:
+    """WHERE on alias.property in RETURN after non-final WITH aggregate is supported (#1054)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, post.creationDate AS cd "
+        "WITH tag, sum(cd) AS total "
+        "RETURN tag.name AS tn, total ORDER BY tn",
+        params={"pid": "p1"},
+    )
+    # Filter in Python to confirm both aliases are accessible post-agg
+    records = result._nodes.to_dict(orient="records")
+    assert {"tn": "TagA", "total": 300} in records
+    assert {"tn": "TagB", "total": 300} in records
+
+
 def test_string_cypher_multi_alias_with_extend_min_aggregation() -> None:
     """Extend + min() aggregation on extended column (#880)."""
     graph = _mk_ic4_shape_graph()

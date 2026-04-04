@@ -12,6 +12,7 @@ from graphistry.compute.gfql.row.entity_props import entity_keys_series
 from graphistry.compute.ast import (
     ASTCall,
     distinct,
+    drop_cols,
     group_by,
     limit,
     n,
@@ -2150,3 +2151,123 @@ class TestRowPipelineSafelist:
         self._assert_e201("group_by", {"keys": ["grp"], "aggregations": ["bad"]})
         self._assert_e201("group_by", {"keys": ["grp"], "aggregations": [("x", "median", "score")]})
         self._assert_e201("group_by", {"keys": [], "aggregations": [("x", "count")]})
+
+        # drop_cols validation
+        self._assert_valid("drop_cols", {"cols": ["a", "b"]})
+        self._assert_valid("drop_cols", {"cols": []})
+        self._assert_e201("drop_cols", {"cols": [1, 2]})
+
+        # group_by with key_prefixes validation
+        self._assert_valid(
+            "group_by",
+            {"keys": ["grp"], "aggregations": [("cnt", "count")], "key_prefixes": ["tag."]},
+        )
+        self._assert_valid(
+            "group_by",
+            {"keys": ["grp"], "aggregations": [("cnt", "count")], "key_prefixes": []},
+        )
+        self._assert_e201(
+            "group_by",
+            {"keys": ["grp"], "aggregations": [("cnt", "count")], "key_prefixes": [1]},
+        )
+
+
+class TestDropCols:
+    """Unit tests for the drop_cols row pipeline op (#1054)."""
+
+    @staticmethod
+    def _g(df: pd.DataFrame) -> "CGFull":
+        return CGFull().nodes(df, "id")
+
+    def test_drop_cols_basic(self) -> None:
+        """Named columns are removed from the table."""
+        g = self._g(pd.DataFrame({"id": ["a", "b"], "x": [1, 2], "y": [3, 4]}))
+        result = g.gfql([rows(), drop_cols(["x"])])
+        assert list(result._nodes.columns) == ["id", "y"]
+
+    def test_drop_cols_multiple(self) -> None:
+        """Multiple columns can be dropped at once."""
+        g = self._g(pd.DataFrame({"id": ["a"], "x": [1], "y": [2], "z": [3]}))
+        result = g.gfql([rows(), drop_cols(["x", "z"])])
+        assert list(result._nodes.columns) == ["id", "y"]
+
+    def test_drop_cols_ignores_missing(self) -> None:
+        """Columns not present in the table are silently ignored."""
+        g = self._g(pd.DataFrame({"id": ["a", "b"], "x": [1, 2]}))
+        result = g.gfql([rows(), drop_cols(["x", "nonexistent"])])
+        assert list(result._nodes.columns) == ["id"]
+
+    def test_drop_cols_empty_list(self) -> None:
+        """Empty drop list leaves the table unchanged."""
+        g = self._g(pd.DataFrame({"id": ["a"], "x": [1]}))
+        result = g.gfql([rows(), drop_cols([])])
+        assert list(result._nodes.columns) == ["id", "x"]
+
+    def test_drop_cols_dotted_names(self) -> None:
+        """Columns with dot-separated names (bindings-row style) are dropped correctly."""
+        g = self._g(pd.DataFrame({"id": ["a", "b"], "tag.name": ["X", "Y"], "tag.id": ["t1", "t2"]}))
+        result = g.gfql([rows(), drop_cols(["tag.id"])])
+        assert "tag.id" not in result._nodes.columns
+        assert "tag.name" in result._nodes.columns
+
+
+class TestGroupByKeyPrefixes:
+    """Unit tests for the key_prefixes parameter on group_by (#1054)."""
+
+    @staticmethod
+    def _g(df: pd.DataFrame) -> "CGFull":
+        return CGFull().nodes(df, "id")
+
+    def test_key_prefixes_expands_matching_columns(self) -> None:
+        """key_prefixes adds all columns with matching prefix as additional group keys."""
+        df = pd.DataFrame({
+            "id": ["r1", "r2", "r3"],
+            "tag.id": ["tag1", "tag1", "tag2"],
+            "tag.name": ["TagA", "TagA", "TagB"],
+            "cd": [100, 200, 300],
+        })
+        g = self._g(df)
+        result = g.gfql([
+            rows(),
+            group_by(["tag.id"], [("total", "sum", "cd")], key_prefixes=["tag."]),
+        ])
+        out = result._nodes.sort_values("tag.id").reset_index(drop=True)
+        # Both tag.id and tag.name should survive as group keys
+        assert "tag.name" in out.columns
+        assert list(out["tag.name"]) == ["TagA", "TagB"]
+        assert list(out["total"]) == [300, 300]
+
+    def test_key_prefixes_multiple_prefixes(self) -> None:
+        """Multiple prefixes each contribute their matching columns."""
+        df = pd.DataFrame({
+            "id": ["r1", "r2"],
+            "tag.id": ["t1", "t1"],
+            "tag.name": ["TagA", "TagA"],
+            "post.id": ["p1", "p2"],
+            "cd": [10, 20],
+        })
+        g = self._g(df)
+        result = g.gfql([
+            rows(),
+            group_by(["tag.id"], [("total", "sum", "cd")], key_prefixes=["tag.", "post."]),
+        ])
+        # With post.id as an additional key, grouping is per (tag.id, post.id) → 2 rows
+        assert len(result._nodes) == 2
+        assert "tag.name" in result._nodes.columns
+        assert "post.id" in result._nodes.columns
+
+    def test_key_prefixes_none_unchanged(self) -> None:
+        """key_prefixes=None (default) behaves identically to not passing it."""
+        df = pd.DataFrame({
+            "id": ["r1", "r2", "r3"],
+            "grp": ["a", "a", "b"],
+            "val": [1, 2, 3],
+        })
+        g = self._g(df)
+        result = g.gfql([
+            rows(),
+            group_by(["grp"], [("total", "sum", "val")]),
+        ])
+        out = result._nodes.sort_values("grp").reset_index(drop=True)
+        assert list(out["grp"]) == ["a", "b"]
+        assert list(out["total"]) == [3, 3]
