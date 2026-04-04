@@ -8912,10 +8912,6 @@ def test_string_cypher_multi_alias_with_distinct_count_star() -> None:
     ]
 
 
-@pytest.mark.xfail(
-    reason="Multi-stage WITH chain: intermediate projected columns not forwarded through scope (#880)",
-    strict=True,
-)
 def test_string_cypher_multi_alias_with_three_stage_chain() -> None:
     """IC-4 full shape: WITH DISTINCT → WITH scalar → RETURN aggregation (#880)."""
     graph = _mk_ic4_shape_graph()

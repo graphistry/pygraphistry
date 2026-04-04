@@ -3247,9 +3247,34 @@ class RowPipelineMixin:
         out_df = out_table_df.assign(**projected)[list(projected.keys())]
         return self._gfql_row_table(out_df)
 
-    def with_(self, items: List[Any]) -> "Plottable":
-        """Python-safe alias for Cypher WITH-style row projection."""
-        return self.select(items)
+    def with_(self, items: List[Any], extend: bool = False) -> "Plottable":
+        """Python-safe alias for Cypher WITH-style row projection.
+
+        When ``extend=True``, new columns are added to the existing table
+        instead of replacing it.  This is used for mixed whole-row + scalar
+        WITH projections on bindings-row tables (#880).
+        """
+        if not extend:
+            return self.select(items)
+        table_df = self._gfql_get_active_table()
+        projected: Dict[str, Any] = {}
+        for item in items:
+            if isinstance(item, str):
+                alias, expr = item, item
+            else:
+                alias, expr = item
+            alias = str(alias)
+            if isinstance(expr, str):
+                if expr in table_df.columns:
+                    projected[alias] = table_df[expr]
+                else:
+                    projected[alias] = self._gfql_eval_string_expr(table_df, expr)
+                if not hasattr(projected[alias], "astype"):
+                    projected[alias] = self._gfql_broadcast_scalar(table_df, projected[alias])
+            else:
+                projected[alias] = self._gfql_broadcast_scalar(table_df, expr)
+        out_df = table_df.assign(**projected)
+        return self._gfql_row_table(out_df)
 
     def where_rows(
         self,

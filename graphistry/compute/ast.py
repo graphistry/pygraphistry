@@ -1641,9 +1641,12 @@ def select(items: Iterable[ProjectionItem]) -> ASTCall:
     return ASTCall("select", {"items": _normalize_projection_items(items)})
 
 
-def with_(items: Iterable[ProjectionItem]) -> ASTCall:
+def with_(items: Iterable[ProjectionItem], extend: bool = False) -> ASTCall:
     """Python-safe alias for Cypher WITH row projection semantics."""
-    return ASTCall("with_", {"items": _normalize_projection_items(items)})
+    params: Dict[str, Any] = {"items": _normalize_projection_items(items)}
+    if extend:
+        params["extend"] = True
+    return ASTCall("with_", params)
 
 
 def return_(items: Iterable[ProjectionItem]) -> ASTCall:
