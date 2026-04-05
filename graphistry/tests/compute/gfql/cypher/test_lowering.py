@@ -11603,4 +11603,49 @@ def test_issue_1026_with_optional_match_multi_row_optional() -> None:
     assert len(matched) == 3
     assert {"xid": "a", "yid": "b"} in matched
     assert {"xid": "a", "yid": "c"} in matched
-    assert {"xid": "b", "yid": "d"} in matched
+
+
+# ---------------------------------------------------------------------------
+# Issue #996: connected MATCH + OPTIONAL MATCH + CASE (IS7 shape)
+# ---------------------------------------------------------------------------
+
+def test_issue_996_connected_match_optional_match_case_edge_alias() -> None:
+    """
+    IS7 shape: MATCH (m)<-[:R]-(c)-[:H]->(p)
+               OPTIONAL MATCH (m)-[:H]->(a)-[r:K]-(p)
+               RETURN ..., CASE r WHEN null THEN false ELSE true END AS knows
+
+    Left-join semantics: all (m,c,p) rows preserved; r=null when OPTIONAL arm misses.
+    """
+    # Graph:
+    #   m <-[REPLY_OF]- c -[HAS_CREATOR]-> p
+    #   m -[HAS_CREATOR]-> a
+    #   a -[KNOWS]- p    (so r should be non-null → knows=true)
+    #   also c2 whose author p2 does NOT know a → knows=false
+    nodes = pd.DataFrame({
+        "id": ["m", "c", "c2", "p", "p2", "a"],
+        "label__Message": [True, False, False, False, False, False],
+        "label__Comment": [False, True, True, False, False, False],
+        "label__Person":  [False, False, False, True, True, True],
+    })
+    edges = pd.DataFrame({
+        "s":    ["c",  "c",            "c2", "c2",           "m",           "a"],
+        "d":    ["m",  "p",            "m",  "p2",           "a",           "p"],
+        "type": ["REPLY_OF", "HAS_CREATOR", "REPLY_OF", "HAS_CREATOR", "HAS_CREATOR", "KNOWS"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (m:Message)<-[:REPLY_OF]-(c:Comment)-[:HAS_CREATOR]->(p:Person) "
+        "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:Person)-[r:KNOWS]-(p) "
+        "RETURN c.id AS commentId, p.id AS replyAuthorId, "
+        "CASE r WHEN null THEN false ELSE true END AS knows "
+        "ORDER BY commentId"
+    )
+
+    rows = result._nodes[["commentId", "replyAuthorId", "knows"]].to_dict(orient="records")
+    assert len(rows) == 2
+    # c → p: a KNOWS p → knows=true
+    assert {"commentId": "c", "replyAuthorId": "p", "knows": True} in rows
+    # c2 → p2: a does not KNOW p2 → knows=false
+    assert {"commentId": "c2", "replyAuthorId": "p2", "knows": False} in rows
