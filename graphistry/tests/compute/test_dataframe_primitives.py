@@ -150,3 +150,27 @@ class TestSafeMergePandas(unittest.TestCase):
 
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 2
+
+
+class TestSafeMergeNoMutation(unittest.TestCase):
+    """#892: safe_merge must not mutate the caller's right DataFrame."""
+
+    def test_right_not_mutated_same_dtype(self):
+        """safe_merge does not mutate right DataFrame when dtypes already match."""
+        from graphistry.Engine import safe_merge
+        right = pd.DataFrame({'id': [1, 2], 'val': [10, 20]})
+        right_dtype_before = right['id'].dtype
+        left = pd.DataFrame({'id': [1, 2], 'x': ['a', 'b']})
+        safe_merge(left, right, on='id')
+        assert right['id'].dtype == right_dtype_before, "safe_merge mutated right DataFrame dtype"
+
+    def test_right_not_mutated_on_dtype_mismatch(self):
+        """safe_merge does not mutate right DataFrame even when dtype coercion is needed."""
+        from graphistry.Engine import safe_merge
+        left = pd.DataFrame({'id': pd.array([1, 2], dtype='int32'), 'x': ['a', 'b']})
+        right = pd.DataFrame({'id': pd.array([1, 2], dtype='int64'), 'val': [10, 20]})
+        right_dtype_before = right['id'].dtype
+        right_id_values_before = right['id'].tolist()
+        safe_merge(left, right, on='id')
+        assert right['id'].dtype == right_dtype_before, "safe_merge mutated right DataFrame dtype"
+        assert right['id'].tolist() == right_id_values_before, "safe_merge mutated right DataFrame values"

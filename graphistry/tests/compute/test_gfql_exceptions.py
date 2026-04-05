@@ -1,8 +1,10 @@
 """Tests for GFQL validation exceptions."""
 
+import warnings
+import pandas as pd
 import pytest
 from graphistry.compute.exceptions import (
-    ErrorCode, GFQLValidationError, GFQLSyntaxError, 
+    ErrorCode, GFQLValidationError, GFQLSyntaxError,
     GFQLTypeError, GFQLSchemaError
 )
 
@@ -165,3 +167,58 @@ class TestErrorSubclasses:
             assert isinstance(error, Exception)
             assert hasattr(error, 'code')
             assert hasattr(error, 'to_dict')
+
+
+class TestBoolLabelPredicate:
+    """#876: filtering on bool label__ columns must not raise GFQLSchemaError."""
+
+    def _make_graph(self):
+        import graphistry
+        nodes = pd.DataFrame({
+            'id': [0, 1, 2, 3],
+            'label__A': [True, True, False, False],
+            'label__B': [False, False, True, True],
+        })
+        edges = pd.DataFrame({'src': [0, 1, 2], 'dst': [1, 2, 3]})
+        return graphistry.nodes(nodes, 'id').edges(edges, 'src', 'dst')
+
+    def test_bool_label_filter_does_not_raise(self):
+        """Filtering n({'label__A': True}) must not raise GFQLSchemaError (#876)."""
+        from graphistry.compute.ast import n, e_forward
+        g = self._make_graph()
+        # Must not raise "column is string but filter value is numeric"
+        result = g.gfql([n({'label__A': True}), e_forward(), n({'label__B': True})])
+        assert len(result._nodes) > 0
+
+    def test_bool_label_filter_returns_correct_nodes(self):
+        """Filtering on bool label__ columns returns only matching nodes."""
+        from graphistry.compute.ast import n
+        g = self._make_graph()
+        result = g.gfql([n({'label__A': True})])
+        assert set(result._nodes['id'].tolist()) == {0, 1}
+
+    def test_bool_label_false_filter(self):
+        """Filtering n({'label__A': False}) also works without error."""
+        from graphistry.compute.ast import n
+        g = self._make_graph()
+        result = g.gfql([n({'label__A': False})])
+        assert set(result._nodes['id'].tolist()) == {2, 3}
+
+
+class TestChainFillnaNoFutureWarning:
+    """#881: chain tag columns must not emit FutureWarning on fillna."""
+
+    def _make_graph(self):
+        import graphistry
+        nodes = pd.DataFrame({'id': [0, 1, 2], 'val': [10, 20, 30]})
+        edges = pd.DataFrame({'src': [0, 1], 'dst': [1, 2]})
+        return graphistry.nodes(nodes, 'id').edges(edges, 'src', 'dst')
+
+    def test_chain_hop_no_future_warning(self):
+        """A basic gfql hop chain must not emit FutureWarning (#881)."""
+        from graphistry.compute.ast import n, e_forward
+        g = self._make_graph()
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', FutureWarning)
+            # Must not raise FutureWarning about fillna downcasting
+            g.gfql([n(), e_forward(), n()])
