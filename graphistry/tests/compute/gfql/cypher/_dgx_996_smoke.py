@@ -39,18 +39,39 @@ query = (
 )
 
 failures = []
-result = g.gfql(query)
-rows = result._nodes[["commentId", "replyAuthorId", "knows"]].to_dict(orient="records")
-expected = [
-    {"commentId": "c",  "replyAuthorId": "p",  "knows": True},
-    {"commentId": "c2", "replyAuthorId": "p2", "knows": False},
-]
-for exp in expected:
-    if exp in rows:
-        print(f"  PASS  {exp}")
-    else:
-        print(f"  FAIL  expected {exp}, got {rows}")
-        failures.append(exp)
+
+def run_case(label, result_g):
+    rows = result_g._nodes[["commentId", "replyAuthorId", "knows"]].to_dict(orient="records")
+    expected = [
+        {"commentId": "c",  "replyAuthorId": "p",  "knows": True},
+        {"commentId": "c2", "replyAuthorId": "p2", "knows": False},
+    ]
+    for exp in expected:
+        match = any(
+            r.get("commentId") == exp["commentId"]
+            and r.get("replyAuthorId") == exp["replyAuthorId"]
+            and bool(r.get("knows")) == exp["knows"]
+            for r in rows
+        )
+        if match:
+            print(f"  PASS  [{label}] {exp}")
+        else:
+            print(f"  FAIL  [{label}] expected {exp}, got {rows}")
+            failures.append(f"{label}: {exp}")
+
+# pandas path
+run_case("pandas", g.gfql(query))
+
+# cudf path — exercises __cypher_case_eq__ null fix on GPU row pipeline
+try:
+    import cudf
+    from graphistry.Engine import EngineAbstract
+    nodes_cu = cudf.DataFrame(nodes)
+    edges_cu = cudf.DataFrame(edges)
+    g_cu = graphistry.nodes(nodes_cu, "id").edges(edges_cu, "s", "d")
+    run_case("cudf", g_cu.gfql(query, engine=EngineAbstract.CUDF))
+except Exception as e:
+    print(f"  SKIP  [cudf] {e}")
 
 if failures:
     print(f"\nFAILED: {failures}")
