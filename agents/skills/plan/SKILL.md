@@ -3,143 +3,126 @@ name: plan
 description: OPT-IN file-based planning for multi-session tasks. Only use when user explicitly requests it or work spans multiple sessions. For single-session work, prefer your platform's native planning features.
 ---
 
-# File-Based Task Plan Template
+# File-Based Task Plan
 
-## Default: Use Your Platform's Native Planning
+## Default: Use Platform Planning
+Unless explicitly requested ("create a plan.md", "use the plan template"), prefer your AI platform's built-in planning. This file-based approach is only justified for multi-session or handoff work.
 
-**Unless explicitly requested (e.g. "create a plan.md", "use the plan template"), prefer your AI platform's built-in planning features.**
-This file-based approach adds overhead that's only justified for specific scenarios.
-
-## When to Use THIS Skill (Opt-In)
-
-Only use this file-based plan template when:
-- **User explicitly requests it** ("use the plan template", "create a plan file")
-- **Work spans multiple sessions** and must survive context resets
-- **Handoff to another AI/human** who needs full written context
-- **Complex multi-PR coordination** requiring persistent state
+## Use When
+- User explicitly requests it
+- Work spans multiple sessions / context resets
+- Handoff to another AI or human
+- Complex multi-PR coordination
 
 ## Setup
+1. Copy template → `plans/[task_name]/plan.md`
+2. Replace `[placeholders]`
+3. Fill Context sections
+4. Mark Step 1 `🔄`
 
-1. Copy this template to `plans/[task_name]/plan.md`
-2. Replace all `[placeholders]` with actual values
-3. Fill out Context sections completely
-4. Start with Step 1 marked as IN_PROGRESS
+⚠️ **gitignore**: `plans/` is local only — never commit unless user explicitly requests (`git add -f`).
 
-Note: `plans/` is gitignored — plans are local only.
+## Writing Style
+Terse but recoverable — every token earns its place, but a cold-start agent with zero context must still understand and resume. Abbreviate, omit filler. Test: would a stranger understand this with no other context? If yes, cut further. If no, add the minimum needed.
+
+Emoji: only use where it saves characters or adds clarity not already present in the text (e.g. status icons replace words, ⚠️ flags a genuine warning). Do not add emoji just to have them — if removing one loses nothing, remove it.
 
 ## Critical Meta-Goals
 
-**THIS PLAN MUST BE:**
-1. **FULLY SELF-DESCRIBING**: All context needed to resume work is IN THIS FILE
-2. **CONSTANTLY UPDATED**: Every action's results recorded IMMEDIATELY in the step
-3. **THE SINGLE SOURCE OF TRUTH**: If it's not in the plan, it didn't happen
-4. **SAFE TO RESUME**: Any AI can pick up work by reading ONLY this file
+This plan MUST be:
+1. **Self-describing** — all context to resume is IN THIS FILE and files it points to
+2. **Write before run** — record planned action in file *before* executing
+3. **Update before continuing** — record results immediately after, *before* next step
+4. **Single source of truth** — if not in the plan, it didn't happen
+5. **Safe to resume** — any agent can pick up by reading only this file
 
-**REMEMBER**: External memory is unreliable. This plan is your ONLY memory.
+> ⚠️ External memory is unreliable. This file — and files it points to — are your ONLY memory.
 
 ## Anti-Drift Protocol
 
-### The Three Commandments
-1. **RELOAD BEFORE EVERY ACTION**: Your memory has been wiped. This plan is all you have.
-2. **UPDATE AFTER EVERY ACTION**: If you don't write it down, it never happened.
-3. **TRUST ONLY THE PLAN**: Not your memory, not your assumptions, ONLY what's written here.
+### Three Commandments
+1. **RELOAD** before every action — memory wiped, plan is all you have
+2. **UPDATE** after every action — unwritten = didn't happen
+3. **TRUST ONLY THE PLAN** — not memory, not assumptions
 
-### Critical Rules
-- **ONE TASK AT A TIME** - Never jump ahead
-- **NO ASSUMPTIONS** - The plan is the only truth
-- **NO OFFROADING** - If it's not in the plan, don't do it
+### Rules
+- 🚫 **No assumptions** — plan is truth
+- 🚫 **No offroading** — if not in plan, don't do it
+- 🔐 **No secrets** — never write passwords, tokens, API keys, or credentials; use `$ENV_VAR`, `<redacted>`, or pointer to env file (e.g. `source .env.local`)
+- **Parallel subagents**: before spawning, mark claimed step `🔄(🤖agent_<id>_step_<N>)` and record subagent plan path. Subagents **must NOT edit this file** — main agent updates it from their output.
+- **Subagent plans**: each subagent has its own full plan at `plans/[task]/subagents/agent_<id>_step_<N>/plan.md`, same protocol. Subordinate to this file.
 
-### Step Execution Protocol
-**BEFORE EVERY SINGLE ACTION:**
-1. **RELOAD PLAN**: `cat plans/[task_name]/plan.md | head -200`
-2. **FIND YOUR TASK**: Locate the current IN_PROGRESS step
-3. **EXECUTE**: ONLY do what that step says
-4. **UPDATE IMMEDIATELY**: Edit this plan with results BEFORE doing anything else
-5. **VERIFY**: `tail -50 plans/[task_name]/plan.md`
+### Step Protocol
+Per step:
+1. `cat plans/[task]/plan.md | head -200` — reload
+2. Find current `🔄` step
+3. Write planned action in file first
+4. Execute only that step
+5. Write results before continuing
+6. `tail -50 plans/[task]/plan.md` — verify
+
+**Order: write plan → run → write results → continue**
 
 ### If Confused
-1. STOP
-2. Reload this plan
-3. Find the last completed step
-4. Continue from there
+STOP → reload plan → find last ✅ step → continue from there
 
 ## Plan Template
 
 ```markdown
-# [Task Name] Plan
-**THIS PLAN FILE**: `plans/[task_name]/plan.md`
-**Created**: [DATE TIME TIMEZONE]
-**Current Branch**: [from `git branch --show-current`]
-**PRs**: [PR number + title + plan role]
-**PR Target Branch**: [where this will merge]
-**Base branch**: [FILL ME IN, TYPICALLY PR TARGET BRANCH]
+# [Task] Plan
+🔴 COLD START: reload skill first → `agents/skills/plan/SKILL.md`
+File: `plans/[task]/plan.md` | Date: [DATE TZ] | Branch: [branch] | PR#[N] → [target] | Base: [branch @ SHA]
 
-## Context (READ-ONLY)
+## Context (read-only)
+**Prompt**: [verbatim user request]
+**Goal**: [what we're achieving]
+**Done when**: [success criteria]
+**Constraints**: [key limits]
+**Branch**: `[name]` off `[parent]` @ `[SHA]`
 
-### Plan Overview
-**Raw Prompt**: [What the user said, verbatim]
-**Goal**: [What we're trying to achieve]
-**Description**: [Brief description of the task]
-**Success Criteria**: [How we know we're done]
-**Key Constraints**: [Important limitations or requirements]
+## Strategy
+**Approach**: [high-level plan]
+**Decisions**: [decision → reason]
 
-### Technical Context
-**Initial State**:
-- Working Directory: [pwd output]
-- Current Branch: `[branch-name]` (forked from `[parent]` at `[SHA]`)
-- Target Branch: `[where this merges to]`
+## Commands
+Record ALL commands verbatim — exact flags, paths, env vars. No paraphrasing. No secrets (use `$VAR`, `<redacted>`, or `source .env.local`).
 
-### Strategy
-**Approach**: [High-level plan]
-**Key Decisions**:
-- [Decision 1]: [Reasoning]
-- [Decision 2]: [Reasoning]
-
-## Quick Reference
+Preferred:
 ```bash
-# Reload plan
-cat plans/[task_name]/plan.md | head -200
-
-# Local validation before pushing
-PYTHONPATH=. uv run --no-project --with lark --with pytest python -m pytest graphistry/tests/compute/gfql/cypher/test_lowering.py -q
-
-# Lint + types
-./bin/ruff.sh && ./bin/typecheck.sh
-
-# CI monitoring
-gh pr checks [PR] --watch
+cat plans/[task]/plan.md | head -200          # reload plan
+PYTHONPATH=. uv run --no-project --with lark --with pytest python -m pytest [test_path] -q
+./bin/ruff.sh && ./bin/typecheck.sh           # lint + types
+gh pr checks [PR] --watch                     # CI
+gh run view [RUN_ID] --json status,conclusion,jobs
+git log --oneline -10
 ```
+Add task-specific commands here as discovered.
 
-## Status Legend
-- TODO: Not started
-- IN_PROGRESS: Currently working on this
-- DONE: Completed successfully
-- FAILED: Failed, needs retry
-- SKIPPED: Not needed
-- BLOCKED: Can't proceed
+## Status
+⬜ TODO · 🔄 IN_PROGRESS · 🔄(🤖agent_<id>_step_<N>) subagent · ✅ DONE · ❌ FAILED · ⏭️ SKIPPED · 🚧 BLOCKED
 
-## LIVE PLAN
-
-### Steps
+## Steps
+Hierarchical numbering (1, 1.1, 1.1.a …) — insert substeps freely without renumbering siblings.
 
 #### Step 1: [Description]
-**Status**: IN_PROGRESS
-**Action**: [What to do]
-**Success Criteria**: [How to verify]
-**Result**:
+🔄 | Do: [action] | OK: [criteria]
 ```
-[Fill in with commands, output, decisions, errors]
+$ [exact command]
+[output]
 ```
+Result: [decisions / errors / next]
+
+##### Step 1.1: [Substep]
+⬜ | Do: [action] | OK: [criteria]
 
 #### Step 2: [Description]
-**Status**: TODO
-**Action**: [What to do]
-**Success Criteria**: [How to verify]
+⬜ | Do: [action] | OK: [criteria]
 ```
 
-## Step Compaction
+## Compaction
+Trigger when plan file exceeds ~500 lines. Target 200–300 lines after compaction.
+1. Archive completed steps → `plans/[task]/history/steps<N>-<M>.md`
+2. Replace with tight summary: what was done, key decisions, gotchas + pointer to archive
+3. Continue numbering from where you left off
 
-**Every ~30 completed steps, compact the plan:**
-1. Create history file: `plans/[task_name]/history/steps<start>-to-<end>.md`
-2. Replace archived steps with summary in plan
-3. Continue with next step number
+> 🔴 On context compaction/reset: **reload THIS SKILL FILE first** — before the plan, before code. It governs all execution. Skipping it causes silent drift.
