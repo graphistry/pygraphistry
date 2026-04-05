@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 ## Default: Use Your Platform's Native Planning
 
-**For single-session work, prefer your AI platform's built-in planning features.**
+**Unless explicitly requested (e.g. "create a plan.md", "use the plan template"), prefer your AI platform's built-in planning features.**
 This file-based approach adds overhead that's only justified for specific scenarios.
 
 ## When to Use THIS Skill (Opt-In)
