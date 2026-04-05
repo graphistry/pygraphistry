@@ -20,6 +20,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / Cypher**: Support direct local Cypher `shortestPath(...)` scalar execution for the benchmark-facing subset, including `length(path)`, `path IS NULL`, `CASE path IS NULL WHEN true THEN -1 ELSE length(path) END`, and the official comma-seeded `interactive-complex-13` shape. Generic path-carrier projections and `allShortestPaths(...)` remain explicit fail-fast boundaries (#1010).
 
 ### Fixed
+- **GFQL / Cypher**: `CASE x WHEN null THEN ... ELSE ... END` now correctly matches when `x` is null. Previously `__cypher_case_eq__` used `pd.Series == None` which always evaluates to `False` in pandas; the fix returns the null-mask of the non-null operand when the other is a scalar null literal. This was the root blocker for IS7-style `CASE r WHEN null THEN false ELSE true END` over edge aliases from an OPTIONAL MATCH arm (#996).
 - **GFQL / Cypher**: Non-final `WITH alias, agg()` aggregate stages on bindings-row tables (e.g., `WITH tag, sum(cd) AS total`) now correctly group per alias and preserve `alias.*` property columns for subsequent stages. Previously the group key used the wrong column name (`id` instead of `tag.id`), the entity-blob serializer made every row unique, and property columns like `tag.name` were dropped before the next `RETURN` stage could access them (#1054).
 - **GFQL / Cypher**: Extended scalar columns from a bindings-row `WITH` stage (e.g., `WITH tag, post.creationDate AS cd`) are now visible in subsequent non-aggregate stages (`WITH cd ... RETURN cd`). Previously, the next stage resolved the projected column name as an alias-qualified property path and prepended the active alias a second time, producing `None` instead of the actual scalar value (#1045).
 
@@ -43,6 +44,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / Cypher**: Added cartesian `MATCH` regressions covering scalar projection, non-simple row expressions, grouped/global aggregates, staged `WITH` filters, and direct `rows(binding_ops=[Node, Node])` cartesian row materialization.
 - **GFQL / Cypher**: Added exact IC6 runtime regression coverage plus multihop joined-row regressions for undirected no-backtracking, branching reentry fanout, and direct `rows(binding_ops=...)` bare-alias row expressions (#1000).
 - **GFQL / Cypher**: Added 19 connected `MATCH + OPTIONAL MATCH` regression tests covering expression breadth (`type()`, `coalesce()`, arithmetic, `CASE WHEN ... IS NULL`), join edge cases (no matches, all match, multi-row, empty base, two shared aliases, integer IDs, custom node column, longer optional chains), and post-projection ops (ORDER BY, SKIP, LIMIT, DISTINCT) (#996).
+- **GFQL / Cypher**: Added IS7-shape regression test for `CASE r WHEN null THEN false ELSE true END` over a connected MATCH + OPTIONAL MATCH with edge alias, covering both matching and non-matching OPTIONAL arms (#996).
 
 ## [0.53.16 - 2026-04-01]
 
