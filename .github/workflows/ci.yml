@@ -153,8 +153,8 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
-        uv pip install --require-hashes -r requirements/tck.lock
-        uv pip install -e . --no-deps
+        uv pip install -e .
+        uv pip install pytest pandas
 
     - name: Resolve tck-gfql ref
       id: tck_gfql
@@ -261,8 +261,7 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
-        uv pip install --require-hashes -r requirements/test.lock
-        uv pip install -e . --no-deps
+        uv pip install -e .[test]
 
     - name: Lint
       run: |
@@ -307,8 +306,7 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
-        uv pip install --require-hashes -r requirements/test.lock
-        uv pip install -e . --no-deps
+        uv pip install -e .[test]
 
     - name: Test pip install (Docker)
       env:
@@ -412,8 +410,7 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
-        uv pip install --require-hashes -r requirements/test-compat.lock
-        uv pip install -e . --no-deps
+        uv pip install -e .[test,bolt,nodexl]
         uv pip install "pandas==${{ matrix.pandas-version }}"
 
     - name: Pandas compatibility minimal suite
@@ -460,8 +457,7 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
-        uv pip install --require-hashes -r requirements/test-core.lock
-        uv pip install -e . --no-deps
+        uv pip install -e .[test,build,bolt,igraph,networkx,gremlin,nodexl,jupyter]
 
     - name: Core tests
       run: |
@@ -509,7 +505,7 @@ jobs:
         for attempt in 1 2 3; do
           echo "==== Attempt $attempt of 3 ===="
 
-          if uv pip install --require-hashes -r requirements/test-graphviz.lock && uv pip install -e . --no-deps; then
+          if uv pip install -e .[test,pygraphviz]; then
             echo "✅ Installation successful on attempt $attempt"
             break
           fi
@@ -583,8 +579,7 @@ jobs:
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
         python -m pip install torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
-        uv pip install --require-hashes -r requirements/test-umap.lock
-        uv pip install -e . --no-deps
+        uv pip install -e .[test,testai,umap-learn]
 
     - name: Warm HF cache (sentence-transformers)
       id: warm-hf
@@ -702,8 +697,7 @@ jobs:
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
         python -m pip install torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
-        uv pip install --require-hashes -r requirements/test-ai.lock
-        uv pip install -e . --no-deps
+        uv pip install -e .[test,testai,ai]
         echo "skrub: `pip show skrub | grep Version`"
         echo "pandas: `pip show pandas | grep Version`"
         echo "numpy: `pip show numpy | grep Version`"
