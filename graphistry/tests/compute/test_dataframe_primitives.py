@@ -4,9 +4,15 @@ Tests for DataFrame type coercion primitives (safe_concat, safe_merge).
 These tests demonstrate the problem: raw pandas/cuDF operations fail when
 mixing DataFrame types. The primitives should handle type conversion automatically.
 """
+import os
 import unittest
 import pandas as pd
 import pytest
+
+_CUDF = pytest.mark.skipif(
+    not (os.environ.get("TEST_CUDF") == "1"),
+    reason="cudf tests need TEST_CUDF=1"
+)
 
 
 class TestMixedTypeFailures(unittest.TestCase):
@@ -150,3 +156,65 @@ class TestSafeMergePandas(unittest.TestCase):
 
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 2
+
+
+class TestSafeMergeNoMutation(unittest.TestCase):
+    """#892: safe_merge must not mutate the caller's right DataFrame."""
+
+    def test_right_not_mutated_same_dtype(self):
+        """safe_merge does not mutate right DataFrame when dtypes already match."""
+        from graphistry.Engine import safe_merge
+        right = pd.DataFrame({'id': [1, 2], 'val': [10, 20]})
+        right_dtype_before = right['id'].dtype
+        left = pd.DataFrame({'id': [1, 2], 'x': ['a', 'b']})
+        safe_merge(left, right, on='id')
+        assert right['id'].dtype == right_dtype_before, "safe_merge mutated right DataFrame dtype"
+
+    def test_right_not_mutated_on_dtype_mismatch(self):
+        """safe_merge does not mutate right DataFrame even when dtype coercion is needed."""
+        from graphistry.Engine import safe_merge
+        left = pd.DataFrame({'id': pd.array([1, 2], dtype='int32'), 'x': ['a', 'b']})
+        right = pd.DataFrame({'id': pd.array([1, 2], dtype='int64'), 'val': [10, 20]})
+        right_dtype_before = right['id'].dtype
+        right_id_values_before = right['id'].tolist()
+        safe_merge(left, right, on='id')
+        assert right['id'].dtype == right_dtype_before, "safe_merge mutated right DataFrame dtype"
+        assert right['id'].tolist() == right_id_values_before, "safe_merge mutated right DataFrame values"
+
+    @_CUDF
+    def test_cudf_right_not_mutated_same_dtype(self):
+        """cuDF: safe_merge does not mutate right DataFrame when dtypes already match (#892)."""
+        import cudf
+        from graphistry.Engine import safe_merge
+        left = cudf.DataFrame({'id': [1, 2], 'x': ['a', 'b']})
+        right = cudf.DataFrame({'id': [1, 2], 'val': [10, 20]})
+        right_dtype_before = right['id'].dtype
+        safe_merge(left, right, on='id')
+        assert right['id'].dtype == right_dtype_before, "safe_merge mutated cuDF right DataFrame dtype"
+
+    @_CUDF
+    def test_cudf_right_not_mutated_on_dtype_mismatch(self):
+        """cuDF: safe_merge does not mutate right DataFrame on dtype mismatch (#892 original bug)."""
+        import cudf
+        from graphistry.Engine import safe_merge
+        # int32 left vs int64 right — the original trigger for the mutation bug
+        left = cudf.DataFrame({'id': cudf.Series([1, 2], dtype='int32'), 'x': ['a', 'b']})
+        right = cudf.DataFrame({'id': cudf.Series([1, 2], dtype='int64'), 'val': [10, 20]})
+        right_dtype_before = right['id'].dtype
+        right_id_values_before = right['id'].to_pandas().tolist()
+        safe_merge(left, right, on='id')
+        assert right['id'].dtype == right_dtype_before, "safe_merge mutated cuDF right DataFrame dtype"
+        assert right['id'].to_pandas().tolist() == right_id_values_before, "safe_merge mutated cuDF right DataFrame values"
+
+    @_CUDF
+    def test_cudf_empty_right_not_mutated(self):
+        """cuDF: safe_merge handles empty cuDF right DataFrame without mutation (#892 float64 inference case)."""
+        import cudf
+        from graphistry.Engine import safe_merge
+        # Empty cuDF DataFrames infer float64 — the original dtype-mismatch trigger
+        left = cudf.DataFrame({'id': cudf.Series([1, 2], dtype='int64'), 'x': ['a', 'b']})
+        right = cudf.DataFrame({'id': cudf.Series([], dtype='float64'), 'val': cudf.Series([], dtype='float64')})
+        right_dtype_before = right['id'].dtype
+        result = safe_merge(left, right, on='id', how='left')
+        assert right['id'].dtype == right_dtype_before, "safe_merge mutated empty cuDF right DataFrame dtype"
+        assert len(result) == 2  # left join: all left rows preserved
