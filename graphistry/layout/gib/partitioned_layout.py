@@ -210,18 +210,19 @@ def partitioned_layout(
     g_locally_positioned = self.nodes(normalized_nodes)
 
     # Vectorized global transform: merge treemap offsets once
-    offsets_pdf = df_cons(engine)(partition_offsets)  # partition_id as index, cols: x y dx dy
+    # Rename offsets cols to avoid suffix ambiguity (local_nodes has x/y but not ox/oy/odx/ody)
+    offsets_df = df_cons(engine)(partition_offsets)  # index=partition_id, cols: x y dx dy
+    offsets_df = offsets_df.rename(columns={'x': 'ox', 'y': 'oy', 'dx': 'odx', 'dy': 'ody'})
     local_nodes = g_locally_positioned._nodes
     local_with_offsets = local_nodes.merge(
-        offsets_pdf[['x', 'y', 'dx', 'dy']],
+        offsets_df[['ox', 'oy', 'odx', 'ody']],
         left_on=partition_key,
         right_index=True,
         how='left',
-        suffixes=('_local', '_offset'),
     )
     global_nodes = local_nodes.copy()
-    global_nodes['x'] = local_with_offsets['x_local'] * local_with_offsets['dx_offset'] + local_with_offsets['x_offset']
-    global_nodes['y'] = local_with_offsets['y_local'] * local_with_offsets['dy_offset'] + local_with_offsets['y_offset']
+    global_nodes['x'] = local_with_offsets['x'] * local_with_offsets['odx'] + local_with_offsets['ox']
+    global_nodes['y'] = local_with_offsets['y'] * local_with_offsets['ody'] + local_with_offsets['oy']
     global_nodes['y'] = -global_nodes['y']
     g_globally_positioned = g_locally_positioned.nodes(global_nodes)
     g_globally_positioned._edge_weight = self._edge_weight
