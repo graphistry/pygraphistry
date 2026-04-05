@@ -715,13 +715,11 @@ def _build_transformer(source: str) -> _TransformerLike:
                 value = int(str(token))
             except Exception as exc:
                 raise _to_syntax_error("Invalid relationship range bound", line=meta.line, column=meta.column) from exc
-            if value <= 0:
-                raise _to_unsupported(
-                    "Cypher zero-hop relationship ranges are not yet supported in the current GFQL Cypher compiler",
+            if value < 0:
+                raise _to_syntax_error(
+                    "Cypher relationship range bounds must be non-negative",
                     line=meta.line,
                     column=meta.column,
-                    field="match",
-                    value=self._slice(_span_from_meta(meta)),
                 )
             return value
 
@@ -729,6 +727,14 @@ def _build_transformer(source: str) -> _TransformerLike:
             if len(items) != 1:
                 raise _to_syntax_error("Invalid relationship range", line=meta.line, column=meta.column)
             hops = self._rel_hops(meta, items[0])
+            if hops == 0:
+                raise _to_unsupported(
+                    "Cypher exact zero-hop relationship patterns (*0) are not supported",
+                    line=meta.line,
+                    column=meta.column,
+                    field="match",
+                    value=self._slice(_span_from_meta(meta)),
+                )
             return {"min_hops": hops, "max_hops": hops, "to_fixed_point": False}
 
         def rel_range_bounded(self, meta: Any, items: Sequence[Any]) -> dict[str, Any]:

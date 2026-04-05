@@ -11842,3 +11842,62 @@ def test_issue_996_case_r_when_null_searched_form_still_works() -> None:
     rows = result._nodes.to_dict(orient="records")
     assert len(rows) == 1
     assert rows[0]["knows"] is False
+
+
+# ── Issue #983: bounded zero-min variable-length relationships (*0..N) ────────
+
+
+def test_issue_983_bounded_zero_min_includes_zero_hop() -> None:
+    """MATCH (a {id:'a'})-[*0..2]->(b) must include a itself (0-hop)."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame({"s": ["a", "b", "c"], "d": ["b", "c", "d"], "type": ["R", "R", "R"]}),
+    )
+    result = graph.gfql("MATCH (a {id: 'a'})-[*0..2]->(b) RETURN b.id AS id ORDER BY id")
+    ids = [r["id"] for r in result._nodes.to_dict(orient="records")]
+    # 0-hop: a itself; 1-hop: b; 2-hop: c
+    assert ids == ["a", "b", "c"]
+
+
+def test_issue_983_bounded_zero_min_typed_rel() -> None:
+    """[:R*0..3] bounded zero-min with type filter returns 0- through 3-hop nodes."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d", "e"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c", "a"],
+                "d": ["b", "c", "d", "e"],
+                "type": ["R", "R", "R", "S"],
+            }
+        ),
+    )
+    result = graph.gfql("MATCH (a {id: 'a'})-[:R*0..3]->(b) RETURN b.id AS id ORDER BY id")
+    ids = [r["id"] for r in result._nodes.to_dict(orient="records")]
+    # 0-hop: a; 1-hop: b; 2-hop: c; 3-hop: d (not e, wrong type)
+    assert ids == ["a", "b", "c", "d"]
+
+
+def test_issue_983_bounded_zero_min_multi_type() -> None:
+    """[:HAS_TYPE|IS_SUBCLASS_OF*0..3] IC12 shape works end-to-end."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["tag", "sub1", "sub2", "leaf"]}),
+        pd.DataFrame(
+            {
+                "s": ["tag", "sub1", "sub2"],
+                "d": ["sub1", "sub2", "leaf"],
+                "type": ["IS_SUBCLASS_OF", "IS_SUBCLASS_OF", "IS_SUBCLASS_OF"],
+            }
+        ),
+    )
+    result = graph.gfql(
+        "MATCH (t {id: 'tag'})-[:IS_SUBCLASS_OF|HAS_TYPE*0..3]->(x) RETURN x.id AS id ORDER BY id"
+    )
+    ids = [r["id"] for r in result._nodes.to_dict(orient="records")]
+    # 0-hop: tag; 1-hop: sub1; 2-hop: sub2; 3-hop: leaf
+    assert ids == ["leaf", "sub1", "sub2", "tag"]
+
+
+def test_issue_983_bounded_zero_min_max_zero_is_still_rejected() -> None:
+    """*0 (exact zero hops) is still a parse error — degenerate, not supported."""
+    with pytest.raises(Exception):
+        _mk_simple_path_graph().gfql("MATCH (a)-[*0]->(b) RETURN b")
