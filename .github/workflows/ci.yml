@@ -901,8 +901,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip uv
-        UV_SYSTEM_PYTHON=1 uv pip install --require-hashes -r requirements/build.lock
-        UV_SYSTEM_PYTHON=1 uv pip install -e . --no-deps
+        UV_SYSTEM_PYTHON=1 uv pip install -e .[build]
 
     - name: Test building
       run: |
