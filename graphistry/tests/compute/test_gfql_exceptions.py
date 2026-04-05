@@ -1,11 +1,17 @@
 """Tests for GFQL validation exceptions."""
 
+import os
 import warnings
 import pandas as pd
 import pytest
 from graphistry.compute.exceptions import (
     ErrorCode, GFQLValidationError, GFQLSyntaxError,
     GFQLTypeError, GFQLSchemaError
+)
+
+_CUDF = pytest.mark.skipif(
+    not (os.environ.get("TEST_CUDF") == "1"),
+    reason="cudf tests need TEST_CUDF=1"
 )
 
 
@@ -222,3 +228,47 @@ class TestChainFillnaNoFutureWarning:
             warnings.simplefilter('error', FutureWarning)
             # Must not raise FutureWarning about fillna downcasting
             g.gfql([n(), e_forward(), n()])
+
+    @_CUDF
+    def test_chain_hop_no_future_warning_cudf(self):
+        """cuDF: chain hop tag columns emit no FutureWarning on fillna (#881)."""
+        import cudf
+        import graphistry
+        from graphistry.compute.ast import n, e_forward
+        nodes = cudf.DataFrame({'id': [0, 1, 2], 'val': [10, 20, 30]})
+        edges = cudf.DataFrame({'src': [0, 1], 'dst': [1, 2]})
+        g = graphistry.nodes(nodes, 'id').edges(edges, 'src', 'dst')
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', FutureWarning)
+            g.gfql([n(), e_forward(), n()])
+
+
+class TestBoolLabelPredicateCuDF:
+    """#876 cuDF: filtering on bool label__ columns must not raise GFQLSchemaError."""
+
+    def _make_graph(self):
+        import cudf
+        import graphistry
+        nodes = cudf.DataFrame({
+            'id': [0, 1, 2, 3],
+            'label__A': [True, True, False, False],
+            'label__B': [False, False, True, True],
+        })
+        edges = cudf.DataFrame({'src': [0, 1, 2], 'dst': [1, 2, 3]})
+        return graphistry.nodes(nodes, 'id').edges(edges, 'src', 'dst')
+
+    @_CUDF
+    def test_bool_label_filter_does_not_raise_cudf(self):
+        """cuDF: n({'label__A': True}) must not raise GFQLSchemaError (#876)."""
+        from graphistry.compute.ast import n, e_forward
+        g = self._make_graph()
+        result = g.gfql([n({'label__A': True}), e_forward(), n({'label__B': True})])
+        assert len(result._nodes) > 0
+
+    @_CUDF
+    def test_bool_label_filter_returns_correct_nodes_cudf(self):
+        """cuDF: filtering on bool label__ columns returns only matching nodes."""
+        from graphistry.compute.ast import n
+        g = self._make_graph()
+        result = g.gfql([n({'label__A': True})])
+        assert set(result._nodes['id'].to_pandas().tolist()) == {0, 1}
