@@ -1,7 +1,6 @@
 ---
 name: plan
 description: OPT-IN file-based planning for multi-session tasks. Only use when user explicitly requests it or work spans multiple sessions. For single-session work, prefer your platform's native planning features.
-disable-model-invocation: true
 ---
 
 # File-Based Task Plan Template
