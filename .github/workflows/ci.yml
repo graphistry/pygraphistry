@@ -15,6 +15,11 @@ on:
   schedule:
     - cron: '0 1 1-31/2 * *'
 
+env:
+  # 6-day dependency cooldown: refuse packages uploaded less than 6 days ago
+  # to mitigate supply chain attacks. Belt-and-suspenders with lockfile --exclude-newer.
+  UV_EXCLUDE_NEWER: "6 days"
+
 jobs:
 
   changes:
@@ -131,8 +136,32 @@ jobs:
           exit 1
         fi
 
-  tck-gfql:
+  generate-lockfiles:
     needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        lfs: true
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.12"
+    - name: Install uv
+      run: pip install uv
+    - name: Generate lockfiles
+      run: ./bin/generate-lockfiles.sh
+    - name: Upload lockfiles
+      uses: actions/upload-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements/*.lock
+        retention-days: 1
+
+  tck-gfql:
+    needs: [changes, generate-lockfiles]
     if: ${{ (needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -148,13 +177,19 @@ jobs:
       with:
         python-version: "3.12"
 
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
     - name: Install dependencies
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
-        uv pip install -e .
-        uv pip install pytest pandas
+        uv pip install --require-hashes -r requirements/tck-py3.12.lock
+        uv pip install -e . --no-deps
 
     - name: Resolve tck-gfql ref
       id: tck_gfql
