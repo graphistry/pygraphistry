@@ -99,6 +99,7 @@ ROW_PIPELINE_CALLS = frozenset(
         "distinct",
         "unwind",
         "group_by",
+        "drop_cols",
     }
 )
 
@@ -3461,6 +3462,14 @@ class RowPipelineMixin:
 
         return self._gfql_row_table(bindings)
 
+    def drop_cols(self, cols: Sequence[str]) -> "Plottable":
+        """Drop named columns from the active row table, ignoring any that don't exist."""
+        table_df = self._gfql_get_active_table()
+        to_drop = [c for c in cols if c in table_df.columns]
+        if to_drop:
+            table_df = table_df.drop(columns=to_drop)
+        return self._gfql_row_table(table_df)
+
     def select(self, items: List[Any]) -> "Plottable":
         table_df = self._gfql_get_active_table()
         if items is None:
@@ -3805,10 +3814,18 @@ class RowPipelineMixin:
         self,
         keys: Sequence[str],
         aggregations: Sequence[Sequence[Any]],
+        key_prefixes: Optional[Sequence[str]] = None,
     ) -> "Plottable":
         """Vectorized grouped aggregations for row-table pipelines."""
         table_df = self._gfql_get_active_table()
         key_cols = [str(k) for k in keys]
+        if key_prefixes:
+            seen = set(key_cols)
+            for prefix in key_prefixes:
+                for col in table_df.columns:
+                    if isinstance(col, str) and col.startswith(prefix) and col not in seen:
+                        key_cols.append(col)
+                        seen.add(col)
         if not key_cols:
             raise ValueError("group_by(keys=...) requires at least one key column")
         for key in key_cols:

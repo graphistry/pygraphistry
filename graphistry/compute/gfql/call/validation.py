@@ -299,17 +299,28 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     ),
 
     'group_by': _method_entry(
-        allowed_params={'keys', 'aggregations'},
+        allowed_params={'keys', 'aggregations', 'key_prefixes'},
         required_params={'keys', 'aggregations'},
         param_validators={
             'keys': is_non_empty_list_of_strings,
             'aggregations': is_list_of_agg_specs,
+            'key_prefixes': lambda v: v is None or is_list_of_strings(v),
         },
         description='Group rows by keys and compute vectorized aggregations',
         schema_effects=_schema_effects(
             adds_node_cols=_group_by_added_node_cols,
             requires_node_cols=_group_by_requires_node_cols,
         ),
+    ),
+
+    'drop_cols': _method_entry(
+        allowed_params={'cols'},
+        required_params={'cols'},
+        param_validators={
+            'cols': is_list_of_strings,
+        },
+        description='Drop named columns from the active row table (ignores missing columns)',
+        schema_effects=NO_SCHEMA_EFFECTS,
     ),
 
     'distinct': _method_entry(

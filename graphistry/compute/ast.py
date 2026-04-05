@@ -1694,8 +1694,23 @@ def unwind(expr: Any, as_: str = "value") -> ASTCall:
     return ASTCall("unwind", {"expr": expr, "as_": as_})
 
 
+def drop_cols(cols: Iterable[str]) -> ASTCall:
+    """Drop named columns from the active row table (ignores missing columns at runtime)."""
+    return ASTCall("drop_cols", {"cols": list(cols)})
+
+
 def group_by(
-    keys: Iterable[str], aggregations: Iterable[Sequence[Any]]
+    keys: Iterable[str],
+    aggregations: Iterable[Sequence[Any]],
+    key_prefixes: Optional[Iterable[str]] = None,
 ) -> ASTCall:
-    """Create grouped aggregation operation for row pipelines."""
-    return ASTCall("group_by", {"keys": list(keys), "aggregations": list(aggregations)})
+    """Create grouped aggregation operation for row pipelines.
+
+    key_prefixes: if provided, all DataFrame columns whose name starts with any of these
+    prefixes are appended to the key list at runtime.  Useful for bindings-row paths where
+    alias property column names (e.g. ``"tag.name"``) are not known at lowering time.
+    """
+    args: Dict[str, Any] = {"keys": list(keys), "aggregations": list(aggregations)}
+    if key_prefixes is not None:
+        args["key_prefixes"] = list(key_prefixes)
+    return ASTCall("group_by", args)
