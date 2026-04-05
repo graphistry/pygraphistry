@@ -363,8 +363,7 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
-        uv pip install --require-hashes -r requirements/test.lock
-        uv pip install -e . --no-deps
+        uv pip install -e .[test]
 
     - name: GFQL core tests
       run: |
