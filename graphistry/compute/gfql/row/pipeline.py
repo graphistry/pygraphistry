@@ -844,6 +844,15 @@ class RowPipelineMixin:
                 left_null_mask = self._gfql_null_mask(table_df, left)
                 right_null_mask = self._gfql_null_mask(table_df, right)
                 any_null_mask = left_null_mask | right_null_mask
+                # Cypher CASE x WHEN null: null == null is true (not suppressed).
+                # When one side is a scalar null literal, the equality IS the null-mask
+                # of the other side — pd.Series == None is always False in pandas.
+                left_scalar_null = not hasattr(left, "astype") and is_null_scalar(left)
+                right_scalar_null = not hasattr(right, "astype") and is_null_scalar(right)
+                if right_scalar_null:
+                    return True, left_null_mask
+                if left_scalar_null:
+                    return True, right_null_mask
                 left_is_bool = (
                     RowPipelineMixin._gfql_series_bool_like(left)
                     if hasattr(left, "astype")

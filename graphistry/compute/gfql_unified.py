@@ -277,7 +277,6 @@ def _apply_connected_optional_match(
        accumulated result on shared node aliases.
     3. Delegate RETURN / ORDER BY / SKIP / LIMIT to the standard row pipeline.
     """
-    import math
     from graphistry.compute.ast import ASTCall, serialize_binding_ops
 
     concrete_engine = resolve_engine(cast(Any, engine), base_graph)
@@ -341,10 +340,7 @@ def _apply_connected_optional_match(
             marker_col = next((c for c in joined.columns if c.startswith(prefix)), None)
             if marker_col is not None:
                 marker = joined[marker_col]
-                joined[alias] = marker.where(
-                    marker.apply(lambda v: v is not None and not (isinstance(v, float) and math.isnan(v))),
-                    other=None,
-                )
+                joined[alias] = marker.where(marker.notna(), other=None)
 
     # Delegate RETURN / ORDER BY / SKIP / LIMIT to the standard row pipeline.
     joined_plottable = base_graph.bind()

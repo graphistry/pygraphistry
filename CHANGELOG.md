@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+- **GFQL / Cypher**: `CASE x WHEN null THEN ... ELSE ... END` now correctly matches when `x` is null. Previously `__cypher_case_eq__` used `pd.Series == None` which always evaluates to `False` in pandas; the fix returns the null-mask of the non-null operand when the other is a scalar null literal. This was the root blocker for IS7-style `CASE r WHEN null THEN false ELSE true END` over edge aliases from an OPTIONAL MATCH arm (#996).
+
+### Tests
+- **GFQL / Cypher**: Added 19 connected `MATCH + OPTIONAL MATCH` regression tests covering expression breadth (`type()`, `coalesce()`, arithmetic, `CASE WHEN ... IS NULL`), join edge cases (no matches, all match, multi-row, empty base, two shared aliases, integer IDs, custom node column, longer optional chains), and post-projection ops (ORDER BY, SKIP, LIMIT, DISTINCT) (#996).
+- **GFQL / Cypher**: Added IS7-shape regression test for `CASE r WHEN null THEN false ELSE true END` over a connected MATCH + OPTIONAL MATCH with edge alias, covering both matching and non-matching OPTIONAL arms (#996).
+
 ## [0.54.0 - 2026-04-04]
 
 ### Added
@@ -42,7 +49,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / bindings rows**: Added benchmark-shaped regressions for native IS6-style multihop continuation plus direct Cypher IS1 / IS3 / IS6 projection shapes.
 - **GFQL / Cypher**: Added cartesian `MATCH` regressions covering scalar projection, non-simple row expressions, grouped/global aggregates, staged `WITH` filters, and direct `rows(binding_ops=[Node, Node])` cartesian row materialization.
 - **GFQL / Cypher**: Added exact IC6 runtime regression coverage plus multihop joined-row regressions for undirected no-backtracking, branching reentry fanout, and direct `rows(binding_ops=...)` bare-alias row expressions (#1000).
-- **GFQL / Cypher**: Added 19 connected `MATCH + OPTIONAL MATCH` regression tests covering expression breadth (`type()`, `coalesce()`, arithmetic, `CASE WHEN ... IS NULL`), join edge cases (no matches, all match, multi-row, empty base, two shared aliases, integer IDs, custom node column, longer optional chains), and post-projection ops (ORDER BY, SKIP, LIMIT, DISTINCT) (#996).
 
 ## [0.53.16 - 2026-04-01]
 

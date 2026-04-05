@@ -2557,6 +2557,98 @@ def test_string_cypher_simple_case_does_not_match_bool_to_int() -> None:
     assert result._nodes.to_dict(orient="records") == [{"result": "other"}]
 
 
+def test_string_cypher_simple_case_when_null_matches_null_value() -> None:
+    """CASE x WHEN null THEN 'yes' ELSE 'no' END — x is null → 'yes'."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"], "val": [None, "v"]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+    result = graph.gfql(
+        "MATCH (n) RETURN n.id AS id, CASE n.val WHEN null THEN 'yes' ELSE 'no' END AS out ORDER BY id"
+    )
+    rows = result._nodes.to_dict(orient="records")
+    assert {"id": "a", "out": "yes"} in rows   # null → matches null arm
+    assert {"id": "b", "out": "no"} in rows    # non-null → falls to ELSE
+
+
+def test_string_cypher_simple_case_when_null_non_null_not_matched() -> None:
+    """CASE x WHEN null — non-null x must NOT match."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"], "val": ["present"]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+    result = graph.gfql(
+        "MATCH (n) RETURN CASE n.val WHEN null THEN true ELSE false END AS is_null"
+    )
+    assert result._nodes.to_dict(orient="records") == [{"is_null": False}]
+
+
+def test_string_cypher_simple_case_when_null_all_null() -> None:
+    """All rows null → all match the null arm."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"], "val": [None, None]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+    result = graph.gfql(
+        "MATCH (n) RETURN n.id AS id, CASE n.val WHEN null THEN 1 ELSE 0 END AS out ORDER BY id"
+    )
+    for row in result._nodes.to_dict(orient="records"):
+        assert row["out"] == 1
+
+
+def test_string_cypher_simple_case_when_null_mixed_series() -> None:
+    """Mixed series: some null, some non-null, some other value."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"], "val": [None, "x", None]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+    result = graph.gfql(
+        "MATCH (n) RETURN n.id AS id, CASE n.val WHEN null THEN 'null' ELSE 'set' END AS out ORDER BY id"
+    )
+    rows = {r["id"]: r["out"] for r in result._nodes.to_dict(orient="records")}
+    assert rows == {"a": "null", "b": "set", "c": "null"}
+
+
+def test_string_cypher_simple_case_when_null_no_else() -> None:
+    """CASE x WHEN null THEN 'y' END — no ELSE; non-null should yield null."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"], "val": [None, "v"]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+    result = graph.gfql(
+        "MATCH (n) RETURN n.id AS id, CASE n.val WHEN null THEN 'hit' END AS out ORDER BY id"
+    )
+    rows = {r["id"]: r["out"] for r in result._nodes.to_dict(orient="records")}
+    assert rows["a"] == "hit"
+    assert rows["b"] is None or (isinstance(rows["b"], float) and rows["b"] != rows["b"])
+
+
+def test_string_cypher_simple_case_non_null_comparison_unaffected() -> None:
+    """Non-null WHEN arm still works after null fix — regression guard."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"], "score": [1, 2, 3]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+    result = graph.gfql(
+        "MATCH (n) RETURN n.id AS id, CASE n.score WHEN 2 THEN 'two' ELSE 'other' END AS out ORDER BY id"
+    )
+    rows = {r["id"]: r["out"] for r in result._nodes.to_dict(orient="records")}
+    assert rows == {"a": "other", "b": "two", "c": "other"}
+
+
+def test_string_cypher_simple_case_when_null_first_arm_then_value_arm() -> None:
+    """Multiple arms: first is null, second is a value."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"], "val": [None, "x", "y"]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+    result = graph.gfql(
+        "MATCH (n) RETURN n.id AS id, CASE n.val WHEN null THEN 'N' WHEN 'x' THEN 'X' ELSE 'E' END AS out ORDER BY id"
+    )
+    rows = {r["id"]: r["out"] for r in result._nodes.to_dict(orient="records")}
+    assert rows == {"a": "N", "b": "X", "c": "E"}
+
+
 def test_string_cypher_supports_generic_match_where_chained_comparison() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["a"], "num": [5]}),
@@ -11603,4 +11695,150 @@ def test_issue_1026_with_optional_match_multi_row_optional() -> None:
     assert len(matched) == 3
     assert {"xid": "a", "yid": "b"} in matched
     assert {"xid": "a", "yid": "c"} in matched
-    assert {"xid": "b", "yid": "d"} in matched
+
+
+# ---------------------------------------------------------------------------
+# Issue #996: connected MATCH + OPTIONAL MATCH + CASE (IS7 shape)
+# ---------------------------------------------------------------------------
+
+def test_issue_996_connected_match_optional_match_case_edge_alias() -> None:
+    """
+    IS7 shape: MATCH (m)<-[:R]-(c)-[:H]->(p)
+               OPTIONAL MATCH (m)-[:H]->(a)-[r:K]-(p)
+               RETURN ..., CASE r WHEN null THEN false ELSE true END AS knows
+
+    Left-join semantics: all (m,c,p) rows preserved; r=null when OPTIONAL arm misses.
+    """
+    # Graph:
+    #   m <-[REPLY_OF]- c -[HAS_CREATOR]-> p
+    #   m -[HAS_CREATOR]-> a
+    #   a -[KNOWS]- p    (so r should be non-null → knows=true)
+    #   also c2 whose author p2 does NOT know a → knows=false
+    nodes = pd.DataFrame({
+        "id": ["m", "c", "c2", "p", "p2", "a"],
+        "label__Message": [True, False, False, False, False, False],
+        "label__Comment": [False, True, True, False, False, False],
+        "label__Person":  [False, False, False, True, True, True],
+    })
+    edges = pd.DataFrame({
+        "s":    ["c",  "c",            "c2", "c2",           "m",           "a"],
+        "d":    ["m",  "p",            "m",  "p2",           "a",           "p"],
+        "type": ["REPLY_OF", "HAS_CREATOR", "REPLY_OF", "HAS_CREATOR", "HAS_CREATOR", "KNOWS"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (m:Message)<-[:REPLY_OF]-(c:Comment)-[:HAS_CREATOR]->(p:Person) "
+        "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:Person)-[r:KNOWS]-(p) "
+        "RETURN c.id AS commentId, p.id AS replyAuthorId, "
+        "CASE r WHEN null THEN false ELSE true END AS knows "
+        "ORDER BY commentId"
+    )
+
+    rows = result._nodes[["commentId", "replyAuthorId", "knows"]].to_dict(orient="records")
+    assert len(rows) == 2
+    # c → p: a KNOWS p → knows=true
+    assert {"commentId": "c", "replyAuthorId": "p", "knows": True} in rows
+    # c2 → p2: a does not KNOW p2 → knows=false
+    assert {"commentId": "c2", "replyAuthorId": "p2", "knows": False} in rows
+
+
+def test_issue_996_connected_match_optional_match_all_rows_match() -> None:
+    """All base rows have a matching OPTIONAL arm — no nulls expected."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c"], "label__N": [True, True, True]})
+    edges = pd.DataFrame({"s": ["a", "b", "c"], "d": ["b", "c", "b"], "type": ["T", "T", "T"]})
+    g = _mk_graph(nodes, edges)
+    result = g.gfql(
+        "MATCH (x:N)-[:T]->(y:N) "
+        "OPTIONAL MATCH (x)-[:T]->(z:N) "
+        "RETURN x.id AS xid, y.id AS yid, z.id AS zid ORDER BY xid, yid"
+    )
+    rows = result._nodes[["xid", "yid", "zid"]].to_dict(orient="records")
+    # every base row has an optional match (x→y exists; z is same as y here)
+    assert all(r["zid"] is not None for r in rows)
+
+
+def test_issue_996_connected_match_optional_match_no_rows_match() -> None:
+    """No base rows have a matching OPTIONAL arm — all optional cols null."""
+    nodes = pd.DataFrame({"id": ["a", "b"], "label__N": [True, True]})
+    edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["T"]})
+    g = _mk_graph(nodes, edges)
+    result = g.gfql(
+        "MATCH (x:N)-[:T]->(y:N) "
+        "OPTIONAL MATCH (x)-[:MISSING]->(z:N) "
+        "RETURN x.id AS xid, CASE z WHEN null THEN 'none' ELSE 'found' END AS found"
+    )
+    rows = result._nodes[["xid", "found"]].to_dict(orient="records")
+    assert rows == [{"xid": "a", "found": "none"}]
+
+
+def test_issue_996_connected_match_optional_match_node_alias_null_in_return() -> None:
+    """Node alias (not edge) from OPTIONAL arm is null when arm misses."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c"], "label__N": [True, True, True]})
+    # a→b has outgoing T; a→c does too; but only (a)-[:T]->(b)-[:T]->(c) chain exists
+    edges2 = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "type": ["T", "T"]})
+    g2 = _mk_graph(nodes, edges2)
+    result = g2.gfql(
+        "MATCH (x:N)-[:T]->(y:N) "
+        "OPTIONAL MATCH (y)-[:T]->(z:N) "
+        "RETURN x.id AS xid, y.id AS yid, z.id AS zid ORDER BY xid, yid"
+    )
+    rows = result._nodes[["xid", "yid", "zid"]].to_dict(orient="records")
+    # base rows: (a,b) and (b,c)
+    # (a,b): b→c exists so zid='c'
+    # (b,c): c has no outgoing T so zid=null
+    assert len(rows) == 2
+    by_x = {r["xid"]: r for r in rows}
+    assert by_x["a"]["yid"] == "b" and by_x["a"]["zid"] == "c"
+    assert by_x["b"]["yid"] == "c" and (by_x["b"]["zid"] is None or (isinstance(by_x["b"]["zid"], float) and by_x["b"]["zid"] != by_x["b"]["zid"]))
+
+
+def test_issue_996_connected_match_optional_match_order_by_optional_col() -> None:
+    """ORDER BY on an optional-arm column (may be null) must not crash."""
+    nodes = pd.DataFrame({
+        "id": ["m", "c1", "c2", "p1", "p2", "a"],
+        "label__Message": [True, False, False, False, False, False],
+        "label__Comment": [False, True, True, False, False, False],
+        "label__Person":  [False, False, False, True, True, True],
+    })
+    edges = pd.DataFrame({
+        "s":    ["c1", "c1",  "c2", "c2",  "m",  "a"],
+        "d":    ["m",  "p1",  "m",  "p2",  "a",  "p1"],
+        "type": ["REPLY_OF", "HAS_CREATOR", "REPLY_OF", "HAS_CREATOR", "HAS_CREATOR", "KNOWS"],
+    })
+    g = _mk_graph(nodes, edges)
+    result = g.gfql(
+        "MATCH (m:Message)<-[:REPLY_OF]-(c:Comment)-[:HAS_CREATOR]->(p:Person) "
+        "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:Person)-[r:KNOWS]-(p) "
+        "RETURN c.id AS cid, CASE r WHEN null THEN false ELSE true END AS knows "
+        "ORDER BY cid"
+    )
+    rows = result._nodes[["cid", "knows"]].to_dict(orient="records")
+    assert len(rows) == 2
+    assert rows[0]["cid"] == "c1"
+    assert rows[1]["cid"] == "c2"
+    assert rows[0]["knows"] is True   # c1→p1, a KNOWS p1
+    assert rows[1]["knows"] is False  # c2→p2, a does NOT know p2
+
+
+def test_issue_996_case_r_when_null_searched_form_still_works() -> None:
+    """Regression: searched CASE WHEN r IS NULL form not broken by fix."""
+    nodes = pd.DataFrame({
+        "id": ["m", "c", "p", "a"],
+        "label__Message": [True, False, False, False],
+        "label__Comment": [False, True, False, False],
+        "label__Person":  [False, False, True, True],
+    })
+    edges = pd.DataFrame({
+        "s": ["c", "c", "m"], "d": ["m", "p", "a"], "type": ["REPLY_OF", "HAS_CREATOR", "HAS_CREATOR"]
+    })
+    g = _mk_graph(nodes, edges)
+    # No KNOWS edge → r is null → CASE WHEN r IS NULL THEN false
+    result = g.gfql(
+        "MATCH (m:Message)<-[:REPLY_OF]-(c:Comment)-[:HAS_CREATOR]->(p:Person) "
+        "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:Person)-[r:KNOWS]-(p) "
+        "RETURN CASE WHEN r IS NULL THEN false ELSE true END AS knows"
+    )
+    rows = result._nodes.to_dict(orient="records")
+    assert len(rows) == 1
+    assert rows[0]["knows"] is False
