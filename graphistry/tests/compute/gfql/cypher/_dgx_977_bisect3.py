@@ -28,7 +28,7 @@ sys.stdout.write("g created\n"); sys.stdout.flush()
 # Actually let's add our own step-by-step tracing
 
 # Step 1: test that assign(col=int) on cudf works in the loop context
-df_test = nodes_cu.copy()[[" id"[:3]]]  # id column only
+df_test = nodes_cu.copy()[["id"]]  # id column only
 sys.stdout.write("df_test created\n"); sys.stdout.flush()
 
 # Simulate the inner loop new_node_ids.assign(**{node_hop_col: current_hop})
