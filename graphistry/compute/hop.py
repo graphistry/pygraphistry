@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, Union, cast
 import pandas as pd
 
 from graphistry.Engine import (
-    EngineAbstract, align_shared_column_dtypes, df_concat, df_cons, df_to_engine, resolve_engine, safe_row_concat, s_series, s_to_numeric, s_na, Engine
+    EngineAbstract, align_shared_column_dtypes, df_concat, df_cons, df_to_engine, resolve_engine, safe_map_series, safe_row_concat, s_series, s_to_numeric, s_na, Engine
 )
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
@@ -885,7 +885,7 @@ def hop(self: Plottable,
                 try:
                     final_nodes[node_hop_col] = _combine_first_no_warn(
                         final_nodes[node_hop_col],
-                        final_nodes[node_col].map(fallback_map)
+                        safe_map_series(final_nodes[node_col], fallback_map)
                     )
                 except Exception:
                     pass
@@ -935,7 +935,7 @@ def hop(self: Plottable,
         )
         if node_col in g_out._nodes.columns and node_hop_col in g_out._nodes.columns:
             try:
-                mapped = g_out._nodes[node_col].map(hop_map)
+                mapped = safe_map_series(g_out._nodes[node_col], hop_map)
                 g_out._nodes[node_hop_col] = g_out._nodes[node_hop_col].where(
                     g_out._nodes[node_hop_col].notna(),
                     mapped
@@ -963,15 +963,15 @@ def hop(self: Plottable,
                 else:
                     SeriesCls = s_series(engine_concrete)
                     edge_map = SeriesCls([], dtype='float64')
-                mapped_edge_hops = g_out._nodes[node_col].map(edge_map)
+                mapped_edge_hops = safe_map_series(g_out._nodes[node_col], edge_map)
                 if seeds_mask is not None:
                     mapped_edge_hops = mapped_edge_hops.mask(seeds_mask)
                 g_out._nodes[node_hop_col] = _combine_first_no_warn(
                     g_out._nodes[node_hop_col],
                     mapped_edge_hops
                 )
-            if missing_mask.any():
-                g_out._nodes.loc[missing_mask, node_hop_col] = g_out._nodes.loc[missing_mask, node_col].map(edge_map)
+            if missing_mask.any() and edge_hop_col is not None and g_out._edges is not None and edge_hop_col in g_out._edges.columns:
+                g_out._nodes.loc[missing_mask, node_hop_col] = safe_map_series(g_out._nodes.loc[missing_mask, node_col], edge_map)
             if seeds_mask is not None:
                 zero_seed_mask = seeds_mask & g_out._nodes[node_hop_col].fillna(-1).eq(0)
                 g_out._nodes.loc[zero_seed_mask, node_hop_col] = s_na(engine_concrete)

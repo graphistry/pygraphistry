@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
+import graphistry
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 from graphistry.compute.ast import ASTCall, ASTNode, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
@@ -12419,3 +12420,69 @@ def test_issue_983_zero_zero_hop_executes_returns_empty() -> None:
     """
     result = _mk_simple_path_graph().gfql("MATCH (a {id: 'a'})-[*0..0]->(b) RETURN b.id AS id")
     assert result._nodes.to_dict(orient="records") == []
+
+
+# ── Issue #977: cudf SIGSEGV — safe_map_series regression guards ──────────────
+
+
+def test_issue_977_cudf_label_filter_no_sigsegv() -> None:
+    """cudf: label filter must not SIGSEGV (safe_map_series / filter_by_dict)."""
+    cudf = pytest.importorskip("cudf")
+    from graphistry.Engine import EngineAbstract
+    nodes = cudf.DataFrame(pd.DataFrame({
+        "id": ["a", "b", "c"],
+        "label__Person": [True, True, False],
+    }))
+    edges = cudf.DataFrame(pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["T"]}))
+    g_cu = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    result = g_cu.gfql("MATCH (p:Person) RETURN p.id AS pid ORDER BY pid", engine=EngineAbstract.CUDF)
+    ids = sorted(result._nodes["pid"].to_pandas().tolist())
+    assert ids == ["a", "b"]
+
+
+def test_issue_977_cudf_single_hop_no_sigsegv() -> None:
+    """cudf: single hop traversal exercises df_executor safe_map_series."""
+    cudf = pytest.importorskip("cudf")
+    from graphistry.Engine import EngineAbstract
+    nodes = cudf.DataFrame(pd.DataFrame({"id": ["a", "b", "c"]}))
+    edges = cudf.DataFrame(pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "type": ["T", "T"]}))
+    g_cu = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    result = g_cu.gfql("MATCH (a)-[:T]->(b) RETURN a.id AS aid ORDER BY aid", engine=EngineAbstract.CUDF)
+    assert sorted(result._nodes["aid"].to_pandas().tolist()) == ["a", "b"]
+
+
+def test_issue_977_pandas_label_filter_regression() -> None:
+    """pandas: label filter still works after safe_map_series change (regression guard)."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c"], "label__Person": [True, True, False]})
+    edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["T"]})
+    g = _mk_graph(nodes, edges)
+    result = g.gfql("MATCH (p:Person) RETURN p.id AS pid ORDER BY pid")
+    ids = sorted(result._nodes["pid"].tolist())
+    assert ids == ["a", "b"]
+
+
+def test_order_by_multi_column_no_crash() -> None:
+    """ORDER BY with two columns must not crash and must sort correctly."""
+    nodes = pd.DataFrame({
+        "id": ["c", "a", "b", "a"],
+        "score": [3, 1, 2, 1],
+        "name": ["charlie", "alice", "bob", "anna"],
+    })
+    edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["T"]})
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (n) RETURN n.name AS name, n.score AS score ORDER BY score, name"
+    )
+
+    rows = result._nodes[["score", "name"]].to_dict(orient="records")
+    assert len(rows) > 0, "Expected non-empty result from ORDER BY multi-column query"
+
+    # Verify the result is sorted: primary key score asc, secondary key name asc
+    for i in range(len(rows) - 1):
+        s_cur, s_nxt = rows[i]["score"], rows[i + 1]["score"]
+        assert s_cur <= s_nxt, f"Rows not sorted by score: {rows}"
+        if s_cur == s_nxt:
+            assert rows[i]["name"] <= rows[i + 1]["name"], (
+                f"Rows with equal score not sorted by name: {rows}"
+            )
