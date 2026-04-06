@@ -524,9 +524,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - python-version: '3.11'
+          - python-version: '3.12'   # pandas 2.2.3 supports >=3.9; 3.12 is fast
             pandas-version: '2.2.3'
-          - python-version: '3.11'
+          - python-version: '3.14'   # pandas 3.0.0 requires >=3.11; 3.14 is fastest
             pandas-version: '3.0.0'
 
     steps:
@@ -562,12 +562,12 @@ jobs:
     - name: Pandas compatibility minimal suite
       run: |
         source pygraphistry/bin/activate
-        ./bin/test-minimal.sh
+        ./bin/test-minimal.sh -n auto
 
     - name: Pandas compatibility extra coverage
       run: |
         source pygraphistry/bin/activate
-        python -m pytest -vv \
+        python -m pytest -vv -n auto \
           graphistry/tests/test_bolt_util.py \
           graphistry/tests/test_nodexl.py
 
