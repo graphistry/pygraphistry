@@ -326,6 +326,15 @@ def _apply_connected_optional_match(
 
         if opt_rows_df is not None and len(opt_rows_df) > 0 and join_cols:
             opt_only_cols = [c for c in opt_rows_df.columns if c not in joined.columns or c in join_cols]
+            # Semi-join filter: restrict opt rows to join-key values present in base
+            # result before materialization. Prevents cross-product blowup when the
+            # OPTIONAL MATCH arm produces far more rows than the base MATCH. (#1052)
+            if len(join_cols) == 1:
+                jc = join_cols[0]
+                opt_rows_df = opt_rows_df[opt_rows_df[jc].isin(joined[jc])]
+            else:
+                join_keys = joined[join_cols].drop_duplicates()
+                opt_rows_df = opt_rows_df.merge(join_keys, on=join_cols, how="inner")
             joined = joined.merge(opt_rows_df[opt_only_cols], on=join_cols, how="left")
         else:
             for alias in arm.opt_only_aliases:
