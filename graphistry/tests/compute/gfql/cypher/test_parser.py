@@ -623,6 +623,20 @@ def test_parse_variable_length_relationship_patterns(
     assert rel.types == types
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (a)-[*-1]->(b) RETURN b",
+        "MATCH (a)-[*-5..10]->(b) RETURN b",
+        "MATCH (a)-[*1..-3]->(b) RETURN b",
+    ],
+)
+def test_parse_negative_hop_bound_raises_syntax_error(query: str) -> None:
+    """Negative hop bounds must raise GFQLSyntaxError specifically (#983)."""
+    with pytest.raises(GFQLSyntaxError):
+        _parse_query(query)
+
+
 def test_parse_bound_variable_length_relationship_pattern_alias() -> None:
     parsed = _parse_query("MATCH p = (a)-[:R*2]->(b) RETURN b")
 
