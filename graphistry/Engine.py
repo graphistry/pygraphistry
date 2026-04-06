@@ -389,26 +389,28 @@ def safe_map_series(series: DataframeLike, mapping: Union[dict, pd.Series, Dataf
     only the mapping (small) without the numba path.
     For pandas, use native .map().
     """
-    if series.__class__.__module__.startswith("cudf"):
+    from graphistry.utils.lazy_import import lazy_cudf_import
+    has_cudf, _, _ = lazy_cudf_import()
+    if has_cudf:
         import cudf
-        import pandas as _pd
-        if isinstance(mapping, dict):
-            lookup = cudf.DataFrame({"__key__": list(mapping.keys()), "__val__": list(mapping.values())})
-        elif isinstance(mapping, _pd.Series):
-            lookup = cudf.DataFrame({"__key__": mapping.index.tolist(), "__val__": mapping.values.tolist()})
-        elif mapping.__class__.__module__.startswith("cudf"):
-            # to_arrow() avoids the numba SIGSEGV path (to_pandas() → numba_cuda.as_cuda_array)
-            lookup = cudf.DataFrame({"__key__": mapping.index.to_arrow().to_pylist(), "__val__": mapping.to_arrow().to_pylist()})
-        else:
-            mapping_pd = mapping.to_pandas() if hasattr(mapping, "to_pandas") else mapping
-            result_pd = series.to_pandas().map(mapping_pd)
-            return cudf.Series(result_pd, index=series.index)
-        lookup = lookup.drop_duplicates(subset=["__key__"], keep="last")
-        # Left merge preserves left row order in cudf; no sort needed.
-        left = cudf.DataFrame({"__key__": series})
-        result = left.merge(lookup, on="__key__", how="left")["__val__"].reset_index(drop=True)
-        result.index = series.index
-        return result
+        if isinstance(series, cudf.Series):
+            if isinstance(mapping, dict):
+                lookup = cudf.DataFrame({"__key__": list(mapping.keys()), "__val__": list(mapping.values())})
+            elif isinstance(mapping, pd.Series):
+                lookup = cudf.DataFrame({"__key__": mapping.index.tolist(), "__val__": mapping.values.tolist()})
+            elif isinstance(mapping, cudf.Series):
+                # to_arrow() avoids the numba SIGSEGV path (to_pandas() → numba_cuda.as_cuda_array)
+                lookup = cudf.DataFrame({"__key__": mapping.index.to_arrow().to_pylist(), "__val__": mapping.to_arrow().to_pylist()})
+            else:
+                mapping_pd = mapping.to_pandas() if hasattr(mapping, "to_pandas") else mapping
+                result_pd = series.to_pandas().map(mapping_pd)
+                return cudf.Series(result_pd, index=series.index)
+            lookup = lookup.drop_duplicates(subset=["__key__"], keep="last")
+            # Left merge preserves left row order in cudf; no sort needed.
+            left = cudf.DataFrame({"__key__": series})
+            result = left.merge(lookup, on="__key__", how="left")["__val__"].reset_index(drop=True)
+            result.index = series.index
+            return result
     return series.map(mapping)
 
 
