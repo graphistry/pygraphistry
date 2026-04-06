@@ -526,6 +526,8 @@ jobs:
         include:
           - python-version: '3.12'   # pandas 2.2.3 supports >=3.9; 3.12 is fast
             pandas-version: '2.2.3'
+          - python-version: '3.13'   # rapids-aligned: RAPIDS 26.02 ships pandas 2.3.3 + py3.13
+            pandas-version: '2.3.3'
           - python-version: '3.14'   # pandas 3.0.0 requires >=3.11; 3.14 is fastest
             pandas-version: '3.0.0'
 
