@@ -163,7 +163,7 @@ jobs:
         retention-days: 1
 
   tck-gfql:
-    needs: [changes, generate-lockfiles]
+    needs: [changes, test-minimal-python, generate-lockfiles]
     if: ${{ (needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
