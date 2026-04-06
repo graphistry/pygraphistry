@@ -516,7 +516,7 @@ jobs:
 
 
   test-pandas-compat:
-    name: test-pandas-compat (${{ matrix.label }}, py${{ matrix.python-version }}, pandas${{ matrix.pandas-version }})
+    name: test-pandas-compat (${{ matrix.label }}, py${{ matrix.python-version }})
     needs: [changes, test-minimal-python, generate-lockfiles]
     # Run if Python files changed OR infrastructure changed OR manual/scheduled run
     if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
@@ -526,14 +526,11 @@ jobs:
     strategy:
       matrix:
         include:
-          - python-version: '3.9'    # oldest Python supporting pandas 2.2.3 (>=3.9)
-            pandas-version: '==2.2.3'
+          - python-version: '3.9'    # oldest Python supporting pandas 2.2.3 (>=3.9); lockfile: test-compat-legacy
             label: 'legacy'
-          - python-version: '3.13'   # RAPIDS 26.02 ships pandas 2.3.3 + py3.13
-            pandas-version: '==2.3.3'
+          - python-version: '3.13'   # RAPIDS 26.02: pandas 2.3.3 + py3.13; lockfile: test-compat-rapids-aligned
             label: 'rapids-aligned'
-          - python-version: '3.14'   # latest pandas 3.x (uv 6d cooldown)
-            pandas-version: '>=3,<4'
+          - python-version: '3.14'   # latest pandas 3.x; lockfile: test-compat-latest
             label: 'latest'
 
     steps:
@@ -562,9 +559,8 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
-        uv pip install --require-hashes -r requirements/test-compat-py${{ matrix.python-version }}.lock
+        uv pip install --require-hashes -r requirements/test-compat-${{ matrix.label }}-py${{ matrix.python-version }}.lock
         uv pip install -e . --no-deps
-        uv pip install "pandas${{ matrix.pandas-version }}"
 
     - name: Pandas compatibility minimal suite
       run: |
