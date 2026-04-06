@@ -665,7 +665,7 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
-        uv pip install --require-hashes -r requirements/test-umap-py${{ matrix.python-version }}.lock
+        uv pip install -r requirements/test-umap-py${{ matrix.python-version }}.lock
         python -m pip install --no-deps torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
         uv pip install -e . --no-deps
 
@@ -790,7 +790,7 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
-        uv pip install --require-hashes -r requirements/test-ai-py${{ matrix.python-version }}.lock
+        uv pip install -r requirements/test-ai-py${{ matrix.python-version }}.lock
         python -m pip install --no-deps torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
         uv pip install -e . --no-deps
         echo "skrub: `pip show skrub | grep Version`"
