@@ -33,7 +33,7 @@ PROFILE_DEFS=(
     "test-ai:test,testai,ai:3.10"
     "docs:docs:3.10"
     "build:build:3.8"
-    "tck::3.8"
+    "tck:test:3.8"
 )
 PROFILES=(${PROFILES:-$(printf '%s\n' "${PROFILE_DEFS[@]}" | cut -d: -f1)})
 
