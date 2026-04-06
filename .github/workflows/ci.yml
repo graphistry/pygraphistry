@@ -665,8 +665,8 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
-        python -m pip install torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
         uv pip install --require-hashes -r requirements/test-umap-py${{ matrix.python-version }}.lock
+        python -m pip install --no-deps torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
         uv pip install -e . --no-deps
 
     - name: Warm HF cache (sentence-transformers)
