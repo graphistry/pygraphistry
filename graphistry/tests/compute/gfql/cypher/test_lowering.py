@@ -345,8 +345,8 @@ def _mk_multi_stage_reentry_graph_with_terminal_u() -> _CypherTestGraph:
     )
 
 
-def _mk_prefix_scalar_reentry_graph() -> _CypherTestGraph:
-    return _mk_graph(
+def _mk_prefix_scalar_reentry_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return (
         pd.DataFrame(
             {
                 "id": ["tag1", "tag2", "post1", "post2", "post3"],
@@ -364,27 +364,14 @@ def _mk_prefix_scalar_reentry_graph() -> _CypherTestGraph:
             }
         ),
     )
+
+
+def _mk_prefix_scalar_reentry_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_prefix_scalar_reentry_data())
 
 
 def _mk_prefix_scalar_reentry_graph_cudf() -> _CypherTestGraph:
-    return _mk_cudf_graph(
-        pd.DataFrame(
-            {
-                "id": ["tag1", "tag2", "post1", "post2", "post3"],
-                "label__Tag": [True, True, False, False, False],
-                "label__Post": [False, False, True, True, True],
-                "name": ["topic", "other", None, None, None],
-                "tagId": [101, 202, None, None, None],
-            }
-        ),
-        pd.DataFrame(
-            {
-                "s": ["post1", "post2", "post3"],
-                "d": ["tag1", "tag1", "tag2"],
-                "type": ["HAS_TAG", "HAS_TAG", "HAS_TAG"],
-            }
-        ),
-    )
+    return _mk_cudf_graph(*_mk_prefix_scalar_reentry_data())
 
 
 def _mk_prefix_scalar_reentry_duplicate_seed_graph() -> _CypherTestGraph:
@@ -11906,9 +11893,9 @@ def test_issue_983_bounded_zero_min_max_zero_is_still_rejected() -> None:
 # ── Issue #1047: multi-row WITH prefix for scalar reentry ─────────────────────
 
 
-def _mk_multi_row_scalar_prefix_graph() -> _CypherTestGraph:
+def _mk_multi_row_scalar_prefix_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Two tags with distinct tagIds; posts connect to exactly one tag each."""
-    return _mk_graph(
+    return (
         pd.DataFrame(
             {
                 "id": ["tagA", "tagB", "post1", "post2", "post3"],
@@ -11926,27 +11913,14 @@ def _mk_multi_row_scalar_prefix_graph() -> _CypherTestGraph:
             }
         ),
     )
+
+
+def _mk_multi_row_scalar_prefix_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_multi_row_scalar_prefix_data())
 
 
 def _mk_multi_row_scalar_prefix_graph_cudf() -> _CypherTestGraph:
-    return _mk_cudf_graph(
-        pd.DataFrame(
-            {
-                "id": ["tagA", "tagB", "post1", "post2", "post3"],
-                "label__Tag": [True, True, False, False, False],
-                "label__Post": [False, False, True, True, True],
-                "name": ["topicA", "topicB", None, None, None],
-                "tagId": [1, 2, None, None, None],
-            }
-        ),
-        pd.DataFrame(
-            {
-                "s": ["post1", "post2", "post3"],
-                "d": ["tagA", "tagA", "tagB"],
-                "type": ["HAS_TAG", "HAS_TAG", "HAS_TAG"],
-            }
-        ),
-    )
+    return _mk_cudf_graph(*_mk_multi_row_scalar_prefix_data())
 
 
 def test_issue_1047_multi_row_scalar_prefix_both_tags_matched() -> None:
@@ -12088,3 +12062,132 @@ def test_issue_1047_multi_row_scalar_prefix_with_optional_reentry_raises() -> No
             "OPTIONAL MATCH (post:Post)-[:HAS_TAG]->(x:Tag {tagId: knownTagId}) "
             "RETURN post.id AS id"
         )
+
+
+# ── Round 2 amplification: #1047 bag semantics, boundaries, #983 bounds ───────
+
+
+def test_issue_1047_distinct_prefix_deduplicates_bag() -> None:
+    """WITH DISTINCT collapses the 2 duplicate-seed prefix rows to 1.
+
+    Both tag1 and tag1b carry tagId=101, but DISTINCT on the scalar
+    produces a single row.  The suffix runs once and finds {post1, post2}
+    — exactly 2 rows, not 4.
+    """
+    result = _mk_prefix_scalar_reentry_duplicate_seed_graph().gfql(
+        "MATCH (knownTag:Tag {name: 'topic'}) "
+        "WITH DISTINCT knownTag.tagId AS knownTagId "
+        "MATCH (post:Post)-[:HAS_TAG]->(t:Tag {tagId: knownTagId}) "
+        "RETURN post.id AS id ORDER BY id"
+    )
+    ids = [r["id"] for r in result._nodes.to_dict(orient="records")]
+    assert ids == ["post1", "post2"]
+
+
+def test_issue_1047_single_row_prefix_with_optional_match_still_works() -> None:
+    """Single-row scalar prefix + OPTIONAL MATCH must not be blocked by the multi-row guard.
+
+    The guard at line ~709 fires only when prefix_row_count > 1.  A single-row prefix
+    (topicA has exactly one matching Tag) must continue to work with OPTIONAL MATCH.
+    """
+    result = _mk_multi_row_scalar_prefix_graph().gfql(
+        "MATCH (t:Tag {name: 'topicA'}) "
+        "WITH t.tagId AS knownTagId "
+        "OPTIONAL MATCH (post:Post)-[:HAS_TAG]->(x:Tag {tagId: knownTagId}) "
+        "RETURN post.id AS id ORDER BY id"
+    )
+    ids = [r["id"] for r in result._nodes.to_dict(orient="records")]
+    assert ids == ["post1", "post2"]
+
+
+def test_issue_1047_optional_reentry_raises_is_gfql_validation_error() -> None:
+    """The optional_reentry + multi-row guard raises GFQLValidationError specifically."""
+    with pytest.raises(GFQLValidationError, match="optional"):
+        _mk_multi_row_scalar_prefix_graph().gfql(
+            "MATCH (t:Tag) "
+            "WITH t.tagId AS knownTagId "
+            "OPTIONAL MATCH (post:Post)-[:HAS_TAG]->(x:Tag {tagId: knownTagId}) "
+            "RETURN post.id AS id"
+        )
+
+
+def test_issue_1047_partial_hit_zero_contribution_has_no_null_rows() -> None:
+    """The empty-suffix iteration contributes 0 rows, not null/NaN rows.
+
+    When tagId=99 matches nothing, the fan-out loop appends an empty result.
+    The union must contain exactly the rows from the matching iteration,
+    with no null-padded entries from the non-matching one.
+    """
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["tagA", "tagC", "post1"],
+                "label__Tag": [True, True, False],
+                "label__Post": [False, False, True],
+                "tagId": [1, 99, None],
+            }
+        ),
+        pd.DataFrame({"s": ["post1"], "d": ["tagA"], "type": ["HAS_TAG"]}),
+    )
+    result = graph.gfql(
+        "MATCH (t:Tag) "
+        "WITH t.tagId AS knownTagId "
+        "MATCH (post:Post)-[:HAS_TAG]->(x:Tag {tagId: knownTagId}) "
+        "RETURN post.id AS id"
+    )
+    rows = result._nodes.to_dict(orient="records")
+    # Exactly 1 row; no NaN/None from the empty tagId=99 iteration
+    assert len(rows) == 1
+    assert rows[0]["id"] == "post1"
+    assert rows[0]["id"] is not None
+
+
+def test_issue_1047_empty_base_graph_with_multi_row_prefix() -> None:
+    """Multi-row prefix against an empty base graph returns empty, no crash."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": pd.Series(dtype="object"), "label__Tag": pd.Series(dtype="bool"), "tagId": pd.Series(dtype="object")}),
+        pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object"), "type": pd.Series(dtype="object")}),
+    )
+    result = graph.gfql(
+        "MATCH (t:Tag) "
+        "WITH t.tagId AS knownTagId "
+        "MATCH (post)-[:HAS_TAG]->(x {tagId: knownTagId}) "
+        "RETURN post.id AS id"
+    )
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_issue_983_zero_one_hop_includes_seed_and_neighbors() -> None:
+    """`*0..1` must include the seed itself (0-hop) and its direct neighbors (1-hop)."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"]}),
+        pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "type": ["R", "R"]}),
+    )
+    result = graph.gfql("MATCH (a {id: 'a'})-[*0..1]->(b) RETURN b.id AS id ORDER BY id")
+    ids = [r["id"] for r in result._nodes.to_dict(orient="records")]
+    # 0-hop: a; 1-hop: b (c is 2 hops away)
+    assert ids == ["a", "b"]
+
+
+def test_issue_983_large_upper_bound_stops_at_graph_depth() -> None:
+    """`*0..100` on a 3-node chain returns all reachable nodes, no crash at the bound."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"]}),
+        pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "type": ["R", "R"]}),
+    )
+    result = graph.gfql("MATCH (a {id: 'a'})-[*0..100]->(b) RETURN b.id AS id ORDER BY id")
+    ids = [r["id"] for r in result._nodes.to_dict(orient="records")]
+    # Reachable from a: a (0), b (1), c (2) — upper bound 100 is not an issue
+    assert ids == ["a", "b", "c"]
+
+
+def test_issue_983_zero_zero_hop_executes_returns_empty() -> None:
+    """`*0..0` (zero min, zero max) currently parses and returns empty.
+
+    min_hops=max_hops=0 is accepted by rel_range_bounded (the `*0` exact guard
+    is only on rel_range_exact).  The execution returns 0 rows — no traversal
+    is possible within a zero-hop window — rather than the seed node itself.
+    This documents the current boundary behavior for future reference.
+    """
+    result = _mk_simple_path_graph().gfql("MATCH (a {id: 'a'})-[*0..0]->(b) RETURN b.id AS id")
+    assert result._nodes.to_dict(orient="records") == []

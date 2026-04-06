@@ -632,8 +632,8 @@ def test_parse_variable_length_relationship_patterns(
     ],
 )
 def test_parse_negative_hop_bound_raises_syntax_error(query: str) -> None:
-    """Negative hop bounds must raise a syntax error (#983)."""
-    with pytest.raises(Exception):
+    """Negative hop bounds must raise GFQLSyntaxError specifically (#983)."""
+    with pytest.raises(GFQLSyntaxError):
         _parse_query(query)
 
 
