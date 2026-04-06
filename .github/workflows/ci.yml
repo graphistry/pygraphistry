@@ -634,6 +634,12 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
     - name: Set HF cache env
       run: |
         echo "HF_HOME=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
@@ -724,7 +730,7 @@ jobs:
         ./bin/test-umap-learn-core.sh
 
   test-full-ai:
-    needs: [ test-minimal-python ]
+    needs: [ test-minimal-python, generate-lockfiles ]
     # Inherit condition from test-minimal-python
     if: ${{ success() }}
     runs-on: ubuntu-latest
@@ -753,6 +759,12 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
     - name: Set HF cache env
       run: |
         echo "HF_HOME=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
@@ -779,7 +791,8 @@ jobs:
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
         python -m pip install torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
-        uv pip install -e .[test,testai,ai]
+        uv pip install --require-hashes -r requirements/test-ai-py${{ matrix.python-version }}.lock
+        uv pip install -e . --no-deps
         echo "skrub: `pip show skrub | grep Version`"
         echo "pandas: `pip show pandas | grep Version`"
         echo "numpy: `pip show numpy | grep Version`"
@@ -927,7 +940,7 @@ jobs:
 
 
   test-build:
-    needs: [ test-minimal-python ]
+    needs: [ test-minimal-python, generate-lockfiles ]
     # Inherit condition from test-minimal-python
     if: ${{ success() }}
     runs-on: ubuntu-latest
@@ -941,6 +954,12 @@ jobs:
     - name: Checkout LFS objects
       run: git lfs pull
 
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
     - name: Set up Python 3.8
       uses: actions/setup-python@v4
       with:
@@ -949,7 +968,8 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip uv
-        UV_SYSTEM_PYTHON=1 uv pip install -e .[build]
+        UV_SYSTEM_PYTHON=1 uv pip install --require-hashes -r requirements/build-py3.8.lock
+        UV_SYSTEM_PYTHON=1 uv pip install -e . --no-deps
 
     - name: Test building
       run: |
