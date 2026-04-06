@@ -22,18 +22,19 @@ mkdir -p "$OUTPUT_DIR"
 ALL_VERSIONS=(3.8 3.9 3.10 3.11 3.12 3.13 3.14)
 VERSIONS=(${VERSIONS:-${ALL_VERSIONS[@]}})
 
-# Profiles and their extras. Format: "name:extras:min_python"
+# Profiles and their extras. Format: "name:extras:min_python:extra_flags"
 # min_python is the lowest Python version that supports the profile's deps.
+# extra_flags are additional uv pip compile flags (e.g., --no-emit-package torch).
 PROFILE_DEFS=(
-    "test:test:3.8"
-    "test-core:test,build,bolt,igraph,networkx,gremlin,nodexl,jupyter:3.8"
-    "test-compat:test,bolt,nodexl:3.8"
-    "test-graphviz:test,pygraphviz:3.8"
-    "test-umap:test,testai,umap-learn:3.9"
-    "test-ai:test,testai,ai:3.9"
-    "docs:docs:3.10"
-    "build:build:3.8"
-    "tck:test:3.8"
+    "test:test:3.8:"
+    "test-core:test,build,bolt,igraph,networkx,gremlin,nodexl,jupyter:3.8:"
+    "test-compat:test,bolt,nodexl:3.8:"
+    "test-graphviz:test,pygraphviz:3.8:"
+    "test-umap:test,testai,umap-learn:3.9:--no-emit-package torch"
+    "test-ai:test,testai,ai:3.9:--no-emit-package torch"
+    "docs:docs:3.10:"
+    "build:build:3.8:"
+    "tck:test:3.8:"
 )
 PROFILES=(${PROFILES:-$(printf '%s\n' "${PROFILE_DEFS[@]}" | cut -d: -f1)})
 
@@ -56,7 +57,7 @@ echo "Profiles: ${PROFILES[*]}"
 echo "=== Generating lockfiles ==="
 
 for profile_def in "${PROFILE_DEFS[@]}"; do
-    IFS=: read -r name extras min_python <<< "$profile_def"
+    IFS=: read -r name extras min_python extra_flags <<< "$profile_def"
 
     # Skip if not in requested profiles
     if ! printf '%s\n' "${PROFILES[@]}" | grep -qx "$name"; then
@@ -81,6 +82,7 @@ for profile_def in "${PROFILE_DEFS[@]}"; do
                 --python-version "$ver" \
                 --generate-hashes \
                 $EXCLUDE_ARG \
+                $extra_flags \
                 -o "${OUTPUT_DIR}/${name}-py${ver}.lock"
         else
             echo "--- SKIP ${name}-py${ver} (requires >=${min_python}) ---"
