@@ -507,7 +507,7 @@ jobs:
 
 
   test-core-python:
-    needs: [ test-minimal-python, generate-lockfiles ]
+    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
     # Inherit condition from test-minimal-python
     if: ${{ success() }}
     runs-on: ubuntu-latest
@@ -552,7 +552,7 @@ jobs:
         ./bin/test.sh
 
   test-graphviz:
-    needs: [ test-minimal-python, generate-lockfiles ]
+    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
     # Inherit condition from test-minimal-python
     if: ${{ success() }}
     runs-on: ubuntu-latest
@@ -620,7 +620,7 @@ jobs:
         ./bin/test-graphviz.sh
 
   test-core-umap:
-    needs: [ test-minimal-python, generate-lockfiles ]
+    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
     # Inherit condition from test-minimal-python
     if: ${{ success() }}
     runs-on: ubuntu-latest
@@ -741,7 +741,7 @@ jobs:
         ./bin/test-umap-learn-core.sh
 
   test-full-ai:
-    needs: [ test-minimal-python, generate-lockfiles ]
+    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
     # Inherit condition from test-minimal-python
     if: ${{ success() }}
     runs-on: ubuntu-latest
@@ -881,7 +881,7 @@ jobs:
         ./bin/test-umap-learn-core.sh
 
   test-dgl-cpu:
-    needs: [changes, test-minimal-python]
+    needs: [changes, test-minimal-python, test-gfql-core]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -929,7 +929,7 @@ jobs:
 
 
   test-neo4j:
-    needs: [ test-minimal-python ]
+    needs: [ test-minimal-python, test-gfql-core ]
     # Inherit condition from test-minimal-python
     if: ${{ success() }}
     runs-on: ubuntu-latest
@@ -952,7 +952,7 @@ jobs:
 
 
   test-build:
-    needs: [ test-minimal-python, generate-lockfiles ]
+    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
     # Inherit condition from test-minimal-python
     if: ${{ success() }}
     runs-on: ubuntu-latest
