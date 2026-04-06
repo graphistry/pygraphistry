@@ -889,7 +889,7 @@ jobs:
       PIP_PREFER_BINARY: "1"
       DGLBACKEND: pytorch
       # Supply-chain: reject packages published within the last 6 days (pip ≥26 uses --uploaded-prior-to)
-      PIP_EXCLUDE_NEWER: ${{ env.UV_EXCLUDE_NEWER }}
+      PIP_EXCLUDE_NEWER: "6 days"
     steps:
     - uses: actions/checkout@v3
       with:
