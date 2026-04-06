@@ -970,7 +970,7 @@ def hop(self: Plottable,
                     g_out._nodes[node_hop_col],
                     mapped_edge_hops
                 )
-            if missing_mask.any():
+            if missing_mask.any() and edge_hop_col is not None and g_out._edges is not None and edge_hop_col in g_out._edges.columns:
                 g_out._nodes.loc[missing_mask, node_hop_col] = safe_map_series(g_out._nodes.loc[missing_mask, node_col], edge_map)
             if seeds_mask is not None:
                 zero_seed_mask = seeds_mask & g_out._nodes[node_hop_col].fillna(-1).eq(0)
