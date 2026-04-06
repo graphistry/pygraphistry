@@ -143,3 +143,17 @@ def test_safe_map_series_cudf_empty_mapping() -> None:
     vals = result.to_pandas()
     assert len(vals) == 3
     assert vals.isna().all()
+
+
+def test_safe_map_series_cudf_pd_series_mapping() -> None:
+    """cudf Series mapped through a pandas Series (set_index pattern from hop.py).
+
+    Exercises Engine.py:399-400 — the branch triggered when a cudf source series
+    is mapped through a pandas Series (e.g. hop_map = df.set_index(node_col)[hop_col]).
+    """
+    cudf = pytest.importorskip("cudf")
+    s = cudf.Series(["x", "z", "y", "x"])
+    mapping = pd.Series([0, 1, 2], index=["x", "y", "z"])  # pandas, non-default index
+    result = safe_map_series(s, mapping)
+    vals = result.to_pandas()
+    assert vals.tolist() == [0, 2, 1, 0]

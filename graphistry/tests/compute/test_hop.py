@@ -1014,13 +1014,18 @@ def test_hop_custom_edge_binding_preserved():
     assert 'edge_id' in g_result._edges.columns
 
 
-def test_hop_labels_reverse():
-    # Edges a->b->c; start from c in reverse, should reach b and a
-    g = (
+def _mk_abc_chain():
+    """3-node forward chain: a->b->c."""
+    return (
         CGFull()
         .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
         .nodes(pd.DataFrame({'v': ['a', 'b', 'c']}), 'v')
     )
+
+
+def test_hop_labels_reverse():
+    # Edges a->b->c; start from c in reverse, should reach b and a
+    g = _mk_abc_chain()
     n_c = g._nodes.query('v == "c"')
     g2 = g.hop(
         nodes=n_c,
@@ -1037,11 +1042,7 @@ def test_hop_labels_reverse():
 
 def test_hop_labels_undirected():
     # Chain a->b->c; start from b (middle), undirected should reach a and c
-    g = (
-        CGFull()
-        .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
-        .nodes(pd.DataFrame({'v': ['a', 'b', 'c']}), 'v')
-    )
+    g = _mk_abc_chain()
     n_b = g._nodes.query('v == "b"')
     g2 = g.hop(
         nodes=n_b,
@@ -1060,11 +1061,7 @@ def test_hop_labels_undirected():
 
 def test_hop_labels_node_only():
     # label_node_hops only — no label_edge_hops; edge hop column must be absent
-    g = (
-        CGFull()
-        .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
-        .nodes(pd.DataFrame({'v': ['a', 'b', 'c']}), 'v')
-    )
+    g = _mk_abc_chain()
     n_a = g._nodes.query('v == "a"')
     g2 = g.hop(nodes=n_a, hops=2, direction='forward', label_node_hops='nh')
     assert 'nh' in g2._nodes.columns
@@ -1073,11 +1070,7 @@ def test_hop_labels_node_only():
 
 def test_hop_labels_edge_only():
     # label_edge_hops only — no label_node_hops; node hop column must be absent
-    g = (
-        CGFull()
-        .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
-        .nodes(pd.DataFrame({'v': ['a', 'b', 'c']}), 'v')
-    )
+    g = _mk_abc_chain()
     n_a = g._nodes.query('v == "a"')
     g2 = g.hop(nodes=n_a, hops=2, direction='forward', label_edge_hops='eh')
     assert 'eh' in g2._edges.columns
@@ -1122,3 +1115,50 @@ def test_hop_labels_multi_hop_ordering():
         for row in g2._edges[['s', 'd', 'eh']].to_dict(orient='records')
     }
     assert edge_hops == {('a', 'b'): 1, ('b', 'c'): 2, ('c', 'd'): 3}
+
+
+def test_hop_labels_empty_result_with_edge_hops():
+    """Hop with label_edge_hops into an empty result must not crash.
+
+    Exercises hop.py:961-965 else branch: when g_out._edges is empty,
+    edge_map_df has 0 rows and edge_map is created as an empty Series.
+    """
+    g = (
+        CGFull()
+        .edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
+        .nodes(pd.DataFrame({'v': ['a', 'b']}), 'v')
+    )
+    n_b = g._nodes.query('v == "b"')
+    # 'b' has no outgoing forward edges — result is empty
+    g2 = g.hop(nodes=n_b, hops=1, direction='forward', label_node_hops='nh', label_edge_hops='eh')
+    assert len(g2._edges) == 0
+    # must not crash; columns may or may not be present on empty result
+    if len(g2._nodes) > 0:
+        assert g2._nodes['nh'].isna().sum() == 0
+
+
+def test_hop_labels_node_only_missing_mask_guard():
+    """label_node_hops without label_edge_hops must not crash when missing_mask fires.
+
+    Guard at hop.py:973 prevents using undefined edge_map when edge_hop_col is None.
+    The guard triggers (missing_mask.any() == True) when endpoint nodes pulled in at
+    hop.py:910-928 have no hop record — they get NaN for node_hop_col.
+
+    Graph: a->b (hop 1), b also has a back-edge b->a not in the hop direction.
+    We seed from 'a' forward 1 hop; 'a' is an endpoint of edges in g_out._edges
+    but with label_seeds=False it won't be in node_hop_records — so missing_mask fires.
+    """
+    g = (
+        CGFull()
+        .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'a']}), 's', 'd')
+        .nodes(pd.DataFrame({'v': ['a', 'b']}), 'v')
+    )
+    n_a = g._nodes.query('v == "a"')
+    # label_node_hops only, no label_edge_hops, label_seeds=False
+    # 'a' is an endpoint in edges but not labeled as seed — triggers missing_mask path
+    g2 = g.hop(nodes=n_a, hops=1, direction='forward', label_node_hops='nh', label_seeds=False)
+    assert 'nh' in g2._nodes.columns
+    assert 'eh' not in g2._edges.columns
+    # 'b' must have hop=1; no crash from undefined edge_map
+    node_hops = dict(zip(g2._nodes['v'].tolist(), g2._nodes['nh'].tolist()))
+    assert node_hops.get('b') == 1
