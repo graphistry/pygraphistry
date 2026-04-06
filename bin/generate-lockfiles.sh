@@ -29,9 +29,9 @@ PROFILE_DEFS=(
     "test:test:3.8::"
     "test-core:test,build,bolt,igraph,networkx,gremlin,nodexl,jupyter:3.8::"
     "test-compat:test,bolt,nodexl:3.8::"
-    "test-compat-legacy:test,bolt,nodexl:3.9:3.9:--override pandas==2.2.3"
-    "test-compat-rapids-aligned:test,bolt,nodexl:3.13:3.13:--override pandas==2.3.3"
-    "test-compat-latest:test,bolt,nodexl:3.14:3.14:--override pandas>=3.0.0"
+    "test-compat-legacy:test,bolt,nodexl:3.9:3.9:--constraint /tmp/pandas-legacy.txt"
+    "test-compat-rapids-aligned:test,bolt,nodexl:3.13:3.13:--constraint /tmp/pandas-rapids-aligned.txt"
+    "test-compat-latest:test,bolt,nodexl:3.14:3.14:--constraint /tmp/pandas-latest.txt"
     "test-graphviz:test,pygraphviz:3.8::"
     "test-umap:test,testai,umap-learn:3.9::--no-emit-package torch"
     "test-ai:test,testai,ai:3.9::--no-emit-package torch"
@@ -54,6 +54,11 @@ else
     EXCLUDE_ARG=""
     echo "Cooldown: DISABLED"
 fi
+
+# Write inline pandas constraint files for compat profiles
+echo "pandas==2.2.3" > /tmp/pandas-legacy.txt
+echo "pandas==2.3.3" > /tmp/pandas-rapids-aligned.txt
+echo "pandas>=3.0.0" > /tmp/pandas-latest.txt
 
 echo "Versions: ${VERSIONS[*]}"
 echo "Profiles: ${PROFILES[*]}"
