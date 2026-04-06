@@ -5,6 +5,9 @@ FROM ${RAPIDS_IMAGE}
 ARG PIP_PRE_DEPS=""
 ARG PIP_DEPS="-e .[test]"
 ARG SENTENCE_TRANSFORMER=""
+# Supply-chain: reject packages published in the last N days (pip ≥26: --uploaded-prior-to)
+ARG PIP_EXCLUDE_NEWER=6d
+ENV PIP_EXCLUDE_NEWER=${PIP_EXCLUDE_NEWER}
 
 SHELL ["/bin/bash", "-lc"]
 USER root

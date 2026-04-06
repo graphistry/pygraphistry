@@ -4,6 +4,9 @@ ARG PYTHON_VERSION=3.12
 FROM python:${PYTHON_VERSION}-slim
 ARG PIP_DEPS="-e .[dev]"
 ARG APTGET_INSTALL=""
+# Supply-chain: reject packages published in the last N days (pip ≥26: --uploaded-prior-to)
+ARG PIP_EXCLUDE_NEWER=6d
+ENV PIP_EXCLUDE_NEWER=${PIP_EXCLUDE_NEWER}
 SHELL ["/bin/bash", "-c"]
 
 RUN --mount=type=cache,target=/var/cache/apt --mount=type=cache,target=/var/lib/apt \

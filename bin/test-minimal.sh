@@ -21,3 +21,4 @@ python -B -m pytest -vv \
     --ignore=graphistry/tests/test_embed_utils.py \
     --ignore=graphistry/tests/test_kusto.py \
     --ignore=graphistry/tests/test_spanner.py \
+    "$@"
