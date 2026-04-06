@@ -383,21 +383,43 @@ def s_na(engine: Engine):
 def safe_map_series(series: Any, mapping: Any) -> Any:
     """Map a Series through a dict-like mapping, safe for cudf.
 
-    cudf Series.map(dict/Series) triggers numba JIT which SIGSEGVs on RAPIDS 25.02.
-    Bridge through pandas for cudf; use native .map() for pandas.
+    cudf Series.map(dict/Series) and Series.to_pandas() both trigger numba JIT
+    (via numba_cuda.as_cuda_array) which SIGSEGVs on RAPIDS 25.02.
+    For cudf, use a merge-based lookup that stays entirely on GPU.
+    For pandas, use native .map().
     """
     is_cudf_series = (
         hasattr(series, "to_pandas")
         and series.__class__.__module__.startswith("cudf")
     )
     if is_cudf_series:
-        mapping_pd = mapping.to_pandas() if hasattr(mapping, "to_pandas") else mapping
-        result_pd = series.to_pandas().map(mapping_pd)
-        try:
-            import cudf
+        import cudf
+        import pandas as _pd
+        # Build a cudf lookup DataFrame from the mapping without going through pandas.
+        if isinstance(mapping, dict):
+            keys = list(mapping.keys())
+            vals = list(mapping.values())
+            lookup = cudf.DataFrame({"__key__": keys, "__val__": vals})
+        elif isinstance(mapping, _pd.Series):
+            # pandas Series with index: convert via Python lists to avoid numba path
+            lookup = cudf.DataFrame({"__key__": mapping.index.tolist(), "__val__": mapping.values.tolist()})
+        elif hasattr(mapping, "__class__") and mapping.__class__.__module__.startswith("cudf"):
+            # cudf Series with index: use to_arrow() to avoid numba path that SIGSEGVs on 25.02
+            idx = mapping.index
+            idx_list = idx.to_arrow().to_pylist()
+            val_list = mapping.to_arrow().to_pylist()
+            lookup = cudf.DataFrame({"__key__": idx_list, "__val__": val_list})
+        else:
+            # Unknown mapping type — fall back to pandas bridge
+            mapping_pd = mapping.to_pandas() if hasattr(mapping, "to_pandas") else mapping
+            result_pd = series.to_pandas().map(mapping_pd)
             return cudf.Series(result_pd, index=series.index)
-        except Exception:
-            return result_pd
+        # Merge-based lookup: left join on key preserves order and produces NaN for misses.
+        left = cudf.DataFrame({"__key__": series, "__orig_idx__": cudf.Series(range(len(series)), dtype="int64")})
+        merged = left.merge(lookup, on="__key__", how="left").sort_values("__orig_idx__")
+        result = merged["__val__"].reset_index(drop=True)
+        result.index = series.index
+        return result
     return series.map(mapping)
 
 
