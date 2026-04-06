@@ -905,11 +905,11 @@ def _union_scalar_reentry_results(
     engine: Union[EngineAbstract, str],
 ) -> Plottable:
     """Union per-row suffix results from a multi-row scalar prefix (#1047)."""
-    node_frames = [
-        getattr(r, "_nodes", None)
-        for r in row_results
-        if getattr(r, "_nodes", None) is not None and len(getattr(r, "_nodes", None)) > 0
-    ]
+    node_frames = []
+    for r in row_results:
+        nodes = getattr(r, "_nodes", None)
+        if nodes is not None and len(cast(Any, nodes)) > 0:
+            node_frames.append(nodes)
     result = base_graph.bind()
     if node_frames:
         concrete_engine = resolve_engine(cast(Any, engine), node_frames[0])
