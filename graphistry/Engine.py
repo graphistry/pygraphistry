@@ -380,7 +380,7 @@ def s_na(engine: Engine):
     raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 
-def safe_map_series(series: Any, mapping: Any) -> Any:
+def safe_map_series(series: DataframeLike, mapping: Union[dict, pd.Series, DataframeLike]) -> DataframeLike:
     """Map a Series through a dict-like mapping, safe for cudf.
 
     cudf Series.map(dict/Series) and Series.to_pandas() both trigger numba JIT
