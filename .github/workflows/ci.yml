@@ -208,17 +208,29 @@ jobs:
           tck_ref="${candidate_ref}"
         fi
 
+        tck_sha=$(git ls-remote --exit-code --heads "${tck_repo}" "${tck_ref}" | awk '{print $1}')
+        if [[ -z "${tck_sha}" ]]; then
+          echo "Failed to resolve sha for tck-gfql ref: ${tck_ref}" >&2
+          exit 1
+        fi
+
         echo "repo=${tck_repo}" >> "$GITHUB_OUTPUT"
         echo "ref=${tck_ref}" >> "$GITHUB_OUTPUT"
+        echo "sha=${tck_sha}" >> "$GITHUB_OUTPUT"
         echo "Using tck-gfql ref: ${tck_ref}"
+        echo "Using tck-gfql sha: ${tck_sha}"
 
     - name: Run tck-gfql
       run: |
         source pygraphistry/bin/activate
-        git clone --depth 1 --branch "${{ steps.tck_gfql.outputs.ref }}" "${{ steps.tck_gfql.outputs.repo }}" tck-gfql
+        git init tck-gfql
         cd tck-gfql
+        git remote add origin "${{ steps.tck_gfql.outputs.repo }}"
+        git fetch --depth 1 origin "${{ steps.tck_gfql.outputs.sha }}"
+        git checkout --detach FETCH_HEAD
         echo "### tck-gfql conformance report" >> "$GITHUB_STEP_SUMMARY"
         echo "- tck-gfql ref: \`${{ steps.tck_gfql.outputs.ref }}\`" >> "$GITHUB_STEP_SUMMARY"
+        echo "- tck-gfql sha: \`${{ steps.tck_gfql.outputs.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
         PYGRAPHISTRY_PATH="${{ github.workspace }}" PYGRAPHISTRY_INSTALL=1 ./bin/ci.sh
 
   gfql-benchmarks:
