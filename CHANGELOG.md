@@ -9,6 +9,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Fixed
+- **GFQL / Cypher**: `OPTIONAL MATCH` execution no longer materializes the full opt-arm result before joining. A semi-join filter now restricts the optional arm to join-key values present in the base MATCH result before the left-outer-join. On real benchmark graphs (LDBC SNB sf1 IS7) this eliminates the intermediate cross-product that previously caused ~120 GB RSS and a SIGKILL (#1052).
 - **GFQL / Cypher**: Bounded zero-min variable-length relationship patterns (`*0..N`, e.g. `[:HAS_TYPE|IS_SUBCLASS_OF*0..3]`) are now supported. Previously `*0..N` raised an "unsupported" error at parse time while the open form `*0..` already worked. Fixes LDBC SNB IC12 and any query using bounded zero-min ranges (#983).
 - **GFQL / Cypher**: `CASE x WHEN null THEN ... ELSE ... END` now correctly matches when `x` is null. Previously `__cypher_case_eq__` used `pd.Series == None` which always evaluates to `False` in pandas; the fix returns the null-mask of the non-null operand when the other is a scalar null literal. This was the root blocker for IS7-style `CASE r WHEN null THEN false ELSE true END` over edge aliases from an OPTIONAL MATCH arm (#996).
 

@@ -11844,6 +11844,48 @@ def test_issue_996_case_r_when_null_searched_form_still_works() -> None:
     assert rows[0]["knows"] is False
 
 
+# ── Issue #1052: OPTIONAL MATCH semi-join — opt arm must be pre-filtered ──────
+
+
+def test_issue_1052_optional_match_semijoin_filters_opt_arm() -> None:
+    """OPTIONAL MATCH opt arm must only join rows whose keys appear in base result.
+
+    Graph has 1 relevant message (m1) and 1 irrelevant message (m2).
+    Base MATCH is parameterised to m1 only.
+    The OPTIONAL MATCH arm has KNOWS edges from both m1 and m2 paths.
+    Without semi-join: opt arm materialises all KNOWS rows, including m2 ones.
+    With semi-join: opt arm is pre-filtered to m1 join keys → correct result,
+    and intermediate frame is bounded to base result size.
+    """
+    # m1 <-[REPLY_OF]- c1 -[HAS_CREATOR]-> p1
+    # m1 -[HAS_CREATOR]-> a1 -[KNOWS]-> p1   (knows=True for c1)
+    # m2 <-[REPLY_OF]- c2 -[HAS_CREATOR]-> p2
+    # m2 -[HAS_CREATOR]-> a2 -[KNOWS]-> p2   (m2 is out-of-scope, must not bleed in)
+    nodes = pd.DataFrame({
+        "id": ["m1", "m2", "c1", "c2", "p1", "p2", "a1", "a2"],
+        "label__Message": [True, True, False, False, False, False, False, False],
+        "label__Comment": [False, False, True, True, False, False, False, False],
+        "label__Person":  [False, False, False, False, True, True, True, True],
+    })
+    edges = pd.DataFrame({
+        "s":    ["c1",       "c1",            "c2",       "c2",            "m1",            "a1",    "m2",            "a2"],
+        "d":    ["m1",       "p1",            "m2",       "p2",            "a1",            "p1",    "a2",            "p2"],
+        "type": ["REPLY_OF", "HAS_CREATOR",   "REPLY_OF", "HAS_CREATOR",   "HAS_CREATOR",   "KNOWS", "HAS_CREATOR",   "KNOWS"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (m:Message {id: $mid})<-[:REPLY_OF]-(c:Comment)-[:HAS_CREATOR]->(p:Person) "
+        "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:Person)-[r:KNOWS]-(p) "
+        "RETURN c.id AS cid, CASE r WHEN null THEN false ELSE true END AS knows "
+        "ORDER BY cid",
+        params={"mid": "m1"},
+    )
+    rows = result._nodes[["cid", "knows"]].to_dict(orient="records")
+    # Only c1 is in scope (m1 only); c1's author p1 is known by a1 → knows=True
+    assert rows == [{"cid": "c1", "knows": True}]
+
+
 # ── Issue #983: bounded zero-min variable-length relationships (*0..N) ────────
 
 
