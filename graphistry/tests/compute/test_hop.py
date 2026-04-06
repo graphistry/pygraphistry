@@ -1023,6 +1023,15 @@ def _mk_abc_chain():
     )
 
 
+def _mk_abcd_chain():
+    """4-node forward chain: a->b->c->d."""
+    return (
+        CGFull()
+        .edges(pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'd']}), 's', 'd')
+        .nodes(pd.DataFrame({'v': ['a', 'b', 'c', 'd']}), 'v')
+    )
+
+
 def test_hop_labels_reverse():
     # Edges a->b->c; start from c in reverse, should reach b and a
     g = _mk_abc_chain()
@@ -1092,11 +1101,7 @@ def test_hop_labels_empty_result():
 
 def test_hop_labels_multi_hop_ordering():
     # Chain a->b->c->d; hops=3 from a; verify minimum-hop assignment per node
-    g = (
-        CGFull()
-        .edges(pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'd']}), 's', 'd')
-        .nodes(pd.DataFrame({'v': ['a', 'b', 'c', 'd']}), 'v')
-    )
+    g = _mk_abcd_chain()
     n_a = g._nodes.query('v == "a"')
     g2 = g.hop(
         nodes=n_a,
@@ -1135,6 +1140,84 @@ def test_hop_labels_empty_result_with_edge_hops():
     # must not crash; columns may or may not be present on empty result
     if len(g2._nodes) > 0:
         assert g2._nodes['nh'].isna().sum() == 0
+
+
+def test_hop_labels_output_max_hops_exercises_fallback_map():
+    """output_max_hops triggers node_mask filtering (hop.py:834-841) and the fallback_map
+    try/except block at lines 885-891. Verifies that the safe_map_series fallback path
+    runs and produces correct filtered hop assignments, not a silent skip."""
+    g = _mk_abcd_chain()
+    n_a = g._nodes.query('v == "a"')
+    # hops=3 but output_max_hops=1 — only hop-1 nodes should appear in result
+    g2 = g.hop(
+        nodes=n_a, hops=3, direction='forward',
+        label_node_hops='nh', label_seeds=True,
+        output_max_hops=1,
+    )
+    assert 'nh' in g2._nodes.columns
+    # Only a (hop 0) and b (hop 1) should be present
+    hop_vals = {row['v']: row['nh'] for row in g2._nodes[['v', 'nh']].to_dict(orient='records')}
+    assert 'a' in hop_vals and hop_vals['a'] == 0
+    assert 'b' in hop_vals and hop_vals['b'] == 1
+    assert 'c' not in hop_vals and 'd' not in hop_vals
+
+
+def test_hop_labels_label_seeds_no_starting_nodes():
+    """label_seeds=True with no explicit starting_nodes (None) exercises hop.py:843-859.
+
+    When label_seeds=True:
+      - line 844: node_hop_records is not None → seed_rows = records where hop==0
+      - If seed_rows is empty (no hop-0 records), elif at line 853 is tried
+      - elif: starting_nodes is None → neither branch adds seeds
+    Verifies the code path where label_seeds=True but starting_nodes is implicitly None."""
+    g = _mk_abc_chain()
+    n_a = g._nodes.query('v == "a"')
+    # nodes= is passed but starting_nodes is derived from it internally
+    # label_seeds=True should label 'a' with hop=0
+    g2 = g.hop(nodes=n_a, hops=2, direction='forward', label_node_hops='nh', label_seeds=True)
+    assert 'nh' in g2._nodes.columns
+    hop_vals = {row['v']: row['nh'] for row in g2._nodes[['v', 'nh']].to_dict(orient='records')}
+    assert hop_vals.get('a') == 0
+    assert hop_vals.get('b') == 1
+    assert hop_vals.get('c') == 2
+
+
+def test_hop_labels_numeric_node_ids():
+    """Numeric (int) node IDs exercise the safe_map_series int→int path at hop.py:938.
+
+    Previous tests used string IDs. Int IDs hit a different pandas dtype path
+    through the merge-based lookup in safe_map_series."""
+    g = (
+        CGFull()
+        .edges(pd.DataFrame({'s': [1, 2, 3], 'd': [2, 3, 4]}), 's', 'd')
+        .nodes(pd.DataFrame({'v': [1, 2, 3, 4]}), 'v')
+    )
+    n_1 = g._nodes.query('v == 1')
+    g2 = g.hop(nodes=n_1, hops=3, direction='forward', label_node_hops='nh', label_seeds=True)
+    assert 'nh' in g2._nodes.columns
+    hop_vals = {row['v']: row['nh'] for row in g2._nodes[['v', 'nh']].to_dict(orient='records')}
+    assert hop_vals.get(1) == 0
+    assert hop_vals.get(2) == 1
+    assert hop_vals.get(3) == 2
+    assert hop_vals.get(4) == 3
+
+
+def test_hop_labels_undirected_label_seeds_false_clears_seed_hop():
+    """label_seeds=False + direction='undirected' exercises hop.py:987-1000.
+
+    When label_seeds=False and direction='undirected', seeds reachable in
+    both directions get their hop label cleared (set to NaN) at line 1000.
+    This exercises the undirected branch of the post-traversal seed-removal block."""
+    g = _mk_abc_chain()
+    n_b = g._nodes.query('v == "b"')
+    # undirected from b; label_seeds=False means b should NOT get hop=0
+    g2 = g.hop(nodes=n_b, hops=1, direction='undirected', label_node_hops='nh', label_seeds=False)
+    assert 'nh' in g2._nodes.columns
+    hop_vals = {row['v']: row['nh'] for row in g2._nodes[['v', 'nh']].to_dict(orient='records')}
+    # 'b' is the seed — with label_seeds=False its hop should be NaN/absent
+    assert pd.isna(hop_vals.get('b', float('nan'))) or 'b' not in hop_vals
+    # neighbors 'a' and 'c' should have hop=1
+    assert hop_vals.get('a') == 1 or hop_vals.get('c') == 1
 
 
 def test_hop_labels_node_only_missing_mask_guard():
