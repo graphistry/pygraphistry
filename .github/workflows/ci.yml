@@ -19,6 +19,7 @@ env:
   # 6-day dependency cooldown: refuse packages uploaded less than 6 days ago
   # to mitigate supply chain attacks. Belt-and-suspenders with lockfile --exclude-newer.
   UV_EXCLUDE_NEWER: "6 days"
+  PIP_EXCLUDE_NEWER: "6 days"  # pip >=26 honours this via --uploaded-prior-to
 
 jobs:
 
