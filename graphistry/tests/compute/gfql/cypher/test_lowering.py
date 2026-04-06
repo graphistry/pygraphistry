@@ -11886,6 +11886,192 @@ def test_issue_1052_optional_match_semijoin_filters_opt_arm() -> None:
     assert rows == [{"cid": "c1", "knows": True}]
 
 
+def test_issue_1052_semijoin_two_shared_aliases_multi_col_path() -> None:
+    """Multi-column semi-join (2 shared node aliases) preserves correct rows.
+
+    MATCH (a)-[r1:R1]->(b)-[r2:R2]->(c)
+    OPTIONAL MATCH (a)-[r3:R3]->(b)-[r4:R4]->(d)
+    Both a and b are shared → multi-col join path (drop_duplicates + inner merge).
+    The optional arm has rows matching (a,b) and rows NOT in base — only matching ones survive.
+    """
+    nodes = pd.DataFrame({
+        "id":        ["a",  "b",  "c",  "d",  "b2", "d2"],
+        "label__N":  [True, True, True, True, True,  True],
+    })
+    edges = pd.DataFrame({
+        "s":    ["a",  "b",  "a",  "b",  "a",  "b2"],
+        "d":    ["b",  "c",  "b",  "d",  "b2", "d2"],
+        "type": ["R1", "R2", "R3", "R4", "R3", "R4"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (a:N)-[:R1]->(b:N)-[:R2]->(c:N) "
+        "OPTIONAL MATCH (a)-[:R3]->(b)-[:R4]->(d:N) "
+        "RETURN a.id AS aid, b.id AS bid, c.id AS cid, d.id AS did"
+    )
+    rows = result._nodes[["aid", "bid", "cid", "did"]].to_dict(orient="records")
+    # Base match: only (a, b, c) — b2 is NOT reachable via R1 from a
+    assert len(rows) == 1
+    assert rows[0]["aid"] == "a"
+    assert rows[0]["bid"] == "b"
+    assert rows[0]["cid"] == "c"
+    assert rows[0]["did"] == "d"
+    # No duplicate columns in result
+    cols = list(result._nodes.columns)
+    assert len(cols) == len(set(cols)), f"Duplicate columns: {cols}"
+
+
+def test_issue_1052_semijoin_multi_arm_second_arm_uses_updated_joined() -> None:
+    """With 2 OPTIONAL MATCH arms, arm-2 semi-join uses joined updated by arm-1.
+
+    Base:        (m)<-[:R]-(c)                  → 1 row
+    Optional-1:  (m)-[:H]->(a)                  → adds a.id
+    Optional-2:  (a)-[:K]->(p)  (shared: m, a)  → adds p.id
+    Arm-2's join cols include a.id which only exists after arm-1 merge.
+    """
+    nodes = pd.DataFrame({
+        "id": ["m", "c", "a", "p"],
+        "label__M": [True,  False, False, False],
+        "label__C": [False, True,  False, False],
+        "label__A": [False, False, True,  False],
+        "label__P": [False, False, False, True],
+    })
+    edges = pd.DataFrame({
+        "s":    ["c", "m", "a"],
+        "d":    ["m", "a", "p"],
+        "type": ["R", "H", "K"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (m:M)<-[:R]-(c:C) "
+        "OPTIONAL MATCH (m)-[:H]->(a:A) "
+        "OPTIONAL MATCH (a)-[:K]->(p:P) "
+        "RETURN c.id AS cid, a.id AS aid, p.id AS pid"
+    )
+    rows = result._nodes[["cid", "aid", "pid"]].to_dict(orient="records")
+    assert len(rows) == 1
+    assert rows[0]["cid"] == "c"
+    assert rows[0]["aid"] == "a"
+    assert rows[0]["pid"] == "p"
+
+
+def test_issue_1052_semijoin_multi_arm_second_arm_null_when_first_misses() -> None:
+    """Arm-2 null-fills when arm-1 finds no match (join key for arm-2 is absent)."""
+    nodes = pd.DataFrame({
+        "id": ["m", "c", "a", "p"],
+        "label__M": [True,  False, False, False],
+        "label__C": [False, True,  False, False],
+        "label__A": [False, False, True,  False],
+        "label__P": [False, False, False, True],
+    })
+    # No H edge from m — arm-1 misses, so a.id is null; arm-2 also misses
+    edges = pd.DataFrame({
+        "s":    ["c", "a"],
+        "d":    ["m", "p"],
+        "type": ["R", "K"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (m:M)<-[:R]-(c:C) "
+        "OPTIONAL MATCH (m)-[:H]->(a:A) "
+        "OPTIONAL MATCH (a)-[:K]->(p:P) "
+        "RETURN c.id AS cid, "
+        "CASE a WHEN null THEN 'no-a' ELSE 'has-a' END AS a_status, "
+        "CASE p WHEN null THEN 'no-p' ELSE 'has-p' END AS p_status"
+    )
+    rows = result._nodes[["cid", "a_status", "p_status"]].to_dict(orient="records")
+    assert len(rows) == 1
+    assert rows[0]["cid"] == "c"
+    assert rows[0]["a_status"] == "no-a"
+    assert rows[0]["p_status"] == "no-p"
+
+
+def test_issue_1052_semijoin_edge_alias_synthesis_after_filter() -> None:
+    """Edge alias bare-form synthesis works correctly after semi-join row filtering.
+
+    The semi-join removes opt rows not matching base join keys.
+    The surviving opt rows must still have their edge-alias property columns
+    intact for marker synthesis (lines 344-352 in gfql_unified.py).
+
+    Graph: m1-H->a1-K->p1, m2-H->a2-K->p2. Base scoped to m1; a2/p2 are
+    unreachable from m1 so must not appear in result (semi-join by a.id).
+    """
+    nodes = pd.DataFrame({
+        "id": ["m1", "m2", "a1", "a2", "p1", "p2"],
+        "label__M": [True,  True,  False, False, False, False],
+        "label__A": [False, False, True,  True,  False, False],
+        "label__P": [False, False, False, False, True,  True],
+    })
+    edges = pd.DataFrame({
+        "s":    ["m1", "a1",  "m2", "a2"],
+        "d":    ["a1", "p1",  "a2", "p2"],
+        "type": ["H",  "K",   "H",  "K"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    # Base scoped to m1 only; opt arm opt rows exist for both a1->p1 and a2->p2
+    # Semi-join must keep only a1->p1 rows (join key a.id=a1 matches base)
+    result = g.gfql(
+        "MATCH (m:M {id: $mid})-[:H]->(a:A) "
+        "OPTIONAL MATCH (a)-[r:K]->(p:P) "
+        "RETURN m.id AS mid, p.id AS pid, "
+        "CASE r WHEN null THEN false ELSE true END AS knows",
+        params={"mid": "m1"},
+    )
+    rows = result._nodes[["mid", "pid", "knows"]].to_dict(orient="records")
+    assert len(rows) == 1
+    assert rows[0]["mid"] == "m1"
+    assert rows[0]["pid"] == "p1"
+    assert rows[0]["knows"] is True
+
+
+def test_issue_1052_semijoin_no_bleed_from_unscoped_opt_rows() -> None:
+    """Opt rows whose join-key values are NOT in base must not appear in result.
+
+    Regression for the core IS7 scale bug: without semi-join, opt arm materialises
+    all rows globally; with semi-join, only base-key-matched rows survive.
+    """
+    # 3 messages, only m1 is queried; m2/m3 have their own reply chains
+    n = 5
+    msg_ids = [f"m{i}" for i in range(1, n + 1)]
+    comment_ids = [f"c{i}" for i in range(1, n + 1)]
+    person_ids = [f"p{i}" for i in range(1, n + 1)]
+    author_ids = [f"a{i}" for i in range(1, n + 1)]
+
+    nodes = pd.DataFrame({
+        "id": msg_ids + comment_ids + person_ids + author_ids,
+        "label__M": [True] * n + [False] * (3 * n),
+        "label__C": [False] * n + [True] * n + [False] * (2 * n),
+        "label__P": [False] * (2 * n) + [True] * n + [False] * n,
+        "label__A": [False] * (3 * n) + [True] * n,
+    })
+    edges_rows = []
+    for i in range(1, n + 1):
+        edges_rows += [
+            {"s": f"c{i}", "d": f"m{i}", "type": "REPLY_OF"},
+            {"s": f"c{i}", "d": f"p{i}", "type": "HAS_CREATOR"},
+            {"s": f"m{i}", "d": f"a{i}", "type": "HAS_CREATOR"},
+            {"s": f"a{i}", "d": f"p{i}", "type": "KNOWS"},
+        ]
+    edges = pd.DataFrame(edges_rows)
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (m:M {id: $mid})<-[:REPLY_OF]-(c:C)-[:HAS_CREATOR]->(p:P) "
+        "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:A)-[r:KNOWS]-(p) "
+        "RETURN c.id AS cid, p.id AS pid, "
+        "CASE r WHEN null THEN false ELSE true END AS knows "
+        "ORDER BY cid",
+        params={"mid": "m1"},
+    )
+    rows = result._nodes[["cid", "pid", "knows"]].to_dict(orient="records")
+    # Only m1's reply chain should appear, not m2..m5
+    assert rows == [{"cid": "c1", "pid": "p1", "knows": True}]
+
+
 # ── Issue #983: bounded zero-min variable-length relationships (*0..N) ────────
 
 
