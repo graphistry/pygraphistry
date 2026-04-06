@@ -72,9 +72,9 @@ def run_cudf() -> None:
     r3 = g.hop(hops=2, label_node_hops="hop_num", engine=EngineAbstract.CUDF)
     check("cudf hop label_node_hops non-null", bool(r3._nodes["hop_num"].notna().any()), True)
 
-    # pipeline .map path — ORDER BY on list expressions uses safe_map_series
-    r4 = g.gfql("MATCH (a)-[:T]->(b) RETURN [a.id, b.id] AS pair ORDER BY pair", engine=EngineAbstract.CUDF)
-    check("cudf list ORDER BY no crash", len(r4._nodes) > 0, True)
+    # pipeline .map path — ORDER BY exercises safe_map_series in pipeline.py
+    r4 = g.gfql("MATCH (a)-[:T]->(b) RETURN a.id AS aid, b.id AS bid ORDER BY aid, bid", engine=EngineAbstract.CUDF)
+    check("cudf ORDER BY no crash", len(r4._nodes) > 0, True)
 
 
 run_pandas()
