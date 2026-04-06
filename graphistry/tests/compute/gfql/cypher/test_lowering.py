@@ -12004,7 +12004,12 @@ def test_issue_1047_existing_single_row_prefix_still_works() -> None:
 
 
 def test_issue_1047_duplicate_seed_graph_now_works() -> None:
-    """Previously rejected: duplicate seed produces 2 rows, now both should match."""
+    """Previously rejected: duplicate seed produces 2 rows, now both should match.
+
+    Cypher bag semantics: each of the 2 prefix rows (tag1, tag1b — both tagId=101)
+    is a distinct context.  The suffix finds {post1, post2} for *each* row, so the
+    union produces 4 rows: [post1, post1, post2, post2].
+    """
     # Both tag1 and tag1b have tagId=101, posts connect to one each.
     result = _mk_prefix_scalar_reentry_duplicate_seed_graph().gfql(
         "MATCH (knownTag:Tag {name: 'topic'}) "
@@ -12013,9 +12018,9 @@ def test_issue_1047_duplicate_seed_graph_now_works() -> None:
         "RETURN post.id AS id ORDER BY id"
     )
     ids = [r["id"] for r in result._nodes.to_dict(orient="records")]
-    # post1 connects to tag1 (tagId=101); post2 connects to tag1b (tagId=101)
-    # Both prefix rows carry tagId=101 → both posts should appear (possibly with dedup)
-    assert set(ids) == {"post1", "post2"}
+    # Two prefix rows × two matching posts each = 4 rows (bag semantics, no implicit DISTINCT).
+    # Row order within each fan-out iteration is preserved; iterations are concatenated in order.
+    assert ids == ["post1", "post2", "post1", "post2"]
 
 
 def test_issue_1047_multi_row_scalar_prefix_on_cudf() -> None:
@@ -12031,3 +12036,55 @@ def test_issue_1047_multi_row_scalar_prefix_on_cudf() -> None:
     assert type(result._nodes).__module__.startswith("cudf")
     ids = [r["id"] for r in result._nodes.to_pandas().to_dict(orient="records")]
     assert ids == ["post1", "post2", "post3"]
+
+
+def test_issue_1047_multi_row_scalar_prefix_partial_hit() -> None:
+    """Prefix rows where only some produce non-empty suffix results.
+
+    tagId=1 matches post1 and post2 (via tagA).
+    tagId=99 matches nothing — no post connects to a tag with tagId=99.
+    Only the hits from tagId=1 should appear; no crash, no spurious rows.
+    """
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["tagA", "tagC", "post1", "post2"],
+                "label__Tag": [True, True, False, False],
+                "label__Post": [False, False, True, True],
+                "tagId": [1, 99, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["post1", "post2"],
+                "d": ["tagA", "tagA"],
+                "type": ["HAS_TAG", "HAS_TAG"],
+            }
+        ),
+    )
+    result = graph.gfql(
+        "MATCH (t:Tag) "
+        "WITH t.tagId AS knownTagId "
+        "MATCH (post:Post)-[:HAS_TAG]->(x:Tag {tagId: knownTagId}) "
+        "RETURN post.id AS id ORDER BY id"
+    )
+    ids = [r["id"] for r in result._nodes.to_dict(orient="records")]
+    # tagId=1 → post1, post2; tagId=99 → empty (no crash)
+    assert ids == ["post1", "post2"]
+
+
+def test_issue_1047_multi_row_scalar_prefix_with_optional_reentry_raises() -> None:
+    """Multi-row scalar prefix combined with optional_reentry is not yet supported.
+
+    The multi-row fan-out path returns early before the optional_reentry null-fill
+    branch, which would silently produce wrong results (missing null rows for prefix
+    rows that matched nothing).  Until null-fill is implemented for multi-row, the
+    engine must raise rather than silently return incomplete results.
+    """
+    with pytest.raises(Exception, match="optional"):
+        _mk_multi_row_scalar_prefix_graph().gfql(
+            "MATCH (t:Tag) "
+            "WITH t.tagId AS knownTagId "
+            "OPTIONAL MATCH (post:Post)-[:HAS_TAG]->(x:Tag {tagId: knownTagId}) "
+            "RETURN post.id AS id"
+        )

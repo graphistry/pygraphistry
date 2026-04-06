@@ -706,6 +706,14 @@ def _execute_compiled_query_with_reentry(
             prefix_row_count = len(prefix_rows) if prefix_rows is not None else 0
             if prefix_row_count > 1:
                 # Multi-row scalar prefix (#1047): run suffix once per prefix row, union results.
+                if compiled_query.optional_reentry:
+                    raise _reentry_validation_error(
+                        "Cypher OPTIONAL MATCH after a multi-row scalar WITH prefix is not yet supported"
+                        " — null-fill for unmatched prefix rows is not implemented for N>1 prefix rows",
+                        value=prefix_row_count,
+                        suggestion="Use MATCH instead of OPTIONAL MATCH, or reduce the WITH prefix to a single row",
+                        field="optional_reentry",
+                    )
                 row_results = []
                 for i in range(prefix_row_count):
                     row_graph, row_start = _compiled_query_scalar_reentry_state(
