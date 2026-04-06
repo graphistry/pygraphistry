@@ -12119,7 +12119,6 @@ def test_issue_983_bounded_zero_min_max_zero_is_still_rejected() -> None:
         _mk_simple_path_graph().gfql("MATCH (a)-[*0]->(b) RETURN b")
 
 
-<<<<<<< HEAD
 # ── Issue #1047: multi-row WITH prefix for scalar reentry ─────────────────────
 
 
