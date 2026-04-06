@@ -10,6 +10,11 @@ on:
 
   #Enable UI-driven branch testing
   workflow_dispatch:
+    inputs:
+      cooldown_days:
+        description: 'Lockfile cooldown days (0 = no cooldown/force-refresh, default 6)'
+        required: false
+        default: '6'
 
   #Test main bidaily @ 1a
   schedule:
@@ -155,13 +160,13 @@ jobs:
       uses: actions/cache@v4
       with:
         path: requirements/*.lock
-        key: lockfiles-${{ hashFiles('setup.py', 'pyproject.toml', 'requirements/*.txt', 'bin/generate-lockfiles.sh') }}
+        key: lockfiles-cd${{ inputs.cooldown_days || '6' }}-${{ hashFiles('setup.py', 'pyproject.toml', 'requirements/*.txt', 'bin/generate-lockfiles.sh') }}
     - name: Install uv
       if: steps.lockfile-cache.outputs.cache-hit != 'true'
       run: pip install "uv==0.11.3"  # pinned version; bump periodically
     - name: Generate lockfiles
       if: steps.lockfile-cache.outputs.cache-hit != 'true'
-      run: ./bin/generate-lockfiles.sh
+      run: COOLDOWN_DAYS=${{ inputs.cooldown_days || '6' }} ./bin/generate-lockfiles.sh
     - name: Upload lockfiles
       uses: actions/upload-artifact@v4
       with:
