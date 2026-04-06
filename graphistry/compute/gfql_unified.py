@@ -711,12 +711,37 @@ def _execute_compiled_query_with_reentry(
             context=context,
         )
         if compiled_query.scalar_reentry_alias is not None:
-            compiled_base_graph, start_nodes = _compiled_query_scalar_reentry_state(
-                base_graph,
-                compiled_query,
-                prefix_result,
-                engine=engine,
-            )
+            prefix_rows = getattr(prefix_result, "_nodes", None)
+            prefix_row_count = len(prefix_rows) if prefix_rows is not None else 0
+            if prefix_row_count > 1:
+                # Multi-row scalar prefix (#1047): run suffix once per prefix row, union results.
+                row_results = []
+                for i in range(prefix_row_count):
+                    row_graph, row_start = _compiled_query_scalar_reentry_state(
+                        base_graph,
+                        compiled_query,
+                        prefix_result,
+                        engine=engine,
+                        row_index=i,
+                    )
+                    row_result = _execute_compiled_query(
+                        row_graph,
+                        compiled_query=compiled_query,
+                        engine=engine,
+                        policy=policy,
+                        context=context,
+                        start_nodes=row_start,
+                    )
+                    row_results.append(row_result)
+                result = _union_scalar_reentry_results(row_results, base_graph=base_graph, engine=engine)
+                return result
+            else:
+                compiled_base_graph, start_nodes = _compiled_query_scalar_reentry_state(
+                    base_graph,
+                    compiled_query,
+                    prefix_result,
+                    engine=engine,
+                )
         else:
             compiled_base_graph, start_nodes = _compiled_query_reentry_state(
                 base_graph,
@@ -882,12 +907,37 @@ def _compiled_query_reentry_state(
     )
 
 
+def _union_scalar_reentry_results(
+    row_results: List[Plottable],
+    *,
+    base_graph: Plottable,
+    engine: Union[EngineAbstract, str],
+) -> Plottable:
+    """Union per-row suffix results from a multi-row scalar prefix (#1047)."""
+    node_frames = []
+    for r in row_results:
+        nodes = getattr(r, "_nodes", None)
+        if nodes is not None and len(cast(Any, nodes)) > 0:
+            node_frames.append(nodes)
+    result = base_graph.bind()
+    if node_frames:
+        concrete_engine = resolve_engine(cast(Any, engine), node_frames[0])
+        concat = df_concat(concrete_engine)
+        result._nodes = cast(DataFrameT, concat(node_frames, ignore_index=True))
+    else:
+        base_nodes = getattr(base_graph, "_nodes", None)
+        result._nodes = cast(DataFrameT, base_nodes.iloc[0:0]) if base_nodes is not None else None
+    result._edges = getattr(base_graph, "_edges", None)
+    return result
+
+
 def _compiled_query_scalar_reentry_state(
     base_graph: Plottable,
     compiled_query: CompiledCypherQuery,
     prefix_result: Plottable,
     *,
     engine: Union[EngineAbstract, str],
+    row_index: int = 0,
 ) -> Tuple[Plottable, Optional[DataFrameT]]:
     carried_columns = compiled_query.scalar_reentry_columns
     if not carried_columns:
@@ -914,12 +964,6 @@ def _compiled_query_scalar_reentry_state(
         if edges_df is not None:
             dispatch_graph._edges = cast(DataFrameT, edges_df.iloc[0:0])
         return dispatch_graph, None
-    if prefix_row_count != 1:
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH scalar-only prefix stages currently require exactly one prefix row",
-            value=prefix_row_count,
-            suggestion="Reduce the prefix WITH stage to a single scalar row before MATCH re-entry.",
-        )
     if base_nodes is None:
         raise _reentry_validation_error(
             "Cypher MATCH after WITH scalar-only prefix stages could not recover the base node table for re-entry",
@@ -933,12 +977,12 @@ def _compiled_query_scalar_reentry_state(
             value=missing_column,
             suggestion="Project the scalar column explicitly before MATCH re-entry.",
         )
-    first_row = prefix_rows.iloc[0]
+    row = prefix_rows.iloc[row_index]
     node_rows = cast(
         DataFrameT,
         base_nodes.assign(
             **{
-                _reentry_hidden_column_name(output_name): first_row[output_name]
+                _reentry_hidden_column_name(output_name): row[output_name]
                 for output_name in carried_columns
             }
         ),

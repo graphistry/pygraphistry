@@ -8904,14 +8904,14 @@ def test_string_cypher_executes_scalar_only_prefix_with_match_reentry_on_cudf() 
     assert result._nodes.to_pandas().to_dict(orient="records") == [{"id": "post1"}, {"id": "post2"}]
 
 
-def test_string_cypher_failfast_rejects_scalar_only_prefix_with_match_reentry_multi_row_prefix() -> None:
-    query = _prefix_scalar_reentry_query()
+def test_string_cypher_executes_scalar_only_prefix_with_match_reentry_multi_row_prefix() -> None:
+    """#1047: multi-row scalar prefix now executes (was rejected before fix)."""
+    query = _prefix_scalar_reentry_query(order_by="id")
 
-    with pytest.raises(
-        GFQLValidationError,
-        match="Cypher MATCH after WITH scalar-only prefix stages currently require exactly one prefix row",
-    ):
-        _mk_prefix_scalar_reentry_duplicate_seed_graph().gfql(query)
+    result = _mk_prefix_scalar_reentry_duplicate_seed_graph().gfql(query)
+    ids = [r["id"] for r in result._nodes.to_dict(orient="records")]
+    # Both tag1 and tag1b have tagId=101; post1→tag1, post2→tag1b, so both match
+    assert set(ids) == {"post1", "post2"}
 
 
 def test_string_cypher_failfast_rejects_scalar_only_prefix_with_match_reentry_prefix_ordering() -> None:
@@ -12129,3 +12129,133 @@ def test_issue_983_bounded_zero_min_max_zero_is_still_rejected() -> None:
     """*0 (exact zero hops) is still a parse error — degenerate, not supported."""
     with pytest.raises(Exception):
         _mk_simple_path_graph().gfql("MATCH (a)-[*0]->(b) RETURN b")
+
+
+# ── Issue #1047: multi-row WITH prefix for scalar reentry ─────────────────────
+
+
+def _mk_multi_row_scalar_prefix_graph() -> _CypherTestGraph:
+    """Two tags with distinct tagIds; posts connect to exactly one tag each."""
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["tagA", "tagB", "post1", "post2", "post3"],
+                "label__Tag": [True, True, False, False, False],
+                "label__Post": [False, False, True, True, True],
+                "name": ["topicA", "topicB", None, None, None],
+                "tagId": [1, 2, None, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["post1", "post2", "post3"],
+                "d": ["tagA", "tagA", "tagB"],
+                "type": ["HAS_TAG", "HAS_TAG", "HAS_TAG"],
+            }
+        ),
+    )
+
+
+def _mk_multi_row_scalar_prefix_graph_cudf() -> _CypherTestGraph:
+    return _mk_cudf_graph(
+        pd.DataFrame(
+            {
+                "id": ["tagA", "tagB", "post1", "post2", "post3"],
+                "label__Tag": [True, True, False, False, False],
+                "label__Post": [False, False, True, True, True],
+                "name": ["topicA", "topicB", None, None, None],
+                "tagId": [1, 2, None, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["post1", "post2", "post3"],
+                "d": ["tagA", "tagA", "tagB"],
+                "type": ["HAS_TAG", "HAS_TAG", "HAS_TAG"],
+            }
+        ),
+    )
+
+
+def test_issue_1047_multi_row_scalar_prefix_both_tags_matched() -> None:
+    """Prefix WITH produces 2 rows (one per tag); suffix should union results from both."""
+    # The prefix matches both Tag nodes (no name filter), producing 2 rows.
+    # Each suffix run finds posts connected to that tag's tagId.
+    result = _mk_multi_row_scalar_prefix_graph().gfql(
+        "MATCH (t:Tag) "
+        "WITH t.tagId AS knownTagId "
+        "MATCH (post:Post)-[:HAS_TAG]->(x:Tag {tagId: knownTagId}) "
+        "RETURN post.id AS id ORDER BY id"
+    )
+    ids = [r["id"] for r in result._nodes.to_dict(orient="records")]
+    # tagId=1 → post1, post2; tagId=2 → post3
+    assert ids == ["post1", "post2", "post3"]
+
+
+def test_issue_1047_multi_row_scalar_prefix_carried_scalar_visible_in_return() -> None:
+    """Carried scalar from each prefix row is visible in the RETURN clause."""
+    result = _mk_multi_row_scalar_prefix_graph().gfql(
+        "MATCH (t:Tag) "
+        "WITH t.tagId AS knownTagId "
+        "MATCH (post:Post)-[:HAS_TAG]->(x:Tag {tagId: knownTagId}) "
+        "RETURN knownTagId, post.id AS postId ORDER BY knownTagId, postId"
+    )
+    rows = result._nodes.to_dict(orient="records")
+    assert rows == [
+        {"knownTagId": 1, "postId": "post1"},
+        {"knownTagId": 1, "postId": "post2"},
+        {"knownTagId": 2, "postId": "post3"},
+    ]
+
+
+def test_issue_1047_multi_row_scalar_prefix_empty_prefix_still_returns_empty() -> None:
+    """If prefix produces 0 rows, result is still empty (unchanged)."""
+    result = _mk_multi_row_scalar_prefix_graph().gfql(
+        "MATCH (t:Tag {name: 'missing'}) "
+        "WITH t.tagId AS knownTagId "
+        "MATCH (post:Post)-[:HAS_TAG]->(x:Tag {tagId: knownTagId}) "
+        "RETURN post.id AS id"
+    )
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_issue_1047_existing_single_row_prefix_still_works() -> None:
+    """Single-row prefix (original case) continues to work after multi-row fix."""
+    result = _mk_multi_row_scalar_prefix_graph().gfql(
+        "MATCH (t:Tag {name: 'topicA'}) "
+        "WITH t.tagId AS knownTagId "
+        "MATCH (post:Post)-[:HAS_TAG]->(x:Tag {tagId: knownTagId}) "
+        "RETURN post.id AS id ORDER BY id"
+    )
+    ids = [r["id"] for r in result._nodes.to_dict(orient="records")]
+    assert ids == ["post1", "post2"]
+
+
+def test_issue_1047_duplicate_seed_graph_now_works() -> None:
+    """Previously rejected: duplicate seed produces 2 rows, now both should match."""
+    # Both tag1 and tag1b have tagId=101, posts connect to one each.
+    result = _mk_prefix_scalar_reentry_duplicate_seed_graph().gfql(
+        "MATCH (knownTag:Tag {name: 'topic'}) "
+        "WITH knownTag.tagId AS knownTagId "
+        "MATCH (post:Post)-[:HAS_TAG]->(t:Tag {tagId: knownTagId}) "
+        "RETURN post.id AS id ORDER BY id"
+    )
+    ids = [r["id"] for r in result._nodes.to_dict(orient="records")]
+    # post1 connects to tag1 (tagId=101); post2 connects to tag1b (tagId=101)
+    # Both prefix rows carry tagId=101 → both posts should appear (possibly with dedup)
+    assert set(ids) == {"post1", "post2"}
+
+
+def test_issue_1047_multi_row_scalar_prefix_on_cudf() -> None:
+    """Multi-row prefix works on cuDF path."""
+    pytest.importorskip("cudf")
+    result = _mk_multi_row_scalar_prefix_graph_cudf().gfql(
+        "MATCH (t:Tag) "
+        "WITH t.tagId AS knownTagId "
+        "MATCH (post:Post)-[:HAS_TAG]->(x:Tag {tagId: knownTagId}) "
+        "RETURN post.id AS id ORDER BY id",
+        engine="cudf",
+    )
+    assert type(result._nodes).__module__.startswith("cudf")
+    ids = [r["id"] for r in result._nodes.to_pandas().to_dict(orient="records")]
+    assert ids == ["post1", "post2", "post3"]
