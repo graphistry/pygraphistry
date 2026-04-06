@@ -1,7 +1,7 @@
 import logging
 import pandas as pd
 from typing import Any, Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
-from graphistry.Engine import Engine, EngineAbstract, align_shared_column_dtypes, df_concat, df_to_engine, resolve_engine, safe_row_concat
+from graphistry.Engine import Engine, EngineAbstract, align_shared_column_dtypes, df_concat, df_to_engine, resolve_engine, safe_map_series, safe_row_concat
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
@@ -446,7 +446,7 @@ def combine_steps(
                 for hc in hop_cols:
                     if hc in hop_map_df.columns:
                         hop_map = hop_map_df[[id, hc]].dropna(subset=[hc]).drop_duplicates(subset=[id]).set_index(id)[hc]
-                        mapped_vals = out_df[id].map(hop_map)
+                        mapped_vals = safe_map_series(out_df[id], hop_map)
                         out_df[hc] = out_df[hc].where(out_df[hc].notna(), mapped_vals)
 
         if hop_cols:

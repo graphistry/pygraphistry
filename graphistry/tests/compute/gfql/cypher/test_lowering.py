@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
+import graphistry
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 from graphistry.compute.ast import ASTCall, ASTNode, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
@@ -12118,6 +12119,7 @@ def test_issue_983_bounded_zero_min_max_zero_is_still_rejected() -> None:
         _mk_simple_path_graph().gfql("MATCH (a)-[*0]->(b) RETURN b")
 
 
+<<<<<<< HEAD
 # ── Issue #1047: multi-row WITH prefix for scalar reentry ─────────────────────
 
 
@@ -12419,3 +12421,42 @@ def test_issue_983_zero_zero_hop_executes_returns_empty() -> None:
     """
     result = _mk_simple_path_graph().gfql("MATCH (a {id: 'a'})-[*0..0]->(b) RETURN b.id AS id")
     assert result._nodes.to_dict(orient="records") == []
+
+
+# ── Issue #977: cudf SIGSEGV — safe_map_series regression guards ──────────────
+
+
+def test_issue_977_cudf_label_filter_no_sigsegv() -> None:
+    """cudf: label filter must not SIGSEGV (safe_map_series / filter_by_dict)."""
+    cudf = pytest.importorskip("cudf")
+    from graphistry.Engine import EngineAbstract
+    nodes = cudf.DataFrame(pd.DataFrame({
+        "id": ["a", "b", "c"],
+        "label__Person": [True, True, False],
+    }))
+    edges = cudf.DataFrame(pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["T"]}))
+    g_cu = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    result = g_cu.gfql("MATCH (p:Person) RETURN p.id AS pid ORDER BY pid", engine=EngineAbstract.CUDF)
+    ids = sorted(result._nodes["pid"].to_pandas().tolist())
+    assert ids == ["a", "b"]
+
+
+def test_issue_977_cudf_single_hop_no_sigsegv() -> None:
+    """cudf: single hop traversal exercises df_executor safe_map_series."""
+    cudf = pytest.importorskip("cudf")
+    from graphistry.Engine import EngineAbstract
+    nodes = cudf.DataFrame(pd.DataFrame({"id": ["a", "b", "c"]}))
+    edges = cudf.DataFrame(pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "type": ["T", "T"]}))
+    g_cu = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    result = g_cu.gfql("MATCH (a)-[:T]->(b) RETURN a.id AS aid ORDER BY aid", engine=EngineAbstract.CUDF)
+    assert sorted(result._nodes["aid"].to_pandas().tolist()) == ["a", "b"]
+
+
+def test_issue_977_pandas_label_filter_regression() -> None:
+    """pandas: label filter still works after safe_map_series change (regression guard)."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c"], "label__Person": [True, True, False]})
+    edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["T"]})
+    g = _mk_graph(nodes, edges)
+    result = g.gfql("MATCH (p:Person) RETURN p.id AS pid ORDER BY pid")
+    ids = sorted(result._nodes["pid"].tolist())
+    assert ids == ["a", "b"]

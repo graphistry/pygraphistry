@@ -380,6 +380,27 @@ def s_na(engine: Engine):
     raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 
+def safe_map_series(series: Any, mapping: Any) -> Any:
+    """Map a Series through a dict-like mapping, safe for cudf.
+
+    cudf Series.map(dict/Series) triggers numba JIT which SIGSEGVs on RAPIDS 25.02.
+    Bridge through pandas for cudf; use native .map() for pandas.
+    """
+    is_cudf_series = (
+        hasattr(series, "to_pandas")
+        and series.__class__.__module__.startswith("cudf")
+    )
+    if is_cudf_series:
+        mapping_pd = mapping.to_pandas() if hasattr(mapping, "to_pandas") else mapping
+        result_pd = series.to_pandas().map(mapping_pd)
+        try:
+            import cudf
+            return cudf.Series(result_pd, index=series.index)
+        except Exception:
+            return result_pd
+    return series.map(mapping)
+
+
 # DataFrame type coercion primitives
 # See issue #784: https://github.com/graphistry/pygraphistry/issues/784
 

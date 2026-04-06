@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, 
 from typing_extensions import Literal
 
 import pandas as pd
-from graphistry.Engine import Engine, EngineAbstract, resolve_engine, s_cons
+from graphistry.Engine import Engine, EngineAbstract, resolve_engine, safe_map_series, s_cons
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.dataframe_utils import concat_frames, df_cons as template_df_cons
 from graphistry.compute.gfql.row.order_expr import (
@@ -475,7 +475,7 @@ class RowPipelineMixin:
                 melted = base.melt(id_vars=[row_col], value_vars=value_cols, var_name=ord_col, value_name=val_col)
                 order_map = {col: idx for idx, col in enumerate(value_cols)}
                 if hasattr(melted[ord_col], "map"):
-                    melted[ord_col] = melted[ord_col].map(order_map)
+                    melted[ord_col] = safe_map_series(melted[ord_col], order_map)
                 else:
                     melted[ord_col] = melted[ord_col].replace(order_map)
                 melted[ord_col] = melted[ord_col].astype("int64")
