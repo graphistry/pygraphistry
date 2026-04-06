@@ -9,9 +9,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Fixed
+- **GFQL / Cypher**: Bounded zero-min variable-length relationship patterns (`*0..N`, e.g. `[:HAS_TYPE|IS_SUBCLASS_OF*0..3]`) are now supported. Previously `*0..N` raised an "unsupported" error at parse time while the open form `*0..` already worked. Fixes LDBC SNB IC12 and any query using bounded zero-min ranges (#983).
 - **GFQL / Cypher**: `CASE x WHEN null THEN ... ELSE ... END` now correctly matches when `x` is null. Previously `__cypher_case_eq__` used `pd.Series == None` which always evaluates to `False` in pandas; the fix returns the null-mask of the non-null operand when the other is a scalar null literal. This was the root blocker for IS7-style `CASE r WHEN null THEN false ELSE true END` over edge aliases from an OPTIONAL MATCH arm (#996).
 
 ### Tests
+- **GFQL / Cypher**: Parser and execution tests for bounded zero-min variable-length relationships (`*0..N`, typed, multi-type, zero-hop inclusion, `*0` exact still rejected) (#983).
 - **GFQL / Cypher**: Added 19 connected `MATCH + OPTIONAL MATCH` regression tests covering expression breadth (`type()`, `coalesce()`, arithmetic, `CASE WHEN ... IS NULL`), join edge cases (no matches, all match, multi-row, empty base, two shared aliases, integer IDs, custom node column, longer optional chains), and post-projection ops (ORDER BY, SKIP, LIMIT, DISTINCT) (#996).
 - **GFQL / Cypher**: Added IS7-shape regression test for `CASE r WHEN null THEN false ELSE true END` over a connected MATCH + OPTIONAL MATCH with edge alias, covering both matching and non-matching OPTIONAL arms (#996).
 - **GFQL / chain**: Regression test — `safe_merge()` does not mutate the caller's right DataFrame (#892).
