@@ -3,6 +3,9 @@
 ARG GPU_IMAGE=graphistry/graphistry-nvidia:v2.41.0-11.8
 FROM ${GPU_IMAGE}
 ARG PIP_DEPS="-e .[umap-learn,test,ai]"
+# Supply-chain: reject packages published in the last N days (pip ≥26: --uploaded-prior-to)
+ARG PIP_EXCLUDE_NEWER=6d
+ENV PIP_EXCLUDE_NEWER=${PIP_EXCLUDE_NEWER}
 
 SHELL ["/bin/bash", "-lc"]
 USER root

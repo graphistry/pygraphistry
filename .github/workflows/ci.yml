@@ -384,7 +384,7 @@ jobs:
     - name: Minimal tests (GFQL-heavy files split to test-gfql-core)
       run: |
         source pygraphistry/bin/activate
-        python -B -m pytest -vv \
+        python -B -m pytest -vv -n auto \
           --ignore=graphistry/tests/test_bolt_util.py \
           --ignore=graphistry/tests/test_gremlin.py \
           --ignore=graphistry/tests/test_ipython.py \
@@ -442,7 +442,7 @@ jobs:
     - name: GFQL core tests
       run: |
         source pygraphistry/bin/activate
-        python -B -m pytest -vv \
+        python -B -m pytest -vv -n auto \
           graphistry/tests/compute/gfql/cypher/test_lowering.py \
           graphistry/tests/compute/gfql/test_row_pipeline_ops.py \
           graphistry/tests/compute/gfql/cypher/test_parser.py
@@ -888,6 +888,8 @@ jobs:
       PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
       PIP_PREFER_BINARY: "1"
       DGLBACKEND: pytorch
+      # Supply-chain: reject packages published within the last 6 days (pip ≥26 uses --uploaded-prior-to)
+      PIP_EXCLUDE_NEWER: ${{ env.UV_EXCLUDE_NEWER }}
     steps:
     - uses: actions/checkout@v3
       with:

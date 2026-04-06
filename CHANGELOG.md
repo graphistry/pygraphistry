@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Infrastructure
+- **CI / speedup**: All CI install steps migrated from floating `pip` to `uv` with per-Python-version hashed lockfiles, cutting the gating `test-minimal-python` job by **~47%** (e.g. 3.12: 733s → 406s, 3.8: 673s → 332s) and `python-lint-types` by **~47%** (49s → 26s avg). A single `generate-lockfiles` job (≤30s) runs in parallel with lint, so the new lockfile overhead does not extend the critical path (#1050).
+- **CI / supply-chain security**: Introduced `UV_EXCLUDE_NEWER: "6 days"` globally across all CI jobs (belt-and-suspenders on top of hashed lockfiles) to reject packages published within the last 6 days, preventing 0-day supply chain attacks from reaching CI. All install steps use `--require-hashes` where feasible; umap/AI jobs exempt due to torch local-version-tag incompatibility with `--require-hashes` (#1050).
+- **CI / GFQL split**: 944 GFQL-heavy tests (`test_lowering.py` + `test_row_pipeline_ops.py` + `test_parser.py`) moved from the serial `test-minimal-python` gate to a new parallel `test-gfql-core` job, further reducing the gating critical path (#1050).
+- **Dockerfiles / supply-chain**: Added `ARG PIP_EXCLUDE_NEWER=6d` with matching `PIP_EXCLUDE_NEWER` env to all test Dockerfiles (`test-cpu`, `test-gpu`, `test-rapids-official`), applying the same 6-day cooldown to Docker-based installs (#1050).
+
 ### Fixed
 - **GFQL / Cypher**: `OPTIONAL MATCH` execution no longer materializes the full opt-arm result before joining. A semi-join filter now restricts the optional arm to join-key values present in the base MATCH result before the left-outer-join. On real benchmark graphs (LDBC SNB sf1 IS7) this eliminates the intermediate cross-product that previously caused ~120 GB RSS and a SIGKILL (#1052).
 - **GFQL / Cypher**: `MATCH ... WITH scalar1, scalar2 ... MATCH ...` re-entry now supports multi-row WITH prefixes (N rows, not just 1). Each prefix row's scalars are broadcast independently to the base graph and the suffix MATCH runs once per row; results are unioned. This unblocks IC6 (`tag-cooccurrence`): the UNWIND fanout before the tag-cooccurrence MATCH produces 4+ prefix rows (#1047).
