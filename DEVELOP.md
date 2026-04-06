@@ -156,3 +156,13 @@ GPU tests can also be run locally via `./docker/test-gpu-local.sh` .
 	- Major features from current and recent versions
 	- Links to full CHANGELOG and installation instructions
 	- Highlight important API changes, new capabilities, and use cases
+
+## CI Dependency Lockfiles
+
+CI uses per-Python-version hashed lockfiles for supply chain security:
+
+- **Generation**: A `generate-lockfiles` CI job runs `bin/generate-lockfiles.sh` to produce lockfiles for all profile × Python version combos. These are uploaded as artifacts, not committed.
+- **6-day cooldown**: `--exclude-newer` ensures no package published in the last 6 days is included, mitigating 0-day supply chain attacks. `UV_EXCLUDE_NEWER` is also set globally as belt-and-suspenders.
+- **Hash verification**: `--require-hashes` on install ensures tamper-proof installs (except AI/umap profiles where torch conflicts prevent it).
+- **Adding a dependency**: After modifying `setup.py` extras, CI automatically regenerates lockfiles. No manual lockfile updates needed.
+- **Emergency override**: Set `COOLDOWN_DAYS=0` in `bin/generate-lockfiles.sh` to disable the 6-day cooldown for urgent patches.

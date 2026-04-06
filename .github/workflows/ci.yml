@@ -675,8 +675,7 @@ jobs:
       run: |
         mkdir -p "${HF_HOME}"
         source pygraphistry/bin/activate
-        # Ensure sentence_transformers is available for warm step
-        python -m pip install --upgrade sentence-transformers
+        # sentence-transformers already installed from lockfile
         python - <<'PY'
         import os
         from pathlib import Path
@@ -806,8 +805,7 @@ jobs:
       run: |
         mkdir -p "${HF_HOME}"
         source pygraphistry/bin/activate
-        # Ensure sentence_transformers is available for warm step
-        python -m pip install --upgrade sentence-transformers
+        # sentence-transformers already installed from lockfile
         python - <<'PY'
         import os
         from pathlib import Path
