@@ -1012,3 +1012,113 @@ def test_hop_custom_edge_binding_preserved():
     assert len(g_result._nodes) > 0
     assert len(g_result._edges) > 0
     assert 'edge_id' in g_result._edges.columns
+
+
+def test_hop_labels_reverse():
+    # Edges a->b->c; start from c in reverse, should reach b and a
+    g = (
+        CGFull()
+        .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
+        .nodes(pd.DataFrame({'v': ['a', 'b', 'c']}), 'v')
+    )
+    n_c = g._nodes.query('v == "c"')
+    g2 = g.hop(
+        nodes=n_c,
+        hops=2,
+        direction='reverse',
+        label_node_hops='nh',
+        label_seeds=True,
+    )
+    assert 'nh' in g2._nodes.columns
+    assert g2._nodes['nh'].isna().sum() == 0
+    node_hops = {row['v']: int(row['nh']) for row in g2._nodes[['v', 'nh']].to_dict(orient='records')}
+    assert node_hops == {'a': 2, 'b': 1, 'c': 0}
+
+
+def test_hop_labels_undirected():
+    # Chain a->b->c; start from b (middle), undirected should reach a and c
+    g = (
+        CGFull()
+        .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
+        .nodes(pd.DataFrame({'v': ['a', 'b', 'c']}), 'v')
+    )
+    n_b = g._nodes.query('v == "b"')
+    g2 = g.hop(
+        nodes=n_b,
+        hops=1,
+        direction='undirected',
+        label_node_hops='nh',
+        label_seeds=True,
+    )
+    assert 'nh' in g2._nodes.columns
+    assert g2._nodes['nh'].isna().sum() == 0
+    node_hops = {row['v']: int(row['nh']) for row in g2._nodes[['v', 'nh']].to_dict(orient='records')}
+    assert node_hops['b'] == 0
+    assert node_hops['a'] == 1
+    assert node_hops['c'] == 1
+
+
+def test_hop_labels_node_only():
+    # label_node_hops only — no label_edge_hops; edge hop column must be absent
+    g = (
+        CGFull()
+        .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
+        .nodes(pd.DataFrame({'v': ['a', 'b', 'c']}), 'v')
+    )
+    n_a = g._nodes.query('v == "a"')
+    g2 = g.hop(nodes=n_a, hops=2, direction='forward', label_node_hops='nh')
+    assert 'nh' in g2._nodes.columns
+    assert 'eh' not in g2._edges.columns
+
+
+def test_hop_labels_edge_only():
+    # label_edge_hops only — no label_node_hops; node hop column must be absent
+    g = (
+        CGFull()
+        .edges(pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']}), 's', 'd')
+        .nodes(pd.DataFrame({'v': ['a', 'b', 'c']}), 'v')
+    )
+    n_a = g._nodes.query('v == "a"')
+    g2 = g.hop(nodes=n_a, hops=2, direction='forward', label_edge_hops='eh')
+    assert 'eh' in g2._edges.columns
+    assert 'nh' not in g2._nodes.columns
+
+
+def test_hop_labels_empty_result():
+    # Hop from a node with no outgoing edges; result should be empty but not crash
+    g = (
+        CGFull()
+        .edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
+        .nodes(pd.DataFrame({'v': ['a', 'b']}), 'v')
+    )
+    n_b = g._nodes.query('v == "b"')
+    g2 = g.hop(nodes=n_b, hops=1, direction='forward', label_node_hops='nh')
+    assert len(g2._edges) == 0
+    assert len(g2._nodes) == 0 or g2._nodes['nh'].isna().sum() == 0
+
+
+def test_hop_labels_multi_hop_ordering():
+    # Chain a->b->c->d; hops=3 from a; verify minimum-hop assignment per node
+    g = (
+        CGFull()
+        .edges(pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'd']}), 's', 'd')
+        .nodes(pd.DataFrame({'v': ['a', 'b', 'c', 'd']}), 'v')
+    )
+    n_a = g._nodes.query('v == "a"')
+    g2 = g.hop(
+        nodes=n_a,
+        hops=3,
+        direction='forward',
+        label_node_hops='nh',
+        label_edge_hops='eh',
+        label_seeds=True,
+    )
+    assert 'nh' in g2._nodes.columns
+    assert 'eh' in g2._edges.columns
+    node_hops = {row['v']: int(row['nh']) for row in g2._nodes[['v', 'nh']].to_dict(orient='records')}
+    assert node_hops == {'a': 0, 'b': 1, 'c': 2, 'd': 3}
+    edge_hops = {
+        (row['s'], row['d']): int(row['eh'])
+        for row in g2._edges[['s', 'd', 'eh']].to_dict(orient='records')
+    }
+    assert edge_hops == {('a', 'b'): 1, ('b', 'c'): 2, ('c', 'd'): 3}

@@ -68,3 +68,78 @@ def test_safe_map_series_cudf_missing_keys() -> None:
     vals = result.to_pandas()
     assert vals.iloc[0] == 1
     assert pd.isna(vals.iloc[1])
+
+
+# ---------------------------------------------------------------------------
+# New edge-case tests (pandas path)
+# ---------------------------------------------------------------------------
+
+
+def test_safe_map_series_pandas_non_default_index() -> None:
+    """Non-default index on source series is preserved in the result."""
+    s = pd.Series(["a", "b"], index=[10, 20])
+    result = safe_map_series(s, {"a": 1, "b": 2})
+    assert result.index.tolist() == [10, 20]
+    assert result.tolist() == [1, 2]
+
+
+def test_safe_map_series_pandas_empty_mapping() -> None:
+    """Empty mapping dict — all keys miss, result is all NaN."""
+    s = pd.Series(["a", "b", "c"])
+    result = safe_map_series(s, {})
+    assert len(result) == 3
+    assert result.isna().all()
+
+
+def test_safe_map_series_pandas_nan_value_in_series() -> None:
+    """Series containing None/NaN as a value (not a key) maps to NaN for that position."""
+    s = pd.Series(["a", None, "b"])
+    result = safe_map_series(s, {"a": 1, "b": 2})
+    assert result.iloc[0] == 1
+    assert pd.isna(result.iloc[1])
+    assert result.iloc[2] == 2
+
+
+def test_safe_map_series_pandas_mixed_value_types() -> None:
+    """Mapping values of different types produces an object-dtype result with correct values."""
+    s = pd.Series(["a", "b", "c", "d"])
+    mapping = {"a": 1, "b": "two", "c": None, "d": 3.14}
+    result = safe_map_series(s, mapping)
+    assert result.iloc[0] == 1
+    assert result.iloc[1] == "two"
+    assert pd.isna(result.iloc[2])
+    assert result.iloc[3] == 3.14
+    assert result.dtype == object
+
+
+def test_safe_map_series_pandas_series_mapping_non_default_index() -> None:
+    """Series-as-mapping with non-default index (set_index pattern from hop.py)."""
+    hop_records = pd.DataFrame({"id": ["x", "y", "z"], "hop_num": [0, 1, 2]})
+    mapping = hop_records.set_index("id")["hop_num"]
+    s = pd.Series(["x", "z", "y"])
+    result = safe_map_series(s, mapping)
+    assert result.tolist() == [0, 2, 1]
+
+
+# ---------------------------------------------------------------------------
+# New edge-case tests (cudf path — skipped when cudf is not available)
+# ---------------------------------------------------------------------------
+
+
+def test_safe_map_series_cudf_non_default_index() -> None:
+    """cudf: non-default index on source series is preserved in the result."""
+    cudf = pytest.importorskip("cudf")
+    s = cudf.Series(["a", "b"], index=[10, 20])
+    result = safe_map_series(s, {"a": 1, "b": 2})
+    assert result.index.to_pandas().tolist() == [10, 20]
+    assert result.to_pandas().tolist() == [1, 2]
+
+
+def test_safe_map_series_cudf_empty_mapping() -> None:
+    """cudf: empty mapping dict — all keys miss, result is all null."""
+    cudf = pytest.importorskip("cudf")
+    s = cudf.Series(["a", "b", "c"])
+    result = safe_map_series(s, {})
+    vals = result.to_pandas()
+    assert len(vals) == 3
+    assert vals.isna().all()

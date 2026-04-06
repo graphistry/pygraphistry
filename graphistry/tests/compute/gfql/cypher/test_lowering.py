@@ -12460,3 +12460,30 @@ def test_issue_977_pandas_label_filter_regression() -> None:
     result = g.gfql("MATCH (p:Person) RETURN p.id AS pid ORDER BY pid")
     ids = sorted(result._nodes["pid"].tolist())
     assert ids == ["a", "b"]
+
+
+def test_order_by_multi_column_no_crash() -> None:
+    """ORDER BY with two columns must not crash and must sort correctly."""
+    nodes = pd.DataFrame({
+        "id": ["c", "a", "b", "a"],
+        "score": [3, 1, 2, 1],
+        "name": ["charlie", "alice", "bob", "anna"],
+    })
+    edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["T"]})
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (n) RETURN n.name AS name, n.score AS score ORDER BY score, name"
+    )
+
+    rows = result._nodes[["score", "name"]].to_dict(orient="records")
+    assert len(rows) > 0, "Expected non-empty result from ORDER BY multi-column query"
+
+    # Verify the result is sorted: primary key score asc, secondary key name asc
+    for i in range(len(rows) - 1):
+        s_cur, s_nxt = rows[i]["score"], rows[i + 1]["score"]
+        assert s_cur <= s_nxt, f"Rows not sorted by score: {rows}"
+        if s_cur == s_nxt:
+            assert rows[i]["name"] <= rows[i + 1]["name"], (
+                f"Rows with equal score not sorted by name: {rows}"
+            )
