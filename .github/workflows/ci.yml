@@ -335,13 +335,14 @@ jobs:
         ./bin/typecheck.sh
 
   test-minimal-python:
-    # Sentinel: oldest + newest Python only. Gates all downstream jobs.
-    # Remaining versions (3.9-3.13) run in test-minimal-python-rest in parallel with downstream.
+    # Lite sentinel: oldest + newest Python only, heavy test files excluded. Gates all downstream.
+    # Heavy deferred files (test_hyper_dask, test_compute_chain, test_chain_let, test_hop, test_plotter)
+    # run in test-minimal-python-rest alongside the middle versions (3.9-3.13).
     needs: [changes, python-lint-types, generate-lockfiles]
     # Run if Python files changed OR infrastructure changed OR manual/scheduled run
     if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
 
     strategy:
       matrix:
@@ -354,8 +355,6 @@ jobs:
       with:
         lfs: true
 
-    - name: Checkout LFS objects
-      run: git lfs pull
 
     - name: Download lockfiles
       uses: actions/download-artifact@v4
@@ -382,28 +381,17 @@ jobs:
       run: |
         ./docker/test-pip-install.sh
 
-    - name: Minimal tests (GFQL-heavy files split to test-gfql-core)
+    - name: Minimal lite tests (fast sentinel gate)
       run: |
         source pygraphistry/bin/activate
-        python -B -m pytest -vv -n auto \
-          --ignore=graphistry/tests/test_bolt_util.py \
-          --ignore=graphistry/tests/test_gremlin.py \
-          --ignore=graphistry/tests/test_ipython.py \
-          --ignore=graphistry/tests/test_nodexl.py \
-          --ignore=graphistry/tests/test_tigergraph.py \
-          --ignore=graphistry/tests/test_feature_utils.py \
-          --ignore=graphistry/tests/test_umap_utils.py \
-          --ignore=graphistry/tests/test_dgl_utils.py \
-          --ignore=graphistry/tests/test_embed_utils.py \
-          --ignore=graphistry/tests/test_kusto.py \
-          --ignore=graphistry/tests/test_spanner.py \
+        ./bin/test-minimal-lite.sh -n auto \
           --ignore=graphistry/tests/compute/gfql/cypher/test_lowering.py \
           --ignore=graphistry/tests/compute/gfql/test_row_pipeline_ops.py \
           --ignore=graphistry/tests/compute/gfql/cypher/test_parser.py
 
 
   test-minimal-python-rest:
-    # Middle versions (3.9-3.13) run after sentinel passes, in parallel with downstream jobs.
+    # Middle versions (3.9-3.13) + deferred heavy files, run after sentinel passes in parallel with downstream.
     needs: [changes, test-minimal-python, test-gfql-core, generate-lockfiles]
     if: ${{ success() }}
     runs-on: ubuntu-latest
@@ -420,8 +408,6 @@ jobs:
       with:
         lfs: true
 
-    - name: Checkout LFS objects
-      run: git lfs pull
 
     - name: Download lockfiles
       uses: actions/download-artifact@v4
@@ -448,21 +434,10 @@ jobs:
       run: |
         ./docker/test-pip-install.sh
 
-    - name: Minimal tests (GFQL-heavy files split to test-gfql-core)
+    - name: Minimal full tests (includes deferred heavy files from sentinel)
       run: |
         source pygraphistry/bin/activate
-        python -B -m pytest -vv -n auto \
-          --ignore=graphistry/tests/test_bolt_util.py \
-          --ignore=graphistry/tests/test_gremlin.py \
-          --ignore=graphistry/tests/test_ipython.py \
-          --ignore=graphistry/tests/test_nodexl.py \
-          --ignore=graphistry/tests/test_tigergraph.py \
-          --ignore=graphistry/tests/test_feature_utils.py \
-          --ignore=graphistry/tests/test_umap_utils.py \
-          --ignore=graphistry/tests/test_dgl_utils.py \
-          --ignore=graphistry/tests/test_embed_utils.py \
-          --ignore=graphistry/tests/test_kusto.py \
-          --ignore=graphistry/tests/test_spanner.py \
+        ./bin/test-minimal.sh -n auto \
           --ignore=graphistry/tests/compute/gfql/cypher/test_lowering.py \
           --ignore=graphistry/tests/compute/gfql/test_row_pipeline_ops.py \
           --ignore=graphistry/tests/compute/gfql/cypher/test_parser.py
@@ -540,8 +515,6 @@ jobs:
       with:
         lfs: true
 
-    - name: Checkout LFS objects
-      run: git lfs pull
 
     - name: Download lockfiles
       uses: actions/download-artifact@v4
@@ -593,8 +566,6 @@ jobs:
       with:
         lfs: true
 
-    - name: Checkout LFS objects
-      run: git lfs pull
 
     - name: Download lockfiles
       uses: actions/download-artifact@v4
@@ -638,8 +609,6 @@ jobs:
       with:
         lfs: true
 
-    - name: Checkout LFS objects
-      run: git lfs pull
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
@@ -707,8 +676,6 @@ jobs:
       with:
         lfs: true
 
-    - name: Checkout LFS objects
-      run: git lfs pull
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
@@ -831,8 +798,6 @@ jobs:
       with:
         lfs: true
 
-    - name: Checkout LFS objects
-      run: git lfs pull
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
@@ -929,25 +894,14 @@ jobs:
           echo "HF cache not available; HF-dependent tests may skip or go online."
         fi
 
-    - name: Full dbscan tests (rich featurize)
+    - name: Full AI tests (rich featurize)
       run: |
         source pygraphistry/bin/activate
-        ./bin/test-dbscan.sh
-        
-    - name: Full feature tests (rich featurize)
-      run: |
-        source pygraphistry/bin/activate
-        ./bin/test-features.sh
-
-    - name: Full search tests (rich featurize)
-      run: |
-        source pygraphistry/bin/activate
-        ./bin/test-text.sh
-
-    - name: Full umap tests (rich featurize)
-      run: |
-        source pygraphistry/bin/activate
-        ./bin/test-umap-learn-core.sh
+        python -B -m pytest -vv -n auto \
+          graphistry/tests/test_compute_cluster.py \
+          graphistry/tests/test_feature_utils.py \
+          graphistry/tests/test_text_utils.py \
+          graphistry/tests/test_umap_utils.py
 
   test-dgl-cpu:
     needs: [changes, test-minimal-python, test-gfql-core]
@@ -992,7 +946,6 @@ jobs:
       run: |
         source pygraphistry/bin/activate
         mkdir -p "${HF_HOME}"
-        pytest graphistry/tests/test_embed_utils.py graphistry/tests/test_dgl_utils.py -vv --disable-warnings -x
         ./bin/test-embed.sh
         ./bin/test-dgl.sh
 
@@ -1012,8 +965,6 @@ jobs:
       with:
         lfs: true
 
-    - name: Checkout LFS objects
-      run: git lfs pull
 
     - name: Neo4j connector tests
       run: |
@@ -1032,8 +983,6 @@ jobs:
       with:
         lfs: true
 
-    - name: Checkout LFS objects
-      run: git lfs pull
 
     - name: Download lockfiles
       uses: actions/download-artifact@v4
