@@ -32,6 +32,8 @@ PROFILE_DEFS=(
     "test-compat-legacy:test,bolt,nodexl:3.9:3.9:--constraint /tmp/pandas-legacy.txt"
     "test-compat-rapids-aligned:test,bolt,nodexl:3.13:3.13:--constraint /tmp/pandas-rapids-aligned.txt"
     "test-compat-latest:test,bolt,nodexl:3.14:3.14:--constraint /tmp/pandas-latest.txt"
+    "test-compat-gfql-legacy:test:3.9:3.9:--constraint /tmp/pandas-legacy.txt"
+    "test-compat-gfql-latest:test:3.14:3.14:--constraint /tmp/pandas-latest.txt"
     "test-graphviz:test,pygraphviz:3.8::"
     "test-umap:test,testai,umap-learn:3.9::--no-emit-package torch"
     "test-ai:test,testai,ai:3.9::--no-emit-package torch"
