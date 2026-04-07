@@ -28,6 +28,9 @@ python -B -m pytest -vv \
     --ignore=graphistry/tests/test_embed_utils.py \
     --ignore=graphistry/tests/test_kusto.py \
     --ignore=graphistry/tests/test_spanner.py \
+    --ignore=graphistry/tests/compute/gfql/cypher/test_lowering.py \
+    --ignore=graphistry/tests/compute/gfql/test_row_pipeline_ops.py \
+    --ignore=graphistry/tests/compute/gfql/cypher/test_parser.py \
     --ignore=graphistry/tests/test_hyper_dask.py \
     --ignore=graphistry/tests/test_compute_chain.py \
     --ignore=graphistry/tests/test_plotter.py \

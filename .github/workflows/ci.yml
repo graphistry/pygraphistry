@@ -384,10 +384,7 @@ jobs:
     - name: Minimal lite tests (fast sentinel gate)
       run: |
         source pygraphistry/bin/activate
-        ./bin/test-minimal-lite.sh -n auto \
-          --ignore=graphistry/tests/compute/gfql/cypher/test_lowering.py \
-          --ignore=graphistry/tests/compute/gfql/test_row_pipeline_ops.py \
-          --ignore=graphistry/tests/compute/gfql/cypher/test_parser.py
+        ./bin/test-minimal-lite.sh -n auto
 
 
   test-minimal-python-rest:
@@ -437,10 +434,7 @@ jobs:
     - name: Minimal full tests (includes deferred heavy files from sentinel)
       run: |
         source pygraphistry/bin/activate
-        ./bin/test-minimal.sh -n auto \
-          --ignore=graphistry/tests/compute/gfql/cypher/test_lowering.py \
-          --ignore=graphistry/tests/compute/gfql/test_row_pipeline_ops.py \
-          --ignore=graphistry/tests/compute/gfql/cypher/test_parser.py
+        ./bin/test-minimal.sh -n auto
 
 
   # GFQL-heavy tests split out of the minimal gate to reduce critical path.
