@@ -542,6 +542,58 @@ jobs:
           graphistry/tests/test_nodexl.py
 
 
+  test-pandas-compat-gfql:
+    name: test-pandas-compat-gfql (${{ matrix.label }}, py${{ matrix.python-version }})
+    needs: [changes, test-minimal-python, generate-lockfiles]
+    # Run if Python files changed OR infrastructure changed OR manual/scheduled run
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    strategy:
+      matrix:
+        include:
+          - python-version: '3.9'    # pandas 2.2.3 — oldest; lockfile: test-compat-gfql-legacy
+            label: 'legacy'
+          # rapids-aligned (pandas 2.3.3 / py3.13) is SKIPPED — test-gfql-core resolves ~2.3.x already
+          - python-version: '3.14'   # pandas >=3.x — latest; lockfile: test-compat-gfql-latest
+            label: 'latest'
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v3
+      with:
+        lfs: true
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install test dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-compat-gfql-${{ matrix.label }}-py${{ matrix.python-version }}.lock
+        uv pip install -e . --no-deps
+
+    - name: GFQL pandas compat tests
+      run: |
+        source pygraphistry/bin/activate
+        python -B -m pytest -vv -n auto \
+          graphistry/tests/compute/gfql/cypher/test_lowering.py \
+          graphistry/tests/compute/gfql/test_row_pipeline_ops.py \
+          graphistry/tests/compute/gfql/cypher/test_parser.py
+
+
   test-core-python:
     needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
     # Inherit condition from test-minimal-python
