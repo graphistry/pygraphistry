@@ -454,7 +454,7 @@ jobs:
   # Runs in parallel with downstream jobs instead of blocking them.
   test-gfql-core:
     needs: [changes, python-lint-types, generate-lockfiles]
-    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
 
@@ -501,7 +501,8 @@ jobs:
           graphistry/tests/compute/test_chain.py \
           graphistry/tests/compute/test_chain_let.py \
           graphistry/tests/compute/test_chain_concat.py \
-          graphistry/tests/compute/test_dataframe_primitives.py
+          graphistry/tests/compute/test_dataframe_primitives.py \
+          tests/gfql/ref/
 
 
   test-pandas-compat:
@@ -619,7 +620,8 @@ jobs:
           graphistry/tests/compute/test_chain.py \
           graphistry/tests/compute/test_chain_let.py \
           graphistry/tests/compute/test_chain_concat.py \
-          graphistry/tests/compute/test_dataframe_primitives.py
+          graphistry/tests/compute/test_dataframe_primitives.py \
+          tests/gfql/ref/
 
 
   test-core-python:
