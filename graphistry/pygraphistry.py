@@ -1976,7 +1976,8 @@ class GraphistryClient(AuthManagerProtocol):
         timeout: int = 60,
         max_retries: int = 3,
         retry_backoff_factor: float = 2.0,
-        verify_ssl: bool = True
+        verify_ssl: bool = True,
+        response_formats: Optional[List] = None
     ) -> "GraphistryClient":
         self._plotter().configure_sentinel_graph(
             graph_instance=graph_instance,
@@ -1990,7 +1991,8 @@ class GraphistryClient(AuthManagerProtocol):
             timeout=timeout,
             max_retries=max_retries,
             retry_backoff_factor=retry_backoff_factor,
-            verify_ssl=verify_ssl
+            verify_ssl=verify_ssl,
+            response_formats=response_formats
         )
         return self
     configure_sentinel_graph.__doc__ = Plotter.configure_sentinel_graph.__doc__
@@ -2009,14 +2011,19 @@ class GraphistryClient(AuthManagerProtocol):
     def sentinel_graph(
         self,
         query: str,
-        language: str = 'GQL'
+        language: str = 'GQL',
+        response_formats: Optional[List] = None
     ) -> Plotter:
-        return cast(Plotter, self._plotter().sentinel_graph(query, language))
+        return cast(Plotter, self._plotter().sentinel_graph(query, language, response_formats))
     sentinel_graph.__doc__ = Plotter.sentinel_graph.__doc__
 
     def sentinel_graph_close(self) -> None:
         self._plotter().sentinel_graph_close()
     sentinel_graph_close.__doc__ = Plotter.sentinel_graph_close.__doc__
+
+    def sentinel_graph_list(self) -> "pd.DataFrame":
+        return self._plotter().sentinel_graph_list()
+    sentinel_graph_list.__doc__ = Plotter.sentinel_graph_list.__doc__
 
     def gsql_endpoint(self, 
         method_name, args={}, bindings=None, db=None, dry_run=False
@@ -2662,6 +2669,7 @@ configure_sentinel_graph = PyGraphistry.configure_sentinel_graph
 sentinel_graph_from_credential = PyGraphistry.sentinel_graph_from_credential
 sentinel_graph = PyGraphistry.sentinel_graph
 sentinel_graph_close = PyGraphistry.sentinel_graph_close
+sentinel_graph_list = PyGraphistry.sentinel_graph_list
 cosmos = PyGraphistry.cosmos
 neptune = PyGraphistry.neptune
 gremlin = PyGraphistry.gremlin

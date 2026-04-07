@@ -1,6 +1,6 @@
 import pytest
 import json
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import pandas as pd
 from datetime import datetime, timedelta
 import requests
@@ -21,12 +21,13 @@ from graphistry.tests.fixtures.sentinel_graph_responses import (
     get_complex_graph_response,
     get_edge_only_response,
     get_response_with_special_characters,
-    get_response_with_null_properties
+    get_response_with_null_properties,
+    get_graph_list_response,
+    get_table_format_response,
 )
 
 
-# Sample response data for testing (using fixtures)
-SAMPLE_RESPONSE_FULL = get_simple_graph_response()  # 3 nodes, 2 edges
+SAMPLE_RESPONSE_FULL = get_simple_graph_response()   # 3 nodes (node-a, node-b, node-c), 2 edges
 SAMPLE_RESPONSE_EMPTY = get_empty_response()
 SAMPLE_RESPONSE_MALFORMED = get_malformed_response()
 
@@ -44,6 +45,7 @@ class TestSentinelGraphConfiguration:
         assert g.session.sentinel_graph.api_endpoint == "api.securityplatform.microsoft.com"
         assert g.session.sentinel_graph.timeout == 60
         assert g.session.sentinel_graph.max_retries == 3
+        assert g.session.sentinel_graph.response_formats == ["Graph"]
         assert result is g  # Check method chaining
 
     def test_configure_with_custom_params(self):
@@ -65,6 +67,15 @@ class TestSentinelGraphConfiguration:
         assert cfg.timeout == 120
         assert cfg.max_retries == 5
         assert cfg.retry_backoff_factor == 3.0
+
+    def test_configure_with_custom_response_formats(self):
+        """Test configuration with custom response_formats"""
+        g = graphistry.bind()
+        g.configure_sentinel_graph(
+            graph_instance="TestInstance",
+            response_formats=["Table", "Graph"]
+        )
+        assert g.session.sentinel_graph.response_formats == ["Table", "Graph"]
 
     def test_configure_with_service_principal(self):
         """Test configuration with service principal credentials"""
@@ -96,11 +107,9 @@ class TestSentinelGraphConfiguration:
 
     def test_config_not_configured_error(self):
         """Test error when accessing config before configuration"""
-        # Create a fresh plotter with unconfigured session
         from graphistry.plotter import Plotter
         from graphistry.pygraphistry import PyGraphistry
         g = Plotter(pygraphistry=PyGraphistry)
-        # Manually ensure sentinel_graph is not configured
         g.session.sentinel_graph = None
         with pytest.raises(ValueError, match="not configured"):
             _ = g._sentinel_graph_config
@@ -176,7 +185,6 @@ class TestAuthenticationToken:
         g = graphistry.bind()
         g.configure_sentinel_graph(graph_instance="TestInstance")
 
-        # Manually set a valid cached token
         future_time = (datetime.now() + timedelta(hours=1)).timestamp()
         g.session.sentinel_graph._token = "cached-token"
         g.session.sentinel_graph._token_expiry = future_time
@@ -184,7 +192,6 @@ class TestAuthenticationToken:
         with patch('azure.identity.InteractiveBrowserCredential') as mock_cred:
             token = g._get_auth_token()
 
-            # Should use cached token, not call credential
             assert token == "cached-token"
             mock_cred.assert_not_called()
 
@@ -193,7 +200,6 @@ class TestAuthenticationToken:
         g = graphistry.bind()
         g.configure_sentinel_graph(graph_instance="TestInstance")
 
-        # Set an expired token
         past_time = (datetime.now() - timedelta(hours=1)).timestamp()
         g.session.sentinel_graph._token = "expired-token"
         g.session.sentinel_graph._token_expiry = past_time
@@ -230,13 +236,14 @@ class TestQueryExecution:
         g = graphistry.bind()
         g.configure_sentinel_graph(graph_instance="TestInstance")
 
-        result = g._sentinel_graph_query("MATCH (n) RETURN n", "GQL")
+        result = g._sentinel_graph_query("MATCH (n) RETURN n", "GQL", ["Graph"])
 
         assert result == mock_response.content
         mock_post.assert_called_once()
         call_kwargs = mock_post.call_args[1]
         assert call_kwargs['json']['query'] == "MATCH (n) RETURN n"
         assert call_kwargs['json']['queryLanguage'] == "GQL"
+        assert call_kwargs['json']['responseFormats'] == ["Graph"]
         assert call_kwargs['headers']['Authorization'] == "Bearer test-token"
         assert call_kwargs['timeout'] == 60
 
@@ -248,37 +255,34 @@ class TestQueryExecution:
 
         mock_response = Mock()
         mock_response.status_code = 400
-        mock_response.text = "Bad Request: Invalid query syntax"
         mock_post.return_value = mock_response
 
         g = graphistry.bind()
         g.configure_sentinel_graph(graph_instance="TestInstance")
 
         with pytest.raises(SentinelGraphQueryError, match="400"):
-            g._sentinel_graph_query("INVALID QUERY", "GQL")
+            g._sentinel_graph_query("INVALID QUERY", "GQL", ["Graph"])
 
     @patch('graphistry.plugins.sentinel_graph.requests.post')
-    @patch('time.sleep')  # Mock sleep to speed up test
+    @patch('time.sleep')
     @patch.object(SentinelGraphMixin, '_get_auth_token')
     def test_execute_query_retry_on_timeout(self, mock_auth, mock_sleep, mock_post):
         """Test retry logic on timeout"""
         mock_auth.return_value = "test-token"
 
-        # First 2 calls timeout, 3rd succeeds
         mock_post.side_effect = [
             requests.exceptions.Timeout("Timeout 1"),
             requests.exceptions.Timeout("Timeout 2"),
-            Mock(status_code=200, content=b'{"result": "success"}')
+            Mock(status_code=200, content=json.dumps(SAMPLE_RESPONSE_FULL).encode())
         ]
 
         g = graphistry.bind()
         g.configure_sentinel_graph(graph_instance="TestInstance", max_retries=3)
 
-        result = g._sentinel_graph_query("MATCH (n) RETURN n", "GQL")
+        result = g._sentinel_graph_query("MATCH (n) RETURN n", "GQL", ["Graph"])
 
-        assert result == b'{"result": "success"}'
         assert mock_post.call_count == 3
-        assert mock_sleep.call_count == 2  # Slept between retries
+        assert mock_sleep.call_count == 2
 
     @patch('graphistry.plugins.sentinel_graph.requests.post')
     @patch('time.sleep')
@@ -286,21 +290,20 @@ class TestQueryExecution:
     def test_execute_query_max_retries_exceeded(self, mock_auth, mock_sleep, mock_post):
         """Test failure after max retries"""
         mock_auth.return_value = "test-token"
-
         mock_post.side_effect = requests.exceptions.ConnectionError("Connection failed")
 
         g = graphistry.bind()
         g.configure_sentinel_graph(graph_instance="TestInstance", max_retries=3)
 
         with pytest.raises(SentinelGraphConnectionError, match="3 retries"):
-            g._sentinel_graph_query("MATCH (n) RETURN n", "GQL")
+            g._sentinel_graph_query("MATCH (n) RETURN n", "GQL", ["Graph"])
 
         assert mock_post.call_count == 3
 
     @patch.object(SentinelGraphMixin, '_sentinel_graph_query')
     @patch.object(SentinelGraphMixin, '_parse_graph_response')
     def test_sentinel_graph_main_method(self, mock_parse, mock_query):
-        """Test main sentinel_graph method"""
+        """Test main sentinel_graph method threads response_formats"""
         mock_query.return_value = b'test-response'
         mock_parse.return_value = Mock()
 
@@ -309,9 +312,58 @@ class TestQueryExecution:
 
         result = g.sentinel_graph("MATCH (n) RETURN n")
 
-        mock_query.assert_called_once_with("MATCH (n) RETURN n", 'GQL')
+        mock_query.assert_called_once_with("MATCH (n) RETURN n", 'GQL', ["Graph"])
         mock_parse.assert_called_once_with(b'test-response')
         assert result is mock_parse.return_value
+
+
+class TestResponseFormats:
+    """Test response_formats parameter threading"""
+
+    @patch('graphistry.plugins.sentinel_graph.requests.post')
+    @patch.object(SentinelGraphMixin, '_get_auth_token')
+    def test_default_format_is_graph(self, mock_auth, mock_post):
+        """Default responseFormats should be ["Graph"]"""
+        mock_auth.return_value = "test-token"
+        mock_post.return_value = Mock(
+            status_code=200,
+            content=json.dumps(SAMPLE_RESPONSE_EMPTY).encode()
+        )
+        g = graphistry.bind()
+        g.configure_sentinel_graph(graph_instance="TestInstance")
+        g.sentinel_graph("MATCH (n) RETURN n")
+        payload = mock_post.call_args[1]['json']
+        assert payload['responseFormats'] == ["Graph"]
+
+    @patch('graphistry.plugins.sentinel_graph.requests.post')
+    @patch.object(SentinelGraphMixin, '_get_auth_token')
+    def test_custom_format_passed_through(self, mock_auth, mock_post):
+        """Custom response_formats should be sent to the API"""
+        mock_auth.return_value = "test-token"
+        mock_post.return_value = Mock(
+            status_code=200,
+            content=json.dumps(SAMPLE_RESPONSE_EMPTY).encode()
+        )
+        g = graphistry.bind()
+        g.configure_sentinel_graph(graph_instance="TestInstance")
+        g.sentinel_graph("MATCH (n) RETURN n", response_formats=["Table", "Graph"])
+        payload = mock_post.call_args[1]['json']
+        assert payload['responseFormats'] == ["Table", "Graph"]
+
+    @patch('graphistry.plugins.sentinel_graph.requests.post')
+    @patch.object(SentinelGraphMixin, '_get_auth_token')
+    def test_format_configured_at_configure_time(self, mock_auth, mock_post):
+        """response_formats set during configure_sentinel_graph should be used"""
+        mock_auth.return_value = "test-token"
+        mock_post.return_value = Mock(
+            status_code=200,
+            content=json.dumps(SAMPLE_RESPONSE_EMPTY).encode()
+        )
+        g = graphistry.bind()
+        g.configure_sentinel_graph(graph_instance="TestInstance", response_formats=["Table"])
+        g.sentinel_graph("MATCH (n) RETURN n")
+        payload = mock_post.call_args[1]['json']
+        assert payload['responseFormats'] == ["Table"]
 
 
 class TestResponseParsing:
@@ -324,24 +376,30 @@ class TestResponseParsing:
 
         nodes_df = g._extract_nodes(SAMPLE_RESPONSE_FULL)
 
-        assert len(nodes_df) == 3  # simple graph has 3 nodes
+        assert len(nodes_df) == 3
         assert 'id' in nodes_df.columns
         assert 'label' in nodes_df.columns
-        assert set(nodes_df['id']) == {'node1', 'node2', 'node3'}
+        assert set(nodes_df['id']) == {'node-a', 'node-b', 'node-c'}
 
-    def test_extract_nodes_rawdata_only(self):
-        """Test node extraction from RawData only"""
+    def test_extract_nodes_labels_mapped(self):
+        """Test that labels list is mapped to label column"""
         g = graphistry.bind()
         g.configure_sentinel_graph(graph_instance="TestInstance")
 
-        minimal_response = get_minimal_response()
-        nodes_df = g._extract_nodes(minimal_response)
+        nodes_df = g._extract_nodes(SAMPLE_RESPONSE_FULL)
+        node_a = nodes_df[nodes_df['id'] == 'node-a'].iloc[0]
+        assert node_a['label'] == 'User'
+        assert node_a['labels'] == ['User']
 
-        assert len(nodes_df) >= 1  # May have entries from both Graph.Nodes and RawData
-        # Find the node from RawData which has more complete information
-        node1_rows = nodes_df[nodes_df['id'] == 'node1']
-        assert len(node1_rows) > 0
-        # Check that at least one row has the node (may not have label if from Graph.Nodes)
+    def test_extract_nodes_properties_spread(self):
+        """Test that node properties are spread as top-level columns"""
+        g = graphistry.bind()
+        g.configure_sentinel_graph(graph_instance="TestInstance")
+
+        nodes_df = g._extract_nodes(SAMPLE_RESPONSE_FULL)
+        node_a = nodes_df[nodes_df['id'] == 'node-a'].iloc[0]
+        assert node_a['name'] == 'Alice'
+        assert node_a['department'] == 'Engineering'
 
     def test_extract_nodes_deduplication(self):
         """Test node deduplication keeps most complete record"""
@@ -352,22 +410,23 @@ class TestResponseParsing:
 
         nodes_df = g._extract_nodes(duplicate_response)
 
-        # Should have 2 unique nodes (node1 and node2) after deduplication
+        # 3 entries in fixture (node-dup x2, node-other x1) -> 2 unique IDs after dedup
         assert len(nodes_df) == 2
-        assert set(nodes_df['id'].unique()) == {'node1', 'node2'}
-        # Deduplication logic keeps one record per ID
-        # Note: Current implementation may not merge all properties from duplicates
+        assert set(nodes_df['id'].unique()) == {'node-dup', 'node-other'}
+        # The richer record (with email + department) should be kept
+        dup_row = nodes_df[nodes_df['id'] == 'node-dup'].iloc[0]
+        assert dup_row.get('email') == 'bob@contoso.com'
 
-    def test_extract_nodes_malformed_data(self):
-        """Test graceful handling of malformed data"""
+    def test_extract_nodes_malformed_skips_missing_id(self):
+        """Node entry missing 'id' should be skipped"""
         g = graphistry.bind()
         g.configure_sentinel_graph(graph_instance="TestInstance")
 
         nodes_df = g._extract_nodes(SAMPLE_RESPONSE_MALFORMED)
 
-        # Should extract valid nodes and skip invalid ones
-        assert len(nodes_df) == 2
-        assert set(nodes_df['id']) == {'node1', 'node2'}
+        # Only 'node-valid' should be present; the entry without 'id' is skipped
+        assert len(nodes_df) == 1
+        assert nodes_df.iloc[0]['id'] == 'node-valid'
 
     def test_extract_nodes_empty_response(self):
         """Test extraction from empty response"""
@@ -387,27 +446,34 @@ class TestResponseParsing:
 
         edges_df = g._extract_edges(SAMPLE_RESPONSE_FULL)
 
-        assert len(edges_df) == 2  # simple graph has 2 edges
-        # Verify the edges form a chain: node1->node2->node3
-        edge1 = edges_df[edges_df['source'] == 'node1'].iloc[0]
-        assert edge1['target'] == 'node2'
-        assert edge1['edge'] == 'KNOWS'
+        assert len(edges_df) == 2
+        edge_ab = edges_df[edges_df['source'] == 'node-a'].iloc[0]
+        assert edge_ab['target'] == 'node-b'
+        assert edge_ab['edge'] == 'MemberOf'
 
-        edge2 = edges_df[edges_df['source'] == 'node2'].iloc[0]
-        assert edge2['target'] == 'node3'
-        assert edge2['edge'] == 'WORKS_WITH'
+        edge_bc = edges_df[edges_df['source'] == 'node-b'].iloc[0]
+        assert edge_bc['target'] == 'node-c'
+        assert edge_bc['edge'] == 'HasAccess'
 
-    def test_extract_edges_rawdata_only(self):
-        """Test edge extraction from RawData only (orphan edges)"""
+    def test_extract_edges_properties_spread(self):
+        """Test that edge properties are spread as top-level columns"""
         g = graphistry.bind()
         g.configure_sentinel_graph(graph_instance="TestInstance")
 
-        edge_only_response = get_edge_only_response()
-        edges_df = g._extract_edges(edge_only_response)
+        edges_df = g._extract_edges(SAMPLE_RESPONSE_FULL)
+        edge_ab = edges_df[edges_df['source'] == 'node-a'].iloc[0]
+        assert edge_ab['since'] == '2024-01-01'
 
-        assert len(edges_df) == 2  # edge_only_response has 2 orphan edges
-        assert edges_df.iloc[0]['source'] == 'missing_node1'
-        assert edges_df.iloc[0]['target'] == 'missing_node2'
+    def test_extract_edges_only_response(self):
+        """Test edge extraction when no nodes are present"""
+        g = graphistry.bind()
+        g.configure_sentinel_graph(graph_instance="TestInstance")
+
+        edges_df = g._extract_edges(get_edge_only_response())
+
+        assert len(edges_df) == 1
+        assert edges_df.iloc[0]['source'] == 'ghost-node-a'
+        assert edges_df.iloc[0]['target'] == 'ghost-node-b'
 
     def test_extract_edges_empty_response(self):
         """Test edge extraction from empty response"""
@@ -419,6 +485,68 @@ class TestResponseParsing:
         assert len(edges_df) == 0
         assert 'source' in edges_df.columns
         assert 'target' in edges_df.columns
+
+    def test_extract_nodes_minimal(self):
+        """Test minimal response with 1 node"""
+        g = graphistry.bind()
+        g.configure_sentinel_graph(graph_instance="TestInstance")
+
+        nodes_df = g._extract_nodes(get_minimal_response())
+
+        assert len(nodes_df) == 1
+        assert nodes_df.iloc[0]['id'] == 'node-001'
+        assert nodes_df.iloc[0]['label'] == 'Device'
+
+    def test_null_properties_preserved(self):
+        """None values in properties are passed through"""
+        g = graphistry.bind()
+        g.configure_sentinel_graph(graph_instance="TestInstance")
+
+        nodes_df = g._extract_nodes(get_response_with_null_properties())
+
+        assert len(nodes_df) == 1
+        node = nodes_df.iloc[0]
+        assert node['name'] == 'Eve'
+        assert node['role'] == 'analyst'
+
+
+class TestTableFormatParsing:
+    """Test rawData.tables secondary path (table format responses)"""
+
+    def test_extract_nodes_from_table_format(self):
+        """Nodes should be extracted from rawData.tables when graph section is empty"""
+        g = graphistry.bind()
+        g.configure_sentinel_graph(graph_instance="TestInstance")
+
+        response = get_table_format_response()
+        nodes_df = g._extract_nodes(response)
+
+        assert len(nodes_df) == 2
+        assert set(nodes_df['id']) == {'table-node-001', 'table-node-002'}
+
+    def test_extract_edges_from_table_format(self):
+        """Edges should be extracted from rawData.tables using sourceOid/targetOid"""
+        g = graphistry.bind()
+        g.configure_sentinel_graph(graph_instance="TestInstance")
+
+        response = get_table_format_response()
+        edges_df = g._extract_edges(response)
+
+        assert len(edges_df) == 1
+        assert edges_df.iloc[0]['source'] == 'table-node-001'
+        assert edges_df.iloc[0]['target'] == 'table-node-002'
+        assert edges_df.iloc[0]['edge'] == 'HasRole'
+
+    def test_table_format_node_labels_mapped(self):
+        """Table format nodes should have label mapped from labels[0]"""
+        g = graphistry.bind()
+        g.configure_sentinel_graph(graph_instance="TestInstance")
+
+        response = get_table_format_response()
+        nodes_df = g._extract_nodes(response)
+
+        node_001 = nodes_df[nodes_df['id'] == 'table-node-001'].iloc[0]
+        assert node_001['label'] == 'User'
 
 
 class TestGraphConversion:
@@ -434,8 +562,8 @@ class TestGraphConversion:
 
         assert result._nodes is not None
         assert result._edges is not None
-        assert len(result._nodes) == 3  # simple graph has 3 nodes
-        assert len(result._edges) == 2  # simple graph has 2 edges
+        assert len(result._nodes) == 3
+        assert len(result._edges) == 2
 
     def test_convert_dict_response(self):
         """Test conversion from dict response"""
@@ -455,6 +583,15 @@ class TestGraphConversion:
         with pytest.raises(SentinelGraphQueryError, match="parse.*JSON"):
             g._parse_graph_response(b'not valid json')
 
+    def test_convert_missing_result_key(self):
+        """Old response format without 'result' key raises clear error"""
+        g = graphistry.bind()
+        g.configure_sentinel_graph(graph_instance="TestInstance")
+
+        old_format = {"Graph": {"Nodes": [], "Edges": []}, "RawData": {"Rows": []}}
+        with pytest.raises(SentinelGraphQueryError, match="result"):
+            g._parse_graph_response(old_format)
+
     def test_convert_empty_response(self):
         """Test conversion of empty response"""
         g = graphistry.bind()
@@ -466,75 +603,96 @@ class TestGraphConversion:
         assert len(result._edges) == 0
 
 
-class TestSentinelGraphAPIFormat:
-    """Test parsing of responses using sys_* field naming (actual Sentinel Graph API format)"""
+class TestSentinelGraphList:
+    """Tests for sentinel_graph_list() method"""
 
-    def test_extract_nodes_sys_format(self):
-        """Test node extraction from sys_* format response"""
-        from graphistry.tests.fixtures.sentinel_graph_responses import get_sentinel_graph_api_response
+    @patch('graphistry.plugins.sentinel_graph.requests.get')
+    @patch.object(SentinelGraphMixin, '_get_auth_token')
+    def test_list_returns_dataframe(self, mock_auth, mock_get):
+        """sentinel_graph_list returns a DataFrame with graph instance metadata"""
+        mock_auth.return_value = "test-token"
+        mock_get.return_value = Mock(
+            status_code=200,
+            content=json.dumps(get_graph_list_response()).encode()
+        )
+        g = graphistry.bind()
+        g.configure_sentinel_graph(graph_instance="placeholder")
+        result = g.sentinel_graph_list()
+
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) == 2
+        assert "name" in result.columns
+        assert "instanceStatus" in result.columns
+        assert result.iloc[0]["name"] == "TestGraph"
+        assert result.iloc[0]["instanceStatus"] == "Ready"
+        assert result.iloc[1]["name"] == "StagingGraph"
+        assert result.iloc[1]["instanceStatus"] == "Creating"
+
+    @patch('graphistry.plugins.sentinel_graph.requests.get')
+    @patch.object(SentinelGraphMixin, '_get_auth_token')
+    def test_list_uses_correct_url_and_params(self, mock_auth, mock_get):
+        """List endpoint uses correct URL and graphTypes=Custom query param"""
+        mock_auth.return_value = "test-token"
+        mock_get.return_value = Mock(
+            status_code=200,
+            content=json.dumps({"value": []}).encode()
+        )
+        g = graphistry.bind()
+        g.configure_sentinel_graph(graph_instance="placeholder")
+        g.sentinel_graph_list()
+
+        call_args = mock_get.call_args
+        url = call_args[0][0]
+        params = call_args[1]['params']
+        assert "graph-instances" in url
+        assert "api.securityplatform.microsoft.com" in url
+        assert params == {"graphTypes": "Custom"}
+
+    @patch('graphistry.plugins.sentinel_graph.requests.get')
+    @patch.object(SentinelGraphMixin, '_get_auth_token')
+    def test_list_empty_returns_empty_dataframe(self, mock_auth, mock_get):
+        """Empty list returns DataFrame with expected columns"""
+        mock_auth.return_value = "test-token"
+        mock_get.return_value = Mock(
+            status_code=200,
+            content=json.dumps({"value": []}).encode()
+        )
+        g = graphistry.bind()
+        g.configure_sentinel_graph(graph_instance="placeholder")
+        result = g.sentinel_graph_list()
+
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) == 0
+        assert set(result.columns) >= {"name", "graphDefinitionName", "instanceStatus"}
+
+    @patch('graphistry.plugins.sentinel_graph.requests.get')
+    @patch.object(SentinelGraphMixin, '_get_auth_token')
+    def test_list_http_error_raises(self, mock_auth, mock_get):
+        """Non-200 HTTP response raises SentinelGraphQueryError"""
+        mock_auth.return_value = "test-token"
+        mock_get.return_value = Mock(status_code=403)
 
         g = graphistry.bind()
-        g.configure_sentinel_graph(graph_instance="TestInstance")
+        g.configure_sentinel_graph(graph_instance="placeholder")
 
-        response = get_sentinel_graph_api_response()
-        nodes_df = g._extract_nodes(response)
+        with pytest.raises(SentinelGraphQueryError, match="403"):
+            g.sentinel_graph_list()
 
-        # Should extract 4 nodes: 2 users + 2 IP addresses
-        assert len(nodes_df) == 4
-        assert 'id' in nodes_df.columns
-        assert 'label' in nodes_df.columns
-        assert 'sys_label' in nodes_df.columns
-
-        # Check node IDs
-        node_ids = set(nodes_df['id'])
-        assert 'user1@example.com' in node_ids
-        assert 'user2@example.com' in node_ids
-        assert '192.168.1.100' in node_ids
-        assert '10.0.0.50' in node_ids
-
-    def test_extract_edges_sys_format(self):
-        """Test edge extraction from sys_* format response"""
-        from graphistry.tests.fixtures.sentinel_graph_responses import get_sentinel_graph_api_response
-
+    @patch('graphistry.plugins.sentinel_graph.requests.get')
+    @patch.object(SentinelGraphMixin, '_get_auth_token')
+    def test_list_uses_bearer_token(self, mock_auth, mock_get):
+        """List endpoint sends correct Authorization header"""
+        mock_auth.return_value = "my-bearer-token"
+        mock_get.return_value = Mock(
+            status_code=200,
+            content=json.dumps({"value": []}).encode()
+        )
         g = graphistry.bind()
-        g.configure_sentinel_graph(graph_instance="TestInstance")
+        g.configure_sentinel_graph(graph_instance="placeholder")
+        g.sentinel_graph_list()
 
-        response = get_sentinel_graph_api_response()
-        edges_df = g._extract_edges(response)
-
-        # Should extract 2 edges
-        assert len(edges_df) == 2
-        assert 'source' in edges_df.columns
-        assert 'target' in edges_df.columns
-        assert 'edge' in edges_df.columns
-
-        # Check edge data
-        edge1 = edges_df[edges_df['source'] == 'user1@example.com'].iloc[0]
-        assert edge1['target'] == '192.168.1.100'
-        assert edge1['edge'] == 'AUTH_ATTEMPT_FROM'
-        assert edge1['failureCount'] == 5
-        assert edge1['successCount'] == 100
-
-        edge2 = edges_df[edges_df['source'] == 'user2@example.com'].iloc[0]
-        assert edge2['target'] == '10.0.0.50'
-        assert edge2['failureCount'] == 0
-        assert edge2['successCount'] == 50
-
-    def test_full_parsing_sys_format(self):
-        """Test full graph parsing from sys_* format response"""
-        from graphistry.tests.fixtures.sentinel_graph_responses import get_sentinel_graph_api_response
-
-        g = graphistry.bind()
-        g.configure_sentinel_graph(graph_instance="TestInstance")
-
-        response = get_sentinel_graph_api_response()
-        result = g._parse_graph_response(response)
-
-        # Should have nodes and edges bound
-        assert result._nodes is not None
-        assert result._edges is not None
-        assert len(result._nodes) == 4
-        assert len(result._edges) == 2
+        call_kwargs = mock_get.call_args[1]
+        assert call_kwargs['headers']['Authorization'] == "Bearer my-bearer-token"
 
 
 # Integration test markers
@@ -545,5 +703,4 @@ class TestSentinelGraphIntegration:
 
     def test_live_query(self):
         """Test actual query against live API (requires credentials)"""
-        # This would be run manually with real credentials
         pass

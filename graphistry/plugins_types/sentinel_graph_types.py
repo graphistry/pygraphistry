@@ -1,4 +1,4 @@
-from typing import Optional, Any, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING
 from dataclasses import dataclass, field
 
 if TYPE_CHECKING:
@@ -38,6 +38,9 @@ class SentinelGraphConfig:
     client_id: Optional[str] = None
     client_secret: Optional[str] = None
     use_device_auth: bool = False
+
+    # Query configuration
+    response_formats: List[str] = field(default_factory=lambda: ["Graph"])
 
     # Internal state (not user-configurable)
     _token: Optional[str] = field(default=None, repr=False)

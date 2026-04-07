@@ -1,400 +1,272 @@
 """
-Synthetic test fixtures for Microsoft Sentinel Graph API responses.
-
-These fixtures mimic the structure of actual Sentinel Graph API responses
-for testing purposes without relying on real threat intelligence data.
+Test fixtures for Microsoft Sentinel Graph API responses.
+Matches the public preview API format:
+  https://learn.microsoft.com/en-us/azure/sentinel/datalake/graph-rest-api
 """
 
-import json
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
 
-def _create_node_json(node_id: str, label: str, properties: Dict[str, Any]) -> str:
-    """Helper to create a JSON-encoded node string."""
-    node = {
-        "_id": node_id,
-        "_label": label,
-        **properties
-    }
-    return json.dumps(node)
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_node(node_id: str, labels: List[str], properties: Dict[str, Any]) -> Dict[str, Any]:
+    return {"id": node_id, "labels": labels, "properties": properties}
 
 
-def _create_edge_json(
+def _make_edge(
     edge_id: str,
     source_id: str,
     target_id: str,
-    label: str,
+    labels: List[str],
     properties: Dict[str, Any]
-) -> str:
-    """Helper to create a JSON-encoded edge string."""
-    edge = {
-        "_id": edge_id,
-        "_sourceId": source_id,
-        "_targetId": target_id,
-        "_label": label,
-        **properties
-    }
-    return json.dumps(edge)
-
-
-def _create_graph_node(node_id: str) -> Dict[str, Any]:
-    """Helper to create a Graph.Nodes entry."""
+) -> Dict[str, Any]:
     return {
-        "Id": node_id,
-        "Properties": [],
-        "Labels": []
+        "id": edge_id,
+        "sourceId": source_id,
+        "targetId": target_id,
+        "labels": labels,
+        "properties": properties,
     }
 
 
-def _wrap_response(cols: List[str]) -> Dict[str, Any]:
-    """
-    Wrap Cols list in full response structure.
-
-    Args:
-        cols: List of JSON-encoded strings (nodes and edges)
-
-    Returns:
-        Full response dict matching Sentinel Graph API structure
-    """
-    # Extract node IDs for Graph.Nodes section
-    node_ids = []
-    for col_value in cols:
-        try:
-            obj = json.loads(col_value)
-            if "_label" in obj and "_sourceId" not in obj:
-                node_ids.append(obj["_id"])
-        except json.JSONDecodeError:
-            pass
-
+def _wrap_graph_response(
+    nodes: List[Dict[str, Any]],
+    edges: List[Dict[str, Any]],
+    raw_tables: List[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     return {
-        "Graph": {
-            "Nodes": [_create_graph_node(nid) for nid in node_ids],
-            "Edges": []
+        "status": 200,
+        "result": {
+            "graph": {"nodes": nodes, "edges": edges},
+            "rawData": {"tables": raw_tables or []},
         },
-        "RawData": {
-            "Rows": [
-                {
-                    "Cols": [{"Value": val} for val in cols]
-                }
-            ]
-        }
+        "correlationId": "test-correlation-id-0000",
     }
 
+
+# ---------------------------------------------------------------------------
+# Graph-format fixtures
+# ---------------------------------------------------------------------------
 
 def get_minimal_response() -> Dict[str, Any]:
-    """
-    Minimal valid response with 1 node and 0 edges.
-    Tests basic parsing functionality.
-    """
-    cols = [
-        _create_node_json("node1", "Entity", {"name": "TestEntity"})
+    """1 node, 0 edges"""
+    nodes = [
+        _make_node("node-001", ["Device"], {"hostname": "laptop-01", "os": "Windows 11"}),
     ]
-    return _wrap_response(cols)
+    return _wrap_graph_response(nodes, [])
 
 
 def get_simple_graph_response() -> Dict[str, Any]:
-    """
-    Simple graph with 3 nodes and 2 edges forming a chain: A -> B -> C
-    Tests basic node and edge extraction.
-    """
-    cols = [
-        _create_node_json("node1", "Person", {"name": "Alice", "age": 30}),
-        _create_edge_json("edge1", "node1", "node2", "KNOWS", {"since": 2020}),
-        _create_node_json("node2", "Person", {"name": "Bob", "age": 25}),
-        _create_edge_json("edge2", "node2", "node3", "WORKS_WITH", {"department": "Engineering"}),
-        _create_node_json("node3", "Person", {"name": "Charlie", "age": 35})
+    """3 nodes (A, B, C) and 2 edges (A->B, B->C)"""
+    nodes = [
+        _make_node("node-a", ["User"], {"name": "Alice", "department": "Engineering"}),
+        _make_node("node-b", ["Group"], {"name": "Admins", "memberCount": 5}),
+        _make_node("node-c", ["Resource"], {"name": "FileShare", "path": "/data"}),
     ]
-    return _wrap_response(cols)
+    edges = [
+        _make_edge("edge-ab", "node-a", "node-b", ["MemberOf"], {"since": "2024-01-01"}),
+        _make_edge("edge-bc", "node-b", "node-c", ["HasAccess"], {"permission": "read"}),
+    ]
+    return _wrap_graph_response(nodes, edges)
 
 
 def get_duplicate_nodes_response() -> Dict[str, Any]:
-    """
-    Response with duplicate nodes having varying levels of completeness.
-    Tests deduplication logic that keeps the most complete record.
-    """
-    cols = [
-        # First occurrence - minimal data
-        _create_node_json("node1", "Person", {"name": "Alice"}),
-        _create_edge_json("edge1", "node1", "node2", "KNOWS", {}),
-        # Second occurrence - more complete data (should be kept)
-        _create_node_json("node1", "Person", {
-            "name": "Alice",
-            "age": 30,
-            "email": "alice@example.com",
-            "department": "Sales"
-        }),
-        _create_node_json("node2", "Person", {"name": "Bob"}),
-        # Third occurrence - less complete than second
-        _create_node_json("node1", "Person", {"name": "Alice", "age": 30})
+    """Same node id appears twice; the more-complete record should be kept."""
+    nodes = [
+        # Sparse first occurrence
+        _make_node("node-dup", ["User"], {"name": "Bob"}),
+        # Richer second occurrence (more properties)
+        _make_node("node-dup", ["User"], {"name": "Bob", "email": "bob@contoso.com", "department": "IT"}),
+        _make_node("node-other", ["User"], {"name": "Carol"}),
     ]
-    return _wrap_response(cols)
+    edges = [
+        _make_edge("edge-001", "node-dup", "node-other", ["Knows"], {}),
+    ]
+    return _wrap_graph_response(nodes, edges)
 
 
 def get_malformed_response() -> Dict[str, Any]:
-    """
-    Response with some malformed JSON entries mixed with valid ones.
-    Tests error handling and defensive parsing.
-    """
-    cols = [
-        _create_node_json("node1", "Person", {"name": "Valid"}),
-        "This is not valid JSON {{{",
-        _create_edge_json("edge1", "node1", "node2", "RELATES", {}),
-        '{"incomplete": "missing required fields"}',
-        _create_node_json("node2", "Person", {"name": "AlsoValid"})
+    """One node entry is missing the required 'id' field and should be skipped."""
+    nodes = [
+        _make_node("node-valid", ["User"], {"name": "Dave"}),
+        # Missing 'id' — parser should skip this
+        {"labels": ["Broken"], "properties": {"name": "No ID here"}},
     ]
-    return _wrap_response(cols)
+    edges = [
+        _make_edge("edge-001", "node-valid", "node-valid", ["SelfLoop"], {}),
+    ]
+    return _wrap_graph_response(nodes, edges)
 
 
 def get_empty_response() -> Dict[str, Any]:
-    """
-    Valid response with empty results.
-    Tests handling of queries that return no data.
-    """
-    return {
-        "Graph": {
-            "Nodes": [],
-            "Edges": []
-        },
-        "RawData": {
-            "Rows": []
-        }
-    }
+    """Valid response envelope with no nodes or edges."""
+    return _wrap_graph_response([], [])
 
 
 def get_complex_graph_response() -> Dict[str, Any]:
-    """
-    Complex graph with multiple node types, edge types, and rich properties.
-    Tests handling of diverse real-world scenarios.
-    """
-    cols = [
-        # Organization nodes
-        _create_node_json("org1", "Organization", {
-            "name": "TechCorp",
-            "industry": "Technology",
-            "founded": 2010,
-            "employees": 5000
+    """Multiple node types and edge types with rich properties."""
+    nodes = [
+        _make_node("user-001", ["User"], {
+            "name": "Aino Rebane",
+            "email": "aino.rebane@contoso.com",
+            "department": "Engineering",
+            "jobTitle": "Senior Engineer",
         }),
-        _create_node_json("org2", "Organization", {
-            "name": "DataCo",
-            "industry": "Analytics",
-            "founded": 2015
+        _make_node("user-002", ["User"], {
+            "name": "Marco Silva",
+            "email": "marco.silva@contoso.com",
+            "department": "Security",
         }),
-
-        # Person nodes
-        _create_node_json("person1", "Person", {
-            "name": "Alice",
-            "age": 30,
-            "role": "Engineer",
-            "email": "alice@techcorp.com"
+        _make_node("group-001", ["Group"], {
+            "name": "Administrators",
+            "description": "System administrators",
+            "memberCount": 25,
         }),
-        _create_node_json("person2", "Person", {
-            "name": "Bob",
-            "age": 35,
-            "role": "Manager"
+        _make_node("resource-001", ["Resource", "FileShare"], {
+            "name": "FinanceData",
+            "path": "/shares/finance",
+            "sensitivity": "Confidential",
         }),
-        _create_node_json("person3", "Person", {
-            "name": "Charlie",
-            "age": 28,
-            "role": "Analyst"
+        _make_node("device-001", ["Device"], {
+            "hostname": "workstation-42",
+            "os": "Windows 11",
+            "lastSeen": "2024-03-01T12:00:00Z",
         }),
-
-        # Location nodes
-        _create_node_json("loc1", "Location", {
-            "city": "San Francisco",
-            "country": "USA",
-            "coordinates": "37.7749,-122.4194"
-        }),
-
-        # Employment edges
-        _create_edge_json("emp1", "person1", "org1", "EMPLOYED_BY", {
-            "start_date": "2020-01-15",
-            "position": "Senior Engineer"
-        }),
-        _create_edge_json("emp2", "person2", "org1", "EMPLOYED_BY", {
-            "start_date": "2018-06-01",
-            "position": "Engineering Manager"
-        }),
-        _create_edge_json("emp3", "person3", "org2", "EMPLOYED_BY", {
-            "start_date": "2021-03-10"
-        }),
-
-        # Relationship edges
-        _create_edge_json("rel1", "person1", "person2", "REPORTS_TO", {
-            "since": "2020-01-15"
-        }),
-        _create_edge_json("rel2", "person1", "person3", "COLLABORATES_WITH", {
-            "projects": ["DataPipeline", "Analytics"]
-        }),
-
-        # Location edges
-        _create_edge_json("loc_edge1", "org1", "loc1", "LOCATED_IN", {
-            "office_type": "Headquarters"
-        }),
-        _create_edge_json("loc_edge2", "org2", "loc1", "LOCATED_IN", {
-            "office_type": "Branch"
-        })
     ]
-    return _wrap_response(cols)
+    edges = [
+        _make_edge("e-001", "user-001", "group-001", ["MemberOf"], {"assignedDate": "2024-01-15"}),
+        _make_edge("e-002", "user-002", "group-001", ["MemberOf"], {"assignedDate": "2024-02-01"}),
+        _make_edge("e-003", "group-001", "resource-001", ["HasAccess"], {"permission": "full"}),
+        _make_edge("e-004", "user-001", "device-001", ["Uses"], {"primary": True}),
+        _make_edge("e-005", "user-001", "user-002", ["CollaboratesWith"], {"projectCount": 3}),
+    ]
+    return _wrap_graph_response(nodes, edges)
 
 
 def get_edge_only_response() -> Dict[str, Any]:
-    """
-    Response with edges but no corresponding nodes (orphan edges).
-    Tests handling of incomplete graph data.
-    """
-    cols = [
-        _create_edge_json("edge1", "missing_node1", "missing_node2", "RELATES", {
-            "type": "orphan"
-        }),
-        _create_edge_json("edge2", "missing_node2", "missing_node3", "CONNECTS", {
-            "strength": 0.8
-        })
+    """Edges referencing node IDs that are not present in the nodes list."""
+    edges = [
+        _make_edge("orphan-edge-001", "ghost-node-a", "ghost-node-b", ["Relates"], {}),
     ]
-    return _wrap_response(cols)
+    return _wrap_graph_response([], edges)
 
 
 def get_response_with_special_characters() -> Dict[str, Any]:
-    """
-    Response with special characters, unicode, and edge cases in properties.
-    Tests robust string handling.
-    """
-    cols = [
-        _create_node_json("node1", "Person", {
-            "name": "José García",
-            "bio": "Engineer with 10+ years experience\nSpecializes in: Data & Analytics",
-            "tags": ["Python", "ML/AI", "Cloud"],
-            "special_chars": "Test: @#$%^&*()_+-={}[]|\\:;\"'<>,.?/"
+    """Node and edge properties containing unicode, special chars, and emoji."""
+    nodes = [
+        _make_node("node-unicode", ["User"], {
+            "name": "Jose Garcia",
+            "city": "Sao Paulo",
+            "notes": "resume & Japanese test",
+            "path": "C:\\Users\\test\\file.txt",
+            "json_field": '{"key": "value with quotes"}',
         }),
-        _create_edge_json("edge1", "node1", "node2", "MENTIONS", {
-            "context": "Discussed \"data quality\" & 'performance issues'",
-            "emoji": "👍🚀💯"
-        }),
-        _create_node_json("node2", "Document", {
-            "title": "Q1 Report",
-            "content": "Revenue: $1,000,000.00\nGrowth: 25%"
-        })
     ]
-    return _wrap_response(cols)
+    edges = [
+        _make_edge("edge-unicode", "node-unicode", "node-unicode", ["SelfRef"], {
+            "description": "Edge with Chinese and Arabic text",
+        }),
+    ]
+    return _wrap_graph_response(nodes, edges)
 
 
 def get_response_with_null_properties() -> Dict[str, Any]:
-    """
-    Response with null/None values in properties.
-    Tests handling of missing or null data.
-    """
-    cols = [
-        _create_node_json("node1", "Person", {
-            "name": "Alice",
-            "age": None,
-            "email": "alice@example.com",
-            "phone": None,
-            "department": None
+    """Properties dict may contain None values."""
+    nodes = [
+        _make_node("node-nulls", ["User"], {
+            "name": "Eve",
+            "email": None,
+            "department": None,
+            "role": "analyst",
         }),
-        _create_edge_json("edge1", "node1", "node2", "KNOWS", {
-            "since": None,
-            "strength": 0.5,
-            "notes": None
-        }),
-        _create_node_json("node2", "Person", {
-            "name": "Bob",
-            "age": 30
-        })
     ]
-    return _wrap_response(cols)
-
-
-def _create_sys_node_json(
-    node_id: str,
-    label: str,
-    sys_label: str,
-    properties: Dict[str, Any]
-) -> str:
-    """Helper to create a JSON-encoded node with sys_* fields (Sentinel Graph API format)."""
-    node = {
-        "id": node_id,
-        "sys_id": node_id,
-        "label": label,
-        "sys_label": sys_label,
-        **properties
-    }
-    return json.dumps(node)
-
-
-def _create_sys_edge_json(
-    source_id: str,
-    target_id: str,
-    edge_type: str,
-    source_label: str,
-    target_label: str,
-    properties: Dict[str, Any]
-) -> str:
-    """Helper to create a JSON-encoded edge with sys_* fields (Sentinel Graph API format)."""
-    edge = {
-        "type": edge_type,
-        "sys_label": edge_type,
-        "sys_sourceId": source_id,
-        "sys_sourceLabel": source_label,
-        "sys_targetId": target_id,
-        "sys_targetLabel": target_label,
-        "sys_edge_id": edge_type,
-        **properties
-    }
-    return json.dumps(edge)
-
-
-def get_sentinel_graph_api_response() -> Dict[str, Any]:
-    """
-    Response using Sentinel Graph API field naming (sys_* prefix).
-    Tests compatibility with actual Microsoft Sentinel Graph API responses.
-
-    Mimics authentication events: User -> AUTH_ATTEMPT_FROM -> IPAddress
-    """
-    cols = [
-        # User node
-        _create_sys_node_json("user1@example.com", "trusted-service-user", "User", {
-            "displayName": "Alice User",
-            "z_processed_at": "2025-01-15T10:00:00.0000000Z",
-            "TimeGenerated": "2025-01-15T09:59:00.0000000Z"
+    edges = [
+        _make_edge("edge-nulls", "node-nulls", "node-nulls", ["SelfLoop"], {
+            "weight": None,
+            "label": "test",
         }),
-        # Auth edge
-        _create_sys_edge_json(
-            "user1@example.com", "192.168.1.100",
-            "AUTH_ATTEMPT_FROM", "User", "IPAddress",
-            {"failureCount": 5, "successCount": 100}
-        ),
-        # IP node
-        _create_sys_node_json("192.168.1.100", "192.168.1.100", "IPAddress", {
-            "title": "192.168.1.100",
-            "z_processed_at": "2025-01-15T10:00:00.0000000Z"
-        }),
-        # Another user
-        _create_sys_node_json("user2@example.com", "trusted-service-user", "User", {
-            "displayName": "Bob User"
-        }),
-        # Auth edge from second user
-        _create_sys_edge_json(
-            "user2@example.com", "10.0.0.50",
-            "AUTH_ATTEMPT_FROM", "User", "IPAddress",
-            {"failureCount": 0, "successCount": 50}
-        ),
-        # Second IP
-        _create_sys_node_json("10.0.0.50", "10.0.0.50", "IPAddress", {
-            "title": "10.0.0.50"
-        })
     ]
+    return _wrap_graph_response(nodes, edges)
 
-    # Wrap in response structure - note sys_* format doesn't use Graph.Nodes typically
-    return {
-        "Graph": {
-            "Nodes": [],
-            "Edges": []
-        },
-        "RawData": {
-            "Rows": [
-                {
-                    "Cols": [{"Value": val, "Metadata": {}, "Path": None} for val in cols]
-                }
+
+# ---------------------------------------------------------------------------
+# Table-format fixture (rawData.tables secondary path)
+# ---------------------------------------------------------------------------
+
+def get_table_format_response() -> Dict[str, Any]:
+    """Response using rawData table format only (graph section is empty).
+
+    Note: table-format edges use 'sourceOid'/'targetOid', not 'sourceId'/'targetId'.
+    """
+    tables = [
+        {
+            "tableName": "PrimaryResult",
+            "columns": [
+                {"columnName": "n", "dataType": "dynamic"},
+                {"columnName": "r", "dataType": "dynamic"},
+                {"columnName": "m", "dataType": "dynamic"},
             ],
-            "ColumnNames": ["n", "e", "m"]
+            "rows": [
+                [
+                    {
+                        "oid": "table-node-001",
+                        "labels": ["User"],
+                        "properties": {"name": "Alice", "department": "Engineering"},
+                    },
+                    {
+                        "oid": "table-edge-001",
+                        "labels": ["HasRole"],
+                        "sourceOid": "table-node-001",
+                        "targetOid": "table-node-002",
+                        "properties": {"assignedDate": "2024-01-15"},
+                    },
+                    {
+                        "oid": "table-node-002",
+                        "labels": ["Group"],
+                        "properties": {"name": "Administrators", "memberCount": 25},
+                    },
+                ]
+            ],
         }
+    ]
+    return _wrap_graph_response([], [], raw_tables=tables)
+
+
+# ---------------------------------------------------------------------------
+# Graph list endpoint fixture
+# ---------------------------------------------------------------------------
+
+def get_graph_list_response() -> Dict[str, Any]:
+    """Response from GET /graphs/graph-instances?graphTypes=Custom"""
+    return {
+        "value": [
+            {
+                "name": "TestGraph",
+                "mapFileName": None,
+                "mapFileVersion": None,
+                "graphDefinitionName": "TestDefinition",
+                "graphDefinitionVersion": "1.0",
+                "refreshFrequency": "PT1H",
+                "createTime": "2024-01-01T00:00:00Z",
+                "lastUpdateTime": "2024-03-01T12:00:00Z",
+                "lastSnapshotTime": "2024-03-01T11:00:00Z",
+                "lastSnapshotRequestTime": "2024-03-01T10:55:00Z",
+                "instanceStatus": "Ready",
+            },
+            {
+                "name": "StagingGraph",
+                "mapFileName": None,
+                "mapFileVersion": None,
+                "graphDefinitionName": "StagingDefinition",
+                "graphDefinitionVersion": "0.9",
+                "refreshFrequency": "PT6H",
+                "createTime": "2024-03-01T08:00:00Z",
+                "lastUpdateTime": "2024-03-01T08:00:00Z",
+                "lastSnapshotTime": None,
+                "lastSnapshotRequestTime": None,
+                "instanceStatus": "Creating",
+            },
+        ]
     }

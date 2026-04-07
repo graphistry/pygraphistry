@@ -2,7 +2,7 @@ import json
 import time
 import requests
 import pandas as pd
-from typing import Optional, Union, TYPE_CHECKING
+from typing import List, Optional, Union, TYPE_CHECKING
 from functools import wraps
 
 if TYPE_CHECKING:
@@ -78,7 +78,8 @@ class SentinelGraphMixin(Plottable):
         timeout: int = 60,
         max_retries: int = 3,
         retry_backoff_factor: float = 2.0,
-        verify_ssl: bool = True
+        verify_ssl: bool = True,
+        response_formats: Optional[List[str]] = None
     ) -> Plottable:
         """Configure Microsoft Sentinel Graph API connection.
 
@@ -113,6 +114,8 @@ class SentinelGraphMixin(Plottable):
         :type retry_backoff_factor: float
         :param verify_ssl: Verify SSL certificates (default: True, recommended for security)
         :type verify_ssl: bool
+        :param response_formats: Response formats to request from API (default: ["Graph"])
+        :type response_formats: Optional[List[str]]
         :returns: Self for method chaining
         :rtype: Plottable
 
@@ -167,7 +170,8 @@ class SentinelGraphMixin(Plottable):
             tenant_id=tenant_id,
             client_id=client_id,
             client_secret=client_secret,
-            use_device_auth=use_device_auth
+            use_device_auth=use_device_auth,
+            response_formats=response_formats if response_formats is not None else ["Graph"]
         )
         return self
 
@@ -236,7 +240,8 @@ class SentinelGraphMixin(Plottable):
     def sentinel_graph(
         self,
         query: str,
-        language: str = 'GQL'
+        language: str = 'GQL',
+        response_formats: Optional[List[str]] = None
     ) -> Plottable:
         """Execute graph query and return Plottable with nodes/edges bound.
 
@@ -277,14 +282,13 @@ class SentinelGraphMixin(Plottable):
                 # Query 2
                 result2 = graphistry.sentinel_graph('MATCH (a)-[r]->(b) RETURN * LIMIT 20')
         """
-        # Execute query
-        response_bytes = self._sentinel_graph_query(query, language)
-
-        # Parse and return Plottable
+        cfg = self._sentinel_graph_config
+        effective_formats = response_formats if response_formats is not None else cfg.response_formats
+        response_bytes = self._sentinel_graph_query(query, language, effective_formats)
         return self._parse_graph_response(response_bytes)
 
     @retry_on_request_exception
-    def _sentinel_graph_query(self, query: str, language: str) -> bytes:
+    def _sentinel_graph_query(self, query: str, language: str, response_formats: List[str]) -> bytes:
         """Internal: Execute query and return raw response bytes"""
         cfg = self._sentinel_graph_config
         token = self._get_auth_token()
@@ -299,7 +303,8 @@ class SentinelGraphMixin(Plottable):
 
         payload = {
             "query": query,
-            "queryLanguage": language
+            "queryLanguage": language,
+            "responseFormats": response_formats
         }
 
         # Security: Don't log query content (could contain sensitive data)
@@ -388,7 +393,6 @@ class SentinelGraphMixin(Plottable):
 
     def _parse_graph_response(self, response: Union[bytes, dict]) -> Plottable:
         """Internal: Parse response and return Plottable"""
-        # Parse JSON
         if isinstance(response, bytes):
             try:
                 parsed = json.loads(response.decode('utf-8'))
@@ -397,7 +401,14 @@ class SentinelGraphMixin(Plottable):
         else:
             parsed = response
 
-        # Extract nodes and edges
+        if "result" not in parsed:
+            raise SentinelGraphQueryError(
+                "Unexpected response format: missing 'result' key. "
+                "Ensure the API endpoint supports the public preview format."
+            )
+
+        logger.debug(f"Response correlationId: {parsed.get('correlationId')}")
+
         nodes_df = self._extract_nodes(parsed)
         edges_df = self._extract_edges(parsed)
 
@@ -406,7 +417,6 @@ class SentinelGraphMixin(Plottable):
         if nodes_df.empty and edges_df.empty:
             logger.warning("No graph data found in response")
 
-        # Return bound Plottable
         return (
             self.nodes(nodes_df, node='id')
             .edges(edges_df, source='source', destination='target')
@@ -415,117 +425,183 @@ class SentinelGraphMixin(Plottable):
     def _extract_nodes(self, data: dict) -> pd.DataFrame:
         """Internal: Extract and deduplicate nodes from response"""
         nodes_list = []
+        result = data.get("result", {})
 
-        # Extract from Graph.Nodes section
+        # Primary path: result.graph.nodes
         try:
-            graph_nodes = data.get('Graph', {}).get('Nodes', [])
+            graph_nodes = result.get("graph", {}).get("nodes", [])
             for node in graph_nodes:
-                if isinstance(node, dict):
-                    nodes_list.append({
-                        'id': node.get('Id'),
-                        'label': node.get('Label', []),
-                        'properties': node.get('Properties', {})
-                    })
+                if isinstance(node, dict) and node.get("id"):
+                    labels = node.get("labels", [])
+                    node_data = {"id": node["id"]}
+                    node_data["label"] = labels[0] if labels else None
+                    node_data["labels"] = labels
+                    node_data.update(node.get("properties", {}))
+                    nodes_list.append(node_data)
         except Exception as e:
-            logger.warning(f"Failed to extract from Graph.Nodes: {e}")
+            logger.warning(f"Failed to extract from result.graph.nodes: {e}")
 
-        # Extract from RawData.Rows
-        try:
-            raw_rows = data.get('RawData', {}).get('Rows', [])
-            for row in raw_rows:
-                for col in row.get('Cols', []):
-                    try:
-                        value_str = col.get('Value', '{}')
-                        value = json.loads(value_str) if isinstance(value_str, str) else value_str
+        # Secondary path: result.rawData.tables (table format)
+        if not nodes_list:
+            try:
+                tables = result.get("rawData", {}).get("tables", [])
+                for table in tables:
+                    for row in table.get("rows", []):
+                        for cell in row:
+                            if not isinstance(cell, dict):
+                                continue
+                            if "sourceOid" in cell or "targetOid" in cell:
+                                continue  # This is an edge cell
+                            oid = cell.get("oid")
+                            if not oid:
+                                continue
+                            labels = cell.get("labels", [])
+                            node_data = {"id": oid}
+                            node_data["label"] = labels[0] if labels else None
+                            node_data["labels"] = labels
+                            node_data.update(cell.get("properties", {}))
+                            nodes_list.append(node_data)
+            except Exception as e:
+                logger.warning(f"Failed to extract from result.rawData.tables: {e}")
 
-                        # Node detection: has label/sys_label but not source/target edge fields
-                        # Support both _label (original) and label/sys_label (Sentinel Graph API)
-                        has_label = isinstance(value, dict) and (
-                            '_label' in value or 'label' in value or 'sys_label' in value
-                        )
-                        is_edge = (
-                            '_sourceId' in value or 'sys_sourceId' in value or
-                            '_targetId' in value or 'sys_targetId' in value
-                        ) if isinstance(value, dict) else False
-
-                        if has_label and not is_edge:
-                            # Start with all properties from the value
-                            node_data = {k: v for k, v in value.items() if v is not None}
-                            # Normalize key fields
-                            node_data['id'] = value.get('_id') or value.get('id') or value.get('sys_id')
-                            node_data['label'] = value.get('_label') or value.get('label')
-                            if node_data.get('id'):  # Must have ID
-                                nodes_list.append(node_data)
-                    except (json.JSONDecodeError, TypeError, AttributeError) as e:
-                        logger.debug(f"Skipping unparseable column value: {e}")
-                        continue
-        except Exception as e:
-            logger.warning(f"Failed to extract from RawData.Rows: {e}")
-
-        # Create DataFrame and deduplicate
         if not nodes_list:
             logger.debug("No nodes found in response")
-            return pd.DataFrame(columns=['id', 'label'])
+            return pd.DataFrame(columns=["id", "label"])
 
         nodes_df = pd.DataFrame(nodes_list)
 
-        if 'id' in nodes_df.columns and not nodes_df['id'].isna().all():
-            # Keep row with most information (most non-null values)
-            nodes_df['_info_count'] = nodes_df.notna().sum(axis=1)
-            nodes_df = nodes_df.sort_values('_info_count', ascending=False)
-            nodes_df = nodes_df.drop_duplicates(subset='id', keep='first')
-            nodes_df = nodes_df.drop('_info_count', axis=1)
+        if "id" in nodes_df.columns and not nodes_df["id"].isna().all():
+            nodes_df["_info_count"] = nodes_df.notna().sum(axis=1)
+            nodes_df = nodes_df.sort_values("_info_count", ascending=False)
+            nodes_df = nodes_df.drop_duplicates(subset="id", keep="first")
+            nodes_df = nodes_df.drop("_info_count", axis=1)
 
         return nodes_df.reset_index(drop=True)
 
     def _extract_edges(self, data: dict) -> pd.DataFrame:
         """Internal: Extract edges from response"""
         edges_list = []
+        result = data.get("result", {})
 
-        # Extract from Graph.Edges section
+        # Primary path: result.graph.edges
         try:
-            graph_edges = data.get('Graph', {}).get('Edges', [])
+            graph_edges = result.get("graph", {}).get("edges", [])
             for edge in graph_edges:
-                if isinstance(edge, dict):
-                    edges_list.append(edge)
+                if not isinstance(edge, dict):
+                    continue
+                source = edge.get("sourceId")
+                target = edge.get("targetId")
+                if not (source and target):
+                    continue
+                labels = edge.get("labels", [])
+                edge_data = {
+                    "source": source,
+                    "target": target,
+                    "id": edge.get("id"),
+                    "edge": labels[0] if labels else None,
+                    "labels": labels,
+                }
+                edge_data.update(edge.get("properties", {}))
+                edges_list.append(edge_data)
         except Exception as e:
-            logger.warning(f"Failed to extract from Graph.Edges: {e}")
+            logger.warning(f"Failed to extract from result.graph.edges: {e}")
 
-        # Extract from RawData.Rows
-        try:
-            raw_rows = data.get('RawData', {}).get('Rows', [])
-            for row in raw_rows:
-                for col in row.get('Cols', []):
-                    try:
-                        value_str = col.get('Value', '{}')
-                        value = json.loads(value_str) if isinstance(value_str, str) else value_str
-
-                        # Edge detection: has source/target IDs
-                        # Support both _sourceId/_targetId (original) and sys_sourceId/sys_targetId (Sentinel Graph API)
-                        has_source = isinstance(value, dict) and (
-                            '_sourceId' in value or 'sys_sourceId' in value
-                        )
-                        has_target = isinstance(value, dict) and (
-                            '_targetId' in value or 'sys_targetId' in value
-                        )
-
-                        if has_source and has_target:
-                            # Start with all properties from the value
-                            edge_data = {k: v for k, v in value.items() if v is not None}
-                            # Normalize key fields
-                            edge_data['source'] = value.get('_sourceId') or value.get('sys_sourceId')
-                            edge_data['target'] = value.get('_targetId') or value.get('sys_targetId')
-                            edge_data['edge'] = value.get('_label') or value.get('type') or value.get('sys_label')
-                            if edge_data.get('source') and edge_data.get('target'):  # Must have source/target
-                                edges_list.append(edge_data)
-                    except (json.JSONDecodeError, TypeError, AttributeError) as e:
-                        logger.debug(f"Skipping unparseable column value: {e}")
-                        continue
-        except Exception as e:
-            logger.warning(f"Failed to extract from RawData.Rows: {e}")
+        # Secondary path: result.rawData.tables (table format)
+        if not edges_list:
+            try:
+                tables = result.get("rawData", {}).get("tables", [])
+                for table in tables:
+                    for row in table.get("rows", []):
+                        for cell in row:
+                            if not isinstance(cell, dict):
+                                continue
+                            source = cell.get("sourceOid")
+                            target = cell.get("targetOid")
+                            if not (source and target):
+                                continue
+                            labels = cell.get("labels", [])
+                            edge_data = {
+                                "source": source,
+                                "target": target,
+                                "id": cell.get("oid"),
+                                "edge": labels[0] if labels else None,
+                                "labels": labels,
+                            }
+                            edge_data.update(cell.get("properties", {}))
+                            edges_list.append(edge_data)
+            except Exception as e:
+                logger.warning(f"Failed to extract from result.rawData.tables: {e}")
 
         if not edges_list:
             logger.debug("No edges found in response")
-            return pd.DataFrame(columns=['source', 'target'])
+            return pd.DataFrame(columns=["source", "target"])
 
         return pd.DataFrame(edges_list).reset_index(drop=True)
+
+    @retry_on_request_exception
+    def _sentinel_graph_list_request(self) -> bytes:
+        """Internal: Fetch list of graph instances, return raw response bytes"""
+        cfg = self._sentinel_graph_config
+        token = self._get_auth_token()
+        url = f"https://{cfg.api_endpoint}/graphs/graph-instances"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "pygraphistry-sentinel-graph"
+        }
+        logger.debug("Fetching list of graph instances")
+        response = requests.get(
+            url,
+            headers=headers,
+            params={"graphTypes": "Custom"},
+            timeout=cfg.timeout,
+            verify=cfg.verify_ssl
+        )
+        if response.status_code == 200:
+            logger.info(f"Graph list fetched: {len(response.content)} bytes")
+            return response.content
+        else:
+            raise SentinelGraphQueryError(
+                f"Graph list request failed with status {response.status_code}. "
+                f"Check permissions for the graph instances endpoint."
+            )
+
+    def sentinel_graph_list(self) -> pd.DataFrame:
+        """List available graph instances from the Sentinel Graph API.
+
+        Returns a DataFrame of available graph instances with their metadata.
+        Requires configure_sentinel_graph() to be called first for authentication
+        — the graph_instance value is not used by this method, so any placeholder
+        string is acceptable.
+
+        :returns: DataFrame with columns including 'name', 'graphDefinitionName', 'instanceStatus'
+        :rtype: pd.DataFrame
+
+        **Example**
+            ::
+
+                import graphistry
+
+                graphistry.configure_sentinel_graph(graph_instance="placeholder")
+                instances = graphistry.sentinel_graph_list()
+                print(instances[['name', 'instanceStatus']])
+
+                # Use a discovered instance for queries
+                graphistry.configure_sentinel_graph(
+                    graph_instance=instances.iloc[0]['name']
+                )
+                viz = graphistry.sentinel_graph("MATCH (n)-[e]->(m) RETURN * LIMIT 50")
+                viz.plot()
+        """
+        response_bytes = self._sentinel_graph_list_request()
+        try:
+            parsed = json.loads(response_bytes.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            raise SentinelGraphQueryError(f"Failed to parse graph list response as JSON: {e}")
+
+        items = parsed.get("value", [])
+        if not items:
+            logger.info("No graph instances found")
+            return pd.DataFrame(columns=["name", "graphDefinitionName", "instanceStatus"])
+
+        return pd.DataFrame(items)
