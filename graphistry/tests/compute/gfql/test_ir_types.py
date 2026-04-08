@@ -1,5 +1,5 @@
 from dataclasses import FrozenInstanceError
-from typing import Any, cast
+from typing import Any, FrozenSet, get_args, get_origin, get_type_hints, cast
 
 import pytest
 
@@ -51,6 +51,14 @@ def test_ir_types_are_frozen() -> None:
     _assert_frozen_assignment(PathType(), "x", 1)
     _assert_frozen_assignment(QueryGraph(), "x", 1)
 
+    bound_variable = _mk_bound_variable("n")
+    semantic_table = SemanticTable({"n": bound_variable})
+    scope_frame = ScopeFrame(frozenset({"n"}), "match")
+
+    _assert_frozen_assignment(bound_variable, "name", "m")
+    _assert_frozen_assignment(semantic_table, "variables", {})
+    _assert_frozen_assignment(scope_frame, "scope_kind", "with")
+
 
 def test_bound_ir_types_are_importable_and_instantiable() -> None:
     bound_variable = BoundVariable(
@@ -99,3 +107,31 @@ def test_bound_ir_scope_stack_is_list_by_design() -> None:
     assert isinstance(bound_ir.scope_stack, list)
     assert len(bound_ir.scope_stack) == 1
     _assert_frozen_assignment(bound_ir, "scope_stack", [])
+
+
+def test_bound_ir_type_hints_match_spec_contract() -> None:
+    bound_variable_hints = get_type_hints(BoundVariable)
+    scope_frame_hints = get_type_hints(ScopeFrame)
+    bound_ir_hints = get_type_hints(BoundIR)
+    rel_spec_hints = get_type_hints(RelSpec)
+
+    assert bound_variable_hints["null_extended_from"] == FrozenSet[str]
+    assert set(get_args(bound_variable_hints["entity_kind"])) == {
+        "node",
+        "edge",
+        "scalar",
+        "path",
+    }
+    assert set(get_args(scope_frame_hints["scope_kind"])) == {
+        "match",
+        "with",
+        "union",
+        "subquery",
+    }
+    assert get_origin(bound_ir_hints["scope_stack"]) is list
+    assert get_args(bound_ir_hints["scope_stack"]) == (ScopeFrame,)
+    assert set(get_args(rel_spec_hints["direction"])) == {
+        "forward",
+        "reverse",
+        "undirected",
+    }
