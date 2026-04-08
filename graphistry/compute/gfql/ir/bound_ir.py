@@ -1,13 +1,8 @@
 """
-BoundIR — the output of the Cypher semantic binder (M1).
+Semantic IR dataclasses produced by Cypher binding.
 
-This module defines the core type layer that M1 (Binder extraction) will
-produce.  No behaviour lives here — pure frozen dataclass definitions.
-
-Acceptance criteria (issue #1091):
-- importable as ``from graphistry.compute.gfql.ir.bound_ir import BoundIR``
-- ``mypy --strict graphistry/compute/gfql/ir/bound_ir.py`` passes with zero errors
-- no behaviour changes; all existing tests continue to pass
+This module defines the bound query representation and scope/variable metadata.
+It contains data definitions only and no execution logic.
 """
 from __future__ import annotations
 
@@ -15,11 +10,6 @@ from dataclasses import dataclass, field
 from typing import Dict, FrozenSet, List, Literal
 
 from graphistry.compute.gfql.ir.types import CypherAST, LogicalType, QueryGraph
-
-
-# ---------------------------------------------------------------------------
-# BoundVariable
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -35,14 +25,10 @@ class BoundVariable:
     nullable:
         True if the variable can be null (e.g. introduced by OPTIONAL MATCH).
     null_extended_from:
-        The set of OPTIONAL MATCH arm identifiers that *introduced* this
-        variable as nullable.  Non-empty only for OPTIONAL MATCH sourced
-        variables.  A ``frozenset`` (not ``Optional[str]``) to correctly
-        handle multi-arm OPTIONAL MATCH (IC1 correctness requirement).
+        The set of OPTIONAL MATCH arm identifiers that introduced this
+        variable as nullable.
     entity_kind:
         Coarse kind tag — one of ``"node" | "edge" | "scalar" | "path"``.
-        Redundant with ``logical_type`` but useful for fast dispatch without
-        isinstance checks.
     """
 
     name: str
@@ -50,11 +36,6 @@ class BoundVariable:
     nullable: bool
     null_extended_from: FrozenSet[str]
     entity_kind: Literal["node", "edge", "scalar", "path"]
-
-
-# ---------------------------------------------------------------------------
-# SemanticTable
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -67,11 +48,6 @@ class SemanticTable:
     """
 
     variables: Dict[str, BoundVariable] = field(default_factory=dict)
-
-
-# ---------------------------------------------------------------------------
-# ScopeFrame
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -90,11 +66,6 @@ class ScopeFrame:
     scope_kind: Literal["match", "with", "union", "subquery"]
 
 
-# ---------------------------------------------------------------------------
-# BoundIR
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class BoundIR:
     """The output of the semantic binder — a fully annotated, bound query.
@@ -107,10 +78,10 @@ class BoundIR:
         Variable → BoundVariable mapping for the whole query.
     scope_stack:
         Ordered list of scope frames from outermost to innermost.
-        A ``list`` per spec (not tuple) — callers treat as read-only.
+        Stored as a ``list``; callers should treat it as read-only.
     query_graph:
         The pattern graph extracted from all MATCH clauses.
-        Stub implementation for M0; full content added in M1.
+        This is currently a placeholder container.
     """
 
     ast: CypherAST

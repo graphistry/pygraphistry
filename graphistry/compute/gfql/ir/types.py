@@ -18,16 +18,7 @@ from graphistry.compute.gfql.cypher.ast import (
     CypherUnionQuery,
 )
 
-# ---------------------------------------------------------------------------
-# CypherAST — the top-level parse result union
-# ---------------------------------------------------------------------------
-
 CypherAST = Union[CypherQuery, CypherUnionQuery, CypherGraphQuery]
-
-
-# ---------------------------------------------------------------------------
-# Logical variable types
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -83,17 +74,11 @@ class PathType:
 LogicalType = Union[NodeRef, EdgeRef, ScalarType, PathType]
 
 
-# ---------------------------------------------------------------------------
-# QueryGraph — stub for M1
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class QueryGraph:
-    """Placeholder for the pattern graph built during binding (M1).
+    """Placeholder for the pattern graph built during binding.
 
-    Carries the set of node and relationship pattern nodes extracted from
-    all MATCH clauses.  Full implementation deferred to M1 (Binder extraction).
+    Full shape is defined in a later compiler stage.
     """
 
     pass
