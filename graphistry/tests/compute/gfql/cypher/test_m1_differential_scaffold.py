@@ -125,7 +125,8 @@ def _run_legacy(case: _DiffCase) -> list[dict[str, object]]:
     g = case.graph_factory()
     result = g.gfql(case.query, params=case.params)
     assert result._nodes is not None
-    return cast(list[dict[str, object]], result._nodes.to_dict(orient="records"))
+    # Keep cast annotation as a string for Python 3.8 runtime compatibility.
+    return cast("list[dict[str, object]]", result._nodes.to_dict(orient="records"))
 
 
 def _run_binder_prepass_scaffold(case: _DiffCase) -> list[dict[str, object]]:
