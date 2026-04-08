@@ -84,14 +84,14 @@ class ASTObject(ASTSerializable):
         pass
 
     @abstractmethod
-    def __call__(
+    def execute(
         self,
         g: Plottable,
         prev_node_wavefront: Optional[DataFrameT],
         target_wave_front: Optional[DataFrameT],
         engine: Engine
     ) -> Plottable:
-        raise RuntimeError('__call__ not implemented')
+        raise RuntimeError('execute not implemented')
         
     @abstractmethod
     def reverse(self) -> 'ASTObject':
@@ -220,7 +220,7 @@ class ASTNode(ASTObject):
             out.validate()
         return out
 
-    def __call__(
+    def execute(
         self,
         g: Plottable,
         prev_node_wavefront: Optional[DataFrameT],
@@ -580,7 +580,7 @@ class ASTEdge(ASTObject):
             out.validate()
         return out
 
-    def __call__(
+    def execute(
         self,
         g: Plottable,
         prev_node_wavefront: Optional[DataFrameT],
@@ -1116,8 +1116,13 @@ class ASTLet(ASTObject):
         out = cls(bindings=bindings, validate=validate)  # type: ignore
         return out
     
-    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
-                 target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
+    def execute(
+        self,
+        g: Plottable,
+        prev_node_wavefront: Optional[DataFrameT],
+        target_wave_front: Optional[DataFrameT],
+        engine: Engine
+    ) -> Plottable:
         # Let bindings don't use wavefronts - execute via chain_let_impl
         # Import here due to circular dependency
         from graphistry.compute.chain_let import chain_let_impl  # noqa: F401, F811
@@ -1225,8 +1230,13 @@ class ASTRemoteGraph(ASTObject):
             out.validate()
         return out
     
-    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
-                 target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
+    def execute(
+        self,
+        g: Plottable,
+        prev_node_wavefront: Optional[DataFrameT],
+        target_wave_front: Optional[DataFrameT],
+        engine: Engine
+    ) -> Plottable:
         # Implementation in PR 1.3
         raise NotImplementedError("RemoteGraph loading will be implemented in PR 1.3")
     
@@ -1342,8 +1352,13 @@ class ASTRef(ASTObject):
             out.validate()
         return out
     
-    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
-                 target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
+    def execute(
+        self,
+        g: Plottable,
+        prev_node_wavefront: Optional[DataFrameT],
+        target_wave_front: Optional[DataFrameT],
+        engine: Engine
+    ) -> Plottable:
         raise NotImplementedError(
             "ASTRef cannot be used directly in chain(). "
             "It must be used within an ASTLet/chain_let() context."
@@ -1483,8 +1498,13 @@ class ASTCall(ASTObject):
             out.validate()
         return out
     
-    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
-                 target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
+    def execute(
+        self,
+        g: Plottable,
+        prev_node_wavefront: Optional[DataFrameT],
+        target_wave_front: Optional[DataFrameT],
+        engine: Engine
+    ) -> Plottable:
         """Execute the method call on the graph.
         
         Args:

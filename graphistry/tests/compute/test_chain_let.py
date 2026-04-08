@@ -309,7 +309,7 @@ class TestExecutionContext:
             def _get_child_validators(self):
                 return []
             
-            def __call__(self, g, prev_node_wavefront, target_wave_front, engine):
+            def execute(self, g, prev_node_wavefront, target_wave_front, engine):
                 raise NotImplementedError("Mock execution")
             
             def reverse(self):
