@@ -31,6 +31,8 @@ from graphistry.compute.ast import (
 )
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
+from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.comparison import eq, ge, gt, isna, le, lt, ne, notna
 from graphistry.compute.predicates.is_in import is_in
@@ -8001,6 +8003,9 @@ def compile_cypher_query(
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
+    # M1 PR-1 hook point: run binder prepass but do not alter current lowering output yet.
+    _ = FrontendBinder().bind(query, PlanContext())
+
     if isinstance(query, CypherGraphQuery):
         compiled_bindings = _compile_graph_bindings(query.graph_bindings, params=params)
         compiled_constructor = _compile_graph_constructor(query.constructor, params=params)
