@@ -11,7 +11,11 @@ This document defines the CI gate names introduced for M1 wave-1 (`#1101`) and P
 
 - `m1-differential-parity (py3.12)`
   - Runs differential/parity harness checks:
-    - Prefer `tests/gfql/ref/test_m1_*.py` and `tests/gfql/ref/test_differential*.py` when present.
+    - Prefer these test patterns when present:
+      - `tests/gfql/ref/test_m1_*.py`
+      - `tests/gfql/ref/test_differential*.py`
+      - `graphistry/tests/compute/gfql/cypher/test_m1_*.py`
+      - `graphistry/tests/compute/gfql/cypher/test_differential*.py`
     - Falls back to `tests/gfql/ref/test_enumerator_parity.py`.
 
 - `m1-ci-gates`

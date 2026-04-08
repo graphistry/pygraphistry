@@ -77,9 +77,12 @@ jobs:
           # M1 CI gate relevant changes
           m1_ci:
             - '.github/workflows/ci.yml'
+            - '.github/workflows/ci-gpu.yml'
             - 'graphistry/compute/gfql/ir/**'
+            - 'graphistry/compute/gfql/cypher/**'
             - 'graphistry/compute/gfql/frontends/cypher/binder.py'
             - 'graphistry/compute/gfql/frontends/cypher/__init__.py'
+            - 'graphistry/tests/compute/gfql/cypher/**'
             - 'tests/gfql/ref/**'
 
           # Benchmark-specific changes
@@ -441,7 +444,11 @@ jobs:
       run: |
         source pygraphistry/bin/activate
         m1_tests=()
-        for pattern in tests/gfql/ref/test_m1_*.py tests/gfql/ref/test_differential*.py; do
+        for pattern in \
+          tests/gfql/ref/test_m1_*.py \
+          tests/gfql/ref/test_differential*.py \
+          graphistry/tests/compute/gfql/cypher/test_m1_*.py \
+          graphistry/tests/compute/gfql/cypher/test_differential*.py; do
           for f in $pattern; do
             if [[ -f "$f" ]]; then
               m1_tests+=("$f")
