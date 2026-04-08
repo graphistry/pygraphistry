@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from graphistry.compute.exceptions import GFQLValidationError
-from graphistry.compute.gfql.cypher import parse_cypher
+from graphistry.compute.gfql.cypher import compile_cypher, parse_cypher
 from graphistry.tests.test_compute import CGFull
 
 
@@ -1285,6 +1285,21 @@ def test_string_cypher_failfast_rejects_shortest_path_invalid_specs(query: str, 
     assert error_substring in exc_info.value.message.lower()
 
 
+def test_string_cypher_failfast_rejects_shortest_path_inside_optional_match() -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        compile_cypher(
+            """
+            MATCH (person1:Person {id: 'p1'})
+            OPTIONAL MATCH
+                (person2:Person {id: 'p2'}),
+                path = shortestPath((person1)-[:KNOWS*]-(person2))
+            RETURN CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
+            """
+        )
+    msg = exc_info.value.message.lower()
+    assert "optional match" in msg
+
+
 @dataclass(frozen=True)
 class _ExecParityCase:
     name: str
@@ -1319,6 +1334,27 @@ def _mk_person_multirow_graph() -> _CypherTestGraph:
     return _mk_graph(
         pd.DataFrame({"id": ["p1", "p2", "p3", "p4"], "label__Person": [True, True, True, True]}),
         pd.DataFrame({"s": ["p1", "p2", "p3"], "d": ["p2", "p3", "p4"], "type": ["KNOWS", "KNOWS", "KNOWS"]}),
+    )
+
+
+def _mk_person_multirow_with_isolate_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame({"id": ["p1", "p2", "p3", "p4", "p5"], "label__Person": [True, True, True, True, True]}),
+        pd.DataFrame({"s": ["p1", "p2", "p3"], "d": ["p2", "p3", "p4"], "type": ["KNOWS", "KNOWS", "KNOWS"]}),
+    )
+
+
+def _mk_person_cycle_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame({"id": ["p1", "p2", "p3", "p4"], "label__Person": [True, True, True, True]}),
+        pd.DataFrame({"s": ["p1", "p1", "p2", "p3"], "d": ["p2", "p3", "p4", "p4"], "type": ["KNOWS"] * 4}),
+    )
+
+
+def _mk_person_self_loop_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame({"id": ["p1"], "label__Person": [True]}),
+        pd.DataFrame({"s": ["p1"], "d": ["p1"], "type": ["KNOWS"]}),
     )
 
 
@@ -1399,6 +1435,157 @@ _PARITY_EXEC_CASES: tuple[_ExecParityCase, ...] = (
             {"person1Id": "p1", "person2Id": "p4", "shortestPathLength": -1},
             {"person1Id": "p2", "person2Id": "p3", "shortestPathLength": 1},
             {"person1Id": "p2", "person2Id": "p4", "shortestPathLength": 2},
+        ],
+    ),
+    _ExecParityCase(
+        name="is-null-disconnected",
+        graph_factory=_mk_person_disconnected_graph,
+        query="""
+        MATCH
+            (person1:Person {id: 'p1'}),
+            (person2:Person {id: 'p3'}),
+            path = shortestPath((person1)-[:KNOWS*]-(person2))
+        RETURN path IS NULL AS noPath
+        """,
+        expected_rows=[{"noPath": True}],
+    ),
+    _ExecParityCase(
+        name="is-null-reachable",
+        graph_factory=_mk_person_chain_graph,
+        query="""
+        MATCH
+            (person1:Person {id: 'p1'}),
+            (person2:Person {id: 'p3'}),
+            path = shortestPath((person1)-[:KNOWS*]-(person2))
+        RETURN path IS NULL AS noPath
+        """,
+        expected_rows=[{"noPath": False}],
+    ),
+    _ExecParityCase(
+        name="length-projection-disconnected-none",
+        graph_factory=_mk_person_disconnected_graph,
+        query="""
+        MATCH
+            (person1:Person {id: 'p1'}),
+            (person2:Person {id: 'p3'}),
+            path = shortestPath((person1)-[:KNOWS*]-(person2))
+        RETURN length(path) AS shortestPathLength
+        """,
+        expected_rows=[{"shortestPathLength": None}],
+    ),
+    _ExecParityCase(
+        name="zero-hop-case-and-is-null",
+        graph_factory=_mk_person_chain_graph,
+        query="""
+        MATCH
+            (person1:Person {id: 'p1'}),
+            (person2:Person {id: 'p1'}),
+            path = shortestPath((person1)-[:KNOWS*]-(person2))
+        RETURN
+            CASE path IS NULL
+                WHEN true THEN -1
+                ELSE length(path)
+            END AS shortestPathLength,
+            path IS NULL AS noPath
+        """,
+        expected_rows=[{"shortestPathLength": 0, "noPath": False}],
+    ),
+    _ExecParityCase(
+        name="cyclic-multi-route-shortest-length",
+        graph_factory=_mk_person_cycle_graph,
+        query="""
+        MATCH
+            (person1:Person {id: 'p1'}),
+            (person2:Person {id: 'p4'}),
+            path = shortestPath((person1)-[:KNOWS*]-(person2))
+        RETURN length(path) AS shortestPathLength
+        """,
+        expected_rows=[{"shortestPathLength": 2}],
+    ),
+    _ExecParityCase(
+        name="bounded-self-loop-no-duplicate-rows",
+        graph_factory=_mk_person_self_loop_graph,
+        query="""
+        MATCH
+            (person1:Person {id: 'p1'}),
+            (person2:Person {id: 'p1'}),
+            path = shortestPath((person1)-[:KNOWS*1..3]-(person2))
+        RETURN CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
+        """,
+        expected_rows=[{"shortestPathLength": 1}],
+    ),
+    _ExecParityCase(
+        name="multirow-unbounded-pairs",
+        graph_factory=_mk_person_multirow_graph,
+        query="""
+        MATCH
+            (person1:Person),
+            (person2:Person),
+            path = shortestPath((person1)-[:KNOWS*]-(person2))
+        WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p3', 'p4']
+        WITH person1.id AS person1Id, person2.id AS person2Id, CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
+        RETURN person1Id, person2Id, shortestPathLength
+        ORDER BY person1Id, person2Id
+        """,
+        expected_rows=[
+            {"person1Id": "p1", "person2Id": "p3", "shortestPathLength": 2},
+            {"person1Id": "p1", "person2Id": "p4", "shortestPathLength": 3},
+            {"person1Id": "p2", "person2Id": "p3", "shortestPathLength": 1},
+            {"person1Id": "p2", "person2Id": "p4", "shortestPathLength": 2},
+        ],
+    ),
+    _ExecParityCase(
+        name="multirow-disconnected-endpoint-projection",
+        graph_factory=_mk_person_multirow_with_isolate_graph,
+        query="""
+        MATCH
+            (person1:Person),
+            (person2:Person),
+            path = shortestPath((person1)-[:KNOWS*]-(person2))
+        WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p5']
+        RETURN person1.id AS person1Id, person2.id AS person2Id, length(path) AS shortestPathLength, path IS NULL AS noPath
+        ORDER BY person1Id, person2Id
+        """,
+        expected_rows=[
+            {"person1Id": "p1", "person2Id": "p5", "shortestPathLength": None, "noPath": True},
+            {"person1Id": "p2", "person2Id": "p5", "shortestPathLength": None, "noPath": True},
+        ],
+    ),
+    _ExecParityCase(
+        name="multirow-reverse-disconnected-case-stage",
+        graph_factory=_mk_person_multirow_with_isolate_graph,
+        query="""
+        MATCH
+            (person1:Person),
+            (person2:Person),
+            path = shortestPath((person1)<-[:KNOWS*]-(person2))
+        WHERE person1.id IN ['p5'] AND person2.id IN ['p1', 'p2']
+        WITH person1.id AS person1Id, person2.id AS person2Id, CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
+        RETURN person1Id, person2Id, shortestPathLength
+        ORDER BY person1Id, person2Id
+        """,
+        expected_rows=[
+            {"person1Id": "p5", "person2Id": "p1", "shortestPathLength": -1},
+            {"person1Id": "p5", "person2Id": "p2", "shortestPathLength": -1},
+        ],
+    ),
+    _ExecParityCase(
+        name="multirow-is-null-ordering",
+        graph_factory=_mk_person_multirow_with_isolate_graph,
+        query="""
+        MATCH
+            (person1:Person),
+            (person2:Person),
+            path = shortestPath((person1)-[:KNOWS*]-(person2))
+        WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p3', 'p5']
+        RETURN person1.id AS person1Id, person2.id AS person2Id, path IS NULL AS noPath
+        ORDER BY noPath, person1Id, person2Id
+        """,
+        expected_rows=[
+            {"person1Id": "p1", "person2Id": "p3", "noPath": False},
+            {"person1Id": "p2", "person2Id": "p3", "noPath": False},
+            {"person1Id": "p1", "person2Id": "p5", "noPath": True},
+            {"person1Id": "p2", "person2Id": "p5", "noPath": True},
         ],
     ),
 )
