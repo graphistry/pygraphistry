@@ -14,6 +14,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **CI / GFQL split**: 944 GFQL-heavy tests (`test_lowering.py` + `test_row_pipeline_ops.py` + `test_parser.py`) moved from the serial `test-minimal-python` gate to a new parallel `test-gfql-core` job, further reducing the gating critical path (#1050).
 - **Dockerfiles / supply-chain**: Added `ARG PIP_EXCLUDE_NEWER=6d` with matching `PIP_EXCLUDE_NEWER` env to all test Dockerfiles (`test-cpu`, `test-gpu`, `test-rapids-official`), applying the same 6-day cooldown to Docker-based installs (#1050).
 
+### Added
+- **GFQL / compiler**: Added initial IR type layer under `graphistry/compute/gfql/ir/` with `types.py` (`CypherAST`, `NodeRef`, `EdgeRef`, `RelSpec`, `LogicalType`, `QueryGraph`) and `bound_ir.py` (`BoundVariable`, `SemanticTable`, `ScopeFrame`, `BoundIR`) as frozen dataclasses for M0 binder scaffolding. No runtime behavior changes (#1091).
+
 ### Fixed
 - **GFQL / Cypher**: `OPTIONAL MATCH` execution no longer materializes the full opt-arm result before joining. A semi-join filter now restricts the optional arm to join-key values present in the base MATCH result before the left-outer-join. On real benchmark graphs (LDBC SNB sf1 IS7) this eliminates the intermediate cross-product that previously caused ~120 GB RSS and a SIGKILL (#1052).
 - **GFQL / Cypher**: `MATCH ... WITH scalar1, scalar2 ... MATCH ...` re-entry now supports multi-row WITH prefixes (N rows, not just 1). Each prefix row's scalars are broadcast independently to the base graph and the suffix MATCH runs once per row; results are unioned. This unblocks IC6 (`tag-cooccurrence`): the UNWIND fanout before the tag-cooccurrence MATCH produces 4+ prefix rows (#1047).
