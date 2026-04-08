@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import FrozenSet, Literal, Optional, Union
+from typing import FrozenSet, List, Literal, Optional, Union
 
 
 @dataclass(frozen=True)
@@ -74,12 +74,12 @@ class RelSpec:
     min_hops: int = 1
     max_hops: Optional[int] = 1
     to_fixed_point: bool = False
-    properties: list[BoundPredicate] = field(default_factory=list)
+    properties: List[BoundPredicate] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class PatternGraph:
     """Flat pattern representation used by logical planning."""
 
-    nodes: list[NodeSpec] = field(default_factory=list)
-    rels: list[RelSpec] = field(default_factory=list)
+    nodes: List[NodeSpec] = field(default_factory=list)
+    rels: List[RelSpec] = field(default_factory=list)

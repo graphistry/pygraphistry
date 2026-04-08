@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Literal, Mapping, Optional, Tuple
 
 from graphistry.compute.gfql.ir.types import BoundPredicate, LogicalType
 
@@ -11,7 +11,7 @@ from graphistry.compute.gfql.ir.types import BoundPredicate, LogicalType
 class RowSchema:
     """Row-oriented type map."""
 
-    columns: dict[str, LogicalType] = field(default_factory=dict)
+    columns: Dict[str, LogicalType] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -37,14 +37,14 @@ class IndexScan(LogicalPlan):
     label: str = ""
     index: Any = None
     predicate: BoundPredicate = field(default_factory=BoundPredicate)
-    residual_predicates: list[BoundPredicate] = field(default_factory=list)
+    residual_predicates: List[BoundPredicate] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class PatternMatch(LogicalPlan):
     pattern: Any = None
     input: Optional[LogicalPlan] = None
-    predicates: list[BoundPredicate] = field(default_factory=list)
+    predicates: List[BoundPredicate] = field(default_factory=list)
     optional: bool = False
     arm_id: Optional[str] = None
 
@@ -65,14 +65,14 @@ class Filter(LogicalPlan):
 @dataclass(frozen=True)
 class Project(LogicalPlan):
     input: Optional[LogicalPlan] = None
-    expressions: list[Any] = field(default_factory=list)
+    expressions: List[Any] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class Aggregate(LogicalPlan):
     input: Optional[LogicalPlan] = None
-    group_keys: list[Any] = field(default_factory=list)
-    aggregates: list[Any] = field(default_factory=list)
+    group_keys: List[Any] = field(default_factory=list)
+    aggregates: List[Any] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -83,7 +83,7 @@ class Distinct(LogicalPlan):
 @dataclass(frozen=True)
 class OrderBy(LogicalPlan):
     input: Optional[LogicalPlan] = None
-    sort_keys: list[Any] = field(default_factory=list)
+    sort_keys: List[Any] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

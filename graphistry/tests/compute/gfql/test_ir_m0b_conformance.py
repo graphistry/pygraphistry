@@ -1,8 +1,8 @@
 from dataclasses import fields, is_dataclass
-from typing import Any, get_args, get_origin, get_type_hints
+from typing import Any, Set, Type, get_args, get_origin, get_type_hints
 
 
-def _field_names(cls: type) -> set[str]:
+def _field_names(cls: Type[Any]) -> Set[str]:
     return {f.name for f in fields(cls)}
 
 

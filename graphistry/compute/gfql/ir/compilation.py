@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, FrozenSet, Optional
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, SemanticTable
 from graphistry.compute.gfql.ir.logical_plan import LogicalPlan
@@ -46,7 +46,7 @@ class IndexDescriptor:
     """Index descriptor used by planning/index rewrite passes."""
 
     label: str = ""
-    properties: tuple[str, ...] = ()
+    properties: Tuple[str, ...] = ()
     supported_ops: FrozenSet[str] = field(default_factory=frozenset)
     unique: bool = False
 
@@ -72,7 +72,7 @@ class PlanContext:
 
     catalog: GraphSchemaCatalog = field(default_factory=GraphSchemaCatalog)
     stats: StatsQuery = field(default_factory=StatsQuery)
-    indexes: list[IndexDescriptor] = field(default_factory=list)
+    indexes: List[IndexDescriptor] = field(default_factory=list)
     backend: BackendCapabilities = field(default_factory=BackendCapabilities)
     config: CompilerConfig = field(default_factory=CompilerConfig)
 
@@ -106,7 +106,7 @@ class CompilationState:
     query_graph: Optional[QueryGraph] = None
     physical_plan: Optional[PhysicalPlan] = None
 
-    diagnostics: list[CompilerError] = field(default_factory=list)
-    _cardinalities: dict[NodeId, float] = field(default_factory=dict)
-    _provided_orders: dict[NodeId, list[Any]] = field(default_factory=dict)
-    _solved_predicates: dict[NodeId, list[Any]] = field(default_factory=dict)
+    diagnostics: List[CompilerError] = field(default_factory=list)
+    _cardinalities: Dict[NodeId, float] = field(default_factory=dict)
+    _provided_orders: Dict[NodeId, List[Any]] = field(default_factory=dict)
+    _solved_predicates: Dict[NodeId, List[Any]] = field(default_factory=dict)

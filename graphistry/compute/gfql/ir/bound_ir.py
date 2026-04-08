@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, FrozenSet, Literal
+from typing import Any, Dict, FrozenSet, List, Literal
 
 from graphistry.compute.gfql.ir.logical_plan import RowSchema
 from graphistry.compute.gfql.ir.types import BoundPredicate, LogicalType
@@ -43,7 +43,7 @@ class BoundQueryPart:
     clause: str = ""
     inputs: FrozenSet[str] = field(default_factory=frozenset)
     outputs: FrozenSet[str] = field(default_factory=frozenset)
-    predicates: list[BoundPredicate] = field(default_factory=list)
+    predicates: List[BoundPredicate] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -51,7 +51,7 @@ class BoundQueryPart:
 class BoundIR:
     """Frontend-neutral output of semantic binding."""
 
-    query_parts: list[BoundQueryPart] = field(default_factory=list)
+    query_parts: List[BoundQueryPart] = field(default_factory=list)
     semantic_table: SemanticTable = field(default_factory=SemanticTable)
-    scope_stack: list[ScopeFrame] = field(default_factory=list)
+    scope_stack: List[ScopeFrame] = field(default_factory=list)
     params: Dict[str, Any] = field(default_factory=dict)
