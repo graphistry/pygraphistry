@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.54.1 - 2026-04-08]
+
 ### Infrastructure
 - **CI / speedup**: All CI install steps migrated from floating `pip` to `uv` with per-Python-version hashed lockfiles, cutting the gating `test-minimal-python` job by **~47%** (e.g. 3.12: 733s → 406s, 3.8: 673s → 332s) and `python-lint-types` by **~47%** (49s → 26s avg). A single `generate-lockfiles` job (≤30s) runs in parallel with lint, so the new lockfile overhead does not extend the critical path (#1050).
 - **CI / supply-chain security**: Introduced `UV_EXCLUDE_NEWER: "6 days"` globally across all CI jobs (belt-and-suspenders on top of hashed lockfiles) to reject packages published within the last 6 days, preventing 0-day supply chain attacks from reaching CI. All install steps use `--require-hashes` where feasible; umap/AI jobs exempt due to torch local-version-tag incompatibility with `--require-hashes` (#1050).
