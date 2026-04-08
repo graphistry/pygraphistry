@@ -1,5 +1,5 @@
 from dataclasses import FrozenInstanceError
-from typing import Any, FrozenSet, get_args, get_origin, get_type_hints, cast
+from typing import FrozenSet, get_args, get_origin, get_type_hints
 
 import pytest
 
@@ -73,7 +73,6 @@ def test_bound_ir_types_are_importable_and_instantiable() -> None:
     scope_frame = ScopeFrame(visible_vars=frozenset({"n"}), scope_kind="match")
 
     bound_ir = BoundIR(
-        ast=cast(Any, None),
         semantic_table=semantic_table,
         scope_stack=[scope_frame],
         query_graph=QueryGraph(),
@@ -96,7 +95,6 @@ def test_semantic_table_default_factory_is_not_shared() -> None:
 
 def test_bound_ir_scope_stack_is_list_by_design() -> None:
     bound_ir = BoundIR(
-        ast=cast(Any, None),
         semantic_table=SemanticTable({"n": _mk_bound_variable("n")}),
         scope_stack=[],
         query_graph=QueryGraph(),
@@ -128,6 +126,7 @@ def test_bound_ir_type_hints_match_spec_contract() -> None:
         "union",
         "subquery",
     }
+    assert "ast" not in bound_ir_hints
     assert get_origin(bound_ir_hints["scope_stack"]) is list
     assert get_args(bound_ir_hints["scope_stack"]) == (ScopeFrame,)
     assert set(get_args(rel_spec_hints["direction"])) == {

@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, FrozenSet, List, Literal
 
-from graphistry.compute.gfql.ir.types import CypherAST, LogicalType, QueryGraph
+from graphistry.compute.gfql.ir.types import LogicalType, QueryGraph
 
 
 @dataclass(frozen=True)
@@ -72,8 +72,6 @@ class BoundIR:
 
     Attributes
     ----------
-    ast:
-        The original parse tree, unmodified.
     semantic_table:
         Variable → BoundVariable mapping for the whole query.
     scope_stack:
@@ -84,7 +82,6 @@ class BoundIR:
         This is currently a placeholder container.
     """
 
-    ast: CypherAST
     semantic_table: SemanticTable
     scope_stack: List[ScopeFrame]
     query_graph: QueryGraph
