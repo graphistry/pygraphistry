@@ -1,84 +1,85 @@
-"""
-Logical type layer for the GFQL compiler IR.
-
-These types represent the *semantic* kinds of Cypher variables and pattern
-elements — distinct from the AST representation in cypher/ast.py.
-
-All types are frozen dataclasses so they are hashable and safe to use as
-dict keys / set members.
-"""
+"""Logical type definitions for frontend-neutral compiler IR."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import FrozenSet, Literal, Union
+from typing import FrozenSet, Literal, Optional, Union
 
-from graphistry.compute.gfql.cypher.ast import (
-    CypherGraphQuery,
-    CypherQuery,
-    CypherUnionQuery,
-)
 
-CypherAST = Union[CypherQuery, CypherUnionQuery, CypherGraphQuery]
+@dataclass(frozen=True)
+class BoundPredicate:
+    """Frontend-normalized predicate payload."""
+
+    expression: str = ""
 
 
 @dataclass(frozen=True)
 class NodeRef:
-    """A node variable binding.
-
-    ``labels`` is the *conjunction* of required labels (all must match).
-    An empty frozenset means unconstrained — matches any node.
-    Supports ``(n:Person:Admin)`` as ``NodeRef(labels=frozenset({'Person', 'Admin'}))``.
-    """
+    """Semantic type for a node variable."""
 
     labels: FrozenSet[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)
 class EdgeRef:
-    """An edge variable binding (direction is NOT stored here — see RelSpec).
+    """Semantic type for an edge variable."""
 
-    ``types`` is the disjunction of allowed relationship types (any may match).
-    An empty frozenset means unconstrained.
-    """
-
-    types: FrozenSet[str] = field(default_factory=frozenset)
-
-
-@dataclass(frozen=True)
-class RelSpec:
-    """Pattern-level relationship specification — carries direction.
-
-    Unlike ``EdgeRef`` (which represents a *bound variable*), ``RelSpec``
-    describes the structural pattern constraint including direction.
-    """
-
-    types: FrozenSet[str] = field(default_factory=frozenset)
-    direction: Literal["forward", "reverse", "undirected"] = "undirected"
+    type: Optional[str] = None
+    src_label: Optional[str] = None
+    dst_label: Optional[str] = None
 
 
 @dataclass(frozen=True)
 class ScalarType:
-    """A scalar (literal or computed) variable binding."""
+    """Semantic type for scalar values."""
 
-    pass
+    kind: str = "unknown"
+    nullable: bool = True
 
 
 @dataclass(frozen=True)
 class PathType:
-    """A path variable binding (from shortestPath / allShortestPaths)."""
+    """Semantic type for a path value."""
 
-    pass
-
-
-# The universe of logical types a Cypher variable can have.
-LogicalType = Union[NodeRef, EdgeRef, ScalarType, PathType]
+    min_hops: int = 1
+    max_hops: int = 1
 
 
 @dataclass(frozen=True)
-class QueryGraph:
-    """Placeholder for the pattern graph built during binding.
+class ListType:
+    """Semantic type for homogeneous lists."""
 
-    Full shape is defined in a later compiler stage.
-    """
+    element_type: "LogicalType" = field(default_factory=ScalarType)
 
-    pass
+
+LogicalType = Union[NodeRef, EdgeRef, ScalarType, PathType, ListType]
+
+
+@dataclass(frozen=True)
+class NodeSpec:
+    """PatternGraph node entry."""
+
+    alias: str
+    labels: FrozenSet[str] = field(default_factory=frozenset)
+
+
+@dataclass(frozen=True)
+class RelSpec:
+    """PatternGraph relationship entry."""
+
+    alias: Optional[str] = None
+    types: FrozenSet[str] = field(default_factory=frozenset)
+    src_alias: str = ""
+    dst_alias: str = ""
+    direction: Literal["forward", "reverse", "undirected"] = "undirected"
+    min_hops: int = 1
+    max_hops: Optional[int] = 1
+    to_fixed_point: bool = False
+    properties: list[BoundPredicate] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class PatternGraph:
+    """Flat pattern representation used by logical planning."""
+
+    nodes: list[NodeSpec] = field(default_factory=list)
+    rels: list[RelSpec] = field(default_factory=list)

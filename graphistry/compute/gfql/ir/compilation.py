@@ -1,18 +1,19 @@
-"""
-Frontend-boundary and planning-context dataclasses for compiler IR.
-
-This module contains engine-agnostic metadata used before and during
-compilation. Frontend AST payloads are intentionally opaque to the engine.
-"""
+"""Compilation-state and planning-context dataclasses for compiler IR."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, FrozenSet, Optional
 
+from graphistry.compute.gfql.ir.bound_ir import BoundIR, SemanticTable
+from graphistry.compute.gfql.ir.logical_plan import LogicalPlan
+from graphistry.compute.gfql.ir.query_graph import QueryGraph
 
-class QueryLanguage(Enum):
-    """Frontend dialect identifier for compiler entry points."""
+NodeId = int
+
+
+class QueryLanguage(str, Enum):
+    """Frontend dialect identifier."""
 
     CYPHER = "cypher"
     CHAIN_DSL = "chain_dsl"
@@ -30,20 +31,82 @@ class GraphSchemaCatalog:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
-# Back-compat alias used by older call sites and docs.
 GFQLSchema = GraphSchemaCatalog
 
 
 @dataclass(frozen=True)
-class CompilationState:
-    """Frontend-owned inputs carried into compiler stages."""
+class StatsQuery:
+    """Placeholder stats facade for planning hooks."""
 
-    frontend: QueryLanguage = QueryLanguage.CYPHER
-    frontend_ast: Optional[Any] = None
+    source: str = "uniform"
+
+
+@dataclass(frozen=True)
+class IndexDescriptor:
+    """Index descriptor used by planning/index rewrite passes."""
+
+    label: str = ""
+    properties: tuple[str, ...] = ()
+    supported_ops: FrozenSet[str] = field(default_factory=frozenset)
+    unique: bool = False
+
+
+@dataclass(frozen=True)
+class BackendCapabilities:
+    """Backend capability flags used for physical planning."""
+
+    name: str = "default"
+
+
+@dataclass(frozen=True)
+class CompilerConfig:
+    """Compiler flag bundle."""
+
+    enable_cbo: bool = False
+    max_hop_depth: Optional[int] = None
 
 
 @dataclass(frozen=True)
 class PlanContext:
-    """Planner context for semantic/binding stages."""
+    """Long-lived, read-only planning context."""
 
     catalog: GraphSchemaCatalog = field(default_factory=GraphSchemaCatalog)
+    stats: StatsQuery = field(default_factory=StatsQuery)
+    indexes: list[IndexDescriptor] = field(default_factory=list)
+    backend: BackendCapabilities = field(default_factory=BackendCapabilities)
+    config: CompilerConfig = field(default_factory=CompilerConfig)
+
+
+@dataclass(frozen=True)
+class CompilerError:
+    """Compiler diagnostic payload placeholder."""
+
+    message: str = ""
+
+
+@dataclass(frozen=True)
+class PhysicalPlan:
+    """Physical plan placeholder for M0 type contracts."""
+
+    pass
+
+
+@dataclass
+class CompilationState:
+    """Mutable per-query accumulator for frontend and planning phases."""
+
+    query_text: str = ""
+    ctx: PlanContext = field(default_factory=PlanContext)
+    frontend: QueryLanguage = QueryLanguage.CYPHER
+
+    frontend_ast: Optional[Any] = None
+    bound_ir: Optional[BoundIR] = None
+    semantic_table: Optional[SemanticTable] = None
+    logical_plan: Optional[LogicalPlan] = None
+    query_graph: Optional[QueryGraph] = None
+    physical_plan: Optional[PhysicalPlan] = None
+
+    diagnostics: list[CompilerError] = field(default_factory=list)
+    _cardinalities: dict[NodeId, float] = field(default_factory=dict)
+    _provided_orders: dict[NodeId, list[Any]] = field(default_factory=dict)
+    _solved_predicates: dict[NodeId, list[Any]] = field(default_factory=dict)
