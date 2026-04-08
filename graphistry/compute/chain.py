@@ -203,7 +203,7 @@ def combine_steps(
                 prev_src = label_steps[idx - 1][1]._nodes if label_steps and idx > 0 else g_step._nodes
                 prev_wf = (safe_merge(full_nodes, prev_src[[node_id]], on=node_id, how='inner', engine=engine)
                            if full_nodes is not None and node_id and prev_src is not None else prev_src)
-                new_steps.append((op, op(g=g.edges(g_step._edges), prev_node_wavefront=prev_wf, target_wave_front=None, engine=engine)))
+                new_steps.append((op, op.execute(g=g.edges(g_step._edges), prev_node_wavefront=prev_wf, target_wave_front=None, engine=engine)))
             steps = new_steps
         else:
             logger.debug('EDGES << filter by valid endpoints (optimized)')
@@ -988,7 +988,7 @@ def _chain_impl(
                 )
 
             g_step = (
-                op(
+                op.execute(
                     g=current_g,  # Pass appropriate graph for operation type
                     prev_node_wavefront=prev_step_nodes,
                     target_wave_front=None,  # implicit any
@@ -1089,7 +1089,7 @@ def _chain_impl(
 
                     g_step_reverse = g_step.nodes(nodes_df).edges(edges_df)
                 else:
-                    g_step_reverse = op.reverse()(
+                    g_step_reverse = op.reverse().execute(
                         g=g_step,
                         prev_node_wavefront=prev_wavefront_nodes,
                         target_wave_front=target_wave_front_nodes,

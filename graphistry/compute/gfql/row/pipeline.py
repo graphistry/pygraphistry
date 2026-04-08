@@ -2972,7 +2972,7 @@ class RowPipelineMixin:
         base_df = self._nodes if self._nodes is not None else self._edges
         engine = resolve_engine(EngineAbstract.AUTO, base_df)
         start_nodes = getattr(self, "_gfql_start_nodes", None)
-        first_nodes = ops[0](
+        first_nodes = ops[0].execute(
             g=base_graph,
             prev_node_wavefront=start_nodes,
             target_wave_front=None,
@@ -2996,7 +2996,7 @@ class RowPipelineMixin:
             current_nodes = base_nodes[base_nodes[node_id_col].isin(state_df["__current__"])].copy()
             if len(current_nodes) == 0:
                 return state_df.iloc[0:0], alias_frames
-            edge_result = edge_op(
+            edge_result = edge_op.execute(
                 g=base_graph,
                 prev_node_wavefront=current_nodes,
                 target_wave_front=None,
@@ -3076,7 +3076,7 @@ class RowPipelineMixin:
                 )
             )
             candidate_nodes = candidate_source[candidate_source[node_id_col].isin(state_df["__current__"])].copy()
-            next_nodes = next_node_op(
+            next_nodes = next_node_op.execute(
                 g=base_graph,
                 prev_node_wavefront=candidate_nodes,
                 target_wave_front=None,
@@ -3256,7 +3256,7 @@ class RowPipelineMixin:
         base_nodes = getattr(base_graph, "_nodes", None)
         if base_nodes is None:
             return None
-        edge_result = edge_op(
+        edge_result = edge_op.execute(
             g=base_graph,
             prev_node_wavefront=base_nodes,
             target_wave_front=None,
@@ -3379,7 +3379,7 @@ class RowPipelineMixin:
         anonymous_cols: List[str] = []
 
         for idx, node_op in enumerate(ops):
-            matched_nodes = node_op(
+            matched_nodes = node_op.execute(
                 g=base_graph,
                 prev_node_wavefront=start_nodes,
                 target_wave_front=None,

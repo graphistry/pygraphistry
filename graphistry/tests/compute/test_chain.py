@@ -152,6 +152,24 @@ class TestMultiHopChainForward():
             {'s': 'c', 'd': 'd'}
         ]
 
+    def test_chain_uses_execute_even_if_dunder_call_exists(self, g_long_forwards_chain, monkeypatch):
+        """Regression: operator execution path must not rely on __call__."""
+
+        def _boom(*_args, **_kwargs):
+            raise AssertionError("__call__ should not be used by chain execution")
+
+        # If chain still used op(...), this would fail immediately.
+        monkeypatch.setattr(ASTNode, "__call__", _boom, raising=False)
+        monkeypatch.setattr(ASTEdge, "__call__", _boom, raising=False)
+
+        g2 = g_long_forwards_chain.gfql([n({'v': 'a'}), e_forward(hops=3), n({'v': 'd'})])
+        assert set(g2._nodes['v'].tolist()) == {'a', 'b', 'c', 'd'}
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).reset_index(drop=True).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'b'},
+            {'s': 'b', 'd': 'c'},
+            {'s': 'c', 'd': 'd'}
+        ]
+
     def test_chain_predicates_ok_destination(self, g_long_forwards_chain):
         g2 = g_long_forwards_chain.gfql([
             n({'v': 'a'}),

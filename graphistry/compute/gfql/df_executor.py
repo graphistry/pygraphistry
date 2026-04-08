@@ -106,7 +106,7 @@ class DFSamePathExecutor:
                 is_call = isinstance(op, ASTCall)
                 current_g = self.forward_steps[-1] if is_call and self.forward_steps else graph
                 prev_nodes = None if is_call or not self.forward_steps else self.forward_steps[-1]._nodes
-                g_step = op(
+                g_step = op.execute(
                     g=current_g,
                     prev_node_wavefront=prev_nodes,
                     target_wave_front=None,
