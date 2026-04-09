@@ -1,5 +1,6 @@
 import pytest
 
+from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.api import compile_cypher, cypher_to_gfql
 from graphistry.compute.gfql.cypher.ast import CypherGraphQuery, CypherUnionQuery
 from graphistry.compute.gfql.cypher.parser import parse_cypher
@@ -133,15 +134,19 @@ def test_binder_union_merges_branch_bindings() -> None:
     assert any(part.clause == "UNION" for part in bound.query_parts)
 
 
-def test_binder_with_scope_boundary_drops_pre_with_aliases() -> None:
-    query = "MATCH (n:Person) WITH n AS m RETURN n, m"
+def test_binder_with_scope_boundary_keeps_projected_alias_only() -> None:
+    query = "MATCH (n:Person) WITH n AS m RETURN m"
     bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
 
-    assert set(bound.semantic_table.variables) == {"n", "m"}
+    assert set(bound.semantic_table.variables) == {"m"}
     assert bound.semantic_table.variables["m"].entity_kind == "node"
     assert bound.query_parts[1].outputs == frozenset({"m"})
-    assert bound.semantic_table.variables["n"].entity_kind == "scalar"
-    assert bound.semantic_table.variables["n"].null_extended_from == frozenset()
+
+
+def test_binder_unresolved_name_failure_after_with_scope_reset() -> None:
+    query = "MATCH (n:Person) WITH n AS m RETURN n"
+    with pytest.raises(GFQLValidationError, match="Unresolved identifier"):
+        FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
 
 
 def test_binder_unwind_extends_existing_scope() -> None:
@@ -151,3 +156,35 @@ def test_binder_unwind_extends_existing_scope() -> None:
     unwind_part = next(part for part in bound.query_parts if part.clause == "UNWIND")
     assert unwind_part.inputs == frozenset({"n"})
     assert unwind_part.outputs == frozenset({"n", "x"})
+
+
+def test_binder_label_narrowing_from_match_labels_and_where_conjunction() -> None:
+    query = "MATCH (n:Person) WHERE n:Admin AND n:Active RETURN n"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    n_var = bound.semantic_table.variables["n"]
+    assert isinstance(n_var.logical_type, NodeRef)
+    assert n_var.logical_type.labels == frozenset({"Person", "Admin", "Active"})
+
+
+def test_binder_schema_confidence_min_rule_count_and_operand_inheritance() -> None:
+    query = (
+        "MATCH (n:Person) "
+        "WITH n.id AS pid, n AS node_alias "
+        "RETURN pid AS pid_out, node_alias.id AS node_id, pid + node_alias.id AS mixed, count(node_alias) AS cnt, 1 AS one"
+    )
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+    confidence = bound.params["_binder_schema_confidence"]
+    assert isinstance(confidence, dict)
+
+    assert confidence["pid_out"] == "propagated"  # operand inheritance from pid
+    assert confidence["node_id"] == "propagated"  # property-level demotion
+    assert confidence["mixed"] == "propagated"  # min-rule over declared + propagated
+    assert confidence["cnt"] == "declared"  # strong aggregate semantics
+    assert confidence["one"] == "declared"  # strong literal semantics
+
+
+def test_binder_unresolved_identifier_code_is_e204() -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(parse_cypher("RETURN ghost"), PlanContext(), strict_name_resolution=True)
+    assert exc_info.value.code == ErrorCode.E204
