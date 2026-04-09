@@ -29,6 +29,7 @@ from .ast import (
     WherePatternPredicate,
     WherePredicate,
 )
+from .ast_normalizer import ASTNormalizer
 from .api import compile_cypher, cypher_to_gfql, gfql_from_cypher
 from .lowering import (
     CompiledCypherProcedureCall,
@@ -52,6 +53,7 @@ __all__ = [
     "CompiledCypherUnionQuery",
     "compile_cypher_query",
     "cypher_to_gfql",
+    "ASTNormalizer",
     "ExpressionText",
     "gfql_from_cypher",
     "CypherYieldItem",
