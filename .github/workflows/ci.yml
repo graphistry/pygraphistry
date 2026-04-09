@@ -36,6 +36,7 @@ jobs:
       docs: ${{ steps.filter.outputs.docs }}
       infra: ${{ steps.filter.outputs.infra }}
       gfql: ${{ steps.filter.outputs.gfql }}
+      cypher_frontend_ci: ${{ steps.filter.outputs.cypher_frontend_ci }}
       benchmarks: ${{ steps.filter.outputs.benchmarks }}
       docs_only_latest: ${{ steps.docs_only_latest.outputs.docs_only_latest }}
     steps:
@@ -72,6 +73,16 @@ jobs:
             - 'graphistry/models/gfql/**'
             - 'graphistry/Plottable.py'
             - 'tests/gfql/**'
+
+          # Cypher frontend gate relevant changes
+          cypher_frontend_ci:
+            - '.github/workflows/ci.yml'
+            - '.github/workflows/ci-gpu.yml'
+            - 'graphistry/compute/gfql/ir/**'
+            - 'graphistry/compute/gfql/cypher/**'
+            - 'graphistry/compute/gfql/frontends/cypher/**'
+            - 'graphistry/tests/compute/gfql/cypher/**'
+            - 'tests/gfql/ref/**'
 
           # Benchmark-specific changes
           benchmarks:
@@ -347,6 +358,108 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/typecheck.sh
 
+  cypher-frontend-strict-typing:
+    name: cypher-frontend-strict-typing (py3.12)
+    needs: [changes, generate-lockfiles]
+    if: ${{ (needs.changes.outputs.cypher_frontend_ci == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v3
+      with:
+        lfs: true
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-py3.12.lock
+        uv pip install -e . --no-deps
+
+    - name: Cypher frontend strict typing gate (binder + IR)
+      run: |
+        source pygraphistry/bin/activate
+        targets=()
+        for f in graphistry/compute/gfql/ir/*.py; do
+          if [[ -f "$f" ]]; then
+            targets+=("$f")
+          fi
+        done
+        if [[ -f graphistry/compute/gfql/frontends/cypher/binder.py ]]; then
+          targets+=(graphistry/compute/gfql/frontends/cypher/binder.py)
+        fi
+        if [[ ${#targets[@]} -eq 0 ]]; then
+          echo "No binder/IR strict typing targets present on this branch; skipping."
+          exit 0
+        fi
+        printf 'Strict typing targets:\n- %s\n' "${targets[@]}"
+        mypy --strict --follow-imports=skip "${targets[@]}"
+
+  cypher-frontend-differential-parity:
+    name: cypher-frontend-differential-parity (py3.12)
+    needs: [changes, generate-lockfiles]
+    if: ${{ (needs.changes.outputs.cypher_frontend_ci == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v3
+      with:
+        lfs: true
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-py3.12.lock
+        uv pip install -e . --no-deps
+
+    - name: Differential/parity gate tests
+      run: |
+        source pygraphistry/bin/activate
+        parity_tests=()
+        for pattern in \
+          tests/gfql/ref/test_m1_*.py \
+          tests/gfql/ref/test_differential*.py \
+          graphistry/tests/compute/gfql/cypher/test_m1_*.py \
+          graphistry/tests/compute/gfql/cypher/test_differential*.py; do
+          for f in $pattern; do
+            if [[ -f "$f" ]]; then
+              parity_tests+=("$f")
+            fi
+          done
+        done
+        if [[ ${#parity_tests[@]} -eq 0 ]]; then
+          parity_tests=("tests/gfql/ref/test_enumerator_parity.py")
+        fi
+        printf 'Differential/parity tests:\n- %s\n' "${parity_tests[@]}"
+        python -B -m pytest -vv -n auto "${parity_tests[@]}"
+
   test-minimal-python:
     # Lite sentinel: oldest + newest Python only, heavy test files excluded. Gates all downstream.
     # Heavy deferred files (test_hyper_dask, test_compute_chain, test_chain_let, test_hop, test_plotter)
@@ -398,6 +511,21 @@ jobs:
       run: |
         source pygraphistry/bin/activate
         ./bin/test-minimal-lite.sh -n auto
+
+  cypher-frontend-ci-gates:
+    name: cypher-frontend-ci-gates
+    # Keep cypher frontend gates chained to strict typing + differential/parity + full-suite sentinel.
+    needs: [changes, test-minimal-python, cypher-frontend-strict-typing, cypher-frontend-differential-parity]
+    if: ${{ (needs.changes.outputs.cypher_frontend_ci == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+    - name: Report cypher frontend gate status
+      run: |
+        echo "Cypher frontend gates passed:"
+        echo "- cypher-frontend-strict-typing (py3.12)"
+        echo "- cypher-frontend-differential-parity (py3.12)"
+        echo "- test-minimal-python (full-suite sentinel gate)"
 
 
   test-minimal-python-rest:
