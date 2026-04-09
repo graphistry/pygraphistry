@@ -262,6 +262,7 @@ def test_trust_with_boundary_binding_rows(monkeypatch: pytest.MonkeyPatch) -> No
     row_calls = [call for call in calls if "table" in call.params]
     assert len(row_calls) >= 1
     assert "binding_ops" in row_calls[0].params
-    binding_ops = cast(list[dict[str, object]], row_calls[0].params["binding_ops"])
+    # Keep cast annotation as a string for Python 3.8 runtime compatibility.
+    binding_ops = cast("list[dict[str, object]]", row_calls[0].params["binding_ops"])
     assert any(op.get("name") == "post" for op in binding_ops if isinstance(op, dict))
     assert any(op.get("name") == "x" for op in binding_ops if isinstance(op, dict))
