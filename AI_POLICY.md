@@ -69,12 +69,19 @@ If labels like `ai:autonomous-ok`, `ai:autonomous-blocked`, `ai:autonomous` are 
 
 Prefer small PRs. For AI-generated change streams, prefer stacked PRs when it improves reviewability.
 
-Default autonomous target:
-- about 5 changed files or fewer,
-- about 300 net changed lines or fewer,
-excluding generated fixtures/snapshots.
+Reviewability targets are change-type dependent, not a single hard cap.
 
-Larger changes should be pre-approved before deep review.
+For docs-only, test-only, and narrow bug-fix PRs:
+- prefer very small diffs,
+- as a guideline, keep fixes focused (often <100 LOC implementation) with targeted tests/docs (can be larger, for example up to ~500 LOC), and
+- keep file count small when possible.
+
+For feature PRs:
+- larger diffs may be appropriate,
+- split work into coherent, reviewable slices (stacked PRs when helpful),
+- keep each slice tied to explicit acceptance criteria and validation.
+
+If a PR becomes too large/noisy to review effectively, maintainers may request it be split before deep review.
 
 ## 6) Disclosure requirements
 
