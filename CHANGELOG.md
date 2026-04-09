@@ -14,6 +14,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 - **GFQL / Cypher**: Extracted `ASTNormalizer` into `graphistry/compute/gfql/cypher/ast_normalizer.py` and moved shortestPath + WHERE-pattern-predicate rewrite ownership out of `lowering.py`, with parity-preserving wiring in compile/lowering flows and focused regression coverage for rewrite behavior and invocation order (#1117).
+- **GFQL / Cypher compiler**: Lowering now functionally consumes `BoundIR` metadata for the M1 integration slice: binder-provided params are merged into effective lowering params (runtime overrides preserved) with binder metadata keys filtered out of runtime-param resolution, scope membership narrowing uses the active scope frame for WITH-boundary correctness, semantic-table entity kinds inform alias table routing, and nullable alias metadata is wired into optional-only alias detection. `_StageScope` duplicated table bookkeeping was reduced, binder now runs pre- and post-normalization in compile flow, and binder-path regression tests were added for these code paths (#1116).
 
 ## [0.54.1 - 2026-04-08]
 
