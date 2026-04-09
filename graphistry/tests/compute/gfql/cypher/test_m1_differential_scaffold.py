@@ -84,6 +84,11 @@ def _mk_with_boundary_binding_row_graph() -> _CypherTestGraph:
     )
 
 
+_IC1_EXPECTED_ROWS = [
+    {"mid": "m1", "aid": "a1", "bid": "no-b"},
+    {"mid": "m2", "aid": "no-a", "bid": "b2"},
+]
+
 _DIFF_CASES: tuple[_DiffCase, ...] = (
     _DiffCase(
         name="ic1-independent-optional-arms",
@@ -97,10 +102,21 @@ _DIFF_CASES: tuple[_DiffCase, ...] = (
             "CASE b WHEN null THEN 'no-b' ELSE b.id END AS bid "
             "ORDER BY mid, aid, bid"
         ),
-        expected_rows=[
-            {"mid": "m1", "aid": "a1", "bid": "no-b"},
-            {"mid": "m2", "aid": "no-a", "bid": "b2"},
-        ],
+        expected_rows=_IC1_EXPECTED_ROWS,
+    ),
+    _DiffCase(
+        name="ic1-independent-optional-arms-reversed-order",
+        graph_factory=_mk_ic1_two_independent_optional_arms_graph,
+        query=(
+            "MATCH (m:M) "
+            "OPTIONAL MATCH (m)-[:T2]->(b:B) "
+            "OPTIONAL MATCH (m)-[:T1]->(a:A) "
+            "RETURN m.id AS mid, "
+            "CASE a WHEN null THEN 'no-a' ELSE a.id END AS aid, "
+            "CASE b WHEN null THEN 'no-b' ELSE b.id END AS bid "
+            "ORDER BY mid, aid, bid"
+        ),
+        expected_rows=_IC1_EXPECTED_ROWS,
     ),
     _DiffCase(
         name="with-boundary-binding-row-regression",
@@ -119,6 +135,7 @@ _DIFF_CASES: tuple[_DiffCase, ...] = (
         ],
     ),
 )
+_CASE_BY_NAME = {case.name: case for case in _DIFF_CASES}
 
 
 def _run_legacy(case: _DiffCase) -> list[dict[str, object]]:
@@ -151,7 +168,7 @@ def test_m1_pr2_diff_corpus_legacy_vs_candidate(case: _DiffCase) -> None:
 )
 def test_m1_pr2_trust_placeholder_ic1_null_extended_from_semantics() -> None:
     # Placeholder trust-but-verify target for future binder semantic assertions.
-    case = _DIFF_CASES[0]
+    case = _CASE_BY_NAME["ic1-independent-optional-arms"]
     assert _run_legacy(case) == case.expected_rows
     pytest.xfail("Awaiting binder semantic table exposure in execution harness")
 
@@ -162,6 +179,6 @@ def test_m1_pr2_trust_placeholder_ic1_null_extended_from_semantics() -> None:
 )
 def test_m1_pr2_trust_placeholder_with_boundary_binding_rows() -> None:
     # Placeholder trust-but-verify target for future binding-row lineage assertions.
-    case = _DIFF_CASES[1]
+    case = _CASE_BY_NAME["with-boundary-binding-row-regression"]
     assert _run_legacy(case) == case.expected_rows
     pytest.xfail("Awaiting binder-path binding-row lineage checks")
