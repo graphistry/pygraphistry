@@ -1114,12 +1114,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - name: Set up Python 3.8
-      uses: actions/setup-python@v4
-      with:
-        python-version: 3.8
-
-    - name: Test building docs
+    - name: Lint README markdown
       continue-on-error: true
       run: |
         docker run --rm -v "$(pwd)/README.md:/workdir/README.md:ro" -v "$(pwd)/.markdownlint.yaml:/workdir/.markdownlint.yaml:ro" ghcr.io/igorshubovych/markdownlint-cli:v0.37.0 README.md
