@@ -1,6 +1,5 @@
-"""Cypher frontend compiler scaffold."""
+"""Cypher frontend compiler entrypoints."""
 
 from .binder import CypherAST, FrontendBinder
 
 __all__ = ["CypherAST", "FrontendBinder"]
-

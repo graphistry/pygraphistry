@@ -8003,7 +8003,7 @@ def compile_cypher_query(
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
-    # M1 PR-1 hook point: run binder prepass but do not alter current lowering output yet.
+    # Run binder prepass without changing current lowering behavior.
     _ = FrontendBinder().bind(query, PlanContext())
 
     if isinstance(query, CypherGraphQuery):

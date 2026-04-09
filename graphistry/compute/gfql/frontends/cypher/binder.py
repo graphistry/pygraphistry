@@ -1,4 +1,4 @@
-"""Cypher frontend binder skeleton."""
+"""Cypher frontend binder interface."""
 from __future__ import annotations
 
 from typing import Union
@@ -11,14 +11,13 @@ CypherAST = Union[CypherQuery, CypherUnionQuery, CypherGraphQuery]
 
 
 class FrontendBinder:
-    """Typed skeleton for M1 Binder extraction."""
+    """Typed binder interface for Cypher frontend ASTs."""
 
     def bind(self, ast: CypherAST, ctx: PlanContext) -> BoundIR:
         """Bind frontend AST into frontend-neutral IR.
 
-        M1 PR-1 intentionally ships only the hook surface; semantic binding
-        behavior is deferred to follow-on PRs.
+        This initial version intentionally provides the integration surface
+        only; semantic binding behavior is added in later changes.
         """
         _ = (ast, ctx)
         return BoundIR()
-
