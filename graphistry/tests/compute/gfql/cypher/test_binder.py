@@ -1,7 +1,7 @@
 import pytest
 
 from graphistry.compute.gfql.cypher.api import compile_cypher, cypher_to_gfql
-from graphistry.compute.gfql.cypher.ast import CypherUnionQuery
+from graphistry.compute.gfql.cypher.ast import CypherGraphQuery, CypherUnionQuery
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR
@@ -52,6 +52,14 @@ def test_compile_cypher_union_invokes_binder_with_union_ast(monkeypatch: pytest.
     assert compiled is not None
     assert len(calls) >= 1
     assert isinstance(calls[0][0], CypherUnionQuery)
+
+
+def test_compile_cypher_graph_constructor_invokes_binder_with_graph_ast(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _capture_binder_calls(monkeypatch)
+    compiled = compile_cypher("GRAPH { MATCH (a)-[r]->(b) }")
+    assert compiled is not None
+    assert len(calls) >= 1
+    assert isinstance(calls[0][0], CypherGraphQuery)
 
 
 def test_binder_does_not_mutate_input_ast() -> None:
