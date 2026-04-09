@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Infrastructure
+- **CI / docs**: `test-readme` no longer runs `actions/setup-python` with an EOL Python 3.8 pin. The job now runs markdown lint directly via its Docker image, removing an unnecessary setup step and avoiding intermittent Python toolcache fetch timeouts.
+
 ## [0.54.1 - 2026-04-08]
 
 ### Infrastructure
