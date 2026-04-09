@@ -1,34 +1,34 @@
-# M1 CI Gates (Wave 1)
+# Cypher Frontend CI Gates
 
-This document defines the CI gate names introduced for M1 wave-1 (`#1101`) and PR-3 (`#1102`).
+This document defines the CI checks introduced in PR-3 (`#1102`, part of `#1101`) for cypher frontend and IR changes.
 
 ## Gate names
 
-- `m1-strict-typing (py3.12)`
+- `cypher-frontend-strict-typing (py3.12)`
   - Runs `mypy --strict --follow-imports=skip` on:
     - `graphistry/compute/gfql/ir/*.py`
     - `graphistry/compute/gfql/frontends/cypher/binder.py` (when present)
 
-- `m1-differential-parity (py3.12)`
+- `cypher-frontend-differential-parity (py3.12)`
   - Runs differential/parity harness checks:
     - Prefer these test patterns when present:
-      - `tests/gfql/ref/test_m1_*.py`
+      - `tests/gfql/ref/test_m1_*.py` (legacy filename prefix)
       - `tests/gfql/ref/test_differential*.py`
-      - `graphistry/tests/compute/gfql/cypher/test_m1_*.py`
+      - `graphistry/tests/compute/gfql/cypher/test_m1_*.py` (legacy filename prefix)
       - `graphistry/tests/compute/gfql/cypher/test_differential*.py`
     - Falls back to `tests/gfql/ref/test_enumerator_parity.py`.
 
-- `m1-ci-gates`
+- `cypher-frontend-ci-gates`
   - Aggregator gate that requires:
-    - `m1-strict-typing (py3.12)`
-    - `m1-differential-parity (py3.12)`
+    - `cypher-frontend-strict-typing (py3.12)`
+    - `cypher-frontend-differential-parity (py3.12)`
     - `test-minimal-python` (full-suite sentinel gate)
 
 ## Intended branch-protection required checks
 
-For M1 binder/refactor PRs, require:
+For cypher frontend / IR PRs, require:
 
-1. `m1-ci-gates`
+1. `cypher-frontend-ci-gates`
 2. Existing baseline required checks (repo default set)
 
 This ensures strict typing + differential/parity + full-suite sentinel stay enforced together.

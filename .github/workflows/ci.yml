@@ -36,7 +36,7 @@ jobs:
       docs: ${{ steps.filter.outputs.docs }}
       infra: ${{ steps.filter.outputs.infra }}
       gfql: ${{ steps.filter.outputs.gfql }}
-      m1_ci: ${{ steps.filter.outputs.m1_ci }}
+      cypher_frontend_ci: ${{ steps.filter.outputs.cypher_frontend_ci }}
       benchmarks: ${{ steps.filter.outputs.benchmarks }}
       docs_only_latest: ${{ steps.docs_only_latest.outputs.docs_only_latest }}
     steps:
@@ -74,8 +74,8 @@ jobs:
             - 'graphistry/Plottable.py'
             - 'tests/gfql/**'
 
-          # M1 CI gate relevant changes
-          m1_ci:
+          # Cypher frontend gate relevant changes
+          cypher_frontend_ci:
             - '.github/workflows/ci.yml'
             - '.github/workflows/ci-gpu.yml'
             - 'graphistry/compute/gfql/ir/**'
@@ -358,10 +358,10 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/typecheck.sh
 
-  m1-strict-typing:
-    name: m1-strict-typing (py3.12)
+  cypher-frontend-strict-typing:
+    name: cypher-frontend-strict-typing (py3.12)
     needs: [changes, generate-lockfiles]
-    if: ${{ (needs.changes.outputs.m1_ci == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    if: ${{ (needs.changes.outputs.cypher_frontend_ci == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
@@ -389,7 +389,7 @@ jobs:
         uv pip install --require-hashes -r requirements/test-py3.12.lock
         uv pip install -e . --no-deps
 
-    - name: M1 strict typing gate (binder + IR)
+    - name: Cypher frontend strict typing gate (binder + IR)
       run: |
         source pygraphistry/bin/activate
         targets=()
@@ -405,13 +405,13 @@ jobs:
           echo "No binder/IR strict typing targets present on this branch; skipping."
           exit 0
         fi
-        printf 'M1 strict targets:\n- %s\n' "${targets[@]}"
+        printf 'Strict typing targets:\n- %s\n' "${targets[@]}"
         mypy --strict --follow-imports=skip "${targets[@]}"
 
-  m1-differential-parity:
-    name: m1-differential-parity (py3.12)
+  cypher-frontend-differential-parity:
+    name: cypher-frontend-differential-parity (py3.12)
     needs: [changes, generate-lockfiles]
-    if: ${{ (needs.changes.outputs.m1_ci == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    if: ${{ (needs.changes.outputs.cypher_frontend_ci == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -442,7 +442,7 @@ jobs:
     - name: Differential/parity gate tests
       run: |
         source pygraphistry/bin/activate
-        m1_tests=()
+        parity_tests=()
         for pattern in \
           tests/gfql/ref/test_m1_*.py \
           tests/gfql/ref/test_differential*.py \
@@ -450,15 +450,15 @@ jobs:
           graphistry/tests/compute/gfql/cypher/test_differential*.py; do
           for f in $pattern; do
             if [[ -f "$f" ]]; then
-              m1_tests+=("$f")
+              parity_tests+=("$f")
             fi
           done
         done
-        if [[ ${#m1_tests[@]} -eq 0 ]]; then
-          m1_tests=("tests/gfql/ref/test_enumerator_parity.py")
+        if [[ ${#parity_tests[@]} -eq 0 ]]; then
+          parity_tests=("tests/gfql/ref/test_enumerator_parity.py")
         fi
-        printf 'M1 differential/parity tests:\n- %s\n' "${m1_tests[@]}"
-        python -B -m pytest -vv -n auto "${m1_tests[@]}"
+        printf 'Differential/parity tests:\n- %s\n' "${parity_tests[@]}"
+        python -B -m pytest -vv -n auto "${parity_tests[@]}"
 
   test-minimal-python:
     # Lite sentinel: oldest + newest Python only, heavy test files excluded. Gates all downstream.
@@ -512,19 +512,19 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/test-minimal-lite.sh -n auto
 
-  m1-ci-gates:
-    name: m1-ci-gates
-    # Keep M1 gates chained to strict typing + differential/parity + full-suite sentinel.
-    needs: [changes, test-minimal-python, m1-strict-typing, m1-differential-parity]
-    if: ${{ (needs.changes.outputs.m1_ci == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+  cypher-frontend-ci-gates:
+    name: cypher-frontend-ci-gates
+    # Keep cypher frontend gates chained to strict typing + differential/parity + full-suite sentinel.
+    needs: [changes, test-minimal-python, cypher-frontend-strict-typing, cypher-frontend-differential-parity]
+    if: ${{ (needs.changes.outputs.cypher_frontend_ci == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-    - name: Report M1 gate status
+    - name: Report cypher frontend gate status
       run: |
-        echo "M1 gates passed:"
-        echo "- m1-strict-typing (py3.12)"
-        echo "- m1-differential-parity (py3.12)"
+        echo "Cypher frontend gates passed:"
+        echo "- cypher-frontend-strict-typing (py3.12)"
+        echo "- cypher-frontend-differential-parity (py3.12)"
         echo "- test-minimal-python (full-suite sentinel gate)"
 
 

@@ -8,9 +8,9 @@
 - [ ] Local lint/type/tests run for touched scope
 - [ ] CI is green
 
-## M1 Exit Criteria Evidence (when PR is part of M1 wave)
+## Cypher Frontend CI Evidence (when PR touches cypher frontend / IR scope)
 
-- [ ] `m1-strict-typing (py3.12)` passed (strict typing gate)
-- [ ] `m1-differential-parity (py3.12)` passed (trust-but-verify gate)
-- [ ] `m1-ci-gates` passed (includes `test-minimal-python` sentinel)
+- [ ] `cypher-frontend-strict-typing (py3.12)` passed (strict typing gate)
+- [ ] `cypher-frontend-differential-parity (py3.12)` passed (trust-but-verify gate)
+- [ ] `cypher-frontend-ci-gates` passed (includes `test-minimal-python` sentinel)
 - [ ] PR body includes links/screenshots/log snippets for any non-obvious gate evidence
