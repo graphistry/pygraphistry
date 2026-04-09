@@ -94,6 +94,7 @@ from graphistry.compute.gfql.cypher.call_procedures import (
     CompiledCypherProcedureCall,
     compile_cypher_call,
 )
+from graphistry.compute.gfql.cypher.ast_normalizer import ASTNormalizer
 from graphistry.compute.gfql.temporal_text import (
     fold_temporal_constructor_ast,
     resolve_duration_text_property,
@@ -928,193 +929,6 @@ def _rewrite_expr_identifiers(node: ExprNode, replacements: Mapping[str, str]) -
         node,
         rewrite=lambda child: _rewrite_expr_identifiers(child, replacements),
         error_context="identifier rewrite",
-    )
-
-
-def _rewrite_shortest_path_expr_node(
-    node: ExprNode,
-    *,
-    specs: Mapping[str, _ShortestPathAliasSpec],
-    field: str,
-    value: str,
-    line: int,
-    column: int,
-) -> ExprNode:
-    def _hop_expr(spec: _ShortestPathAliasSpec) -> ExprNode:
-        if spec.end_alias is not None:
-            return PropertyAccessExpr(Identifier(spec.end_alias), spec.hop_column)
-        return Identifier(spec.hop_column)
-
-    if isinstance(node, IsNullOp) and isinstance(node.value, Identifier) and node.value.name in specs:
-        return IsNullOp(_hop_expr(specs[node.value.name]), negated=node.negated)
-    if isinstance(node, Identifier):
-        if node.name in specs:
-            raise GFQLValidationError(
-                ErrorCode.E108,
-                "Cypher shortestPath() aliases currently support only length(path) and path IS NULL in the local compiler",
-                field=field,
-                value=value,
-                suggestion="Use length(path), path IS NULL, or CASE expressions built from those forms.",
-                line=line,
-                column=column,
-                language="cypher",
-            )
-        return node
-    if (
-        isinstance(node, FunctionCall)
-        and node.name == "length"
-        and len(node.args) == 1
-        and isinstance(node.args[0], Identifier)
-        and node.args[0].name in specs
-    ):
-        return _hop_expr(specs[node.args[0].name])
-    return _rebuild_expr_node(
-        node,
-        rewrite=lambda child: _rewrite_shortest_path_expr_node(
-            child,
-            specs=specs,
-            field=field,
-            value=value,
-            line=line,
-            column=column,
-        ),
-        error_context="shortestPath rewrite",
-    )
-
-
-def _rewrite_shortest_path_expr_text(
-    expr: ExpressionText,
-    *,
-    specs: Mapping[str, _ShortestPathAliasSpec],
-    field: str,
-) -> ExpressionText:
-    if not specs:
-        return expr
-    node = parse_expr(expr.text)
-    rewritten = _rewrite_shortest_path_expr_node(
-        node,
-        specs=specs,
-        field=field,
-        value=expr.text,
-        line=expr.span.line,
-        column=expr.span.column,
-    )
-    return ExpressionText(text=_render_expr_node(rewritten), span=expr.span)
-
-
-def _rewrite_shortest_path_query(
-    query: CypherQuery,
-) -> CypherQuery:
-    specs = _shortest_path_alias_specs(query)
-    if not specs:
-        return query
-
-    rewritten_matches: List[MatchClause] = []
-    for clause in query.matches:
-        pattern_kinds = _match_pattern_alias_kinds(clause)
-        if len(clause.patterns) <= 1 or "shortestPath" not in pattern_kinds:
-            rewritten_matches.append(clause)
-            continue
-        if clause.optional:
-            raise _unsupported(
-                "Cypher shortestPath() inside OPTIONAL MATCH is not yet supported in the local compiler",
-                field="match",
-                value="shortestPath",
-                line=clause.span.line,
-                column=clause.span.column,
-            )
-        for idx, (pattern, kind) in enumerate(zip(clause.patterns, pattern_kinds)):
-            if kind == "shortestPath":
-                rewritten_matches.append(
-                    MatchClause(
-                        patterns=(pattern,),
-                        span=clause.span,
-                        optional=False,
-                        pattern_aliases=((clause.pattern_aliases[idx] if idx < len(clause.pattern_aliases) else None),),
-                        pattern_alias_kinds=("shortestPath",),
-                    )
-                )
-                continue
-            if len(pattern) != 1 or not isinstance(pattern[0], NodePattern):
-                raise _unsupported(
-                    "Cypher shortestPath() currently supports only node-only seed patterns plus the final shortestPath pattern in the local compiler",
-                    field="match",
-                    value=None,
-                    line=clause.span.line,
-                    column=clause.span.column,
-                )
-            rewritten_matches.append(
-                MatchClause(
-                    patterns=(pattern,),
-                    span=clause.span,
-                    optional=False,
-                    pattern_aliases=(None,),
-                    pattern_alias_kinds=("pattern",),
-                )
-            )
-
-    def _rewrite_clause(clause: ReturnClause) -> ReturnClause:
-        return replace(
-            clause,
-            items=tuple(
-                replace(
-                    item,
-                    expression=_rewrite_shortest_path_expr_text(
-                        item.expression,
-                        specs=specs,
-                        field=clause.kind,
-                    ),
-                )
-                for item in clause.items
-            ),
-        )
-
-    def _rewrite_order(order_by: Optional[OrderByClause]) -> Optional[OrderByClause]:
-        if order_by is None:
-            return None
-        return replace(
-            order_by,
-            items=tuple(
-                replace(
-                    item,
-                    expression=_rewrite_shortest_path_expr_text(
-                        item.expression,
-                        specs=specs,
-                        field="order_by",
-                    ),
-                )
-                for item in order_by.items
-            ),
-        )
-
-    def _rewrite_where(where: Optional[WhereClause]) -> Optional[WhereClause]:
-        if where is None or where.expr is None:
-            return where
-        return replace(
-            where,
-            expr=_rewrite_shortest_path_expr_text(where.expr, specs=specs, field="where"),
-        )
-
-    return replace(
-        query,
-        matches=tuple(rewritten_matches),
-        where=_rewrite_where(query.where),
-        with_stages=tuple(
-            replace(
-                stage,
-                clause=_rewrite_clause(stage.clause),
-                where=None if stage.where is None else _rewrite_shortest_path_expr_text(
-                    stage.where,
-                    specs=specs,
-                    field="with.where",
-                ),
-                order_by=_rewrite_order(stage.order_by),
-            )
-            for stage in query.with_stages
-        ),
-        return_=_rewrite_clause(query.return_),
-        order_by=_rewrite_order(query.order_by),
-        reentry_wheres=tuple(_rewrite_where(where) for where in query.reentry_wheres),
     )
 
 
@@ -5735,68 +5549,6 @@ def lower_match_clause(
     return out
 
 
-def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQuery:
-    if query.where is None or not query.where.predicates:
-        return query
-    pattern_preds = [predicate for predicate in query.where.predicates if isinstance(predicate, WherePatternPredicate)]
-    if not pattern_preds:
-        return query
-    first = pattern_preds[0]
-    if len(pattern_preds) > 1:
-        raise _unsupported(
-            "Cypher WHERE currently supports one positive pattern predicate at a time",
-            field="where",
-            value=len(pattern_preds),
-            line=first.span.line,
-            column=first.span.column,
-        )
-    if len(first.pattern) < 3:
-        raise _unsupported(
-            "Cypher WHERE pattern predicates must include a relationship",
-            field="where",
-            value=None,
-            line=first.span.line,
-            column=first.span.column,
-        )
-    bound_aliases = {
-        cast(str, element.variable)
-        for clause in query.matches
-        for pattern in clause.patterns
-        for element in pattern
-        if getattr(element, "variable", None) is not None
-    }
-    introduced_aliases = sorted(
-        cast(str, element.variable)
-        for element in first.pattern
-        if getattr(element, "variable", None) is not None and cast(str, element.variable) not in bound_aliases
-    )
-    if introduced_aliases:
-        raise _unsupported(
-            "Cypher WHERE pattern predicates cannot introduce new aliases in this phase",
-            field="where",
-            value=introduced_aliases,
-            line=first.span.line,
-            column=first.span.column,
-        )
-
-    remaining = tuple(predicate for predicate in query.where.predicates if not isinstance(predicate, WherePatternPredicate))
-    remaining_where = None
-    if remaining or query.where.expr is not None:
-        remaining_where = WhereClause(
-            predicates=cast(Any, remaining),
-            expr=query.where.expr,
-            span=query.where.span,
-        )
-    extra_match = MatchClause(
-        patterns=(first.pattern,),
-        span=first.span,
-        optional=False,
-        pattern_aliases=(None,),
-        pattern_alias_kinds=("pattern",),
-    )
-    return replace(query, matches=query.matches + (extra_match,), where=remaining_where)
-
-
 def _reject_unsupported_where_expr_forms(query: CypherQuery) -> None:
     if query.where is None or query.where.expr is None:
         return
@@ -6175,8 +5927,9 @@ def lower_match_query(
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> LoweredCypherMatch:
-    query = _rewrite_shortest_path_query(query)
-    query = _rewrite_where_pattern_predicates_to_matches(query)
+    normalizer = ASTNormalizer()
+    query = normalizer.rewrite_shortest_path(query)
+    query = normalizer.rewrite_where_pattern_predicates(query)
     _reject_unsupported_where_expr_forms(query)
     _reject_variable_length_path_alias_references(query, params=params)
     merged_match = _merged_match_clause(query)
@@ -8059,10 +7812,11 @@ def compile_cypher_query(
             return result
         return replace(result, graph_bindings=compiled_bindings, use_ref=_use_ref)
 
-    query = _rewrite_shortest_path_query(query)
+    normalizer = ASTNormalizer()
+    query = normalizer.rewrite_shortest_path(query)
     _reject_unsupported_variable_length_where_pattern_predicates(query)
     _reject_variable_length_path_alias_references(query, params=params)
-    query = _rewrite_where_pattern_predicates_to_matches(query)
+    query = normalizer.rewrite_where_pattern_predicates(query)
     _reject_unsupported_where_expr_forms(query)
     _reject_nonterminal_variable_length_relationship_patterns(query)
     if query.reentry_matches:
