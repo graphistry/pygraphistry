@@ -994,10 +994,10 @@ jobs:
       with:
         lfs: true
 
-    - name: Set up Python 3.14
+    - name: Set up Python 3.10
       uses: actions/setup-python@v4
       with:
-        python-version: '3.14'
+        python-version: '3.10'
 
     - name: Install DGL stack (CPU, legacy)
       run: |
@@ -1066,10 +1066,10 @@ jobs:
         name: lockfiles
         path: requirements
 
-    - name: Set up Python 3.10
+    - name: Set up Python 3.14
       uses: actions/setup-python@v4
       with:
-        python-version: '3.10'
+        python-version: '3.14'
 
     - name: Install dependencies
       run: |
