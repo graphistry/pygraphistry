@@ -262,17 +262,17 @@ class FrontendBinder:
                 self._bind_return_clause(state=state, clause=item.clause, stage=item)
 
     def _bind_graph_sequence(self, state: _BindState, ast: CypherQuery) -> None:
-        for clause in ast.matches:
-            self._bind_match_clause(state=state, clause=clause)
+        for match_clause in ast.matches:
+            self._bind_match_clause(state=state, clause=match_clause)
 
-        for clause in ast.unwinds:
-            self._bind_unwind_clause(state=state, clause=clause)
+        for unwind_clause in ast.unwinds:
+            self._bind_unwind_clause(state=state, clause=unwind_clause)
 
         if ast.reentry_matches:
-            for idx, clause in enumerate(ast.reentry_matches):
+            for idx, reentry_match in enumerate(ast.reentry_matches):
                 if idx < len(ast.with_stages):
                     self._bind_projection_stage(state=state, stage=ast.with_stages[idx], origin="WITH")
-                self._bind_match_clause(state=state, clause=clause)
+                self._bind_match_clause(state=state, clause=reentry_match)
                 if idx < len(ast.reentry_wheres) and ast.reentry_wheres[idx] is not None:
                     self._append_where_part(state=state, clause_name="WHERE", where=cast(WhereClause, ast.reentry_wheres[idx]))
                 if idx < len(ast.reentry_unwinds):
