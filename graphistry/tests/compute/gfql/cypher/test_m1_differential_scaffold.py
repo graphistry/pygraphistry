@@ -147,26 +147,26 @@ def _run_legacy(case: _DiffCase) -> list[dict[str, object]]:
 
 
 def _run_binder_prepass_scaffold(case: _DiffCase) -> list[dict[str, object]]:
-    # TODO(#1104/#1103 follow-on): route this through the binder-prepass entrypoint.
-    # For PR-2 scaffolding, keep candidate path deterministic by delegating to legacy.
+    # TODO: Route this through the binder-prepass entrypoint once available.
+    # Keep candidate path deterministic for now by delegating to legacy.
     return _run_legacy(case)
 
 
 @pytest.mark.parametrize("case", _DIFF_CASES, ids=[case.name for case in _DIFF_CASES])
-def test_m1_pr2_diff_corpus_legacy_baseline(case: _DiffCase) -> None:
+def test_diff_corpus_legacy_baseline(case: _DiffCase) -> None:
     assert _run_legacy(case) == case.expected_rows
 
 
 @pytest.mark.parametrize("case", _DIFF_CASES, ids=[case.name for case in _DIFF_CASES])
-def test_m1_pr2_diff_corpus_legacy_vs_candidate(case: _DiffCase) -> None:
+def test_diff_corpus_legacy_vs_candidate(case: _DiffCase) -> None:
     assert _run_binder_prepass_scaffold(case) == _run_legacy(case)
 
 
 @pytest.mark.xfail(
-    reason="TODO(#1103): assert bound semantic_table.null_extended_from for IC1 once binder-prepass execution path is wired",
+    reason="TODO: Assert semantic_table.null_extended_from for IC1 once binder-prepass execution path is wired",
     strict=False,
 )
-def test_m1_pr2_trust_placeholder_ic1_null_extended_from_semantics() -> None:
+def test_trust_placeholder_ic1_null_extended_from_semantics() -> None:
     # Placeholder trust-but-verify target for future binder semantic assertions.
     case = _CASE_BY_NAME["ic1-independent-optional-arms"]
     assert _run_legacy(case) == case.expected_rows
@@ -174,10 +174,10 @@ def test_m1_pr2_trust_placeholder_ic1_null_extended_from_semantics() -> None:
 
 
 @pytest.mark.xfail(
-    reason="TODO(#1103): assert binding-row lineage through WITH boundary once binder-prepass path is wired",
+    reason="TODO: Assert binding-row lineage through WITH boundary once binder-prepass path is wired",
     strict=False,
 )
-def test_m1_pr2_trust_placeholder_with_boundary_binding_rows() -> None:
+def test_trust_placeholder_with_boundary_binding_rows() -> None:
     # Placeholder trust-but-verify target for future binding-row lineage assertions.
     case = _CASE_BY_NAME["with-boundary-binding-row-regression"]
     assert _run_legacy(case) == case.expected_rows
