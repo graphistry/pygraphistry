@@ -1194,15 +1194,15 @@ jobs:
         name: lockfiles
         path: requirements
 
-    - name: Set up Python 3.8
+    - name: Set up Python 3.14
       uses: actions/setup-python@v4
       with:
-        python-version: 3.8
+        python-version: '3.14'
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip uv
-        UV_SYSTEM_PYTHON=1 uv pip install --require-hashes -r requirements/build-py3.8.lock
+        UV_SYSTEM_PYTHON=1 uv pip install --require-hashes -r requirements/build-py3.14.lock
         UV_SYSTEM_PYTHON=1 uv pip install -e . --no-deps
 
     - name: Test building
