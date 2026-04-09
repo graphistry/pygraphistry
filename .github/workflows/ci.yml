@@ -80,8 +80,7 @@ jobs:
             - '.github/workflows/ci-gpu.yml'
             - 'graphistry/compute/gfql/ir/**'
             - 'graphistry/compute/gfql/cypher/**'
-            - 'graphistry/compute/gfql/frontends/cypher/binder.py'
-            - 'graphistry/compute/gfql/frontends/cypher/__init__.py'
+            - 'graphistry/compute/gfql/frontends/cypher/**'
             - 'graphistry/tests/compute/gfql/cypher/**'
             - 'tests/gfql/ref/**'
 
