@@ -6,6 +6,7 @@ from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR
 from graphistry.compute.gfql.ir.compilation import PlanContext
+from graphistry.compute.gfql.ir.types import EdgeRef, NodeRef, PathType, ScalarType
 from typing import Any, List, Tuple
 
 
@@ -68,3 +69,85 @@ def test_binder_does_not_mutate_input_ast() -> None:
     bound = FrontendBinder().bind(ast, PlanContext())
     assert isinstance(bound, BoundIR)
     assert repr(ast) == before
+
+
+def test_binder_optional_match_tracks_null_extended_from() -> None:
+    query = (
+        "MATCH (m:M) "
+        "OPTIONAL MATCH (m)-[:T1]->(a:A) "
+        "OPTIONAL MATCH (m)-[:T2]->(b:B) "
+        "RETURN m.id AS mid, "
+        "CASE a WHEN null THEN 'no-a' ELSE a.id END AS aid, "
+        "CASE b WHEN null THEN 'no-b' ELSE b.id END AS bid"
+    )
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    assert bound.semantic_table.variables["mid"].null_extended_from == frozenset()
+    assert bound.semantic_table.variables["aid"].null_extended_from == frozenset({"optional_arm_1"})
+    assert bound.semantic_table.variables["bid"].null_extended_from == frozenset({"optional_arm_2"})
+
+    optional_parts = [part for part in bound.query_parts if part.clause == "OPTIONAL MATCH"]
+    assert len(optional_parts) == 2
+    assert optional_parts[0].metadata["arm_id"] == "optional_arm_1"
+    assert optional_parts[1].metadata["arm_id"] == "optional_arm_2"
+
+
+def test_binder_with_boundary_scope_lineage() -> None:
+    query = (
+        "MATCH (t:Tag) "
+        "WITH t.tagId AS knownTagId "
+        "MATCH (post:Post)-[:HAS_TAG]->(x:Tag {tagId: knownTagId}) "
+        "RETURN post.id AS pid"
+    )
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    assert [part.clause for part in bound.query_parts] == ["MATCH", "WITH", "MATCH", "RETURN"]
+    second_match = bound.query_parts[2]
+    assert second_match.inputs == frozenset({"knownTagId"})
+    assert {"knownTagId", "post", "x"} <= second_match.outputs
+    assert set(bound.semantic_table.variables) == {"pid"}
+
+
+def test_binder_assigns_node_edge_path_and_scalar_types() -> None:
+    query = "MATCH p = (a:Person)-[r:KNOWS]->(b:Person) UNWIND [1,2] AS i RETURN p, a, r, i"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    vars_ = bound.semantic_table.variables
+    assert isinstance(vars_["p"].logical_type, PathType)
+    assert isinstance(vars_["a"].logical_type, NodeRef)
+    assert vars_["a"].logical_type.labels == frozenset({"Person"})
+    assert isinstance(vars_["r"].logical_type, EdgeRef)
+    assert vars_["r"].logical_type.type == "KNOWS"
+    assert isinstance(vars_["i"].logical_type, ScalarType)
+
+
+def test_binder_extracts_parameter_names() -> None:
+    query = "MATCH (n:Person {id: $id}) RETURN n"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+    assert bound.params["_binder_parameter_names"] == ("id",)
+
+
+def test_binder_union_merges_branch_bindings() -> None:
+    bound = FrontendBinder().bind(parse_cypher("RETURN 1 AS x UNION RETURN 2 AS x"), PlanContext())
+    assert "x" in bound.semantic_table.variables
+    assert any(part.clause == "UNION" for part in bound.query_parts)
+
+
+def test_binder_with_scope_boundary_drops_pre_with_aliases() -> None:
+    query = "MATCH (n:Person) WITH n AS m RETURN n, m"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    assert set(bound.semantic_table.variables) == {"n", "m"}
+    assert bound.semantic_table.variables["m"].entity_kind == "node"
+    assert bound.query_parts[1].outputs == frozenset({"m"})
+    assert bound.semantic_table.variables["n"].entity_kind == "scalar"
+    assert bound.semantic_table.variables["n"].null_extended_from == frozenset()
+
+
+def test_binder_unwind_extends_existing_scope() -> None:
+    query = "MATCH (n:Person) UNWIND [1, 2] AS x RETURN n, x"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    unwind_part = next(part for part in bound.query_parts if part.clause == "UNWIND")
+    assert unwind_part.inputs == frozenset({"n"})
+    assert unwind_part.outputs == frozenset({"n", "x"})

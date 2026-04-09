@@ -6,6 +6,9 @@ from typing import Callable, Mapping, Optional, cast
 import pandas as pd
 import pytest
 
+from graphistry.compute.gfql.cypher.parser import parse_cypher
+from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
+from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.tests.test_compute import CGFull
 
 
@@ -162,23 +165,21 @@ def test_diff_corpus_legacy_vs_candidate(case: _DiffCase) -> None:
     assert _run_binder_prepass_scaffold(case) == _run_legacy(case)
 
 
-@pytest.mark.xfail(
-    reason="TODO: Assert semantic_table.null_extended_from for IC1 once binder-prepass execution path is wired",
-    strict=False,
-)
 def test_trust_placeholder_ic1_null_extended_from_semantics() -> None:
-    # Placeholder trust-but-verify target for future binder semantic assertions.
+    # Trust-but-verify target: binder should expose independent OPTIONAL arm lineage.
     case = _CASE_BY_NAME["ic1-independent-optional-arms"]
     assert _run_legacy(case) == case.expected_rows
-    pytest.xfail("Awaiting binder semantic table exposure in execution harness")
+    bound = FrontendBinder().bind(parse_cypher(case.query), PlanContext())
+    assert bound.semantic_table.variables["aid"].null_extended_from == frozenset({"optional_arm_1"})
+    assert bound.semantic_table.variables["bid"].null_extended_from == frozenset({"optional_arm_2"})
 
 
-@pytest.mark.xfail(
-    reason="TODO: Assert binding-row lineage through WITH boundary once binder-prepass path is wired",
-    strict=False,
-)
 def test_trust_placeholder_with_boundary_binding_rows() -> None:
-    # Placeholder trust-but-verify target for future binding-row lineage assertions.
+    # Trust-but-verify target: binder should preserve WITH boundary lineage.
     case = _CASE_BY_NAME["with-boundary-binding-row-regression"]
     assert _run_legacy(case) == case.expected_rows
-    pytest.xfail("Awaiting binder-path binding-row lineage checks")
+    bound = FrontendBinder().bind(parse_cypher(case.query), PlanContext())
+    clauses = [part.clause for part in bound.query_parts]
+    assert clauses == ["MATCH", "WITH", "MATCH", "RETURN"]
+    assert bound.query_parts[2].inputs == frozenset({"knownTagId"})
+    assert {"knownTagId", "post", "x"} <= bound.query_parts[2].outputs
