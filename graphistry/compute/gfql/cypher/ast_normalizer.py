@@ -236,7 +236,7 @@ def _rebuild_expr_node(
     if isinstance(node, IsNullOp):
         return IsNullOp(rewrite(node.value), negated=node.negated)
     if isinstance(node, FunctionCall):
-        return FunctionCall(node.name, [rewrite(arg) for arg in node.args], distinct=node.distinct)
+        return FunctionCall(node.name, tuple(rewrite(arg) for arg in node.args), distinct=node.distinct)
     if isinstance(node, CaseWhen):
         return CaseWhen(
             rewrite(node.condition),
@@ -258,9 +258,9 @@ def _rebuild_expr_node(
             projection=None if node.projection is None else rewrite(node.projection),
         )
     if isinstance(node, ListLiteral):
-        return ListLiteral([rewrite(item) for item in node.items])
+        return ListLiteral(tuple(rewrite(item) for item in node.items))
     if isinstance(node, MapLiteral):
-        return MapLiteral([(key, rewrite(value)) for key, value in node.items])
+        return MapLiteral(tuple((key, rewrite(value)) for key, value in node.items))
     if isinstance(node, SubscriptExpr):
         return SubscriptExpr(rewrite(node.value), rewrite(node.key))
     if isinstance(node, SliceExpr):
