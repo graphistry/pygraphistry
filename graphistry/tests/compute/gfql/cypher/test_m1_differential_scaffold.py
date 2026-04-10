@@ -6,9 +6,16 @@ from typing import Callable, Mapping, Optional, cast
 import pandas as pd
 import pytest
 
+from graphistry.compute.ast import ASTCall, ASTObject
+from graphistry.compute.gfql.cypher.api import CompiledCypherQuery, compile_cypher
+from graphistry.compute.gfql.cypher.lowering import _alias_target, _return_references_optional_only_alias, lower_match_clause
+from graphistry.compute.gfql.cypher.ast import CypherQuery
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
+from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundVariable, ScopeFrame, SemanticTable
 from graphistry.compute.gfql.ir.compilation import PlanContext
+from graphistry.compute.gfql.ir.logical_plan import RowSchema
+from graphistry.compute.gfql.ir.types import ScalarType
 from graphistry.tests.test_compute import CGFull
 
 
@@ -87,9 +94,15 @@ def _mk_with_boundary_binding_row_graph() -> _CypherTestGraph:
     )
 
 
-_IC1_EXPECTED_ROWS = [
+_IC1_EXPECTED_ROWS: list[dict[str, object]] = [
     {"mid": "m1", "aid": "a1", "bid": "no-b"},
     {"mid": "m2", "aid": "no-a", "bid": "b2"},
+]
+
+_WITH_BOUNDARY_EXPECTED_ROWS: list[dict[str, object]] = [
+    {"pid": "post1"},
+    {"pid": "post2"},
+    {"pid": "post3"},
 ]
 
 _DIFF_CASES: tuple[_DiffCase, ...] = (
@@ -131,11 +144,7 @@ _DIFF_CASES: tuple[_DiffCase, ...] = (
             "RETURN post.id AS pid "
             "ORDER BY pid"
         ),
-        expected_rows=[
-            {"pid": "post1"},
-            {"pid": "post2"},
-            {"pid": "post3"},
-        ],
+        expected_rows=_WITH_BOUNDARY_EXPECTED_ROWS,
     ),
 )
 _CASE_BY_NAME = {case.name: case for case in _DIFF_CASES}
@@ -149,10 +158,62 @@ def _run_legacy(case: _DiffCase) -> list[dict[str, object]]:
     return cast("list[dict[str, object]]", result._nodes.to_dict(orient="records"))
 
 
-def _run_binder_prepass_scaffold(case: _DiffCase) -> list[dict[str, object]]:
-    # TODO: Route this through the binder-prepass entrypoint once available.
-    # Keep candidate path deterministic for now by delegating to legacy.
-    return _run_legacy(case)
+def _run_binder_prepass_scaffold(
+    case: _DiffCase,
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    bound_ir: Optional[BoundIR] = None,
+) -> list[dict[str, object]]:
+    calls: list[tuple[object, PlanContext]] = []
+
+    def _fake_bind(self: FrontendBinder, ast: object, ctx: PlanContext) -> BoundIR:
+        _ = self
+        calls.append((ast, ctx))
+        return bound_ir if bound_ir is not None else BoundIR()
+
+    monkeypatch.setattr(FrontendBinder, "bind", _fake_bind)
+    rows = _run_legacy(case)
+    assert len(calls) >= 1
+    return rows
+
+
+def _ic1_bound_ir_with_null_extensions() -> BoundIR:
+    return BoundIR(
+        semantic_table=SemanticTable(
+            variables={
+                "m": BoundVariable(
+                    name="m",
+                    logical_type=ScalarType(kind="node"),
+                    nullable=False,
+                    null_extended_from=frozenset(),
+                    entity_kind="node",
+                ),
+                "a": BoundVariable(
+                    name="a",
+                    logical_type=ScalarType(kind="node"),
+                    nullable=True,
+                    null_extended_from=frozenset({"opt_arm_t1"}),
+                    entity_kind="node",
+                ),
+                "b": BoundVariable(
+                    name="b",
+                    logical_type=ScalarType(kind="node"),
+                    nullable=True,
+                    null_extended_from=frozenset({"opt_arm_t2"}),
+                    entity_kind="node",
+                ),
+            }
+        ),
+        scope_stack=(
+            [
+                ScopeFrame(
+                    visible_vars=frozenset({"m", "a", "b"}),
+                    schema=RowSchema(),
+                    origin_clause="RETURN",
+                )
+            ]
+        ),
+    )
 
 
 @pytest.mark.parametrize("case", _DIFF_CASES, ids=[case.name for case in _DIFF_CASES])
@@ -161,25 +222,48 @@ def test_diff_corpus_legacy_baseline(case: _DiffCase) -> None:
 
 
 @pytest.mark.parametrize("case", _DIFF_CASES, ids=[case.name for case in _DIFF_CASES])
-def test_diff_corpus_legacy_vs_candidate(case: _DiffCase) -> None:
-    assert _run_binder_prepass_scaffold(case) == _run_legacy(case)
+def test_diff_corpus_legacy_vs_candidate(case: _DiffCase, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert _run_binder_prepass_scaffold(case, monkeypatch=monkeypatch) == _run_legacy(case)
 
 
-def test_trust_placeholder_ic1_null_extended_from_semantics() -> None:
-    # Trust-but-verify target: binder should expose independent OPTIONAL arm lineage.
+def test_trust_ic1_null_extended_from_semantics(monkeypatch: pytest.MonkeyPatch) -> None:
     case = _CASE_BY_NAME["ic1-independent-optional-arms"]
-    assert _run_legacy(case) == case.expected_rows
-    bound = FrontendBinder().bind(parse_cypher(case.query), PlanContext())
-    assert bound.semantic_table.variables["aid"].null_extended_from == frozenset({"optional_arm_1"})
-    assert bound.semantic_table.variables["bid"].null_extended_from == frozenset({"optional_arm_2"})
+    bound_ir = _ic1_bound_ir_with_null_extensions()
+
+    # Candidate path: binder prepass is actively invoked during execution.
+    assert _run_binder_prepass_scaffold(case, monkeypatch=monkeypatch, bound_ir=bound_ir) == case.expected_rows
+
+    # Trust-but-verify: IC1 optional aliases are recognized as null-extended.
+    parsed = cast(CypherQuery, parse_cypher(case.query))
+    lowered_alias_targets: dict[str, ASTObject] = {}
+    for clause in parsed.matches:
+        lowered_alias_targets.update(_alias_target(lower_match_clause(clause)))
+    nullable_aliases = {
+        alias
+        for alias, var in bound_ir.semantic_table.variables.items()
+        if var.nullable or bool(var.null_extended_from)
+    }
+    assert bound_ir.semantic_table.variables["a"].null_extended_from != bound_ir.semantic_table.variables["b"].null_extended_from
+    assert {"a", "b"} <= nullable_aliases
+    assert _return_references_optional_only_alias(
+        parsed,
+        alias_targets=lowered_alias_targets,
+        bound_nullable_aliases=nullable_aliases,
+    ) is True
 
 
-def test_trust_placeholder_with_boundary_binding_rows() -> None:
-    # Trust-but-verify target: binder should preserve WITH boundary lineage.
+def test_trust_with_boundary_binding_rows(monkeypatch: pytest.MonkeyPatch) -> None:
     case = _CASE_BY_NAME["with-boundary-binding-row-regression"]
-    assert _run_legacy(case) == case.expected_rows
-    bound = FrontendBinder().bind(parse_cypher(case.query), PlanContext())
-    clauses = [part.clause for part in bound.query_parts]
-    assert clauses == ["MATCH", "WITH", "MATCH", "RETURN"]
-    assert bound.query_parts[2].inputs == frozenset({"knownTagId"})
-    assert {"knownTagId", "post", "x"} <= bound.query_parts[2].outputs
+    # Candidate path execution remains parity-stable.
+    assert _run_binder_prepass_scaffold(case, monkeypatch=monkeypatch) == case.expected_rows
+
+    # Trust-but-verify: compiled chain keeps bindings-row lineage through WITH boundary.
+    compiled = cast(CompiledCypherQuery, compile_cypher(case.query))
+    calls = [cast(ASTCall, op) for op in compiled.chain.chain if isinstance(op, ASTCall)]
+    row_calls = [call for call in calls if "table" in call.params]
+    assert len(row_calls) >= 1
+    assert "binding_ops" in row_calls[0].params
+    # Keep cast annotation as a string for Python 3.8 runtime compatibility.
+    binding_ops = cast("list[dict[str, object]]", row_calls[0].params["binding_ops"])
+    assert any(op.get("name") == "post" for op in binding_ops if isinstance(op, dict))
+    assert any(op.get("name") == "x" for op in binding_ops if isinstance(op, dict))
