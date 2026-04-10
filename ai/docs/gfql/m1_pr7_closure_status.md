@@ -17,8 +17,17 @@ Given PR-4/PR-6 are still open, PR-7 should remain a closure/evidence bundle, no
   - strict typing
   - differential parity
   - ci-gates aggregator
+  - Receipts (last gate-relevant CI run on this PR):
+    - strict typing: https://github.com/graphistry/pygraphistry/actions/runs/24176971366/job/70560546441
+    - differential parity: https://github.com/graphistry/pygraphistry/actions/runs/24176971366/job/70560546416
+    - ci-gates: https://github.com/graphistry/pygraphistry/actions/runs/24176971366/job/70561102185
 - [x] TCK run attached and green on PR-7 branch
+  - Receipt: https://github.com/graphistry/pygraphistry/actions/runs/24176971366/job/70561102217
 - [x] shortestPath parity suite rechecked after latest rebases/merges
+  - Local receipt (2026-04-10): `python -B -m pytest -q graphistry/tests/compute/gfql/cypher/test_shortest_path_parity.py --tb=short` -> `58 passed, 15 xfailed`
+- [ ] Differential suite has no placeholder-only trust checks remaining for M1 scope
+  - Current status: not yet met on this branch baseline (`test_m1_differential_scaffold.py` still has placeholder xfails from master line).
+  - Dependency: PR-4/PR-6 binder/lowering integration lane (#1114 / #1116).
 - [ ] Final M1 exit closure pending PR-4 and PR-6 completion
 
 ## Notes
