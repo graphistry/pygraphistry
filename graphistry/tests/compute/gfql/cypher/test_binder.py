@@ -167,6 +167,24 @@ def test_binder_label_narrowing_from_match_labels_and_where_conjunction() -> Non
     assert n_var.logical_type.labels == frozenset({"Person", "Admin", "Active"})
 
 
+def test_binder_label_narrowing_does_not_apply_for_or_expression() -> None:
+    query = "MATCH (n) WHERE n:Admin OR n:Active RETURN n"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    n_var = bound.semantic_table.variables["n"]
+    assert isinstance(n_var.logical_type, NodeRef)
+    assert n_var.logical_type.labels == frozenset()
+
+
+def test_binder_label_narrowing_does_not_apply_for_not_expression() -> None:
+    query = "MATCH (n:Person) WHERE NOT n:Admin RETURN n"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    n_var = bound.semantic_table.variables["n"]
+    assert isinstance(n_var.logical_type, NodeRef)
+    assert n_var.logical_type.labels == frozenset({"Person"})
+
+
 def test_binder_schema_confidence_min_rule_count_and_operand_inheritance() -> None:
     query = (
         "MATCH (n:Person) "
