@@ -3,7 +3,13 @@ import pytest
 from graphistry.compute.ast import ASTCall
 from graphistry.compute.gfql.cypher.api import compile_cypher, cypher_to_gfql
 from graphistry.compute.gfql.cypher.ast import CypherGraphQuery, CypherUnionQuery
-from graphistry.compute.gfql.cypher.lowering import _alias_target, _return_references_optional_only_alias, lower_match_clause
+from graphistry.compute.gfql.cypher.lowering import (
+    _alias_target,
+    _bound_visible_aliases,
+    _merge_bound_params,
+    _return_references_optional_only_alias,
+    lower_match_clause,
+)
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundVariable, ScopeFrame, SemanticTable
@@ -49,6 +55,13 @@ def test_compile_cypher_invokes_binder_prepass(monkeypatch: pytest.MonkeyPatch) 
     assert compiled is not None
     assert len(calls) >= 1
     assert isinstance(calls[0][1], PlanContext)
+
+
+def test_compile_cypher_rebinds_after_normalization(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _capture_binder_calls(monkeypatch)
+    compiled = compile_cypher("MATCH (n) RETURN n")
+    assert compiled is not None
+    assert len(calls) >= 2
 
 
 def test_cypher_to_gfql_invokes_binder_prepass(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -124,6 +137,18 @@ def test_compile_cypher_uses_bound_ir_scope_membership_for_initial_with_scope(
     assert any("binding_ops" in call.params for call in rows_calls)
 
 
+def test_bound_visible_aliases_uses_latest_scope_frame_only() -> None:
+    visible = _bound_visible_aliases(
+        BoundIR(
+            scope_stack=[
+                ScopeFrame(visible_vars=frozenset({"a", "b"}), schema=RowSchema(), origin_clause="MATCH"),
+                ScopeFrame(visible_vars=frozenset({"a"}), schema=RowSchema(), origin_clause="WITH"),
+            ]
+        )
+    )
+    assert visible == frozenset({"a"})
+
+
 def test_compile_cypher_uses_bound_ir_semantic_table_entity_kind_for_alias_table(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -150,6 +175,18 @@ def test_compile_cypher_uses_bound_ir_semantic_table_entity_kind_for_alias_table
         if isinstance(op, ASTCall) and op.params.get("source") == "r"
     )
     assert row_call.params["table"] == "nodes"
+
+
+def test_merge_bound_params_filters_binder_metadata_keys() -> None:
+    merged = _merge_bound_params(
+        params=None,
+        bound_params={
+            "x": 7,
+            "_binder_schema_confidence": 0.91,
+            "_binder_parameter_names": ("x",),
+        },
+    )
+    assert merged == {"x": 7}
 
 
 def test_optional_only_alias_detection_accepts_nullable_alias_hints() -> None:

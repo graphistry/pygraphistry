@@ -281,7 +281,9 @@ def _merge_bound_params(
 ) -> Optional[Mapping[str, Any]]:
     if not bound_params:
         return params
-    merged: Dict[str, Any] = dict(bound_params)
+    # Binder metadata keys are not user runtime params and should not be
+    # exposed to expression/runtime parameter resolution.
+    merged: Dict[str, Any] = {key: value for key, value in bound_params.items() if not key.startswith("_binder_")}
     if params:
         merged.update(params)
     return merged
@@ -290,10 +292,9 @@ def _merge_bound_params(
 def _bound_visible_aliases(bound_ir: BoundIR) -> AbstractSet[str]:
     if not bound_ir.scope_stack:
         return frozenset()
-    visible: Set[str] = set()
-    for frame in bound_ir.scope_stack:
-        visible.update(frame.visible_vars)
-    return frozenset(visible)
+    # Scope narrowing must respect the active scope boundary. Unioning all
+    # historical frames can incorrectly re-introduce aliases dropped by WITH.
+    return frozenset(bound_ir.scope_stack[-1].visible_vars)
 
 
 def _bound_nullable_aliases(bound_ir: BoundIR) -> AbstractSet[str]:
@@ -7900,9 +7901,9 @@ def compile_cypher_query(
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
-    bound_ir = FrontendBinder().bind(query, PlanContext())
-    bound_context = _build_bound_lowering_context(bound_ir=bound_ir, params=params)
-    params = bound_context.params
+    prepass_bound_ir = FrontendBinder().bind(query, PlanContext())
+    prepass_context = _build_bound_lowering_context(bound_ir=prepass_bound_ir, params=params)
+    params = prepass_context.params
 
     if isinstance(query, CypherGraphQuery):
         compiled_bindings = _compile_graph_bindings(query.graph_bindings, params=params)
@@ -7962,6 +7963,12 @@ def compile_cypher_query(
     _reject_unsupported_variable_length_where_pattern_predicates(query)
     _reject_variable_length_path_alias_references(query, params=params)
     query = normalizer.rewrite_where_pattern_predicates(query)
+
+    # Re-bind after normalization so scope and semantic metadata reflect the
+    # lowered query shape consumed by downstream lowering decisions.
+    bound_ir = FrontendBinder().bind(query, PlanContext())
+    bound_context = _build_bound_lowering_context(bound_ir=bound_ir, params=params)
+    params = bound_context.params
     _reject_unsupported_where_expr_forms(query)
     _reject_nonterminal_variable_length_relationship_patterns(query)
     if query.reentry_matches:

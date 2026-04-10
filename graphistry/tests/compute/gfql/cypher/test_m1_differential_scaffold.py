@@ -192,14 +192,14 @@ def _ic1_bound_ir_with_null_extensions() -> BoundIR:
                     name="a",
                     logical_type=ScalarType(kind="node"),
                     nullable=True,
-                    null_extended_from=frozenset({"m"}),
+                    null_extended_from=frozenset({"opt_arm_t1"}),
                     entity_kind="node",
                 ),
                 "b": BoundVariable(
                     name="b",
                     logical_type=ScalarType(kind="node"),
                     nullable=True,
-                    null_extended_from=frozenset({"m"}),
+                    null_extended_from=frozenset({"opt_arm_t2"}),
                     entity_kind="node",
                 ),
             }
@@ -243,6 +243,7 @@ def test_trust_ic1_null_extended_from_semantics(monkeypatch: pytest.MonkeyPatch)
         for alias, var in bound_ir.semantic_table.variables.items()
         if var.nullable or bool(var.null_extended_from)
     }
+    assert bound_ir.semantic_table.variables["a"].null_extended_from != bound_ir.semantic_table.variables["b"].null_extended_from
     assert {"a", "b"} <= nullable_aliases
     assert _return_references_optional_only_alias(
         parsed,
