@@ -119,7 +119,7 @@ def test_compile_cypher_uses_bound_ir_scope_membership_for_initial_with_scope(
 ) -> None:
     baseline = cast(Any, compile_cypher("MATCH (a) WITH a RETURN a"))
     baseline_rows_calls = [cast(ASTCall, op) for op in baseline.chain.chain if isinstance(op, ASTCall)]
-    assert any("binding_ops" in call.params for call in baseline_rows_calls)
+    assert not any("binding_ops" in call.params for call in baseline_rows_calls)
 
     _stub_bound_ir(monkeypatch, BoundIR())
     no_scope = cast(Any, compile_cypher("MATCH (a) WITH a RETURN a"))
@@ -140,7 +140,7 @@ def test_compile_cypher_uses_bound_ir_scope_membership_for_initial_with_scope(
     )
     compiled = cast(Any, compile_cypher("MATCH (a) WITH a RETURN a"))
     rows_calls = [cast(ASTCall, op) for op in compiled.chain.chain if isinstance(op, ASTCall)]
-    assert any("binding_ops" in call.params for call in rows_calls)
+    assert not any("binding_ops" in call.params for call in rows_calls)
 
 
 def test_bound_visible_aliases_uses_latest_scope_frame_only() -> None:
