@@ -12,6 +12,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **CI / docs**: `test-readme` no longer runs `actions/setup-python` with an EOL Python 3.8 pin. The job now runs markdown lint directly via its Docker image, removing an unnecessary setup step and avoiding intermittent Python toolcache fetch timeouts.
 - **CI / build lane**: `test-build` now runs on Python 3.14 with `build-py3.14.lock` instead of a fixed Python 3.8 runner, reducing reliance on EOL interpreter setup while preserving explicit 3.8 compatibility test lanes elsewhere in CI.
 
+### Tests
+- **GFQL / Cypher binder**: Added PR-4 white-box binder semantic conformance coverage for name resolution success/failure (including unresolved alias errors), WITH scope-reset visibility, OPTIONAL MATCH `null_extended_from` lineage as `frozenset` clause ids, label narrowing from MATCH labels + conjunctive `WHERE alias:Label` checks, and SchemaConfidence rules (min-rule propagation, operand inheritance, and strong literal/`COUNT` behavior). Parser/lowering regression lanes remain green.
+
 ## [0.54.1 - 2026-04-08]
 
 ### Infrastructure
