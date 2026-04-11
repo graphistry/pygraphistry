@@ -170,7 +170,7 @@ def verify(plan: LogicalPlan) -> list[CompilerError]:
     # ------------------------------------------------------------------
     for parent_type, child_type in cycle_pairs:
         errors.append(CompilerError(
-            message=f"Cycle detected: {parent_type} has a child edge back to already-visited {child_type}"
+            message=f"Cycle detected: {parent_type} has a child edge back to ancestor {child_type}"
         ))
 
     return errors

@@ -407,10 +407,11 @@ class TestCycleGuard:
         assert any("cycle" in e.lower() for e in errs)
 
     def test_two_node_cycle_caught(self) -> None:
-        # a -> b -> a
+        # a -> b -> a (back-edge from b to a creates a cycle)
         a = NodeScan(op_id=1)
-        b = _inject(Filter(op_id=2, input=a, predicate=BoundPredicate(expression="x")), "input", a)
-        # inject a back-edge: make a.input = b
+        b = Filter(op_id=2, input=a, predicate=BoundPredicate(expression="x > 0"))
+        # inject a back-edge: make a.input = b (NodeScan has no input field, but
+        # object.__setattr__ adds it; _children picks it up via getattr)
         object.__setattr__(a, "input", b)  # type: ignore[arg-type]
         errs = _errors(a)
         assert any("cycle" in e.lower() for e in errs)
@@ -421,6 +422,13 @@ class TestCycleGuard:
         left = Filter(op_id=2, input=leaf, predicate=BoundPredicate(expression="x > 0"))
         right = Filter(op_id=3, input=leaf, predicate=BoundPredicate(expression="y > 0"))
         root = Union(op_id=4, left=left, right=right)
-        # shared child (diamond) is not a cycle — but op_id=1 appears once, ok
-        errs = _errors(root)
-        assert not any("cycle" in e.lower() for e in errs)
+        # Shared child is visited once; op_id=1 appears once in seen_ids → no dup error.
+        # Path-ancestor set is correctly empty when right descends to leaf (left has
+        # already returned from leaf, popping it from path).
+        assert verify(root) == []
+
+    def test_cycle_error_message_mentions_ancestor(self) -> None:
+        op = NodeScan(op_id=1)
+        object.__setattr__(op, "input", op)  # type: ignore[arg-type]
+        errs = _errors(op)
+        assert any("ancestor" in e.lower() for e in errs)
