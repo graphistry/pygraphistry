@@ -392,3 +392,35 @@ class TestErrorAccumulation:
         assert any("arm_id" in e.lower() or "optional" in e.lower() for e in errs)
         assert any("schema" in e.lower() or "column" in e.lower() for e in errs)
         assert len(errs) == 3  # exactly these three, no extras
+
+
+# ---------------------------------------------------------------------------
+# Structural cycle guard
+# ---------------------------------------------------------------------------
+
+class TestCycleGuard:
+    def test_self_loop_caught(self) -> None:
+        # op points to itself via input slot
+        op = NodeScan(op_id=1)
+        object.__setattr__(op, "input", op)  # type: ignore[arg-type]
+        errs = _errors(op)
+        assert any("cycle" in e.lower() for e in errs)
+
+    def test_two_node_cycle_caught(self) -> None:
+        # a -> b -> a
+        a = NodeScan(op_id=1)
+        b = _inject(Filter(op_id=2, input=a, predicate=BoundPredicate(expression="x")), "input", a)
+        # inject a back-edge: make a.input = b
+        object.__setattr__(a, "input", b)  # type: ignore[arg-type]
+        errs = _errors(a)
+        assert any("cycle" in e.lower() for e in errs)
+
+    def test_dag_shared_child_no_false_positive(self) -> None:
+        # Diamond: root -> left -> leaf, root -> right -> leaf (DAG, not a cycle)
+        leaf = _ns(op_id=1)
+        left = Filter(op_id=2, input=leaf, predicate=BoundPredicate(expression="x > 0"))
+        right = Filter(op_id=3, input=leaf, predicate=BoundPredicate(expression="y > 0"))
+        root = Union(op_id=4, left=left, right=right)
+        # shared child (diamond) is not a cycle — but op_id=1 appears once, ok
+        errs = _errors(root)
+        assert not any("cycle" in e.lower() for e in errs)

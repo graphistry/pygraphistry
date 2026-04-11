@@ -50,12 +50,32 @@ def _children(op: LogicalPlan) -> list[object]:
     return kids
 
 
-def _walk(op: LogicalPlan) -> Iterator[LogicalPlan]:
-    """Pre-order traversal of all LogicalPlan nodes reachable from *op*."""
+def _walk(
+    op: LogicalPlan,
+    visited: set,
+    path: set,
+    cycle_pairs: list,
+) -> Iterator[LogicalPlan]:
+    """Pre-order traversal of all LogicalPlan nodes reachable from *op*.
+
+    *visited* prevents re-visiting shared subtrees (DAG diamonds are fine).
+    *path* is the current ancestor set; a back-edge into *path* is a true cycle.
+    *cycle_pairs* accumulates (parent_type, child_type) for every cycle edge
+    found; callers convert these to CompilerErrors.
+    """
+    node_id = id(op)
+    if node_id in visited:
+        return
+    visited.add(node_id)
+    path.add(node_id)
     yield op
     for child in _children(op):
         if isinstance(child, LogicalPlan):
-            yield from _walk(child)
+            if id(child) in path:
+                cycle_pairs.append((type(op).__name__, type(child).__name__))
+            else:
+                yield from _walk(child, visited, path, cycle_pairs)
+    path.discard(node_id)
 
 
 def _check_predicate(op: LogicalPlan, pred: BoundPredicate, label: str) -> list[CompilerError]:
@@ -78,10 +98,18 @@ def verify(plan: LogicalPlan) -> list[CompilerError]:
     """
     errors: list[CompilerError] = []
     seen_ids: set[int] = set()
+    visited: set[int] = set()
+    path: set[int] = set()
+    cycle_pairs: list[tuple[str, str]] = []
 
-    for op in _walk(plan):
+    for op in _walk(plan, visited, path, cycle_pairs):
         # ------------------------------------------------------------------
-        # Invariant 1: op_id uniqueness (0 = unassigned, exempt)
+        # Invariant 1: op_id uniqueness (0 = unassigned sentinel, exempt)
+        # op_id=0 is the dataclass default meaning "not yet assigned by the
+        # planner".  Hand-built test fixtures routinely use it.  Multiple
+        # zeros in one tree are intentional and are not a uniqueness violation.
+        # Planner-emitted plans should always carry non-zero IDs; that
+        # contract is enforced by the planner, not here.
         # ------------------------------------------------------------------
         if op.op_id != 0:
             if op.op_id in seen_ids:
@@ -136,6 +164,14 @@ def verify(plan: LogicalPlan) -> list[CompilerError]:
                         "but arm_id is missing or empty"
                     )
                 ))
+
+    # ------------------------------------------------------------------
+    # Structural cycle diagnostic (reported after traversal completes)
+    # ------------------------------------------------------------------
+    for parent_type, child_type in cycle_pairs:
+        errors.append(CompilerError(
+            message=f"Cycle detected: {parent_type} has a child edge back to already-visited {child_type}"
+        ))
 
     return errors
 
