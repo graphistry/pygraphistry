@@ -154,3 +154,43 @@ def test_logical_planner_unwind_sets_variable_and_expression() -> None:
 def test_id_gen_monotonic_sequence() -> None:
     id_gen = IdGen(start=7)
     assert [id_gen.next(), id_gen.next(), id_gen.next()] == [7, 8, 9]
+
+
+def test_logical_planner_match_label_is_stable_from_sorted_node_labels() -> None:
+    bound_ir = BoundIR(
+        query_parts=[BoundQueryPart(clause="MATCH", outputs=frozenset({"n"}))],
+        semantic_table=SemanticTable(
+            variables={
+                "n": BoundVariable(
+                    name="n",
+                    logical_type=NodeRef(labels=frozenset({"Zeta", "Alpha"})),
+                    nullable=False,
+                    null_extended_from=frozenset(),
+                    entity_kind="node",
+                )
+            }
+        ),
+    )
+    root = LogicalPlanner().plan(bound_ir, PlanContext())
+    assert isinstance(root, NodeScan)
+    assert root.label == "Alpha"
+
+
+def test_logical_planner_match_label_falls_back_for_non_node_ref_types() -> None:
+    bound_ir = BoundIR(
+        query_parts=[BoundQueryPart(clause="MATCH", outputs=frozenset({"n"}))],
+        semantic_table=SemanticTable(
+            variables={
+                "n": BoundVariable(
+                    name="n",
+                    logical_type=ScalarType(kind="string", nullable=False),
+                    nullable=False,
+                    null_extended_from=frozenset(),
+                    entity_kind="node",
+                )
+            }
+        ),
+    )
+    root = LogicalPlanner().plan(bound_ir, PlanContext())
+    assert isinstance(root, NodeScan)
+    assert root.label == ""
