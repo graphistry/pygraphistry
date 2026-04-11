@@ -102,6 +102,40 @@ class TestArrowCompute(NoAuthTestCase):
         self.assertIsInstance(g._nodes, pd.DataFrame)
         self.assertIn("degree_out", g._nodes.columns)
 
+    def test_get_degrees_arrow_all_columns(self):
+        """get_degrees Arrow: degree = degree_in + degree_out for all nodes."""
+        g = CGFull().edges(EDGES_ARROW, "src", "dst").get_degrees()
+        self.assertIn("degree", g._nodes.columns)
+        self.assertIn("degree_in", g._nodes.columns)
+        self.assertIn("degree_out", g._nodes.columns)
+        self.assertTrue(
+            (g._nodes["degree"] == g._nodes["degree_in"] + g._nodes["degree_out"]).all()
+        )
+
+    def test_materialize_nodes_arrow_explicit_engine_pandas(self):
+        """Arrow edges + explicit engine='pandas' arg → still coerces and works."""
+        g = CGFull().edges(EDGES_ARROW, "src", "dst").materialize_nodes(engine="pandas")
+        self.assertIsInstance(g._nodes, pd.DataFrame)
+        self.assertIn("id", g._nodes.columns)
+        self.assertEqual(sorted(g._nodes["id"].tolist()), ["a", "b", "c"])
+
+    def test_materialize_nodes_arrow_empty_edges(self):
+        """Empty pa.Table edges → materialize_nodes returns early without error.
+
+        Mirrors test_materialize_empty_edges in test_compute.py: empty edges →
+        early-return with _nodes=None (no node frame synthesized).
+        """
+        empty = pa.table({"src": pa.array([], type=pa.string()),
+                          "dst": pa.array([], type=pa.string())})
+        g = CGFull().edges(empty, "src", "dst").materialize_nodes()
+        self.assertIsNone(g._nodes)
+
+    def test_materialize_nodes_invalid_type_still_raises(self):
+        """Non-DataFrame, non-Arrow type still raises ValueError."""
+        g = CGFull().edges("not_a_dataframe", "src", "dst")
+        with self.assertRaises(Exception):
+            g.materialize_nodes()
+
 
 # ---------------------------------------------------------------------------
 # Arrow: hypergraph path

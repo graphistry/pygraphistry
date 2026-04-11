@@ -818,7 +818,7 @@ def hypergraph(
     else:
         engine_resolved = engine
     # Coerce input-format types (Arrow, etc.) to the resolved engine's native type
-    if engine_resolved == Engine.PANDAS and not isinstance(raw_events, pd.DataFrame):
+    if raw_events is not None and engine_resolved == Engine.PANDAS and not isinstance(raw_events, pd.DataFrame):
         if isinstance(raw_events, pa.Table):
             raw_events = raw_events.to_pandas()
 
