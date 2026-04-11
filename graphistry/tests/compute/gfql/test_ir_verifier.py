@@ -10,17 +10,27 @@ Five invariants:
 import dataclasses
 
 from graphistry.compute.gfql.ir import (
+    Aggregate,
     Apply,
     AntiSemiApply,
     CompilerError,
+    Distinct,
     EdgeScan,
     Filter,
+    GraphToRows,
     IndexScan,
+    Join,
+    Limit,
     LogicalPlan,
     NodeScan,
+    OrderBy,
+    PathProjection,
     PatternMatch,
+    Project,
     RowSchema,
+    RowsToGraph,
     SemiApply,
+    Skip,
     Union,
     Unwind,
 )
@@ -130,6 +140,39 @@ class TestVerifyPositive:
         a = NodeScan(op_id=0)
         b = NodeScan(op_id=0)
         plan = Union(op_id=0, left=a, right=b)
+        assert verify(plan) == []
+
+    def test_project_no_errors(self) -> None:
+        assert verify(Project(op_id=2, input=_ns(op_id=1))) == []
+
+    def test_aggregate_no_errors(self) -> None:
+        assert verify(Aggregate(op_id=2, input=_ns(op_id=1))) == []
+
+    def test_distinct_no_errors(self) -> None:
+        assert verify(Distinct(op_id=2, input=_ns(op_id=1))) == []
+
+    def test_order_by_no_errors(self) -> None:
+        assert verify(OrderBy(op_id=2, input=_ns(op_id=1))) == []
+
+    def test_limit_no_errors(self) -> None:
+        assert verify(Limit(op_id=2, input=_ns(op_id=1), count=10)) == []
+
+    def test_skip_no_errors(self) -> None:
+        assert verify(Skip(op_id=2, input=_ns(op_id=1), count=5)) == []
+
+    def test_join_no_errors(self) -> None:
+        plan = Join(op_id=3, left=_ns(op_id=1), right=_ns(op_id=2, label="Co"))
+        assert verify(plan) == []
+
+    def test_graph_to_rows_no_errors(self) -> None:
+        assert verify(GraphToRows(op_id=2, input=_ns(op_id=1), variant="nodes")) == []
+
+    def test_rows_to_graph_no_errors(self) -> None:
+        plan = RowsToGraph(op_id=2, input=_ns(op_id=1), node_id_col="id", src_col="src", dst_col="dst")
+        assert verify(plan) == []
+
+    def test_path_projection_no_errors(self) -> None:
+        plan = PathProjection(op_id=2, input=_ns(op_id=1), path_var="p", hop_count_col="hops")
         assert verify(plan) == []
 
 
@@ -325,15 +368,17 @@ class TestOptionalArmNullability:
 
 class TestErrorAccumulation:
     def test_multiple_violations_all_reported(self) -> None:
-        # op_id duplicate + optional without arm_id
+        # op_id=1 on both NodeScan and PatternMatch (duplicate) + optional without arm_id
         scan = NodeScan(op_id=1)
         bad_match = PatternMatch(op_id=1, optional=True, arm_id=None)  # dup op_id + missing arm_id
         plan = Union(op_id=2, left=scan, right=bad_match)
         errs = _errors(plan)
+        assert any("op_id" in e and "1" in e for e in errs), "expected duplicate op_id error"
+        assert any("arm_id" in e.lower() or "optional" in e.lower() for e in errs), "expected arm_id error"
         assert len(errs) >= 2
 
-    def test_three_violations_in_one_tree(self) -> None:
-        # bad schema + empty predicate + optional without arm_id, all on one node
+    def test_three_violations_in_one_node(self) -> None:
+        # bad schema + empty predicate + optional without arm_id, all on one PatternMatch
         bad_schema = RowSchema(columns={"x": "bad"})  # type: ignore[arg-type]
         plan = PatternMatch(
             op_id=1,
@@ -343,4 +388,7 @@ class TestErrorAccumulation:
             output_schema=bad_schema,
         )
         errs = _errors(plan)
-        assert len(errs) >= 3
+        assert any("predicate" in e.lower() or "expression" in e.lower() for e in errs)
+        assert any("arm_id" in e.lower() or "optional" in e.lower() for e in errs)
+        assert any("schema" in e.lower() or "column" in e.lower() for e in errs)
+        assert len(errs) == 3  # exactly these three, no extras
