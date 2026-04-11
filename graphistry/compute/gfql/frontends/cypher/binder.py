@@ -737,8 +737,10 @@ def _infer_expression_binding(
             schema_confidence=_demote_confidence(confidence.get(alias, "propagated")),
         )
 
-    if strict_name_resolution and _is_bare_identifier(text) and text not in scope:
-        raise _unresolved_name_error(identifier=text, visible_scope=scope)
+    if strict_name_resolution:
+        unresolved = _unresolved_identifiers(text=text, scope=scope)
+        if unresolved:
+            raise _unresolved_name_error(identifier=sorted(unresolved)[0], visible_scope=scope)
 
     if _is_bool_literal(text):
         return _ExpressionBinding(
@@ -990,6 +992,70 @@ def _referenced_aliases(text: str, scope: Mapping[str, BoundVariable]) -> Set[st
     return refs
 
 
+def _unresolved_identifiers(*, text: str, scope: Mapping[str, BoundVariable]) -> Set[str]:
+    unresolved: Set[str] = set()
+
+    for match in _PROPERTY_RE.finditer(text):
+        alias = match.group(1)
+        if alias not in scope:
+            unresolved.add(alias)
+
+    for match in _IDENTIFIER_RE.finditer(text):
+        token = match.group(0)
+        if token.upper() in _KEYWORDS:
+            continue
+        start, end = match.span()
+        if _is_parameter_token(text=text, start=start):
+            continue
+        if _is_property_field_token(text=text, start=start):
+            continue
+        if _is_label_token(text=text, start=start):
+            continue
+        if _is_function_token(text=text, end=end):
+            continue
+        if _is_map_key_token(text=text, start=start, end=end):
+            continue
+        if token not in scope:
+            unresolved.add(token)
+
+    return unresolved
+
+
+def _is_parameter_token(*, text: str, start: int) -> bool:
+    return start > 0 and text[start - 1] == "$"
+
+
+def _is_property_field_token(*, text: str, start: int) -> bool:
+    return start > 0 and text[start - 1] == "."
+
+
+def _is_label_token(*, text: str, start: int) -> bool:
+    idx = start - 1
+    while idx >= 0 and text[idx].isspace():
+        idx -= 1
+    return idx >= 0 and text[idx] == ":"
+
+
+def _is_function_token(*, text: str, end: int) -> bool:
+    idx = end
+    while idx < len(text) and text[idx].isspace():
+        idx += 1
+    return idx < len(text) and text[idx] == "("
+
+
+def _is_map_key_token(*, text: str, start: int, end: int) -> bool:
+    idx = end
+    while idx < len(text) and text[idx].isspace():
+        idx += 1
+    if idx >= len(text) or text[idx] != ":":
+        return False
+
+    prev = start - 1
+    while prev >= 0 and text[prev].isspace():
+        prev -= 1
+    return prev < 0 or text[prev] in "{,"
+
+
 def _path_hops(pattern: Sequence[PatternElement]) -> Tuple[int, int]:
     min_hops = 0
     max_hops = 0
@@ -1092,12 +1158,6 @@ def _is_string_literal(text: str) -> bool:
 
 def _looks_like_list_literal(text: str) -> bool:
     return len(text) >= 2 and text[0] == "[" and text[-1] == "]"
-
-
-def _is_bare_identifier(text: str) -> bool:
-    if not _IDENTIFIER_RE.fullmatch(text):
-        return False
-    return text.upper() not in _KEYWORDS
 
 
 def _unresolved_name_error(identifier: str, visible_scope: Mapping[str, BoundVariable]) -> GFQLValidationError:

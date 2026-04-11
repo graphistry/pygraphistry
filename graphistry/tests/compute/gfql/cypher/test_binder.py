@@ -291,6 +291,30 @@ def test_binder_unresolved_name_failure_after_with_scope_reset() -> None:
         FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
 
 
+def test_binder_unresolved_name_failure_in_compound_expression() -> None:
+    query = "MATCH (n:Person) RETURN ghost + 1 AS x"
+    with pytest.raises(GFQLValidationError, match="Unresolved identifier"):
+        FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+
+def test_binder_unresolved_name_failure_in_function_argument_expression() -> None:
+    query = "MATCH (n:Person) RETURN coalesce(ghost, 1) AS x"
+    with pytest.raises(GFQLValidationError, match="Unresolved identifier"):
+        FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+
+def test_binder_unresolved_name_failure_in_mixed_known_unknown_expression() -> None:
+    query = "MATCH (n:Person) RETURN n.id + ghost AS x"
+    with pytest.raises(GFQLValidationError, match="Unresolved identifier"):
+        FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+
+def test_binder_strict_name_resolution_allows_known_function_expression() -> None:
+    query = "MATCH (n:Person) RETURN coalesce(n.id, 1) AS x"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+    assert "x" in bound.semantic_table.variables
+
+
 def test_binder_unwind_extends_existing_scope() -> None:
     query = "MATCH (n:Person) UNWIND [1, 2] AS x RETURN n, x"
     bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
