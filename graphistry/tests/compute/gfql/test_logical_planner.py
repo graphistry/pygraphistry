@@ -4,6 +4,10 @@ from copy import deepcopy
 from dataclasses import fields
 from typing import List, Optional, Type, TypeVar, cast
 
+import pytest
+from graphistry.compute.exceptions import GFQLValidationError
+from graphistry.compute.gfql.cypher.parser import parse_cypher
+from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, BoundVariable, SemanticTable
 from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.logical_plan import Filter, LogicalPlan, NodeScan, Project, Unwind
@@ -194,3 +198,46 @@ def test_logical_planner_match_label_falls_back_for_non_node_ref_types() -> None
     root = LogicalPlanner().plan(bound_ir, PlanContext())
     assert isinstance(root, NodeScan)
     assert root.label == ""
+
+
+def test_logical_planner_unwind_uses_binder_predicate_expression() -> None:
+    query = "MATCH (n:Person) UNWIND [1, 2, 3] AS x RETURN n, x"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    root = LogicalPlanner().plan(bound, PlanContext())
+    unwind_node = _find_first(root, Unwind)
+
+    assert unwind_node is not None
+    assert str(unwind_node.list_expr).replace(" ", "") == "[1,2,3]"
+    assert unwind_node.variable == "x"
+
+
+def test_logical_planner_rejects_optional_match_shapes() -> None:
+    query = "MATCH (n:Person) OPTIONAL MATCH (n)-[:KNOWS]->(m:Person) RETURN n, m"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    with pytest.raises(GFQLValidationError, match="OPTIONAL MATCH"):
+        LogicalPlanner().plan(bound, PlanContext())
+
+
+def test_logical_planner_rejects_multiple_match_stages() -> None:
+    bound_ir = BoundIR(
+        query_parts=[
+            BoundQueryPart(clause="MATCH", outputs=frozenset({"a"})),
+            BoundQueryPart(clause="MATCH", outputs=frozenset({"a"})),
+        ],
+        semantic_table=SemanticTable(
+            variables={
+                "a": BoundVariable(
+                    name="a",
+                    logical_type=NodeRef(labels=frozenset({"Person"})),
+                    nullable=False,
+                    null_extended_from=frozenset(),
+                    entity_kind="node",
+                )
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError, match="multiple MATCH"):
+        LogicalPlanner().plan(bound_ir, PlanContext())

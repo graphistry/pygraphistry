@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import FrozenSet, Iterable, Mapping, Optional
 
+from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, BoundVariable
 from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.logical_plan import Filter, LogicalPlan, NodeScan, Project, RowSchema, Unwind
@@ -34,11 +35,29 @@ class LogicalPlanner:
         id_gen = IdGen()
         current: Optional[LogicalPlan] = None
         vars_by_name = bound_ir.semantic_table.variables
+        seen_match = False
 
         for part in bound_ir.query_parts:
             clause = part.clause.upper()
-            if clause in {"MATCH", "OPTIONAL MATCH"}:
+            if clause == "OPTIONAL MATCH":
+                raise GFQLValidationError(
+                    ErrorCode.E108,
+                    "LogicalPlanner skeleton does not yet support OPTIONAL MATCH planning",
+                    field="clause",
+                    value=part.clause,
+                    suggestion="Use non-optional MATCH shapes until optional planning is implemented.",
+                )
+            if clause == "MATCH":
+                if seen_match:
+                    raise GFQLValidationError(
+                        ErrorCode.E108,
+                        "LogicalPlanner skeleton does not yet support multiple MATCH stages",
+                        field="clause",
+                        value=part.clause,
+                        suggestion="Use a single MATCH stage until chained pattern planning is implemented.",
+                    )
                 current = self._plan_match(part=part, vars_by_name=vars_by_name, id_gen=id_gen)
+                seen_match = True
                 continue
             if clause == "WHERE":
                 current = self._plan_where(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
@@ -112,10 +131,13 @@ class LogicalPlanner:
         id_gen: IdGen,
     ) -> LogicalPlan:
         unwind_var = sorted(part.outputs - part.inputs)[0] if part.outputs - part.inputs else ""
+        list_expr = part.metadata.get("expression", "")
+        if not list_expr and part.predicates:
+            list_expr = part.predicates[0].expression
         return Unwind(
             op_id=id_gen.next(),
             input=current,
-            list_expr=part.metadata.get("expression", ""),
+            list_expr=list_expr,
             variable=unwind_var,
             output_schema=self._schema_for_aliases(alias_names=part.outputs, vars_by_name=vars_by_name),
         )
