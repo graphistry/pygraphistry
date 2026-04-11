@@ -9,6 +9,8 @@ Five invariants:
 """
 import dataclasses
 
+import pytest
+
 from graphistry.compute.gfql.ir import (
     Aggregate,
     Apply,
@@ -52,20 +54,15 @@ def _errors(plan: LogicalPlan) -> list[str]:
 
 
 def _inject(op: LogicalPlan, field: str, value: object) -> LogicalPlan:
-    """Return a copy of *op* with *field* replaced by *value*, bypassing frozen check.
+    """Return a copy of *op* with *field* force-set to *value* (bypasses type constraints).
 
-    Uses dataclasses.replace where possible; falls back to object.__setattr__
-    only when the value type is intentionally invalid (i.e. can't be expressed
-    as a keyword arg without a type error at construction time).
+    dataclasses.replace() accepts wrong-typed values without raising — it only raises
+    TypeError for unknown field names. object.__setattr__ is needed to bypass the
+    frozen=True guard on the dataclass.
     """
-    try:
-        return dataclasses.replace(op, **{field: value})  # type: ignore[arg-type]
-    except TypeError:
-        # dataclasses.replace may reject obviously wrong types on some builds;
-        # fall back to object.__setattr__ to force the bad value in.
-        copy = dataclasses.replace(op)
-        object.__setattr__(copy, field, value)
-        return copy  # type: ignore[return-value]
+    copy = dataclasses.replace(op)
+    object.__setattr__(copy, field, value)
+    return copy  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
@@ -326,16 +323,18 @@ class TestOutputSchemaConsistency:
         plan = NodeScan(op_id=1, output_schema=schema)
         assert verify(plan) == []
 
-    def test_listtype_shallow_check_only(self) -> None:
-        # Verifier currently validates the column type is a LogicalType (ListType passes),
-        # but does NOT recurse into ListType.element_type. This test documents that behavior.
-        # A future hardening pass should add element_type recursion.
+    @pytest.mark.xfail(
+        strict=True,
+        reason="Known gap: verifier does not yet recurse into ListType.element_type. "
+               "Flip to xpass (remove decorator) when element_type recursion is added.",
+    )
+    def test_listtype_element_type_recursion_not_yet_implemented(self) -> None:
+        # When element_type recursion is added, invalid element_type should be caught.
         bad_list = ListType(element_type="not_a_type")  # type: ignore[arg-type]
         schema = RowSchema(columns={"items": bad_list})
         plan = NodeScan(op_id=1, output_schema=schema)
         errs = _errors(plan)
-        # ListType itself is a valid LogicalType — inner element_type not yet validated
-        assert errs == []  # known gap: element_type recursion not yet implemented
+        assert len(errs) >= 1  # expected to fail until recursion is implemented
 
 
 # ---------------------------------------------------------------------------
