@@ -5,11 +5,12 @@ LogicalPlan while assigning stable operator IDs.
 """
 from __future__ import annotations
 
-from typing import Iterable, Mapping, Optional
+from typing import FrozenSet, Iterable, Mapping, Optional
 
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, BoundVariable
 from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.logical_plan import Filter, LogicalPlan, NodeScan, Project, RowSchema, Unwind
+from graphistry.compute.gfql.ir.types import NodeRef
 
 
 class IdGen:
@@ -136,7 +137,8 @@ class LogicalPlanner:
             var = vars_by_name.get(name)
             if var is None or var.entity_kind != "node":
                 continue
-            labels = getattr(var.logical_type, "labels", frozenset())
+            logical_type = var.logical_type
+            labels: FrozenSet[str] = logical_type.labels if isinstance(logical_type, NodeRef) else frozenset()
             if labels:
                 return sorted(labels)[0]
         return ""
