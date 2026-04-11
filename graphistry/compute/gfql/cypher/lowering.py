@@ -333,8 +333,11 @@ def _apply_bound_scope_membership(
     if not bound_visible_aliases:
         return set(binding_row_aliases)
     visible = set(alias_targets.keys()) & set(bound_visible_aliases)
+    # Scope membership should only narrow aliases already chosen for
+    # bindings-row execution; it should not promote plain source/table
+    # projections into bindings-row mode.
     if not binding_row_aliases:
-        return visible
+        return set()
     narrowed = set(binding_row_aliases) & visible
     return narrowed if narrowed else set(binding_row_aliases)
 
@@ -3296,14 +3299,11 @@ def _alias_table(
             return "nodes"
         if semantic_kind == "edge":
             return "edges"
-        if semantic_kind == "scalar":
-            raise _unsupported(
-                "Cypher alias is scalar in binder semantic table and cannot be used as a node/edge row source",
-                field="return.alias",
-                value=alias,
-                line=line,
-                column=column,
-            )
+        # A projection alias can shadow a MATCH alias name (for example,
+        # `RETURN a.id IS NOT NULL AS a`) while the source alias `a` is still a
+        # node/edge target in the current match context. In that case, defer to
+        # the structural AST target below instead of hard-failing on the
+        # projected scalar alias kind.
     if isinstance(target, ASTNode):
         return "nodes"
     if isinstance(target, ASTEdge):
