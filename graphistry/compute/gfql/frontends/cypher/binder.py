@@ -997,8 +997,14 @@ def _unresolved_identifiers(*, text: str, scope: Mapping[str, BoundVariable]) ->
     unresolved: Set[str] = set()
     string_spans = _string_literal_spans(text)
 
+    def in_string(index: int) -> bool:
+        for start, end in string_spans:
+            if start <= index < end:
+                return True
+        return False
+
     for match in _PROPERTY_RE.finditer(text):
-        if _in_spans(index=match.start(), spans=string_spans):
+        if in_string(match.start()):
             continue
         alias = match.group(1)
         if alias not in scope:
@@ -1009,68 +1015,34 @@ def _unresolved_identifiers(*, text: str, scope: Mapping[str, BoundVariable]) ->
         if token.upper() in _KEYWORDS:
             continue
         start, end = match.span()
-        if _in_spans(index=start, spans=string_spans):
+        if in_string(start):
             continue
-        if _is_parameter_token(text=text, start=start):
+
+        prev = start - 1
+        while prev >= 0 and text[prev].isspace():
+            prev -= 1
+        prev_char = text[prev] if prev >= 0 else ""
+
+        nxt = end
+        while nxt < len(text) and text[nxt].isspace():
+            nxt += 1
+        next_char = text[nxt] if nxt < len(text) else ""
+
+        if prev_char in {"$", ".", ":"}:
             continue
-        if _is_property_field_token(text=text, start=start):
+        if next_char == "(":
             continue
-        if _is_label_token(text=text, start=start):
+        if next_char == ":" and (prev_char == "" or prev_char in "{,"):
             continue
-        if _is_function_token(text=text, end=end):
-            continue
-        if _is_map_key_token(text=text, start=start, end=end):
-            continue
+
         if token not in scope:
             unresolved.add(token)
 
     return unresolved
 
 
-def _is_parameter_token(*, text: str, start: int) -> bool:
-    return start > 0 and text[start - 1] == "$"
-
-
-def _is_property_field_token(*, text: str, start: int) -> bool:
-    return start > 0 and text[start - 1] == "."
-
-
-def _is_label_token(*, text: str, start: int) -> bool:
-    idx = start - 1
-    while idx >= 0 and text[idx].isspace():
-        idx -= 1
-    return idx >= 0 and text[idx] == ":"
-
-
-def _is_function_token(*, text: str, end: int) -> bool:
-    idx = end
-    while idx < len(text) and text[idx].isspace():
-        idx += 1
-    return idx < len(text) and text[idx] == "("
-
-
-def _is_map_key_token(*, text: str, start: int, end: int) -> bool:
-    idx = end
-    while idx < len(text) and text[idx].isspace():
-        idx += 1
-    if idx >= len(text) or text[idx] != ":":
-        return False
-
-    prev = start - 1
-    while prev >= 0 and text[prev].isspace():
-        prev -= 1
-    return prev < 0 or text[prev] in "{,"
-
-
 def _string_literal_spans(text: str) -> List[Tuple[int, int]]:
     return [(match.start(), match.end()) for match in _STRING_LITERAL_RE.finditer(text)]
-
-
-def _in_spans(*, index: int, spans: Sequence[Tuple[int, int]]) -> bool:
-    for start, end in spans:
-        if start <= index < end:
-            return True
-    return False
 
 
 def _path_hops(pattern: Sequence[PatternElement]) -> Tuple[int, int]:
