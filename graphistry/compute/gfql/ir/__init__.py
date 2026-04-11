@@ -40,6 +40,7 @@ from .logical_plan import (
     Unwind,
 )
 from .query_graph import ConnectedComponent, OptionalArm, QueryGraph
+from .verifier import verify
 from .types import (
     BoundPredicate,
     EdgeRef,
@@ -100,6 +101,7 @@ __all__ = [
     "ConnectedComponent",
     "OptionalArm",
     "QueryGraph",
+    "verify",
     "BoundPredicate",
     "EdgeRef",
     "ListType",
