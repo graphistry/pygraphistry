@@ -84,6 +84,7 @@ _IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _PROPERTY_RE = re.compile(r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)")
 _PARAMETER_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 _COUNT_CALL_RE = re.compile(r"(?i)^count\s*\(")
+_STRING_LITERAL_RE = re.compile(r"'(?:''|[^'])*'")
 _WHERE_LABEL_RE = re.compile(r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)")
 _WHERE_NON_CONJUNCTIVE_RE = re.compile(r"(?i)\b(?:OR|NOT|XOR)\b")
 
@@ -994,8 +995,11 @@ def _referenced_aliases(text: str, scope: Mapping[str, BoundVariable]) -> Set[st
 
 def _unresolved_identifiers(*, text: str, scope: Mapping[str, BoundVariable]) -> Set[str]:
     unresolved: Set[str] = set()
+    string_spans = _string_literal_spans(text)
 
     for match in _PROPERTY_RE.finditer(text):
+        if _in_spans(index=match.start(), spans=string_spans):
+            continue
         alias = match.group(1)
         if alias not in scope:
             unresolved.add(alias)
@@ -1005,6 +1009,8 @@ def _unresolved_identifiers(*, text: str, scope: Mapping[str, BoundVariable]) ->
         if token.upper() in _KEYWORDS:
             continue
         start, end = match.span()
+        if _in_spans(index=start, spans=string_spans):
+            continue
         if _is_parameter_token(text=text, start=start):
             continue
         if _is_property_field_token(text=text, start=start):
@@ -1054,6 +1060,17 @@ def _is_map_key_token(*, text: str, start: int, end: int) -> bool:
     while prev >= 0 and text[prev].isspace():
         prev -= 1
     return prev < 0 or text[prev] in "{,"
+
+
+def _string_literal_spans(text: str) -> List[Tuple[int, int]]:
+    return [(match.start(), match.end()) for match in _STRING_LITERAL_RE.finditer(text)]
+
+
+def _in_spans(*, index: int, spans: Sequence[Tuple[int, int]]) -> bool:
+    for start, end in spans:
+        if start <= index < end:
+            return True
+    return False
 
 
 def _path_hops(pattern: Sequence[PatternElement]) -> Tuple[int, int]:

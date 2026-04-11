@@ -315,6 +315,18 @@ def test_binder_strict_name_resolution_allows_known_function_expression() -> Non
     assert "x" in bound.semantic_table.variables
 
 
+def test_binder_strict_name_resolution_allows_string_literals_in_expression() -> None:
+    query = "MATCH (n:Person) RETURN coalesce('ghost', n.id) AS x"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+    assert "x" in bound.semantic_table.variables
+
+
+def test_binder_strict_name_resolution_allows_string_literal_projection() -> None:
+    query = "RETURN 'ghost' AS x"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+    assert "x" in bound.semantic_table.variables
+
+
 def test_binder_unwind_extends_existing_scope() -> None:
     query = "MATCH (n:Person) UNWIND [1, 2] AS x RETURN n, x"
     bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
