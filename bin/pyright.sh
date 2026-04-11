@@ -5,10 +5,10 @@ set -e
 # Non-zero exit code on fail
 
 # Resolve pyright command, then delegate with repo config.
-if command -v uvx >/dev/null 2>&1; then
-    PYRIGHT_CMD_ARR=(uvx --from pyright pyright)
-elif command -v pyright >/dev/null 2>&1; then
+if command -v pyright >/dev/null 2>&1; then
     PYRIGHT_CMD_ARR=(pyright)
+elif command -v uvx >/dev/null 2>&1; then
+    PYRIGHT_CMD_ARR=(uvx --from pyright pyright)
 elif command -v npx >/dev/null 2>&1; then
     PYRIGHT_CMD_ARR=(npx pyright)
 else
