@@ -7,6 +7,8 @@ Five invariants:
   4. Output schema consistency — RowSchema columns values must be LogicalType instances
   5. Optional-arm nullability — PatternMatch with optional=True must have a non-empty arm_id
 """
+from __future__ import annotations
+
 import dataclasses
 
 import pytest
