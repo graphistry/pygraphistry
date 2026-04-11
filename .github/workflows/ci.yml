@@ -20,6 +20,9 @@ on:
   schedule:
     - cron: '0 1 1-31/2 * *'
 
+permissions:
+  contents: read
+
 env:
   # 6-day dependency cooldown: refuse packages uploaded less than 6 days ago
   # to mitigate supply chain attacks. Belt-and-suspenders with lockfile --exclude-newer.
@@ -41,6 +44,8 @@ jobs:
       docs_only_latest: ${{ steps.docs_only_latest.outputs.docs_only_latest }}
     steps:
     - uses: actions/checkout@v3
+      with:
+        persist-credentials: false
     - uses: dorny/paths-filter@v3
       id: filter
       with:
@@ -143,6 +148,7 @@ jobs:
       with:
         ref: ${{ github.event.pull_request.head.sha }}
         fetch-depth: 0
+        persist-credentials: false
     - name: Reject plans/ files added by this PR
       run: |
         merge_base=$(git merge-base origin/${{ github.base_ref }} HEAD)
@@ -162,6 +168,7 @@ jobs:
     - uses: actions/checkout@v3
       with:
         lfs: true
+        persist-credentials: false
     - name: Set up Python 3.12
       uses: actions/setup-python@v4
       with:
@@ -196,6 +203,7 @@ jobs:
       uses: actions/checkout@v3
       with:
         lfs: true
+        persist-credentials: false
 
     - name: Set up Python 3.12
       uses: actions/setup-python@v4
@@ -269,6 +277,7 @@ jobs:
       uses: actions/checkout@v3
       with:
         lfs: true
+        persist-credentials: false
 
     - name: Download lockfiles
       uses: actions/download-artifact@v4
@@ -328,6 +337,7 @@ jobs:
       uses: actions/checkout@v3
       with:
         lfs: true
+        persist-credentials: false
 
     - name: Download lockfiles
       uses: actions/download-artifact@v4
@@ -480,6 +490,7 @@ jobs:
       uses: actions/checkout@v3
       with:
         lfs: true
+        persist-credentials: false
 
 
     - name: Download lockfiles
@@ -545,6 +556,7 @@ jobs:
       uses: actions/checkout@v3
       with:
         lfs: true
+        persist-credentials: false
 
 
     - name: Download lockfiles
@@ -596,6 +608,7 @@ jobs:
       uses: actions/checkout@v3
       with:
         lfs: true
+        persist-credentials: false
 
     - name: Download lockfiles
       uses: actions/download-artifact@v4
@@ -657,6 +670,7 @@ jobs:
       uses: actions/checkout@v3
       with:
         lfs: true
+        persist-credentials: false
 
 
     - name: Download lockfiles
@@ -715,6 +729,7 @@ jobs:
       uses: actions/checkout@v3
       with:
         lfs: true
+        persist-credentials: false
 
     - name: Download lockfiles
       uses: actions/download-artifact@v4
@@ -769,6 +784,7 @@ jobs:
       uses: actions/checkout@v3
       with:
         lfs: true
+        persist-credentials: false
 
 
     - name: Download lockfiles
@@ -812,6 +828,7 @@ jobs:
       uses: actions/checkout@v3
       with:
         lfs: true
+        persist-credentials: false
 
 
     - name: Set up Python ${{ matrix.python-version }}
@@ -879,6 +896,7 @@ jobs:
       uses: actions/checkout@v3
       with:
         lfs: true
+        persist-credentials: false
 
 
     - name: Set up Python ${{ matrix.python-version }}
@@ -1001,6 +1019,7 @@ jobs:
       uses: actions/checkout@v3
       with:
         lfs: true
+        persist-credentials: false
 
 
     - name: Set up Python ${{ matrix.python-version }}
@@ -1121,6 +1140,7 @@ jobs:
     - uses: actions/checkout@v3
       with:
         lfs: true
+        persist-credentials: false
 
     - name: Set up Python 3.10
       uses: actions/setup-python@v4
@@ -1168,6 +1188,7 @@ jobs:
     - uses: actions/checkout@v3
       with:
         lfs: true
+        persist-credentials: false
 
 
     - name: Neo4j connector tests
@@ -1186,6 +1207,7 @@ jobs:
     - uses: actions/checkout@v3
       with:
         lfs: true
+        persist-credentials: false
 
 
     - name: Download lockfiles
@@ -1224,6 +1246,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+      with:
+        persist-credentials: false
 
     - name: Test building docs
       env:
@@ -1241,6 +1265,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+      with:
+        persist-credentials: false
 
     - name: Lint README markdown
       continue-on-error: true
