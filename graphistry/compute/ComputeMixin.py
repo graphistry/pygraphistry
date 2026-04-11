@@ -165,6 +165,13 @@ class ComputeMixin(Plottable):
         if engine != EngineAbstract.AUTO:
             g = ensure_local_engine_match(g, Engine(engine.value))
 
+        # Coerce input-format types (Arrow, etc.) to pandas before any engine logic
+        import pyarrow as pa
+        if isinstance(g._edges, pa.Table):
+            g = g.edges(g._edges.to_pandas(), g._source, g._destination)
+        if g._nodes is not None and isinstance(g._nodes, pa.Table):
+            g = g.nodes(g._nodes.to_pandas(), g._node)
+
         if reuse:
             if g._nodes is not None and _safe_len(g._nodes) > 0:
                 if g._node is None:
@@ -219,7 +226,12 @@ class ComputeMixin(Plottable):
 
     def get_indegrees(self, col: str = "degree_in"):
         """See get_degrees"""
+        import pyarrow as pa
         g = self
+        if isinstance(g._edges, pa.Table):
+            g = g.edges(g._edges.to_pandas(), g._source, g._destination)
+            if g._nodes is not None and isinstance(g._nodes, pa.Table):
+                g = g.nodes(g._nodes.to_pandas(), g._node)
         g_nodes = g.materialize_nodes()
 
         if _safe_len(g._edges) == 0:
@@ -249,7 +261,12 @@ class ComputeMixin(Plottable):
 
     def get_outdegrees(self, col: str = "degree_out"):
         """See get_degrees"""
+        import pyarrow as pa
         g = self
+        if isinstance(g._edges, pa.Table):
+            g = g.edges(g._edges.to_pandas(), g._source, g._destination)
+            if g._nodes is not None and isinstance(g._nodes, pa.Table):
+                g = g.nodes(g._nodes.to_pandas(), g._node)
         g2 = g.edges(
             g._edges.rename(
                 columns={g._source: g._destination, g._destination: g._source}

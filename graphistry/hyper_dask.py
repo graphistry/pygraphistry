@@ -817,6 +817,11 @@ def hypergraph(
         engine_resolved = resolve_engine(engine, raw_events)
     else:
         engine_resolved = engine
+    # Coerce input-format types (Arrow, etc.) to the resolved engine's native type
+    if engine_resolved == Engine.PANDAS and not isinstance(raw_events, pd.DataFrame):
+        if isinstance(raw_events, pa.Table):
+            raw_events = raw_events.to_pandas()
+
     defs = HyperBindings(**opts)
     entity_types = [i for i in screen_entities(raw_events, entity_types, defs) if i != defs.event_id]
     events = clean_events(raw_events, defs, dropna=drop_na, engine=engine_resolved, npartitions=npartitions, chunksize=chunksize, debug=debug)  # type: ignore

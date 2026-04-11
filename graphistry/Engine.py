@@ -2,6 +2,7 @@ from inspect import getmodule
 import warnings
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 from typing import Any, List, Optional, Union
 from typing_extensions import Literal
 from enum import Enum
@@ -68,6 +69,10 @@ def resolve_engine(
             g_or_df = g_or_df._edges if g_or_df._edges is not None else g_or_df._nodes
     
         if isinstance(g_or_df, pd.DataFrame):
+            return Engine.PANDAS
+
+        # Arrow and Spark are input formats, not compute engines — coerce to pandas at call sites
+        if isinstance(g_or_df, pa.Table):
             return Engine.PANDAS
 
         if 'cudf.core.dataframe' in str(getmodule(g_or_df)):
