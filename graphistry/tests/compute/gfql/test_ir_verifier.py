@@ -17,7 +17,6 @@ from graphistry.compute.gfql.ir import (
     Aggregate,
     Apply,
     AntiSemiApply,
-    CompilerError,
     Distinct,
     EdgeScan,
     Filter,
