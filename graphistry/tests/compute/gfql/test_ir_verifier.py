@@ -3,20 +3,28 @@
 Five invariants:
   1. op_id uniqueness — all operators in the tree have distinct op_ids (0 is exempt: unassigned)
   2. Dangling refs — input/left/right/subquery children must be LogicalPlan instances
-  3. Predicate scope — PatternMatch predicates must have non-empty expression strings
+  3. Predicate scope — BoundPredicate.expression must be non-empty on all predicate-bearing ops
   4. Output schema consistency — RowSchema columns values must be LogicalType instances
   5. Optional-arm nullability — PatternMatch with optional=True must have a non-empty arm_id
 """
+import dataclasses
+
 from graphistry.compute.gfql.ir import (
+    Apply,
+    AntiSemiApply,
     CompilerError,
+    EdgeScan,
     Filter,
+    IndexScan,
     LogicalPlan,
     NodeScan,
     PatternMatch,
     RowSchema,
+    SemiApply,
     Union,
+    Unwind,
 )
-from graphistry.compute.gfql.ir.types import BoundPredicate, NodeRef, ScalarType
+from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, NodeRef, PathType, ScalarType
 from graphistry.compute.gfql.ir.verifier import verify
 
 
@@ -33,6 +41,23 @@ def _errors(plan: LogicalPlan) -> list[str]:
     return [e.message for e in verify(plan)]
 
 
+def _inject(op: LogicalPlan, field: str, value: object) -> LogicalPlan:
+    """Return a copy of *op* with *field* replaced by *value*, bypassing frozen check.
+
+    Uses dataclasses.replace where possible; falls back to object.__setattr__
+    only when the value type is intentionally invalid (i.e. can't be expressed
+    as a keyword arg without a type error at construction time).
+    """
+    try:
+        return dataclasses.replace(op, **{field: value})  # type: ignore[arg-type]
+    except TypeError:
+        # dataclasses.replace may reject obviously wrong types on some builds;
+        # fall back to object.__setattr__ to force the bad value in.
+        copy = dataclasses.replace(op)
+        object.__setattr__(copy, field, value)
+        return copy  # type: ignore[return-value]
+
+
 # ---------------------------------------------------------------------------
 # Positive cases — valid plans must produce zero errors
 # ---------------------------------------------------------------------------
@@ -41,6 +66,9 @@ class TestVerifyPositive:
     def test_single_leaf_no_errors(self) -> None:
         assert verify(_ns()) == []
 
+    def test_edge_scan_no_errors(self) -> None:
+        assert verify(EdgeScan(op_id=1, edge_type="KNOWS")) == []
+
     def test_linear_chain_no_errors(self) -> None:
         scan = _ns(op_id=1)
         filt = Filter(op_id=2, input=scan, predicate=BoundPredicate(expression="n.age > 0"))
@@ -48,6 +76,30 @@ class TestVerifyPositive:
 
     def test_union_no_errors(self) -> None:
         plan = Union(op_id=3, left=_ns(op_id=1), right=_ns(op_id=2, label="Company"))
+        assert verify(plan) == []
+
+    def test_apply_no_errors(self) -> None:
+        plan = Apply(op_id=2, input=_ns(op_id=1), subquery=_ns(op_id=3, label="X"))
+        assert verify(plan) == []
+
+    def test_semi_apply_no_errors(self) -> None:
+        plan = SemiApply(op_id=2, input=_ns(op_id=1), subquery=_ns(op_id=3, label="X"))
+        assert verify(plan) == []
+
+    def test_anti_semi_apply_no_errors(self) -> None:
+        plan = AntiSemiApply(op_id=2, input=_ns(op_id=1), subquery=_ns(op_id=3, label="X"))
+        assert verify(plan) == []
+
+    def test_unwind_no_errors(self) -> None:
+        plan = Unwind(op_id=2, input=_ns(op_id=1), variable="x")
+        assert verify(plan) == []
+
+    def test_index_scan_no_errors(self) -> None:
+        plan = IndexScan(
+            op_id=1,
+            predicate=BoundPredicate(expression="n.id = 1"),
+            residual_predicates=[BoundPredicate(expression="n.age > 0")],
+        )
         assert verify(plan) == []
 
     def test_optional_pattern_match_with_arm_id_no_errors(self) -> None:
@@ -64,7 +116,12 @@ class TestVerifyPositive:
         assert verify(plan) == []
 
     def test_schema_with_valid_logical_types_no_errors(self) -> None:
-        schema = RowSchema(columns={"n": NodeRef(), "age": ScalarType(kind="int64", nullable=False)})
+        schema = RowSchema(columns={
+            "n": NodeRef(),
+            "age": ScalarType(kind="int64", nullable=False),
+            "rel": EdgeRef(),
+            "path": PathType(min_hops=1, max_hops=5),
+        })
         plan = NodeScan(op_id=1, output_schema=schema)
         assert verify(plan) == []
 
@@ -107,48 +164,87 @@ class TestOpIdUniqueness:
 
 class TestDanglingRefs:
     def test_non_logicalplan_input_caught(self) -> None:
-        # Manually construct a Filter with a bad input type (bypassing frozen via object())
-        # We use object.__setattr__ since the dataclass is frozen
-        scan = _ns(op_id=1)
-        filt = Filter(op_id=2, input=scan)
-        # Replace input with a non-plan sentinel via a plain dict trick:
-        # Build a bad plan fixture using a subclass override
-        import dataclasses
-        bad = dataclasses.replace(filt)
-        # We need to inject a bad value — use object.__setattr__ on the frozen instance
-        object.__setattr__(bad, "input", "not_a_plan")
+        bad = _inject(Filter(op_id=2, input=_ns(op_id=1)), "input", "not_a_plan")
         errs = _errors(bad)
         assert any("dangling" in e.lower() or "input" in e.lower() for e in errs)
 
+    def test_non_logicalplan_left_caught(self) -> None:
+        bad = _inject(Union(op_id=1, left=_ns(op_id=2), right=_ns(op_id=3)), "left", 42)
+        errs = _errors(bad)
+        assert any("dangling" in e.lower() for e in errs)
+
+    def test_non_logicalplan_right_caught(self) -> None:
+        bad = _inject(Union(op_id=1, left=_ns(op_id=2), right=_ns(op_id=3)), "right", {"bad": True})
+        errs = _errors(bad)
+        assert any("dangling" in e.lower() for e in errs)
+
+    def test_non_logicalplan_subquery_caught(self) -> None:
+        bad = _inject(Apply(op_id=2, input=_ns(op_id=1), subquery=_ns(op_id=3)), "subquery", [])
+        errs = _errors(bad)
+        assert any("dangling" in e.lower() for e in errs)
+
     def test_none_input_is_valid(self) -> None:
-        # None means "leaf" — not a dangling ref
-        filt = Filter(op_id=1, input=None)
+        # None means "leaf" — not a dangling ref; give it a valid predicate
+        filt = Filter(op_id=1, input=None, predicate=BoundPredicate(expression="n.x > 0"))
         assert verify(filt) == []
+
+    def test_none_subquery_is_valid(self) -> None:
+        plan = Apply(op_id=1, input=None, subquery=None)
+        assert verify(plan) == []
 
 
 # ---------------------------------------------------------------------------
-# Invariant 3: Predicate scope (PatternMatch)
+# Invariant 3: Predicate scope
 # ---------------------------------------------------------------------------
 
 class TestPredicateScope:
+    # --- PatternMatch ---
     def test_empty_expression_in_pattern_match_caught(self) -> None:
-        plan = PatternMatch(
-            op_id=1,
-            predicates=[BoundPredicate(expression="")],  # empty — invalid
-        )
+        plan = PatternMatch(op_id=1, predicates=[BoundPredicate(expression="")])
         errs = _errors(plan)
         assert any("predicate" in e.lower() or "expression" in e.lower() for e in errs)
 
+    def test_pattern_match_multiple_predicates_one_empty_caught(self) -> None:
+        plan = PatternMatch(op_id=1, predicates=[
+            BoundPredicate(expression="n.age > 0"),
+            BoundPredicate(expression=""),           # empty — should flag predicate[1]
+            BoundPredicate(expression="x.id = 5"),
+        ])
+        errs = _errors(plan)
+        assert any("predicate[1]" in e for e in errs)
+
     def test_nonempty_expression_ok(self) -> None:
-        plan = PatternMatch(
-            op_id=1,
-            predicates=[BoundPredicate(expression="n.age > 0")],
-        )
+        plan = PatternMatch(op_id=1, predicates=[BoundPredicate(expression="n.age > 0")])
         assert verify(plan) == []
 
     def test_no_predicates_ok(self) -> None:
         plan = PatternMatch(op_id=1, predicates=[])
         assert verify(plan) == []
+
+    # --- Filter ---
+    def test_empty_filter_predicate_caught(self) -> None:
+        plan = Filter(op_id=1, input=None, predicate=BoundPredicate(expression=""))
+        errs = _errors(plan)
+        assert any("predicate" in e.lower() or "expression" in e.lower() for e in errs)
+
+    def test_nonempty_filter_predicate_ok(self) -> None:
+        plan = Filter(op_id=1, input=None, predicate=BoundPredicate(expression="n.x > 0"))
+        assert verify(plan) == []
+
+    # --- IndexScan ---
+    def test_empty_index_scan_predicate_caught(self) -> None:
+        plan = IndexScan(op_id=1, predicate=BoundPredicate(expression=""))
+        errs = _errors(plan)
+        assert any("predicate" in e.lower() or "expression" in e.lower() for e in errs)
+
+    def test_empty_index_scan_residual_predicate_caught(self) -> None:
+        plan = IndexScan(
+            op_id=1,
+            predicate=BoundPredicate(expression="n.id = 1"),
+            residual_predicates=[BoundPredicate(expression="")],
+        )
+        errs = _errors(plan)
+        assert any("residual" in e.lower() for e in errs)
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +258,12 @@ class TestOutputSchemaConsistency:
         errs = _errors(plan)
         assert any("schema" in e.lower() or "column" in e.lower() for e in errs)
 
+    def test_integer_column_value_caught(self) -> None:
+        bad_schema = RowSchema(columns={"count": 42})  # type: ignore[arg-type]
+        plan = NodeScan(op_id=1, output_schema=bad_schema)
+        errs = _errors(plan)
+        assert any("column" in e.lower() for e in errs)
+
     def test_valid_schema_no_error(self) -> None:
         schema = RowSchema(columns={"n": NodeRef()})
         plan = NodeScan(op_id=1, output_schema=schema)
@@ -169,6 +271,11 @@ class TestOutputSchemaConsistency:
 
     def test_empty_schema_no_error(self) -> None:
         plan = NodeScan(op_id=1, output_schema=RowSchema())
+        assert verify(plan) == []
+
+    def test_pathtype_in_schema_no_error(self) -> None:
+        schema = RowSchema(columns={"p": PathType(min_hops=1, max_hops=5)})
+        plan = NodeScan(op_id=1, output_schema=schema)
         assert verify(plan) == []
 
 
@@ -208,3 +315,16 @@ class TestErrorAccumulation:
         plan = Union(op_id=2, left=scan, right=bad_match)
         errs = _errors(plan)
         assert len(errs) >= 2
+
+    def test_three_violations_in_one_tree(self) -> None:
+        # bad schema + empty predicate + optional without arm_id, all on one node
+        bad_schema = RowSchema(columns={"x": "bad"})  # type: ignore[arg-type]
+        plan = PatternMatch(
+            op_id=1,
+            optional=True,
+            arm_id=None,
+            predicates=[BoundPredicate(expression="")],
+            output_schema=bad_schema,
+        )
+        errs = _errors(plan)
+        assert len(errs) >= 3

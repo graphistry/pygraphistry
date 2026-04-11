@@ -3,7 +3,7 @@
 verify(plan) walks the operator tree and checks five invariants:
   1. op_id uniqueness  — non-zero op_ids are distinct across the whole tree
   2. Dangling refs     — child slots (input/left/right/subquery) hold LogicalPlan | None
-  3. Predicate scope   — PatternMatch predicates must have non-empty expression strings
+  3. Predicate scope   — BoundPredicate.expression must be non-empty on all predicate-bearing ops
   4. Schema validity   — RowSchema column values must be LogicalType instances
   5. Optional-arm      — PatternMatch(optional=True) must carry a non-empty arm_id
 """
@@ -12,28 +12,42 @@ from __future__ import annotations
 from typing import Iterator
 
 from graphistry.compute.gfql.ir.compilation import CompilerError
-from graphistry.compute.gfql.ir.logical_plan import LogicalPlan, PatternMatch, RowSchema
-from graphistry.compute.gfql.ir.types import EdgeRef, ListType, LogicalType, NodeRef, PathType, ScalarType
+from graphistry.compute.gfql.ir.logical_plan import (
+    Filter,
+    IndexScan,
+    LogicalPlan,
+    PatternMatch,
+    RowSchema,
+)
+from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, ListType, NodeRef, PathType, ScalarType
+
+
+# ---------------------------------------------------------------------------
+# Internal constants
+# ---------------------------------------------------------------------------
+
+# Child-slot attribute names that may hold a child LogicalPlan (or None).
+_CHILD_SLOTS = ("input", "left", "right", "subquery")
+
+# All concrete LogicalType subtypes for isinstance checks (Union alias can't be used).
+_LOGICAL_TYPES = (NodeRef, EdgeRef, ScalarType, PathType, ListType)
+
+# Sentinel for getattr default when the attribute doesn't exist on an operator.
+_MISSING = object()
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-_LOGICAL_TYPES = (NodeRef, EdgeRef, ScalarType, PathType, ListType)
-
-
 def _children(op: LogicalPlan) -> list[object]:
-    """Return all child-slot values for ``op`` (may include None)."""
+    """Return all child-slot values for *op* (may include None)."""
     kids: list[object] = []
-    for attr in ("input", "left", "right", "subquery"):
+    for attr in _CHILD_SLOTS:
         val = getattr(op, attr, _MISSING)
         if val is not _MISSING:
             kids.append(val)
     return kids
-
-
-_MISSING = object()
 
 
 def _walk(op: LogicalPlan) -> Iterator[LogicalPlan]:
@@ -42,6 +56,15 @@ def _walk(op: LogicalPlan) -> Iterator[LogicalPlan]:
     for child in _children(op):
         if isinstance(child, LogicalPlan):
             yield from _walk(child)
+
+
+def _check_predicate(op: LogicalPlan, pred: BoundPredicate, label: str) -> list[CompilerError]:
+    """Return an error if *pred* has an empty expression string."""
+    if not pred.expression:
+        return [CompilerError(
+            message=f"{type(op).__name__} op_id={op.op_id}: {label} has empty expression"
+        )]
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +94,7 @@ def verify(plan: LogicalPlan) -> list[CompilerError]:
         # ------------------------------------------------------------------
         # Invariant 2: Dangling references
         # ------------------------------------------------------------------
-        for attr in ("input", "left", "right", "subquery"):
+        for attr in _CHILD_SLOTS:
             val = getattr(op, attr, _MISSING)
             if val is _MISSING:
                 continue
@@ -84,17 +107,18 @@ def verify(plan: LogicalPlan) -> list[CompilerError]:
                 ))
 
         # ------------------------------------------------------------------
-        # Invariant 3: Predicate scope (PatternMatch only)
+        # Invariant 3: Predicate scope
+        # Applies to all operators that carry BoundPredicate fields.
         # ------------------------------------------------------------------
         if isinstance(op, PatternMatch):
             for i, pred in enumerate(op.predicates):
-                if not pred.expression:
-                    errors.append(CompilerError(
-                        message=(
-                            f"PatternMatch op_id={op.op_id}: predicate[{i}] "
-                            "has empty expression"
-                        )
-                    ))
+                errors.extend(_check_predicate(op, pred, f"predicate[{i}]"))
+        elif isinstance(op, Filter):
+            errors.extend(_check_predicate(op, op.predicate, "predicate"))
+        elif isinstance(op, IndexScan):
+            errors.extend(_check_predicate(op, op.predicate, "predicate"))
+            for i, pred in enumerate(op.residual_predicates):
+                errors.extend(_check_predicate(op, pred, f"residual_predicates[{i}]"))
 
         # ------------------------------------------------------------------
         # Invariant 4: Output schema consistency
