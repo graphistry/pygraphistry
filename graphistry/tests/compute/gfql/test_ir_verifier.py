@@ -24,7 +24,7 @@ from graphistry.compute.gfql.ir import (
     Union,
     Unwind,
 )
-from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, NodeRef, PathType, ScalarType
+from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, ListType, NodeRef, PathType, ScalarType
 from graphistry.compute.gfql.ir.verifier import verify
 
 
@@ -277,6 +277,22 @@ class TestOutputSchemaConsistency:
         schema = RowSchema(columns={"p": PathType(min_hops=1, max_hops=5)})
         plan = NodeScan(op_id=1, output_schema=schema)
         assert verify(plan) == []
+
+    def test_listtype_in_schema_no_error(self) -> None:
+        schema = RowSchema(columns={"tags": ListType(element_type=ScalarType(kind="string"))})
+        plan = NodeScan(op_id=1, output_schema=schema)
+        assert verify(plan) == []
+
+    def test_listtype_shallow_check_only(self) -> None:
+        # Verifier currently validates the column type is a LogicalType (ListType passes),
+        # but does NOT recurse into ListType.element_type. This test documents that behavior.
+        # A future hardening pass should add element_type recursion.
+        bad_list = ListType(element_type="not_a_type")  # type: ignore[arg-type]
+        schema = RowSchema(columns={"items": bad_list})
+        plan = NodeScan(op_id=1, output_schema=schema)
+        errs = _errors(plan)
+        # ListType itself is a valid LogicalType — inner element_type not yet validated
+        assert errs == []  # known gap: element_type recursion not yet implemented
 
 
 # ---------------------------------------------------------------------------
