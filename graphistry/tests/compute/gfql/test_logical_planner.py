@@ -72,6 +72,10 @@ def _find_first(plan: LogicalPlan, target: Type[TPlan]) -> Optional[TPlan]:
     return None
 
 
+def _filters(plan: LogicalPlan) -> List[Filter]:
+    return [node for node in _walk(plan) if isinstance(node, Filter)]
+
+
 def test_logical_planner_importable_and_returns_logical_plan_root() -> None:
     root = LogicalPlanner().plan(_sample_bound_ir(), PlanContext())
     assert isinstance(root, LogicalPlan)
@@ -240,4 +244,33 @@ def test_logical_planner_rejects_multiple_match_stages() -> None:
     )
 
     with pytest.raises(GFQLValidationError, match="multiple MATCH"):
+        LogicalPlanner().plan(bound_ir, PlanContext())
+
+
+def test_logical_planner_applies_predicates_attached_to_match_part() -> None:
+    query = "MATCH (n:Person) WHERE n.id > 0 RETURN n"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+    expected_predicate = bound.query_parts[0].predicates[0].expression
+
+    root = LogicalPlanner().plan(bound, PlanContext())
+    predicates = [flt.predicate.expression for flt in _filters(root)]
+
+    assert expected_predicate in predicates
+
+
+def test_logical_planner_applies_predicates_attached_to_with_part() -> None:
+    query = "MATCH (n:Person) WITH n AS m WHERE m.id > 0 RETURN m"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+    with_part = next(part for part in bound.query_parts if part.clause == "WITH")
+    expected_predicate = with_part.predicates[0].expression
+
+    root = LogicalPlanner().plan(bound, PlanContext())
+    predicates = [flt.predicate.expression for flt in _filters(root)]
+
+    assert expected_predicate in predicates
+
+
+def test_logical_planner_rejects_unknown_clause_types() -> None:
+    bound_ir = BoundIR(query_parts=[BoundQueryPart(clause="MERGE")])
+    with pytest.raises(GFQLValidationError, match="does not support this clause type"):
         LogicalPlanner().plan(bound_ir, PlanContext())

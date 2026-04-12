@@ -57,6 +57,7 @@ class LogicalPlanner:
                         suggestion="Use a single MATCH stage until chained pattern planning is implemented.",
                     )
                 current = self._plan_match(part=part, vars_by_name=vars_by_name, id_gen=id_gen)
+                current = self._apply_predicates(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
                 seen_match = True
                 continue
             if clause == "WHERE":
@@ -64,10 +65,18 @@ class LogicalPlanner:
                 continue
             if clause in {"WITH", "RETURN"}:
                 current = self._plan_projection(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
+                current = self._apply_predicates(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
                 continue
             if clause == "UNWIND":
                 current = self._plan_unwind(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
                 continue
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "LogicalPlanner skeleton does not support this clause type",
+                field="clause",
+                value=part.clause,
+                suggestion="Use covered clause shapes only in M2-PR1 (MATCH/WHERE/WITH/RETURN/UNWIND).",
+            )
 
         if current is None:
             # Keep fallback deterministic for empty / unsupported skeleton inputs.
@@ -89,6 +98,16 @@ class LogicalPlanner:
         )
 
     def _plan_where(
+        self,
+        *,
+        part: BoundQueryPart,
+        current: Optional[LogicalPlan],
+        vars_by_name: Mapping[str, BoundVariable],
+        id_gen: IdGen,
+    ) -> LogicalPlan:
+        return self._apply_predicates(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
+
+    def _apply_predicates(
         self,
         *,
         part: BoundQueryPart,
