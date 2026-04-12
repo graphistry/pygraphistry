@@ -9,7 +9,7 @@ verify(plan) walks the operator tree and checks five invariants:
 """
 from __future__ import annotations
 
-from typing import Iterator
+from typing import Iterator, List, Set, Tuple
 
 from graphistry.compute.gfql.ir.compilation import CompilerError
 from graphistry.compute.gfql.ir.logical_plan import (
@@ -52,9 +52,9 @@ def _children(op: LogicalPlan) -> list[object]:
 
 def _walk(
     op: LogicalPlan,
-    visited: set,
-    path: set,
-    cycle_pairs: list,
+    visited: Set[int],
+    path: Set[int],
+    cycle_pairs: List[Tuple[str, str]],
 ) -> Iterator[LogicalPlan]:
     """Pre-order traversal of all LogicalPlan nodes reachable from *op*.
 
