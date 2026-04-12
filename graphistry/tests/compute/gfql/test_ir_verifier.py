@@ -361,6 +361,31 @@ class TestOptionalArmNullability:
         plan = PatternMatch(op_id=1, optional=False, arm_id=None)
         assert verify(plan) == []
 
+    def test_optional_non_nullable_scalar_caught(self) -> None:
+        # optional=True with a non-nullable ScalarType column is invalid —
+        # absent optional arms produce NULL rows
+        schema = RowSchema(columns={"age": ScalarType(kind="int64", nullable=False)})
+        plan = PatternMatch(op_id=1, optional=True, arm_id="arm_0", output_schema=schema)
+        errs = _errors(plan)
+        assert any("nullable" in e.lower() for e in errs)
+
+    def test_optional_nullable_scalar_ok(self) -> None:
+        schema = RowSchema(columns={"age": ScalarType(kind="int64", nullable=True)})
+        plan = PatternMatch(op_id=1, optional=True, arm_id="arm_0", output_schema=schema)
+        assert verify(plan) == []
+
+    def test_optional_noderef_column_ok(self) -> None:
+        # NodeRef is a reference type — no nullable flag; allowed in optional arms
+        schema = RowSchema(columns={"n": NodeRef()})
+        plan = PatternMatch(op_id=1, optional=True, arm_id="arm_0", output_schema=schema)
+        assert verify(plan) == []
+
+    def test_non_optional_non_nullable_scalar_ok(self) -> None:
+        # Non-nullable scalar is fine on a non-optional PatternMatch
+        schema = RowSchema(columns={"age": ScalarType(kind="int64", nullable=False)})
+        plan = PatternMatch(op_id=1, optional=False, output_schema=schema)
+        assert verify(plan) == []
+
 
 # ---------------------------------------------------------------------------
 # Multi-error accumulation

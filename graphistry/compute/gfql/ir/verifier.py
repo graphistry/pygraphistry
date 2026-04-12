@@ -164,6 +164,18 @@ def verify(plan: LogicalPlan) -> list[CompilerError]:
                         "but arm_id is missing or empty"
                     )
                 ))
+            # Optional arms may produce NULL rows when the pattern is absent.
+            # ScalarType columns in the output_schema must be nullable to
+            # accommodate those NULL rows.
+            for col, typ in op.output_schema.columns.items():
+                if isinstance(typ, ScalarType) and not typ.nullable:
+                    errors.append(CompilerError(
+                        message=(
+                            f"PatternMatch op_id={op.op_id}: optional=True "
+                            f"but output_schema column {col!r} is ScalarType(nullable=False); "
+                            "optional arms must produce nullable outputs"
+                        )
+                    ))
 
     # ------------------------------------------------------------------
     # Structural cycle diagnostic (reported after traversal completes)
