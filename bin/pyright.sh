@@ -5,14 +5,14 @@ set -e
 # Non-zero exit code on fail
 
 # Resolve pyright command, then delegate with repo config.
-if command -v pyright >/dev/null 2>&1; then
+if pyright --version >/dev/null 2>&1; then
     PYRIGHT_CMD_ARR=(pyright)
-elif command -v uvx >/dev/null 2>&1; then
+elif uvx --from pyright pyright --version >/dev/null 2>&1; then
     PYRIGHT_CMD_ARR=(uvx --from pyright pyright)
-elif command -v npx >/dev/null 2>&1; then
+elif npx pyright --version >/dev/null 2>&1; then
     PYRIGHT_CMD_ARR=(npx pyright)
 else
-    echo "pyright not found. Install pyright, npm, or uvx."
+    echo "pyright could not be executed via pyright, uvx, or npx."
     exit 1
 fi
 
