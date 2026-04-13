@@ -22,7 +22,8 @@ Geographic (Kepler.gl)
    :caption: Geographic visualization with Kepler.gl
    :titlesonly:
 
-   Geospatial Network Visualization <../demos/more_examples/graphistry_features/layout_map.ipynb>
+   Company Networks on a Map <../demos/more_examples/graphistry_features/layout_map.ipynb>
+   Brightkite Check-ins <../demos/demos_by_use_case/social/brightkite_checkin.ipynb>
 
 Static Export
 -------------
