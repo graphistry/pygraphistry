@@ -160,9 +160,9 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
    }})['graph'].plot()
      ```
 
-* GFQL: Cypher-style graph pattern mining queries on dataframes with optional GPU acceleration ([ipynb demo](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb), [benchmark](https://github.com/graphistry/pygraphistry/blob/master/demos/gfql/benchmark_hops_cpu_gpu.ipynb))
+* GFQL: Graph pattern queries on dataframes with friendly Cypher syntax, declarative semantics, and optional GPU acceleration ([ipynb demo](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb), [benchmark](https://github.com/graphistry/pygraphistry/blob/master/demos/gfql/benchmark_hops_cpu_gpu.ipynb))
 
-  Run Cypher-style graph queries natively on dataframes without going to a database or Java with GFQL:
+  Run graph queries on dataframes with Cypher syntax through GFQL's columnar engine, without going to a database or Java:
 
     ```python
     from graphistry import n, e_undirected, is_in
@@ -247,6 +247,11 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
      edges = pa.Table.from_pandas(pd.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst']))
      graphistry.edges(edges, 'src', 'dst').plot()
     ```
+
+> The `graphistry.cypher(...)` examples below are the remote database Cypher
+> path. For Cypher syntax through GFQL on a bound graph, use `g.gfql("MATCH ...")`.
+> For remote GFQL execution, use `g.gfql_remote([...])`. See the
+> [GFQL Cypher guide](gfql/cypher.rst).
 
 * [Neo4j](http://neo4j.com) ([notebook demo](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/neo4j/official/graphistry_bolt_tutorial_public.ipynb))
 
@@ -927,7 +932,7 @@ g2.plot() # nodes are values from cols s, d, k1
     destination_node_match={"k2": 2},
     destination_node_query='k2 == 2 or k2 == 4',
   )
-  .gfql([ # filter to subgraph with Cypher-style GFQL
+  .gfql([ # filter to subgraph with GFQL pattern matching
     n(),
     n({'k2': 0, "m": 'ok'}), #specific values
     n({'type': is_in(["type1", "type2"])}), #multiple valid values

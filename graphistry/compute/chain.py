@@ -1,14 +1,14 @@
 import logging
 import pandas as pd
 from typing import Any, Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
-from graphistry.Engine import Engine, EngineAbstract, df_concat, df_to_engine, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, align_shared_column_dtypes, df_concat, df_to_engine, resolve_engine, safe_map_series, safe_row_concat
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.Engine import safe_merge
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
-from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json
+from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json, serialize_binding_ops
 from .typing import DataFrameT
 from .util import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
@@ -203,7 +203,7 @@ def combine_steps(
                 prev_src = label_steps[idx - 1][1]._nodes if label_steps and idx > 0 else g_step._nodes
                 prev_wf = (safe_merge(full_nodes, prev_src[[node_id]], on=node_id, how='inner', engine=engine)
                            if full_nodes is not None and node_id and prev_src is not None else prev_src)
-                new_steps.append((op, op(g=g.edges(g_step._edges), prev_node_wavefront=prev_wf, target_wave_front=None, engine=engine)))
+                new_steps.append((op, op.execute(g=g.edges(g_step._edges), prev_node_wavefront=prev_wf, target_wave_front=None, engine=engine)))
             steps = new_steps
         else:
             logger.debug('EDGES << filter by valid endpoints (optimized)')
@@ -331,6 +331,23 @@ def combine_steps(
                 logger.debug('adding nodes to concat: %s', g_step._nodes[[g_step._node]])
 
     logger.debug('combine_steps ops: %s', [op for (op, _) in steps])
+
+    # Reject duplicate alias names — silent overwrite would lose data
+    seen_names: Dict[str, int] = {}
+    for idx, (op, _) in enumerate(steps):
+        if op._name is not None and isinstance(op, op_type):
+            if op._name in seen_names:
+                from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
+                raise GFQLValidationError(
+                    code=ErrorCode.E201,
+                    message=(
+                        f"Duplicate alias name '{op._name}' in chain "
+                        f"(steps {seen_names[op._name]} and {idx})"
+                    ),
+                    suggestion="Use distinct alias names for each step in the chain",
+                )
+            seen_names[op._name] = idx
+
     for idx, (op, g_step) in enumerate(steps):
         if op._name is not None and isinstance(op, op_type):
             logger.debug('tagging kind [%s] name %s', op_type, op._name)
@@ -429,8 +446,57 @@ def combine_steps(
                 for hc in hop_cols:
                     if hc in hop_map_df.columns:
                         hop_map = hop_map_df[[id, hc]].dropna(subset=[hc]).drop_duplicates(subset=[id]).set_index(id)[hc]
-                        mapped_vals = out_df[id].map(hop_map)
+                        mapped_vals = safe_map_series(out_df[id], hop_map)
                         out_df[hc] = out_df[hc].where(out_df[hc].notna(), mapped_vals)
+
+        if hop_cols:
+            for idx, (op, _g_step) in enumerate(steps):
+                if op._name is None or not isinstance(op, ASTNode) or op._name not in out_df.columns or idx == 0:
+                    continue
+                prev_op, _ = steps[idx - 1]
+                if not isinstance(prev_op, ASTEdge):
+                    continue
+                prev_step_nodes = label_steps[idx - 1][1]._nodes if idx - 1 < len(label_steps) else None
+                prev_hop_cols = (
+                    [c for c in prev_step_nodes.columns if 'hop' in c.lower()]
+                    if prev_step_nodes is not None
+                    else []
+                )
+                hop_col = None
+                if prev_hop_cols:
+                    preferred = prev_hop_cols[0]
+                    if preferred in out_df.columns:
+                        hop_col = preferred
+                    elif f'{preferred}_x' in out_df.columns:
+                        hop_col = f'{preferred}_x'
+                    elif f'{preferred}_y' in out_df.columns:
+                        hop_col = f'{preferred}_y'
+                min_hop = (
+                    prev_op.output_min_hops
+                    if prev_op.output_min_hops is not None
+                    else (
+                        prev_op.min_hops
+                        if prev_op.min_hops is not None
+                        else (prev_op.hops if prev_op.hops is not None else 1)
+                    )
+                )
+                max_hop = (
+                    prev_op.output_max_hops
+                    if prev_op.output_max_hops is not None
+                    else (
+                        prev_op.max_hops
+                        if prev_op.max_hops is not None
+                        else prev_op.hops
+                    )
+                )
+                if prev_op.to_fixed_point:
+                    max_hop = None
+                label_mask = out_df[op._name].fillna(False).astype(bool)
+                if hop_col is not None and min_hop > 1:
+                    label_mask = label_mask & out_df[hop_col].notna() & (out_df[hop_col] >= min_hop)
+                if hop_col is not None and max_hop is not None:
+                    label_mask = label_mask & out_df[hop_col].notna() & (out_df[hop_col] <= max_hop)
+                out_df[op._name] = label_mask
 
     cols = list(out_df.columns)
     for c in cols:
@@ -450,6 +516,50 @@ def combine_steps(
                 out_df = out_df.drop(columns=[c, c_x])
 
     return out_df
+
+
+def _inject_binding_ops_if_needed(
+    middle: List[ASTObject],
+    suffix: List[ASTObject],
+) -> List[ASTObject]:
+    """Inject serialized middle ops into a bare ``rows()`` call in the suffix.
+
+    When the middle contains named traversal ops (``n(name=...)``, ``e(name=...)``)
+    and the suffix starts with a ``rows()`` call that has no explicit ``binding_ops``,
+    serialize the middle ops and inject them so that ``rows()`` materializes a
+    multi-alias bindings table instead of a single-table view.  (#880)
+    """
+    from graphistry.compute.ast import ASTCall, rows as rows_fn
+
+    if not middle or not suffix:
+        return suffix
+
+    # Check if any middle op has a name (alias)
+    has_named = any(getattr(op, "_name", None) is not None for op in middle)
+    if not has_named:
+        return suffix
+
+    first_suffix = suffix[0]
+    if not isinstance(first_suffix, ASTCall):
+        return suffix
+    if first_suffix.function != "rows":
+        return suffix
+    # Don't override if binding_ops, source, or alias_endpoints already provided
+    if first_suffix.params.get("binding_ops") is not None:
+        return suffix
+    if first_suffix.params.get("source") is not None:
+        return suffix
+    if first_suffix.params.get("alias_endpoints") is not None:
+        return suffix
+
+    if any(not isinstance(op, (ASTNode, ASTEdge)) for op in middle):
+        return suffix  # Can't serialize non-traversal ops
+
+    binding_ops = serialize_binding_ops(middle)
+
+    # Create a new rows() call with binding_ops injected
+    new_rows = rows_fn(binding_ops=binding_ops)
+    return [new_rows] + list(suffix[1:])
 
 
 def _get_boundary_calls(ops: List[ASTObject]) -> Tuple[List[ASTObject], List[ASTObject], List[ASTObject]]:
@@ -516,7 +626,7 @@ def _handle_boundary_calls(
                 message="Cannot mix call() operations with n()/e() traversals in interior of chain",
                 suggestion="call() operations are only allowed at chain boundaries (start/end). "
                           "For complex patterns, use either: "
-                          "(1) let() composition: let({'filtered': [n(...), e(...)], 'enriched': call('get_degrees', g=ref('filtered'))}), or "
+                          "(1) let() composition: let({'filtered': [n(...), e(...)], 'enriched': ref('filtered', [call('get_degrees', {'col': 'degree'})])}, output='enriched'), or "
                           "(2) explicit cascading: g1 = g.chain([call(...)]); g2 = g1.chain([n(), e()]); g3 = g2.chain([call(...)]). "
                           "See issues #791, #792"
             )
@@ -525,6 +635,7 @@ def _handle_boundary_calls(
                 len(prefix), len(middle), len(suffix))
 
     g_temp = self
+    suffix_base_graph = g_temp
 
     if prefix:
         logger.debug('Executing boundary prefix calls: %s', prefix)
@@ -537,6 +648,7 @@ def _handle_boundary_calls(
             context,
             start_nodes
         )
+        suffix_base_graph = g_temp
 
     if middle:
         logger.debug('Executing middle operations: %s', middle)
@@ -552,6 +664,14 @@ def _handle_boundary_calls(
 
     if suffix:
         logger.debug('Executing boundary suffix calls: %s', suffix)
+        if start_nodes is not None:
+            setattr(g_temp, "_gfql_start_nodes", start_nodes)
+        setattr(g_temp, "_gfql_rows_base_graph", suffix_base_graph)
+        setattr(g_temp, "_gfql_shortest_path_backend", getattr(g_temp, "_gfql_shortest_path_backend", "auto"))
+        # #880: If middle has named ops and suffix starts with rows(),
+        # inject the middle ops as binding_ops so rows() can materialize
+        # a multi-alias bindings table instead of a single-table view.
+        suffix = _inject_binding_ops_if_needed(middle, suffix)
         g_temp = _chain_impl(
             g_temp,
             suffix,
@@ -868,7 +988,7 @@ def _chain_impl(
                 )
 
             g_step = (
-                op(
+                op.execute(
                     g=current_g,  # Pass appropriate graph for operation type
                     prev_node_wavefront=prev_step_nodes,
                     target_wave_front=None,  # implicit any
@@ -969,7 +1089,7 @@ def _chain_impl(
 
                     g_step_reverse = g_step.nodes(nodes_df).edges(edges_df)
                 else:
-                    g_step_reverse = op.reverse()(
+                    g_step_reverse = op.reverse().execute(
                         g=g_step,
                         prev_node_wavefront=prev_wavefront_nodes,
                         target_wave_front=target_wave_front_nodes,
@@ -1018,11 +1138,8 @@ def _chain_impl(
                     ignore_index=True,
                     sort=False,
                 ).drop_duplicates(subset=[g_out._node])
-                if resolve_engine(EngineAbstract.AUTO, endpoints) != resolve_engine(EngineAbstract.AUTO, g_out._nodes):
-                    endpoints = df_to_engine(endpoints, resolve_engine(EngineAbstract.AUTO, g_out._nodes))
-                g_out = g_out.nodes(
-                    concat_fn([g_out._nodes, endpoints], ignore_index=True, sort=False).drop_duplicates(subset=[g_out._node])
-                )
+                endpoints = align_shared_column_dtypes(g_out._nodes, endpoints)
+                g_out = g_out.nodes(safe_row_concat([g_out._nodes, endpoints], ignore_index=True, sort=False).drop_duplicates(subset=[g_out._node]))
 
             success = True
 

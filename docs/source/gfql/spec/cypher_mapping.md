@@ -2,11 +2,28 @@
 
 # Cypher to GFQL Python & Wire Protocol Mapping
 
-Translate existing Cypher workloads to GPU-accelerated GFQL with minimal code changes.
+GFQL supports Cypher syntax out of the box for a bounded read-only surface on
+bound graphs, while executing through GFQL's columnar engine with optional GPU
+acceleration. This page explains how to translate familiar Cypher patterns into
+native GFQL Python and wire protocol forms when you want more explicit control.
 
 ## Introduction
 
-This specification shows how to translate Cypher queries to both GFQL Python code and {ref}`Wire Protocol <gfql-spec-wire-protocol>` JSON, enabling migration from Cypher-based systems, LLM pipelines (text → Cypher → GFQL), language-agnostic API integration, and secure query generation without code execution.
+Cypher is a graph query language popularized by Neo4j and related tools. In
+PyGraphistry, you can often start with a Cypher string directly through
+`g.gfql("MATCH ...")`, then translate that query into native GFQL when you
+want direct operator control, {ref}`Wire Protocol <gfql-spec-wire-protocol>`
+JSON generation, migration from Cypher-centric systems, language-agnostic API
+integration, or secure query generation without code execution.
+
+## Direct ``g.gfql("MATCH ...")`` Note
+
+If you want to **run** a supported Cypher string through ``g.gfql("MATCH ...")``
+on a bound graph, use
+`g.gfql("MATCH ...")` (or `g.gfql("...", language="cypher")`) and start with
+{doc}`/gfql/cypher`. This page stays translation-first: it explains how to
+express Cypher semantics in native GFQL operators and wire protocol, not the
+primary quickstart for direct Cypher syntax execution.
 
 ## What Maps 1-to-1
 
@@ -19,7 +36,11 @@ When translating from Cypher, you'll encounter three scenarios:
 ### Direct Translations
 - Graph patterns: `(a)-[r]->(b)` → chain operations
 - Property filters: WHERE clauses embed into operations
-- Path traversals: Variable-length paths use `hops` parameter
+- Path traversals: direct `g.gfql("MATCH ...")` supports endpoint-only single
+  variable-length relationship forms such as `[*2]`, `[*1..3]`, and `[*]`.
+  Native GFQL still gives you the full explicit hop surface, including output
+  slicing, intermediate-hop aliasing, and rewrites for currently unsupported
+  direct-Cypher multihop shapes.
 - Pattern composition: Multiple patterns become sequential operations
 - Same-path constraints: `WHERE` across steps → `g.gfql([...], where=[...])`
 
@@ -74,7 +95,8 @@ Projection sequencing and placement rules:
   Keep call steps in boundary prefix/suffix segments around traversal blocks.
 
 ## When You Still Need DataFrames
-- Unsupported Cypher clauses (for example `OPTIONAL MATCH`)
+- Translation targets outside the current pure GFQL operator surface, such as
+  some `OPTIONAL MATCH` null-extension flows
 - Arbitrary joins across disconnected intermediate result sets
 - Custom functions outside the current row-expression subset
 
@@ -232,8 +254,14 @@ g.gfql([
 
 ### Edge Patterns
 
-| Cypher | Python | Wire Protocol (compact) |
-|--------|--------|-------------------------|
+Rows using `[*...]` below show the native GFQL rewrite for the same traversal
+intent. Direct `g.gfql("MATCH ...")` now accepts these endpoint-only
+single-variable-length relationship forms, while native GFQL remains the more
+explicit option when you need intermediate-hop control or unsupported mixed
+pattern shapes.
+
+| Cypher / intent | Python | Wire Protocol (compact) |
+|-----------------|--------|-------------------------|
 | `-[]->` | `e_forward()` | `{"type": "Edge", "direction": "forward"}` |
 | `-[r:KNOWS]->` | `e_forward({"type": "KNOWS"}, name="r")` | `{"type": "Edge", "direction": "forward", "edge_match": {"type": "KNOWS"}, "name": "r"}` |
 | `<-[r]-` | `e_reverse(name="r")` | `{"type": "Edge", "direction": "reverse", "name": "r"}` |
@@ -244,6 +272,11 @@ g.gfql([
 | `(n1)-[*2..4]->(n2)` but only show hops 3..4 | `e_forward(min_hops=2, max_hops=4, output_min_hops=3, label_edge_hops="edge_hop")` | `{"type": "Edge", "direction": "forward", "min_hops": 2, "max_hops": 4, "output_min_hops": 3, "label_edge_hops": "edge_hop"}` |
 | `(n1)-[*]->(n2)` | `e_forward(to_fixed_point=True)` | `{"type": "Edge", "direction": "forward", "to_fixed_point": true}` |
 | `-[r:BOUGHT {amount: gt(100)}]->` | `e_forward({"type": "BOUGHT", "amount": gt(100)}, name="r")` | `{"type": "Edge", "direction": "forward", "edge_match": {"type": "BOUGHT", "amount": {"type": "GT", "val": 100}}, "name": "r"}` |
+
+When you need constraints on intermediate hops, path/list-carrier semantics, or
+mixed connected patterns beyond the current direct-Cypher subset, use repeated
+single-hop GFQL steps with aliases instead of collapsing the traversal into one
+multihop edge operator.
 
 ### Predicates
 
@@ -328,6 +361,7 @@ WHERE t.amount > 10000 AND t.date > date('2024-01-01')
 ```
 
 **Python:**
+<!-- doc-test: xfail -->
 ```python
 g.gfql([
     n({"type": "Account"}),
@@ -416,9 +450,65 @@ analysis = g.gfql([
 | **Comparisons** | `gt(30)` | `{"type": "GT", "val": 30}` |
 | **Collections** | `is_in([...])` | `{"type": "IsIn", "options": [...]}` |
 
+## GFQL Extension: Graph Constructors (`GRAPH { }`)
+
+Standard Cypher and GQL's first edition (ISO/IEC 39075:2024) have no way to
+return a graph from a query — every result is a flat table of binding rows.
+GFQL extends Cypher with graph constructors that keep results in graph state,
+enabling composable graph-in / graph-out pipelines.
+
+### Syntax and Desugaring
+
+Graph constructors compile down to the same Chain/Call wire-protocol primitives
+as regular queries — **no new wire types are needed**.
+
+| Cypher (GFQL extension) | Desugars to |
+|--------------------------|-------------|
+| `GRAPH { MATCH (a)-[r]->(b) WHERE a.x > 10 }` | `Chain([n("a"), e_forward("r"), n("b")], where=[...])` — executed in graph state |
+| `GRAPH { CALL graphistry.degree.write() }` | `Call("graphistry.degree.write")` — graph-preserving procedure |
+| `GRAPH g = GRAPH { ... }` | Named binding (like `Let`) whose value is the Chain/Call result |
+| `USE g MATCH ... RETURN ...` | Execute the following query against binding `g`'s graph |
+
+### Examples
+
+**Standalone graph constructor (graph state out):**
+
+```python
+# Cypher extension
+g2 = g.gfql("GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 10 }")
+
+# Equivalent native GFQL (inherently graph-returning)
+g2 = g.gfql([n({"score": ge(10)}), e_forward(), n()])
+```
+
+**Multi-stage pipeline in one expression:**
+
+```python
+result = g.gfql(
+    "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 10 } "
+    "GRAPH g2 = GRAPH { USE g1 CALL graphistry.degree.write() } "
+    "USE g2 MATCH (n) RETURN n.id, n.degree ORDER BY n.degree DESC"
+)
+```
+
+**Wire protocol** — the pipeline above compiles locally to a sequence of
+Chain + Call executions against resolved graph bindings. The server sees
+ordinary Chain/Call messages, not graph-constructor-specific wire types.
+
+### Design Notes
+
+- `GRAPH { }` is a **closed scope** — pattern variables inside do not leak
+- `USE` is **lexically scoped** — bindings must be defined before USE
+- Only graph-preserving `CALL ... .write()` procedures are allowed inside
+  constructors (row-returning CALL is rejected)
+- `cypher_to_gfql()` rejects multi-graph pipelines (they can't be represented
+  as a single Chain); use `g.gfql("...")` for direct execution instead
+
 ## Not Supported
 - `CREATE`, `DELETE`, `SET`: GFQL is read-only.
-- `OPTIONAL MATCH`: no direct equivalent yet (requires outer-join semantics).
+- `OPTIONAL MATCH`: direct `g.gfql("MATCH ...")` execution supports a bounded subset,
+  but pure GFQL translation still has no single general operator for full
+  outer-join/null-extension semantics.
 - Full Cypher expression/function surface in row expressions: current vectorized subset only.
 - Multiple disconnected `MATCH` patterns in one query: use separate GFQL chains and explicit dataframe joins.
 

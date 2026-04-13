@@ -10,6 +10,14 @@ def lazy_cudf_import():
         warnings.filterwarnings("ignore")
         import cudf  # type: ignore
 
+        # cudf >= 26.02 removed DataFrame.from_pandas() and Series.from_pandas().
+        # Restore them so existing call sites keep working across RAPIDS versions.
+        # TODO(rapids-compat): migrate call sites to cudf.from_pandas() and remove shim
+        if not hasattr(cudf.DataFrame, 'from_pandas'):
+            cudf.DataFrame.from_pandas = staticmethod(cudf.from_pandas)
+        if not hasattr(cudf.Series, 'from_pandas'):
+            cudf.Series.from_pandas = staticmethod(cudf.from_pandas)
+
         return True, "ok", cudf
     except ModuleNotFoundError as e:
         return False, e, None

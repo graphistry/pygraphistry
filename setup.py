@@ -14,7 +14,7 @@ core_requires = [
   'lark >= 1.1, < 2',
   'pyarrow >= 0.15.0',
   'requests',
-  'squarify',
+
   'typing-extensions',
   'packaging >= 20.1',
   'setuptools',

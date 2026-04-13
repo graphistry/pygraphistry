@@ -2,6 +2,7 @@ import pytest
 import pandas as pd
 from datetime import datetime, date, time
 
+import graphistry.compute.ast_temporal as ast_temporal
 from graphistry.compute.ast_temporal import (
     DateTimeValue, DateValue, TimeValue, temporal_value_from_json
 )
@@ -41,6 +42,13 @@ class TestDateTimeValue:
         # Should be same instant but displayed in EST
         assert dt_est.as_pandas_value().hour == 7  # 12 UTC = 7 EST
         assert dt_utc.as_pandas_value().timestamp() == dt_est.as_pandas_value().timestamp()
+
+    def test_timezone_conversion_falls_back_without_zoneinfo(self, monkeypatch):
+        monkeypatch.setattr(ast_temporal, "ZoneInfo", None)
+
+        dt_est = DateTimeValue("2024-01-01T12:00:00+00:00", "US/Eastern")
+
+        assert dt_est.as_pandas_value().hour == 7
 
     def test_from_pandas_timestamp_naive_utc(self):
         ts = pd.Timestamp("2024-01-01 12:00:00")

@@ -12,17 +12,50 @@ import zipfile
 from graphistry.Engine import Engine, EngineAbstractType, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.client_session import DatasetInfo
-from graphistry.compute.ast import ASTObject
+from graphistry.compute.ast import ASTLet, ASTObject
 from graphistry.compute.chain import Chain
+from graphistry.compute.gfql.cypher.call_procedures import CompiledCypherProcedureCall
+from graphistry.compute.gfql.cypher.lowering import (
+    CompiledCypherGraphQuery,
+    CompiledCypherQuery,
+    CompiledCypherUnionQuery,
+)
 from graphistry.io.metadata import deserialize_plottable_metadata
 from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType, output_types_graph
 from graphistry.utils.json import JSONVal
 from graphistry.otel import inject_trace_headers
 
 
+def _step_to_json(
+    chain: Chain,
+    procedure_call: Optional[CompiledCypherProcedureCall],
+    use_ref: Optional[str],
+) -> Dict[str, Any]:
+    """Serialize one graph-pipeline step (binding or final clause) to wire format."""
+    val: Dict[str, Any] = (
+        {"type": "Call", "function": procedure_call.procedure,
+         "params": dict(procedure_call.call_params) if procedure_call.call_params else {}}
+        if procedure_call is not None
+        else chain.to_json()
+    )
+    if use_ref is not None:
+        return {"type": "Ref", "ref": use_ref, "chain": val.get('chain', [val])}
+    return val
+
+
+def _compiled_to_let_json(compiled: Union[CompiledCypherQuery, CompiledCypherGraphQuery]) -> Dict[str, Any]:
+    """Convert a compiled query with graph_bindings to Let wire format."""
+    bindings: Dict[str, Any] = {
+        b.name: _step_to_json(b.chain, b.procedure_call, b.use_ref)
+        for b in compiled.graph_bindings
+    }
+    bindings["__result__"] = _step_to_json(compiled.chain, compiled.procedure_call, compiled.use_ref)
+    return {"type": "Let", "bindings": bindings}
+
+
 def chain_remote_generic(
     self: Plottable,
-    chain: Union[Chain, Dict[str, JSONVal], List[Any]],
+    chain: Union[Chain, Dict[str, JSONVal], List[Any], 'ASTLet', str],
     api_token: Optional[str] = None,
     dataset_id: Optional[str] = None,
     output_type: OutputTypeGraph = "all",
@@ -32,7 +65,9 @@ def chain_remote_generic(
     edge_col_subset: Optional[List[str]] = None,
     engine: EngineAbstractType = 'auto',
     validate: bool = True,
-    persist: bool = False
+    persist: bool = False,
+    params: Optional[Dict[str, Any]] = None,
+    output: Optional[str] = None,
 ) -> Union[Plottable, pd.DataFrame]:
 
     if not api_token:
@@ -71,21 +106,65 @@ def chain_remote_generic(
         raise ValueError(f"persist=True is not supported with output_type='{output_type}'. "
                         f"Use output_type='all' for persistence support.")
 
-    if isinstance(chain, Chain):
+    # --- Input normalization ---
+    # Produces: chain_json (wire-format dict) + is_let (bool)
+    is_let = False
+
+    if isinstance(chain, str):
+        # Cypher string: compile locally, serialize result
+        from graphistry.compute.gfql.cypher.api import compile_cypher
+        compiled = compile_cypher(chain, params=params)
+        if isinstance(compiled, CompiledCypherUnionQuery):
+            raise ValueError(
+                "UNION queries are not yet supported for remote execution via gfql_remote(). "
+                "Execute locally with g.gfql() instead."
+            )
+        if not isinstance(compiled, (CompiledCypherQuery, CompiledCypherGraphQuery)):
+            raise TypeError(f"Unexpected compiled Cypher type: {type(compiled)}")
+        if compiled.graph_bindings or compiled.use_ref:
+            chain_json = _compiled_to_let_json(compiled)
+            is_let = True
+        else:
+            chain_json = compiled.chain.to_json()
+    elif isinstance(chain, ASTLet):
+        chain_json = chain.to_json()
+        is_let = True
+    elif isinstance(chain, Chain):
         chain_json = chain.to_json()
     elif isinstance(chain, list):
         chain_json = Chain(chain).to_json()
-    else:
-        assert isinstance(chain, dict)
+    elif isinstance(chain, dict):
         chain_json = chain
+        is_let = chain_json.get('type') == 'Let'
+    else:
+        raise TypeError(f"gfql_remote() query must be Chain, List, ASTLet, Dict, or str. Got {type(chain)}")
 
-    if validate:
+    if validate and not is_let:
         Chain.from_json(chain_json)
 
-    request_body: Dict[str, Any] = {
-        "gfql_operations": chain_json['chain'],  # unwrap
-        "format": format
-    }
+    # --- Build request body (dual-field for backward compat) ---
+    if is_let:
+        warnings.warn(
+            "gfql_remote() is sending a Let/DAG query. Servers that do not support "
+            "the gfql_query field will receive an empty gfql_operations array and "
+            "return the original graph unchanged. Upgrade to a server that reads "
+            "gfql_query for full Let/DAG support.",
+            UserWarning,
+            stacklevel=2,
+        )
+        request_body: Dict[str, Any] = {
+            "gfql_operations": [],
+            "gfql_query": chain_json,
+            "format": format
+        }
+        if output is not None:
+            request_body["gfql_output"] = output
+    else:
+        request_body = {
+            "gfql_operations": chain_json.get('chain', []),
+            "gfql_query": chain_json,
+            "format": format
+        }
 
     if node_col_subset is not None:
         request_body["node_col_subset"] = node_col_subset
@@ -294,7 +373,7 @@ def chain_remote_generic(
 
 def chain_remote_shape(
     self: Plottable,
-    chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]],
+    chain: Union[Chain, List[ASTObject], Dict[str, JSONVal], ASTLet, str],
     api_token: Optional[str] = None,
     dataset_id: Optional[str] = None,
     format: Optional[FormatType] = None,
@@ -351,7 +430,7 @@ def chain_remote_shape(
 
 def chain_remote(
     self: Plottable,
-    chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]],
+    chain: Union[Chain, List[ASTObject], Dict[str, JSONVal], ASTLet, str],
     api_token: Optional[str] = None,
     dataset_id: Optional[str] = None,
     output_type: OutputTypeGraph = "all",
@@ -361,7 +440,9 @@ def chain_remote(
     edge_col_subset: Optional[List[str]] = None,
     engine: EngineAbstractType = 'auto',
     validate: bool = True,
-    persist: bool = False
+    persist: bool = False,
+    params: Optional[Dict[str, Any]] = None,
+    output: Optional[str] = None,
 ) -> Plottable:
     """Remotely run GFQL chain query on a remote dataset.
     
@@ -448,7 +529,9 @@ def chain_remote(
         edge_col_subset,
         engine,
         validate,
-        persist
+        persist,
+        params=params,
+        output=output,
     )
     assert isinstance(g, Plottable)
     return g

@@ -7,7 +7,9 @@ from graphistry.compute.gfql.expr_parser import (
     Identifier,
     Literal,
     ListComprehension,
+    PropertyAccessExpr,
     QuantifierExpr,
+    SubscriptExpr,
     Wildcard,
     collect_identifiers,
     find_unsupported_functions,
@@ -49,9 +51,9 @@ def test_validate_expr_capabilities_rejects_unknown_function() -> None:
 
 
 def test_validate_expr_capabilities_rejects_unknown_operator() -> None:
-    node = BinaryOp(op="xor", left=Identifier("a"), right=Identifier("b"))
+    node = BinaryOp(op="pow", left=Identifier("a"), right=Identifier("b"))
     errors = validate_expr_capabilities(node)
-    assert "unsupported binary op: xor" in errors
+    assert "unsupported binary op: pow" in errors
 
 
 def test_validate_expr_capabilities_accepts_supported_tree() -> None:
@@ -64,6 +66,21 @@ def test_validate_expr_capabilities_accepts_supported_tree() -> None:
     assert errors == []
 
 
+def test_validate_expr_capabilities_accepts_properties_on_identifier_map_and_null() -> None:
+    assert validate_expr_capabilities(FunctionCall(name="properties", args=(Identifier("n"),))) == []
+    assert validate_expr_capabilities(FunctionCall(name="properties", args=(Literal(None),))) == []
+
+    map_node = parse_expr("{name: 'Popeye', level: 9001}") if _has_lark() else None
+    if map_node is not None:
+        assert validate_expr_capabilities(FunctionCall(name="properties", args=(map_node,))) == []
+
+
+def test_validate_expr_capabilities_rejects_properties_on_scalar_literals() -> None:
+    for bad in (Literal(1), Literal("Cypher"), parse_expr("[true, false]") if _has_lark() else Literal(True)):
+        errors = validate_expr_capabilities(FunctionCall(name="properties", args=(bad,)))
+        assert "properties() requires a node, relationship, map, or null argument" in errors
+
+
 @requires_lark
 def test_parse_expr_precedence_tree() -> None:
     node = parse_expr("NOT a = 1 AND b = 2 OR c = 3")
@@ -74,17 +91,33 @@ def test_parse_expr_precedence_tree() -> None:
 
 
 @requires_lark
+def test_parse_expr_xor_precedence_tree() -> None:
+    node = parse_expr("a OR b XOR c AND d")
+    assert isinstance(node, BinaryOp)
+    assert node.op == "or"
+    assert isinstance(node.right, BinaryOp)
+    assert node.right.op == "xor"
+    assert isinstance(node.right.right, BinaryOp)
+    assert node.right.right.op == "and"
+
+
+@requires_lark
 @pytest.mark.parametrize(
     "expr",
     [
         "score > 1",
+        "__node_keys__(n, n, r)",
         "NOT (score > 1 AND score < 3)",
+        "flag XOR other_flag",
+        "(flag XOR other_flag) IS NULL = (other_flag XOR flag) IS NULL",
         "CASE WHEN score > 1 THEN true ELSE false END",
+        "CASE score WHEN 1 THEN 'one' ELSE 'other' END",
         "any(x IN vals WHERE x = 2)",
         "[x IN vals WHERE x > 1 | x + 1]",
         "name CONTAINS 'a'",
         "meta['k'] = 'v'",
         "vals[1..3]",
+        "date.truncate('year', date({year: 1984, month: 10, day: 11}), {})",
     ],
 )
 def test_parse_expr_accepts_supported_samples(expr: str) -> None:
@@ -106,7 +139,6 @@ def test_parse_expr_accepts_shared_comparison_vocab(op: str) -> None:
     [
         "score == 1",
         "id = 'a' -- comment",
-        "CASE WHEN score > 1 THEN true END",
         "any(x vals WHERE x = 2)",
         "any(x IN vals WHERE x = 2))",
         "size() > 0",
@@ -123,6 +155,14 @@ def test_parse_expr_rejects_malformed_samples(expr: str) -> None:
 def test_parse_expr_case_and_quantifier_nodes() -> None:
     case_node = parse_expr("CASE WHEN score > 1 THEN true ELSE false END")
     assert isinstance(case_node, CaseWhen)
+    simple_case_node = parse_expr("CASE score WHEN 1 THEN true WHEN 2 THEN false ELSE null END")
+    assert isinstance(simple_case_node, CaseWhen)
+    assert isinstance(simple_case_node.condition, FunctionCall)
+    assert simple_case_node.condition.name == "__cypher_case_eq__"
+    no_else_case = parse_expr("CASE WHEN score > 1 THEN true END")
+    assert isinstance(no_else_case, CaseWhen)
+    assert isinstance(no_else_case.when_false, Literal)
+    assert no_else_case.when_false.value is None
 
     quant = parse_expr("any(x IN vals WHERE x = 2)")
     assert isinstance(quant, QuantifierExpr)
@@ -137,6 +177,23 @@ def test_parse_expr_list_comprehension_node() -> None:
     assert node.var == "x"
     assert node.predicate is not None
     assert node.projection is not None
+
+
+@requires_lark
+def test_parse_expr_postfix_property_access_node() -> None:
+    node = parse_expr("(list[1]).missing")
+    assert isinstance(node, PropertyAccessExpr)
+    assert node.property == "missing"
+    assert isinstance(node.value, SubscriptExpr)
+
+
+@requires_lark
+def test_parse_expr_identifier_property_access_node() -> None:
+    node = parse_expr("m.missing")
+    assert isinstance(node, PropertyAccessExpr)
+    assert node.property == "missing"
+    assert isinstance(node.value, Identifier)
+    assert node.value.name == "m"
 
 
 @requires_lark
@@ -168,6 +225,23 @@ def test_parse_expr_aggregate_wildcard_function_node() -> None:
     assert isinstance(node, FunctionCall)
     assert len(node.args) == 1
     assert isinstance(node.args[0], Wildcard)
+
+
+@requires_lark
+def test_parse_expr_distinct_function_node() -> None:
+    node = parse_expr("count(DISTINCT score)")
+    assert isinstance(node, FunctionCall)
+    assert node.name == "count"
+    assert node.distinct is True
+    assert node.args == (Identifier("score"),)
+
+
+@requires_lark
+def test_parse_expr_dotted_function_node() -> None:
+    node = parse_expr("date.truncate('year', date({year: 1984, month: 10, day: 11}), {})")
+    assert isinstance(node, FunctionCall)
+    assert node.name == "date.truncate"
+    assert len(node.args) == 3
 
 
 @requires_lark

@@ -51,5 +51,5 @@ Next Steps
 Get started with PyGraphistry:
 
 - **Installation Guide**: `Set up PyGraphistry <install/index>`_ .
-- **Visualization**: Explore :ref:`10min`.
+- **Visualization**: Explore :ref:`10min-pygraphistry`.
 - **GFQL Documentation**: Start with :ref:`10min-gfql`.

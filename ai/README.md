@@ -143,6 +143,7 @@ When adding a new guide:
 - CPU/GPU fallback handling
 - cuDF vs pandas compatibility
 - **Load when**: Implementing GPU features, optimizing performance
+- [`dgx-spark-testing.md`](docs/gpu/dgx-spark-testing.md): how to sync code and run GFQL/cuDF tests on the shared DGX-Spark GPU machine
 
 ### Connectors
 - Database-specific patterns

@@ -16,7 +16,7 @@
 
 **Quick Start:**
 - [Quick Example](#quick-example-fraud-detection) - Multi-step fraud analysis
-- [Core Types](#core-types) - Chain, Node, Edge, Call, Let, ChainRef
+- [Core Types](#core-types) - Chain, Node, Edge, Call, Let, Ref
 - [Predicates](#predicates) - Filters and comparisons
 
 **Common Patterns:**
@@ -60,12 +60,12 @@
       ]
     },
     "ranked": {
-      "type": "ChainRef",
+      "type": "Ref",
       "ref": "flows",
       "chain": [{"type": "Call", "function": "compute_cugraph", "params": {"alg": "pagerank"}}]
     },
     "viz": {
-      "type": "ChainRef",
+      "type": "Ref",
       "ref": "ranked",
       "chain": [
         {"type": "Call", "function": "encode_point_color",
@@ -123,12 +123,24 @@
 
 ### Let (Multi-step)
 ```json
-{"type": "Let", "bindings": {"name": Chain | ChainRef}}
+{"type": "Let", "bindings": {"name": Chain | Ref}}
 ```
 
-### ChainRef (Reference)
+Bindings may themselves be ``Let`` (nested let). Scope follows lexical rules:
+- Inner bindings do **not** leak upward (outer cannot see `a` or `b` below)
+- Inner bindings **can** read outer bindings (lexical closure)
+- Sibling inner ``Let`` blocks may reuse names without collision
+- Shadowing: inner name same as outer does not corrupt the outer value
 ```json
-{"type": "ChainRef", "ref": "name", "chain": [operations]}
+{"type": "Let", "bindings": {
+  "stage1": {"type": "Let", "bindings": {"a": ..., "b": ...}},
+  "stage2": {"type": "Ref", "ref": "stage1", "chain": [...]}
+}}
+```
+
+### Ref (Reference)
+```json
+{"type": "Ref", "ref": "name", "chain": [operations]}
 ```
 
 ---
@@ -247,7 +259,7 @@
       "chain": [{"type": "Call", "function": "get_degrees", "params": {"col": "degree"}}]
     },
     "filtered": {
-      "type": "ChainRef",
+      "type": "Ref",
       "ref": "enriched",
       "chain": [{"type": "Node", "filter_dict": {"degree": {"type": "GT", "val": 10}}}]
     }
@@ -548,7 +560,7 @@ See [Quick Example](#quick-example-fraud-detection) for full JSON example.
 5. **Empty filters:** Use `{}` for match-all
 5. **Predicates:** Wrap comparisons: `{"type": "GT", "val": 100}`
 6. **Temporal:** Tag values: `{"type": "datetime", "value": "...", "timezone": "UTC"}`
-7. **ChainRef:** Reference bindings: `{"type": "ChainRef", "ref": "name", "chain": [...]}`
+7. **Ref:** Reference bindings: `{"type": "Ref", "ref": "name", "chain": [...]}`
 
 ---
 

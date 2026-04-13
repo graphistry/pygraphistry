@@ -32,7 +32,7 @@ All GFQL wire protocol messages are JSON objects with a `type` field:
 ### Supported Message Types
 - `Chain`: Complete query chain
 - `Let`: DAG pattern with named bindings
-- `ChainRef`: Reference to Let binding with optional chain
+- `Ref`: Reference to Let binding with optional chain
 - `RemoteGraph`: Reference to remote dataset
 - `Call`: Algorithm/transformation invocation
 - `Node`: Node matcher operation
@@ -47,7 +47,7 @@ All GFQL wire protocol messages are JSON objects with a `type` field that identi
 ### Type Identification
 
 Each object includes a `type` field:
-- Operations: `"Node"`, `"Edge"`, `"Chain"`, `"Let"`, `"ChainRef"`, `"RemoteGraph"`, `"Call"`
+- Operations: `"Node"`, `"Edge"`, `"Chain"`, `"Let"`, `"Ref"`, `"RemoteGraph"`, `"Call"`
 - Predicates: `"GT"`, `"LT"`, `"IsIn"`, etc.
 - Temporal values: `"datetime"`, `"date"`, `"time"`
 
@@ -154,12 +154,12 @@ Optional fields:
 - `where`: list of same-path comparisons using `eq`, `neq`, `lt`, `le`, `gt`, `ge`
   with `left`/`right` as `alias.column` strings. Multiple entries are ANDed.
   Operator mapping:
-  - `eq` ↔ `==`
-  - `neq` ↔ `!=`
-  - `lt` ↔ `<`
-  - `le` ↔ `<=`
-  - `gt` ↔ `>`
-  - `ge` ↔ `>=`
+  - `eq` maps to `==`
+  - `neq` maps to `!=`
+  - `lt` maps to `<`
+  - `le` maps to `<=`
+  - `gt` maps to `>`
+  - `ge` maps to `>=`
 
 **Chain with WHERE (wire format):**
 ```json
@@ -233,7 +233,7 @@ let({
       "filter_dict": {"type": "Person"}
     },
     "adults": {
-      "type": "ChainRef",
+      "type": "Ref",
       "ref": "persons",
       "chain": [{
         "type": "Node",
@@ -246,9 +246,55 @@ let({
 }
 ```
 
-### ChainRef Operation
+#### Nested Let (Scope Isolation)
 
-ChainRef executes on the referenced graph; bindings used for edge traversal should retain edges
+A ``Let`` binding value may itself be a ``Let``. The inner ``Let`` executes as an opaque unit: its internal bindings are **not** visible in the outer scope. The outer ``Let`` sees only the binding name and the inner DAG's result.
+
+**Python**:
+```python
+let({
+    'stage1': let({
+        'people': n({'type': 'Person'}),
+        'friends': ref('people', [e_forward(), n()])
+    }),
+    'stage2': ref('stage1', [e_forward(), n()])
+})
+```
+
+**Wire Format**:
+```json
+{
+  "type": "Let",
+  "bindings": {
+    "stage1": {
+      "type": "Let",
+      "bindings": {
+        "people": {"type": "Node", "filter_dict": {"type": "Person"}},
+        "friends": {
+          "type": "Ref", "ref": "people",
+          "chain": [{"type": "Edge", "direction": "forward"}, {"type": "Node"}]
+        }
+      }
+    },
+    "stage2": {
+      "type": "Ref", "ref": "stage1",
+      "chain": [{"type": "Edge", "direction": "forward"}, {"type": "Node"}]
+    }
+  }
+}
+```
+
+**Scope rules** (lexical scoping):
+- ``stage2`` can reference ``stage1`` (an outer binding)
+- ``stage2`` **cannot** reference ``people`` or ``friends`` (inner bindings — they do not leak upward)
+- Inner bindings **can** read outer bindings (e.g., ``people`` could use ``ref('stage2')`` if ``stage2`` had already executed)
+- Sibling inner ``Let`` blocks may reuse the same binding names without collision
+- If an inner binding has the same name as an outer binding, the inner shadows the outer within its scope without corrupting the outer value
+- The inner ``Let`` result is the last executed binding in its own scope
+
+### Ref Operation
+
+Ref executes on the referenced graph; bindings used for edge traversal should retain edges
 (for example, from an ``Edge`` or ``Chain`` binding).
 
 **Python**:
@@ -262,7 +308,7 @@ ref('base_graph', [
 **Wire Format**:
 ```json
 {
-  "type": "ChainRef",
+  "type": "Ref",
   "ref": "base_graph",
   "chain": [
     {
@@ -587,6 +633,7 @@ g.gfql([
 ### User 360 Query
 
 **Python**:
+<!-- doc-test: xfail -->
 ```python
 g.gfql([
     n({"customer_id": "C123"}),
@@ -630,6 +677,7 @@ g.gfql([
 ### Cyber Security Pattern
 
 **Python**:
+<!-- doc-test: skip -->
 ```python
 g.gfql([
     n({"ip": is_in(["192.168.1.100", "192.168.1.101"])}),
@@ -672,6 +720,69 @@ g.gfql([
 }
 ```
 
+
+## Graph Constructors and the Wire Protocol
+
+GFQL's Cypher extensions (`GRAPH { }` constructors, `GRAPH g = ...` bindings,
+`USE g` graph switching) serialize using the existing `Let`, `Chain`, `Call`,
+and `Ref` wire-protocol primitives. No new message types are needed.
+
+### Serialization
+
+A multi-stage graph pipeline maps to a `Let` whose bindings are `Chain` or
+`Call` values, with `Ref` for `USE` references:
+
+```
+GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 10 }
+GRAPH g2 = GRAPH { USE g1 CALL graphistry.degree.write() }
+USE g2 MATCH (n) RETURN n.id, n.degree ORDER BY n.degree DESC
+```
+
+```json
+{
+  "type": "Let",
+  "bindings": {
+    "g1": {
+      "type": "Chain",
+      "chain": [
+        {"type": "Node", "filter_dict": {"score": {"type": "GT", "val": 10}}, "name": "a"},
+        {"type": "Edge", "direction": "forward", "name": "r"},
+        {"type": "Node", "name": "b"}
+      ]
+    },
+    "g2": {
+      "type": "Ref",
+      "ref": "g1",
+      "chain": [
+        {"type": "Call", "function": "graphistry.degree.write", "params": {}}
+      ]
+    },
+    "__result__": {
+      "type": "Ref",
+      "ref": "g2",
+      "chain": [
+        {"type": "Node", "name": "n"},
+        {"type": "Call", "function": "rows", "params": {"table": "nodes", "source": "n"}},
+        {"type": "Call", "function": "select", "params": {"items": [["id", "n.id"], ["degree", "n.degree"]]}},
+        {"type": "Call", "function": "order_by", "params": {"keys": [["degree", "desc"]]}}
+      ]
+    }
+  }
+}
+```
+
+The entire pipeline is a single `Let` message — one request, server-side
+evaluation.
+
+### Desugaring Reference
+
+| GFQL Extension | Wire Equivalent |
+|----------------|-----------------|
+| `GRAPH { MATCH ... WHERE ... }` | `{"type": "Chain", "chain": [...], "where": [...]}` |
+| `GRAPH { CALL graphistry.*.write() }` | `{"type": "Call", "function": "...", "params": {}}` |
+| `GRAPH g = GRAPH { ... }` | Named `Let` binding — body is a `Chain` or `Call` |
+| `USE g` | `Ref` with `"ref": "g"` — subsequent operations execute against `g`'s result |
+| `USE g MATCH ... RETURN ...` | `Ref` with `"ref": "g"` and the query chain as its body |
 
 ## Best Practices
 

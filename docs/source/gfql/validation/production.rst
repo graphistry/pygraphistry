@@ -54,8 +54,8 @@ Schema Caching
                    return self._cache[cache_key]
            
            # Perform validation
-           validator = PlottableValidator(plottable)
-           result = validator.validate(operations, collect_all=True)
+           from graphistry.compute.validate.validate_schema import validate_chain_schema
+           result = validate_chain_schema(plottable, operations)
            
            # Cache result
            self._cache[cache_key] = result
@@ -68,14 +68,14 @@ Batch Validation
 
 .. code-block:: python
 
+   from graphistry.compute.validate.validate_schema import validate_chain_schema
+
    def batch_validate_queries(operation_sets, plottable):
        """Validate multiple queries efficiently with built-in validation."""
-       validator = PlottableValidator(plottable)
-       
        results = []
        for operations in operation_sets:
            try:
-               errors = validator.validate(operations, collect_all=True)
+               errors = validate_chain_schema(plottable, operations)
                results.append({
                    "valid": len(errors) == 0,
                    "errors": [
@@ -109,7 +109,7 @@ pytest Fixtures
    import graphistry
    from graphistry.compute.chain import Chain
    from graphistry.compute.ast import n, e_forward
-   from graphistry.compute.predicates.str import eq
+   from graphistry.compute.predicates.comparison import eq
    from graphistry.compute.exceptions import GFQLValidationError
 
    @pytest.fixture

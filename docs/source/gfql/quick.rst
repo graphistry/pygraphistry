@@ -3,12 +3,22 @@
 GFQL Quick Reference
 ====================
 
-This quick reference page provides short examples of various parameters and usage patterns.
+GFQL is the first fully vectorized dataframe-native graph query language with
+an open-source GPU runtime. This quick reference page provides short examples
+of various parameters and usage patterns.
+
+If you are new to Cypher: Cypher is a graph query language popularized by
+Neo4j and related tools. It uses ASCII-art graph patterns such as
+``(n1)-[e1]->(n2)`` to describe node-edge-node traversals, so GFQL docs use
+that notation as a familiar shorthand when discussing Cypher syntax through
+``g.gfql("MATCH ...")``.
 
 Basic Usage
 -----------
 
 **Chaining Operations**
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -21,6 +31,48 @@ Basic Usage
 
 Use this page as a quick MATCH/chain reference.
 For row-pipeline RETURN semantics, see :doc:`return`.
+
+Choose The Right Entrypoint
+---------------------------
+
+- Use `g.gfql([...])` for native GFQL operators and `g.gfql("MATCH ...")` for Cypher syntax on the current graph.
+- Use `g.gfql_remote([...])` for remote GFQL when the dataset size or hardware profile calls for remote execution, including remote GPU execution. See :ref:`gfql-remote`.
+
+.. warning::
+   `graphistry.cypher("...")` and `g.cypher("...")` are a separate remote database Cypher path
+   (for example, Neo4j/Neptune integrations), not the GFQL execution surface summarized on this page.
+
+Graph State Vs Row State
+------------------------
+
+- **Graph state** keeps a traversable graph in `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, `let()` / `ref()` graph DAG stages, local Cypher `CALL graphistry.*.write()` queries, and local Cypher `GRAPH { MATCH ... }` constructors stay in graph state. (`GRAPH { }` is a GFQL extension — see :doc:`cypher` for details.)
+- **Row state** stores tabular results in `_nodes` and uses an empty placeholder `_edges` frame. Row-pipeline steps such as `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning local Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
+- A bare local Cypher procedure call without `.write()` also moves into row state. For example, `CALL graphistry.degree()` projects its default output columns into `_nodes` and clears `_edges`.
+- If you want to enrich a graph and keep matching locally, use a graph-preserving `call()` / `let()` pattern or a bare local Cypher `CALL graphistry.*.write()`. The local Cypher compiler currently supports `graphistry.degree.write()` plus `graphistry.igraph.<alg>.write()` and `graphistry.cugraph.<alg>.write()` for algorithms exposed through `compute_igraph()` / `compute_cugraph()`, along with the smaller compatibility subset `graphistry.nx.pagerank.write()`, `graphistry.nx.betweenness_centrality.write()`, `graphistry.nx.edge_betweenness_centrality.write()`, and `graphistry.nx.k_core.write()`.
+
+Cypher Strings Through ``g.gfql()``
+-----------------------------------
+
+Use ``g.gfql("MATCH ...")`` when you want Cypher syntax and declarative graph
+semantics on a bound graph instead of writing the equivalent GFQL chain by
+hand:
+
+.. doc-test: xfail
+
+.. code-block:: python
+
+    result = g.gfql(
+        "MATCH (n1:Person)-[e1:FOLLOWS]->(n2:Person) "
+        "RETURN n1.name AS source_name, n2.name AS target_name "
+        "ORDER BY source_name, target_name "
+        "LIMIT $top_n",
+        params={"top_n": 5},
+    )
+
+    result._nodes
+
+For the dedicated guide, helper APIs, and direct-vs-translation guidance, see
+:doc:`cypher`.
 
 Node Matchers
 -------------
@@ -515,6 +567,29 @@ Run graph algorithms like PageRank, community detection, and layouts directly wi
       # Results have pagerank column
       top_nodes = result._nodes.sort_values('pagerank', ascending=False).head(10)
 
+- **Enrich a graph, then keep matching:**
+
+  .. code-block:: python
+
+      g_enriched = g.gfql("CALL graphistry.degree.write()")
+      assert not g_enriched._edges.empty
+      top_degree = g_enriched.gfql(
+          "MATCH (n) WHERE n.degree >= 2 RETURN n.id AS id, n.degree AS degree ORDER BY degree DESC LIMIT 10"
+      )
+
+  Local note: a bare `g.gfql("CALL graphistry.*.write()")` stays in graph state and can feed later `MATCH` queries.
+  `g.gfql("CALL ... YIELD ... RETURN ...")` still targets row-returning procedure flows.
+
+- **Return procedure rows instead of an enriched graph:**
+
+  .. code-block:: python
+
+      degree_rows = g.gfql("CALL graphistry.degree()")
+      assert degree_rows._edges.empty
+
+      # Row state: _nodes has nodeId/degree columns and _edges is empty
+      degree_rows._nodes
+
 - **Community detection with Louvain:**
 
   .. code-block:: python
@@ -571,7 +646,7 @@ Reference graphs on remote servers for distributed computing:
 
   .. code-block:: python
 
-      from graphistry import remote
+      from graphistry.compute import remote
 
       result = g.gfql([
           remote(dataset_id='fraud-network-2024'),
@@ -582,6 +657,8 @@ Reference graphs on remote servers for distributed computing:
 - **Combine remote and local data in Let:**
 
   .. code-block:: python
+
+      from graphistry.compute import remote
 
       result = g.gfql(let({
           'remote_data': remote(dataset_id='historical-2023'),

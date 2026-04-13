@@ -80,6 +80,8 @@ Same-path `where=[...]` is currently restricted to column-vs-column
 comparisons across aliases so the validator can statically verify aliases and
 columns before execution in both pandas and cuDF vectorized paths.
 
+.. doc-test: xfail
+
 .. code-block:: python
 
     from graphistry import n, e_forward, col, compare, gt
@@ -157,6 +159,8 @@ Validation checks include:
   `gt`, `ge`) with string `left`/`right` values.
 
 Common failures:
+
+.. doc-test: xfail
 
 .. code-block:: python
 

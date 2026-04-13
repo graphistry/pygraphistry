@@ -12,6 +12,12 @@ GFQL (GraphFrame Query Language) is designed to be intuitive for users familiar 
 
 GFQL operates on graph DataFrames - graphs represented as node and edge DataFrames. This DataFrame-native approach enables seamless integration with the PyData ecosystem and natural vectorization for both CPU and GPU processing.
 
+GFQL accepts both **native chain syntax** (``g.gfql([n(), e(), n()])``) and
+**Cypher strings** (``g.gfql("MATCH ...")``). Most examples below show both
+forms. GFQL also extends Cypher with ``GRAPH { }`` constructors for
+graph-state results and composable multi-stage pipelines — see
+:doc:`/gfql/cypher` for the full Cypher-in-GFQL guide.
+
 Who Is This Guide For?
 ----------------------
 
@@ -54,7 +60,7 @@ Finding Nodes with Specific Properties
     MATCH (n {type: 'person'})
     RETURN n;
 
-**GFQL**
+**GFQL (chain syntax)**
 
 .. code-block:: python
 
@@ -63,9 +69,20 @@ Finding Nodes with Specific Properties
     # df[['id', 'type', ...]]
     g.gfql([ n({"type": "person"}) ])._nodes
 
+**GFQL (Cypher syntax)**
+
+.. code-block:: python
+
+    # Row result — same as standard Cypher MATCH/RETURN
+    g.gfql("MATCH (n {type: 'person'}) RETURN n")._nodes
+
+    # Graph result — GFQL extension, keeps graph state
+    g.gfql("GRAPH { MATCH (n {type: 'person'}) }")._nodes
+
 **Explanation**:
 
-- **GFQL**: ``n({"type": "person"})`` filters nodes where ``type`` is ``"person"``. ``g.gfql([...])`` applies this filter to the graph ``g``, and ``._nodes`` retrieves the resulting nodes. The performance is similar to that of Pandas (CPU) or cuDF (GPU).
+- **GFQL chain**: ``n({"type": "person"})`` filters nodes where ``type`` is ``"person"``. ``g.gfql([...])`` applies this filter to the graph ``g``, and ``._nodes`` retrieves the resulting nodes. The performance is similar to that of Pandas (CPU) or cuDF (GPU).
+- **GFQL Cypher**: The same query as a Cypher string. ``MATCH ... RETURN`` gives row output; ``GRAPH { MATCH ... }`` keeps graph state (both ``_nodes`` and ``_edges``).
 
 .. graphviz::
 
@@ -116,7 +133,7 @@ Exploring Relationships Between Nodes
     MATCH (n1 {type: 'person'})-[e]->(n2 {type: 'company'})
     RETURN e;
 
-**GFQL**
+**GFQL (chain syntax)**
 
 .. code-block:: python
 
@@ -127,9 +144,24 @@ Exploring Relationships Between Nodes
         n({"type": "person"}), e_forward(), n({"type": "company"})
     ])._edges
 
+**GFQL (Cypher syntax)**
+
+.. code-block:: python
+
+    # Graph result — keeps matched subgraph with edges
+    g.gfql(
+        "GRAPH { MATCH (n1 {type: 'person'})-[e]->(n2 {type: 'company'}) }"
+    )._edges
+
+    # Row result — returns edge properties as rows
+    g.gfql(
+        "MATCH (n1 {type: 'person'})-[e]->(n2 {type: 'company'}) RETURN e"
+    )._nodes
+
 **Explanation**:
 
-- **GFQL**: Starts from nodes of type ``"person"``, traverses forward edges, and reaches nodes of type ``"company"``. The resulting edges are stored in ``edges_df``. This version starts to gain the legibility and maintainability benefits of graph query syntax for graph tasks, and maintains the performance benefits of automatically vectorized pandas and GPU-accelerated cuDF.
+- **GFQL chain**: Starts from nodes of type ``"person"``, traverses forward edges, and reaches nodes of type ``"company"``. This version starts to gain the legibility and maintainability benefits of graph query syntax for graph tasks, and maintains the performance benefits of automatically vectorized pandas and GPU-accelerated cuDF.
+- **GFQL Cypher**: ``GRAPH { MATCH ... }`` returns the matched subgraph (graph state with ``_edges``); ``MATCH ... RETURN e`` returns edge properties as rows.
 - **Same-path constraints**: Use `where` to relate attributes across steps
   (same-path scope only; see :doc:`/gfql/where`).
 
@@ -181,7 +213,7 @@ Performing Multi-Hop Traversals
     MATCH (n {id: 'Alice'})-->()-->(m)
     RETURN m;
 
-**GFQL**
+**GFQL (chain syntax)**
 
 .. code-block:: python
 
@@ -191,6 +223,16 @@ Performing Multi-Hop Traversals
     g.gfql([
         n({g._node: "Alice"}), e_forward(), e_forward(), n(name='m')
     ])._nodes.query('m')
+
+**GFQL (Cypher syntax)**
+
+.. code-block:: python
+
+    # Row result — return 2-hop destinations
+    g.gfql("MATCH (n {id: 'Alice'})-->()-->(m) RETURN m")._nodes
+
+    # Graph result — return the 2-hop subgraph
+    g.gfql("GRAPH { MATCH (n {id: 'Alice'})-->()-->(m) }")
 
 **GFQL (bounded hop alternative)**
 
@@ -205,7 +247,14 @@ Performing Multi-Hop Traversals
 
 **Explanation**:
 
-- `min_hops`/`max_hops` match Cypher's variable-length pattern (`[*2..2]`) while remaining dataframish. If you set `label_node_hops`/`label_edge_hops`, those column names will store the hop step (nodes = first arrival, edges = traversal step); omit or `None` to skip labels.
+- `min_hops`/`max_hops` express the same bounded traversal intent as a Cypher
+  pattern like `[*2..2]` after translation into native GFQL. Direct
+  `g.gfql("MATCH ...")` now supports the endpoint-only `[*...]` slice, but
+  `hop()` still gives you the full native GFQL control surface for labels,
+  output slicing, and more complex multihop rewrites. If you set
+  `label_node_hops`/`label_edge_hops`, those column names will store the hop
+  step (nodes = first arrival, edges = traversal step); omit or `None` to skip
+  labels.
 - `output_min_hops`/`output_max_hops` (optional) slice the displayed hops after traversal. By default, all traversed hops up to `max_hops` remain visible; set `output_min_hops` if you want to drop early hops (e.g., traverse 2..4 but only show 3..4). Invalid slices (e.g., `output_min_hops` > `max_hops` or `output_max_hops` < `min_hops`) raise a `ValueError`.
 
 **Explanation**:
@@ -251,7 +300,7 @@ Filtering Edges and Nodes with Conditions
     WHERE e.weight > 0.5
     RETURN e;
 
-**GFQL**
+**GFQL (chain syntax)**
 
 .. code-block:: python
 
@@ -260,9 +309,18 @@ Filtering Edges and Nodes with Conditions
     # df[['src', 'dst', 'weight', ...]]
     g.gfql([ e_forward(edge_query='weight > 0.5') ])._edges
 
+**GFQL (Cypher syntax)**
+
+.. code-block:: python
+
+    g.gfql(
+        "MATCH ()-[e]->() WHERE e.weight > 0.5 RETURN e"
+    )._nodes
+
 **Explanation**:
 
-- **GFQL**: Uses ``e_forward(edge_query='weight > 0.5')`` to filter edges where ``weight > 0.5``. This version introduces the string query form that can be convenient. Underneath, it still benefits from the vectorized execution of Pandas and cuDF.
+- **GFQL chain**: Uses ``e_forward(edge_query='weight > 0.5')`` to filter edges where ``weight > 0.5``. This version introduces the string query form that can be convenient. Underneath, it still benefits from the vectorized execution of Pandas and cuDF.
+- **GFQL Cypher**: Same filter as a Cypher ``WHERE`` clause.
 
 ---
 
@@ -292,16 +350,32 @@ Aggregations and Grouping
     MATCH (n)-[e]->()
     RETURN n.id AS node_id, COUNT(e) AS out_degree;
 
-**GFQL**
+**GFQL (dataframe)**
 
 .. code-block:: python
 
     # df[['src', 'out_degree']]
     g._edges.groupby('src').size().reset_index(name='out_degree')
 
+**GFQL (Cypher syntax)**
+
+.. code-block:: python
+
+    # Enrich graph with degree columns, then query
+    g.gfql("CALL graphistry.degree.write()")._nodes
+
+    # Or as a single pipeline — enrich then return top nodes
+    g.gfql(
+        "GRAPH g1 = GRAPH { CALL graphistry.degree.write() } "
+        "USE g1 "
+        "MATCH (n) RETURN n.id AS node_id, n.degree_out AS out_degree "
+        "ORDER BY out_degree DESC LIMIT 10"
+    )._nodes
+
 **Explanation**:
 
-- **GFQL**: Performs aggregation directly on ``g._edges`` using standard dataframe operations. Or even shorter, call ``g.get_degrees()`` to enrich each node with in, out, and total degrees. This version benefits from the hardware-accelerated columnar analytics execution of Pandas and cuDF, and the simplicity of dataframe operations.
+- **GFQL dataframe**: Performs aggregation directly on ``g._edges`` using standard dataframe operations. Or even shorter, call ``g.get_degrees()`` to enrich each node with in, out, and total degrees.
+- **GFQL Cypher**: ``CALL graphistry.degree.write()`` enriches the graph with degree columns in graph state. Wrap in ``GRAPH { }`` to compose with subsequent queries in a single expression.
 
 ---
 
@@ -340,6 +414,8 @@ All Paths and Connectivity
     WHERE dst = 'Bob';
 
 **Pandas**
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -446,16 +522,33 @@ Community Detection and Clustering
 
     CALL algo.louvain.stream() YIELD nodeId, communityId
 
-**GFQL**
+**GFQL (Python)**
 
 .. code-block:: python
 
     # g._nodes: df[['id', 'louvain']]
     g.compute_cugraph('louvain')._nodes
 
+**GFQL (Cypher syntax)**
+
+.. code-block:: python
+
+    # Graph-preserving enrichment via CALL .write()
+    g.gfql("CALL graphistry.cugraph.louvain.write()")._nodes
+
+    # Full pipeline: filter subgraph, enrich, query results
+    g.gfql(
+        "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 5 } "
+        "GRAPH g2 = GRAPH { USE g1 CALL graphistry.cugraph.louvain.write() } "
+        "USE g2 "
+        "MATCH (n) RETURN n.id AS id, n.louvain AS community "
+        "ORDER BY community, id"
+    )._nodes
+
 **Explanation**:
 
-- **GFQL**: Enriches with many algorithms such as the GPU-accelerated :func:`graphistry.plugins.cugraph.compute_cugraph` for community detection. Any CPU and GPU library can be used, with top plugins already natively supported out-of-the-box.
+- **GFQL Python**: Enriches with many algorithms such as the GPU-accelerated :func:`graphistry.plugins.cugraph.compute_cugraph` for community detection. Any CPU and GPU library can be used, with top plugins already natively supported out-of-the-box.
+- **GFQL Cypher**: ``CALL graphistry.cugraph.louvain.write()`` runs the same algorithm via GFQL's Cypher surface. Wrapping in ``GRAPH { }`` with ``USE`` enables single-expression pipelines that filter, enrich, and query.
 
 ---
 
@@ -502,11 +595,13 @@ Time-Windowed Graph Analytics
 
 .. code-block:: python
 
+    from graphistry import n, e_forward, is_in
+
     past_week = pd.Timestamp.now() - pd.Timedelta(7)
     g.gfql([
-        n({"id": {"$in": ["Alice", "Bob"]}}), 
-        e_forward(edge_query=f'timestamp >= "{past_week}"'), 
-        n({"id": {"$in": ["Alice", "Bob"]}})
+        n({"id": is_in(["Alice", "Bob"])}),
+        e_forward(edge_query=f'timestamp >= "{past_week}"'),
+        n({"id": is_in(["Alice", "Bob"])})
     ])._edges
 
 **Explanation**:
@@ -551,12 +646,12 @@ Parallel Pathfinding
 
 .. code-block:: python
 
-    from graphistry import n, e_forward
+    from graphistry import n, e_forward, is_in
 
     # g._nodes: cudf.DataFrame[['src', 'dst', ...]]
     g.gfql([
-        n({"id": "Alice"}), 
-        e_forward(to_fixed_point=False), 
+        n({"id": "Alice"}),
+        e_forward(to_fixed_point=False),
         n({"id": is_in(["Bob", "Charlie"])})
     ], engine='cudf')
 
@@ -564,7 +659,7 @@ Parallel Pathfinding
 
 
 - **Cypher**: Cypher processes paths individually and does not support native parallelism. Libraries like APOC or GDS offer a way to achieve parallel execution, but this adds complexity.
-  
+
 - **GFQL**: GFQL natively supports parallel pathfinding using a bulk wavefront algorithm, processing all paths at once, making it highly efficient in GPU-accelerated environments.
 
 ---
@@ -590,12 +685,12 @@ GPU Execution
 
 .. code-block:: python
 
-    from graphistry import n, e_forward
+    from graphistry import n, e_forward, is_in
 
     # Executing pathfinding queries in parallel
     g.gfql([
-        n({"id": "Alice"}), 
-        e_forward(to_fixed_point=False), 
+        n({"id": "Alice"}),
+        e_forward(to_fixed_point=False),
         n({"id": is_in(["Bob", "Charlie"])})
     ], engine='cudf')
 
@@ -626,21 +721,48 @@ GFQL Functions and Equivalents
 - **SQL**: ``SELECT * FROM nodes WHERE ...``
 - **Pandas**: ``nodes_df[ condition ]``
 - **Cypher**: ``MATCH (n {property: value})``
-- **GFQL**: ``n({ "property": value })``
+- **GFQL chain**: ``n({ "property": value })``
+- **GFQL Cypher**: ``g.gfql("MATCH (n {property: value}) RETURN n")``
 
 **Edge Matching**
 
 - **SQL**: ``SELECT * FROM edges WHERE ...``
 - **Pandas**: ``edges_df[ condition ]``
 - **Cypher**: ``MATCH ()-[e {property: value}]->()``
-- **GFQL**: ``e_forward({ "property": value })`` or ``e_reverse({ "property": value })`` or ``e({ "property": value })``
+- **GFQL chain**: ``e_forward({ "property": value })`` or ``e_reverse({ "property": value })`` or ``e({ "property": value })``
+- **GFQL Cypher**: ``g.gfql("MATCH ()-[e {property: value}]->() RETURN e")``
 
 **Traversal**
 
 - **SQL**: Complex joins or recursive queries
 - **Pandas**: Multiple merges; not efficient for deep traversals
 - **Cypher**: Patterns like ``()-[]->()`` for traversal
-- **GFQL**: Chains of ``n()``, ``e_forward()``, ``e_reverse()``, and ``e()`` functions
+- **GFQL chain**: Chains of ``n()``, ``e_forward()``, ``e_reverse()``, and ``e()`` functions
+- **GFQL Cypher**: ``g.gfql("MATCH (a)-[]->(b) RETURN ...")`` or ``g.gfql("GRAPH { MATCH ... }")``
+
+**Graph-State Results (subgraph extraction)**
+
+- **SQL**: Not applicable
+- **Pandas**: Manual node/edge DataFrame filtering
+- **Cypher**: Not supported (Cypher always returns rows)
+- **GFQL chain**: ``g.gfql([n(...), e_forward(), n()])`` — inherently graph-returning
+- **GFQL Cypher**: ``g.gfql("GRAPH { MATCH (a)-[r]->(b) WHERE ... }")`` — GFQL extension
+
+**Graph Enrichment (algorithms)**
+
+- **SQL**: Not applicable
+- **Pandas**: External library calls
+- **Cypher**: ``CALL algo.pagerank.stream()``
+- **GFQL Python**: ``g.compute_cugraph('pagerank')`` or ``g.compute_igraph('pagerank')``
+- **GFQL Cypher**: ``g.gfql("CALL graphistry.cugraph.pagerank.write()")`` or ``g.gfql("GRAPH { CALL graphistry.cugraph.pagerank.write() }")``
+
+**Multi-Stage Pipelines**
+
+- **SQL**: CTEs or temp tables
+- **Pandas**: Sequential variable assignment
+- **Cypher**: Not supported in standard Cypher (row-only)
+- **GFQL chain**: Sequential ``g.gfql([...])`` calls
+- **GFQL Cypher**: ``GRAPH g1 = GRAPH { ... } GRAPH g2 = GRAPH { USE g1 CALL ... } USE g2 MATCH ... RETURN ...``
 
 Tips for Users
 --------------
@@ -655,7 +777,7 @@ Additional Resources
 
 - :ref:`gfql-quick`
 - :ref:`gfql-predicates-quick`: Use predicates for filtering on nodee and edge attributes.
-- :ref:`10min`: Visualize GFQL queries with GPU-accelerated tools.
+- :ref:`10min-pygraphistry`: Visualize GFQL queries with GPU-accelerated tools.
 
 Conclusion
 ----------

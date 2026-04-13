@@ -5,12 +5,56 @@ all GFQL operations honor the user's explicit engine parameter.
 """
 
 from typing import Any, Optional
+import numbers
 import pandas as pd
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract, resolve_engine, df_to_engine
 from graphistry.util import setup_logger
 
 logger = setup_logger(__name__)
+
+
+def _looks_like_graph_table(df: Any) -> bool:
+    cols = {str(col) for col in getattr(df, "columns", [])}
+    has_node_shape = "id" in cols or any(col.startswith("label__") for col in cols)
+    has_edge_shape = ({"s", "d"} <= cols) or ({"src", "dst"} <= cols) or ("edge_id" in cols)
+    return has_node_shape or has_edge_shape
+
+
+def _pandas_row_table_has_lossy_numeric_nulls(df: Any) -> bool:
+    if not isinstance(df, pd.DataFrame):
+        return False
+    for col in df.columns:
+        series = df[col]
+        if not getattr(series, "isna", None) or not bool(series.isna().any()):
+            continue
+        if pd.api.types.is_numeric_dtype(series.dtype):
+            return True
+        non_null = series.dropna()
+        values = list(non_null.tolist()) if len(non_null) > 0 else []
+        if values and all(isinstance(value, numbers.Real) and not isinstance(value, bool) for value in values):
+            return True
+    return False
+
+
+def _pandas_row_table_has_lossy_object_values(df: Any) -> bool:
+    if not isinstance(df, pd.DataFrame):
+        return False
+    for col in df.columns:
+        series = df[col]
+        if not pd.api.types.is_object_dtype(series.dtype):
+            continue
+        non_null = series.dropna()
+        values = list(non_null.tolist()) if len(non_null) > 0 else []
+        if any(isinstance(value, (list, tuple, dict)) for value in values):
+            return True
+    return False
+
+
+def _attach_to_pandas_shim(df: pd.DataFrame) -> pd.DataFrame:
+    if not hasattr(df, "to_pandas"):
+        df.to_pandas = lambda df=df: df  # type: ignore[attr-defined]
+    return df
 
 
 def _is_non_dask_cudf_df(df: Any) -> bool:
@@ -108,8 +152,31 @@ def ensure_engine_match(g: Plottable, requested_engine: Engine) -> Plottable:
             )
 
         # Convert DataFrames that need conversion
-        new_nodes = df_to_engine(g._nodes, requested_engine) if nodes_need_conversion else g._nodes
+        preserve_pandas_row_table = (
+            requested_engine == Engine.CUDF
+            and nodes_need_conversion
+            and isinstance(g._nodes, pd.DataFrame)
+            and not _looks_like_graph_table(g._nodes)
+            and (
+                _pandas_row_table_has_lossy_numeric_nulls(g._nodes)
+                or _pandas_row_table_has_lossy_object_values(g._nodes)
+            )
+        )
+
+        if preserve_pandas_row_table:
+            logger.info(
+                "Keeping pandas row-table nodes during requested cudf execution to preserve numeric-null semantics."
+            )
+            new_nodes = _attach_to_pandas_shim(g._nodes.copy())
+        else:
+            new_nodes = df_to_engine(g._nodes, requested_engine) if nodes_need_conversion else g._nodes
         new_edges = df_to_engine(g._edges, requested_engine) if edges_need_conversion else g._edges
+
+        if preserve_pandas_row_table:
+            out = g.bind()
+            out._nodes = new_nodes
+            out._edges = new_edges
+            return out
 
         # Return new Plottable with converted DataFrames
         return g.nodes(new_nodes).edges(new_edges)

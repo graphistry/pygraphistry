@@ -20,6 +20,8 @@ from graphistry.compute.gfql.call.support import (
     _rows_requires_edge_cols,
     _rows_requires_node_cols,
     _schema_effects,
+    _select_added_node_cols,
+    is_projection_items,
     _umap_edge_adds,
     _umap_edge_required_cols,
     _umap_node_adds,
@@ -172,6 +174,10 @@ def is_where_rows_filter_dict(v: object) -> bool:
     return True
 
 
+def is_list_of_dicts(v: object) -> bool:
+    return isinstance(v, list) and all(isinstance(item, dict) for item in v)
+
+
 def is_where_rows_expr(v: object) -> bool:
     if not is_non_empty_string(v):
         return False
@@ -216,11 +222,13 @@ def _group_by_requires_node_cols(params: Dict[str, object]) -> List[str]:
 
 SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     'rows': _method_entry(
-        allowed_params={'table', 'source'},
+        allowed_params={'table', 'source', 'alias_endpoints', 'binding_ops'},
         required_params=set(),
         param_validators={
             'table': lambda v: v in ['nodes', 'edges'],
             'source': is_string_or_none,
+            'alias_endpoints': lambda v: isinstance(v, dict),
+            'binding_ops': is_list_of_dicts,
         },
         description='Set active row table from nodes/edges, optionally filtered by source alias',
         schema_effects=_schema_effects(
@@ -233,7 +241,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
 
     'return_': _projection_row_entry('RETURN-style row projection alias of select()'),
 
-    'with_': _projection_row_entry('WITH-style row projection with scope-reset semantics'),
+    'with_': _method_entry(
+        allowed_params={'items', 'extend'},
+        required_params={'items'},
+        param_validators={'items': is_projection_items},
+        description='WITH-style row projection; extend=True adds columns without dropping existing ones (#880)',
+        schema_effects=_schema_effects(adds_node_cols=_select_added_node_cols),
+    ),
 
     'where_rows': _method_entry(
         allowed_params={'filter_dict', 'expr'},
@@ -285,17 +299,28 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     ),
 
     'group_by': _method_entry(
-        allowed_params={'keys', 'aggregations'},
+        allowed_params={'keys', 'aggregations', 'key_prefixes'},
         required_params={'keys', 'aggregations'},
         param_validators={
             'keys': is_non_empty_list_of_strings,
             'aggregations': is_list_of_agg_specs,
+            'key_prefixes': lambda v: v is None or is_list_of_strings(v),
         },
         description='Group rows by keys and compute vectorized aggregations',
         schema_effects=_schema_effects(
             adds_node_cols=_group_by_added_node_cols,
             requires_node_cols=_group_by_requires_node_cols,
         ),
+    ),
+
+    'drop_cols': _method_entry(
+        allowed_params={'cols'},
+        required_params={'cols'},
+        param_validators={
+            'cols': is_list_of_strings,
+        },
+        description='Drop named columns from the active row table (ignores missing columns)',
+        schema_effects=NO_SCHEMA_EFFECTS,
     ),
 
     'distinct': _method_entry(

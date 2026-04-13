@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import warnings
 
 import pandas as pd
@@ -6,9 +8,11 @@ import pytest
 import graphistry.compute.gfql.call.validation as call_safelist
 import graphistry.compute.gfql.expr_parser as expr_parser
 import graphistry.compute.gfql.row.pipeline as row_pipeline_mixin
+from graphistry.compute.gfql.row.entity_props import entity_keys_series
 from graphistry.compute.ast import (
     ASTCall,
     distinct,
+    drop_cols,
     group_by,
     limit,
     n,
@@ -219,6 +223,383 @@ class TestRowPipelineASTPrimitives:
         assert step.function == function
         assert step.params == params
 
+
+def test_row_pipeline_select_supports_range_scalar_function() -> None:
+    nodes_df = pd.DataFrame({"id": ["a"]})
+
+    result = _run_node_steps(nodes_df, [rows(), select([("vals", "range(0, 3)")])], edges_df=_self_loop_edges(nodes_df))
+
+    assert _normalize_records(result.to_dict(orient="records")) == [{"vals": [0, 1, 2, 3]}]
+
+
+def test_row_pipeline_select_supports_range_with_constant_series_bounds() -> None:
+    nodes_df = pd.DataFrame({"id": ["a"], "num_of_values": [3]})
+
+    result = _run_node_steps(
+        nodes_df,
+        [
+            rows(),
+            select([("ordered_x", "[0, 1, 2]"), ("num_of_values", "num_of_values")]),
+            select([("equal", "ordered_x = range(0, num_of_values - 1)")]),
+        ],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert _normalize_records(result.to_dict(orient="records")) == [{"equal": True}]
+
+
+def test_row_pipeline_select_supports_range_with_varying_row_bounds_and_steps() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d"],
+            "start": [0, 0, 10, 2],
+            "stop": [3, -1, 4, 2],
+            "step": [1, -1, -3, 5],
+        }
+    )
+
+    result = _run_node_steps(
+        nodes_df,
+        [rows(), select([("id", "id"), ("vals", "range(start, stop, step)")]), order_by([("id", "asc")])],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert _normalize_records(result.to_dict(orient="records")) == [
+        {"id": "a", "vals": [0, 1, 2, 3]},
+        {"id": "b", "vals": [0, -1]},
+        {"id": "c", "vals": [10, 7, 4]},
+        {"id": "d", "vals": [2]},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("expr", "pattern"),
+    [
+        ("range(2, 8, 0)", "range\\(\\) step must be non-zero"),
+        ("range(true, 1, 1)", "range\\(\\) start must be an integer"),
+        ("range(0, 1.0, 1)", "range\\(\\) stop must be an integer"),
+    ],
+)
+def test_row_pipeline_select_rejects_invalid_range_arguments(expr: str, pattern: str) -> None:
+    nodes_df = pd.DataFrame({"id": ["a"]})
+
+    with pytest.raises(GFQLTypeError, match=pattern):
+        _run_node_steps(nodes_df, [rows(), select([("vals", expr)])], edges_df=_self_loop_edges(nodes_df))
+
+
+def test_row_pipeline_order_by_supports_list_literal_and_subscript_expression_keys() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e"],
+            "list": [[2, -2], [1, 2], [300, 0], [1, -20], [2, -2, 100]],
+            "list2": [[3, -2], [2, -2], [1, -2], [4, -2], [5, -2]],
+        }
+    )
+
+    result = _run_node_steps(
+        nodes_df,
+        [
+            rows(),
+            order_by([("[list2[1], list2[0], list[1]] + list + list2", "asc")]),
+            limit(3),
+            select([("id", "id")]),
+        ],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert result.to_dict(orient="records") == [{"id": "c"}, {"id": "b"}, {"id": "a"}]
+
+
+def test_row_pipeline_order_by_supports_temporal_duration_expression_keys() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e"],
+            "time": [
+                "time({hour: 10, minute: 35, timezone: '-08:00'})",
+                "time({hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'})",
+                "time({hour: 12, minute: 31, second: 14, nanosecond: 645876124, timezone: '+01:00'})",
+                "time({hour: 12, minute: 35, second: 15, timezone: '+05:00'})",
+                "time({hour: 12, minute: 30, second: 14, nanosecond: 645876123, timezone: '+01:01'})",
+            ],
+        }
+    )
+
+    result = _run_node_steps(
+        nodes_df,
+        [
+            rows(),
+            order_by([("time + 'PT6M'", "asc")]),
+            limit(3),
+            select([("id", "id")]),
+        ],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert result.to_dict(orient="records") == [{"id": "d"}, {"id": "e"}, {"id": "b"}]
+
+
+def test_row_pipeline_order_by_supports_date_duration_expression_keys() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e", "f"],
+            "date": [
+                "date({year: 1910, month: 5, day: 6})",
+                "date({year: 1980, month: 12, day: 24})",
+                "date({year: 1984, month: 10, day: 12})",
+                "date({year: 1985, month: 5, day: 6})",
+                "date({year: 1980, month: 10, day: 24})",
+                "date({year: 1984, month: 10, day: 11})",
+            ],
+        }
+    )
+
+    result = _run_node_steps(
+        nodes_df,
+        [
+            rows(),
+            order_by([("date + 'P1M2D'", "asc")]),
+            limit(2),
+            select([("id", "id")]),
+        ],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert result.to_dict(orient="records") == [{"id": "a"}, {"id": "e"}]
+
+
+def test_row_pipeline_select_supports_keys_for_map_literals_and_nulls() -> None:
+    nodes_df = pd.DataFrame({"id": ["a"]})
+
+    result = _run_node_steps(
+        nodes_df,
+        [rows(), select([("ks", "keys({k: 1, l: null})"), ("null_keys", "keys(null)")])],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert _normalize_records(result.to_dict(orient="records")) == [{"ks": ["k", "l"], "null_keys": None}]
+
+
+def test_row_pipeline_order_by_falls_back_to_string_sort_for_mixed_date_text_beyond_sample_window() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(129)],
+            "date": [f"1984-10-{(i % 28) + 1:02d}" for i in range(128)] + ["not-a-date"],
+        }
+    )
+
+    result = _run_node_steps(
+        nodes_df,
+        [rows(), order_by([("date", "asc")]), select([("date", "date")])],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert result["date"].iloc[0] == "1984-10-01"
+    assert result["date"].iloc[-1] == "not-a-date"
+
+
+def test_row_pipeline_order_by_rejects_mixed_list_values_beyond_sample_window() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(129)],
+            "vals": [[1]] * 128 + [1],
+        },
+        dtype="object",
+    )
+
+    with pytest.raises(Exception, match="unsupported order_by expression for vectorized execution"):
+        _run_node_steps(
+            nodes_df,
+            [rows(), order_by([("vals", "asc")]), select([("vals", "vals")])],
+            edges_df=_self_loop_edges(nodes_df),
+        )
+
+
+@pytest.mark.parametrize(
+    ("values", "families"),
+    [
+        pytest.param([1] * 128 + [{}], "number, unsupported", id="number-unsupported"),
+        pytest.param([True] * 128 + ["x"], "bool, str", id="bool-str"),
+        pytest.param([1.5] * 128 + ["x"], "number, str", id="number-str"),
+    ],
+)
+def test_row_pipeline_order_by_rejects_mixed_scalar_families_beyond_sample_window(
+    values: list[object], families: str
+) -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(len(values))],
+            "v": values,
+        },
+        dtype="object",
+    )
+
+    with pytest.raises(Exception, match=rf"mixed/dynamic value families \({families}\)"):
+        _run_node_steps(
+            nodes_df,
+            [rows(), order_by([("v", "asc")]), select([("v", "v")])],
+            edges_df=_self_loop_edges(nodes_df),
+        )
+
+
+def test_entity_keys_series_supports_mixed_entity_property_sets() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": ["a", "b"],
+            "name": ["Alice", None],
+            "score": [None, None],
+        }
+    )
+
+    result = entity_keys_series(
+        nodes_df,
+        alias_col="id",
+        table="nodes",
+        excluded=(),
+    )
+
+    assert _normalize_expr_eval_output(result) == [["name"], []]
+
+
+def test_row_pipeline_dynamic_subscript_uses_full_series_constant_check() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(129)],
+            "vals": [[10, 20, 30]] * 129,
+            "idx": [1] * 128 + [2],
+        },
+        dtype="object",
+    )
+
+    result = _run_node_steps(
+        nodes_df,
+        [rows(), select([("x", "vals[idx]")])],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert result["x"].iloc[0] == 20
+    assert result["x"].iloc[-1] == 30
+
+
+def test_row_pipeline_dynamic_subscript_supports_string_dtype_list_literals() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": ["a", "b"],
+            "vals": pd.Series(["[10, 20, 30]", "[40, 50, 60]"], dtype="string"),
+            "idx": [1, 2],
+        }
+    )
+
+    result = _run_node_steps(
+        nodes_df,
+        [rows(), select([("x", "vals[idx]")])],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert result["x"].tolist() == [20, 60]
+
+
+def test_row_pipeline_dynamic_subscript_rejects_mixed_list_scalar_beyond_sample_window() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(129)],
+            "vals": [[10, 20, 30]] * 128 + [1],
+            "idx": [1] * 129,
+        },
+        dtype="object",
+    )
+
+    with pytest.raises(Exception, match="dynamic subscript requires list-like base"):
+        _run_node_steps(
+            nodes_df,
+            [rows(), select([("x", "vals[idx]")])],
+            edges_df=_self_loop_edges(nodes_df),
+        )
+
+
+def test_row_pipeline_dynamic_subscript_rejects_mixed_integer_key_beyond_sample_window() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(129)],
+            "vals": [[10, 20, 30]] * 129,
+            "idx": [1] * 128 + ["bad"],
+        },
+        dtype="object",
+    )
+
+    with pytest.raises(Exception, match="dynamic subscript keys must be integer typed"):
+        _run_node_steps(
+            nodes_df,
+            [rows(), select([("x", "vals[idx]")])],
+            edges_df=_self_loop_edges(nodes_df),
+        )
+
+
+def test_row_pipeline_property_access_rejects_mixed_map_scalar_beyond_sample_window() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(129)],
+            "m": [{"a": 1}] * 128 + [1],
+        },
+        dtype="object",
+    )
+
+    with pytest.raises(Exception, match="property access requires a graph element alias, entity value, or map"):
+        _run_node_steps(
+            nodes_df,
+            [rows(), select([("x", "m.a")])],
+            edges_df=_self_loop_edges(nodes_df),
+        )
+
+
+def test_row_pipeline_labels_rejects_mixed_entity_scalar_beyond_sample_window() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(129)],
+            "e": ["()"] * 128 + [1],
+        },
+        dtype="object",
+    )
+
+    with pytest.raises(Exception, match="labels\\(\\) requires a graph element, entity value, or null"):
+        _run_node_steps(
+            nodes_df,
+            [rows(), select([("x", "labels(e)")])],
+            edges_df=_self_loop_edges(nodes_df),
+        )
+
+
+def test_row_pipeline_range_rejects_mixed_integer_arg_beyond_sample_window() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": [f"n{i}" for i in range(129)],
+            "start": [0] * 128 + ["bad"],
+            "stop": [2] * 129,
+            "step": [1] * 129,
+        },
+        dtype="object",
+    )
+
+    with pytest.raises(Exception, match="range\\(\\) start must be an integer"):
+        _run_node_steps(
+            nodes_df,
+            [rows(), select([("vals", "range(start, stop, step)")])],
+            edges_df=_self_loop_edges(nodes_df),
+        )
+
+
+def test_row_pipeline_select_supports_properties_for_map_literals_and_nulls() -> None:
+    nodes_df = pd.DataFrame({"id": ["a"]})
+
+    result = _run_node_steps(
+        nodes_df,
+        [rows(), select([("m", "properties({name: 'Popeye', level: 9001})"), ("null_props", "properties(null)")])],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert _normalize_records(result.to_dict(orient="records")) == [
+        {"m": "{name: 'Popeye', level: 9001}", "null_props": None}
+    ]
+
     @pytest.mark.parametrize(
         ("step", "function", "params"),
         [
@@ -361,6 +742,14 @@ class TestRowPipelineExecution:
                 id="unwind-column",
             ),
             pytest.param(
+                {"id": ["a", "b"], "vals": [[], [3]]},
+                [rows(), unwind("vals", as_="v"), select([("id", "id"), ("v", "v")]), order_by([("v", "asc")])],
+                [{"id": "b", "v": 3}],
+                None,
+                None,
+                id="unwind-column-empty-list-drops-row",
+            ),
+            pytest.param(
                 {"id": ["a", "b"], "first": [[1, 2], [3]], "second": [[4], [5, 6]]},
                 [rows(), unwind("first + second", as_="x"), select([("x", "x")]), order_by([("x", "asc")])],
                 [{"x": 1}, {"x": 2}, {"x": 3}, {"x": 4}, {"x": 5}, {"x": 6}],
@@ -466,7 +855,7 @@ class TestRowPipelineExecution:
             pytest.param(
                 {"id": ["a", "b", "c", "d"], "x": [1, 2, None, 4], "lst": [[1, 2], [2, 3], [], None]},
                 "NOT (x IN lst) OR x IS NULL",
-                ["c", "d"],
+                ["c"],
                 id="is-null-or-precedence",
             ),
         ],
@@ -501,6 +890,33 @@ class TestRowPipelineExecution:
         ]
         for expr, expected_ids in cases:
             assert self._where_expr_ids(nodes_df, expr) == expected_ids
+
+    def test_row_pipeline_where_rows_expr_xor_null_semantics(self):
+        nodes_df = pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d", "e"],
+                "lhs": [True, True, False, False, None],
+                "rhs": [True, False, False, None, True],
+            }
+        )
+
+        assert self._where_expr_ids(nodes_df, "lhs XOR rhs") == ["b"]
+
+        result = _mk_graph(nodes_df).gfql(
+            [
+                rows(),
+                select([("id", "id"), ("flag", "lhs XOR rhs")]),
+                order_by([("id", "asc")]),
+            ]
+        )
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"id": "a", "flag": False},
+            {"id": "b", "flag": True},
+            {"id": "c", "flag": False},
+            {"id": "d", "flag": None},
+            {"id": "e", "flag": None},
+        ]
 
     def test_row_pipeline_where_rows_expr_quantifiers(self):
         nodes_df = pd.DataFrame(
@@ -546,6 +962,25 @@ class TestRowPipelineExecution:
             for w in caught
             if issubclass(w.category, FutureWarning)
         )
+
+    def test_row_pipeline_where_rows_expr_or_short_circuits_mixed_type_compare_with_is_not_null(self):
+        nodes_df = pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "var": ["text", 0],
+            }
+        )
+
+        result = _mk_graph(nodes_df).gfql(
+            [
+                rows(),
+                where_rows(expr="var > 'te' OR var IS NOT NULL"),
+                order_by([("id", "asc")]),
+                return_([("id", "id")]),
+            ]
+        )
+
+        assert result._nodes["id"].tolist() == ["a", "b"]
 
     @pytest.mark.parametrize(
         ("nodes", "steps", "expected_records"),
@@ -647,6 +1082,9 @@ class TestRowPipelineExecution:
                     ("single_even", "single(x IN [1, 2, 3] WHERE x % 2 = 0)"),
                     ("size_list", "size([1, 2, 3])"),
                     ("abs_num", "abs(-7)"),
+                    ("substring_val", "substring('0123456789', 1)"),
+                    ("toint_val", "toInteger(82.9)"),
+                    ("tofloat_val", "toFloat(82)"),
                 ],
                 [
                     {
@@ -656,6 +1094,9 @@ class TestRowPipelineExecution:
                         "single_even": True,
                         "size_list": 3,
                         "abs_num": 7,
+                        "substring_val": "123456789",
+                        "toint_val": 82,
+                        "tofloat_val": 82.0,
                     }
                 ],
                 id="quantifier-literals",
@@ -710,6 +1151,16 @@ class TestRowPipelineExecution:
                 ],
                 [{"mid": "bc", "left": "ab", "right": "cdef", "empty": ""}],
                 id="slice-variants",
+            ),
+            pytest.param(
+                {"id": ["a"], "vals": [[[1], [2, 3], [4, 5], 5, [6, 7], [8, 9], 10]]},
+                [
+                    ("mid", "vals[1..3]"),
+                    ("tail", "vals[4..6]"),
+                    ("empty", "vals[0..0]"),
+                ],
+                [{"mid": [[2, 3], [4, 5]], "tail": [[6, 7], [8, 9]], "empty": []}],
+                id="list-slice-variants",
             ),
             pytest.param(
                 {"id": ["a"]},
@@ -860,6 +1311,22 @@ class TestRowPipelineExecution:
                 id="case-when-expression",
             ),
             pytest.param(
+                {"id": ["a", "b", "c"], "score": [1, 3, 2]},
+                [rows(), select([("id", "id"), ("bucket", "CASE score WHEN 1 THEN 'lo' WHEN 3 THEN 'hi' ELSE 'mid' END")]), order_by([("id", "asc")])],
+                [{"id": "a", "bucket": "lo"}, {"id": "b", "bucket": "hi"}, {"id": "c", "bucket": "mid"}],
+                None,
+                None,
+                id="simple-case-expression",
+            ),
+            pytest.param(
+                {"id": ["a"], "flag": [True]},
+                [rows(), select([("bucket", "CASE flag WHEN 1 THEN 'one' ELSE 'other' END")])],
+                [{"bucket": "other"}],
+                None,
+                None,
+                id="simple-case-bool-not-equal-int",
+            ),
+            pytest.param(
                 {"id": ["a", "b", "c"]},
                 [rows(table="edges"), select([("weight", "weight")]), order_by([("weight", "desc")])],
                 [{"weight": 3}, {"weight": 2}, {"weight": 1}],
@@ -874,6 +1341,22 @@ class TestRowPipelineExecution:
                 None,
                 None,
                 id="order-by-aggregate-alias-columns",
+            ),
+            pytest.param(
+                {"id": ["a", "b", "c"], "division": ["x", "x", "y"], "age": [3, 7, 4]},
+                [
+                    rows(),
+                    group_by(["division"], [("count(*)", "count"), ("max(n.age)", "max", "age")]),
+                    return_([("division", "division"), ("count(*)", "count(*)"), ("max(n.age)", "max(n.age)")]),
+                    order_by([("division", "asc")]),
+                ],
+                [
+                    {"division": "x", "count(*)": 2, "max(n.age)": 7},
+                    {"division": "y", "count(*)": 1, "max(n.age)": 4},
+                ],
+                None,
+                None,
+                id="return-aggregate-alias-columns",
             ),
         ],
     )
@@ -1124,6 +1607,26 @@ class TestRowPipelineExecution:
                 3,
                 id="datetime-offsets",
             ),
+            pytest.param(
+                {
+                    "id": ["a", "b"],
+                    "datetimes": [
+                        "9999-01-01T00:00:00Z",
+                        "10000-01-01T00:00:00Z",
+                    ],
+                },
+                "datetimes",
+                [
+                    "9999-01-01T00:00:00Z",
+                    "10000-01-01T00:00:00Z",
+                ],
+                [
+                    "10000-01-01T00:00:00Z",
+                    "9999-01-01T00:00:00Z",
+                ],
+                None,
+                id="datetime-extended-year-utc",
+            ),
         ],
     )
     def test_row_pipeline_order_by_value_semantics(
@@ -1319,8 +1822,11 @@ class TestRowPipelineSafelist:
             'name = "rand()"',
             *[f"txt {op}" for op in ["CONTAINS 5", "CONTAINS null", "CONTAINS (5)", "STARTS WITH (5)", "ENDS WITH (5)"]],
             "CASE WHEN score > 1 THEN true ELSE false END",
+            "CASE WHEN score > 1 THEN true END",
+            "CASE score WHEN 1 THEN true ELSE false END",
             *[f"{fn}(x IN vals WHERE x {pred})" for fn, pred in [("any", "= 2"), ("all", "> 1"), ("none", "< 0"), ("single", "= 2")]],
             "score > 1 AND CASE WHEN id = 'a' THEN true ELSE false END",
+            "score > 1 AND CASE WHEN id = 'a' THEN true END",
             *[f"size([x IN vals WHERE x > 1{suffix}]) > 0" for suffix in ["", " | x"]],
         ]
         for expr in valid_exprs:
@@ -1343,8 +1849,6 @@ class TestRowPipelineSafelist:
             "any(x IN vals WHERE x = 2",
             "any(x vals WHERE x = 2)",
             "any(x IN vals | WHERE x = 2)",
-            "CASE WHEN score > 1 THEN true END",
-            "score > 1 AND CASE WHEN id = 'a' THEN true END",
             *[
                 f"size({expr}) > 0"
                 for expr in [
@@ -1493,43 +1997,57 @@ class TestRowPipelineSafelist:
 
     def test_row_pipeline_eval_expr_ast_subset_parity(self):
         _assert_ast_parity(
-            {"id": ["a", "b", "c"], "score": [1, 2, 3], "name": ["a", "bb", "ccc"]},
+            {
+                "id": ["a", "b", "c"],
+                "score": [1, 2, 3],
+                "name": ["a", "bb", "ccc"],
+                "flag1": [True, True, False],
+                "flag2": [True, False, False],
+            },
             [
-            (
-                expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1)),
-                "score > 1",
-            ),
-            (
-                expr_parser.UnaryOp(
-                    "not",
+                (
                     expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1)),
+                    "score > 1",
                 ),
-                "NOT (score > 1)",
-            ),
-            (
-                expr_parser.BinaryOp(
-                    "and",
-                    expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1)),
-                    expr_parser.BinaryOp("<", expr_parser.Identifier("score"), expr_parser.Literal(3)),
+                (
+                    expr_parser.UnaryOp(
+                        "not",
+                        expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1)),
+                    ),
+                    "NOT (score > 1)",
                 ),
-                "score > 1 AND score < 3",
-            ),
-            (
-                expr_parser.BinaryOp(
-                    "contains",
-                    expr_parser.Identifier("name"),
-                    expr_parser.Literal("b"),
+                (
+                    expr_parser.BinaryOp(
+                        "and",
+                        expr_parser.BinaryOp(">", expr_parser.Identifier("score"), expr_parser.Literal(1)),
+                        expr_parser.BinaryOp("<", expr_parser.Identifier("score"), expr_parser.Literal(3)),
+                    ),
+                    "score > 1 AND score < 3",
                 ),
-                "name CONTAINS 'b'",
-            ),
-            (
-                expr_parser.BinaryOp(
-                    ">=",
-                    expr_parser.BinaryOp("+", expr_parser.Identifier("score"), expr_parser.Literal(1)),
-                    expr_parser.Literal(3),
+                (
+                    expr_parser.BinaryOp(
+                        "xor",
+                        expr_parser.Identifier("flag1"),
+                        expr_parser.Identifier("flag2"),
+                    ),
+                    "flag1 XOR flag2",
                 ),
-                "score + 1 >= 3",
-            ),
+                (
+                    expr_parser.BinaryOp(
+                        "contains",
+                        expr_parser.Identifier("name"),
+                        expr_parser.Literal("b"),
+                    ),
+                    "name CONTAINS 'b'",
+                ),
+                (
+                    expr_parser.BinaryOp(
+                        ">=",
+                        expr_parser.BinaryOp("+", expr_parser.Identifier("score"), expr_parser.Literal(1)),
+                        expr_parser.Literal(3),
+                    ),
+                    "score + 1 >= 3",
+                ),
             ],
         )
 
@@ -1584,6 +2102,7 @@ class TestRowPipelineSafelist:
     def test_row_pipeline_order_by_validation(self):
         self._assert_valid("order_by", {"keys": [("name", "asc"), ("score", "desc")]})
         self._assert_valid("order_by", {"keys": [("count(*)", "asc"), ("max(n.age)", "desc")]})
+        self._assert_valid("order_by", {"keys": [("[score, score + 1]", "asc")]})
 
         for bad_keys in [
             None,
@@ -1593,7 +2112,6 @@ class TestRowPipelineSafelist:
             [1],
             [(1, "asc")],
             [("a", "up")],
-            [("[1, 2]", "asc")],
             [("unknown_fn(score)", "asc")],
         ]:
             self._assert_e201("order_by", {"keys": bad_keys})
@@ -1633,3 +2151,123 @@ class TestRowPipelineSafelist:
         self._assert_e201("group_by", {"keys": ["grp"], "aggregations": ["bad"]})
         self._assert_e201("group_by", {"keys": ["grp"], "aggregations": [("x", "median", "score")]})
         self._assert_e201("group_by", {"keys": [], "aggregations": [("x", "count")]})
+
+        # drop_cols validation
+        self._assert_valid("drop_cols", {"cols": ["a", "b"]})
+        self._assert_valid("drop_cols", {"cols": []})
+        self._assert_e201("drop_cols", {"cols": [1, 2]})
+
+        # group_by with key_prefixes validation
+        self._assert_valid(
+            "group_by",
+            {"keys": ["grp"], "aggregations": [("cnt", "count")], "key_prefixes": ["tag."]},
+        )
+        self._assert_valid(
+            "group_by",
+            {"keys": ["grp"], "aggregations": [("cnt", "count")], "key_prefixes": []},
+        )
+        self._assert_e201(
+            "group_by",
+            {"keys": ["grp"], "aggregations": [("cnt", "count")], "key_prefixes": [1]},
+        )
+
+
+class TestDropCols:
+    """Unit tests for the drop_cols row pipeline op (#1054)."""
+
+    @staticmethod
+    def _g(df: pd.DataFrame) -> "CGFull":
+        return CGFull().nodes(df, "id")
+
+    def test_drop_cols_basic(self) -> None:
+        """Named columns are removed from the table."""
+        g = self._g(pd.DataFrame({"id": ["a", "b"], "x": [1, 2], "y": [3, 4]}))
+        result = g.gfql([rows(), drop_cols(["x"])])
+        assert list(result._nodes.columns) == ["id", "y"]
+
+    def test_drop_cols_multiple(self) -> None:
+        """Multiple columns can be dropped at once."""
+        g = self._g(pd.DataFrame({"id": ["a"], "x": [1], "y": [2], "z": [3]}))
+        result = g.gfql([rows(), drop_cols(["x", "z"])])
+        assert list(result._nodes.columns) == ["id", "y"]
+
+    def test_drop_cols_ignores_missing(self) -> None:
+        """Columns not present in the table are silently ignored."""
+        g = self._g(pd.DataFrame({"id": ["a", "b"], "x": [1, 2]}))
+        result = g.gfql([rows(), drop_cols(["x", "nonexistent"])])
+        assert list(result._nodes.columns) == ["id"]
+
+    def test_drop_cols_empty_list(self) -> None:
+        """Empty drop list leaves the table unchanged."""
+        g = self._g(pd.DataFrame({"id": ["a"], "x": [1]}))
+        result = g.gfql([rows(), drop_cols([])])
+        assert list(result._nodes.columns) == ["id", "x"]
+
+    def test_drop_cols_dotted_names(self) -> None:
+        """Columns with dot-separated names (bindings-row style) are dropped correctly."""
+        g = self._g(pd.DataFrame({"id": ["a", "b"], "tag.name": ["X", "Y"], "tag.id": ["t1", "t2"]}))
+        result = g.gfql([rows(), drop_cols(["tag.id"])])
+        assert "tag.id" not in result._nodes.columns
+        assert "tag.name" in result._nodes.columns
+
+
+class TestGroupByKeyPrefixes:
+    """Unit tests for the key_prefixes parameter on group_by (#1054)."""
+
+    @staticmethod
+    def _g(df: pd.DataFrame) -> "CGFull":
+        return CGFull().nodes(df, "id")
+
+    def test_key_prefixes_expands_matching_columns(self) -> None:
+        """key_prefixes adds all columns with matching prefix as additional group keys."""
+        df = pd.DataFrame({
+            "id": ["r1", "r2", "r3"],
+            "tag.id": ["tag1", "tag1", "tag2"],
+            "tag.name": ["TagA", "TagA", "TagB"],
+            "cd": [100, 200, 300],
+        })
+        g = self._g(df)
+        result = g.gfql([
+            rows(),
+            group_by(["tag.id"], [("total", "sum", "cd")], key_prefixes=["tag."]),
+        ])
+        out = result._nodes.sort_values("tag.id").reset_index(drop=True)
+        # Both tag.id and tag.name should survive as group keys
+        assert "tag.name" in out.columns
+        assert list(out["tag.name"]) == ["TagA", "TagB"]
+        assert list(out["total"]) == [300, 300]
+
+    def test_key_prefixes_multiple_prefixes(self) -> None:
+        """Multiple prefixes each contribute their matching columns."""
+        df = pd.DataFrame({
+            "id": ["r1", "r2"],
+            "tag.id": ["t1", "t1"],
+            "tag.name": ["TagA", "TagA"],
+            "post.id": ["p1", "p2"],
+            "cd": [10, 20],
+        })
+        g = self._g(df)
+        result = g.gfql([
+            rows(),
+            group_by(["tag.id"], [("total", "sum", "cd")], key_prefixes=["tag.", "post."]),
+        ])
+        # With post.id as an additional key, grouping is per (tag.id, post.id) → 2 rows
+        assert len(result._nodes) == 2
+        assert "tag.name" in result._nodes.columns
+        assert "post.id" in result._nodes.columns
+
+    def test_key_prefixes_none_unchanged(self) -> None:
+        """key_prefixes=None (default) behaves identically to not passing it."""
+        df = pd.DataFrame({
+            "id": ["r1", "r2", "r3"],
+            "grp": ["a", "a", "b"],
+            "val": [1, 2, 3],
+        })
+        g = self._g(df)
+        result = g.gfql([
+            rows(),
+            group_by(["grp"], [("total", "sum", "val")]),
+        ])
+        out = result._nodes.sort_values("grp").reset_index(drop=True)
+        assert list(out["grp"]) == ["a", "b"]
+        assert list(out["total"]) == [3, 3]

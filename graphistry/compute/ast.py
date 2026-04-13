@@ -84,14 +84,14 @@ class ASTObject(ASTSerializable):
         pass
 
     @abstractmethod
-    def __call__(
+    def execute(
         self,
         g: Plottable,
         prev_node_wavefront: Optional[DataFrameT],
         target_wave_front: Optional[DataFrameT],
         engine: Engine
     ) -> Plottable:
-        raise RuntimeError('__call__ not implemented')
+        raise RuntimeError('execute not implemented')
         
     @abstractmethod
     def reverse(self) -> 'ASTObject':
@@ -220,7 +220,7 @@ class ASTNode(ASTObject):
             out.validate()
         return out
 
-    def __call__(
+    def execute(
         self,
         g: Plottable,
         prev_node_wavefront: Optional[DataFrameT],
@@ -286,6 +286,7 @@ class ASTEdge(ASTObject):
         destination_node_query: Optional[str] = None,
         edge_query: Optional[str] = None,
         name: Optional[str] = None,
+        prune_to_endpoints: bool = False,
     ):
 
         super().__init__(name)
@@ -315,6 +316,7 @@ class ASTEdge(ASTObject):
         self.source_node_query = source_node_query
         self.destination_node_query = destination_node_query
         self.edge_query = edge_query
+        self.prune_to_endpoints = prune_to_endpoints
 
     def __repr__(self) -> str:
         return f'ASTEdge(direction={self.direction}, edge_match={self.edge_match}, hops={self.hops}, min_hops={self.min_hops}, max_hops={self.max_hops}, output_min_hops={self.output_min_hops}, output_max_hops={self.output_max_hops}, label_node_hops={self.label_node_hops}, label_edge_hops={self.label_edge_hops}, label_seeds={self.label_seeds}, to_fixed_point={self.to_fixed_point}, source_node_match={self.source_node_match}, destination_node_match={self.destination_node_match}, name={self._name}, source_node_query={self.source_node_query}, destination_node_query={self.destination_node_query}, edge_query={self.edge_query})'
@@ -505,9 +507,24 @@ class ASTEdge(ASTObject):
     def to_json(self, validate=True) -> Dict[str, Any]:
         if validate:
             self.validate()
+        # Range and fixed-point edges carry their traversal bounds via
+        # min/max/to_fixed_point. Keeping the constructor default hops=1 in the
+        # serialized form narrows downstream binding-op replay back to a single hop.
+        serialized_hops = self.hops
+        if (
+            serialized_hops == DEFAULT_HOPS
+            and (
+                self.min_hops is not None
+                or self.max_hops is not None
+                or self.output_min_hops is not None
+                or self.output_max_hops is not None
+                or self.to_fixed_point
+            )
+        ):
+            serialized_hops = None
         return {
             'type': 'Edge',
-            'hops': self.hops,
+            'hops': serialized_hops,
             **({'min_hops': self.min_hops} if self.min_hops is not None else {}),
             **({'max_hops': self.max_hops} if self.max_hops is not None else {}),
             **({'output_min_hops': self.output_min_hops} if self.output_min_hops is not None else {}),
@@ -563,7 +580,7 @@ class ASTEdge(ASTObject):
             out.validate()
         return out
 
-    def __call__(
+    def execute(
         self,
         g: Plottable,
         prev_node_wavefront: Optional[DataFrameT],
@@ -591,7 +608,7 @@ class ASTEdge(ASTObject):
 
         label_node_hops = self.label_node_hops
         label_edge_hops = self.label_edge_hops
-        needs_auto_labels = wants_output_slice or (self.min_hops is not None and self.min_hops > 0)
+        needs_auto_labels = wants_output_slice or (self.min_hops is not None and self.min_hops > 0) or self.prune_to_endpoints
         if return_wavefront and needs_auto_labels:
             # Ensure hop labels exist for post-filtering even if user didn't request explicit labels
             label_node_hops = label_node_hops or '__gfql_output_node_hop__'
@@ -618,6 +635,45 @@ class ASTEdge(ASTObject):
             destination_node_query=self.destination_node_query,
             edge_query=self.edge_query
         )
+
+        if self.prune_to_endpoints and out_g._nodes is not None and out_g._edges is not None and len(out_g._edges) > 0:
+            # Prune graph to only max-distance endpoint nodes + their edges.
+            # Used when a variable-length hop is followed by another hop in
+            # a connected pattern, so the next hop starts from the correct
+            # intermediate nodes only.
+            #
+            # Use the auto-generated edge hop labels to find the max-distance
+            # edges, then keep only their destination nodes (forward) or
+            # source nodes (reverse).
+            edge_hop_col = label_edge_hops
+            src_col = out_g._source
+            dst_col = out_g._destination
+            node_col = out_g._node
+            if (
+                edge_hop_col is not None
+                and edge_hop_col in out_g._edges.columns
+                and src_col is not None
+                and dst_col is not None
+                and node_col is not None
+                and len(out_g._edges) > 0
+            ):
+                # For ranges (min_hops != max_hops), keep all distances in
+                # the range. For exact hops, keep only the max distance.
+                prune_min = self.min_hops if self.min_hops is not None else (
+                    self.hops if self.hops is not None else 1
+                )
+                target_edges = out_g._edges[out_g._edges[edge_hop_col] >= prune_min]
+                if self.direction == "reverse":
+                    endpoint_ids = target_edges[src_col]
+                else:
+                    endpoint_ids = target_edges[dst_col]
+                node_mask = out_g._nodes[node_col].isin(endpoint_ids)
+                pruned_nodes = out_g._nodes[node_mask]
+                edge_mask = (
+                    out_g._edges[src_col].isin(pruned_nodes[node_col])
+                    & out_g._edges[dst_col].isin(pruned_nodes[node_col])
+                )
+                out_g = out_g.nodes(pruned_nodes).edges(out_g._edges[edge_mask])
 
         if self._name is not None:
             out_g = out_g.edges(out_g._edges.assign(**{self._name: True}))
@@ -682,6 +738,7 @@ class ASTEdgeForward(ASTEdge):
         source_node_query: Optional[str] = None,
         destination_node_query: Optional[str] = None,
         edge_query: Optional[str] = None,
+        prune_to_endpoints: bool = False,
     ):
         super().__init__(
             direction='forward',
@@ -701,6 +758,7 @@ class ASTEdgeForward(ASTEdge):
             source_node_query=source_node_query,
             destination_node_query=destination_node_query,
             edge_query=edge_query,
+            prune_to_endpoints=prune_to_endpoints,
         )
 
     @classmethod
@@ -753,6 +811,7 @@ class ASTEdgeReverse(ASTEdge):
         source_node_query: Optional[str] = None,
         destination_node_query: Optional[str] = None,
         edge_query: Optional[str] = None,
+        prune_to_endpoints: bool = False,
     ):
         super().__init__(
             direction='reverse',
@@ -772,6 +831,7 @@ class ASTEdgeReverse(ASTEdge):
             source_node_query=source_node_query,
             destination_node_query=destination_node_query,
             edge_query=edge_query,
+            prune_to_endpoints=prune_to_endpoints,
         )
 
     @classmethod
@@ -824,6 +884,7 @@ class ASTEdgeUndirected(ASTEdge):
         source_node_query: Optional[str] = None,
         destination_node_query: Optional[str] = None,
         edge_query: Optional[str] = None,
+        prune_to_endpoints: bool = False,
     ):
         super().__init__(
             direction='undirected',
@@ -843,6 +904,7 @@ class ASTEdgeUndirected(ASTEdge):
             source_node_query=source_node_query,
             destination_node_query=destination_node_query,
             edge_query=edge_query,
+            prune_to_endpoints=prune_to_endpoints,
         )
 
     @classmethod
@@ -1054,8 +1116,13 @@ class ASTLet(ASTObject):
         out = cls(bindings=bindings, validate=validate)  # type: ignore
         return out
     
-    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
-                 target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
+    def execute(
+        self,
+        g: Plottable,
+        prev_node_wavefront: Optional[DataFrameT],
+        target_wave_front: Optional[DataFrameT],
+        engine: Engine
+    ) -> Plottable:
         # Let bindings don't use wavefronts - execute via chain_let_impl
         # Import here due to circular dependency
         from graphistry.compute.chain_let import chain_let_impl  # noqa: F401, F811
@@ -1163,8 +1230,13 @@ class ASTRemoteGraph(ASTObject):
             out.validate()
         return out
     
-    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
-                 target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
+    def execute(
+        self,
+        g: Plottable,
+        prev_node_wavefront: Optional[DataFrameT],
+        target_wave_front: Optional[DataFrameT],
+        engine: Engine
+    ) -> Plottable:
         # Implementation in PR 1.3
         raise NotImplementedError("RemoteGraph loading will be implemented in PR 1.3")
     
@@ -1280,8 +1352,13 @@ class ASTRef(ASTObject):
             out.validate()
         return out
     
-    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
-                 target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
+    def execute(
+        self,
+        g: Plottable,
+        prev_node_wavefront: Optional[DataFrameT],
+        target_wave_front: Optional[DataFrameT],
+        engine: Engine
+    ) -> Plottable:
         raise NotImplementedError(
             "ASTRef cannot be used directly in chain(). "
             "It must be used within an ASTLet/chain_let() context."
@@ -1421,8 +1498,13 @@ class ASTCall(ASTObject):
             out.validate()
         return out
     
-    def __call__(self, g: Plottable, prev_node_wavefront: Optional[DataFrameT],
-                 target_wave_front: Optional[DataFrameT], engine: Engine) -> Plottable:
+    def execute(
+        self,
+        g: Plottable,
+        prev_node_wavefront: Optional[DataFrameT],
+        target_wave_front: Optional[DataFrameT],
+        engine: Engine
+    ) -> Plottable:
         """Execute the method call on the graph.
         
         Args:
@@ -1456,7 +1538,7 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
 
     if 'type' not in o:
         raise GFQLSyntaxError(
-            ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'Let', 'RemoteGraph', or 'ChainRef'"
+            ErrorCode.E105, "AST JSON missing required 'type' field", suggestion="Add 'type' field: 'Node', 'Edge', 'Let', 'RemoteGraph', 'Ref', or 'Call'"
         )
 
     out: Union[ASTNode, ASTEdge, ASTLet, ASTRemoteGraph, ASTRef, ASTCall]
@@ -1491,8 +1573,6 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
         out = ASTLet.from_json(o, validate=validate)
     elif o['type'] == 'RemoteGraph':
         out = ASTRemoteGraph.from_json(o, validate=validate)
-    elif o['type'] == 'ChainRef':
-        out = ASTRef.from_json(o, validate=validate)
     elif o['type'] == 'Ref':
         out = ASTRef.from_json(o, validate=validate)
     elif o['type'] == 'Call':
@@ -1503,7 +1583,7 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
             f"Unknown AST type: {o['type']}",
             field="type",
             value=o["type"],
-            suggestion="Use 'Node', 'Edge', 'Let', 'RemoteGraph', 'ChainRef', 'Ref', or 'Call'",
+            suggestion="Use 'Node', 'Edge', 'Let', 'RemoteGraph', 'Ref', or 'Call'",
         )
     return out
 
@@ -1520,16 +1600,47 @@ ref = ASTRef  # noqa: E305
 from graphistry.models.gfql.types.call import call  # noqa: E305 E402 F401
 
 
-def rows(table: str = "nodes", source: Optional[str] = None) -> ASTCall:
+def rows(
+    table: str = "nodes",
+    source: Optional[str] = None,
+    alias_endpoints: Optional[Dict[str, str]] = None,
+    binding_ops: Optional[List[Dict[str, Any]]] = None,
+) -> ASTCall:
     """Create a row-source operation for GFQL row pipelines.
 
     This operation converts graph outputs into a row table context (nodes or edges),
     optionally constrained to a named alias/source tag.
+
+    When *alias_endpoints* is provided, builds a bindings table by joining edges
+    with node properties for each alias. Keys are alias names, values are
+    ``"src"`` or ``"dst"`` indicating which edge endpoint maps to that alias.
+
+    When *binding_ops* is provided, builds a bindings table from serialized
+    node/edge operations. Alternating node/edge chains materialize connected
+    same-path bindings, while node-only sequences materialize cartesian
+    bindings rows. This is the preferred path for direct Cypher multi-alias
+    scalar and aggregate projections.
     """
     params: Dict[str, Any] = {"table": table}
     if source is not None:
         params["source"] = source
+    if alias_endpoints is not None:
+        params["alias_endpoints"] = alias_endpoints
+    if binding_ops is not None:
+        params["binding_ops"] = binding_ops
     return ASTCall("rows", params)
+
+
+def serialize_binding_ops(ops: Sequence[ASTObject]) -> List[Dict[str, Any]]:
+    """Serialize node/edge bindings for ``rows(binding_ops=...)``."""
+    binding_ops: List[Dict[str, Any]] = []
+    for op in ops:
+        if not isinstance(op, (ASTNode, ASTEdge)):
+            raise ValueError(
+                "Connected bindings-row lowering expects only ASTNode/ASTEdge ops"
+            )
+        binding_ops.append(cast(Dict[str, Any], op.to_json(validate=False)))
+    return binding_ops
 
 
 ProjectionItem = Union[str, Tuple[str, Any]]
@@ -1550,9 +1661,12 @@ def select(items: Iterable[ProjectionItem]) -> ASTCall:
     return ASTCall("select", {"items": _normalize_projection_items(items)})
 
 
-def with_(items: Iterable[ProjectionItem]) -> ASTCall:
+def with_(items: Iterable[ProjectionItem], extend: bool = False) -> ASTCall:
     """Python-safe alias for Cypher WITH row projection semantics."""
-    return ASTCall("with_", {"items": _normalize_projection_items(items)})
+    params: Dict[str, Any] = {"items": _normalize_projection_items(items)}
+    if extend:
+        params["extend"] = True
+    return ASTCall("with_", params)
 
 
 def return_(items: Iterable[ProjectionItem]) -> ASTCall:
@@ -1600,8 +1714,23 @@ def unwind(expr: Any, as_: str = "value") -> ASTCall:
     return ASTCall("unwind", {"expr": expr, "as_": as_})
 
 
+def drop_cols(cols: Iterable[str]) -> ASTCall:
+    """Drop named columns from the active row table (ignores missing columns at runtime)."""
+    return ASTCall("drop_cols", {"cols": list(cols)})
+
+
 def group_by(
-    keys: Iterable[str], aggregations: Iterable[Sequence[Any]]
+    keys: Iterable[str],
+    aggregations: Iterable[Sequence[Any]],
+    key_prefixes: Optional[Iterable[str]] = None,
 ) -> ASTCall:
-    """Create grouped aggregation operation for row pipelines."""
-    return ASTCall("group_by", {"keys": list(keys), "aggregations": list(aggregations)})
+    """Create grouped aggregation operation for row pipelines.
+
+    key_prefixes: if provided, all DataFrame columns whose name starts with any of these
+    prefixes are appended to the key list at runtime.  Useful for bindings-row paths where
+    alias property column names (e.g. ``"tag.name"``) are not known at lowering time.
+    """
+    args: Dict[str, Any] = {"keys": list(keys), "aggregations": list(aggregations)}
+    if key_prefixes is not None:
+        args["key_prefixes"] = list(key_prefixes)
+    return ASTCall("group_by", args)

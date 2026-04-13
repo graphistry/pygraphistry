@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from typing import Dict, Literal, Sequence, List, Optional, Any, Tuple, Set
 
-from graphistry.Engine import Engine, safe_merge
+from graphistry.Engine import Engine, safe_map_series, safe_merge
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject
 from graphistry.gfql.ref.enumerator import OracleCaps, OracleResult, enumerate_chain
@@ -106,7 +106,7 @@ class DFSamePathExecutor:
                 is_call = isinstance(op, ASTCall)
                 current_g = self.forward_steps[-1] if is_call and self.forward_steps else graph
                 prev_nodes = None if is_call or not self.forward_steps else self.forward_steps[-1]._nodes
-                g_step = op(
+                g_step = op.execute(
                     g=current_g,
                     prev_node_wavefront=prev_nodes,
                     target_wave_front=None,
@@ -370,10 +370,10 @@ class DFSamePathExecutor:
                 continue
             node_label, edge_label = self._resolve_label_cols(op)
             if node_label and node_id and node_id in nodes_df.columns and node_labels:
-                node_series = nodes_df[node_id].map(node_labels)
+                node_series = safe_map_series(nodes_df[node_id], node_labels)
                 node_frames.append(df_cons(nodes_df, {node_id: nodes_df[node_id], node_label: node_series}))
             if edge_label and edge_id and edge_id in edges_df.columns and edge_labels:
-                edge_series = edges_df[edge_id].map(edge_labels)
+                edge_series = safe_map_series(edges_df[edge_id], edge_labels)
                 edge_frames.append(df_cons(edges_df, {edge_id: edges_df[edge_id], edge_label: edge_series}))
         if node_id is not None and node_frames:
             nodes_df = self._merge_label_frames(nodes_df, node_frames, node_id)

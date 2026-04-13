@@ -133,9 +133,8 @@ def enumerate_chain(
             paths = paths.drop(columns=[current])
             current = node_step["id_col"]
         else:
-            if edge_step["alias"]:
-                # Edge alias tagging for multi-hop not yet supported in enumerator
-                raise ValueError("Edge aliases not supported for multi-hop edges in enumerator")
+            # Edge aliases on multi-hop paths are supported in the engine (bare presence marker),
+            # but the oracle only validates node/edge membership — no per-hop column tagging needed.
 
             dest_allowed: Optional[Set[Any]] = None
             if not node_frame.empty:

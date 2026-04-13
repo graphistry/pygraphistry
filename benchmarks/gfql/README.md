@@ -232,3 +232,153 @@ uv run python benchmarks/gfql/where_opt_matrix.py \
   --profiles baseline,auto,vector \
   --runs 5 --warmup 1
 ```
+
+## GFQL filter + PageRank CPU vs GPU
+
+Benchmark a realistic GFQL search -> local Cypher `CALL ... .write()` PageRank -> GFQL search pipeline on large SNAP social graphs, comparing `pandas+igraph` against `cudf+cugraph`.
+The graph is loaded once, then the main pipeline is benchmarked warm on the resident graph.
+
+```bash
+uv run python benchmarks/gfql/filter_pagerank/filter_pagerank_pipeline_cpu_gpu.py \
+  --dataset twitter \
+  --engine both \
+  --degree-quantile 0.99 \
+  --pagerank-quantile 0.99 \
+  --warmup 1 --runs 3
+```
+
+DGX-sized GPlus example:
+
+```bash
+# GPU
+python benchmarks/gfql/filter_pagerank/filter_pagerank_pipeline_cpu_gpu.py \
+  --dataset gplus \
+  --engine cudf \
+  --degree-quantile 0.995 \
+  --pagerank-quantile 0.9995 \
+  --warmup 1 --runs 2 \
+  --output-json plans/gfql-gpu-pagerank-benchmark/results/gplus_gpu_q995_pr9995.json
+
+# CPU
+python benchmarks/gfql/filter_pagerank/filter_pagerank_pipeline_cpu_gpu.py \
+  --dataset gplus \
+  --engine pandas \
+  --degree-quantile 0.995 \
+  --pagerank-quantile 0.9995 \
+  --warmup 1 --runs 1 \
+  --output-json plans/gfql-gpu-pagerank-benchmark/results/gplus_cpu_q995_pr9995.json
+```
+
+Selected DGX result (`gplus`, `degree_q=0.995`, `pagerank_q=0.9995`):
+- Warm CPU pipeline: `83.61s`
+- Warm GPU pipeline: `3.41s`
+- Warm speedup: `17.53x`
+- This rerun now measures the smoother local Cypher `GRAPH { MATCH ... }` search stages around local Cypher `CALL graphistry.{igraph,cugraph}.pagerank.write()`.
+- Stage medians:
+  - Search 1 via local Cypher `GRAPH { }`: `57.3711s` CPU vs `2.5435s` GPU (`21.18x`)
+  - PageRank via local Cypher write: `22.1346s` CPU vs `0.4668s` GPU (`46.28x`)
+  - Search 2 via local Cypher `GRAPH { }`: `10.48s` CPU vs `0.5696s` GPU (`20.28x`)
+- Graph sizes:
+  - Full graph: `107,614` nodes / `30,494,866` edges on both engines
+  - After search 1 via local Cypher `GRAPH { }`: `73,010` nodes / `11,755,106` edges on both engines
+  - Final graph after PageRank cutoff + search 2 via local Cypher `GRAPH { }`:
+    - CPU (`igraph`): `41,147` nodes / `1,341,817` edges
+    - GPU (`cugraph`): `42,002` nodes / `1,278,572` edges
+- Note: the final graph differs modestly because `igraph` and `cugraph` produce slightly different PageRank score distributions, so the top-quantile cutoff lands on a different boundary.
+- Raw notes: `plans/gfql-gpu-pagerank-benchmark/results/gplus_q995_pr9995_summary.md`
+- Notebook walkthrough: `demos/gfql/benchmark_filter_pagerank_cpu_gpu.ipynb`
+
+## Cached load/prep CPU vs GPU
+
+Benchmark cached SNAP ingest/prep separately from the warm GFQL -> PageRank -> GFQL pipeline.
+This measures only local cached file -> in-memory graph preparation:
+- edge-list read (`pandas.read_csv` / `cudf.read_csv`)
+- node materialization (degree table + seed flag)
+- Graphistry bind (`nodes(...).edges(...)`)
+
+```bash
+uv run python benchmarks/gfql/filter_pagerank/load_prepare_cpu_gpu.py \
+  --dataset gplus \
+  --engine both \
+  --degree-quantile 0.995 \
+  --warmup 2 --runs 5
+```
+
+Selected DGX cached-load results:
+- Twitter (`degree_q=0.99`):
+  - CPU prepare: `0.2756s`
+  - GPU prepare: `0.1013s`
+  - total speedup: `2.72x`
+  - stage medians: read `0.2156s` vs `0.0862s`, node prep `0.0620s` vs `0.0148s`, bind ~`0.0001s` on both
+- GPlus (`degree_q=0.995`):
+  - CPU prepare: `8.7160s`
+  - GPU prepare: `3.9323s`
+  - total speedup: `2.22x`
+  - stage medians: read `6.9096s` vs `3.0395s`, node prep `1.8097s` vs `0.8613s`, bind ~`0.0001s` on both
+- Raw outputs: `plans/gfql-gpu-pagerank-benchmark/results/twitter_load_prepare_infer.json`, `plans/gfql-gpu-pagerank-benchmark/results/gplus_load_prepare_infer.json`
+
+Optimization note:
+- An explicit integer-dtype probe was not adopted. It was slightly slower on Twitter and overflowed on GPlus in pandas, so the benchmark keeps parser inference for now.
+
+## DGX configuration
+
+Current measured environment for the selected GPlus run:
+
+- Host: `dgx-spark`
+- GPU: `NVIDIA GB10`
+- Driver: `580.126.09`
+- Container: `graphistry/test-gpu:latest`
+- Python: `3.12.12`
+- pandas: `2.3.3`
+- cudf: `25.12.00`
+- cugraph: `25.12.02`
+- igraph: `1.0.0`
+
+The benchmark reports both full pipeline timings and split stage timings so we can separate:
+- GFQL/dataframe acceleration (`pandas` vs `cudf`)
+- graph algorithm acceleration (`igraph` vs `cugraph`)
+
+
+### Neo4j exploratory comparison
+
+Tracked manual benchmark script for the Neo4j + GDS analog:
+
+```bash
+uv run --no-project --with neo4j \
+  python benchmarks/gfql/filter_pagerank/filter_pagerank_pipeline_neo4j.py \
+  --dataset twitter \
+  --degree-quantile 0.99 \
+  --pagerank-quantile 0.99 \
+  --warmup 1 --runs 3 \
+  --output-json plans/gfql-gpu-pagerank-benchmark/results/twitter_neo4j_tracked_q99_pr99.json
+```
+
+Notes:
+- Manual/DGX-only benchmark: requires local Docker access plus the `neo4j` Python driver.
+- Defaults to Neo4j Community `2026.02.2` with GDS, `16G` heap, `16G` pagecache, and `32G` transaction memory.
+- Reuses raw DB/import scratch space under `plans/gfql-gpu-pagerank-benchmark/neo4j/`.
+
+Exact Twitter 3-way comparison (`degree_q=0.99`, `pagerank_q=0.99`):
+- Graphistry CPU (`pandas + igraph`): `2.36s` warm pipeline
+  - stage medians: search1 `0.84s`, pagerank `1.18s`, search2 `0.33s`
+- Graphistry GPU (`cudf + cugraph`): `0.25s` warm pipeline
+  - stage medians: search1 `0.14s`, pagerank `0.02s`, search2 `0.09s`
+- Neo4j (`Neo4j + GDS`): `13.51s` warm pipeline
+  - stage medians: filter1 `5.74s`, pagerank `3.20s`, filter2 `3.51s`
+- Relative to the exact same Twitter shape, Graphistry CPU is `5.72x` faster than Neo4j and Graphistry GPU is `54.48x` faster.
+- Stage 1 shape matches across all three engines: `44,273` nodes / `873,810` edges.
+- Final graph drift remains modest because the PageRank backends/cutoff boundaries differ:
+  - Graphistry CPU: `42,217` nodes / `618,212` edges
+  - Graphistry GPU: `42,372` nodes / `586,116` edges
+  - Neo4j: `43,068` nodes / `667,484` edges
+
+Larger GPlus analog (`degree_q=0.995`, `pagerank_q=0.9995`):
+- imported and runnable in Neo4j after switching import IDs to `string`
+- naive single-transaction seed expansion OOMed at `dbms.memory.transaction.total.max`
+- batched seed/core expansion fixed the OOM
+- even with batching, the full pipeline exceeded `3m07s` before the main transaction reached `Closing`
+
+So the honest current comparison is:
+- Neo4j is workable for the smaller Twitter analog, but already materially slower than both Graphistry CPU and GPU on the exact same shape.
+- On the selected GPlus benchmark shape, Neo4j is already dramatically slower than Graphistry CPU (`83.61s`) and Graphistry GPU (`3.41s`) before teardown/cleanup is even done.
+- Raw notes: `plans/gfql-gpu-pagerank-benchmark/results/neo4j_summary.md`

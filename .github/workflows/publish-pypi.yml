@@ -10,6 +10,10 @@ on:
   #release:
   #  types: [created]
 
+env:
+  UV_EXCLUDE_NEWER: "6 days"
+  PIP_EXCLUDE_NEWER: "6 days"
+
 jobs:
   build-n-publish:
     name: Build and publish Python 🐍 distributions 📦 to PyPI and TestPyPI

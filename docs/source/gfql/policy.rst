@@ -211,6 +211,8 @@ Examples
 
 **Per-Binding Control**
 
+.. doc-test: skip
+
 .. code-block:: python
 
     def binding_policy(context):
@@ -415,6 +417,8 @@ When multiple shortcuts apply to the same hook, their handlers automatically com
 
 Shortcuts compose naturally for scenarios where multiple orthogonal policies need to be applied:
 
+.. doc-test: skip
+
 .. code-block:: python
 
     # Server scenario: telemetry + security + resource limits
@@ -434,6 +438,8 @@ Shortcuts compose naturally for scenarios where multiple orthogonal policies nee
 **Debug Helper**
 
 Use ``debug_policy()`` to see how shortcuts expand:
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -472,6 +478,8 @@ Output:
 **OpenTelemetry Example**
 
 Using shortcuts, OpenTelemetry span tracing reduces from 10 hook keys to just 2:
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -539,6 +547,8 @@ PolicyException
 ---------------
 
 Deny operations by raising ``PolicyException``:
+
+.. doc-test: xfail
 
 .. code-block:: python
 
@@ -613,7 +623,7 @@ Policies work with different GFQL query patterns:
 
 .. code-block:: python
 
-    # query_type will be 'call', precall and postcall phases triggered
+    # query_type will be 'single', precall and postcall phases triggered
     from graphistry.compute.ast import call
     g.gfql(call('hop', {'hops': 2}), policy={
         'precall': my_precall_policy,
@@ -770,6 +780,8 @@ API Reference
 -------------
 
 **Main Interface**
+
+.. doc-test: skip
 
 .. code-block:: python
 

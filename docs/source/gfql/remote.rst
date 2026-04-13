@@ -17,10 +17,37 @@ Run chain remotely and fetch results
     g2 = g1.gfql_remote([n(), e(), n()])
     assert len(g2._nodes) <= len(g1._nodes)
 
-Method :meth:`chain_remote <graphistry.compute.ComputeMixin.ComputeMixin.chain_remote>` runs chain remotely and fetched the computed graph
+``gfql_remote()`` accepts the same input types as local ``gfql()``:
 
-- **chain**: Sequence of graph node and edge matchers (:class:`ASTObject <graphistry.compute.ast.ASTObject>` instances).
-- **output_type**: Defaulting to "all", whether to return the nodes (`'nodes'`), edges (`'edges'`), or both. See :meth:`chain_remote_shape <graphistry.compute.ComputeMixin.ComputeMixin.chain_remote_shape>` to return only metadata.
+- **Chain / List[ASTObject]**: Native GFQL chain syntax (as above).
+- **Cypher string**: Compiled locally, sent as wire-protocol JSON.
+- **ASTLet / Let dict**: DAG patterns with named bindings.
+
+.. code-block:: python
+
+    # Cypher string (compiled locally, sent as Chain wire format)
+    g2 = g1.gfql_remote("MATCH (a)-[r]->(b) WHERE a.score > 10 RETURN a, b")
+
+    # Cypher string with params
+    g2 = g1.gfql_remote(
+        "MATCH (n) WHERE n.score > $cutoff RETURN n",
+        params={"cutoff": 10},
+    )
+
+    # GRAPH constructor (compiled locally, sent as Chain wire format)
+    g2 = g1.gfql_remote("GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 10 }")
+
+    # Multi-stage pipeline (compiled locally, sent as Let wire format)
+    g2 = g1.gfql_remote(
+        "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 10 } "
+        "GRAPH g2 = GRAPH { USE g1 CALL graphistry.degree.write() } "
+        "USE g2 MATCH (n) RETURN n.id, n.degree ORDER BY n.degree DESC"
+    )
+
+Method :meth:`gfql_remote <graphistry.compute.ComputeMixin.ComputeMixin.gfql_remote>` runs the query remotely and fetches the computed graph.
+
+- **chain**: GFQL query — Chain, List[ASTObject], ASTLet, Dict, or Cypher string.
+- **output_type**: Defaulting to "all", whether to return the nodes (`'nodes'`), edges (`'edges'`), or both. See :meth:`gfql_remote_shape <graphistry.compute.ComputeMixin.ComputeMixin.gfql_remote_shape>` to return only metadata.
 - **node_col_subset**: Optionally limit which node attributes are returned to an allowlist.
 - **edge_col_subset**: Optionally limit which edge attributes are returned to an allowlist.
 - **engine**: Optional execution engine. Engine is typically not set, defaulting to `'auto'`. Use `'cudf'` for GPU acceleration and `'pandas'` for CPU.

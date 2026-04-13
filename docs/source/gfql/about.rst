@@ -3,6 +3,11 @@
 10 Minutes to GFQL
 ==================
 
+.. image:: _static/gfql-mascot.png
+   :alt: GFQL mascot
+   :width: 200px
+   :align: center
+
 Welcome to **GFQL (GraphFrame Query Language)**, the first **dataframe-native graph query language**. GFQL is designed to bring the power of graph queries to your data science workflows without the need for external graph databases or complex infrastructure. It integrates seamlessly with the **PyData**, **Apache Arrow**, and **GPU acceleration** ecosystems, allowing you to process massive graphs efficiently.
 
 In this guide, we'll explore the basics of GFQL in just 10 minutes. You'll learn how to:
@@ -70,14 +75,43 @@ GFQL is part of the open-source ``graphistry`` library. Install it using pip:
 
 Ensure you have ``pandas`` or ``cudf`` installed, depending on whether you want to run on CPU or GPU.
 
-Basic Concepts
---------------
+Two Syntax Styles
+------------------
 
-Before we begin with examples, let's understand some basic concepts:
+GFQL supports two syntax styles through the same ``g.gfql(...)`` entrypoint:
 
-- **Nodes and Edges:** In GFQL, graphs are represented using dataframes for nodes and edges.
-- **Chaining:** GFQL queries are constructed by chaining operations that filter and traverse the graph.
-- **Predicates:** Conditions applied to nodes or edges to filter them based on properties.
+**Cypher strings** — familiar if you know SQL or Cypher:
+
+.. code-block:: python
+
+    # Filter nodes — returns a DataFrame
+    nodes_df = g.gfql("MATCH (n {type: 'person'}) RETURN n")._nodes
+
+.. doc-test: skip
+
+.. code-block:: python
+
+    # Extract a subgraph — returns a graph with ._nodes and ._edges
+    g2 = g.gfql("GRAPH { MATCH (a)-[e]->(b) WHERE e.interesting = true }")
+
+**Native chain syntax** — composable Python objects:
+
+.. code-block:: python
+
+    from graphistry import n, e_forward
+
+    # Same node filter, chain form
+    nodes_df = g.gfql([ n({"type": "person"}) ])._nodes
+
+.. doc-test: skip
+
+.. code-block:: python
+
+    # Same subgraph extraction, chain form
+    g2 = g.gfql([ e_forward({"interesting": True}) ])
+
+Both styles run on the same vectorized engine, with the same CPU/GPU
+acceleration. Use whichever you prefer — or mix them.
 
 Examples
 --------
@@ -85,22 +119,15 @@ Examples
 1. Find Nodes of a Certain Type
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-You can filter nodes based on their properties using the ``n()`` function.
+.. code-block:: python
 
-**Example: Find all nodes of type "person"**
+    # Cypher style — returns a DataFrame of matching nodes
+    nodes_df = g.gfql("MATCH (n {type: 'person'}) RETURN n")._nodes
 
-::
-
+    # Equivalent chain style
     from graphistry import n
-
-    people_nodes_df = g.gfql([ n({"type": "person"}) ])._nodes
-    # people_nodes_df: DataFrame with 'a' and 'b' (the person nodes)
-
-**Explanation:**
-
-- ``n({"type": "person"})`` filters nodes where the ``type`` property is ``"person"``.
-- ``g.gfql([...])`` applies the chain of operations to the graph ``g``.
-- ``._nodes`` retrieves the resulting nodes dataframe.
+    nodes_df = g.gfql([ n({"type": "person"}) ])._nodes
+    # nodes_df: DataFrame with 'a' and 'b' (the person nodes)
 
 .. graphviz::
 
@@ -124,17 +151,18 @@ You can filter nodes based on their properties using the ``n()`` function.
 2. Find 2-Hop Edge Sequences with an Attribute
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Traverse multiple hops and filter edges based on attributes using ``e_forward()``.
+Traverse multiple hops and filter edges based on attributes.
 
-**Example: Find 2-hop paths where edges are marked as "interesting"**
+.. code-block:: python
 
-::
+    # Cypher style — GRAPH { } returns a subgraph with ._nodes and ._edges
+    g2 = g.gfql("GRAPH { MATCH (a)-[e]->(b) WHERE e.interesting = true }")
 
+    # Equivalent chain style
     from graphistry import e_forward
-
-    g_2_hops = g.gfql([ e_forward({"interesting": True}, hops=2) ])
-    # g_2_hops._edges: edges a->b->c (both marked interesting)
-    g_2_hops.plot()
+    g2 = g.gfql([ e_forward({"interesting": True}, hops=2) ])
+    # g2._edges: edges a->b->c (both marked interesting)
+    g2.plot()
 
 **Explanation:**
 
@@ -576,7 +604,7 @@ Congratulations! You've covered the basics of GFQL in just 10 minutes. You've le
 - **Try GFQL on Your Data:** Apply what you've learned to your datasets and see the benefits firsthand.
 - :ref:`gfql-translate`
 - :ref:`gfql-quick`
-- :ref:`10min`: Utilize PyGraphistry for advanced visualization and analysis.
+- :ref:`10min-pygraphistry`: Utilize PyGraphistry for advanced visualization and analysis.
 - :ref:`Join the Community <community>`: Connect with other users and developers in the GFQL community Slack channel.
 
 GFQL opens up new possibilities for graph analysis at scale, without the overhead of managing external databases or infrastructure. With its seamless integration into the Python ecosystem and support for GPU acceleration, GFQL is a powerful tool for modern data science workflows.

@@ -1098,26 +1098,42 @@ class TestUnfilteredStarts:
 
 
 class TestOracleLimitations:
+    pass  # Oracle previously rejected multi-hop edge aliases; now supported — see TestMultiHopEdgeAlias below.
 
-    @pytest.mark.xfail(
-        reason="Oracle doesn't support edge aliases on multi-hop edges",
-        strict=True,
-    )
-    def test_edge_alias_on_multihop(self):
+
+class TestMultiHopEdgeAlias:
+    """Oracle parity for multi-hop chains with edge aliases (#1017)."""
+
+    def test_edge_alias_on_multihop_forward(self):
         graph = make_cg_graph_from_rows(
             [{"id": "a", "v": 1}, {"id": "b", "v": 5}, {"id": "c", "v": 10}],
             [{"src": "a", "dst": "b", "weight": 1}, {"src": "b", "dst": "c", "weight": 2}],
         )
-
         chain = [
             n({"id": "a"}, name="start"),
-            e_forward(min_hops=1, max_hops=2, name="e"),  # Edge alias on multi-hop
+            e_forward(min_hops=1, max_hops=2, name="e"),
             n(name="end"),
         ]
         where = [compare(col("start", "v"), "<", col("end", "v"))]
-
-        # Oracle raises error for edge alias on multi-hop
         _assert_parity(graph, chain, where)
+
+    def test_edge_alias_on_multihop_no_where(self):
+        """Multi-hop edge alias without WHERE — all reachable nodes."""
+        graph = make_cg_graph_from_rows(
+            [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+            [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}],
+        )
+        chain = [n({"id": "a"}, name="start"), e_forward(min_hops=1, max_hops=2, name="r"), n(name="end")]
+        _assert_parity(graph, chain, [])
+
+    def test_edge_alias_on_multihop_exact_hops(self):
+        """Edge alias on fixed multi-hop (min==max>1) reaches only 2-hop destinations."""
+        graph = make_cg_graph_from_rows(
+            [{"id": "a"}, {"id": "b"}, {"id": "c"}, {"id": "d"}],
+            [{"src": "a", "dst": "b"}, {"src": "b", "dst": "c"}, {"src": "c", "dst": "d"}],
+        )
+        chain = [n({"id": "a"}, name="start"), e_forward(min_hops=2, max_hops=2, name="e"), n(name="end")]
+        _assert_parity(graph, chain, [])
 
 
 # --- P0 additional tests: reverse + multihop

@@ -8,6 +8,7 @@ This document describes the Python-specific implementation of GFQL using pandas 
 
 In Python, graphs are created with user-defined column names:
 
+<!-- doc-test: skip -->
 ```python
 import graphistry
 assert 'src_col' in df.columns and 'dst_col' in df.columns
@@ -95,6 +96,7 @@ Multiple WHERE comparisons are ANDed.
 WHERE is validated before same-path execution starts, so invalid references fail
 early with clean errors.
 
+<!-- doc-test: xfail -->
 ```python
 from graphistry import n, e_forward, col, compare
 
@@ -131,6 +133,7 @@ Exception class depends on validation phase:
 - expression/shape checks usually raise `GFQLTypeError`
 - schema/column checks usually raise `GFQLSchemaError`
 
+<!-- doc-test: skip -->
 ```python
 from graphistry.compute import rows, where_rows, return_
 
@@ -182,6 +185,7 @@ pd.Timedelta(hours=24)
 
 Results can be further processed using standard pandas operations:
 
+<!-- doc-test: skip -->
 ```python
 # Using boolean columns from named operations
 people_nodes = result._nodes[result._nodes["people"]]
@@ -201,6 +205,7 @@ GFQL provides comprehensive validation to catch errors early:
 
 Chains validate on construction by default. Nodes, edges, predicates, refs, calls, and remote graphs are validated when a parent `Chain`/`Let` validates them or when you call `.validate()` directly. Schema validation is a separate, data-aware pass.
 
+<!-- doc-test: xfail -->
 ```python
 from graphistry.compute.chain import Chain
 from graphistry.compute.ast import n, e_forward
@@ -208,17 +213,18 @@ from graphistry.compute.ast import n, e_forward
 # Automatic validation on construction
 chain = Chain([
     n({'type': 'person'}),
-    e_forward({'hops': -1})  # Raises GFQLTypeError: hops must be positive
+    e_forward(hops=-1)  # Raises GFQLTypeError: hops must be positive
 ])
 ```
 
 For advanced flows (large/nested ASTs or staged assembly), you can defer structural validation and run it once after assembly:
 
+<!-- doc-test: xfail -->
 ```python
 # Defer validation while building
 chain = Chain([
     n({'type': 'person'}),
-    e_forward({'hops': -1})
+    e_forward(hops=-1)
 ], validate=False)  # No validation yet
 
 # Later, validate once (or let g.gfql validate it)
@@ -239,10 +245,12 @@ Use deferred validation to avoid re-validating nested `Chain`/`Let` wrappers dur
 You have two options for validating queries against your data schema:
 
 1. **Validate-only** (no execution): Use `validate_chain_schema()` to check compatibility without running the query
-2. **Validate-and-run**: Use `g.gfql(..., validate_schema=True)` to validate before execution
+2. **Runtime validation** (automatic): `g.gfql(...)` validates columns during execution and raises `GFQLSchemaError` for missing or mismatched columns
 
 ```python
 # Method 1: Validate-only (no execution)
+from graphistry import Chain
+from graphistry.compute.exceptions import GFQLSchemaError
 from graphistry.compute.validate_schema import validate_chain_schema
 
 chain = Chain([n({'missing_column': 'value'})])
@@ -253,23 +261,20 @@ except GFQLSchemaError as e:
     print(f"Schema incompatibility: {e}")
     print("No query was executed")
 
-# Method 2: Runtime validation (automatic)
+# Method 2: Validate-and-run (automatic — gfql() validates before executing)
 try:
     result = g.gfql([
         n({'missing_column': 'value'})
-    ])  # Validates during execution, raises GFQLSchemaError
-except GFQLSchemaError as e:
-    print(f"Runtime validation error: {e}")
-
-# Method 3: Validate-and-run (pre-execution validation)
-try:
-    result = g.gfql([
-        n({'missing_column': 'value'})
-    ], validate_schema=True)  # Validates first, only executes if valid
+    ])  # Schema is validated automatically; raises GFQLSchemaError before execution
 except GFQLSchemaError as e:
     print(f"Pre-execution validation failed: {e}")
     print("Query was not executed")
 ```
+
+> **Note:** `g.gfql()` always validates the schema before executing.
+> There is no need for a separate `validate_schema=True` flag — validation
+> is built in. Use Method 1 (`validate_chain_schema`) when you want to
+> check validity without executing at all.
 
 ### Error Types
 
@@ -292,6 +297,7 @@ GFQL uses structured exceptions with error codes:
 
 ### Validation Modes
 
+<!-- doc-test: xfail -->
 ```python
 # Fail-fast mode (default) - raises on first error
 chain.validate()
@@ -362,6 +368,7 @@ g.gfql([n({"name": "Alice"})])
 
 ### Unsupported Operations
 
+<!-- doc-test: xfail -->
 ```python
 # Supported in row pipeline - grouped aggregation
 from graphistry.compute import rows, group_by
@@ -370,10 +377,15 @@ g.gfql([
     group_by(keys=["type"], aggregations=[("cnt", "count")]),
 ])
 
-# Wrong - OPTIONAL MATCH not supported
-# No direct GFQL equivalent
+# Pure GFQL list/Chain syntax still has no direct OPTIONAL MATCH operator.
+# For the bounded Cypher surface through g.gfql(), execute a Cypher string instead:
+g.gfql(
+    "MATCH (n:Person) "
+    "OPTIONAL MATCH (n)-[r:KNOWS]->(m) "
+    "RETURN n.name AS name, type(r) AS rel_type"
+)
 
-# Correct - Handle optionality in post-processing
+# Or handle optionality explicitly in post-processing:
 result = g.gfql([n(), e_forward()])
 # Check for nodes without edges
 nodes_with_edges = result._nodes[result._nodes[g._node].isin(result._edges[g._source])]
@@ -382,6 +394,74 @@ nodes_with_edges = result._nodes[result._nodes[g._node].isin(result._edges[g._so
 # g.gfql([rows(), where_rows(expr="custom_fn(score)")])
 # Correct - Use supported row-expression operators, or post-process DataFrame
 ```
+
+### Cypher String Execution Through ``g.gfql()``
+
+For supported Cypher strings on a bound graph, `g.gfql()` defaults string
+queries to `language="cypher"`.
+
+`g.gfql("MATCH ...")` still returns a `Plottable`, but current Cypher
+`RETURN` output is usually consumed as rows from `result._nodes`:
+
+- scalar/property projections such as `RETURN p.name AS name` produce a table in
+  `result._nodes`
+- whole-entity projections such as `RETURN p` also surface entity-valued rows in
+  `result._nodes`
+- `result._edges` is typically an empty placeholder frame for these row-shaped
+  Cypher results
+
+If you want a traversable graph/subgraph back in both `_nodes` and `_edges`,
+use native GFQL chain syntax or the `GRAPH { }` constructor (a GFQL extension
+to Cypher that keeps results in graph state instead of flattening to rows).
+
+```python
+from graphistry import n, e_forward
+
+# Cypher syntax through g.gfql() returns a Plottable, with row output exposed in _nodes.
+result = g.gfql("MATCH (p:Person) RETURN p.name AS name")
+df = result._nodes
+
+entity_rows = g.gfql("MATCH (p:Person) RETURN p")
+entity_df = entity_rows._nodes
+
+# If you want a graph/subgraph back, use native GFQL chain syntax...
+g2 = g.gfql([n({"type": "Person"}), e_forward(), n()])
+
+# ...or the GRAPH { } constructor (GFQL extension).
+g3 = g.gfql(
+    "GRAPH { "
+    "  MATCH (p:Person)-[r]->(q) "
+    "  WHERE p.score >= 10 "
+    "}"
+)
+
+limited = g.gfql(
+    "MATCH (p:Person) RETURN p.name AS name ORDER BY name DESC LIMIT $top_n",
+    params={"top_n": 10},
+)
+
+same_limited = g.gfql("MATCH (p:Person) RETURN p.name AS name", language="cypher")
+```
+
+Use `params=...` instead of manual string interpolation, and expect unsupported
+but syntactically valid query shapes on this Cypher surface to raise
+`GFQLValidationError`.
+
+Use the compiler helpers when you need parse/compile/translation output instead
+of immediate execution:
+
+```python
+from graphistry.compute.gfql.cypher import (
+    parse_cypher,
+    compile_cypher,
+    cypher_to_gfql,
+    gfql_from_cypher,
+)
+```
+
+See the Cypher-in-GFQL guide for the execution-first path and entrypoint
+selection:
+{doc}`/gfql/cypher`.
 
 ## Best Practices
 
@@ -398,6 +478,7 @@ g.gfql([n(query=f"type == 'User' and age > {min_age}")])  # SQL injection risk
 ```
 
 ### Memory Efficiency
+<!-- doc-test: skip -->
 ```python
 # Good: Filter early and use named results
 result = g.gfql([
@@ -429,6 +510,7 @@ GFQL supports directed acyclic graph (DAG) patterns using Let bindings, which al
 
 ### Let Bindings
 
+<!-- doc-test: skip -->
 ```python
 from graphistry import let, ref, n, e_forward, ge
 
@@ -455,11 +537,12 @@ The `ref()` function creates references to named bindings within a Let.
 Ref chains run on the referenced graph; bindings created by `n()` contain nodes only,
 so edge traversals need a binding that preserves edges (for example, via a list or `Chain([...])`).
 
+<!-- doc-test: skip -->
 ```python
 # Basic reference - just the binding result
 result = g.gfql(let({
     'base': n({'status': 'active'}),
-    'extended': ref('base')  # Just references 'base'
+    'extended': ref('base', [n()])  # Just references 'base'
 }))
 
 # Reference with additional operations (node-only refinements)
@@ -482,6 +565,7 @@ result = g.gfql(let({
 
 ### Complex DAG Patterns
 
+<!-- doc-test: skip -->
 ```python
 # Multi-level analysis pattern
 result = g.gfql(let({
@@ -506,8 +590,9 @@ result = g.gfql(let({
 
 For distributed computing, `remote()` allows referencing graphs on remote servers:
 
+<!-- doc-test: skip -->
 ```python
-from graphistry import remote
+from graphistry.compute import remote
 
 # Reference a remote dataset
 result = g.gfql([

@@ -78,9 +78,6 @@ See :doc:`/gfql/where` (same-path constraints) and :doc:`/gfql/return`
    * - ``is_in(values)``
      - Value is in ``values`` list.
      - ``n({ "type": is_in(["person", "company"]) })``
-   * - ``is_not_in(values)``
-     - Value is not in ``values`` list.
-     - ``n({ "type": is_not_in(["bot", "spam"]) })``
    * - ``duplicated(keep='first')``
      - Marks duplicated values.
      - ``n({ "email": duplicated() })``
@@ -256,11 +253,26 @@ Usage Examples
 Additional Notes
 ----------------
 
-- **Lambda Functions**: You can use lambda functions for custom conditions.
+- **Predicate Functions**: Use predicate instances for filter conditions.
 
   .. code-block:: python
 
-      n({ "score": lambda x: (x > 50) & (x % 2 == 0) })
+      n({ "score": gt(50) })
+
+  For compound conditions (e.g., ``score > 50 AND score is even``), use a
+  ``query`` string instead:
+
+  .. code-block:: python
+
+      n(query="score > 50 and score % 2 == 0")
+
+  .. note::
+
+     Lambda functions in ``filter_dict`` (e.g., ``n({"score": lambda x: ...})``)
+     are no longer supported because ``filter_dict`` values must be
+     JSON-serializable for the wire protocol and remote execution. Use
+     predicates like ``gt()``, ``between()``, or ``query=`` strings for
+     compound conditions.
 
 - **Importing Operators**: Remember to import the necessary functions.
 
@@ -268,10 +280,14 @@ Additional Notes
 
       from graphistry import n, e_forward, gt, contains
 
-- **Combining Conditions**: Use logical operators within lambdas for complex expressions.
+- **Combining Conditions**: Use range predicates or ``query`` strings for complex expressions.
 
   .. code-block:: python
 
-      n({ "age": lambda x: (x > 18) & (x < 65) })
+      # Range predicate
+      n({ "age": between(19, 64) })
+
+      # Or equivalently with a query string
+      n(query="age > 18 and age < 65")
 
 - **Predicates Module**: Operators are available in the `graphistry.predicates` module.

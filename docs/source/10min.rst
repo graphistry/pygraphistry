@@ -1,4 +1,4 @@
-.. _10min:
+.. _10min-pygraphistry:
 
 10 Minutes to PyGraphistry
 ==========================

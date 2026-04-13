@@ -87,6 +87,6 @@ Next Steps
 ----------
 
 - **Explore GFQL**: Dive deeper into GFQL's capabilities in :ref:`10min-gfql`.
-- **Get Started with PyGraphistry**: Follow the :ref:`10min` to setup and experience the performance firsthand.
+- **Get Started with PyGraphistry**: Follow the :ref:`10min-pygraphistry` to setup and experience the performance firsthand.
 - **Learn About Vectorization and GPUs**: Understand the partner ecosystem technologies behind GFQL by exploring `Apache Arrow <https://arrow.apache.org/>`_ and `NVIDIA RAPIDS <https://rapids.ai/>`_.
 - **Connect with Us**: Join our :ref:`community` to share insights and collaborate with others pushing the boundaries of graph analytics.

@@ -1,9 +1,11 @@
 """Schema validation for GFQL chains without execution."""
 
 from typing import List, Optional, Union, TYPE_CHECKING, cast, Tuple, Set
+from typing_extensions import Literal
 import pandas as pd
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTCall
+from graphistry.compute.filter_by_dict import resolve_filter_column, _is_numeric_dtype_safe, _is_string_dtype_safe
 
 if TYPE_CHECKING:
     from graphistry.compute.chain import Chain
@@ -13,11 +15,37 @@ from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.numeric import NumericASTPredicate, Between
 from graphistry.compute.predicates.str import Contains, Startswith, Endswith, Match, Fullmatch
 
+_ROW_TABLE_SCHEMA_CALLS = {"select", "with_", "return_", "unwind", "group_by"}
+
 
 def _coerce_chain_ops(ops: Union[List[ASTObject], 'Chain']) -> List[ASTObject]:
     if hasattr(ops, 'chain'):
         return cast(List[ASTObject], getattr(ops, 'chain'))
     return cast(List[ASTObject], ops)
+
+
+def _binding_rows_output_node_columns(binding_ops: object, node_columns: Set[str], edge_columns: Set[str]) -> Set[str]:
+    if not isinstance(binding_ops, list):
+        return set()
+    out: Set[str] = set()
+    edge_hidden = {"s", "d", "src", "dst"}
+    for op in binding_ops:
+        if not isinstance(op, dict):
+            continue
+        alias = op.get("name")
+        if not isinstance(alias, str) or alias == "":
+            continue
+        out.add(alias)
+        op_type = op.get("type")
+        if op_type == "Node":
+            for col in node_columns:
+                out.add(f"{alias}.{col}")
+        elif isinstance(op_type, str) and op_type.startswith("Edge"):
+            for col in edge_columns:
+                if col in edge_hidden:
+                    continue
+                out.add(f"{alias}.{col}")
+    return out
 
 
 def trace_chain_schema(
@@ -33,11 +61,20 @@ def trace_chain_schema(
     node_columns = set(g._nodes.columns) if g._nodes is not None else set()
     edge_columns = set(g._edges.columns) if g._edges is not None else set()
     snapshots: List[Tuple[Set[str], Set[str]]] = []
+    active_row_table: Literal["nodes", "edges"] = "nodes"
 
     for op in chain_ops:
         snapshots.append((set(node_columns), set(edge_columns)))
-        if isinstance(op, ASTCall):
-            _apply_call_schema_effects(op, node_columns, edge_columns)
+        if isinstance(op, ASTNode):
+            alias = getattr(op, "_name", None)
+            if isinstance(alias, str) and alias != "":
+                node_columns.add(alias)
+        elif isinstance(op, ASTEdge):
+            alias = getattr(op, "_name", None)
+            if isinstance(alias, str) and alias != "":
+                edge_columns.add(alias)
+        elif isinstance(op, ASTCall):
+            active_row_table = _apply_call_schema_effects(op, node_columns, edge_columns, active_row_table)
 
     return snapshots
 
@@ -73,6 +110,7 @@ def validate_chain_schema(
     # Get available columns
     node_columns = set(g._nodes.columns) if g._nodes is not None else set()
     edge_columns = set(g._edges.columns) if g._edges is not None else set()
+    active_row_table: Literal["nodes", "edges"] = "nodes"
 
     for i, op in enumerate(chain_ops):
         op_errors = []
@@ -82,7 +120,7 @@ def validate_chain_schema(
         elif isinstance(op, ASTEdge):
             op_errors = _validate_edge_op(op, node_columns, edge_columns, g._nodes, g._edges, collect_all)
         elif isinstance(op, ASTCall):
-            op_errors = _validate_call_op(op, node_columns, edge_columns, collect_all)
+            op_errors = _validate_call_op(op, node_columns, edge_columns, active_row_table, collect_all)
         else:
             # For new AST types (ASTLet, ASTRef, ASTRemoteGraph),
             # they have their own _validate_fields() methods called during construction
@@ -101,8 +139,16 @@ def validate_chain_schema(
             else:
                 raise op_errors[0]
 
-        if isinstance(op, ASTCall):
-            _apply_call_schema_effects(op, node_columns, edge_columns)
+        if isinstance(op, ASTNode):
+            alias = getattr(op, "_name", None)
+            if isinstance(alias, str) and alias != "":
+                node_columns.add(alias)
+        elif isinstance(op, ASTEdge):
+            alias = getattr(op, "_name", None)
+            if isinstance(alias, str) and alias != "":
+                edge_columns.add(alias)
+        elif isinstance(op, ASTCall):
+            active_row_table = _apply_call_schema_effects(op, node_columns, edge_columns, active_row_table)
 
     return errors if collect_all else None
 
@@ -152,8 +198,9 @@ def _validate_filter_dict(
     errors = []
     for col, val in filter_dict.items():
         try:
-            # Check column exists
-            if col not in columns:
+            try:
+                resolved_col, resolved_val = resolve_filter_column(df, col, val)
+            except GFQLSchemaError:
                 error = GFQLSchemaError(
                     ErrorCode.E301,
                     f'Column "{col}" does not exist in {context} dataframe',
@@ -163,21 +210,41 @@ def _validate_filter_dict(
                 )
                 if collect_all:
                     errors.append(error)
+                    continue
+                raise error
+
+            # Check column exists
+            if resolved_col not in columns:
+                error = GFQLSchemaError(
+                    ErrorCode.E301,
+                    f'Column "{col}" does not exist in {context} dataframe',
+                    field=col,
+                    value=resolved_val,
+                    suggestion=f'Available columns: {", ".join(sorted(columns)[:10])}{"..." if len(columns) > 10 else ""}'
+                )
+                if collect_all:
+                    errors.append(error)
                     continue  # Check next field
                 else:
                     raise error
 
-            # Check type compatibility
-            col_dtype = df[col].dtype
+            # Empty frames do not carry reliable runtime dtypes for type checks.
+            # Column existence above is still enforced, but value compatibility
+            # should not fail solely because the dataframe has no rows.
+            if len(df) == 0:
+                continue
 
-            if not isinstance(val, ASTPredicate):
+            # Check type compatibility
+            col_dtype = df[resolved_col].dtype
+
+            if not isinstance(resolved_val, ASTPredicate):
                 # Check literal value type matches
-                if pd.api.types.is_numeric_dtype(col_dtype) and isinstance(val, str):
+                if _is_numeric_dtype_safe(col_dtype) and isinstance(resolved_val, str):
                     error = GFQLSchemaError(
                         ErrorCode.E302,
-                        f'Type mismatch: {context} column "{col}" is numeric but filter value is string',
+                        f'Type mismatch: {context} column "{resolved_col}" is numeric but filter value is string',
                         field=col,
-                        value=val,
+                        value=resolved_val,
                         column_type=str(col_dtype),
                         suggestion=f'Use a numeric value like {col}=123'
                     )
@@ -185,12 +252,12 @@ def _validate_filter_dict(
                         errors.append(error)
                     else:
                         raise error
-                elif pd.api.types.is_string_dtype(col_dtype) and isinstance(val, (int, float)) and not isinstance(val, bool):
+                elif _is_string_dtype_safe(col_dtype) and isinstance(resolved_val, (int, float)) and not isinstance(resolved_val, bool):
                     error = GFQLSchemaError(
                         ErrorCode.E302,
-                        f'Type mismatch: {context} column "{col}" is string but filter value is numeric',
+                        f'Type mismatch: {context} column "{resolved_col}" is string but filter value is numeric',
                         field=col,
-                        value=val,
+                        value=resolved_val,
                         column_type=str(col_dtype),
                         suggestion=f'Use a string value like {col}="value"'
                     )
@@ -200,12 +267,12 @@ def _validate_filter_dict(
                         raise error
             else:
                 # Check predicate type matches column type
-                if isinstance(val, (NumericASTPredicate, Between)) and not pd.api.types.is_numeric_dtype(col_dtype):
+                if isinstance(resolved_val, (NumericASTPredicate, Between)) and not _is_numeric_dtype_safe(col_dtype):
                     error = GFQLSchemaError(
                         ErrorCode.E302,
-                        f'Type mismatch: numeric predicate used on non-numeric {context} column "{col}"',
+                        f'Type mismatch: numeric predicate used on non-numeric {context} column "{resolved_col}"',
                         field=col,
-                        value=f"{val.__class__.__name__}(...)",
+                        value=f"{resolved_val.__class__.__name__}(...)",
                         column_type=str(col_dtype),
                         suggestion='Use string predicates like contains() or startswith() for string columns'
                     )
@@ -214,12 +281,12 @@ def _validate_filter_dict(
                     else:
                         raise error
 
-                if isinstance(val, (Contains, Startswith, Endswith, Match, Fullmatch)) and not pd.api.types.is_string_dtype(col_dtype):
+                if isinstance(resolved_val, (Contains, Startswith, Endswith, Match, Fullmatch)) and not _is_string_dtype_safe(col_dtype):
                     error = GFQLSchemaError(
                         ErrorCode.E302,
-                        f'Type mismatch: string predicate used on non-string {context} column "{col}"',
+                        f'Type mismatch: string predicate used on non-string {context} column "{resolved_col}"',
                         field=col,
-                        value=f"{val.__class__.__name__}(...)",
+                        value=f"{resolved_val.__class__.__name__}(...)",
                         column_type=str(col_dtype),
                         suggestion='Use numeric predicates like gt() or lt() for numeric columns'
                     )
@@ -239,6 +306,7 @@ def _validate_call_op(
     op: ASTCall,
     node_columns: set,
     edge_columns: set,
+    active_row_table: Literal["nodes", "edges"],
     collect_all: bool = False
 ) -> List[GFQLSchemaError]:
     """Validate Call operation schema requirements.
@@ -265,17 +333,20 @@ def _validate_call_op(
         if (not from_edges) and not node_columns:
             return errors
 
+    available_row_columns = edge_columns if active_row_table == "edges" else node_columns
+    row_label = "edge" if active_row_table == "edges" else "node"
+
     required_node_cols = schema_effects.get('requires_node_cols')
     if required_node_cols is not None:
         cols = required_node_cols(op.params) if callable(required_node_cols) else required_node_cols
         for col in cols:
-            if col not in node_columns:
+            if col not in available_row_columns:
                 error = GFQLSchemaError(
                     ErrorCode.E301,
-                    f'Call operation "{op.function}" requires node column "{col}" which does not exist',
+                    f'Call operation "{op.function}" requires {row_label} column "{col}" which does not exist',
                     field=f'{op.function}.{col}',
                     value=col,
-                    suggestion=f'Available node columns: {", ".join(sorted(node_columns)[:10])}{"..." if len(node_columns) > 10 else ""}'
+                    suggestion=f'Available {row_label} columns: {", ".join(sorted(available_row_columns)[:10])}{"..." if len(available_row_columns) > 10 else ""}'
                 )
                 if collect_all:
                     errors.append(error)
@@ -302,12 +373,17 @@ def _validate_call_op(
     return errors
 
 
-def _apply_call_schema_effects(op: ASTCall, node_columns: set, edge_columns: set) -> None:
+def _apply_call_schema_effects(
+    op: ASTCall,
+    node_columns: set,
+    edge_columns: set,
+    active_row_table: Literal["nodes", "edges"],
+) -> Literal["nodes", "edges"]:
     """Apply schema effects from a call operation to tracked column sets."""
     from graphistry.compute.gfql.call.validation import SAFELIST_V1
 
     if op.function not in SAFELIST_V1:
-        return
+        return active_row_table
 
     method_info = SAFELIST_V1[op.function]
     schema_effects = method_info.get('schema_effects') or {}
@@ -316,13 +392,27 @@ def _apply_call_schema_effects(op: ASTCall, node_columns: set, edge_columns: set
     if adds_node_cols is not None:
         cols = adds_node_cols(op.params) if callable(adds_node_cols) else adds_node_cols
         if cols:
-            node_columns.update(cols)
+            if op.function in _ROW_TABLE_SCHEMA_CALLS and active_row_table == "edges":
+                edge_columns.update(cols)
+            else:
+                node_columns.update(cols)
 
     adds_edge_cols = schema_effects.get('adds_edge_cols')
     if adds_edge_cols is not None:
         cols = adds_edge_cols(op.params) if callable(adds_edge_cols) else adds_edge_cols
         if cols:
             edge_columns.update(cols)
+
+    if op.function == "rows":
+        table = op.params.get("table")
+        binding_ops = op.params.get("binding_ops")
+        if binding_ops is not None:
+            node_columns.update(_binding_rows_output_node_columns(binding_ops, node_columns, edge_columns))
+            return "nodes"
+        if table in {"nodes", "edges"}:
+            return cast(Literal["nodes", "edges"], table)
+
+    return active_row_table
 
 
 # Add to Chain class

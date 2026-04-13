@@ -211,7 +211,7 @@ node_compute_algs_to_attr : Dict[str, Union[str, List[str]]] = {
 #'src'/'dst' or 'source'/'destination' +
 edge_compute_algs_to_attr: Dict[str, str] = {
     'batched_ego_graphs': 'unknown',
-    'edge_betweenness_centrality': 'edge_betweenness_centrality',
+    'edge_betweenness_centrality': 'betweenness_centrality',
     'jaccard': 'jaccard_coeff',
     'jaccard_w': 'jaccard_coeff',
     'overlap': 'overlap_coeff',
@@ -222,6 +222,10 @@ edge_compute_algs_to_attr: Dict[str, str] = {
     'sorensen_w': 'sorensen_coeff',
 
 }
+
+# Weighted variants removed in cugraph 24.04; remap to base algorithm with use_weight=True
+_W_FALLBACKS = {'jaccard_w': 'jaccard', 'overlap_w': 'overlap', 'sorensen_w': 'sorensen'}
+
 graph_compute_algs = [
     'ego_graph',
     #'k_truss',  # not implemented in CUDA 11.4 for 22.04
@@ -296,6 +300,12 @@ def compute_cugraph_core(
     """
 
     import cugraph
+
+    if alg in _W_FALLBACKS and not hasattr(cugraph, alg):
+        logger.debug('Falling back from removed %s to %s with use_weight=True', alg, _W_FALLBACKS[alg])
+        alg = _W_FALLBACKS[alg]
+        params = {**params, 'use_weight': params.get('use_weight', True)}
+        params.pop('weights', None)
 
     if G is None:
         G = to_cugraph(self, kind=kind, directed=directed)
@@ -381,14 +391,21 @@ def _coerce_and_retry_cugraph(self: Plottable, core_fn, *args, **kwargs):
     """
 
     assert _is_retryable_cugraph_call(self), "Check _is_retryable_cugraph_call before calling this function"
+    assert self._source is not None
+    assert self._destination is not None
 
     logger.warning('Failed to run cugraph algorithm and src/dst columns are numeric, coercing to strings and retrying')
-    g2 = self.edges(self._edges.assign(
-        **{self._source: self._edges[self._source].astype(str),
-            self._destination: self._edges[self._destination].astype(str)}))
+    edge_string_columns: Dict[str, Any] = {
+        self._source: self._edges[self._source].astype(str),
+        self._destination: self._edges[self._destination].astype(str),
+    }
+    g2 = self.edges(self._edges.assign(**edge_string_columns))
     if g2._nodes is not None and g2._node is not None and g2._node in g2._nodes.columns:
-        g2 = g2.nodes(g2._nodes.assign(
-            **{self._node: g2._nodes[g2._node].astype(str)}))
+        assert g2._node is not None
+        node_string_columns: Dict[str, Any] = {
+            g2._node: g2._nodes[g2._node].astype(str)
+        }
+        g2 = g2.nodes(g2._nodes.assign(**node_string_columns))
     g_computed = core_fn(g2, *args, **kwargs)
     # revert to original dtype
     dtype = self._edges[self._source].dtype

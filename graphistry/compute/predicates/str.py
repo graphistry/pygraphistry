@@ -184,6 +184,15 @@ def contains(
     return Contains(pat, case, flags, na, regex)
 
 
+class NeverMatch(ASTPredicate):
+    def __call__(self, s: SeriesT) -> SeriesT:
+        return s.isna() & False
+
+
+def never_match() -> NeverMatch:
+    return NeverMatch()
+
+
 class Startswith(ASTPredicate):
     def __init__(
         self,

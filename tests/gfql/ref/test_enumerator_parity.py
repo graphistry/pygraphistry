@@ -297,6 +297,16 @@ name="first_hop"), n({"type": "account"}, name="child")],
 ]
 
 
+# CI guard: CASES must grow when new chain-kernel features land.
+# If you're adding a chain-level feature (new hop type, predicate, bound semantics),
+# add at least one CASES entry so the oracle is exercised against the engine.
+_MIN_PARITY_CASES = 8
+assert len(CASES) >= _MIN_PARITY_CASES, (
+    f"CASES has {len(CASES)} entries but must have >= {_MIN_PARITY_CASES}. "
+    "Add a parity case when adding chain-kernel features."
+)
+
+
 @pytest.mark.parametrize("_, nodes, edges, ops", CASES, ids=[case[0] for case in CASES])
 def test_enumerator_matches_gfql(_, nodes, edges, ops):
     _run_parity_case(nodes, edges, ops)
