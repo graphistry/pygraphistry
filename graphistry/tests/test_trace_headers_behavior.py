@@ -55,13 +55,17 @@ def _post_response_for_plot(url: str):
         return _mock_response({"is_valid": True, "is_uploaded": True})
     if "/api/v2/share/link/" in url:
         return _mock_response({"success": True})
+    if "/api/v1/auth/jwt/ott/" in url:
+        return _mock_response({"ott": "test-ott-token"})
     raise AssertionError(f"Unexpected POST url: {url}")
 
 
+@mock.patch("graphistry.PlotterBase.inject_trace_headers")
 @mock.patch("graphistry.arrow_uploader.inject_trace_headers")
 @mock.patch("requests.post")
-def test_plot_injects_traceparent(mock_post, mock_inject):
+def test_plot_injects_traceparent(mock_post, mock_inject, mock_inject_plotter):
     mock_inject.side_effect = _inject_trace
+    mock_inject_plotter.side_effect = _inject_trace
     headers_seen = []
 
     def _fake_post(url, **kwargs):
@@ -77,15 +81,17 @@ def test_plot_injects_traceparent(mock_post, mock_inject):
     assert all(h.get("traceparent") == TRACEPARENT for h in headers_seen)
 
 
+@mock.patch("graphistry.PlotterBase.inject_trace_headers")
 @mock.patch("graphistry.arrow_uploader.inject_trace_headers")
 @mock.patch("requests.post")
-def test_upload_injects_traceparent(mock_post, mock_inject_uploader):
+def test_upload_injects_traceparent(mock_post, mock_inject_uploader, mock_inject_plotter):
     # Patch ArrowFileUploader module's inject_trace_headers via sys.modules
     # This is needed because graphistry.ArrowFileUploader resolves to the class,
     # not the module (due to re-exports in graphistry/__init__.py)
     arrow_file_uploader_module = sys.modules["graphistry.ArrowFileUploader"]
 
     mock_inject_uploader.side_effect = _inject_trace
+    mock_inject_plotter.side_effect = _inject_trace
     headers_seen = []
 
     def _fake_post(url, **kwargs):

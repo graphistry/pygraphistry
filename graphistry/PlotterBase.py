@@ -31,7 +31,7 @@ from .util import (
     error, hash_pdf, in_ipython, in_databricks, make_iframe, random_string, warn,
     cache_coercion, cache_coercion_helper, WeakValueWrapper
 )
-from graphistry.otel import otel_traced, otel_detail_enabled
+from graphistry.otel import otel_traced, otel_detail_enabled, inject_trace_headers
 
 from .bolt_util import (
     bolt_graph_to_edges_dataframe,
@@ -2245,7 +2245,7 @@ class PlotterBase(Plottable):
                 server_base = '%s://%s' % (self.session.protocol, self.session.hostname)
                 resp = requests.post(
                     '%s/api/v1/auth/jwt/ott/' % server_base,
-                    headers={'Authorization': 'Bearer %s' % token},
+                    headers=inject_trace_headers({'Authorization': 'Bearer %s' % token}),
                     verify=self.session.certificate_validation,
                 )
                 resp.raise_for_status()
