@@ -6,7 +6,7 @@ from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
 from graphistry.Engine import EngineAbstractType
-import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
+import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, requests, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
 
@@ -31,7 +31,7 @@ from .util import (
     error, hash_pdf, in_ipython, in_databricks, make_iframe, random_string, warn,
     cache_coercion, cache_coercion_helper, WeakValueWrapper
 )
-from graphistry.otel import otel_traced, otel_detail_enabled
+from graphistry.otel import otel_traced, otel_detail_enabled, inject_trace_headers
 
 from .bolt_util import (
     bolt_graph_to_edges_dataframe,
@@ -2238,8 +2238,22 @@ class PlotterBase(Plottable):
             'type': 'arrow',
             'viztoken': str(uuid.uuid4())
         }
+        url_params = dict(self._url_params)
+        token = self.session.api_token
+        if token:
+            try:
+                server_base = '%s://%s' % (self.session.protocol, self.session.hostname)
+                resp = requests.post(
+                    '%s/api/v1/auth/jwt/ott/' % server_base,
+                    headers=inject_trace_headers({'Authorization': 'Bearer %s' % token}),
+                    verify=self.session.certificate_validation,
+                )
+                resp.raise_for_status()
+                url_params['token'] = resp.json()['ott']
+            except Exception as e:
+                logger.warning("Failed to exchange JWT for OTT: %s", e)
 
-        viz_url = self._pygraphistry._viz_url(info, self._url_params)
+        viz_url = self._pygraphistry._viz_url(info, url_params)
         cfg_client_protocol_hostname = self.session.client_protocol_hostname
         full_url = ('%s:%s' % (self.session.protocol, viz_url)) if cfg_client_protocol_hostname is None else viz_url
 
