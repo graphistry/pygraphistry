@@ -4,6 +4,7 @@ import tempfile
 import pandas as pd
 
 from graphistry.Plottable import Plottable
+from graphistry.plugins.igraph import _ensure_pandas, _restore_engine
 from graphistry.plugins_types.graphviz_types import (
     AGraph,
     EDGE_ATTRS, FORMATS, GRAPH_ATTRS, NODE_ATTRS, PROGS, UNSANITARY_ATTRS,
@@ -51,7 +52,8 @@ def g_to_pgv(
         if x_col and y_col and x_col in g._nodes.columns and y_col in g._nodes.columns:
             pos_cols = (x_col, y_col)
 
-    for _, row in g._nodes.iterrows():
+    nodes_pdf = _ensure_pandas(g._nodes)
+    for _, row in nodes_pdf.iterrows():
         attrs = {c: row[c] for c in node_attr_cols if row[c] is not None}
         if pos_cols is not None:
             attrs['pos'] = f"{row[pos_cols[0]]},{row[pos_cols[1]]}"
@@ -70,7 +72,8 @@ def g_to_pgv(
             if d in UNSANITARY_ATTRS:
                 raise ValueError(f"Unsanitary edge_attr {d} is not allowed")
 
-    for _, row in g._edges.iterrows():
+    edges_pdf = _ensure_pandas(g._edges)
+    for _, row in edges_pdf.iterrows():
         graph.add_edge(
             row[g._source],
             row[g._destination],
@@ -169,6 +172,9 @@ def layout_graphviz(
     Use graphviz for layout, such as hierarchical trees and directed acycle graphs
 
     Requires pygraphviz Python bindings and graphviz native libraries to be installed, see https://pygraphviz.github.io/documentation/stable/install.html
+
+    Graphviz is a CPU-only library. cuDF DataFrames are automatically converted to pandas
+    before calling graphviz, and the result is converted back.
 
     See PROGS for available layout algorithms
 
@@ -293,6 +299,9 @@ def layout_graphviz(
         g = g.materialize_nodes()
         assert g._nodes is not None
 
+    original_nodes = g._nodes
+    original_edges = g._edges
+
     graph = layout_graphviz_core(g, prog, args, directed, strict, graph_attr, node_attr, edge_attr, drop_unsanitary)
 
     if render_to_disk:
@@ -308,7 +317,7 @@ def layout_graphviz(
     else:
         g3 = g2
 
-    return g3
+    return _restore_engine(g3, original_nodes, original_edges)
 
 
 def render_graphviz(

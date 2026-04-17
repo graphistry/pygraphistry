@@ -13,12 +13,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **CI / build lane**: `test-build` now runs on Python 3.14 with `build-py3.14.lock` instead of a fixed Python 3.8 runner, reducing reliance on EOL interpreter setup while preserving explicit 3.8 compatibility test lanes elsewhere in CI.
 - **CI / token hardening**: CI workflows now declare explicit least-privilege default token scope (`permissions: contents: read`) and set `persist-credentials: false` on all checkout steps in `ci.yml` and `ci-gpu.yml`; GPU cancel job keeps a scoped `actions: write` override for run cancellation (#1130).
 
+### Fixed
+- **Plugins / cuDF**: `compute_igraph`, `layout_igraph`, and `layout_graphviz` now handle cuDF-backed graphs. Input DataFrames are converted to pandas via `_ensure_pandas()` (with `nullable=True` to preserve nullable integer dtypes), and output DataFrames are restored to the detected original engine via `_restore_engine()`. Previously, passing a cuDF graph to these functions would raise a `TypeError` inside the native library. The Cypher CALL path also benefits since it delegates to `compute_igraph` which now handles engine restoration internally.
+
 ### Added
 - **GFQL / Cypher**: Extracted `ASTNormalizer` into `graphistry/compute/gfql/cypher/ast_normalizer.py` and moved shortestPath + WHERE-pattern-predicate rewrite ownership out of `lowering.py`, with parity-preserving wiring in compile/lowering flows and focused regression coverage for rewrite behavior and invocation order (#1117).
 - **GFQL / Cypher compiler**: Lowering now functionally consumes `BoundIR` metadata for the M1 integration slice: binder-provided params are merged into effective lowering params (runtime overrides preserved) with binder metadata keys filtered out of runtime-param resolution, scope membership narrowing uses the active scope frame for WITH-boundary correctness, semantic-table entity kinds inform alias table routing, and nullable alias metadata is wired into optional-only alias detection. `_StageScope` duplicated table bookkeeping was reduced, binder now runs pre- and post-normalization in compile flow, and binder-path regression tests were added for these code paths (#1116).
 
 ### Tests
 - **GFQL / Cypher binder**: Added PR-4 white-box binder semantic conformance coverage for name resolution success/failure (including unresolved alias errors), WITH scope-reset visibility, OPTIONAL MATCH `null_extended_from` lineage as `frozenset` clause ids, label narrowing from MATCH labels + conjunctive `WHERE alias:Label` checks, and SchemaConfidence rules (min-rule propagation, operand inheritance, and strong literal/`COUNT` behavior). Parser/lowering regression lanes remain green (#1114).
+
+### Tests
+- **Plugins / cuDF**: 9 tests across `TestCpuOnlyCallsCudfHandling` and `TestEnsurePandasDtypeFidelity` verifying cuDF→pandas input conversion, engine restoration, nullable dtype preservation, and execute_call output coercion for `compute_igraph`, `layout_igraph`, `layout_graphviz`. Uses a non-pandas `_CudfStubDataFrame` stub to exercise the `isinstance(df, pd.DataFrame)` check without requiring a GPU.
 
 ## [0.54.1 - 2026-04-08]
 

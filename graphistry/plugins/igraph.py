@@ -1,12 +1,60 @@
 import pandas as pd
-from typing import List, Optional, Any
+from typing import Any, List, Optional
 from graphistry.constants import NODE
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 logger = setup_logger(__name__)
 
-#import logging
-#logger.setLevel(logging.DEBUG)
+
+def _ensure_pandas(df: Any) -> pd.DataFrame:
+    """Convert to pandas if not already (e.g. cuDF). No-op for pandas.
+
+    Uses nullable=True when available (cuDF >= 22.02) to preserve nullable
+    integer dtypes through the round-trip, avoiding silent Int64 to float64
+    conversion when nulls are present.
+    """
+    if isinstance(df, pd.DataFrame):
+        return df
+    try:
+        return df.to_pandas(nullable=True)
+    except TypeError:
+        return df.to_pandas()
+
+
+def _resolve_original_engine(df: Any):
+    """Detect the Engine of a DataFrame, or None if it's already pandas."""
+    if isinstance(df, pd.DataFrame):
+        return None
+    try:
+        from graphistry.Engine import EngineAbstract, resolve_engine
+        return resolve_engine(EngineAbstract.AUTO, df)
+    except Exception:
+        return None
+
+
+def _restore_engine(g: Plottable, original_nodes: Any, original_edges: Any) -> Plottable:
+    """Convert result DataFrames back to the original engine if needed.
+
+    Detects the engine from the original input frames and converts back.
+    Failures are logged and the pandas result is returned as-is.
+    """
+    from graphistry.Engine import df_to_engine
+
+    engine = _resolve_original_engine(original_nodes) or _resolve_original_engine(original_edges)
+    if engine is None:
+        return g
+
+    try:
+        if g._nodes is not None:
+            g = g.nodes(df_to_engine(g._nodes, engine), g._node)
+        if g._edges is not None:
+            g = g.edges(
+                df_to_engine(g._edges, engine),
+                g._source, g._destination, edge=g._edge,
+            )
+    except Exception:
+        logger.warning("Failed to restore %s engine for graph", engine.value, exc_info=True)
+    return g
 
 
 # preferring igraph naming convetions over graphistry.constants
@@ -224,6 +272,9 @@ def to_igraph(
 ) -> Any:
     """Convert current item to igraph Graph . See examples in from_igraph.
 
+    igraph is a CPU-only library. cuDF DataFrames are automatically converted to pandas before
+    being passed to igraph. For a GPU-native alternative, see :meth:`to_cugraph`.
+
     :param directed: Whether to create a directed graph (default True)
     :type directed: bool
 
@@ -253,12 +304,12 @@ def to_igraph(
     #igraph expects src/dst first
     edge_attrs = g._edges.columns if edge_attributes is None else edge_attributes
     edge_attrs = [x for x in edge_attrs if x not in [g._source, g._destination]]
-    edges_df = g._edges[[g._source, g._destination] + edge_attrs]
+    edges_df = _ensure_pandas(g._edges[[g._source, g._destination] + edge_attrs])
 
     #igraph expects node first
     node_attrs = g._nodes if node_attributes is None else node_attributes
     node_attrs = [x for x in node_attrs if x != g._node]
-    nodes_df = g._nodes[[g._node] + node_attrs]
+    nodes_df = _ensure_pandas(g._nodes[[g._node] + node_attrs])
     return igraph.Graph.DataFrame(
         edges_df, directed=directed, vertices=nodes_df, use_vids=use_vids
     )
@@ -310,6 +361,10 @@ def compute_igraph(
     stringify_rich_types=True
 ) -> Plottable:
     """Enrich or replace graph using igraph methods
+
+    igraph is a CPU-only library. cuDF DataFrames are automatically converted to pandas
+    before calling igraph, and the result is converted back. For a GPU-native alternative,
+    see :meth:`compute_cugraph`.
 
     :param alg: Name of an igraph.Graph method like `pagerank`
     :type alg: str
@@ -387,6 +442,9 @@ def compute_igraph(
     if out_col is None:
         out_col = alg
 
+    original_nodes = self._nodes
+    original_edges = self._edges
+
     try:
         ig = self.to_igraph(directed=True if directed is None else directed, use_vids=use_vids)
         out = getattr(ig, alg)(**params)
@@ -402,7 +460,7 @@ def compute_igraph(
     elif isinstance(out, igraph.clustering.VertexDendrogram):
         clustering = out.as_clustering().membership
     elif isinstance(out, igraph.Graph):
-        return from_igraph(self, out)
+        return _restore_engine(from_igraph(self, out), original_nodes, original_edges)
     elif isinstance(out, list) and self._nodes is None:
         raise ValueError("No g._nodes table found; use .bind(), .nodes(), .materialize_nodes()")
     elif alg == 'articulation_points':
@@ -427,7 +485,7 @@ def compute_igraph(
 
     ig.vs[out_col] = clustering
 
-    return self.from_igraph(ig)
+    return _restore_engine(self.from_igraph(ig), original_nodes, original_edges)
 
 
 layout_algs: List[str] = [
@@ -468,6 +526,10 @@ def layout_igraph(
     params: dict = {}
 ) -> Plottable:
     """Compute graph layout using igraph algorithm. For a list of layouts, see layout_algs or igraph documentation.
+
+    igraph is a CPU-only library. cuDF DataFrames are automatically converted to pandas
+    before calling igraph, and the result is converted back. For a GPU-native alternative,
+    see :meth:`layout_cugraph`.
 
     :param layout: Name of an igraph.Graph.layout method like `sugiyama`
     :type layout: str
@@ -529,6 +591,9 @@ def layout_igraph(
             g3.plot()
     """
 
+    original_nodes = self._nodes
+    original_edges = self._edges
+
     try:
         ig = self.to_igraph(directed=True if directed is None else directed, use_vids=use_vids)
         layout_df = pd.DataFrame([x for x in ig.layout(layout, **params)])
@@ -545,4 +610,4 @@ def layout_igraph(
         g2 = g2.bind(point_x=x_out_col, point_y=y_out_col)
     if play is not None:
         g2 = g2.layout_settings(play=play)
-    return g2
+    return _restore_engine(g2, original_nodes, original_edges)
