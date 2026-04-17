@@ -22,8 +22,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Tests
 - **GFQL / Cypher binder**: Added PR-4 white-box binder semantic conformance coverage for name resolution success/failure (including unresolved alias errors), WITH scope-reset visibility, OPTIONAL MATCH `null_extended_from` lineage as `frozenset` clause ids, label narrowing from MATCH labels + conjunctive `WHERE alias:Label` checks, and SchemaConfidence rules (min-rule propagation, operand inheritance, and strong literal/`COUNT` behavior). Parser/lowering regression lanes remain green (#1114).
-
-### Tests
 - **Plugins / cuDF**: 9 tests across `TestCpuOnlyCallsCudfHandling` and `TestEnsurePandasDtypeFidelity` verifying cuDF→pandas input conversion, engine restoration, nullable dtype preservation, and execute_call output coercion for `compute_igraph`, `layout_igraph`, `layout_graphviz`. Uses a non-pandas `_CudfStubDataFrame` stub to exercise the `isinstance(df, pd.DataFrame)` check without requiring a GPU.
 
 ## [0.54.1 - 2026-04-08]

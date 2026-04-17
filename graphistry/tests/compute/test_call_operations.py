@@ -701,7 +701,8 @@ class TestCpuOnlyCallsCudfHandling:
     2. Convert output back to original engine (_restore_engine)
     3. execute_call additionally applies ensure_engine_match on output
 
-    The Cypher CALL path still lacks output coercion.
+    The Cypher CALL path delegates to compute_igraph which handles
+    engine restoration internally.
     """
 
     # -- fixtures --
