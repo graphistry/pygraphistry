@@ -56,6 +56,7 @@ class LogicalPlanner:
                         value=part.clause,
                         suggestion="Use a single MATCH stage until chained pattern planning is implemented.",
                     )
+                self._reject_unsupported_match_shape(part=part, vars_by_name=vars_by_name)
                 current = self._plan_match(part=part, vars_by_name=vars_by_name, id_gen=id_gen)
                 current = self._apply_predicates(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
                 seen_match = True
@@ -64,6 +65,7 @@ class LogicalPlanner:
                 current = self._plan_where(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
                 continue
             if clause in {"WITH", "RETURN"}:
+                self._reject_distinct_projection(part=part)
                 current = self._plan_projection(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
                 current = self._apply_predicates(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
                 continue
@@ -96,6 +98,32 @@ class LogicalPlanner:
             label=self._first_node_label(var_names=part.outputs or part.inputs, vars_by_name=vars_by_name),
             output_schema=self._schema_for_aliases(alias_names=part.outputs or part.inputs, vars_by_name=vars_by_name),
         )
+
+    def _reject_unsupported_match_shape(
+        self,
+        *,
+        part: BoundQueryPart,
+        vars_by_name: Mapping[str, BoundVariable],
+    ) -> None:
+        alias_names = part.outputs or part.inputs
+        if len(alias_names) != 1:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "LogicalPlanner skeleton only supports single-node MATCH shapes",
+                field="clause",
+                value=part.clause,
+                suggestion="Use MATCH with a single node alias only until richer pattern planning is implemented.",
+            )
+        alias = next(iter(alias_names))
+        variable = vars_by_name.get(alias)
+        if variable is not None and variable.entity_kind != "node":
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "LogicalPlanner skeleton only supports MATCH outputs bound to a node alias",
+                field="clause",
+                value=part.clause,
+                suggestion="Use MATCH with one node alias output only until richer pattern planning is implemented.",
+            )
 
     def _plan_where(
         self,
@@ -140,6 +168,16 @@ class LogicalPlanner:
             expressions=expressions,
             output_schema=self._schema_for_aliases(alias_names=part.outputs, vars_by_name=vars_by_name),
         )
+
+    def _reject_distinct_projection(self, *, part: BoundQueryPart) -> None:
+        if part.metadata.get("distinct", False):
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "LogicalPlanner skeleton does not yet support DISTINCT projections",
+                field="clause",
+                value=part.clause,
+                suggestion="Use non-DISTINCT WITH/RETURN shapes until DISTINCT planning is implemented.",
+            )
 
     def _plan_unwind(
         self,

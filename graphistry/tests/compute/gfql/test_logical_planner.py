@@ -274,3 +274,19 @@ def test_logical_planner_rejects_unknown_clause_types() -> None:
     bound_ir = BoundIR(query_parts=[BoundQueryPart(clause="MERGE")])
     with pytest.raises(GFQLValidationError, match="does not support this clause type"):
         LogicalPlanner().plan(bound_ir, PlanContext())
+
+
+def test_logical_planner_rejects_multi_alias_match_shapes() -> None:
+    query = "MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN a, r, b"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    with pytest.raises(GFQLValidationError, match="single-node MATCH"):
+        LogicalPlanner().plan(bound, PlanContext())
+
+
+def test_logical_planner_rejects_distinct_projection_shapes() -> None:
+    query = "MATCH (n:Person) RETURN DISTINCT n"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    with pytest.raises(GFQLValidationError, match="DISTINCT"):
+        LogicalPlanner().plan(bound, PlanContext())
