@@ -21,10 +21,25 @@ jobs:
       - name: Do nothing
         run: echo "Do nothing"
 
-  gpu-permission:
-    if: >
+  gpu-disabled-guard:
+    name: GPU lane temporarily disabled
+    if: |
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' && contains(fromJson('["lmeyerov", "tanmoyio", "aucahuasi", "silkspace", "DataBoyTx"]'), github.actor))
+      github.event_name == 'repository_dispatch' ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'gpu-ci'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fail with re-enable guidance
+        run: |
+          echo "::error::ci-gpu is temporarily disabled while gpu_public is unavailable and PR-D hardening is pending."
+          echo "::error::Re-enable only after issue #1130 acceptance criteria are satisfied."
+          exit 1
+
+  gpu-permission:
+    # Temporarily disabled while gpu_public is unavailable and PR-D hardening is pending.
+    # Re-enable only after issue #1130 criteria are met.
+    if: ${{ false }}  # see #1130
     runs-on: ubuntu-latest
     steps:
       - name: Do nothing
@@ -32,9 +47,9 @@ jobs:
 
   cancel_outstanding:  
     name: Detect and cancel outstanding runs of this workflow
-    if: |
-      github.event_name == 'workflow_dispatch' || 
-      (github.event_name == 'pull_request' && contains(github.event.label.name, 'gpu-ci'))
+    # Temporarily disabled while gpu_public is unavailable and PR-D hardening is pending.
+    # Re-enable only after issue #1130 criteria are met.
+    if: ${{ false }}  # see #1130
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -47,10 +62,9 @@ jobs:
           access_token: ${{ github.token }}
 
   test-full-ai:
-    needs: [ gpu-permission ]
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' && contains(github.event.label.name, 'gpu-ci'))
+    # Temporarily disabled while gpu_public is unavailable and PR-D hardening is pending.
+    # Re-enable only after issue #1130 criteria are met.
+    if: ${{ false }}  # see #1130
     runs-on: gpu_public
 
     strategy:
