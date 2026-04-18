@@ -13,17 +13,24 @@ Covers:
 """
 from __future__ import annotations
 
+from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import (
     BoundIR,
     BoundQueryPart,
     BoundVariable,
     SemanticTable,
 )
+from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.query_graph import (
     QueryGraph,
     extract_query_graph,
 )
 from graphistry.compute.gfql.ir.types import EdgeRef, NodeRef, ScalarType
+from graphistry.compute.gfql.cypher.parser import parse_cypher
+
+
+def _bind(cypher: str) -> BoundIR:
+    return FrontendBinder().bind(parse_cypher(cypher), PlanContext())
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +153,7 @@ class TestBoundaryAliases:
         assert "b" in qg.boundary_aliases
 
     def test_non_projected_alias_not_boundary(self) -> None:
-        # "a" is not in WITH inputs → not a boundary alias
+        # "a" is not in WITH outputs → not a boundary alias
         p1 = _part("match", outputs=frozenset({"a", "b"}))
         pw = _part("with", inputs=frozenset({"b"}), outputs=frozenset({"b"}))
         vars_ = {"a": _var("a"), "b": _var("b")}
@@ -294,9 +301,9 @@ class TestScopeBoundaries:
         assert "b" in qg.boundary_aliases
         assert "c" not in qg.boundary_aliases
 
-    def test_with_input_missing_from_semantic_table_skipped_gracefully(self) -> None:
-        # The WITH references an alias that was never bound → no crash, no boundary entry
-        pw = _part("with", inputs=frozenset({"ghost"}), outputs=frozenset())
+    def test_with_output_missing_from_semantic_table_skipped_gracefully(self) -> None:
+        # WITH output alias absent from semantic_table → no crash, no boundary entry
+        pw = _part("with", inputs=frozenset(), outputs=frozenset({"ghost"}))
         qg = extract_query_graph(_ir([pw], {}))
         assert "ghost" not in qg.boundary_aliases
 
@@ -314,6 +321,16 @@ class TestScopeBoundaries:
         assert {"a"} in alias_sets
         assert {"b"} in alias_sets
         assert "a" in qg.boundary_aliases
+
+    def test_with_rename_output_alias_becomes_boundary_alias(self) -> None:
+        # WITH a AS b: output alias "b" goes into boundary_aliases (not input "a").
+        # Extractor keys off part.outputs, not part.inputs, so renames are handled correctly.
+        p1 = _part("match", outputs=frozenset({"a"}))
+        pw = _part("with", inputs=frozenset({"a"}), outputs=frozenset({"b"}))
+        vars_ = {"a": _var("a"), "b": _var("b")}
+        qg = extract_query_graph(_ir([p1, pw], vars_))
+        assert "b" in qg.boundary_aliases
+        assert "a" not in qg.boundary_aliases
 
 
 # ---------------------------------------------------------------------------
@@ -385,3 +402,37 @@ class TestOptionalArmEdgeCases:
         qg = extract_query_graph(_ir([p1, p2], {"a": _var("a"), "b": nullable_var}))
         arm = qg.optional_arms[0]
         assert "ghost" not in arm.join_aliases
+
+
+# ---------------------------------------------------------------------------
+# Binder integration — real FrontendBinder output (clause strings are UPPERCASE)
+# ---------------------------------------------------------------------------
+
+class TestBinderIntegration:
+    """End-to-end: FrontendBinder → extract_query_graph.
+
+    These tests would have failed before the clause-normalization fix because
+    the binder emits UPPERCASE clause tokens ("MATCH", "OPTIONAL MATCH", "WITH",
+    "RETURN") while the extractor previously compared against lowercase literals.
+    """
+
+    def test_simple_match_return_one_component(self) -> None:
+        # MATCH (a)-[r]->(b) RETURN b → 1 scope, 1 component containing a, r, b
+        qg = extract_query_graph(_bind("MATCH (a)-[r]->(b) RETURN b"))
+        assert len(qg.components) == 1
+        all_aliases = set(qg.components[0].node_aliases) | set(qg.components[0].edge_aliases)
+        assert "a" in all_aliases
+        assert "b" in all_aliases
+        assert qg.boundary_aliases == {}
+        assert qg.optional_arms == []
+
+    def test_with_boundary_splits_scope_and_sets_boundary_alias(self) -> None:
+        # MATCH (a) WITH a MATCH (b) RETURN b → 2 scope groups; "a" in boundary_aliases
+        qg = extract_query_graph(_bind("MATCH (a) WITH a MATCH (b) RETURN b"))
+        assert len(qg.components) == 2
+        assert "a" in qg.boundary_aliases
+
+    def test_optional_match_produces_arm(self) -> None:
+        # MATCH (a) OPTIONAL MATCH (a)-->(b) RETURN b → 1 optional arm
+        qg = extract_query_graph(_bind("MATCH (a) OPTIONAL MATCH (a)-->(b) RETURN b"))
+        assert len(qg.optional_arms) == 1

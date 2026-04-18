@@ -74,14 +74,24 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
     boundary_aliases: Dict[str, LogicalType] = {}
     current_scope: List[BoundQueryPart] = []
 
-    for part in bound_ir.query_parts:
-        if part.clause in _SCOPE_SPLIT_CLAUSES:
+    for part_idx, part in enumerate(bound_ir.query_parts):
+        clause = part.clause.lower().replace(" ", "_")
+        if clause in _SCOPE_SPLIT_CLAUSES:
             # Only WITH projects aliases into the next scope; RETURN is terminal.
-            if part.clause == "with":
-                for alias in part.inputs:
-                    var = bound_ir.semantic_table.variables.get(alias)
-                    if var is not None:
-                        boundary_aliases[alias] = var.logical_type
+            if clause == "with":
+                # Use the scope_stack frame for this part (1:1 with query_parts) to get
+                # LogicalTypes that may have been dropped from the final semantic_table by
+                # a later RETURN projection. Fall back to semantic_table for synthetic IRs
+                # (e.g. test fixtures) that don't populate scope_stack.
+                frame = (bound_ir.scope_stack[part_idx]
+                         if part_idx < len(bound_ir.scope_stack) else None)
+                for alias in part.outputs:
+                    lt = frame.schema.columns.get(alias) if frame is not None else None
+                    if lt is None:
+                        var = bound_ir.semantic_table.variables.get(alias)
+                        lt = var.logical_type if var is not None else None
+                    if lt is not None:
+                        boundary_aliases[alias] = lt
             if current_scope:
                 scope_groups.append(current_scope)
             current_scope = []
@@ -140,7 +150,7 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
 
     arm_to_join: Dict[str, Set[str]] = {}
     for part in bound_ir.query_parts:
-        if part.clause != "optional_match":
+        if part.clause.lower().replace(" ", "_") != "optional_match":
             continue
         part_arm_ids: Set[str] = set()
         for out_alias in part.outputs:
