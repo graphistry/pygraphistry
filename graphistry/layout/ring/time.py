@@ -231,7 +231,7 @@ def time_ring(
     format_axis: Optional[Callable[[List[Dict]], List[Dict]]] = None,
     format_label: Optional[Callable[[np.datetime64, int, np.timedelta64], str]] = None,
     format_labels: Optional[Callable[[np.datetime64, int, np.timedelta64], str]] = None,
-    play_ms: int = 2000,
+    play_ms: Optional[int] = None,
     engine: EngineAbstractType = EngineAbstract.AUTO
 ) -> Plottable:
     """Radial graph layout where nodes are positioned based on a datetime64-typed column time_col
@@ -250,7 +250,7 @@ def time_ring(
     :format_axis: Optional[Callable[[List[Dict]], List[Dict]]] Optional transform function to format axis
     :format_label: Optional[Callable[[numpy.datetime64, int, numpy.timedelta64], str]] Optional transform function to format axis label text based on axis time, ring number, and ring duration width
     :format_labels: Optional[Callable[[numpy.datetime64, int, numpy.timedelta64], str]] Deprecated alias for ``format_label``
-    :play_ms: int initial layout time in milliseconds, default 2000
+    :play_ms: Optional[int] initial layout time in milliseconds. If None (default), honors existing url_params['play'] or defaults to 2000
     :engine: EngineAbstractType, default EngineAbstract.AUTO, pick CPU vs GPU engine via 'auto', 'pandas', 'cudf' 
 
     :returns: Plotter
@@ -401,13 +401,23 @@ def time_ring(
 
     #print('axis', axis)
 
+    if play_ms is not None:
+        play_value = play_ms
+    elif 'play' in g._url_params:
+        try:
+            play_value = int(g._url_params['play'])
+        except (ValueError, TypeError):
+            play_value = 2000
+    else:
+        play_value = 2000
+
     g2 = (
         g
           .nodes(lambda g: g._nodes.assign(x=x, y=y, r=r))
           .bind(point_x='x', point_y='y')
           .encode_axis(axis)
           .settings(url_params={
-              'play': play_ms,
+              'play': play_value,
               'lockedR': True,
               'bg': '%23E2E2E2'  # Light grey due to labels being fixed to dark
           })
