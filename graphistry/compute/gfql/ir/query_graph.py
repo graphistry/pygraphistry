@@ -110,7 +110,6 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
             for alias in aliases[1:]:
                 _uf_union(parent, root, alias)
 
-        # Group aliases by their union-find root
         root_to_aliases: Dict[str, List[str]] = {}
         for alias in parent:
             r = _uf_find(parent, alias)
@@ -143,7 +142,6 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
     for part in bound_ir.query_parts:
         if part.clause != "optional_match":
             continue
-        # Determine arm_ids from this part's nullable outputs
         part_arm_ids: Set[str] = set()
         for out_alias in part.outputs:
             out_var = bound_ir.semantic_table.variables.get(out_alias)

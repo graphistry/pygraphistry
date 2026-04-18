@@ -23,7 +23,7 @@ from graphistry.compute.gfql.ir.query_graph import (
     QueryGraph,
     extract_query_graph,
 )
-from graphistry.compute.gfql.ir.types import EdgeRef, NodeRef
+from graphistry.compute.gfql.ir.types import EdgeRef, NodeRef, ScalarType
 
 
 # ---------------------------------------------------------------------------
@@ -243,6 +243,18 @@ class TestEdgeAliases:
         assert "x" in comp.node_aliases
         assert comp.edge_aliases == []
 
+    def test_scalar_var_falls_to_node_aliases(self) -> None:
+        # entity_kind="scalar" is not "edge" → falls to node_aliases (not rejected)
+        scalar_var = BoundVariable(
+            name="users", logical_type=ScalarType(),
+            nullable=False, null_extended_from=frozenset(),
+            entity_kind="scalar",
+        )
+        part = _part("match", outputs=frozenset({"users"}))
+        qg = extract_query_graph(_ir([part], {"users": scalar_var}))
+        assert "users" in qg.components[0].node_aliases
+        assert qg.components[0].edge_aliases == []
+
 
 # ---------------------------------------------------------------------------
 # Scope boundary edge cases
@@ -287,6 +299,21 @@ class TestScopeBoundaries:
         pw = _part("with", inputs=frozenset({"ghost"}), outputs=frozenset())
         qg = extract_query_graph(_ir([pw], {}))
         assert "ghost" not in qg.boundary_aliases
+
+    def test_consecutive_with_clauses_no_empty_scope_groups(self) -> None:
+        # Two back-to-back WITH clauses: second sees empty current_scope (guard prevents
+        # empty scope group). Result: 2 components, boundary_aliases set idempotently.
+        p1 = _part("match", outputs=frozenset({"a"}))
+        pw1 = _part("with", inputs=frozenset({"a"}), outputs=frozenset({"a"}))
+        pw2 = _part("with", inputs=frozenset({"a"}), outputs=frozenset({"a"}))
+        p2 = _part("match", outputs=frozenset({"b"}))
+        vars_ = {"a": _var("a"), "b": _var("b")}
+        qg = extract_query_graph(_ir([p1, pw1, pw2, p2], vars_))
+        assert len(qg.components) == 2
+        alias_sets = [set(c.node_aliases) for c in qg.components]
+        assert {"a"} in alias_sets
+        assert {"b"} in alias_sets
+        assert "a" in qg.boundary_aliases
 
 
 # ---------------------------------------------------------------------------
@@ -348,3 +375,13 @@ class TestOptionalArmEdgeCases:
         assert arm_ids == {"arm_0", "arm_1"}
         for arm in qg.optional_arms:
             assert "b" in arm.nullable_aliases
+
+    def test_optional_match_input_missing_from_semantic_table_no_join_alias(self) -> None:
+        # optional_match.inputs references an unbound alias → var lookup returns None,
+        # alias is silently skipped (not added to join_aliases)
+        p1 = _part("match", outputs=frozenset({"a"}))
+        p2 = _part("optional_match", inputs=frozenset({"ghost"}), outputs=frozenset({"b"}))
+        nullable_var = _var("b", nullable=True, null_extended_from=frozenset({"arm_0"}))
+        qg = extract_query_graph(_ir([p1, p2], {"a": _var("a"), "b": nullable_var}))
+        arm = qg.optional_arms[0]
+        assert "ghost" not in arm.join_aliases

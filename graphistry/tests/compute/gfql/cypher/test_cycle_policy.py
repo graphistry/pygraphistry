@@ -41,7 +41,11 @@ def _connected_graph() -> _G:
 
 def _scalar_reentry_graph() -> _G:
     return _mk_graph(
-        pd.DataFrame({"id": ["a1", "a2", "b1", "b2"], "label__A": [True, True, False, False], "num": [1, 2, 1, 3]}),
+        pd.DataFrame({
+            "id": ["a1", "a2", "b1", "b2"],
+            "label__A": [True, True, False, False],
+            "num": [1, 2, 1, 3],
+        }),
         pd.DataFrame({"s": ["a1", "a2"], "d": ["b1", "b2"], "type": ["R", "R"]}),
     )
 
