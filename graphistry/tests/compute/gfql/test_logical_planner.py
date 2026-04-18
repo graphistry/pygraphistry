@@ -17,6 +17,10 @@ from graphistry.compute.gfql.logical_planner import IdGen, LogicalPlanner
 TPlan = TypeVar("TPlan", bound=LogicalPlan)
 
 
+def _bind_query(query: str) -> BoundIR:
+    return FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+
 def _sample_bound_ir() -> BoundIR:
     return BoundIR(
         query_parts=[
@@ -206,7 +210,7 @@ def test_logical_planner_match_label_falls_back_for_non_node_ref_types() -> None
 
 def test_logical_planner_unwind_uses_binder_predicate_expression() -> None:
     query = "MATCH (n:Person) UNWIND [1, 2, 3] AS x RETURN n, x"
-    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+    bound = _bind_query(query)
 
     root = LogicalPlanner().plan(bound, PlanContext())
     unwind_node = _find_first(root, Unwind)
@@ -218,7 +222,7 @@ def test_logical_planner_unwind_uses_binder_predicate_expression() -> None:
 
 def test_logical_planner_rejects_optional_match_shapes() -> None:
     query = "MATCH (n:Person) OPTIONAL MATCH (n)-[:KNOWS]->(m:Person) RETURN n, m"
-    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+    bound = _bind_query(query)
 
     with pytest.raises(GFQLValidationError, match="OPTIONAL MATCH"):
         LogicalPlanner().plan(bound, PlanContext())
@@ -249,7 +253,7 @@ def test_logical_planner_rejects_multiple_match_stages() -> None:
 
 def test_logical_planner_applies_predicates_attached_to_match_part() -> None:
     query = "MATCH (n:Person) WHERE n.id > 0 RETURN n"
-    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+    bound = _bind_query(query)
     expected_predicate = bound.query_parts[0].predicates[0].expression
 
     root = LogicalPlanner().plan(bound, PlanContext())
@@ -260,7 +264,7 @@ def test_logical_planner_applies_predicates_attached_to_match_part() -> None:
 
 def test_logical_planner_applies_predicates_attached_to_with_part() -> None:
     query = "MATCH (n:Person) WITH n AS m WHERE m.id > 0 RETURN m"
-    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+    bound = _bind_query(query)
     with_part = next(part for part in bound.query_parts if part.clause == "WITH")
     expected_predicate = with_part.predicates[0].expression
 
@@ -278,7 +282,7 @@ def test_logical_planner_rejects_unknown_clause_types() -> None:
 
 def test_logical_planner_rejects_multi_alias_match_shapes() -> None:
     query = "MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN a, r, b"
-    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+    bound = _bind_query(query)
 
     with pytest.raises(GFQLValidationError, match="single-node MATCH"):
         LogicalPlanner().plan(bound, PlanContext())
@@ -286,7 +290,7 @@ def test_logical_planner_rejects_multi_alias_match_shapes() -> None:
 
 def test_logical_planner_rejects_distinct_projection_shapes() -> None:
     query = "MATCH (n:Person) RETURN DISTINCT n"
-    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+    bound = _bind_query(query)
 
     with pytest.raises(GFQLValidationError, match="DISTINCT"):
         LogicalPlanner().plan(bound, PlanContext())

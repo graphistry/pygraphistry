@@ -93,10 +93,11 @@ class LogicalPlanner:
         vars_by_name: Mapping[str, BoundVariable],
         id_gen: IdGen,
     ) -> LogicalPlan:
+        aliases = self._aliases_for_part(part)
         return NodeScan(
             op_id=id_gen.next(),
-            label=self._first_node_label(var_names=part.outputs or part.inputs, vars_by_name=vars_by_name),
-            output_schema=self._schema_for_aliases(alias_names=part.outputs or part.inputs, vars_by_name=vars_by_name),
+            label=self._first_node_label(var_names=aliases, vars_by_name=vars_by_name),
+            output_schema=self._schema_for_aliases(alias_names=aliases, vars_by_name=vars_by_name),
         )
 
     def _reject_unsupported_match_shape(
@@ -143,13 +144,18 @@ class LogicalPlanner:
         vars_by_name: Mapping[str, BoundVariable],
         id_gen: IdGen,
     ) -> LogicalPlan:
-        node = current if current is not None else NodeScan(op_id=id_gen.next(), label="", output_schema=RowSchema(columns={}))
+        aliases = self._aliases_for_part(part)
+        node = (
+            current
+            if current is not None
+            else NodeScan(op_id=id_gen.next(), label="", output_schema=RowSchema(columns={}))
+        )
         for predicate in part.predicates:
             node = Filter(
                 op_id=id_gen.next(),
                 input=node,
                 predicate=predicate,
-                output_schema=self._schema_for_aliases(alias_names=part.outputs or part.inputs, vars_by_name=vars_by_name),
+                output_schema=self._schema_for_aliases(alias_names=aliases, vars_by_name=vars_by_name),
             )
         return node
 
@@ -221,3 +227,7 @@ class LogicalPlanner:
             if labels:
                 return sorted(labels)[0]
         return ""
+
+    @staticmethod
+    def _aliases_for_part(part: BoundQueryPart) -> frozenset[str]:
+        return part.outputs or part.inputs
