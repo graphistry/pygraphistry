@@ -39,7 +39,7 @@ from .logical_plan import (
     Union,
     Unwind,
 )
-from .query_graph import ConnectedComponent, OptionalArm, QueryGraph
+from .query_graph import ConnectedComponent, OptionalArm, QueryGraph, extract_query_graph
 from .verifier import verify
 from .types import (
     BoundPredicate,
@@ -99,6 +99,7 @@ __all__ = [
     "Union",
     "Unwind",
     "ConnectedComponent",
+    "extract_query_graph",
     "OptionalArm",
     "QueryGraph",
     "verify",
