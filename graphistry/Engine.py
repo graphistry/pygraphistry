@@ -75,6 +75,13 @@ def resolve_engine(
         if isinstance(g_or_df, pa.Table):
             return Engine.PANDAS
 
+        try:
+            from pyspark.sql import DataFrame as SparkDataFrame
+            if isinstance(g_or_df, SparkDataFrame):
+                return Engine.PANDAS
+        except ImportError:
+            pass
+
         if 'cudf.core.dataframe' in str(getmodule(g_or_df)):
             has_cudf_dependancy_, _, _ = lazy_cudf_import()
             if has_cudf_dependancy_:

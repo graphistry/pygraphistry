@@ -69,11 +69,10 @@ def _safe_len(df: Any) -> int:
     return len(df)
 
 
-def _coerce_arrow_to_pandas(g: "Plottable") -> "Plottable":
-    """Coerce pa.Table edges/nodes on *g* to pandas DataFrames in-place (returns new Plottable).
+def _coerce_to_pandas(g: "Plottable") -> "Plottable":
+    """Coerce input-format types (Arrow, Spark) on *g* to pandas DataFrames (returns new Plottable).
 
-    Arrow is an input format, not a compute engine.  All compute methods that
-    operate on the raw DataFrame (materialize_nodes, get_indegrees, get_outdegrees)
+    Arrow and Spark are input formats, not compute engines.  All compute methods
     call this at their entry point so the rest of their logic can assume pandas/cudf.
     """
     import pyarrow as pa
@@ -81,6 +80,14 @@ def _coerce_arrow_to_pandas(g: "Plottable") -> "Plottable":
         g = g.edges(g._edges.to_pandas(), g._source, g._destination)
     if g._nodes is not None and isinstance(g._nodes, pa.Table):
         g = g.nodes(g._nodes.to_pandas(), g._node)
+    try:
+        from pyspark.sql import DataFrame as SparkDataFrame
+        if isinstance(g._edges, SparkDataFrame):
+            g = g.edges(g._edges.toPandas(), g._source, g._destination)
+        if g._nodes is not None and isinstance(g._nodes, SparkDataFrame):
+            g = g.nodes(g._nodes.toPandas(), g._node)
+    except ImportError:
+        pass
     return g
 
 
@@ -181,7 +188,7 @@ class ComputeMixin(Plottable):
             g = ensure_local_engine_match(g, Engine(engine.value))
 
         # Coerce input-format types (Arrow, etc.) to pandas before any engine logic
-        g = _coerce_arrow_to_pandas(g)
+        g = _coerce_to_pandas(g)
 
         if reuse:
             if g._nodes is not None and _safe_len(g._nodes) > 0:
@@ -237,7 +244,7 @@ class ComputeMixin(Plottable):
 
     def get_indegrees(self, col: str = "degree_in"):
         """See get_degrees"""
-        g = _coerce_arrow_to_pandas(self)
+        g = _coerce_to_pandas(self)
         g_nodes = g.materialize_nodes()
 
         if _safe_len(g._edges) == 0:
@@ -267,7 +274,7 @@ class ComputeMixin(Plottable):
 
     def get_outdegrees(self, col: str = "degree_out"):
         """See get_degrees"""
-        g = _coerce_arrow_to_pandas(self)
+        g = _coerce_to_pandas(self)
         g2 = g.edges(
             g._edges.rename(
                 columns={g._source: g._destination, g._destination: g._source}
