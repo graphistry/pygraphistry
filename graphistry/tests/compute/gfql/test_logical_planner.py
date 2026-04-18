@@ -294,3 +294,113 @@ def test_logical_planner_rejects_distinct_projection_shapes() -> None:
 
     with pytest.raises(GFQLValidationError, match="DISTINCT"):
         LogicalPlanner().plan(bound, PlanContext())
+
+
+def test_logical_planner_rejects_single_alias_non_node_match_shapes() -> None:
+    bound_ir = BoundIR(
+        query_parts=[BoundQueryPart(clause="MATCH", outputs=frozenset({"r"}))],
+        semantic_table=SemanticTable(
+            variables={
+                "r": BoundVariable(
+                    name="r",
+                    logical_type=ScalarType(kind="string", nullable=False),
+                    nullable=False,
+                    null_extended_from=frozenset(),
+                    entity_kind="edge",
+                )
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError, match="node alias"):
+        LogicalPlanner().plan(bound_ir, PlanContext())
+
+
+def test_logical_planner_rejects_unwind_without_exactly_one_new_alias() -> None:
+    base_vars = {
+        "n": BoundVariable(
+            name="n",
+            logical_type=NodeRef(labels=frozenset({"Person"})),
+            nullable=False,
+            null_extended_from=frozenset(),
+            entity_kind="node",
+        ),
+        "x": BoundVariable(
+            name="x",
+            logical_type=ScalarType(kind="int", nullable=False),
+            nullable=False,
+            null_extended_from=frozenset(),
+            entity_kind="scalar",
+        ),
+        "y": BoundVariable(
+            name="y",
+            logical_type=ScalarType(kind="int", nullable=False),
+            nullable=False,
+            null_extended_from=frozenset(),
+            entity_kind="scalar",
+        ),
+    }
+
+    no_new_alias = BoundIR(
+        query_parts=[
+            BoundQueryPart(clause="MATCH", outputs=frozenset({"n"})),
+            BoundQueryPart(
+                clause="UNWIND",
+                inputs=frozenset({"n"}),
+                outputs=frozenset({"n"}),
+                metadata={"expression": "[1, 2, 3]"},
+            ),
+        ],
+        semantic_table=SemanticTable(variables=base_vars),
+    )
+    with pytest.raises(GFQLValidationError, match="exactly one output alias"):
+        LogicalPlanner().plan(no_new_alias, PlanContext())
+
+    too_many_new_aliases = BoundIR(
+        query_parts=[
+            BoundQueryPart(clause="MATCH", outputs=frozenset({"n"})),
+            BoundQueryPart(
+                clause="UNWIND",
+                inputs=frozenset({"n"}),
+                outputs=frozenset({"n", "x", "y"}),
+                metadata={"expression": "[1, 2, 3]"},
+            ),
+        ],
+        semantic_table=SemanticTable(variables=base_vars),
+    )
+    with pytest.raises(GFQLValidationError, match="exactly one output alias"):
+        LogicalPlanner().plan(too_many_new_aliases, PlanContext())
+
+
+def test_logical_planner_rejects_unwind_without_list_expression() -> None:
+    bound_ir = BoundIR(
+        query_parts=[
+            BoundQueryPart(clause="MATCH", outputs=frozenset({"n"})),
+            BoundQueryPart(
+                clause="UNWIND",
+                inputs=frozenset({"n"}),
+                outputs=frozenset({"n", "x"}),
+            ),
+        ],
+        semantic_table=SemanticTable(
+            variables={
+                "n": BoundVariable(
+                    name="n",
+                    logical_type=NodeRef(labels=frozenset({"Person"})),
+                    nullable=False,
+                    null_extended_from=frozenset(),
+                    entity_kind="node",
+                ),
+                "x": BoundVariable(
+                    name="x",
+                    logical_type=ScalarType(kind="int", nullable=False),
+                    nullable=False,
+                    null_extended_from=frozenset(),
+                    entity_kind="scalar",
+                ),
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError, match="requires UNWIND list expression"):
+        LogicalPlanner().plan(bound_ir, PlanContext())

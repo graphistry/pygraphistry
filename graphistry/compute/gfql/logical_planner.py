@@ -193,10 +193,18 @@ class LogicalPlanner:
         vars_by_name: Mapping[str, BoundVariable],
         id_gen: IdGen,
     ) -> LogicalPlan:
-        unwind_var = sorted(part.outputs - part.inputs)[0] if part.outputs - part.inputs else ""
+        unwind_var = self._unwind_alias(part)
         list_expr = part.metadata.get("expression", "")
         if not list_expr and part.predicates:
             list_expr = part.predicates[0].expression
+        if not list_expr:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "LogicalPlanner skeleton requires UNWIND list expression metadata",
+                field="clause",
+                value=part.clause,
+                suggestion="Use binder-emitted UNWIND parts with expression metadata or list predicate expression.",
+            )
         return Unwind(
             op_id=id_gen.next(),
             input=current,
@@ -204,6 +212,19 @@ class LogicalPlanner:
             variable=unwind_var,
             output_schema=self._schema_for_aliases(alias_names=part.outputs, vars_by_name=vars_by_name),
         )
+
+    @staticmethod
+    def _unwind_alias(part: BoundQueryPart) -> str:
+        new_aliases = sorted(part.outputs - part.inputs)
+        if len(new_aliases) != 1:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "LogicalPlanner skeleton requires UNWIND to introduce exactly one output alias",
+                field="clause",
+                value=part.clause,
+                suggestion="Use UNWIND with one new alias (e.g., UNWIND expr AS x) until richer planning is implemented.",
+            )
+        return new_aliases[0]
 
     @staticmethod
     def _schema_for_aliases(*, alias_names: Iterable[str], vars_by_name: Mapping[str, BoundVariable]) -> RowSchema:
