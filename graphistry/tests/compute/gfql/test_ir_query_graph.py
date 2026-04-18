@@ -249,13 +249,14 @@ class TestEdgeAliases:
 
 class TestScopeBoundaries:
     def test_return_clause_splits_scope(self) -> None:
-        # RETURN acts as scope boundary the same way WITH does
+        # RETURN splits scope groups but does NOT project boundary aliases (it's terminal)
         p1 = _part("match", outputs=frozenset({"a", "b"}))
         pr = _part("return", inputs=frozenset({"a"}))
         p2 = _part("match", outputs=frozenset({"c"}))
         vars_ = {v: _var(v) for v in ("a", "b", "c")}
         qg = extract_query_graph(_ir([p1, pr, p2], vars_))
         assert len(qg.components) == 2
+        assert "a" not in qg.boundary_aliases  # RETURN is terminal, not a scope projection
 
     def test_with_multiple_inputs_all_become_boundary_aliases(self) -> None:
         p1 = _part("match", outputs=frozenset({"a", "b", "c"}))
@@ -271,3 +272,56 @@ class TestScopeBoundaries:
         pw = _part("with", inputs=frozenset({"ghost"}), outputs=frozenset())
         qg = extract_query_graph(_ir([pw], {}))
         assert "ghost" not in qg.boundary_aliases
+
+
+# ---------------------------------------------------------------------------
+# Connectivity contract and mixed-scope edge cases
+# ---------------------------------------------------------------------------
+
+class TestConnectivityContract:
+    def test_input_only_overlap_produces_separate_components(self) -> None:
+        # BoundQueryPart connectivity contract: shared aliases must appear in outputs
+        # of BOTH parts to be merged. Input-only overlap does not imply connectivity.
+        p1 = _part("match", outputs=frozenset({"a"}))
+        p2 = _part("match", inputs=frozenset({"a"}), outputs=frozenset({"b"}))
+        vars_ = {"a": _var("a"), "b": _var("b")}
+        qg = extract_query_graph(_ir([p1, p2], vars_))
+        assert len(qg.components) == 2
+        alias_sets = [set(c.node_aliases) for c in qg.components]
+        assert {"a"} in alias_sets
+        assert {"b"} in alias_sets
+
+    def test_empty_part_alongside_nonempty_creates_isolated_component(self) -> None:
+        # Empty part (no outputs) produces its own bare component alongside populated ones
+        p_nonempty = _part("match", outputs=frozenset({"a", "b"}))
+        p_empty = _part("match", outputs=frozenset())
+        vars_ = {"a": _var("a"), "b": _var("b")}
+        qg = extract_query_graph(_ir([p_nonempty, p_empty], vars_))
+        assert len(qg.components) == 2
+        node_alias_sets = [set(c.node_aliases) for c in qg.components]
+        assert {"a", "b"} in node_alias_sets
+        assert set() in node_alias_sets
+
+
+# ---------------------------------------------------------------------------
+# Optional arm edge cases
+# ---------------------------------------------------------------------------
+
+class TestOptionalArmEdgeCases:
+    def test_optional_match_with_no_nullable_outputs_produces_no_arm(self) -> None:
+        # optional_match whose outputs are all non-nullable → part_arm_ids empty → no arm
+        non_nullable = _var("r", nullable=False, null_extended_from=frozenset())
+        p1 = _part("match", outputs=frozenset({"a"}))
+        p2 = _part("optional_match", outputs=frozenset({"r"}))
+        qg = extract_query_graph(_ir([p1, p2], {"a": _var("a"), "r": non_nullable}))
+        assert qg.optional_arms == []
+
+    def test_variable_in_multiple_optional_arms(self) -> None:
+        # A variable can be nullable from two independent optional arms
+        b_var = _var("b", nullable=True, null_extended_from=frozenset({"arm_0", "arm_1"}))
+        qg = extract_query_graph(_ir([], {"b": b_var}))
+        assert len(qg.optional_arms) == 2
+        arm_ids = {a.arm_id for a in qg.optional_arms}
+        assert arm_ids == {"arm_0", "arm_1"}
+        for arm in qg.optional_arms:
+            assert "b" in arm.nullable_aliases

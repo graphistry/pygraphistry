@@ -64,6 +64,17 @@ class TestConnectedJoinPolicy:
         ops = lower_match_clause(parsed.match)  # type: ignore[union-attr]
         assert len(ops) == 5
 
+    def test_connected_comma_3_segment_chain_stitched(self) -> None:
+        """MATCH (a)-->(b),(b)-->(c),(c)-->(d): 3 segments exercise 2 stitching iterations."""
+        parsed = parse_cypher("MATCH (a)-[:R]->(b), (b)-[:R]->(c), (c)-[:R]->(d) RETURN d")
+        ops = lower_match_clause(parsed.match)  # type: ignore[union-attr]
+        assert len(ops) == 7
+        assert isinstance(ops[0], ASTNode)
+        assert ops[0]._name == "a"
+        assert ops[2]._name == "b"
+        assert ops[4]._name == "c"
+        assert ops[6]._name == "d"
+
     def test_connected_comma_pattern_executes(self) -> None:
         """End-to-end: connected comma pattern returns the joined node."""
         result = _connected_graph().gfql(
@@ -90,6 +101,12 @@ class TestDisconnectedCommaPolicy:
         with pytest.raises(GFQLValidationError) as exc_info:
             lower_match_clause(parsed.match)  # type: ignore[union-attr]
         assert "single linear connected path" in str(exc_info.value)
+
+    def test_disconnected_3_segment_comma_rejected(self) -> None:
+        """MATCH (a)-->(b),(c)-->(d),(e)-->(f): 3 disconnected segments → same stable error."""
+        parsed = parse_cypher("MATCH (a)-[:R]->(b), (c)-[:R]->(d), (e)-[:R]->(f) RETURN f")
+        with pytest.raises(GFQLValidationError, match="single linear connected path"):
+            lower_match_clause(parsed.match)  # type: ignore[union-attr]
 
 
 # ---------------------------------------------------------------------------

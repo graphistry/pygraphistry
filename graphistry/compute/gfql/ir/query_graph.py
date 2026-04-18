@@ -76,10 +76,12 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
 
     for part in bound_ir.query_parts:
         if part.clause in _BOUNDARY_CLAUSES:
-            for alias in part.inputs:
-                var = bound_ir.semantic_table.variables.get(alias)
-                if var is not None:
-                    boundary_aliases[alias] = var.logical_type
+            # Only WITH projects aliases into the next scope; RETURN is terminal.
+            if part.clause == "with":
+                for alias in part.inputs:
+                    var = bound_ir.semantic_table.variables.get(alias)
+                    if var is not None:
+                        boundary_aliases[alias] = var.logical_type
             if current_scope:
                 scope_groups.append(current_scope)
             current_scope = []
