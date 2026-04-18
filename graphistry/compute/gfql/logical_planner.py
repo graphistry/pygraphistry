@@ -230,4 +230,5 @@ class LogicalPlanner:
 
     @staticmethod
     def _aliases_for_part(part: BoundQueryPart) -> frozenset[str]:
+        # Binder guarantees one of these sets captures the active alias scope.
         return part.outputs or part.inputs
