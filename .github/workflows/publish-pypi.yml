@@ -19,6 +19,7 @@ jobs:
     name: Build and publish Python 🐍 distributions 📦 to PyPI and TestPyPI
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       id-token: write
 
     steps:
