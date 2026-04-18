@@ -88,6 +88,16 @@ def _coerce_to_pandas(g: "Plottable") -> "Plottable":
             g = g.nodes(g._nodes.toPandas(), g._node)
     except ImportError:
         pass
+    try:
+        import polars as pl
+        if isinstance(g._edges, (pl.DataFrame, pl.LazyFrame)):
+            edges_pdf = g._edges.collect().to_pandas() if isinstance(g._edges, pl.LazyFrame) else g._edges.to_pandas()
+            g = g.edges(edges_pdf, g._source, g._destination)
+        if g._nodes is not None and isinstance(g._nodes, (pl.DataFrame, pl.LazyFrame)):
+            nodes_pdf = g._nodes.collect().to_pandas() if isinstance(g._nodes, pl.LazyFrame) else g._nodes.to_pandas()
+            g = g.nodes(nodes_pdf, g._node)
+    except ImportError:
+        pass
     return g
 
 

@@ -817,7 +817,7 @@ def hypergraph(
         engine_resolved = resolve_engine(engine, raw_events)
     else:
         engine_resolved = engine
-    # Coerce input-format types (Arrow, Spark) to the resolved engine's native type
+    # Coerce input-format types (Arrow, Spark, Polars) to the resolved engine's native type
     if raw_events is not None and engine_resolved == Engine.PANDAS and not isinstance(raw_events, pd.DataFrame):
         if isinstance(raw_events, pa.Table):
             raw_events = raw_events.to_pandas()
@@ -826,6 +826,14 @@ def hypergraph(
                 from pyspark.sql import DataFrame as SparkDataFrame
                 if isinstance(raw_events, SparkDataFrame):
                     raw_events = raw_events.toPandas()
+            except ImportError:
+                pass
+            try:
+                import polars as pl
+                if isinstance(raw_events, (pl.DataFrame, pl.LazyFrame)):
+                    if isinstance(raw_events, pl.LazyFrame):
+                        raw_events = raw_events.collect()
+                    raw_events = raw_events.to_pandas()
             except ImportError:
                 pass
 

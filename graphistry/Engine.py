@@ -82,6 +82,13 @@ def resolve_engine(
         except ImportError:
             pass
 
+        try:
+            import polars as pl
+            if isinstance(g_or_df, (pl.DataFrame, pl.LazyFrame)):
+                return Engine.PANDAS
+        except ImportError:
+            pass
+
         if 'cudf.core.dataframe' in str(getmodule(g_or_df)):
             has_cudf_dependancy_, _, _ = lazy_cudf_import()
             if has_cudf_dependancy_:
