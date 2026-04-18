@@ -1174,6 +1174,41 @@ jobs:
         ./bin/test-dgl.sh
 
 
+  test-spark:
+    needs: [changes, test-minimal-python, test-gfql-core]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PIP_EXCLUDE_NEWER: "6 days"
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        lfs: true
+
+    - name: Set up Python 3.14
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.14'
+
+    - name: Install pyspark stack
+      run: |
+        sudo apt-get install -y default-jdk
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip
+        pip install pyspark pyarrow pandas requests pytest
+
+    - name: Install graphistry
+      run: |
+        source pygraphistry/bin/activate
+        pip install -e .[test]
+
+    - name: Run Spark tests
+      run: |
+        source pygraphistry/bin/activate
+        python -B -m pytest graphistry/tests/test_df_types.py -v -k spark
+
+
   test-neo4j:
     needs: [ test-minimal-python, test-gfql-core ]
     # Inherit condition from test-minimal-python

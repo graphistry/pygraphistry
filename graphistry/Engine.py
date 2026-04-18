@@ -2,6 +2,7 @@ from inspect import getmodule
 import warnings
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 from typing import Any, List, Optional, Union
 from typing_extensions import Literal
 from enum import Enum
@@ -69,6 +70,17 @@ def resolve_engine(
     
         if isinstance(g_or_df, pd.DataFrame):
             return Engine.PANDAS
+
+        # Arrow and Spark are input formats, not compute engines — coerce to pandas at call sites
+        if isinstance(g_or_df, pa.Table):
+            return Engine.PANDAS
+
+        try:
+            from pyspark.sql import DataFrame as SparkDataFrame
+            if isinstance(g_or_df, SparkDataFrame):
+                return Engine.PANDAS
+        except ImportError:
+            pass
 
         if 'cudf.core.dataframe' in str(getmodule(g_or_df)):
             has_cudf_dependancy_, _, _ = lazy_cudf_import()
