@@ -318,3 +318,204 @@ class TestCallOperationsGPU:
         
         # Should have size encoding set
         assert result2._point_size == 'score'
+
+
+class TestCpuOnlyPluginsCudfRoundTrip:
+    """Verify CPU-only plugins (igraph, graphviz) handle cuDF input end-to-end.
+
+    These tests use real cuDF DataFrames to validate:
+    1. ensure_pandas converts cuDF to pandas before entering CPU libraries
+    2. restore_engine converts output back to cuDF
+    3. Nullable integer dtypes survive the round-trip via nullable=True
+    """
+
+    @skip_gpu
+    def test_compute_igraph_cudf_round_trip(self):
+        """compute_igraph accepts cuDF input, returns cuDF output."""
+        import cudf
+
+        edges_gdf = cudf.DataFrame({'s': [0, 1, 2, 2], 'd': [1, 2, 0, 3]})
+        nodes_gdf = cudf.DataFrame({'n': [0, 1, 2, 3]})
+        g = CGFull().edges(edges_gdf, 's', 'd').nodes(nodes_gdf, 'n')
+
+        assert isinstance(g._nodes, cudf.DataFrame)
+
+        g2 = g.compute_igraph('pagerank')
+
+        assert 'pagerank' in g2._nodes.columns
+        assert isinstance(g2._nodes, cudf.DataFrame), \
+            f"Expected cuDF output but got {type(g2._nodes)}"
+        assert isinstance(g2._edges, cudf.DataFrame), \
+            f"Expected cuDF edges but got {type(g2._edges)}"
+
+    @skip_gpu
+    def test_layout_igraph_cudf_round_trip(self):
+        """layout_igraph accepts cuDF input, returns cuDF output."""
+        import cudf
+
+        edges_gdf = cudf.DataFrame({'s': [0, 1, 2, 2], 'd': [1, 2, 0, 3]})
+        nodes_gdf = cudf.DataFrame({'n': [0, 1, 2, 3]})
+        g = CGFull().edges(edges_gdf, 's', 'd').nodes(nodes_gdf, 'n')
+
+        g2 = g.layout_igraph('fr')
+
+        assert 'x' in g2._nodes.columns
+        assert 'y' in g2._nodes.columns
+        assert isinstance(g2._nodes, cudf.DataFrame), \
+            f"Expected cuDF output but got {type(g2._nodes)}"
+
+    @skip_gpu
+    def test_compute_igraph_preserves_nullable_int_dtypes(self):
+        """Nullable integer columns survive the cuDF→pandas→igraph→pandas→cuDF round-trip."""
+        import cudf
+
+        nodes_gdf = cudf.DataFrame({
+            'n': cudf.Series([0, 1, 2, 3], dtype='int64'),
+            'group': cudf.Series([10, None, 30, None], dtype='Int64'),
+        })
+        edges_gdf = cudf.DataFrame({'s': [0, 1, 2, 2], 'd': [1, 2, 0, 3]})
+        g = CGFull().edges(edges_gdf, 's', 'd').nodes(nodes_gdf, 'n')
+
+        g2 = g.compute_igraph('pagerank')
+
+        assert isinstance(g2._nodes, cudf.DataFrame)
+        # The 'group' column with nulls should not have become float
+        assert g2._nodes['group'].null_count == 2
+
+    @skip_gpu
+    def test_execute_call_compute_igraph_cudf_engine(self):
+        """execute_call with compute_igraph preserves cuDF through the GFQL call path."""
+        import cudf
+
+        edges_gdf = cudf.DataFrame({'source': [0, 1, 2, 2], 'target': [1, 2, 0, 3]})
+        nodes_gdf = cudf.DataFrame({'node': [0, 1, 2, 3]})
+        g = CGFull().edges(edges_gdf, 'source', 'target').nodes(nodes_gdf, 'node')
+
+        result = execute_call(g, 'compute_igraph', {'alg': 'pagerank'}, Engine.CUDF)
+
+        assert 'pagerank' in result._nodes.columns
+        assert isinstance(result._nodes, cudf.DataFrame), \
+            f"Expected cuDF output but got {type(result._nodes)}"
+
+    @skip_gpu
+    def testensure_pandas_uses_nullable_on_real_cudf(self):
+        """ensure_pandas calls to_pandas(nullable=True) on real cuDF DataFrames."""
+        import cudf
+        from graphistry.compute.engine_coercion import ensure_pandas
+
+        gdf = cudf.DataFrame({
+            'id': cudf.Series([1, 2, 3, None], dtype='Int64'),
+        })
+
+        result = ensure_pandas(gdf)
+
+        assert isinstance(result, pd.DataFrame)
+        assert not isinstance(result, cudf.DataFrame)
+        # nullable=True should preserve Int64, not downgrade to float64
+        assert result['id'].dtype == pd.Int64Dtype(), \
+            f"Expected Int64 but got {result['id'].dtype}"
+
+    @skip_gpu
+    def testrestore_engine_converts_pandas_back_to_cudf(self):
+        """restore_engine detects original cuDF engine and converts back."""
+        import cudf
+        from graphistry.compute.engine_coercion import restore_engine
+
+        edges_gdf = cudf.DataFrame({'source': [0, 1, 2, 2], 'target': [1, 2, 0, 3]})
+        nodes_gdf = cudf.DataFrame({'node': [0, 1, 2, 3]})
+        g = CGFull().edges(edges_gdf, 'source', 'target').nodes(nodes_gdf, 'node')
+
+        # Simulate what igraph does: convert to pandas result
+        g_pandas = g.nodes(g._nodes.to_pandas(), 'node').edges(
+            g._edges.to_pandas(), 'source', 'target')
+
+        result = restore_engine(g_pandas, nodes_gdf, edges_gdf)
+
+        assert isinstance(result._nodes, cudf.DataFrame), \
+            f"Expected cuDF nodes but got {type(result._nodes)}"
+        assert isinstance(result._edges, cudf.DataFrame), \
+            f"Expected cuDF edges but got {type(result._edges)}"
+
+    @skip_gpu
+    def test_layout_graphviz_cudf_round_trip(self):
+        """layout_graphviz accepts cuDF input, returns cuDF output."""
+        import cudf
+        try:
+            import pygraphviz  # noqa: F401
+        except ImportError:
+            pytest.skip("pygraphviz not installed")
+
+        edges_gdf = cudf.DataFrame({'s': [0, 1, 2], 'd': [1, 2, 0]})
+        nodes_gdf = cudf.DataFrame({'n': [0, 1, 2]})
+        g = CGFull().edges(edges_gdf, 's', 'd').nodes(nodes_gdf, 'n')
+
+        g2 = g.layout_graphviz('dot')
+
+        assert 'x' in g2._nodes.columns
+        assert 'y' in g2._nodes.columns
+        assert isinstance(g2._nodes, cudf.DataFrame), \
+            f"Expected cuDF output but got {type(g2._nodes)}"
+        assert isinstance(g2._edges, cudf.DataFrame), \
+            f"Expected cuDF edges but got {type(g2._edges)}"
+
+    @skip_gpu
+    def test_layout_graphviz_preserves_node_attributes(self):
+        """layout_graphviz preserves existing cuDF node attributes through round-trip."""
+        import cudf
+        try:
+            import pygraphviz  # noqa: F401
+        except ImportError:
+            pytest.skip("pygraphviz not installed")
+
+        nodes_gdf = cudf.DataFrame({
+            'n': [0, 1, 2],
+            'score': [1.5, 2.5, 3.5],
+        })
+        edges_gdf = cudf.DataFrame({'s': [0, 1, 2], 'd': [1, 2, 0]})
+        g = CGFull().edges(edges_gdf, 's', 'd').nodes(nodes_gdf, 'n')
+
+        g2 = g.layout_graphviz('dot')
+
+        assert 'score' in g2._nodes.columns
+        assert 'x' in g2._nodes.columns
+        assert len(g2._nodes) == 3
+
+    @skip_gpu
+    def test_layout_graphviz_preserves_nullable_int_dtypes(self):
+        """Nullable integer columns survive the cuDF→graphviz→cuDF round-trip."""
+        import cudf
+        try:
+            import pygraphviz  # noqa: F401
+        except ImportError:
+            pytest.skip("pygraphviz not installed")
+
+        nodes_gdf = cudf.DataFrame({
+            'n': cudf.Series([0, 1, 2], dtype='int64'),
+            'group': cudf.Series([10, None, 30], dtype='Int64'),
+        })
+        edges_gdf = cudf.DataFrame({'s': [0, 1, 2], 'd': [1, 2, 0]})
+        g = CGFull().edges(edges_gdf, 's', 'd').nodes(nodes_gdf, 'n')
+
+        g2 = g.layout_graphviz('dot')
+
+        assert isinstance(g2._nodes, cudf.DataFrame)
+        assert g2._nodes['group'].null_count == 1
+
+    @skip_gpu
+    def test_execute_call_layout_graphviz_cudf_engine(self):
+        """execute_call with layout_graphviz preserves cuDF through the GFQL call path."""
+        import cudf
+        try:
+            import pygraphviz  # noqa: F401
+        except ImportError:
+            pytest.skip("pygraphviz not installed")
+
+        edges_gdf = cudf.DataFrame({'source': [0, 1, 2], 'target': [1, 2, 0]})
+        nodes_gdf = cudf.DataFrame({'node': [0, 1, 2]})
+        g = CGFull().edges(edges_gdf, 'source', 'target').nodes(nodes_gdf, 'node')
+
+        result = execute_call(g, 'layout_graphviz', {'prog': 'dot'}, Engine.CUDF)
+
+        assert 'x' in result._nodes.columns
+        assert isinstance(result._nodes, cudf.DataFrame), \
+            f"Expected cuDF output but got {type(result._nodes)}"
