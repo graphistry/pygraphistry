@@ -1181,7 +1181,7 @@ jobs:
     - name: Install graphistry
       run: |
         source pygraphistry/bin/activate
-        pip install -e .[test] --no-deps
+        pip install -e .[test]
 
     - name: Run Spark tests
       run: |
