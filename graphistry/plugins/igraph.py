@@ -1,6 +1,7 @@
 import pandas as pd
 from typing import Any, List, Optional
 from graphistry.constants import NODE
+from graphistry.Engine import Engine, EngineAbstract, df_to_engine, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 logger = setup_logger(__name__)
@@ -21,27 +22,15 @@ def _ensure_pandas(df: Any) -> pd.DataFrame:
         return df.to_pandas()
 
 
-def _resolve_original_engine(df: Any):
-    """Detect the Engine of a DataFrame, or None if it's already pandas."""
-    if isinstance(df, pd.DataFrame):
-        return None
-    try:
-        from graphistry.Engine import EngineAbstract, resolve_engine
-        return resolve_engine(EngineAbstract.AUTO, df)
-    except Exception:
-        return None
-
-
 def _restore_engine(g: Plottable, original_nodes: Any, original_edges: Any) -> Plottable:
     """Convert result DataFrames back to the original engine if needed.
 
     Detects the engine from the original input frames and converts back.
     Failures are logged and the pandas result is returned as-is.
     """
-    from graphistry.Engine import df_to_engine
-
-    engine = _resolve_original_engine(original_nodes) or _resolve_original_engine(original_edges)
-    if engine is None:
+    ref = original_nodes if original_nodes is not None else original_edges
+    engine = resolve_engine(EngineAbstract.AUTO, ref)
+    if engine == Engine.PANDAS:
         return g
 
     try:
@@ -159,7 +148,7 @@ def from_igraph(self,
                 logger.warning('node tables do not match in length; switch merge_if_existing to False or load_nodes to False or add missing nodes')
 
             g_nodes_trimmed = g._nodes[[x for x in g._nodes if x not in nodes_df or x == g._node]]
-            nodes_df = nodes_df.merge(g_nodes_trimmed, how='left', on=g._node)
+            nodes_df = nodes_df.merge(_ensure_pandas(g_nodes_trimmed), how='left', on=g._node)
 
         nodes_df = nodes_df.reset_index(drop=True)
         g = g.nodes(nodes_df, node_col)
@@ -252,7 +241,7 @@ def from_igraph(self,
                 if len(g._edges) != len(edges_df):
                     logger.warning('edge tables do not match in length; switch merge_if_existing to False or load_edges to False or add missing edges')
                 g_edges_trimmed = g_indexed._edges[[x for x in g_indexed._edges if x not in edges_df or x == g_indexed._edge]]
-                edges_df = edges_df.merge(g_edges_trimmed, how='left', on=g_indexed._edge)
+                edges_df = edges_df.merge(_ensure_pandas(g_edges_trimmed), how='left', on=g_indexed._edge)
 
             if g._edge is None:
                 edges_df = edges_df[[x for x in edges_df if x != g_indexed._edge]]

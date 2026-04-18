@@ -92,7 +92,9 @@ def g_with_pgv_layout(g: Plottable, graph: AGraph) -> Plottable:
         x, y = float(pos[0]), float(pos[1])
         node_positions.append({g._node: str(node), 'x': x, 'y': y})
     positions_df = pd.DataFrame(node_positions)
-    nodes_df = positions_df.merge(g._nodes, on=g._node, how='left')
+    g_nodes_pdf = _ensure_pandas(g._nodes)
+    positions_df[g._node] = positions_df[g._node].astype(g_nodes_pdf[g._node].dtype)
+    nodes_df = positions_df.merge(g_nodes_pdf, on=g._node, how='left')
 
     return g.nodes(nodes_df)
 
