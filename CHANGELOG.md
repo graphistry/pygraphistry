@@ -12,6 +12,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **CI / docs**: `test-readme` no longer runs `actions/setup-python` with an EOL Python 3.8 pin. The job now runs markdown lint directly via its Docker image, removing an unnecessary setup step and avoiding intermittent Python toolcache fetch timeouts.
 - **CI / build lane**: `test-build` now runs on Python 3.14 with `build-py3.14.lock` instead of a fixed Python 3.8 runner, reducing reliance on EOL interpreter setup while preserving explicit 3.8 compatibility test lanes elsewhere in CI.
 
+### Fixed
+- **DataFrame input types**: `pa.Table` (Apache Arrow) now works in `materialize_nodes()`, `get_degrees()`, `get_indegrees()`, `get_outdegrees()`, and `hypergraph()` without crashing. Arrow tables are coerced to pandas at each entry boundary; pandas/cuDF paths are unaffected. Adds `test_df_types.py` covering Arrow compute and hypergraph paths (#1132).
+
 ### Added
 - **GFQL / Cypher**: Extracted `ASTNormalizer` into `graphistry/compute/gfql/cypher/ast_normalizer.py` and moved shortestPath + WHERE-pattern-predicate rewrite ownership out of `lowering.py`, with parity-preserving wiring in compile/lowering flows and focused regression coverage for rewrite behavior and invocation order (#1117).
 - **GFQL / Cypher compiler**: Lowering now functionally consumes `BoundIR` metadata for the M1 integration slice: binder-provided params are merged into effective lowering params (runtime overrides preserved) with binder metadata keys filtered out of runtime-param resolution, scope membership narrowing uses the active scope frame for WITH-boundary correctness, semantic-table entity kinds inform alias table routing, and nullable alias metadata is wired into optional-only alias detection. `_StageScope` duplicated table bookkeeping was reduced, binder now runs pre- and post-normalization in compile flow, and binder-path regression tests were added for these code paths (#1116).
