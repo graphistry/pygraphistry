@@ -1,6 +1,6 @@
-"""Cycle-policy regression locks for M2-PR2 (issue #1135).
+"""Cycle-policy regression locks — lowering.py behavioral contracts.
 
-These tests lock the current lowering.py contract for:
+Locks the current lowering.py contract for:
   1. Same-MATCH repeated alias (connected comma pattern) — rewrite succeeds
   2. Disconnected comma pattern — raises stable error
   3. Cross-WITH scalar alias reused as node variable — raises stable compiler error message
@@ -11,9 +11,8 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
-import graphistry
 
-from graphistry.compute.ast import ASTNode, ASTEdgeForward
+from graphistry.compute.ast import ASTNode
 from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.compute.gfql.cypher import lower_match_clause, parse_cypher
 from graphistry.tests.test_compute import CGFull

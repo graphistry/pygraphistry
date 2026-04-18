@@ -1,17 +1,16 @@
-"""Tests for QueryGraph extraction from BoundIR (issue #1135 / M2-PR2).
+"""Tests for QueryGraph extraction from BoundIR.
 
 Covers:
   - Empty BoundIR → empty QueryGraph
   - Single MATCH scope → one ConnectedComponent with correct aliases
   - Two parts sharing alias → merged into one component (connected)
   - Two parts with no shared aliases → two distinct components
-  - WITH boundary → aliases crossing it land in boundary_aliases
+  - WITH/RETURN boundary → aliases crossing it land in boundary_aliases
   - OPTIONAL arm variables → OptionalArm with correct nullable_aliases
   - Optional join_aliases (aliases shared between optional and required parts)
+  - Edge variable classification into edge_aliases
 """
 from __future__ import annotations
-
-import pytest
 
 from graphistry.compute.gfql.ir.bound_ir import (
     BoundIR,
@@ -20,12 +19,10 @@ from graphistry.compute.gfql.ir.bound_ir import (
     SemanticTable,
 )
 from graphistry.compute.gfql.ir.query_graph import (
-    ConnectedComponent,
-    OptionalArm,
     QueryGraph,
     extract_query_graph,
 )
-from graphistry.compute.gfql.ir.types import NodeRef, ScalarType
+from graphistry.compute.gfql.ir.types import EdgeRef, NodeRef
 
 
 # ---------------------------------------------------------------------------
@@ -39,6 +36,16 @@ def _var(name: str, nullable: bool = False, null_extended_from: frozenset[str] =
         nullable=nullable,
         null_extended_from=null_extended_from,
         entity_kind="node",
+    )
+
+
+def _edge_var(name: str) -> BoundVariable:
+    return BoundVariable(
+        name=name,
+        logical_type=EdgeRef(),
+        nullable=False,
+        null_extended_from=frozenset(),
+        entity_kind="edge",
     )
 
 
@@ -211,3 +218,56 @@ class TestOptionalArms:
         qg = extract_query_graph(_ir([], {"b": v1, "c": v2}))
         assert len(qg.optional_arms) == 1
         assert {"b", "c"} == qg.optional_arms[0].nullable_aliases
+
+
+# ---------------------------------------------------------------------------
+# Edge aliases
+# ---------------------------------------------------------------------------
+
+class TestEdgeAliases:
+    def test_edge_var_goes_to_edge_aliases(self) -> None:
+        part = _part("match", outputs=frozenset({"n", "r", "m"}))
+        vars_ = {"n": _var("n"), "r": _edge_var("r"), "m": _var("m")}
+        qg = extract_query_graph(_ir([part], vars_))
+        assert len(qg.components) == 1
+        comp = qg.components[0]
+        assert set(comp.edge_aliases) == {"r"}
+        assert set(comp.node_aliases) == {"n", "m"}
+
+    def test_alias_without_semantic_table_entry_goes_to_node_aliases(self) -> None:
+        # Alias present in part.outputs but absent from semantic_table → defaults to node_aliases
+        part = _part("match", outputs=frozenset({"x"}))
+        qg = extract_query_graph(_ir([part], {}))
+        comp = qg.components[0]
+        assert "x" in comp.node_aliases
+        assert comp.edge_aliases == []
+
+
+# ---------------------------------------------------------------------------
+# Scope boundary edge cases
+# ---------------------------------------------------------------------------
+
+class TestScopeBoundaries:
+    def test_return_clause_splits_scope(self) -> None:
+        # RETURN acts as scope boundary the same way WITH does
+        p1 = _part("match", outputs=frozenset({"a", "b"}))
+        pr = _part("return", inputs=frozenset({"a"}))
+        p2 = _part("match", outputs=frozenset({"c"}))
+        vars_ = {v: _var(v) for v in ("a", "b", "c")}
+        qg = extract_query_graph(_ir([p1, pr, p2], vars_))
+        assert len(qg.components) == 2
+
+    def test_with_multiple_inputs_all_become_boundary_aliases(self) -> None:
+        p1 = _part("match", outputs=frozenset({"a", "b", "c"}))
+        pw = _part("with", inputs=frozenset({"a", "b"}), outputs=frozenset({"a", "b"}))
+        vars_ = {v: _var(v) for v in ("a", "b", "c")}
+        qg = extract_query_graph(_ir([p1, pw], vars_))
+        assert "a" in qg.boundary_aliases
+        assert "b" in qg.boundary_aliases
+        assert "c" not in qg.boundary_aliases
+
+    def test_with_input_missing_from_semantic_table_skipped_gracefully(self) -> None:
+        # The WITH references an alias that was never bound → no crash, no boundary entry
+        pw = _part("with", inputs=frozenset({"ghost"}), outputs=frozenset())
+        qg = extract_query_graph(_ir([pw], {}))
+        assert "ghost" not in qg.boundary_aliases

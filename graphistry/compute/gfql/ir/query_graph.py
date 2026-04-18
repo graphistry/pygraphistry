@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, List, Set
+from typing import TYPE_CHECKING, Dict, FrozenSet, List, Set
 
 from graphistry.compute.gfql.ir.types import BoundPredicate, LogicalType
 
 if TYPE_CHECKING:
-    from graphistry.compute.gfql.ir.bound_ir import BoundIR
+    from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart
 
 
 @dataclass(frozen=True)
@@ -15,13 +15,17 @@ class OptionalArm:
     """OPTIONAL MATCH arm metadata."""
 
     arm_id: str
-    join_aliases: frozenset = field(default_factory=frozenset)
-    nullable_aliases: frozenset = field(default_factory=frozenset)
+    join_aliases: FrozenSet[str] = field(default_factory=frozenset)
+    nullable_aliases: FrozenSet[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)
 class ConnectedComponent:
-    """Connected pattern component."""
+    """Connected pattern component.
+
+    ``predicates``, ``entry_points``, and ``hop_order`` are populated by a
+    later physical-planning pass; ``extract_query_graph`` leaves them empty.
+    """
 
     node_aliases: List[str] = field(default_factory=list)
     edge_aliases: List[str] = field(default_factory=list)
@@ -66,9 +70,9 @@ _BOUNDARY_CLAUSES: Set[str] = {"with", "return"}
 def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
     """Build a QueryGraph from a BoundIR by walking query_parts."""
     # --- 1. Split into scope groups; collect boundary aliases from WITH ---
-    scope_groups: List[List] = []
+    scope_groups: List[List[BoundQueryPart]] = []
     boundary_aliases: Dict[str, LogicalType] = {}
-    current_scope: List = []
+    current_scope: List[BoundQueryPart] = []
 
     for part in bound_ir.query_parts:
         if part.clause in _BOUNDARY_CLAUSES:
