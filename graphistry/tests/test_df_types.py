@@ -3,7 +3,8 @@
 Tests for uniform DataFrame type handling across compute and hypergraph paths.
 Covers graphistry/pygraphistry#1132.
 
-pa.Table should work everywhere pd.DataFrame works for:
+pa.Table (Apache Arrow) and pyspark.DataFrame should work everywhere
+pd.DataFrame works for:
   - materialize_nodes()
   - get_degrees() / get_indegrees() / get_outdegrees()
   - hypergraph()
@@ -136,6 +137,41 @@ class TestArrowCompute(NoAuthTestCase):
         with self.assertRaises(Exception):
             g.materialize_nodes()
 
+    def test_materialize_nodes_arrow_edges_pandas_nodes(self):
+        """Arrow edges + pandas nodes (mixed) → coerce edges, reuse pandas nodes."""
+        g = (
+            CGFull()
+            .edges(EDGES_ARROW, "src", "dst")
+            .nodes(NODES_PD, "id")
+            .materialize_nodes()
+        )
+        self.assertIsInstance(g._nodes, pd.DataFrame)
+        self.assertIn("v", g._nodes.columns)
+        self.assertEqual(sorted(g._nodes["id"].tolist()), ["a", "b", "c"])
+
+    def test_materialize_nodes_pandas_edges_arrow_nodes(self):
+        """pandas edges + Arrow nodes (mixed) → coerce nodes, reuse as pandas."""
+        g = (
+            CGFull()
+            .edges(EDGES_PD, "src", "dst")
+            .nodes(NODES_ARROW, "id")
+            .materialize_nodes()
+        )
+        self.assertIsInstance(g._nodes, pd.DataFrame)
+        self.assertIn("v", g._nodes.columns)
+
+    def test_get_degrees_arrow_with_nodes(self):
+        """Arrow edges + Arrow nodes (pre-populated) → get_degrees coerces both."""
+        g = (
+            CGFull()
+            .edges(EDGES_ARROW, "src", "dst")
+            .nodes(NODES_ARROW, "id")
+            .get_degrees()
+        )
+        self.assertIsInstance(g._nodes, pd.DataFrame)
+        self.assertIn("degree", g._nodes.columns)
+        self.assertIn("v", g._nodes.columns)
+
 
 # ---------------------------------------------------------------------------
 # Arrow: hypergraph path
@@ -178,6 +214,14 @@ class TestArrowHypergraph(NoAuthTestCase):
             len(h_arrow["graph"]._edges),
             "Edge count should match between pandas and Arrow inputs"
         )
+
+    def test_hypergraph_arrow_with_entity_types(self):
+        """Arrow events with explicit entity_types filter → correct subset of nodes."""
+        h = graphistry.hypergraph(EVENTS_ARROW, entity_types=["user"], verbose=False)
+        g = h["graph"]
+        self.assertIsInstance(g._nodes, pd.DataFrame)
+        self.assertGreater(len(g._nodes), 0)
+        self.assertGreater(len(g._edges), 0)
 
 
 # ---------------------------------------------------------------------------

@@ -187,7 +187,7 @@ class ComputeMixin(Plottable):
         if engine != EngineAbstract.AUTO:
             g = ensure_local_engine_match(g, Engine(engine.value))
 
-        # Coerce input-format types (Arrow, etc.) to pandas before any engine logic
+        # Coerce input-format types (Arrow, Spark) to pandas before any engine logic
         g = _coerce_to_pandas(g)
 
         if reuse:
