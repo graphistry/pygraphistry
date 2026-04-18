@@ -4,7 +4,7 @@ import tempfile
 import pandas as pd
 
 from graphistry.Plottable import Plottable
-from graphistry.plugins.igraph import _ensure_pandas, _restore_engine
+from graphistry.compute.engine_coercion import ensure_pandas, restore_engine
 from graphistry.plugins_types.graphviz_types import (
     AGraph,
     EDGE_ATTRS, FORMATS, GRAPH_ATTRS, NODE_ATTRS, PROGS, UNSANITARY_ATTRS,
@@ -52,7 +52,7 @@ def g_to_pgv(
         if x_col and y_col and x_col in g._nodes.columns and y_col in g._nodes.columns:
             pos_cols = (x_col, y_col)
 
-    nodes_pdf = _ensure_pandas(g._nodes)
+    nodes_pdf = ensure_pandas(g._nodes)
     for _, row in nodes_pdf.iterrows():
         attrs = {c: row[c] for c in node_attr_cols if row[c] is not None}
         if pos_cols is not None:
@@ -72,7 +72,7 @@ def g_to_pgv(
             if d in UNSANITARY_ATTRS:
                 raise ValueError(f"Unsanitary edge_attr {d} is not allowed")
 
-    edges_pdf = _ensure_pandas(g._edges)
+    edges_pdf = ensure_pandas(g._edges)
     for _, row in edges_pdf.iterrows():
         graph.add_edge(
             row[g._source],
@@ -92,7 +92,7 @@ def g_with_pgv_layout(g: Plottable, graph: AGraph) -> Plottable:
         x, y = float(pos[0]), float(pos[1])
         node_positions.append({g._node: str(node), 'x': x, 'y': y})
     positions_df = pd.DataFrame(node_positions)
-    g_nodes_pdf = _ensure_pandas(g._nodes)
+    g_nodes_pdf = ensure_pandas(g._nodes)
     positions_df[g._node] = positions_df[g._node].astype(g_nodes_pdf[g._node].dtype)
     nodes_df = positions_df.merge(g_nodes_pdf, on=g._node, how='left')
 
@@ -319,7 +319,7 @@ def layout_graphviz(
     else:
         g3 = g2
 
-    return _restore_engine(g3, original_nodes, original_edges)
+    return restore_engine(g3, original_nodes, original_edges)
 
 
 def render_graphviz(

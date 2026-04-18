@@ -195,3 +195,34 @@ def ensure_engine_match(g: Plottable, requested_engine: Engine) -> Plottable:
             exc_info=True
         )
         return g
+
+
+def ensure_pandas(df: Any) -> pd.DataFrame:
+    """Convert to pandas if not already (e.g. cuDF). No-op for pandas.
+
+    Uses nullable=True when available (cuDF >= 22.02) to preserve nullable
+    integer dtypes through the round-trip, avoiding silent Int64 to float64
+    conversion when nulls are present.
+    """
+    if isinstance(df, pd.DataFrame):
+        return df
+    try:
+        return df.to_pandas(nullable=True)
+    except TypeError:
+        return df.to_pandas()
+
+
+def restore_engine(g: Plottable, original_nodes: Any, original_edges: Any) -> Plottable:
+    """Convert result DataFrames back to the original engine if needed.
+
+    Detects the engine from the original input frames and converts back
+    via :func:`ensure_local_engine_match`. No-op when types already match.
+    Failures are logged and the pandas result is returned as-is.
+    """
+    ref = original_nodes if original_nodes is not None else original_edges
+    try:
+        engine = resolve_engine(EngineAbstract.AUTO, ref)
+        return ensure_local_engine_match(g, engine)
+    except Exception:
+        logger.warning("Failed to restore engine for graph", exc_info=True)
+        return g

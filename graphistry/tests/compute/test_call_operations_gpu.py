@@ -324,8 +324,8 @@ class TestCpuOnlyPluginsCudfRoundTrip:
     """Verify CPU-only plugins (igraph, graphviz) handle cuDF input end-to-end.
 
     These tests use real cuDF DataFrames to validate:
-    1. _ensure_pandas converts cuDF to pandas before entering CPU libraries
-    2. _restore_engine converts output back to cuDF
+    1. ensure_pandas converts cuDF to pandas before entering CPU libraries
+    2. restore_engine converts output back to cuDF
     3. Nullable integer dtypes survive the round-trip via nullable=True
     """
 
@@ -398,16 +398,16 @@ class TestCpuOnlyPluginsCudfRoundTrip:
             f"Expected cuDF output but got {type(result._nodes)}"
 
     @skip_gpu
-    def test_ensure_pandas_uses_nullable_on_real_cudf(self):
-        """_ensure_pandas calls to_pandas(nullable=True) on real cuDF DataFrames."""
+    def testensure_pandas_uses_nullable_on_real_cudf(self):
+        """ensure_pandas calls to_pandas(nullable=True) on real cuDF DataFrames."""
         import cudf
-        from graphistry.plugins.igraph import _ensure_pandas
+        from graphistry.compute.engine_coercion import ensure_pandas
 
         gdf = cudf.DataFrame({
             'id': cudf.Series([1, 2, 3, None], dtype='Int64'),
         })
 
-        result = _ensure_pandas(gdf)
+        result = ensure_pandas(gdf)
 
         assert isinstance(result, pd.DataFrame)
         assert not isinstance(result, cudf.DataFrame)
@@ -416,10 +416,10 @@ class TestCpuOnlyPluginsCudfRoundTrip:
             f"Expected Int64 but got {result['id'].dtype}"
 
     @skip_gpu
-    def test_restore_engine_converts_pandas_back_to_cudf(self):
-        """_restore_engine detects original cuDF engine and converts back."""
+    def testrestore_engine_converts_pandas_back_to_cudf(self):
+        """restore_engine detects original cuDF engine and converts back."""
         import cudf
-        from graphistry.plugins.igraph import _restore_engine
+        from graphistry.compute.engine_coercion import restore_engine
 
         edges_gdf = cudf.DataFrame({'source': [0, 1, 2, 2], 'target': [1, 2, 0, 3]})
         nodes_gdf = cudf.DataFrame({'node': [0, 1, 2, 3]})
@@ -429,7 +429,7 @@ class TestCpuOnlyPluginsCudfRoundTrip:
         g_pandas = g.nodes(g._nodes.to_pandas(), 'node').edges(
             g._edges.to_pandas(), 'source', 'target')
 
-        result = _restore_engine(g_pandas, nodes_gdf, edges_gdf)
+        result = restore_engine(g_pandas, nodes_gdf, edges_gdf)
 
         assert isinstance(result._nodes, cudf.DataFrame), \
             f"Expected cuDF nodes but got {type(result._nodes)}"

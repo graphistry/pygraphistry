@@ -1,49 +1,29 @@
 import pandas as pd
 from typing import Any, List, Optional
 from graphistry.constants import NODE
-from graphistry.Engine import Engine, EngineAbstract, df_to_engine, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 logger = setup_logger(__name__)
 
 
-def _ensure_pandas(df: Any) -> pd.DataFrame:
+def ensure_pandas(df: Any) -> pd.DataFrame:
     """Convert to pandas if not already (e.g. cuDF). No-op for pandas.
 
-    Uses nullable=True when available (cuDF >= 22.02) to preserve nullable
-    integer dtypes through the round-trip, avoiding silent Int64 to float64
-    conversion when nulls are present.
+    Delegates to :func:`graphistry.compute.engine_coercion.ensure_pandas`.
+    Defined here to avoid a circular import at module load time.
     """
-    if isinstance(df, pd.DataFrame):
-        return df
-    try:
-        return df.to_pandas(nullable=True)
-    except TypeError:
-        return df.to_pandas()
+    from graphistry.compute.engine_coercion import ensure_pandas as _impl
+    return _impl(df)
 
 
-def _restore_engine(g: Plottable, original_nodes: Any, original_edges: Any) -> Plottable:
+def restore_engine(g: Plottable, original_nodes: Any, original_edges: Any) -> Plottable:
     """Convert result DataFrames back to the original engine if needed.
 
-    Detects the engine from the original input frames and converts back.
-    Failures are logged and the pandas result is returned as-is.
+    Delegates to :func:`graphistry.compute.engine_coercion.restore_engine`.
+    Defined here to avoid a circular import at module load time.
     """
-    ref = original_nodes if original_nodes is not None else original_edges
-    engine = resolve_engine(EngineAbstract.AUTO, ref)
-    if engine == Engine.PANDAS:
-        return g
-
-    try:
-        if g._nodes is not None:
-            g = g.nodes(df_to_engine(g._nodes, engine), g._node)
-        if g._edges is not None:
-            g = g.edges(
-                df_to_engine(g._edges, engine),
-                g._source, g._destination, edge=g._edge,
-            )
-    except Exception:
-        logger.warning("Failed to restore %s engine for graph", engine.value, exc_info=True)
-    return g
+    from graphistry.compute.engine_coercion import restore_engine as _impl
+    return _impl(g, original_nodes, original_edges)
 
 
 # preferring igraph naming convetions over graphistry.constants
@@ -148,7 +128,7 @@ def from_igraph(self,
                 logger.warning('node tables do not match in length; switch merge_if_existing to False or load_nodes to False or add missing nodes')
 
             g_nodes_trimmed = g._nodes[[x for x in g._nodes if x not in nodes_df or x == g._node]]
-            nodes_df = nodes_df.merge(_ensure_pandas(g_nodes_trimmed), how='left', on=g._node)
+            nodes_df = nodes_df.merge(ensure_pandas(g_nodes_trimmed), how='left', on=g._node)
 
         nodes_df = nodes_df.reset_index(drop=True)
         g = g.nodes(nodes_df, node_col)
@@ -241,7 +221,7 @@ def from_igraph(self,
                 if len(g._edges) != len(edges_df):
                     logger.warning('edge tables do not match in length; switch merge_if_existing to False or load_edges to False or add missing edges')
                 g_edges_trimmed = g_indexed._edges[[x for x in g_indexed._edges if x not in edges_df or x == g_indexed._edge]]
-                edges_df = edges_df.merge(_ensure_pandas(g_edges_trimmed), how='left', on=g_indexed._edge)
+                edges_df = edges_df.merge(ensure_pandas(g_edges_trimmed), how='left', on=g_indexed._edge)
 
             if g._edge is None:
                 edges_df = edges_df[[x for x in edges_df if x != g_indexed._edge]]
@@ -293,12 +273,12 @@ def to_igraph(
     #igraph expects src/dst first
     edge_attrs = g._edges.columns if edge_attributes is None else edge_attributes
     edge_attrs = [x for x in edge_attrs if x not in [g._source, g._destination]]
-    edges_df = _ensure_pandas(g._edges[[g._source, g._destination] + edge_attrs])
+    edges_df = ensure_pandas(g._edges[[g._source, g._destination] + edge_attrs])
 
     #igraph expects node first
     node_attrs = g._nodes if node_attributes is None else node_attributes
     node_attrs = [x for x in node_attrs if x != g._node]
-    nodes_df = _ensure_pandas(g._nodes[[g._node] + node_attrs])
+    nodes_df = ensure_pandas(g._nodes[[g._node] + node_attrs])
     return igraph.Graph.DataFrame(
         edges_df, directed=directed, vertices=nodes_df, use_vids=use_vids
     )
@@ -449,7 +429,7 @@ def compute_igraph(
     elif isinstance(out, igraph.clustering.VertexDendrogram):
         clustering = out.as_clustering().membership
     elif isinstance(out, igraph.Graph):
-        return _restore_engine(from_igraph(self, out), original_nodes, original_edges)
+        return restore_engine(from_igraph(self, out), original_nodes, original_edges)
     elif isinstance(out, list) and self._nodes is None:
         raise ValueError("No g._nodes table found; use .bind(), .nodes(), .materialize_nodes()")
     elif alg == 'articulation_points':
@@ -474,7 +454,7 @@ def compute_igraph(
 
     ig.vs[out_col] = clustering
 
-    return _restore_engine(self.from_igraph(ig), original_nodes, original_edges)
+    return restore_engine(self.from_igraph(ig), original_nodes, original_edges)
 
 
 layout_algs: List[str] = [
@@ -599,4 +579,4 @@ def layout_igraph(
         g2 = g2.bind(point_x=x_out_col, point_y=y_out_col)
     if play is not None:
         g2 = g2.layout_settings(play=play)
-    return _restore_engine(g2, original_nodes, original_edges)
+    return restore_engine(g2, original_nodes, original_edges)
