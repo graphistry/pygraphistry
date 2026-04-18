@@ -13,7 +13,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **CI / build lane**: `test-build` now runs on Python 3.14 with `build-py3.14.lock` instead of a fixed Python 3.8 runner, reducing reliance on EOL interpreter setup while preserving explicit 3.8 compatibility test lanes elsewhere in CI.
 
 ### Fixed
-- **DataFrame input types**: `pa.Table` (Apache Arrow) now works in `materialize_nodes()`, `get_degrees()`, `get_indegrees()`, `get_outdegrees()`, and `hypergraph()` without crashing. Arrow tables are coerced to pandas at each entry boundary; pandas/cuDF paths are unaffected. Adds `test_df_types.py` covering Arrow compute and hypergraph paths (#1132).
+- **DataFrame input types**: `pa.Table` (Apache Arrow) and `pyspark.sql.DataFrame` (Spark) now work in `materialize_nodes()`, `get_degrees()`, `get_indegrees()`, `get_outdegrees()`, and `hypergraph()` without crashing. Both are coerced to pandas at each entry boundary; pandas/cuDF paths are unaffected. Mixed inputs (e.g. Arrow edges + pandas nodes) are handled correctly. Adds `test_df_types.py` with 22 tests covering Arrow compute, Arrow hypergraph, mixed-type boundaries, and Spark paths; adds a `test-spark` parallel CI job (Python 3.14, pyspark 4.x) (#1132).
 
 ### Added
 - **GFQL / Cypher**: Extracted `ASTNormalizer` into `graphistry/compute/gfql/cypher/ast_normalizer.py` and moved shortestPath + WHERE-pattern-predicate rewrite ownership out of `lowering.py`, with parity-preserving wiring in compile/lowering flows and focused regression coverage for rewrite behavior and invocation order (#1117).
