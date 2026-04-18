@@ -2,6 +2,10 @@ name: Workflow Security
 
 on:
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
     paths:
       - ".github/workflows/**"
       - ".github/actionlint.yaml"
