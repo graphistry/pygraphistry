@@ -71,6 +71,8 @@ class ClientSession:
 
         self.idp_name: Optional[str] = None
         self.sso_state: Optional[str] = None
+        self.sso_state_created_at: Optional[float] = None
+        self.sso_state_ttl_s: int = get_from_env("GRAPHISTRY_SSO_STATE_TTL_S", int, 300)
 
         self.personal_key: Optional[str] = None
         self.personal_key_id: Optional[str] = None

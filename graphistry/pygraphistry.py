@@ -19,7 +19,7 @@ from . import util
 from . import bolt_util
 from .plotter import Plotter
 from .util import in_databricks, setup_logger, in_ipython
-from .exceptions import SsoRetrieveTokenTimeoutException, TokenExpireException, SsoStateInvalidException
+from .exceptions import SsoRetrieveTokenTimeoutException, TokenExpireException, SsoStateInvalidException, SsoStateExpiredException
 
 from .messages import (
     MSG_REGISTER_MISSING_PASSWORD,
@@ -315,6 +315,7 @@ class GraphistryClient(AuthManagerProtocol):
                 self.session.org_name = org_name
                 # finish, set back to None
                 self.session.sso_state = None
+                self.session.sso_state_created_at = None
                 print("Successfully logged in")
                 self._maybe_switch_org(org_name)
                 return self.api_token()
@@ -334,6 +335,8 @@ class GraphistryClient(AuthManagerProtocol):
             #     print("Keep trying to get token ...")
             #     time.sleep(5)
 
+            ttl_s = self.session.sso_state_ttl_s
+            print(f"SSO link expires in {ttl_s // 60} minutes. If you wait longer, re-run graphistry.register() for a fresh link.")
             print("Please run graphistry.sso_get_token() to complete the authentication")
             return None
 
@@ -351,6 +354,16 @@ class GraphistryClient(AuthManagerProtocol):
         state = self.sso_state()
         if state is None:
             raise SsoStateInvalidException("[SSO] Invalid SSO state: NoneType encountered")
+
+        created_at = self.session.sso_state_created_at
+        ttl = self.session.sso_state_ttl_s
+        if created_at is not None and (time.time() - created_at) > ttl:
+            self.session.sso_state = None
+            self.session.sso_state_created_at = None
+            raise SsoStateExpiredException(
+                f"[SSO] SSO link expired (older than {ttl}s). "
+                f"Run graphistry.register(..., is_sso_login=True) to get a new link."
+            )
 
         # print("_sso_get_token : {}".format(state))
         arrow_uploader = ArrowUploader(
@@ -2494,6 +2507,7 @@ class GraphistryClient(AuthManagerProtocol):
 
         # setter
         self.session.sso_state = value.strip()
+        self.session.sso_state_created_at = time.time()
 
     def scene_settings(self, 
         menu: Optional[bool] = None,
