@@ -1232,37 +1232,6 @@ jobs:
         cd docs && ./ci.sh
 
   
-  test-spark:
-    needs: [generate-lockfiles, test-minimal-python]
-    # TODO: replace 'dgx' with the actual self-hosted DGX-Spark runner label
-    runs-on: [self-hosted, dgx]
-    timeout-minutes: 15
-    steps:
-    - uses: actions/checkout@v3
-
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12'
-
-    - uses: actions/download-artifact@v4
-      with:
-        name: lockfiles
-
-    - name: Install uv
-      run: pip install uv
-
-    - name: Install dependencies
-      run: uv pip install --system -r build-py3.12.lock
-
-    - name: Install pyspark
-      run: uv pip install --system pyspark
-
-    - name: Run Spark tests
-      run: |
-        python -B -m pytest graphistry/tests/test_df_types.py -v -k "spark" 2>&1 | tail -30
-
-
   test-readme:
     needs: [changes]
     # Run if docs changed OR infrastructure changed OR manual/scheduled run
