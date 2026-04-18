@@ -43,7 +43,7 @@ jobs:
       benchmarks: ${{ steps.filter.outputs.benchmarks }}
       docs_only_latest: ${{ steps.docs_only_latest.outputs.docs_only_latest }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         persist-credentials: false
     - uses: dorny/paths-filter@v3
@@ -144,14 +144,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 1
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         ref: ${{ github.event.pull_request.head.sha }}
         fetch-depth: 0
         persist-credentials: false
     - name: Reject plans/ files added by this PR
+      env:
+        BASE_REF: ${{ github.base_ref }}
       run: |
-        merge_base=$(git merge-base origin/${{ github.base_ref }} HEAD)
+        merge_base=$(git merge-base "origin/${BASE_REF}" HEAD)
         plans_files=$(git diff --name-only --diff-filter=ACMR "$merge_base"..HEAD -- 'plans/' || true)
         if [ -n "$plans_files" ]; then
           echo "::error::PR adds or modifies files under plans/ which is gitignored and must not be committed:"
@@ -165,12 +167,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
     - name: Set up Python 3.12
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.12"
     - name: Cache lockfiles
@@ -184,7 +186,14 @@ jobs:
       run: pip install "uv==0.11.3"  # pinned version; bump periodically
     - name: Generate lockfiles
       if: steps.lockfile-cache.outputs.cache-hit != 'true'
-      run: COOLDOWN_DAYS=${{ inputs.cooldown_days || '6' }} ./bin/generate-lockfiles.sh
+      env:
+        COOLDOWN_DAYS: ${{ inputs.cooldown_days || '6' }}
+      run: |
+        if ! [[ "${COOLDOWN_DAYS}" =~ ^[0-9]+$ ]]; then
+          echo "::error::cooldown_days must be a non-negative integer"
+          exit 1
+        fi
+        ./bin/generate-lockfiles.sh
     - name: Upload lockfiles
       uses: actions/upload-artifact@v4
       with:
@@ -200,13 +209,13 @@ jobs:
 
     steps:
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
 
     - name: Set up Python 3.12
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.12"
 
@@ -226,14 +235,18 @@ jobs:
 
     - name: Resolve tck-gfql ref
       id: tck_gfql
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        HEAD_REF: ${{ github.head_ref }}
+        REF_NAME: ${{ github.ref_name }}
       run: |
         tck_repo="https://github.com/graphistry/tck-gfql.git"
         candidate_ref="main"
 
-        if [[ "${{ github.event_name }}" == "pull_request" && -n "${{ github.head_ref }}" ]]; then
-          candidate_ref="${{ github.head_ref }}"
-        elif [[ -n "${{ github.ref_name }}" ]]; then
-          candidate_ref="${{ github.ref_name }}"
+        if [[ "${EVENT_NAME}" == "pull_request" && -n "${HEAD_REF}" ]]; then
+          candidate_ref="${HEAD_REF}"
+        elif [[ -n "${REF_NAME}" ]]; then
+          candidate_ref="${REF_NAME}"
         fi
 
         tck_ref="main"
@@ -274,7 +287,7 @@ jobs:
 
     steps:
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -286,7 +299,7 @@ jobs:
         path: requirements
 
     - name: Set up Python 3.12
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.12"
 
@@ -334,7 +347,7 @@ jobs:
     
     steps:
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -346,7 +359,7 @@ jobs:
         path: requirements
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -376,7 +389,7 @@ jobs:
     timeout-minutes: 6
     steps:
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
 
@@ -387,7 +400,7 @@ jobs:
         path: requirements
 
     - name: Set up Python 3.12
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.12"
 
@@ -426,7 +439,7 @@ jobs:
     timeout-minutes: 10
     steps:
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
 
@@ -437,7 +450,7 @@ jobs:
         path: requirements
 
     - name: Set up Python 3.12
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.12"
 
@@ -487,7 +500,7 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -500,7 +513,7 @@ jobs:
         path: requirements
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -553,7 +566,7 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -566,7 +579,7 @@ jobs:
         path: requirements
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -605,7 +618,7 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -617,7 +630,7 @@ jobs:
         path: requirements
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -667,7 +680,7 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -680,7 +693,7 @@ jobs:
         path: requirements
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -726,7 +739,7 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -738,7 +751,7 @@ jobs:
         path: requirements
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -781,7 +794,7 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -794,7 +807,7 @@ jobs:
         path: requirements
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -825,14 +838,14 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
 
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -893,14 +906,14 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
 
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -1016,14 +1029,14 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
 
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -1137,13 +1150,13 @@ jobs:
       # Supply-chain: reject packages published within the last 6 days (pip ≥26 uses --uploaded-prior-to)
       PIP_EXCLUDE_NEWER: "6 days"
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
 
     - name: Set up Python 3.10
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
@@ -1181,12 +1194,12 @@ jobs:
     env:
       PIP_EXCLUDE_NEWER: "6 days"
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         lfs: true
 
     - name: Set up Python 3.14
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.14'
 
@@ -1220,7 +1233,7 @@ jobs:
       DOCKER_BUILDKIT: 1
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -1239,7 +1252,7 @@ jobs:
     timeout-minutes: 2
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -1252,7 +1265,7 @@ jobs:
         path: requirements
 
     - name: Set up Python 3.14
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.14'
 
@@ -1280,7 +1293,7 @@ jobs:
     timeout-minutes: 10
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         persist-credentials: false
 
@@ -1299,7 +1312,7 @@ jobs:
     timeout-minutes: 1
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         persist-credentials: false
 
