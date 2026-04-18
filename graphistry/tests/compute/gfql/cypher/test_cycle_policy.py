@@ -29,7 +29,12 @@ def _mk_graph(nodes: pd.DataFrame, edges: pd.DataFrame) -> _G:
 
 def _connected_graph() -> _G:
     return _mk_graph(
-        pd.DataFrame({"id": ["a", "b", "c"], "label__A": [True, False, False], "label__B": [False, True, False], "label__C": [False, False, True]}),
+        pd.DataFrame({
+            "id": ["a", "b", "c"],
+            "label__A": [True, False, False],
+            "label__B": [False, True, False],
+            "label__C": [False, False, True],
+        }),
         pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "type": ["R", "R"]}),
     )
 

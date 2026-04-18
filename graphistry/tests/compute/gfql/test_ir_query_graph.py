@@ -5,7 +5,8 @@ Covers:
   - Single MATCH scope → one ConnectedComponent with correct aliases
   - Two parts sharing alias → merged into one component (connected)
   - Two parts with no shared aliases → two distinct components
-  - WITH/RETURN boundary → aliases crossing it land in boundary_aliases
+  - WITH boundary → aliases in WITH inputs become boundary_aliases
+    (RETURN only splits scope, does not project aliases)
   - OPTIONAL arm variables → OptionalArm with correct nullable_aliases
   - Optional join_aliases (aliases shared between optional and required parts)
   - Edge variable classification into edge_aliases
@@ -257,6 +258,20 @@ class TestScopeBoundaries:
         qg = extract_query_graph(_ir([p1, pr, p2], vars_))
         assert len(qg.components) == 2
         assert "a" not in qg.boundary_aliases  # RETURN is terminal, not a scope projection
+        alias_sets = [set(c.node_aliases) for c in qg.components]
+        assert {"a", "b"} in alias_sets
+        assert {"c"} in alias_sets
+
+    def test_return_as_final_clause_no_boundary_aliases(self) -> None:
+        # RETURN at end of query: preceding scope still yields its components,
+        # RETURN inputs never appear in boundary_aliases
+        p1 = _part("match", outputs=frozenset({"a", "b"}))
+        pr = _part("return", inputs=frozenset({"a", "b"}))
+        vars_ = {"a": _var("a"), "b": _var("b")}
+        qg = extract_query_graph(_ir([p1, pr], vars_))
+        assert len(qg.components) == 1
+        assert set(qg.components[0].node_aliases) == {"a", "b"}
+        assert qg.boundary_aliases == {}
 
     def test_with_multiple_inputs_all_become_boundary_aliases(self) -> None:
         p1 = _part("match", outputs=frozenset({"a", "b", "c"}))
@@ -301,6 +316,14 @@ class TestConnectivityContract:
         node_alias_sets = [set(c.node_aliases) for c in qg.components]
         assert {"a", "b"} in node_alias_sets
         assert set() in node_alias_sets
+
+    def test_two_empty_parts_same_scope_produce_two_empty_components(self) -> None:
+        # Each empty-output part produces its own bare component
+        p1 = _part("match", outputs=frozenset())
+        p2 = _part("match", outputs=frozenset())
+        qg = extract_query_graph(_ir([p1, p2], {}))
+        assert len(qg.components) == 2
+        assert all(c.node_aliases == [] and c.edge_aliases == [] for c in qg.components)
 
 
 # ---------------------------------------------------------------------------

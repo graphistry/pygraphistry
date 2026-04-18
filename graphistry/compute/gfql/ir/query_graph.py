@@ -64,7 +64,7 @@ def _uf_union(parent: Dict[str, str], a: str, b: str) -> None:
 # Extractor
 # ---------------------------------------------------------------------------
 
-_BOUNDARY_CLAUSES: Set[str] = {"with", "return"}
+_SCOPE_SPLIT_CLAUSES: Set[str] = {"with", "return"}
 
 
 def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
@@ -75,7 +75,7 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
     current_scope: List[BoundQueryPart] = []
 
     for part in bound_ir.query_parts:
-        if part.clause in _BOUNDARY_CLAUSES:
+        if part.clause in _SCOPE_SPLIT_CLAUSES:
             # Only WITH projects aliases into the next scope; RETURN is terminal.
             if part.clause == "with":
                 for alias in part.inputs:
@@ -96,12 +96,12 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
 
     for scope_parts in scope_groups:
         parent: Dict[str, str] = {}
-        has_empty_part = False
+        empty_part_count = 0
 
         for part in scope_parts:
             aliases = list(part.outputs)
             if not aliases:
-                has_empty_part = True
+                empty_part_count += 1
                 continue
             for alias in aliases:
                 if alias not in parent:
@@ -130,7 +130,7 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
                 edge_aliases=edge_aliases,
             ))
 
-        if has_empty_part:
+        for _ in range(empty_part_count):
             components.append(ConnectedComponent())
 
     # --- 3. Optional arms from null_extended_from ---
