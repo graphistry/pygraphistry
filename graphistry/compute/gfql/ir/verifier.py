@@ -79,12 +79,23 @@ def _walk(
 
 
 def _check_predicate(op: LogicalPlan, pred: BoundPredicate, label: str) -> list[CompilerError]:
-    """Return an error if *pred* has an empty expression string."""
+    """Return errors for *pred*: empty expression or out-of-scope references."""
+    errors: list[CompilerError] = []
     if not pred.expression:
-        return [CompilerError(
+        errors.append(CompilerError(
             message=f"{type(op).__name__} op_id={op.op_id}: {label} has empty expression"
-        )]
-    return []
+        ))
+    if pred.references:
+        visible = frozenset(op.output_schema.columns.keys())
+        unknown = pred.references - visible
+        if unknown:
+            errors.append(CompilerError(
+                message=(
+                    f"{type(op).__name__} op_id={op.op_id}: {label} references "
+                    f"aliases not in output_schema: {sorted(unknown)}"
+                )
+            ))
+    return errors
 
 
 # ---------------------------------------------------------------------------

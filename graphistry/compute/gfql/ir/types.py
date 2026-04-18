@@ -7,9 +7,17 @@ from typing import FrozenSet, List, Literal, Optional, Union
 
 @dataclass(frozen=True)
 class BoundPredicate:
-    """Frontend-normalized predicate payload."""
+    """Frontend-normalized predicate payload.
+
+    ``references`` is the set of alias names the expression reads.
+    When non-empty the verifier checks containment against the operator's
+    ``output_schema.columns`` — the visible aliases at that operator.
+    Leave as the empty default when aliases are unknown (e.g. hand-built
+    test fixtures that don't populate schema).
+    """
 
     expression: str = ""
+    references: FrozenSet[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)

@@ -287,6 +287,61 @@ class TestPredicateScope:
         errs = _errors(plan)
         assert any("residual" in e.lower() for e in errs)
 
+    # --- Variable-visibility (references) checks ---
+
+    def test_references_all_in_schema_ok(self) -> None:
+        schema = RowSchema(columns={"n": NodeRef(), "age": ScalarType()})
+        pred = BoundPredicate(expression="n.age > 0", references=frozenset({"n", "age"}))
+        plan = Filter(op_id=1, input=None, predicate=pred, output_schema=schema)
+        assert verify(plan) == []
+
+    def test_references_unknown_alias_caught(self) -> None:
+        schema = RowSchema(columns={"n": NodeRef()})
+        pred = BoundPredicate(expression="x.age > 0", references=frozenset({"x"}))
+        plan = Filter(op_id=1, input=None, predicate=pred, output_schema=schema)
+        errs = _errors(plan)
+        assert any("x" in e and ("scope" in e.lower() or "aliases" in e.lower() or "output_schema" in e.lower()) for e in errs)
+
+    def test_references_partial_unknown_caught(self) -> None:
+        # "known_var" is visible, "ghost" is not — error should name "ghost" only
+        schema = RowSchema(columns={"known_var": NodeRef()})
+        pred = BoundPredicate(expression="known_var.x > ghost.y", references=frozenset({"known_var", "ghost"}))
+        plan = Filter(op_id=1, input=None, predicate=pred, output_schema=schema)
+        errs = _errors(plan)
+        assert any("ghost" in e for e in errs)
+        assert not any("known_var" in e and "output_schema" in e.lower() for e in errs)
+
+    def test_empty_references_skips_scope_check(self) -> None:
+        # references=frozenset() (default) — no scope check, even with non-empty schema
+        schema = RowSchema(columns={"n": NodeRef()})
+        pred = BoundPredicate(expression="n.age > 0")  # references not declared
+        plan = Filter(op_id=1, input=None, predicate=pred, output_schema=schema)
+        assert verify(plan) == []
+
+    def test_references_on_pattern_match_caught(self) -> None:
+        schema = RowSchema(columns={"n": NodeRef()})
+        pred = BoundPredicate(expression="r.weight > 1", references=frozenset({"r"}))
+        plan = PatternMatch(op_id=1, predicates=[pred], output_schema=schema)
+        errs = _errors(plan)
+        assert any("r" in e for e in errs)
+
+    def test_references_on_index_scan_caught(self) -> None:
+        schema = RowSchema(columns={"n": NodeRef()})
+        pred = BoundPredicate(expression="m.id = 1", references=frozenset({"m"}))
+        plan = IndexScan(op_id=1, predicate=pred, output_schema=schema)
+        errs = _errors(plan)
+        assert any("m" in e for e in errs)
+
+    def test_references_accumulate_with_empty_expression(self) -> None:
+        # Both violations on same predicate: empty expression + unknown reference
+        schema = RowSchema(columns={"n": NodeRef()})
+        pred = BoundPredicate(expression="", references=frozenset({"x"}))
+        plan = Filter(op_id=1, input=None, predicate=pred, output_schema=schema)
+        errs = _errors(plan)
+        assert any("expression" in e.lower() for e in errs)
+        assert any("x" in e for e in errs)
+        assert len(errs) == 2
+
 
 # ---------------------------------------------------------------------------
 # Invariant 4: Output schema consistency
