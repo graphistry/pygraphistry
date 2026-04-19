@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import fields as dataclass_fields
 import pandas as pd
 import pytest
 import graphistry
@@ -714,6 +715,41 @@ def _parse_query(query: str) -> CypherQuery:
 
 def _compile_query(query: str) -> CompiledCypherQuery:
     return cast(CompiledCypherQuery, compile_cypher(query))
+
+
+def test_compiled_query_escape_hatches_are_grouped() -> None:
+    field_names = {f.name for f in dataclass_fields(CompiledCypherQuery)}
+    assert "post_processing" in field_names
+    assert "execution_extras" in field_names
+    assert "result_projection" not in field_names
+    assert "empty_result_row" not in field_names
+    assert "connected_match_join" not in field_names
+    assert "connected_optional_match" not in field_names
+
+
+def test_compiled_query_sets_logical_plan_route_for_covered_shape() -> None:
+    compiled = _compile_query("MATCH (n:Person) RETURN n")
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
+
+
+def test_compiled_query_sets_logical_plan_defer_reason_for_optional_shape() -> None:
+    compiled = _compile_query("OPTIONAL MATCH (n:Person) RETURN n")
+    assert compiled.logical_plan_route == "deferred"
+    assert compiled.logical_plan is None
+    assert compiled.logical_plan_defer_reason is not None
+    assert "OPTIONAL MATCH" in compiled.logical_plan_defer_reason
+
+
+def test_connected_optional_query_sets_query_graph_and_logical_plan() -> None:
+    compiled = _compile_query("MATCH (a)-[:A]->(b) OPTIONAL MATCH (b)-[:B]->(c) RETURN c")
+    assert compiled.connected_optional_match is not None
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.query_graph is not None
+    assert len(compiled.query_graph.components) == 2
+    assert len(compiled.query_graph.optional_arms) == 1
 
 
 def test_lower_match_clause_to_gfql_ops() -> None:
