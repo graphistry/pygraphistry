@@ -1,11 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Tests for df_to_engine() type coercion and _coerce_to_pandas() Plottable coercion.
-Covers the coerce-at-boundary unification (refactor/coerce-unification).
-
-All types are handled explicitly via module-string gating — no duck typing.
-GPU tests (cuDF, dask_cudf) are skipped when those deps are absent.
-"""
 import unittest
 import pandas as pd
 import pyarrow as pa
@@ -14,6 +7,25 @@ from graphistry.Engine import Engine, df_to_engine
 from graphistry.compute.ComputeMixin import _coerce_to_pandas
 from graphistry.tests.common import NoAuthTestCase
 from graphistry.tests.test_compute import CGFull
+
+
+try:
+    import cudf
+    HAS_CUDF = True
+except ImportError:
+    HAS_CUDF = False
+
+try:
+    import dask.dataframe as dd
+    HAS_DASK = True
+except ImportError:
+    HAS_DASK = False
+
+try:
+    from pyspark.sql import SparkSession
+    HAS_SPARK = True
+except ImportError:
+    HAS_SPARK = False
 
 
 EDGES_PD = pd.DataFrame({"src": ["a", "b"], "dst": ["b", "c"]})
@@ -41,32 +53,49 @@ class TestDfToEnginePandas(NoAuthTestCase):
         with self.assertRaises(ValueError):
             df_to_engine([1, 2, 3], Engine.PANDAS)
 
-    @unittest.skipIf(True, "pyspark optional — run on dgx-spark with pyspark installed")
+    @unittest.skipUnless(HAS_SPARK, "pyspark not installed")
     def test_spark(self):
-        pass  # covered in test_df_types.py spark tests on dgx-spark
+        spark = SparkSession.builder.getOrCreate()
+        sdf = spark.createDataFrame(EDGES_PD)
+        result = df_to_engine(sdf, Engine.PANDAS)
+        self.assertIsInstance(result, pd.DataFrame)
+        self.assertEqual(sorted(result.columns.tolist()), ["dst", "src"])
 
-    @unittest.skipIf(True, "dask optional — run on dgx-spark")
+    @unittest.skipUnless(HAS_DASK, "dask not installed")
     def test_dask(self):
-        pass
+        ddf = dd.from_pandas(EDGES_PD, npartitions=1)
+        result = df_to_engine(ddf, Engine.PANDAS)
+        self.assertIsInstance(result, pd.DataFrame)
+        self.assertEqual(result["src"].tolist(), ["a", "b"])
 
-    @unittest.skipIf(True, "cuDF optional — run on dgx-spark with GPU")
+    @unittest.skipUnless(HAS_CUDF, "cuDF not installed")
     def test_cudf(self):
-        pass
+        cdf = cudf.from_pandas(EDGES_PD)
+        result = df_to_engine(cdf, Engine.PANDAS)
+        self.assertIsInstance(result, pd.DataFrame)
+        self.assertEqual(result["src"].tolist(), ["a", "b"])
 
 
 class TestDfToEngineCudf(NoAuthTestCase):
 
-    @unittest.skipIf(True, "cuDF optional — run on dgx-spark with GPU")
+    @unittest.skipUnless(HAS_CUDF, "cuDF not installed")
     def test_cudf_identity(self):
-        pass
+        cdf = cudf.from_pandas(EDGES_PD)
+        result = df_to_engine(cdf, Engine.CUDF)
+        self.assertIsInstance(result, cudf.DataFrame)
+        self.assertIs(result, cdf)
 
-    @unittest.skipIf(True, "cuDF optional — run on dgx-spark with GPU")
+    @unittest.skipUnless(HAS_CUDF, "cuDF not installed")
     def test_arrow_to_cudf(self):
-        pass
+        result = df_to_engine(EDGES_PA, Engine.CUDF)
+        self.assertIsInstance(result, cudf.DataFrame)
+        self.assertEqual(sorted(result.columns.tolist()), ["dst", "src"])
 
-    @unittest.skipIf(True, "cuDF optional — run on dgx-spark with GPU")
+    @unittest.skipUnless(HAS_CUDF, "cuDF not installed")
     def test_pandas_to_cudf(self):
-        pass
+        result = df_to_engine(EDGES_PD, Engine.CUDF)
+        self.assertIsInstance(result, cudf.DataFrame)
+        self.assertEqual(result["src"].to_pandas().tolist(), ["a", "b"])
 
 
 class TestCoerceToPandas(NoAuthTestCase):
@@ -107,15 +136,22 @@ class TestCoerceToPandas(NoAuthTestCase):
         twice = _coerce_to_pandas(once)
         self.assertIs(twice._edges, once._edges)
 
-    @unittest.skipIf(True, "cuDF optional — run on dgx-spark with GPU")
+    @unittest.skipUnless(HAS_CUDF, "cuDF not installed")
     def test_cudf_edges_not_coerced(self):
         """cuDF is a compute engine — _coerce_to_pandas must leave it alone."""
-        pass  # see test_df_types.py cudf tests on dgx-spark
+        cdf = cudf.from_pandas(EDGES_PD)
+        g = self._g(cdf)
+        result = _coerce_to_pandas(g)
+        self.assertIsInstance(result._edges, cudf.DataFrame)
 
-    @unittest.skipIf(True, "dask optional — run on dgx-spark")
+    @unittest.skipUnless(HAS_DASK, "dask not installed")
     def test_dask_edges_coerced(self):
         """dask is an input format — must be coerced to pandas."""
-        pass
+        ddf = dd.from_pandas(EDGES_PD, npartitions=1)
+        g = self._g(ddf)
+        result = _coerce_to_pandas(g)
+        self.assertIsInstance(result._edges, pd.DataFrame)
+        self.assertEqual(result._edges["src"].tolist(), ["a", "b"])
 
 
 if __name__ == "__main__":

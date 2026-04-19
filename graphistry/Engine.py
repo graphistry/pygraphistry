@@ -119,13 +119,13 @@ def _cudf_from_pandas_best_effort(df: pd.DataFrame):
     import cudf
 
     try:
-        return cudf.DataFrame.from_pandas(df)
+        return cudf.from_pandas(df)
     except Exception:
         failed_cols: List[str] = []
-        out_gdf = cudf.DataFrame.from_pandas(df[[]])
+        out_gdf = cudf.from_pandas(df[[]])
         for col in df.columns:
             try:
-                out_gdf[col] = cudf.DataFrame.from_pandas(df[[col]])[col]
+                out_gdf[col] = cudf.from_pandas(df[[col]])[col]
             except Exception:
                 series = df[col]
                 non_null = series.dropna()
@@ -139,13 +139,13 @@ def _cudf_from_pandas_best_effort(df: pd.DataFrame):
                         if all(float(value).is_integer() for value in numeric_values):
                             numeric_series = numeric_series.astype("Int64")
                         numeric_df = pd.DataFrame({col: numeric_series})
-                        out_gdf[col] = cudf.DataFrame.from_pandas(numeric_df)[col]
+                        out_gdf[col] = cudf.from_pandas(numeric_df)[col]
                         continue
                     except Exception:
                         pass
                 failed_cols.append(str(col))
                 string_df = pd.DataFrame({col: series.astype("string")})
-                out_gdf[col] = cudf.DataFrame.from_pandas(string_df)[col]
+                out_gdf[col] = cudf.from_pandas(string_df)[col]
         if failed_cols:
             warnings.warn(
                 "Best-effort pandas->cuDF coercion converted mixed-type columns to string dtype: "
