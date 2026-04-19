@@ -39,6 +39,12 @@ try:
 except ImportError:
     HAS_SPARK = False
 
+try:
+    import polars as pl_mod
+    HAS_POLARS = True
+except ImportError:
+    HAS_POLARS = False
+
 
 EDGES_PD = pd.DataFrame({"src": ["a", "b"], "dst": ["b", "c"]})
 EDGES_PA = pa.table({"src": ["a", "b"], "dst": ["b", "c"]})
@@ -84,6 +90,20 @@ class TestDfToEnginePandas(NoAuthTestCase):
     def test_cudf(self):
         cdf = cudf.from_pandas(EDGES_PD)
         result = df_to_engine(cdf, Engine.PANDAS)
+        self.assertIsInstance(result, pd.DataFrame)
+        self.assertEqual(result["src"].tolist(), ["a", "b"])
+
+    @unittest.skipUnless(HAS_POLARS, "polars not installed")
+    def test_polars_dataframe(self):
+        pdf = pl_mod.DataFrame({"src": ["a", "b"], "dst": ["b", "c"]})
+        result = df_to_engine(pdf, Engine.PANDAS)
+        self.assertIsInstance(result, pd.DataFrame)
+        self.assertEqual(result["src"].tolist(), ["a", "b"])
+
+    @unittest.skipUnless(HAS_POLARS, "polars not installed")
+    def test_polars_lazyframe(self):
+        lf = pl_mod.LazyFrame({"src": ["a", "b"], "dst": ["b", "c"]})
+        result = df_to_engine(lf, Engine.PANDAS)
         self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(result["src"].tolist(), ["a", "b"])
 
@@ -166,6 +186,22 @@ class TestCoerceToPandas(NoAuthTestCase):
         """dask is an input format — must be coerced to pandas."""
         ddf = dd.from_pandas(EDGES_PD, npartitions=1)
         g = self._g(ddf)
+        result = _coerce_to_pandas(g)
+        self.assertIsInstance(result._edges, pd.DataFrame)
+        self.assertEqual(result._edges["src"].tolist(), ["a", "b"])
+
+    @unittest.skipUnless(HAS_POLARS, "polars not installed")
+    def test_polars_edges_coerced(self):
+        pf = pl_mod.DataFrame({"src": ["a", "b"], "dst": ["b", "c"]})
+        g = self._g(pf)
+        result = _coerce_to_pandas(g)
+        self.assertIsInstance(result._edges, pd.DataFrame)
+        self.assertEqual(result._edges["src"].tolist(), ["a", "b"])
+
+    @unittest.skipUnless(HAS_POLARS, "polars not installed")
+    def test_polars_lazyframe_edges_coerced(self):
+        lf = pl_mod.LazyFrame({"src": ["a", "b"], "dst": ["b", "c"]})
+        g = self._g(lf)
         result = _coerce_to_pandas(g)
         self.assertIsInstance(result._edges, pd.DataFrame)
         self.assertEqual(result._edges["src"].tolist(), ["a", "b"])

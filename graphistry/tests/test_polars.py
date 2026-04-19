@@ -151,6 +151,38 @@ else:
             self.assertIn("degree_out", g._nodes.columns)
 
     # ------------------------------------------------------------------
+    # hop / chain entry points
+    # ------------------------------------------------------------------
+
+    class TestPolarsHopChain(NoAuthTestCase):
+
+        def test_hop_polars_edges(self):
+            from graphistry.compute.ast import ASTEdge
+            g = CGFull().edges(EDGES_PL, "src", "dst").materialize_nodes()
+            result = g.hop(hops=1)
+            self.assertIsInstance(result._edges, pd.DataFrame)
+            self.assertIsInstance(result._nodes, pd.DataFrame)
+
+        def test_hop_polars_lazy_edges(self):
+            from graphistry.compute.ast import ASTEdge
+            g = CGFull().edges(EDGES_LAZY, "src", "dst").materialize_nodes()
+            result = g.hop(hops=1)
+            self.assertIsInstance(result._edges, pd.DataFrame)
+
+        def test_chain_polars_edges(self):
+            from graphistry.compute.ast import ASTEdge
+            g = CGFull().edges(EDGES_PL, "src", "dst").materialize_nodes()
+            result = g.chain([ASTEdge()])
+            self.assertIsInstance(result._edges, pd.DataFrame)
+            self.assertIsInstance(result._nodes, pd.DataFrame)
+
+        def test_chain_polars_lazy_edges(self):
+            from graphistry.compute.ast import ASTEdge
+            g = CGFull().edges(EDGES_LAZY, "src", "dst").materialize_nodes()
+            result = g.chain([ASTEdge()])
+            self.assertIsInstance(result._edges, pd.DataFrame)
+
+    # ------------------------------------------------------------------
     # Hypergraph path
     # ------------------------------------------------------------------
 
@@ -172,7 +204,6 @@ else:
             self.assertGreater(len(g._nodes), 0)
 
         def test_hypergraph_polars_matches_pandas(self):
-            import pandas as pd_mod
             events_pd = EVENTS_PL.to_pandas()
             h_pd = graphistry.hypergraph(events_pd, verbose=False)
             h_pl = graphistry.hypergraph(EVENTS_PL, verbose=False)
