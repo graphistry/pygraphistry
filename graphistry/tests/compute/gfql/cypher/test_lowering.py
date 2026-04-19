@@ -742,6 +742,31 @@ def test_compiled_query_sets_logical_plan_defer_reason_for_optional_shape() -> N
     assert "OPTIONAL MATCH" in compiled.logical_plan_defer_reason
 
 
+def test_compiled_query_sets_logical_plan_defer_reason_for_call_shape() -> None:
+    compiled = _compile_query("CALL graphistry.degree()")
+    assert compiled.procedure_call is not None
+    assert compiled.logical_plan_route == "deferred"
+    assert compiled.logical_plan is None
+    assert compiled.logical_plan_defer_reason is not None
+    assert "CALL query flow is deferred" in compiled.logical_plan_defer_reason
+
+
+def test_compiled_query_sets_logical_plan_defer_reason_for_reentry_shape() -> None:
+    compiled = _compile_query("MATCH (a:A) WITH a MATCH (a)-->(b) RETURN b")
+    assert compiled.logical_plan_route == "deferred"
+    assert compiled.logical_plan is None
+    assert compiled.logical_plan_defer_reason is not None
+    assert "MATCH reentry query flow is deferred" in compiled.logical_plan_defer_reason
+
+
+def test_compiled_query_sets_logical_plan_defer_reason_for_row_sequence_shape() -> None:
+    compiled = _compile_query("UNWIND [1,2] AS n RETURN n")
+    assert compiled.logical_plan_route == "deferred"
+    assert compiled.logical_plan is None
+    assert compiled.logical_plan_defer_reason is not None
+    assert "Row-sequence query flow is deferred" in compiled.logical_plan_defer_reason
+
+
 def test_connected_optional_query_sets_query_graph_and_logical_plan() -> None:
     compiled = _compile_query("MATCH (a)-[:A]->(b) OPTIONAL MATCH (b)-[:B]->(c) RETURN c")
     assert compiled.connected_optional_match is not None
