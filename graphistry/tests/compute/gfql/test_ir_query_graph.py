@@ -322,6 +322,20 @@ class TestScopeBoundaries:
         assert {"b"} in alias_sets
         assert "a" in qg.boundary_aliases
 
+    def test_unwind_does_not_split_scope(self) -> None:
+        # UNWIND is not in _SCOPE_SPLIT_CLAUSES — stays in same scope as surrounding parts.
+        # Observable contract: if UNWIND incorrectly split scope, its output aliases would
+        # be silently dropped (the part would fall into neither scope_group).
+        p1 = _part("match", outputs=frozenset({"a"}))
+        pu = _part("unwind", outputs=frozenset({"x"}))
+        p2 = _part("match", outputs=frozenset({"b"}))
+        vars_ = {"a": _var("a"), "x": _var("x"), "b": _var("b")}
+        qg = extract_query_graph(_ir([p1, pu, p2], vars_))
+        assert len(qg.components) == 3  # all three parts in one scope, no alias overlap
+        all_aliases = {a for c in qg.components for a in c.node_aliases + c.edge_aliases}
+        assert all_aliases == {"a", "x", "b"}
+        assert qg.boundary_aliases == {}
+
     def test_with_rename_output_alias_becomes_boundary_alias(self) -> None:
         # WITH a AS b: output alias "b" goes into boundary_aliases (not input "a").
         # Extractor keys off part.outputs, not part.inputs, so renames are handled correctly.

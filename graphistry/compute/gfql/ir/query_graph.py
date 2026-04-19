@@ -64,7 +64,7 @@ def _uf_union(parent: Dict[str, str], a: str, b: str) -> None:
 # Extractor
 # ---------------------------------------------------------------------------
 
-_SCOPE_SPLIT_CLAUSES: Set[str] = {"with", "return"}
+_SCOPE_SPLIT_CLAUSES: frozenset[str] = frozenset({"with", "return"})
 
 
 def _normalize_clause(clause: str) -> str:
