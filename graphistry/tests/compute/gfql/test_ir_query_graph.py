@@ -5,7 +5,7 @@ Covers:
   - Single MATCH scope → one ConnectedComponent with correct aliases
   - Two parts sharing alias → merged into one component (connected)
   - Two parts with no shared aliases → two distinct components
-  - WITH boundary → aliases in WITH inputs become boundary_aliases
+  - WITH boundary → aliases in WITH outputs become boundary_aliases
     (RETURN only splits scope, does not project aliases)
   - OPTIONAL arm variables → OptionalArm with correct nullable_aliases
   - Optional join_aliases (aliases shared between optional and required parts)
@@ -144,7 +144,7 @@ class TestConnectedComponents:
 # ---------------------------------------------------------------------------
 
 class TestBoundaryAliases:
-    def test_with_input_becomes_boundary_alias(self) -> None:
+    def test_with_output_becomes_boundary_alias(self) -> None:
         p1 = _part("match", outputs=frozenset({"a", "b"}))
         pw = _part("with", inputs=frozenset({"b"}), outputs=frozenset({"b"}))
         p2 = _part("match", outputs=frozenset({"c"}))
@@ -423,6 +423,8 @@ class TestBinderIntegration:
         all_aliases = set(qg.components[0].node_aliases) | set(qg.components[0].edge_aliases)
         assert "a" in all_aliases
         assert "b" in all_aliases
+        assert "r" in qg.components[0].edge_aliases
+        assert "r" not in qg.components[0].node_aliases
         assert qg.boundary_aliases == {}
         assert qg.optional_arms == []
 
@@ -436,3 +438,17 @@ class TestBinderIntegration:
         # MATCH (a) OPTIONAL MATCH (a)-->(b) RETURN b → 1 optional arm
         qg = extract_query_graph(_bind("MATCH (a) OPTIONAL MATCH (a)-->(b) RETURN b"))
         assert len(qg.optional_arms) == 1
+
+    def test_with_rename_output_alias_becomes_boundary_alias_binder(self) -> None:
+        # WITH a AS b renames: outputs={"b"} → "b" in boundary_aliases, "a" not
+        qg = extract_query_graph(_bind("MATCH (a) WITH a AS b MATCH (c) RETURN c"))
+        assert "b" in qg.boundary_aliases
+        assert "a" not in qg.boundary_aliases
+
+    def test_combined_with_optional_rename(self) -> None:
+        # WITH boundary + OPTIONAL MATCH arm + alias rename in one query
+        qg = extract_query_graph(
+            _bind("MATCH (a) WITH a AS x OPTIONAL MATCH (x)-->(b) RETURN x, b")
+        )
+        assert "x" in qg.boundary_aliases
+        assert len(qg.optional_arms) >= 1

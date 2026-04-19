@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, FrozenSet, List, Set
 
-from graphistry.compute.gfql.ir.types import BoundPredicate, LogicalType
+from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, LogicalType
 
 if TYPE_CHECKING:
     from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart
@@ -67,6 +67,10 @@ def _uf_union(parent: Dict[str, str], a: str, b: str) -> None:
 _SCOPE_SPLIT_CLAUSES: Set[str] = {"with", "return"}
 
 
+def _normalize_clause(clause: str) -> str:
+    return clause.lower().replace(" ", "_")
+
+
 def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
     """Build a QueryGraph from a BoundIR by walking query_parts."""
     # --- 1. Split into scope groups; collect boundary aliases from WITH ---
@@ -75,7 +79,7 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
     current_scope: List[BoundQueryPart] = []
 
     for part_idx, part in enumerate(bound_ir.query_parts):
-        clause = part.clause.lower().replace(" ", "_")
+        clause = _normalize_clause(part.clause)
         if clause in _SCOPE_SPLIT_CLAUSES:
             # Only WITH projects aliases into the next scope; RETURN is terminal.
             if clause == "with":
@@ -100,6 +104,13 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
 
     if current_scope:
         scope_groups.append(current_scope)
+
+    # Pre-pass: collect alias→entity_kind from scope_stack frames so variables
+    # dropped by a later RETURN projection can still be typed correctly.
+    _scope_entity_kind: Dict[str, str] = {}
+    for frame in bound_ir.scope_stack:
+        for alias, lt in frame.schema.columns.items():
+            _scope_entity_kind[alias] = "edge" if isinstance(lt, EdgeRef) else "node"
 
     # --- 2. Connected components via union-find within each scope ---
     components: List[ConnectedComponent] = []
@@ -130,7 +141,11 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
             edge_aliases: List[str] = []
             for alias in sorted(alias_list):
                 var = bound_ir.semantic_table.variables.get(alias)
-                if var is not None and var.entity_kind == "edge":
+                if var is not None:
+                    is_edge = var.entity_kind == "edge"
+                else:
+                    is_edge = _scope_entity_kind.get(alias) == "edge"
+                if is_edge:
                     edge_aliases.append(alias)
                 else:
                     node_aliases.append(alias)
@@ -150,7 +165,7 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
 
     arm_to_join: Dict[str, Set[str]] = {}
     for part in bound_ir.query_parts:
-        if part.clause.lower().replace(" ", "_") != "optional_match":
+        if _normalize_clause(part.clause) != "optional_match":
             continue
         part_arm_ids: Set[str] = set()
         for out_alias in part.outputs:
