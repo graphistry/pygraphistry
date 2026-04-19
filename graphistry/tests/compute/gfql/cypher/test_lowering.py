@@ -22,6 +22,8 @@ from graphistry.compute.gfql.cypher import (
     parse_cypher,
     WherePatternPredicate,
 )
+from graphistry.compute.gfql.cypher.lowering import CompiledCypherGraphQuery
+from graphistry.compute.gfql.ir.logical_plan import ProcedureCall as LogicalProcedureCall
 from graphistry.tests.test_compute import CGFull
 
 
@@ -742,13 +744,15 @@ def test_compiled_query_sets_logical_plan_defer_reason_for_optional_shape() -> N
     assert "OPTIONAL MATCH" in compiled.logical_plan_defer_reason
 
 
-def test_compiled_query_sets_logical_plan_defer_reason_for_call_shape() -> None:
+def test_compiled_query_sets_logical_plan_route_for_call_shape() -> None:
     compiled = _compile_query("CALL graphistry.degree()")
     assert compiled.procedure_call is not None
-    assert compiled.logical_plan_route == "deferred"
-    assert compiled.logical_plan is None
-    assert compiled.logical_plan_defer_reason is not None
-    assert "CALL query flow is deferred" in compiled.logical_plan_defer_reason
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert isinstance(compiled.logical_plan, LogicalProcedureCall)
+    assert compiled.logical_plan.procedure == "graphistry.degree"
+    assert compiled.logical_plan.result_kind == "rows"
+    assert compiled.logical_plan_defer_reason is None
 
 
 def test_compiled_query_sets_logical_plan_defer_reason_for_reentry_shape() -> None:
@@ -775,6 +779,42 @@ def test_connected_optional_query_sets_query_graph_and_logical_plan() -> None:
     assert compiled.query_graph is not None
     assert len(compiled.query_graph.components) == 2
     assert len(compiled.query_graph.optional_arms) == 1
+
+
+def test_compile_graph_query_sets_logical_plan_route_for_call_constructor() -> None:
+    compiled = compile_cypher("GRAPH { CALL graphistry.degree.write() }")
+    assert isinstance(compiled, CompiledCypherGraphQuery)
+    assert compiled.procedure_call is not None
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert isinstance(compiled.logical_plan, LogicalProcedureCall)
+    assert compiled.logical_plan.procedure == "graphistry.degree.write"
+    assert compiled.logical_plan.result_kind == "graph"
+    assert compiled.logical_plan_defer_reason is None
+
+
+def test_compile_query_sets_logical_plan_route_for_graph_binding_call_constructor() -> None:
+    compiled = _compile_query(
+        "GRAPH g1 = GRAPH { CALL graphistry.degree.write() } "
+        "USE g1 MATCH (n) RETURN n.id AS id ORDER BY id"
+    )
+    assert len(compiled.graph_bindings) == 1
+    binding = compiled.graph_bindings[0]
+    assert binding.procedure_call is not None
+    assert binding.logical_plan_route == "planned"
+    assert binding.logical_plan is not None
+    assert isinstance(binding.logical_plan, LogicalProcedureCall)
+    assert binding.logical_plan.procedure == "graphistry.degree.write"
+    assert binding.logical_plan.result_kind == "graph"
+
+
+def test_compile_graph_query_sets_logical_plan_defer_reason_for_match_constructor_shape() -> None:
+    compiled = compile_cypher("GRAPH { MATCH (a)-[r]->(b) WHERE a.id = 'a' }")
+    assert isinstance(compiled, CompiledCypherGraphQuery)
+    assert compiled.logical_plan_route == "deferred"
+    assert compiled.logical_plan is None
+    assert compiled.logical_plan_defer_reason is not None
+    assert "single-node MATCH" in compiled.logical_plan_defer_reason
 
 
 def test_lower_match_clause_to_gfql_ops() -> None:

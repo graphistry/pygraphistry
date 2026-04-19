@@ -38,10 +38,13 @@ from graphistry.compute.gfql.ir.logical_plan import (
     Join as LogicalJoin,
     LogicalPlan,
     PatternMatch,
+    ProcedureCall as LogicalProcedureCall,
+    ProcedureOutputColumn as LogicalProcedureOutputColumn,
     Project as LogicalProject,
     RowSchema as LogicalRowSchema,
 )
 from graphistry.compute.gfql.ir.query_graph import ConnectedComponent, OptionalArm, QueryGraph
+from graphistry.compute.gfql.ir.types import ScalarType
 from graphistry.compute.gfql.ir.verifier import verify as verify_logical_plan
 from graphistry.compute.gfql.logical_planner import LogicalPlanner
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
@@ -103,6 +106,7 @@ from graphistry.compute.gfql.cypher.ast import (
 )
 from graphistry.compute.gfql.cypher.call_procedures import (
     CompiledCypherProcedureCall,
+    ProcedureOutputColumn as CompiledProcedureOutputColumn,
     compile_cypher_call,
 )
 from graphistry.compute.gfql.cypher.ast_normalizer import ASTNormalizer
@@ -230,6 +234,16 @@ class CompiledGraphBinding:
     chain: Chain
     procedure_call: Optional[CompiledCypherProcedureCall] = None
     use_ref: Optional[str] = None
+    logical_plan: Optional[LogicalPlan] = None
+    logical_plan_defer_reason: Optional[str] = None
+
+    @property
+    def logical_plan_route(self) -> Literal["planned", "deferred", "none"]:
+        if self.logical_plan is not None:
+            return "planned"
+        if self.logical_plan_defer_reason is not None:
+            return "deferred"
+        return "none"
 
 
 @dataclass(frozen=True)
@@ -239,6 +253,16 @@ class CompiledCypherGraphQuery:
     chain: Chain
     procedure_call: Optional[CompiledCypherProcedureCall] = None
     use_ref: Optional[str] = None
+    logical_plan: Optional[LogicalPlan] = None
+    logical_plan_defer_reason: Optional[str] = None
+
+    @property
+    def logical_plan_route(self) -> Literal["planned", "deferred", "none"]:
+        if self.logical_plan is not None:
+            return "planned"
+        if self.logical_plan_defer_reason is not None:
+            return "deferred"
+        return "none"
 
 
 @dataclass(frozen=True)
@@ -331,6 +355,52 @@ def _execution_extras_with(
             logical_plan_defer_reason=logical_plan_defer_reason,
         )
     )
+
+
+def _logical_schema_for_call_outputs(
+    output_columns: Sequence[CompiledProcedureOutputColumn],
+) -> LogicalRowSchema:
+    return LogicalRowSchema(
+        columns={
+            output.output_name: ScalarType(kind="unknown", nullable=True)
+            for output in output_columns
+        }
+    )
+
+
+def _logical_plan_from_compiled_call(compiled_call: CompiledCypherProcedureCall) -> LogicalPlan:
+    return LogicalProcedureCall(
+        op_id=1,
+        procedure=compiled_call.procedure,
+        backend=compiled_call.backend,
+        algorithm=compiled_call.algorithm,
+        call_function=compiled_call.call_function,
+        result_kind=compiled_call.result_kind,
+        row_kind=compiled_call.row_kind,
+        output_columns=tuple(
+            LogicalProcedureOutputColumn(
+                source_name=output.source_name,
+                output_name=output.output_name,
+            )
+            for output in compiled_call.output_columns
+        ),
+        call_params=dict(compiled_call.call_params),
+        output_schema=_logical_schema_for_call_outputs(compiled_call.output_columns),
+    )
+
+
+def _verify_selected_logical_plan(logical_plan: LogicalPlan) -> None:
+    diagnostics = verify_logical_plan(logical_plan)
+    if diagnostics:
+        summary = "; ".join(diagnostic.message for diagnostic in diagnostics[:3])
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "LogicalPlan verification failed for a query shape selected for LogicalPlan routing",
+            field="logical_plan",
+            value=summary,
+            suggestion="Keep using covered MATCH/WHERE/WITH/RETURN/UNWIND/CALL shapes until richer plan lowering lands.",
+            language="cypher",
+        )
 
 
 @dataclass(frozen=True)
@@ -7616,7 +7686,7 @@ def _compile_graph_constructor(
 
     if constructor.call is not None:
         # CALL-based constructor: compile the procedure call
-        compiled_call = compile_cypher_call(constructor.call)
+        compiled_call = compile_cypher_call(constructor.call, params=params)
         if compiled_call.result_kind != "graph":
             raise _unsupported(
                 "Only graph-preserving CALL procedures (with .write()) are allowed inside a graph constructor",
@@ -7625,10 +7695,15 @@ def _compile_graph_constructor(
                 line=constructor.call.span.line,
                 column=constructor.call.span.column,
             )
+        call_logical_plan = _logical_plan_from_compiled_call(compiled_call)
+        _verify_selected_logical_plan(call_logical_plan)
         return CompiledCypherQuery(
             Chain([]),
             seed_rows=False,
             procedure_call=compiled_call,
+            execution_extras=_normalize_execution_extras(
+                CompiledCypherExecutionExtras(logical_plan=call_logical_plan)
+            ),
         )
 
     # MATCH-based constructor: lower match + where into a chain
@@ -7653,9 +7728,21 @@ def _compile_graph_constructor(
         reentry_unwinds=(),
     )
     lowered = lower_match_query(synthetic, params=params)
+    constructor_bound_ir = FrontendBinder().bind(synthetic, PlanContext())
+    constructor_logical_plan, constructor_logical_plan_defer_reason = _logical_plan_route_for_query(
+        synthetic,
+        bound_ir=constructor_bound_ir,
+        params=params,
+    )
     return CompiledCypherQuery(
         Chain(lowered.query, where=lowered.where),
         seed_rows=False,
+        execution_extras=_normalize_execution_extras(
+            CompiledCypherExecutionExtras(
+                logical_plan=constructor_logical_plan,
+                logical_plan_defer_reason=constructor_logical_plan_defer_reason,
+            )
+        ),
     )
 
 
@@ -7674,6 +7761,8 @@ def _compile_graph_bindings(
             chain=compiled_query.chain,
             procedure_call=compiled_query.procedure_call,
             use_ref=use_ref,
+            logical_plan=compiled_query.logical_plan,
+            logical_plan_defer_reason=compiled_query.logical_plan_defer_reason,
         ))
     return tuple(compiled)
 
@@ -8231,9 +8320,13 @@ def _logical_plan_route_for_query(
     query: CypherQuery,
     *,
     bound_ir: BoundIR,
+    params: Optional[Mapping[str, Any]] = None,
 ) -> Tuple[Optional[LogicalPlan], Optional[str]]:
     if query.call is not None:
-        return None, "CALL query flow is deferred from LogicalPlan route in M2-PR4"
+        compiled_call = compile_cypher_call(query.call, params=params)
+        logical_plan = _logical_plan_from_compiled_call(compiled_call)
+        _verify_selected_logical_plan(logical_plan)
+        return logical_plan, None
     if query.reentry_matches:
         return None, "MATCH reentry query flow is deferred from LogicalPlan route in M2-PR4"
     if query.row_sequence:
@@ -8242,18 +8335,7 @@ def _logical_plan_route_for_query(
         logical_plan = LogicalPlanner().plan(bound_ir, PlanContext())
     except GFQLValidationError as exc:
         return None, str(exc.message)
-
-    diagnostics = verify_logical_plan(logical_plan)
-    if diagnostics:
-        summary = "; ".join(diagnostic.message for diagnostic in diagnostics[:3])
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            "LogicalPlan verification failed for a query shape selected for LogicalPlan routing",
-            field="logical_plan",
-            value=summary,
-            suggestion="Keep using covered MATCH/WHERE/WITH/RETURN/UNWIND shapes until richer plan lowering lands.",
-            language="cypher",
-        )
+    _verify_selected_logical_plan(logical_plan)
     return logical_plan, None
 
 
@@ -8305,6 +8387,8 @@ def compile_cypher_query(
             chain=compiled_constructor.chain,
             procedure_call=compiled_constructor.procedure_call,
             use_ref=use_ref,
+            logical_plan=compiled_constructor.logical_plan,
+            logical_plan_defer_reason=compiled_constructor.logical_plan_defer_reason,
         )
     if isinstance(query, CypherUnionQuery):
         branch_output_names: Optional[Tuple[str, ...]] = None
@@ -8374,6 +8458,7 @@ def compile_cypher_query(
     logical_plan, logical_plan_defer_reason = _logical_plan_route_for_query(
         query,
         bound_ir=bound_ir,
+        params=params,
     )
     if query.reentry_matches:
         return _attach_graph_context(_compile_bounded_reentry_query(query, params=params))
