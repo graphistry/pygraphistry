@@ -461,6 +461,22 @@ class TestBinderIntegration:
         assert "b" in qg.boundary_aliases
         assert "a" not in qg.boundary_aliases
 
+    def test_chained_optional_arms_join_aliases(self) -> None:
+        # MATCH (a) OPTIONAL MATCH (a)-->(b) OPTIONAL MATCH (b)-->(c) RETURN c
+        # Only optional_arm_2 (c's arm) is visible — optional_arm_1 (b's arm) is lost
+        # because b is dropped by RETURN (known limitation: arm_to_nullable from
+        # semantic_table only; documented in Wave I).
+        # Key: 'a' in join_aliases recovered via scope_stack despite RETURN drop;
+        # 'b' NOT in join_aliases because _optional_new_outputs marks it as nullable.
+        qg = extract_query_graph(_bind(
+            "MATCH (a) OPTIONAL MATCH (a)-->(b) OPTIONAL MATCH (b)-->(c) RETURN c"
+        ))
+        assert len(qg.optional_arms) == 1
+        arm = qg.optional_arms[0]
+        assert "c" in arm.nullable_aliases
+        assert "a" in arm.join_aliases
+        assert "b" not in arm.join_aliases
+
     def test_combined_with_optional_rename(self) -> None:
         # WITH boundary + OPTIONAL MATCH arm + alias rename in one query
         qg = extract_query_graph(

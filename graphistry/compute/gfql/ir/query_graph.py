@@ -182,7 +182,7 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
             if out_var is not None:
                 part_arm_ids |= out_var.null_extended_from
         # Required inputs shared with an optional arm → join aliases.
-        # Fall back to _optional_outputs for inputs dropped by RETURN: if the input
+        # Fall back to _optional_new_outputs for inputs dropped by RETURN: if the input
         # was not introduced by an OPTIONAL MATCH, it is required (non-nullable).
         for alias in part.inputs:
             var = bound_ir.semantic_table.variables.get(alias)
