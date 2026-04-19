@@ -78,7 +78,7 @@ def _coerce_to_pandas(g: "Plottable") -> "Plottable":
     def _is_cudf(df: Any) -> bool:
         return 'cudf' in str(type(df).__module__)
 
-    if not isinstance(g._edges, pd.DataFrame) and not _is_cudf(g._edges):
+    if g._edges is not None and not isinstance(g._edges, pd.DataFrame) and not _is_cudf(g._edges):
         g = g.edges(df_to_engine(g._edges, Engine.PANDAS), g._source, g._destination)
     if g._nodes is not None and not isinstance(g._nodes, pd.DataFrame) and not _is_cudf(g._nodes):
         g = g.nodes(df_to_engine(g._nodes, Engine.PANDAS), g._node)

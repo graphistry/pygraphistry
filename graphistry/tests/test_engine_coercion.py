@@ -123,6 +123,11 @@ class TestCoerceToPandas(NoAuthTestCase):
         result = _coerce_to_pandas(g)
         self.assertIsInstance(result._nodes, pd.DataFrame)
 
+    def test_none_edges_untouched(self):
+        g = CGFull()  # no edges set
+        result = _coerce_to_pandas(g)
+        self.assertIsNone(result._edges)
+
     def test_none_nodes_untouched(self):
         g = self._g(EDGES_PD)
         self.assertIsNone(g._nodes)
