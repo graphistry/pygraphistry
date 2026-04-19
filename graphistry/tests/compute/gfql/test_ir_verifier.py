@@ -29,6 +29,8 @@ from graphistry.compute.gfql.ir import (
     OrderBy,
     PathProjection,
     PatternMatch,
+    ProcedureCall,
+    ProcedureOutputColumn,
     Project,
     RowSchema,
     RowsToGraph,
@@ -171,6 +173,34 @@ class TestVerifyPositive:
 
     def test_path_projection_no_errors(self) -> None:
         plan = PathProjection(op_id=2, input=_ns(op_id=1), path_var="p", hop_count_col="hops")
+        assert verify(plan) == []
+
+    def test_procedure_call_rows_no_errors(self) -> None:
+        plan = ProcedureCall(
+            op_id=1,
+            procedure="graphistry.degree",
+            result_kind="rows",
+            output_columns=(
+                ProcedureOutputColumn(source_name="nodeId", output_name="nodeId"),
+                ProcedureOutputColumn(source_name="degree", output_name="degree"),
+            ),
+            output_schema=RowSchema(
+                columns={
+                    "nodeId": ScalarType(kind="string", nullable=False),
+                    "degree": ScalarType(kind="int64", nullable=False),
+                }
+            ),
+        )
+        assert verify(plan) == []
+
+    def test_procedure_call_graph_no_errors(self) -> None:
+        plan = ProcedureCall(
+            op_id=1,
+            procedure="graphistry.degree.write",
+            result_kind="graph",
+            output_columns=(),
+            output_schema=RowSchema(columns={}),
+        )
         assert verify(plan) == []
 
 
