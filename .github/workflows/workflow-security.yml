@@ -34,9 +34,27 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Download actionlint (latest stable older than cooldown)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COOLDOWN_DAYS: "6"
+        run: |
+          set -euo pipefail
+          cutoff=$(date -u -d "${COOLDOWN_DAYS} days ago" +%s)
+          tag=$(gh api repos/rhysd/actionlint/releases \
+            --jq "[.[] | select(.draft|not) | select(.prerelease|not) | select((.published_at | fromdateiso8601) <= ${cutoff})][0].tag_name")
+          if [ -z "${tag}" ] || [ "${tag}" = "null" ]; then
+            echo "::error::No eligible actionlint release older than ${COOLDOWN_DAYS} days"
+            exit 1
+          fi
+          ver="${tag#v}"
+          asset="actionlint_${ver}_linux_amd64.tar.gz"
+          gh release download "${tag}" --repo rhysd/actionlint --pattern "${asset}" --clobber
+          tar -xzf "${asset}" actionlint
+          chmod +x ./actionlint
       - name: Run actionlint
         run: |
-          docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.7 -shellcheck=
+          ./actionlint -shellcheck=
 
   zizmor:
     runs-on: ubuntu-latest
