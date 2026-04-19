@@ -159,14 +159,32 @@ def df_to_engine(df, engine: Engine):
     if engine == Engine.PANDAS:
         if isinstance(df, pd.DataFrame):
             return df
-        else:
+        if isinstance(df, pa.Table):
             return df.to_pandas()
+        type_module = str(type(df).__module__)
+        if 'pyspark' in type_module:
+            from pyspark.sql import DataFrame as SparkDF
+            if isinstance(df, SparkDF):
+                return df.toPandas()
+        if 'dask_cudf' in type_module:
+            import dask_cudf
+            if isinstance(df, dask_cudf.DataFrame):
+                return df.compute().to_pandas()
+        if 'dask' in type_module:
+            import dask.dataframe as dd
+            if isinstance(df, dd.DataFrame):
+                return df.compute()
+        if 'cudf' in type_module:
+            import cudf
+            if isinstance(df, cudf.DataFrame):
+                return df.to_pandas()
+        raise ValueError(f'Cannot convert type {type(df)} to pandas')
     elif engine == Engine.CUDF:
         import cudf
         if isinstance(df, cudf.DataFrame):
             return df
         if not isinstance(df, pd.DataFrame):
-            df = df.to_pandas()
+            df = df_to_engine(df, Engine.PANDAS)
         return _cudf_from_pandas_best_effort(df)
     raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 

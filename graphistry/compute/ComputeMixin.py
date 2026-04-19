@@ -70,24 +70,18 @@ def _safe_len(df: Any) -> int:
 
 
 def _coerce_to_pandas(g: "Plottable") -> "Plottable":
-    """Coerce input-format types (Arrow, Spark) on *g* to pandas DataFrames (returns new Plottable).
+    """Coerce input-format types (Arrow, Spark, dask) on *g* to pandas DataFrames.
 
-    Arrow and Spark are input formats, not compute engines.  All compute methods
-    call this at their entry point so the rest of their logic can assume pandas/cudf.
+    Input formats are coerced; cuDF is a compute engine and is left untouched.
+    Delegates coercion to df_to_engine(df, Engine.PANDAS).
     """
-    import pyarrow as pa
-    if isinstance(g._edges, pa.Table):
-        g = g.edges(g._edges.to_pandas(), g._source, g._destination)
-    if g._nodes is not None and isinstance(g._nodes, pa.Table):
-        g = g.nodes(g._nodes.to_pandas(), g._node)
-    try:
-        from pyspark.sql import DataFrame as SparkDataFrame
-        if isinstance(g._edges, SparkDataFrame):
-            g = g.edges(g._edges.toPandas(), g._source, g._destination)
-        if g._nodes is not None and isinstance(g._nodes, SparkDataFrame):
-            g = g.nodes(g._nodes.toPandas(), g._node)
-    except ImportError:
-        pass
+    def _is_cudf(df: Any) -> bool:
+        return 'cudf' in str(type(df).__module__)
+
+    if not isinstance(g._edges, pd.DataFrame) and not _is_cudf(g._edges):
+        g = g.edges(df_to_engine(g._edges, Engine.PANDAS), g._source, g._destination)
+    if g._nodes is not None and not isinstance(g._nodes, pd.DataFrame) and not _is_cudf(g._nodes):
+        g = g.nodes(df_to_engine(g._nodes, Engine.PANDAS), g._node)
     return g
 
 

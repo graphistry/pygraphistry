@@ -105,6 +105,9 @@ def hop(self: Plottable,
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
 
+    from graphistry.compute.ComputeMixin import _coerce_to_pandas  # lazy — avoids circular import
+    self = _coerce_to_pandas(self)
+
     def _combine_first_no_warn(target, fill):
         """Avoid pandas concat warning when combine_first sees empty inputs."""
         if target is None or len(target) == 0:

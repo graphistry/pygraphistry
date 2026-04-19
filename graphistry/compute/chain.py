@@ -739,6 +739,9 @@ def chain(
         from .execution_context import ExecutionContext
         context = ExecutionContext()
 
+    from graphistry.compute.ComputeMixin import _coerce_to_pandas  # lazy — avoids circular import
+    self = _coerce_to_pandas(self)
+
     if policy:
         from graphistry.compute.gfql.call.executor import _thread_local as call_thread_local
         old_policy = getattr(call_thread_local, 'policy', None)
