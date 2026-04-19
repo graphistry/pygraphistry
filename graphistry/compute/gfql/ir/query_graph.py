@@ -136,7 +136,7 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
             r = _uf_find(parent, alias)
             root_to_aliases.setdefault(r, []).append(alias)
 
-        for alias_list in root_to_aliases.values():
+        for alias_list in sorted(root_to_aliases.values(), key=min):
             node_aliases: List[str] = []
             edge_aliases: List[str] = []
             for alias in sorted(alias_list):
