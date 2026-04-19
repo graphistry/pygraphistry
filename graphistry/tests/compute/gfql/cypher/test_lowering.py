@@ -776,6 +776,21 @@ def test_compiled_query_sets_logical_plan_route_for_row_sequence_shape() -> None
     assert compiled.logical_plan_defer_reason is None
 
 
+def test_compiled_query_sets_logical_plan_route_for_with_only_row_sequence_shape() -> None:
+    compiled = _compile_query("WITH 1 AS n RETURN n")
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
+
+
+def test_compiled_query_sets_logical_plan_defer_reason_for_optional_reentry_shape() -> None:
+    compiled = _compile_query("MATCH (a:A) WITH a OPTIONAL MATCH (a)-->(b) RETURN b")
+    assert compiled.logical_plan_route == "deferred"
+    assert compiled.logical_plan is None
+    assert compiled.logical_plan_defer_reason is not None
+    assert "OPTIONAL MATCH" in compiled.logical_plan_defer_reason
+
+
 def test_connected_optional_query_sets_query_graph_and_logical_plan() -> None:
     compiled = _compile_query("MATCH (a)-[:A]->(b) OPTIONAL MATCH (b)-[:B]->(c) RETURN c")
     assert compiled.connected_optional_match is not None
