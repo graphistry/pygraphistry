@@ -448,10 +448,12 @@ class TestBinderIntegration:
         assert len(qg.components) == 2
         assert "a" in qg.boundary_aliases
 
-    def test_optional_match_produces_arm(self) -> None:
-        # MATCH (a) OPTIONAL MATCH (a)-->(b) RETURN b → 1 optional arm
+    def test_optional_match_produces_arm_with_join_alias(self) -> None:
+        # MATCH (a) OPTIONAL MATCH (a)-->(b) RETURN b → 1 arm; "a" is required input
+        # → join alias even though "a" is dropped from semantic_table by RETURN b.
         qg = extract_query_graph(_bind("MATCH (a) OPTIONAL MATCH (a)-->(b) RETURN b"))
         assert len(qg.optional_arms) == 1
+        assert "a" in qg.optional_arms[0].join_aliases
 
     def test_with_rename_output_alias_becomes_boundary_alias_binder(self) -> None:
         # WITH a AS b renames: outputs={"b"} → "b" in boundary_aliases, "a" not

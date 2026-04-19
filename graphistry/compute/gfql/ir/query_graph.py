@@ -158,6 +158,15 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
             components.append(ConnectedComponent())
 
     # --- 3. Optional arms from null_extended_from ---
+    # Pre-pass: collect aliases truly introduced by OPTIONAL MATCH (outputs not already
+    # present as inputs to the same part). Pass-through aliases (e.g., `a` in
+    # OPTIONAL MATCH (a)-->(b)) appear in both inputs and outputs; only new aliases
+    # like `b` are nullable by definition.
+    _optional_new_outputs: Set[str] = set()
+    for p in bound_ir.query_parts:
+        if _normalize_clause(p.clause) == "optional_match":
+            _optional_new_outputs |= (p.outputs - p.inputs)
+
     arm_to_nullable: Dict[str, Set[str]] = {}
     for alias, var in bound_ir.semantic_table.variables.items():
         for arm_id in var.null_extended_from:
@@ -172,10 +181,21 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
             out_var = bound_ir.semantic_table.variables.get(out_alias)
             if out_var is not None:
                 part_arm_ids |= out_var.null_extended_from
-        # Required inputs shared with an optional arm → join aliases
+        # Required inputs shared with an optional arm → join aliases.
+        # Fall back to _optional_outputs for inputs dropped by RETURN: if the input
+        # was not introduced by an OPTIONAL MATCH, it is required (non-nullable).
         for alias in part.inputs:
             var = bound_ir.semantic_table.variables.get(alias)
-            if var is not None and not var.nullable:
+            if var is not None:
+                is_required = not var.nullable
+            elif alias in _scope_entity_kind:
+                # Alias was bound but dropped by RETURN; non-nullable unless it was
+                # a new alias introduced by an OPTIONAL MATCH (nullable by definition).
+                # Pass-through aliases (in both inputs and outputs) are required.
+                is_required = alias not in _optional_new_outputs
+            else:
+                is_required = False  # genuinely unbound alias
+            if is_required:
                 for arm_id in part_arm_ids:
                     arm_to_join.setdefault(arm_id, set()).add(alias)
 
