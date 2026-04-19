@@ -39,7 +39,7 @@ jobs:
   gpu-permission:
     # Temporarily disabled while gpu_public is unavailable and PR-D hardening is pending.
     # Re-enable only after issue #1130 criteria are met.
-    if: ${{ false }}  # see #1130
+    if: ${{ vars.GRAPHISTRY_ENABLE_GPU_PUBLIC == 'true' }}  # see #1130; disabled by default
     runs-on: ubuntu-latest
     steps:
       - name: Do nothing
@@ -49,7 +49,7 @@ jobs:
     name: Detect and cancel outstanding runs of this workflow
     # Temporarily disabled while gpu_public is unavailable and PR-D hardening is pending.
     # Re-enable only after issue #1130 criteria are met.
-    if: ${{ false }}  # see #1130
+    if: ${{ vars.GRAPHISTRY_ENABLE_GPU_PUBLIC == 'true' }}  # see #1130; disabled by default
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -64,7 +64,7 @@ jobs:
   test-full-ai:
     # Temporarily disabled while gpu_public is unavailable and PR-D hardening is pending.
     # Re-enable only after issue #1130 criteria are met.
-    if: ${{ false }}  # see #1130
+    if: ${{ vars.GRAPHISTRY_ENABLE_GPU_PUBLIC == 'true' }}  # see #1130; disabled by default
     runs-on: gpu_public
 
     strategy:
@@ -75,12 +75,12 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         persist-credentials: false
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
