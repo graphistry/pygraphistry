@@ -762,12 +762,11 @@ def test_compiled_query_sets_logical_plan_route_for_reentry_shape() -> None:
     assert compiled.logical_plan_defer_reason is None
 
 
-def test_compiled_query_sets_logical_plan_defer_reason_for_reentry_multihop_shape() -> None:
+def test_compiled_query_sets_logical_plan_route_for_reentry_multihop_shape() -> None:
     compiled = _compile_query("MATCH (a:A) WITH a MATCH (a)-->(b) RETURN b")
-    assert compiled.logical_plan_route == "deferred"
-    assert compiled.logical_plan is None
-    assert compiled.logical_plan_defer_reason is not None
-    assert "multiple MATCH stages" in compiled.logical_plan_defer_reason
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
 
 
 def test_compiled_query_sets_logical_plan_route_for_row_sequence_shape() -> None:
@@ -814,13 +813,12 @@ def test_compile_query_sets_logical_plan_route_for_graph_binding_call_constructo
     assert binding.logical_plan.result_kind == "graph"
 
 
-def test_compile_graph_query_sets_logical_plan_defer_reason_for_match_constructor_shape() -> None:
+def test_compile_graph_query_sets_logical_plan_route_for_match_constructor_shape() -> None:
     compiled = compile_cypher("GRAPH { MATCH (a)-[r]->(b) WHERE a.id = 'a' }")
     assert isinstance(compiled, CompiledCypherGraphQuery)
-    assert compiled.logical_plan_route == "deferred"
-    assert compiled.logical_plan is None
-    assert compiled.logical_plan_defer_reason is not None
-    assert "single-node MATCH" in compiled.logical_plan_defer_reason
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
 
 
 def test_lower_match_clause_to_gfql_ops() -> None:

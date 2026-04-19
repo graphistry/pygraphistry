@@ -10,7 +10,15 @@ from typing import FrozenSet, Iterable, Mapping, Optional
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, BoundVariable
 from graphistry.compute.gfql.ir.compilation import PlanContext
-from graphistry.compute.gfql.ir.logical_plan import Filter, LogicalPlan, NodeScan, Project, RowSchema, Unwind
+from graphistry.compute.gfql.ir.logical_plan import (
+    Filter,
+    LogicalPlan,
+    NodeScan,
+    PatternMatch,
+    Project,
+    RowSchema,
+    Unwind,
+)
 from graphistry.compute.gfql.ir.types import NodeRef
 
 
@@ -93,11 +101,20 @@ class LogicalPlanner:
         vars_by_name: Mapping[str, BoundVariable],
         id_gen: IdGen,
     ) -> LogicalPlan:
-        aliases = self._aliases_for_part(part)
-        return NodeScan(
+        aliases = sorted(self._aliases_for_part(part))
+        schema = self._schema_for_aliases(alias_names=aliases, vars_by_name=vars_by_name)
+        if len(aliases) == 1:
+            return NodeScan(
+                op_id=id_gen.next(),
+                label=self._first_node_label(var_names=aliases, vars_by_name=vars_by_name),
+                output_schema=schema,
+            )
+        return PatternMatch(
             op_id=id_gen.next(),
-            label=self._first_node_label(var_names=aliases, vars_by_name=vars_by_name),
-            output_schema=self._schema_for_aliases(alias_names=aliases, vars_by_name=vars_by_name),
+            pattern={"aliases": tuple(aliases)},
+            optional=False,
+            arm_id=None,
+            output_schema=schema,
         )
 
     def _reject_unsupported_match_shape(
@@ -107,23 +124,44 @@ class LogicalPlanner:
         vars_by_name: Mapping[str, BoundVariable],
     ) -> None:
         alias_names = part.outputs or part.inputs
-        if len(alias_names) != 1:
+        if not alias_names:
             raise GFQLValidationError(
                 ErrorCode.E108,
-                "LogicalPlanner skeleton only supports single-node MATCH shapes",
+                "LogicalPlanner skeleton requires at least one MATCH alias",
                 field="clause",
                 value=part.clause,
-                suggestion="Use MATCH with a single node alias only until richer pattern planning is implemented.",
+                suggestion="Use MATCH with at least one alias in scope.",
             )
-        alias = next(iter(alias_names))
-        variable = vars_by_name.get(alias)
-        if variable is not None and variable.entity_kind != "node":
+        has_node_alias = False
+        has_known_alias = False
+        for alias in alias_names:
+            variable = vars_by_name.get(alias)
+            if variable is None:
+                continue
+            has_known_alias = True
+            if variable.entity_kind == "node":
+                has_node_alias = True
+                continue
+            if variable.entity_kind != "edge":
+                raise GFQLValidationError(
+                    ErrorCode.E108,
+                    "LogicalPlanner skeleton only supports MATCH outputs bound to node/edge aliases",
+                    field="clause",
+                    value=part.clause,
+                    suggestion="Use MATCH with node/edge aliases only until richer pattern planning is implemented.",
+                )
+        if not has_known_alias:
+            # Some synthetic compile paths (for example, graph constructors
+            # lowered to MATCH + empty RETURN) may not materialize alias
+            # entries in SemanticTable. Allow these through as skeleton plans.
+            return
+        if not has_node_alias:
             raise GFQLValidationError(
                 ErrorCode.E108,
-                "LogicalPlanner skeleton only supports MATCH outputs bound to a node alias",
+                "LogicalPlanner skeleton requires MATCH outputs to include at least one node alias",
                 field="clause",
                 value=part.clause,
-                suggestion="Use MATCH with one node alias output only until richer pattern planning is implemented.",
+                suggestion="Use MATCH with one or more node aliases in scope.",
             )
 
     def _plan_where(
