@@ -169,17 +169,17 @@ else:
             result = g.hop(hops=1)
             self.assertIsInstance(result._edges, pd.DataFrame)
 
-        def test_chain_polars_edges(self):
+        def test_gfql_polars_edges(self):
             from graphistry.compute.ast import ASTEdge
             g = CGFull().edges(EDGES_PL, "src", "dst").materialize_nodes()
-            result = g.chain([ASTEdge()])
+            result = g.gfql([ASTEdge()])
             self.assertIsInstance(result._edges, pd.DataFrame)
             self.assertIsInstance(result._nodes, pd.DataFrame)
 
-        def test_chain_polars_lazy_edges(self):
+        def test_gfql_polars_lazy_edges(self):
             from graphistry.compute.ast import ASTEdge
             g = CGFull().edges(EDGES_LAZY, "src", "dst").materialize_nodes()
-            result = g.chain([ASTEdge()])
+            result = g.gfql([ASTEdge()])
             self.assertIsInstance(result._edges, pd.DataFrame)
 
     # ------------------------------------------------------------------
