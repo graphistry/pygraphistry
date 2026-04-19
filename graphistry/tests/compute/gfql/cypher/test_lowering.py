@@ -755,20 +755,26 @@ def test_compiled_query_sets_logical_plan_route_for_call_shape() -> None:
     assert compiled.logical_plan_defer_reason is None
 
 
-def test_compiled_query_sets_logical_plan_defer_reason_for_reentry_shape() -> None:
+def test_compiled_query_sets_logical_plan_route_for_reentry_shape() -> None:
+    compiled = _compile_query("MATCH (a:A) WITH a MATCH (a) RETURN a")
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
+
+
+def test_compiled_query_sets_logical_plan_defer_reason_for_reentry_multihop_shape() -> None:
     compiled = _compile_query("MATCH (a:A) WITH a MATCH (a)-->(b) RETURN b")
     assert compiled.logical_plan_route == "deferred"
     assert compiled.logical_plan is None
     assert compiled.logical_plan_defer_reason is not None
-    assert "MATCH reentry query flow is deferred" in compiled.logical_plan_defer_reason
+    assert "multiple MATCH stages" in compiled.logical_plan_defer_reason
 
 
-def test_compiled_query_sets_logical_plan_defer_reason_for_row_sequence_shape() -> None:
+def test_compiled_query_sets_logical_plan_route_for_row_sequence_shape() -> None:
     compiled = _compile_query("UNWIND [1,2] AS n RETURN n")
-    assert compiled.logical_plan_route == "deferred"
-    assert compiled.logical_plan is None
-    assert compiled.logical_plan_defer_reason is not None
-    assert "Row-sequence query flow is deferred" in compiled.logical_plan_defer_reason
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
 
 
 def test_connected_optional_query_sets_query_graph_and_logical_plan() -> None:
