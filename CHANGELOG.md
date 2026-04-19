@@ -15,6 +15,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **CI / GPU lockdown**: Temporarily disabled `ci-gpu.yml` GPU execution path (including `gpu_public` jobs) while runner availability and PR-D security hardening are addressed; attempted GPU-triggered runs now fail fast with re-enable guidance referencing issue #1130.
 - **CI / release permissions**: `publish-pypi.yml` now explicitly declares `contents: read` alongside `id-token: write` for the publish job, keeping release workflow permissions least-privilege and resilient after repository default token permissions were tightened under issue #1130.
 
+### Added
+- **Polars support**: `polars.DataFrame` and `polars.LazyFrame` now work in `plot()`, `materialize_nodes()`, `get_degrees()`, `get_indegrees()`, `get_outdegrees()`, and `hypergraph()`. Polars is an optional dependency — no behavior change when not installed. Upload path uses efficient Arrow conversion (`to_arrow()` with schema-metadata stripping and memoization); compute/hypergraph paths coerce to pandas at entry. `LazyFrame` is materialized via `.collect()` at each boundary. Adds `test_polars.py` with 17 tests; skips gracefully when polars is absent (#1133).
+
 ### Fixed
 - **DataFrame input types**: `pa.Table` (Apache Arrow) and `pyspark.sql.DataFrame` (Spark) now work in `materialize_nodes()`, `get_degrees()`, `get_indegrees()`, `get_outdegrees()`, and `hypergraph()` without crashing. Both are coerced to pandas at each entry boundary; pandas/cuDF paths are unaffected. Mixed inputs (e.g. Arrow edges + pandas nodes) are handled correctly. Adds `test_df_types.py` with 22 tests covering Arrow compute, Arrow hypergraph, mixed-type boundaries, and Spark paths; adds a `test-spark` parallel CI job (Python 3.14, pyspark 4.x) (#1132).
 
