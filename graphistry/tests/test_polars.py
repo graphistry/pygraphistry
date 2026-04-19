@@ -13,14 +13,14 @@ import pandas as pd
 import pyarrow as pa
 import unittest
 
-polars = pytest = None
+pl = None
 try:
     import polars as pl
     import pytest
 except ImportError:
     pass
 
-if pl is None or pytest is None:
+if pl is None:
     import sys
     print("polars not installed — skipping test_polars.py", file=sys.stderr)
     # Make the module importable but empty when polars is absent
