@@ -176,12 +176,14 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
     for part in bound_ir.query_parts:
         if _normalize_clause(part.clause) != "optional_match":
             continue
-        metadata_arm_id = part.metadata.get("arm_id")
+        _raw_arm_id = part.metadata.get("arm_id")
+        # Binder provenance: non-empty string arm_id survives RETURN projection and
+        # preserves arm identity even when semantic_table drops intermediate aliases.
+        _meta_arm: str | None = _raw_arm_id if isinstance(_raw_arm_id, str) and _raw_arm_id else None
+
         part_arm_ids: Set[str] = set()
-        if isinstance(metadata_arm_id, str) and metadata_arm_id:
-            # Binder provenance survives RETURN projection and preserves arm identity
-            # even when semantic_table drops intermediate aliases.
-            part_arm_ids.add(metadata_arm_id)
+        if _meta_arm:
+            part_arm_ids.add(_meta_arm)
         else:
             for out_alias in part.outputs:
                 out_var = bound_ir.semantic_table.variables.get(out_alias)
@@ -195,18 +197,14 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
             out_var = bound_ir.semantic_table.variables.get(out_alias)
             if out_var is not None and out_var.null_extended_from:
                 alias_arm_ids: Set[str] = set(out_var.null_extended_from)
-                if (
-                    isinstance(metadata_arm_id, str)
-                    and metadata_arm_id
-                    and metadata_arm_id in alias_arm_ids
-                ):
+                if _meta_arm and _meta_arm in alias_arm_ids:
                     # Prefer per-part provenance when available.
-                    alias_arm_ids = {metadata_arm_id}
+                    alias_arm_ids = {_meta_arm}
                 for arm_id in alias_arm_ids:
                     arm_to_nullable.setdefault(arm_id, set()).add(out_alias)
-            elif isinstance(metadata_arm_id, str) and metadata_arm_id:
+            elif _meta_arm:
                 # RETURN may drop this alias from semantic_table; recover via part outputs.
-                arm_to_nullable.setdefault(metadata_arm_id, set()).add(out_alias)
+                arm_to_nullable.setdefault(_meta_arm, set()).add(out_alias)
 
         # Required inputs shared with an optional arm → join aliases.
         # Fall back to _optional_new_outputs for inputs dropped by RETURN: if the input

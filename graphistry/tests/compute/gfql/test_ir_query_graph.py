@@ -495,6 +495,9 @@ class TestBinderIntegration:
         assert "b" in arms["optional_arm_1"].nullable_aliases
         assert "c" in arms["optional_arm_2"].nullable_aliases
         assert "a" in arms["optional_arm_1"].join_aliases
+        # "a" is the deepest required ancestor visible in scope; "b" is nullable
+        # (from arm_1) so it is excluded. Physical planner must trace arm-to-arm
+        # dependency (arm_2 depends on arm_1) separately from join_aliases.
         assert "a" in arms["optional_arm_2"].join_aliases
         assert "b" not in arms["optional_arm_2"].join_aliases
 
