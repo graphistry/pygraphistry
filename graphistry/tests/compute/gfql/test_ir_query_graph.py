@@ -441,8 +441,9 @@ class TestOptionalArmEdgeCases:
 
     def test_metadata_arm_id_overrides_stale_semantic_table_arm(self) -> None:
         # When part.metadata["arm_id"] disagrees with out_var.null_extended_from,
-        # metadata is authoritative: alias must land in the metadata arm, not the stale one.
-        # (Regression for the _meta_arm-in-alias_arm_ids guard that blocked this.)
+        # metadata is authoritative: alias must land in the metadata arm only.
+        # The stale arm entry from the pre-seed must be discarded so each alias
+        # belongs to exactly one arm.
         b_var = _var("b", nullable=True, null_extended_from=frozenset({"arm_stale"}))
         p1 = _part("match", outputs=frozenset({"a"}))
         p2 = _part(
@@ -455,6 +456,9 @@ class TestOptionalArmEdgeCases:
         arms = {arm.arm_id: arm for arm in qg.optional_arms}
         assert "arm_canonical" in arms
         assert "b" in arms["arm_canonical"].nullable_aliases
+        # Stale arm must NOT claim the alias — each alias belongs to exactly one arm.
+        if "arm_stale" in arms:
+            assert "b" not in arms["arm_stale"].nullable_aliases
 
     def test_sentinel_preserves_arm_with_all_passthrough_outputs(self) -> None:
         # OPTIONAL MATCH where every output is also an input (all pass-through):
