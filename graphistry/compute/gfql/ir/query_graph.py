@@ -205,6 +205,11 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
                         arm_to_nullable[existing_arm_id].discard(out_alias)
                 arm_to_nullable.setdefault(_meta_arm, set()).add(out_alias)
             else:
+                # No metadata: mirror semantic_table verbatim, including any multi-arm
+                # membership. The binder assigns unique arm_ids and a single binding per
+                # alias per OPTIONAL MATCH, so null_extended_from spans multiple arms
+                # only when a variable is legitimately nullable from several independent
+                # optional patterns (e.g., two unrelated OPTIONAL arms both producing it).
                 out_var = bound_ir.semantic_table.variables.get(out_alias)
                 if out_var is not None:
                     for arm_id in out_var.null_extended_from:
