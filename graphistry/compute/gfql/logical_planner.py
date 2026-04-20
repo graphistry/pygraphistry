@@ -104,11 +104,13 @@ class LogicalPlanner:
         aliases = sorted(self._aliases_for_part(part))
         schema = self._schema_for_aliases(alias_names=aliases, vars_by_name=vars_by_name)
         if len(aliases) == 1:
-            return NodeScan(
-                op_id=id_gen.next(),
-                label=self._first_node_label(var_names=aliases, vars_by_name=vars_by_name),
-                output_schema=schema,
-            )
+            variable = vars_by_name.get(aliases[0])
+            if variable is not None and variable.entity_kind == "node":
+                return NodeScan(
+                    op_id=id_gen.next(),
+                    label=self._first_node_label(var_names=aliases, vars_by_name=vars_by_name),
+                    output_schema=schema,
+                )
         return PatternMatch(
             op_id=id_gen.next(),
             pattern={"aliases": tuple(aliases)},
@@ -132,17 +134,13 @@ class LogicalPlanner:
                 value=part.clause,
                 suggestion="Use MATCH with at least one alias in scope.",
             )
-        has_node_alias = False
         has_known_alias = False
         for alias in alias_names:
             variable = vars_by_name.get(alias)
             if variable is None:
                 continue
             has_known_alias = True
-            if variable.entity_kind == "node":
-                has_node_alias = True
-                continue
-            if variable.entity_kind != "edge":
+            if variable.entity_kind not in {"node", "edge"}:
                 raise GFQLValidationError(
                     ErrorCode.E108,
                     "LogicalPlanner skeleton only supports MATCH outputs bound to node/edge aliases",
@@ -155,14 +153,6 @@ class LogicalPlanner:
             # lowered to MATCH + empty RETURN) may not materialize alias
             # entries in SemanticTable. Allow these through as skeleton plans.
             return
-        if not has_node_alias:
-            raise GFQLValidationError(
-                ErrorCode.E108,
-                "LogicalPlanner skeleton requires MATCH outputs to include at least one node alias",
-                field="clause",
-                value=part.clause,
-                suggestion="Use MATCH with one or more node aliases in scope.",
-            )
 
     def _plan_where(
         self,

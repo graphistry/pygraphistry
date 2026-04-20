@@ -297,7 +297,7 @@ def test_logical_planner_rejects_distinct_projection_shapes() -> None:
         LogicalPlanner().plan(bound, PlanContext())
 
 
-def test_logical_planner_rejects_match_without_node_aliases() -> None:
+def test_logical_planner_plans_single_alias_edge_match_shapes() -> None:
     bound_ir = BoundIR(
         query_parts=[BoundQueryPart(clause="MATCH", outputs=frozenset({"r"}))],
         semantic_table=SemanticTable(
@@ -312,9 +312,10 @@ def test_logical_planner_rejects_match_without_node_aliases() -> None:
             }
         ),
     )
-
-    with pytest.raises(GFQLValidationError, match="at least one node alias"):
-        LogicalPlanner().plan(bound_ir, PlanContext())
+    root = LogicalPlanner().plan(bound_ir, PlanContext())
+    pattern = _find_first(root, PatternMatch)
+    assert pattern is not None
+    assert set(pattern.output_schema.columns.keys()) == {"r"}
 
 
 def test_logical_planner_rejects_unwind_without_exactly_one_new_alias() -> None:

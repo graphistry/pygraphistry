@@ -769,6 +769,20 @@ def test_compiled_query_sets_logical_plan_route_for_reentry_multihop_shape() -> 
     assert compiled.logical_plan_defer_reason is None
 
 
+def test_compiled_query_sets_logical_plan_route_for_edge_projection_shape() -> None:
+    compiled = _compile_query("MATCH (a)-[r]->(b) RETURN r")
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
+
+
+def test_compiled_query_sets_logical_plan_route_for_reentry_edge_projection_shape() -> None:
+    compiled = _compile_query("MATCH (a:A) WITH a MATCH (a)-[r]->(b) RETURN r")
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
+
+
 def test_compiled_query_sets_logical_plan_route_for_row_sequence_shape() -> None:
     compiled = _compile_query("UNWIND [1,2] AS n RETURN n")
     assert compiled.logical_plan_route == "planned"
