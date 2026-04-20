@@ -114,7 +114,7 @@ setup(
     long_description=open("./README.md").read(),
     long_description_content_type='text/markdown',
     url='https://github.com/graphistry/pygraphistry',
-    download_url= 'https://pypi.org/project/graphistry/',
+    download_url= 'https://pypi.python.org/pypi/graphistry/',
     python_requires='>=3.8',
     author='The Graphistry Team',
     author_email='pygraphistry@graphistry.com',
