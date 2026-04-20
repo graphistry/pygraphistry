@@ -126,7 +126,7 @@ GPU tests can also be run locally via `./docker/test-gpu-local.sh` .
 1. Switch to master and pull the merged changes
 	```sh
 	git checkout master
-	git pull
+	git pull --ff-only origin master
 	```
 
 1. Tag the repository with the new version number (semantic versioning *X.Y.Z*)
