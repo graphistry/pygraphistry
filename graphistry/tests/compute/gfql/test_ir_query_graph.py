@@ -439,6 +439,40 @@ class TestOptionalArmEdgeCases:
         assert arm.nullable_aliases == frozenset({"b"})
         assert "a" in arm.join_aliases
 
+    def test_metadata_arm_id_overrides_stale_semantic_table_arm(self) -> None:
+        # When part.metadata["arm_id"] disagrees with out_var.null_extended_from,
+        # metadata is authoritative: alias must land in the metadata arm, not the stale one.
+        # (Regression for the _meta_arm-in-alias_arm_ids guard that blocked this.)
+        b_var = _var("b", nullable=True, null_extended_from=frozenset({"arm_stale"}))
+        p1 = _part("match", outputs=frozenset({"a"}))
+        p2 = _part(
+            "optional_match",
+            inputs=frozenset({"a"}),
+            outputs=frozenset({"a", "b"}),
+            metadata={"arm_id": "arm_canonical"},
+        )
+        qg = extract_query_graph(_ir([p1, p2], {"a": _var("a"), "b": b_var}))
+        arms = {arm.arm_id: arm for arm in qg.optional_arms}
+        assert "arm_canonical" in arms
+        assert "b" in arms["arm_canonical"].nullable_aliases
+
+    def test_sentinel_preserves_arm_with_all_passthrough_outputs(self) -> None:
+        # OPTIONAL MATCH where every output is also an input (all pass-through):
+        # outputs - inputs is empty, yet the arm must still appear in optional_arms
+        # so the physical planner knows it exists.
+        p1 = _part("match", outputs=frozenset({"a"}))
+        p2 = _part(
+            "optional_match",
+            inputs=frozenset({"a"}),
+            outputs=frozenset({"a"}),
+            metadata={"arm_id": "arm_passthrough"},
+        )
+        qg = extract_query_graph(_ir([p1, p2], {"a": _var("a")}))
+        arm_ids = {arm.arm_id for arm in qg.optional_arms}
+        assert "arm_passthrough" in arm_ids
+        passthrough_arm = next(arm for arm in qg.optional_arms if arm.arm_id == "arm_passthrough")
+        assert passthrough_arm.nullable_aliases == frozenset()
+
 
 # ---------------------------------------------------------------------------
 # Binder integration — real FrontendBinder output (clause strings are UPPERCASE)

@@ -194,17 +194,15 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
             arm_to_nullable.setdefault(arm_id, set())
 
         for out_alias in (part.outputs - part.inputs):
-            out_var = bound_ir.semantic_table.variables.get(out_alias)
-            if out_var is not None and out_var.null_extended_from:
-                alias_arm_ids: Set[str] = set(out_var.null_extended_from)
-                if _meta_arm and _meta_arm in alias_arm_ids:
-                    # Prefer per-part provenance when available.
-                    alias_arm_ids = {_meta_arm}
-                for arm_id in alias_arm_ids:
-                    arm_to_nullable.setdefault(arm_id, set()).add(out_alias)
-            elif _meta_arm:
-                # RETURN may drop this alias from semantic_table; recover via part outputs.
+            if _meta_arm:
+                # Per-part metadata is authoritative: use it regardless of semantic_table
+                # arm IDs (which may be absent or disagree due to RETURN projection).
                 arm_to_nullable.setdefault(_meta_arm, set()).add(out_alias)
+            else:
+                out_var = bound_ir.semantic_table.variables.get(out_alias)
+                if out_var is not None:
+                    for arm_id in out_var.null_extended_from:
+                        arm_to_nullable.setdefault(arm_id, set()).add(out_alias)
 
         # Required inputs shared with an optional arm → join aliases.
         # Fall back to _optional_new_outputs for inputs dropped by RETURN: if the input
