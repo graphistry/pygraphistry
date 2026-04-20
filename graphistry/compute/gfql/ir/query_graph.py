@@ -176,11 +176,38 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
     for part in bound_ir.query_parts:
         if _normalize_clause(part.clause) != "optional_match":
             continue
+        metadata_arm_id = part.metadata.get("arm_id")
         part_arm_ids: Set[str] = set()
-        for out_alias in part.outputs:
+        if isinstance(metadata_arm_id, str) and metadata_arm_id:
+            # Binder provenance survives RETURN projection and preserves arm identity
+            # even when semantic_table drops intermediate aliases.
+            part_arm_ids.add(metadata_arm_id)
+        else:
+            for out_alias in part.outputs:
+                out_var = bound_ir.semantic_table.variables.get(out_alias)
+                if out_var is not None:
+                    part_arm_ids |= out_var.null_extended_from
+        for arm_id in part_arm_ids:
+            # Preserve arm IDs even if every nullable alias was projected away.
+            arm_to_nullable.setdefault(arm_id, set())
+
+        for out_alias in (part.outputs - part.inputs):
             out_var = bound_ir.semantic_table.variables.get(out_alias)
-            if out_var is not None:
-                part_arm_ids |= out_var.null_extended_from
+            if out_var is not None and out_var.null_extended_from:
+                alias_arm_ids: Set[str] = set(out_var.null_extended_from)
+                if (
+                    isinstance(metadata_arm_id, str)
+                    and metadata_arm_id
+                    and metadata_arm_id in alias_arm_ids
+                ):
+                    # Prefer per-part provenance when available.
+                    alias_arm_ids = {metadata_arm_id}
+                for arm_id in alias_arm_ids:
+                    arm_to_nullable.setdefault(arm_id, set()).add(out_alias)
+            elif isinstance(metadata_arm_id, str) and metadata_arm_id:
+                # RETURN may drop this alias from semantic_table; recover via part outputs.
+                arm_to_nullable.setdefault(metadata_arm_id, set()).add(out_alias)
+
         # Required inputs shared with an optional arm → join aliases.
         # Fall back to _optional_new_outputs for inputs dropped by RETURN: if the input
         # was not introduced by an OPTIONAL MATCH, it is required (non-nullable).

@@ -57,8 +57,13 @@ def _edge_var(name: str) -> BoundVariable:
     )
 
 
-def _part(clause: str, inputs: frozenset[str] = frozenset(), outputs: frozenset[str] = frozenset()) -> BoundQueryPart:
-    return BoundQueryPart(clause=clause, inputs=inputs, outputs=outputs)
+def _part(
+    clause: str,
+    inputs: frozenset[str] = frozenset(),
+    outputs: frozenset[str] = frozenset(),
+    metadata: dict[str, object] | None = None,
+) -> BoundQueryPart:
+    return BoundQueryPart(clause=clause, inputs=inputs, outputs=outputs, metadata=metadata or {})
 
 
 def _ir(parts: list[BoundQueryPart], variables: dict[str, BoundVariable] | None = None) -> BoundIR:
@@ -417,6 +422,23 @@ class TestOptionalArmEdgeCases:
         arm = qg.optional_arms[0]
         assert "ghost" not in arm.join_aliases
 
+    def test_optional_arm_metadata_recovers_dropped_nullable_alias(self) -> None:
+        # part metadata arm_id + outputs-inputs preserves nullable alias even when
+        # semantic_table no longer contains the alias (e.g., dropped by RETURN).
+        p1 = _part("match", outputs=frozenset({"a"}))
+        p2 = _part(
+            "optional_match",
+            inputs=frozenset({"a"}),
+            outputs=frozenset({"a", "b"}),
+            metadata={"arm_id": "optional_arm_1"},
+        )
+        qg = extract_query_graph(_ir([p1, p2], {"a": _var("a")}))
+        assert len(qg.optional_arms) == 1
+        arm = qg.optional_arms[0]
+        assert arm.arm_id == "optional_arm_1"
+        assert arm.nullable_aliases == frozenset({"b"})
+        assert "a" in arm.join_aliases
+
 
 # ---------------------------------------------------------------------------
 # Binder integration — real FrontendBinder output (clause strings are UPPERCASE)
@@ -463,19 +485,18 @@ class TestBinderIntegration:
 
     def test_chained_optional_arms_join_aliases(self) -> None:
         # MATCH (a) OPTIONAL MATCH (a)-->(b) OPTIONAL MATCH (b)-->(c) RETURN c
-        # Only optional_arm_2 (c's arm) is visible — optional_arm_1 (b's arm) is lost
-        # because b is dropped by RETURN (known limitation: arm_to_nullable from
-        # semantic_table only; documented in Wave I).
-        # Key: 'a' in join_aliases recovered via scope_stack despite RETURN drop;
-        # 'b' NOT in join_aliases because _optional_new_outputs marks it as nullable.
+        # Both OPTIONAL arms must be preserved even though b is dropped by RETURN.
         qg = extract_query_graph(_bind(
             "MATCH (a) OPTIONAL MATCH (a)-->(b) OPTIONAL MATCH (b)-->(c) RETURN c"
         ))
-        assert len(qg.optional_arms) == 1
-        arm = qg.optional_arms[0]
-        assert "c" in arm.nullable_aliases
-        assert "a" in arm.join_aliases
-        assert "b" not in arm.join_aliases
+        assert len(qg.optional_arms) == 2
+        arms = {arm.arm_id: arm for arm in qg.optional_arms}
+        assert set(arms.keys()) == {"optional_arm_1", "optional_arm_2"}
+        assert "b" in arms["optional_arm_1"].nullable_aliases
+        assert "c" in arms["optional_arm_2"].nullable_aliases
+        assert "a" in arms["optional_arm_1"].join_aliases
+        assert "a" in arms["optional_arm_2"].join_aliases
+        assert "b" not in arms["optional_arm_2"].join_aliases
 
     def test_combined_with_optional_rename(self) -> None:
         # WITH boundary + OPTIONAL MATCH arm + alias rename in one query
