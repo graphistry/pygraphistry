@@ -127,6 +127,7 @@ GPU tests can also be run locally via `./docker/test-gpu-local.sh` .
 	```sh
 	git checkout master
 	git pull --ff-only origin master
+	git status --short  # should be empty before tagging
 	```
 
 1. Tag the repository with the new version number (semantic versioning *X.Y.Z*)
