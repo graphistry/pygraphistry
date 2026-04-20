@@ -460,6 +460,34 @@ class TestOptionalArmEdgeCases:
         if "arm_stale" in arms:
             assert "b" not in arms["arm_stale"].nullable_aliases
 
+    def test_alias_claimed_by_later_arm_removes_earlier_arm_claim(self) -> None:
+        # Two sequential optional_match parts with the same output alias but different
+        # metadata arm_ids. The later part must claim the alias exclusively.
+        # Prior to the full-discard fix the earlier arm's entry would survive, putting
+        # the alias in two arms and violating the 1:1 invariant.
+        p1 = _part("match", outputs=frozenset({"a"}))
+        p2 = _part(
+            "optional_match",
+            inputs=frozenset({"a"}),
+            outputs=frozenset({"a", "b"}),
+            metadata={"arm_id": "arm_first"},
+        )
+        p3 = _part(
+            "optional_match",
+            inputs=frozenset({"a"}),
+            outputs=frozenset({"a", "b"}),
+            metadata={"arm_id": "arm_second"},
+        )
+        # Semantic table reflects only the last arm for b.
+        b_var = _var("b", nullable=True, null_extended_from=frozenset({"arm_second"}))
+        qg = extract_query_graph(_ir([p1, p2, p3], {"a": _var("a"), "b": b_var}))
+        arms = {arm.arm_id: arm for arm in qg.optional_arms}
+        assert "arm_second" in arms
+        assert "b" in arms["arm_second"].nullable_aliases
+        # Earlier arm must NOT also claim b.
+        if "arm_first" in arms:
+            assert "b" not in arms["arm_first"].nullable_aliases
+
     def test_sentinel_preserves_arm_with_all_passthrough_outputs(self) -> None:
         # OPTIONAL MATCH where every output is also an input (all pass-through):
         # outputs - inputs is empty, yet the arm must still appear in optional_arms

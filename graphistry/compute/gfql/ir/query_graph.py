@@ -197,12 +197,12 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
             if _meta_arm:
                 # Per-part metadata is authoritative: use it regardless of semantic_table
                 # arm IDs (which may be absent or disagree due to RETURN projection).
-                # Discard stale pre-seed entries so the alias belongs to exactly one arm.
-                out_var = bound_ir.semantic_table.variables.get(out_alias)
-                if out_var is not None:
-                    for stale_arm_id in out_var.null_extended_from:
-                        if stale_arm_id != _meta_arm:
-                            arm_to_nullable.setdefault(stale_arm_id, set()).discard(out_alias)
+                # Discard from ALL existing arms (not just out_var.null_extended_from) so
+                # the alias belongs to exactly one arm even when a prior per-part loop
+                # iteration already placed it in a different arm.
+                for existing_arm_id in list(arm_to_nullable.keys()):
+                    if existing_arm_id != _meta_arm:
+                        arm_to_nullable[existing_arm_id].discard(out_alias)
                 arm_to_nullable.setdefault(_meta_arm, set()).add(out_alias)
             else:
                 out_var = bound_ir.semantic_table.variables.get(out_alias)
