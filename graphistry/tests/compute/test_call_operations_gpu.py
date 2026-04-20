@@ -365,6 +365,30 @@ class TestCpuOnlyPluginsCudfRoundTrip:
             f"Expected cuDF output but got {type(g2._nodes)}"
 
     @skip_gpu
+    def test_compute_igraph_graph_returning_alg_cudf_round_trip(self):
+        """compute_igraph with a Graph-returning alg (spanning_tree) preserves cuDF."""
+        import cudf
+
+        edges_gdf = cudf.DataFrame({
+            's': [0, 1, 2, 2, 3],
+            'd': [1, 2, 0, 3, 0],
+            'weight': [1.0, 2.0, 1.5, 3.0, 0.5],
+        })
+        nodes_gdf = cudf.DataFrame({'n': [0, 1, 2, 3]})
+        g = CGFull().edges(edges_gdf, 's', 'd').nodes(nodes_gdf, 'n')
+
+        # spanning_tree returns an igraph.Graph, hitting the `isinstance(out, igraph.Graph)`
+        # code path in compute_igraph (distinct from the clustering/list return paths)
+        g2 = g.compute_igraph('spanning_tree')
+
+        assert isinstance(g2._nodes, cudf.DataFrame), \
+            f"Expected cuDF nodes but got {type(g2._nodes)}"
+        assert isinstance(g2._edges, cudf.DataFrame), \
+            f"Expected cuDF edges but got {type(g2._edges)}"
+        # Spanning tree has n-1 edges for n connected nodes
+        assert len(g2._edges) <= len(edges_gdf)
+
+    @skip_gpu
     def test_compute_igraph_preserves_nullable_int_dtypes(self):
         """Nullable integer columns survive the cuDF→pandas→igraph→pandas→cuDF round-trip."""
         import cudf
@@ -381,6 +405,45 @@ class TestCpuOnlyPluginsCudfRoundTrip:
         assert isinstance(g2._nodes, cudf.DataFrame)
         # The 'group' column with nulls should not have become float
         assert g2._nodes['group'].null_count == 2
+
+    @skip_gpu
+    def test_compute_igraph_articulation_points_cudf(self):
+        """compute_igraph with articulation_points hits the list-return code path."""
+        import cudf
+
+        # Linear chain 0-1-2-3-4: node 1, 2, 3 are articulation points
+        edges_gdf = cudf.DataFrame({'s': [0, 1, 2, 3], 'd': [1, 2, 3, 4]})
+        nodes_gdf = cudf.DataFrame({'n': [0, 1, 2, 3, 4]})
+        g = CGFull().edges(edges_gdf, 's', 'd').nodes(nodes_gdf, 'n')
+
+        g2 = g.compute_igraph('articulation_points')
+
+        assert 'articulation_points' in g2._nodes.columns
+        assert isinstance(g2._nodes, cudf.DataFrame), \
+            f"Expected cuDF nodes but got {type(g2._nodes)}"
+
+    @skip_gpu
+    def test_compute_igraph_preserves_edge_attributes_on_cudf(self):
+        """compute_igraph with edge attributes exercises from_igraph edge merge path."""
+        import cudf
+
+        edges_gdf = cudf.DataFrame({
+            's': [0, 1, 2, 2],
+            'd': [1, 2, 0, 3],
+            'weight': [1.0, 2.0, 3.0, 4.0],
+            'label': ['a', 'b', 'c', 'd'],
+        })
+        nodes_gdf = cudf.DataFrame({'n': [0, 1, 2, 3]})
+        g = CGFull().edges(edges_gdf, 's', 'd').nodes(nodes_gdf, 'n')
+
+        g2 = g.compute_igraph('pagerank')
+
+        assert 'pagerank' in g2._nodes.columns
+        # Edge attributes should survive the round-trip via the edge merge path
+        assert 'weight' in g2._edges.columns
+        assert 'label' in g2._edges.columns
+        assert isinstance(g2._edges, cudf.DataFrame), \
+            f"Expected cuDF edges but got {type(g2._edges)}"
 
     @skip_gpu
     def test_execute_call_compute_igraph_cudf_engine(self):
@@ -500,6 +563,27 @@ class TestCpuOnlyPluginsCudfRoundTrip:
 
         assert isinstance(g2._nodes, cudf.DataFrame)
         assert g2._nodes['group'].null_count == 1
+
+    @skip_gpu
+    def test_render_graphviz_with_cudf(self):
+        """render_graphviz accepts cuDF input and returns rendered bytes."""
+        import cudf
+        try:
+            import pygraphviz  # noqa: F401
+        except ImportError:
+            pytest.skip("pygraphviz not installed")
+
+        edges_gdf = cudf.DataFrame({'s': [0, 1, 2], 'd': [1, 2, 0]})
+        nodes_gdf = cudf.DataFrame({'n': [0, 1, 2]})
+        g = CGFull().edges(edges_gdf, 's', 'd').nodes(nodes_gdf, 'n')
+
+        # render_graphviz uses g_to_pgv internally (via layout_graphviz_core),
+        # which must handle cuDF input via ensure_pandas.  Returns rendered bytes.
+        from graphistry.plugins.graphviz import render_graphviz
+        result = render_graphviz(g, prog='dot', format='svg')
+
+        assert isinstance(result, bytes)
+        assert len(result) > 0
 
     @skip_gpu
     def test_execute_call_layout_graphviz_cudf_engine(self):

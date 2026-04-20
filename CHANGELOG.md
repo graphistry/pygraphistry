@@ -22,7 +22,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Tests
 - **GFQL / Cypher binder**: Added PR-4 white-box binder semantic conformance coverage for name resolution success/failure (including unresolved alias errors), WITH scope-reset visibility, OPTIONAL MATCH `null_extended_from` lineage as `frozenset` clause ids, label narrowing from MATCH labels + conjunctive `WHERE alias:Label` checks, and SchemaConfidence rules (min-rule propagation, operand inheritance, and strong literal/`COUNT` behavior). Parser/lowering regression lanes remain green (#1114).
-- **Plugins / cuDF**: 10 GPU tests in `TestCpuOnlyPluginsCudfRoundTrip` (`test_call_operations_gpu.py`) verifying real cuDF→pandas→cuDF round-trip for `compute_igraph`, `layout_igraph`, `layout_graphviz`, `execute_call`, `_ensure_pandas` nullable dtype preservation, and `_restore_engine` conversion. Requires `TEST_CUDF=1` and RAPIDS.
+- **Plugins / cuDF**: 14 GPU tests in `TestCpuOnlyPluginsCudfRoundTrip` (`test_call_operations_gpu.py`) verifying real cuDF→pandas→cuDF round-trip for `compute_igraph` (pagerank, spanning_tree Graph-returning path, articulation_points list-return path, edge-attribute merge path), `layout_igraph`, `layout_graphviz`, `render_graphviz`, `execute_call`, `ensure_pandas` nullable dtype preservation, and `restore_engine` conversion. Requires `TEST_CUDF=1` and RAPIDS.
 
 ## [0.54.1 - 2026-04-08]
 
