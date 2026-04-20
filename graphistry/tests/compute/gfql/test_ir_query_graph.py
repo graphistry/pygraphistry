@@ -57,8 +57,13 @@ def _edge_var(name: str) -> BoundVariable:
     )
 
 
-def _part(clause: str, inputs: frozenset[str] = frozenset(), outputs: frozenset[str] = frozenset()) -> BoundQueryPart:
-    return BoundQueryPart(clause=clause, inputs=inputs, outputs=outputs)
+def _part(
+    clause: str,
+    inputs: frozenset[str] = frozenset(),
+    outputs: frozenset[str] = frozenset(),
+    metadata: dict[str, object] | None = None,
+) -> BoundQueryPart:
+    return BoundQueryPart(clause=clause, inputs=inputs, outputs=outputs, metadata=metadata or {})
 
 
 def _ir(parts: list[BoundQueryPart], variables: dict[str, BoundVariable] | None = None) -> BoundIR:
@@ -417,6 +422,89 @@ class TestOptionalArmEdgeCases:
         arm = qg.optional_arms[0]
         assert "ghost" not in arm.join_aliases
 
+    def test_optional_arm_metadata_recovers_dropped_nullable_alias(self) -> None:
+        # part metadata arm_id + outputs-inputs preserves nullable alias even when
+        # semantic_table no longer contains the alias (e.g., dropped by RETURN).
+        p1 = _part("match", outputs=frozenset({"a"}))
+        p2 = _part(
+            "optional_match",
+            inputs=frozenset({"a"}),
+            outputs=frozenset({"a", "b"}),
+            metadata={"arm_id": "optional_arm_1"},
+        )
+        qg = extract_query_graph(_ir([p1, p2], {"a": _var("a")}))
+        assert len(qg.optional_arms) == 1
+        arm = qg.optional_arms[0]
+        assert arm.arm_id == "optional_arm_1"
+        assert arm.nullable_aliases == frozenset({"b"})
+        assert "a" in arm.join_aliases
+
+    def test_metadata_arm_id_overrides_stale_semantic_table_arm(self) -> None:
+        # When part.metadata["arm_id"] disagrees with out_var.null_extended_from,
+        # metadata is authoritative: alias must land in the metadata arm only.
+        # The stale arm entry from the pre-seed must be discarded so each alias
+        # belongs to exactly one arm.
+        b_var = _var("b", nullable=True, null_extended_from=frozenset({"arm_stale"}))
+        p1 = _part("match", outputs=frozenset({"a"}))
+        p2 = _part(
+            "optional_match",
+            inputs=frozenset({"a"}),
+            outputs=frozenset({"a", "b"}),
+            metadata={"arm_id": "arm_canonical"},
+        )
+        qg = extract_query_graph(_ir([p1, p2], {"a": _var("a"), "b": b_var}))
+        arms = {arm.arm_id: arm for arm in qg.optional_arms}
+        assert "arm_canonical" in arms
+        assert "b" in arms["arm_canonical"].nullable_aliases
+        # Stale arm must NOT claim the alias — each alias belongs to exactly one arm.
+        if "arm_stale" in arms:
+            assert "b" not in arms["arm_stale"].nullable_aliases
+
+    def test_alias_claimed_by_later_arm_removes_earlier_arm_claim(self) -> None:
+        # Two sequential optional_match parts with the same output alias but different
+        # metadata arm_ids. The later part must claim the alias exclusively.
+        # Prior to the full-discard fix the earlier arm's entry would survive, putting
+        # the alias in two arms and violating the 1:1 invariant.
+        p1 = _part("match", outputs=frozenset({"a"}))
+        p2 = _part(
+            "optional_match",
+            inputs=frozenset({"a"}),
+            outputs=frozenset({"a", "b"}),
+            metadata={"arm_id": "arm_first"},
+        )
+        p3 = _part(
+            "optional_match",
+            inputs=frozenset({"a"}),
+            outputs=frozenset({"a", "b"}),
+            metadata={"arm_id": "arm_second"},
+        )
+        # Semantic table reflects only the last arm for b.
+        b_var = _var("b", nullable=True, null_extended_from=frozenset({"arm_second"}))
+        qg = extract_query_graph(_ir([p1, p2, p3], {"a": _var("a"), "b": b_var}))
+        arms = {arm.arm_id: arm for arm in qg.optional_arms}
+        assert "arm_second" in arms
+        assert "b" in arms["arm_second"].nullable_aliases
+        # Earlier arm must NOT also claim b.
+        if "arm_first" in arms:
+            assert "b" not in arms["arm_first"].nullable_aliases
+
+    def test_sentinel_preserves_arm_with_all_passthrough_outputs(self) -> None:
+        # OPTIONAL MATCH where every output is also an input (all pass-through):
+        # outputs - inputs is empty, yet the arm must still appear in optional_arms
+        # so the physical planner knows it exists.
+        p1 = _part("match", outputs=frozenset({"a"}))
+        p2 = _part(
+            "optional_match",
+            inputs=frozenset({"a"}),
+            outputs=frozenset({"a"}),
+            metadata={"arm_id": "arm_passthrough"},
+        )
+        qg = extract_query_graph(_ir([p1, p2], {"a": _var("a")}))
+        arm_ids = {arm.arm_id for arm in qg.optional_arms}
+        assert "arm_passthrough" in arm_ids
+        passthrough_arm = next(arm for arm in qg.optional_arms if arm.arm_id == "arm_passthrough")
+        assert passthrough_arm.nullable_aliases == frozenset()
+
 
 # ---------------------------------------------------------------------------
 # Binder integration — real FrontendBinder output (clause strings are UPPERCASE)
@@ -463,19 +551,21 @@ class TestBinderIntegration:
 
     def test_chained_optional_arms_join_aliases(self) -> None:
         # MATCH (a) OPTIONAL MATCH (a)-->(b) OPTIONAL MATCH (b)-->(c) RETURN c
-        # Only optional_arm_2 (c's arm) is visible — optional_arm_1 (b's arm) is lost
-        # because b is dropped by RETURN (known limitation: arm_to_nullable from
-        # semantic_table only; documented in Wave I).
-        # Key: 'a' in join_aliases recovered via scope_stack despite RETURN drop;
-        # 'b' NOT in join_aliases because _optional_new_outputs marks it as nullable.
+        # Both OPTIONAL arms must be preserved even though b is dropped by RETURN.
         qg = extract_query_graph(_bind(
             "MATCH (a) OPTIONAL MATCH (a)-->(b) OPTIONAL MATCH (b)-->(c) RETURN c"
         ))
-        assert len(qg.optional_arms) == 1
-        arm = qg.optional_arms[0]
-        assert "c" in arm.nullable_aliases
-        assert "a" in arm.join_aliases
-        assert "b" not in arm.join_aliases
+        assert len(qg.optional_arms) == 2
+        arms = {arm.arm_id: arm for arm in qg.optional_arms}
+        assert set(arms.keys()) == {"optional_arm_1", "optional_arm_2"}
+        assert "b" in arms["optional_arm_1"].nullable_aliases
+        assert "c" in arms["optional_arm_2"].nullable_aliases
+        assert "a" in arms["optional_arm_1"].join_aliases
+        # "a" is the deepest required ancestor visible in scope; "b" is nullable
+        # (from arm_1) so it is excluded. Physical planner must trace arm-to-arm
+        # dependency (arm_2 depends on arm_1) separately from join_aliases.
+        assert "a" in arms["optional_arm_2"].join_aliases
+        assert "b" not in arms["optional_arm_2"].join_aliases
 
     def test_combined_with_optional_rename(self) -> None:
         # WITH boundary + OPTIONAL MATCH arm + alias rename in one query

@@ -176,11 +176,45 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
     for part in bound_ir.query_parts:
         if _normalize_clause(part.clause) != "optional_match":
             continue
+        _raw_arm_id = part.metadata.get("arm_id")
+        # Binder provenance: non-empty string arm_id survives RETURN projection and
+        # preserves arm identity even when semantic_table drops intermediate aliases.
+        _meta_arm: str | None = _raw_arm_id if isinstance(_raw_arm_id, str) and _raw_arm_id else None
+
         part_arm_ids: Set[str] = set()
-        for out_alias in part.outputs:
-            out_var = bound_ir.semantic_table.variables.get(out_alias)
-            if out_var is not None:
-                part_arm_ids |= out_var.null_extended_from
+        if _meta_arm:
+            part_arm_ids.add(_meta_arm)
+        else:
+            for out_alias in part.outputs:
+                out_var = bound_ir.semantic_table.variables.get(out_alias)
+                if out_var is not None:
+                    part_arm_ids |= out_var.null_extended_from
+        for arm_id in part_arm_ids:
+            # Preserve arm IDs even if every nullable alias was projected away.
+            arm_to_nullable.setdefault(arm_id, set())
+
+        for out_alias in (part.outputs - part.inputs):
+            if _meta_arm:
+                # Per-part metadata is authoritative: use it regardless of semantic_table
+                # arm IDs (which may be absent or disagree due to RETURN projection).
+                # Discard from ALL existing arms (not just out_var.null_extended_from) so
+                # the alias belongs to exactly one arm even when a prior per-part loop
+                # iteration already placed it in a different arm.
+                for existing_arm_id in list(arm_to_nullable.keys()):
+                    if existing_arm_id != _meta_arm:
+                        arm_to_nullable[existing_arm_id].discard(out_alias)
+                arm_to_nullable.setdefault(_meta_arm, set()).add(out_alias)
+            else:
+                # No metadata: mirror semantic_table verbatim, including any multi-arm
+                # membership. The binder assigns unique arm_ids and a single binding per
+                # alias per OPTIONAL MATCH, so null_extended_from spans multiple arms
+                # only when a variable is legitimately nullable from several independent
+                # optional patterns (e.g., two unrelated OPTIONAL arms both producing it).
+                out_var = bound_ir.semantic_table.variables.get(out_alias)
+                if out_var is not None:
+                    for arm_id in out_var.null_extended_from:
+                        arm_to_nullable.setdefault(arm_id, set()).add(out_alias)
+
         # Required inputs shared with an optional arm → join aliases.
         # Fall back to _optional_new_outputs for inputs dropped by RETURN: if the input
         # was not introduced by an OPTIONAL MATCH, it is required (non-nullable).
