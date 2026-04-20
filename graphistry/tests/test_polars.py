@@ -167,6 +167,39 @@ else:
             result = g.hop(hops=1)
             self.assertIsInstance(result._edges, pd.DataFrame)
 
+        def test_chain_polars_edges(self):
+            from graphistry.compute.ast import n, e_forward
+            g = CGFull().edges(EDGES_PL, "src", "dst").materialize_nodes()
+            result = g.chain([n(), e_forward(hops=1)])
+            self.assertIsInstance(result._edges, pd.DataFrame)
+            self.assertIsInstance(result._nodes, pd.DataFrame)
+
+        def test_chain_polars_lazy_edges(self):
+            from graphistry.compute.ast import n, e_forward
+            g = CGFull().edges(EDGES_LAZY, "src", "dst").materialize_nodes()
+            result = g.chain([n(), e_forward(hops=1)])
+            self.assertIsInstance(result._edges, pd.DataFrame)
+
+        def test_gfql_polars_edges(self):
+            from graphistry.compute.ast import n, e_forward
+            g = CGFull().edges(EDGES_PL, "src", "dst").materialize_nodes()
+            result = g.gfql([n(), e_forward(hops=1)])
+            self.assertIsInstance(result._edges, pd.DataFrame)
+            self.assertIsInstance(result._nodes, pd.DataFrame)
+
+        def test_to_pandas_polars_edges(self):
+            g = CGFull().edges(EDGES_PL, "src", "dst").nodes(NODES_PL, "id")
+            result = g.to_pandas()
+            self.assertIsInstance(result._edges, pd.DataFrame)
+            self.assertIsInstance(result._nodes, pd.DataFrame)
+            self.assertEqual(list(result._edges.columns), ["src", "dst"])
+
+        def test_to_pandas_lazy_edges(self):
+            g = CGFull().edges(EDGES_LAZY, "src", "dst").nodes(NODES_LAZY, "id")
+            result = g.to_pandas()
+            self.assertIsInstance(result._edges, pd.DataFrame)
+            self.assertIsInstance(result._nodes, pd.DataFrame)
+
     # ------------------------------------------------------------------
     # Hypergraph path
     # ------------------------------------------------------------------

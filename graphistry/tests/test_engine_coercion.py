@@ -39,12 +39,6 @@ try:
 except ImportError:
     HAS_SPARK = False
 
-try:
-    import polars as pl_mod
-    HAS_POLARS = True
-except ImportError:
-    HAS_POLARS = False
-
 
 EDGES_PD = pd.DataFrame({"src": ["a", "b"], "dst": ["b", "c"]})
 EDGES_PA = pa.table({"src": ["a", "b"], "dst": ["b", "c"]})
@@ -95,14 +89,14 @@ class TestDfToEnginePandas(NoAuthTestCase):
 
     @unittest.skipUnless(HAS_POLARS, "polars not installed")
     def test_polars_dataframe(self):
-        pdf = pl_mod.DataFrame({"src": ["a", "b"], "dst": ["b", "c"]})
+        pdf = pl.DataFrame({"src": ["a", "b"], "dst": ["b", "c"]})
         result = df_to_engine(pdf, Engine.PANDAS)
         self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(result["src"].tolist(), ["a", "b"])
 
     @unittest.skipUnless(HAS_POLARS, "polars not installed")
     def test_polars_lazyframe(self):
-        lf = pl_mod.LazyFrame({"src": ["a", "b"], "dst": ["b", "c"]})
+        lf = pl.LazyFrame({"src": ["a", "b"], "dst": ["b", "c"]})
         result = df_to_engine(lf, Engine.PANDAS)
         self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(result["src"].tolist(), ["a", "b"])
@@ -192,7 +186,7 @@ class TestCoerceToPandas(NoAuthTestCase):
 
     @unittest.skipUnless(HAS_POLARS, "polars not installed")
     def test_polars_edges_coerced(self):
-        pf = pl_mod.DataFrame({"src": ["a", "b"], "dst": ["b", "c"]})
+        pf = pl.DataFrame({"src": ["a", "b"], "dst": ["b", "c"]})
         g = self._g(pf)
         result = _coerce_to_pandas(g)
         self.assertIsInstance(result._edges, pd.DataFrame)
@@ -200,7 +194,7 @@ class TestCoerceToPandas(NoAuthTestCase):
 
     @unittest.skipUnless(HAS_POLARS, "polars not installed")
     def test_polars_lazyframe_edges_coerced(self):
-        lf = pl_mod.LazyFrame({"src": ["a", "b"], "dst": ["b", "c"]})
+        lf = pl.LazyFrame({"src": ["a", "b"], "dst": ["b", "c"]})
         g = self._g(lf)
         result = _coerce_to_pandas(g)
         self.assertIsInstance(result._edges, pd.DataFrame)
@@ -351,10 +345,9 @@ class TestToPandas(NoAuthTestCase):
     def test_pandas_identity(self):
         g = self._g(EDGES_PD)
         result = g.to_pandas()
-        self.assertIsInstance(result._edges, pd.DataFrame)
-        self.assertEqual(result._edges["src"].tolist(), ["a", "b"])
+        self.assertIs(result._edges, EDGES_PD)
 
-    def test_arrow_coerced(self):
+    def test_arrow_edges_coerced(self):
         g = self._g(EDGES_PA)
         result = g.to_pandas()
         self.assertIsInstance(result._edges, pd.DataFrame)
@@ -379,9 +372,23 @@ class TestToPandas(NoAuthTestCase):
         self.assertEqual(result._edges["src"].tolist(), ["a", "b"])
 
     @unittest.skipUnless(HAS_POLARS, "polars not installed")
+    def test_polars_lazyframe_coerced(self):
+        lf = pl.LazyFrame({"src": ["a", "b"], "dst": ["b", "c"]})
+        g = self._g(lf)
+        result = g.to_pandas()
+        self.assertIsInstance(result._edges, pd.DataFrame)
+        self.assertEqual(result._edges["src"].tolist(), ["a", "b"])
+
+    @unittest.skipUnless(HAS_POLARS, "polars not installed")
     def test_polars_nodes_coerced(self):
         pldf_nodes = pl.DataFrame({"id": ["a", "b", "c"]})
         g = self._g(EDGES_PD, nodes=pldf_nodes)
+        result = g.to_pandas()
+        self.assertIsInstance(result._nodes, pd.DataFrame)
+
+    def test_arrow_nodes_coerced(self):
+        nodes_pa = pa.table({"id": ["a", "b"]})
+        g = self._g(EDGES_PD, nodes=nodes_pa)
         result = g.to_pandas()
         self.assertIsInstance(result._nodes, pd.DataFrame)
 
@@ -547,6 +554,48 @@ class TestCombineStepsEdgeCases(NoAuthTestCase):
         result = g.gfql([n(name="start"), e_undirected(), n()])
         self.assertIsInstance(result._edges, cudf.DataFrame)
         self.assertIn("start", result._nodes.columns)
+
+
+class TestChainCoercion(NoAuthTestCase):
+    """chain() and gfql() must accept non-pandas inputs (coercing at the boundary)."""
+
+    def test_chain_arrow_edges(self):
+        from graphistry.compute.ast import n, e_forward
+        g = CGFull().edges(EDGES_PA, "src", "dst").materialize_nodes()
+        result = g.chain([n(), e_forward(hops=1)])
+        self.assertIsInstance(result._edges, pd.DataFrame)
+        self.assertIsInstance(result._nodes, pd.DataFrame)
+
+    def test_gfql_arrow_edges(self):
+        from graphistry.compute.ast import n, e_forward
+        g = CGFull().edges(EDGES_PA, "src", "dst").materialize_nodes()
+        result = g.gfql([n(), e_forward(hops=1)])
+        self.assertIsInstance(result._edges, pd.DataFrame)
+
+    @unittest.skipUnless(HAS_POLARS, "polars not installed")
+    def test_chain_polars_edges(self):
+        from graphistry.compute.ast import n, e_forward
+        pf = pl.DataFrame({"src": ["a", "b"], "dst": ["b", "c"]})
+        g = CGFull().edges(pf, "src", "dst").materialize_nodes()
+        result = g.chain([n(), e_forward(hops=1)])
+        self.assertIsInstance(result._edges, pd.DataFrame)
+
+    @unittest.skipUnless(HAS_POLARS, "polars not installed")
+    def test_chain_polars_lazyframe_edges(self):
+        from graphistry.compute.ast import n, e_forward
+        lf = pl.LazyFrame({"src": ["a", "b"], "dst": ["b", "c"]})
+        g = CGFull().edges(lf, "src", "dst").materialize_nodes()
+        result = g.chain([n(), e_forward(hops=1)])
+        self.assertIsInstance(result._edges, pd.DataFrame)
+
+    @unittest.skipUnless(HAS_DASK, "dask not installed")
+    def test_chain_dask_edges(self):
+        from graphistry.compute.ast import n, e_forward
+        import dask.dataframe as dd
+        ddf = dd.from_pandas(EDGES_PD, npartitions=1)
+        g = CGFull().edges(ddf, "src", "dst").materialize_nodes()
+        result = g.chain([n(), e_forward(hops=1)])
+        self.assertIsInstance(result._edges, pd.DataFrame)
 
 
 if __name__ == "__main__":
