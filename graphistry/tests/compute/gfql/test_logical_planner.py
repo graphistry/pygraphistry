@@ -10,7 +10,7 @@ from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, BoundVariable, SemanticTable
 from graphistry.compute.gfql.ir.compilation import PlanContext
-from graphistry.compute.gfql.ir.logical_plan import Filter, LogicalPlan, NodeScan, Project, Unwind
+from graphistry.compute.gfql.ir.logical_plan import Filter, LogicalPlan, NodeScan, PatternMatch, Project, Unwind
 from graphistry.compute.gfql.ir.types import BoundPredicate, NodeRef, ScalarType
 from graphistry.compute.gfql.logical_planner import IdGen, LogicalPlanner
 
@@ -280,12 +280,13 @@ def test_logical_planner_rejects_unknown_clause_types() -> None:
         LogicalPlanner().plan(bound_ir, PlanContext())
 
 
-def test_logical_planner_rejects_multi_alias_match_shapes() -> None:
+def test_logical_planner_plans_multi_alias_match_shapes() -> None:
     query = "MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN a, r, b"
     bound = _bind_query(query)
-
-    with pytest.raises(GFQLValidationError, match="single-node MATCH"):
-        LogicalPlanner().plan(bound, PlanContext())
+    root = LogicalPlanner().plan(bound, PlanContext())
+    pattern = _find_first(root, PatternMatch)
+    assert pattern is not None
+    assert set(pattern.output_schema.columns.keys()) == {"a", "r", "b"}
 
 
 def test_logical_planner_rejects_distinct_projection_shapes() -> None:
@@ -296,7 +297,7 @@ def test_logical_planner_rejects_distinct_projection_shapes() -> None:
         LogicalPlanner().plan(bound, PlanContext())
 
 
-def test_logical_planner_rejects_single_alias_non_node_match_shapes() -> None:
+def test_logical_planner_plans_single_alias_edge_match_shapes() -> None:
     bound_ir = BoundIR(
         query_parts=[BoundQueryPart(clause="MATCH", outputs=frozenset({"r"}))],
         semantic_table=SemanticTable(
@@ -311,9 +312,10 @@ def test_logical_planner_rejects_single_alias_non_node_match_shapes() -> None:
             }
         ),
     )
-
-    with pytest.raises(GFQLValidationError, match="node alias"):
-        LogicalPlanner().plan(bound_ir, PlanContext())
+    root = LogicalPlanner().plan(bound_ir, PlanContext())
+    pattern = _find_first(root, PatternMatch)
+    assert pattern is not None
+    assert set(pattern.output_schema.columns.keys()) == {"r"}
 
 
 def test_logical_planner_rejects_unwind_without_exactly_one_new_alias() -> None:

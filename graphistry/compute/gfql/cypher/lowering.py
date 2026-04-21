@@ -8327,10 +8327,6 @@ def _logical_plan_route_for_query(
         logical_plan = _logical_plan_from_compiled_call(compiled_call)
         _verify_selected_logical_plan(logical_plan)
         return logical_plan, None
-    if query.reentry_matches:
-        return None, "MATCH reentry query flow is deferred from LogicalPlan route in M2-PR4"
-    if query.row_sequence:
-        return None, "Row-sequence query flow is deferred from LogicalPlan route in M2-PR4"
     try:
         logical_plan = LogicalPlanner().plan(bound_ir, PlanContext())
     except GFQLValidationError as exc:

@@ -126,19 +126,21 @@ GPU tests can also be run locally via `./docker/test-gpu-local.sh` .
 1. Switch to master and pull the merged changes
 	```sh
 	git checkout master
-	git pull
+	git pull --ff-only origin master
+	git status --short  # should be empty before tagging
 	```
 
 1. Tag the repository with the new version number (semantic versioning *X.Y.Z*)
 
 	```sh
 	git tag X.Y.Z
-	git push --tags
+	git push origin refs/tags/X.Y.Z
 	```
 
 1. Confirm the [publish](https://github.com/graphistry/pygraphistry/actions?query=workflow%3A%22Publish+Python+%F0%9F%90%8D+distributions+%F0%9F%93%A6+to+PyPI+and+TestPyPI%22) Github Action published to [pypi](https://pypi.org/project/graphistry/)
 	- Auto-triggers on tag push
-	- Manually trigger for master branch if needed
+	- If manually triggering, run only from `master` and only for maintainer-led recovery scenarios
+	- Do not rerun publish for a version that is already on PyPI (duplicate-file uploads are rejected)
 	- Verify version appears on PyPI: `curl -s https://pypi.org/pypi/graphistry/json | jq -r '.info.version'`
 
 1. Toggle version as active at [ReadTheDocs](https://readthedocs.org/projects/pygraphistry/versions/)
