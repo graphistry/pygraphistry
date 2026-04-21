@@ -215,6 +215,8 @@ class TestCoerceInputFormats(NoAuthTestCase):
     @unittest.skipUnless(HAS_DASK_CUDF, "dask_cudf not installed")
     def test_pandas_engine_dask_cudf_preserved(self):
         """dask_cudf is a GPU compute engine — must not be coerced to pandas."""
+        if cudf.__version__.startswith("25."):
+            self.skipTest(f"dask_cudf.from_cudf segfaults in cuDF {cudf.__version__} (RAPIDS 25.x numba tokenization bug)")
         cdf = cudf.from_pandas(EDGES_PD)
         dcdf = dask_cudf.from_cudf(cdf, npartitions=1)
         g = self._g(dcdf)
@@ -263,6 +265,10 @@ class TestCoerceInputFormats(NoAuthTestCase):
     @unittest.skipUnless(HAS_DASK_CUDF, "dask_cudf not installed")
     def test_cudf_engine_dask_cudf_preserved(self):
         """dask_cudf is already a GPU compute engine — must not be re-coerced."""
+        # dask_cudf.from_cudf tokenizes cuDF frames via numba, which segfaults
+        # in RAPIDS 25.x due to a CUDA-context bug in that release line.
+        if cudf.__version__.startswith("25."):
+            self.skipTest(f"dask_cudf.from_cudf segfaults in cuDF {cudf.__version__} (RAPIDS 25.x numba tokenization bug)")
         cdf = cudf.from_pandas(EDGES_PD)
         dcdf = dask_cudf.from_cudf(cdf, npartitions=1)
         g = self._g(dcdf)
