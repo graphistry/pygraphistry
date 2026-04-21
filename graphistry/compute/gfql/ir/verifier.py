@@ -203,15 +203,24 @@ def verify(plan: LogicalPlan) -> list[CompilerError]:
 # Schema checker (invariant 4)
 # ---------------------------------------------------------------------------
 
+def _check_logical_type(typ: object, label: str, op: LogicalPlan) -> list[CompilerError]:
+    """Recursively validate *typ* is a valid LogicalType, including ListType.element_type."""
+    errors: list[CompilerError] = []
+    if not isinstance(typ, _LOGICAL_TYPES):
+        errors.append(CompilerError(
+            message=(
+                f"{type(op).__name__} op_id={op.op_id}: "
+                f"{label} has invalid type {type(typ).__name__!r}, expected LogicalType"
+            )
+        ))
+        return errors  # can't recurse into a non-LogicalType value
+    if isinstance(typ, ListType):
+        errors.extend(_check_logical_type(typ.element_type, f"{label}.element_type", op))
+    return errors
+
+
 def _check_schema(op: LogicalPlan, schema: RowSchema) -> list[CompilerError]:
     errors: list[CompilerError] = []
     for col, typ in schema.columns.items():
-        if not isinstance(typ, _LOGICAL_TYPES):
-            errors.append(CompilerError(
-                message=(
-                    f"{type(op).__name__} op_id={op.op_id}: "
-                    f"output_schema column {col!r} has invalid type "
-                    f"{type(typ).__name__!r}, expected LogicalType"
-                )
-            ))
+        errors.extend(_check_logical_type(typ, f"output_schema column {col!r}", op))
     return errors
