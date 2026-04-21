@@ -11,6 +11,8 @@ from graphistry.compute.gfql.ir.query_graph import QueryGraph
 
 if TYPE_CHECKING:
     from graphistry.compute.gfql.physical_planner import PhysicalOperator
+else:
+    PhysicalOperator = Any
 
 NodeId = int
 
@@ -92,7 +94,7 @@ class PhysicalPlan:
     """Physical plan wrapper contract for M3 planner routing."""
 
     route: Literal["same_path", "wavefront", "row_pipeline"] = "row_pipeline"
-    operators: Tuple["PhysicalOperator", ...] = field(default_factory=tuple)
+    operators: Tuple[PhysicalOperator, ...] = field(default_factory=tuple)
     logical_op_ids: Tuple[int, ...] = field(default_factory=tuple)
     metadata: Dict[str, Any] = field(default_factory=dict)
 

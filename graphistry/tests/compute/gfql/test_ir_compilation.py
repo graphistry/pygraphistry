@@ -91,3 +91,12 @@ def test_compilation_state_is_mutable_dataclass() -> None:
     state = CompilationState()
     state.query_text = "MATCH (n) RETURN n"
     assert state.query_text.startswith("MATCH")
+
+
+def test_physical_plan_type_hints_resolve_runtime_forward_refs() -> None:
+    from graphistry.compute.gfql.ir.compilation import PhysicalPlan
+
+    hints = get_type_hints(PhysicalPlan)
+
+    assert "operators" in hints
+    assert get_origin(hints["operators"]) is tuple
