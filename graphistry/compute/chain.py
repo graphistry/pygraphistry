@@ -740,9 +740,8 @@ def chain(
 
     # Resolve engine from original data BEFORE coercion so GPU mode is preserved end-to-end.
     # _coerce_input_formats then converts input formats (polars, arrow, spark, dask) to that engine.
-    from graphistry.Engine import resolve_engine as _resolve_engine  # lazy
     from graphistry.compute.ComputeMixin import _coerce_input_formats  # lazy — avoids circular import
-    self = _coerce_input_formats(self, _resolve_engine(engine, self))
+    self = _coerce_input_formats(self, resolve_engine(engine, self))
 
     if policy:
         from graphistry.compute.gfql.call.executor import _thread_local as call_thread_local

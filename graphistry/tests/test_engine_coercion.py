@@ -428,5 +428,59 @@ class TestGPUOutputPreservation(NoAuthTestCase):
         self.assertIsInstance(result._nodes, cudf.DataFrame)
 
 
+class TestCombineStepsEdgeCases(NoAuthTestCase):
+    """Tests for specific code paths in combine_steps / apply_output_slice."""
+
+    NODES = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+    EDGES = pd.DataFrame({"src": ["a", "b", "c"], "dst": ["b", "c", "d"]})
+
+    def _g(self):
+        return CGFull().nodes(self.NODES, "id").edges(self.EDGES, "src", "dst")
+
+    def test_output_max_hops_isin_path(self):
+        """combine_steps isin([]) accumulation path: output_max_hops set + has_na in hop column."""
+        from graphistry.compute.ast import n, e_forward
+        result = self._g().gfql([
+            n({"id": "a"}),
+            e_forward(hops=2, label_node_hops="node_hop", output_max_hops=2),
+            n(),
+        ])
+        self.assertIsInstance(result._nodes, pd.DataFrame)
+        self.assertIn("node_hop", result._nodes.columns)
+
+    def test_undirected_df_concat_path(self):
+        """combine_steps df_concat(engine) undirected path: named node followed by e_undirected."""
+        from graphistry.compute.ast import n, e_undirected
+        result = self._g().gfql([n(name="start"), e_undirected(), n()])
+        self.assertIsInstance(result._edges, pd.DataFrame)
+        self.assertIn("start", result._nodes.columns)
+
+    @unittest.skipUnless(HAS_CUDF, "cuDF not installed")
+    def test_output_max_hops_isin_path_cudf(self):
+        """isin([]) path must work with cuDF — result stays cuDF."""
+        from graphistry.compute.ast import n, e_forward
+        cdf_n = cudf.from_pandas(self.NODES)
+        cdf_e = cudf.from_pandas(self.EDGES)
+        g = CGFull().nodes(cdf_n, "id").edges(cdf_e, "src", "dst")
+        result = g.gfql([
+            n({"id": "a"}),
+            e_forward(hops=2, label_node_hops="node_hop", output_max_hops=2),
+            n(),
+        ])
+        self.assertIsInstance(result._nodes, cudf.DataFrame)
+        self.assertIn("node_hop", result._nodes.columns)
+
+    @unittest.skipUnless(HAS_CUDF, "cuDF not installed")
+    def test_undirected_df_concat_path_cudf(self):
+        """df_concat undirected path must work with cuDF — result stays cuDF."""
+        from graphistry.compute.ast import n, e_undirected
+        cdf_n = cudf.from_pandas(self.NODES)
+        cdf_e = cudf.from_pandas(self.EDGES)
+        g = CGFull().nodes(cdf_n, "id").edges(cdf_e, "src", "dst")
+        result = g.gfql([n(name="start"), e_undirected(), n()])
+        self.assertIsInstance(result._edges, cudf.DataFrame)
+        self.assertIn("start", result._nodes.columns)
+
+
 if __name__ == "__main__":
     unittest.main()
