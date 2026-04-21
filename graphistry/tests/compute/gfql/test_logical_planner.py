@@ -318,6 +318,26 @@ def test_logical_planner_plans_single_alias_edge_match_shapes() -> None:
     assert set(pattern.output_schema.columns.keys()) == {"r"}
 
 
+def test_logical_planner_rejects_unknown_alias_match_shapes_by_default() -> None:
+    bound_ir = BoundIR(
+        query_parts=[BoundQueryPart(clause="MATCH", outputs=frozenset({"ghost"}))],
+        semantic_table=SemanticTable(variables={}),
+    )
+    with pytest.raises(GFQLValidationError, match="present in semantic scope"):
+        LogicalPlanner().plan(bound_ir, PlanContext())
+
+
+def test_logical_planner_allows_unknown_alias_match_shapes_when_opted_in() -> None:
+    bound_ir = BoundIR(
+        query_parts=[BoundQueryPart(clause="MATCH", outputs=frozenset({"ghost"}))],
+        semantic_table=SemanticTable(variables={}),
+    )
+    root = LogicalPlanner(allow_unknown_match_aliases=True).plan(bound_ir, PlanContext())
+    pattern = _find_first(root, PatternMatch)
+    assert pattern is not None
+    assert pattern.output_schema.columns == {}
+
+
 def test_logical_planner_rejects_unwind_without_exactly_one_new_alias() -> None:
     base_vars = {
         "n": BoundVariable(

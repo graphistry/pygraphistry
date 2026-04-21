@@ -23,6 +23,8 @@ from graphistry.compute.gfql.cypher import (
     WherePatternPredicate,
 )
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherGraphQuery
+from graphistry.compute.gfql.cypher.lowering import _logical_plan_route_for_query
+from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, SemanticTable
 from graphistry.compute.gfql.ir.logical_plan import ProcedureCall as LogicalProcedureCall
 from graphistry.tests.test_compute import CGFull
 
@@ -742,6 +744,37 @@ def test_compiled_query_sets_logical_plan_defer_reason_for_optional_shape() -> N
     assert compiled.logical_plan is None
     assert compiled.logical_plan_defer_reason is not None
     assert "OPTIONAL MATCH" in compiled.logical_plan_defer_reason
+
+
+def test_logical_plan_route_for_query_defers_unknown_alias_match_shape_by_default() -> None:
+    query = _parse_query("MATCH (n:Person) RETURN n")
+    bound_ir = BoundIR(
+        query_parts=[
+            BoundQueryPart(clause="MATCH", outputs=frozenset({"ghost"})),
+            BoundQueryPart(clause="RETURN", outputs=frozenset({"ghost"})),
+        ],
+        semantic_table=SemanticTable(variables={}),
+    )
+    logical_plan, defer_reason = _logical_plan_route_for_query(query, bound_ir=bound_ir)
+    assert logical_plan is None
+    assert defer_reason is not None
+    assert "present in semantic scope" in defer_reason
+
+
+def test_logical_plan_route_for_query_allows_unknown_alias_match_shape_when_opted_in() -> None:
+    query = _parse_query("MATCH (n:Person) RETURN n")
+    bound_ir = BoundIR(
+        query_parts=[
+            BoundQueryPart(clause="MATCH", outputs=frozenset({"ghost"})),
+            BoundQueryPart(clause="RETURN", outputs=frozenset({"ghost"})),
+        ],
+        semantic_table=SemanticTable(variables={}),
+    )
+    logical_plan, defer_reason = _logical_plan_route_for_query(
+        query, bound_ir=bound_ir, allow_unknown_match_aliases=True
+    )
+    assert logical_plan is not None
+    assert defer_reason is None
 
 
 def test_compiled_query_sets_logical_plan_route_for_call_shape() -> None:

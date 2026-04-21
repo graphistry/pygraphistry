@@ -37,6 +37,9 @@ class IdGen:
 class LogicalPlanner:
     """Initial planner skeleton from BoundIR to LogicalPlan."""
 
+    def __init__(self, *, allow_unknown_match_aliases: bool = False) -> None:
+        self._allow_unknown_match_aliases = allow_unknown_match_aliases
+
     def plan(self, bound_ir: BoundIR, ctx: PlanContext) -> LogicalPlan:
         """Build a minimal logical plan root for supported M2 skeleton shapes."""
         _ = ctx
@@ -45,7 +48,7 @@ class LogicalPlanner:
         vars_by_name = bound_ir.semantic_table.variables
         seen_match = False
 
-        for part in bound_ir.query_parts:
+        for part_index, part in enumerate(bound_ir.query_parts):
             clause = part.clause.upper()
             if clause == "OPTIONAL MATCH":
                 raise GFQLValidationError(
@@ -64,7 +67,16 @@ class LogicalPlanner:
                         value=part.clause,
                         suggestion="Use a single MATCH stage until chained pattern planning is implemented.",
                     )
-                self._reject_unsupported_match_shape(part=part, vars_by_name=vars_by_name)
+                scope_visible_aliases = (
+                    bound_ir.scope_stack[part_index].visible_vars
+                    if part_index < len(bound_ir.scope_stack)
+                    else frozenset()
+                )
+                self._reject_unsupported_match_shape(
+                    part=part,
+                    vars_by_name=vars_by_name,
+                    scope_visible_aliases=scope_visible_aliases,
+                )
                 current = self._plan_match(part=part, vars_by_name=vars_by_name, id_gen=id_gen)
                 current = self._apply_predicates(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
                 seen_match = True
@@ -124,6 +136,7 @@ class LogicalPlanner:
         *,
         part: BoundQueryPart,
         vars_by_name: Mapping[str, BoundVariable],
+        scope_visible_aliases: FrozenSet[str] = frozenset(),
     ) -> None:
         alias_names = part.outputs or part.inputs
         if not alias_names:
@@ -137,22 +150,33 @@ class LogicalPlanner:
         has_known_alias = False
         for alias in alias_names:
             variable = vars_by_name.get(alias)
-            if variable is None:
+            if variable is not None:
+                has_known_alias = True
+                if variable.entity_kind not in {"node", "edge"}:
+                    raise GFQLValidationError(
+                        ErrorCode.E108,
+                        "LogicalPlanner skeleton only supports MATCH outputs bound to node/edge aliases",
+                        field="clause",
+                        value=part.clause,
+                        suggestion="Use MATCH with node/edge aliases only until richer pattern planning is implemented.",
+                    )
                 continue
-            has_known_alias = True
-            if variable.entity_kind not in {"node", "edge"}:
-                raise GFQLValidationError(
-                    ErrorCode.E108,
-                    "LogicalPlanner skeleton only supports MATCH outputs bound to node/edge aliases",
-                    field="clause",
-                    value=part.clause,
-                    suggestion="Use MATCH with node/edge aliases only until richer pattern planning is implemented.",
-                )
+            if alias in scope_visible_aliases:
+                has_known_alias = True
+                continue
         if not has_known_alias:
-            # Some synthetic compile paths (for example, graph constructors
-            # lowered to MATCH + empty RETURN) may not materialize alias
-            # entries in SemanticTable. Allow these through as skeleton plans.
-            return
+            if self._allow_unknown_match_aliases:
+                # Some synthetic compile paths (for example, graph constructors
+                # lowered to MATCH + empty RETURN) may not materialize alias
+                # entries in SemanticTable. Keep this as an explicit opt-in.
+                return
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "LogicalPlanner skeleton requires MATCH aliases to be present in semantic scope",
+                field="clause",
+                value=part.clause,
+                suggestion="Use query shapes whose MATCH aliases are bound in semantic scope.",
+            )
 
     def _plan_where(
         self,

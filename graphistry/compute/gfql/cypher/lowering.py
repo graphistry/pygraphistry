@@ -7733,6 +7733,7 @@ def _compile_graph_constructor(
         synthetic,
         bound_ir=constructor_bound_ir,
         params=params,
+        allow_unknown_match_aliases=True,
     )
     return CompiledCypherQuery(
         Chain(lowered.query, where=lowered.where),
@@ -8321,6 +8322,7 @@ def _logical_plan_route_for_query(
     *,
     bound_ir: BoundIR,
     params: Optional[Mapping[str, Any]] = None,
+    allow_unknown_match_aliases: bool = False,
 ) -> Tuple[Optional[LogicalPlan], Optional[str]]:
     if query.call is not None:
         compiled_call = compile_cypher_call(query.call, params=params)
@@ -8328,7 +8330,9 @@ def _logical_plan_route_for_query(
         _verify_selected_logical_plan(logical_plan)
         return logical_plan, None
     try:
-        logical_plan = LogicalPlanner().plan(bound_ir, PlanContext())
+        logical_plan = LogicalPlanner(
+            allow_unknown_match_aliases=allow_unknown_match_aliases
+        ).plan(bound_ir, PlanContext())
     except GFQLValidationError as exc:
         return None, str(exc.message)
     _verify_selected_logical_plan(logical_plan)
