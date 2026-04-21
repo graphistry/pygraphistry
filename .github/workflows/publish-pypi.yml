@@ -6,13 +6,11 @@ on:
       - '*'
   workflow_dispatch:
 
-  #TODO: Gate last step on release create? Unclear how to do the step's `if`
-  #release:
-  #  types: [created]
-
 env:
   UV_EXCLUDE_NEWER: "6 days"
   PIP_EXCLUDE_NEWER: "6 days"
+  EXPECTED_REPOSITORY: graphistry/pygraphistry
+  EXPECTED_WORKFLOW_PATH: .github/workflows/publish-pypi.yml
 
 jobs:
   build-n-publish:
@@ -37,8 +35,23 @@ jobs:
       - name: Verify trusted release trigger
         run: |
           set -euo pipefail
+          expected_workflow_ref="${EXPECTED_REPOSITORY}/${EXPECTED_WORKFLOW_PATH}@${GITHUB_REF}"
+
+          if [[ "${GITHUB_REPOSITORY}" != "${EXPECTED_REPOSITORY}" ]]; then
+            echo "::error::Unexpected repository ${GITHUB_REPOSITORY}; expected ${EXPECTED_REPOSITORY}."
+            exit 1
+          fi
+          if [[ -z "${GITHUB_WORKFLOW_REF:-}" || "${GITHUB_WORKFLOW_REF}" != "${expected_workflow_ref}" ]]; then
+            echo "::error::Unexpected workflow ref ${GITHUB_WORKFLOW_REF:-<unset>}; expected ${expected_workflow_ref}."
+            exit 1
+          fi
 
           if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+            if [[ ! "${tag}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([a-zA-Z0-9._-]*)?$ ]]; then
+              echo "::error::Tag ${tag} is not a supported release tag format (expected X.Y.Z[extra])."
+              exit 1
+            fi
             # Refuse tag publishes that do not point to commits in master history.
             git fetch --no-tags origin master
             if ! git merge-base --is-ancestor "${GITHUB_SHA}" "origin/master"; then
