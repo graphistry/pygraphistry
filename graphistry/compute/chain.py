@@ -1,7 +1,6 @@
 import logging
-import pandas as pd
 from typing import Any, Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
-from graphistry.Engine import Engine, EngineAbstract, align_shared_column_dtypes, df_concat, df_to_engine, resolve_engine, safe_map_series, safe_row_concat
+from graphistry.Engine import Engine, EngineAbstract, align_shared_column_dtypes, df_concat, df_to_engine, resolve_engine, safe_map_series, safe_row_concat, s_na
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
@@ -430,7 +429,7 @@ def combine_steps(
                     mask = out_df[id].isin(seed_ids[id])
                     for col in label_cols:
                         if col in out_df.columns:
-                            out_df.loc[mask, col] = pd.NA
+                            out_df.loc[mask, col] = s_na(engine)
         hop_cols = [c for c in out_df.columns if 'hop' in c]
         if hop_cols:
             hop_maps = []

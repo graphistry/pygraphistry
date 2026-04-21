@@ -364,8 +364,8 @@ class TestGPUOutputPreservation(NoAuthTestCase):
     """End-to-end tests verifying GPU (cuDF) input produces GPU output through chain/hop/gfql."""
 
     @unittest.skipUnless(HAS_CUDF, "cuDF not installed")
-    def test_chain_cudf_input_cudf_output(self):
-        """chain() with cuDF edges must return cuDF output, not pandas."""
+    def test_chain_node_filter_cudf_output(self):
+        """chain([n()]) with cuDF edges must return cuDF output."""
         from graphistry.compute.ast import n
         cdf_e = cudf.from_pandas(EDGES_PD)
         cdf_n = cudf.DataFrame({"id": ["a", "b", "c"]})
@@ -375,25 +375,36 @@ class TestGPUOutputPreservation(NoAuthTestCase):
         self.assertIsInstance(result._nodes, cudf.DataFrame)
 
     @unittest.skipUnless(HAS_CUDF, "cuDF not installed")
-    def test_gfql_cudf_input_cudf_output(self):
-        """gfql() with cuDF edges must return cuDF output, not pandas."""
-        from graphistry.compute.ast import n
+    def test_chain_edge_traversal_cudf_output(self):
+        """chain([n, e_forward, n]) exercises hop.py — output must stay cuDF."""
+        from graphistry.compute.ast import n, e_forward
         cdf_e = cudf.from_pandas(EDGES_PD)
         cdf_n = cudf.DataFrame({"id": ["a", "b", "c"]})
         g = CGFull().edges(cdf_e, "src", "dst").nodes(cdf_n, "id")
-        result = g.gfql([n()])
+        result = g.chain([n(), e_forward(), n()])
+        self.assertIsInstance(result._edges, cudf.DataFrame)
+        self.assertIsInstance(result._nodes, cudf.DataFrame)
+
+    @unittest.skipUnless(HAS_CUDF, "cuDF not installed")
+    def test_gfql_edge_traversal_cudf_output(self):
+        """gfql([n, e_forward, n]) with cuDF edges must return cuDF output."""
+        from graphistry.compute.ast import n, e_forward
+        cdf_e = cudf.from_pandas(EDGES_PD)
+        cdf_n = cudf.DataFrame({"id": ["a", "b", "c"]})
+        g = CGFull().edges(cdf_e, "src", "dst").nodes(cdf_n, "id")
+        result = g.gfql([n(), e_forward(), n()])
         self.assertIsInstance(result._edges, cudf.DataFrame)
         self.assertIsInstance(result._nodes, cudf.DataFrame)
 
     @unittest.skipUnless(HAS_CUDF, "cuDF not installed")
     def test_hop_cudf_input_cudf_output(self):
         """hop() with cuDF edges must return cuDF output, not pandas."""
-        from graphistry.compute.ast import n, e_forward
         cdf_e = cudf.from_pandas(EDGES_PD)
         cdf_n = cudf.DataFrame({"id": ["a", "b", "c"]})
         g = CGFull().edges(cdf_e, "src", "dst").nodes(cdf_n, "id")
         result = g.hop(cdf_n)
         self.assertIsInstance(result._edges, cudf.DataFrame)
+        self.assertIsInstance(result._nodes, cudf.DataFrame)
 
     @unittest.skipUnless(HAS_CUDF, "cuDF not installed")
     def test_materialize_nodes_cudf_engine_pandas_input_becomes_cudf(self):
