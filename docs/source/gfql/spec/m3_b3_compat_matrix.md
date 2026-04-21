@@ -15,9 +15,10 @@ Three target types and one factory function, all defined in `graphistry/compute/
 | Symbol | Line | Description |
 |--------|------|-------------|
 | `CompiledCypherQuery` | 154 | Core compiled query: `chain`, optional `post_processing`, `execution_extras` (carries `logical_plan`, `query_graph`, reentry state), `graph_bindings`, `use_ref` |
+| `CompiledCypherExecutionExtras` | 140 | Companion dataclass embedded in `CompiledCypherQuery.execution_extras`; carries `logical_plan`, `query_graph`, reentry state; deletion dependency of `CompiledCypherQuery` |
 | `CompiledCypherUnionQuery` | 225 | UNION wrapper: tuple of `CompiledCypherQuery` branches |
 | `CompiledCypherGraphQuery` | 250 | GRAPH-constructor result: graph bindings + chain; NOT in public `__all__` |
-| `compile_cypher_query()` | 8368 | Internal factory; returns `Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]` |
+| `compile_cypher_query()` | 8368 | Factory function in `lowering.py`; also exported in `cypher/__init__.__all__` (public API); returns `Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]` |
 
 ---
 
@@ -31,7 +32,7 @@ Three target types and one factory function, all defined in `graphistry/compute/
 | **Owner file** | `graphistry/compute/gfql/cypher/lowering.py` |
 | **Usage** | ~50 call sites constructing `CompiledCypherQuery`; `compile_cypher_query()` factory at line 8368; `CompiledCypherUnionQuery` at line 8414; `CompiledCypherGraphQuery` at line 8185+ |
 | **Closure strategy** | **Retain until M3-PR3** — these are the compiler output types; PhysicalPlanner will consume `logical_plan` already embedded in `execution_extras`; type deletion requires zero internal construction sites |
-| **Proof target** | All `CompiledCypherQuery(...)` constructors eliminated from `lowering.py` in M3-PR3; `compile_cypher_query()` either deleted or becomes a thin alias to the planner path |
+| **Proof target** | All `CompiledCypherQuery(...)` constructors eliminated from `lowering.py` in M3-PR3; `CompiledCypherExecutionExtras` deleted alongside `CompiledCypherQuery`; `compile_cypher_query()` deletion/alias coordinated with Row 2 public API cutover |
 | **Blocking on** | M3-PR2 (runtime cutover), M3-PR3 (deletion gate) |
 | **Follow-up** | None; tracked under #1160 DAG steps |
 
@@ -47,7 +48,7 @@ Three target types and one factory function, all defined in `graphistry/compute/
 | **Closure strategy** | **Shim/defer to M3-PR3** — symbols must remain exported for backward compatibility until all callers can migrate; `compile_cypher()` return type changes to a new plan type in M3-PR3; add deprecation docstring note at cutover |
 | **Proof target** | M3-PR3: `compile_cypher()` return type updated; old types removed from `__all__` or retained as deprecated re-exports with removal target in next minor; migration note added to `CHANGELOG.md` |
 | **Blocking on** | M3-PR3 (public API cutover) |
-| **Follow-up** | New issue needed for deprecation/removal tracking in the next minor version after M3 lands |
+| **Follow-up** | #1169 — deprecation/removal tracking in the next minor version after M3 lands |
 
 ---
 
@@ -73,9 +74,9 @@ Three target types and one factory function, all defined in `graphistry/compute/
 | **Owner file** | `graphistry/compute/chain_remote.py` |
 | **Usage** | `_compiled_to_let_json()` line 46 — serializes `CompiledCypherQuery.chain` and `graph_bindings` to Let wire format; dispatch at lines 117/122 checks `isinstance(compiled, CompiledCypherUnionQuery)` / `isinstance(compiled, CompiledCypherQuery)` |
 | **Closure strategy** | **Shim/defer** — remote wire format is independent of the local compiler IR; the `Chain` + `graph_bindings` fields needed for JSON serialization are part of `CompiledCypherQuery` today; migrating this path requires either a new wire-protocol-facing type or extracting the serialization fields; deferred until M3-PR3 stabilizes the public API surface |
-| **Proof target** | Deferred; new follow-up issue to track remote wire migration explicitly |
+| **Proof target** | Deferred; tracked in #1168 |
 | **Blocking on** | M3-PR3 public API shape; wire protocol decision |
-| **Follow-up** | **Requires new issue**: "M3 follow-up: migrate chain_remote.py off CompiledCypherQuery for remote wire path" |
+| **Follow-up** | #1168 — migrate `chain_remote.py` off `CompiledCypherQuery` for remote wire path |
 
 ---
 
@@ -126,9 +127,9 @@ M3-PR4+ ───────── deferred
                    migrate Row 2 deprecation removal (next minor version)
 ```
 
-## Deferred Items Requiring Follow-up Issues
+## Deferred Items
 
-| # | Item | Owner |
+| # | Item | Issue |
 |---|------|-------|
-| A | Remote wire migration: `chain_remote.py` off `CompiledCypherQuery` | New issue (see Row 4) |
-| B | Public API deprecation/removal tracking post-M3 | New issue (see Row 2) |
+| A | Remote wire migration: `chain_remote.py` off `CompiledCypherQuery` | #1168 |
+| B | Public API deprecation/removal tracking post-M3 | #1169 |
