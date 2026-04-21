@@ -2,8 +2,6 @@ import numpy as np
 import pandas as pd
 from typing import Any, Dict, List, Optional, Union
 from typing_extensions import Literal
-from inspect import getmodule
-
 from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, resolve_engine, df_to_engine, df_concat, safe_merge
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
@@ -22,7 +20,6 @@ from .python_remote import (
     python_remote_json as python_remote_json_base
 )
 from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType
-from .engine_coercion import ensure_local_engine_match
 from .collapse import collapse_by
 from .hop import hop as hop_base
 from .filter_by_dict import (
@@ -69,20 +66,33 @@ def _safe_len(df: Any) -> int:
     return len(df)
 
 
-def _coerce_to_pandas(g: "Plottable") -> "Plottable":
-    """Coerce input-format types (Arrow, Spark, dask) on *g* to pandas DataFrames.
+def _coerce_input_formats(g: "Plottable", engine: Engine) -> "Plottable":
+    """Coerce input-format types (Arrow, Spark, dask, Polars) to the target engine.
 
-    Input formats are coerced; cuDF is a compute engine and is left untouched.
-    Delegates coercion to df_to_engine(df, Engine.PANDAS).
+    Engine.PANDAS: polars/arrow/spark/dask → pandas; cuDF and dask_cudf preserved as GPU compute engines.
+    Engine.CUDF:   polars/arrow/spark/dask/pandas → cuDF; dask_cudf preserved.
+
+    The 'cudf' substring check catches both cudf.core.dataframe and dask_cudf.core —
+    both are GPU compute engines that must not be silently downgraded to pandas.
     """
-    def _is_cudf(df: Any) -> bool:
-        return 'cudf' in str(type(df).__module__)
+    def _is_already_correct(df: Any) -> bool:
+        type_mod = str(type(df).__module__)
+        if engine == Engine.PANDAS:
+            return isinstance(df, pd.DataFrame) or 'cudf' in type_mod
+        elif engine == Engine.CUDF:
+            return 'cudf' in type_mod
+        return True
 
-    if g._edges is not None and not isinstance(g._edges, pd.DataFrame) and not _is_cudf(g._edges):
-        g = g.edges(df_to_engine(g._edges, Engine.PANDAS), g._source, g._destination)
-    if g._nodes is not None and not isinstance(g._nodes, pd.DataFrame) and not _is_cudf(g._nodes):
-        g = g.nodes(df_to_engine(g._nodes, Engine.PANDAS), g._node)
+    if g._edges is not None and not _is_already_correct(g._edges):
+        g = g.edges(df_to_engine(g._edges, engine), g._source, g._destination)
+    if g._nodes is not None and not _is_already_correct(g._nodes):
+        g = g.nodes(df_to_engine(g._nodes, engine), g._node)
     return g
+
+
+def _coerce_to_pandas(g: "Plottable") -> "Plottable":
+    """Coerce input formats to pandas. Thin wrapper around _coerce_input_formats(g, PANDAS)."""
+    return _coerce_input_formats(g, Engine.PANDAS)
 
 
 class ComputeMixin(Plottable):
@@ -123,28 +133,15 @@ class ComputeMixin(Plottable):
         return g
                 
     def to_pandas(self) -> 'Plottable':
+        """Convert nodes and edges to pandas DataFrames.
+
+        Supports all input types: cuDF, Arrow, Polars, Spark, dask, and pandas (identity).
         """
-        Convert to CPU mode by converting any defined nodes and edges to pandas dataframes
-
-        When nodes or edges are already pandas dataframes, they are left as is"""
-
         g = self.bind()
-        if g._edges is not None:
-            if not isinstance(g._edges, pd.DataFrame):
-                import cudf
-                if isinstance(g._edges, cudf.DataFrame):
-                    g = g.edges(g._edges.to_pandas())
-                else:
-                    raise ValueError('Expected edges to be cudf, got: {}'.format(type(g._edges)))
-                
-        if g._nodes is not None:
-            if not isinstance(g._nodes, pd.DataFrame):
-                import cudf
-                if isinstance(g._nodes, cudf.DataFrame):
-                    g = g.nodes(g._nodes.to_pandas())
-                else:
-                    raise ValueError('Expected nodes to be cudf, got: {}'.format(type(g._nodes)))
-        
+        if g._edges is not None and not isinstance(g._edges, pd.DataFrame):
+            g = g.edges(df_to_engine(g._edges, Engine.PANDAS), g._source, g._destination)
+        if g._nodes is not None and not isinstance(g._nodes, pd.DataFrame):
+            g = g.nodes(df_to_engine(g._nodes, Engine.PANDAS), g._node)
         return g
 
     def materialize_nodes(
@@ -178,11 +175,12 @@ class ComputeMixin(Plottable):
 
         g: Plottable = self
 
-        if engine != EngineAbstract.AUTO:
-            g = ensure_local_engine_match(g, Engine(engine.value))
-
-        # Coerce input-format types (Arrow, Spark) to pandas before any engine logic
-        g = _coerce_to_pandas(g)
+        # Resolve target engine from ORIGINAL data BEFORE coercion, then coerce input formats
+        # to that engine. This ensures GPU mode is preserved: polars/arrow/spark/dask are
+        # converted to cuDF (not pandas) when engine='cudf'. The old pattern
+        # (ensure_local_engine_match then _coerce_to_pandas) was wrong for cross-engine scenarios.
+        engine_concrete = resolve_engine(engine, g)
+        g = _coerce_input_formats(g, engine_concrete)
 
         if reuse:
             if g._nodes is not None and _safe_len(g._nodes) > 0:
@@ -205,32 +203,6 @@ class ComputeMixin(Plottable):
             return g
 
         node_id = g._node if g._node is not None else "id"
-        engine_concrete : Engine
-        if engine == EngineAbstract.AUTO:
-            if isinstance(g._edges, pd.DataFrame):
-                engine_concrete = Engine.PANDAS
-            else:
-
-                def raiser(df: Any):
-                    raise ValueError('Could not determine engine for edges, expected pandas or cudf dataframe, got: {}'.format(type(df)))
-
-                try:
-                    if 'cudf' in str(getmodule(g._edges)):
-                        import cudf
-                        if isinstance(g._edges, cudf.DataFrame):
-                            engine_concrete = Engine.CUDF
-                        else:
-                            raiser(g._edges)
-                    else:
-                        raiser(g._edges)
-                except ImportError as e:
-                    raise e
-                except Exception:
-                    raiser(g._edges)
-
-        else:
-            engine_concrete = Engine(engine.value)
-
         concat_fn = df_concat(engine_concrete)
         concat_df = concat_fn([g._edges[g._source], g._edges[g._destination]])
         nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)
@@ -238,7 +210,8 @@ class ComputeMixin(Plottable):
 
     def get_indegrees(self, col: str = "degree_in"):
         """See get_degrees"""
-        g = _coerce_to_pandas(self)
+        engine_concrete = resolve_engine(EngineAbstract.AUTO, self)
+        g = _coerce_input_formats(self, engine_concrete)
         g_nodes = g.materialize_nodes()
 
         if _safe_len(g._edges) == 0:
@@ -268,7 +241,8 @@ class ComputeMixin(Plottable):
 
     def get_outdegrees(self, col: str = "degree_out"):
         """See get_degrees"""
-        g = _coerce_to_pandas(self)
+        engine_concrete = resolve_engine(EngineAbstract.AUTO, self)
+        g = _coerce_input_formats(self, engine_concrete)
         g2 = g.edges(
             g._edges.rename(
                 columns={g._source: g._destination, g._destination: g._source}

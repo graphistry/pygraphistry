@@ -105,16 +105,18 @@ def hop(self: Plottable,
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
 
-    from graphistry.compute.ComputeMixin import _coerce_to_pandas  # lazy — avoids circular import
-    self = _coerce_to_pandas(self)
+    # Resolve engine from original data BEFORE coercion, then coerce input formats to that engine.
+    # This preserves GPU mode: cuDF input with engine=AUTO resolves to CUDF and stays cuDF.
+    # Calling _coerce_to_pandas unconditionally would be wrong for GPU mode.
+    engine_concrete = resolve_engine(engine, self)
+    from graphistry.compute.ComputeMixin import _coerce_input_formats  # lazy — avoids circular import
+    self = _coerce_input_formats(self, engine_concrete)
 
     def _combine_first_no_warn(target, fill):
         """Avoid pandas concat warning when combine_first sees empty inputs."""
         if target is None or len(target) == 0:
             return target
         return target.where(target.notna(), fill)
-
-    engine_concrete = resolve_engine(engine, self)
     if not TYPE_CHECKING:
         DataFrameT = df_cons(engine_concrete)
     concat = df_concat(engine_concrete)

@@ -178,6 +178,12 @@ def df_to_engine(df, engine: Engine):
             import cudf
             if isinstance(df, cudf.DataFrame):
                 return df.to_pandas()
+        if 'polars' in type_module:
+            import polars as pl
+            if isinstance(df, pl.LazyFrame):
+                return df.collect().to_pandas()
+            if isinstance(df, pl.DataFrame):
+                return df.to_pandas()
         raise ValueError(f'Cannot convert type {type(df)} to pandas')
     elif engine == Engine.CUDF:
         import cudf

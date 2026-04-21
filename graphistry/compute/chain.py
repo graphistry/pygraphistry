@@ -374,7 +374,7 @@ def combine_steps(
                         elif next_op.direction == 'reverse':
                             allowed_ids = next_step._edges[next_step._destination]
                         else:  # undirected
-                            allowed_ids = pd.concat(
+                            allowed_ids = df_concat(engine)(
                                 [
                                     next_step._edges[next_step._source],
                                     next_step._edges[next_step._destination],
@@ -399,7 +399,7 @@ def combine_steps(
                 out_df = out_df[~has_na]
             elif has_na.any():
                 tag_cols = [c for c in out_df.columns if c not in [id, 'id'] + hop_cols]
-                has_tag = pd.Series(False, index=out_df.index)
+                has_tag = out_df[id].isin([])  # engine-agnostic all-False boolean Series
                 for col in tag_cols:
                     try:
                         vals = out_df[col].fillna(False)
@@ -739,8 +739,11 @@ def chain(
         from .execution_context import ExecutionContext
         context = ExecutionContext()
 
-    from graphistry.compute.ComputeMixin import _coerce_to_pandas  # lazy — avoids circular import
-    self = _coerce_to_pandas(self)
+    # Resolve engine from original data BEFORE coercion so GPU mode is preserved end-to-end.
+    # _coerce_input_formats then converts input formats (polars, arrow, spark, dask) to that engine.
+    from graphistry.Engine import resolve_engine as _resolve_engine  # lazy
+    from graphistry.compute.ComputeMixin import _coerce_input_formats  # lazy — avoids circular import
+    self = _coerce_input_formats(self, _resolve_engine(engine, self))
 
     if policy:
         from graphistry.compute.gfql.call.executor import _thread_local as call_thread_local
