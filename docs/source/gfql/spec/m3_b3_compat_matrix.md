@@ -1,3 +1,5 @@
+(gfql-spec-m3-b3-compat-matrix)=
+
 # M3 B3 Compatibility Matrix — `CompiledCypher*` Preflight
 
 **Issue**: #1165  
@@ -15,10 +17,10 @@ Three target types and one factory function, all defined in `graphistry/compute/
 | Symbol | Line | Description |
 |--------|------|-------------|
 | `CompiledCypherQuery` | 154 | Core compiled query: `chain`, optional `post_processing`, `execution_extras` (carries `logical_plan`, `query_graph`, reentry state), `graph_bindings`, `use_ref` |
-| `CompiledCypherExecutionExtras` | 140 | Companion dataclass embedded in `CompiledCypherQuery.execution_extras`; carries `logical_plan`, `query_graph`, reentry state; deletion dependency of `CompiledCypherQuery` |
+| `CompiledCypherExecutionExtras` | 141 | Companion dataclass embedded in `CompiledCypherQuery.execution_extras`; carries `logical_plan`, `query_graph`, reentry state; deletion dependency of `CompiledCypherQuery` |
 | `CompiledCypherUnionQuery` | 225 | UNION wrapper: tuple of `CompiledCypherQuery` branches |
 | `CompiledCypherGraphQuery` | 250 | GRAPH-constructor result: graph bindings + chain; NOT in public `__all__` |
-| `compile_cypher_query()` | 8368 | Factory function in `lowering.py`; also exported in `cypher/__init__.__all__` (public API); returns `Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]` |
+| `compile_cypher_query()` | 8372 | Factory function in `lowering.py`; also exported in `cypher/__init__.__all__` (public API); returns `Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]` |
 
 ---
 
@@ -58,7 +60,7 @@ Three target types and one factory function, all defined in `graphistry/compute/
 |-------|--------|
 | **Surface** | Runtime execution |
 | **Owner file** | `graphistry/compute/gfql_unified.py` |
-| **Usage** | 8 internal functions accepting `CompiledCypherQuery`/`CompiledCypherUnionQuery`/`CompiledCypherGraphQuery`:<br>• `_execute_graph_constructor_compiled()` line 471<br>• `_execute_graph_query()` line 518<br>• `_execute_query_with_graph_context()` line 542<br>• `_execute_compiled_query()` line 571 (main dispatch)<br>• `_execute_compiled_query_with_reentry()` line 686<br>• `_compiled_query_reentry_state()` line 834<br>• `_compiled_query_scalar_reentry_state()` line 942<br>• `_compiled_query_reentry_contract()` line 1006<br>• Top-level dispatch at line ~1431 (`isinstance` gate) |
+| **Usage** | 8 internal functions + 1 top-level dispatch callsite accepting `CompiledCypherQuery`/`CompiledCypherUnionQuery`/`CompiledCypherGraphQuery`:<br>• `_execute_graph_constructor_compiled()` line 471<br>• `_execute_graph_query()` line 518<br>• `_execute_query_with_graph_context()` line 542<br>• `_execute_compiled_query()` line 571 (main dispatch)<br>• `_execute_compiled_query_with_reentry()` line 686<br>• `_compiled_query_reentry_state()` line 834<br>• `_compiled_query_scalar_reentry_state()` line 942<br>• `_compiled_query_reentry_contract()` line 1006<br>• Top-level dispatch at line ~1431 (`isinstance` gate) |
 | **Closure strategy** | **Migrate in M3-PR2** — this is the primary M3 target; `_execute_compiled_query()` is the main routing function to replace with a `PhysicalPlanner`-dispatched path; reentry functions fold into `PatternMatch(input=...)` execution model |
 | **Proof target** | M3-PR2: `_execute_compiled_query()` routes through PhysicalPlanner for covered shapes; `CompiledCypherQuery` is still consumed as the lowering output but execution is planner-dispatched; differential parity tests green |
 | **Blocking on** | M3-PR2 (PhysicalPlanner skeleton from #1164) |
