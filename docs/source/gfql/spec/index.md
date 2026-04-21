@@ -12,8 +12,6 @@ python_embedding
 wire_protocol
 cypher_mapping
 llm_guide
-m2_exit_gate_closure
-m3_b3_compat_matrix
 ```
 
 ## Overview
