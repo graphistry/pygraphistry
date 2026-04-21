@@ -7,8 +7,13 @@ import pandas as pd
 import pytest
 
 from graphistry.compute.ast import ASTCall, ASTObject
-from graphistry.compute.gfql.cypher.api import CompiledCypherQuery, compile_cypher
-from graphistry.compute.gfql.cypher.lowering import _alias_target, _return_references_optional_only_alias, lower_match_clause
+from graphistry.compute.gfql.cypher.api import compile_cypher
+from graphistry.compute.gfql.cypher.lowering import (
+    CompiledCypherQuery,
+    _alias_target,
+    _return_references_optional_only_alias,
+    lower_match_clause,
+)
 from graphistry.compute.gfql.cypher.ast import CypherQuery
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder

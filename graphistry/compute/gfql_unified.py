@@ -1351,7 +1351,7 @@ def _compile_string_query(
             suggestion="Use language='cypher' for now; Gremlin string compilation is not implemented yet.",
             language="gfql",
         )
-    return compile_cypher(query, params=params)
+    return compile_cypher(query, params=params, _warn_deprecated=False)
 
 
 @otel_traced("gfql.run", attrs_fn=_gfql_otel_attrs)
