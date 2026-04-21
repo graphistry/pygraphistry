@@ -22,7 +22,9 @@ jobs:
     name: Build and publish Python 🐍 distributions 📦 to PyPI and TestPyPI
     if: >-
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master')
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/master' &&
+       github.event.inputs.confirm_ref == 'master')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -67,10 +69,6 @@ jobs:
             # Manual publishes are restricted to master ref.
             if [[ "${GITHUB_REF}" != "refs/heads/master" ]]; then
               echo "::error::workflow_dispatch publishes are only allowed from refs/heads/master."
-              exit 1
-            fi
-            if [[ "${{ github.event.inputs.confirm_ref }}" != "master" ]]; then
-              echo "::error::workflow_dispatch requires confirm_ref=master."
               exit 1
             fi
           else
