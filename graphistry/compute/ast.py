@@ -633,7 +633,8 @@ class ASTEdge(ASTObject):
             target_wave_front=target_wave_front,
             source_node_query=self.source_node_query,
             destination_node_query=self.destination_node_query,
-            edge_query=self.edge_query
+            edge_query=self.edge_query,
+            engine=engine,
         )
 
         if self.prune_to_endpoints and out_g._nodes is not None and out_g._edges is not None and len(out_g._edges) > 0:
