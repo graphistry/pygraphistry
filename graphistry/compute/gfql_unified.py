@@ -41,6 +41,13 @@ from graphistry.compute.gfql.df_executor import (
     build_same_path_inputs,
     execute_same_path_chain,
 )
+from graphistry.compute.gfql.ir.compilation import PhysicalPlan, PlanContext
+from graphistry.compute.gfql.physical_planner import (
+    PhysicalPlanner,
+    RowPipelineExecutorWrapper,
+    SamePathExecutorWrapper,
+    WavefrontExecutorWrapper,
+)
 from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
@@ -601,6 +608,151 @@ def _execute_compiled_query(
         out._edges = df_ctor()
         return out
 
+    return _execute_compiled_query_non_union(
+        base_graph,
+        compiled_query=compiled_query,
+        engine=engine,
+        policy=policy,
+        context=context,
+        start_nodes=start_nodes,
+    )
+
+
+def _execute_compiled_query_non_union(
+    base_graph: Plottable,
+    *,
+    compiled_query: CompiledCypherQuery,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+    start_nodes: Optional[DataFrameT] = None,
+) -> Plottable:
+    logical_plan = compiled_query.logical_plan
+    if logical_plan is None:
+        return _execute_compiled_query_compat_non_union(
+            base_graph,
+            compiled_query=compiled_query,
+            engine=engine,
+            policy=policy,
+            context=context,
+            start_nodes=start_nodes,
+        )
+
+    try:
+        physical_plan = PhysicalPlanner().plan(logical_plan, PlanContext())
+    except GFQLValidationError as exc:
+        # Temporary compatibility shim: CALL-backed compiled queries still run via
+        # the legacy path while planner coverage catches up.
+        if compiled_query.procedure_call is not None:
+            logger.debug(
+                "PhysicalPlanner unsupported for CALL-backed query; using compatibility shim: %s",
+                exc.message,
+            )
+            return _execute_compiled_query_compat_non_union(
+                base_graph,
+                compiled_query=compiled_query,
+                engine=engine,
+                policy=policy,
+                context=context,
+                start_nodes=start_nodes,
+            )
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher planned route could not be lowered to a supported physical execution path",
+            field="logical_plan",
+            value=exc.message,
+            suggestion="Use a covered M3 query shape (same-path / wavefront / row-pipeline) or retain compatibility shims for this lane.",
+            language="cypher",
+        ) from exc
+
+    return _execute_compiled_query_via_physical_plan(
+        base_graph,
+        compiled_query=compiled_query,
+        physical_plan=physical_plan,
+        engine=engine,
+        policy=policy,
+        context=context,
+        start_nodes=start_nodes,
+    )
+
+
+def _execute_compiled_query_via_physical_plan(
+    base_graph: Plottable,
+    *,
+    compiled_query: CompiledCypherQuery,
+    physical_plan: PhysicalPlan,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+    start_nodes: Optional[DataFrameT] = None,
+) -> Plottable:
+    if len(physical_plan.operators) != 1:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "PhysicalPlan currently requires exactly one operator wrapper in this lane",
+            field="physical_plan.operators",
+            value=len(physical_plan.operators),
+            suggestion="Use a covered single-operator M3 route or extend the runtime dispatcher.",
+            language="cypher",
+        )
+
+    operator = physical_plan.operators[0]
+    if isinstance(operator, (SamePathExecutorWrapper, RowPipelineExecutorWrapper)):
+        return _execute_compiled_query_compat_non_union(
+            base_graph,
+            compiled_query=compiled_query,
+            engine=engine,
+            policy=policy,
+            context=context,
+            start_nodes=start_nodes,
+        )
+
+    if isinstance(operator, WavefrontExecutorWrapper):
+        if compiled_query.connected_match_join is not None:
+            return _apply_connected_match_join(
+                base_graph,
+                compiled_query.connected_match_join,
+                engine=engine,
+                policy=policy,
+                context=context,
+            )
+        if compiled_query.connected_optional_match is not None:
+            # Compatibility shim while optional-wavefront lowering converges.
+            return _apply_connected_optional_match(
+                base_graph,
+                compiled_query.connected_optional_match,
+                engine=engine,
+                policy=policy,
+                context=context,
+            )
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher wavefront physical route selected but compiled query has no connected join payload to execute",
+            field="physical_plan.route",
+            value=physical_plan.route,
+            suggestion="Use a supported connected MATCH/OPTIONAL MATCH lowering shape for wavefront execution.",
+            language="cypher",
+        )
+
+    raise GFQLValidationError(
+        ErrorCode.E108,
+        "Cypher physical plan produced an unknown operator wrapper",
+        field="physical_plan.operator",
+        value=type(operator).__name__,
+        suggestion="Use a covered M3 wrapper type or extend the runtime dispatcher.",
+        language="cypher",
+    )
+
+
+def _execute_compiled_query_compat_non_union(
+    base_graph: Plottable,
+    *,
+    compiled_query: CompiledCypherQuery,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+    start_nodes: Optional[DataFrameT] = None,
+) -> Plottable:
     if compiled_query.connected_match_join is not None:
         return _apply_connected_match_join(
             base_graph,
