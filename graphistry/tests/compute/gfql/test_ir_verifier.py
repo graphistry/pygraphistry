@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import dataclasses
 
-import pytest
-
 from graphistry.compute.gfql.ir import (
     Aggregate,
     Apply,
@@ -409,18 +407,23 @@ class TestOutputSchemaConsistency:
         plan = NodeScan(op_id=1, output_schema=schema)
         assert verify(plan) == []
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Known gap: verifier does not yet recurse into ListType.element_type. "
-               "Flip to xpass (remove decorator) when element_type recursion is added.",
-    )
-    def test_listtype_element_type_recursion_not_yet_implemented(self) -> None:
-        # When element_type recursion is added, invalid element_type should be caught.
+    def test_listtype_invalid_element_type_caught(self) -> None:
         bad_list = ListType(element_type="not_a_type")  # type: ignore[arg-type]
         schema = RowSchema(columns={"items": bad_list})
         plan = NodeScan(op_id=1, output_schema=schema)
         errs = _errors(plan)
-        assert len(errs) >= 1  # expected to fail until recursion is implemented
+        assert len(errs) >= 1
+        assert any("element_type" in e for e in errs)
+
+    def test_listtype_nested_invalid_element_type_caught(self) -> None:
+        # ListType(element_type=ListType(element_type=<invalid>)) — deep recursion
+        inner_bad = ListType(element_type=42)  # type: ignore[arg-type]
+        outer = ListType(element_type=inner_bad)
+        schema = RowSchema(columns={"nested": outer})
+        plan = NodeScan(op_id=1, output_schema=schema)
+        errs = _errors(plan)
+        assert len(errs) >= 1
+        assert any("element_type" in e for e in errs)
 
 
 # ---------------------------------------------------------------------------
