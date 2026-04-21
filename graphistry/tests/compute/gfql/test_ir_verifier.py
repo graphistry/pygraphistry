@@ -415,6 +415,14 @@ class TestOutputSchemaConsistency:
         assert len(errs) >= 1
         assert any("element_type" in e for e in errs)
 
+    def test_listtype_nested_valid_no_error(self) -> None:
+        # ListType(element_type=ListType(element_type=ScalarType())) — valid deep nesting
+        inner = ListType(element_type=ScalarType(kind="string"))
+        outer = ListType(element_type=inner)
+        schema = RowSchema(columns={"nested": outer})
+        plan = NodeScan(op_id=1, output_schema=schema)
+        assert verify(plan) == []
+
     def test_listtype_nested_invalid_element_type_caught(self) -> None:
         # ListType(element_type=ListType(element_type=<invalid>)) — deep recursion
         inner_bad = ListType(element_type=42)  # type: ignore[arg-type]

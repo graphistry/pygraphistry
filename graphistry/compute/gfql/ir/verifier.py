@@ -4,7 +4,7 @@ verify(plan) walks the operator tree and checks five invariants:
   1. op_id uniqueness  — non-zero op_ids are distinct across the whole tree
   2. Dangling refs     — child slots (input/left/right/subquery) hold LogicalPlan | None
   3. Predicate scope   — BoundPredicate.expression must be non-empty on all predicate-bearing ops
-  4. Schema validity   — RowSchema column values must be LogicalType instances
+  4. Schema validity   — RowSchema column values must be LogicalType instances (ListType.element_type validated recursively)
   5. Optional-arm      — PatternMatch(optional=True) must carry a non-empty arm_id
 """
 from __future__ import annotations
