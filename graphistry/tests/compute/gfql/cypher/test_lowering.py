@@ -738,6 +738,13 @@ def test_compiled_query_sets_logical_plan_route_for_covered_shape() -> None:
     assert compiled.logical_plan_defer_reason is None
 
 
+def test_compiled_query_sets_logical_plan_route_for_match_scalar_return_shape() -> None:
+    compiled = _compile_query("MATCH (n:Person) RETURN 1 AS x")
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
+
+
 def test_compiled_query_sets_logical_plan_defer_reason_for_optional_shape() -> None:
     compiled = _compile_query("OPTIONAL MATCH (n:Person) RETURN n")
     assert compiled.logical_plan_route == "deferred"
