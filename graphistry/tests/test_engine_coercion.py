@@ -427,6 +427,29 @@ class TestGPUOutputPreservation(NoAuthTestCase):
         result = g.materialize_nodes()
         self.assertIsInstance(result._nodes, cudf.DataFrame)
 
+    def test_get_indegrees_arrow_input(self):
+        """get_indegrees() with Arrow edges must coerce to pandas and return pandas nodes."""
+        g = CGFull().edges(EDGES_PA, "src", "dst")
+        result = g.get_indegrees()
+        self.assertIsInstance(result._nodes, pd.DataFrame)
+        self.assertIn("degree_in", result._nodes.columns)
+
+    def test_get_outdegrees_arrow_input(self):
+        """get_outdegrees() with Arrow edges must coerce to pandas and return pandas nodes."""
+        g = CGFull().edges(EDGES_PA, "src", "dst")
+        result = g.get_outdegrees()
+        self.assertIsInstance(result._nodes, pd.DataFrame)
+        self.assertIn("degree_out", result._nodes.columns)
+
+    @unittest.skipUnless(HAS_CUDF, "cuDF not installed")
+    def test_get_indegrees_cudf_input_cudf_output(self):
+        """get_indegrees() with cuDF edges must preserve cuDF output."""
+        cdf_e = cudf.from_pandas(EDGES_PD)
+        g = CGFull().edges(cdf_e, "src", "dst")
+        result = g.get_indegrees()
+        self.assertIsInstance(result._nodes, cudf.DataFrame)
+        self.assertIn("degree_in", result._nodes.columns)
+
 
 class TestCombineStepsEdgeCases(NoAuthTestCase):
     """Tests for specific code paths in combine_steps / apply_output_slice."""
