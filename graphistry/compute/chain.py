@@ -1,6 +1,7 @@
 import logging
 from typing import Any, Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
 from graphistry.Engine import Engine, EngineAbstract, align_shared_column_dtypes, df_concat, df_to_engine, resolve_engine, safe_map_series, safe_row_concat, s_na
+from graphistry.compute.dataframe_utils import dbg_df
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
@@ -325,9 +326,9 @@ def combine_steps(
     if logger.isEnabledFor(logging.DEBUG):
         for (op, g_step) in steps:
             if kind == 'edges':
-                logger.debug('adding edges to concat: %s', g_step._edges[[g_step._source, g_step._destination]])
+                logger.debug('adding edges to concat: %s', dbg_df(g_step._edges))
             else:
-                logger.debug('adding nodes to concat: %s', g_step._nodes[[g_step._node]])
+                logger.debug('adding nodes to concat: %s', dbg_df(g_step._nodes))
 
     logger.debug('combine_steps ops: %s', [op for (op, _) in steps])
 
@@ -411,7 +412,7 @@ def combine_steps(
     g_df = getattr(g, df_fld)
     out_df = safe_merge(out_df, g_df, on=id, how='left', engine=engine)
 
-    logger.debug('COMBINED[%s] >>\n%s', kind, out_df)
+    logger.debug('COMBINED[%s] >> %s', kind, dbg_df(out_df))
 
     if kind == 'nodes' and label_cols:
         seeds_df = label_steps[0][1]._nodes if label_steps and label_steps[0][1]._nodes is not None else None
@@ -1007,8 +1008,8 @@ def _chain_impl(
         if logger.isEnabledFor(logging.DEBUG):
             for (i, g_step) in enumerate(g_stack):
                 logger.debug('~' * 10 + '\nstep %s', i)
-                logger.debug('nodes: %s', g_step._nodes)
-                logger.debug('edges: %s', g_step._edges)
+                logger.debug('nodes: %s', dbg_df(g_step._nodes))
+                logger.debug('edges: %s', dbg_df(g_step._edges))
 
         all_astcall = all(isinstance(op, ASTCall) for op in ops)
 
