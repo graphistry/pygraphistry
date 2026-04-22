@@ -142,11 +142,16 @@ GPU tests can also be run locally via `./docker/test-gpu-local.sh` .
 	- If manually triggering, run only from `master` and use it only for maintainer-led recovery scenarios
 	- Do not rerun publish for a version that is already on PyPI (duplicate-file uploads are rejected)
 	- Verify version appears on PyPI: `curl -s https://pypi.org/pypi/graphistry/json | jq -r '.info.version'`
+	- Verify release evidence artifacts from the workflow run:
+	  - built distributions (`dist/*.whl`, `dist/*.tar.gz`)
+	  - SBOM (`dist/sbom-cyclonedx.json`)
+	  - GitHub build provenance attestation for `dist/*`
 	- Keep the PyPI Trusted Publisher binding aligned with this workflow:
 	  - repository: `graphistry/pygraphistry`
 	  - workflow file: `.github/workflows/publish-pypi.yml`
 	  - environment: `pypi-release`
 	  - refs: tag pushes and `workflow_dispatch` on `master` only
+	- This workflow publishes with attestations enabled for both TestPyPI and PyPI.
 
 1. Toggle version as active at [ReadTheDocs](https://readthedocs.org/projects/pygraphistry/versions/)
 
