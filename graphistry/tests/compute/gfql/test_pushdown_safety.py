@@ -110,6 +110,58 @@ class TestIsNullRejecting:
             frozenset({"n"}),
         )
 
+    # --- OR expressions --- #
+
+    def test_or_with_is_null_form_is_not_rejecting(self):
+        # n IS NULL OR n.age > 5: if n=NULL → True OR NULL = True → row kept.
+        # The null-safe conjunct wins in an OR.
+        assert not is_null_rejecting(
+            _pred("n IS NULL OR n.age > 5", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
+    def test_or_without_null_safe_form_is_rejecting(self):
+        # n.age > 5 OR n.name = 'x': if n=NULL → NULL OR NULL = NULL → row filtered.
+        assert is_null_rejecting(
+            _pred("n.age > 5 OR n.name = 'x'", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
+    # --- property-level IS NULL --- #
+
+    def test_property_is_null_is_not_rejecting(self):
+        # n.name IS NULL is a common real-world pattern;
+        # if n=NULL → NULL.name = NULL, NULL IS NULL = True → null-safe.
+        assert not is_null_rejecting(
+            _pred("n.name IS NULL", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
+    # --- empty references --- #
+
+    def test_empty_references_is_not_rejecting(self):
+        # Predicate with no alias references never touches any optional alias.
+        assert not is_null_rejecting(
+            _pred("1 = 1", frozenset()),
+            frozenset({"n"}),
+        )
+
+    # --- multiple optional aliases --- #
+
+    def test_multiple_optional_aliases_one_referenced_is_rejecting(self):
+        # n and m are both optional; predicate only references n.
+        assert is_null_rejecting(
+            _pred("n.age > 5", frozenset({"n"})),
+            frozenset({"n", "m"}),
+        )
+
+    def test_multiple_optional_aliases_neither_referenced_is_not_rejecting(self):
+        # r is optional but predicate only references n, which is not optional.
+        assert not is_null_rejecting(
+            _pred("n.age > 5", frozenset({"n"})),
+            frozenset({"r"}),
+        )
+
 
 # ---------------------------------------------------------------------------
 # is_null_safe
@@ -186,3 +238,36 @@ class TestWithBarrier:
             _frame("WITH", frozenset({"n", "m"})),
         ]
         assert not with_barrier_blocks_pushdown(stack, frozenset({"n"}))
+
+    def test_with_empty_visible_vars_blocks_any_ref(self):
+        # A WITH that projects nothing blocks all predicate references.
+        stack = [_frame("WITH", frozenset())]
+        assert with_barrier_blocks_pushdown(stack, frozenset({"n"}))
+
+    def test_refs_exactly_equal_to_visible_vars_not_blocked(self):
+        # Predicate refs == visible_vars → all refs survive the WITH → not blocked.
+        stack = [_frame("WITH", frozenset({"n", "m"}))]
+        assert not with_barrier_blocks_pushdown(stack, frozenset({"n", "m"}))
+
+    def test_refs_superset_of_visible_vars_blocked(self):
+        # Predicate refs {n, m, r}; WITH only forwards {n, m} → r missing → blocked.
+        stack = [_frame("WITH", frozenset({"n", "m"}))]
+        assert with_barrier_blocks_pushdown(stack, frozenset({"n", "m", "r"}))
+
+    def test_all_match_frames_no_block(self):
+        # Three MATCH frames — none is WITH — never blocks.
+        stack = [
+            _frame("MATCH", frozenset({"n"})),
+            _frame("MATCH", frozenset({"n", "m"})),
+            _frame("MATCH", frozenset({"n", "m", "r"})),
+        ]
+        assert not with_barrier_blocks_pushdown(stack, frozenset({"r"}))
+
+    def test_with_between_unwind_frames_blocks(self):
+        # WITH sandwiched between UNWIND frames; still blocks if ref missing.
+        stack = [
+            _frame("UNWIND", frozenset({"n", "m"})),
+            _frame("WITH", frozenset({"n"})),
+            _frame("UNWIND", frozenset({"n", "r"})),
+        ]
+        assert with_barrier_blocks_pushdown(stack, frozenset({"m"}))
