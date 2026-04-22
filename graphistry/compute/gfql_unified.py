@@ -49,7 +49,7 @@ from graphistry.compute.gfql.physical_planner import (
     SamePathExecutorWrapper,
     WavefrontExecutorWrapper,
 )
-from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, PassManager
+from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager
 from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
@@ -682,8 +682,8 @@ def _execute_compiled_query_non_union(
 
 
 def _run_logical_pass_pipeline(logical_plan: LogicalPlan, ctx: PlanContext) -> LogicalPlan:
-    """Run logical pass pipeline with default no-op pass configuration."""
-    return PassManager(DEFAULT_LOGICAL_PASSES).run(logical_plan, ctx).plan
+    """Run logical pass pipeline: Tier 1 structural passes then Tier 2 fixed-point rewrite loop."""
+    return PassManager(DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES).run(logical_plan, ctx).plan
 
 
 def _execute_compiled_query_via_physical_plan(
