@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from graphistry.compute.gfql.ir.compilation import PlanContext
-from graphistry.compute.gfql.ir.logical_plan import Apply, AntiSemiApply, Join, NodeScan, RowSchema, SemiApply
-from graphistry.compute.gfql.ir.types import ScalarType
+from graphistry.compute.gfql.ir.logical_plan import Apply, AntiSemiApply, Filter, Join, NodeScan, PatternMatch, RowSchema, SemiApply
+from graphistry.compute.gfql.ir.types import BoundPredicate, ScalarType
 from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager, UnnestApply
 
 
@@ -86,9 +86,20 @@ class TestUnnestApply:
         result = UnnestApply().run(plan, _ctx())
         assert result.plan.output_schema == schema
 
-    def test_default_pass_manager_applies_unnest_then_pushdown(self):
-        # Smoke test: the default PassManager config runs UnnestApply (T1)
-        # followed by PredicatePushdownPass (T2) without error on a plain plan.
-        plan = NodeScan(op_id=1)
-        result = PassManager(DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES).run(plan, _ctx())
-        assert result.plan is plan
+    def test_default_pass_manager_unnest_plus_pushdown_integration(self):
+        # UnnestApply (T1) rewrites Apply → Join; then PredicatePushdownPass (T2)
+        # pushes the filter predicate into the PatternMatch.
+        schema = RowSchema(columns={"n": ScalarType(kind="string")})
+        pattern = PatternMatch(op_id=1, output_schema=schema, predicates=[])
+        pred = BoundPredicate(expression="n.name = 'x'", references=frozenset({"n"}))
+        filt = Filter(op_id=2, output_schema=schema, input=pattern, predicate=pred)
+        apply_node = Apply(op_id=3, input=filt, subquery=NodeScan(op_id=4), correlation_vars=frozenset())
+
+        result = PassManager(DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES).run(apply_node, _ctx())
+
+        # T1 UnnestApply: Apply → Join
+        assert isinstance(result.plan, Join)
+        # T2 PredicatePushdown: Filter around PatternMatch is eliminated — predicate moved in
+        join = result.plan
+        assert isinstance(join.left, PatternMatch)  # type: ignore[union-attr]
+        assert len(join.left.predicates) == 1  # type: ignore[union-attr]
