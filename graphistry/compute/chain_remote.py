@@ -14,6 +14,8 @@ from graphistry.Plottable import Plottable
 from graphistry.client_session import DatasetInfo
 from graphistry.compute.ast import ASTLet, ASTObject
 from graphistry.compute.chain import Chain
+from graphistry.compute.gfql.cypher.lowering import compile_cypher_query
+from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.io.metadata import deserialize_plottable_metadata
 from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType, output_types_graph
 from graphistry.utils.json import JSONVal
@@ -149,8 +151,8 @@ def chain_remote_generic(
 
     if isinstance(chain, str):
         # Cypher string: compile locally, serialize result
-        from graphistry.compute.gfql.cypher.api import compile_cypher
-        compiled = compile_cypher(chain, params=params)
+        parsed = parse_cypher(chain)
+        compiled = compile_cypher_query(parsed, params=params)
         if _is_compiled_union_query_shape(compiled):
             raise ValueError(
                 "UNION queries are not yet supported for remote execution via gfql_remote(). "
