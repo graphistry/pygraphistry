@@ -162,6 +162,19 @@ class TestIsNullRejecting:
             frozenset({"r"}),
         )
 
+    # --- string-literal AND heuristic boundary --- #
+
+    def test_coalesce_with_and_in_literal_is_conservatively_rejecting(self):
+        # Known limitation: " and " in a string literal triggers the AND guard.
+        # coalesce(n.name, 'Alice and Bob') IS NOT NULL is semantically null-safe
+        # (COALESCE always returns non-NULL here), but the substring heuristic
+        # cannot distinguish operator AND from the literal " and ".
+        # Over-conservative: prevents valid pushdown but never allows incorrect pushdown.
+        assert is_null_rejecting(
+            _pred("coalesce(n.name, 'Alice and Bob') IS NOT NULL", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
 
 # ---------------------------------------------------------------------------
 # is_null_safe
