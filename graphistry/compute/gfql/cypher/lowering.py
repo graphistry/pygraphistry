@@ -47,7 +47,6 @@ from graphistry.compute.gfql.ir.query_graph import ConnectedComponent, OptionalA
 from graphistry.compute.gfql.ir.types import ScalarType
 from graphistry.compute.gfql.ir.verifier import verify as verify_logical_plan
 from graphistry.compute.gfql.logical_planner import LogicalPlanner
-from graphistry.compute.gfql.passes import PassManager, PredicatePushdownPass
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.comparison import eq, ge, gt, isna, le, lt, ne, notna
 from graphistry.compute.predicates.is_in import is_in
@@ -8335,10 +8334,6 @@ def _logical_plan_route_for_query(
         logical_plan = LogicalPlanner(
             allow_unknown_match_aliases=allow_unknown_match_aliases
         ).plan(bound_ir, ctx)
-        # Compilation-time predicate pushdown runs once (Tier 1: single pass).
-        # The runtime pipeline in gfql_unified.py re-runs via DEFAULT_TIER2_PASSES;
-        # double-application is safe since PredicatePushdownPass is idempotent.
-        logical_plan = PassManager(tier1_passes=(PredicatePushdownPass(),)).run(logical_plan, ctx).plan
     except GFQLValidationError as exc:
         return None, str(exc.message)
     _verify_selected_logical_plan(logical_plan)
