@@ -93,8 +93,8 @@ Import the helpers from ``graphistry.compute.gfql.cypher``:
 - Parses and lowers a supported Cypher query into the compiled program used by
   ``g.gfql("MATCH ...")`` execution.
 - Returns compiler-internal shapes (``CompiledCypherQuery`` /
-  ``CompiledCypherUnionQuery`` / ``CompiledCypherGraphQuery``) that are also
-  deprecated and scheduled for removal.
+  ``CompiledCypherUnionQuery`` / ``CompiledCypherGraphQuery``) that are
+  also deprecated internals scheduled for full removal.
 - Prefer ``g.gfql("...", language="cypher")`` for execution and
   ``cypher_to_gfql(...)`` / ``gfql_from_cypher(...)`` for single-chain
   translation.

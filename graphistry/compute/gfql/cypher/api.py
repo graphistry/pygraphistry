@@ -86,8 +86,8 @@ def compile_cypher(
     """Deprecated compatibility helper for inspecting compiled Cypher internals.
 
     .. deprecated::
-       ``compile_cypher()`` and ``CompiledCypher*`` return-shape internals are
-       deprecated compatibility surfaces scheduled for removal in a future release.
+       ``compile_cypher()`` and the ``CompiledCypher*`` shapes it returns are
+       deprecated compiler internals scheduled for full removal in a future release.
        Prefer ``g.gfql(..., language="cypher")`` for execution and
        :func:`cypher_to_gfql` / :func:`gfql_from_cypher` for single-chain
        translation. Tracked: https://github.com/graphistry/pygraphistry/issues/1169
