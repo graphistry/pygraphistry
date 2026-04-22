@@ -81,8 +81,9 @@ __all__ = [
 def __getattr__(name: str) -> Any:
     if name in {"CompiledCypherProcedureCall", "CompiledCypherQuery", "CompiledCypherUnionQuery", "compile_cypher_query"}:
         warnings.warn(
-            f"{name} is deprecated as a public cypher export and retained for compatibility; "
-            "prefer g.gfql(..., language='cypher') or cypher_to_gfql().",
+            f"{name} is deprecated as a public cypher export and will be removed in v2.8.0; "
+            "prefer g.gfql(..., language='cypher') or cypher_to_gfql(). "
+            "See https://github.com/graphistry/pygraphistry/issues/1169",
             DeprecationWarning,
             stacklevel=2,
         )
