@@ -3,9 +3,18 @@
 Covers:
   - is_null_rejecting: null-rejecting classification on optional-arm aliases
   - is_null_safe: null-safe classification (positive cases + IS NULL / IS NOT NULL / COALESCE)
+  - compound AND: always null-rejecting regardless of null-safe subterms
   - with_barrier_blocks_pushdown: WITH boundary blocks backward predicate movement
+  - ir/__init__.py re-export smoke test
 """
 from __future__ import annotations
+
+# Smoke test: symbols must be importable from the top-level ir package.
+from graphistry.compute.gfql.ir import (  # noqa: F401
+    is_null_rejecting,
+    is_null_safe,
+    with_barrier_blocks_pushdown,
+)
 
 from graphistry.compute.gfql.ir.bound_ir import ScopeFrame
 from graphistry.compute.gfql.ir.logical_plan import RowSchema
@@ -72,6 +81,40 @@ class TestIsNullRejecting:
     def test_multiple_refs_one_optional_is_rejecting(self):
         # n is optional, m is not; predicate touches both
         assert is_null_rejecting(_pred("n.age = m.age", frozenset({"n", "m"})), frozenset({"n"}))
+
+    # --- compound AND --- #
+
+    def test_compound_and_is_null_plus_comparison_is_rejecting(self):
+        # n.name IS NULL is null-safe in isolation, but AND n.type = 'Person'
+        # makes the whole expression null-rejecting: True AND NULL = NULL.
+        assert is_null_rejecting(
+            _pred("n.name IS NULL AND n.type = 'Person'", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
+    def test_compound_and_comparison_plus_is_null_is_rejecting(self):
+        # Same as above with operand order reversed.
+        assert is_null_rejecting(
+            _pred("n.type = 'Person' AND n.name IS NULL", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
+    def test_compound_and_both_null_safe_is_still_rejecting(self):
+        # Conservative: even "n IS NULL AND n IS NOT NULL" is classified
+        # null-rejecting. The expression is degenerate (always false), but
+        # parsing compound semantics is out of scope for this heuristic.
+        assert is_null_rejecting(
+            _pred("n IS NULL AND n IS NOT NULL", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
+    def test_compound_and_no_optional_alias_ref_still_not_rejecting(self):
+        # Even with AND, if no optional alias is referenced the early-exit
+        # short-circuits before the AND guard.
+        assert not is_null_rejecting(
+            _pred("m.a = 1 AND m.b = 2", frozenset({"m"})),
+            frozenset({"n"}),
+        )
 
 
 # ---------------------------------------------------------------------------
