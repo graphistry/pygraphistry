@@ -212,7 +212,7 @@ class ComputeMixin(Plottable):
         """See get_degrees"""
         engine_concrete = resolve_engine(EngineAbstract.AUTO, self)
         g = _coerce_input_formats(self, engine_concrete)
-        g_nodes = g.materialize_nodes(engine=engine_concrete)
+        g_nodes = g.materialize_nodes(engine=engine_concrete.value)
 
         if _safe_len(g._edges) == 0:
             if col not in g_nodes._nodes.columns:
