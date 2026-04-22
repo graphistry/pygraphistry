@@ -42,12 +42,14 @@ from graphistry.compute.gfql.df_executor import (
     execute_same_path_chain,
 )
 from graphistry.compute.gfql.ir.compilation import PhysicalPlan, PlanContext
+from graphistry.compute.gfql.ir.logical_plan import LogicalPlan
 from graphistry.compute.gfql.physical_planner import (
     PhysicalPlanner,
     RowPipelineExecutorWrapper,
     SamePathExecutorWrapper,
     WavefrontExecutorWrapper,
 )
+from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, PassManager
 from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
@@ -638,8 +640,11 @@ def _execute_compiled_query_non_union(
             start_nodes=start_nodes,
         )
 
+    ctx = PlanContext()
+    logical_plan = _run_logical_pass_pipeline(logical_plan, ctx)
+
     try:
-        physical_plan = PhysicalPlanner().plan(logical_plan, PlanContext())
+        physical_plan = PhysicalPlanner().plan(logical_plan, ctx)
     except GFQLValidationError as exc:
         # Temporary compatibility shim: CALL-backed compiled queries still run via
         # the legacy path while planner coverage catches up.
@@ -674,6 +679,11 @@ def _execute_compiled_query_non_union(
         context=context,
         start_nodes=start_nodes,
     )
+
+
+def _run_logical_pass_pipeline(logical_plan: LogicalPlan, ctx: PlanContext) -> LogicalPlan:
+    """Run logical pass pipeline with default no-op pass configuration."""
+    return PassManager(DEFAULT_LOGICAL_PASSES).run(logical_plan, ctx).plan
 
 
 def _execute_compiled_query_via_physical_plan(
