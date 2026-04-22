@@ -1,4 +1,4 @@
-"""Tests for predicate-pushdown safety primitives (M4-PR2 / issue #1181).
+"""Tests for predicate-pushdown safety primitives (issue #1181).
 
 Covers:
   - is_null_rejecting: null-rejecting classification on optional-arm aliases

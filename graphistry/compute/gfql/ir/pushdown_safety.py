@@ -1,6 +1,6 @@
-"""Predicate-pushdown safety primitives for the M4 pass framework.
+"""Predicate-pushdown safety primitives for the GFQL pass framework.
 
-Two independent utilities consumed by PredicatePushdownPass (M4-PR3) and
+Two independent utilities consumed by PredicatePushdownPass and
 future verifier extensions:
 
   is_null_rejecting() / is_null_safe()
@@ -117,7 +117,7 @@ def with_barrier_blocks_pushdown(
 
     .. note::
         This function operates on ``BoundIR.scope_stack`` (binder output),
-        not on a ``LogicalPlan`` tree.  ``PredicatePushdownPass`` (M4-PR3)
+        not on a ``LogicalPlan`` tree.  ``PredicatePushdownPass``
         will need either a plan-level ``WithBarrier`` operator or companion
         ``scope_stack`` threading to use this check during plan-tree walks.
     """
