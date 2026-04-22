@@ -1,4 +1,4 @@
-"""M4 logical pass framework skeleton."""
+"""Logical pass manager and pass-result contracts."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

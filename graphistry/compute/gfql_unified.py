@@ -682,7 +682,7 @@ def _execute_compiled_query_non_union(
 
 
 def _run_logical_pass_pipeline(logical_plan: LogicalPlan, ctx: PlanContext) -> LogicalPlan:
-    """Run M4 logical pass pipeline with default no-op pass configuration."""
+    """Run logical pass pipeline with default no-op pass configuration."""
     return PassManager(DEFAULT_LOGICAL_PASSES).run(logical_plan, ctx).plan
 
 

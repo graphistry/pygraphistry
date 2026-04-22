@@ -1,4 +1,4 @@
-"""Logical plan pass framework skeleton for M4."""
+"""Logical plan pass framework."""
 
 from .manager import DEFAULT_LOGICAL_PASSES, LogicalPass, PassManager, PassResult
 
