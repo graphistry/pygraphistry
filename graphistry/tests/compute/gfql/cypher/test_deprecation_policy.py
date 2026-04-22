@@ -1,9 +1,8 @@
 """Compat + policy tests for deprecated public Cypher API exports.
 
-Verifies three invariants:
+Verifies two invariants:
 1. Deprecated symbols still work (backward compatibility).
 2. DeprecationWarning fires at the right call site.
-3. Warning messages name the removal version (0.55.0) so the policy is auditable.
 """
 import warnings
 
@@ -20,15 +19,6 @@ def test_compile_cypher_emits_deprecation_warning():
         from graphistry.compute.gfql.cypher.api import compile_cypher
         compile_cypher("MATCH (n) RETURN n.id AS id")
     assert any(issubclass(x.category, DeprecationWarning) for x in w), "compile_cypher() must emit DeprecationWarning"
-
-
-def test_compile_cypher_warning_names_removal_version():
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        from graphistry.compute.gfql.cypher.api import compile_cypher
-        compile_cypher("MATCH (n) RETURN n.id AS id")
-    msgs = [str(x.message) for x in w if issubclass(x.category, DeprecationWarning)]
-    assert any("0.55.0" in m for m in msgs), f"DeprecationWarning must mention 0.55.0; got: {msgs}"
 
 
 def test_compile_cypher_still_returns_result():
@@ -63,19 +53,6 @@ def test_deprecated_module_attr_emits_deprecation_warning(name):
     w = _access_deprecated_attr(name)
     assert any(issubclass(x.category, DeprecationWarning) for x in w), \
         f"Accessing {name} on the cypher module must emit DeprecationWarning"
-
-
-@pytest.mark.parametrize("name", [
-    "CompiledCypherQuery",
-    "CompiledCypherUnionQuery",
-    "compile_cypher_query",
-    "CompiledCypherProcedureCall",
-])
-def test_deprecated_module_attr_warning_names_removal_version(name):
-    w = _access_deprecated_attr(name)
-    msgs = [str(x.message) for x in w if issubclass(x.category, DeprecationWarning)]
-    assert any("0.55.0" in m for m in msgs), \
-        f"DeprecationWarning for {name} must mention 0.55.0; got: {msgs}"
 
 
 @pytest.mark.parametrize("name", [

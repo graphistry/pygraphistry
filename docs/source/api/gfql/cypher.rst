@@ -89,12 +89,12 @@ Import the helpers from ``graphistry.compute.gfql.cypher``:
 ``compile_cypher(query, params=None)``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-- **Deprecated** — scheduled for removal in 0.55.0 (tracked in `#1169 <https://github.com/graphistry/pygraphistry/issues/1169>`_).
+- **Deprecated** — scheduled for removal in a future release (tracked in `#1169 <https://github.com/graphistry/pygraphistry/issues/1169>`_).
 - Parses and lowers a supported Cypher query into the compiled program used by
   ``g.gfql("MATCH ...")`` execution.
 - Returns compiler-internal shapes (``CompiledCypherQuery`` /
   ``CompiledCypherUnionQuery`` / ``CompiledCypherGraphQuery``) that are also
-  deprecated and will be removed in 0.55.0.
+  deprecated and scheduled for removal.
 - Prefer ``g.gfql("...", language="cypher")`` for execution and
   ``cypher_to_gfql(...)`` / ``gfql_from_cypher(...)`` for single-chain
   translation.
