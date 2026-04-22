@@ -1,6 +1,6 @@
 from inspect import getmodule
 from io import BytesIO
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 from typing_extensions import Literal
 import json
 import pandas as pd
@@ -140,11 +140,12 @@ def chain_remote_generic(
             )
         if not _is_compiled_query_shape(compiled):
             raise TypeError(f"Unexpected compiled Cypher type: {type(compiled)}")
-        if compiled.graph_bindings or compiled.use_ref:
-            chain_json = _compiled_to_let_json(compiled)
+        compiled_query = cast(Any, compiled)
+        if compiled_query.graph_bindings or compiled_query.use_ref:
+            chain_json = _compiled_to_let_json(compiled_query)
             is_let = True
         else:
-            chain_json = compiled.chain.to_json()
+            chain_json = compiled_query.chain.to_json()
     elif isinstance(chain, ASTLet):
         chain_json = chain.to_json()
         is_let = True
