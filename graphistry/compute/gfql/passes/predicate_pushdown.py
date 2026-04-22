@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
-from typing import FrozenSet, List, Tuple
+from typing import Any, FrozenSet, List, Tuple, cast
 
 from graphistry.compute.gfql.ir.logical_plan import Filter, LogicalPlan, PatternMatch
 from graphistry.compute.gfql.ir.pushdown_safety import is_null_rejecting
@@ -46,7 +46,11 @@ def _rewrite_tree(plan: LogicalPlan) -> Tuple[LogicalPlan, int, int]:
             if rewritten_child is not child:
                 children_updates[slot] = rewritten_child
 
-    current = replace(plan, **children_updates) if children_updates else plan
+    current = (
+        cast(LogicalPlan, replace(cast(Any, plan), **children_updates))
+        if children_updates
+        else plan
+    )
     if isinstance(current, Filter) and isinstance(current.input, PatternMatch):
         rewritten_filter, local_pushed, local_residual = _push_filter_into_pattern(current)
         return rewritten_filter, pushed + local_pushed, residual + local_residual
@@ -55,8 +59,8 @@ def _rewrite_tree(plan: LogicalPlan) -> Tuple[LogicalPlan, int, int]:
 
 
 def _push_filter_into_pattern(filter_op: Filter) -> Tuple[LogicalPlan, int, int]:
-    pattern = filter_op.input
-    assert pattern is not None
+    assert isinstance(filter_op.input, PatternMatch)
+    pattern = cast(PatternMatch, filter_op.input)
     conjuncts = _split_conjuncts(filter_op.predicate)
     if not conjuncts:
         return filter_op, 0, 1
@@ -78,7 +82,10 @@ def _push_filter_into_pattern(filter_op: Filter) -> Tuple[LogicalPlan, int, int]
     if not pushable:
         return filter_op, 0, len(kept)
 
-    pushed_pattern = replace(pattern, predicates=[*pattern.predicates, *pushable])
+    pushed_pattern = cast(
+        PatternMatch,
+        replace(pattern, predicates=[*pattern.predicates, *pushable]),
+    )
     if not kept:
         return pushed_pattern, len(pushable), 0
 
