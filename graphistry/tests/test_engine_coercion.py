@@ -450,6 +450,14 @@ class TestGPUOutputPreservation(NoAuthTestCase):
         self.assertIsInstance(result._nodes, cudf.DataFrame)
         self.assertIn("degree_in", result._nodes.columns)
 
+    def test_materialize_nodes_arrow_auto_engine(self):
+        """materialize_nodes() with Arrow edges and engine=auto must coerce to pandas."""
+        g = CGFull().edges(EDGES_PA, "src", "dst")
+        result = g.materialize_nodes()
+        self.assertIsInstance(result._nodes, pd.DataFrame)
+        self.assertIsInstance(result._edges, pd.DataFrame)
+        self.assertIn("id", result._nodes.columns)
+
 
 class TestCombineStepsEdgeCases(NoAuthTestCase):
     """Tests for specific code paths in combine_steps / apply_output_slice."""

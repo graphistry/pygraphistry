@@ -192,7 +192,14 @@ def df_to_engine(df, engine: Engine):
         if not isinstance(df, pd.DataFrame):
             df = df_to_engine(df, Engine.PANDAS)
         return _cudf_from_pandas_best_effort(df)
-    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+    elif engine == Engine.DASK:
+        import dask.dataframe as dd
+        if isinstance(df, dd.DataFrame):
+            return df
+        if not isinstance(df, pd.DataFrame):
+            df = df_to_engine(df, Engine.PANDAS)
+        return dd.from_pandas(df, npartitions=1)
+    raise ValueError(f'Only engines pandas/cudf/dask supported, got: {engine}')
 
 def df_concat(engine: Engine):
     if engine == Engine.PANDAS:

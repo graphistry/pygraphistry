@@ -429,7 +429,7 @@ def combine_steps(
                     mask = out_df[id].isin(seed_ids[id])
                     for col in label_cols:
                         if col in out_df.columns:
-                            out_df.loc[mask, col] = s_na(engine)
+                            out_df[col] = out_df[col].where(~mask, s_na(engine))
         hop_cols = [c for c in out_df.columns if 'hop' in c]
         if hop_cols:
             hop_maps = []
@@ -441,7 +441,7 @@ def combine_steps(
                             hop_maps.append(step_df[[id, hc]])
             hop_maps = [df for df in hop_maps if len(df) > 0]
             if hop_maps:
-                hop_map_df = df_to_engine(df_concat(engine)(hop_maps), resolve_engine(EngineAbstract.AUTO, hop_maps[0]))
+                hop_map_df = df_concat(engine)(hop_maps)
                 for hc in hop_cols:
                     if hc in hop_map_df.columns:
                         hop_map = hop_map_df[[id, hc]].dropna(subset=[hc]).drop_duplicates(subset=[id]).set_index(id)[hc]
