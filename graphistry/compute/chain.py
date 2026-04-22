@@ -1108,8 +1108,8 @@ def _chain_impl(
             if logger.isEnabledFor(logging.DEBUG):
                 for (i, g_step) in enumerate(g_stack_reverse):
                     logger.debug('~' * 10 + '\nstep %s', i)
-                    logger.debug('nodes: %s', g_step._nodes)
-                    logger.debug('edges: %s', g_step._edges)
+                    logger.debug('nodes: %s', dbg_df(g_step._nodes))
+                    logger.debug('edges: %s', dbg_df(g_step._edges))
 
             # Phase 3: Materialize final node/edge outputs from pruned steps.
             logger.debug('============ COMBINE NODES ============')

@@ -490,8 +490,8 @@ def hop(self: Plottable,
             logger.debug('self._nodes: %s', dbg_df(self._nodes))
             logger.debug('wave_front: %s', dbg_df(wave_front))
             logger.debug(
-                'wave_front_base:\n%s',
-                starting_nodes[[node_col]] if first_iter else wave_front,
+                'wave_front_base: %s',
+                dbg_df(starting_nodes[[node_col]] if first_iter else wave_front),
             )
 
         assert len(wave_front.columns) == 1, "just indexes"
