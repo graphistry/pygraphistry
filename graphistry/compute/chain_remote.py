@@ -1,7 +1,7 @@
 from inspect import getmodule
 from io import BytesIO
-from typing import Any, Dict, List, Optional, Union
-from typing_extensions import Literal
+from typing import Any, Dict, List, Optional, Sequence, Union
+from typing_extensions import Literal, Protocol, TypeGuard
 import json
 import pandas as pd
 import requests
@@ -14,37 +14,74 @@ from graphistry.Plottable import Plottable
 from graphistry.client_session import DatasetInfo
 from graphistry.compute.ast import ASTLet, ASTObject
 from graphistry.compute.chain import Chain
-from graphistry.compute.gfql.cypher.call_procedures import CompiledCypherProcedureCall
-from graphistry.compute.gfql.cypher.lowering import (
-    CompiledCypherGraphQuery,
-    CompiledCypherQuery,
-    CompiledCypherUnionQuery,
-)
 from graphistry.io.metadata import deserialize_plottable_metadata
 from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType, output_types_graph
 from graphistry.utils.json import JSONVal
 from graphistry.otel import inject_trace_headers
 
 
+class CompiledProcedureCallLike(Protocol):
+    procedure: str
+    call_params: Optional[Dict[str, Any]]
+
+
+class CompiledBindingLike(Protocol):
+    name: str
+    chain: Chain
+    procedure_call: Optional[CompiledProcedureCallLike]
+    use_ref: Optional[str]
+
+
+class CompiledQueryLike(Protocol):
+    chain: Chain
+    graph_bindings: Sequence[CompiledBindingLike]
+    procedure_call: Optional[CompiledProcedureCallLike]
+    use_ref: Optional[str]
+
+
+class CompiledUnionLike(Protocol):
+    branches: Sequence[Any]
+
+
+def _has_attrs(obj: Any, *names: str) -> bool:
+    return all(hasattr(obj, name) for name in names)
+
+
+def _is_compiled_union_query_shape(compiled: Any) -> TypeGuard[CompiledUnionLike]:
+    return _has_attrs(compiled, "branches") and not _has_attrs(compiled, "chain")
+
+
+def _is_compiled_query_shape(compiled: Any) -> TypeGuard[CompiledQueryLike]:
+    return _has_attrs(compiled, "chain", "graph_bindings", "procedure_call", "use_ref")
+
+
 def _step_to_json(
     chain: Chain,
-    procedure_call: Optional[CompiledCypherProcedureCall],
+    procedure_call: Optional[CompiledProcedureCallLike],
     use_ref: Optional[str],
 ) -> Dict[str, Any]:
     """Serialize one graph-pipeline step (binding or final clause) to wire format."""
-    val: Dict[str, Any] = (
-        {"type": "Call", "function": procedure_call.procedure,
-         "params": dict(procedure_call.call_params) if procedure_call.call_params else {}}
-        if procedure_call is not None
-        else chain.to_json()
-    )
+    if procedure_call is not None:
+        if not _has_attrs(procedure_call, "procedure"):
+            raise TypeError(
+                "Compiled procedure call must provide `procedure` for remote serialization. "
+                f"Got {type(procedure_call)}"
+            )
+        call_params = getattr(procedure_call, "call_params", None)
+        val: Dict[str, Any] = {
+            "type": "Call",
+            "function": procedure_call.procedure,
+            "params": dict(call_params) if call_params else {},
+        }
+    else:
+        val = chain.to_json()
     if use_ref is not None:
         return {"type": "Ref", "ref": use_ref, "chain": val.get('chain', [val])}
     return val
 
 
-def _compiled_to_let_json(compiled: Union[CompiledCypherQuery, CompiledCypherGraphQuery]) -> Dict[str, Any]:
-    """Convert a compiled query with graph_bindings to Let wire format."""
+def _compiled_to_let_json(compiled: CompiledQueryLike) -> Dict[str, Any]:
+    """Convert a structural compiled query with graph_bindings to Let wire format."""
     bindings: Dict[str, Any] = {
         b.name: _step_to_json(b.chain, b.procedure_call, b.use_ref)
         for b in compiled.graph_bindings
@@ -114,12 +151,12 @@ def chain_remote_generic(
         # Cypher string: compile locally, serialize result
         from graphistry.compute.gfql.cypher.api import compile_cypher
         compiled = compile_cypher(chain, params=params)
-        if isinstance(compiled, CompiledCypherUnionQuery):
+        if _is_compiled_union_query_shape(compiled):
             raise ValueError(
                 "UNION queries are not yet supported for remote execution via gfql_remote(). "
                 "Execute locally with g.gfql() instead."
             )
-        if not isinstance(compiled, (CompiledCypherQuery, CompiledCypherGraphQuery)):
+        if not _is_compiled_query_shape(compiled):
             raise TypeError(f"Unexpected compiled Cypher type: {type(compiled)}")
         if compiled.graph_bindings or compiled.use_ref:
             chain_json = _compiled_to_let_json(compiled)
