@@ -66,13 +66,14 @@ def _push_filter_into_pattern(filter_op: Filter) -> Tuple[LogicalPlan, int, int]
         return filter_op, 0, 1
 
     null_extended_aliases = _optional_arm_aliases(pattern)
+    candidate_aliases = frozenset(pattern.output_schema.columns.keys())
     pushable: List[BoundPredicate] = []
     kept: List[BoundPredicate] = []
 
     for conjunct in conjuncts:
         analysis_predicate = BoundPredicate(
             expression=conjunct.expression,
-            references=_predicate_refs_for_analysis(conjunct),
+            references=_predicate_refs_for_analysis(conjunct, candidate_aliases),
         )
         if pattern.optional and is_null_rejecting(analysis_predicate, null_extended_aliases):
             kept.append(conjunct)
@@ -181,11 +182,31 @@ def _refs_for_segment(segment: str, original_refs: FrozenSet[str]) -> FrozenSet[
     return original_refs
 
 
-def _predicate_refs_for_analysis(predicate: BoundPredicate) -> FrozenSet[str]:
-    return predicate.references if predicate.references else _infer_refs(predicate.expression)
+def _predicate_refs_for_analysis(
+    predicate: BoundPredicate,
+    candidate_aliases: FrozenSet[str],
+) -> FrozenSet[str]:
+    return (
+        predicate.references
+        if predicate.references
+        else _infer_refs(predicate.expression, candidate_aliases)
+    )
 
 
-def _infer_refs(expression: str) -> FrozenSet[str]:
-    dotted_refs = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\.", expression))
-    ast_alias_refs = set(re.findall(r"alias='([A-Za-z_][A-Za-z0-9_]*)'", expression))
-    return frozenset(dotted_refs | ast_alias_refs)
+def _infer_refs(expression: str, candidate_aliases: FrozenSet[str]) -> FrozenSet[str]:
+    dotted_refs = {
+        alias
+        for alias in re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\.", expression)
+        if alias in candidate_aliases
+    }
+    ast_alias_refs = {
+        alias
+        for alias in re.findall(r"alias='([A-Za-z_][A-Za-z0-9_]*)'", expression)
+        if alias in candidate_aliases
+    }
+    bare_refs = {
+        alias
+        for alias in candidate_aliases
+        if re.search(rf"\b{re.escape(alias)}\b", expression)
+    }
+    return frozenset(dotted_refs | ast_alias_refs | bare_refs)
