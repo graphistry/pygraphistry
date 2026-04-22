@@ -201,8 +201,9 @@ class TestCypherStringSupport:
             use_ref="g1",
         )
 
-        with patch("graphistry.compute.gfql.cypher.api.compile_cypher", return_value=fake_compiled):
-            body = _send("MATCH (n) RETURN n")
+        with patch("graphistry.compute.chain_remote.parse_cypher", return_value=object()):
+            with patch("graphistry.compute.chain_remote.compile_cypher_query", return_value=fake_compiled):
+                body = _send("MATCH (n) RETURN n")
 
         assert body["gfql_query"]["type"] == "Let"
         assert body["gfql_operations"] == []
@@ -220,9 +221,18 @@ class TestCypherStringSupport:
         assert call_ops[0]["params"]["iterations"] == 10
 
     def test_structural_union_shape_rejected(self) -> None:
-        with patch("graphistry.compute.gfql.cypher.api.compile_cypher", return_value=_FakeCompiledUnion()):
+        with patch("graphistry.compute.chain_remote.parse_cypher", return_value=object()):
+            with patch("graphistry.compute.chain_remote.compile_cypher_query", return_value=_FakeCompiledUnion()):
+                with pytest.raises(ValueError, match="UNION queries are not yet supported"):
+                    _send("MATCH (n) RETURN n")
+
+    def test_cypher_string_path_does_not_call_deprecated_compile_helper(self) -> None:
+        with patch(
+            "graphistry.compute.gfql.cypher.api.compile_cypher",
+            side_effect=AssertionError("Deprecated helper should not be called by gfql_remote string path"),
+        ):
             with pytest.raises(ValueError, match="UNION queries are not yet supported"):
-                _send("MATCH (n) RETURN n")
+                _send("MATCH (n) RETURN n AS v UNION MATCH (m) RETURN m AS v")
 
 
 class TestBackwardCompat:
