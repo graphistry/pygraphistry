@@ -39,6 +39,7 @@ from .logical_plan import (
     Union,
     Unwind,
 )
+from .pushdown_safety import is_null_rejecting, is_null_safe, with_barrier_blocks_pushdown
 from .query_graph import ConnectedComponent, OptionalArm, QueryGraph, extract_query_graph
 from .verifier import verify
 from .types import (
@@ -98,6 +99,9 @@ __all__ = [
     "Skip",
     "Union",
     "Unwind",
+    "is_null_rejecting",
+    "is_null_safe",
+    "with_barrier_blocks_pushdown",
     "ConnectedComponent",
     "extract_query_graph",
     "OptionalArm",
