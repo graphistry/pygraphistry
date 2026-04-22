@@ -47,6 +47,7 @@ from graphistry.compute.gfql.ir.query_graph import ConnectedComponent, OptionalA
 from graphistry.compute.gfql.ir.types import ScalarType
 from graphistry.compute.gfql.ir.verifier import verify as verify_logical_plan
 from graphistry.compute.gfql.logical_planner import LogicalPlanner
+from graphistry.compute.gfql.passes import PassManager, PredicatePushdownPass
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.comparison import eq, ge, gt, isna, le, lt, ne, notna
 from graphistry.compute.predicates.is_in import is_in
@@ -8324,6 +8325,7 @@ def _logical_plan_route_for_query(
     params: Optional[Mapping[str, Any]] = None,
     allow_unknown_match_aliases: bool = False,
 ) -> Tuple[Optional[LogicalPlan], Optional[str]]:
+    ctx = PlanContext()
     if query.call is not None:
         compiled_call = compile_cypher_call(query.call, params=params)
         logical_plan = _logical_plan_from_compiled_call(compiled_call)
@@ -8332,7 +8334,8 @@ def _logical_plan_route_for_query(
     try:
         logical_plan = LogicalPlanner(
             allow_unknown_match_aliases=allow_unknown_match_aliases
-        ).plan(bound_ir, PlanContext())
+        ).plan(bound_ir, ctx)
+        logical_plan = PassManager((PredicatePushdownPass(),)).run(logical_plan, ctx).plan
     except GFQLValidationError as exc:
         return None, str(exc.message)
     _verify_selected_logical_plan(logical_plan)

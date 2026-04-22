@@ -24,8 +24,10 @@ from graphistry.compute.gfql.cypher import (
 )
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherGraphQuery
 from graphistry.compute.gfql.cypher.lowering import _logical_plan_route_for_query
+from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, SemanticTable
-from graphistry.compute.gfql.ir.logical_plan import ProcedureCall as LogicalProcedureCall
+from graphistry.compute.gfql.ir.compilation import PlanContext
+from graphistry.compute.gfql.ir.logical_plan import Filter, PatternMatch, ProcedureCall as LogicalProcedureCall
 from graphistry.tests.test_compute import CGFull
 
 
@@ -782,6 +784,29 @@ def test_logical_plan_route_for_query_allows_unknown_alias_match_shape_when_opte
     )
     assert logical_plan is not None
     assert defer_reason is None
+
+
+def test_logical_plan_route_for_query_pushes_where_predicate_into_pattern_match() -> None:
+    query = _parse_query("MATCH (a)-[r]->(b) WHERE r.weight > 5 RETURN b")
+    bound_ir = FrontendBinder().bind(query, PlanContext())
+
+    logical_plan, defer_reason = _logical_plan_route_for_query(query, bound_ir=bound_ir)
+
+    assert logical_plan is not None
+    assert defer_reason is None
+
+    def _walk(node):  # noqa: ANN001, ANN202
+        yield node
+        for slot in ("input", "left", "right", "subquery"):
+            child = getattr(node, slot, None)
+            if child is not None:
+                yield from _walk(child)
+
+    nodes = list(_walk(logical_plan))
+    pattern_nodes = [node for node in nodes if isinstance(node, PatternMatch)]
+    assert pattern_nodes
+    assert any("alias='r'" in pred.expression for pred in pattern_nodes[0].predicates)
+    assert not any(isinstance(node, Filter) and "alias='r'" in node.predicate.expression for node in nodes)
 
 
 def test_compiled_query_sets_logical_plan_route_for_call_shape() -> None:
