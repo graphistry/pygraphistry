@@ -9,21 +9,15 @@ Covers:
 """
 from __future__ import annotations
 
-# Smoke test: symbols must be importable from the top-level ir package.
-from graphistry.compute.gfql.ir import (  # noqa: F401
+# Import via ir package (exercises the __init__.py re-export path).
+from graphistry.compute.gfql.ir import (
     is_null_rejecting,
     is_null_safe,
     with_barrier_blocks_pushdown,
 )
-
 from graphistry.compute.gfql.ir.bound_ir import ScopeFrame
 from graphistry.compute.gfql.ir.logical_plan import RowSchema
 from graphistry.compute.gfql.ir.types import BoundPredicate
-from graphistry.compute.gfql.ir.pushdown_safety import (
-    is_null_rejecting,
-    is_null_safe,
-    with_barrier_blocks_pushdown,
-)
 
 
 # ---------------------------------------------------------------------------
