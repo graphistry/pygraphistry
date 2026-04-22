@@ -85,12 +85,12 @@ def compile_cypher(
 ) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
     """Deprecated compatibility helper for inspecting compiled Cypher internals.
 
-    .. deprecated:: 0.55.0
-       ``compile_cypher()`` and ``CompiledCypher*`` return-shape internals are
-       compatibility surfaces and may change in a future minor release. Prefer
-       ``g.gfql(..., language="cypher")`` for execution and
+    .. deprecated::
+       ``compile_cypher()`` and the ``CompiledCypher*`` shapes it returns are
+       deprecated compiler internals scheduled for full removal in a future release.
+       Prefer ``g.gfql(..., language="cypher")`` for execution and
        :func:`cypher_to_gfql` / :func:`gfql_from_cypher` for single-chain
-       translation.
+       translation. Tracked: https://github.com/graphistry/pygraphistry/issues/1169
 
     Parse and lower a supported Cypher query into a compiled program.
 
@@ -103,8 +103,9 @@ def compile_cypher(
     """
     if _warn_deprecated:
         warnings.warn(
-            "compile_cypher() is deprecated and retained as a compatibility helper; "
-            "prefer g.gfql(..., language='cypher') for execution or cypher_to_gfql() for translation.",
+            "compile_cypher() is deprecated; "
+            "prefer g.gfql(..., language='cypher') for execution or cypher_to_gfql() for translation. "
+            "See https://github.com/graphistry/pygraphistry/issues/1169",
             DeprecationWarning,
             stacklevel=2,
         )
