@@ -428,7 +428,8 @@ class Plottable(Protocol):
         destination_node_query: Optional[str] = None,
         edge_query: Optional[str] = None,
         return_as_wave_front: bool = False,
-        target_wave_front: Optional[pd.DataFrame] = None
+        target_wave_front: Optional[pd.DataFrame] = None,
+        engine: Any = 'auto'
     ) -> 'Plottable':
         ...
 
