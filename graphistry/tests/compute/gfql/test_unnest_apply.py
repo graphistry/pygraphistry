@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from graphistry.compute.gfql.ir.compilation import PlanContext
-from graphistry.compute.gfql.ir.logical_plan import Apply, AntiSemiApply, Join, NodeScan, SemiApply
-from graphistry.compute.gfql.passes import UnnestApply
+from graphistry.compute.gfql.ir.logical_plan import Apply, AntiSemiApply, Join, NodeScan, RowSchema, SemiApply
+from graphistry.compute.gfql.ir.types import ScalarType
+from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager, UnnestApply
 
 
 def _ctx() -> PlanContext:
@@ -78,3 +79,16 @@ class TestUnnestApply:
         plan = NodeScan(op_id=1)
         result = UnnestApply().run(plan, _ctx())
         assert result.metadata["unnested"] == 0
+
+    def test_output_schema_is_preserved_after_rewrite(self):
+        schema = RowSchema(columns={"n": ScalarType(kind="string")})
+        plan = Apply(op_id=3, output_schema=schema, input=NodeScan(op_id=1), subquery=NodeScan(op_id=2), correlation_vars=frozenset())
+        result = UnnestApply().run(plan, _ctx())
+        assert result.plan.output_schema == schema
+
+    def test_default_pass_manager_applies_unnest_then_pushdown(self):
+        # Smoke test: the default PassManager config runs UnnestApply (T1)
+        # followed by PredicatePushdownPass (T2) without error on a plain plan.
+        plan = NodeScan(op_id=1)
+        result = PassManager(DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES).run(plan, _ctx())
+        assert result.plan is plan

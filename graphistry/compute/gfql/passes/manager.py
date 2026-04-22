@@ -31,9 +31,6 @@ class LogicalPass(Protocol):
         ...
 
 
-DEFAULT_LOGICAL_PASSES: Tuple[LogicalPass, ...] = ()
-DEFAULT_TIER2_PASSES: Tuple[LogicalPass, ...] = ()
-
 _DEFAULT_MAX_ITERATIONS = 100
 
 
@@ -45,12 +42,15 @@ class PassManager:
     until a full sweep produces no changes (every pass returns
     ``PassResult.changed=False``).  Bounded by *max_iterations* to guarantee
     termination.
+
+    Populated defaults (``DEFAULT_LOGICAL_PASSES``, ``DEFAULT_TIER2_PASSES``)
+    are defined in the package ``__init__`` to avoid circular imports.
     """
 
     def __init__(
         self,
-        tier1_passes: Sequence[LogicalPass] = DEFAULT_LOGICAL_PASSES,
-        tier2_passes: Sequence[LogicalPass] = DEFAULT_TIER2_PASSES,
+        tier1_passes: Sequence[LogicalPass] = (),
+        tier2_passes: Sequence[LogicalPass] = (),
         *,
         max_iterations: int = _DEFAULT_MAX_ITERATIONS,
     ) -> None:

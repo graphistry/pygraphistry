@@ -8335,7 +8335,10 @@ def _logical_plan_route_for_query(
         logical_plan = LogicalPlanner(
             allow_unknown_match_aliases=allow_unknown_match_aliases
         ).plan(bound_ir, ctx)
-        logical_plan = PassManager((PredicatePushdownPass(),)).run(logical_plan, ctx).plan
+        # Compilation-time predicate pushdown (single pass, Tier 1 API).
+        # The runtime pipeline in gfql_unified.py re-runs passes via DEFAULT_TIER2_PASSES;
+        # double-application is safe since PredicatePushdownPass is idempotent.
+        logical_plan = PassManager(tier2_passes=(PredicatePushdownPass(),)).run(logical_plan, ctx).plan
     except GFQLValidationError as exc:
         return None, str(exc.message)
     _verify_selected_logical_plan(logical_plan)
