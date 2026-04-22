@@ -1,7 +1,7 @@
 from inspect import getmodule
 from io import BytesIO
-from typing import Any, Dict, List, Optional, Union, cast
-from typing_extensions import Literal
+from typing import Any, Dict, List, Optional, Sequence, Union
+from typing_extensions import Literal, Protocol, TypeGuard
 import json
 import pandas as pd
 import requests
@@ -20,21 +20,44 @@ from graphistry.utils.json import JSONVal
 from graphistry.otel import inject_trace_headers
 
 
+class CompiledProcedureCallLike(Protocol):
+    procedure: str
+    call_params: Optional[Dict[str, Any]]
+
+
+class CompiledBindingLike(Protocol):
+    name: str
+    chain: Chain
+    procedure_call: Optional[CompiledProcedureCallLike]
+    use_ref: Optional[str]
+
+
+class CompiledQueryLike(Protocol):
+    chain: Chain
+    graph_bindings: Sequence[CompiledBindingLike]
+    procedure_call: Optional[CompiledProcedureCallLike]
+    use_ref: Optional[str]
+
+
+class CompiledUnionLike(Protocol):
+    branches: Sequence[Any]
+
+
 def _has_attrs(obj: Any, *names: str) -> bool:
     return all(hasattr(obj, name) for name in names)
 
 
-def _is_compiled_union_query_shape(compiled: Any) -> bool:
+def _is_compiled_union_query_shape(compiled: Any) -> TypeGuard[CompiledUnionLike]:
     return _has_attrs(compiled, "branches") and not _has_attrs(compiled, "chain")
 
 
-def _is_compiled_query_shape(compiled: Any) -> bool:
+def _is_compiled_query_shape(compiled: Any) -> TypeGuard[CompiledQueryLike]:
     return _has_attrs(compiled, "chain", "graph_bindings", "procedure_call", "use_ref")
 
 
 def _step_to_json(
     chain: Chain,
-    procedure_call: Optional[Any],
+    procedure_call: Optional[CompiledProcedureCallLike],
     use_ref: Optional[str],
 ) -> Dict[str, Any]:
     """Serialize one graph-pipeline step (binding or final clause) to wire format."""
@@ -57,13 +80,8 @@ def _step_to_json(
     return val
 
 
-def _compiled_to_let_json(compiled: Any) -> Dict[str, Any]:
+def _compiled_to_let_json(compiled: CompiledQueryLike) -> Dict[str, Any]:
     """Convert a structural compiled query with graph_bindings to Let wire format."""
-    if not _is_compiled_query_shape(compiled):
-        raise TypeError(
-            "Compiled Cypher remote input must provide `chain`, `graph_bindings`, `procedure_call`, and `use_ref`. "
-            f"Got {type(compiled)}"
-        )
     bindings: Dict[str, Any] = {
         b.name: _step_to_json(b.chain, b.procedure_call, b.use_ref)
         for b in compiled.graph_bindings
@@ -140,12 +158,11 @@ def chain_remote_generic(
             )
         if not _is_compiled_query_shape(compiled):
             raise TypeError(f"Unexpected compiled Cypher type: {type(compiled)}")
-        compiled_query = cast(Any, compiled)
-        if compiled_query.graph_bindings or compiled_query.use_ref:
-            chain_json = _compiled_to_let_json(compiled_query)
+        if compiled.graph_bindings or compiled.use_ref:
+            chain_json = _compiled_to_let_json(compiled)
             is_let = True
         else:
-            chain_json = compiled_query.chain.to_json()
+            chain_json = compiled.chain.to_json()
     elif isinstance(chain, ASTLet):
         chain_json = chain.to_json()
         is_let = True
