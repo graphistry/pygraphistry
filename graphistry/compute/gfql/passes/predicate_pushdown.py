@@ -10,6 +10,7 @@ import re
 from dataclasses import replace
 from typing import Any, FrozenSet, List, Sequence, Tuple, cast
 
+from graphistry.compute.gfql.expr_split import split_top_level_and
 from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.logical_plan import Filter, LogicalPlan, PatternMatch
 from graphistry.compute.gfql.ir.pushdown_safety import is_null_rejecting, with_barrier_blocks_pushdown
@@ -132,7 +133,7 @@ def _split_conjuncts(predicate: BoundPredicate) -> List[BoundPredicate]:
     expression = predicate.expression.strip()
     if not expression:
         return []
-    parts = _split_top_level_and(expression)
+    parts = split_top_level_and(expression)
     if len(parts) <= 1:
         return [predicate]
     return [
@@ -147,56 +148,11 @@ def _combine_conjuncts(predicates: List[BoundPredicate]) -> BoundPredicate:
     return BoundPredicate(expression=expression, references=refs)
 
 
-def _split_top_level_and(expression: str) -> List[str]:
-    pieces: List[str] = []
-    start = 0
-    depth = 0
-    quote: str | None = None
-    i = 0
-
-    while i < len(expression):
-        ch = expression[i]
-        if quote is not None:
-            if ch == quote and (i == 0 or expression[i - 1] != "\\"):
-                quote = None
-            i += 1
-            continue
-        if ch in {"'", '"'}:
-            quote = ch
-            i += 1
-            continue
-        if ch == "(":
-            depth += 1
-            i += 1
-            continue
-        if ch == ")" and depth > 0:
-            depth -= 1
-            i += 1
-            continue
-
-        if depth == 0 and expression[i:i + 3].lower() == "and":
-            prev_ch = expression[i - 1] if i > 0 else " "
-            next_ch = expression[i + 3] if i + 3 < len(expression) else " "
-            if prev_ch.isspace() and next_ch.isspace():
-                part = expression[start:i].strip()
-                if part:
-                    pieces.append(part)
-                start = i + 3
-                i += 3
-                continue
-        i += 1
-
-    tail = expression[start:].strip()
-    if tail:
-        pieces.append(tail)
-    return pieces
-
-
 def _refs_for_segment(segment: str, original_refs: FrozenSet[str]) -> FrozenSet[str]:
     detected = {
         alias
         for alias in original_refs
-        if re.search(rf"\\b{re.escape(alias)}\\b", segment)
+        if re.search(rf"\b{re.escape(alias)}\b", segment)
     }
     if detected:
         return frozenset(detected)
