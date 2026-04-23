@@ -786,7 +786,9 @@ def test_logical_plan_route_for_query_allows_unknown_alias_match_shape_when_opte
     assert defer_reason is None
 
 
-def test_logical_plan_route_for_query_pushes_where_predicate_into_pattern_match() -> None:
+def test_logical_plan_route_for_query_emits_filter_for_where_predicate() -> None:
+    # Compilation emits a Filter node for the WHERE clause; predicate pushdown into
+    # PatternMatch.predicates happens later in the runtime pass pipeline (gfql_unified.py).
     query = _parse_query("MATCH (a)-[r]->(b) WHERE r.weight > 5 RETURN b")
     bound_ir = FrontendBinder().bind(query, PlanContext())
 
@@ -803,10 +805,11 @@ def test_logical_plan_route_for_query_pushes_where_predicate_into_pattern_match(
                 yield from _walk(child)
 
     nodes = list(_walk(logical_plan))
+    # Predicate is in a Filter node — not yet pushed into PatternMatch
+    assert any(isinstance(node, Filter) and "alias='r'" in node.predicate.expression for node in nodes)
     pattern_nodes = [node for node in nodes if isinstance(node, PatternMatch)]
     assert pattern_nodes
-    assert any("alias='r'" in pred.expression for pred in pattern_nodes[0].predicates)
-    assert not any(isinstance(node, Filter) and "alias='r'" in node.predicate.expression for node in nodes)
+    assert not any("alias='r'" in pred.expression for pred in pattern_nodes[0].predicates)
 
 
 def test_compiled_query_sets_logical_plan_route_for_call_shape() -> None:
