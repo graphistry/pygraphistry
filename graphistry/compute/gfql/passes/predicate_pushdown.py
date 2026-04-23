@@ -30,6 +30,7 @@ class PredicatePushdownPass(LogicalPass):
                 "pushed_predicates": pushed,
                 "residual_predicates": residual,
             },
+            changed=pushed > 0,
         )
 
 
