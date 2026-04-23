@@ -955,6 +955,7 @@ jobs:
     - name: Warm HF cache (sentence-transformers)
       id: warm-hf
       if: steps['hf-cache'].outputs['cache-hit'] != 'true'
+      continue-on-error: true
       run: |
         mkdir -p "${HF_HOME}"
         source pygraphistry/bin/activate
