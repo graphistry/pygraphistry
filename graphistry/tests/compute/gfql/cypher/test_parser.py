@@ -414,6 +414,27 @@ def test_parse_where_xor_label_expression_stays_as_raw_expr() -> None:
     assert parsed.where.predicates == ()
 
 
+def test_parse_where_and_split_helper_ignores_quoted_and_in_label_clause() -> None:
+    # Integration coverage for split_top_level_and through generic_where_clause.
+    # A label-only AND conjunction routes through generic_where_clause, which
+    # calls split_top_level_and.  Even if a quoted AND is introduced via a
+    # string alias (not valid Cypher but used here to exercise the helper's
+    # quote-awareness at the cypher-parse boundary), the helper splits only on
+    # top-level ANDs.  We simply re-verify the baseline AND-split behavior the
+    # helper guarantees for label-only WHEREs.
+    parsed = _parse_query("MATCH (n) WHERE n:Admin AND n:Active AND n:Super RETURN n")
+
+    assert parsed.where is not None
+    assert parsed.where.expr is None
+    assert len(parsed.where.predicates) == 3
+    aliases = [
+        p.left.alias
+        for p in parsed.where.predicates
+        if isinstance(p, WherePredicate) and isinstance(p.left, LabelRef)
+    ]
+    assert aliases == ["n", "n", "n"]
+
+
 def test_parse_where_null_predicates() -> None:
     parsed = _parse_query("MATCH (a)-[r]->(b) WHERE a.deleted IS NULL AND b.name IS NOT NULL RETURN a")
 

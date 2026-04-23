@@ -93,3 +93,15 @@ def test_mixed_depth_preserves_split_at_top_level_only() -> None:
 
 def test_and_adjacent_to_paren_at_depth_zero_splits() -> None:
     assert split_top_level_and("(a) AND (b)") == ("(a)", "(b)")
+
+
+def test_trailing_and_after_valid_split_returns_empty_tuple() -> None:
+    # Even when earlier splits succeeded, a trailing AND with no tail
+    # term signals malformed input and the whole result collapses to ``()``.
+    assert split_top_level_and("a AND b AND") == ()
+
+
+def test_whitespace_other_than_space_separates_and() -> None:
+    # `.isspace()` accepts tabs, newlines — confirm AND recognition works.
+    assert split_top_level_and("a\tAND\tb") == ("a", "b")
+    assert split_top_level_and("a\nAND\nb") == ("a", "b")

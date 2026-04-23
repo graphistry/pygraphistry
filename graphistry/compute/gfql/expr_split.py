@@ -26,11 +26,12 @@ def split_top_level_and(expr: str) -> Tuple[str, ...]:
     stripped.
 
     :param expr: The expression text to split (typically a WHERE body).
-    :returns: A tuple of non-empty terms.  ``()`` when *expr* is empty
-        or whitespace-only.  A single-element tuple when *expr* has no
-        top-level ``AND``.  Empty intermediate terms cause the function
-        to return ``()`` — that shape is a malformed input and callers
-        should treat it as "do not split".
+    :returns: A tuple of non-empty terms.  ``()`` when *expr* is empty,
+        whitespace-only, has a leading/trailing top-level ``AND``, or
+        contains consecutive ANDs with an empty term between them —
+        the function collapses empty-input and malformed-input into a
+        single sentinel; callers should treat ``()`` as "do not split".
+        A single-element tuple means *expr* has no top-level ``AND``.
     """
     terms: list[str] = []
     term_start = 0

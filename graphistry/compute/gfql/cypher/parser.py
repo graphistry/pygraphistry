@@ -474,8 +474,6 @@ def _mixed_where_pattern_expr_error(source: str) -> Optional[GFQLValidationError
     return None
 
 
-
-
 def _canonicalize_where_single_pattern_and_expr(source: str) -> Optional[str]:
     for match in _WHERE_CLAUSE_BODY_RE.finditer(source):
         body = match.group("body").strip()
