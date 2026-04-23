@@ -401,6 +401,20 @@ def test_binder_label_narrowing_nested_or_inside_and_is_conservative() -> None:
     assert n_var.logical_type.labels == frozenset()
 
 
+def test_binder_label_narrowing_multi_alias_and_conjunction() -> None:
+    # "n:Admin AND m:User" — both aliases should be narrowed independently.
+    query = "MATCH (n)-[]->(m) WHERE n:Admin AND m:User RETURN n, m"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    n_var = bound.semantic_table.variables["n"]
+    assert isinstance(n_var.logical_type, NodeRef)
+    assert n_var.logical_type.labels == frozenset({"Admin"})
+
+    m_var = bound.semantic_table.variables["m"]
+    assert isinstance(m_var.logical_type, NodeRef)
+    assert m_var.logical_type.labels == frozenset({"User"})
+
+
 def test_binder_schema_confidence_min_rule_count_and_operand_inheritance() -> None:
     query = (
         "MATCH (n:Person) "

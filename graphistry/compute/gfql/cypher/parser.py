@@ -1109,12 +1109,15 @@ def _build_transformer(source: str) -> _TransformerLike:
         def generic_where_clause(self, meta: Any, _items: Sequence[Any]) -> WhereClause:
             span = _span_from_meta(meta)
             expr = self._slice(span)[len("WHERE"):].strip()
-            # Try to parse as AND-joined bare label predicates ("n:Admin" or
-            # "n:Admin AND n:Active AND n:Super").  Each part must be a bare
-            # label-only predicate; any non-label part causes a conservative
-            # fallback to raw expr (no narrowing).
+            # Lark's ambiguity resolution prefers the generic `expr` path over
+            # the structured `where_predicates` rule, so AND-joined bare label
+            # predicates ("n:Admin AND n:Active") land here rather than in
+            # `where_clause`.  Detect and lift them to structured predicates so
+            # the binder can perform label narrowing without regex.  Any part
+            # that is not a bare label predicate causes a conservative fallback
+            # to raw expr (no narrowing).
             parts = _WHERE_AND_SPLIT_RE.split(expr)
-            predicates = []
+            predicates: List[WherePredicate] = []
             for part in parts:
                 m = _BARE_LABEL_PREDICATE_RE.fullmatch(part.strip())
                 if m is None:
