@@ -939,7 +939,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ${{ env.HF_HOME }}
-        key: hf-cache-${{ runner.os }}-v1
+        key: hf-cache-${{ runner.os }}-v2
         restore-keys: |
           hf-cache-${{ runner.os }}-
 
@@ -1062,7 +1062,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ${{ env.HF_HOME }}
-        key: hf-cache-${{ runner.os }}-v1
+        key: hf-cache-${{ runner.os }}-v2
         restore-keys: |
           hf-cache-${{ runner.os }}-
 
