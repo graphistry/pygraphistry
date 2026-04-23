@@ -186,3 +186,35 @@ def test_backward_compat_single_positional_arg():
     result = manager.run(NodeScan(op_id=0), PlanContext())
     assert events == ["legacy"]
     assert result.plan.op_id == 1
+
+
+# ---------------------------------------------------------------------------
+# Tier 2 metadata accumulation
+# ---------------------------------------------------------------------------
+
+class _MetadataPass:
+    """Pass that emits integer metadata and changes the plan once."""
+
+    def __init__(self, name: str, change_times: int) -> None:
+        self.name = name
+        self._remaining = change_times
+
+    def run(self, plan, ctx):  # noqa: ANN001, ANN201
+        _ = ctx
+        if self._remaining > 0:
+            self._remaining -= 1
+            return PassResult(
+                plan=replace(plan, op_id=plan.op_id + 1),
+                metadata={"count": 3},
+                changed=True,
+            )
+        return PassResult(plan=plan, metadata={"count": 0}, changed=False)
+
+
+def test_tier2_metadata_accumulates_integer_fields():
+    # Pass changes plan twice, emitting count=3 each time, then converges with count=0.
+    # Accumulated metadata should total 6 (3+3+0).
+    p = _MetadataPass("acc", change_times=2)
+    manager = PassManager(tier1_passes=(), tier2_passes=(p,))
+    result = manager.run(NodeScan(op_id=0), PlanContext())
+    assert result.metadata["acc"]["count"] == 6

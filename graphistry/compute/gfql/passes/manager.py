@@ -80,7 +80,7 @@ class PassManager:
                     result = logical_pass.run(current, ctx)
                     current = result.plan
                     if result.metadata:
-                        merged_metadata[logical_pass.name] = dict(result.metadata)
+                        _accumulate_metadata(merged_metadata, logical_pass.name, result.metadata)
                     if result.changed:
                         any_changed = True
                     diagnostics = verify(current)
@@ -92,6 +92,20 @@ class PassManager:
                 raise _convergence_error(self._max_iterations)
 
         return PassResult(plan=current, metadata=merged_metadata)
+
+
+def _accumulate_metadata(
+    merged: Dict[str, object], pass_name: str, new: Dict[str, object]
+) -> None:
+    existing = merged.get(pass_name)
+    if isinstance(existing, dict):
+        acc: Dict[str, object] = dict(existing)
+        for k, v in new.items():
+            prev = acc.get(k)
+            acc[k] = prev + v if isinstance(prev, int) and isinstance(v, int) else v  # type: ignore[operator]
+        merged[pass_name] = acc
+    else:
+        merged[pass_name] = dict(new)
 
 
 def _verification_error(pass_name: str, diagnostics: Sequence[CompilerError]) -> GFQLValidationError:

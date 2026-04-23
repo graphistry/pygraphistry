@@ -34,6 +34,7 @@ class UnnestApply:
 def _unnest_tree(plan: LogicalPlan) -> Tuple[LogicalPlan, int]:
     count = 0
     children_updates = {}
+    # Exhaustive list of plan-child slot names across all LogicalPlan subclasses (logical_plan.py).
     for slot in ("input", "left", "right", "subquery"):
         child = getattr(plan, slot, None)
         if isinstance(child, LogicalPlan):
