@@ -52,6 +52,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / Cypher**: Extracted `ASTNormalizer` into `graphistry/compute/gfql/cypher/ast_normalizer.py` and moved shortestPath + WHERE-pattern-predicate rewrite ownership out of `lowering.py`, with parity-preserving wiring in compile/lowering flows and focused regression coverage for rewrite behavior and invocation order (#1117).
 - **GFQL / Cypher compiler**: Lowering now functionally consumes `BoundIR` metadata for the M1 integration slice: binder-provided params are merged into effective lowering params (runtime overrides preserved) with binder metadata keys filtered out of runtime-param resolution, scope membership narrowing uses the active scope frame for WITH-boundary correctness, semantic-table entity kinds inform alias table routing, and nullable alias metadata is wired into optional-only alias detection. `_StageScope` duplicated table bookkeeping was reduced, binder now runs pre- and post-normalization in compile flow, and binder-path regression tests were added for these code paths (#1116).
 
+### Changed
+- **Collections**: Autofix validation now drops invalid collections (e.g., invalid GFQL ops) and non-string collection color fields instead of string-coercing them; warnings still emit when `warn=True`.
+- **Collections**: `collections(...)` now always canonicalizes to URL-encoded JSON (string inputs are parsed + re-encoded); the `encode` parameter was removed to avoid ambiguous behavior.
+- **Collections**: Set collections now require an `id` field (server requires it for subgraph storage); missing IDs are warned and dropped in autofix mode rather than auto-generated.
+- **Collections**: Intersection collections now cross-validate that referenced set IDs exist; dangling references are warned and dropped in autofix mode.
+- **Collections**: GFQL parsing consolidated to use `_wrap_gfql_expr` from `collections.py` as the canonical implementation with precise exception handling.
+
 ### Tests
 - **GFQL / Cypher binder**: Added PR-4 white-box binder semantic conformance coverage for name resolution success/failure (including unresolved alias errors), WITH scope-reset visibility, OPTIONAL MATCH `null_extended_from` lineage as `frozenset` clause ids, label narrowing from MATCH labels + conjunctive `WHERE alias:Label` checks, and SchemaConfidence rules (min-rule propagation, operand inheritance, and strong literal/`COUNT` behavior). Parser/lowering regression lanes remain green (#1114).
 - **Plugins / cuDF**: 14 GPU tests in `TestCpuOnlyPluginsCudfRoundTrip` (`test_call_operations_gpu.py`) verifying real cuDF→pandas→cuDF round-trip for `compute_igraph` (pagerank, spanning_tree Graph-returning path, articulation_points list-return path, edge-attribute merge path), `layout_igraph`, `layout_graphviz`, `render_graphviz`, `execute_call`, `ensure_pandas` nullable dtype preservation, and `restore_engine` conversion. Requires `TEST_CUDF=1` and RAPIDS.
@@ -412,6 +419,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Infra
 - **CI**: Added pandas 2.2.3/3.0.0 compatibility jobs and minimal suite coverage.
+
+### Added
+- **Collections**: New `g.collections(...)` API for defining subsets via GFQL expressions with priority-based visual encodings. Includes helper constructors `graphistry.collection_set(...)` and `graphistry.collection_intersection(...)`, support for `showCollections`, `collectionsGlobalNodeColor`, and `collectionsGlobalEdgeColor` URL params, and automatic JSON encoding. Accepts GFQL AST, Chain objects, or wire-protocol dicts (#874).
+- **Docs / Collections**: Added collections usage guide in visualization/layout/settings, tutorial notebook (`demos/more_examples/graphistry_features/collections.ipynb`), and cross-references in 10-minute guides, cheatsheet, and GFQL docs (#875).
+
+### Changed
+- **Collections**: Autofix validation now drops invalid collections (e.g., invalid GFQL ops) and non-string collection color fields instead of string-coercing them; warnings still emit when `warn=True`.
+- **Collections**: `collections(...)` now always canonicalizes to URL-encoded JSON (string inputs are parsed + re-encoded); the `encode` parameter was removed to avoid ambiguous behavior.
+
+### Tests
+- **Collections**: Added `test_collections.py` covering encoding, GFQL Chain/AST normalization, wire-protocol acceptance, validation modes, and helper constructors.
 
 ## [0.50.4 - 2026-01-15]
 

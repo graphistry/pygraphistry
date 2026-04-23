@@ -1588,6 +1588,60 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
     return out
 
 
+def normalize_gfql_to_wire(expr: Any) -> List[Dict[str, JSONVal]]:
+    """
+    Normalize GFQL expression to wire format (list of JSON-serializable dicts).
+
+    Accepts:
+    - Chain object
+    - Single ASTObject
+    - List of ASTObjects
+    - Dict with 'type': 'Chain' and 'chain' key
+    - Dict with 'type': 'gfql_chain' and 'gfql' key
+    - Dict with just 'chain' or 'gfql' key
+    - Single dict (parsed as AST op)
+
+    Returns:
+    - List of JSON-serializable dicts ready for wire protocol
+
+    Raises:
+    - TypeError: if expr type is not supported
+    - ValueError: if expr is empty
+    - GFQLSyntaxError: if dict cannot be parsed as valid AST
+    """
+    from graphistry.compute.chain import Chain
+
+    def _normalize_op(op: object) -> Dict[str, JSONVal]:
+        if isinstance(op, ASTObject):
+            return op.to_json()
+        if isinstance(op, dict):
+            return from_json(op, validate=True).to_json()
+        raise TypeError("GFQL operations must be AST objects or dictionaries")
+
+    def _normalize_ops(raw: object) -> List[Dict[str, JSONVal]]:
+        if isinstance(raw, Chain):
+            return _normalize_ops(raw.to_json().get("chain", []))
+        if isinstance(raw, ASTObject):
+            return [raw.to_json()]
+        if isinstance(raw, list):
+            if len(raw) == 0:
+                raise ValueError("GFQL operations list cannot be empty")
+            return [_normalize_op(op) for op in raw]
+        if isinstance(raw, dict):
+            if raw.get("type") == "Chain" and "chain" in raw:
+                return _normalize_ops(raw.get("chain"))
+            if raw.get("type") == "gfql_chain" and "gfql" in raw:
+                return _normalize_ops(raw.get("gfql"))
+            if "chain" in raw:
+                return _normalize_ops(raw.get("chain"))
+            if "gfql" in raw:
+                return _normalize_ops(raw.get("gfql"))
+            return [_normalize_op(raw)]
+        raise TypeError("GFQL expr must be Chain, ASTObject, list, or dict")
+
+    return _normalize_ops(expr)
+
+
 ###############################################################################
 # User-friendly aliases for public API
 
