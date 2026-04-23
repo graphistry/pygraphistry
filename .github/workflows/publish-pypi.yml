@@ -90,21 +90,31 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --disable-pip-version-check --no-cache-dir cyclonedx-bom
-          cyclonedx-py environment --of JSON -o dist/sbom-cyclonedx.json
+          mkdir -p evidence
+          cyclonedx-py environment --of JSON -o evidence/sbom-cyclonedx.json
 
       - name: Attest built distributions provenance
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: dist/*
+          subject-path: |
+            dist/*.whl
+            dist/*.tar.gz
+
+      - name: Upload built distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dists-${{ github.run_id }}
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
 
       - name: Upload release evidence artifacts
         uses: actions/upload-artifact@v4
         with:
           name: release-evidence-${{ github.run_id }}
           path: |
-            dist/*.whl
-            dist/*.tar.gz
-            dist/sbom-cyclonedx.json
+            evidence/sbom-cyclonedx.json
           if-no-files-found: error
 
   publish-testpypi:
@@ -122,7 +132,7 @@ jobs:
       - name: Download release evidence artifacts
         uses: actions/download-artifact@v4
         with:
-          name: release-evidence-${{ github.run_id }}
+          name: release-dists-${{ github.run_id }}
           path: dist
 
       - name: Verify dist files for TestPyPI publish
@@ -159,7 +169,7 @@ jobs:
       - name: Download release evidence artifacts
         uses: actions/download-artifact@v4
         with:
-          name: release-evidence-${{ github.run_id }}
+          name: release-dists-${{ github.run_id }}
           path: dist
 
       - name: Verify dist files for PyPI publish
