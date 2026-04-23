@@ -148,7 +148,7 @@ def maybe_polars():
         import polars
         return polars
     except ImportError:
-        1
+        pass
     except RuntimeError:
         logger.warning('Runtime error importing polars', exc_info=True)
     return None
