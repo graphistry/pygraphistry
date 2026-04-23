@@ -18,7 +18,7 @@ on:
 
 env:
   UV_EXCLUDE_NEWER: "6 days"
-  PIP_EXCLUDE_NEWER: "6 days"
+  PIP_COOLDOWN_DAYS: "6"
   EXPECTED_REPOSITORY: graphistry/pygraphistry
   EXPECTED_WORKFLOW_PATH: .github/workflows/publish-pypi.yml
 
@@ -89,9 +89,21 @@ jobs:
           echo "Using synthetic TestPyPI version: ${synthetic_version}"
           git describe --tags --dirty --always --long
 
+      - name: Upgrade pip for upload-time filtering
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade "pip>=26.0"
+
+      - name: Compute pip upload-time cutoff
+        run: |
+          set -euo pipefail
+          cutoff="$(date -u -d "${PIP_COOLDOWN_DAYS} days ago" +%Y-%m-%dT%H:%M:%SZ)"
+          echo "PIP_UPLOADED_PRIOR_TO=${cutoff}" >> "$GITHUB_ENV"
+          echo "Using pip upload cutoff: ${cutoff}"
+
       - name: Install pypa/build
         run: >-
-          python -m pip install -e .[build]
+          python -m pip install --uploaded-prior-to "${PIP_UPLOADED_PRIOR_TO}" -e .[build]
 
       - name: Build a binary wheel and a source tarball
         run: >-
@@ -100,7 +112,7 @@ jobs:
       - name: Generate SBOM (CycloneDX JSON)
         run: |
           set -euo pipefail
-          python -m pip install --disable-pip-version-check --no-cache-dir cyclonedx-bom
+          python -m pip install --disable-pip-version-check --no-cache-dir --uploaded-prior-to "${PIP_UPLOADED_PRIOR_TO}" cyclonedx-bom
           mkdir -p evidence
           cyclonedx-py environment --of JSON -o evidence/sbom-cyclonedx.json
 
