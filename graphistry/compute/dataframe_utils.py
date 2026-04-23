@@ -11,7 +11,11 @@ from graphistry.compute.typing import DataFrameT, DomainT, SeriesT
 
 
 def dbg_df(df: Optional[Any]) -> str:
-    """Safe debug repr for any DataFrame — avoids __repr__/__str__ which triggers numba/CUDA in RAPIDS 25.x."""
+    """Safe debug repr for any DataFrame — avoids __repr__/__str__ which triggers numba/CUDA in RAPIDS 25.x.
+
+    Always wrap call sites with `if logger.isEnabledFor(logging.DEBUG):` — Python evaluates
+    function arguments eagerly, so dbg_df() runs even at INFO level without that guard.
+    """
     if df is None:
         return 'None'
     try:

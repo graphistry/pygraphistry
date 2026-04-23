@@ -412,7 +412,8 @@ def combine_steps(
     g_df = getattr(g, df_fld)
     out_df = safe_merge(out_df, g_df, on=id, how='left', engine=engine)
 
-    logger.debug('COMBINED[%s] >> %s', kind, dbg_df(out_df))
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug('COMBINED[%s] >> %s', kind, dbg_df(out_df))
 
     if kind == 'nodes' and label_cols:
         seeds_df = label_steps[0][1]._nodes if label_steps and label_steps[0][1]._nodes is not None else None
