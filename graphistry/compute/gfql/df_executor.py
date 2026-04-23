@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dataclass_replace
 from typing import Dict, Literal, Sequence, List, Optional, Any, Tuple, Set
 
 from graphistry.Engine import Engine, safe_map_series, safe_merge
@@ -85,16 +85,22 @@ class DFSamePathExecutor:
     def run(self) -> Plottable:
         attrs = self._otel_attrs() if otel_enabled() else None
         with otel_span("gfql.df_executor.run", attrs=attrs):
-            self._forward()
             mode = os.environ.get(_CUDF_MODE_ENV, "auto").lower()
-            if mode == "oracle":
-                return self._unsafe_run_test_only_oracle()
-            if mode == "strict" and self.inputs.engine == Engine.CUDF:
-                try:  # check cudf presence
+            if self.inputs.engine == Engine.CUDF:
+                cudf_available = True
+                try:
                     import cudf  # type: ignore  # noqa: F401
                 except Exception:
-                    raise RuntimeError(
-                        "cuDF engine requested with strict mode but cudf is unavailable")
+                    cudf_available = False
+                if not cudf_available:
+                    if mode == "strict":
+                        raise RuntimeError(
+                            "cuDF engine requested with strict mode but cudf is unavailable")
+                    # auto mode: fall back to pandas transparently
+                    self.inputs = dataclass_replace(self.inputs, engine=Engine.PANDAS)
+            self._forward()
+            if mode == "oracle":
+                return self._unsafe_run_test_only_oracle()
             return self._run_native()
 
     def _forward(self) -> None:

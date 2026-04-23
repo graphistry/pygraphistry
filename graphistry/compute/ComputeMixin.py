@@ -80,6 +80,10 @@ def _coerce_input_formats(g: "Plottable", engine: Engine) -> "Plottable":
         if engine == Engine.PANDAS:
             return isinstance(df, pd.DataFrame) or 'cudf' in type_mod
         elif engine == Engine.CUDF:
+            from graphistry.utils.lazy_import import lazy_cudf_import
+            has_cudf, _, _ = lazy_cudf_import()
+            if not has_cudf:
+                return True  # cudf unavailable — skip coercion; downstream handles gracefully
             return 'cudf' in type_mod
         return True
 
