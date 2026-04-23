@@ -353,6 +353,54 @@ def test_binder_label_narrowing_does_not_apply_for_not_expression() -> None:
     assert n_var.logical_type.labels == frozenset({"Person"})
 
 
+def test_binder_label_narrowing_triple_and_conjunction() -> None:
+    query = "MATCH (n) WHERE n:Admin AND n:Active AND n:SuperAdmin RETURN n"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    n_var = bound.semantic_table.variables["n"]
+    assert isinstance(n_var.logical_type, NodeRef)
+    assert n_var.logical_type.labels == frozenset({"Admin", "Active", "SuperAdmin"})
+
+
+def test_binder_label_narrowing_does_not_apply_for_xor_expression() -> None:
+    query = "MATCH (n) WHERE n:Admin XOR n:Active RETURN n"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    n_var = bound.semantic_table.variables["n"]
+    assert isinstance(n_var.logical_type, NodeRef)
+    assert n_var.logical_type.labels == frozenset()
+
+
+def test_binder_label_narrowing_no_false_positive_from_quoted_label_pattern() -> None:
+    # A string literal containing "n:Admin" must not be misread as a label predicate.
+    query = "MATCH (n) WHERE n.name = 'n:Admin' RETURN n"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    n_var = bound.semantic_table.variables["n"]
+    assert isinstance(n_var.logical_type, NodeRef)
+    assert n_var.logical_type.labels == frozenset()
+
+
+def test_binder_label_narrowing_no_false_positive_from_string_containing_colon() -> None:
+    # A property comparison whose value contains ":" must not narrow labels.
+    query = "MATCH (n) WHERE n.role = 'admin:super' RETURN n"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    n_var = bound.semantic_table.variables["n"]
+    assert isinstance(n_var.logical_type, NodeRef)
+    assert n_var.logical_type.labels == frozenset()
+
+
+def test_binder_label_narrowing_nested_or_inside_and_is_conservative() -> None:
+    # "(n:Admin AND n:Active) OR n:Guest" — top-level OR → no narrowing.
+    query = "MATCH (n) WHERE (n:Admin AND n:Active) OR n:Guest RETURN n"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    n_var = bound.semantic_table.variables["n"]
+    assert isinstance(n_var.logical_type, NodeRef)
+    assert n_var.logical_type.labels == frozenset()
+
+
 def test_binder_schema_confidence_min_rule_count_and_operand_inheritance() -> None:
     query = (
         "MATCH (n:Person) "

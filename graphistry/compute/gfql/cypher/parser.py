@@ -301,6 +301,7 @@ BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
 """
 
 _BARE_LABEL_PREDICATE_RE = re.compile(r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)((?::[A-Za-z_][A-Za-z0-9_]*)+)$")
+_WHERE_AND_SPLIT_RE = re.compile(r"\bAND\b", re.IGNORECASE)
 _RESERVED_IDENTIFIER_GRAPH = "graph"
 _WHERE_PATTERN_ITEM_RE = re.compile(
     r"\([^)\n]*\)\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\)"
@@ -1108,21 +1109,28 @@ def _build_transformer(source: str) -> _TransformerLike:
         def generic_where_clause(self, meta: Any, _items: Sequence[Any]) -> WhereClause:
             span = _span_from_meta(meta)
             expr = self._slice(span)[len("WHERE"):].strip()
-            bare_label_match = _BARE_LABEL_PREDICATE_RE.fullmatch(expr)
-            if bare_label_match is not None:
-                labels = tuple(label for label in bare_label_match.group(2).split(":") if label)
-                return WhereClause(
-                    predicates=(
-                        WherePredicate(
-                            left=LabelRef(alias=bare_label_match.group("alias"), labels=labels, span=span),
-                            op="has_labels",
-                            right=None,
-                            span=span,
-                        ),
-                    ),
-                    expr=None,
-                    span=span,
+            # Try to parse as AND-joined bare label predicates ("n:Admin" or
+            # "n:Admin AND n:Active AND n:Super").  Each part must be a bare
+            # label-only predicate; any non-label part causes a conservative
+            # fallback to raw expr (no narrowing).
+            parts = _WHERE_AND_SPLIT_RE.split(expr)
+            predicates = []
+            for part in parts:
+                m = _BARE_LABEL_PREDICATE_RE.fullmatch(part.strip())
+                if m is None:
+                    predicates = []
+                    break
+                labels = tuple(label for label in m.group(2).split(":") if label)
+                predicates.append(
+                    WherePredicate(
+                        left=LabelRef(alias=m.group("alias"), labels=labels, span=span),
+                        op="has_labels",
+                        right=None,
+                        span=span,
+                    )
                 )
+            if predicates:
+                return WhereClause(predicates=tuple(predicates), expr=None, span=span)
             return WhereClause(predicates=(), expr=ExpressionText(text=expr, span=span), span=span)
 
         def unwind_clause(self, meta: Any, items: Sequence[Any]) -> UnwindClause:

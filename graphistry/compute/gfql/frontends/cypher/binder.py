@@ -85,8 +85,6 @@ _PROPERTY_RE = re.compile(r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_
 _PARAMETER_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 _COUNT_CALL_RE = re.compile(r"(?i)^count\s*\(")
 _STRING_LITERAL_RE = re.compile(r"'(?:''|[^'])*'")
-_WHERE_LABEL_RE = re.compile(r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)")
-_WHERE_NON_CONJUNCTIVE_RE = re.compile(r"(?i)\b(?:OR|NOT|XOR)\b")
 
 
 @dataclass
@@ -947,11 +945,6 @@ def _apply_where_label_narrowing(state: _BindState, where: WhereClause) -> Set[s
         if isinstance(term, WherePredicate) and term.op == "has_labels" and isinstance(term.left, LabelRef):
             labels = narrowed.setdefault(term.left.alias, set())
             labels.update(term.left.labels)
-
-    if where.expr is not None and _WHERE_NON_CONJUNCTIVE_RE.search(where.expr.text) is None:
-        for alias, label in _WHERE_LABEL_RE.findall(where.expr.text):
-            labels = narrowed.setdefault(alias, set())
-            labels.add(label)
 
     changed: Set[str] = set()
     for alias, labels in narrowed.items():
