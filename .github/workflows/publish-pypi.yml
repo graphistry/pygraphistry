@@ -6,15 +6,15 @@ on:
       - '*'
   workflow_dispatch:
     inputs:
-      publish_mode:
-        description: "Publish mode: dryrun (no publish), testpypi, or full (TestPyPI + PyPI)"
+      release_mode:
+        description: "Release mode: evidence (no publish), test (TestPyPI), or release (TestPyPI + PyPI)"
         required: true
         type: choice
         options:
-          - dryrun
-          - testpypi
-          - full
-        default: dryrun
+          - evidence
+          - test
+          - release
+        default: evidence
 
 env:
   UV_EXCLUDE_NEWER: "6 days"
@@ -23,21 +23,16 @@ env:
   EXPECTED_WORKFLOW_PATH: .github/workflows/publish-pypi.yml
 
 jobs:
-  build-n-publish:
-    name: Build and publish Python 🐍 distributions 📦 to PyPI and TestPyPI
+  build-evidence:
+    name: Build release artifacts and evidence
     if: >-
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
-      (github.event_name == 'workflow_dispatch' &&
-       (github.event.inputs.publish_mode != 'full' || github.ref == 'refs/heads/master'))
+      (github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
       attestations: write
-    # Configure required reviewers on the `pypi-release` environment in repository settings.
-    # This creates a human approval gate before the publish job can mint OIDC creds.
-    environment:
-      name: pypi-release
 
     steps:
       - uses: actions/checkout@v4
@@ -71,7 +66,7 @@ jobs:
               exit 1
             fi
           elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            # Additional dispatch restrictions are enforced at job/step `if` guards.
+            # Dispatch-specific publish restrictions are enforced at job/step `if` guards.
             true
           else
             echo "::error::Unexpected event ${GITHUB_EVENT_NAME}; refusing publish."
@@ -112,20 +107,56 @@ jobs:
             dist/sbom-cyclonedx.json
           if-no-files-found: error
 
+  publish-testpypi:
+    name: Publish distribution 📦 to Test PyPI
+    needs: build-evidence
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.release_mode == 'test' || github.event.inputs.release_mode == 'release'))
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download release evidence artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-evidence-${{ github.run_id }}
+          path: .
+
       - name: Publish distribution 📦 to Test PyPI
-        if: >-
-          github.event_name == 'push' ||
-          (github.event_name == 'workflow_dispatch' &&
-           (github.event.inputs.publish_mode == 'testpypi' || github.event.inputs.publish_mode == 'full'))
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
           attestations: true
 
+  publish-pypi:
+    name: Publish distribution 📦 to PyPI
+    needs:
+      - build-evidence
+      - publish-testpypi
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.event.inputs.release_mode == 'release' &&
+       github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    # Configure required reviewers on the `pypi-release` environment in repository settings.
+    # This creates a human approval gate before PyPI publish can mint OIDC creds.
+    environment:
+      name: pypi-release
+
+    steps:
+      - name: Download release evidence artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-evidence-${{ github.run_id }}
+          path: .
+
       - name: Publish distribution 📦 to PyPI
-        if: >-
-          github.event_name == 'push' ||
-          (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_mode == 'full')
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           attestations: true
