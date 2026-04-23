@@ -17,17 +17,6 @@ new child slot only needs to be added here.
 """
 
 
-def iter_children(plan: "LogicalPlan") -> Iterator[Tuple[str, "LogicalPlan"]]:
-    """Yield ``(slot_name, child_plan)`` for each populated child slot.
-
-    ``None`` slots and non-``LogicalPlan`` values are skipped.
-    """
-    for slot in CHILD_SLOTS:
-        child = getattr(plan, slot, None)
-        if isinstance(child, LogicalPlan):
-            yield slot, child
-
-
 @dataclass(frozen=True)
 class RowSchema:
     """Row-oriented type map."""
@@ -41,6 +30,18 @@ class LogicalPlan:
 
     op_id: int = 0
     output_schema: RowSchema = field(default_factory=RowSchema)
+
+
+def iter_children(plan: LogicalPlan) -> Iterator[Tuple[str, LogicalPlan]]:
+    """Yield ``(slot_name, child_plan)`` for each populated child slot.
+
+    ``None`` slots and non-``LogicalPlan`` values are skipped.  The slot
+    order matches :data:`CHILD_SLOTS`.
+    """
+    for slot in CHILD_SLOTS:
+        child = getattr(plan, slot, None)
+        if isinstance(child, LogicalPlan):
+            yield slot, child
 
 
 @dataclass(frozen=True)

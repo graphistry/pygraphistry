@@ -27,7 +27,7 @@ from graphistry.compute.gfql.cypher.lowering import _logical_plan_route_for_quer
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, SemanticTable
 from graphistry.compute.gfql.ir.compilation import PlanContext
-from graphistry.compute.gfql.ir.logical_plan import Filter, PatternMatch, ProcedureCall as LogicalProcedureCall
+from graphistry.compute.gfql.ir.logical_plan import CHILD_SLOTS, Filter, PatternMatch, ProcedureCall as LogicalProcedureCall
 from graphistry.tests.test_compute import CGFull
 
 
@@ -807,7 +807,7 @@ def test_logical_plan_route_for_query_emits_filter_for_where_predicate() -> None
 
     def _walk(node):  # noqa: ANN001, ANN202
         yield node
-        for slot in ("input", "left", "right", "subquery"):
+        for slot in CHILD_SLOTS:
             child = getattr(node, slot, None)
             if child is not None:
                 yield from _walk(child)

@@ -10,7 +10,6 @@ from graphistry.compute.gfql.ir.logical_plan import (
     Aggregate,
     AntiSemiApply,
     Apply,
-    CHILD_SLOTS,
     Distinct,
     EdgeScan,
     Filter,
@@ -29,6 +28,7 @@ from graphistry.compute.gfql.ir.logical_plan import (
     Skip,
     Union as LogicalUnion,
     Unwind,
+    iter_children,
 )
 
 PhysicalRoute = Literal["same_path", "wavefront", "row_pipeline"]
@@ -189,10 +189,8 @@ class PhysicalPlanner:
 
     @staticmethod
     def _children(node: LogicalPlan) -> Iterable[LogicalPlan]:
-        for attr in CHILD_SLOTS:
-            child = getattr(node, attr, None)
-            if isinstance(child, LogicalPlan):
-                yield child
+        for _slot, child in iter_children(node):
+            yield child
 
 
 __all__ = [
