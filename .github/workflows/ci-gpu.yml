@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
 
+env:
+  PIP_COOLDOWN_DAYS: "6"
+
 jobs:
 
   stub_mt:
@@ -91,8 +94,9 @@ jobs:
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
+        cutoff="$(date -u -d "${PIP_COOLDOWN_DAYS} days ago" +%Y-%m-%dT%H:%M:%SZ)"
         python -m pip install --upgrade pip
-        python -m pip install --extra-index-url=https://pypi.nvidia.com -e .[test,testai,ai,rapids]
+        python -m pip install --uploaded-prior-to "${cutoff}" --extra-index-url=https://pypi.nvidia.com -e .[test,testai,ai,rapids]
         echo "skrub: `pip show skrub | grep Version`"
         echo "pandas: `pip show pandas | grep Version`"
         echo "numpy: `pip show numpy | grep Version`"
