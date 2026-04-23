@@ -640,7 +640,7 @@ def _execute_compiled_query_non_union(
             start_nodes=start_nodes,
         )
 
-    ctx = PlanContext()
+    ctx = PlanContext(scope_stack=compiled_query.scope_stack)
     logical_plan = _run_logical_pass_pipeline(logical_plan, ctx)
 
     try:

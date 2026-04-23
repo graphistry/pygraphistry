@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
-from typing import Any, FrozenSet, List, Tuple, cast
+from typing import Any, FrozenSet, List, Sequence, Tuple, cast
 
+from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.logical_plan import Filter, LogicalPlan, PatternMatch
-from graphistry.compute.gfql.ir.pushdown_safety import is_null_rejecting
+from graphistry.compute.gfql.ir.pushdown_safety import is_null_rejecting, with_barrier_blocks_pushdown
+from graphistry.compute.gfql.ir.bound_ir import ScopeFrame
 from graphistry.compute.gfql.ir.types import BoundPredicate
 from graphistry.compute.gfql.passes.manager import LogicalPass, PassResult
 
@@ -21,9 +23,11 @@ class PredicatePushdownPass(LogicalPass):
 
     name = "predicate_pushdown"
 
-    def run(self, plan: LogicalPlan, ctx) -> PassResult:  # noqa: ANN001
-        _ = ctx
-        rewritten, pushed, residual = _rewrite_tree(plan)
+    def run(self, plan: LogicalPlan, ctx: PlanContext) -> PassResult:
+        rewritten, pushed, residual = _rewrite_tree(
+            plan,
+            scope_stack=ctx.scope_stack,
+        )
         return PassResult(
             plan=rewritten,
             metadata={
@@ -34,14 +38,21 @@ class PredicatePushdownPass(LogicalPass):
         )
 
 
-def _rewrite_tree(plan: LogicalPlan) -> Tuple[LogicalPlan, int, int]:
+def _rewrite_tree(
+    plan: LogicalPlan,
+    *,
+    scope_stack: Sequence[ScopeFrame] = (),
+) -> Tuple[LogicalPlan, int, int]:
     pushed = 0
     residual = 0
     children_updates = {}
     for slot in ("input", "left", "right", "subquery"):
         child = getattr(plan, slot, None)
         if isinstance(child, LogicalPlan):
-            rewritten_child, child_pushed, child_residual = _rewrite_tree(child)
+            rewritten_child, child_pushed, child_residual = _rewrite_tree(
+                child,
+                scope_stack=scope_stack,
+            )
             pushed += child_pushed
             residual += child_residual
             if rewritten_child is not child:
@@ -53,13 +64,20 @@ def _rewrite_tree(plan: LogicalPlan) -> Tuple[LogicalPlan, int, int]:
         else plan
     )
     if isinstance(current, Filter) and isinstance(current.input, PatternMatch):
-        rewritten_filter, local_pushed, local_residual = _push_filter_into_pattern(current)
+        rewritten_filter, local_pushed, local_residual = _push_filter_into_pattern(
+            current,
+            scope_stack=scope_stack,
+        )
         return rewritten_filter, pushed + local_pushed, residual + local_residual
 
     return current, pushed, residual
 
 
-def _push_filter_into_pattern(filter_op: Filter) -> Tuple[LogicalPlan, int, int]:
+def _push_filter_into_pattern(
+    filter_op: Filter,
+    *,
+    scope_stack: Sequence[ScopeFrame] = (),
+) -> Tuple[LogicalPlan, int, int]:
     assert isinstance(filter_op.input, PatternMatch)
     pattern = cast(PatternMatch, filter_op.input)
     conjuncts = _split_conjuncts(filter_op.predicate)
@@ -76,6 +94,9 @@ def _push_filter_into_pattern(filter_op: Filter) -> Tuple[LogicalPlan, int, int]
             expression=conjunct.expression,
             references=_predicate_refs_for_analysis(conjunct, candidate_aliases),
         )
+        if with_barrier_blocks_pushdown(scope_stack, analysis_predicate.references):
+            kept.append(conjunct)
+            continue
         if pattern.optional and is_null_rejecting(analysis_predicate, null_extended_aliases):
             kept.append(conjunct)
             continue

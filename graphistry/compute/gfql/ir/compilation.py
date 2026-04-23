@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, FrozenSet, List, Literal, Optional, Tuple
 
-from graphistry.compute.gfql.ir.bound_ir import BoundIR, SemanticTable
+from graphistry.compute.gfql.ir.bound_ir import BoundIR, ScopeFrame, SemanticTable
 from graphistry.compute.gfql.ir.logical_plan import LogicalPlan
 from graphistry.compute.gfql.ir.query_graph import QueryGraph
 
@@ -80,6 +80,8 @@ class PlanContext:
     indexes: List[IndexDescriptor] = field(default_factory=list)
     backend: BackendCapabilities = field(default_factory=BackendCapabilities)
     config: CompilerConfig = field(default_factory=CompilerConfig)
+    # Pass-visible binder scope metadata for optimization safety checks.
+    scope_stack: Tuple[ScopeFrame, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)

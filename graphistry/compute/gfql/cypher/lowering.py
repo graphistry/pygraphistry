@@ -32,7 +32,7 @@ from graphistry.compute.ast import (
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
-from graphistry.compute.gfql.ir.bound_ir import BoundIR
+from graphistry.compute.gfql.ir.bound_ir import BoundIR, ScopeFrame
 from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.logical_plan import (
     Join as LogicalJoin,
@@ -146,6 +146,7 @@ class CompiledCypherExecutionExtras:
     optional_reentry: bool = False
     scalar_reentry_alias: Optional[str] = None
     scalar_reentry_columns: Tuple[str, ...] = ()
+    scope_stack: Tuple[ScopeFrame, ...] = ()
     logical_plan: Optional[LogicalPlan] = None
     logical_plan_defer_reason: Optional[str] = None
 
@@ -203,6 +204,10 @@ class CompiledCypherQuery:
     @property
     def scalar_reentry_columns(self) -> Tuple[str, ...]:
         return () if self.execution_extras is None else self.execution_extras.scalar_reentry_columns
+
+    @property
+    def scope_stack(self) -> Tuple[ScopeFrame, ...]:
+        return () if self.execution_extras is None else self.execution_extras.scope_stack
 
     @property
     def logical_plan(self) -> Optional[LogicalPlan]:
@@ -303,6 +308,7 @@ def _normalize_execution_extras(
         and execution_extras.optional_reentry is False
         and execution_extras.scalar_reentry_alias is None
         and execution_extras.scalar_reentry_columns == ()
+        and execution_extras.scope_stack == ()
         and execution_extras.logical_plan is None
         and execution_extras.logical_plan_defer_reason is None
     ):
@@ -337,6 +343,7 @@ def _execution_extras_with(
     optional_reentry: bool = False,
     scalar_reentry_alias: Optional[str] = None,
     scalar_reentry_columns: Tuple[str, ...] = (),
+    scope_stack: Tuple[ScopeFrame, ...] = (),
     logical_plan: Optional[LogicalPlan] = None,
     logical_plan_defer_reason: Optional[str] = None,
 ) -> Optional[CompiledCypherExecutionExtras]:
@@ -351,6 +358,7 @@ def _execution_extras_with(
             optional_reentry=optional_reentry,
             scalar_reentry_alias=scalar_reentry_alias,
             scalar_reentry_columns=scalar_reentry_columns,
+            scope_stack=scope_stack,
             logical_plan=logical_plan,
             logical_plan_defer_reason=logical_plan_defer_reason,
         )
@@ -8364,6 +8372,7 @@ def _attach_logical_plan_route(
             optional_reentry=result.optional_reentry,
             scalar_reentry_alias=result.scalar_reentry_alias,
             scalar_reentry_columns=result.scalar_reentry_columns,
+            scope_stack=result.scope_stack,
             logical_plan=effective_logical_plan,
             logical_plan_defer_reason=effective_defer_reason,
         ),
@@ -8430,6 +8439,7 @@ def compile_cypher_query(
         compiled_bindings = ()
     logical_plan: Optional[LogicalPlan] = None
     logical_plan_defer_reason: Optional[str] = None
+    _bound_scope_stack: Tuple[ScopeFrame, ...] = ()
 
     def _attach_graph_context(result: CompiledCypherQuery) -> CompiledCypherQuery:
         out = result
@@ -8437,6 +8447,22 @@ def compile_cypher_query(
             out = result
         else:
             out = replace(result, graph_bindings=compiled_bindings, use_ref=_use_ref)
+        out = replace(
+            out,
+            execution_extras=_execution_extras_with(
+                out,
+                connected_optional_match=out.connected_optional_match,
+                connected_match_join=out.connected_match_join,
+                query_graph=out.query_graph,
+                start_nodes_query=out.start_nodes_query,
+                optional_reentry=out.optional_reentry,
+                scalar_reentry_alias=out.scalar_reentry_alias,
+                scalar_reentry_columns=out.scalar_reentry_columns,
+                scope_stack=_bound_scope_stack,
+                logical_plan=out.logical_plan,
+                logical_plan_defer_reason=out.logical_plan_defer_reason,
+            ),
+        )
         return _attach_logical_plan_route(
             out,
             logical_plan=logical_plan,
@@ -8452,6 +8478,7 @@ def compile_cypher_query(
     # Re-bind after normalization so scope and semantic metadata reflect the
     # lowered query shape consumed by downstream lowering decisions.
     bound_ir = FrontendBinder().bind(query, PlanContext())
+    _bound_scope_stack = tuple(bound_ir.scope_stack)
     bound_context = _build_bound_lowering_context(bound_ir=bound_ir, params=params)
     params = bound_context.params
     _reject_unsupported_where_expr_forms(query)
