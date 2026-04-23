@@ -123,7 +123,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: release-evidence-${{ github.run_id }}
-          path: .
+          path: dist
+
+      - name: Verify dist files for TestPyPI publish
+        run: |
+          set -euo pipefail
+          ls -al dist
+          ls -1 dist/*.whl dist/*.tar.gz >/dev/null
 
       - name: Publish distribution 📦 to Test PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
@@ -154,7 +160,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: release-evidence-${{ github.run_id }}
-          path: .
+          path: dist
+
+      - name: Verify dist files for PyPI publish
+        run: |
+          set -euo pipefail
+          ls -al dist
+          ls -1 dist/*.whl dist/*.tar.gz >/dev/null
 
       - name: Publish distribution 📦 to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
