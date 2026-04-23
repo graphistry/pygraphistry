@@ -1108,21 +1108,40 @@ def _build_transformer(source: str) -> _TransformerLike:
         def generic_where_clause(self, meta: Any, _items: Sequence[Any]) -> WhereClause:
             span = _span_from_meta(meta)
             expr = self._slice(span)[len("WHERE"):].strip()
-            bare_label_match = _BARE_LABEL_PREDICATE_RE.fullmatch(expr)
-            if bare_label_match is not None:
-                labels = tuple(label for label in bare_label_match.group(2).split(":") if label)
-                return WhereClause(
-                    predicates=(
-                        WherePredicate(
-                            left=LabelRef(alias=bare_label_match.group("alias"), labels=labels, span=span),
-                            op="has_labels",
-                            right=None,
-                            span=span,
-                        ),
-                    ),
-                    expr=None,
-                    span=span,
+            # Lark's ambiguity resolution prefers the generic `expr` path over
+            # the structured `where_predicates` rule, so AND-joined bare label
+            # predicates ("n:Admin AND n:Active") land here rather than in
+            # `where_clause`.  Detect and lift them to structured predicates so
+            # the binder can perform label narrowing without regex.  Any part
+            # that is not a bare label predicate causes a conservative fallback
+            # to raw expr (no narrowing).
+            #
+            # Split on top-level AND using the shared helper (quote/bracket/
+            # paren/backtick-aware, case-insensitive).  It returns None for a
+            # single term — treat that as one part for the label-match check.
+            and_terms = _split_top_level_and_terms(expr)
+            parts = and_terms if and_terms is not None else (expr,)
+            predicates: List[WherePredicate] = []
+            for part in parts:
+                # `fullmatch` anchoring is load-bearing for security: it prevents
+                # fragments of string literals (which contain quotes/spaces) from
+                # matching as bare label predicates.  Relaxing to `match` would
+                # re-introduce the false-positive that motivated issue #1125.
+                m = _BARE_LABEL_PREDICATE_RE.fullmatch(part.strip())
+                if m is None:
+                    predicates = []
+                    break
+                labels = tuple(label for label in m.group(2).split(":") if label)
+                predicates.append(
+                    WherePredicate(
+                        left=LabelRef(alias=m.group("alias"), labels=labels, span=span),
+                        op="has_labels",
+                        right=None,
+                        span=span,
+                    )
                 )
+            if predicates:
+                return WhereClause(predicates=tuple(predicates), expr=None, span=span)
             return WhereClause(predicates=(), expr=ExpressionText(text=expr, span=span), span=span)
 
         def unwind_clause(self, meta: Any, items: Sequence[Any]) -> UnwindClause:

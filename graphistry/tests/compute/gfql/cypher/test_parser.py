@@ -16,6 +16,7 @@ from graphistry.compute.gfql.cypher import (
     PropertyRef,
     RelationshipPattern,
     CypherUnionQuery,
+    WherePredicate,
     WherePatternPredicate,
     parse_cypher,
 )
@@ -356,6 +357,61 @@ def test_parse_where_clause() -> None:
     assert left1.alias == "b"
     assert left1.property == "score"
     assert pred1.op == ">="
+
+
+def test_parse_where_and_label_predicates_produces_structured_ast() -> None:
+    # AND-joined bare label predicates must land in WhereClause.predicates (not .expr)
+    # because Lark routes them to generic_where_clause via ambiguity resolution.
+    parsed = _parse_query("MATCH (n) WHERE n:Admin AND n:Active RETURN n")
+
+    assert parsed.where is not None
+    assert parsed.where.expr is None
+    assert len(parsed.where.predicates) == 2
+    p0, p1 = parsed.where.predicates
+    assert isinstance(p0, WherePredicate) and isinstance(p0.left, LabelRef)
+    assert p0.op == "has_labels"
+    assert p0.left.alias == "n"
+    assert set(p0.left.labels) == {"Admin"}
+    assert isinstance(p1, WherePredicate) and isinstance(p1.left, LabelRef)
+    assert p1.left.alias == "n"
+    assert set(p1.left.labels) == {"Active"}
+
+
+def test_parse_where_single_label_predicate_produces_structured_ast() -> None:
+    parsed = _parse_query("MATCH (n) WHERE n:Admin RETURN n")
+
+    assert parsed.where is not None
+    assert parsed.where.expr is None
+    assert len(parsed.where.predicates) == 1
+    p = parsed.where.predicates[0]
+    assert isinstance(p, WherePredicate) and isinstance(p.left, LabelRef)
+    assert p.op == "has_labels"
+    assert p.left.alias == "n"
+    assert set(p.left.labels) == {"Admin"}
+
+
+def test_parse_where_non_label_expression_produces_raw_expr() -> None:
+    # Non-label WHERE expressions land through a different grammar path
+    # (`where_predicates` or raw expr); the contract under review is that
+    # `generic_where_clause` never synthesizes fake has_labels predicates
+    # from non-label text.  Assert no has_labels predicate is present.
+    parsed = _parse_query("MATCH (n) WHERE n.name = 'alice' RETURN n")
+
+    assert parsed.where is not None
+    assert all(
+        not (isinstance(p, WherePredicate) and p.op == "has_labels")
+        for p in parsed.where.predicates
+    )
+
+
+def test_parse_where_xor_label_expression_stays_as_raw_expr() -> None:
+    # XOR is not handled by generic_where_clause AND-split; must stay in .expr.
+    parsed = _parse_query("MATCH (n) WHERE n:Admin XOR n:Active RETURN n")
+
+    assert parsed.where is not None
+    assert parsed.where.expr is not None
+    assert "XOR" in parsed.where.expr.text.upper()
+    assert parsed.where.predicates == ()
 
 
 def test_parse_where_null_predicates() -> None:
