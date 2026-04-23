@@ -24,7 +24,7 @@ Run chain remotely and fetch results
    (for example, ``g2.collections(...)``). The GFQL remote/upload APIs do not
    accept collections payloads yet.
 
-Method :meth:`chain_remote <graphistry.compute.ComputeMixin.ComputeMixin.chain_remote>` runs chain remotely and fetched the computed graph
+Method :meth:`chain_remote <graphistry.compute.ComputeMixin.ComputeMixin.chain_remote>` runs chain remotely and fetches the computed graph
 
 - **Chain / List[ASTObject]**: Native GFQL chain syntax (as above).
 - **Cypher string**: Compiled locally, sent as wire-protocol JSON.
