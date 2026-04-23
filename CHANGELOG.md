@@ -20,6 +20,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **CI / OIDC context tightening**: `publish-pypi.yml` now verifies repository/workflow identity via `GITHUB_REPOSITORY` + `GITHUB_WORKFLOW_REF` and enforces release-tag format checks before publish. `DEVELOP.md` now documents the required PyPI Trusted Publisher binding (`repository`, `workflow`, `environment`, and trusted refs) so external OIDC policy stays aligned with workflow constraints.
 
 ### Added
+- **CI / Polars**: Added `test-polars` CI job (Python 3.9–3.14) with a dedicated `test-polars` lockfile profile; `polars` is now a named `setup.py` extra so the test matrix installs and exercises `test_polars.py` on every PR (#1133).
 - **Polars support**: `polars.DataFrame` and `polars.LazyFrame` now work in `plot()`, `materialize_nodes()`, `get_degrees()`, `get_indegrees()`, `get_outdegrees()`, and `hypergraph()`. Polars is an optional dependency — no behavior change when not installed. Upload path uses efficient Arrow conversion (`to_arrow()` with schema-metadata stripping and memoization); compute/hypergraph paths coerce to pandas at entry. `LazyFrame` is materialized via `.collect()` at each boundary. Adds `test_polars.py` with 17 tests; skips gracefully when polars is absent (#1133).
 
 ### Fixed

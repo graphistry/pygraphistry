@@ -148,7 +148,7 @@ def maybe_polars():
         import polars
         return polars
     except ImportError:
-        pass
+        1
     except RuntimeError:
         logger.warning('Runtime error importing polars', exc_info=True)
     return None
@@ -2875,7 +2875,7 @@ class PlotterBase(Plottable):
 
     def _table_to_pandas(self, table) -> Optional[pd.DataFrame]:
         """
-            pandas | arrow | dask | cudf | dask_cudf => pandas
+            pandas | arrow | dask | cudf | dask_cudf | polars | spark => pandas
         """
 
         if table is None:
@@ -2942,7 +2942,7 @@ class PlotterBase(Plottable):
 
     def _table_to_arrow(self, table: Any, memoize: bool = True, validate_mode: ValidationMode = 'autofix', emit_warnings: bool = True) -> Optional[pa.Table]:  # noqa: C901
         """
-            pandas | arrow | dask | cudf | dask_cudf => arrow
+            pandas | arrow | dask | cudf | dask_cudf | polars | spark => arrow
 
             dask/dask_cudf convert to pandas/cudf
 
@@ -3055,6 +3055,8 @@ class PlotterBase(Plottable):
             return self._table_to_arrow(df, memoize, validate_mode, emit_warnings)
 
         if not (maybe_polars() is None) and isinstance(table, (maybe_polars().DataFrame, maybe_polars().LazyFrame)):
+            # validate_mode and emit_warnings are not applied for polars input: polars frames are
+            # strictly typed so mixed-type columns cannot exist, making validation a no-op here.
             if isinstance(table, maybe_polars().LazyFrame):
                 table = table.collect()
             hashed = None
