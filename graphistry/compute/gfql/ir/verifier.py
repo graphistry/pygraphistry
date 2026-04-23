@@ -13,6 +13,7 @@ from typing import Iterator, List, Set, Tuple
 
 from graphistry.compute.gfql.ir.compilation import CompilerError
 from graphistry.compute.gfql.ir.logical_plan import (
+    CHILD_SLOTS,
     Filter,
     IndexScan,
     LogicalPlan,
@@ -25,9 +26,6 @@ from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, ListType, 
 # ---------------------------------------------------------------------------
 # Internal constants
 # ---------------------------------------------------------------------------
-
-# Child-slot attribute names that may hold a child LogicalPlan (or None).
-_CHILD_SLOTS = ("input", "left", "right", "subquery")
 
 # All concrete LogicalType subtypes for isinstance checks (Union alias can't be used).
 _LOGICAL_TYPES = (NodeRef, EdgeRef, ScalarType, PathType, ListType)
@@ -43,7 +41,7 @@ _MISSING = object()
 def _children(op: LogicalPlan) -> list[object]:
     """Return all child-slot values for *op* (may include None)."""
     kids: list[object] = []
-    for attr in _CHILD_SLOTS:
+    for attr in CHILD_SLOTS:
         val = getattr(op, attr, _MISSING)
         if val is not _MISSING:
             kids.append(val)
@@ -133,7 +131,7 @@ def verify(plan: LogicalPlan) -> list[CompilerError]:
         # ------------------------------------------------------------------
         # Invariant 2: Dangling references
         # ------------------------------------------------------------------
-        for attr in _CHILD_SLOTS:
+        for attr in CHILD_SLOTS:
             val = getattr(op, attr, _MISSING)
             if val is _MISSING:
                 continue

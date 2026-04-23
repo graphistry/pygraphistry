@@ -10,6 +10,7 @@ from graphistry.compute.gfql.ir.logical_plan import (
     Aggregate,
     AntiSemiApply,
     Apply,
+    CHILD_SLOTS,
     Distinct,
     EdgeScan,
     Filter,
@@ -188,7 +189,7 @@ class PhysicalPlanner:
 
     @staticmethod
     def _children(node: LogicalPlan) -> Iterable[LogicalPlan]:
-        for attr in ("input", "left", "right", "subquery"):
+        for attr in CHILD_SLOTS:
             child = getattr(node, attr, None)
             if isinstance(child, LogicalPlan):
                 yield child
