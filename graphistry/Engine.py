@@ -166,6 +166,8 @@ def df_to_engine(df, engine: Engine):
             from pyspark.sql import DataFrame as SparkDF
             if isinstance(df, SparkDF):
                 return df.toPandas()
+        # dask_cudf must be checked before dask: 'dask' appears in 'dask_cudf.core' so
+        # reversing the order would incorrectly route dask_cudf frames into the dask branch.
         if 'dask_cudf' in type_module:
             import dask_cudf
             if isinstance(df, dask_cudf.DataFrame):
@@ -207,6 +209,8 @@ def df_concat(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.concat
+    elif engine == Engine.DASK:
+        raise NotImplementedError("DASK is an input format, not a compute engine — use engine='auto' or engine='pandas'")
     raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 
@@ -420,7 +424,7 @@ def s_na(engine: Engine):
     elif engine == Engine.CUDF:
         # cuDF doesn't have pd.NA; None works for both but explicit is clearer
         return None
-    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}. DASK is an input format — coerce to pandas/cudf first.')
 
 
 def safe_map_series(series: DataframeLike, mapping: Union[dict, pd.Series, DataframeLike]) -> DataframeLike:
