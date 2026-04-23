@@ -78,6 +78,17 @@ jobs:
         with:
           python-version: '3.8'
 
+      - name: Normalize version for TestPyPI dispatch publishes
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.release_mode == 'test'
+        run: |
+          set -euo pipefail
+          synthetic_version="0.0.dev${GITHUB_RUN_ID}"
+          git tag -f "${synthetic_version}" "${GITHUB_SHA}"
+          echo "Using synthetic TestPyPI version: ${synthetic_version}"
+          git describe --tags --dirty --always --long
+
       - name: Install pypa/build
         run: >-
           python -m pip install -e .[build]

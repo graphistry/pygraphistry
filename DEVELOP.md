@@ -141,7 +141,7 @@ GPU tests can also be run locally via `./docker/test-gpu-local.sh` .
 	- Auto-triggers on tag push
 	- If manually triggering (`workflow_dispatch`), choose `release_mode`:
 	  - `evidence`: build + SBOM + provenance + evidence artifacts only (no publish)
-	  - `test`: includes TestPyPI publish, skips PyPI
+	  - `test`: includes TestPyPI publish, skips PyPI (uses synthetic runner-local version `0.0.dev<run_id>` to avoid local-version upload rejection)
 	  - `release`: TestPyPI + PyPI publish (restricted to `master`, with `pypi-release` approval)
 	- Do not rerun publish for a version that is already on PyPI (duplicate-file uploads are rejected)
 	- Verify version appears on PyPI: `curl -s https://pypi.org/pypi/graphistry/json | jq -r '.info.version'`
