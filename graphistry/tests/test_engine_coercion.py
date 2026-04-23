@@ -556,6 +556,69 @@ class TestCombineStepsEdgeCases(NoAuthTestCase):
         self.assertIn("start", result._nodes.columns)
 
 
+class TestDbgDf(NoAuthTestCase):
+    """Unit tests for dbg_df() — avoids __repr__ to prevent RAPIDS 25.x SIGFAULT."""
+
+    def test_none(self):
+        from graphistry.compute.dataframe_utils import dbg_df
+        self.assertEqual(dbg_df(None), 'None')
+
+    def test_pandas_dataframe(self):
+        from graphistry.compute.dataframe_utils import dbg_df
+        self.assertEqual(dbg_df(pd.DataFrame({"a": [1, 2, 3]})), 'DataFrame[3]')
+
+    def test_arrow_table(self):
+        from graphistry.compute.dataframe_utils import dbg_df
+        self.assertEqual(dbg_df(pa.table({"a": [1, 2]})), 'Table[2]')
+
+    def test_object_without_len(self):
+        from graphistry.compute.dataframe_utils import dbg_df
+
+        class NoLen:
+            pass
+        self.assertEqual(dbg_df(NoLen()), 'NoLen')
+
+
+class TestSNa(NoAuthTestCase):
+    """Unit tests for s_na() — engine-appropriate NA/null value for DataFrame assignment."""
+
+    def test_pandas_returns_pd_na(self):
+        from graphistry.Engine import s_na
+        self.assertIs(s_na(Engine.PANDAS), pd.NA)
+
+    @unittest.skipUnless(HAS_CUDF, "cuDF not installed")
+    def test_cudf_returns_none(self):
+        from graphistry.Engine import s_na
+        self.assertIsNone(s_na(Engine.CUDF))
+
+    def test_dask_raises(self):
+        from graphistry.Engine import s_na
+        with self.assertRaises(ValueError):
+            s_na(Engine.DASK)
+
+
+class TestDfToEngineDask(NoAuthTestCase):
+    """Tests for df_to_engine() targeting Engine.DASK."""
+
+    @unittest.skipUnless(HAS_DASK, "dask not installed")
+    def test_pandas_to_dask(self):
+        result = df_to_engine(EDGES_PD, Engine.DASK)
+        self.assertIsInstance(result, dd.DataFrame)
+        self.assertEqual(result.compute()["src"].tolist(), ["a", "b"])
+
+    @unittest.skipUnless(HAS_DASK, "dask not installed")
+    def test_arrow_to_dask(self):
+        result = df_to_engine(EDGES_PA, Engine.DASK)
+        self.assertIsInstance(result, dd.DataFrame)
+        self.assertEqual(result.compute()["src"].tolist(), ["a", "b"])
+
+    @unittest.skipUnless(HAS_DASK, "dask not installed")
+    def test_dask_identity(self):
+        ddf = dd.from_pandas(EDGES_PD, npartitions=1)
+        result = df_to_engine(ddf, Engine.DASK)
+        self.assertIs(result, ddf)
+
+
 class TestChainCoercion(NoAuthTestCase):
     """chain() and gfql() must accept non-pandas inputs (coercing at the boundary)."""
 
