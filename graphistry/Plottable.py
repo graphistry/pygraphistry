@@ -429,7 +429,7 @@ class Plottable(Protocol):
         edge_query: Optional[str] = None,
         return_as_wave_front: bool = False,
         target_wave_front: Optional[pd.DataFrame] = None,
-        engine: Any = 'auto'
+        engine: EngineAbstractType = 'auto'
     ) -> 'Plottable':
         ...
 

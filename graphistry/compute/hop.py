@@ -199,7 +199,7 @@ def hop(self: Plottable,
         destination_node_match = None
 
     g2 = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
-    logger.debug('materialized node/eddge types: %s, %s', type(g2._nodes), type(g2._edges))
+    logger.debug('materialized node/edge types: %s, %s', type(g2._nodes), type(g2._edges))
 
     if g2._node is None:
         raise ValueError('Node binding cannot be None, please set g._node via bind() or nodes()')
@@ -816,15 +816,17 @@ def hop(self: Plottable,
         return loop_nodes | {node_id for node_id in degrees if node_id not in removed}
 
     if self._nodes is not None:
-        logger.debug('~~~~~~~~~~ NODES HYDRATION ~~~~~~~~~~~')
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug('~~~~~~~~~~ NODES HYDRATION ~~~~~~~~~~~')
         rich_nodes = self._nodes
         if target_wave_front is not None:
             rich_nodes = concat([rich_nodes, target_wave_front], ignore_index=True, sort=False).drop_duplicates(subset=[node_col])
-        logger.debug('rich_nodes available for inner merge: %s', dbg_df(rich_nodes))
-        logger.debug('target_wave_front: %s', dbg_df(target_wave_front))
-        logger.debug('matches_nodes: %s', dbg_df(matches_nodes))
-        logger.debug('wave_front: %s', dbg_df(wave_front))
-        logger.debug('self._nodes: %s', dbg_df(self._nodes))
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug('rich_nodes available for inner merge: %s', dbg_df(rich_nodes))
+            logger.debug('target_wave_front: %s', dbg_df(target_wave_front))
+            logger.debug('matches_nodes: %s', dbg_df(matches_nodes))
+            logger.debug('wave_front: %s', dbg_df(wave_front))
+            logger.debug('self._nodes: %s', dbg_df(self._nodes))
 
         base_nodes = matches_nodes if matches_nodes is not None else wave_front[:0]
 
