@@ -14,7 +14,7 @@ future verifier extensions:
 """
 from __future__ import annotations
 
-from typing import FrozenSet, List
+from typing import FrozenSet, Sequence
 
 from graphistry.compute.gfql.ir.bound_ir import ScopeFrame
 from graphistry.compute.gfql.ir.types import BoundPredicate
@@ -96,7 +96,7 @@ def is_null_safe(
 # ---------------------------------------------------------------------------
 
 def with_barrier_blocks_pushdown(
-    scope_stack: List[ScopeFrame],
+    scope_stack: Sequence[ScopeFrame],
     predicate_refs: FrozenSet[str],
 ) -> bool:
     """Return True if a WITH boundary in *scope_stack* blocks backward pushdown.

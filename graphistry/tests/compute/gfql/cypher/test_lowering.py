@@ -740,6 +740,14 @@ def test_compiled_query_sets_logical_plan_route_for_covered_shape() -> None:
     assert compiled.logical_plan_defer_reason is None
 
 
+def test_compiled_query_threads_bound_scope_stack_for_runtime_passes() -> None:
+    compiled = _compile_query("MATCH (n:Person) RETURN n")
+    assert compiled.scope_stack
+    assert compiled.scope_stack[0].origin_clause.upper() == "MATCH"
+    assert compiled.scope_stack[-1].origin_clause.upper() == "RETURN"
+    assert "n" in compiled.scope_stack[-1].visible_vars
+
+
 def test_compiled_query_sets_logical_plan_route_for_match_scalar_return_shape() -> None:
     compiled = _compile_query("MATCH (n:Person) RETURN 1 AS x")
     assert compiled.logical_plan_route == "planned"
