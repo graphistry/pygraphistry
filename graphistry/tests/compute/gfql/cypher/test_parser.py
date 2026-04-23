@@ -391,11 +391,14 @@ def test_parse_where_single_label_predicate_produces_structured_ast() -> None:
 
 
 def test_parse_where_non_label_expression_produces_raw_expr() -> None:
-    # Non-label WHERE expressions must land in WhereClause.expr, not .predicates.
+    # Non-label WHERE expressions land through a different grammar path
+    # (`where_predicates` or raw expr); the contract under review is that
+    # `generic_where_clause` never synthesizes fake has_labels predicates
+    # from non-label text.  Assert no has_labels predicate is present.
     parsed = _parse_query("MATCH (n) WHERE n.name = 'alice' RETURN n")
 
     assert parsed.where is not None
-    assert parsed.where.predicates == () or all(
+    assert all(
         not (isinstance(p, WherePredicate) and p.op == "has_labels")
         for p in parsed.where.predicates
     )

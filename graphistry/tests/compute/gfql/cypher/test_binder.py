@@ -415,6 +415,41 @@ def test_binder_label_narrowing_multi_alias_and_conjunction() -> None:
     assert m_var.logical_type.labels == frozenset({"User"})
 
 
+def test_binder_label_narrowing_mixed_label_and_property_predicate() -> None:
+    # "n:Admin AND n.prop = 1" — one label part, one property part. The
+    # conservative policy is no narrowing (either all parts are labels or
+    # none narrow).  This test locks the all-or-nothing invariant so that a
+    # refactor cannot silently narrow the label half while dropping the
+    # property predicate from the bound expression.
+    query = "MATCH (n) WHERE n:Admin AND n.prop = 1 RETURN n"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    n_var = bound.semantic_table.variables["n"]
+    assert isinstance(n_var.logical_type, NodeRef)
+    assert n_var.logical_type.labels == frozenset()
+
+
+def test_binder_label_narrowing_multi_label_per_alias_in_and_conjunction() -> None:
+    # "n:A:B AND n:C" — multi-label per predicate combined with AND.
+    query = "MATCH (n) WHERE n:A:B AND n:C RETURN n"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    n_var = bound.semantic_table.variables["n"]
+    assert isinstance(n_var.logical_type, NodeRef)
+    assert n_var.logical_type.labels == frozenset({"A", "B", "C"})
+
+
+def test_binder_label_narrowing_lowercase_and_conjunction() -> None:
+    # Cypher keywords are case-insensitive (grammar uses "AND"i).  Verify
+    # that lowercase "and" narrows labels just like uppercase.
+    query = "MATCH (n) WHERE n:Admin and n:Active RETURN n"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    n_var = bound.semantic_table.variables["n"]
+    assert isinstance(n_var.logical_type, NodeRef)
+    assert n_var.logical_type.labels == frozenset({"Admin", "Active"})
+
+
 def test_binder_schema_confidence_min_rule_count_and_operand_inheritance() -> None:
     query = (
         "MATCH (n:Person) "

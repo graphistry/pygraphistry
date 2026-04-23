@@ -301,7 +301,6 @@ BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
 """
 
 _BARE_LABEL_PREDICATE_RE = re.compile(r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)((?::[A-Za-z_][A-Za-z0-9_]*)+)$")
-_WHERE_AND_SPLIT_RE = re.compile(r"\bAND\b", re.IGNORECASE)
 _RESERVED_IDENTIFIER_GRAPH = "graph"
 _WHERE_PATTERN_ITEM_RE = re.compile(
     r"\([^)\n]*\)\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\)"
@@ -1116,9 +1115,18 @@ def _build_transformer(source: str) -> _TransformerLike:
             # the binder can perform label narrowing without regex.  Any part
             # that is not a bare label predicate causes a conservative fallback
             # to raw expr (no narrowing).
-            parts = _WHERE_AND_SPLIT_RE.split(expr)
+            #
+            # Split on top-level AND using the shared helper (quote/bracket/
+            # paren/backtick-aware, case-insensitive).  It returns None for a
+            # single term — treat that as one part for the label-match check.
+            and_terms = _split_top_level_and_terms(expr)
+            parts = and_terms if and_terms is not None else (expr,)
             predicates: List[WherePredicate] = []
             for part in parts:
+                # `fullmatch` anchoring is load-bearing for security: it prevents
+                # fragments of string literals (which contain quotes/spaces) from
+                # matching as bare label predicates.  Relaxing to `match` would
+                # re-introduce the false-positive that motivated issue #1125.
                 m = _BARE_LABEL_PREDICATE_RE.fullmatch(part.strip())
                 if m is None:
                     predicates = []
