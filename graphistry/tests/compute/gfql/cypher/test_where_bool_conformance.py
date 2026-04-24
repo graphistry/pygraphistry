@@ -24,8 +24,6 @@ IR boolean-tree migrations with minimal churn.
 """
 from __future__ import annotations
 
-from typing import List
-
 import pytest
 
 from graphistry.compute.gfql.cypher.parser import parse_cypher
@@ -57,7 +55,7 @@ def _bind(cypher: str) -> BoundIR:
     return FrontendBinder().bind(parse_cypher(cypher), PlanContext())
 
 
-def _match_parts(bound: BoundIR) -> List[BoundQueryPart]:
+def _match_parts(bound: BoundIR) -> list[BoundQueryPart]:
     return [p for p in bound.query_parts if p.clause == "MATCH"]
 
 
@@ -212,7 +210,9 @@ class TestPushdownExprShape:
             "n.y = 2",
         )
 
-    # Shape B: AND with parenthesized OR — outer AND splits; inner OR is opaque
+    # Shape B: AND with parenthesized OR — outer AND splits; inner OR is opaque.
+    # The splitter is a standalone utility; this shape raises GFQLSyntaxError in the
+    # parser but is valid input here (splitter operates independently of the parser).
     def test_and_with_paren_or_splits_at_outer_and_only(self) -> None:
         parts = split_top_level_and("n.x = 1 AND (n.y = 2 OR n.z = 3)")
         assert len(parts) == 2
@@ -277,13 +277,10 @@ class TestPushdownExprShape:
         pred = _pred("n.x = 1", frozenset({"n"}))
         assert is_null_rejecting(pred, frozenset({"n"}))
 
-    # Null-rejection: OR expression on optional alias — OR is NOT analyzed
-    # conservatively (null-safe OR True would short-circuit to True), so
-    # the OR form is treated as NOT null-rejecting when it contains no
-    # null-extended alias references — i.e. non-rejecting when refs don't intersect.
-    def test_or_on_non_optional_alias_not_rejecting(self) -> None:
+    # Null-rejection: OR expression on optional alias — conservative: no null-safe form
+    # present, so is_null_rejecting returns True (the function does not analyze OR chains).
+    def test_or_on_optional_alias_is_rejecting(self) -> None:
         pred = _pred("n.y = 2 OR n.z = 3", frozenset({"n"}))
-        # n is optional; OR form → null-rejecting (unknown, conservative)
         assert is_null_rejecting(pred, frozenset({"n"}))
 
     # Null-rejection: IS NULL on optional alias is null-safe (not rejecting)
