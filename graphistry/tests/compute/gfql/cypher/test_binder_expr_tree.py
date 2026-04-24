@@ -202,8 +202,20 @@ def test_e2e_or_where_produces_single_compound_bound_predicate() -> None:
 def test_e2e_pure_and_of_comparables_unchanged() -> None:
     # Routes through where_predicates (structured); expr_tree=None.
     # Two structured WherePredicates → two BoundPredicates as before.
-    exprs = _bind_predicates("MATCH (n) WHERE n.x > 1 AND n.y < 2 RETURN n")
-    assert len(exprs) == 2
+    # Verify the routing invariant directly so a future parser change
+    # that accidentally populates expr_tree on this path is caught,
+    # rather than masked by the count happening to match.
+    from graphistry.compute.gfql.cypher.ast import CypherQuery
+    parsed = parse_cypher("MATCH (n) WHERE n.x > 1 AND n.y < 2 RETURN n")
+    assert isinstance(parsed, CypherQuery)
+    assert parsed.where is not None
+    assert parsed.where.expr_tree is None, (
+        "pure AND of comparables must route through where_predicates, "
+        "not generic_where_clause"
+    )
+    bound = FrontendBinder().bind(parsed, PlanContext())
+    parts = [p for p in bound.query_parts if p.predicates]
+    assert parts and len(parts[0].predicates) == 2
 
 
 def test_e2e_not_where_produces_single_not_bound_predicate() -> None:

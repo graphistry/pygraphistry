@@ -994,6 +994,13 @@ def _boolean_expr_to_text(expr: BooleanExpr) -> str:
 
 
 def _where_predicates(where: WhereClause) -> List[BoundPredicate]:
+    # Routing invariant (parser.py): ``where.predicates`` and
+    # ``where.expr`` / ``where.expr_tree`` are mutually exclusive at the
+    # parse layer.  Structured ``where_predicates`` populates the former
+    # and returns; the generic ``expr`` route populates the latter (and
+    # ``expr_tree`` only fires on it).  We accept all three populated
+    # defensively in case a future parser refactor introduces overlap,
+    # but no current path exercises that combination.
     predicates = [BoundPredicate(expression=str(term)) for term in where.predicates]
     if where.expr_tree is not None:
         # Slice 2 of #1200: emit one BoundPredicate per top-level AND conjunct
