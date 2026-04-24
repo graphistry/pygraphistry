@@ -145,11 +145,38 @@ class WherePatternPredicate:
 WhereTerm = Union[WherePredicate, WherePatternPredicate]
 
 
+BooleanOp = Literal["and", "or", "xor", "not", "atom"]
+
+
+@dataclass(frozen=True)
+class BooleanExpr:
+    """Structural representation of a parsed boolean expression tree.
+
+    Mirrors Lark's ``and_op`` / ``or_op`` / ``xor_op`` / ``not_op`` grammar
+    rules so downstream consumers (binder serialization, predicate
+    pushdown) can walk structure instead of re-parsing expression text.
+
+    Leaf nodes have ``op == "atom"`` and carry the atomic predicate's
+    ``atom_text`` (exact source slice) and ``atom_span``.  Branch nodes
+    have ``op`` in ``{"and", "or", "xor"}`` with both ``left`` and
+    ``right`` set, or ``op == "not"`` with only ``left`` set.  ``span``
+    covers the full subexpression in every case.
+    """
+
+    op: BooleanOp
+    span: SourceSpan
+    left: Optional["BooleanExpr"] = None
+    right: Optional["BooleanExpr"] = None
+    atom_text: Optional[str] = None
+    atom_span: Optional[SourceSpan] = None
+
+
 @dataclass(frozen=True)
 class WhereClause:
     predicates: Tuple[WhereTerm, ...]
     span: SourceSpan
     expr: Optional[ExpressionText] = None
+    expr_tree: Optional[BooleanExpr] = None
 
 
 @dataclass(frozen=True)

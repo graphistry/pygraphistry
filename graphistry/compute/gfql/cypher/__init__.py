@@ -4,6 +4,8 @@ from typing import Any
 import warnings
 
 from .ast import (
+    BooleanExpr,
+    BooleanOp,
     CallClause,
     CypherGraphQuery,
     CypherQuery,
@@ -43,6 +45,8 @@ from .lowering import (
 from .parser import parse_cypher
 
 __all__ = [
+    "BooleanExpr",
+    "BooleanOp",
     "CypherQuery",
     "CypherUnionQuery",
     "CallClause",
