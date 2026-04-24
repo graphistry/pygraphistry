@@ -414,14 +414,12 @@ def test_parse_where_xor_label_expression_stays_as_raw_expr() -> None:
     assert parsed.where.predicates == ()
 
 
-def test_parse_where_and_split_helper_ignores_quoted_and_in_label_clause() -> None:
-    # Integration coverage for split_top_level_and through generic_where_clause.
-    # A label-only AND conjunction routes through generic_where_clause, which
-    # calls split_top_level_and.  Even if a quoted AND is introduced via a
-    # string alias (not valid Cypher but used here to exercise the helper's
-    # quote-awareness at the cypher-parse boundary), the helper splits only on
-    # top-level ANDs.  We simply re-verify the baseline AND-split behavior the
-    # helper guarantees for label-only WHEREs.
+def test_parse_where_triple_and_label_conjunction_through_generic_where_clause() -> None:
+    # End-to-end coverage that a triple-AND bare-label WHERE still routes
+    # through ``generic_where_clause`` and is lifted into structured
+    # ``WhereClause.predicates`` by the shared ``split_top_level_and``
+    # helper (see graphistry/compute/gfql/expr_split.py).  Quote-awareness
+    # of the helper is covered directly by ``test_expr_split.py``.
     parsed = _parse_query("MATCH (n) WHERE n:Admin AND n:Active AND n:Super RETURN n")
 
     assert parsed.where is not None
