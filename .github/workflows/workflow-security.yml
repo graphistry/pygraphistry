@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 env:
-  PIP_COOLDOWN_DAYS: "6"
+  UV_EXCLUDE_NEWER: "6 days"
 
 jobs:
   actionlint:
@@ -64,8 +64,8 @@ jobs:
           persist-credentials: false
       - name: Install zizmor
         run: |
-          cutoff="$(date -u -d "${PIP_COOLDOWN_DAYS} days ago" +%Y-%m-%dT%H:%M:%SZ)"
-          python3 -m pip install --disable-pip-version-check --no-cache-dir --upgrade zizmor --uploaded-prior-to "${cutoff}"
+          python3 -m pip install --disable-pip-version-check --no-cache-dir --no-deps "uv==0.11.3"
+          UV_SYSTEM_PYTHON=1 uv pip install --upgrade zizmor
       - name: Run zizmor (high severity gate)
         run: |
           zizmor --format=github --no-progress --config .github/zizmor.yml --min-severity high .github/workflows/*.yml
