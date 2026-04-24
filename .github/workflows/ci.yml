@@ -891,6 +891,48 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/test-graphviz.sh
 
+  test-polars:
+    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
+    if: ${{ success() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    strategy:
+      matrix:
+        python-version: [3.9, '3.10', 3.11, 3.12, '3.13', '3.14']
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Install Python dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-polars-py${{ matrix.python-version }}.lock
+        uv pip install -e . --no-deps
+
+    - name: Polars tests
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-polars.sh
+
   test-core-umap:
     needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
     # Inherit condition from test-minimal-python
@@ -1220,7 +1262,7 @@ jobs:
     - name: Run Spark tests
       run: |
         source pygraphistry/bin/activate
-        python -B -m pytest graphistry/tests/test_df_types.py -v -k spark
+        python -B -m pytest graphistry/tests/compute/test_df_types.py -v -k spark
 
 
   test-neo4j:

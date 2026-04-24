@@ -83,21 +83,22 @@ class DFSamePathExecutor:
         return state.pruned_edges[edge_idx] if state is not None and edge_idx in state.pruned_edges else self.forward_steps[edge_idx]._edges
 
     def run(self) -> Plottable:
+        mode = os.environ.get(_CUDF_MODE_ENV, "auto").lower()
+        if self.inputs.engine == Engine.CUDF:
+            cudf_available = True
+            try:
+                import cudf  # type: ignore  # noqa: F401
+            except Exception:
+                cudf_available = False
+            if not cudf_available:
+                if mode == "strict":
+                    raise RuntimeError(
+                        "cuDF engine requested with strict mode but cudf is unavailable")
+                # auto mode: fall back to pandas transparently
+                self.inputs = dataclass_replace(self.inputs, engine=Engine.PANDAS)
+        # Collect OTel attrs after engine fallback so gfql.engine reflects actual execution engine
         attrs = self._otel_attrs() if otel_enabled() else None
         with otel_span("gfql.df_executor.run", attrs=attrs):
-            mode = os.environ.get(_CUDF_MODE_ENV, "auto").lower()
-            if self.inputs.engine == Engine.CUDF:
-                cudf_available = True
-                try:
-                    import cudf  # type: ignore  # noqa: F401
-                except Exception:
-                    cudf_available = False
-                if not cudf_available:
-                    if mode == "strict":
-                        raise RuntimeError(
-                            "cuDF engine requested with strict mode but cudf is unavailable")
-                    # auto mode: fall back to pandas transparently
-                    self.inputs = dataclass_replace(self.inputs, engine=Engine.PANDAS)
             self._forward()
             if mode == "oracle":
                 return self._unsafe_run_test_only_oracle()

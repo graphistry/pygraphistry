@@ -4,7 +4,7 @@
 
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from typing_extensions import Literal
-from .Engine import Engine, EngineAbstractType, DataframeLike, DataframeLocalLike, resolve_engine
+from .Engine import Engine, EngineAbstractType, DataframeLike, DataframeLocalLike, resolve_engine, df_to_engine
 import numpy as np, pandas as pd, pyarrow as pa, sys
 from .util import setup_logger
 logger = setup_logger(__name__)
@@ -817,17 +817,9 @@ def hypergraph(
         engine_resolved = resolve_engine(engine, raw_events)
     else:
         engine_resolved = engine
-    # Coerce input-format types (Arrow, Spark) to the resolved engine's native type
+    # Coerce input-format types (Arrow, Spark, Polars, dask) to the resolved engine's native type
     if raw_events is not None and engine_resolved == Engine.PANDAS and not isinstance(raw_events, pd.DataFrame):
-        if isinstance(raw_events, pa.Table):
-            raw_events = raw_events.to_pandas()
-        else:
-            try:
-                from pyspark.sql import DataFrame as SparkDataFrame
-                if isinstance(raw_events, SparkDataFrame):
-                    raw_events = raw_events.toPandas()
-            except ImportError:
-                pass
+        raw_events = df_to_engine(raw_events, Engine.PANDAS)
 
     defs = HyperBindings(**opts)
     entity_types = [i for i in screen_entities(raw_events, entity_types, defs) if i != defs.event_id]
