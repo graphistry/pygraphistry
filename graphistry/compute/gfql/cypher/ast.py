@@ -145,11 +145,57 @@ class WherePatternPredicate:
 WhereTerm = Union[WherePredicate, WherePatternPredicate]
 
 
+BooleanOp = Literal["and", "or", "xor", "not", "atom"]
+
+
+@dataclass(frozen=True)
+class BooleanExpr:
+    """Structural representation of a parsed boolean expression tree.
+
+    Mirrors Lark's ``and_op`` / ``or_op`` / ``xor_op`` / ``not_op`` grammar
+    rules so downstream consumers (binder serialization, predicate
+    pushdown) can walk structure instead of re-parsing expression text.
+
+    Leaf nodes have ``op == "atom"`` and carry the atomic predicate's
+    ``atom_text`` (exact source slice) and ``atom_span``.  Branch nodes
+    have ``op`` in ``{"and", "or", "xor"}`` with both ``left`` and
+    ``right`` set, or ``op == "not"`` with only ``left`` set.  ``span``
+    covers the full subexpression in every case.
+    """
+
+    op: BooleanOp
+    span: SourceSpan
+    left: Optional["BooleanExpr"] = None
+    right: Optional["BooleanExpr"] = None
+    atom_text: Optional[str] = None
+    atom_span: Optional[SourceSpan] = None
+
+
 @dataclass(frozen=True)
 class WhereClause:
+    """Parsed WHERE clause.
+
+    Field coexistence rules:
+
+    - **Structured path**: ``predicates`` populated, ``expr`` is ``None``,
+      ``expr_tree`` is ``None``.  Fires when Lark routes through the
+      ``where_predicates`` grammar rule (pure AND conjunctions of
+      comparable predicates) or when ``generic_where_clause`` lifts
+      AND-joined bare label predicates via label narrowing.
+    - **Raw-text path**: ``predicates == ()``, ``expr`` populated with
+      the WHERE body text.  Fires when ``generic_where_clause`` cannot
+      lift to structured predicates.
+    - **Structured-tree path**: ``expr_tree`` populated alongside
+      ``expr`` when the WHERE body contains ``AND`` / ``OR`` / ``XOR`` /
+      ``NOT`` operators that Lark captured via ``and_op`` / ``or_op`` /
+      ``xor_op`` / ``not_op``.  ``expr_tree`` is additive — consumers
+      that ignore it see the raw-text path unchanged.
+    """
+
     predicates: Tuple[WhereTerm, ...]
     span: SourceSpan
     expr: Optional[ExpressionText] = None
+    expr_tree: Optional[BooleanExpr] = None
 
 
 @dataclass(frozen=True)

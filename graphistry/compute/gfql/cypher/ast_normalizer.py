@@ -509,6 +509,7 @@ def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQu
         remaining_where = WhereClause(
             predicates=cast(Any, remaining),
             expr=query.where.expr,
+            expr_tree=query.where.expr_tree,
             span=query.where.span,
         )
     extra_match = MatchClause(

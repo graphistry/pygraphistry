@@ -9,6 +9,7 @@ from typing import Any, List, Literal, Optional, Protocol, Sequence, Tuple, Type
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.expr_split import split_top_level_and
 from graphistry.compute.gfql.cypher.ast import (
+    BooleanExpr,
     CallClause,
     CypherGraphQuery,
     CypherLiteral,
@@ -973,6 +974,13 @@ def _build_transformer(source: str) -> _TransformerLike:
         ) -> WhereClause:
             if expr_text.strip() == "":
                 raise _to_syntax_error("Invalid WHERE clause", line=span.line, column=span.column)
+            # Mixed-clause handlers (``where_pattern_and_expr_clause`` and
+            # ``expr_and_where_pattern_clause``) reconstruct ``expr_text``
+            # from the source slice and do not capture Lark's structural
+            # expression tree — so ``expr_tree`` stays unset here even when
+            # ``expr_text`` contains AND/OR/XOR/NOT operators.  Out of scope
+            # for issue #1200 slice 1 (text-only path; tracked for a later
+            # slice alongside full binder migration).
             return WhereClause(
                 predicates=(self._parse_where_pattern_predicate_text(pattern_text, span),),
                 expr=ExpressionText(text=expr_text.strip(), span=span),
@@ -1014,6 +1022,97 @@ def _build_transformer(source: str) -> _TransformerLike:
                 span=span,
             )
 
+        def _wrap_as_boolean_atom(self, operand: Any, enclosing_meta: Any) -> BooleanExpr:
+            """Coerce a parsed expression operand into a ``BooleanExpr`` atom.
+
+            Recursion bottom-out for ``and_op`` / ``or_op`` / ``xor_op`` /
+            ``not_op``.  ``BooleanExpr`` passes through.  Lark ``Tree`` and
+            ``_ExpressionSlice`` operands carry their own span, so we use
+            it to extract the source slice precisely.
+
+            **Known limitation — primitive literal atoms.**  Literal
+            transformers (``true_lit`` / ``false_lit`` / ``null_lit`` /
+            ``number_lit``) return raw Python values without span info.
+            When such a value reaches us as a boolean-operator operand
+            (``WHERE true AND false``), we cannot recover the original
+            source text for that specific operand; we approximate with
+            the enclosing operator's span and ``str(operand)`` (which
+            produces Python-style text like ``"True"`` not Cypher-style
+            ``"true"``).  No current consumer reads ``atom_text`` on
+            literal atoms — the binder is not wired to ``expr_tree`` in
+            this slice.  Accuracy for this path is a follow-up concern
+            tracked in issue #1200; if/when literal transformers gain
+            span-carrying wrappers, this fallback can be removed.
+            """
+            if isinstance(operand, BooleanExpr):
+                return operand
+            if isinstance(operand, _ExpressionSlice):
+                span = operand.span
+                text = operand.text
+            else:
+                operand_meta = getattr(operand, "meta", None)
+                if operand_meta is None:
+                    # Primitive literal — see docstring caveat.
+                    span = _span_from_meta(enclosing_meta)
+                    text = str(operand)
+                else:
+                    span = _span_from_meta(operand_meta)
+                    text = self._slice(span)
+            return BooleanExpr(
+                op="atom",
+                span=span,
+                atom_text=text,
+                atom_span=span,
+            )
+
+        def _boolean_binary(
+            self,
+            op: Literal["and", "or", "xor"],
+            meta: Any,
+            items: Sequence[Any],
+        ) -> BooleanExpr:
+            if len(items) != 2:
+                raise _to_syntax_error(
+                    f"{op.upper()} expression requires two operands",
+                    line=meta.line, column=meta.column,
+                )
+            return BooleanExpr(
+                op=op,
+                span=_span_from_meta(meta),
+                left=self._wrap_as_boolean_atom(items[0], meta),
+                right=self._wrap_as_boolean_atom(items[1], meta),
+            )
+
+        def grouped_expr(self, _meta: Any, items: Sequence[Any]) -> Any:
+            # ``(expr)`` — passthrough so a parenthesized BooleanExpr bubbles
+            # up unchanged to enclosing ``and_op`` / ``or_op`` / ``xor_op`` /
+            # ``not_op`` handlers.  Without this, Lark would wrap the parens
+            # as a ``grouped_expr`` Tree and our ``_wrap_as_boolean_atom``
+            # would collapse the inner structure into a text atom, losing
+            # the nested boolean tree that this PR exists to preserve.
+            return items[0] if len(items) == 1 else items
+
+        def and_op(self, meta: Any, items: Sequence[Any]) -> BooleanExpr:
+            return self._boolean_binary("and", meta, items)
+
+        def or_op(self, meta: Any, items: Sequence[Any]) -> BooleanExpr:
+            return self._boolean_binary("or", meta, items)
+
+        def xor_op(self, meta: Any, items: Sequence[Any]) -> BooleanExpr:
+            return self._boolean_binary("xor", meta, items)
+
+        def not_op(self, meta: Any, items: Sequence[Any]) -> BooleanExpr:
+            if len(items) != 1:
+                raise _to_syntax_error(
+                    "NOT expression requires one operand",
+                    line=meta.line, column=meta.column,
+                )
+            return BooleanExpr(
+                op="not",
+                span=_span_from_meta(meta),
+                left=self._wrap_as_boolean_atom(items[0], meta),
+            )
+
         def where_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
             if len(items) != 1:
                 raise _to_syntax_error("WHERE clause cannot be empty", line=meta.line, column=meta.column)
@@ -1025,9 +1124,21 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("WHERE clause cannot be empty", line=meta.line, column=meta.column)
             return WhereClause(predicates=cast(Any, predicates), expr=None, span=_span_from_meta(meta))
 
-        def generic_where_clause(self, meta: Any, _items: Sequence[Any]) -> WhereClause:
+        def generic_where_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
             span = _span_from_meta(meta)
             expr = self._slice(span)[len("WHERE"):].strip()
+            # Capture Lark's structural expression tree when available so
+            # downstream consumers can walk ``BooleanExpr`` instead of
+            # re-parsing ``ExpressionText``.  Only ``and_op``/``or_op``/
+            # ``xor_op``/``not_op`` produce ``BooleanExpr`` today; atomic
+            # WHERE expressions (single predicate) still route here with
+            # a non-BooleanExpr operand, in which case ``expr_tree``
+            # remains ``None`` — no behavior change for those callers.
+            expr_tree: Optional[BooleanExpr] = (
+                cast(BooleanExpr, items[0])
+                if items and isinstance(items[0], BooleanExpr)
+                else None
+            )
             # Lark's ambiguity resolution prefers the generic `expr` path over
             # the structured `where_predicates` rule, so AND-joined bare label
             # predicates ("n:Admin AND n:Active") land here rather than in
@@ -1062,7 +1173,12 @@ def _build_transformer(source: str) -> _TransformerLike:
                 )
             if predicates:
                 return WhereClause(predicates=tuple(predicates), expr=None, span=span)
-            return WhereClause(predicates=(), expr=ExpressionText(text=expr, span=span), span=span)
+            return WhereClause(
+                predicates=(),
+                expr=ExpressionText(text=expr, span=span),
+                expr_tree=expr_tree,
+                span=span,
+            )
 
         def unwind_clause(self, meta: Any, items: Sequence[Any]) -> UnwindClause:
             if len(items) != 2:
