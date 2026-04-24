@@ -30,7 +30,9 @@ This checks that:
 - the signing identity maps to the expected GitHub repository/workflow publisher
 - cryptographic verification succeeds against the attested file digest
 
-Reference: PyPI docs on consuming attestations and the Integrity API.
+Reference docs:
+- https://docs.pypi.org/attestations/consuming-attestations/
+- https://docs.pypi.org/api/integrity/
 
 ## Retrieve and Inspect SBOM Evidence
 
