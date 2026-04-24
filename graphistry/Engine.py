@@ -82,6 +82,14 @@ def resolve_engine(
         except ImportError:
             pass
 
+        if 'polars' in str(type(g_or_df).__module__):
+            try:
+                import polars as pl
+                if isinstance(g_or_df, (pl.DataFrame, pl.LazyFrame)):
+                    return Engine.PANDAS
+            except ImportError:
+                pass
+
         if 'cudf.core.dataframe' in str(getmodule(g_or_df)):
             has_cudf_dependancy_, _, _ = lazy_cudf_import()
             if has_cudf_dependancy_:
@@ -119,13 +127,13 @@ def _cudf_from_pandas_best_effort(df: pd.DataFrame):
     import cudf
 
     try:
-        return cudf.DataFrame.from_pandas(df)
+        return cudf.from_pandas(df)
     except Exception:
         failed_cols: List[str] = []
-        out_gdf = cudf.DataFrame.from_pandas(df[[]])
+        out_gdf = cudf.from_pandas(df[[]])
         for col in df.columns:
             try:
-                out_gdf[col] = cudf.DataFrame.from_pandas(df[[col]])[col]
+                out_gdf[col] = cudf.from_pandas(df[[col]])[col]
             except Exception:
                 series = df[col]
                 non_null = series.dropna()
@@ -139,13 +147,13 @@ def _cudf_from_pandas_best_effort(df: pd.DataFrame):
                         if all(float(value).is_integer() for value in numeric_values):
                             numeric_series = numeric_series.astype("Int64")
                         numeric_df = pd.DataFrame({col: numeric_series})
-                        out_gdf[col] = cudf.DataFrame.from_pandas(numeric_df)[col]
+                        out_gdf[col] = cudf.from_pandas(numeric_df)[col]
                         continue
                     except Exception:
                         pass
                 failed_cols.append(str(col))
                 string_df = pd.DataFrame({col: series.astype("string")})
-                out_gdf[col] = cudf.DataFrame.from_pandas(string_df)[col]
+                out_gdf[col] = cudf.from_pandas(string_df)[col]
         if failed_cols:
             warnings.warn(
                 "Best-effort pandas->cuDF coercion converted mixed-type columns to string dtype: "
@@ -159,16 +167,49 @@ def df_to_engine(df, engine: Engine):
     if engine == Engine.PANDAS:
         if isinstance(df, pd.DataFrame):
             return df
-        else:
+        if isinstance(df, pa.Table):
             return df.to_pandas()
+        type_module = str(type(df).__module__)
+        if 'pyspark' in type_module:
+            from pyspark.sql import DataFrame as SparkDF
+            if isinstance(df, SparkDF):
+                return df.toPandas()
+        # dask_cudf must be checked before dask: 'dask' appears in 'dask_cudf.core' so
+        # reversing the order would incorrectly route dask_cudf frames into the dask branch.
+        if 'dask_cudf' in type_module:
+            import dask_cudf
+            if isinstance(df, dask_cudf.DataFrame):
+                return df.compute().to_pandas()
+        if 'dask' in type_module:
+            import dask.dataframe as dd
+            if isinstance(df, dd.DataFrame):
+                return df.compute()
+        if 'cudf' in type_module:
+            import cudf
+            if isinstance(df, cudf.DataFrame):
+                return df.to_pandas()
+        if 'polars' in type_module:
+            import polars as pl
+            if isinstance(df, pl.LazyFrame):
+                return df.collect().to_pandas()
+            if isinstance(df, pl.DataFrame):
+                return df.to_pandas()
+        raise ValueError(f'Cannot convert type {type(df)} to pandas')
     elif engine == Engine.CUDF:
         import cudf
         if isinstance(df, cudf.DataFrame):
             return df
         if not isinstance(df, pd.DataFrame):
-            df = df.to_pandas()
+            df = df_to_engine(df, Engine.PANDAS)
         return _cudf_from_pandas_best_effort(df)
-    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+    elif engine == Engine.DASK:
+        import dask.dataframe as dd
+        if isinstance(df, dd.DataFrame):
+            return df
+        if not isinstance(df, pd.DataFrame):
+            df = df_to_engine(df, Engine.PANDAS)
+        return dd.from_pandas(df, npartitions=1)
+    raise ValueError(f'Only engines pandas/cudf/dask supported, got: {engine}')
 
 def df_concat(engine: Engine):
     if engine == Engine.PANDAS:
@@ -176,6 +217,8 @@ def df_concat(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.concat
+    elif engine == Engine.DASK:
+        raise NotImplementedError("DASK is an input format, not a compute engine — use engine='auto' or engine='pandas'")
     raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 
@@ -389,7 +432,7 @@ def s_na(engine: Engine):
     elif engine == Engine.CUDF:
         # cuDF doesn't have pd.NA; None works for both but explicit is clearer
         return None
-    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}. DASK is an input format — coerce to pandas/cudf first.')
 
 
 def safe_map_series(series: DataframeLike, mapping: Union[dict, pd.Series, DataframeLike]) -> DataframeLike:
