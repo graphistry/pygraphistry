@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Tuple, cast
 
-from graphistry.compute.gfql.ir.logical_plan import Apply, Join, LogicalPlan
+from graphistry.compute.gfql.ir.logical_plan import Apply, CHILD_SLOTS, Join, LogicalPlan
 from graphistry.compute.gfql.passes.manager import LogicalPass, PassResult
 
 
@@ -34,8 +34,7 @@ class UnnestApply:
 def _unnest_tree(plan: LogicalPlan) -> Tuple[LogicalPlan, int]:
     count = 0
     children_updates = {}
-    # Exhaustive list of plan-child slot names across all LogicalPlan subclasses (logical_plan.py).
-    for slot in ("input", "left", "right", "subquery"):
+    for slot in CHILD_SLOTS:
         child = getattr(plan, slot, None)
         if isinstance(child, LogicalPlan):
             rewritten_child, child_count = _unnest_tree(child)

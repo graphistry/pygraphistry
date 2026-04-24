@@ -13,11 +13,13 @@ from typing import Iterator, List, Set, Tuple
 
 from graphistry.compute.gfql.ir.compilation import CompilerError
 from graphistry.compute.gfql.ir.logical_plan import (
+    CHILD_SLOTS,
     Filter,
     IndexScan,
     LogicalPlan,
     PatternMatch,
     RowSchema,
+    iter_children,
 )
 from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, ListType, NodeRef, PathType, ScalarType
 
@@ -25,9 +27,6 @@ from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, ListType, 
 # ---------------------------------------------------------------------------
 # Internal constants
 # ---------------------------------------------------------------------------
-
-# Child-slot attribute names that may hold a child LogicalPlan (or None).
-_CHILD_SLOTS = ("input", "left", "right", "subquery")
 
 # All concrete LogicalType subtypes for isinstance checks (Union alias can't be used).
 _LOGICAL_TYPES = (NodeRef, EdgeRef, ScalarType, PathType, ListType)
@@ -39,16 +38,6 @@ _MISSING = object()
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-def _children(op: LogicalPlan) -> list[object]:
-    """Return all child-slot values for *op* (may include None)."""
-    kids: list[object] = []
-    for attr in _CHILD_SLOTS:
-        val = getattr(op, attr, _MISSING)
-        if val is not _MISSING:
-            kids.append(val)
-    return kids
-
 
 def _walk(
     op: LogicalPlan,
@@ -69,12 +58,11 @@ def _walk(
     visited.add(node_id)
     path.add(node_id)
     yield op
-    for child in _children(op):
-        if isinstance(child, LogicalPlan):
-            if id(child) in path:
-                cycle_pairs.append((type(op).__name__, type(child).__name__))
-            else:
-                yield from _walk(child, visited, path, cycle_pairs)
+    for _slot, child in iter_children(op):
+        if id(child) in path:
+            cycle_pairs.append((type(op).__name__, type(child).__name__))
+        else:
+            yield from _walk(child, visited, path, cycle_pairs)
     path.discard(node_id)
 
 
@@ -133,7 +121,7 @@ def verify(plan: LogicalPlan) -> list[CompilerError]:
         # ------------------------------------------------------------------
         # Invariant 2: Dangling references
         # ------------------------------------------------------------------
-        for attr in _CHILD_SLOTS:
+        for attr in CHILD_SLOTS:
             val = getattr(op, attr, _MISSING)
             if val is _MISSING:
                 continue

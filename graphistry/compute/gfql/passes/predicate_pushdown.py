@@ -12,7 +12,7 @@ from typing import Any, FrozenSet, List, Sequence, Tuple, cast
 
 from graphistry.compute.gfql.expr_split import split_top_level_and
 from graphistry.compute.gfql.ir.compilation import PlanContext
-from graphistry.compute.gfql.ir.logical_plan import Filter, LogicalPlan, PatternMatch
+from graphistry.compute.gfql.ir.logical_plan import CHILD_SLOTS, Filter, LogicalPlan, PatternMatch
 from graphistry.compute.gfql.ir.pushdown_safety import is_null_rejecting, with_barrier_blocks_pushdown
 from graphistry.compute.gfql.ir.bound_ir import ScopeFrame
 from graphistry.compute.gfql.ir.types import BoundPredicate
@@ -47,7 +47,7 @@ def _rewrite_tree(
     pushed = 0
     residual = 0
     children_updates = {}
-    for slot in ("input", "left", "right", "subquery"):
+    for slot in CHILD_SLOTS:
         child = getattr(plan, slot, None)
         if isinstance(child, LogicalPlan):
             rewritten_child, child_pushed, child_residual = _rewrite_tree(
