@@ -1057,15 +1057,18 @@ def _build_transformer(source: str, *, allow_where_reparse: bool = True) -> _Tra
                             for term in reparsed_node.predicates
                         )
                     ):
-                        predicates = tuple(
-                            WherePredicate(
-                                left=LabelRef(alias=term.left.alias, labels=term.left.labels, span=span),
-                                op="has_labels",
-                                right=None,
-                                span=span,
+                        predicates_list: List[WherePredicate] = []
+                        for term in cast(Tuple[WherePredicate, ...], reparsed_node.predicates):
+                            label_ref = cast(LabelRef, term.left)
+                            predicates_list.append(
+                                WherePredicate(
+                                    left=LabelRef(alias=label_ref.alias, labels=label_ref.labels, span=span),
+                                    op="has_labels",
+                                    right=None,
+                                    span=span,
+                                )
                             )
-                            for term in cast(Tuple[WherePredicate, ...], reparsed_node.predicates)
-                        )
+                        predicates = tuple(predicates_list)
                         return WhereClause(predicates=predicates, expr=None, span=span)
                 except Exception:
                     # Keep generic expr fallback if sub-parse fails or still
