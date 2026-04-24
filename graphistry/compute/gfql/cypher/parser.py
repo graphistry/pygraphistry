@@ -1046,8 +1046,27 @@ def _build_transformer(source: str, *, allow_where_reparse: bool = True) -> _Tra
                 try:
                     reparsed_tree = _where_clause_parser().parse(clause_text)
                     reparsed_node = _build_transformer(clause_text, allow_where_reparse=False).transform(reparsed_tree)
-                    if isinstance(reparsed_node, WhereClause) and reparsed_node.expr is None and len(reparsed_node.predicates) > 0:
-                        return reparsed_node
+                    if (
+                        isinstance(reparsed_node, WhereClause)
+                        and reparsed_node.expr is None
+                        and len(reparsed_node.predicates) > 0
+                        and all(
+                            isinstance(term, WherePredicate)
+                            and term.op == "has_labels"
+                            and isinstance(term.left, LabelRef)
+                            for term in reparsed_node.predicates
+                        )
+                    ):
+                        predicates = tuple(
+                            WherePredicate(
+                                left=LabelRef(alias=term.left.alias, labels=term.left.labels, span=span),
+                                op="has_labels",
+                                right=None,
+                                span=span,
+                            )
+                            for term in cast(Tuple[WherePredicate, ...], reparsed_node.predicates)
+                        )
+                        return WhereClause(predicates=predicates, expr=None, span=span)
                 except Exception:
                     # Keep generic expr fallback if sub-parse fails or still
                     # resolves to a generic clause.
