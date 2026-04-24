@@ -1262,7 +1262,7 @@ jobs:
     - name: Run Spark tests
       run: |
         source pygraphistry/bin/activate
-        python -B -m pytest graphistry/tests/test_df_types.py -v -k spark
+        python -B -m pytest graphistry/tests/compute/test_df_types.py -v -k spark
 
 
   test-neo4j:

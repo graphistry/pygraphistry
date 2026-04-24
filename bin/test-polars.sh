@@ -10,4 +10,4 @@ set -ex
 python -m pytest --version
 
 python -B -m pytest -vv \
-    graphistry/tests/test_polars.py
+    graphistry/tests/compute/test_polars.py
