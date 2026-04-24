@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Literal, Mapping, Optional, Tuple
+from typing import Any, Dict, FrozenSet, Iterator, List, Literal, Mapping, Optional, Tuple
 
 from graphistry.compute.gfql.ir.types import BoundPredicate, LogicalType
 
@@ -161,21 +161,21 @@ class RowsToGraph(LogicalPlan):
 class Apply(LogicalPlan):
     input: Optional[LogicalPlan] = None
     subquery: Optional[LogicalPlan] = None
-    correlation_vars: frozenset[str] = field(default_factory=frozenset)
+    correlation_vars: FrozenSet[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)
 class SemiApply(LogicalPlan):
     input: Optional[LogicalPlan] = None
     subquery: Optional[LogicalPlan] = None
-    correlation_vars: frozenset[str] = field(default_factory=frozenset)
+    correlation_vars: FrozenSet[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)
 class AntiSemiApply(LogicalPlan):
     input: Optional[LogicalPlan] = None
     subquery: Optional[LogicalPlan] = None
-    correlation_vars: frozenset[str] = field(default_factory=frozenset)
+    correlation_vars: FrozenSet[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)
