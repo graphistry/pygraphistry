@@ -2515,3 +2515,4 @@ Code that looks like `g.edges(some_fn, None, None, some_arg)` should now be like
 
 ### Changed
 - Removed deprecated docker test harness in favor of `docker/` - [#172](https://github.com/graphistry/pygraphistry/pull/172)
+
