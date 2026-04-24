@@ -939,7 +939,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ${{ env.HF_HOME }}
-        key: hf-cache-${{ runner.os }}-v1
+        key: hf-cache-${{ runner.os }}-v2
         restore-keys: |
           hf-cache-${{ runner.os }}-
 
@@ -955,6 +955,7 @@ jobs:
     - name: Warm HF cache (sentence-transformers)
       id: warm-hf
       if: steps['hf-cache'].outputs['cache-hit'] != 'true'
+      continue-on-error: true
       run: |
         mkdir -p "${HF_HOME}"
         source pygraphistry/bin/activate
@@ -1062,7 +1063,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ${{ env.HF_HOME }}
-        key: hf-cache-${{ runner.os }}-v1
+        key: hf-cache-${{ runner.os }}-v2
         restore-keys: |
           hf-cache-${{ runner.os }}-
 

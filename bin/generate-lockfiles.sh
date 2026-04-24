@@ -36,7 +36,7 @@ PROFILE_DEFS=(
     "test-compat-gfql-latest:test:3.14:3.14:--constraint /tmp/pandas-latest.txt"
     "test-graphviz:test,pygraphviz:3.8::"
     "test-umap:test,testai,umap-learn:3.9::--no-emit-package torch"
-    "test-ai:test,testai,ai:3.9::--no-emit-package torch"
+    "test-ai:test,testai,ai:3.9::--no-emit-package torch --constraint /tmp/sentence-transformers-compat.txt"
     "docs:docs:3.10::"
     "build:build:3.8::"
     "tck:test:3.8::"
@@ -61,6 +61,11 @@ fi
 echo "pandas==2.2.3" > /tmp/pandas-legacy.txt
 echo "pandas==2.3.3" > /tmp/pandas-rapids-aligned.txt
 echo "pandas>=3.0.0" > /tmp/pandas-latest.txt
+
+# sentence-transformers 5.4.x moved WordEmbeddings to a new module path; HF-cached models
+# serialised with 5.3.x configs cannot be loaded by 5.4.x, breaking test-ai until tests + cache
+# are updated together.  Pin to the last known-good series.
+echo "sentence-transformers<5.4.0" > /tmp/sentence-transformers-compat.txt
 
 echo "Versions: ${VERSIONS[*]}"
 echo "Profiles: ${PROFILES[*]}"

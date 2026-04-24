@@ -1,7 +1,7 @@
 import logging
-import pandas as pd
 from typing import Any, Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
-from graphistry.Engine import Engine, EngineAbstract, align_shared_column_dtypes, df_concat, df_to_engine, resolve_engine, safe_map_series, safe_row_concat
+from graphistry.Engine import Engine, EngineAbstract, align_shared_column_dtypes, df_concat, df_to_engine, resolve_engine, safe_map_series, safe_row_concat, s_na
+from graphistry.compute.dataframe_utils import dbg_df
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
@@ -326,9 +326,9 @@ def combine_steps(
     if logger.isEnabledFor(logging.DEBUG):
         for (op, g_step) in steps:
             if kind == 'edges':
-                logger.debug('adding edges to concat: %s', g_step._edges[[g_step._source, g_step._destination]])
+                logger.debug('adding edges to concat: %s', dbg_df(g_step._edges))
             else:
-                logger.debug('adding nodes to concat: %s', g_step._nodes[[g_step._node]])
+                logger.debug('adding nodes to concat: %s', dbg_df(g_step._nodes))
 
     logger.debug('combine_steps ops: %s', [op for (op, _) in steps])
 
@@ -374,7 +374,7 @@ def combine_steps(
                         elif next_op.direction == 'reverse':
                             allowed_ids = next_step._edges[next_step._destination]
                         else:  # undirected
-                            allowed_ids = pd.concat(
+                            allowed_ids = df_concat(engine)(
                                 [
                                     next_step._edges[next_step._source],
                                     next_step._edges[next_step._destination],
@@ -399,7 +399,7 @@ def combine_steps(
                 out_df = out_df[~has_na]
             elif has_na.any():
                 tag_cols = [c for c in out_df.columns if c not in [id, 'id'] + hop_cols]
-                has_tag = pd.Series(False, index=out_df.index)
+                has_tag = out_df[id].isin([])  # engine-agnostic all-False boolean Series
                 for col in tag_cols:
                     try:
                         vals = out_df[col].fillna(False)
@@ -412,7 +412,8 @@ def combine_steps(
     g_df = getattr(g, df_fld)
     out_df = safe_merge(out_df, g_df, on=id, how='left', engine=engine)
 
-    logger.debug('COMBINED[%s] >>\n%s', kind, out_df)
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug('COMBINED[%s] >> %s', kind, dbg_df(out_df))
 
     if kind == 'nodes' and label_cols:
         seeds_df = label_steps[0][1]._nodes if label_steps and label_steps[0][1]._nodes is not None else None
@@ -430,7 +431,7 @@ def combine_steps(
                     mask = out_df[id].isin(seed_ids[id])
                     for col in label_cols:
                         if col in out_df.columns:
-                            out_df.loc[mask, col] = pd.NA
+                            out_df[col] = out_df[col].where(~mask, s_na(engine))
         hop_cols = [c for c in out_df.columns if 'hop' in c]
         if hop_cols:
             hop_maps = []
@@ -442,7 +443,7 @@ def combine_steps(
                             hop_maps.append(step_df[[id, hc]])
             hop_maps = [df for df in hop_maps if len(df) > 0]
             if hop_maps:
-                hop_map_df = df_to_engine(df_concat(engine)(hop_maps), resolve_engine(EngineAbstract.AUTO, hop_maps[0]))
+                hop_map_df = df_concat(engine)(hop_maps)
                 for hc in hop_cols:
                     if hc in hop_map_df.columns:
                         hop_map = hop_map_df[[id, hc]].dropna(subset=[hc]).drop_duplicates(subset=[id]).set_index(id)[hc]
@@ -739,6 +740,13 @@ def chain(
         from .execution_context import ExecutionContext
         context = ExecutionContext()
 
+    # Resolve engine from original data BEFORE coercion so GPU mode is preserved end-to-end.
+    # _coerce_input_formats then converts input formats (polars, arrow, spark, dask) to that engine.
+    if isinstance(engine, str):
+        engine = EngineAbstract(engine)
+    from graphistry.compute.ComputeMixin import _coerce_input_formats  # lazy — avoids circular import
+    self = _coerce_input_formats(self, resolve_engine(engine, self))
+
     if policy:
         from graphistry.compute.gfql.call.executor import _thread_local as call_thread_local
         old_policy = getattr(call_thread_local, 'policy', None)
@@ -1001,8 +1009,8 @@ def _chain_impl(
         if logger.isEnabledFor(logging.DEBUG):
             for (i, g_step) in enumerate(g_stack):
                 logger.debug('~' * 10 + '\nstep %s', i)
-                logger.debug('nodes: %s', g_step._nodes)
-                logger.debug('edges: %s', g_step._edges)
+                logger.debug('nodes: %s', dbg_df(g_step._nodes))
+                logger.debug('edges: %s', dbg_df(g_step._edges))
 
         all_astcall = all(isinstance(op, ASTCall) for op in ops)
 
@@ -1101,8 +1109,8 @@ def _chain_impl(
             if logger.isEnabledFor(logging.DEBUG):
                 for (i, g_step) in enumerate(g_stack_reverse):
                     logger.debug('~' * 10 + '\nstep %s', i)
-                    logger.debug('nodes: %s', g_step._nodes)
-                    logger.debug('edges: %s', g_step._edges)
+                    logger.debug('nodes: %s', dbg_df(g_step._nodes))
+                    logger.debug('edges: %s', dbg_df(g_step._edges))
 
             # Phase 3: Materialize final node/edge outputs from pruned steps.
             logger.debug('============ COMBINE NODES ============')
