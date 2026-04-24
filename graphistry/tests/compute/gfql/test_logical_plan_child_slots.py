@@ -5,7 +5,7 @@ physical planner, and rewrite passes (UnnestApply, PredicatePushdownPass).
 """
 from __future__ import annotations
 
-from typing import get_type_hints
+from typing import Union, get_type_hints
 
 from graphistry.compute.gfql.ir.logical_plan import (
     Apply,
@@ -121,34 +121,80 @@ def test_unnest_apply_preserves_sibling_identity_when_one_branch_rewrites() -> N
     assert result.right is right_leaf  # right subtree preserved by identity
 
 
+def _all_logical_plan_subclasses() -> list[type]:
+    """Return every concrete subclass of ``LogicalPlan`` reachable transitively."""
+    seen: list[type] = []
+    stack = list(LogicalPlan.__subclasses__())
+    while stack:
+        cls = stack.pop()
+        if cls in seen:
+            continue
+        seen.append(cls)
+        stack.extend(cls.__subclasses__())
+    return seen
+
+
 def test_child_slots_covers_every_logical_plan_field_of_optional_logical_plan_type() -> None:
-    # Structural enforcement: any LogicalPlan subclass field that has
-    # type ``Optional[LogicalPlan]`` (directly or via Union with None)
-    # must be listed in CHILD_SLOTS.  Guards future subclasses adding
-    # a new child slot without updating the tuple.
-    for subclass in LogicalPlan.__subclasses__() + [
-        cls
-        for parent in LogicalPlan.__subclasses__()
-        for cls in parent.__subclasses__()
-    ]:
+    # Structural enforcement: any ``LogicalPlan`` subclass field whose
+    # resolved type is ``Optional[LogicalPlan]`` (Union with None) must
+    # appear in ``CHILD_SLOTS``.  Guards future subclasses adding a
+    # new child slot without updating the tuple.
+    #
+    # Also asserts every subclass was actually inspected — otherwise a
+    # ``get_type_hints`` failure (e.g. Python 3.8 hitting PEP 585 bare
+    # ``frozenset[str]`` subscripts) would silently skip exactly the
+    # classes (``Apply``, ``SemiApply``, ``AntiSemiApply``) that motivate
+    # this test, turning it into a vacuous pass.
+    subclasses = _all_logical_plan_subclasses()
+    assert len(subclasses) >= 10, (
+        f"expected >=10 LogicalPlan subclasses, found {len(subclasses)}"
+    )
+
+    # Only swallow resolution failures for a specific, expected case
+    # (PEP 585 subscripts on older Pythons).  Any other failure is a
+    # real defect that should surface.
+    checked = 0
+    skipped_for_type_subscript: list[str] = []
+    for subclass in subclasses:
         try:
             hints = get_type_hints(subclass)
-        except Exception:  # pragma: no cover - forward refs etc.
-            continue
-        for fname, ftype in hints.items():
-            origin = getattr(ftype, "__origin__", None)
-            args = getattr(ftype, "__args__", ())
-            if origin is None:
+        except TypeError as exc:
+            if "subscript" in str(exc) or "not subscriptable" in str(exc):
+                skipped_for_type_subscript.append(subclass.__name__)
                 continue
-            # Union[LogicalPlan, None] or Optional[LogicalPlan]
+            raise
+        checked += 1
+        for fname, ftype in hints.items():
+            # Only treat ``Optional[LogicalPlan]`` / ``Union[LogicalPlan, None]``
+            # as a structural child slot.  ``List[LogicalPlan]`` and similar
+            # container-typed fields are out of scope for the CHILD_SLOTS
+            # single-slot model and should not trigger this assertion.
+            if getattr(ftype, "__origin__", None) is not Union:
+                continue
+            args = getattr(ftype, "__args__", ())
             if any(
                 isinstance(arg, type) and issubclass(arg, LogicalPlan)
                 for arg in args
             ):
                 assert fname in CHILD_SLOTS, (
-                    f"{subclass.__name__}.{fname} has LogicalPlan-typed field "
-                    f"but is not in CHILD_SLOTS — update CHILD_SLOTS in logical_plan.py"
+                    f"{subclass.__name__}.{fname} has Optional[LogicalPlan] "
+                    f"type but is not in CHILD_SLOTS — update CHILD_SLOTS "
+                    f"in logical_plan.py"
                 )
+
+    # If PEP 585 subscripts caused skips, require that at least the three
+    # child-carrying Apply-family classes were inspected somewhere in the
+    # run — they are the reason this test exists.  On Python 3.9+ this is
+    # a no-op; on 3.8 it fails loudly rather than silently when the target
+    # classes get skipped.
+    if skipped_for_type_subscript:
+        inspected = {c.__name__ for c in subclasses} - set(skipped_for_type_subscript)
+        for required in ("Apply", "SemiApply", "AntiSemiApply"):
+            assert required in inspected, (
+                f"{required} was skipped due to PEP 585 subscript error; "
+                f"reflective CHILD_SLOTS coverage is incomplete on this runtime. "
+                f"Skipped classes: {skipped_for_type_subscript}"
+            )
 
 
 def test_predicate_pushdown_preserves_parent_identity_when_no_pushdown() -> None:

@@ -19,6 +19,7 @@ from graphistry.compute.gfql.ir.logical_plan import (
     LogicalPlan,
     PatternMatch,
     RowSchema,
+    iter_children,
 )
 from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, ListType, NodeRef, PathType, ScalarType
 
@@ -37,16 +38,6 @@ _MISSING = object()
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-def _children(op: LogicalPlan) -> list[object]:
-    """Return all child-slot values for *op* (may include None)."""
-    kids: list[object] = []
-    for attr in CHILD_SLOTS:
-        val = getattr(op, attr, _MISSING)
-        if val is not _MISSING:
-            kids.append(val)
-    return kids
-
 
 def _walk(
     op: LogicalPlan,
@@ -67,12 +58,11 @@ def _walk(
     visited.add(node_id)
     path.add(node_id)
     yield op
-    for child in _children(op):
-        if isinstance(child, LogicalPlan):
-            if id(child) in path:
-                cycle_pairs.append((type(op).__name__, type(child).__name__))
-            else:
-                yield from _walk(child, visited, path, cycle_pairs)
+    for _slot, child in iter_children(op):
+        if id(child) in path:
+            cycle_pairs.append((type(op).__name__, type(child).__name__))
+        else:
+            yield from _walk(child, visited, path, cycle_pairs)
     path.discard(node_id)
 
 
