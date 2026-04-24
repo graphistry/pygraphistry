@@ -7,6 +7,7 @@ import re
 from typing import Any, List, Literal, Optional, Protocol, Sequence, Tuple, Type, Union, cast
 
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
+from graphistry.compute.gfql.expr_split import split_top_level_and
 from graphistry.compute.gfql.cypher.ast import (
     CallClause,
     CypherGraphQuery,
@@ -473,92 +474,11 @@ def _mixed_where_pattern_expr_error(source: str) -> Optional[GFQLValidationError
     return None
 
 
-def _split_top_level_and_terms(expr: str) -> Optional[Tuple[str, ...]]:
-    terms: list[str] = []
-    term_start = 0
-    paren_depth = 0
-    bracket_depth = 0
-    brace_depth = 0
-    string_quote: Optional[str] = None
-    in_backtick = False
-    i = 0
-    while i < len(expr):
-        ch = expr[i]
-        if string_quote is not None:
-            if ch == "\\":
-                i += 2
-                continue
-            if ch == string_quote:
-                string_quote = None
-            i += 1
-            continue
-        if in_backtick:
-            if ch == "`":
-                in_backtick = False
-            i += 1
-            continue
-        if ch in {"'", '"'}:
-            string_quote = ch
-            i += 1
-            continue
-        if ch == "`":
-            in_backtick = True
-            i += 1
-            continue
-        if ch == "(":
-            paren_depth += 1
-            i += 1
-            continue
-        if ch == ")":
-            paren_depth = max(0, paren_depth - 1)
-            i += 1
-            continue
-        if ch == "[":
-            bracket_depth += 1
-            i += 1
-            continue
-        if ch == "]":
-            bracket_depth = max(0, bracket_depth - 1)
-            i += 1
-            continue
-        if ch == "{":
-            brace_depth += 1
-            i += 1
-            continue
-        if ch == "}":
-            brace_depth = max(0, brace_depth - 1)
-            i += 1
-            continue
-        if (
-            paren_depth == 0
-            and bracket_depth == 0
-            and brace_depth == 0
-            and expr[i:i + 3].upper() == "AND"
-            and (i == 0 or expr[i - 1].isspace())
-            and (i + 3 == len(expr) or expr[i + 3].isspace())
-        ):
-            term = expr[term_start:i].strip()
-            if term == "":
-                return None
-            terms.append(term)
-            i += 3
-            while i < len(expr) and expr[i].isspace():
-                i += 1
-            term_start = i
-            continue
-        i += 1
-    tail = expr[term_start:].strip()
-    if tail == "":
-        return None
-    terms.append(tail)
-    return tuple(terms) if len(terms) > 1 else None
-
-
 def _canonicalize_where_single_pattern_and_expr(source: str) -> Optional[str]:
     for match in _WHERE_CLAUSE_BODY_RE.finditer(source):
         body = match.group("body").strip()
-        terms = _split_top_level_and_terms(body)
-        if terms is None:
+        terms = split_top_level_and(body)
+        if len(terms) <= 1:
             continue
         pattern_indices = [idx for idx, term in enumerate(terms) if _WHERE_PATTERN_SEQUENCE_RE.fullmatch(term) is not None]
         if len(pattern_indices) != 1:
@@ -1117,10 +1037,10 @@ def _build_transformer(source: str) -> _TransformerLike:
             # to raw expr (no narrowing).
             #
             # Split on top-level AND using the shared helper (quote/bracket/
-            # paren/backtick-aware, case-insensitive).  It returns None for a
-            # single term — treat that as one part for the label-match check.
-            and_terms = _split_top_level_and_terms(expr)
-            parts = and_terms if and_terms is not None else (expr,)
+            # paren/backtick-aware, case-insensitive).  An empty result means
+            # malformed input — fall back to the whole expression as a single
+            # term so the label-match check runs uniformly.
+            parts = split_top_level_and(expr) or (expr,)
             predicates: List[WherePredicate] = []
             for part in parts:
                 # `fullmatch` anchoring is load-bearing for security: it prevents

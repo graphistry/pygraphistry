@@ -414,6 +414,25 @@ def test_parse_where_xor_label_expression_stays_as_raw_expr() -> None:
     assert parsed.where.predicates == ()
 
 
+def test_parse_where_triple_and_label_conjunction_through_generic_where_clause() -> None:
+    # End-to-end coverage that a triple-AND bare-label WHERE still routes
+    # through ``generic_where_clause`` and is lifted into structured
+    # ``WhereClause.predicates`` by the shared ``split_top_level_and``
+    # helper (see graphistry/compute/gfql/expr_split.py).  Quote-awareness
+    # of the helper is covered directly by ``test_expr_split.py``.
+    parsed = _parse_query("MATCH (n) WHERE n:Admin AND n:Active AND n:Super RETURN n")
+
+    assert parsed.where is not None
+    assert parsed.where.expr is None
+    assert len(parsed.where.predicates) == 3
+    aliases = [
+        p.left.alias
+        for p in parsed.where.predicates
+        if isinstance(p, WherePredicate) and isinstance(p.left, LabelRef)
+    ]
+    assert aliases == ["n", "n", "n"]
+
+
 def test_parse_where_null_predicates() -> None:
     parsed = _parse_query("MATCH (a)-[r]->(b) WHERE a.deleted IS NULL AND b.name IS NOT NULL RETURN a")
 
