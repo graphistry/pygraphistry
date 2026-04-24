@@ -141,6 +141,29 @@ def test_collections_accepts_wire_protocol_chain():
     ]
 
 
+@pytest.mark.parametrize(
+    "expr_wrapper",
+    [
+        {"chain": [{"type": "Node", "filter_dict": {"kind": "user"}}]},
+        {"gfql": [{"type": "Node", "filter_dict": {"kind": "user"}}]},
+    ],
+)
+def test_collections_accepts_chain_and_gfql_wrapper_keys(expr_wrapper):
+    decoded = decode_collections(
+        collections_url_params({"type": "set", "id": "users", "expr": expr_wrapper})["collections"]
+    )
+    assert decoded == [
+        {
+            "type": "set",
+            "id": "users",
+            "expr": {
+                "type": "gfql_chain",
+                "gfql": [{"type": "Node", "filter_dict": {"kind": "user"}}],
+            },
+        }
+    ]
+
+
 def test_collections_accepts_let_expr():
     dag = graphistry.let({"seed": graphistry.n({"type": "user"})})
     decoded = decode_collections(
