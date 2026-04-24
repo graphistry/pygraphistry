@@ -23,8 +23,7 @@ permissions:
   contents: read
 
 env:
-  # pip >=26 honors this to reject packages uploaded within this window.
-  PIP_EXCLUDE_NEWER: "6 days"
+  UV_EXCLUDE_NEWER: "6 days"
 
 jobs:
   actionlint:
@@ -64,7 +63,11 @@ jobs:
         with:
           persist-credentials: false
       - name: Install zizmor
-        run: python3 -m pip install --disable-pip-version-check --no-cache-dir --upgrade zizmor
+        run: |
+          python3 -m pip install --disable-pip-version-check --no-cache-dir --no-deps "uv==0.11.3"
+          python3 -m venv .venv-zizmor
+          source .venv-zizmor/bin/activate
+          uv pip install --upgrade zizmor
       - name: Run zizmor (high severity gate)
         run: |
-          zizmor --format=github --no-progress --config .github/zizmor.yml --min-severity high .github/workflows/*.yml
+          .venv-zizmor/bin/zizmor --format=github --no-progress --config .github/zizmor.yml --min-severity high .github/workflows/*.yml
