@@ -946,10 +946,10 @@ jobs:
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
-        cutoff="$(date -u -d "6 days ago" +%Y-%m-%dT%H:%M:%SZ)"
         python -m pip install --upgrade pip uv
         uv pip install -r requirements/test-umap-py${{ matrix.python-version }}.lock
-        python -m pip install --uploaded-prior-to "${cutoff}" --no-deps torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
+        # Keep pip for torch +cpu from the PyTorch CPU wheel index: uv cannot resolve this local-version pin.
+        python -m pip install --no-deps torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
         uv pip install -e . --no-deps
 
     - name: Warm HF cache (sentence-transformers)
@@ -1070,10 +1070,10 @@ jobs:
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
-        cutoff="$(date -u -d "6 days ago" +%Y-%m-%dT%H:%M:%SZ)"
         python -m pip install --upgrade pip uv
         uv pip install -r requirements/test-ai-py${{ matrix.python-version }}.lock
-        python -m pip install --uploaded-prior-to "${cutoff}" --no-deps torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
+        # Keep pip for torch +cpu from the PyTorch CPU wheel index: uv cannot resolve this local-version pin.
+        python -m pip install --no-deps torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
         uv pip install -e . --no-deps
         echo "skrub: `pip show skrub | grep Version`"
         echo "pandas: `pip show pandas | grep Version`"
