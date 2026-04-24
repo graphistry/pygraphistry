@@ -173,6 +173,25 @@ class BooleanExpr:
 
 @dataclass(frozen=True)
 class WhereClause:
+    """Parsed WHERE clause.
+
+    Field coexistence rules:
+
+    - **Structured path**: ``predicates`` populated, ``expr`` is ``None``,
+      ``expr_tree`` is ``None``.  Fires when Lark routes through the
+      ``where_predicates`` grammar rule (pure AND conjunctions of
+      comparable predicates) or when ``generic_where_clause`` lifts
+      AND-joined bare label predicates via label narrowing.
+    - **Raw-text path**: ``predicates == ()``, ``expr`` populated with
+      the WHERE body text.  Fires when ``generic_where_clause`` cannot
+      lift to structured predicates.
+    - **Structured-tree path**: ``expr_tree`` populated alongside
+      ``expr`` when the WHERE body contains ``AND`` / ``OR`` / ``XOR`` /
+      ``NOT`` operators that Lark captured via ``and_op`` / ``or_op`` /
+      ``xor_op`` / ``not_op``.  ``expr_tree`` is additive — consumers
+      that ignore it see the raw-text path unchanged.
+    """
+
     predicates: Tuple[WhereTerm, ...]
     span: SourceSpan
     expr: Optional[ExpressionText] = None

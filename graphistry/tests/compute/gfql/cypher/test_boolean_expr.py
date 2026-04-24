@@ -153,9 +153,10 @@ def test_atom_span_matches_source_slice() -> None:
 
 
 def test_branch_span_covers_full_subexpression() -> None:
+    # Strict span bounds — no .strip() — so any future drift is caught.
     query = "MATCH (n) WHERE (n.x > 1) OR (n.y < 2) RETURN n"
     tree = _expr_tree(query)
-    assert query[tree.span.start_pos:tree.span.end_pos].strip() == "(n.x > 1) OR (n.y < 2)"
+    assert query[tree.span.start_pos:tree.span.end_pos] == "(n.x > 1) OR (n.y < 2)"
 
 
 # ---------------------------------------------------------------------------
@@ -169,3 +170,65 @@ def test_expr_tree_and_expr_both_populated_for_compat() -> None:
     assert parsed.where.expr is not None
     assert parsed.where.expr_tree is not None
     assert "OR" in parsed.where.expr.text.upper()
+
+
+# ---------------------------------------------------------------------------
+# Deeper nesting and additional precedence combinations
+# ---------------------------------------------------------------------------
+
+
+def test_deeply_nested_or_grouping_preserves_structure() -> None:
+    # ((a OR b) OR (c OR d)) — nested OR-of-ORs; grouped_expr must pass
+    # through cleanly at every level.
+    tree = _expr_tree(
+        "MATCH (n) WHERE ((n.a > 1) OR (n.b > 2)) OR ((n.c > 3) OR (n.d > 4)) RETURN n"
+    )
+    assert tree.op == "or"
+    assert tree.left is not None and tree.left.op == "or"
+    assert tree.right is not None and tree.right.op == "or"
+    # Leaves
+    assert tree.left.left is not None and tree.left.left.atom_text == "n.a > 1"
+    assert tree.left.right is not None and tree.left.right.atom_text == "n.b > 2"
+    assert tree.right.left is not None and tree.right.left.atom_text == "n.c > 3"
+    assert tree.right.right is not None and tree.right.right.atom_text == "n.d > 4"
+
+
+def test_nested_not_not_produces_nested_not_nodes() -> None:
+    # NOT NOT a — two unary NOT applications.
+    tree = _expr_tree("MATCH (n) WHERE NOT NOT n.a > 1 RETURN n")
+    assert tree.op == "not"
+    assert tree.left is not None and tree.left.op == "not"
+    assert tree.left.left is not None and tree.left.left.atom_text == "n.a > 1"
+
+
+def test_and_xor_mixed_precedence_via_parens() -> None:
+    # AND binds tighter than XOR: (a) XOR (b AND c) → xor(a, and(b, c)).
+    # The bare form ``a XOR b AND c`` hits the same LALR ambiguity as bare
+    # ``a OR b``; parenthesizing the XOR operands lets it parse cleanly.
+    tree = _expr_tree("MATCH (n) WHERE (n.a > 1) XOR (n.b > 2 AND n.c > 3) RETURN n")
+    assert tree.op == "xor"
+    assert tree.left is not None and tree.left.atom_text == "n.a > 1"
+    assert tree.right is not None and tree.right.op == "and"
+
+
+# ---------------------------------------------------------------------------
+# Known-limitation lock: primitive literal atoms
+# ---------------------------------------------------------------------------
+
+
+def test_literal_boolean_atoms_known_limitation_python_style_text() -> None:
+    # Locks the documented caveat in ``_wrap_as_boolean_atom``: literal
+    # transformers return raw Python values without span info, so atom_text
+    # falls back to ``str(True)`` → ``"True"`` instead of the source ``"true"``.
+    # No current consumer reads atom_text on literal atoms; if a future PR
+    # teaches literal transformers to carry span, this test should be updated
+    # to assert the Cypher-style lowercase text.
+    parsed = _parsed_where("MATCH (n) WHERE true XOR n.x > 1 RETURN n")
+    assert parsed.where is not None and parsed.where.expr_tree is not None
+    tree = parsed.where.expr_tree
+    assert tree.op == "xor"
+    # Left operand is the boolean literal `true` — atom_text is Python-stringified.
+    assert tree.left is not None and tree.left.op == "atom"
+    assert tree.left.atom_text == "True"  # known limitation — see docstring
+    # Right operand is a comparable with a Lark Tree span — accurate slice.
+    assert tree.right is not None and tree.right.atom_text == "n.x > 1"

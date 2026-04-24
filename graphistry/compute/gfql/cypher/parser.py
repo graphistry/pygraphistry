@@ -1021,14 +1021,21 @@ def _build_transformer(source: str) -> _TransformerLike:
             Recursion bottom-out for ``and_op`` / ``or_op`` / ``xor_op`` /
             ``not_op``.  ``BooleanExpr`` passes through.  Lark ``Tree`` and
             ``_ExpressionSlice`` operands carry their own span, so we use
-            it to extract the source slice precisely.  Primitive operands
-            (bool, int, float, str, ``None`` from literal transformers)
-            have no span; we approximate with the enclosing operator's
-            meta and stringify the value for ``atom_text``.  That loss of
-            precision is acceptable because ``and_op`` / ``or_op`` / etc.
-            also fire in non-WHERE contexts (``RETURN true AND false``)
-            where the caller discards the ``BooleanExpr`` and reconstructs
-            text via ``_slice`` of the full expression anyway.
+            it to extract the source slice precisely.
+
+            **Known limitation — primitive literal atoms.**  Literal
+            transformers (``true_lit`` / ``false_lit`` / ``null_lit`` /
+            ``number_lit``) return raw Python values without span info.
+            When such a value reaches us as a boolean-operator operand
+            (``WHERE true AND false``), we cannot recover the original
+            source text for that specific operand; we approximate with
+            the enclosing operator's span and ``str(operand)`` (which
+            produces Python-style text like ``"True"`` not Cypher-style
+            ``"true"``).  No current consumer reads ``atom_text`` on
+            literal atoms — the binder is not wired to ``expr_tree`` in
+            this slice.  Accuracy for this path is a follow-up concern
+            tracked in issue #1200; if/when literal transformers gain
+            span-carrying wrappers, this fallback can be removed.
             """
             if isinstance(operand, BooleanExpr):
                 return operand
@@ -1038,8 +1045,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             else:
                 operand_meta = getattr(operand, "meta", None)
                 if operand_meta is None:
-                    # Primitive operand from a literal transformer.  Use the
-                    # enclosing expression's span as a conservative fallback.
+                    # Primitive literal — see docstring caveat.
                     span = _span_from_meta(enclosing_meta)
                     text = str(operand)
                 else:
@@ -1052,6 +1058,24 @@ def _build_transformer(source: str) -> _TransformerLike:
                 atom_span=span,
             )
 
+        def _boolean_binary(
+            self,
+            op: Literal["and", "or", "xor"],
+            meta: Any,
+            items: Sequence[Any],
+        ) -> BooleanExpr:
+            if len(items) != 2:
+                raise _to_syntax_error(
+                    f"{op.upper()} expression requires two operands",
+                    line=meta.line, column=meta.column,
+                )
+            return BooleanExpr(
+                op=op,
+                span=_span_from_meta(meta),
+                left=self._wrap_as_boolean_atom(items[0], meta),
+                right=self._wrap_as_boolean_atom(items[1], meta),
+            )
+
         def grouped_expr(self, _meta: Any, items: Sequence[Any]) -> Any:
             # ``(expr)`` — passthrough so a parenthesized BooleanExpr bubbles
             # up unchanged to enclosing ``and_op`` / ``or_op`` / ``xor_op`` /
@@ -1062,43 +1086,13 @@ def _build_transformer(source: str) -> _TransformerLike:
             return items[0] if len(items) == 1 else items
 
         def and_op(self, meta: Any, items: Sequence[Any]) -> BooleanExpr:
-            if len(items) != 2:
-                raise _to_syntax_error(
-                    "AND expression requires two operands",
-                    line=meta.line, column=meta.column,
-                )
-            return BooleanExpr(
-                op="and",
-                span=_span_from_meta(meta),
-                left=self._wrap_as_boolean_atom(items[0], meta),
-                right=self._wrap_as_boolean_atom(items[1], meta),
-            )
+            return self._boolean_binary("and", meta, items)
 
         def or_op(self, meta: Any, items: Sequence[Any]) -> BooleanExpr:
-            if len(items) != 2:
-                raise _to_syntax_error(
-                    "OR expression requires two operands",
-                    line=meta.line, column=meta.column,
-                )
-            return BooleanExpr(
-                op="or",
-                span=_span_from_meta(meta),
-                left=self._wrap_as_boolean_atom(items[0], meta),
-                right=self._wrap_as_boolean_atom(items[1], meta),
-            )
+            return self._boolean_binary("or", meta, items)
 
         def xor_op(self, meta: Any, items: Sequence[Any]) -> BooleanExpr:
-            if len(items) != 2:
-                raise _to_syntax_error(
-                    "XOR expression requires two operands",
-                    line=meta.line, column=meta.column,
-                )
-            return BooleanExpr(
-                op="xor",
-                span=_span_from_meta(meta),
-                left=self._wrap_as_boolean_atom(items[0], meta),
-                right=self._wrap_as_boolean_atom(items[1], meta),
-            )
+            return self._boolean_binary("xor", meta, items)
 
         def not_op(self, meta: Any, items: Sequence[Any]) -> BooleanExpr:
             if len(items) != 1:
