@@ -974,6 +974,13 @@ def _build_transformer(source: str) -> _TransformerLike:
         ) -> WhereClause:
             if expr_text.strip() == "":
                 raise _to_syntax_error("Invalid WHERE clause", line=span.line, column=span.column)
+            # Mixed-clause handlers (``where_pattern_and_expr_clause`` and
+            # ``expr_and_where_pattern_clause``) reconstruct ``expr_text``
+            # from the source slice and do not capture Lark's structural
+            # expression tree — so ``expr_tree`` stays unset here even when
+            # ``expr_text`` contains AND/OR/XOR/NOT operators.  Out of scope
+            # for issue #1200 slice 1 (text-only path; tracked for a later
+            # slice alongside full binder migration).
             return WhereClause(
                 predicates=(self._parse_where_pattern_predicate_text(pattern_text, span),),
                 expr=ExpressionText(text=expr_text.strip(), span=span),
