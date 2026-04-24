@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
 
+env:
+  UV_EXCLUDE_NEWER: "6 days"
+
 jobs:
 
   stub_mt:
@@ -91,8 +94,8 @@ jobs:
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
-        python -m pip install --upgrade pip
-        python -m pip install --extra-index-url=https://pypi.nvidia.com -e .[test,testai,ai,rapids]
+        python -m pip install --upgrade pip uv
+        uv pip install --extra-index-url=https://pypi.nvidia.com -e .[test,testai,ai,rapids]
         echo "skrub: `pip show skrub | grep Version`"
         echo "pandas: `pip show pandas | grep Version`"
         echo "numpy: `pip show numpy | grep Version`"

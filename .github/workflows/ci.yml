@@ -27,7 +27,6 @@ env:
   # 6-day dependency cooldown: refuse packages uploaded less than 6 days ago
   # to mitigate supply chain attacks. Belt-and-suspenders with lockfile --exclude-newer.
   UV_EXCLUDE_NEWER: "6 days"
-  PIP_EXCLUDE_NEWER: "6 days"  # pip >=26 honours this via --uploaded-prior-to
 
 jobs:
 
@@ -991,6 +990,7 @@ jobs:
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
         uv pip install -r requirements/test-umap-py${{ matrix.python-version }}.lock
+        # Keep pip for torch +cpu from the PyTorch CPU wheel index: uv cannot resolve this local-version pin.
         python -m pip install --no-deps torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
         uv pip install -e . --no-deps
 
@@ -1115,6 +1115,7 @@ jobs:
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
         uv pip install -r requirements/test-ai-py${{ matrix.python-version }}.lock
+        # Keep pip for torch +cpu from the PyTorch CPU wheel index: uv cannot resolve this local-version pin.
         python -m pip install --no-deps torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
         uv pip install -e . --no-deps
         echo "skrub: `pip show skrub | grep Version`"
@@ -1190,8 +1191,6 @@ jobs:
       PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
       PIP_PREFER_BINARY: "1"
       DGLBACKEND: pytorch
-      # Supply-chain: reject packages published within the last 6 days (pip ≥26 uses --uploaded-prior-to)
-      PIP_EXCLUDE_NEWER: "6 days"
     steps:
     - uses: actions/checkout@v4
       with:
@@ -1207,7 +1206,7 @@ jobs:
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
-        python -m pip install --upgrade pip
+        python -m pip install --upgrade pip uv
         cat <<'EOF' > /tmp/dgl-constraints.txt
         torch==2.0.1
         torchdata==0.6.1
@@ -1215,8 +1214,8 @@ jobs:
         sentence-transformers==5.1.2
         faiss-cpu
         EOF
-        python -m pip install --constraint /tmp/dgl-constraints.txt torch==2.0.1 torchdata==0.6.1 dgl==2.1.0
-        python -m pip install --constraint /tmp/dgl-constraints.txt -e .[test,testai,ai,dgl-cpu]
+        uv pip install --constraint /tmp/dgl-constraints.txt torch==2.0.1 torchdata==0.6.1 dgl==2.1.0
+        uv pip install --constraint /tmp/dgl-constraints.txt -e .[test,testai,ai,dgl-cpu]
 
     - name: Run DGL tests
       env:
@@ -1234,8 +1233,6 @@ jobs:
     needs: [changes, test-minimal-python, test-gfql-core]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      PIP_EXCLUDE_NEWER: "6 days"
     steps:
     - uses: actions/checkout@v4
       with:
@@ -1251,13 +1248,13 @@ jobs:
         sudo apt-get install -y default-jdk
         python -m venv pygraphistry
         source pygraphistry/bin/activate
-        python -m pip install --upgrade pip
-        pip install pyspark pyarrow pandas requests pytest
+        python -m pip install --upgrade pip uv
+        uv pip install pyspark pyarrow pandas requests pytest
 
     - name: Install graphistry
       run: |
         source pygraphistry/bin/activate
-        pip install -e .[test]
+        uv pip install -e .[test]
 
     - name: Run Spark tests
       run: |
