@@ -65,7 +65,9 @@ jobs:
       - name: Install zizmor
         run: |
           python3 -m pip install --disable-pip-version-check --no-cache-dir --no-deps "uv==0.11.3"
-          UV_SYSTEM_PYTHON=1 uv pip install --upgrade zizmor
+          python3 -m venv .venv-zizmor
+          source .venv-zizmor/bin/activate
+          uv pip install --upgrade zizmor
       - name: Run zizmor (high severity gate)
         run: |
-          zizmor --format=github --no-progress --config .github/zizmor.yml --min-severity high .github/workflows/*.yml
+          .venv-zizmor/bin/zizmor --format=github --no-progress --config .github/zizmor.yml --min-severity high .github/workflows/*.yml
