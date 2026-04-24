@@ -35,7 +35,7 @@ PROFILE_DEFS=(
     "test-compat-gfql-legacy:test:3.9:3.9:--constraint /tmp/pandas-legacy.txt"
     "test-compat-gfql-latest:test:3.14:3.14:--constraint /tmp/pandas-latest.txt"
     "test-graphviz:test,pygraphviz:3.8::"
-    "test-umap:test,testai,umap-learn:3.9::--no-emit-package torch --constraint /tmp/sentence-transformers-compat.txt"
+    "test-umap:test,testai,umap-learn:3.9::--no-emit-package torch"
     "test-ai:test,testai,ai:3.9::--no-emit-package torch --constraint /tmp/sentence-transformers-compat.txt"
     "docs:docs:3.10::"
     "build:build:3.8::"
