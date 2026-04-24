@@ -939,12 +939,26 @@ def _where_predicates(where: WhereClause) -> List[BoundPredicate]:
 
 
 def _apply_where_label_narrowing(state: _BindState, where: WhereClause) -> Set[str]:
+    if where.expr is not None:
+        return set()
+    if not where.predicates:
+        return set()
+    # Conservative policy: only narrow when the whole WHERE clause is a
+    # conjunction of label predicates. Mixed label/property predicates must
+    # keep original labels untouched.
+    if any(
+        not (isinstance(term, WherePredicate) and term.op == "has_labels" and isinstance(term.left, LabelRef))
+        for term in where.predicates
+    ):
+        return set()
+
     narrowed: Dict[str, Set[str]] = {}
 
-    for term in where.predicates:
-        if isinstance(term, WherePredicate) and term.op == "has_labels" and isinstance(term.left, LabelRef):
-            labels = narrowed.setdefault(term.left.alias, set())
-            labels.update(term.left.labels)
+    for raw_term in where.predicates:
+        term = cast(WherePredicate, raw_term)
+        label_ref = cast(LabelRef, term.left)
+        labels = narrowed.setdefault(label_ref.alias, set())
+        labels.update(label_ref.labels)
 
     changed: Set[str] = set()
     for alias, labels in narrowed.items():

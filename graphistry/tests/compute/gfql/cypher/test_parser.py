@@ -20,6 +20,7 @@ from graphistry.compute.gfql.cypher import (
     WherePatternPredicate,
     parse_cypher,
 )
+from graphistry.compute.gfql.cypher import parser as cypher_parser
 from graphistry.compute.gfql.cypher.ast import GraphBinding, GraphConstructor, UseClause
 
 
@@ -360,8 +361,7 @@ def test_parse_where_clause() -> None:
 
 
 def test_parse_where_and_label_predicates_produces_structured_ast() -> None:
-    # AND-joined bare label predicates must land in WhereClause.predicates (not .expr)
-    # because Lark routes them to generic_where_clause via ambiguity resolution.
+    # AND-joined bare label predicates must land in WhereClause.predicates (not .expr).
     parsed = _parse_query("MATCH (n) WHERE n:Admin AND n:Active RETURN n")
 
     assert parsed.where is not None
@@ -391,10 +391,7 @@ def test_parse_where_single_label_predicate_produces_structured_ast() -> None:
 
 
 def test_parse_where_non_label_expression_produces_raw_expr() -> None:
-    # Non-label WHERE expressions land through a different grammar path
-    # (`where_predicates` or raw expr); the contract under review is that
-    # `generic_where_clause` never synthesizes fake has_labels predicates
-    # from non-label text.  Assert no has_labels predicate is present.
+    # Non-label WHERE expressions must never synthesize fake has_labels terms.
     parsed = _parse_query("MATCH (n) WHERE n.name = 'alice' RETURN n")
 
     assert parsed.where is not None
@@ -414,12 +411,7 @@ def test_parse_where_xor_label_expression_stays_as_raw_expr() -> None:
     assert parsed.where.predicates == ()
 
 
-def test_parse_where_triple_and_label_conjunction_through_generic_where_clause() -> None:
-    # End-to-end coverage that a triple-AND bare-label WHERE still routes
-    # through ``generic_where_clause`` and is lifted into structured
-    # ``WhereClause.predicates`` by the shared ``split_top_level_and``
-    # helper (see graphistry/compute/gfql/expr_split.py).  Quote-awareness
-    # of the helper is covered directly by ``test_expr_split.py``.
+def test_parse_where_triple_and_label_conjunction_produces_structured_ast() -> None:
     parsed = _parse_query("MATCH (n) WHERE n:Admin AND n:Active AND n:Super RETURN n")
 
     assert parsed.where is not None
@@ -431,6 +423,13 @@ def test_parse_where_triple_and_label_conjunction_through_generic_where_clause()
         if isinstance(p, WherePredicate) and isinstance(p.left, LabelRef)
     ]
     assert aliases == ["n", "n", "n"]
+
+
+def test_parse_where_label_conjunction_uses_structured_where_predicates_rule() -> None:
+    tree = cypher_parser._where_clause_parser().parse("WHERE n:Admin AND n:Active")
+
+    assert any(True for _ in tree.find_data("where_predicates"))
+    assert not any(True for _ in tree.find_data("generic_where_clause"))
 
 
 def test_parse_where_null_predicates() -> None:

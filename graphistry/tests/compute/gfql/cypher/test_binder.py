@@ -429,6 +429,17 @@ def test_binder_label_narrowing_mixed_label_and_property_predicate() -> None:
     assert n_var.logical_type.labels == frozenset()
 
 
+def test_binder_label_narrowing_mixed_property_and_label_predicate_order_is_conservative() -> None:
+    # "n.prop = 1 AND n:Admin" is the same logical shape as the inverse order
+    # and must remain all-or-nothing (no partial label narrowing).
+    query = "MATCH (n) WHERE n.prop = 1 AND n:Admin RETURN n"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    n_var = bound.semantic_table.variables["n"]
+    assert isinstance(n_var.logical_type, NodeRef)
+    assert n_var.logical_type.labels == frozenset()
+
+
 def test_binder_label_narrowing_multi_label_per_alias_in_and_conjunction() -> None:
     # "n:A:B AND n:C" — multi-label per predicate combined with AND.
     query = "MATCH (n) WHERE n:A:B AND n:C RETURN n"

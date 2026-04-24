@@ -301,7 +301,6 @@ BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
 %ignore BLOCK_COMMENT
 """
 
-_BARE_LABEL_PREDICATE_RE = re.compile(r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)((?::[A-Za-z_][A-Za-z0-9_]*)+)$")
 _RESERVED_IDENTIFIER_GRAPH = "graph"
 _WHERE_PATTERN_ITEM_RE = re.compile(
     r"\([^)\n]*\)\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\)"
@@ -421,6 +420,20 @@ def _pattern_parser() -> _ParserLike:
     return cast(_ParserLike, parser)
 
 
+@lru_cache(maxsize=1)
+def _where_clause_parser() -> _ParserLike:
+    Lark, _, _, _ = _lark_imports()
+    parser = Lark(
+        _GRAMMAR,
+        start="where_clause",
+        parser="earley",
+        ambiguity="resolve",
+        maybe_placeholders=False,
+        propagate_positions=True,
+    )
+    return cast(_ParserLike, parser)
+
+
 def _to_syntax_error(message: str, *, line: Optional[int] = None, column: Optional[int] = None, **extra: Any) -> GFQLSyntaxError:
     return GFQLSyntaxError(
         ErrorCode.E107,
@@ -495,7 +508,7 @@ def _canonicalize_where_single_pattern_and_expr(source: str) -> Optional[str]:
     return None
 
 
-def _build_transformer(source: str) -> _TransformerLike:
+def _build_transformer(source: str, *, allow_where_reparse: bool = True) -> _TransformerLike:
     _, Transformer, _, v_args = _lark_imports()
     op_map = {
         "=": "==",
@@ -1028,40 +1041,17 @@ def _build_transformer(source: str) -> _TransformerLike:
         def generic_where_clause(self, meta: Any, _items: Sequence[Any]) -> WhereClause:
             span = _span_from_meta(meta)
             expr = self._slice(span)[len("WHERE"):].strip()
-            # Lark's ambiguity resolution prefers the generic `expr` path over
-            # the structured `where_predicates` rule, so AND-joined bare label
-            # predicates ("n:Admin AND n:Active") land here rather than in
-            # `where_clause`.  Detect and lift them to structured predicates so
-            # the binder can perform label narrowing without regex.  Any part
-            # that is not a bare label predicate causes a conservative fallback
-            # to raw expr (no narrowing).
-            #
-            # Split on top-level AND using the shared helper (quote/bracket/
-            # paren/backtick-aware, case-insensitive).  An empty result means
-            # malformed input — fall back to the whole expression as a single
-            # term so the label-match check runs uniformly.
-            parts = split_top_level_and(expr) or (expr,)
-            predicates: List[WherePredicate] = []
-            for part in parts:
-                # `fullmatch` anchoring is load-bearing for security: it prevents
-                # fragments of string literals (which contain quotes/spaces) from
-                # matching as bare label predicates.  Relaxing to `match` would
-                # re-introduce the false-positive that motivated issue #1125.
-                m = _BARE_LABEL_PREDICATE_RE.fullmatch(part.strip())
-                if m is None:
-                    predicates = []
-                    break
-                labels = tuple(label for label in m.group(2).split(":") if label)
-                predicates.append(
-                    WherePredicate(
-                        left=LabelRef(alias=m.group("alias"), labels=labels, span=span),
-                        op="has_labels",
-                        right=None,
-                        span=span,
-                    )
-                )
-            if predicates:
-                return WhereClause(predicates=tuple(predicates), expr=None, span=span)
+            if allow_where_reparse and ":" in expr:
+                clause_text = self._slice(span)
+                try:
+                    reparsed_tree = _where_clause_parser().parse(clause_text)
+                    reparsed_node = _build_transformer(clause_text, allow_where_reparse=False).transform(reparsed_tree)
+                    if isinstance(reparsed_node, WhereClause) and reparsed_node.expr is None and len(reparsed_node.predicates) > 0:
+                        return reparsed_node
+                except Exception:
+                    # Keep generic expr fallback if sub-parse fails or still
+                    # resolves to a generic clause.
+                    pass
             return WhereClause(predicates=(), expr=ExpressionText(text=expr, span=span), span=span)
 
         def unwind_clause(self, meta: Any, items: Sequence[Any]) -> UnwindClause:
