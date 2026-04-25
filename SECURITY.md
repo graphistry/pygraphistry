@@ -16,15 +16,18 @@ We will respond within 48 hours.
 
 We will confirm the issue and severity, and as appropriate, prepare a fix and release plan, and if desired, public acknowledgement.
 
-## Release Artifact Verification
+## Verifying Releases
 
-For release supply-chain verification guidance, see:
+PyPI distributions ship with [attestations and provenance](https://docs.pypi.org/attestations/consuming-attestations/); SBOMs (CycloneDX) are uploaded as a workflow artifact (`release-evidence-<run_id>/sbom-cyclonedx.json`).
 
-- [Release Verification Guide](RELEASE_VERIFICATION.md)
+```bash
+pip install pypi-attestations
+pypi-attestations verify pypi \
+  --repository https://github.com/graphistry/pygraphistry \
+  https://files.pythonhosted.org/.../graphistry-X.Y.Z-py3-none-any.whl
 
-That guide covers:
+gh run download <run_id> --repo graphistry/pygraphistry \
+  -n release-evidence-<run_id> -D ./release-evidence
+```
 
-- verification of PyPI attestations/provenance for published distribution files
-- retrieval and inspection of release SBOM workflow evidence artifacts
-
-It will be rehomed into a dedicated Security section in the Sphinx docs once that section exists — see #1208.
+A dedicated docs Security section is tracked in #1208.
