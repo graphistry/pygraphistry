@@ -29,5 +29,3 @@ pypi-attestations verify pypi \
 gh run download <run_id> --repo graphistry/pygraphistry \
   -n release-evidence-<run_id> -D ./release-evidence
 ```
-
-A dedicated docs Security section is tracked in #1208.
