@@ -1020,15 +1020,18 @@ def _build_transformer(source: str) -> _TransformerLike:
             if expr_text.strip() == "":
                 raise _to_syntax_error("Invalid WHERE clause", line=span.line, column=span.column)
             # Mixed-clause handlers (``where_pattern_and_expr_clause`` and
-            # ``expr_and_where_pattern_clause``) reconstruct ``expr_text``
-            # from the source slice and do not capture Lark's structural
-            # expression tree — so ``expr_tree`` stays unset here even when
-            # ``expr_text`` contains AND/OR/XOR/NOT operators.  Out of scope
-            # for issue #1200 slice 1 (text-only path; tracked for a later
-            # slice alongside full binder migration).
+            # ``expr_and_where_pattern_clause``) reconstruct ``expr_text`` from
+            # the source slice and do not capture Lark's structural expression
+            # tree.  Synthesize a single-atom ``BooleanExpr`` so the invariant
+            # ``(expr is None) == (expr_tree is None)`` holds (#1213 sub-PR A);
+            # downstream consumers that walk the tree see one atom whose
+            # ``atom_text`` matches the legacy ``expr.text``.  Re-parsing the
+            # boolean structure of mixed-clause expressions is out of scope.
+            stripped = expr_text.strip()
             return WhereClause(
                 predicates=(self._parse_where_pattern_predicate_text(pattern_text, span),),
-                expr=ExpressionText(text=expr_text.strip(), span=span),
+                expr=ExpressionText(text=stripped, span=span),
+                expr_tree=BooleanExpr(op="atom", span=span, atom_text=stripped, atom_span=span),
                 span=span,
             )
 
@@ -1163,7 +1166,19 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("WHERE clause cannot be empty", line=meta.line, column=meta.column)
             if isinstance(items[0], _ExpressionSlice):
                 expr = cast(_ExpressionSlice, items[0])
-                return WhereClause(predicates=(), expr=ExpressionText(text=expr.text, span=expr.span), span=_span_from_meta(meta))
+                where_span = _span_from_meta(meta)
+                # Wrap the raw slice as a single-atom ``BooleanExpr`` so the
+                # ``(expr is None) == (expr_tree is None)`` invariant holds
+                # (#1213 sub-PR A); ``where_clause`` reaches this branch only
+                # for atom-shaped WHERE bodies that bypassed Lark's
+                # ``and_op`` / ``or_op`` rules.
+                atom_tree = BooleanExpr(op="atom", span=expr.span, atom_text=expr.text, atom_span=expr.span)
+                return WhereClause(
+                    predicates=(),
+                    expr=ExpressionText(text=expr.text, span=expr.span),
+                    expr_tree=atom_tree,
+                    span=where_span,
+                )
             predicates = cast(Tuple[WherePredicate, ...], items[0])
             if len(predicates) == 0:
                 raise _to_syntax_error("WHERE clause cannot be empty", line=meta.line, column=meta.column)
@@ -1172,27 +1187,26 @@ def _build_transformer(source: str) -> _TransformerLike:
         def generic_where_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
             span = _span_from_meta(meta)
             expr_text = self._slice(span)[len("WHERE"):].strip()
-            expr_tree: Optional[BooleanExpr] = (
+            # Capture Lark's structural expression tree.  Only ``and_op`` /
+            # ``or_op`` / ``xor_op`` / ``not_op`` produce ``BooleanExpr``;
+            # atomic WHERE expressions (single predicate) route here with a
+            # non-BooleanExpr operand and are wrapped as a single-atom tree
+            # so the invariant ``(expr is None) == (expr_tree is None)``
+            # holds (#1213 sub-PR A / #1214).
+            expr_tree: BooleanExpr = (
                 cast(BooleanExpr, items[0])
                 if items and isinstance(items[0], BooleanExpr)
-                else None
+                else BooleanExpr(op="atom", span=span, atom_text=expr_text, atom_span=span)
             )
             # Lark's ambiguity resolution prefers the generic `expr` path over
             # `where_predicates` (#1194), so bare label predicates and AND
-            # chains of them land here.  Trust Lark's already-parsed structure
-            # to identify them — walk ``BooleanExpr`` for AND-spines, or check
-            # ``_ExpressionSlice.text`` for a single atom — instead of
-            # re-splitting the WHERE body on top-level ``AND``.  Any non-AND
-            # boolean op, non-atom node, or non-bare-label atom causes a
-            # conservative fallback to raw expr (preserved on ``expr_tree``
-            # for downstream consumers).
-            lifted: Optional[Tuple[Tuple[str, Tuple[str, ...]], ...]] = None
-            if expr_tree is not None:
-                lifted = _lift_label_only_and_spine(expr_tree)
-            elif items and isinstance(items[0], _ExpressionSlice):
-                atom = _match_bare_label_atom(cast(_ExpressionSlice, items[0]).text)
-                if atom is not None:
-                    lifted = (atom,)
+            # chains of them land here as a ``BooleanExpr``.  Walk the parsed
+            # tree (single source of truth) to lift them to structured
+            # predicates instead of re-splitting the WHERE body text on
+            # top-level ``AND``.  Any non-AND boolean op, non-atom node, or
+            # non-bare-label atom causes a conservative fallback to raw expr
+            # (preserved on ``expr_tree`` for downstream consumers).
+            lifted = _lift_label_only_and_spine(expr_tree)
             if lifted:
                 predicates = tuple(
                     WherePredicate(
