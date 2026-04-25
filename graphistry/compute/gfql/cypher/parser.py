@@ -303,6 +303,51 @@ BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
 """
 
 _BARE_LABEL_PREDICATE_RE = re.compile(r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)((?::[A-Za-z_][A-Za-z0-9_]*)+)$")
+
+
+def _match_bare_label_atom(text: Optional[str]) -> Optional[Tuple[str, Tuple[str, ...]]]:
+    """Return ``(alias, labels)`` if *text* fullmatches the bare-label-predicate
+    shape; else ``None``.  ``fullmatch`` is load-bearing as the false-positive
+    guard from #1125 — atom fragments that merely *look* label-shaped (e.g.
+    parts of string literals) must not lift into structured predicates.
+    """
+    if text is None:
+        return None
+    m = _BARE_LABEL_PREDICATE_RE.fullmatch(text.strip())
+    if m is None:
+        return None
+    labels = tuple(label for label in m.group(2).split(":") if label)
+    return (m.group("alias"), labels)
+
+
+def _lift_label_only_and_spine(
+    node: BooleanExpr,
+) -> Optional[Tuple[Tuple[str, Tuple[str, ...]], ...]]:
+    """Return lifted ``(alias, labels)`` tuples if *node* is an AND-spine whose
+    every leaf atom is a bare-label predicate; else ``None``.
+
+    Walks Lark's parsed boolean tree (single source of truth) instead of
+    re-splitting the WHERE body text on top-level ``AND``.
+    """
+    out: List[Tuple[str, Tuple[str, ...]]] = []
+    stack: List[BooleanExpr] = [node]
+    while stack:
+        cur = stack.pop()
+        if cur.op == "and":
+            if cur.left is None or cur.right is None:
+                return None
+            stack.append(cur.right)
+            stack.append(cur.left)
+        elif cur.op == "atom":
+            atom = _match_bare_label_atom(cur.atom_text)
+            if atom is None:
+                return None
+            out.append(atom)
+        else:
+            return None
+    return tuple(out)
+
+
 _RESERVED_IDENTIFIER_GRAPH = "graph"
 _WHERE_PATTERN_ITEM_RE = re.compile(
     r"\([^)\n]*\)\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\)"
@@ -1141,56 +1186,41 @@ def _build_transformer(source: str) -> _TransformerLike:
 
         def generic_where_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
             span = _span_from_meta(meta)
-            expr = self._slice(span)[len("WHERE"):].strip()
-            # Capture Lark's structural expression tree when available so
-            # downstream consumers can walk ``BooleanExpr`` instead of
-            # re-parsing ``ExpressionText``.  Only ``and_op``/``or_op``/
-            # ``xor_op``/``not_op`` produce ``BooleanExpr``; atomic WHERE
-            # expressions (single predicate) route here with a non-BooleanExpr
-            # operand and are wrapped as a single-atom tree so the invariant
-            # ``(expr is None) == (expr_tree is None)`` holds (#1213 sub-PR A).
-            expr_tree: Optional[BooleanExpr] = (
+            expr_text = self._slice(span)[len("WHERE"):].strip()
+            # Capture Lark's structural expression tree.  Only ``and_op`` /
+            # ``or_op`` / ``xor_op`` / ``not_op`` produce ``BooleanExpr``;
+            # atomic WHERE expressions (single predicate) route here with a
+            # non-BooleanExpr operand and are wrapped as a single-atom tree
+            # so the invariant ``(expr is None) == (expr_tree is None)``
+            # holds (#1213 sub-PR A / #1214).
+            expr_tree: BooleanExpr = (
                 cast(BooleanExpr, items[0])
                 if items and isinstance(items[0], BooleanExpr)
-                else BooleanExpr(op="atom", span=span, atom_text=expr, atom_span=span)
+                else BooleanExpr(op="atom", span=span, atom_text=expr_text, atom_span=span)
             )
             # Lark's ambiguity resolution prefers the generic `expr` path over
-            # the structured `where_predicates` rule, so AND-joined bare label
-            # predicates ("n:Admin AND n:Active") land here rather than in
-            # `where_clause`.  Detect and lift them to structured predicates so
-            # the binder can perform label narrowing without regex.  Any part
-            # that is not a bare label predicate causes a conservative fallback
-            # to raw expr (no narrowing).
-            #
-            # Split on top-level AND using the shared helper (quote/bracket/
-            # paren/backtick-aware, case-insensitive).  An empty result means
-            # malformed input — fall back to the whole expression as a single
-            # term so the label-match check runs uniformly.
-            parts = split_top_level_and(expr) or (expr,)
-            predicates: List[WherePredicate] = []
-            for part in parts:
-                # `fullmatch` anchoring is load-bearing for security: it prevents
-                # fragments of string literals (which contain quotes/spaces) from
-                # matching as bare label predicates.  Relaxing to `match` would
-                # re-introduce the false-positive that motivated issue #1125.
-                m = _BARE_LABEL_PREDICATE_RE.fullmatch(part.strip())
-                if m is None:
-                    predicates = []
-                    break
-                labels = tuple(label for label in m.group(2).split(":") if label)
-                predicates.append(
+            # `where_predicates` (#1194), so bare label predicates and AND
+            # chains of them land here as a ``BooleanExpr``.  Walk the parsed
+            # tree (single source of truth) to lift them to structured
+            # predicates instead of re-splitting the WHERE body text on
+            # top-level ``AND``.  Any non-AND boolean op, non-atom node, or
+            # non-bare-label atom causes a conservative fallback to raw expr
+            # (preserved on ``expr_tree`` for downstream consumers).
+            lifted = _lift_label_only_and_spine(expr_tree)
+            if lifted:
+                predicates = tuple(
                     WherePredicate(
-                        left=LabelRef(alias=m.group("alias"), labels=labels, span=span),
+                        left=LabelRef(alias=alias, labels=labels, span=span),
                         op="has_labels",
                         right=None,
                         span=span,
                     )
+                    for alias, labels in lifted
                 )
-            if predicates:
-                return WhereClause(predicates=tuple(predicates), expr=None, span=span)
+                return WhereClause(predicates=predicates, expr=None, span=span)
             return WhereClause(
                 predicates=(),
-                expr=ExpressionText(text=expr, span=span),
+                expr=ExpressionText(text=expr_text, span=span),
                 expr_tree=expr_tree,
                 span=span,
             )
