@@ -417,9 +417,8 @@ def test_parse_where_xor_label_expression_stays_as_raw_expr() -> None:
 def test_parse_where_triple_and_label_conjunction_through_generic_where_clause() -> None:
     # End-to-end coverage that a triple-AND bare-label WHERE still routes
     # through ``generic_where_clause`` and is lifted into structured
-    # ``WhereClause.predicates`` by the shared ``split_top_level_and``
-    # helper (see graphistry/compute/gfql/expr_split.py).  Quote-awareness
-    # of the helper is covered directly by ``test_expr_split.py``.
+    # ``WhereClause.predicates`` by walking the parsed ``BooleanExpr``
+    # AND-spine (#1194).  No text-level AND splitting is involved.
     parsed = _parse_query("MATCH (n) WHERE n:Admin AND n:Active AND n:Super RETURN n")
 
     assert parsed.where is not None
@@ -431,6 +430,76 @@ def test_parse_where_triple_and_label_conjunction_through_generic_where_clause()
         if isinstance(p, WherePredicate) and isinstance(p.left, LabelRef)
     ]
     assert aliases == ["n", "n", "n"]
+
+
+# --- Unit tests for the label-lifting helpers (#1194 walker) ---
+
+
+def test_match_bare_label_atom_accepts_alias_and_labels() -> None:
+    from graphistry.compute.gfql.cypher.parser import _match_bare_label_atom
+
+    assert _match_bare_label_atom("n:Admin") == ("n", ("Admin",))
+    assert _match_bare_label_atom("b:Foo:Bar") == ("b", ("Foo", "Bar"))
+    assert _match_bare_label_atom("  n:Admin  ") == ("n", ("Admin",))
+
+
+def test_match_bare_label_atom_rejects_non_label_text() -> None:
+    # ``fullmatch`` is load-bearing as the false-positive guard from #1125 —
+    # text fragments that merely look label-shaped must not lift.
+    from graphistry.compute.gfql.cypher.parser import _match_bare_label_atom
+
+    assert _match_bare_label_atom(None) is None
+    assert _match_bare_label_atom("") is None
+    assert _match_bare_label_atom("n.prop = 1") is None
+    assert _match_bare_label_atom("n:Admin AND extra") is None
+    assert _match_bare_label_atom("'A:B'") is None  # quoted string fragment
+
+
+def _bx_atom(text: str):  # type: ignore[no-untyped-def]
+    from graphistry.compute.gfql.cypher.ast import BooleanExpr, SourceSpan
+
+    span = SourceSpan(line=1, column=1, end_line=1, end_column=1, start_pos=0, end_pos=0)
+    return BooleanExpr(op="atom", span=span, atom_text=text, atom_span=span)
+
+
+def _bx_branch(op, left, right=None):  # type: ignore[no-untyped-def]
+    from graphistry.compute.gfql.cypher.ast import BooleanExpr, SourceSpan
+
+    span = SourceSpan(line=1, column=1, end_line=1, end_column=1, start_pos=0, end_pos=0)
+    return BooleanExpr(op=op, span=span, left=left, right=right)
+
+
+def test_lift_label_only_and_spine_walks_and_chain() -> None:
+    from graphistry.compute.gfql.cypher.parser import _lift_label_only_and_spine
+
+    # Left-associative AND: ((a AND b) AND c) — depth ordering preserves left-to-right.
+    tree = _bx_branch(
+        "and",
+        _bx_branch("and", _bx_atom("n:Admin"), _bx_atom("n:Active")),
+        _bx_atom("n:Super"),
+    )
+    assert _lift_label_only_and_spine(tree) == (
+        ("n", ("Admin",)),
+        ("n", ("Active",)),
+        ("n", ("Super",)),
+    )
+
+
+def test_lift_label_only_and_spine_rejects_non_and_or_non_label() -> None:
+    from graphistry.compute.gfql.cypher.parser import _lift_label_only_and_spine
+
+    # OR root → reject (we only lift pure AND-spines).
+    assert _lift_label_only_and_spine(
+        _bx_branch("or", _bx_atom("n:Admin"), _bx_atom("n:Active"))
+    ) is None
+    # NOT root → reject.
+    assert _lift_label_only_and_spine(_bx_branch("not", _bx_atom("n:Admin"))) is None
+    # AND with a non-label leaf → reject (mixed predicates fall through).
+    assert _lift_label_only_and_spine(
+        _bx_branch("and", _bx_atom("n:Admin"), _bx_atom("n.prop = 1"))
+    ) is None
+    # Single-atom BooleanExpr → lifts as one predicate.
+    assert _lift_label_only_and_spine(_bx_atom("n:Admin")) == (("n", ("Admin",)),)
 
 
 def test_parse_where_null_predicates() -> None:
