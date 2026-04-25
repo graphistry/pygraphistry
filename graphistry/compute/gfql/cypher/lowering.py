@@ -104,6 +104,7 @@ from graphistry.compute.gfql.cypher.ast import (
     WherePredicate,
     WherePatternPredicate,
 )
+from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
 from graphistry.compute.gfql.cypher.call_procedures import (
     CompiledCypherProcedureCall,
     ProcedureOutputColumn as CompiledProcedureOutputColumn,
@@ -5914,9 +5915,9 @@ def lower_match_clause(
 
 
 def _reject_unsupported_where_expr_forms(query: CypherQuery) -> None:
-    if query.where is None or query.where.expr is None:
+    if query.where is None or query.where.expr_tree is None:
         return
-    expr_text = query.where.expr.text.strip()
+    expr_text = boolean_expr_to_text(query.where.expr_tree).strip()
     if _CYPHER_BARE_WHERE_GROUPED_ALIAS_RE.fullmatch(expr_text) is not None:
         raise _unsupported(
             "Cypher WHERE pattern predicates must include a relationship",
@@ -5954,7 +5955,7 @@ def _reject_unsupported_variable_length_where_pattern_predicates(query: CypherQu
             raise _unsupported(
                 "Cypher WHERE pattern predicates currently support only bare variable-length fixed-point relationships, not exact or bounded hop counts",
                 field="where",
-                value=query.where.expr.text if query.where.expr is not None else None,
+                value=boolean_expr_to_text(query.where.expr_tree) if query.where.expr_tree is not None else None,
                 line=predicate.span.line,
                 column=predicate.span.column,
             )
@@ -6152,17 +6153,17 @@ def _reject_variable_length_path_alias_references(
             column=column,
         )
 
-    if query.where is not None and query.where.expr is not None:
+    if query.where is not None and query.where.expr_tree is not None:
         _check_expr(
-            query.where.expr.text,
+            boolean_expr_to_text(query.where.expr_tree),
             field="where",
             line=query.where.span.line,
             column=query.where.span.column,
         )
     for reentry_where in query.reentry_wheres:
-        if reentry_where is not None and reentry_where.expr is not None:
+        if reentry_where is not None and reentry_where.expr_tree is not None:
             _check_expr(
-                reentry_where.expr.text,
+                boolean_expr_to_text(reentry_where.expr_tree),
                 field="where",
                 line=reentry_where.span.line,
                 column=reentry_where.span.column,
@@ -6237,9 +6238,9 @@ def _reject_variable_length_relationship_alias_path_carriers(
             column=column,
         )
 
-    if query.where is not None and query.where.expr is not None:
+    if query.where is not None and query.where.expr_tree is not None:
         _check_expr(
-            query.where.expr.text,
+            boolean_expr_to_text(query.where.expr_tree),
             field="where",
             line=query.where.span.line,
             column=query.where.span.column,
