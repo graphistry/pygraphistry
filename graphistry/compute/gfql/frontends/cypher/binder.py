@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Dict, FrozenSet, Iterable, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 
 from graphistry.compute.gfql.cypher.ast import (
+    BooleanExpr,
     CallClause,
     CypherGraphQuery,
     CypherQuery,
@@ -931,9 +932,83 @@ def _parameter_name_set(bound_ir: BoundIR) -> Set[str]:
     return names
 
 
+def _flatten_top_level_ands(expr: BooleanExpr) -> List[BooleanExpr]:
+    """Flatten left-associated AND chains into a flat list of conjuncts.
+
+    ``and(and(a, b), c)`` → ``[a, b, c]``.  Non-AND nodes stop the
+    recursion: ``or(a, b)`` returns ``[or(a, b)]`` (one conjunct),
+    ``not(a)`` returns ``[not(a)]``, atoms return ``[atom]``.
+
+    Used by :func:`_where_predicates` to emit one ``BoundPredicate``
+    per top-level AND conjunct so downstream passes (predicate pushdown)
+    don't have to re-parse compound expression text.
+    """
+    if expr.op != "and":
+        return [expr]
+    conjuncts: List[BooleanExpr] = []
+    if expr.left is not None:
+        conjuncts.extend(_flatten_top_level_ands(expr.left))
+    if expr.right is not None:
+        conjuncts.extend(_flatten_top_level_ands(expr.right))
+    return conjuncts
+
+
+_BOOLEAN_OP_KEYWORD: Dict[str, str] = {
+    "and": "AND",
+    "or": "OR",
+    "xor": "XOR",
+}
+
+
+def _boolean_expr_to_text(expr: BooleanExpr) -> str:
+    """Reconstruct surface text for a boolean-expression subtree.
+
+    Atoms emit ``atom_text`` directly.  Branches stringify recursively
+    with parentheses around any branch operand to keep operator
+    precedence unambiguous when the result is later parsed back as a
+    single conjunct.  ``NOT`` prefixes its operand; binary ops produce
+    ``"L OP R"``.
+
+    Inherits the slice-1 known limitation for primitive literal atoms
+    (``str(True) == "True"`` rather than Cypher ``"true"``); that is a
+    follow-up under #1200 to be addressed when literal transformers
+    gain span-carrying wrappers.
+    """
+    if expr.op == "atom":
+        return expr.atom_text or ""
+    if expr.op == "not":
+        operand = _boolean_expr_to_text(expr.left) if expr.left is not None else ""
+        if expr.left is not None and expr.left.op != "atom":
+            operand = f"({operand})"
+        return f"NOT {operand}"
+    keyword = _BOOLEAN_OP_KEYWORD.get(expr.op)
+    if keyword is None or expr.left is None or expr.right is None:
+        return expr.atom_text or ""
+    left = _boolean_expr_to_text(expr.left)
+    right = _boolean_expr_to_text(expr.right)
+    if expr.left.op != "atom":
+        left = f"({left})"
+    if expr.right.op != "atom":
+        right = f"({right})"
+    return f"{left} {keyword} {right}"
+
+
 def _where_predicates(where: WhereClause) -> List[BoundPredicate]:
+    # Routing invariant (parser.py): ``where.predicates`` and
+    # ``where.expr`` / ``where.expr_tree`` are mutually exclusive at the
+    # parse layer.  Structured ``where_predicates`` populates the former
+    # and returns; the generic ``expr`` route populates the latter (and
+    # ``expr_tree`` only fires on it).  We accept all three populated
+    # defensively in case a future parser refactor introduces overlap,
+    # but no current path exercises that combination.
     predicates = [BoundPredicate(expression=str(term)) for term in where.predicates]
-    if where.expr is not None:
+    if where.expr_tree is not None:
+        # Slice 2 of #1200: emit one BoundPredicate per top-level AND conjunct
+        # so downstream passes (e.g. predicate pushdown) walk pre-split
+        # conjuncts rather than re-parsing a compound expression string.
+        for conjunct in _flatten_top_level_ands(where.expr_tree):
+            predicates.append(BoundPredicate(expression=_boolean_expr_to_text(conjunct)))
+    elif where.expr is not None:
         predicates.append(BoundPredicate(expression=where.expr.text))
     return predicates
 
