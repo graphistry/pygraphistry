@@ -10,7 +10,6 @@ Indices and tables
    :caption: PyGraphistry documentation
 
    graphistry
-   release-verification
 
 .. toctree::
    :maxdepth: 3

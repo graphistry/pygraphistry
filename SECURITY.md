@@ -20,9 +20,11 @@ We will confirm the issue and severity, and as appropriate, prepare a fix and re
 
 For release supply-chain verification guidance, see:
 
-- [Release Verification Guide](docs/source/release-verification.md)
+- [Release Verification Guide](RELEASE_VERIFICATION.md)
 
 That guide covers:
 
 - verification of PyPI attestations/provenance for published distribution files
 - retrieval and inspection of release SBOM workflow evidence artifacts
+
+It will be rehomed into a dedicated Security section in the Sphinx docs once that section exists — see #1208.
