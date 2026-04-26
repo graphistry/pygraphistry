@@ -142,7 +142,7 @@ yield_clause: "YIELD"i yield_item ("," yield_item)*
 yield_item: NAME alias?
 
 with_clause: "WITH"i distinct? return_item ("," return_item)*
-with_where_clause: "WHERE"i expr
+with_where_clause.2: "WHERE"i expr
 return_clause: "RETURN"i distinct? return_item ("," return_item)*
 distinct: "DISTINCT"i
 return_item: return_expr alias?
