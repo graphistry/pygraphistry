@@ -12,6 +12,10 @@ permissions:
   contents: read
 
 concurrency:
+  # Cancel previous runs of the same workflow/PR/ref. On non-PR events
+  # (workflow_dispatch, repository_dispatch) `pull_request.labels` is null;
+  # `contains(null, _)` returns false → `!contains(…)` evaluates true,
+  # so cancellation defaults on. The `skip-cancel` PR label opts out on PRs.
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-cancel') }}
 

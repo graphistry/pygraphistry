@@ -87,7 +87,8 @@ jobs:
           exit 0
         fi
 
-        # Use merge-base to match dorny/paths-filter default semantics
+        # Diff vs the merge-base so PR runs see only commits that diverge from base
+        # (avoids picking up unrelated commits the base ref has gained meanwhile).
         merge_base=$(git merge-base "$base" "$head" 2>/dev/null || echo "$base")
         changed=$(git diff --name-only "$merge_base" "$head" 2>/dev/null || true)
 
