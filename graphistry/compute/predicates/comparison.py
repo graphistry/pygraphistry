@@ -242,26 +242,7 @@ def le(val: ComparisonInput) -> LE:
     """
     return LE(val)
 
-class EQ(ComparisonPredicate):
-    def _normalize_value(self, val: ComparisonInput) -> Union[int, float, np.number, TemporalValue, str]:
-        """Allow strings in addition to the base numeric/temporal types."""
-        if is_string(val):
-            return val
-        return super()._normalize_value(val)
-
-    def _validate_fields(self) -> None:
-        """Validate predicate fields (allow str in addition to base types)."""
-        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
-
-        if not isinstance(self.val, (int, float, TemporalValue, str)):
-            raise GFQLTypeError(
-                ErrorCode.E201,
-                "val must be numeric, temporal, or string",
-                field="val",
-                value=type(self.val).__name__,
-                suggestion="Use numeric/temporal values or strings"
-            )
-
+class EQ(_StringAllowingComparisonMixin, ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         """Equal comparison"""
         if isinstance(self.val, (int, float, str)):

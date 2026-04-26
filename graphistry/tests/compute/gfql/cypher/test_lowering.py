@@ -3181,8 +3181,9 @@ def test_string_cypher_executes_disjunctive_then_conjunction() -> None:
 
 def test_string_cypher_executes_disjunction_returns_correct_count_with_more_rows() -> None:
     # Larger fixture to confirm the OR doesn't silently union too many or
-    # too few rows.  Six rows: 2 match p1=1, 2 match p2=2, 1 matches
-    # both, 1 matches neither.  Expected union: 5 rows (the OR).
+    # too few rows.  Six rows: 2 match p1=1 only (x1, x2), 2 match p2=2
+    # only (y1, y2), 1 matches both (z), 1 matches neither (w).
+    # Expected union: 5 rows.
     graph = _mk_graph(
         pd.DataFrame(
             {
@@ -3196,20 +3197,11 @@ def test_string_cypher_executes_disjunction_returns_correct_count_with_more_rows
 
     result = graph.gfql("MATCH (n) WHERE n.p1 = 1 OR n.p2 = 2 RETURN n")
 
-    matched_ids = sorted(
-        row["n"].split("'")[1]
-        for row in result._nodes.to_dict(orient="records")
-        if "id" not in row["n"]  # parse the rendered ``(... {id: 'X'})`` form
-    ) if False else sorted(  # simpler: read directly from the result graph
-        result._nodes["id"].tolist() if "id" in result._nodes.columns else []
-    )
-    # Fall back to inspecting renderings if the result frame doesn't carry id.
-    if not matched_ids:
-        rendered = [row["n"] for row in result._nodes.to_dict(orient="records")]
-        # All 5 matching rows in the fixture should appear.
-        assert len(rendered) == 5
-    else:
-        assert matched_ids == ["x1", "x2", "y1", "y2", "z"]
+    rendered = [row["n"] for row in result._nodes.to_dict(orient="records")]
+    assert len(rendered) == 5
+    # Identify each row by its non-null property — every kept row must
+    # carry at least one of p1=1 or p2=2 in the rendered representation.
+    assert all("p1: 1" in r or "p2: 2" in r for r in rendered)
 
 
 def test_string_cypher_supports_list_slice_precedence_with_concat() -> None:
