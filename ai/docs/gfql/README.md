@@ -8,7 +8,6 @@ Guide for AI assistants working with GFQL (Graph Frame Query Language) in PyGrap
 - [`calls_checklist.md`](./calls_checklist.md) — Required steps for exposing or updating GFQL `call()` functions.
 - [`predicates_checklist.md`](./predicates_checklist.md) — End-to-end checklist for predicate implementations.
 - [`conformance.md`](./conformance.md) — Cypher TCK conformance harness and CI wiring.
-- [`issue-1219-row-boolean-validation.md`](./issue-1219-row-boolean-validation.md) — Investigation + solution draft for Cypher row-boolean WHERE validation gap.
 - [`../prompts/GFQL_LLM_GUIDE_MAINTENANCE.md`](../prompts/GFQL_LLM_GUIDE_MAINTENANCE.md) — Guidance for keeping AI assistants aligned with GFQL changes.
 
 ### Essential GFQL Operations
