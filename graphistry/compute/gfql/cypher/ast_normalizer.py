@@ -520,7 +520,6 @@ def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQu
     if remaining or query.where.expr_tree is not None:
         remaining_where = WhereClause(
             predicates=cast(Any, remaining),
-            expr=query.where.expr,  # constructor passthrough; sub-PR D drops this arg
             expr_tree=query.where.expr_tree,
             span=query.where.span,
         )

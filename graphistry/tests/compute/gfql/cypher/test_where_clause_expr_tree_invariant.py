@@ -1,16 +1,21 @@
-"""Parser invariant: ``(WhereClause.expr is None) == (WhereClause.expr_tree is None)``.
+"""Parser shape contract for ``WhereClause`` (post-#1213).
 
-Locked under #1213 sub-PR A so subsequent slices can read text/span from
-``expr_tree`` without checking both fields.  Covers every parser construction
-site that previously populated ``expr`` without populating ``expr_tree``:
+After the ``WhereClause.expr`` field is removed, the surviving routing
+contract has three shapes:
 
-  - ``where_clause`` non-structured (single-atom) branch
-  - ``generic_where_clause`` single-atom fallback (no boolean operators)
-  - ``generic_where_clause`` boolean-tree path (already invariant-holding)
-  - ``_mixed_where_clause`` (WHERE pattern AND expr) — both directions
+  - **Structured path**: ``predicates`` populated, ``expr_tree is None``.
+    Pure AND of comparable predicates, or label-narrowed AND.
+  - **Tree path**: ``predicates == ()``, ``expr_tree is not None``.
+    Generic boolean expression (OR / XOR / NOT / paren).
+  - **Mixed path**: BOTH ``predicates`` (a single ``WherePatternPredicate``)
+    AND ``expr_tree`` populated.  Fires for ``WHERE pattern AND expr``.
 
-Structured paths (``where_predicates`` rule, label-narrowing lift) keep
-``expr is None`` and ``expr_tree is None``; those also satisfy the invariant.
+Every WhereClause must populate at least one of the two fields with a
+non-empty value (an empty WHERE is a parse error).  Locked here so future
+grammar work can't silently regress the routing.
+
+(Pre-#1213 this file asserted ``(expr is None) == (expr_tree is None)``;
+that invariant became degenerate when the ``expr`` field was removed.)
 """
 from __future__ import annotations
 
@@ -29,50 +34,58 @@ def _where(query: str) -> WhereClause:
     return parsed.where
 
 
-@pytest.mark.parametrize("query", [
-    # Structured: AND of comparable predicates
-    "MATCH (n) WHERE n.x = 1 AND n.y = 2 RETURN n",
-    # Structured (label-narrowing): AND of bare label predicates
-    "MATCH (n) WHERE n:Admin AND n:User RETURN n",
+@pytest.mark.parametrize("query, expected_shape", [
+    # Structured (where_predicates rule): AND of comparable predicates
+    ("MATCH (n) WHERE n.x = 1 AND n.y = 2 RETURN n", "structured"),
+    # Structured (label-narrowing lift in generic_where_clause)
+    ("MATCH (n) WHERE n:Admin AND n:User RETURN n", "structured"),
     # Structured: single comparable predicate
-    "MATCH (n) WHERE n.x = 1 RETURN n",
-    # Generic boolean tree: parenthesized OR (bare top-level OR is rejected)
-    "MATCH (n) WHERE (n.x = 1 OR n.y = 2) RETURN n",
-    # Generic boolean tree: XOR
-    "MATCH (n) WHERE n:Admin XOR n:Active RETURN n",
-    # Generic boolean tree: NOT
-    "MATCH (n) WHERE NOT n.x = 1 AND n.y = 2 RETURN n",
-    # Generic boolean tree: parenthesized OR before AND
-    "MATCH (n) WHERE (n.x = 1 OR n.y = 2) AND n.z = 3 RETURN n",
-    # Mixed pattern + expr (pattern first)
-    "MATCH (n) WHERE (n)-[]->(:Admin) AND n.active = true RETURN n",
+    ("MATCH (n) WHERE n.x = 1 RETURN n", "structured"),
+    # Tree path: parenthesized OR (bare top-level OR is rejected)
+    ("MATCH (n) WHERE (n.x = 1 OR n.y = 2) RETURN n", "tree"),
+    # Tree path: XOR
+    ("MATCH (n) WHERE n:Admin XOR n:Active RETURN n", "tree"),
+    # Tree path: NOT
+    ("MATCH (n) WHERE NOT n.x = 1 AND n.y = 2 RETURN n", "tree"),
+    # Tree path: parenthesized OR before AND
+    ("MATCH (n) WHERE (n.x = 1 OR n.y = 2) AND n.z = 3 RETURN n", "tree"),
+    # Mixed path: WHERE pattern AND expr (predicates AND expr_tree both populated)
+    ("MATCH (n) WHERE (n)-[]->(:Admin) AND n.active = true RETURN n", "mixed"),
 ])
-def test_expr_and_expr_tree_invariant_holds(query: str) -> None:
+def test_where_clause_routing_shape(query: str, expected_shape: str) -> None:
     where = _where(query)
-    assert (where.expr is None) == (where.expr_tree is None), (
-        f"Invariant violated for {query!r}: "
-        f"expr is {where.expr!r}, expr_tree is {where.expr_tree!r}"
+    has_preds = len(where.predicates) >= 1
+    has_tree = where.expr_tree is not None
+    actual = (
+        "structured" if (has_preds and not has_tree)
+        else "tree" if (not has_preds and has_tree)
+        else "mixed" if (has_preds and has_tree)
+        else "empty"
     )
+    assert actual == expected_shape, (
+        f"Routing violated for {query!r}: predicates={where.predicates!r}, "
+        f"expr_tree={where.expr_tree!r}; actual={actual!r}, expected={expected_shape!r}"
+    )
+    assert actual != "empty", "WHERE clause must populate predicates or expr_tree"
 
 
 def test_mixed_pattern_and_expr_synthesizes_atom_tree() -> None:
+    """``_mixed_where_clause`` synthesizes a single-atom tree carrying the expr text."""
     where = _where("MATCH (n) WHERE (n)-[]->(:Admin) AND n.active = true RETURN n")
-    assert where.expr is not None
     assert where.expr_tree is not None
     assert where.expr_tree.op == "atom"
-    assert where.expr_tree.atom_text == where.expr.text
+    assert where.expr_tree.atom_text == "n.active = true"
 
 
 def test_boolean_tree_preserves_structural_op() -> None:
+    """Lark's parsed tree (and_op / or_op / xor_op / not_op) is preserved in expr_tree."""
     where = _where("MATCH (n) WHERE (n.x = 1 OR n.y = 2) RETURN n")
     assert where.expr_tree is not None
-    # Generic path's atom synthesis kicks in only when items[0] is non-BooleanExpr;
-    # an OR-bearing tree comes through as op="or".
     assert where.expr_tree.op == "or"
 
 
-def test_structured_predicates_have_no_expr_or_tree() -> None:
+def test_structured_predicates_have_no_tree() -> None:
+    """Structured-path WhereClauses produce no expr_tree at all."""
     where = _where("MATCH (n) WHERE n.x = 1 AND n.y = 2 RETURN n")
-    assert where.expr is None
     assert where.expr_tree is None
     assert len(where.predicates) == 2
