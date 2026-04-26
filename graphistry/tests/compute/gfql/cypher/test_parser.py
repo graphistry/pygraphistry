@@ -20,6 +20,7 @@ from graphistry.compute.gfql.cypher import (
     WherePatternPredicate,
     parse_cypher,
 )
+from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
 from graphistry.compute.gfql.cypher.ast import GraphBinding, GraphConstructor, UseClause
 
 
@@ -365,7 +366,7 @@ def test_parse_where_and_label_predicates_produces_structured_ast() -> None:
     parsed = _parse_query("MATCH (n) WHERE n:Admin AND n:Active RETURN n")
 
     assert parsed.where is not None
-    assert parsed.where.expr is None
+    assert parsed.where.expr_tree is None
     assert len(parsed.where.predicates) == 2
     p0, p1 = parsed.where.predicates
     assert isinstance(p0, WherePredicate) and isinstance(p0.left, LabelRef)
@@ -381,7 +382,7 @@ def test_parse_where_single_label_predicate_produces_structured_ast() -> None:
     parsed = _parse_query("MATCH (n) WHERE n:Admin RETURN n")
 
     assert parsed.where is not None
-    assert parsed.where.expr is None
+    assert parsed.where.expr_tree is None
     assert len(parsed.where.predicates) == 1
     p = parsed.where.predicates[0]
     assert isinstance(p, WherePredicate) and isinstance(p.left, LabelRef)
@@ -409,8 +410,8 @@ def test_parse_where_xor_label_expression_stays_as_raw_expr() -> None:
     parsed = _parse_query("MATCH (n) WHERE n:Admin XOR n:Active RETURN n")
 
     assert parsed.where is not None
-    assert parsed.where.expr is not None
-    assert "XOR" in parsed.where.expr.text.upper()
+    assert parsed.where.expr_tree is not None
+    assert "XOR" in boolean_expr_to_text(parsed.where.expr_tree).upper()
     assert parsed.where.predicates == ()
 
 
@@ -422,7 +423,7 @@ def test_parse_where_triple_and_label_conjunction_through_generic_where_clause()
     parsed = _parse_query("MATCH (n) WHERE n:Admin AND n:Active AND n:Super RETURN n")
 
     assert parsed.where is not None
-    assert parsed.where.expr is None
+    assert parsed.where.expr_tree is None
     assert len(parsed.where.predicates) == 3
     aliases = [
         p.left.alias
@@ -960,8 +961,8 @@ def test_parse_supports_where_pattern_predicate_and_expr_mix(query: str, expr_te
     assert parsed.where is not None
     assert len(parsed.where.predicates) == 1
     assert isinstance(parsed.where.predicates[0], WherePatternPredicate)
-    assert parsed.where.expr is not None
-    assert parsed.where.expr.text == expr_text
+    assert parsed.where.expr_tree is not None
+    assert boolean_expr_to_text(parsed.where.expr_tree) == expr_text
 
 
 @pytest.mark.parametrize(
@@ -1054,7 +1055,6 @@ def test_or_where_now_parses_after_earley_swap() -> None:
 
     assert parsed.where is not None
     assert parsed.where.predicates == ()
-    assert parsed.where.expr is not None
-    assert "OR" in parsed.where.expr.text.upper()
     assert parsed.where.expr_tree is not None
     assert parsed.where.expr_tree.op == "or"
+    assert "OR" in boolean_expr_to_text(parsed.where.expr_tree).upper()

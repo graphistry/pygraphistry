@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from graphistry.compute.gfql.cypher.ast import (
     BooleanExpr,
-    ExpressionText,
     SourceSpan,
     WhereClause,
 )
@@ -138,7 +137,6 @@ def test_where_predicates_with_expr_tree_emits_one_per_conjunct() -> None:
     where = WhereClause(
         predicates=(),
         span=_span(),
-        expr=ExpressionText(text="a > 1 AND b > 2 AND c > 3", span=_span()),
         expr_tree=outer,
     )
     bps = _where_predicates(where)
@@ -152,27 +150,14 @@ def test_where_predicates_with_or_root_emits_single_compound() -> None:
     where = WhereClause(
         predicates=(),
         span=_span(),
-        expr=ExpressionText(text="a OR b", span=_span()),
         expr_tree=or_expr,
     )
     bps = _where_predicates(where)
     assert [bp.expression for bp in bps] == ["a OR b"]
 
 
-def test_where_predicates_with_expr_tree_none_falls_back_to_expr_text() -> None:
-    # Backward compat — expr_tree absent → same one-BoundPredicate path.
-    where = WhereClause(
-        predicates=(),
-        span=_span(),
-        expr=ExpressionText(text="raw expression text", span=_span()),
-        expr_tree=None,
-    )
-    bps = _where_predicates(where)
-    assert [bp.expression for bp in bps] == ["raw expression text"]
-
-
 def test_where_predicates_with_no_expr_at_all_returns_empty() -> None:
-    where = WhereClause(predicates=(), span=_span(), expr=None, expr_tree=None)
+    where = WhereClause(predicates=(), span=_span(), expr_tree=None)
     assert _where_predicates(where) == []
 
 

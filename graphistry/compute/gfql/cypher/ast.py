@@ -182,26 +182,29 @@ class BooleanExpr:
 class WhereClause:
     """Parsed WHERE clause.
 
-    Field coexistence rules:
+    Field coexistence rules (post-#1213).  Three observable shapes, all
+    populated by the parser; consumers MUST handle all three:
 
-    - **Structured path**: ``predicates`` populated, ``expr`` is ``None``,
-      ``expr_tree`` is ``None``.  Fires when Lark routes through the
-      ``where_predicates`` grammar rule (pure AND conjunctions of
-      comparable predicates) or when ``generic_where_clause`` lifts
-      AND-joined bare label predicates via label narrowing.
-    - **Raw-text path**: ``predicates == ()``, ``expr`` populated with
-      the WHERE body text.  Fires when ``generic_where_clause`` cannot
-      lift to structured predicates.
-    - **Structured-tree path**: ``expr_tree`` populated alongside
-      ``expr`` when the WHERE body contains ``AND`` / ``OR`` / ``XOR`` /
-      ``NOT`` operators that Lark captured via ``and_op`` / ``or_op`` /
-      ``xor_op`` / ``not_op``.  ``expr_tree`` is additive — consumers
-      that ignore it see the raw-text path unchanged.
+    - **Structured path**: ``predicates`` populated, ``expr_tree is None``.
+      ``predicates`` carries either ``WherePredicate`` entries (pure AND of
+      comparable / has-labels predicates routed via the ``where_predicates``
+      grammar rule, or AND-joined bare label predicates lifted by
+      ``generic_where_clause`` via label narrowing) or a single
+      ``WherePatternPredicate`` (pattern-only WHERE: ``WHERE (n)-[]->(m)``).
+    - **Tree path**: ``predicates == ()``, ``expr_tree`` populated.  Fires
+      when ``generic_where_clause`` cannot lift to structured predicates
+      (OR / XOR / NOT / parenthesized boolean / non-label atoms); consumers
+      walk ``expr_tree`` (boolean structure) and reconstruct surface text
+      via ``boolean_expr_to_text`` when needed.
+    - **Mixed path**: BOTH ``predicates`` (a single ``WherePatternPredicate``)
+      AND ``expr_tree`` populated.  Fires for ``WHERE pattern AND expr`` and
+      ``WHERE expr AND pattern`` (``_mixed_where_clause`` in parser.py).
+      ``expr_tree`` carries a single-atom ``BooleanExpr`` whose ``atom_text``
+      is the expr-side fragment; consumers handle both halves.
     """
 
     predicates: Tuple[WhereTerm, ...]
     span: SourceSpan
-    expr: Optional[ExpressionText] = None
     expr_tree: Optional[BooleanExpr] = None
 
 

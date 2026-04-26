@@ -423,11 +423,10 @@ def _build_where_with_pattern_lift(
     - More than one positive top-level pattern → unsupported error.
     - Successful single-pattern lift → ``WherePatternPredicate`` in
       ``predicates`` plus a rebuilt ``expr_tree`` from the remaining
-      conjuncts.  Empty residual → ``expr=None, expr_tree=None`` (preserves
-      the ``(expr is None) == (expr_tree is None)`` invariant from #1214).
+      conjuncts.  Empty residual → ``expr_tree=None`` (post-#1220, the
+      legacy ``WhereClause.expr`` field is gone — ``expr_tree`` alone
+      is the single source of truth for boolean structure).
     """
-    from ._boolean_expr_text import boolean_expr_to_text
-
     if nested_pattern:
         # Pattern leaf nested under NOT/OR/XOR or below a non-AND parent.
         # Substring "WHERE pattern predicates" preserved for existing
@@ -474,11 +473,9 @@ def _build_where_with_pattern_lift(
     if new_expr_tree is None:
         # All conjuncts were pattern leaves (slice 1: only one positive
         # pattern, so this is the pattern-only WHERE shape).
-        return WhereClause(predicates=(pattern_pred,), expr=None, expr_tree=None, span=span)
-    new_expr_text = boolean_expr_to_text(new_expr_tree)
+        return WhereClause(predicates=(pattern_pred,), expr_tree=None, span=span)
     return WhereClause(
         predicates=(pattern_pred,),
-        expr=ExpressionText(text=new_expr_text, span=new_expr_tree.span),
         expr_tree=new_expr_tree,
         span=span,
     )
@@ -1221,14 +1218,13 @@ def _build_transformer(source: str) -> _TransformerLike:
                 atom_tree = BooleanExpr(op="atom", span=expr.span, atom_text=expr.text, atom_span=expr.span)
                 return WhereClause(
                     predicates=(),
-                    expr=ExpressionText(text=expr.text, span=expr.span),
                     expr_tree=atom_tree,
                     span=where_span,
                 )
             predicates = cast(Tuple[WherePredicate, ...], items[0])
             if len(predicates) == 0:
                 raise _to_syntax_error("WHERE clause cannot be empty", line=meta.line, column=meta.column)
-            return WhereClause(predicates=cast(Any, predicates), expr=None, span=_span_from_meta(meta))
+            return WhereClause(predicates=cast(Any, predicates), span=_span_from_meta(meta))
 
         def generic_where_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
             span = _span_from_meta(meta)
@@ -1263,7 +1259,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                     )
                     for alias, labels in lifted
                 )
-                return WhereClause(predicates=predicates, expr=None, span=span)
+                return WhereClause(predicates=predicates, span=span)
             # Pattern-leaf lift (slice 1 of #1031).  Pattern leaves
             # produced by the new ``pattern_atom`` grammar rule sit at
             # top-level AND positions; extract them as
@@ -1284,7 +1280,6 @@ def _build_transformer(source: str) -> _TransformerLike:
                 )
             return WhereClause(
                 predicates=(),
-                expr=ExpressionText(text=expr_text, span=span),
                 expr_tree=expr_tree,
                 span=span,
             )
