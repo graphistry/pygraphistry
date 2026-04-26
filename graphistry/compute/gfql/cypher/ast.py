@@ -145,7 +145,7 @@ class WherePatternPredicate:
 WhereTerm = Union[WherePredicate, WherePatternPredicate]
 
 
-BooleanOp = Literal["and", "or", "xor", "not", "atom"]
+BooleanOp = Literal["and", "or", "xor", "not", "atom", "pattern"]
 
 
 @dataclass(frozen=True)
@@ -156,10 +156,16 @@ class BooleanExpr:
     rules so downstream consumers (binder serialization, predicate
     pushdown) can walk structure instead of re-parsing expression text.
 
-    Leaf nodes have ``op == "atom"`` and carry the atomic predicate's
-    ``atom_text`` (exact source slice) and ``atom_span``.  Branch nodes
-    have ``op`` in ``{"and", "or", "xor"}`` with both ``left`` and
-    ``right`` set, or ``op == "not"`` with only ``left`` set.  ``span``
+    Leaf nodes:
+    - ``op == "atom"`` — atomic predicate; carries ``atom_text`` (exact
+      source slice) and ``atom_span``.
+    - ``op == "pattern"`` — WHERE pattern predicate (e.g. ``(n)-[:R]->()``);
+      carries ``pattern`` (parsed pattern elements) and ``atom_text`` /
+      ``atom_span`` for source slice.  Used as a leaf inside boolean
+      expressions starting in #1031 slice 1.
+
+    Branch nodes have ``op`` in ``{"and", "or", "xor"}`` with both ``left``
+    and ``right`` set, or ``op == "not"`` with only ``left`` set.  ``span``
     covers the full subexpression in every case.
     """
 
@@ -169,6 +175,7 @@ class BooleanExpr:
     right: Optional["BooleanExpr"] = None
     atom_text: Optional[str] = None
     atom_span: Optional[SourceSpan] = None
+    pattern: Optional[Tuple[PatternElement, ...]] = None
 
 
 @dataclass(frozen=True)

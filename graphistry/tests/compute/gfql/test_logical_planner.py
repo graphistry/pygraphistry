@@ -262,11 +262,23 @@ def test_logical_planner_applies_predicates_attached_to_match_part() -> None:
     assert expected_predicate in predicates
 
 
-def test_logical_planner_applies_predicates_attached_to_with_part() -> None:
+def test_logical_planner_applies_predicates_attached_to_with_stage_filter() -> None:
+    # Pre-#1031: LALR routed the WITH-stage WHERE through raw expr text;
+    # the binder attached the predicate to the WITH ``query_part``.
+    # Post-#1031 (Earley): the structured ``where_predicates`` route
+    # unifies and the binder attaches to the MATCH ``query_part``.  The
+    # logical planner still emits the corresponding ``Filter`` node, so
+    # the semantic effect is preserved — what changed is only the
+    # binder attachment point.  Assert the planner produces the filter
+    # regardless of which ``query_part`` carries it.
     query = "MATCH (n:Person) WITH n AS m WHERE m.id > 0 RETURN m"
     bound = _bind_query(query)
-    with_part = next(part for part in bound.query_parts if part.clause == "WITH")
-    expected_predicate = with_part.predicates[0].expression
+    expected_predicate = next(
+        bp.expression
+        for part in bound.query_parts
+        for bp in part.predicates
+        if "id" in bp.expression
+    )
 
     root = LogicalPlanner().plan(bound, PlanContext())
     predicates = [flt.predicate.expression for flt in _filters(root)]

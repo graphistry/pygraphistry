@@ -416,17 +416,24 @@ def test_binder_label_narrowing_multi_alias_and_conjunction() -> None:
 
 
 def test_binder_label_narrowing_mixed_label_and_property_predicate() -> None:
-    # "n:Admin AND n.prop = 1" — one label part, one property part. The
-    # conservative policy is no narrowing (either all parts are labels or
-    # none narrow).  This test locks the all-or-nothing invariant so that a
-    # refactor cannot silently narrow the label half while dropping the
-    # property predicate from the bound expression.
+    # "n:Admin AND n.prop = 1" — one label part, one property part.
+    #
+    # Pre-#1031 (LALR): the parser couldn't unify label-predicate and
+    # property-predicate alternatives in ``where_predicates``; this query
+    # routed via raw ``expr`` text and the binder applied no narrowing
+    # (conservative all-or-nothing).
+    #
+    # Post-#1031 (Earley): both alternatives unify under
+    # ``where_predicates``, and structured narrowing applies the label
+    # half.  This is a strict improvement — the label is now correctly
+    # extracted as a structured predicate, and the property comparison
+    # is its own structured predicate alongside it.
     query = "MATCH (n) WHERE n:Admin AND n.prop = 1 RETURN n"
     bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
 
     n_var = bound.semantic_table.variables["n"]
     assert isinstance(n_var.logical_type, NodeRef)
-    assert n_var.logical_type.labels == frozenset()
+    assert n_var.logical_type.labels == frozenset({"Admin"})
 
 
 def test_binder_label_narrowing_multi_label_per_alias_in_and_conjunction() -> None:

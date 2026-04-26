@@ -7,7 +7,6 @@ import re
 from typing import Any, List, Literal, Optional, Protocol, Sequence, Tuple, Type, Union, cast
 
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
-from graphistry.compute.gfql.expr_split import split_top_level_and
 from graphistry.compute.gfql.cypher.ast import (
     BooleanExpr,
     CallClause,
@@ -121,10 +120,7 @@ variable: NAME
 properties: "{" [property_entry ("," property_entry)*] "}"
 property_entry: NAME ":" expr
 
-where_clause: "WHERE"i WHERE_PATTERN "AND"i expr -> where_pattern_and_expr_clause
-            | "WHERE"i expr "AND"i WHERE_PATTERN -> expr_and_where_pattern_clause
-            | "WHERE"i WHERE_PATTERN -> where_pattern_only_clause
-            | "WHERE"i where_predicates
+where_clause: "WHERE"i where_predicates
             | "WHERE"i expr                -> generic_where_clause
 where_predicates: where_predicate ("AND"i where_predicate)*
 where_predicate: property_ref COMP_OP where_rhs -> cmp_where
@@ -226,6 +222,7 @@ order_expr: expr
         | list_comprehension
         | list_literal
         | map_literal
+        | WHERE_PATTERN                     -> pattern_atom
         | "(" expr ")"                      -> grouped_expr
 
 ?subscript_key: expr                        -> subscript_index
@@ -348,30 +345,150 @@ def _lift_label_only_and_spine(
     return tuple(out)
 
 
+def _split_top_level_and_pattern_leaves(
+    expr: BooleanExpr,
+) -> Tuple[List[BooleanExpr], List[BooleanExpr], bool]:
+    """Walk an ``expr_tree`` and split it at top-level AND boundaries.
+
+    Returns ``(pattern_leaves, non_pattern_conjuncts, has_unsupported_nested_pattern)``:
+    - ``pattern_leaves`` — every ``op == "pattern"`` node sitting directly
+      under top-level AND nodes (or at the root).  Patterns can be at ANY
+      position in the AND-spine (slice 1 of #1031 retires the canonicalizer
+      that previously reordered patterns to leftmost via source rewrite).
+    - ``non_pattern_conjuncts`` — every other top-level conjunct in
+      original order.  Caller rebuilds an AND tree from these.
+    - ``has_unsupported_nested_pattern`` — True if any descendant of a
+      non-AND, non-pattern node is itself a pattern.  These shapes are
+      slice 2/3/4 territory (NOT/OR/XOR around patterns); caller raises
+      a shape-specific ``unsupported`` error.
+    """
+    if expr.op == "and":
+        if expr.left is None or expr.right is None:
+            return [], [expr], False
+        left_pat, left_other, left_bad = _split_top_level_and_pattern_leaves(expr.left)
+        right_pat, right_other, right_bad = _split_top_level_and_pattern_leaves(expr.right)
+        return left_pat + right_pat, left_other + right_other, left_bad or right_bad
+    if expr.op == "pattern":
+        return [expr], [], False
+    return [], [expr], _has_pattern_descendant(expr)
+
+
+def _has_pattern_descendant(expr: BooleanExpr) -> bool:
+    """True if any descendant of *expr* (or *expr* itself) has ``op == 'pattern'``."""
+    if expr.op == "pattern":
+        return True
+    if expr.left is not None and _has_pattern_descendant(expr.left):
+        return True
+    if expr.right is not None and _has_pattern_descendant(expr.right):
+        return True
+    return False
+
+
+def _rebuild_and_tree(conjuncts: List[BooleanExpr]) -> Optional[BooleanExpr]:
+    """Reconstruct a left-associative AND tree from a list of conjuncts.
+
+    Returns ``None`` for an empty input.  A single conjunct passes through
+    unchanged.  Two or more produce ``and(and(c0, c1), c2)`` left-assoc.
+    """
+    if not conjuncts:
+        return None
+    if len(conjuncts) == 1:
+        return conjuncts[0]
+    tree = conjuncts[0]
+    for conjunct in conjuncts[1:]:
+        new_span = SourceSpan(
+            line=tree.span.line,
+            column=tree.span.column,
+            end_line=conjunct.span.end_line,
+            end_column=conjunct.span.end_column,
+            start_pos=tree.span.start_pos,
+            end_pos=conjunct.span.end_pos,
+        )
+        tree = BooleanExpr(op="and", span=new_span, left=tree, right=conjunct)
+    return tree
+
+
+def _build_where_with_pattern_lift(
+    *,
+    pattern_leaves: List[BooleanExpr],
+    other_conjuncts: List[BooleanExpr],
+    nested_pattern: bool,
+    expr_text: str,
+    span: SourceSpan,
+) -> WhereClause:
+    """Build a ``WhereClause`` from lifted pattern leaves + remaining conjuncts.
+
+    Slice 1 of #1031.  Encapsulates the policy that:
+    - Pattern nested under non-AND op → unsupported error.
+    - More than one positive top-level pattern → unsupported error.
+    - Successful single-pattern lift → ``WherePatternPredicate`` in
+      ``predicates`` plus a rebuilt ``expr_tree`` from the remaining
+      conjuncts.  Empty residual → ``expr=None, expr_tree=None`` (preserves
+      the ``(expr is None) == (expr_tree is None)`` invariant from #1214).
+    """
+    from ._boolean_expr_text import boolean_expr_to_text
+
+    if nested_pattern:
+        # Pattern leaf nested under NOT/OR/XOR or below a non-AND parent.
+        # Substring "WHERE pattern predicates" preserved for existing
+        # test_lowering.py:4544-4548 / test_parser.py:967 contracts.
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher WHERE pattern predicates cannot yet be mixed with generic row expressions",
+            field="where",
+            value=expr_text,
+            suggestion="Use a single positive top-level pattern predicate joined by AND.",
+            line=span.line,
+            column=span.column,
+            language="cypher",
+        )
+    if len(pattern_leaves) > 1:
+        # Multi-positive pattern (slice 3 territory).  Substring
+        # "WHERE pattern predicates" matches test_lowering.py:1646
+        # / :4470 / :4483 contracts.
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher WHERE pattern predicates beyond a single positive predicate are unsupported",
+            field="where",
+            value=expr_text,
+            suggestion="Use a single positive top-level pattern predicate.",
+            line=span.line,
+            column=span.column,
+            language="cypher",
+        )
+    leaf = pattern_leaves[0]
+    if leaf.pattern is None:
+        # Defensive: parser invariant — pattern_atom always populates this.
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher WHERE pattern leaf missing parsed pattern payload",
+            field="where",
+            value=leaf.atom_text or "",
+            suggestion="Internal parser invariant violated; please file a bug.",
+            line=leaf.span.line,
+            column=leaf.span.column,
+            language="cypher",
+        )
+    pattern_pred = WherePatternPredicate(pattern=leaf.pattern, span=leaf.span)
+    new_expr_tree = _rebuild_and_tree(other_conjuncts)
+    if new_expr_tree is None:
+        # All conjuncts were pattern leaves (slice 1: only one positive
+        # pattern, so this is the pattern-only WHERE shape).
+        return WhereClause(predicates=(pattern_pred,), expr=None, expr_tree=None, span=span)
+    new_expr_text = boolean_expr_to_text(new_expr_tree)
+    return WhereClause(
+        predicates=(pattern_pred,),
+        expr=ExpressionText(text=new_expr_text, span=new_expr_tree.span),
+        expr_tree=new_expr_tree,
+        span=span,
+    )
+
+
 _RESERVED_IDENTIFIER_GRAPH = "graph"
 _WHERE_PATTERN_ITEM_RE = re.compile(
     r"\([^)\n]*\)\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\)"
     r"(?:\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\))*"
 )
-_WHERE_PATTERN_SEQUENCE_RE = re.compile(
-    rf"(?:{_WHERE_PATTERN_ITEM_RE.pattern})(?:\s+AND\s+(?:{_WHERE_PATTERN_ITEM_RE.pattern}))*",
-    re.IGNORECASE,
-)
-_WHERE_PATTERN_THEN_EXPR_RE = re.compile(
-    rf"^(?P<pattern>{_WHERE_PATTERN_SEQUENCE_RE.pattern})\s+AND\s+(?P<expr>.+)$",
-    re.IGNORECASE | re.DOTALL,
-)
-_WHERE_EXPR_THEN_PATTERN_RE = re.compile(
-    rf"^(?P<expr>.+)\s+AND\s+(?P<pattern>{_WHERE_PATTERN_SEQUENCE_RE.pattern})$",
-    re.IGNORECASE | re.DOTALL,
-)
-_WHERE_CLAUSE_BODY_RE = re.compile(
-    r"\bWHERE\b(?P<body>.*?)(?=\bRETURN\b|\bWITH\b|\bORDER\s+BY\b|\bSKIP\b|\bLIMIT\b|\bUNWIND\b|\bCALL\b|\bMATCH\b|\bOPTIONAL\s+MATCH\b|\bUNION\b|;|$)",
-    re.IGNORECASE | re.DOTALL,
-)
-_BOOLEAN_KEYWORD_RE = re.compile(r"\b(?:AND|OR|XOR|NOT)\b", re.IGNORECASE)
-
-
 class _ParserLike:
     def parse(self, text: str) -> object:
         raise NotImplementedError
@@ -444,10 +561,17 @@ class _BoundPattern:
 @lru_cache(maxsize=1)
 def _parser() -> _ParserLike:
     Lark, _, _, _ = _lark_imports()
+    # Earley (#1031): LALR(1) cannot resolve `comparable AND WHERE_PATTERN`
+    # without grammar workarounds (see retired ``_canonicalize_where_single_
+    # pattern_and_expr`` and the 3 dedicated ``where_clause`` alternatives).
+    # Earley accepts the unified grammar where ``WHERE_PATTERN`` is a leaf
+    # in ``?primary``.  Ambiguity is resolved by Lark's default "resolve"
+    # mode (highest-priority single derivation).  Conformance suite +
+    # gfql-benchmarks are the validation oracle.
     parser = Lark(
         _GRAMMAR,
         start="start",
-        parser="lalr",
+        parser="earley",
         maybe_placeholders=False,
         propagate_positions=True,
     )
@@ -460,7 +584,7 @@ def _pattern_parser() -> _ParserLike:
     parser = Lark(
         _GRAMMAR,
         start="pattern",
-        parser="lalr",
+        parser="earley",
         maybe_placeholders=False,
         propagate_positions=True,
     )
@@ -491,54 +615,6 @@ def _to_unsupported(message: str, *, line: Optional[int] = None, column: Optiona
     )
 
 
-def _line_and_column_from_offset(source: str, offset: int) -> Tuple[int, int]:
-    line = source.count("\n", 0, offset) + 1
-    last_newline = source.rfind("\n", 0, offset)
-    column = offset + 1 if last_newline < 0 else offset - last_newline
-    return line, column
-
-
-def _mixed_where_pattern_expr_error(source: str) -> Optional[GFQLValidationError]:
-    for match in _WHERE_CLAUSE_BODY_RE.finditer(source):
-        body = match.group("body").strip()
-        if body == "":
-            continue
-        if _WHERE_PATTERN_ITEM_RE.search(body) is None:
-            continue
-        if _WHERE_PATTERN_SEQUENCE_RE.fullmatch(body) is not None:
-            continue
-        if _BOOLEAN_KEYWORD_RE.search(body) is None:
-            continue
-        line, column = _line_and_column_from_offset(source, match.start("body"))
-        return _to_unsupported(
-            "Cypher WHERE pattern predicates cannot yet be mixed with generic row expressions",
-            line=line,
-            column=column,
-            field="where",
-            value=body,
-        )
-    return None
-
-
-def _canonicalize_where_single_pattern_and_expr(source: str) -> Optional[str]:
-    for match in _WHERE_CLAUSE_BODY_RE.finditer(source):
-        body = match.group("body").strip()
-        terms = split_top_level_and(body)
-        if len(terms) <= 1:
-            continue
-        pattern_indices = [idx for idx, term in enumerate(terms) if _WHERE_PATTERN_SEQUENCE_RE.fullmatch(term) is not None]
-        if len(pattern_indices) != 1:
-            continue
-        pattern_index = pattern_indices[0]
-        pattern_text = terms[pattern_index].strip()
-        expr_terms = [term for idx, term in enumerate(terms) if idx != pattern_index]
-        if not expr_terms:
-            continue
-        canonical_body = f"{pattern_text} AND {' AND '.join(expr_terms)}"
-        if canonical_body == body:
-            continue
-        return f"{source[:match.start('body')]}{canonical_body}{source[match.end('body'):]}"
-    return None
 
 
 def _build_transformer(source: str) -> _TransformerLike:
@@ -1010,64 +1086,34 @@ def _build_transformer(source: str) -> _TransformerLike:
                 )
             return WherePatternPredicate(pattern=cast(Tuple[PatternElement, ...], pattern_node), span=span)
 
-        def _mixed_where_clause(
-            self,
-            *,
-            pattern_text: str,
-            expr_text: str,
-            span: SourceSpan,
-        ) -> WhereClause:
-            if expr_text.strip() == "":
-                raise _to_syntax_error("Invalid WHERE clause", line=span.line, column=span.column)
-            # Mixed-clause handlers (``where_pattern_and_expr_clause`` and
-            # ``expr_and_where_pattern_clause``) reconstruct ``expr_text`` from
-            # the source slice and do not capture Lark's structural expression
-            # tree.  Synthesize a single-atom ``BooleanExpr`` so the invariant
-            # ``(expr is None) == (expr_tree is None)`` holds (#1213 sub-PR A);
-            # downstream consumers that walk the tree see one atom whose
-            # ``atom_text`` matches the legacy ``expr.text``.  Re-parsing the
-            # boolean structure of mixed-clause expressions is out of scope.
-            stripped = expr_text.strip()
-            return WhereClause(
-                predicates=(self._parse_where_pattern_predicate_text(pattern_text, span),),
-                expr=ExpressionText(text=stripped, span=span),
-                expr_tree=BooleanExpr(op="atom", span=span, atom_text=stripped, atom_span=span),
-                span=span,
-            )
+        def pattern_atom(self, meta: Any, items: Sequence[Any]) -> BooleanExpr:
+            """Wrap a ``WHERE_PATTERN`` token as a ``BooleanExpr`` leaf.
 
-        def where_pattern_only_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
+            Fires for any pattern predicate appearing inside a WHERE
+            expression — pattern-only WHERE, pattern AND expr, expr AND
+            pattern, pattern in middle of an AND-spine, etc.  The actual
+            pattern parse uses the same ``_parse_where_pattern_predicate_text``
+            helper that the legacy pattern-shape transformer methods used.
+
+            Downstream pipeline (#1031 slice 1):
+            - Binder's ``_where_predicates`` sees ``BooleanExpr(op="pattern")``
+              leaves only via the AST normalizer's lift step, which extracts
+              them into ``WhereClause.predicates`` as ``WherePatternPredicate``
+              entries before the binder walks the tree.
+            - Pattern leaves under non-AND boolean ops are rejected at the
+              lift step with shape-specific E108 errors (slices 2/3/4).
+            """
             if len(items) != 1:
                 raise _to_syntax_error("Invalid WHERE pattern predicate", line=meta.line, column=meta.column)
+            span = _span_from_meta(meta)
             pattern_text = str(items[0]).strip()
-            span = _span_from_meta(meta)
-            return WhereClause(
-                predicates=(self._parse_where_pattern_predicate_text(pattern_text, span),),
-                expr=None,
+            pattern_pred = self._parse_where_pattern_predicate_text(pattern_text, span)
+            return BooleanExpr(
+                op="pattern",
                 span=span,
-            )
-
-        def where_pattern_and_expr_clause(self, meta: Any, _items: Sequence[Any]) -> WhereClause:
-            span = _span_from_meta(meta)
-            body = self._slice(span)[len("WHERE"):].strip()
-            match = _WHERE_PATTERN_THEN_EXPR_RE.fullmatch(body)
-            if match is None:
-                raise _to_syntax_error("Invalid WHERE clause", line=meta.line, column=meta.column)
-            return self._mixed_where_clause(
-                pattern_text=match.group("pattern").strip(),
-                expr_text=match.group("expr").strip(),
-                span=span,
-            )
-
-        def expr_and_where_pattern_clause(self, meta: Any, _items: Sequence[Any]) -> WhereClause:
-            span = _span_from_meta(meta)
-            body = self._slice(span)[len("WHERE"):].strip()
-            match = _WHERE_EXPR_THEN_PATTERN_RE.fullmatch(body)
-            if match is None:
-                raise _to_syntax_error("Invalid WHERE clause", line=meta.line, column=meta.column)
-            return self._mixed_where_clause(
-                pattern_text=match.group("pattern").strip(),
-                expr_text=match.group("expr").strip(),
-                span=span,
+                atom_text=pattern_text,
+                atom_span=span,
+                pattern=pattern_pred.pattern,
             )
 
         def _wrap_as_boolean_atom(self, operand: Any, enclosing_meta: Any) -> BooleanExpr:
@@ -1218,6 +1264,24 @@ def _build_transformer(source: str) -> _TransformerLike:
                     for alias, labels in lifted
                 )
                 return WhereClause(predicates=predicates, expr=None, span=span)
+            # Pattern-leaf lift (slice 1 of #1031).  Pattern leaves
+            # produced by the new ``pattern_atom`` grammar rule sit at
+            # top-level AND positions; extract them as
+            # ``WherePatternPredicate`` entries so the existing AST-
+            # normalizer step (``_rewrite_where_pattern_predicates_to_matches``)
+            # can lift them to a separate ``MatchClause`` later.  Pattern
+            # leaves nested under non-AND ops (NOT/OR/XOR) and multiple
+            # positive patterns are rejected here with shape-specific
+            # E108 errors — slice 2/3/4 territory.
+            pattern_leaves, other_conjuncts, nested_pattern = _split_top_level_and_pattern_leaves(expr_tree)
+            if pattern_leaves or nested_pattern:
+                return _build_where_with_pattern_lift(
+                    pattern_leaves=pattern_leaves,
+                    other_conjuncts=other_conjuncts,
+                    nested_pattern=nested_pattern,
+                    expr_text=expr_text,
+                    span=span,
+                )
             return WhereClause(
                 predicates=(),
                 expr=ExpressionText(text=expr_text, span=span),
@@ -1935,17 +1999,6 @@ def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery, CypherGraph
         if isinstance(exc, (GFQLSyntaxError, GFQLValidationError)):
             raise
         if isinstance(exc, LarkError):
-            canonical_query = _canonicalize_where_single_pattern_and_expr(query)
-            if canonical_query is not None and canonical_query != query:
-                canonical_transformer = _build_transformer(canonical_query)
-                tree = parser.parse(canonical_query)
-                node = canonical_transformer.transform(tree)
-                if not isinstance(node, (CypherQuery, CypherUnionQuery, CypherGraphQuery)):
-                    raise _to_syntax_error("Cypher parser did not produce a query")
-                return node
-            mixed_where_error = _mixed_where_pattern_expr_error(query)
-            if mixed_where_error is not None:
-                raise mixed_where_error from exc
             err_line = cast(Optional[int], getattr(exc, "line", None))
             err_column = cast(Optional[int], getattr(exc, "column", None))
             raise _to_syntax_error("Invalid Cypher query syntax", line=err_line, column=err_column) from exc
