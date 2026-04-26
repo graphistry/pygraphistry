@@ -77,6 +77,7 @@ from graphistry.compute.gfql.expr_parser import (
 )
 from graphistry.compute.gfql.cypher.ast import (
     CallClause,
+    BooleanExpr,
     CypherGraphQuery,
     CypherLiteral,
     CypherQuery,
@@ -5846,6 +5847,54 @@ def _apply_label_where(
     target.filter_dict = filter_dict
 
 
+def _where_clause_expr_text(where: WhereClause) -> Optional[ExpressionText]:
+    """Synthesize an ``ExpressionText`` from ``where.expr_tree`` for callers
+    that historically read ``where.expr``.
+
+    Used by the #1213 sub-PR C reader migration so that ExpressionText-shaped
+    consumers (rewrite helpers, error reporters, downstream filter pipelines)
+    can continue to receive an ``ExpressionText`` while the source-of-truth
+    moves to ``WhereClause.expr_tree``.  Uses ``where.span`` (which equals
+    the original ``where.expr.span`` for parser-produced WhereClauses, both
+    derived from the same ``_span_from_meta(meta)`` of the
+    ``generic_where_clause`` rule) to preserve error-position semantics.
+    """
+    if where.expr_tree is None:
+        return None
+    return ExpressionText(text=boolean_expr_to_text(where.expr_tree), span=where.span)
+
+
+def _rewrite_where_clause_and_resync(
+    where: WhereClause,
+    rewrite: Callable[[ExpressionText, str], ExpressionText],
+    field: str = "where",
+) -> WhereClause:
+    """Rewrite the WHERE expression and resynchronize ``expr_tree`` to match
+    the rewritten text via single-atom synthesis (#1213 sub-PR C, Option B).
+
+    Preserves the ``(expr is None) == (expr_tree is None)`` invariant from
+    #1214.  Caveat: collapses any boolean structure in ``expr_tree`` to a
+    single atom carrying the rewritten text.  Acceptable for current
+    consumers (the binder's ``boolean_expr_to_text`` round-trips a single-
+    atom tree to its ``atom_text``, identical to the legacy text path).
+
+    Fixes the latent staleness bug present on master post-#1214: the prior
+    pattern ``replace(where, expr=rewrite(where.expr, field))`` left
+    ``expr_tree`` pointing at the pre-rewrite text.
+    """
+    synthesized = _where_clause_expr_text(where)
+    if synthesized is None:
+        return where
+    rewritten = rewrite(synthesized, field)
+    new_tree = BooleanExpr(
+        op="atom",
+        span=rewritten.span,
+        atom_text=rewritten.text,
+        atom_span=rewritten.span,
+    )
+    return replace(where, expr=rewritten, expr_tree=new_tree)
+
+
 def _extract_relationship_type_where(
     expr: ExpressionText,
     *,
@@ -6320,14 +6369,15 @@ def lower_match_query(
     row_where: Optional[ExpressionText] = None
     row_where_predicates: List[str] = list(dynamic_row_where_predicates)
     if query.where is not None:
-        if query.where.expr is not None:
+        where_expr = _where_clause_expr_text(query.where)
+        if where_expr is not None:
             type_where = _extract_relationship_type_where(
-                query.where.expr,
+                where_expr,
                 alias_targets=alias_targets,
                 params=params,
             )
             if type_where is None:
-                row_where = query.where.expr
+                row_where = where_expr
             else:
                 left, op, right = type_where
                 _apply_literal_where(
@@ -7510,11 +7560,8 @@ def _compile_bounded_reentry_query(
         )
         rewritten_remaining_reentry_wheres = tuple(
             None
-            if where_clause is None or where_clause.expr is None
-            else replace(
-                where_clause,
-                expr=rewrite_expr(where_clause.expr, "where"),
-            )
+            if where_clause is None or where_clause.expr_tree is None
+            else _rewrite_where_clause_and_resync(where_clause, rewrite_expr, "where")
             for where_clause in remaining_reentry_wheres
         )
         rewritten_with_stages = tuple(
@@ -7528,11 +7575,8 @@ def _compile_bounded_reentry_query(
             )
             for unwind_clause in query.reentry_unwinds
         )
-        if query.reentry_where is not None and query.reentry_where.expr is not None:
-            reentry_where = replace(
-                query.reentry_where,
-                expr=rewrite_expr(query.reentry_where.expr, "where"),
-            )
+        if query.reentry_where is not None and query.reentry_where.expr_tree is not None:
+            reentry_where = _rewrite_where_clause_and_resync(query.reentry_where, rewrite_expr, "where")
         if not remaining_reentry_matches:
             reentry_return = _rewrite_reentry_projection_clause(query.return_, rewrite_expr=rewrite_expr)
             if reentry_order_by is not None:
@@ -7995,8 +8039,10 @@ def _compile_connected_match_join(
         shared_aliases_per_pattern.append(shared)
         accumulated_aliases.update(node_aliases)
 
-    if query.where is not None and query.where.expr is not None:
-        pre_join_filters.append(query.where.expr)
+    if query.where is not None and query.where.expr_tree is not None:
+        synthesized = _where_clause_expr_text(query.where)
+        assert synthesized is not None  # gated by expr_tree is not None
+        pre_join_filters.append(synthesized)
 
     for projection_clause in [stage.clause for stage in query.with_stages] + [query.return_]:
         _reject_unsupported_connected_join_clause_shapes(
@@ -8127,9 +8173,10 @@ def _apply_where_to_ops(
     where_out: List[WhereComparison] = []
     if where is None:
         return where_out
-    if where.expr is not None:
+    where_expr = _where_clause_expr_text(where)
+    if where_expr is not None:
         type_where = _extract_relationship_type_where(
-            where.expr,
+            where_expr,
             alias_targets=alias_targets,
             params=params,
         )
@@ -8140,9 +8187,9 @@ def _apply_where_to_ops(
             raise _unsupported(
                 "Cypher WHERE expressions that cannot be lowered to node/edge filters are not yet supported in connected OPTIONAL MATCH queries",
                 field="where",
-                value=where.expr.text,
-                line=where.expr.span.line,
-                column=where.expr.span.column,
+                value=where_expr.text,
+                line=where_expr.span.line,
+                column=where_expr.span.column,
             )
     for predicate in where.predicates:
         if isinstance(predicate, WherePatternPredicate):
