@@ -3104,6 +3104,114 @@ def test_string_cypher_supports_bare_label_predicate_in_with_where() -> None:
     assert result._nodes.to_dict(orient="records") == [{"i": "(:TextNode {var: 'tf'})"}]
 
 
+# ---------------------------------------------------------------------------
+# #1031 disjunctive / negation WHERE — semantic correctness
+#
+# Pre-#1217: LALR rejected OR / NOT inside WHERE bodies, so there was no
+# end-to-end test coverage for these shapes.  Earley accepts them, the
+# binder routes them through the existing raw-expr path, and the runtime
+# evaluates via pandas.  These tests lock semantic correctness across
+# the OR / NOT / mixed shapes directly mirroring the LDBC SNB and TCK
+# disjunction patterns that motivated #1031.
+# ---------------------------------------------------------------------------
+
+
+def _or_where_graph() -> "_CypherTestGraph":
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "label__A": [True, False, False],
+                "label__B": [False, True, False],
+                "label__C": [False, False, True],
+                "p1": [12.0, float("nan"), float("nan")],
+                "p2": [float("nan"), 13.0, float("nan")],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+
+def test_string_cypher_executes_disjunctive_property_predicate_returns_union() -> None:
+    # TCK match-where1-10 shape.  Confirms ``WHERE n.p1 = 12 OR n.p2 = 13``
+    # returns the union of matches (a, b) — neither alone, neither plus c.
+    result = _or_where_graph().gfql("MATCH (n) WHERE n.p1 = 12 OR n.p2 = 13 RETURN n")
+
+    rendered = sorted(row["n"] for row in result._nodes.to_dict(orient="records"))
+    assert rendered == ["(:A {p1: 12})", "(:B {p2: 13})"]
+
+
+def test_string_cypher_executes_disjunctive_same_alias_property_predicate() -> None:
+    # ``WHERE n.p1 = 12 OR n.p1 = 99``.  Same alias on both sides — must
+    # match only rows where p1 equals one of the values.
+    result = _or_where_graph().gfql("MATCH (n) WHERE n.p1 = 12 OR n.p1 = 99 RETURN n")
+
+    rendered = sorted(row["n"] for row in result._nodes.to_dict(orient="records"))
+    assert rendered == ["(:A {p1: 12})"]
+
+
+def test_string_cypher_executes_negation_property_predicate_returns_complement() -> None:
+    # ``WHERE NOT n.p1 = 12``.  Pandas convention: NaN comparisons yield
+    # NaN (falsy), so NOT NaN = NaN (still filtered out).  Only the row
+    # where p1 is non-null and != 12 matches — empty in this fixture.
+    # Including for shape coverage; the c row is filtered because NaN
+    # comparisons don't satisfy NOT either.
+    result = _or_where_graph().gfql("MATCH (n) WHERE NOT n.p1 = 12 RETURN n")
+
+    # The empirical pandas semantics: rows where p1 is NaN evaluate to
+    # NaN under ``=``, NaN under ``NOT``, and NaN is falsy in boolean
+    # context — so they're filtered out.  Only the c row could survive,
+    # but pandas excludes it for the same reason.  This locks current
+    # behavior even if it's debatable Cypher semantics.
+    rendered = sorted(row["n"] for row in result._nodes.to_dict(orient="records"))
+    assert rendered == []
+
+
+def test_string_cypher_executes_disjunctive_then_conjunction() -> None:
+    # ``WHERE (n.p1 = 12 OR n.p2 = 13) AND n.id = 'a'`` — narrows the OR
+    # union to just the row whose id matches.  Confirms the mixed
+    # OR-AND boolean tree evaluates correctly under Earley.
+    result = _or_where_graph().gfql(
+        "MATCH (n) WHERE (n.p1 = 12 OR n.p2 = 13) AND n.id = 'a' RETURN n"
+    )
+
+    rendered = [row["n"] for row in result._nodes.to_dict(orient="records")]
+    assert rendered == ["(:A {p1: 12})"]
+
+
+def test_string_cypher_executes_disjunction_returns_correct_count_with_more_rows() -> None:
+    # Larger fixture to confirm the OR doesn't silently union too many or
+    # too few rows.  Six rows: 2 match p1=1, 2 match p2=2, 1 matches
+    # both, 1 matches neither.  Expected union: 5 rows (the OR).
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["x1", "x2", "y1", "y2", "z", "w"],
+                "p1": [1.0, 1.0, float("nan"), float("nan"), 1.0, float("nan")],
+                "p2": [float("nan"), float("nan"), 2.0, 2.0, 2.0, float("nan")],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n) WHERE n.p1 = 1 OR n.p2 = 2 RETURN n")
+
+    matched_ids = sorted(
+        row["n"].split("'")[1]
+        for row in result._nodes.to_dict(orient="records")
+        if "id" not in row["n"]  # parse the rendered ``(... {id: 'X'})`` form
+    ) if False else sorted(  # simpler: read directly from the result graph
+        result._nodes["id"].tolist() if "id" in result._nodes.columns else []
+    )
+    # Fall back to inspecting renderings if the result frame doesn't carry id.
+    if not matched_ids:
+        rendered = [row["n"] for row in result._nodes.to_dict(orient="records")]
+        # All 5 matching rows in the fixture should appear.
+        assert len(rendered) == 5
+    else:
+        assert matched_ids == ["x1", "x2", "y1", "y2", "z"]
+
+
 def test_string_cypher_supports_list_slice_precedence_with_concat() -> None:
     graph = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 
