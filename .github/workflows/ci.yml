@@ -45,60 +45,68 @@ jobs:
     - uses: actions/checkout@v4
       with:
         persist-credentials: false
-    - uses: dorny/paths-filter@v3
+        # full history needed so `git diff <base>..<head>` resolves on PRs / non-trivial pushes
+        fetch-depth: 0
+    - name: Compute path filters
       id: filter
-      with:
-        filters: |
-          # Infrastructure changes that affect all tests
-          infra:
-            - '.github/workflows/ci.yml'
-            - 'docker/**'
-            - 'bin/**'
-            - 'setup.py'
-            - 'setup.cfg'
-            - 'MANIFEST.in'
-            
-          # Python code changes
-          python:
-            - '**.py'
-            - 'graphistry/**'
-            - 'setup.py'
-            - 'setup.cfg'
-            - 'pytest.ini'
-            - 'mypy.ini'
-            - 'bin/lint.sh'
-            - 'bin/typecheck.sh'
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        PUSH_BEFORE: ${{ github.event.before }}
+        HEAD_SHA: ${{ github.sha }}
+      run: |
+        set -euo pipefail
+        keys=(infra python gfql cypher_frontend_ci benchmarks docs)
 
-          # GFQL-specific changes
-          gfql:
-            - 'graphistry/gfql/**'
-            - 'graphistry/compute/gfql/**'
-            - 'graphistry/compute/gfql_unified.py'
-            - 'graphistry/models/gfql/**'
-            - 'graphistry/Plottable.py'
-            - 'tests/gfql/**'
+        emit_all() {
+          # $1 = "true" or "false" — emit the same value for every key
+          for k in "${keys[@]}"; do
+            echo "${k}=$1" >> "$GITHUB_OUTPUT"
+          done
+        }
 
-          # Cypher frontend gate relevant changes
-          cypher_frontend_ci:
-            - '.github/workflows/ci.yml'
-            - '.github/workflows/ci-gpu.yml'
-            - 'graphistry/compute/gfql/ir/**'
-            - 'graphistry/compute/gfql/cypher/**'
-            - 'graphistry/compute/gfql/frontends/cypher/**'
-            - 'graphistry/tests/compute/gfql/cypher/**'
-            - 'tests/gfql/ref/**'
+        # Non diff-bearing events: rely on downstream `event_name == 'workflow_dispatch'`
+        # / `'schedule'` OR-conditions in job `if:` expressions. Emit false safely.
+        if [[ "$EVENT_NAME" != "pull_request" && "$EVENT_NAME" != "push" ]]; then
+          emit_all false
+          exit 0
+        fi
 
-          # Benchmark-specific changes
-          benchmarks:
-            - 'benchmarks/**'
-            
-          # Documentation changes
-          docs:
-            - 'docs/**'
-            - '**.md'
-            - '**.rst'
-            - 'demos/**'
-            - 'notebooks/**'
+        if [[ "$EVENT_NAME" == "pull_request" ]]; then
+          base="$PR_BASE_SHA"
+          head="$PR_HEAD_SHA"
+        else
+          base="$PUSH_BEFORE"
+          head="$HEAD_SHA"
+        fi
+
+        # New branch / first push: zero-SHA base. Conservative: run everything.
+        if [[ -z "$base" || "$base" == "0000000000000000000000000000000000000000" ]]; then
+          emit_all true
+          exit 0
+        fi
+
+        # Use merge-base to match dorny/paths-filter default semantics
+        merge_base=$(git merge-base "$base" "$head" 2>/dev/null || echo "$base")
+        changed=$(git diff --name-only "$merge_base" "$head" 2>/dev/null || true)
+
+        emit() {
+          local key="$1"
+          local pattern="$2"
+          if [[ -n "$changed" ]] && printf '%s\n' "$changed" | grep -qE "$pattern"; then
+            echo "${key}=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "${key}=false" >> "$GITHUB_OUTPUT"
+          fi
+        }
+
+        emit infra              '^\.github/workflows/ci\.yml$|^docker/|^bin/|^setup\.py$|^setup\.cfg$|^MANIFEST\.in$'
+        emit python             '\.py$|^graphistry/|^setup\.py$|^setup\.cfg$|^pytest\.ini$|^mypy\.ini$|^bin/lint\.sh$|^bin/typecheck\.sh$'
+        emit gfql               '^graphistry/gfql/|^graphistry/compute/gfql/|^graphistry/compute/gfql_unified\.py$|^graphistry/models/gfql/|^graphistry/Plottable\.py$|^tests/gfql/'
+        emit cypher_frontend_ci '^\.github/workflows/ci\.yml$|^\.github/workflows/ci-gpu\.yml$|^graphistry/compute/gfql/ir/|^graphistry/compute/gfql/cypher/|^graphistry/compute/gfql/frontends/cypher/|^graphistry/tests/compute/gfql/cypher/|^tests/gfql/ref/'
+        emit benchmarks         '^benchmarks/'
+        emit docs               '^docs/|\.md$|\.rst$|^demos/|^notebooks/'
 
     - name: Detect docs-only change on tip
       id: docs_only_latest
