@@ -1,5 +1,6 @@
-from typing import Dict, TYPE_CHECKING, Union, cast
+from typing import Any, Callable, Dict, TYPE_CHECKING, Union, cast
 from datetime import date, time
+import operator
 import numpy as np
 import pandas as pd
 
@@ -98,6 +99,33 @@ class ComparisonPredicate(ASTPredicate):
         ):
             comparison_val = comparison_val.tz_localize(None)
         return prepared_s, comparison_val
+
+    def _safe_scalar_compare(
+        self, s: SeriesT, op: Callable[[Any, Any], Any]
+    ) -> SeriesT:
+        """Compare scalars while treating incomparable mixed values as null/False.
+
+        Cypher null semantics require mixed-type comparison cells (e.g., int vs str)
+        to not crash query execution; they simply do not satisfy the predicate.
+        """
+        try:
+            return op(s, self.val)
+        except TypeError:
+            if not isinstance(s, pd.Series):
+                raise
+
+            def _cmp_cell(cell: Any) -> bool:
+                if pd.isna(cell):
+                    return False
+                try:
+                    out = op(cell, self.val)
+                except TypeError:
+                    return False
+                if pd.isna(out):
+                    return False
+                return bool(out)
+
+            return s.map(_cmp_cell)
     
     
     def _validate_fields(self) -> None:
@@ -178,7 +206,7 @@ class GT(_StringAllowingComparisonMixin, ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         """Greater than comparison"""
         if isinstance(self.val, (int, float, str)):
-            return s > self.val
+            return self._safe_scalar_compare(s, operator.gt)
         elif isinstance(self.val, TemporalValue):
             prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
             return prepared_s > comparison_val
@@ -195,7 +223,7 @@ class LT(_StringAllowingComparisonMixin, ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         """Less than comparison"""
         if isinstance(self.val, (int, float, str)):
-            return s < self.val
+            return self._safe_scalar_compare(s, operator.lt)
         elif isinstance(self.val, TemporalValue):
             prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
             return prepared_s < comparison_val
@@ -212,7 +240,7 @@ class GE(_StringAllowingComparisonMixin, ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         """Greater than or equal comparison"""
         if isinstance(self.val, (int, float, str)):
-            return s >= self.val
+            return self._safe_scalar_compare(s, operator.ge)
         elif isinstance(self.val, TemporalValue):
             prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
             return prepared_s >= comparison_val
@@ -229,7 +257,7 @@ class LE(_StringAllowingComparisonMixin, ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         """Less than or equal comparison"""
         if isinstance(self.val, (int, float, str)):
-            return s <= self.val
+            return self._safe_scalar_compare(s, operator.le)
         elif isinstance(self.val, TemporalValue):
             prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
             return prepared_s <= comparison_val

@@ -9238,6 +9238,39 @@ def test_gfql_executes_with_where_or_short_circuit_over_mixed_type_compare() -> 
     ]
 
 
+def test_gfql_executes_with_where_null_filter_over_mixed_type_compare_on_pandas() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["root", "child1", "child2"],
+            "label__Root": [True, False, False],
+            "label__TextNode": [False, True, False],
+            "label__IntNode": [False, False, True],
+            "name": ["x", None, None],
+            "var": [None, "text", 0],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["root", "root"],
+            "d": ["child1", "child2"],
+            "type": ["T", "T"],
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (:Root {name: 'x'})-->(i) "
+        "WITH i "
+        "WHERE i.var > 'te' "
+        "RETURN i "
+        "ORDER BY i.id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"i": "(:TextNode {var: 'text'})"}
+    ]
+
+
 def test_gfql_executes_with_where_null_filter_over_mixed_type_compare_on_cudf() -> None:
     pytest.importorskip("cudf")
 
