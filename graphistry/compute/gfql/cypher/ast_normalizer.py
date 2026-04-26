@@ -431,11 +431,10 @@ def _rewrite_shortest_path_query(query: CypherQuery) -> CypherQuery:
         )
 
     def _rewrite_where(where: Optional[WhereClause]) -> Optional[WhereClause]:
-        # #1213 sub-PR C: read from ``expr_tree`` (single source of truth post-#1214)
-        # via Option B (text round-trip + single-atom resynthesis).  Keeps the
-        # ``(expr is None) == (expr_tree is None)`` invariant intact and
-        # incidentally fixes the latent text/tree staleness that the prior
-        # ``replace(where, expr=rewrite(where.expr, ...))`` left behind.
+        # #1213 sub-PR C: read from ``expr_tree`` via Option B (text round-trip
+        # + single-atom resynthesis).  Incidentally fixes the latent text/tree
+        # staleness that the prior ``replace(where, expr=rewrite(where.expr, ...))``
+        # pattern left behind.  Sub-PR D+E dropped the ``expr=`` arg here.
         if where is None or where.expr_tree is None:
             return where
         synthesized = ExpressionText(text=boolean_expr_to_text(where.expr_tree), span=where.span)
@@ -446,7 +445,7 @@ def _rewrite_shortest_path_query(query: CypherQuery) -> CypherQuery:
             atom_text=rewritten.text,
             atom_span=rewritten.span,
         )
-        return replace(where, expr=rewritten, expr_tree=new_tree)
+        return replace(where, expr_tree=new_tree)
 
     return replace(
         query,
@@ -520,7 +519,6 @@ def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQu
     if remaining or query.where.expr_tree is not None:
         remaining_where = WhereClause(
             predicates=cast(Any, remaining),
-            expr=query.where.expr,  # constructor passthrough; sub-PR D drops this arg
             expr_tree=query.where.expr_tree,
             span=query.where.span,
         )

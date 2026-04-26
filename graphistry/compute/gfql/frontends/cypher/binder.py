@@ -938,12 +938,13 @@ from graphistry.compute.gfql.cypher._boolean_expr_text import (
 
 
 def _where_predicates(where: WhereClause) -> List[BoundPredicate]:
-    # Routing invariant (parser.py): ``where.predicates`` and ``where.expr_tree``
-    # are mutually exclusive — structured ``where_predicates`` populates the
-    # former, and the generic ``expr`` route populates ``expr_tree``.  Per the
-    # parser-level invariant from #1214, ``(expr is None) == (expr_tree is None)``,
-    # so reading ``expr_tree`` covers every populated text-form WHERE body
-    # (slice 5/B of #1213).
+    # Routing shapes (see WhereClause docstring in cypher/ast.py): structured
+    # (predicates only), tree (expr_tree only), or mixed (both — for
+    # `WHERE pattern AND expr`).  We handle all three uniformly: stringify any
+    # structured terms, then walk expr_tree's top-level AND conjuncts when
+    # present.  Slice 5/B of #1213 dropped the legacy `expr.text` fallback
+    # because the parser invariant from #1214 guarantees expr_tree is populated
+    # whenever a text-form WHERE body exists.
     predicates = [BoundPredicate(expression=str(term)) for term in where.predicates]
     if where.expr_tree is not None:
         # Slice 2 of #1200: emit one BoundPredicate per top-level AND conjunct

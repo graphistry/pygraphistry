@@ -27,6 +27,7 @@ from __future__ import annotations
 import pytest
 
 from graphistry.compute.gfql.cypher.parser import parse_cypher
+from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
 from graphistry.compute.gfql.cypher.ast import (
     CypherQuery,
     WhereClause,
@@ -73,13 +74,13 @@ class TestParserShape:
     # Shape A: A AND B — pure AND of two property comparisons
     def test_a_and_b_lands_in_structured_predicates(self) -> None:
         w = _parse_where("MATCH (n) WHERE n.x = 1 AND n.y = 2 RETURN n")
-        assert w.expr is None
+        assert w.expr_tree is None
         assert len(w.predicates) == 2
 
     # Shape A extended: three AND conjuncts
     def test_triple_and_lands_in_structured_predicates(self) -> None:
         w = _parse_where("MATCH (n) WHERE n.x = 1 AND n.y = 2 AND n.z = 3 RETURN n")
-        assert w.expr is None
+        assert w.expr_tree is None
         assert len(w.predicates) == 3
 
     # Shape B: A AND (B OR C) — parenthesised OR inside AND raises E107
@@ -90,29 +91,29 @@ class TestParserShape:
             )
 
     # Shape C: (A OR B) AND C — OR before AND
-    def test_paren_or_and_c_lands_in_raw_expr(self) -> None:
+    def test_paren_or_and_c_lands_in_tree(self) -> None:
         w = _parse_where(
             "MATCH (n) WHERE (n.x = 1 OR n.y = 2) AND n.z = 3 RETURN n"
         )
-        assert w.expr is not None
+        assert w.expr_tree is not None
 
     # Shape D: NOT A AND B — NOT prefix
-    def test_not_a_and_b_lands_in_raw_expr(self) -> None:
+    def test_not_a_and_b_lands_in_tree(self) -> None:
         w = _parse_where("MATCH (n) WHERE NOT n.x = 1 AND n.y = 2 RETURN n")
-        # NOT is not a structured WherePredicate form; expression falls to .expr
-        assert w.expr is not None
+        # NOT is not a structured WherePredicate form; expression falls to expr_tree
+        assert w.expr_tree is not None
 
     # Shape E: A XOR B — XOR operator
-    def test_xor_lands_in_raw_expr(self) -> None:
+    def test_xor_lands_in_tree(self) -> None:
         w = _parse_where("MATCH (n) WHERE n:Admin XOR n:Active RETURN n")
-        assert w.expr is not None
-        assert "XOR" in w.expr.text.upper()
+        assert w.expr_tree is not None
+        assert "XOR" in boolean_expr_to_text(w.expr_tree).upper()
         assert w.predicates == ()
 
-    # Shape F: label predicate AND property predicate → raw expr (mixed types force generic path)
-    def test_label_and_property_routes_to_raw_expr(self) -> None:
+    # Shape F: label predicate AND property predicate → tree path (mixed types force generic path)
+    def test_label_and_property_routes_to_tree(self) -> None:
         w = _parse_where("MATCH (n) WHERE n:Admin AND n.active = true RETURN n")
-        assert w.expr is not None
+        assert w.expr_tree is not None
         assert w.predicates == ()
 
     # Shape G: quoted AND must not be counted as a predicate boundary
@@ -121,7 +122,7 @@ class TestParserShape:
             "MATCH (n) WHERE n.name = 'has AND text' AND n.x = 1 RETURN n"
         )
         # Parser grammar handles string literals; quoted AND is not a split point
-        assert w.expr is None
+        assert w.expr_tree is None
         assert len(w.predicates) == 2
 
 

@@ -37,7 +37,7 @@ def _expr_tree(query: str) -> BooleanExpr:
     assert parsed.where is not None, "parsed query has no WHERE clause"
     assert parsed.where.expr_tree is not None, (
         f"expected expr_tree for boolean-operator WHERE, got None.  "
-        f"Predicates={parsed.where.predicates}, expr={parsed.where.expr}"
+        f"Predicates={parsed.where.predicates}"
     )
     return parsed.where.expr_tree
 
@@ -157,19 +157,6 @@ def test_branch_span_covers_full_subexpression() -> None:
     query = "MATCH (n) WHERE (n.x > 1) OR (n.y < 2) RETURN n"
     tree = _expr_tree(query)
     assert query[tree.span.start_pos:tree.span.end_pos] == "(n.x > 1) OR (n.y < 2)"
-
-
-# ---------------------------------------------------------------------------
-# expr_tree coexists with expr for backward compat
-# ---------------------------------------------------------------------------
-
-
-def test_expr_tree_and_expr_both_populated_for_compat() -> None:
-    parsed = _parsed_where("MATCH (n) WHERE (n.x > 1) OR (n.y < 2) RETURN n")
-    assert parsed.where is not None
-    assert parsed.where.expr is not None
-    assert parsed.where.expr_tree is not None
-    assert "OR" in parsed.where.expr.text.upper()
 
 
 # ---------------------------------------------------------------------------

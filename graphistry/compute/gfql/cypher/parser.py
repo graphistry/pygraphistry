@@ -1030,7 +1030,6 @@ def _build_transformer(source: str) -> _TransformerLike:
             stripped = expr_text.strip()
             return WhereClause(
                 predicates=(self._parse_where_pattern_predicate_text(pattern_text, span),),
-                expr=ExpressionText(text=stripped, span=span),
                 expr_tree=BooleanExpr(op="atom", span=span, atom_text=stripped, atom_span=span),
                 span=span,
             )
@@ -1042,7 +1041,6 @@ def _build_transformer(source: str) -> _TransformerLike:
             span = _span_from_meta(meta)
             return WhereClause(
                 predicates=(self._parse_where_pattern_predicate_text(pattern_text, span),),
-                expr=None,
                 span=span,
             )
 
@@ -1175,14 +1173,13 @@ def _build_transformer(source: str) -> _TransformerLike:
                 atom_tree = BooleanExpr(op="atom", span=expr.span, atom_text=expr.text, atom_span=expr.span)
                 return WhereClause(
                     predicates=(),
-                    expr=ExpressionText(text=expr.text, span=expr.span),
                     expr_tree=atom_tree,
                     span=where_span,
                 )
             predicates = cast(Tuple[WherePredicate, ...], items[0])
             if len(predicates) == 0:
                 raise _to_syntax_error("WHERE clause cannot be empty", line=meta.line, column=meta.column)
-            return WhereClause(predicates=cast(Any, predicates), expr=None, span=_span_from_meta(meta))
+            return WhereClause(predicates=cast(Any, predicates), span=_span_from_meta(meta))
 
         def generic_where_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
             span = _span_from_meta(meta)
@@ -1217,10 +1214,9 @@ def _build_transformer(source: str) -> _TransformerLike:
                     )
                     for alias, labels in lifted
                 )
-                return WhereClause(predicates=predicates, expr=None, span=span)
+                return WhereClause(predicates=predicates, span=span)
             return WhereClause(
                 predicates=(),
-                expr=ExpressionText(text=expr_text, span=span),
                 expr_tree=expr_tree,
                 span=span,
             )
