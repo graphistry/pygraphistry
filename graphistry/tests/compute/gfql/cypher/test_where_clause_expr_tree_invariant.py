@@ -41,6 +41,9 @@ def _where(query: str) -> WhereClause:
     ("MATCH (n) WHERE n:Admin AND n:User RETURN n", "structured"),
     # Structured: single comparable predicate
     ("MATCH (n) WHERE n.x = 1 RETURN n", "structured"),
+    # Structured (where_pattern_only_clause): a single WherePatternPredicate,
+    # no expr_tree.  Routes via the dedicated grammar rule, not generic_where.
+    ("MATCH (a) WHERE (a)-[]->(:Admin) RETURN a", "structured"),
     # Tree path: parenthesized OR (bare top-level OR is rejected)
     ("MATCH (n) WHERE (n.x = 1 OR n.y = 2) RETURN n", "tree"),
     # Tree path: XOR
