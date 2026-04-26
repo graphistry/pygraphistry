@@ -3297,6 +3297,172 @@ def test_string_cypher_executes_homogeneous_or_returns_correct_union() -> None:
     assert ids == ["n1", "n3"]
 
 
+@pytest.mark.parametrize(
+    "query,expected_rows",
+    [
+        # TCK-like disjunction baseline (match-where1-10 shape)
+        (
+            "MATCH (n) WHERE n.p1 = 12 OR n.p2 = 13 RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}],
+        ),
+        # Nested boolean mix: OR group narrowed by AND
+        (
+            "MATCH (n) WHERE (n.p1 = 12 OR n.p2 = 13) AND n.id = 'a' RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}],
+        ),
+        # NOT over disjunction; current pandas-null semantics produce empty set
+        (
+            "MATCH (n) WHERE NOT (n.p1 = 12 OR n.p2 = 13) RETURN n.id AS id ORDER BY id",
+            [],
+        ),
+    ],
+    ids=[
+        "tck-match-where1-10-disjunction",
+        "audit-or-then-and-narrowing",
+        "audit-negated-disjunction",
+    ],
+)
+def test_issue_1219_row_boolean_audit_base_match_matrix(query: str, expected_rows: List[Dict[str, Any]]) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "p1": [12.0, float("nan"), float("nan")],
+                "p2": [float("nan"), 13.0, float("nan")],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected_rows
+
+
+def _normalize_nullable_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    normalized: List[Dict[str, Any]] = []
+    for row in rows:
+        out: Dict[str, Any] = {}
+        for key, value in row.items():
+            if value is None:
+                out[key] = None
+            elif isinstance(value, (float,)) and pd.isna(value):
+                out[key] = None
+            else:
+                out[key] = value
+        normalized.append(out)
+    return normalized
+
+
+@pytest.mark.parametrize(
+    "query,expected_rows",
+    [
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "WHERE z:Z "
+            "RETURN y.id AS yid, z.id AS zid "
+            "ORDER BY yid",
+            [{"yid": "y1", "zid": "z1"}, {"yid": "y2", "zid": None}],
+        ),
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "WHERE z.id IS NULL "
+            "RETURN y.id AS yid, z.id AS zid "
+            "ORDER BY yid",
+            [{"yid": "y1", "zid": None}, {"yid": "y2", "zid": None}],
+        ),
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "WHERE z.id IS NOT NULL "
+            "RETURN y.id AS yid, z.id AS zid "
+            "ORDER BY yid",
+            [{"yid": "y1", "zid": "z1"}, {"yid": "y2", "zid": None}],
+        ),
+    ],
+    ids=[
+        "tck-match-where6-structured-label-on-optional",
+        "audit-optional-is-null",
+        "audit-optional-is-not-null",
+    ],
+)
+def test_issue_1219_row_boolean_audit_connected_optional_structured_matrix(
+    query: str,
+    expected_rows: List[Dict[str, Any]],
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["s1", "y1", "z1", "s2", "y2"],
+                "label__Z": [False, False, True, False, False],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["s1", "y1", "s2"],
+                "d": ["y1", "z1", "y2"],
+                "type": ["R1", "T", "R1"],
+            }
+        ),
+    )
+
+    rows = graph.gfql(query)._nodes.to_dict(orient="records")
+    assert _normalize_nullable_rows(rows) == expected_rows
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "WHERE z:Z OR z.id IS NULL "
+            "RETURN y.id AS yid, z.id AS zid"
+        ),
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "WHERE NOT z:Z "
+            "RETURN y.id AS yid, z.id AS zid"
+        ),
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "WHERE z:Z XOR z.id IS NULL "
+            "RETURN y.id AS yid, z.id AS zid"
+        ),
+    ],
+    ids=[
+        "audit-optional-or-row-expr-currently-unsupported",
+        "audit-optional-not-row-expr-currently-unsupported",
+        "audit-optional-xor-row-expr-currently-unsupported",
+    ],
+)
+def test_issue_1219_row_boolean_audit_connected_optional_row_expr_gap(query: str) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["s1", "y1", "z1", "s2", "y2"],
+                "label__Z": [False, False, True, False, False],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["s1", "y1", "s2"],
+                "d": ["y1", "z1", "y2"],
+                "type": ["R1", "T", "R1"],
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(query)
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert "connected OPTIONAL MATCH" in str(exc_info.value)
+
+
 def test_string_cypher_supports_list_slice_precedence_with_concat() -> None:
     graph = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 
