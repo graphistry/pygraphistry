@@ -89,13 +89,25 @@ jobs:
 
         # Diff vs the merge-base so PR runs see only commits that diverge from base
         # (avoids picking up unrelated commits the base ref has gained meanwhile).
-        merge_base=$(git merge-base "$base" "$head" 2>/dev/null || echo "$base")
-        changed=$(git diff --name-only "$merge_base" "$head" 2>/dev/null || true)
+        # If either resolution fails (e.g., force-pushed branch with orphaned
+        # event.before, or rebased PR base ref), fall back to the conservative
+        # "couldn't compute, run everything" stance.
+        if ! merge_base=$(git merge-base "$base" "$head" 2>/dev/null); then
+          emit_all true
+          exit 0
+        fi
+        if ! changed=$(git diff --name-only "$merge_base" "$head" 2>/dev/null); then
+          emit_all true
+          exit 0
+        fi
 
         emit() {
           local key="$1"
           local pattern="$2"
-          if [[ -n "$changed" ]] && printf '%s\n' "$changed" | grep -qE "$pattern"; then
+          # Use here-string instead of `printf | grep` to avoid SIGPIPE on huge
+          # diffs: with `set -o pipefail`, a SIGPIPE'd printf would flip the
+          # pipeline to non-zero and silently invert the match.
+          if [[ -n "$changed" ]] && grep -qE "$pattern" <<< "$changed"; then
             echo "${key}=true"  >> "$GITHUB_OUTPUT"
           else
             echo "${key}=false" >> "$GITHUB_OUTPUT"
