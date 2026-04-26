@@ -3345,10 +3345,10 @@ def _normalize_nullable_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]
         for key, value in row.items():
             if value is None:
                 out[key] = None
-            elif isinstance(value, (float,)) and pd.isna(value):
-                out[key] = None
             else:
-                out[key] = value
+                # Normalize all scalar null sentinels (np.nan/pd.NA/cudf nulls)
+                # so assertions remain stable across dataframe backends.
+                out[key] = None if pd.isna(value) else value
         normalized.append(out)
     return normalized
 
