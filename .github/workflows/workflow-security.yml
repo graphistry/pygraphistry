@@ -68,6 +68,9 @@ jobs:
           python3 -m venv .venv-zizmor
           source .venv-zizmor/bin/activate
           uv pip install --upgrade zizmor
-      - name: Run zizmor (high severity gate)
+      - name: Run zizmor (medium severity gate)
+        # Lowered from `high` to `medium` to enable enforcement of the
+        # `unpinned-uses` provider safelist (see #1130 / #1215). zizmor's
+        # `unpinned-uses` rule emits at medium severity for policy violations.
         run: |
-          .venv-zizmor/bin/zizmor --format=github --no-progress --config .github/zizmor.yml --min-severity high .github/workflows/*.yml
+          .venv-zizmor/bin/zizmor --format=github --no-progress --config .github/zizmor.yml --min-severity medium .github/workflows/*.yml
