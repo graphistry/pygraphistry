@@ -5872,15 +5872,15 @@ def _rewrite_where_clause_and_resync(
     """Rewrite the WHERE expression and resynchronize ``expr_tree`` to match
     the rewritten text via single-atom synthesis (#1213 sub-PR C, Option B).
 
-    Preserves the ``(expr is None) == (expr_tree is None)`` invariant from
-    #1214.  Caveat: collapses any boolean structure in ``expr_tree`` to a
-    single atom carrying the rewritten text.  Acceptable for current
-    consumers (the binder's ``boolean_expr_to_text`` round-trips a single-
-    atom tree to its ``atom_text``, identical to the legacy text path).
+    Caveat: collapses any boolean structure in ``expr_tree`` to a single atom
+    carrying the rewritten text.  Acceptable for current consumers (the
+    binder's ``boolean_expr_to_text`` round-trips a single-atom tree to its
+    ``atom_text``, identical to the legacy text path).
 
     Fixes the latent staleness bug present on master post-#1214: the prior
     pattern ``replace(where, expr=rewrite(where.expr, field))`` left
-    ``expr_tree`` pointing at the pre-rewrite text.
+    ``expr_tree`` pointing at the pre-rewrite text.  Sub-PR D+E dropped the
+    ``expr`` field; only ``expr_tree`` survives.
     """
     synthesized = _where_clause_expr_text(where)
     if synthesized is None:
@@ -5892,7 +5892,7 @@ def _rewrite_where_clause_and_resync(
         atom_text=rewritten.text,
         atom_span=rewritten.span,
     )
-    return replace(where, expr=rewritten, expr_tree=new_tree)
+    return replace(where, expr_tree=new_tree)
 
 
 def _extract_relationship_type_where(
