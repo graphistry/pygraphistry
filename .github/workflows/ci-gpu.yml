@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-cancel') }}
+
 env:
   UV_EXCLUDE_NEWER: "6 days"
 
@@ -47,22 +51,6 @@ jobs:
     steps:
       - name: Do nothing
         run: echo "Do nothing"
-
-  cancel_outstanding:  
-    name: Detect and cancel outstanding runs of this workflow
-    # Temporarily disabled while gpu_public is unavailable and PR-D hardening is pending.
-    # Re-enable only after issue #1130 criteria are met.
-    if: ${{ vars.GRAPHISTRY_ENABLE_GPU_PUBLIC == 'true' }}  # see #1130; disabled by default
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-    timeout-minutes: 10
-    steps:
-      - name: Cancel Previous Runs
-        if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-cancel') }}
-        uses: styfle/cancel-workflow-action@0.11.0
-        with:
-          access_token: ${{ github.token }}
 
   test-full-ai:
     # Temporarily disabled while gpu_public is unavailable and PR-D hardening is pending.
