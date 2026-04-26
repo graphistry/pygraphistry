@@ -3413,34 +3413,52 @@ def test_issue_1219_row_boolean_audit_connected_optional_structured_matrix(
 
 
 @pytest.mark.parametrize(
-    "query",
+    "query,expected_rows",
     [
         (
             "MATCH (x)-[r1:R1]->(y) "
             "OPTIONAL MATCH (y)-[r2:T]->(z) "
             "WHERE z:Z OR z.id IS NULL "
-            "RETURN y.id AS yid, z.id AS zid"
+            "RETURN y.id AS yid, z.id AS zid "
+            "ORDER BY yid",
+            [{"yid": "y1", "zid": "z1"}, {"yid": "y2", "zid": None}],
         ),
         (
             "MATCH (x)-[r1:R1]->(y) "
             "OPTIONAL MATCH (y)-[r2:T]->(z) "
             "WHERE NOT z:Z "
-            "RETURN y.id AS yid, z.id AS zid"
+            "RETURN y.id AS yid, z.id AS zid "
+            "ORDER BY yid",
+            [{"yid": "y1", "zid": None}, {"yid": "y2", "zid": None}],
         ),
         (
             "MATCH (x)-[r1:R1]->(y) "
             "OPTIONAL MATCH (y)-[r2:T]->(z) "
             "WHERE z:Z XOR z.id IS NULL "
-            "RETURN y.id AS yid, z.id AS zid"
+            "RETURN y.id AS yid, z.id AS zid "
+            "ORDER BY yid",
+            [{"yid": "y1", "zid": "z1"}, {"yid": "y2", "zid": None}],
+        ),
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "WHERE y.id = 'y1' OR y.id = 'y2' "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "RETURN y.id AS yid, z.id AS zid "
+            "ORDER BY yid",
+            [{"yid": "y1", "zid": "z1"}, {"yid": "y2", "zid": None}],
         ),
     ],
     ids=[
-        "audit-optional-or-row-expr-currently-unsupported",
-        "audit-optional-not-row-expr-currently-unsupported",
-        "audit-optional-xor-row-expr-currently-unsupported",
+        "audit-optional-or-row-expr-supported",
+        "audit-optional-not-row-expr-supported",
+        "audit-optional-xor-row-expr-supported",
+        "audit-base-or-row-expr-supported-with-optional-arm",
     ],
 )
-def test_issue_1219_row_boolean_audit_connected_optional_row_expr_gap(query: str) -> None:
+def test_issue_1219_row_boolean_audit_connected_optional_row_expr_matrix(
+    query: str,
+    expected_rows: List[Dict[str, Any]],
+) -> None:
     graph = _mk_graph(
         pd.DataFrame(
             {
@@ -3457,11 +3475,8 @@ def test_issue_1219_row_boolean_audit_connected_optional_row_expr_gap(query: str
         ),
     )
 
-    with pytest.raises(GFQLValidationError) as exc_info:
-        graph.gfql(query)
-
-    assert exc_info.value.code == ErrorCode.E108
-    assert "connected OPTIONAL MATCH" in str(exc_info.value)
+    rows = graph.gfql(query)._nodes.to_dict(orient="records")
+    assert _normalize_nullable_rows(rows) == expected_rows
 
 
 def test_string_cypher_supports_list_slice_precedence_with_concat() -> None:
