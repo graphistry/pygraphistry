@@ -3264,14 +3264,9 @@ def test_string_cypher_rejects_optional_match_seed_only_projection(where_clause:
         )
 
 
-def test_string_cypher_rejects_mixed_type_or_via_ast_evaluator_gate() -> None:
-    # Single-alias OR with type-mismatched branches against a mixed-type
-    # Series.  The call executor wraps the underlying pandas TypeError
-    # as GFQLTypeError(E303, "unsupported row expression") rather than
-    # letting it surface as a raw TypeError.  This is the generic
-    # unsupported-expression wrapper (not a type-specific gate); pinning
-    # the substring catches future regressions that drop the wrapper
-    # and would expose the raw pandas error to the user.
+def test_string_cypher_executes_mixed_type_or_with_null_safe_semantics() -> None:
+    # Mixed-type OR now evaluates row-wise with null-safe comparison
+    # semantics: incomparable rows are non-matching instead of raising.
     graph = _mk_graph(
         pd.DataFrame({
             "id":       ["n1", "n2", "n3"],
@@ -3281,12 +3276,9 @@ def test_string_cypher_rejects_mixed_type_or_via_ast_evaluator_gate() -> None:
         pd.DataFrame({"s": [], "d": []}),
     )
 
-    # Pin the error code (E303 = invalid-node-reference) rather than
-    # the inner ValueError substring — the substring "unsupported row
-    # expression" appears at 30+ emit sites in the row pipeline; the
-    # E303 wrapper is the actual stable contract this test locks.
-    with pytest.raises(GFQLTypeError, match="invalid-node-reference"):
-        graph.gfql("MATCH (n:N) WHERE n.var > 'te' OR n.var > 0 RETURN n.id AS id")
+    result = graph.gfql("MATCH (n:N) WHERE n.var > 'te' OR n.var > 0 RETURN n.id AS id")
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["n1", "n3"]
 
 
 def test_string_cypher_executes_homogeneous_or_returns_correct_union() -> None:
