@@ -106,9 +106,14 @@ jobs:
           exit 0
         fi
 
+        # emit <key> <regex>...  — joins regex args with `|` and emits true/false.
+        # Each pattern goes on its own line at the call site for readability;
+        # this is the reason emit takes variadic args instead of a pre-joined string.
         emit() {
           local key="$1"
-          local pattern="$2"
+          shift
+          local IFS='|'
+          local pat="$*"
           # Use a here-string instead of `printf "%s\n" "$changed" | grep -qE`.
           # Why: with `set -o pipefail`, if `grep -q` matches early on a $changed
           # larger than the pipe buffer (~64 KB; thousands of files), `grep` exits
@@ -117,19 +122,68 @@ jobs:
           # sees non-zero, and we'd silently emit `false` for a key that should
           # be `true`. A here-string is a pure redirection (not a pipeline), so
           # the data is fully buffered before grep reads, eliminating the race.
-          if [[ -n "$changed" ]] && grep -qE "$pattern" <<< "$changed"; then
+          if [[ -n "$changed" ]] && grep -qE "$pat" <<< "$changed"; then
             echo "${key}=true"  >> "$GITHUB_OUTPUT"
           else
             echo "${key}=false" >> "$GITHUB_OUTPUT"
           fi
         }
 
-        emit infra              '^\.github/workflows/ci\.yml$|^docker/|^bin/|^setup\.py$|^setup\.cfg$|^MANIFEST\.in$'
-        emit python             '\.py$|^graphistry/|^setup\.py$|^setup\.cfg$|^pytest\.ini$|^mypy\.ini$|^bin/lint\.sh$|^bin/typecheck\.sh$'
-        emit gfql               '^graphistry/gfql/|^graphistry/compute/gfql/|^graphistry/compute/gfql_unified\.py$|^graphistry/models/gfql/|^graphistry/Plottable\.py$|^tests/gfql/'
-        emit cypher_frontend_ci '^\.github/workflows/ci\.yml$|^\.github/workflows/ci-gpu\.yml$|^graphistry/compute/gfql/ir/|^graphistry/compute/gfql/cypher/|^graphistry/compute/gfql/frontends/cypher/|^graphistry/tests/compute/gfql/cypher/|^tests/gfql/ref/'
-        emit benchmarks         '^benchmarks/'
-        emit docs               '^docs/|\.md$|\.rst$|^demos/|^notebooks/'
+        # Filter dimensions — patterns mirror the prior dorny/paths-filter YAML
+        # globs converted to anchored regex. Keep one pattern per line so adds
+        # / removes diff cleanly and the conversion stays auditable.
+
+        # Infrastructure: workflow defs, docker, bin scripts, root build config.
+        emit infra \
+          '^\.github/workflows/ci\.yml$' \
+          '^docker/' \
+          '^bin/' \
+          '^setup\.py$' \
+          '^setup\.cfg$' \
+          '^MANIFEST\.in$'
+
+        # Python code + lint/type config.
+        emit python \
+          '\.py$' \
+          '^graphistry/' \
+          '^setup\.py$' \
+          '^setup\.cfg$' \
+          '^pytest\.ini$' \
+          '^mypy\.ini$' \
+          '^bin/lint\.sh$' \
+          '^bin/typecheck\.sh$'
+
+        # GFQL core + tests.
+        emit gfql \
+          '^graphistry/gfql/' \
+          '^graphistry/compute/gfql/' \
+          '^graphistry/compute/gfql_unified\.py$' \
+          '^graphistry/models/gfql/' \
+          '^graphistry/Plottable\.py$' \
+          '^tests/gfql/'
+
+        # Cypher frontend gate-relevant paths (workflow defs included so a CI
+        # change here re-triggers the cypher gate alongside gfql/infra).
+        emit cypher_frontend_ci \
+          '^\.github/workflows/ci\.yml$' \
+          '^\.github/workflows/ci-gpu\.yml$' \
+          '^graphistry/compute/gfql/ir/' \
+          '^graphistry/compute/gfql/cypher/' \
+          '^graphistry/compute/gfql/frontends/cypher/' \
+          '^graphistry/tests/compute/gfql/cypher/' \
+          '^tests/gfql/ref/'
+
+        # Benchmarks suite.
+        emit benchmarks \
+          '^benchmarks/'
+
+        # Documentation: docs tree + any md/rst at any depth + demos + notebooks.
+        emit docs \
+          '^docs/' \
+          '\.md$' \
+          '\.rst$' \
+          '^demos/' \
+          '^notebooks/'
 
     - name: Detect docs-only change on tip
       id: docs_only_latest
