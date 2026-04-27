@@ -43,12 +43,7 @@ jobs:
           tag=$(gh api repos/rhysd/actionlint/releases \
             --jq "[.[] | select(.draft|not) | select(.prerelease|not) | select((.published_at | fromdateiso8601) <= ${cutoff})][0].tag_name")
           if [ -z "${tag}" ] || [ "${tag}" = "null" ]; then
-            echo "::warning::No eligible actionlint release older than ${COOLDOWN_DAYS} days; falling back to latest stable release"
-            tag=$(gh api repos/rhysd/actionlint/releases \
-              --jq "[.[] | select(.draft|not) | select(.prerelease|not)][0].tag_name")
-          fi
-          if [ -z "${tag}" ] || [ "${tag}" = "null" ]; then
-            echo "::error::Unable to resolve any stable actionlint release"
+            echo "::error::No eligible actionlint release older than ${COOLDOWN_DAYS} days"
             exit 1
           fi
           ver="${tag#v}"
