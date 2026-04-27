@@ -3203,11 +3203,16 @@ def test_string_cypher_executes_cross_alias_or_returns_correct_union() -> None:
     assert rows == [("a1", "b1"), ("a2", "b2")]
 
 
-def test_string_cypher_rejects_optional_match_or_with_existing_validator() -> None:
-    # OPTIONAL MATCH with WHERE OR is rejected by the existing OPTIONAL
-    # MATCH projection validator before WHERE evaluation.  Locks that
-    # the gate fires on this shape (not silent wrong rows) regardless
-    # of the OR.
+@pytest.mark.parametrize("where_clause", [
+    "",  # no WHERE at all
+    "WHERE b.x = 1",  # simple WHERE
+    "WHERE b.x = 1 OR b IS NULL",  # WHERE with OR (the Earley-admitted shape)
+])
+def test_string_cypher_rejects_optional_match_seed_only_projection(where_clause: str) -> None:
+    # The existing OPTIONAL-MATCH-projection validator gates this shape
+    # regardless of whether/how WHERE is structured.  Locks that the OR
+    # variant doesn't slip past the validator into a silent wrong-rows
+    # path — the gate fires identically across all three WHERE shapes.
     graph = _mk_graph(
         pd.DataFrame({
             "id":       ["a1", "a2", "b1"],
@@ -3220,17 +3225,19 @@ def test_string_cypher_rejects_optional_match_or_with_existing_validator() -> No
 
     with pytest.raises(GFQLValidationError, match="OPTIONAL MATCH"):
         graph.gfql(
-            "MATCH (a:A) OPTIONAL MATCH (a)-->(b:B) WHERE b.x = 1 OR b IS NULL "
+            f"MATCH (a:A) OPTIONAL MATCH (a)-->(b:B) {where_clause} "
             "RETURN a.id AS a_id, b.id AS b_id"
         )
 
 
 def test_string_cypher_rejects_mixed_type_or_via_ast_evaluator_gate() -> None:
     # Single-alias OR with type-mismatched branches against a mixed-type
-    # Series goes through the row-where AST evaluator, which emits an
-    # explicit GFQLTypeError rather than silently propagating pandas's
-    # raw TypeError.  Locks that the gate is the user-visible failure
-    # mode (not a silent wrong-rows answer).
+    # Series.  The call executor wraps the underlying pandas TypeError
+    # as GFQLTypeError(E303, "unsupported row expression") rather than
+    # letting it surface as a raw TypeError.  This is the generic
+    # unsupported-expression wrapper (not a type-specific gate); pinning
+    # the substring catches future regressions that drop the wrapper
+    # and would expose the raw pandas error to the user.
     graph = _mk_graph(
         pd.DataFrame({
             "id":       ["n1", "n2", "n3"],
@@ -3240,7 +3247,7 @@ def test_string_cypher_rejects_mixed_type_or_via_ast_evaluator_gate() -> None:
         pd.DataFrame({"s": [], "d": []}),
     )
 
-    with pytest.raises((GFQLTypeError, TypeError)):
+    with pytest.raises(GFQLTypeError, match="unsupported row expression"):
         graph.gfql("MATCH (n:N) WHERE n.var > 'te' OR n.var > 0 RETURN n.id AS id")
 
 
