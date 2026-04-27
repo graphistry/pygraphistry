@@ -3104,16 +3104,9 @@ def test_string_cypher_supports_bare_label_predicate_in_with_where() -> None:
     assert result._nodes.to_dict(orient="records") == [{"i": "(:TextNode {var: 'tf'})"}]
 
 
-# ---------------------------------------------------------------------------
-# #1031 disjunctive / negation WHERE — semantic correctness
-#
-# Pre-#1217: LALR rejected OR / NOT inside WHERE bodies, so there was no
-# end-to-end test coverage for these shapes.  Earley accepts them, the
-# binder routes them through the existing raw-expr path, and the runtime
-# evaluates via pandas.  These tests lock semantic correctness across
-# the OR / NOT / mixed shapes directly mirroring the LDBC SNB and TCK
-# disjunction patterns that motivated #1031.
-# ---------------------------------------------------------------------------
+# OR/NOT WHERE shapes — Earley admits them where LALR rejected.  Pandas
+# 3-valued NaN semantics: NaN comparisons → NaN (falsy), NaN under NOT →
+# NaN (still filtered).  Tests lock that behavior.
 
 
 def _or_where_graph() -> "_CypherTestGraph":
@@ -3133,8 +3126,6 @@ def _or_where_graph() -> "_CypherTestGraph":
 
 
 def test_string_cypher_executes_disjunctive_property_predicate_returns_union() -> None:
-    # TCK match-where1-10 shape.  Confirms ``WHERE n.p1 = 12 OR n.p2 = 13``
-    # returns the union of matches (a, b) — neither alone, neither plus c.
     result = _or_where_graph().gfql("MATCH (n) WHERE n.p1 = 12 OR n.p2 = 13 RETURN n")
 
     rendered = sorted(row["n"] for row in result._nodes.to_dict(orient="records"))
@@ -3142,8 +3133,6 @@ def test_string_cypher_executes_disjunctive_property_predicate_returns_union() -
 
 
 def test_string_cypher_executes_disjunctive_same_alias_property_predicate() -> None:
-    # ``WHERE n.p1 = 12 OR n.p1 = 99``.  Same alias on both sides — must
-    # match only rows where p1 equals one of the values.
     result = _or_where_graph().gfql("MATCH (n) WHERE n.p1 = 12 OR n.p1 = 99 RETURN n")
 
     rendered = sorted(row["n"] for row in result._nodes.to_dict(orient="records"))
@@ -3151,26 +3140,13 @@ def test_string_cypher_executes_disjunctive_same_alias_property_predicate() -> N
 
 
 def test_string_cypher_executes_negation_property_predicate_returns_complement() -> None:
-    # ``WHERE NOT n.p1 = 12``.  Pandas convention: NaN comparisons yield
-    # NaN (falsy), so NOT NaN = NaN (still filtered out).  Only the row
-    # where p1 is non-null and != 12 matches — empty in this fixture.
-    # Including for shape coverage; the c row is filtered because NaN
-    # comparisons don't satisfy NOT either.
     result = _or_where_graph().gfql("MATCH (n) WHERE NOT n.p1 = 12 RETURN n")
 
-    # The empirical pandas semantics: rows where p1 is NaN evaluate to
-    # NaN under ``=``, NaN under ``NOT``, and NaN is falsy in boolean
-    # context — so they're filtered out.  Only the c row could survive,
-    # but pandas excludes it for the same reason.  This locks current
-    # behavior even if it's debatable Cypher semantics.
     rendered = sorted(row["n"] for row in result._nodes.to_dict(orient="records"))
     assert rendered == []
 
 
 def test_string_cypher_executes_disjunctive_then_conjunction() -> None:
-    # ``WHERE (n.p1 = 12 OR n.p2 = 13) AND n.id = 'a'`` — narrows the OR
-    # union to just the row whose id matches.  Confirms the mixed
-    # OR-AND boolean tree evaluates correctly under Earley.
     result = _or_where_graph().gfql(
         "MATCH (n) WHERE (n.p1 = 12 OR n.p2 = 13) AND n.id = 'a' RETURN n"
     )
@@ -3180,10 +3156,6 @@ def test_string_cypher_executes_disjunctive_then_conjunction() -> None:
 
 
 def test_string_cypher_executes_disjunction_returns_correct_count_with_more_rows() -> None:
-    # Larger fixture to confirm the OR doesn't silently union too many or
-    # too few rows.  Six rows: 2 match p1=1 only (x1, x2), 2 match p2=2
-    # only (y1, y2), 1 matches both (z), 1 matches neither (w).
-    # Expected union: 5 rows.
     graph = _mk_graph(
         pd.DataFrame(
             {
@@ -3199,8 +3171,6 @@ def test_string_cypher_executes_disjunction_returns_correct_count_with_more_rows
 
     rendered = [row["n"] for row in result._nodes.to_dict(orient="records")]
     assert len(rendered) == 5
-    # Identify each row by its non-null property — every kept row must
-    # carry at least one of p1=1 or p2=2 in the rendered representation.
     assert all("p1: 1" in r or "p2: 2" in r for r in rendered)
 
 

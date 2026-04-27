@@ -944,13 +944,6 @@ def test_parse_optional_match_clause() -> None:
         ),
         (
             "MATCH (n) WHERE (n)-[:R*]->() AND (n.id = 'b' OR n.id = 'c') RETURN n",
-            # Pre-#1031: original-source parens preserved by the regex
-            # canonicalizer's ``(?P<expr>.+)`` capture.  Post-#1031 (Earley
-            # + structured pattern lift): ``boolean_expr_to_text`` rebuilds
-            # the residual expression from the boolean tree and drops outer
-            # parens that grouped_expr passes through.  Semantically
-            # equivalent — the OR is still the root of the residual
-            # ``expr_tree``.
             "n.id = 'b' OR n.id = 'c'",
         ),
     ],

@@ -1,14 +1,7 @@
-"""Direct unit tests for ``_StringAllowingComparisonMixin`` (#1217 wave-2).
+"""String-val coverage for ``_StringAllowingComparisonMixin`` on EQ/NE/GT/LT/GE/LE.
 
-EQ already had end-to-end string coverage in ``test_eq_types.py``; this
-file covers the sibling comparison ops NE/GT/LT/GE/LE that gained string
-support via the mixin.  Pandas Series natively supports lexicographic
-``>``/``<``/``!=`` on strings — these tests lock in:
-
-  1. ``validate()`` accepts raw-string ``val``.
-  2. ``__call__`` returns the expected boolean Series under lexicographic
-     ordering.
-  3. ``to_json``/``from_json`` round-trip preserves the string ``val``.
+EQ already had multi-type coverage in ``test_eq_types.py``; this file
+parametrizes the mixin contract over the sibling ops gained in #1217.
 """
 from __future__ import annotations
 
@@ -30,6 +23,16 @@ _OPS = [
     pytest.param(NE, ne, id="NE"),
 ]
 
+_SERIES = pd.Series(["apple", "banana", "cherry"])
+_LEX_EXPECTED = {
+    gt: [False, False, True],
+    lt: [True, False, False],
+    ge: [False, True, True],
+    le: [True, True, False],
+    eq: [False, True, False],
+    ne: [True, False, True],
+}
+
 
 @pytest.mark.parametrize("cls,factory", _OPS)
 def test_string_val_validates(cls, factory) -> None:
@@ -49,31 +52,7 @@ def test_string_val_json_roundtrip(cls, factory) -> None:
     assert p2.val == "zebra"
 
 
-def test_gt_string_lexicographic_apply() -> None:
-    s = pd.Series(["apple", "banana", "cherry"])
-    result = gt("banana")(s)
-    assert list(result) == [False, False, True]
-
-
-def test_lt_string_lexicographic_apply() -> None:
-    s = pd.Series(["apple", "banana", "cherry"])
-    result = lt("banana")(s)
-    assert list(result) == [True, False, False]
-
-
-def test_ge_string_lexicographic_apply() -> None:
-    s = pd.Series(["apple", "banana", "cherry"])
-    result = ge("banana")(s)
-    assert list(result) == [False, True, True]
-
-
-def test_le_string_lexicographic_apply() -> None:
-    s = pd.Series(["apple", "banana", "cherry"])
-    result = le("banana")(s)
-    assert list(result) == [True, True, False]
-
-
-def test_ne_string_apply() -> None:
-    s = pd.Series(["a", "b", "a"])
-    result = ne("a")(s)
-    assert list(result) == [False, True, False]
+@pytest.mark.parametrize("cls,factory", _OPS)
+def test_string_lexicographic_apply(cls, factory) -> None:
+    result = factory("banana")(_SERIES)
+    assert list(result) == _LEX_EXPECTED[factory]
