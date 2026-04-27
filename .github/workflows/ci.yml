@@ -45,60 +45,145 @@ jobs:
     - uses: actions/checkout@v4
       with:
         persist-credentials: false
-    - uses: dorny/paths-filter@v3
+        # full history needed so `git diff <base>..<head>` resolves on PRs / non-trivial pushes
+        fetch-depth: 0
+    - name: Compute path filters
       id: filter
-      with:
-        filters: |
-          # Infrastructure changes that affect all tests
-          infra:
-            - '.github/workflows/ci.yml'
-            - 'docker/**'
-            - 'bin/**'
-            - 'setup.py'
-            - 'setup.cfg'
-            - 'MANIFEST.in'
-            
-          # Python code changes
-          python:
-            - '**.py'
-            - 'graphistry/**'
-            - 'setup.py'
-            - 'setup.cfg'
-            - 'pytest.ini'
-            - 'mypy.ini'
-            - 'bin/lint.sh'
-            - 'bin/typecheck.sh'
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        PUSH_BEFORE: ${{ github.event.before }}
+        HEAD_SHA: ${{ github.sha }}
+      run: |
+        set -euo pipefail
+        keys=(infra python gfql cypher_frontend_ci benchmarks docs)
 
-          # GFQL-specific changes
-          gfql:
-            - 'graphistry/gfql/**'
-            - 'graphistry/compute/gfql/**'
-            - 'graphistry/compute/gfql_unified.py'
-            - 'graphistry/models/gfql/**'
-            - 'graphistry/Plottable.py'
-            - 'tests/gfql/**'
+        emit_all() {
+          # $1 = "true" or "false" — emit the same value for every key
+          for k in "${keys[@]}"; do
+            echo "${k}=$1" >> "$GITHUB_OUTPUT"
+          done
+        }
 
-          # Cypher frontend gate relevant changes
-          cypher_frontend_ci:
-            - '.github/workflows/ci.yml'
-            - '.github/workflows/ci-gpu.yml'
-            - 'graphistry/compute/gfql/ir/**'
-            - 'graphistry/compute/gfql/cypher/**'
-            - 'graphistry/compute/gfql/frontends/cypher/**'
-            - 'graphistry/tests/compute/gfql/cypher/**'
-            - 'tests/gfql/ref/**'
+        # Non diff-bearing events: rely on downstream `event_name == 'workflow_dispatch'`
+        # / `'schedule'` OR-conditions in job `if:` expressions. Emit false safely.
+        if [[ "$EVENT_NAME" != "pull_request" && "$EVENT_NAME" != "push" ]]; then
+          emit_all false
+          exit 0
+        fi
 
-          # Benchmark-specific changes
-          benchmarks:
-            - 'benchmarks/**'
-            
-          # Documentation changes
-          docs:
-            - 'docs/**'
-            - '**.md'
-            - '**.rst'
-            - 'demos/**'
-            - 'notebooks/**'
+        if [[ "$EVENT_NAME" == "pull_request" ]]; then
+          base="$PR_BASE_SHA"
+          head="$PR_HEAD_SHA"
+        else
+          base="$PUSH_BEFORE"
+          head="$HEAD_SHA"
+        fi
+
+        # New branch / first push: zero-SHA base. Conservative: run everything.
+        if [[ -z "$base" || "$base" == "0000000000000000000000000000000000000000" ]]; then
+          emit_all true
+          exit 0
+        fi
+
+        # Diff vs the merge-base so PR runs see only commits that diverge from base
+        # (avoids picking up unrelated commits the base ref has gained meanwhile).
+        # If either resolution fails (e.g., force-pushed branch with orphaned
+        # event.before, or rebased PR base ref), fall back to the conservative
+        # "couldn't compute, run everything" stance and surface a GHA warning
+        # so operators can see why every job ran. Note: stderr is left
+        # un-redirected so the underlying git error (e.g., "Not a valid object
+        # name") shows up in the runner log alongside the warning.
+        if ! merge_base=$(git merge-base "$base" "$head"); then
+          echo "::warning::path-filter: git merge-base failed for $base..$head; running all gated jobs conservatively"
+          emit_all true
+          exit 0
+        fi
+        if ! changed=$(git diff --name-only "$merge_base" "$head"); then
+          echo "::warning::path-filter: git diff failed for $merge_base..$head; running all gated jobs conservatively"
+          emit_all true
+          exit 0
+        fi
+
+        # emit <key> <regex>...  — joins regex args with `|` and emits true/false.
+        # Each pattern goes on its own line at the call site for readability;
+        # this is the reason emit takes variadic args instead of a pre-joined string.
+        emit() {
+          local key="$1"
+          shift
+          local IFS='|'
+          local pat="$*"
+          # Use a here-string instead of `printf "%s\n" "$changed" | grep -qE`.
+          # Why: with `set -o pipefail`, if `grep -q` matches early on a $changed
+          # larger than the pipe buffer (~64 KB; thousands of files), `grep` exits
+          # before `printf` finishes flushing. `printf` then receives SIGPIPE and
+          # exits 141. `pipefail` propagates that 141 to the pipeline, the `if`
+          # sees non-zero, and we'd silently emit `false` for a key that should
+          # be `true`. A here-string is a pure redirection (not a pipeline), so
+          # the data is fully buffered before grep reads, eliminating the race.
+          if [[ -n "$changed" ]] && grep -qE "$pat" <<< "$changed"; then
+            echo "${key}=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "${key}=false" >> "$GITHUB_OUTPUT"
+          fi
+        }
+
+        # Filter dimensions — patterns mirror the prior dorny/paths-filter YAML
+        # globs converted to anchored regex. Keep one pattern per line so adds
+        # / removes diff cleanly and the conversion stays auditable.
+
+        # Infrastructure: workflow defs, docker, bin scripts, root build config.
+        emit infra \
+          '^\.github/workflows/ci\.yml$' \
+          '^docker/' \
+          '^bin/' \
+          '^setup\.py$' \
+          '^setup\.cfg$' \
+          '^MANIFEST\.in$'
+
+        # Python code + lint/type config.
+        emit python \
+          '\.py$' \
+          '^graphistry/' \
+          '^setup\.py$' \
+          '^setup\.cfg$' \
+          '^pytest\.ini$' \
+          '^mypy\.ini$' \
+          '^bin/lint\.sh$' \
+          '^bin/typecheck\.sh$'
+
+        # GFQL core + tests.
+        emit gfql \
+          '^graphistry/gfql/' \
+          '^graphistry/compute/gfql/' \
+          '^graphistry/compute/gfql_unified\.py$' \
+          '^graphistry/models/gfql/' \
+          '^graphistry/Plottable\.py$' \
+          '^tests/gfql/'
+
+        # Cypher frontend gate-relevant paths (workflow defs included so a CI
+        # change here re-triggers the cypher gate alongside gfql/infra).
+        emit cypher_frontend_ci \
+          '^\.github/workflows/ci\.yml$' \
+          '^\.github/workflows/ci-gpu\.yml$' \
+          '^graphistry/compute/gfql/ir/' \
+          '^graphistry/compute/gfql/cypher/' \
+          '^graphistry/compute/gfql/frontends/cypher/' \
+          '^graphistry/tests/compute/gfql/cypher/' \
+          '^tests/gfql/ref/'
+
+        # Benchmarks suite.
+        emit benchmarks \
+          '^benchmarks/'
+
+        # Documentation: docs tree + any md/rst at any depth + demos + notebooks.
+        emit docs \
+          '^docs/' \
+          '\.md$' \
+          '\.rst$' \
+          '^demos/' \
+          '^notebooks/'
 
     - name: Detect docs-only change on tip
       id: docs_only_latest
@@ -391,6 +476,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         lfs: true
+        persist-credentials: false
 
     - name: Download lockfiles
       uses: actions/download-artifact@v4
@@ -441,6 +527,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         lfs: true
+        persist-credentials: false
 
     - name: Download lockfiles
       uses: actions/download-artifact@v4
@@ -1237,6 +1324,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         lfs: true
+        persist-credentials: false
 
     - name: Set up Python 3.14
       uses: actions/setup-python@v5
