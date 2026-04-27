@@ -83,12 +83,15 @@ class TestParserShape:
         assert w.expr_tree is None
         assert len(w.predicates) == 3
 
-    # Shape B: A AND (B OR C) — parenthesised OR inside AND raises E107
-    def test_and_with_paren_or_is_syntax_error(self) -> None:
-        with pytest.raises(GFQLSyntaxError):
-            _parse_where(
-                "MATCH (n) WHERE n.x = 1 AND (n.y = 2 OR n.z = 3) RETURN n"
-            )
+    # Shape B: A AND (B OR C) — parenthesised OR inside AND
+    def test_and_with_paren_or_lands_in_and_tree(self) -> None:
+        w = _parse_where(
+            "MATCH (n) WHERE n.x = 1 AND (n.y = 2 OR n.z = 3) RETURN n"
+        )
+        assert w.expr_tree is not None
+        assert w.expr_tree.op == "and"
+        assert w.expr_tree.right is not None
+        assert w.expr_tree.right.op == "or"
 
     # Shape C: (A OR B) AND C — OR before AND
     def test_paren_or_and_c_lands_in_tree(self) -> None:
@@ -110,11 +113,11 @@ class TestParserShape:
         assert "XOR" in boolean_expr_to_text(w.expr_tree).upper()
         assert w.predicates == ()
 
-    # Shape F: label predicate AND property predicate → tree path (mixed types force generic path)
-    def test_label_and_property_routes_to_tree(self) -> None:
+    # Shape F: label predicate AND property predicate → structured route
+    def test_label_and_property_routes_to_structured_predicates(self) -> None:
         w = _parse_where("MATCH (n) WHERE n:Admin AND n.active = true RETURN n")
-        assert w.expr_tree is not None
-        assert w.predicates == ()
+        assert w.expr_tree is None
+        assert len(w.predicates) == 2
 
     # Shape G: quoted AND must not be counted as a predicate boundary
     def test_quoted_and_does_not_produce_extra_predicate(self) -> None:
@@ -147,14 +150,18 @@ class TestBinderShape:
         assert len(parts) == 1
         assert len(parts[0].predicates) == 3
 
-    # Shape B: A AND (B OR C) → GFQLSyntaxError (parser rejects OR in parens)
-    def test_and_with_paren_or_raises_syntax_error(self) -> None:
-        with pytest.raises(GFQLSyntaxError):
+    # Shape B: A AND (B OR C) → 2 BoundPredicates (top-level AND splits)
+    def test_and_with_paren_or_produces_two_bound_predicates(self) -> None:
+        parts = _match_parts(
             _bind("MATCH (n) WHERE n.x = 1 AND (n.y = 2 OR n.z = 3) RETURN n")
+        )
+        assert len(parts) == 1
+        exprs = [p.expression for p in parts[0].predicates]
+        assert len(exprs) == 2
+        assert any(e == "n.x = 1" for e in exprs)
+        assert any("OR" in e.upper() for e in exprs)
 
-    # Shape C: (A OR B) AND C → two BoundPredicates after #1200 slice 2
-    # (binder flattens top-level AND; OR-compound stays as one conjunct,
-    # bare C is the second).
+    # Shape C: (A OR B) AND C → 2 BoundPredicates (OR-compound + bare C)
     def test_paren_or_and_c_produces_two_bound_predicates(self) -> None:
         parts = _match_parts(
             _bind("MATCH (n) WHERE (n.x = 1 OR n.y = 2) AND n.z = 3 RETURN n")
@@ -166,7 +173,7 @@ class TestBinderShape:
         assert any("OR" in e.upper() for e in exprs)
         assert any("n.z = 3" in e for e in exprs)
 
-    # Shape D: NOT A AND B → two BoundPredicates after #1200 slice 2.
+    # Shape D: NOT A AND B → 2 BoundPredicates
     def test_not_and_b_produces_two_bound_predicates(self) -> None:
         parts = _match_parts(
             _bind("MATCH (n) WHERE NOT n.x = 1 AND n.y = 2 RETURN n")
@@ -186,9 +193,9 @@ class TestBinderShape:
         assert len(parts[0].predicates) == 1
         assert "XOR" in parts[0].predicates[0].expression.upper()
 
-    # Shape F: label AND property → two BoundPredicates after #1200 slice 2
-    # (top-level AND with mixed-flavor operands now splits into one
-    # BoundPredicate per conjunct).
+    # Shape F: label AND property → 2 BoundPredicates (structured route).
+    # `expression` carries dataclass repr per binder's pre-existing
+    # literal-atom fidelity caveat (tracked in #1200); substring-match.
     def test_label_and_property_produces_two_bound_predicates(self) -> None:
         parts = _match_parts(
             _bind("MATCH (n) WHERE n:Admin AND n.active = true RETURN n")
@@ -196,8 +203,8 @@ class TestBinderShape:
         assert len(parts) == 1
         exprs = [p.expression for p in parts[0].predicates]
         assert len(exprs) == 2
-        assert any("n:Admin" in e for e in exprs)
-        assert any("n.active" in e for e in exprs)
+        assert any("LabelRef" in e and "Admin" in e for e in exprs)
+        assert any("PropertyRef" in e and "active" in e for e in exprs)
 
     # Shape G: quoted AND → two BoundPredicates (no extra split)
     def test_quoted_and_produces_two_bound_predicates(self) -> None:

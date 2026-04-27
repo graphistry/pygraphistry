@@ -944,7 +944,7 @@ def test_parse_optional_match_clause() -> None:
         ),
         (
             "MATCH (n) WHERE (n)-[:R*]->() AND (n.id = 'b' OR n.id = 'c') RETURN n",
-            "(n.id = 'b' OR n.id = 'c')",
+            "n.id = 'b' OR n.id = 'c'",
         ),
     ],
 )
@@ -961,8 +961,15 @@ def test_parse_supports_where_pattern_predicate_and_expr_mix(query: str, expr_te
 @pytest.mark.parametrize(
     "query",
     [
+        # Variable-length patterns
         "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'z' RETURN n",
         "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n",
+        # Non-variable-length patterns — same lift-step rejector path,
+        # but a more common shape to hit in practice.  Locks the
+        # rejection so future slice 2/3/4 lifts can't silently regress
+        # the simple-edge variant.
+        "MATCH (n) WHERE (n)-[:R]->() OR n.id = 'z' RETURN n",
+        "MATCH (n) WHERE NOT (n)-[:R]->() RETURN n",
     ],
 )
 def test_parse_rejects_mixed_where_pattern_predicates_as_unsupported(query: str) -> None:
@@ -1037,8 +1044,17 @@ def test_multi_statement_rejected() -> None:
     assert exc_info.value.code == ErrorCode.E107
 
 
-def test_or_where_not_yet_supported() -> None:
-    with pytest.raises(GFQLSyntaxError) as exc_info:
-        _parse_query("MATCH (a)-[r]->(b) WHERE a.team = b.team OR a.name = 'Alice' RETURN a")
+def test_or_where_now_parses_after_earley_swap() -> None:
+    # #1031 slice 1: Earley accepts OR in WHERE bodies that LALR(1) had to
+    # reject due to FIRST-set state collapse.  The query parses cleanly,
+    # produces a structured ``BooleanExpr(op="or", ...)`` tree on
+    # ``expr_tree``, and ``predicates`` stays empty because OR is not a
+    # ``where_predicates`` form.  Downstream consumers see the OR as a
+    # single conjunct.
+    parsed = _parse_query("MATCH (a)-[r]->(b) WHERE a.team = b.team OR a.name = 'Alice' RETURN a")
 
-    assert exc_info.value.code == ErrorCode.E107
+    assert parsed.where is not None
+    assert parsed.where.predicates == ()
+    assert parsed.where.expr_tree is not None
+    assert parsed.where.expr_tree.op == "or"
+    assert "OR" in boolean_expr_to_text(parsed.where.expr_tree).upper()

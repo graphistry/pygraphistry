@@ -137,10 +137,47 @@ class NumericASTPredicate(ComparisonPredicate):
 
 ###
 
-class GT(ComparisonPredicate):
+class _StringAllowingComparisonMixin:
+    """Mixin that lets subclasses of ``ComparisonPredicate`` accept raw strings.
+
+    The base ``ComparisonPredicate`` rejects raw strings to force users of
+    the IR-direct API to disambiguate string vs. datetime intent (e.g.
+    ``pd.Timestamp("2024-01-15")`` vs. literal ``"2024-01-15"``).  For
+    Cypher-sourced predicates the type is already unambiguous: a Cypher
+    quoted literal ``'value'`` is unambiguously a string, and Cypher
+    datetime literals use ``datetime('...')``.  Lexicographic comparison
+    on strings is well-defined (pandas Series ``>``/``<``/``==``/``!=``
+    operate elementwise on strings), so all comparison ops should accept
+    strings.
+
+    ``EQ`` predates this mixin with an inline override; the other
+    comparison ops (``NE`` / ``GT`` / ``LT`` / ``GE`` / ``LE``) gain
+    string acceptance through this mixin in #1031 — Earley's broader
+    unification of label + comparison through ``where_predicates``
+    surfaces every comparison-with-string-literal Cypher query.
+    """
+
+    def _normalize_value(self, val):  # type: ignore[no-untyped-def]
+        if is_string(val):
+            return val
+        return super()._normalize_value(val)  # type: ignore[misc]
+
+    def _validate_fields(self) -> None:
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        if not isinstance(self.val, (int, float, TemporalValue, str)):  # type: ignore[attr-defined]
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "val must be numeric, temporal, or string",
+                field="val",
+                value=type(self.val).__name__,  # type: ignore[attr-defined]
+                suggestion="Use numeric/temporal values or strings",
+            )
+
+
+class GT(_StringAllowingComparisonMixin, ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         """Greater than comparison"""
-        if isinstance(self.val, (int, float)):
+        if isinstance(self.val, (int, float, str)):
             return s > self.val
         elif isinstance(self.val, TemporalValue):
             prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
@@ -154,10 +191,10 @@ def gt(val: ComparisonInput) -> GT:
     """
     return GT(val)
 
-class LT(ComparisonPredicate):
+class LT(_StringAllowingComparisonMixin, ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         """Less than comparison"""
-        if isinstance(self.val, (int, float)):
+        if isinstance(self.val, (int, float, str)):
             return s < self.val
         elif isinstance(self.val, TemporalValue):
             prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
@@ -171,10 +208,10 @@ def lt(val: ComparisonInput) -> LT:
     """
     return LT(val)
 
-class GE(ComparisonPredicate):
+class GE(_StringAllowingComparisonMixin, ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         """Greater than or equal comparison"""
-        if isinstance(self.val, (int, float)):
+        if isinstance(self.val, (int, float, str)):
             return s >= self.val
         elif isinstance(self.val, TemporalValue):
             prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
@@ -188,10 +225,10 @@ def ge(val: ComparisonInput) -> GE:
     """
     return GE(val)
 
-class LE(ComparisonPredicate):
+class LE(_StringAllowingComparisonMixin, ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         """Less than or equal comparison"""
-        if isinstance(self.val, (int, float)):
+        if isinstance(self.val, (int, float, str)):
             return s <= self.val
         elif isinstance(self.val, TemporalValue):
             prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
@@ -205,26 +242,7 @@ def le(val: ComparisonInput) -> LE:
     """
     return LE(val)
 
-class EQ(ComparisonPredicate):
-    def _normalize_value(self, val: ComparisonInput) -> Union[int, float, np.number, TemporalValue, str]:
-        """Allow strings in addition to the base numeric/temporal types."""
-        if is_string(val):
-            return val
-        return super()._normalize_value(val)
-
-    def _validate_fields(self) -> None:
-        """Validate predicate fields (allow str in addition to base types)."""
-        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
-
-        if not isinstance(self.val, (int, float, TemporalValue, str)):
-            raise GFQLTypeError(
-                ErrorCode.E201,
-                "val must be numeric, temporal, or string",
-                field="val",
-                value=type(self.val).__name__,
-                suggestion="Use numeric/temporal values or strings"
-            )
-
+class EQ(_StringAllowingComparisonMixin, ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         """Equal comparison"""
         if isinstance(self.val, (int, float, str)):
@@ -248,10 +266,10 @@ def eq(val: ComparisonInput) -> EQ:
     """
     return EQ(val)
 
-class NE(ComparisonPredicate):
+class NE(_StringAllowingComparisonMixin, ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         """Not equal comparison"""
-        if isinstance(self.val, (int, float)):
+        if isinstance(self.val, (int, float, str)):
             return s != self.val
         elif isinstance(self.val, TemporalValue):
             prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
