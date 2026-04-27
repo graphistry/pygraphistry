@@ -111,9 +111,6 @@ class ComparisonPredicate(ASTPredicate):
         try:
             return op(s, self.val)
         except TypeError:
-            if not isinstance(s, pd.Series):
-                raise
-
             def _cmp_cell(cell: Any) -> bool:
                 if pd.isna(cell):
                     return False
@@ -125,7 +122,16 @@ class ComparisonPredicate(ASTPredicate):
                     return False
                 return bool(out)
 
-            return s.map(_cmp_cell)
+            if isinstance(s, pd.Series):
+                return cast(SeriesT, s.map(_cmp_cell))
+
+            # cuDF path: TypeError here is dtype-level incompatibility in current
+            # RAPIDS builds; emit an all-False mask to preserve Cypher filter
+            # semantics without host round-trips (which can crash in some setups).
+            if hasattr(s, "to_pandas") and s.__class__.__module__.startswith("cudf"):
+                return cast(SeriesT, s.notna() & False)
+
+            raise
     
     
     def _validate_fields(self) -> None:
