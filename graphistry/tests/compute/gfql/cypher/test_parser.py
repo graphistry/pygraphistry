@@ -961,8 +961,15 @@ def test_parse_supports_where_pattern_predicate_and_expr_mix(query: str, expr_te
 @pytest.mark.parametrize(
     "query",
     [
+        # Variable-length patterns
         "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'z' RETURN n",
         "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n",
+        # Non-variable-length patterns — same lift-step rejector path,
+        # but a more common shape to hit in practice.  Locks the
+        # rejection so future slice 2/3/4 lifts can't silently regress
+        # the simple-edge variant.
+        "MATCH (n) WHERE (n)-[:R]->() OR n.id = 'z' RETURN n",
+        "MATCH (n) WHERE NOT (n)-[:R]->() RETURN n",
     ],
 )
 def test_parse_rejects_mixed_where_pattern_predicates_as_unsupported(query: str) -> None:

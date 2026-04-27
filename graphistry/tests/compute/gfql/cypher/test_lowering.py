@@ -3167,11 +3167,10 @@ def test_string_cypher_executes_disjunction_returns_correct_count_with_more_rows
         pd.DataFrame({"s": [], "d": []}),
     )
 
-    result = graph.gfql("MATCH (n) WHERE n.p1 = 1 OR n.p2 = 2 RETURN n")
+    result = graph.gfql("MATCH (n) WHERE n.p1 = 1 OR n.p2 = 2 RETURN n.id AS id")
 
-    rendered = [row["n"] for row in result._nodes.to_dict(orient="records")]
-    assert len(rendered) == 5
-    assert all("p1: 1" in r or "p2: 2" in r for r in rendered)
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["x1", "x2", "y1", "y2", "z"]
 
 
 # Compositional row-boolean shapes that Earley admits (LALR rejected).
@@ -3179,9 +3178,28 @@ def test_string_cypher_executes_disjunction_returns_correct_count_with_more_rows
 
 
 def test_string_cypher_executes_cross_alias_or_returns_correct_union() -> None:
-    # Cross-alias OR: each branch references a different alias.  Locks
-    # that pushdown does not split the OR into separate conjuncts pushed
-    # past the join — the row-level filter runs against the joined rows.
+    # Cross-alias OR with 2x2 join topology: each a-node connects to
+    # multiple b-nodes (and vice versa) so that "distribute-OR-then-
+    # push-each-disjunct" pushdown variants would produce a different
+    # row set than the correct row-wise post-join evaluation.
+    #
+    # Topology:
+    #   a1 (x=1) -> b1 (y=99), b2 (y=2)
+    #   a2 (x=99)-> b1 (y=99), b2 (y=2)
+    #   a3 (x=99)-> b3 (y=99)  ← neither branch holds; must be excluded
+    #
+    # Correct row-wise OR evaluates 5 joined rows, keeps where (a.x=1
+    # OR b.y=2) — that's (a1,b1), (a1,b2), (a2,b2).  Excludes (a2,b1)
+    # and (a3,b3).  Wrong-pushdown variants:
+    #   * push a.x=1 only: rows (a1,b1), (a1,b2) — 2 rows, missing (a2,b2)
+    #   * push b.y=2 only: rows (a1,b2), (a2,b2) — 2 rows, missing (a1,b1)
+    #   * push as AND: rows (a1,b2) — 1 row
+    #   * distribute-OR pushdown (union of both branches pre-join):
+    #     {(a1,b1),(a1,b2)} ∪ {(a1,b2),(a2,b2)} = same 3 rows BUT only
+    #     because a-side dropping a2/a3 still produces (a2,b2) via the
+    #     b-branch — confirms distribute-OR converges to correct answer
+    #     here, which is the underlying OR-distributivity-over-join
+    #     property (correct).
     nodes = pd.DataFrame({
         "id":       ["a1", "a2", "a3", "b1", "b2", "b3"],
         "label__A": [True, True, True, False, False, False],
@@ -3189,7 +3207,10 @@ def test_string_cypher_executes_cross_alias_or_returns_correct_union() -> None:
         "x":        [1.0, 99.0, 99.0, float("nan"), float("nan"), float("nan")],
         "y":        [float("nan"), float("nan"), float("nan"), 99.0, 2.0, 99.0],
     })
-    edges = pd.DataFrame({"s": ["a1", "a2", "a3"], "d": ["b1", "b2", "b3"]})
+    edges = pd.DataFrame({
+        "s": ["a1", "a1", "a2", "a2", "a3"],
+        "d": ["b1", "b2", "b1", "b2", "b3"],
+    })
     graph = _mk_graph(nodes, edges)
 
     result = graph.gfql(
@@ -3200,7 +3221,7 @@ def test_string_cypher_executes_cross_alias_or_returns_correct_union() -> None:
         (row["a_id"], row["b_id"])
         for row in result._nodes.to_dict(orient="records")
     )
-    assert rows == [("a1", "b1"), ("a2", "b2")]
+    assert rows == [("a1", "b1"), ("a1", "b2"), ("a2", "b2")]
 
 
 @pytest.mark.parametrize("where_clause", [
@@ -3223,7 +3244,11 @@ def test_string_cypher_rejects_optional_match_seed_only_projection(where_clause:
         pd.DataFrame({"s": ["a1"], "d": ["b1"]}),
     )
 
-    with pytest.raises(GFQLValidationError, match="OPTIONAL MATCH"):
+    # Pin the specific substring of the seed-only-projection validator
+    # so the test cannot accidentally pass on a different OPTIONAL-MATCH
+    # error site (the lowering layer has 6+ distinct error messages
+    # mentioning "OPTIONAL MATCH" — they're not interchangeable).
+    with pytest.raises(GFQLValidationError, match="seed alias are not yet supported"):
         graph.gfql(
             f"MATCH (a:A) OPTIONAL MATCH (a)-->(b:B) {where_clause} "
             "RETURN a.id AS a_id, b.id AS b_id"
@@ -3247,7 +3272,11 @@ def test_string_cypher_rejects_mixed_type_or_via_ast_evaluator_gate() -> None:
         pd.DataFrame({"s": [], "d": []}),
     )
 
-    with pytest.raises(GFQLTypeError, match="unsupported row expression"):
+    # Pin the error code (E303 = invalid-node-reference) rather than
+    # the inner ValueError substring — the substring "unsupported row
+    # expression" appears at 30+ emit sites in the row pipeline; the
+    # E303 wrapper is the actual stable contract this test locks.
+    with pytest.raises(GFQLTypeError, match="invalid-node-reference"):
         graph.gfql("MATCH (n:N) WHERE n.var > 'te' OR n.var > 0 RETURN n.id AS id")
 
 
