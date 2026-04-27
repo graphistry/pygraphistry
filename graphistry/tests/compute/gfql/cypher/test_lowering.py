@@ -3174,6 +3174,93 @@ def test_string_cypher_executes_disjunction_returns_correct_count_with_more_rows
     assert all("p1: 1" in r or "p2: 2" in r for r in rendered)
 
 
+# Compositional row-boolean shapes that Earley admits (LALR rejected).
+# Locked behavior — see #1219 for the broader unverified-cases ledger.
+
+
+def test_string_cypher_executes_cross_alias_or_returns_correct_union() -> None:
+    # Cross-alias OR: each branch references a different alias.  Locks
+    # that pushdown does not split the OR into separate conjuncts pushed
+    # past the join — the row-level filter runs against the joined rows.
+    nodes = pd.DataFrame({
+        "id":       ["a1", "a2", "a3", "b1", "b2", "b3"],
+        "label__A": [True, True, True, False, False, False],
+        "label__B": [False, False, False, True, True, True],
+        "x":        [1.0, 99.0, 99.0, float("nan"), float("nan"), float("nan")],
+        "y":        [float("nan"), float("nan"), float("nan"), 99.0, 2.0, 99.0],
+    })
+    edges = pd.DataFrame({"s": ["a1", "a2", "a3"], "d": ["b1", "b2", "b3"]})
+    graph = _mk_graph(nodes, edges)
+
+    result = graph.gfql(
+        "MATCH (a:A)-->(b:B) WHERE a.x = 1 OR b.y = 2 RETURN a.id AS a_id, b.id AS b_id"
+    )
+
+    rows = sorted(
+        (row["a_id"], row["b_id"])
+        for row in result._nodes.to_dict(orient="records")
+    )
+    assert rows == [("a1", "b1"), ("a2", "b2")]
+
+
+def test_string_cypher_rejects_optional_match_or_with_existing_validator() -> None:
+    # OPTIONAL MATCH with WHERE OR is rejected by the existing OPTIONAL
+    # MATCH projection validator before WHERE evaluation.  Locks that
+    # the gate fires on this shape (not silent wrong rows) regardless
+    # of the OR.
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id":       ["a1", "a2", "b1"],
+            "label__A": [True, True, False],
+            "label__B": [False, False, True],
+            "x":        [float("nan"), float("nan"), 1.0],
+        }),
+        pd.DataFrame({"s": ["a1"], "d": ["b1"]}),
+    )
+
+    with pytest.raises(GFQLValidationError, match="OPTIONAL MATCH"):
+        graph.gfql(
+            "MATCH (a:A) OPTIONAL MATCH (a)-->(b:B) WHERE b.x = 1 OR b IS NULL "
+            "RETURN a.id AS a_id, b.id AS b_id"
+        )
+
+
+def test_string_cypher_rejects_mixed_type_or_via_ast_evaluator_gate() -> None:
+    # Single-alias OR with type-mismatched branches against a mixed-type
+    # Series goes through the row-where AST evaluator, which emits an
+    # explicit GFQLTypeError rather than silently propagating pandas's
+    # raw TypeError.  Locks that the gate is the user-visible failure
+    # mode (not a silent wrong-rows answer).
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3"],
+            "label__N": [True, True, True],
+            "var":      ["text", 0, 5],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    with pytest.raises((GFQLTypeError, TypeError)):
+        graph.gfql("MATCH (n:N) WHERE n.var > 'te' OR n.var > 0 RETURN n.id AS id")
+
+
+def test_string_cypher_executes_homogeneous_or_returns_correct_union() -> None:
+    # Sanity check: simple homogeneous-type OR continues to work post-#1217.
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3"],
+            "label__N": [True, True, True],
+            "var":      [1, 5, 10],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n:N) WHERE n.var > 8 OR n.var < 3 RETURN n.id AS id")
+
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["n1", "n3"]
+
+
 def test_string_cypher_supports_list_slice_precedence_with_concat() -> None:
     graph = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 
