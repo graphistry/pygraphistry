@@ -37,6 +37,7 @@ jobs:
       - uses: actions/checkout@v4
         with:  # fetch tag for versioneer
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Verify trusted release trigger
         run: |
