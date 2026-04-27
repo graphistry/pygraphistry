@@ -200,7 +200,10 @@ class RowPipelineMixin:
             left_null_mask = self._gfql_broadcast_scalar(table_df, False).astype(bool)
         if isinstance(right, float) and math.isnan(right):
             right_null_mask = self._gfql_broadcast_scalar(table_df, False).astype(bool)
-        out = cmp_fn(left, right)
+        try:
+            out = cmp_fn(left, right)
+        except TypeError:
+            out = self._gfql_safe_mixed_comparison_op(table_df, left, right, cmp_fn)
         if hasattr(out, "where"):
             out = out.where(~(left_null_mask | right_null_mask), pd.NA)
         else:
@@ -210,6 +213,48 @@ class RowPipelineMixin:
             elif bool(null_mask):
                 out = None
         return out
+
+    def _gfql_safe_mixed_comparison_op(
+        self,
+        table_df: Any,
+        left: Any,
+        right: Any,
+        cmp_fn: Callable[[Any, Any], Any],
+    ) -> Any:
+        def _is_cudf_series(value: Any) -> bool:
+            return hasattr(value, "__class__") and value.__class__.__module__.startswith("cudf")
+
+        if _is_cudf_series(left) or _is_cudf_series(right):
+            # cuDF raises dtype-level TypeError for mixed-type comparisons;
+            # preserve Cypher filtering semantics without host round-trips.
+            return self._gfql_broadcast_scalar(table_df, False)
+
+        left_series = left if hasattr(left, "astype") else self._gfql_broadcast_scalar(table_df, left)
+        right_series = right if hasattr(right, "astype") else self._gfql_broadcast_scalar(table_df, right)
+        left_values = self._gfql_series_to_pylist(left_series)
+        right_values = self._gfql_series_to_pylist(right_series)
+        out_values: List[Any] = []
+        for left_value, right_value in zip(left_values, right_values):
+            if is_null_scalar(left_value) or is_null_scalar(right_value):
+                out_values.append(pd.NA)
+                continue
+            try:
+                comparison = cmp_fn(left_value, right_value)
+            except TypeError:
+                out_values.append(False)
+                continue
+            if is_null_scalar(comparison):
+                out_values.append(pd.NA)
+            else:
+                out_values.append(bool(comparison))
+        if isinstance(left_series, pd.Series):
+            return pd.Series(out_values, index=left_series.index, dtype="object")
+        if isinstance(right_series, pd.Series):
+            return pd.Series(out_values, index=right_series.index, dtype="object")
+        fallback = self._gfql_broadcast_scalar(table_df, False)
+        if isinstance(fallback, pd.Series):
+            return pd.Series(out_values, index=fallback.index, dtype="object")
+        return fallback
 
     def _gfql_eval_temporal_comparison_op(
         self,
