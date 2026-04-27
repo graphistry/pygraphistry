@@ -91,12 +91,17 @@ jobs:
         # (avoids picking up unrelated commits the base ref has gained meanwhile).
         # If either resolution fails (e.g., force-pushed branch with orphaned
         # event.before, or rebased PR base ref), fall back to the conservative
-        # "couldn't compute, run everything" stance.
-        if ! merge_base=$(git merge-base "$base" "$head" 2>/dev/null); then
+        # "couldn't compute, run everything" stance and surface a GHA warning
+        # so operators can see why every job ran. Note: stderr is left
+        # un-redirected so the underlying git error (e.g., "Not a valid object
+        # name") shows up in the runner log alongside the warning.
+        if ! merge_base=$(git merge-base "$base" "$head"); then
+          echo "::warning::path-filter: git merge-base failed for $base..$head; running all gated jobs conservatively"
           emit_all true
           exit 0
         fi
-        if ! changed=$(git diff --name-only "$merge_base" "$head" 2>/dev/null); then
+        if ! changed=$(git diff --name-only "$merge_base" "$head"); then
+          echo "::warning::path-filter: git diff failed for $merge_base..$head; running all gated jobs conservatively"
           emit_all true
           exit 0
         fi
@@ -104,9 +109,14 @@ jobs:
         emit() {
           local key="$1"
           local pattern="$2"
-          # Use here-string instead of `printf | grep` to avoid SIGPIPE on huge
-          # diffs: with `set -o pipefail`, a SIGPIPE'd printf would flip the
-          # pipeline to non-zero and silently invert the match.
+          # Use a here-string instead of `printf "%s\n" "$changed" | grep -qE`.
+          # Why: with `set -o pipefail`, if `grep -q` matches early on a $changed
+          # larger than the pipe buffer (~64 KB; thousands of files), `grep` exits
+          # before `printf` finishes flushing. `printf` then receives SIGPIPE and
+          # exits 141. `pipefail` propagates that 141 to the pipeline, the `if`
+          # sees non-zero, and we'd silently emit `false` for a key that should
+          # be `true`. A here-string is a pure redirection (not a pipeline), so
+          # the data is fully buffered before grep reads, eliminating the race.
           if [[ -n "$changed" ]] && grep -qE "$pattern" <<< "$changed"; then
             echo "${key}=true"  >> "$GITHUB_OUTPUT"
           else
