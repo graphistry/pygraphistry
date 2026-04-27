@@ -6399,16 +6399,15 @@ def lower_match_query(
             if isinstance(predicate.left, LabelRef):
                 _apply_label_where(alias_targets, left=predicate.left)
                 continue
-            if binding_row_aliases:
-                row_predicate_expr = _row_where_predicate_text(predicate)
-                if row_predicate_expr is not None:
-                    row_where_predicates.append(row_predicate_expr)
-                    continue
             if isinstance(predicate.right, PropertyRef):
-                assert isinstance(predicate.left, PropertyRef)
+                if binding_row_aliases:
+                    row_predicate_expr = _row_where_predicate_text(predicate)
+                    if row_predicate_expr is not None:
+                        row_where_predicates.append(row_predicate_expr)
+                        continue
                 where_out.append(
                     compare(
-                        col(predicate.left.alias, predicate.left.property),
+                        col(cast(PropertyRef, predicate.left).alias, cast(PropertyRef, predicate.left).property),
                         cast(Any, predicate.op),
                         col(predicate.right.alias, predicate.right.property),
                     )
