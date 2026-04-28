@@ -3328,10 +3328,10 @@ def test_string_cypher_executes_nullable_not_or_uses_three_valued_logic() -> Non
 
 
 def test_string_cypher_executes_nary_or_returns_full_union() -> None:
-    # `WHERE n.x = 1 OR n.x = 2 OR n.x = 3` — three OR branches.  Locks
-    # that the binder's left-associative parse `or(or(=1, =2), =3)` doesn't
-    # accidentally degenerate (e.g. silently treating the rightmost branch
-    # as redundant under some associativity bug).
+    # `WHERE n.x = 1 OR n.x = 2 OR n.x = 3` — three OR branches against a
+    # 5-row fixture where each value matches a unique row.  Locks that the
+    # binder's parse evaluates ALL branches; silently dropping any one
+    # branch yields a 2-row result and fails the assertion.
     graph = _mk_graph(
         pd.DataFrame({
             "id":       ["n1", "n2", "n3", "n4", "n5"],
@@ -3347,18 +3347,32 @@ def test_string_cypher_executes_nary_or_returns_full_union() -> None:
     assert ids == ["n1", "n2", "n3"]
 
 
-@pytest.mark.parametrize("query,expected", [
-    # NOT(A OR B) ≡ NOT(A) AND NOT(B)
-    ("MATCH (n:N) WHERE NOT (n.x = 1 OR n.y = 2) RETURN n.id AS id", ["n4"]),
-    ("MATCH (n:N) WHERE NOT n.x = 1 AND NOT n.y = 2 RETURN n.id AS id", ["n4"]),
-    # NOT(A AND B) ≡ NOT(A) OR NOT(B)
-    ("MATCH (n:N) WHERE NOT (n.x = 1 AND n.y = 2) RETURN n.id AS id", ["n2", "n3", "n4"]),
-    ("MATCH (n:N) WHERE NOT n.x = 1 OR NOT n.y = 2 RETURN n.id AS id", ["n2", "n3", "n4"]),
-])
-def test_string_cypher_executes_de_morgan_compositions(query: str, expected: list) -> None:
-    # Each NOT-of-compound and its De-Morganed equivalent must return the
-    # same row set.  4-row fixture covers all (x∈{1,2}, y∈{2,3}) combos.
+def test_string_cypher_executes_nary_or_with_duplicate_branch_locks_specific_associativity() -> None:
+    # Companion to test_string_cypher_executes_nary_or_returns_full_union:
+    # `WHERE n.x = 1 OR n.x = 1 OR n.x = 3` has a duplicated leftmost
+    # branch.  If the binder silently dropped the rightmost branch under
+    # an associativity bug, the result would be `[n1]` only.  If it
+    # silently dropped one of the duplicates, the result is still `[n1, n3]`
+    # (correct) — so this isolates the rightmost-drop case from the
+    # any-branch-drop case the previous test covers.
     graph = _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3"],
+            "label__N": [True, True, True],
+            "x":        [1, 2, 3],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n:N) WHERE n.x = 1 OR n.x = 1 OR n.x = 3 RETURN n.id AS id")
+
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["n1", "n3"]
+
+
+def _de_morgan_fixture_graph() -> _CypherTestGraph:
+    # 4-row fixture covering all (x∈{1,2}, y∈{2,3}) combos.
+    return _mk_graph(
         pd.DataFrame({
             "id":       ["n1", "n2", "n3", "n4"],
             "label__N": [True, True, True, True],
@@ -3368,10 +3382,53 @@ def test_string_cypher_executes_de_morgan_compositions(query: str, expected: lis
         pd.DataFrame({"s": [], "d": []}),
     )
 
-    result = graph.gfql(query)
 
-    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
-    assert ids == expected
+def _ids_for(graph: _CypherTestGraph, query: str) -> List[str]:
+    result = graph.gfql(query)
+    return sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+
+
+@pytest.mark.parametrize("compound,distributed,expected", [
+    # NOT(A OR B) ≡ NOT(A) AND NOT(B) — both forms must return {n4}
+    (
+        "MATCH (n:N) WHERE NOT (n.x = 1 OR n.y = 2) RETURN n.id AS id",
+        "MATCH (n:N) WHERE NOT n.x = 1 AND NOT n.y = 2 RETURN n.id AS id",
+        ["n4"],
+    ),
+    # NOT(A AND B) ≡ NOT(A) OR NOT(B) — both forms must return {n2,n3,n4}
+    (
+        "MATCH (n:N) WHERE NOT (n.x = 1 AND n.y = 2) RETURN n.id AS id",
+        "MATCH (n:N) WHERE NOT n.x = 1 OR NOT n.y = 2 RETURN n.id AS id",
+        ["n2", "n3", "n4"],
+    ),
+])
+def test_string_cypher_executes_de_morgan_compositions(
+    compound: str, distributed: str, expected: List[str],
+) -> None:
+    # Each NOT-of-compound and its De-Morganed equivalent must return the
+    # same row set AND that row set must equal the hardcoded expected
+    # (catches the case where both forms drift in lockstep but to a
+    # different-from-expected answer).
+    graph = _de_morgan_fixture_graph()
+
+    compound_ids = _ids_for(graph, compound)
+    distributed_ids = _ids_for(graph, distributed)
+
+    assert compound_ids == expected
+    assert distributed_ids == expected
+    assert compound_ids == distributed_ids  # De Morgan equivalence
+
+
+def test_string_cypher_executes_double_negation_returns_original() -> None:
+    # NOT(NOT A) ≡ A.  Locks compound-NOT lowering doesn't drop one
+    # negation.  Same fixture as De Morgan tests for ease of comparison.
+    graph = _de_morgan_fixture_graph()
+
+    plain_ids = _ids_for(graph, "MATCH (n:N) WHERE n.x = 1 RETURN n.id AS id")
+    double_neg_ids = _ids_for(graph, "MATCH (n:N) WHERE NOT NOT n.x = 1 RETURN n.id AS id")
+
+    assert plain_ids == ["n1", "n2"]
+    assert double_neg_ids == plain_ids
 
 
 def test_string_cypher_executes_mixed_string_numeric_and_inside_or() -> None:
