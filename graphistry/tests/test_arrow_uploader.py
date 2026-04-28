@@ -476,7 +476,8 @@ class TestArrowUploader_Comms(unittest.TestCase):
     def test_sso_get_token_missing_active_organization_no_caller_org(self, mock_get):
         # Site-wide SSO: server omits active_organization, caller passed no
         # org_name. Expect graceful fallback: no crash, org stays unset, no
-        # _switch_org call.
+        # _switch_org call. Also pin the observability contract: an INFO log
+        # from this module fires on the fallback path.
 
         mock_resp = self._mock_response(
             json_data={
@@ -495,17 +496,24 @@ class TestArrowUploader_Comms(unittest.TestCase):
         au = ArrowUploader(client_session=client.session)
 
         with mock.patch.object(ArrowUploader, "_switch_org") as mock_switch:
-            au.sso_get_token(state='ignored-valid')
+            with self.assertLogs('graphistry.arrow_uploader', level='INFO') as log_ctx:
+                au.sso_get_token(state='ignored-valid')
 
         assert au.token == '123'
         assert au.org_name is None
         mock_switch.assert_not_called()
+        assert any(
+            'active_organization' in record.getMessage()
+            for record in log_ctx.records
+        ), "Expected an INFO log mentioning active_organization on the fallback path"
 
     @mock.patch('requests.get')
     def test_sso_get_token_missing_active_organization_preserves_caller_org(self, mock_get):
         # Site-wide SSO: server omits active_organization, caller passed
         # org_name to register(...). Expect the caller-supplied value is
-        # preserved and _switch_org is not called.
+        # preserved and _switch_org is not called. Also pin that the log line
+        # carries the caller's org_name (robust to prose changes in the
+        # message format — the org_name appears via a %s arg).
 
         mock_resp = self._mock_response(
             json_data={
@@ -520,11 +528,16 @@ class TestArrowUploader_Comms(unittest.TestCase):
         au = ArrowUploader(org_name="caller-org")
 
         with mock.patch.object(ArrowUploader, "_switch_org") as mock_switch:
-            au.sso_get_token(state='ignored-valid')
+            with self.assertLogs('graphistry.arrow_uploader', level='INFO') as log_ctx:
+                au.sso_get_token(state='ignored-valid')
 
         assert au.token == '123'
         assert au.org_name == "caller-org"
         mock_switch.assert_not_called()
+        assert any(
+            'caller-org' in record.getMessage()
+            for record in log_ctx.records
+        ), "Expected the fallback INFO log to surface the caller-supplied org_name"
 
     @mock.patch('requests.get')
     def test_sso_get_token_null_active_organization_falls_back(self, mock_get):
@@ -538,6 +551,60 @@ class TestArrowUploader_Comms(unittest.TestCase):
                 'data': {
                     'token': '123',
                     'active_organization': None,
+                }
+        })
+        mock_get.return_value = mock_resp
+
+        au = ArrowUploader(org_name="caller-org")
+
+        with mock.patch.object(ArrowUploader, "_switch_org") as mock_switch:
+            au.sso_get_token(state='ignored-valid')
+
+        assert au.token == '123'
+        assert au.org_name == "caller-org"
+        mock_switch.assert_not_called()
+
+    @mock.patch('requests.get')
+    def test_sso_get_token_empty_slug_active_organization_falls_back(self, mock_get):
+        # Server returns active_organization with an empty slug. Falsy slug
+        # must NOT corrupt self.org_name (caller's value preserved) and must
+        # NOT trigger _switch_org. Pins the `if slug:` falsy-guard contract
+        # against future refactors that flip it to `if slug is not None:`.
+
+        mock_resp = self._mock_response(
+            json_data={
+                'status': 'OK',
+                'message': 'State is valid',
+                'data': {
+                    'token': '123',
+                    'active_organization': {'slug': ''},
+                }
+        })
+        mock_get.return_value = mock_resp
+
+        au = ArrowUploader(org_name="caller-org")
+
+        with mock.patch.object(ArrowUploader, "_switch_org") as mock_switch:
+            au.sso_get_token(state='ignored-valid')
+
+        assert au.token == '123'
+        assert au.org_name == "caller-org"
+        mock_switch.assert_not_called()
+
+    @mock.patch('requests.get')
+    def test_sso_get_token_non_dict_active_organization_falls_back(self, mock_get):
+        # Defensive shape guard: if the server returns a non-dict value for
+        # active_organization (string, list, scalar — never expected, but
+        # defends against shape drift), the isinstance check must route to
+        # the fallback path instead of crashing on .get('slug').
+
+        mock_resp = self._mock_response(
+            json_data={
+                'status': 'OK',
+                'message': 'State is valid',
+                'data': {
+                    'token': '123',
+                    'active_organization': 'unexpected-string-shape',
                 }
         })
         mock_get.return_value = mock_resp
