@@ -56,6 +56,15 @@ def _mk_cudf_graph(nodes_df: pd.DataFrame, edges_df: pd.DataFrame) -> _CypherTes
     )
 
 
+def _require_cudf_runtime() -> Any:
+    cudf = pytest.importorskip("cudf")
+    try:
+        _ = cudf.Series([1, 2, 3])
+    except Exception as exc:  # pragma: no cover - environment-dependent
+        pytest.skip(f"cudf installed but runtime is unavailable: {exc}")
+    return cudf
+
+
 def _mk_simple_path_graph() -> _CypherTestGraph:
     return _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c"]}),
@@ -3255,14 +3264,9 @@ def test_string_cypher_rejects_optional_match_seed_only_projection(where_clause:
         )
 
 
-def test_string_cypher_rejects_mixed_type_or_via_ast_evaluator_gate() -> None:
-    # Single-alias OR with type-mismatched branches against a mixed-type
-    # Series.  The call executor wraps the underlying pandas TypeError
-    # as GFQLTypeError(E303, "unsupported row expression") rather than
-    # letting it surface as a raw TypeError.  This is the generic
-    # unsupported-expression wrapper (not a type-specific gate); pinning
-    # the substring catches future regressions that drop the wrapper
-    # and would expose the raw pandas error to the user.
+def test_string_cypher_executes_mixed_type_or_with_null_safe_semantics() -> None:
+    # Mixed-type OR now evaluates row-wise with null-safe comparison
+    # semantics: incomparable rows are non-matching instead of raising.
     graph = _mk_graph(
         pd.DataFrame({
             "id":       ["n1", "n2", "n3"],
@@ -3272,12 +3276,9 @@ def test_string_cypher_rejects_mixed_type_or_via_ast_evaluator_gate() -> None:
         pd.DataFrame({"s": [], "d": []}),
     )
 
-    # Pin the error code (E303 = invalid-node-reference) rather than
-    # the inner ValueError substring — the substring "unsupported row
-    # expression" appears at 30+ emit sites in the row pipeline; the
-    # E303 wrapper is the actual stable contract this test locks.
-    with pytest.raises(GFQLTypeError, match="invalid-node-reference"):
-        graph.gfql("MATCH (n:N) WHERE n.var > 'te' OR n.var > 0 RETURN n.id AS id")
+    result = graph.gfql("MATCH (n:N) WHERE n.var > 'te' OR n.var > 0 RETURN n.id AS id")
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["n1", "n3"]
 
 
 def test_string_cypher_executes_homogeneous_or_returns_correct_union() -> None:
@@ -3295,6 +3296,172 @@ def test_string_cypher_executes_homogeneous_or_returns_correct_union() -> None:
 
     ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
     assert ids == ["n1", "n3"]
+
+
+@pytest.mark.parametrize(
+    "query,expected_rows",
+    [
+        # TCK-like disjunction baseline (match-where1-10 shape)
+        (
+            "MATCH (n) WHERE n.p1 = 12 OR n.p2 = 13 RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}],
+        ),
+        # Nested boolean mix: OR group narrowed by AND
+        (
+            "MATCH (n) WHERE (n.p1 = 12 OR n.p2 = 13) AND n.id = 'a' RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}],
+        ),
+        # NOT over disjunction; current pandas-null semantics produce empty set
+        (
+            "MATCH (n) WHERE NOT (n.p1 = 12 OR n.p2 = 13) RETURN n.id AS id ORDER BY id",
+            [],
+        ),
+    ],
+    ids=[
+        "tck-match-where1-10-disjunction",
+        "audit-or-then-and-narrowing",
+        "audit-negated-disjunction",
+    ],
+)
+def test_issue_1219_row_boolean_audit_base_match_matrix(query: str, expected_rows: List[Dict[str, Any]]) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "p1": [12.0, float("nan"), float("nan")],
+                "p2": [float("nan"), 13.0, float("nan")],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected_rows
+
+
+def _normalize_nullable_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    normalized: List[Dict[str, Any]] = []
+    for row in rows:
+        out: Dict[str, Any] = {}
+        for key, value in row.items():
+            if value is None:
+                out[key] = None
+            else:
+                # Normalize all scalar null sentinels (np.nan/pd.NA/cudf nulls)
+                # so assertions remain stable across dataframe backends.
+                out[key] = None if pd.isna(value) else value
+        normalized.append(out)
+    return normalized
+
+
+@pytest.mark.parametrize(
+    "query,expected_rows",
+    [
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "WHERE z:Z "
+            "RETURN y.id AS yid, z.id AS zid "
+            "ORDER BY yid",
+            [{"yid": "y1", "zid": "z1"}, {"yid": "y2", "zid": None}],
+        ),
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "WHERE z.id IS NULL "
+            "RETURN y.id AS yid, z.id AS zid "
+            "ORDER BY yid",
+            [{"yid": "y1", "zid": None}, {"yid": "y2", "zid": None}],
+        ),
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "WHERE z.id IS NOT NULL "
+            "RETURN y.id AS yid, z.id AS zid "
+            "ORDER BY yid",
+            [{"yid": "y1", "zid": "z1"}, {"yid": "y2", "zid": None}],
+        ),
+    ],
+    ids=[
+        "tck-match-where6-structured-label-on-optional",
+        "audit-optional-is-null",
+        "audit-optional-is-not-null",
+    ],
+)
+def test_issue_1219_row_boolean_audit_connected_optional_structured_matrix(
+    query: str,
+    expected_rows: List[Dict[str, Any]],
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["s1", "y1", "z1", "s2", "y2"],
+                "label__Z": [False, False, True, False, False],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["s1", "y1", "s2"],
+                "d": ["y1", "z1", "y2"],
+                "type": ["R1", "T", "R1"],
+            }
+        ),
+    )
+
+    rows = graph.gfql(query)._nodes.to_dict(orient="records")
+    assert _normalize_nullable_rows(rows) == expected_rows
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "WHERE z:Z OR z.id IS NULL "
+            "RETURN y.id AS yid, z.id AS zid"
+        ),
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "WHERE NOT z:Z "
+            "RETURN y.id AS yid, z.id AS zid"
+        ),
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "WHERE z:Z XOR z.id IS NULL "
+            "RETURN y.id AS yid, z.id AS zid"
+        ),
+    ],
+    ids=[
+        "audit-optional-or-row-expr-currently-unsupported",
+        "audit-optional-not-row-expr-currently-unsupported",
+        "audit-optional-xor-row-expr-currently-unsupported",
+    ],
+)
+def test_issue_1219_row_boolean_audit_connected_optional_row_expr_gap(query: str) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["s1", "y1", "z1", "s2", "y2"],
+                "label__Z": [False, False, True, False, False],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["s1", "y1", "s2"],
+                "d": ["y1", "z1", "y2"],
+                "type": ["R1", "T", "R1"],
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(query)
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert "connected OPTIONAL MATCH" in str(exc_info.value)
 
 
 def test_string_cypher_supports_list_slice_precedence_with_concat() -> None:
@@ -9072,39 +9239,300 @@ def test_gfql_executes_with_where_or_short_circuit_over_mixed_type_compare() -> 
     ]
 
 
-def test_gfql_executes_with_where_null_filter_over_mixed_type_compare_on_cudf() -> None:
-    pytest.importorskip("cudf")
-
+def test_gfql_executes_with_where_null_filter_over_mixed_type_compare_on_pandas() -> None:
     nodes = pd.DataFrame(
         {
-            "id": ["root", "child1", "child2"],
-            "label__Root": [True, False, False],
-            "label__TextNode": [False, True, False],
-            "label__IntNode": [False, False, True],
-            "name": ["x", None, None],
-            "var": [None, "text", 0],
+            "id": [
+                "root",
+                "child_text",
+                "child_equal",
+                "child_less",
+                "child_int",
+                "child_float",
+                "child_true",
+                "child_false",
+                "child_none",
+                "child_pdna",
+                "child_nan",
+                "child_nat",
+                "child_zz",
+            ],
+            "label__Root": [True] + [False] * 12,
+            "label__Node": [False] + [True] * 12,
+            "name": ["x"] + [None] * 12,
+            "var": [
+                None,
+                "text",
+                "te",
+                "aa",
+                0,
+                1.5,
+                True,
+                False,
+                None,
+                pd.NA,
+                float("nan"),
+                pd.NaT,
+                "zz",
+            ],
         }
     )
     edges = pd.DataFrame(
         {
-            "s": ["root", "root"],
-            "d": ["child1", "child2"],
-            "type": ["T", "T"],
+            "s": ["root"] * 12,
+            "d": [
+                "child_text",
+                "child_equal",
+                "child_less",
+                "child_int",
+                "child_float",
+                "child_true",
+                "child_false",
+                "child_none",
+                "child_pdna",
+                "child_nan",
+                "child_nat",
+                "child_zz",
+            ],
+            "type": ["T"] * 12,
         }
     )
     g = _mk_graph(nodes, edges)
 
     result = g.gfql(
-        "MATCH (:Root {name: 'x'})-->(i:TextNode)\n"
+        "MATCH (:Root {name: 'x'})-->(i)\n"
         "WITH i\n"
         "WHERE i.var > 'te'\n"
-        "RETURN i",
+        "RETURN i.id AS id\n"
+        "ORDER BY id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": "child_text"},
+        {"id": "child_zz"},
+    ]
+
+
+def test_gfql_executes_with_where_null_filter_over_mixed_type_compare_on_cudf() -> None:
+    _require_cudf_runtime()
+
+    nodes = pd.DataFrame(
+        {
+            "id": [
+                "root",
+                "child_text",
+                "child_equal",
+                "child_less",
+                "child_int",
+                "child_float",
+                "child_true",
+                "child_false",
+                "child_none",
+                "child_pdna",
+                "child_nan",
+                "child_nat",
+                "child_zz",
+            ],
+            "label__Root": [True] + [False] * 12,
+            "label__Node": [False] + [True] * 12,
+            "name": ["x"] + [None] * 12,
+            "var": [
+                None,
+                "text",
+                "te",
+                "aa",
+                0,
+                1.5,
+                True,
+                False,
+                None,
+                pd.NA,
+                float("nan"),
+                pd.NaT,
+                "zz",
+            ],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["root"] * 12,
+            "d": [
+                "child_text",
+                "child_equal",
+                "child_less",
+                "child_int",
+                "child_float",
+                "child_true",
+                "child_false",
+                "child_none",
+                "child_pdna",
+                "child_nan",
+                "child_nat",
+                "child_zz",
+            ],
+            "type": ["T"] * 12,
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (:Root {name: 'x'})-->(i)\n"
+        "WITH i\n"
+        "WHERE i.var > 'te'\n"
+        "RETURN i.id AS id\n"
+        "ORDER BY id",
         engine="cudf",
     )
 
     assert result._nodes.to_pandas().to_dict(orient="records") == [
-        {"i": "(:TextNode {var: 'text'})"}
+        {"id": "child_text"},
+        {"id": "child_zz"},
     ]
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+def test_gfql_executes_with_where_is_null_over_mixed_null_sentinels_on_engines(
+    engine: str | None,
+) -> None:
+    if engine == "cudf":
+        _require_cudf_runtime()
+
+    nodes = pd.DataFrame(
+        {
+            "id": [
+                "root",
+                "child_text",
+                "child_int",
+                "child_float",
+                "child_none",
+                "child_pdna",
+                "child_nan",
+                "child_nat",
+            ],
+            "label__Root": [True] + [False] * 7,
+            "label__Node": [False] + [True] * 7,
+            "name": ["x"] + [None] * 7,
+            "var": [None, "text", 1, 1.5, None, pd.NA, float("nan"), pd.NaT],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["root"] * 7,
+            "d": ["child_text", "child_int", "child_float", "child_none", "child_pdna", "child_nan", "child_nat"],
+            "type": ["T"] * 7,
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (:Root {name: 'x'})-->(i)\n"
+        "WITH i\n"
+        "WHERE i.var IS NULL\n"
+        "RETURN i.id AS id\n"
+        "ORDER BY id",
+        **({"engine": engine} if engine is not None else {}),
+    )
+    rows = result._nodes.to_pandas().to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
+    assert rows == [
+        {"id": "child_nan"},
+        {"id": "child_nat"},
+        {"id": "child_none"},
+        {"id": "child_pdna"},
+    ]
+
+
+@pytest.mark.parametrize(
+    "operator,expected_ids",
+    (
+        (">", ["child1"]),
+        (">=", ["child1"]),
+        ("<", ["child3"]),
+        ("<=", ["child3"]),
+    ),
+)
+def test_gfql_executes_with_where_mixed_type_compare_operator_matrix_on_pandas(
+    operator: str,
+    expected_ids: list[str],
+) -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["root", "child1", "child2", "child3", "child4"],
+            "label__Root": [True, False, False, False, False],
+            "label__TextNode": [False, True, False, True, True],
+            "label__IntNode": [False, False, True, False, False],
+            "name": ["x", None, None, None, None],
+            "var": [None, "text", 0, "aa", None],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["root", "root", "root", "root"],
+            "d": ["child1", "child2", "child3", "child4"],
+            "type": ["T", "T", "T", "T"],
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (:Root {name: 'x'})-->(i)\n"
+        "WITH i\n"
+        f"WHERE i.var {operator} 'te'\n"
+        "RETURN i.id AS id\n"
+        "ORDER BY id"
+    )
+    assert result._nodes.to_dict(orient="records") == [{"id": node_id} for node_id in expected_ids]
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+@pytest.mark.parametrize(
+    "where_expr,expected_ids",
+    (
+        ("i.n > '1'", []),
+        ("i.n <= '1'", []),
+        ("i.s > 1", []),
+        ("i.s <= 1", []),
+        ("i.n > 1", ["child1"]),
+        ("i.s > 'te'", ["child1"]),
+    ),
+)
+def test_gfql_executes_with_where_cross_type_comparison_conformance_on_engines(
+    engine: str | None,
+    where_expr: str,
+    expected_ids: list[str],
+) -> None:
+    if engine == "cudf":
+        _require_cudf_runtime()
+
+    nodes = pd.DataFrame(
+        {
+            "id": ["root", "child1", "child2", "child3"],
+            "label__Root": [True, False, False, False],
+            "label__Node": [False, True, True, True],
+            "name": ["x", None, None, None],
+            "n": [None, 2, 0, None],
+            "s": [None, "text", "aa", None],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["root", "root", "root"],
+            "d": ["child1", "child2", "child3"],
+            "type": ["T", "T", "T"],
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (:Root {name: 'x'})-->(i)\n"
+        "WITH i\n"
+        f"WHERE {where_expr}\n"
+        "RETURN i.id AS id\n"
+        "ORDER BY id",
+        **({"engine": engine} if engine is not None else {}),
+    )
+
+    rows = result._nodes.to_pandas().to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
+    assert rows == [{"id": node_id} for node_id in expected_ids]
 
 
 def test_gfql_executes_optional_match_count_distinct_on_empty_graph() -> None:
