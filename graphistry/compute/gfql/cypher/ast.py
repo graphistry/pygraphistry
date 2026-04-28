@@ -145,11 +145,67 @@ class WherePatternPredicate:
 WhereTerm = Union[WherePredicate, WherePatternPredicate]
 
 
+BooleanOp = Literal["and", "or", "xor", "not", "atom", "pattern"]
+
+
+@dataclass(frozen=True)
+class BooleanExpr:
+    """Structural representation of a parsed boolean expression tree.
+
+    Mirrors Lark's ``and_op`` / ``or_op`` / ``xor_op`` / ``not_op`` grammar
+    rules so downstream consumers (binder serialization, predicate
+    pushdown) can walk structure instead of re-parsing expression text.
+
+    Leaf nodes:
+    - ``op == "atom"`` — atomic predicate; carries ``atom_text`` (exact
+      source slice) and ``atom_span``.
+    - ``op == "pattern"`` — WHERE pattern predicate (e.g. ``(n)-[:R]->()``);
+      carries ``pattern`` (parsed pattern elements) and ``atom_text`` /
+      ``atom_span`` for source slice.  Used as a leaf inside boolean
+      expressions starting in #1031 slice 1.
+
+    Branch nodes have ``op`` in ``{"and", "or", "xor"}`` with both ``left``
+    and ``right`` set, or ``op == "not"`` with only ``left`` set.  ``span``
+    covers the full subexpression in every case.
+    """
+
+    op: BooleanOp
+    span: SourceSpan
+    left: Optional["BooleanExpr"] = None
+    right: Optional["BooleanExpr"] = None
+    atom_text: Optional[str] = None
+    atom_span: Optional[SourceSpan] = None
+    pattern: Optional[Tuple[PatternElement, ...]] = None
+
+
 @dataclass(frozen=True)
 class WhereClause:
+    """Parsed WHERE clause.
+
+    Field coexistence rules (post-#1213).  Three observable shapes, all
+    populated by the parser; consumers MUST handle all three:
+
+    - **Structured path**: ``predicates`` populated, ``expr_tree is None``.
+      ``predicates`` carries either ``WherePredicate`` entries (pure AND of
+      comparable / has-labels predicates routed via the ``where_predicates``
+      grammar rule, or AND-joined bare label predicates lifted by
+      ``generic_where_clause`` via label narrowing) or a single
+      ``WherePatternPredicate`` (pattern-only WHERE: ``WHERE (n)-[]->(m)``).
+    - **Tree path**: ``predicates == ()``, ``expr_tree`` populated.  Fires
+      when ``generic_where_clause`` cannot lift to structured predicates
+      (OR / XOR / NOT / parenthesized boolean / non-label atoms); consumers
+      walk ``expr_tree`` (boolean structure) and reconstruct surface text
+      via ``boolean_expr_to_text`` when needed.
+    - **Mixed path**: BOTH ``predicates`` (a single ``WherePatternPredicate``)
+      AND ``expr_tree`` populated.  Fires for ``WHERE pattern AND expr`` and
+      ``WHERE expr AND pattern`` (``_mixed_where_clause`` in parser.py).
+      ``expr_tree`` carries a single-atom ``BooleanExpr`` whose ``atom_text``
+      is the expr-side fragment; consumers handle both halves.
+    """
+
     predicates: Tuple[WhereTerm, ...]
     span: SourceSpan
-    expr: Optional[ExpressionText] = None
+    expr_tree: Optional[BooleanExpr] = None
 
 
 @dataclass(frozen=True)

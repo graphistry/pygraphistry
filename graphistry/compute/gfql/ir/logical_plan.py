@@ -2,9 +2,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Literal, Mapping, Optional, Tuple
+from typing import Any, Dict, FrozenSet, Iterator, List, Literal, Mapping, Optional, Tuple
 
 from graphistry.compute.gfql.ir.types import BoundPredicate, LogicalType
+
+
+CHILD_SLOTS: Tuple[str, ...] = ("input", "left", "right", "subquery")
+"""Structural child attribute names for every ``LogicalPlan`` subclass.
+
+Any subclass that carries a nested ``LogicalPlan`` places it under one of
+these attribute names.  Traversal code (verifier, physical planner,
+rewrite passes) iterates this tuple rather than hardcoding the set so a
+new child slot only needs to be added here.
+"""
 
 
 @dataclass(frozen=True)
@@ -20,6 +30,18 @@ class LogicalPlan:
 
     op_id: int = 0
     output_schema: RowSchema = field(default_factory=RowSchema)
+
+
+def iter_children(plan: LogicalPlan) -> Iterator[Tuple[str, LogicalPlan]]:
+    """Yield ``(slot_name, child_plan)`` for each populated child slot.
+
+    ``None`` slots and non-``LogicalPlan`` values are skipped.  The slot
+    order matches :data:`CHILD_SLOTS`.
+    """
+    for slot in CHILD_SLOTS:
+        child = getattr(plan, slot, None)
+        if isinstance(child, LogicalPlan):
+            yield slot, child
 
 
 @dataclass(frozen=True)
@@ -139,21 +161,21 @@ class RowsToGraph(LogicalPlan):
 class Apply(LogicalPlan):
     input: Optional[LogicalPlan] = None
     subquery: Optional[LogicalPlan] = None
-    correlation_vars: frozenset[str] = field(default_factory=frozenset)
+    correlation_vars: FrozenSet[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)
 class SemiApply(LogicalPlan):
     input: Optional[LogicalPlan] = None
     subquery: Optional[LogicalPlan] = None
-    correlation_vars: frozenset[str] = field(default_factory=frozenset)
+    correlation_vars: FrozenSet[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)
 class AntiSemiApply(LogicalPlan):
     input: Optional[LogicalPlan] = None
     subquery: Optional[LogicalPlan] = None
-    correlation_vars: frozenset[str] = field(default_factory=frozenset)
+    correlation_vars: FrozenSet[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)

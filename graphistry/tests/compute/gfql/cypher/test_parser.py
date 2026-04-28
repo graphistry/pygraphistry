@@ -16,9 +16,11 @@ from graphistry.compute.gfql.cypher import (
     PropertyRef,
     RelationshipPattern,
     CypherUnionQuery,
+    WherePredicate,
     WherePatternPredicate,
     parse_cypher,
 )
+from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
 from graphistry.compute.gfql.cypher.ast import GraphBinding, GraphConstructor, UseClause
 
 
@@ -356,6 +358,149 @@ def test_parse_where_clause() -> None:
     assert left1.alias == "b"
     assert left1.property == "score"
     assert pred1.op == ">="
+
+
+def test_parse_where_and_label_predicates_produces_structured_ast() -> None:
+    # AND-joined bare label predicates must land in WhereClause.predicates (not .expr)
+    # because Lark routes them to generic_where_clause via ambiguity resolution.
+    parsed = _parse_query("MATCH (n) WHERE n:Admin AND n:Active RETURN n")
+
+    assert parsed.where is not None
+    assert parsed.where.expr_tree is None
+    assert len(parsed.where.predicates) == 2
+    p0, p1 = parsed.where.predicates
+    assert isinstance(p0, WherePredicate) and isinstance(p0.left, LabelRef)
+    assert p0.op == "has_labels"
+    assert p0.left.alias == "n"
+    assert set(p0.left.labels) == {"Admin"}
+    assert isinstance(p1, WherePredicate) and isinstance(p1.left, LabelRef)
+    assert p1.left.alias == "n"
+    assert set(p1.left.labels) == {"Active"}
+
+
+def test_parse_where_single_label_predicate_produces_structured_ast() -> None:
+    parsed = _parse_query("MATCH (n) WHERE n:Admin RETURN n")
+
+    assert parsed.where is not None
+    assert parsed.where.expr_tree is None
+    assert len(parsed.where.predicates) == 1
+    p = parsed.where.predicates[0]
+    assert isinstance(p, WherePredicate) and isinstance(p.left, LabelRef)
+    assert p.op == "has_labels"
+    assert p.left.alias == "n"
+    assert set(p.left.labels) == {"Admin"}
+
+
+def test_parse_where_non_label_expression_produces_raw_expr() -> None:
+    # Non-label WHERE expressions land through a different grammar path
+    # (`where_predicates` or raw expr); the contract under review is that
+    # `generic_where_clause` never synthesizes fake has_labels predicates
+    # from non-label text.  Assert no has_labels predicate is present.
+    parsed = _parse_query("MATCH (n) WHERE n.name = 'alice' RETURN n")
+
+    assert parsed.where is not None
+    assert all(
+        not (isinstance(p, WherePredicate) and p.op == "has_labels")
+        for p in parsed.where.predicates
+    )
+
+
+def test_parse_where_xor_label_expression_stays_as_raw_expr() -> None:
+    # XOR is not handled by generic_where_clause AND-split; must stay in .expr.
+    parsed = _parse_query("MATCH (n) WHERE n:Admin XOR n:Active RETURN n")
+
+    assert parsed.where is not None
+    assert parsed.where.expr_tree is not None
+    assert "XOR" in boolean_expr_to_text(parsed.where.expr_tree).upper()
+    assert parsed.where.predicates == ()
+
+
+def test_parse_where_triple_and_label_conjunction_through_generic_where_clause() -> None:
+    # End-to-end coverage that a triple-AND bare-label WHERE still routes
+    # through ``generic_where_clause`` and is lifted into structured
+    # ``WhereClause.predicates`` by walking the parsed ``BooleanExpr``
+    # AND-spine (#1194).  No text-level AND splitting is involved.
+    parsed = _parse_query("MATCH (n) WHERE n:Admin AND n:Active AND n:Super RETURN n")
+
+    assert parsed.where is not None
+    assert parsed.where.expr_tree is None
+    assert len(parsed.where.predicates) == 3
+    aliases = [
+        p.left.alias
+        for p in parsed.where.predicates
+        if isinstance(p, WherePredicate) and isinstance(p.left, LabelRef)
+    ]
+    assert aliases == ["n", "n", "n"]
+
+
+# --- Unit tests for the label-lifting helpers (#1194 walker) ---
+
+
+def test_match_bare_label_atom_accepts_alias_and_labels() -> None:
+    from graphistry.compute.gfql.cypher.parser import _match_bare_label_atom
+
+    assert _match_bare_label_atom("n:Admin") == ("n", ("Admin",))
+    assert _match_bare_label_atom("b:Foo:Bar") == ("b", ("Foo", "Bar"))
+    assert _match_bare_label_atom("  n:Admin  ") == ("n", ("Admin",))
+
+
+def test_match_bare_label_atom_rejects_non_label_text() -> None:
+    # ``fullmatch`` is load-bearing as the false-positive guard from #1125 —
+    # text fragments that merely look label-shaped must not lift.
+    from graphistry.compute.gfql.cypher.parser import _match_bare_label_atom
+
+    assert _match_bare_label_atom(None) is None
+    assert _match_bare_label_atom("") is None
+    assert _match_bare_label_atom("n.prop = 1") is None
+    assert _match_bare_label_atom("n:Admin AND extra") is None
+    assert _match_bare_label_atom("'A:B'") is None  # quoted string fragment
+
+
+def _bx_atom(text: str):  # type: ignore[no-untyped-def]
+    from graphistry.compute.gfql.cypher.ast import BooleanExpr, SourceSpan
+
+    span = SourceSpan(line=1, column=1, end_line=1, end_column=1, start_pos=0, end_pos=0)
+    return BooleanExpr(op="atom", span=span, atom_text=text, atom_span=span)
+
+
+def _bx_branch(op, left, right=None):  # type: ignore[no-untyped-def]
+    from graphistry.compute.gfql.cypher.ast import BooleanExpr, SourceSpan
+
+    span = SourceSpan(line=1, column=1, end_line=1, end_column=1, start_pos=0, end_pos=0)
+    return BooleanExpr(op=op, span=span, left=left, right=right)
+
+
+def test_lift_label_only_and_spine_walks_and_chain() -> None:
+    from graphistry.compute.gfql.cypher.parser import _lift_label_only_and_spine
+
+    # Left-associative AND: ((a AND b) AND c) — depth ordering preserves left-to-right.
+    tree = _bx_branch(
+        "and",
+        _bx_branch("and", _bx_atom("n:Admin"), _bx_atom("n:Active")),
+        _bx_atom("n:Super"),
+    )
+    assert _lift_label_only_and_spine(tree) == (
+        ("n", ("Admin",)),
+        ("n", ("Active",)),
+        ("n", ("Super",)),
+    )
+
+
+def test_lift_label_only_and_spine_rejects_non_and_or_non_label() -> None:
+    from graphistry.compute.gfql.cypher.parser import _lift_label_only_and_spine
+
+    # OR root → reject (we only lift pure AND-spines).
+    assert _lift_label_only_and_spine(
+        _bx_branch("or", _bx_atom("n:Admin"), _bx_atom("n:Active"))
+    ) is None
+    # NOT root → reject.
+    assert _lift_label_only_and_spine(_bx_branch("not", _bx_atom("n:Admin"))) is None
+    # AND with a non-label leaf → reject (mixed predicates fall through).
+    assert _lift_label_only_and_spine(
+        _bx_branch("and", _bx_atom("n:Admin"), _bx_atom("n.prop = 1"))
+    ) is None
+    # Single-atom BooleanExpr → lifts as one predicate.
+    assert _lift_label_only_and_spine(_bx_atom("n:Admin")) == (("n", ("Admin",)),)
 
 
 def test_parse_where_null_predicates() -> None:
@@ -799,7 +944,7 @@ def test_parse_optional_match_clause() -> None:
         ),
         (
             "MATCH (n) WHERE (n)-[:R*]->() AND (n.id = 'b' OR n.id = 'c') RETURN n",
-            "(n.id = 'b' OR n.id = 'c')",
+            "n.id = 'b' OR n.id = 'c'",
         ),
     ],
 )
@@ -809,15 +954,22 @@ def test_parse_supports_where_pattern_predicate_and_expr_mix(query: str, expr_te
     assert parsed.where is not None
     assert len(parsed.where.predicates) == 1
     assert isinstance(parsed.where.predicates[0], WherePatternPredicate)
-    assert parsed.where.expr is not None
-    assert parsed.where.expr.text == expr_text
+    assert parsed.where.expr_tree is not None
+    assert boolean_expr_to_text(parsed.where.expr_tree) == expr_text
 
 
 @pytest.mark.parametrize(
     "query",
     [
+        # Variable-length patterns
         "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'z' RETURN n",
         "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n",
+        # Non-variable-length patterns — same lift-step rejector path,
+        # but a more common shape to hit in practice.  Locks the
+        # rejection so future slice 2/3/4 lifts can't silently regress
+        # the simple-edge variant.
+        "MATCH (n) WHERE (n)-[:R]->() OR n.id = 'z' RETURN n",
+        "MATCH (n) WHERE NOT (n)-[:R]->() RETURN n",
     ],
 )
 def test_parse_rejects_mixed_where_pattern_predicates_as_unsupported(query: str) -> None:
@@ -892,8 +1044,17 @@ def test_multi_statement_rejected() -> None:
     assert exc_info.value.code == ErrorCode.E107
 
 
-def test_or_where_not_yet_supported() -> None:
-    with pytest.raises(GFQLSyntaxError) as exc_info:
-        _parse_query("MATCH (a)-[r]->(b) WHERE a.team = b.team OR a.name = 'Alice' RETURN a")
+def test_or_where_now_parses_after_earley_swap() -> None:
+    # #1031 slice 1: Earley accepts OR in WHERE bodies that LALR(1) had to
+    # reject due to FIRST-set state collapse.  The query parses cleanly,
+    # produces a structured ``BooleanExpr(op="or", ...)`` tree on
+    # ``expr_tree``, and ``predicates`` stays empty because OR is not a
+    # ``where_predicates`` form.  Downstream consumers see the OR as a
+    # single conjunct.
+    parsed = _parse_query("MATCH (a)-[r]->(b) WHERE a.team = b.team OR a.name = 'Alice' RETURN a")
 
-    assert exc_info.value.code == ErrorCode.E107
+    assert parsed.where is not None
+    assert parsed.where.predicates == ()
+    assert parsed.where.expr_tree is not None
+    assert parsed.where.expr_tree.op == "or"
+    assert "OR" in boolean_expr_to_text(parsed.where.expr_tree).upper()

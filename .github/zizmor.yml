@@ -1,0 +1,20 @@
+rules:
+  unpinned-uses:
+    config:
+      # Provider safelist for `uses:` references. See umbrella #1130 + #1215.
+      #
+      # Trusted orgs (allowed on floating refs):
+      #   - `actions/*`        — GitHub-owned core
+      #   - `github/*`         — GitHub-owned extended (codeql-action etc.)
+      #   - `pypa/*`           — PyPA-maintained, including `gh-action-pypi-publish`
+      #
+      # Anything outside the safelist must pin to a full commit SHA.
+      #
+      # Decision context: SHA-pinning trusted-org actions trades fast CVE patching
+      # for marginal mutable-tag protection that the orgs' account security already
+      # provides. See #1215 body for the full rationale.
+      policies:
+        "actions/*": ref-pin
+        "github/*": ref-pin
+        "pypa/*": ref-pin
+        "*": hash-pin

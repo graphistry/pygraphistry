@@ -27,7 +27,6 @@ env:
   # 6-day dependency cooldown: refuse packages uploaded less than 6 days ago
   # to mitigate supply chain attacks. Belt-and-suspenders with lockfile --exclude-newer.
   UV_EXCLUDE_NEWER: "6 days"
-  PIP_EXCLUDE_NEWER: "6 days"  # pip >=26 honours this via --uploaded-prior-to
 
 jobs:
 
@@ -43,63 +42,148 @@ jobs:
       benchmarks: ${{ steps.filter.outputs.benchmarks }}
       docs_only_latest: ${{ steps.docs_only_latest.outputs.docs_only_latest }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         persist-credentials: false
-    - uses: dorny/paths-filter@v3
+        # full history needed so `git diff <base>..<head>` resolves on PRs / non-trivial pushes
+        fetch-depth: 0
+    - name: Compute path filters
       id: filter
-      with:
-        filters: |
-          # Infrastructure changes that affect all tests
-          infra:
-            - '.github/workflows/ci.yml'
-            - 'docker/**'
-            - 'bin/**'
-            - 'setup.py'
-            - 'setup.cfg'
-            - 'MANIFEST.in'
-            
-          # Python code changes
-          python:
-            - '**.py'
-            - 'graphistry/**'
-            - 'setup.py'
-            - 'setup.cfg'
-            - 'pytest.ini'
-            - 'mypy.ini'
-            - 'bin/lint.sh'
-            - 'bin/typecheck.sh'
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        PUSH_BEFORE: ${{ github.event.before }}
+        HEAD_SHA: ${{ github.sha }}
+      run: |
+        set -euo pipefail
+        keys=(infra python gfql cypher_frontend_ci benchmarks docs)
 
-          # GFQL-specific changes
-          gfql:
-            - 'graphistry/gfql/**'
-            - 'graphistry/compute/gfql/**'
-            - 'graphistry/compute/gfql_unified.py'
-            - 'graphistry/models/gfql/**'
-            - 'graphistry/Plottable.py'
-            - 'tests/gfql/**'
+        emit_all() {
+          # $1 = "true" or "false" — emit the same value for every key
+          for k in "${keys[@]}"; do
+            echo "${k}=$1" >> "$GITHUB_OUTPUT"
+          done
+        }
 
-          # Cypher frontend gate relevant changes
-          cypher_frontend_ci:
-            - '.github/workflows/ci.yml'
-            - '.github/workflows/ci-gpu.yml'
-            - 'graphistry/compute/gfql/ir/**'
-            - 'graphistry/compute/gfql/cypher/**'
-            - 'graphistry/compute/gfql/frontends/cypher/**'
-            - 'graphistry/tests/compute/gfql/cypher/**'
-            - 'tests/gfql/ref/**'
+        # Non diff-bearing events: rely on downstream `event_name == 'workflow_dispatch'`
+        # / `'schedule'` OR-conditions in job `if:` expressions. Emit false safely.
+        if [[ "$EVENT_NAME" != "pull_request" && "$EVENT_NAME" != "push" ]]; then
+          emit_all false
+          exit 0
+        fi
 
-          # Benchmark-specific changes
-          benchmarks:
-            - 'benchmarks/**'
-            
-          # Documentation changes
-          docs:
-            - 'docs/**'
-            - '**.md'
-            - '**.rst'
-            - 'demos/**'
-            - 'notebooks/**'
+        if [[ "$EVENT_NAME" == "pull_request" ]]; then
+          base="$PR_BASE_SHA"
+          head="$PR_HEAD_SHA"
+        else
+          base="$PUSH_BEFORE"
+          head="$HEAD_SHA"
+        fi
+
+        # New branch / first push: zero-SHA base. Conservative: run everything.
+        if [[ -z "$base" || "$base" == "0000000000000000000000000000000000000000" ]]; then
+          emit_all true
+          exit 0
+        fi
+
+        # Diff vs the merge-base so PR runs see only commits that diverge from base
+        # (avoids picking up unrelated commits the base ref has gained meanwhile).
+        # If either resolution fails (e.g., force-pushed branch with orphaned
+        # event.before, or rebased PR base ref), fall back to the conservative
+        # "couldn't compute, run everything" stance and surface a GHA warning
+        # so operators can see why every job ran. Note: stderr is left
+        # un-redirected so the underlying git error (e.g., "Not a valid object
+        # name") shows up in the runner log alongside the warning.
+        if ! merge_base=$(git merge-base "$base" "$head"); then
+          echo "::warning::path-filter: git merge-base failed for $base..$head; running all gated jobs conservatively"
+          emit_all true
+          exit 0
+        fi
+        if ! changed=$(git diff --name-only "$merge_base" "$head"); then
+          echo "::warning::path-filter: git diff failed for $merge_base..$head; running all gated jobs conservatively"
+          emit_all true
+          exit 0
+        fi
+
+        # emit <key> <regex>...  — joins regex args with `|` and emits true/false.
+        # Each pattern goes on its own line at the call site for readability;
+        # this is the reason emit takes variadic args instead of a pre-joined string.
+        emit() {
+          local key="$1"
+          shift
+          local IFS='|'
+          local pat="$*"
+          # Use a here-string instead of `printf "%s\n" "$changed" | grep -qE`.
+          # Why: with `set -o pipefail`, if `grep -q` matches early on a $changed
+          # larger than the pipe buffer (~64 KB; thousands of files), `grep` exits
+          # before `printf` finishes flushing. `printf` then receives SIGPIPE and
+          # exits 141. `pipefail` propagates that 141 to the pipeline, the `if`
+          # sees non-zero, and we'd silently emit `false` for a key that should
+          # be `true`. A here-string is a pure redirection (not a pipeline), so
+          # the data is fully buffered before grep reads, eliminating the race.
+          if [[ -n "$changed" ]] && grep -qE "$pat" <<< "$changed"; then
+            echo "${key}=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "${key}=false" >> "$GITHUB_OUTPUT"
+          fi
+        }
+
+        # Filter dimensions — patterns mirror the prior dorny/paths-filter YAML
+        # globs converted to anchored regex. Keep one pattern per line so adds
+        # / removes diff cleanly and the conversion stays auditable.
+
+        # Infrastructure: workflow defs, docker, bin scripts, root build config.
+        emit infra \
+          '^\.github/workflows/ci\.yml$' \
+          '^docker/' \
+          '^bin/' \
+          '^setup\.py$' \
+          '^setup\.cfg$' \
+          '^MANIFEST\.in$'
+
+        # Python code + lint/type config.
+        emit python \
+          '\.py$' \
+          '^graphistry/' \
+          '^setup\.py$' \
+          '^setup\.cfg$' \
+          '^pytest\.ini$' \
+          '^mypy\.ini$' \
+          '^bin/lint\.sh$' \
+          '^bin/typecheck\.sh$'
+
+        # GFQL core + tests.
+        emit gfql \
+          '^graphistry/gfql/' \
+          '^graphistry/compute/gfql/' \
+          '^graphistry/compute/gfql_unified\.py$' \
+          '^graphistry/models/gfql/' \
+          '^graphistry/Plottable\.py$' \
+          '^tests/gfql/'
+
+        # Cypher frontend gate-relevant paths (workflow defs included so a CI
+        # change here re-triggers the cypher gate alongside gfql/infra).
+        emit cypher_frontend_ci \
+          '^\.github/workflows/ci\.yml$' \
+          '^\.github/workflows/ci-gpu\.yml$' \
+          '^graphistry/compute/gfql/ir/' \
+          '^graphistry/compute/gfql/cypher/' \
+          '^graphistry/compute/gfql/frontends/cypher/' \
+          '^graphistry/tests/compute/gfql/cypher/' \
+          '^tests/gfql/ref/'
+
+        # Benchmarks suite.
+        emit benchmarks \
+          '^benchmarks/'
+
+        # Documentation: docs tree + any md/rst at any depth + demos + notebooks.
+        emit docs \
+          '^docs/' \
+          '\.md$' \
+          '\.rst$' \
+          '^demos/' \
+          '^notebooks/'
 
     - name: Detect docs-only change on tip
       id: docs_only_latest
@@ -144,14 +228,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 1
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         ref: ${{ github.event.pull_request.head.sha }}
         fetch-depth: 0
         persist-credentials: false
     - name: Reject plans/ files added by this PR
+      env:
+        BASE_REF: ${{ github.base_ref }}
       run: |
-        merge_base=$(git merge-base origin/${{ github.base_ref }} HEAD)
+        merge_base=$(git merge-base "origin/${BASE_REF}" HEAD)
         plans_files=$(git diff --name-only --diff-filter=ACMR "$merge_base"..HEAD -- 'plans/' || true)
         if [ -n "$plans_files" ]; then
           echo "::error::PR adds or modifies files under plans/ which is gitignored and must not be committed:"
@@ -165,12 +251,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
     - name: Set up Python 3.12
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.12"
     - name: Cache lockfiles
@@ -184,7 +270,14 @@ jobs:
       run: pip install "uv==0.11.3"  # pinned version; bump periodically
     - name: Generate lockfiles
       if: steps.lockfile-cache.outputs.cache-hit != 'true'
-      run: COOLDOWN_DAYS=${{ inputs.cooldown_days || '6' }} ./bin/generate-lockfiles.sh
+      env:
+        COOLDOWN_DAYS: ${{ inputs.cooldown_days || '6' }}
+      run: |
+        if ! [[ "${COOLDOWN_DAYS}" =~ ^[0-9]+$ ]]; then
+          echo "::error::cooldown_days must be a non-negative integer"
+          exit 1
+        fi
+        ./bin/generate-lockfiles.sh
     - name: Upload lockfiles
       uses: actions/upload-artifact@v4
       with:
@@ -200,13 +293,13 @@ jobs:
 
     steps:
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
 
     - name: Set up Python 3.12
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.12"
 
@@ -226,14 +319,18 @@ jobs:
 
     - name: Resolve tck-gfql ref
       id: tck_gfql
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        HEAD_REF: ${{ github.head_ref }}
+        REF_NAME: ${{ github.ref_name }}
       run: |
         tck_repo="https://github.com/graphistry/tck-gfql.git"
         candidate_ref="main"
 
-        if [[ "${{ github.event_name }}" == "pull_request" && -n "${{ github.head_ref }}" ]]; then
-          candidate_ref="${{ github.head_ref }}"
-        elif [[ -n "${{ github.ref_name }}" ]]; then
-          candidate_ref="${{ github.ref_name }}"
+        if [[ "${EVENT_NAME}" == "pull_request" && -n "${HEAD_REF}" ]]; then
+          candidate_ref="${HEAD_REF}"
+        elif [[ -n "${REF_NAME}" ]]; then
+          candidate_ref="${REF_NAME}"
         fi
 
         tck_ref="main"
@@ -274,7 +371,7 @@ jobs:
 
     steps:
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -286,7 +383,7 @@ jobs:
         path: requirements
 
     - name: Set up Python 3.12
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.12"
 
@@ -334,7 +431,7 @@ jobs:
     
     steps:
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -346,7 +443,7 @@ jobs:
         path: requirements
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -376,9 +473,10 @@ jobs:
     timeout-minutes: 6
     steps:
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
+        persist-credentials: false
 
     - name: Download lockfiles
       uses: actions/download-artifact@v4
@@ -387,7 +485,7 @@ jobs:
         path: requirements
 
     - name: Set up Python 3.12
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.12"
 
@@ -426,9 +524,10 @@ jobs:
     timeout-minutes: 10
     steps:
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
+        persist-credentials: false
 
     - name: Download lockfiles
       uses: actions/download-artifact@v4
@@ -437,7 +536,7 @@ jobs:
         path: requirements
 
     - name: Set up Python 3.12
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.12"
 
@@ -487,7 +586,7 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -500,7 +599,7 @@ jobs:
         path: requirements
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -553,7 +652,7 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -566,7 +665,7 @@ jobs:
         path: requirements
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -605,7 +704,7 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -617,7 +716,7 @@ jobs:
         path: requirements
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -667,7 +766,7 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -680,7 +779,7 @@ jobs:
         path: requirements
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -726,7 +825,7 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -738,7 +837,7 @@ jobs:
         path: requirements
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -781,7 +880,7 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -794,7 +893,7 @@ jobs:
         path: requirements
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -825,14 +924,14 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
 
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -878,6 +977,48 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/test-graphviz.sh
 
+  test-polars:
+    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
+    if: ${{ success() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    strategy:
+      matrix:
+        python-version: [3.9, '3.10', 3.11, 3.12, '3.13', '3.14']
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Install Python dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-polars-py${{ matrix.python-version }}.lock
+        uv pip install -e . --no-deps
+
+    - name: Polars tests
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-polars.sh
+
   test-core-umap:
     needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
     # Inherit condition from test-minimal-python
@@ -893,14 +1034,14 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
 
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -926,7 +1067,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ${{ env.HF_HOME }}
-        key: hf-cache-${{ runner.os }}-v1
+        key: hf-cache-${{ runner.os }}-v2
         restore-keys: |
           hf-cache-${{ runner.os }}-
 
@@ -936,12 +1077,14 @@ jobs:
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
         uv pip install -r requirements/test-umap-py${{ matrix.python-version }}.lock
+        # Keep pip for torch +cpu from the PyTorch CPU wheel index: uv cannot resolve this local-version pin.
         python -m pip install --no-deps torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
         uv pip install -e . --no-deps
 
     - name: Warm HF cache (sentence-transformers)
       id: warm-hf
       if: steps['hf-cache'].outputs['cache-hit'] != 'true'
+      continue-on-error: true
       run: |
         mkdir -p "${HF_HOME}"
         source pygraphistry/bin/activate
@@ -1016,14 +1159,14 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
 
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -1049,7 +1192,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ${{ env.HF_HOME }}
-        key: hf-cache-${{ runner.os }}-v1
+        key: hf-cache-${{ runner.os }}-v2
         restore-keys: |
           hf-cache-${{ runner.os }}-
 
@@ -1059,6 +1202,7 @@ jobs:
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
         uv pip install -r requirements/test-ai-py${{ matrix.python-version }}.lock
+        # Keep pip for torch +cpu from the PyTorch CPU wheel index: uv cannot resolve this local-version pin.
         python -m pip install --no-deps torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
         uv pip install -e . --no-deps
         echo "skrub: `pip show skrub | grep Version`"
@@ -1134,16 +1278,14 @@ jobs:
       PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
       PIP_PREFER_BINARY: "1"
       DGLBACKEND: pytorch
-      # Supply-chain: reject packages published within the last 6 days (pip ≥26 uses --uploaded-prior-to)
-      PIP_EXCLUDE_NEWER: "6 days"
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
 
     - name: Set up Python 3.10
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
@@ -1151,7 +1293,7 @@ jobs:
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
-        python -m pip install --upgrade pip
+        python -m pip install --upgrade pip uv
         cat <<'EOF' > /tmp/dgl-constraints.txt
         torch==2.0.1
         torchdata==0.6.1
@@ -1159,8 +1301,8 @@ jobs:
         sentence-transformers==5.1.2
         faiss-cpu
         EOF
-        python -m pip install --constraint /tmp/dgl-constraints.txt torch==2.0.1 torchdata==0.6.1 dgl==2.1.0
-        python -m pip install --constraint /tmp/dgl-constraints.txt -e .[test,testai,ai,dgl-cpu]
+        uv pip install --constraint /tmp/dgl-constraints.txt torch==2.0.1 torchdata==0.6.1 dgl==2.1.0
+        uv pip install --constraint /tmp/dgl-constraints.txt -e .[test,testai,ai,dgl-cpu]
 
     - name: Run DGL tests
       env:
@@ -1174,6 +1316,40 @@ jobs:
         ./bin/test-dgl.sh
 
 
+  test-spark:
+    needs: [changes, test-minimal-python, test-gfql-core]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Set up Python 3.14
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.14'
+
+    - name: Install pyspark stack
+      run: |
+        sudo apt-get install -y default-jdk
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install pyspark pyarrow pandas requests pytest
+
+    - name: Install graphistry
+      run: |
+        source pygraphistry/bin/activate
+        uv pip install -e .[test]
+
+    - name: Run Spark tests
+      run: |
+        source pygraphistry/bin/activate
+        python -B -m pytest graphistry/tests/compute/test_df_types.py -v -k spark
+
+
   test-neo4j:
     needs: [ test-minimal-python, test-gfql-core ]
     # Inherit condition from test-minimal-python
@@ -1185,7 +1361,7 @@ jobs:
       DOCKER_BUILDKIT: 1
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -1204,7 +1380,7 @@ jobs:
     timeout-minutes: 2
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         lfs: true
         persist-credentials: false
@@ -1217,7 +1393,7 @@ jobs:
         path: requirements
 
     - name: Set up Python 3.14
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.14'
 
@@ -1245,7 +1421,7 @@ jobs:
     timeout-minutes: 10
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         persist-credentials: false
 
@@ -1264,7 +1440,7 @@ jobs:
     timeout-minutes: 1
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         persist-credentials: false
 

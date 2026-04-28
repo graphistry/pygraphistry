@@ -2,6 +2,7 @@ from graphistry.Plottable import Plottable, RenderModes, RenderModesConcrete
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast, overload, TYPE_CHECKING
 from typing_extensions import Literal
 from graphistry.io.types import ComplexEncodingsDict
+from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
@@ -141,6 +142,17 @@ def maybe_spark():
         logger.warning('Runtime error import pyspark: Available but failed to initialize', exc_info=True)
     return None
 
+@lru_cache(maxsize=1)
+def maybe_polars():
+    try:
+        import polars
+        return polars
+    except ImportError:
+        1
+    except RuntimeError:
+        logger.warning('Runtime error importing polars', exc_info=True)
+    return None
+
 # #####################################
 
 
@@ -164,13 +176,15 @@ class PlotterBase(Plottable):
     
     _pd_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
     _cudf_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
+    _polars_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
     _umap_param_to_g : WeakValueDictionary = WeakValueDictionary()
     _feat_param_to_g : WeakValueDictionary = WeakValueDictionary()
 
-    def reset_caches(self): 
+    def reset_caches(self):
         """Reset memoization caches"""
         self._pd_hash_to_arrow.clear()
         self._cudf_hash_to_arrow.clear()
+        self._polars_hash_to_arrow.clear()
         self._umap_param_to_g.clear()
         self._feat_param_to_g.clear()
         cache_coercion_helper.cache_clear()
@@ -1872,7 +1886,8 @@ class PlotterBase(Plottable):
     def settings(self, height=None, url_params={}, render=None):
         """Specify iframe height and add URL parameter dictionary.
 
-        The library takes care of URI component encoding for the dictionary.
+        Collections URL params are normalized and URL-encoded at plot time; other
+        params should already be URL-safe.
 
         :param height: Height in pixels.
         :type height: int
@@ -1890,6 +1905,51 @@ class PlotterBase(Plottable):
         res._url_params = dict(self._url_params, **url_params)
         res._render = self._render if render is None else resolve_render_mode(self, render)
         return res
+
+
+    def collections(
+        self,
+        collections: Optional[CollectionsInput] = None,
+        show_collections: Optional[bool] = None,
+        collections_global_node_color: Optional[str] = None,
+        collections_global_edge_color: Optional[str] = None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
+    ) -> 'Plottable':
+        """Set collections URL parameters. Additive over previous settings.
+
+        :param collections: List/dict of collections or JSON/URL-encoded JSON string (stored as URL-encoded JSON).
+        :param show_collections: Toggle collections panel display.
+        :param collections_global_node_color: Hex color for non-collection nodes (leading # stripped).
+        :param collections_global_edge_color: Hex color for non-collection edges (leading # stripped).
+        :param validate: Validation mode. 'autofix' (default) drops invalid collections and color fields with warnings, 'strict' raises on issues.
+        :param warn: Whether to emit warnings when validate='autofix'. validate=False forces warn=False.
+        """
+        from graphistry.validate.validate_collections import (
+            encode_collections,
+            normalize_collections,
+            normalize_collections_url_params,
+        )
+
+        settings: Dict[str, Any] = {}
+        if collections is not None:
+            normalized = normalize_collections(collections, validate=validate, warn=warn)
+            settings['collections'] = encode_collections(normalized)
+        extras: Dict[str, Any] = {}
+        if show_collections is not None:
+            extras['showCollections'] = show_collections
+        if collections_global_node_color is not None:
+            extras['collectionsGlobalNodeColor'] = collections_global_node_color
+        if collections_global_edge_color is not None:
+            extras['collectionsGlobalEdgeColor'] = collections_global_edge_color
+        if extras:
+            extras = normalize_collections_url_params(extras, validate=validate, warn=warn)
+            settings.update(extras)
+
+        if len(settings.keys()) > 0:
+            return self.settings(url_params={**self._url_params, **settings})
+        else:
+            return self
 
 
     def privacy(
@@ -2252,6 +2312,10 @@ class PlotterBase(Plottable):
                 url_params['token'] = resp.json()['ott']
             except Exception as e:
                 logger.warning("Failed to exchange JWT for OTT: %s", e)
+
+        # Validate collections in url_params (catches bypass of .collections() method)
+        from graphistry.validate.validate_collections import normalize_collections_url_params
+        url_params = normalize_collections_url_params(self._url_params, validate=validate_mode, warn=warn)
 
         viz_url = self._pygraphistry._viz_url(info, url_params)
         cfg_client_protocol_hostname = self.session.client_protocol_hostname
@@ -2716,7 +2780,8 @@ class PlotterBase(Plottable):
                 or ( not (maybe_cudf() is None) and isinstance(graph, maybe_cudf().DataFrame) ) \
                 or ( not (maybe_dask_cudf() is None) and isinstance(graph, maybe_dask_cudf().DataFrame) ) \
                 or ( not (maybe_dask_dataframe() is None) and isinstance(graph, maybe_dask_dataframe().DataFrame) ) \
-                or ( not (maybe_spark() is None) and isinstance(graph, maybe_spark().sql.dataframe.DataFrame) ):
+                or ( not (maybe_spark() is None) and isinstance(graph, maybe_spark().sql.dataframe.DataFrame) ) \
+                or ( not (maybe_polars() is None) and isinstance(graph, (maybe_polars().DataFrame, maybe_polars().LazyFrame)) ):
             return g._make_dataset(graph, nodes, name, description, mode, metadata, memoize, validate_mode, emit_warnings)
 
         try:
@@ -2824,7 +2889,7 @@ class PlotterBase(Plottable):
 
     def _table_to_pandas(self, table) -> Optional[pd.DataFrame]:
         """
-            pandas | arrow | dask | cudf | dask_cudf => pandas
+            pandas | arrow | dask | cudf | dask_cudf | polars | spark => pandas
         """
 
         if table is None:
@@ -2844,6 +2909,11 @@ class PlotterBase(Plottable):
 
         if not (maybe_dask_dataframe() is None) and isinstance(table, maybe_dask_dataframe().DataFrame):
             return self._table_to_pandas(table.compute())
+
+        if not (maybe_polars() is None) and isinstance(table, (maybe_polars().DataFrame, maybe_polars().LazyFrame)):
+            if isinstance(table, maybe_polars().LazyFrame):
+                table = table.collect()
+            return table.to_pandas()
 
         raise Exception('Unknown type %s: Could not convert data to Pandas dataframe' % str(type(table)))
 
@@ -2886,7 +2956,7 @@ class PlotterBase(Plottable):
 
     def _table_to_arrow(self, table: Any, memoize: bool = True, validate_mode: ValidationMode = 'autofix', emit_warnings: bool = True) -> Optional[pa.Table]:  # noqa: C901
         """
-            pandas | arrow | dask | cudf | dask_cudf => arrow
+            pandas | arrow | dask | cudf | dask_cudf | polars | spark => arrow
 
             dask/dask_cudf convert to pandas/cudf
 
@@ -2997,6 +3067,29 @@ class PlotterBase(Plottable):
             df = table.toPandas()
             #TODO push the hash check to Spark
             return self._table_to_arrow(df, memoize, validate_mode, emit_warnings)
+
+        if not (maybe_polars() is None) and isinstance(table, (maybe_polars().DataFrame, maybe_polars().LazyFrame)):
+            # validate_mode and emit_warnings are not applied for polars input: polars frames are
+            # strictly typed so mixed-type columns cannot exist, making validation a no-op here.
+            if isinstance(table, maybe_polars().LazyFrame):
+                table = table.collect()
+            hashed = None
+            if memoize:
+                try:
+                    hashed = (
+                        hashlib.sha256(table.hash_rows().to_numpy().tobytes()).hexdigest()
+                        + hashlib.sha256(str(table.columns).encode('utf-8')).hexdigest()
+                    )
+                    if hashed in PlotterBase._polars_hash_to_arrow:
+                        return PlotterBase._polars_hash_to_arrow[hashed].v
+                except Exception:
+                    logger.debug('Failed to hash polars frame', exc_info=True)
+            out = table.to_arrow().replace_schema_metadata({})
+            if memoize and hashed is not None:
+                w = WeakValueWrapper(out)
+                cache_coercion(hashed, w)
+                PlotterBase._polars_hash_to_arrow[hashed] = w
+            return out
 
         raise Exception('Unknown type %s: Could not convert data to Arrow' % str(type(table)))
 

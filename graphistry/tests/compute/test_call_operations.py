@@ -2,7 +2,7 @@
 
 import pytest
 import pandas as pd
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 from graphistry.tests.test_compute import CGFull
 from graphistry.Engine import Engine, EngineAbstract
@@ -622,3 +622,6 @@ class TestGraphAlgorithmCalls:
                 'engine': 'invalid_engine'  # Should be in allowed list
             })
         assert exc_info.value.code == ErrorCode.E201
+
+# cuDF engine coercion tests for CPU-only plugins (compute_igraph, layout_igraph,
+# layout_graphviz) are in test_call_operations_gpu.py and require TEST_CUDF=1.

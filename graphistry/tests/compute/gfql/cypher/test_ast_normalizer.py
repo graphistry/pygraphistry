@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from graphistry.compute.exceptions import GFQLValidationError
+from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
 from graphistry.compute.gfql.cypher.ast import CypherQuery
 from graphistry.compute.gfql.cypher.api import compile_cypher
 from graphistry.compute.gfql.cypher.ast_normalizer import ASTNormalizer
@@ -38,8 +39,8 @@ def test_normalizer_rewrites_where_pattern_predicate_into_extra_match() -> None:
     assert len(normalized.matches) == 2
     assert len(normalized.matches[-1].patterns) == 1
     assert normalized.where is not None
-    assert normalized.where.expr is not None
-    assert "a.id" in normalized.where.expr.text
+    assert normalized.where.expr_tree is not None
+    assert "a.id" in boolean_expr_to_text(normalized.where.expr_tree)
 
 
 def test_normalizer_rejects_shortest_path_inside_optional_match() -> None:

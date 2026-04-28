@@ -17,6 +17,7 @@ from graphistry.privacy import Mode as PrivacyMode, Privacy, ModeAction
 from graphistry.Engine import EngineAbstractType
 from graphistry.utils.json import JSONVal
 from graphistry.client_session import ClientSession, AuthManagerProtocol
+from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationParam
 
 if TYPE_CHECKING:
@@ -427,7 +428,8 @@ class Plottable(Protocol):
         destination_node_query: Optional[str] = None,
         edge_query: Optional[str] = None,
         return_as_wave_front: bool = False,
-        target_wave_front: Optional[pd.DataFrame] = None
+        target_wave_front: Optional[pd.DataFrame] = None,
+        engine: EngineAbstractType = 'auto'
     ) -> 'Plottable':
         ...
 
@@ -780,6 +782,17 @@ class Plottable(Protocol):
         height: Optional[int] = None,
         url_params: Dict[str, Any] = {},
         render: Optional[Union[bool, RenderModes]] = None
+    ) -> 'Plottable':
+        ...
+
+    def collections(
+        self,
+        collections: Optional[CollectionsInput] = None,
+        show_collections: Optional[bool] = None,
+        collections_global_node_color: Optional[str] = None,
+        collections_global_edge_color: Optional[str] = None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
     ) -> 'Plottable':
         ...
 

@@ -19,6 +19,13 @@ Run chain remotely and fetch results
 
 ``gfql_remote()`` accepts the same input types as local ``gfql()``:
 
+.. note::
+   Collections are visualization URL settings; apply them after GFQL results
+   (for example, ``g2.collections(...)``). The GFQL remote/upload APIs do not
+   accept collections payloads yet.
+
+Method :meth:`chain_remote <graphistry.compute.ComputeMixin.ComputeMixin.chain_remote>` runs chain remotely and fetches the computed graph
+
 - **Chain / List[ASTObject]**: Native GFQL chain syntax (as above).
 - **Cypher string**: Compiled locally, sent as wire-protocol JSON.
 - **ASTLet / Let dict**: DAG patterns with named bindings.

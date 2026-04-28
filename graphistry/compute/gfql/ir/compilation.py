@@ -3,11 +3,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, FrozenSet, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, FrozenSet, List, Literal, Optional, Tuple
 
-from graphistry.compute.gfql.ir.bound_ir import BoundIR, SemanticTable
+from graphistry.compute.gfql.ir.bound_ir import BoundIR, ScopeFrame, SemanticTable
 from graphistry.compute.gfql.ir.logical_plan import LogicalPlan
 from graphistry.compute.gfql.ir.query_graph import QueryGraph
+
+if TYPE_CHECKING:
+    from graphistry.compute.gfql.physical_planner import PhysicalOperator
+else:
+    PhysicalOperator = Any
 
 NodeId = int
 
@@ -75,6 +80,8 @@ class PlanContext:
     indexes: List[IndexDescriptor] = field(default_factory=list)
     backend: BackendCapabilities = field(default_factory=BackendCapabilities)
     config: CompilerConfig = field(default_factory=CompilerConfig)
+    # Pass-visible binder scope metadata for optimization safety checks.
+    scope_stack: Tuple[ScopeFrame, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -86,9 +93,12 @@ class CompilerError:
 
 @dataclass(frozen=True)
 class PhysicalPlan:
-    """Physical plan placeholder for M0 type contracts."""
+    """Physical plan wrapper contract for M3 planner routing."""
 
-    pass
+    route: Literal["same_path", "wavefront", "row_pipeline"] = "row_pipeline"
+    operators: Tuple[PhysicalOperator, ...] = field(default_factory=tuple)
+    logical_op_ids: Tuple[int, ...] = field(default_factory=tuple)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

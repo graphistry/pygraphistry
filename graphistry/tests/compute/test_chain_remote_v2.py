@@ -14,6 +14,45 @@ from graphistry.compute.chain_remote import chain_remote_generic
 from graphistry.compute.gfql.same_path_types import col, compare
 
 
+class _FakeProcedureCall:
+    def __init__(self, procedure: str, call_params: Dict[str, Any]):
+        self.procedure = procedure
+        self.call_params = call_params
+
+
+class _FakeBinding:
+    def __init__(
+        self,
+        name: str,
+        chain: Chain,
+        procedure_call: _FakeProcedureCall | None = None,
+        use_ref: str | None = None,
+    ):
+        self.name = name
+        self.chain = chain
+        self.procedure_call = procedure_call
+        self.use_ref = use_ref
+
+
+class _FakeCompiledQuery:
+    def __init__(
+        self,
+        chain: Chain,
+        graph_bindings: list[_FakeBinding] | None = None,
+        procedure_call: _FakeProcedureCall | None = None,
+        use_ref: str | None = None,
+    ):
+        self.chain = chain
+        self.graph_bindings = graph_bindings or []
+        self.procedure_call = procedure_call
+        self.use_ref = use_ref
+
+
+class _FakeCompiledUnion:
+    def __init__(self):
+        self.branches = ()
+
+
 def _mock_plottable() -> MagicMock:
     mock = MagicMock()
     mock._dataset_id = "test-dataset-123"
@@ -146,6 +185,54 @@ class TestCypherStringSupport:
     def test_union_raises(self) -> None:
         with pytest.raises((ValueError, Exception)):
             _send("MATCH (n) RETURN n.id AS id UNION MATCH (m) RETURN m.id AS id")
+
+    def test_structural_compiled_query_with_bindings(self) -> None:
+        """Remote serialization should only depend on structural shape, not CompiledCypher classes."""
+        fake_compiled = _FakeCompiledQuery(
+            chain=Chain([ASTNode(name="x")]),
+            graph_bindings=[
+                _FakeBinding(
+                    "g1",
+                    Chain([ASTNode(name="a"), ASTEdge(), ASTNode(name="b")]),
+                    procedure_call=_FakeProcedureCall("graphistry.degree.write", {"k": 1}),
+                )
+            ],
+            procedure_call=_FakeProcedureCall("graphistry.layout.fa2", {"iterations": 10}),
+            use_ref="g1",
+        )
+
+        with patch("graphistry.compute.chain_remote.parse_cypher", return_value=object()):
+            with patch("graphistry.compute.chain_remote.compile_cypher_query", return_value=fake_compiled):
+                body = _send("MATCH (n) RETURN n")
+
+        assert body["gfql_query"]["type"] == "Let"
+        assert body["gfql_operations"] == []
+        binding = body["gfql_query"]["bindings"]["g1"]
+        assert binding["type"] == "Call"
+        assert binding["function"] == "graphistry.degree.write"
+        assert binding["params"]["k"] == 1
+
+        result = body["gfql_query"]["bindings"]["__result__"]
+        assert result["type"] == "Ref"
+        assert result["ref"] == "g1"
+        call_ops = [op for op in result.get("chain", []) if isinstance(op, dict) and op.get("type") == "Call"]
+        assert call_ops
+        assert call_ops[0]["function"] == "graphistry.layout.fa2"
+        assert call_ops[0]["params"]["iterations"] == 10
+
+    def test_structural_union_shape_rejected(self) -> None:
+        with patch("graphistry.compute.chain_remote.parse_cypher", return_value=object()):
+            with patch("graphistry.compute.chain_remote.compile_cypher_query", return_value=_FakeCompiledUnion()):
+                with pytest.raises(ValueError, match="UNION queries are not yet supported"):
+                    _send("MATCH (n) RETURN n")
+
+    def test_cypher_string_path_does_not_call_deprecated_compile_helper(self) -> None:
+        with patch(
+            "graphistry.compute.gfql.cypher.api.compile_cypher",
+            side_effect=AssertionError("Deprecated helper should not be called by gfql_remote string path"),
+        ):
+            with pytest.raises(ValueError, match="UNION queries are not yet supported"):
+                _send("MATCH (n) RETURN n AS v UNION MATCH (m) RETURN m AS v")
 
 
 class TestBackwardCompat:

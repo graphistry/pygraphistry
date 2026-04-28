@@ -27,6 +27,7 @@ from graphistry.compute.gfql.expr_parser import (
 )
 
 from .ast import (
+    BooleanExpr,
     CypherQuery,
     ExpressionText,
     MatchClause,
@@ -39,6 +40,7 @@ from .ast import (
     WhereClause,
     WherePatternPredicate,
 )
+from ._boolean_expr_text import boolean_expr_to_text
 
 
 @dataclass(frozen=True)
@@ -429,12 +431,21 @@ def _rewrite_shortest_path_query(query: CypherQuery) -> CypherQuery:
         )
 
     def _rewrite_where(where: Optional[WhereClause]) -> Optional[WhereClause]:
-        if where is None or where.expr is None:
+        # #1213 sub-PR C: read from ``expr_tree`` via Option B (text round-trip
+        # + single-atom resynthesis).  Incidentally fixes the latent text/tree
+        # staleness that the prior ``replace(where, expr=rewrite(where.expr, ...))``
+        # pattern left behind.  Sub-PR D+E dropped the ``expr=`` arg here.
+        if where is None or where.expr_tree is None:
             return where
-        return replace(
-            where,
-            expr=_rewrite_shortest_path_expr_text(where.expr, specs=specs, field="where"),
+        synthesized = ExpressionText(text=boolean_expr_to_text(where.expr_tree), span=where.span)
+        rewritten = _rewrite_shortest_path_expr_text(synthesized, specs=specs, field="where")
+        new_tree = BooleanExpr(
+            op="atom",
+            span=rewritten.span,
+            atom_text=rewritten.text,
+            atom_span=rewritten.span,
         )
+        return replace(where, expr_tree=new_tree)
 
     return replace(
         query,
@@ -505,10 +516,10 @@ def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQu
 
     remaining = tuple(predicate for predicate in query.where.predicates if not isinstance(predicate, WherePatternPredicate))
     remaining_where = None
-    if remaining or query.where.expr is not None:
+    if remaining or query.where.expr_tree is not None:
         remaining_where = WhereClause(
             predicates=cast(Any, remaining),
-            expr=query.where.expr,
+            expr_tree=query.where.expr_tree,
             span=query.where.span,
         )
     extra_match = MatchClause(

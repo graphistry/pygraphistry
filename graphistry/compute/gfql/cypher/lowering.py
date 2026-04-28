@@ -32,8 +32,21 @@ from graphistry.compute.ast import (
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
-from graphistry.compute.gfql.ir.bound_ir import BoundIR
+from graphistry.compute.gfql.ir.bound_ir import BoundIR, ScopeFrame
 from graphistry.compute.gfql.ir.compilation import PlanContext
+from graphistry.compute.gfql.ir.logical_plan import (
+    Join as LogicalJoin,
+    LogicalPlan,
+    PatternMatch,
+    ProcedureCall as LogicalProcedureCall,
+    ProcedureOutputColumn as LogicalProcedureOutputColumn,
+    Project as LogicalProject,
+    RowSchema as LogicalRowSchema,
+)
+from graphistry.compute.gfql.ir.query_graph import ConnectedComponent, OptionalArm, QueryGraph
+from graphistry.compute.gfql.ir.types import ScalarType
+from graphistry.compute.gfql.ir.verifier import verify as verify_logical_plan
+from graphistry.compute.gfql.logical_planner import LogicalPlanner
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.comparison import eq, ge, gt, isna, le, lt, ne, notna
 from graphistry.compute.predicates.is_in import is_in
@@ -64,6 +77,7 @@ from graphistry.compute.gfql.expr_parser import (
 )
 from graphistry.compute.gfql.cypher.ast import (
     CallClause,
+    BooleanExpr,
     CypherGraphQuery,
     CypherLiteral,
     CypherQuery,
@@ -91,8 +105,10 @@ from graphistry.compute.gfql.cypher.ast import (
     WherePredicate,
     WherePatternPredicate,
 )
+from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
 from graphistry.compute.gfql.cypher.call_procedures import (
     CompiledCypherProcedureCall,
+    ProcedureOutputColumn as CompiledProcedureOutputColumn,
     compile_cypher_call,
 )
 from graphistry.compute.gfql.cypher.ast_normalizer import ASTNormalizer
@@ -116,22 +132,100 @@ _CYPHER_INT64_MAX = (2**63) - 1
 
 
 @dataclass(frozen=True)
-class CompiledCypherQuery:
-    chain: Chain
-    seed_rows: bool = False
-    procedure_call: Optional[CompiledCypherProcedureCall] = None
+class CompiledCypherPostProcessing:
     result_projection: Optional["ResultProjectionPlan"] = None
     empty_result_row: Optional[Dict[str, Any]] = None
     optional_null_fill: Optional["OptionalNullFillPlan"] = None
     optional_projection_row_guard: Optional["OptionalProjectionRowGuardPlan"] = None
+
+
+@dataclass(frozen=True)
+class CompiledCypherExecutionExtras:
     connected_optional_match: Optional["ConnectedOptionalMatchPlan"] = None
     connected_match_join: Optional["ConnectedMatchJoinPlan"] = None
+    query_graph: Optional[QueryGraph] = None
     start_nodes_query: Optional["CompiledCypherQuery"] = None
     optional_reentry: bool = False
     scalar_reentry_alias: Optional[str] = None
     scalar_reentry_columns: Tuple[str, ...] = ()
+    scope_stack: Tuple[ScopeFrame, ...] = ()
+    logical_plan: Optional[LogicalPlan] = None
+    logical_plan_defer_reason: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class CompiledCypherQuery:
+    chain: Chain
+    seed_rows: bool = False
+    procedure_call: Optional[CompiledCypherProcedureCall] = None
+    post_processing: Optional[CompiledCypherPostProcessing] = None
+    execution_extras: Optional[CompiledCypherExecutionExtras] = None
     graph_bindings: Tuple["CompiledGraphBinding", ...] = ()
     use_ref: Optional[str] = None
+
+    @property
+    def result_projection(self) -> Optional["ResultProjectionPlan"]:
+        return None if self.post_processing is None else self.post_processing.result_projection
+
+    @property
+    def empty_result_row(self) -> Optional[Dict[str, Any]]:
+        return None if self.post_processing is None else self.post_processing.empty_result_row
+
+    @property
+    def optional_null_fill(self) -> Optional["OptionalNullFillPlan"]:
+        return None if self.post_processing is None else self.post_processing.optional_null_fill
+
+    @property
+    def optional_projection_row_guard(self) -> Optional["OptionalProjectionRowGuardPlan"]:
+        return None if self.post_processing is None else self.post_processing.optional_projection_row_guard
+
+    @property
+    def connected_optional_match(self) -> Optional["ConnectedOptionalMatchPlan"]:
+        return None if self.execution_extras is None else self.execution_extras.connected_optional_match
+
+    @property
+    def connected_match_join(self) -> Optional["ConnectedMatchJoinPlan"]:
+        return None if self.execution_extras is None else self.execution_extras.connected_match_join
+
+    @property
+    def start_nodes_query(self) -> Optional["CompiledCypherQuery"]:
+        return None if self.execution_extras is None else self.execution_extras.start_nodes_query
+
+    @property
+    def query_graph(self) -> Optional[QueryGraph]:
+        return None if self.execution_extras is None else self.execution_extras.query_graph
+
+    @property
+    def optional_reentry(self) -> bool:
+        return False if self.execution_extras is None else self.execution_extras.optional_reentry
+
+    @property
+    def scalar_reentry_alias(self) -> Optional[str]:
+        return None if self.execution_extras is None else self.execution_extras.scalar_reentry_alias
+
+    @property
+    def scalar_reentry_columns(self) -> Tuple[str, ...]:
+        return () if self.execution_extras is None else self.execution_extras.scalar_reentry_columns
+
+    @property
+    def scope_stack(self) -> Tuple[ScopeFrame, ...]:
+        return () if self.execution_extras is None else self.execution_extras.scope_stack
+
+    @property
+    def logical_plan(self) -> Optional[LogicalPlan]:
+        return None if self.execution_extras is None else self.execution_extras.logical_plan
+
+    @property
+    def logical_plan_defer_reason(self) -> Optional[str]:
+        return None if self.execution_extras is None else self.execution_extras.logical_plan_defer_reason
+
+    @property
+    def logical_plan_route(self) -> Literal["planned", "deferred", "none"]:
+        if self.logical_plan is not None:
+            return "planned"
+        if self.logical_plan_defer_reason is not None:
+            return "deferred"
+        return "none"
 
 
 @dataclass(frozen=True)
@@ -147,6 +241,16 @@ class CompiledGraphBinding:
     chain: Chain
     procedure_call: Optional[CompiledCypherProcedureCall] = None
     use_ref: Optional[str] = None
+    logical_plan: Optional[LogicalPlan] = None
+    logical_plan_defer_reason: Optional[str] = None
+
+    @property
+    def logical_plan_route(self) -> Literal["planned", "deferred", "none"]:
+        if self.logical_plan is not None:
+            return "planned"
+        if self.logical_plan_defer_reason is not None:
+            return "deferred"
+        return "none"
 
 
 @dataclass(frozen=True)
@@ -156,6 +260,16 @@ class CompiledCypherGraphQuery:
     chain: Chain
     procedure_call: Optional[CompiledCypherProcedureCall] = None
     use_ref: Optional[str] = None
+    logical_plan: Optional[LogicalPlan] = None
+    logical_plan_defer_reason: Optional[str] = None
+
+    @property
+    def logical_plan_route(self) -> Literal["planned", "deferred", "none"]:
+        if self.logical_plan is not None:
+            return "planned"
+        if self.logical_plan_defer_reason is not None:
+            return "deferred"
+        return "none"
 
 
 @dataclass(frozen=True)
@@ -170,6 +284,133 @@ class OptionalNullFillPlan:
 @dataclass(frozen=True)
 class OptionalProjectionRowGuardPlan:
     base_chains: Tuple[Chain, ...]
+
+
+def _normalize_post_processing(
+    post_processing: CompiledCypherPostProcessing,
+) -> Optional[CompiledCypherPostProcessing]:
+    if (
+        post_processing.result_projection is None
+        and post_processing.empty_result_row is None
+        and post_processing.optional_null_fill is None
+        and post_processing.optional_projection_row_guard is None
+    ):
+        return None
+    return post_processing
+
+
+def _normalize_execution_extras(
+    execution_extras: CompiledCypherExecutionExtras,
+) -> Optional[CompiledCypherExecutionExtras]:
+    if (
+        execution_extras.connected_optional_match is None
+        and execution_extras.connected_match_join is None
+        and execution_extras.query_graph is None
+        and execution_extras.start_nodes_query is None
+        and execution_extras.optional_reentry is False
+        and execution_extras.scalar_reentry_alias is None
+        and execution_extras.scalar_reentry_columns == ()
+        and execution_extras.scope_stack == ()
+        and execution_extras.logical_plan is None
+        and execution_extras.logical_plan_defer_reason is None
+    ):
+        return None
+    return execution_extras
+
+
+def _post_processing_with(
+    *,
+    result_projection: Optional["ResultProjectionPlan"],
+    empty_result_row: Optional[Dict[str, Any]],
+    optional_null_fill: Optional["OptionalNullFillPlan"],
+    optional_projection_row_guard: Optional["OptionalProjectionRowGuardPlan"],
+) -> Optional[CompiledCypherPostProcessing]:
+    return _normalize_post_processing(
+        CompiledCypherPostProcessing(
+            result_projection=result_projection,
+            empty_result_row=empty_result_row,
+            optional_null_fill=optional_null_fill,
+            optional_projection_row_guard=optional_projection_row_guard,
+        )
+    )
+
+
+def _execution_extras_with(
+    compiled_query: CompiledCypherQuery,
+    *,
+    connected_optional_match: Optional["ConnectedOptionalMatchPlan"] = None,
+    connected_match_join: Optional["ConnectedMatchJoinPlan"] = None,
+    query_graph: Optional[QueryGraph] = None,
+    start_nodes_query: Optional[CompiledCypherQuery] = None,
+    optional_reentry: bool = False,
+    scalar_reentry_alias: Optional[str] = None,
+    scalar_reentry_columns: Tuple[str, ...] = (),
+    scope_stack: Tuple[ScopeFrame, ...] = (),
+    logical_plan: Optional[LogicalPlan] = None,
+    logical_plan_defer_reason: Optional[str] = None,
+) -> Optional[CompiledCypherExecutionExtras]:
+    base = compiled_query.execution_extras or CompiledCypherExecutionExtras()
+    return _normalize_execution_extras(
+        replace(
+            base,
+            connected_optional_match=connected_optional_match,
+            connected_match_join=connected_match_join,
+            query_graph=query_graph,
+            start_nodes_query=start_nodes_query,
+            optional_reentry=optional_reentry,
+            scalar_reentry_alias=scalar_reentry_alias,
+            scalar_reentry_columns=scalar_reentry_columns,
+            scope_stack=scope_stack,
+            logical_plan=logical_plan,
+            logical_plan_defer_reason=logical_plan_defer_reason,
+        )
+    )
+
+
+def _logical_schema_for_call_outputs(
+    output_columns: Sequence[CompiledProcedureOutputColumn],
+) -> LogicalRowSchema:
+    return LogicalRowSchema(
+        columns={
+            output.output_name: ScalarType(kind="unknown", nullable=True)
+            for output in output_columns
+        }
+    )
+
+
+def _logical_plan_from_compiled_call(compiled_call: CompiledCypherProcedureCall) -> LogicalPlan:
+    return LogicalProcedureCall(
+        op_id=1,
+        procedure=compiled_call.procedure,
+        backend=compiled_call.backend,
+        algorithm=compiled_call.algorithm,
+        call_function=compiled_call.call_function,
+        result_kind=compiled_call.result_kind,
+        row_kind=compiled_call.row_kind,
+        output_columns=tuple(
+            LogicalProcedureOutputColumn(
+                source_name=output.source_name,
+                output_name=output.output_name,
+            )
+            for output in compiled_call.output_columns
+        ),
+        call_params=dict(compiled_call.call_params),
+        output_schema=_logical_schema_for_call_outputs(compiled_call.output_columns),
+    )
+
+
+def _verify_selected_logical_plan(logical_plan: LogicalPlan) -> None:
+    diagnostics = verify_logical_plan(logical_plan)
+    if diagnostics:
+        summary = "; ".join(diagnostic.message for diagnostic in diagnostics[:3])
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "LogicalPlan verification failed for a query shape selected for LogicalPlan routing",
+            field="logical_plan",
+            value=summary,
+            suggestion="Keep using covered MATCH/WHERE/WITH/RETURN/UNWIND/CALL shapes until richer plan lowering lands.",
+            language="cypher",
+        )
 
 
 @dataclass(frozen=True)
@@ -5606,6 +5847,54 @@ def _apply_label_where(
     target.filter_dict = filter_dict
 
 
+def _where_clause_expr_text(where: WhereClause) -> Optional[ExpressionText]:
+    """Synthesize an ``ExpressionText`` from ``where.expr_tree`` for callers
+    that historically read ``where.expr``.
+
+    Used by the #1213 sub-PR C reader migration so that ExpressionText-shaped
+    consumers (rewrite helpers, error reporters, downstream filter pipelines)
+    can continue to receive an ``ExpressionText`` while the source-of-truth
+    moves to ``WhereClause.expr_tree``.  Uses ``where.span`` (which equals
+    the original ``where.expr.span`` for parser-produced WhereClauses, both
+    derived from the same ``_span_from_meta(meta)`` of the
+    ``generic_where_clause`` rule) to preserve error-position semantics.
+    """
+    if where.expr_tree is None:
+        return None
+    return ExpressionText(text=boolean_expr_to_text(where.expr_tree), span=where.span)
+
+
+def _rewrite_where_clause_and_resync(
+    where: WhereClause,
+    rewrite: Callable[[ExpressionText, str], ExpressionText],
+    field: str = "where",
+) -> WhereClause:
+    """Rewrite the WHERE expression and resynchronize ``expr_tree`` to match
+    the rewritten text via single-atom synthesis (#1213 sub-PR C, Option B).
+
+    Caveat: collapses any boolean structure in ``expr_tree`` to a single atom
+    carrying the rewritten text.  Acceptable for current consumers (the
+    binder's ``boolean_expr_to_text`` round-trips a single-atom tree to its
+    ``atom_text``, identical to the legacy text path).
+
+    Fixes the latent staleness bug present on master post-#1214: the prior
+    pattern ``replace(where, expr=rewrite(where.expr, field))`` left
+    ``expr_tree`` pointing at the pre-rewrite text.  Sub-PR D+E dropped the
+    ``expr`` field; only ``expr_tree`` survives.
+    """
+    synthesized = _where_clause_expr_text(where)
+    if synthesized is None:
+        return where
+    rewritten = rewrite(synthesized, field)
+    new_tree = BooleanExpr(
+        op="atom",
+        span=rewritten.span,
+        atom_text=rewritten.text,
+        atom_span=rewritten.span,
+    )
+    return replace(where, expr_tree=new_tree)
+
+
 def _extract_relationship_type_where(
     expr: ExpressionText,
     *,
@@ -5675,9 +5964,9 @@ def lower_match_clause(
 
 
 def _reject_unsupported_where_expr_forms(query: CypherQuery) -> None:
-    if query.where is None or query.where.expr is None:
+    if query.where is None or query.where.expr_tree is None:
         return
-    expr_text = query.where.expr.text.strip()
+    expr_text = boolean_expr_to_text(query.where.expr_tree).strip()
     if _CYPHER_BARE_WHERE_GROUPED_ALIAS_RE.fullmatch(expr_text) is not None:
         raise _unsupported(
             "Cypher WHERE pattern predicates must include a relationship",
@@ -5715,7 +6004,7 @@ def _reject_unsupported_variable_length_where_pattern_predicates(query: CypherQu
             raise _unsupported(
                 "Cypher WHERE pattern predicates currently support only bare variable-length fixed-point relationships, not exact or bounded hop counts",
                 field="where",
-                value=query.where.expr.text if query.where.expr is not None else None,
+                value=boolean_expr_to_text(query.where.expr_tree) if query.where.expr_tree is not None else None,
                 line=predicate.span.line,
                 column=predicate.span.column,
             )
@@ -5913,17 +6202,17 @@ def _reject_variable_length_path_alias_references(
             column=column,
         )
 
-    if query.where is not None and query.where.expr is not None:
+    if query.where is not None and query.where.expr_tree is not None:
         _check_expr(
-            query.where.expr.text,
+            boolean_expr_to_text(query.where.expr_tree),
             field="where",
             line=query.where.span.line,
             column=query.where.span.column,
         )
     for reentry_where in query.reentry_wheres:
-        if reentry_where is not None and reentry_where.expr is not None:
+        if reentry_where is not None and reentry_where.expr_tree is not None:
             _check_expr(
-                reentry_where.expr.text,
+                boolean_expr_to_text(reentry_where.expr_tree),
                 field="where",
                 line=reentry_where.span.line,
                 column=reentry_where.span.column,
@@ -5998,9 +6287,9 @@ def _reject_variable_length_relationship_alias_path_carriers(
             column=column,
         )
 
-    if query.where is not None and query.where.expr is not None:
+    if query.where is not None and query.where.expr_tree is not None:
         _check_expr(
-            query.where.expr.text,
+            boolean_expr_to_text(query.where.expr_tree),
             field="where",
             line=query.where.span.line,
             column=query.where.span.column,
@@ -6080,14 +6369,15 @@ def lower_match_query(
     row_where: Optional[ExpressionText] = None
     row_where_predicates: List[str] = list(dynamic_row_where_predicates)
     if query.where is not None:
-        if query.where.expr is not None:
+        where_expr = _where_clause_expr_text(query.where)
+        if where_expr is not None:
             type_where = _extract_relationship_type_where(
-                query.where.expr,
+                where_expr,
                 alias_targets=alias_targets,
                 params=params,
             )
             if type_where is None:
-                row_where = query.where.expr
+                row_where = where_expr
             else:
                 left, op, right = type_where
                 _apply_literal_where(
@@ -6109,16 +6399,15 @@ def lower_match_query(
             if isinstance(predicate.left, LabelRef):
                 _apply_label_where(alias_targets, left=predicate.left)
                 continue
-            if binding_row_aliases:
-                row_predicate_expr = _row_where_predicate_text(predicate)
-                if row_predicate_expr is not None:
-                    row_where_predicates.append(row_predicate_expr)
-                    continue
             if isinstance(predicate.right, PropertyRef):
-                assert isinstance(predicate.left, PropertyRef)
+                if binding_row_aliases:
+                    row_predicate_expr = _row_where_predicate_text(predicate)
+                    if row_predicate_expr is not None:
+                        row_where_predicates.append(row_predicate_expr)
+                        continue
                 where_out.append(
                     compare(
-                        col(predicate.left.alias, predicate.left.property),
+                        col(cast(PropertyRef, predicate.left).alias, cast(PropertyRef, predicate.left).property),
                         cast(Any, predicate.op),
                         col(predicate.right.alias, predicate.right.property),
                     )
@@ -6718,7 +7007,9 @@ def _lower_general_row_projection(
     return CompiledCypherQuery(
         Chain(exec_steps, where=lowered.where),
         seed_rows=seed_rows,
-        empty_result_row=empty_result_row,
+        post_processing=_normalize_post_processing(
+            CompiledCypherPostProcessing(empty_result_row=empty_result_row)
+        ),
     )
 
 
@@ -6932,11 +7223,23 @@ def _map_terminal_reentry_query(
 ) -> CompiledCypherQuery:
     if compiled_query.start_nodes_query is None:
         return transform(compiled_query)
+    mapped_start_nodes = _map_terminal_reentry_query(
+        compiled_query.start_nodes_query,
+        transform=transform,
+    )
     return replace(
         compiled_query,
-        start_nodes_query=_map_terminal_reentry_query(
-            compiled_query.start_nodes_query,
-            transform=transform,
+        execution_extras=_execution_extras_with(
+            compiled_query,
+            connected_optional_match=compiled_query.connected_optional_match,
+            connected_match_join=compiled_query.connected_match_join,
+            query_graph=compiled_query.query_graph,
+            start_nodes_query=mapped_start_nodes,
+            optional_reentry=compiled_query.optional_reentry,
+            scalar_reentry_alias=compiled_query.scalar_reentry_alias,
+            scalar_reentry_columns=compiled_query.scalar_reentry_columns,
+            logical_plan=compiled_query.logical_plan,
+            logical_plan_defer_reason=compiled_query.logical_plan_defer_reason,
         ),
     )
 
@@ -7256,11 +7559,8 @@ def _compile_bounded_reentry_query(
         )
         rewritten_remaining_reentry_wheres = tuple(
             None
-            if where_clause is None or where_clause.expr is None
-            else replace(
-                where_clause,
-                expr=rewrite_expr(where_clause.expr, "where"),
-            )
+            if where_clause is None or where_clause.expr_tree is None
+            else _rewrite_where_clause_and_resync(where_clause, rewrite_expr, "where")
             for where_clause in remaining_reentry_wheres
         )
         rewritten_with_stages = tuple(
@@ -7274,11 +7574,8 @@ def _compile_bounded_reentry_query(
             )
             for unwind_clause in query.reentry_unwinds
         )
-        if query.reentry_where is not None and query.reentry_where.expr is not None:
-            reentry_where = replace(
-                query.reentry_where,
-                expr=rewrite_expr(query.reentry_where.expr, "where"),
-            )
+        if query.reentry_where is not None and query.reentry_where.expr_tree is not None:
+            reentry_where = _rewrite_where_clause_and_resync(query.reentry_where, rewrite_expr, "where")
         if not remaining_reentry_matches:
             reentry_return = _rewrite_reentry_projection_clause(query.return_, rewrite_expr=rewrite_expr)
             if reentry_order_by is not None:
@@ -7336,14 +7633,26 @@ def _compile_bounded_reentry_query(
         is_optional = reentry_match.optional or target.optional_reentry
         return replace(
             target,
-            start_nodes_query=prefix_compiled,
-            result_projection=target_projection,
-            optional_reentry=is_optional,
-            # Clear empty_result_row when optional_reentry is set — the
-            # reentry null-fill handles missing rows instead.
-            empty_result_row=None if is_optional else target.empty_result_row,
-            scalar_reentry_alias=reentry_alias if scalar_only_prefix else target.scalar_reentry_alias,
-            scalar_reentry_columns=carry_columns if scalar_only_prefix else target.scalar_reentry_columns,
+            post_processing=_post_processing_with(
+                result_projection=target_projection,
+                # Clear empty_result_row when optional_reentry is set — the
+                # reentry null-fill handles missing rows instead.
+                empty_result_row=None if is_optional else target.empty_result_row,
+                optional_null_fill=target.optional_null_fill,
+                optional_projection_row_guard=target.optional_projection_row_guard,
+            ),
+            execution_extras=_execution_extras_with(
+                target,
+                connected_optional_match=target.connected_optional_match,
+                connected_match_join=target.connected_match_join,
+                query_graph=target.query_graph,
+                start_nodes_query=prefix_compiled,
+                optional_reentry=is_optional,
+                scalar_reentry_alias=reentry_alias if scalar_only_prefix else target.scalar_reentry_alias,
+                scalar_reentry_columns=carry_columns if scalar_only_prefix else target.scalar_reentry_columns,
+                logical_plan=target.logical_plan,
+                logical_plan_defer_reason=target.logical_plan_defer_reason,
+            ),
         )
 
     return _map_terminal_reentry_query(
@@ -7429,7 +7738,7 @@ def _compile_graph_constructor(
 
     if constructor.call is not None:
         # CALL-based constructor: compile the procedure call
-        compiled_call = compile_cypher_call(constructor.call)
+        compiled_call = compile_cypher_call(constructor.call, params=params)
         if compiled_call.result_kind != "graph":
             raise _unsupported(
                 "Only graph-preserving CALL procedures (with .write()) are allowed inside a graph constructor",
@@ -7438,10 +7747,15 @@ def _compile_graph_constructor(
                 line=constructor.call.span.line,
                 column=constructor.call.span.column,
             )
+        call_logical_plan = _logical_plan_from_compiled_call(compiled_call)
+        _verify_selected_logical_plan(call_logical_plan)
         return CompiledCypherQuery(
             Chain([]),
             seed_rows=False,
             procedure_call=compiled_call,
+            execution_extras=_normalize_execution_extras(
+                CompiledCypherExecutionExtras(logical_plan=call_logical_plan)
+            ),
         )
 
     # MATCH-based constructor: lower match + where into a chain
@@ -7466,9 +7780,22 @@ def _compile_graph_constructor(
         reentry_unwinds=(),
     )
     lowered = lower_match_query(synthetic, params=params)
+    constructor_bound_ir = FrontendBinder().bind(synthetic, PlanContext())
+    constructor_logical_plan, constructor_logical_plan_defer_reason = _logical_plan_route_for_query(
+        synthetic,
+        bound_ir=constructor_bound_ir,
+        params=params,
+        allow_unknown_match_aliases=True,
+    )
     return CompiledCypherQuery(
         Chain(lowered.query, where=lowered.where),
         seed_rows=False,
+        execution_extras=_normalize_execution_extras(
+            CompiledCypherExecutionExtras(
+                logical_plan=constructor_logical_plan,
+                logical_plan_defer_reason=constructor_logical_plan_defer_reason,
+            )
+        ),
     )
 
 
@@ -7487,6 +7814,8 @@ def _compile_graph_bindings(
             chain=compiled_query.chain,
             procedure_call=compiled_query.procedure_call,
             use_ref=use_ref,
+            logical_plan=compiled_query.logical_plan,
+            logical_plan_defer_reason=compiled_query.logical_plan_defer_reason,
         ))
     return tuple(compiled)
 
@@ -7564,6 +7893,99 @@ class ConnectedMatchJoinPlan:
     post_join_chain: Chain
 
 
+def _pattern_alias_lists(pattern: Sequence[PatternElement]) -> Tuple[List[str], List[str]]:
+    node_aliases: List[str] = []
+    edge_aliases: List[str] = []
+    for element in pattern:
+        alias = getattr(element, "variable", None)
+        if alias is None:
+            continue
+        if isinstance(element, NodePattern):
+            node_aliases.append(alias)
+        elif isinstance(element, RelationshipPattern):
+            edge_aliases.append(alias)
+    return node_aliases, edge_aliases
+
+
+def _connected_component_from_pattern(
+    pattern: Sequence[PatternElement],
+    *,
+    entry_points: Sequence[str],
+) -> ConnectedComponent:
+    node_aliases, edge_aliases = _pattern_alias_lists(pattern)
+    return ConnectedComponent(
+        node_aliases=node_aliases,
+        edge_aliases=edge_aliases,
+        entry_points=list(entry_points),
+        hop_order=list(range(len(edge_aliases))),
+    )
+
+
+def _logical_plan_from_query_graph(
+    query_graph: QueryGraph,
+    *,
+    optional: bool,
+) -> LogicalPlan:
+    next_op_id = 1
+
+    def _next_id() -> int:
+        nonlocal next_op_id
+        op_id = next_op_id
+        next_op_id += 1
+        return op_id
+
+    if not query_graph.components:
+        return LogicalProject(
+            op_id=_next_id(),
+            input=None,
+            expressions=[],
+            output_schema=LogicalRowSchema(columns={}),
+        )
+
+    base_component = query_graph.components[0]
+    current: LogicalPlan = PatternMatch(
+        op_id=_next_id(),
+        pattern={
+            "node_aliases": tuple(base_component.node_aliases),
+            "edge_aliases": tuple(base_component.edge_aliases),
+            "entry_points": tuple(base_component.entry_points),
+        },
+        optional=False,
+        arm_id=None,
+        output_schema=LogicalRowSchema(columns={}),
+    )
+
+    for idx, component in enumerate(query_graph.components[1:]):
+        arm = query_graph.optional_arms[idx] if idx < len(query_graph.optional_arms) else None
+        right = PatternMatch(
+            op_id=_next_id(),
+            pattern={
+                "node_aliases": tuple(component.node_aliases),
+                "edge_aliases": tuple(component.edge_aliases),
+                "entry_points": tuple(component.entry_points),
+            },
+            optional=optional and arm is not None,
+            arm_id=None if arm is None else arm.arm_id,
+            output_schema=LogicalRowSchema(columns={}),
+        )
+        join_aliases = component.entry_points if arm is None else sorted(arm.join_aliases)
+        current = LogicalJoin(
+            op_id=_next_id(),
+            left=current,
+            right=right,
+            condition={"join_aliases": tuple(join_aliases)},
+            join_type="left" if optional and arm is not None else "inner",
+            output_schema=LogicalRowSchema(columns={}),
+        )
+
+    return LogicalProject(
+        op_id=_next_id(),
+        input=current,
+        expressions=["connected_optional_match" if optional else "connected_match_join"],
+        output_schema=LogicalRowSchema(columns={}),
+    )
+
+
 def _compile_connected_match_join(
     query: CypherQuery,
     *,
@@ -7616,8 +8038,10 @@ def _compile_connected_match_join(
         shared_aliases_per_pattern.append(shared)
         accumulated_aliases.update(node_aliases)
 
-    if query.where is not None and query.where.expr is not None:
-        pre_join_filters.append(query.where.expr)
+    if query.where is not None and query.where.expr_tree is not None:
+        synthesized = _where_clause_expr_text(query.where)
+        assert synthesized is not None  # gated by expr_tree is not None
+        pre_join_filters.append(synthesized)
 
     for projection_clause in [stage.clause for stage in query.with_stages] + [query.return_]:
         _reject_unsupported_connected_join_clause_shapes(
@@ -7703,14 +8127,32 @@ def _compile_connected_match_join(
     )
     final_steps, _ = _lower_row_column_stage(final_stage, scope=scope, params=params)
     row_steps.extend(final_steps)
+    query_graph = QueryGraph(
+        components=[
+            _connected_component_from_pattern(
+                pattern,
+                entry_points=() if idx == 0 else shared_aliases_per_pattern[idx - 1],
+            )
+            for idx, pattern in enumerate(clause.patterns)
+        ],
+        boundary_aliases={},
+        optional_arms=[],
+    )
+    logical_plan = _logical_plan_from_query_graph(query_graph, optional=False)
 
     return CompiledCypherQuery(
         chain=Chain([]),
         seed_rows=False,
-        connected_match_join=ConnectedMatchJoinPlan(
-            pattern_chains=tuple(pattern_chains),
-            pattern_shared_node_aliases=tuple(shared_aliases_per_pattern),
-            post_join_chain=Chain(row_steps),
+        execution_extras=_normalize_execution_extras(
+            CompiledCypherExecutionExtras(
+                connected_match_join=ConnectedMatchJoinPlan(
+                    pattern_chains=tuple(pattern_chains),
+                    pattern_shared_node_aliases=tuple(shared_aliases_per_pattern),
+                    post_join_chain=Chain(row_steps),
+                ),
+                query_graph=query_graph,
+                logical_plan=logical_plan,
+            )
         ),
     )
 
@@ -7720,19 +8162,23 @@ def _apply_where_to_ops(
     alias_targets: Dict[str, ASTObject],
     *,
     params: Optional[Mapping[str, Any]],
-) -> List[WhereComparison]:
+) -> Tuple[List[WhereComparison], List[ExpressionText]]:
     """Apply a WHERE clause's predicates to already-lowered ops.
 
     Label predicates mutate the ASTNode filter in *alias_targets* (in-place).
     Property-comparison predicates are returned as ``WhereComparison`` entries
-    for the chain's ``where`` list.
+    for the chain's ``where`` list. Expressions that cannot be lowered to
+    node/edge filter dicts are returned as row-expression filters so connected
+    OPTIONAL MATCH lowering can apply them via ``where_rows(expr=...)``.
     """
     where_out: List[WhereComparison] = []
+    row_expr_filters: List[ExpressionText] = []
     if where is None:
-        return where_out
-    if where.expr is not None:
+        return where_out, row_expr_filters
+    where_expr = _where_clause_expr_text(where)
+    if where_expr is not None:
         type_where = _extract_relationship_type_where(
-            where.expr,
+            where_expr,
             alias_targets=alias_targets,
             params=params,
         )
@@ -7740,13 +8186,16 @@ def _apply_where_to_ops(
             left, op, right = type_where
             _apply_literal_where(alias_targets, left=left, op=op, right=right, params=params)
         else:
-            raise _unsupported(
-                "Cypher WHERE expressions that cannot be lowered to node/edge filters are not yet supported in connected OPTIONAL MATCH queries",
+            rewritten = _rewrite_connected_join_expr(
+                where_expr,
+                alias_targets=alias_targets,
+                params=params,
                 field="where",
-                value=where.expr.text,
-                line=where.expr.span.line,
-                column=where.expr.span.column,
+                line=where_expr.span.line,
+                column=where_expr.span.column,
             )
+            if rewritten is not None:
+                row_expr_filters.append(rewritten)
     for predicate in where.predicates:
         if isinstance(predicate, WherePatternPredicate):
             raise _unsupported(
@@ -7787,7 +8236,7 @@ def _apply_where_to_ops(
             right=cast(Optional[CypherLiteral], predicate.right),
             params=params,
         )
-    return where_out
+    return where_out, row_expr_filters
 
 
 def _compile_connected_optional_match(
@@ -7806,10 +8255,24 @@ def _compile_connected_optional_match(
     base_ops = lower_match_clause(base_clause, params=params)
     base_alias_targets = _alias_target(base_ops)
     base_aliases = _match_clause_aliases(base_clause)
-    base_where = _apply_where_to_ops(base_clause.where, base_alias_targets, params=params)
-    base_chain = Chain(base_ops, where=base_where)
+    base_where, base_row_expr_filters = _apply_where_to_ops(base_clause.where, base_alias_targets, params=params)
+    base_chain_ops: List[ASTObject] = list(base_ops)
+    for expr in base_row_expr_filters:
+        base_chain_ops.append(
+            where_rows(
+                expr=_row_expr_arg(
+                    expr,
+                    params=params,
+                    alias_targets={},
+                    field="where",
+                )
+            )
+        )
+    base_chain = Chain(base_chain_ops, where=base_where)
 
     arms: List[_OptionalMatchArm] = []
+    optional_components: List[ConnectedComponent] = []
+    optional_arms_meta: List[OptionalArm] = []
     all_known_aliases = set(base_aliases)
     combined_alias_targets: Dict[str, ASTObject] = dict(base_alias_targets)
 
@@ -7843,12 +8306,41 @@ def _compile_connected_optional_match(
                 column=opt_clause.span.column,
             )
 
-        opt_where = _apply_where_to_ops(opt_clause.where, opt_alias_targets, params=params)
+        opt_where, opt_row_expr_filters = _apply_where_to_ops(
+            opt_clause.where,
+            opt_alias_targets,
+            params=params,
+        )
+        opt_chain_ops: List[ASTObject] = list(opt_ops)
+        for expr in opt_row_expr_filters:
+            opt_chain_ops.append(
+                where_rows(
+                    expr=_row_expr_arg(
+                        expr,
+                        params=params,
+                        alias_targets={},
+                        field="where",
+                    )
+                )
+            )
         arms.append(_OptionalMatchArm(
-            chain=Chain(opt_ops, where=opt_where),
+            chain=Chain(opt_chain_ops, where=opt_where),
             shared_node_aliases=tuple(shared_node_aliases),
             opt_only_aliases=tuple(sorted(opt_only_aliases)),
         ))
+        optional_components.append(
+            _connected_component_from_pattern(
+                _match_pattern_elements(opt_clause),
+                entry_points=shared_node_aliases,
+            )
+        )
+        optional_arms_meta.append(
+            OptionalArm(
+                arm_id=f"optional_arm_{len(optional_arms_meta) + 1}",
+                join_aliases=frozenset(shared_node_aliases),
+                nullable_aliases=frozenset(opt_only_aliases),
+            )
+        )
 
         all_known_aliases.update(opt_aliases)
         for alias, target in opt_alias_targets.items():
@@ -7884,14 +8376,86 @@ def _compile_connected_optional_match(
             )
         )
     _append_page_ops(post_join_ops, query=query, params=params)
+    query_graph = QueryGraph(
+        components=[
+            _connected_component_from_pattern(
+                _match_pattern_elements(base_clause),
+                entry_points=(),
+            ),
+            *optional_components,
+        ],
+        boundary_aliases={},
+        optional_arms=optional_arms_meta,
+    )
+    logical_plan = _logical_plan_from_query_graph(query_graph, optional=True)
 
     return CompiledCypherQuery(
         chain=base_chain,
         seed_rows=False,
-        connected_optional_match=ConnectedOptionalMatchPlan(
-            base_chain=base_chain,
-            arms=tuple(arms),
-            post_join_chain=Chain(post_join_ops),
+        execution_extras=_normalize_execution_extras(
+            CompiledCypherExecutionExtras(
+                connected_optional_match=ConnectedOptionalMatchPlan(
+                    base_chain=base_chain,
+                    arms=tuple(arms),
+                    post_join_chain=Chain(post_join_ops),
+                ),
+                query_graph=query_graph,
+                logical_plan=logical_plan,
+            )
+        ),
+    )
+
+
+def _logical_plan_route_for_query(
+    query: CypherQuery,
+    *,
+    bound_ir: BoundIR,
+    params: Optional[Mapping[str, Any]] = None,
+    allow_unknown_match_aliases: bool = False,
+) -> Tuple[Optional[LogicalPlan], Optional[str]]:
+    ctx = PlanContext()
+    if query.call is not None:
+        compiled_call = compile_cypher_call(query.call, params=params)
+        logical_plan = _logical_plan_from_compiled_call(compiled_call)
+        _verify_selected_logical_plan(logical_plan)
+        return logical_plan, None
+    try:
+        logical_plan = LogicalPlanner(
+            allow_unknown_match_aliases=allow_unknown_match_aliases
+        ).plan(bound_ir, ctx)
+    except GFQLValidationError as exc:
+        return None, str(exc.message)
+    _verify_selected_logical_plan(logical_plan)
+    return logical_plan, None
+
+
+def _attach_logical_plan_route(
+    result: CompiledCypherQuery,
+    *,
+    logical_plan: Optional[LogicalPlan],
+    logical_plan_defer_reason: Optional[str],
+) -> CompiledCypherQuery:
+    effective_logical_plan = logical_plan if logical_plan is not None else result.logical_plan
+    if effective_logical_plan is not None:
+        effective_defer_reason = None
+    elif logical_plan_defer_reason is not None:
+        effective_defer_reason = logical_plan_defer_reason
+    else:
+        effective_defer_reason = result.logical_plan_defer_reason
+    return replace(
+        result,
+        execution_extras=_execution_extras_with(
+            result,
+            connected_optional_match=result.connected_optional_match,
+            connected_match_join=result.connected_match_join,
+            query_graph=result.query_graph,
+            start_nodes_query=result.start_nodes_query,
+            optional_reentry=result.optional_reentry,
+            scalar_reentry_alias=result.scalar_reentry_alias,
+            scalar_reentry_columns=result.scalar_reentry_columns,
+            scope_stack=result.scope_stack,
+            logical_plan=effective_logical_plan,
+            logical_plan_defer_reason=effective_defer_reason,
         ),
     )
 
@@ -7914,6 +8478,8 @@ def compile_cypher_query(
             chain=compiled_constructor.chain,
             procedure_call=compiled_constructor.procedure_call,
             use_ref=use_ref,
+            logical_plan=compiled_constructor.logical_plan,
+            logical_plan_defer_reason=compiled_constructor.logical_plan_defer_reason,
         )
     if isinstance(query, CypherUnionQuery):
         branch_output_names: Optional[Tuple[str, ...]] = None
@@ -7952,11 +8518,37 @@ def compile_cypher_query(
         compiled_bindings = _compile_graph_bindings(_graph_bindings, params=params)
     else:
         compiled_bindings = ()
+    logical_plan: Optional[LogicalPlan] = None
+    logical_plan_defer_reason: Optional[str] = None
+    _bound_scope_stack: Tuple[ScopeFrame, ...] = ()
 
     def _attach_graph_context(result: CompiledCypherQuery) -> CompiledCypherQuery:
+        out = result
         if not compiled_bindings and _use_ref is None:
-            return result
-        return replace(result, graph_bindings=compiled_bindings, use_ref=_use_ref)
+            out = result
+        else:
+            out = replace(result, graph_bindings=compiled_bindings, use_ref=_use_ref)
+        out = replace(
+            out,
+            execution_extras=_execution_extras_with(
+                out,
+                connected_optional_match=out.connected_optional_match,
+                connected_match_join=out.connected_match_join,
+                query_graph=out.query_graph,
+                start_nodes_query=out.start_nodes_query,
+                optional_reentry=out.optional_reentry,
+                scalar_reentry_alias=out.scalar_reentry_alias,
+                scalar_reentry_columns=out.scalar_reentry_columns,
+                scope_stack=_bound_scope_stack,
+                logical_plan=out.logical_plan,
+                logical_plan_defer_reason=out.logical_plan_defer_reason,
+            ),
+        )
+        return _attach_logical_plan_route(
+            out,
+            logical_plan=logical_plan,
+            logical_plan_defer_reason=logical_plan_defer_reason,
+        )
 
     normalizer = ASTNormalizer()
     query = normalizer.rewrite_shortest_path(query)
@@ -7967,10 +8559,16 @@ def compile_cypher_query(
     # Re-bind after normalization so scope and semantic metadata reflect the
     # lowered query shape consumed by downstream lowering decisions.
     bound_ir = FrontendBinder().bind(query, PlanContext())
+    _bound_scope_stack = tuple(bound_ir.scope_stack)
     bound_context = _build_bound_lowering_context(bound_ir=bound_ir, params=params)
     params = bound_context.params
     _reject_unsupported_where_expr_forms(query)
     _reject_nonterminal_variable_length_relationship_patterns(query)
+    logical_plan, logical_plan_defer_reason = _logical_plan_route_for_query(
+        query,
+        bound_ir=bound_ir,
+        params=params,
+    )
     if query.reentry_matches:
         return _attach_graph_context(_compile_bounded_reentry_query(query, params=params))
     if query.call is not None:
@@ -8090,8 +8688,12 @@ def compile_cypher_query(
         return _attach_graph_context(CompiledCypherQuery(
             Chain(row_steps if binding_row_aliases else lowered.query + row_steps, where=lowered.where),
             seed_rows=scope.seed_rows,
-            result_projection=result_projection,
-            empty_result_row=empty_result_row,
+            post_processing=_normalize_post_processing(
+                CompiledCypherPostProcessing(
+                    result_projection=result_projection,
+                    empty_result_row=empty_result_row,
+                )
+            ),
         ))
 
     if merged_match is not None and not query.unwinds:
@@ -8226,10 +8828,14 @@ def compile_cypher_query(
                     where=lowered.where,
                 ),
                 seed_rows=False,
-                result_projection=_result_projection_plan(plan, alias_targets=alias_targets),
-                empty_result_row=empty_result_row,
-                optional_null_fill=optional_null_fill,
-                optional_projection_row_guard=optional_projection_row_guard,
+                post_processing=_normalize_post_processing(
+                    CompiledCypherPostProcessing(
+                        result_projection=_result_projection_plan(plan, alias_targets=alias_targets),
+                        empty_result_row=empty_result_row,
+                        optional_null_fill=optional_null_fill,
+                        optional_projection_row_guard=optional_projection_row_guard,
+                    )
+                ),
             ))
 
     alias_targets = _alias_target(lowered.query)

@@ -17,7 +17,7 @@ from graphistry.otel import otel_traced, otel_detail_enabled
 from .filter_by_dict import filter_by_dict
 from graphistry.Engine import safe_merge
 from .typing import DataFrameT, DomainT
-from .dataframe_utils import column_frame, column_values
+from .dataframe_utils import column_frame, column_values, dbg_df
 from .util import generate_safe_column_name
 
 
@@ -105,13 +105,18 @@ def hop(self: Plottable,
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
 
+    # Resolve engine from original data BEFORE coercion, then coerce input formats to that engine.
+    # This preserves GPU mode: cuDF input with engine=AUTO resolves to CUDF and stays cuDF.
+    # Calling _coerce_to_pandas unconditionally would be wrong for GPU mode.
+    engine_concrete = resolve_engine(engine, self)
+    from graphistry.compute.ComputeMixin import _coerce_input_formats  # lazy — avoids circular import
+    self = _coerce_input_formats(self, engine_concrete)
+
     def _combine_first_no_warn(target, fill):
         """Avoid pandas concat warning when combine_first sees empty inputs."""
         if target is None or len(target) == 0:
             return target
         return target.where(target.notna(), fill)
-
-    engine_concrete = resolve_engine(engine, self)
     if not TYPE_CHECKING:
         DataFrameT = df_cons(engine_concrete)
     concat = df_concat(engine_concrete)
@@ -194,7 +199,7 @@ def hop(self: Plottable,
         destination_node_match = None
 
     g2 = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
-    logger.debug('materialized node/eddge types: %s, %s', type(g2._nodes), type(g2._edges))
+    logger.debug('materialized node/edge types: %s, %s', type(g2._nodes), type(g2._edges))
 
     if g2._node is None:
         raise ValueError('Node binding cannot be None, please set g._node via bind() or nodes()')
@@ -327,10 +332,10 @@ def hop(self: Plottable,
 
     if debugging_hop and logger.isEnabledFor(logging.DEBUG):
         logger.debug('~~~~~~~~~~ LOOP PRE ~~~~~~~~~~~')
-        logger.debug('starting_nodes:\n%s', starting_nodes)
-        logger.debug('g2._nodes:\n%s', g2._nodes)
-        logger.debug('g2._edges:\n%s', g2._edges)
-        logger.debug('edges_indexed:\n%s', edges_indexed)
+        logger.debug('starting_nodes: %s', dbg_df(starting_nodes))
+        logger.debug('g2._nodes: %s', dbg_df(g2._nodes))
+        logger.debug('g2._edges: %s', dbg_df(g2._edges))
+        logger.debug('edges_indexed: %s', dbg_df(edges_indexed))
         logger.debug('=====================')
 
     # Fast path: no hop tracking, no predicates, no target_wave_front.
@@ -476,17 +481,17 @@ def hop(self: Plottable,
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
             logger.debug('~~~~~~~~~~ LOOP STEP BEGIN ~~~~~~~~~~~')
             logger.debug('current_hop: %s', current_hop)
-            logger.debug('wave_front:\n%s', wave_front)
-            logger.debug('matches_nodes:\n%s', matches_nodes)
-            logger.debug('matches_edges:\n%s', matches_edges)
+            logger.debug('wave_front: %s', dbg_df(wave_front))
+            logger.debug('matches_nodes: %s', dbg_df(matches_nodes))
+            logger.debug('matches_edges: %s', dbg_df(matches_edges))
             logger.debug('first_iter: %s', first_iter)
             logger.debug('source_node_match: %s', source_node_match)
-            logger.debug('starting_nodes:\n%s', starting_nodes)
-            logger.debug('self._nodes:\n%s', self._nodes)
-            logger.debug('wave_front:\n%s', wave_front)
+            logger.debug('starting_nodes: %s', dbg_df(starting_nodes))
+            logger.debug('self._nodes: %s', dbg_df(self._nodes))
+            logger.debug('wave_front: %s', dbg_df(wave_front))
             logger.debug(
-                'wave_front_base:\n%s',
-                starting_nodes[[node_col]] if first_iter else wave_front,
+                'wave_front_base: %s',
+                dbg_df(starting_nodes[[node_col]] if first_iter else wave_front),
             )
 
         assert len(wave_front.columns) == 1, "just indexes"
@@ -499,13 +504,13 @@ def hop(self: Plottable,
 
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
             logger.debug('~~~~~~~~~~ LOOP STEP CONTINUE ~~~~~~~~~~~')
-            logger.debug('wave_front_iter:\n%s', wave_front_iter)
+            logger.debug('wave_front_iter: %s', dbg_df(wave_front_iter))
             
         wavefront_ids = wave_front_iter[node_col].unique()
         hop_edges = pairs[pairs[FROM_COL].isin(wavefront_ids)]
 
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
-            logger.debug('hop_edges basic:\n%s', hop_edges)
+            logger.debug('hop_edges basic: %s', dbg_df(hop_edges))
 
         if allowed_target_intermediate is not None:
             has_more_hops_planned = to_fixed_point or resolved_max_hops is None or current_hop < resolved_max_hops
@@ -513,7 +518,7 @@ def hop(self: Plottable,
             if target_ids is not None:
                 hop_edges = hop_edges[hop_edges[TO_COL].isin(target_ids)]
             if debugging_hop and logger.isEnabledFor(logging.DEBUG):
-                logger.debug('hop_edges filtered by target_wave_front:\n%s', hop_edges)
+                logger.debug('hop_edges filtered by target_wave_front: %s', dbg_df(hop_edges))
 
         new_node_ids = hop_edges[[TO_COL]].rename(columns={TO_COL: node_col}).drop_duplicates()
 
@@ -521,8 +526,8 @@ def hop(self: Plottable,
             new_node_ids = new_node_ids[new_node_ids[node_col].isin(allowed_dest_series)]
             hop_edges = hop_edges[hop_edges[TO_COL].isin(allowed_dest_series)]
             if debugging_hop and logger.isEnabledFor(logging.DEBUG):
-                logger.debug('new_node_ids after precomputed filtering:\n%s', new_node_ids)
-                logger.debug('hop_edges filtered by precomputed nodes:\n%s', hop_edges)
+                logger.debug('new_node_ids after precomputed filtering: %s', dbg_df(new_node_ids))
+                logger.debug('hop_edges filtered by precomputed nodes: %s', dbg_df(hop_edges))
 
         matches_edges = concat(
             [matches_edges, hop_edges[[EDGE_ID]]],
@@ -585,10 +590,10 @@ def hop(self: Plottable,
 
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
             logger.debug('~~~~~~~~~~ LOOP STEP MERGES 1 ~~~~~~~~~~~')
-            logger.debug('matches_edges:\n%s', matches_edges)
-            logger.debug('matches_nodes:\n%s', matches_nodes)
-            logger.debug('new_node_ids:\n%s', new_node_ids)
-            logger.debug('hop_edges:\n%s', hop_edges)
+            logger.debug('matches_edges: %s', dbg_df(matches_edges))
+            logger.debug('matches_nodes: %s', dbg_df(matches_nodes))
+            logger.debug('new_node_ids: %s', dbg_df(new_node_ids))
+            logger.debug('hop_edges: %s', dbg_df(hop_edges))
 
         if matches_nodes is None:  # first iteration
             if return_as_wave_front:
@@ -600,7 +605,7 @@ def hop(self: Plottable,
 
             if debugging_hop and logger.isEnabledFor(logging.DEBUG):
                 logger.debug('~~~~~~~~~~ LOOP STEP MERGES 2 ~~~~~~~~~~~')
-                logger.debug('matches_edges:\n%s', matches_edges)
+                logger.debug('matches_edges: %s', dbg_df(matches_edges))
 
         if len(matches_nodes) > 0:
             combined_node_ids = concat(
@@ -619,17 +624,17 @@ def hop(self: Plottable,
 
         if debugging_hop and logger.isEnabledFor(logging.DEBUG):
             logger.debug('~~~~~~~~~~ LOOP STEP POST ~~~~~~~~~~~')
-            logger.debug('matches_nodes:\n%s', matches_nodes)
-            logger.debug('wave_front:\n%s', wave_front)
-            logger.debug('matches_nodes:\n%s', matches_nodes)
+            logger.debug('matches_nodes: %s', dbg_df(matches_nodes))
+            logger.debug('wave_front: %s', dbg_df(wave_front))
+            logger.debug('matches_nodes: %s', dbg_df(matches_nodes))
 
     if debugging_hop and logger.isEnabledFor(logging.DEBUG):
         logger.debug('~~~~~~~~~~ LOOP END POST ~~~~~~~~~~~')
-        logger.debug('matches_nodes:\n%s', matches_nodes)
-        logger.debug('matches_edges:\n%s', matches_edges)
-        logger.debug('nodes (self):\n%s', self._nodes)
-        logger.debug('nodes (init):\n%s', nodes)
-        logger.debug('target_wave_front:\n%s', target_wave_front)
+        logger.debug('matches_nodes: %s', dbg_df(matches_nodes))
+        logger.debug('matches_edges: %s', dbg_df(matches_edges))
+        logger.debug('nodes (self): %s', dbg_df(self._nodes))
+        logger.debug('nodes (init): %s', dbg_df(nodes))
+        logger.debug('target_wave_front: %s', dbg_df(target_wave_front))
 
     if resolved_min_hops is not None and max_reached_hop < resolved_min_hops:
         matches_nodes = starting_nodes[[node_col]][:0]
@@ -811,15 +816,17 @@ def hop(self: Plottable,
         return loop_nodes | {node_id for node_id in degrees if node_id not in removed}
 
     if self._nodes is not None:
-        logger.debug('~~~~~~~~~~ NODES HYDRATION ~~~~~~~~~~~')
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug('~~~~~~~~~~ NODES HYDRATION ~~~~~~~~~~~')
         rich_nodes = self._nodes
         if target_wave_front is not None:
             rich_nodes = concat([rich_nodes, target_wave_front], ignore_index=True, sort=False).drop_duplicates(subset=[node_col])
-        logger.debug('rich_nodes available for inner merge:\n%s', rich_nodes[[self._node]])
-        logger.debug('target_wave_front:\n%s', target_wave_front)
-        logger.debug('matches_nodes:\n%s', matches_nodes)
-        logger.debug('wave_front:\n%s', wave_front)
-        logger.debug('self._nodes:\n%s', self._nodes)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug('rich_nodes available for inner merge: %s', dbg_df(rich_nodes))
+            logger.debug('target_wave_front: %s', dbg_df(target_wave_front))
+            logger.debug('matches_nodes: %s', dbg_df(matches_nodes))
+            logger.debug('wave_front: %s', dbg_df(wave_front))
+            logger.debug('self._nodes: %s', dbg_df(self._nodes))
 
         base_nodes = matches_nodes if matches_nodes is not None else wave_front[:0]
 
@@ -1036,8 +1043,8 @@ def hop(self: Plottable,
 
     if debugging_hop and logger.isEnabledFor(logging.DEBUG):
         logger.debug('~~~~~~~~~~ HOP OUTPUT ~~~~~~~~~~~')
-        logger.debug('nodes:\n%s', g_out._nodes)
-        logger.debug('edges:\n%s', g_out._edges)
+        logger.debug('nodes: %s', dbg_df(g_out._nodes))
+        logger.debug('edges: %s', dbg_df(g_out._edges))
         logger.debug('======== /HOP =============')
         logger.debug('==========================')
 

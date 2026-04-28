@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from graphistry.compute.chain import Chain
 
 from graphistry.Engine import Engine, EngineAbstract
+from graphistry.compute.dataframe_utils import dbg_df
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ASTSerializable import ASTSerializable
@@ -242,7 +243,7 @@ class ASTNode(ASTObject):
             out_g = out_g.nodes(out_g._nodes.assign(**{self._name: True}))
 
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug('CALL NODE %s ====>\nnodes:\n%s\nedges:\n%s\n', self, out_g._nodes, out_g._edges)
+            logger.debug('CALL NODE %s ===> nodes:%s edges:%s', self, dbg_df(out_g._nodes), dbg_df(out_g._edges))
             logger.debug('----------------------------------------')
 
         return out_g
@@ -591,10 +592,10 @@ class ASTEdge(ASTObject):
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug('----------------------------------------')
             logger.debug('@CALL EDGE START {%s} ===>\n', self)
-            logger.debug('prev_node_wavefront:\n%s\n', prev_node_wavefront)
-            logger.debug('target_wave_front:\n%s\n', target_wave_front)
-            logger.debug('g._nodes:\n%s\n', g._nodes)
-            logger.debug('g._edges:\n%s\n', g._edges)
+            logger.debug('prev_node_wavefront: %s', dbg_df(prev_node_wavefront))
+            logger.debug('target_wave_front: %s', dbg_df(target_wave_front))
+            logger.debug('g._nodes: %s', dbg_df(g._nodes))
+            logger.debug('g._edges: %s', dbg_df(g._edges))
             logger.debug('----------------------------------------')
 
         wants_output_slice = self.output_min_hops is not None or self.output_max_hops is not None
@@ -633,7 +634,8 @@ class ASTEdge(ASTObject):
             target_wave_front=target_wave_front,
             source_node_query=self.source_node_query,
             destination_node_query=self.destination_node_query,
-            edge_query=self.edge_query
+            edge_query=self.edge_query,
+            engine=engine.value,
         )
 
         if self.prune_to_endpoints and out_g._nodes is not None and out_g._edges is not None and len(out_g._edges) > 0:
@@ -679,7 +681,7 @@ class ASTEdge(ASTObject):
             out_g = out_g.edges(out_g._edges.assign(**{self._name: True}))
 
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug('/CALL EDGE END {%s} ===>\nnodes:\n%s\nedges:\n%s\n', self, out_g._nodes, out_g._edges)
+            logger.debug('/CALL EDGE END {%s} ===> nodes:%s edges:%s', self, dbg_df(out_g._nodes), dbg_df(out_g._edges))
             logger.debug('----------------------------------------')
 
         return out_g
@@ -1586,6 +1588,60 @@ def from_json(o: JSONVal, validate: bool = True) -> Union[ASTNode, ASTEdge, ASTL
             suggestion="Use 'Node', 'Edge', 'Let', 'RemoteGraph', 'Ref', or 'Call'",
         )
     return out
+
+
+def normalize_gfql_to_wire(expr: Any) -> List[Dict[str, JSONVal]]:
+    """
+    Normalize GFQL expression to wire format (list of JSON-serializable dicts).
+
+    Accepts:
+    - Chain object
+    - Single ASTObject
+    - List of ASTObjects
+    - Dict with 'type': 'Chain' and 'chain' key
+    - Dict with 'type': 'gfql_chain' and 'gfql' key
+    - Dict with just 'chain' or 'gfql' key
+    - Single dict (parsed as AST op)
+
+    Returns:
+    - List of JSON-serializable dicts ready for wire protocol
+
+    Raises:
+    - TypeError: if expr type is not supported
+    - ValueError: if expr is empty
+    - GFQLSyntaxError: if dict cannot be parsed as valid AST
+    """
+    from graphistry.compute.chain import Chain
+
+    def _normalize_op(op: object) -> Dict[str, JSONVal]:
+        if isinstance(op, ASTObject):
+            return op.to_json()
+        if isinstance(op, dict):
+            return from_json(op, validate=True).to_json()
+        raise TypeError("GFQL operations must be AST objects or dictionaries")
+
+    def _normalize_ops(raw: object) -> List[Dict[str, JSONVal]]:
+        if isinstance(raw, Chain):
+            return _normalize_ops(raw.to_json().get("chain", []))
+        if isinstance(raw, ASTObject):
+            return [raw.to_json()]
+        if isinstance(raw, list):
+            if len(raw) == 0:
+                raise ValueError("GFQL operations list cannot be empty")
+            return [_normalize_op(op) for op in raw]
+        if isinstance(raw, dict):
+            if raw.get("type") == "Chain" and "chain" in raw:
+                return _normalize_ops(raw.get("chain"))
+            if raw.get("type") == "gfql_chain" and "gfql" in raw:
+                return _normalize_ops(raw.get("gfql"))
+            if "chain" in raw:
+                return _normalize_ops(raw.get("chain"))
+            if "gfql" in raw:
+                return _normalize_ops(raw.get("gfql"))
+            return [_normalize_op(raw)]
+        raise TypeError("GFQL expr must be Chain, ASTObject, list, or dict")
+
+    return _normalize_ops(expr)
 
 
 ###############################################################################

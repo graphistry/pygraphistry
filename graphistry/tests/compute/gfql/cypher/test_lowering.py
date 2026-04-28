@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import fields as dataclass_fields
 import pandas as pd
 import pytest
 import graphistry
@@ -21,6 +22,12 @@ from graphistry.compute.gfql.cypher import (
     parse_cypher,
     WherePatternPredicate,
 )
+from graphistry.compute.gfql.cypher.lowering import CompiledCypherGraphQuery
+from graphistry.compute.gfql.cypher.lowering import _logical_plan_route_for_query
+from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
+from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, SemanticTable
+from graphistry.compute.gfql.ir.compilation import PlanContext
+from graphistry.compute.gfql.ir.logical_plan import CHILD_SLOTS, Filter, PatternMatch, ProcedureCall as LogicalProcedureCall
 from graphistry.tests.test_compute import CGFull
 
 
@@ -47,6 +54,15 @@ def _mk_cudf_graph(nodes_df: pd.DataFrame, edges_df: pd.DataFrame) -> _CypherTes
         _CypherTestGraph,
         _CypherTestGraph().nodes(cudf.from_pandas(nodes_df), "id").edges(cudf.from_pandas(edges_df), "s", "d"),
     )
+
+
+def _require_cudf_runtime() -> Any:
+    cudf = pytest.importorskip("cudf")
+    try:
+        _ = cudf.Series([1, 2, 3])
+    except Exception as exc:  # pragma: no cover - environment-dependent
+        pytest.skip(f"cudf installed but runtime is unavailable: {exc}")
+    return cudf
 
 
 def _mk_simple_path_graph() -> _CypherTestGraph:
@@ -714,6 +730,209 @@ def _parse_query(query: str) -> CypherQuery:
 
 def _compile_query(query: str) -> CompiledCypherQuery:
     return cast(CompiledCypherQuery, compile_cypher(query))
+
+
+def test_compiled_query_escape_hatches_are_grouped() -> None:
+    field_names = {f.name for f in dataclass_fields(CompiledCypherQuery)}
+    assert "post_processing" in field_names
+    assert "execution_extras" in field_names
+    assert "result_projection" not in field_names
+    assert "empty_result_row" not in field_names
+    assert "connected_match_join" not in field_names
+    assert "connected_optional_match" not in field_names
+
+
+def test_compiled_query_sets_logical_plan_route_for_covered_shape() -> None:
+    compiled = _compile_query("MATCH (n:Person) RETURN n")
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
+
+
+def test_compiled_query_threads_bound_scope_stack_for_runtime_passes() -> None:
+    compiled = _compile_query("MATCH (n:Person) RETURN n")
+    assert compiled.scope_stack
+    assert compiled.scope_stack[0].origin_clause.upper() == "MATCH"
+    assert compiled.scope_stack[-1].origin_clause.upper() == "RETURN"
+    assert "n" in compiled.scope_stack[-1].visible_vars
+
+
+def test_compiled_query_sets_logical_plan_route_for_match_scalar_return_shape() -> None:
+    compiled = _compile_query("MATCH (n:Person) RETURN 1 AS x")
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
+
+
+def test_compiled_query_sets_logical_plan_defer_reason_for_optional_shape() -> None:
+    compiled = _compile_query("OPTIONAL MATCH (n:Person) RETURN n")
+    assert compiled.logical_plan_route == "deferred"
+    assert compiled.logical_plan is None
+    assert compiled.logical_plan_defer_reason is not None
+    assert "OPTIONAL MATCH" in compiled.logical_plan_defer_reason
+
+
+def test_logical_plan_route_for_query_defers_unknown_alias_match_shape_by_default() -> None:
+    query = _parse_query("MATCH (n:Person) RETURN n")
+    bound_ir = BoundIR(
+        query_parts=[
+            BoundQueryPart(clause="MATCH", outputs=frozenset({"ghost"})),
+            BoundQueryPart(clause="RETURN", outputs=frozenset({"ghost"})),
+        ],
+        semantic_table=SemanticTable(variables={}),
+    )
+    logical_plan, defer_reason = _logical_plan_route_for_query(query, bound_ir=bound_ir)
+    assert logical_plan is None
+    assert defer_reason is not None
+    assert "present in semantic scope" in defer_reason
+
+
+def test_logical_plan_route_for_query_allows_unknown_alias_match_shape_when_opted_in() -> None:
+    query = _parse_query("MATCH (n:Person) RETURN n")
+    bound_ir = BoundIR(
+        query_parts=[
+            BoundQueryPart(clause="MATCH", outputs=frozenset({"ghost"})),
+            BoundQueryPart(clause="RETURN", outputs=frozenset({"ghost"})),
+        ],
+        semantic_table=SemanticTable(variables={}),
+    )
+    logical_plan, defer_reason = _logical_plan_route_for_query(
+        query, bound_ir=bound_ir, allow_unknown_match_aliases=True
+    )
+    assert logical_plan is not None
+    assert defer_reason is None
+
+
+def test_logical_plan_route_for_query_emits_filter_for_where_predicate() -> None:
+    # Compilation emits a Filter node for the WHERE clause; predicate pushdown into
+    # PatternMatch.predicates happens later in the runtime pass pipeline (gfql_unified.py).
+    query = _parse_query("MATCH (a)-[r]->(b) WHERE r.weight > 5 RETURN b")
+    bound_ir = FrontendBinder().bind(query, PlanContext())
+
+    logical_plan, defer_reason = _logical_plan_route_for_query(query, bound_ir=bound_ir)
+
+    assert logical_plan is not None
+    assert defer_reason is None
+
+    def _walk(node):  # noqa: ANN001, ANN202
+        yield node
+        for slot in CHILD_SLOTS:
+            child = getattr(node, slot, None)
+            if child is not None:
+                yield from _walk(child)
+
+    nodes = list(_walk(logical_plan))
+    # Predicate is in a Filter node — not yet pushed into PatternMatch
+    assert any(isinstance(node, Filter) and "alias='r'" in node.predicate.expression for node in nodes)
+    pattern_nodes = [node for node in nodes if isinstance(node, PatternMatch)]
+    assert pattern_nodes
+    assert not any("alias='r'" in pred.expression for pred in pattern_nodes[0].predicates)
+
+
+def test_compiled_query_sets_logical_plan_route_for_call_shape() -> None:
+    compiled = _compile_query("CALL graphistry.degree()")
+    assert compiled.procedure_call is not None
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert isinstance(compiled.logical_plan, LogicalProcedureCall)
+    assert compiled.logical_plan.procedure == "graphistry.degree"
+    assert compiled.logical_plan.result_kind == "rows"
+    assert compiled.logical_plan_defer_reason is None
+
+
+def test_compiled_query_sets_logical_plan_route_for_reentry_shape() -> None:
+    compiled = _compile_query("MATCH (a:A) WITH a MATCH (a) RETURN a")
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
+
+
+def test_compiled_query_sets_logical_plan_route_for_reentry_multihop_shape() -> None:
+    compiled = _compile_query("MATCH (a:A) WITH a MATCH (a)-->(b) RETURN b")
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
+
+
+def test_compiled_query_sets_logical_plan_route_for_edge_projection_shape() -> None:
+    compiled = _compile_query("MATCH (a)-[r]->(b) RETURN r")
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
+
+
+def test_compiled_query_sets_logical_plan_route_for_reentry_edge_projection_shape() -> None:
+    compiled = _compile_query("MATCH (a:A) WITH a MATCH (a)-[r]->(b) RETURN r")
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
+
+
+def test_compiled_query_sets_logical_plan_route_for_row_sequence_shape() -> None:
+    compiled = _compile_query("UNWIND [1,2] AS n RETURN n")
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
+
+
+def test_compiled_query_sets_logical_plan_route_for_with_only_row_sequence_shape() -> None:
+    compiled = _compile_query("WITH 1 AS n RETURN n")
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
+
+
+def test_compiled_query_sets_logical_plan_defer_reason_for_optional_reentry_shape() -> None:
+    compiled = _compile_query("MATCH (a:A) WITH a OPTIONAL MATCH (a)-->(b) RETURN b")
+    assert compiled.logical_plan_route == "deferred"
+    assert compiled.logical_plan is None
+    assert compiled.logical_plan_defer_reason is not None
+    assert "OPTIONAL MATCH" in compiled.logical_plan_defer_reason
+
+
+def test_connected_optional_query_sets_query_graph_and_logical_plan() -> None:
+    compiled = _compile_query("MATCH (a)-[:A]->(b) OPTIONAL MATCH (b)-[:B]->(c) RETURN c")
+    assert compiled.connected_optional_match is not None
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.query_graph is not None
+    assert len(compiled.query_graph.components) == 2
+    assert len(compiled.query_graph.optional_arms) == 1
+
+
+def test_compile_graph_query_sets_logical_plan_route_for_call_constructor() -> None:
+    compiled = compile_cypher("GRAPH { CALL graphistry.degree.write() }")
+    assert isinstance(compiled, CompiledCypherGraphQuery)
+    assert compiled.procedure_call is not None
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert isinstance(compiled.logical_plan, LogicalProcedureCall)
+    assert compiled.logical_plan.procedure == "graphistry.degree.write"
+    assert compiled.logical_plan.result_kind == "graph"
+    assert compiled.logical_plan_defer_reason is None
+
+
+def test_compile_query_sets_logical_plan_route_for_graph_binding_call_constructor() -> None:
+    compiled = _compile_query(
+        "GRAPH g1 = GRAPH { CALL graphistry.degree.write() } "
+        "USE g1 MATCH (n) RETURN n.id AS id ORDER BY id"
+    )
+    assert len(compiled.graph_bindings) == 1
+    binding = compiled.graph_bindings[0]
+    assert binding.procedure_call is not None
+    assert binding.logical_plan_route == "planned"
+    assert binding.logical_plan is not None
+    assert isinstance(binding.logical_plan, LogicalProcedureCall)
+    assert binding.logical_plan.procedure == "graphistry.degree.write"
+    assert binding.logical_plan.result_kind == "graph"
+
+
+def test_compile_graph_query_sets_logical_plan_route_for_match_constructor_shape() -> None:
+    compiled = compile_cypher("GRAPH { MATCH (a)-[r]->(b) WHERE a.id = 'a' }")
+    assert isinstance(compiled, CompiledCypherGraphQuery)
+    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
 
 
 def test_lower_match_clause_to_gfql_ops() -> None:
@@ -2892,6 +3111,372 @@ def test_string_cypher_supports_bare_label_predicate_in_with_where() -> None:
     result = graph.gfql("MATCH (:Root {name: 'x'})-->(i:TextNode) WITH i WHERE i.var > 'te' AND i:TextNode RETURN i")
 
     assert result._nodes.to_dict(orient="records") == [{"i": "(:TextNode {var: 'tf'})"}]
+
+
+# OR/NOT WHERE shapes — Earley admits them where LALR rejected.  Pandas
+# 3-valued NaN semantics: NaN comparisons → NaN (falsy), NaN under NOT →
+# NaN (still filtered).  Tests lock that behavior.
+
+
+def _or_where_graph() -> "_CypherTestGraph":
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "label__A": [True, False, False],
+                "label__B": [False, True, False],
+                "label__C": [False, False, True],
+                "p1": [12.0, float("nan"), float("nan")],
+                "p2": [float("nan"), 13.0, float("nan")],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+
+def test_string_cypher_executes_disjunctive_property_predicate_returns_union() -> None:
+    result = _or_where_graph().gfql("MATCH (n) WHERE n.p1 = 12 OR n.p2 = 13 RETURN n")
+
+    rendered = sorted(row["n"] for row in result._nodes.to_dict(orient="records"))
+    assert rendered == ["(:A {p1: 12})", "(:B {p2: 13})"]
+
+
+def test_string_cypher_executes_disjunctive_same_alias_property_predicate() -> None:
+    result = _or_where_graph().gfql("MATCH (n) WHERE n.p1 = 12 OR n.p1 = 99 RETURN n")
+
+    rendered = sorted(row["n"] for row in result._nodes.to_dict(orient="records"))
+    assert rendered == ["(:A {p1: 12})"]
+
+
+def test_string_cypher_executes_negation_property_predicate_returns_complement() -> None:
+    result = _or_where_graph().gfql("MATCH (n) WHERE NOT n.p1 = 12 RETURN n")
+
+    rendered = sorted(row["n"] for row in result._nodes.to_dict(orient="records"))
+    assert rendered == []
+
+
+def test_string_cypher_executes_disjunctive_then_conjunction() -> None:
+    result = _or_where_graph().gfql(
+        "MATCH (n) WHERE (n.p1 = 12 OR n.p2 = 13) AND n.id = 'a' RETURN n"
+    )
+
+    rendered = [row["n"] for row in result._nodes.to_dict(orient="records")]
+    assert rendered == ["(:A {p1: 12})"]
+
+
+def test_string_cypher_executes_disjunction_returns_correct_count_with_more_rows() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["x1", "x2", "y1", "y2", "z", "w"],
+                "p1": [1.0, 1.0, float("nan"), float("nan"), 1.0, float("nan")],
+                "p2": [float("nan"), float("nan"), 2.0, 2.0, 2.0, float("nan")],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n) WHERE n.p1 = 1 OR n.p2 = 2 RETURN n.id AS id")
+
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["x1", "x2", "y1", "y2", "z"]
+
+
+# Compositional row-boolean shapes that Earley admits (LALR rejected).
+# Locked behavior — see #1219 for the broader unverified-cases ledger.
+
+
+def test_string_cypher_executes_cross_alias_or_returns_correct_union() -> None:
+    # Cross-alias OR with 2x2 join topology: each a-node connects to
+    # multiple b-nodes (and vice versa) so that "distribute-OR-then-
+    # push-each-disjunct" pushdown variants would produce a different
+    # row set than the correct row-wise post-join evaluation.
+    #
+    # Topology:
+    #   a1 (x=1) -> b1 (y=99), b2 (y=2)
+    #   a2 (x=99)-> b1 (y=99), b2 (y=2)
+    #   a3 (x=99)-> b3 (y=99)  ← neither branch holds; must be excluded
+    #
+    # Correct row-wise OR evaluates 5 joined rows, keeps where (a.x=1
+    # OR b.y=2) — that's (a1,b1), (a1,b2), (a2,b2).  Excludes (a2,b1)
+    # and (a3,b3).  Wrong-pushdown variants:
+    #   * push a.x=1 only: rows (a1,b1), (a1,b2) — 2 rows, missing (a2,b2)
+    #   * push b.y=2 only: rows (a1,b2), (a2,b2) — 2 rows, missing (a1,b1)
+    #   * push as AND: rows (a1,b2) — 1 row
+    #   * distribute-OR pushdown (union of both branches pre-join):
+    #     {(a1,b1),(a1,b2)} ∪ {(a1,b2),(a2,b2)} = same 3 rows BUT only
+    #     because a-side dropping a2/a3 still produces (a2,b2) via the
+    #     b-branch — confirms distribute-OR converges to correct answer
+    #     here, which is the underlying OR-distributivity-over-join
+    #     property (correct).
+    nodes = pd.DataFrame({
+        "id":       ["a1", "a2", "a3", "b1", "b2", "b3"],
+        "label__A": [True, True, True, False, False, False],
+        "label__B": [False, False, False, True, True, True],
+        "x":        [1.0, 99.0, 99.0, float("nan"), float("nan"), float("nan")],
+        "y":        [float("nan"), float("nan"), float("nan"), 99.0, 2.0, 99.0],
+    })
+    edges = pd.DataFrame({
+        "s": ["a1", "a1", "a2", "a2", "a3"],
+        "d": ["b1", "b2", "b1", "b2", "b3"],
+    })
+    graph = _mk_graph(nodes, edges)
+
+    result = graph.gfql(
+        "MATCH (a:A)-->(b:B) WHERE a.x = 1 OR b.y = 2 RETURN a.id AS a_id, b.id AS b_id"
+    )
+
+    rows = sorted(
+        (row["a_id"], row["b_id"])
+        for row in result._nodes.to_dict(orient="records")
+    )
+    assert rows == [("a1", "b1"), ("a1", "b2"), ("a2", "b2")]
+
+
+@pytest.mark.parametrize("where_clause", [
+    "",  # no WHERE at all
+    "WHERE b.x = 1",  # simple WHERE
+    "WHERE b.x = 1 OR b IS NULL",  # WHERE with OR (the Earley-admitted shape)
+])
+def test_string_cypher_rejects_optional_match_seed_only_projection(where_clause: str) -> None:
+    # The existing OPTIONAL-MATCH-projection validator gates this shape
+    # regardless of whether/how WHERE is structured.  Locks that the OR
+    # variant doesn't slip past the validator into a silent wrong-rows
+    # path — the gate fires identically across all three WHERE shapes.
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id":       ["a1", "a2", "b1"],
+            "label__A": [True, True, False],
+            "label__B": [False, False, True],
+            "x":        [float("nan"), float("nan"), 1.0],
+        }),
+        pd.DataFrame({"s": ["a1"], "d": ["b1"]}),
+    )
+
+    # Pin the specific substring of the seed-only-projection validator
+    # so the test cannot accidentally pass on a different OPTIONAL-MATCH
+    # error site (the lowering layer has 6+ distinct error messages
+    # mentioning "OPTIONAL MATCH" — they're not interchangeable).
+    with pytest.raises(GFQLValidationError, match="seed alias are not yet supported"):
+        graph.gfql(
+            f"MATCH (a:A) OPTIONAL MATCH (a)-->(b:B) {where_clause} "
+            "RETURN a.id AS a_id, b.id AS b_id"
+        )
+
+
+def test_string_cypher_executes_mixed_type_or_with_null_safe_semantics() -> None:
+    # Mixed-type OR now evaluates row-wise with null-safe comparison
+    # semantics: incomparable rows are non-matching instead of raising.
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3"],
+            "label__N": [True, True, True],
+            "var":      ["text", 0, 5],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n:N) WHERE n.var > 'te' OR n.var > 0 RETURN n.id AS id")
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["n1", "n3"]
+
+
+def test_string_cypher_executes_homogeneous_or_returns_correct_union() -> None:
+    # Sanity check: simple homogeneous-type OR continues to work post-#1217.
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3"],
+            "label__N": [True, True, True],
+            "var":      [1, 5, 10],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n:N) WHERE n.var > 8 OR n.var < 3 RETURN n.id AS id")
+
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["n1", "n3"]
+
+
+@pytest.mark.parametrize(
+    "query,expected_rows",
+    [
+        # TCK-like disjunction baseline (match-where1-10 shape)
+        (
+            "MATCH (n) WHERE n.p1 = 12 OR n.p2 = 13 RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}],
+        ),
+        # Nested boolean mix: OR group narrowed by AND
+        (
+            "MATCH (n) WHERE (n.p1 = 12 OR n.p2 = 13) AND n.id = 'a' RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}],
+        ),
+        # NOT over disjunction; current pandas-null semantics produce empty set
+        (
+            "MATCH (n) WHERE NOT (n.p1 = 12 OR n.p2 = 13) RETURN n.id AS id ORDER BY id",
+            [],
+        ),
+    ],
+    ids=[
+        "tck-match-where1-10-disjunction",
+        "audit-or-then-and-narrowing",
+        "audit-negated-disjunction",
+    ],
+)
+def test_issue_1219_row_boolean_audit_base_match_matrix(query: str, expected_rows: List[Dict[str, Any]]) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "p1": [12.0, float("nan"), float("nan")],
+                "p2": [float("nan"), 13.0, float("nan")],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected_rows
+
+
+def _normalize_nullable_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    normalized: List[Dict[str, Any]] = []
+    for row in rows:
+        out: Dict[str, Any] = {}
+        for key, value in row.items():
+            if value is None:
+                out[key] = None
+            else:
+                # Normalize all scalar null sentinels (np.nan/pd.NA/cudf nulls)
+                # so assertions remain stable across dataframe backends.
+                out[key] = None if pd.isna(value) else value
+        normalized.append(out)
+    return normalized
+
+
+@pytest.mark.parametrize(
+    "query,expected_rows",
+    [
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "WHERE z:Z "
+            "RETURN y.id AS yid, z.id AS zid "
+            "ORDER BY yid",
+            [{"yid": "y1", "zid": "z1"}, {"yid": "y2", "zid": None}],
+        ),
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "WHERE z.id IS NULL "
+            "RETURN y.id AS yid, z.id AS zid "
+            "ORDER BY yid",
+            [{"yid": "y1", "zid": None}, {"yid": "y2", "zid": None}],
+        ),
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "WHERE z.id IS NOT NULL "
+            "RETURN y.id AS yid, z.id AS zid "
+            "ORDER BY yid",
+            [{"yid": "y1", "zid": "z1"}, {"yid": "y2", "zid": None}],
+        ),
+    ],
+    ids=[
+        "tck-match-where6-structured-label-on-optional",
+        "audit-optional-is-null",
+        "audit-optional-is-not-null",
+    ],
+)
+def test_issue_1219_row_boolean_audit_connected_optional_structured_matrix(
+    query: str,
+    expected_rows: List[Dict[str, Any]],
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["s1", "y1", "z1", "s2", "y2"],
+                "label__Z": [False, False, True, False, False],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["s1", "y1", "s2"],
+                "d": ["y1", "z1", "y2"],
+                "type": ["R1", "T", "R1"],
+            }
+        ),
+    )
+
+    rows = graph.gfql(query)._nodes.to_dict(orient="records")
+    assert _normalize_nullable_rows(rows) == expected_rows
+
+
+@pytest.mark.parametrize(
+    "query,expected_rows",
+    [
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "WHERE z:Z OR z.id IS NULL "
+            "RETURN y.id AS yid, z.id AS zid "
+            "ORDER BY yid",
+            [{"yid": "y1", "zid": "z1"}, {"yid": "y2", "zid": None}],
+        ),
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "WHERE NOT z:Z "
+            "RETURN y.id AS yid, z.id AS zid "
+            "ORDER BY yid",
+            [{"yid": "y1", "zid": None}, {"yid": "y2", "zid": None}],
+        ),
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "WHERE z:Z XOR z.id IS NULL "
+            "RETURN y.id AS yid, z.id AS zid "
+            "ORDER BY yid",
+            [{"yid": "y1", "zid": "z1"}, {"yid": "y2", "zid": None}],
+        ),
+        (
+            "MATCH (x)-[r1:R1]->(y) "
+            "WHERE y.id = 'y1' OR y.id = 'y2' "
+            "OPTIONAL MATCH (y)-[r2:T]->(z) "
+            "RETURN y.id AS yid, z.id AS zid "
+            "ORDER BY yid",
+            [{"yid": "y1", "zid": "z1"}, {"yid": "y2", "zid": None}],
+        ),
+    ],
+    ids=[
+        "audit-optional-or-row-expr-supported",
+        "audit-optional-not-row-expr-supported",
+        "audit-optional-xor-row-expr-supported",
+        "audit-base-or-row-expr-supported-with-optional-arm",
+    ],
+)
+def test_issue_1219_row_boolean_audit_connected_optional_row_expr_matrix(
+    query: str,
+    expected_rows: List[Dict[str, Any]],
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["s1", "y1", "z1", "s2", "y2"],
+                "label__Z": [False, False, True, False, False],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["s1", "y1", "s2"],
+                "d": ["y1", "z1", "y2"],
+                "type": ["R1", "T", "R1"],
+            }
+        ),
+    )
+
+    rows = graph.gfql(query)._nodes.to_dict(orient="records")
+    assert _normalize_nullable_rows(rows) == expected_rows
 
 
 def test_string_cypher_supports_list_slice_precedence_with_concat() -> None:
@@ -8669,39 +9254,300 @@ def test_gfql_executes_with_where_or_short_circuit_over_mixed_type_compare() -> 
     ]
 
 
-def test_gfql_executes_with_where_null_filter_over_mixed_type_compare_on_cudf() -> None:
-    pytest.importorskip("cudf")
-
+def test_gfql_executes_with_where_null_filter_over_mixed_type_compare_on_pandas() -> None:
     nodes = pd.DataFrame(
         {
-            "id": ["root", "child1", "child2"],
-            "label__Root": [True, False, False],
-            "label__TextNode": [False, True, False],
-            "label__IntNode": [False, False, True],
-            "name": ["x", None, None],
-            "var": [None, "text", 0],
+            "id": [
+                "root",
+                "child_text",
+                "child_equal",
+                "child_less",
+                "child_int",
+                "child_float",
+                "child_true",
+                "child_false",
+                "child_none",
+                "child_pdna",
+                "child_nan",
+                "child_nat",
+                "child_zz",
+            ],
+            "label__Root": [True] + [False] * 12,
+            "label__Node": [False] + [True] * 12,
+            "name": ["x"] + [None] * 12,
+            "var": [
+                None,
+                "text",
+                "te",
+                "aa",
+                0,
+                1.5,
+                True,
+                False,
+                None,
+                pd.NA,
+                float("nan"),
+                pd.NaT,
+                "zz",
+            ],
         }
     )
     edges = pd.DataFrame(
         {
-            "s": ["root", "root"],
-            "d": ["child1", "child2"],
-            "type": ["T", "T"],
+            "s": ["root"] * 12,
+            "d": [
+                "child_text",
+                "child_equal",
+                "child_less",
+                "child_int",
+                "child_float",
+                "child_true",
+                "child_false",
+                "child_none",
+                "child_pdna",
+                "child_nan",
+                "child_nat",
+                "child_zz",
+            ],
+            "type": ["T"] * 12,
         }
     )
     g = _mk_graph(nodes, edges)
 
     result = g.gfql(
-        "MATCH (:Root {name: 'x'})-->(i:TextNode)\n"
+        "MATCH (:Root {name: 'x'})-->(i)\n"
         "WITH i\n"
         "WHERE i.var > 'te'\n"
-        "RETURN i",
+        "RETURN i.id AS id\n"
+        "ORDER BY id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": "child_text"},
+        {"id": "child_zz"},
+    ]
+
+
+def test_gfql_executes_with_where_null_filter_over_mixed_type_compare_on_cudf() -> None:
+    _require_cudf_runtime()
+
+    nodes = pd.DataFrame(
+        {
+            "id": [
+                "root",
+                "child_text",
+                "child_equal",
+                "child_less",
+                "child_int",
+                "child_float",
+                "child_true",
+                "child_false",
+                "child_none",
+                "child_pdna",
+                "child_nan",
+                "child_nat",
+                "child_zz",
+            ],
+            "label__Root": [True] + [False] * 12,
+            "label__Node": [False] + [True] * 12,
+            "name": ["x"] + [None] * 12,
+            "var": [
+                None,
+                "text",
+                "te",
+                "aa",
+                0,
+                1.5,
+                True,
+                False,
+                None,
+                pd.NA,
+                float("nan"),
+                pd.NaT,
+                "zz",
+            ],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["root"] * 12,
+            "d": [
+                "child_text",
+                "child_equal",
+                "child_less",
+                "child_int",
+                "child_float",
+                "child_true",
+                "child_false",
+                "child_none",
+                "child_pdna",
+                "child_nan",
+                "child_nat",
+                "child_zz",
+            ],
+            "type": ["T"] * 12,
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (:Root {name: 'x'})-->(i)\n"
+        "WITH i\n"
+        "WHERE i.var > 'te'\n"
+        "RETURN i.id AS id\n"
+        "ORDER BY id",
         engine="cudf",
     )
 
     assert result._nodes.to_pandas().to_dict(orient="records") == [
-        {"i": "(:TextNode {var: 'text'})"}
+        {"id": "child_text"},
+        {"id": "child_zz"},
     ]
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+def test_gfql_executes_with_where_is_null_over_mixed_null_sentinels_on_engines(
+    engine: str | None,
+) -> None:
+    if engine == "cudf":
+        _require_cudf_runtime()
+
+    nodes = pd.DataFrame(
+        {
+            "id": [
+                "root",
+                "child_text",
+                "child_int",
+                "child_float",
+                "child_none",
+                "child_pdna",
+                "child_nan",
+                "child_nat",
+            ],
+            "label__Root": [True] + [False] * 7,
+            "label__Node": [False] + [True] * 7,
+            "name": ["x"] + [None] * 7,
+            "var": [None, "text", 1, 1.5, None, pd.NA, float("nan"), pd.NaT],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["root"] * 7,
+            "d": ["child_text", "child_int", "child_float", "child_none", "child_pdna", "child_nan", "child_nat"],
+            "type": ["T"] * 7,
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (:Root {name: 'x'})-->(i)\n"
+        "WITH i\n"
+        "WHERE i.var IS NULL\n"
+        "RETURN i.id AS id\n"
+        "ORDER BY id",
+        **({"engine": engine} if engine is not None else {}),
+    )
+    rows = result._nodes.to_pandas().to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
+    assert rows == [
+        {"id": "child_nan"},
+        {"id": "child_nat"},
+        {"id": "child_none"},
+        {"id": "child_pdna"},
+    ]
+
+
+@pytest.mark.parametrize(
+    "operator,expected_ids",
+    (
+        (">", ["child1"]),
+        (">=", ["child1"]),
+        ("<", ["child3"]),
+        ("<=", ["child3"]),
+    ),
+)
+def test_gfql_executes_with_where_mixed_type_compare_operator_matrix_on_pandas(
+    operator: str,
+    expected_ids: list[str],
+) -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["root", "child1", "child2", "child3", "child4"],
+            "label__Root": [True, False, False, False, False],
+            "label__TextNode": [False, True, False, True, True],
+            "label__IntNode": [False, False, True, False, False],
+            "name": ["x", None, None, None, None],
+            "var": [None, "text", 0, "aa", None],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["root", "root", "root", "root"],
+            "d": ["child1", "child2", "child3", "child4"],
+            "type": ["T", "T", "T", "T"],
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (:Root {name: 'x'})-->(i)\n"
+        "WITH i\n"
+        f"WHERE i.var {operator} 'te'\n"
+        "RETURN i.id AS id\n"
+        "ORDER BY id"
+    )
+    assert result._nodes.to_dict(orient="records") == [{"id": node_id} for node_id in expected_ids]
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+@pytest.mark.parametrize(
+    "where_expr,expected_ids",
+    (
+        ("i.n > '1'", []),
+        ("i.n <= '1'", []),
+        ("i.s > 1", []),
+        ("i.s <= 1", []),
+        ("i.n > 1", ["child1"]),
+        ("i.s > 'te'", ["child1"]),
+    ),
+)
+def test_gfql_executes_with_where_cross_type_comparison_conformance_on_engines(
+    engine: str | None,
+    where_expr: str,
+    expected_ids: list[str],
+) -> None:
+    if engine == "cudf":
+        _require_cudf_runtime()
+
+    nodes = pd.DataFrame(
+        {
+            "id": ["root", "child1", "child2", "child3"],
+            "label__Root": [True, False, False, False],
+            "label__Node": [False, True, True, True],
+            "name": ["x", None, None, None],
+            "n": [None, 2, 0, None],
+            "s": [None, "text", "aa", None],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["root", "root", "root"],
+            "d": ["child1", "child2", "child3"],
+            "type": ["T", "T", "T"],
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (:Root {name: 'x'})-->(i)\n"
+        "WITH i\n"
+        f"WHERE {where_expr}\n"
+        "RETURN i.id AS id\n"
+        "ORDER BY id",
+        **({"engine": engine} if engine is not None else {}),
+    )
+
+    rows = result._nodes.to_pandas().to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
+    assert rows == [{"id": node_id} for node_id in expected_ids]
 
 
 def test_gfql_executes_optional_match_count_distinct_on_empty_graph() -> None:

@@ -8,6 +8,7 @@ from typing import Any, List, Literal, Optional, Protocol, Sequence, Tuple, Type
 
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.cypher.ast import (
+    BooleanExpr,
     CallClause,
     CypherGraphQuery,
     CypherLiteral,
@@ -119,10 +120,7 @@ variable: NAME
 properties: "{" [property_entry ("," property_entry)*] "}"
 property_entry: NAME ":" expr
 
-where_clause: "WHERE"i WHERE_PATTERN "AND"i expr -> where_pattern_and_expr_clause
-            | "WHERE"i expr "AND"i WHERE_PATTERN -> expr_and_where_pattern_clause
-            | "WHERE"i WHERE_PATTERN -> where_pattern_only_clause
-            | "WHERE"i where_predicates
+where_clause: "WHERE"i where_predicates
             | "WHERE"i expr                -> generic_where_clause
 where_predicates: where_predicate ("AND"i where_predicate)*
 where_predicate: property_ref COMP_OP where_rhs -> cmp_where
@@ -144,7 +142,7 @@ yield_clause: "YIELD"i yield_item ("," yield_item)*
 yield_item: NAME alias?
 
 with_clause: "WITH"i distinct? return_item ("," return_item)*
-with_where_clause: "WHERE"i expr
+with_where_clause.2: "WHERE"i expr
 return_clause: "RETURN"i distinct? return_item ("," return_item)*
 distinct: "DISTINCT"i
 return_item: return_expr alias?
@@ -224,6 +222,7 @@ order_expr: expr
         | list_comprehension
         | list_literal
         | map_literal
+        | WHERE_PATTERN                     -> pattern_atom
         | "(" expr ")"                      -> grouped_expr
 
 ?subscript_key: expr                        -> subscript_index
@@ -301,30 +300,145 @@ BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
 """
 
 _BARE_LABEL_PREDICATE_RE = re.compile(r"^(?P<alias>[A-Za-z_][A-Za-z0-9_]*)((?::[A-Za-z_][A-Za-z0-9_]*)+)$")
+
+
+def _match_bare_label_atom(text: Optional[str]) -> Optional[Tuple[str, Tuple[str, ...]]]:
+    """Return ``(alias, labels)`` if *text* fullmatches the bare-label-predicate
+    shape; else ``None``.  ``fullmatch`` is load-bearing as the false-positive
+    guard from #1125 — atom fragments that merely *look* label-shaped (e.g.
+    parts of string literals) must not lift into structured predicates.
+    """
+    if text is None:
+        return None
+    m = _BARE_LABEL_PREDICATE_RE.fullmatch(text.strip())
+    if m is None:
+        return None
+    labels = tuple(label for label in m.group(2).split(":") if label)
+    return (m.group("alias"), labels)
+
+
+def _lift_label_only_and_spine(
+    node: BooleanExpr,
+) -> Optional[Tuple[Tuple[str, Tuple[str, ...]], ...]]:
+    """Return lifted ``(alias, labels)`` tuples if *node* is an AND-spine whose
+    every leaf atom is a bare-label predicate; else ``None``.
+
+    Walks Lark's parsed boolean tree (single source of truth) instead of
+    re-splitting the WHERE body text on top-level ``AND``.
+    """
+    out: List[Tuple[str, Tuple[str, ...]]] = []
+    stack: List[BooleanExpr] = [node]
+    while stack:
+        cur = stack.pop()
+        if cur.op == "and":
+            if cur.left is None or cur.right is None:
+                return None
+            stack.append(cur.right)
+            stack.append(cur.left)
+        elif cur.op == "atom":
+            atom = _match_bare_label_atom(cur.atom_text)
+            if atom is None:
+                return None
+            out.append(atom)
+        else:
+            return None
+    return tuple(out)
+
+
+def _split_top_level_and_pattern_leaves(
+    expr: BooleanExpr,
+) -> Tuple[List[BooleanExpr], List[BooleanExpr], bool]:
+    """Split *expr* at top-level AND boundaries into (patterns, others, has_nested_pattern)."""
+    if expr.op == "and":
+        if expr.left is None or expr.right is None:
+            return [], [expr], False
+        left_pat, left_other, left_bad = _split_top_level_and_pattern_leaves(expr.left)
+        right_pat, right_other, right_bad = _split_top_level_and_pattern_leaves(expr.right)
+        return left_pat + right_pat, left_other + right_other, left_bad or right_bad
+    if expr.op == "pattern":
+        return [expr], [], False
+    return [], [expr], _has_pattern_descendant(expr)
+
+
+def _has_pattern_descendant(expr: BooleanExpr) -> bool:
+    if expr.op == "pattern":
+        return True
+    if expr.left is not None and _has_pattern_descendant(expr.left):
+        return True
+    if expr.right is not None and _has_pattern_descendant(expr.right):
+        return True
+    return False
+
+
+def _rebuild_and_tree(conjuncts: List[BooleanExpr]) -> Optional[BooleanExpr]:
+    if not conjuncts:
+        return None
+    if len(conjuncts) == 1:
+        return conjuncts[0]
+    tree = conjuncts[0]
+    for conjunct in conjuncts[1:]:
+        new_span = SourceSpan(
+            line=tree.span.line,
+            column=tree.span.column,
+            end_line=conjunct.span.end_line,
+            end_column=conjunct.span.end_column,
+            start_pos=tree.span.start_pos,
+            end_pos=conjunct.span.end_pos,
+        )
+        tree = BooleanExpr(op="and", span=new_span, left=tree, right=conjunct)
+    return tree
+
+
+# Substring "WHERE pattern predicates" is load-bearing for legacy
+# test_lowering.py + test_parser.py error-message contracts.
+def _build_where_with_pattern_lift(
+    *,
+    pattern_leaves: List[BooleanExpr],
+    other_conjuncts: List[BooleanExpr],
+    nested_pattern: bool,
+    expr_text: str,
+    span: SourceSpan,
+) -> WhereClause:
+    if nested_pattern:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher WHERE pattern predicates cannot yet be mixed with generic row expressions",
+            field="where",
+            value=expr_text,
+            suggestion="Use a single positive top-level pattern predicate joined by AND.",
+            line=span.line,
+            column=span.column,
+            language="cypher",
+        )
+    if len(pattern_leaves) > 1:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher WHERE pattern predicates beyond a single positive predicate are unsupported",
+            field="where",
+            value=expr_text,
+            suggestion="Use a single positive top-level pattern predicate.",
+            line=span.line,
+            column=span.column,
+            language="cypher",
+        )
+    leaf = pattern_leaves[0]
+    assert leaf.pattern is not None, "pattern_atom invariant: pattern payload always set"
+    pattern_pred = WherePatternPredicate(pattern=leaf.pattern, span=leaf.span)
+    new_expr_tree = _rebuild_and_tree(other_conjuncts)
+    if new_expr_tree is None:
+        return WhereClause(predicates=(pattern_pred,), expr_tree=None, span=span)
+    return WhereClause(
+        predicates=(pattern_pred,),
+        expr_tree=new_expr_tree,
+        span=span,
+    )
+
+
 _RESERVED_IDENTIFIER_GRAPH = "graph"
 _WHERE_PATTERN_ITEM_RE = re.compile(
     r"\([^)\n]*\)\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\)"
     r"(?:\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\))*"
 )
-_WHERE_PATTERN_SEQUENCE_RE = re.compile(
-    rf"(?:{_WHERE_PATTERN_ITEM_RE.pattern})(?:\s+AND\s+(?:{_WHERE_PATTERN_ITEM_RE.pattern}))*",
-    re.IGNORECASE,
-)
-_WHERE_PATTERN_THEN_EXPR_RE = re.compile(
-    rf"^(?P<pattern>{_WHERE_PATTERN_SEQUENCE_RE.pattern})\s+AND\s+(?P<expr>.+)$",
-    re.IGNORECASE | re.DOTALL,
-)
-_WHERE_EXPR_THEN_PATTERN_RE = re.compile(
-    rf"^(?P<expr>.+)\s+AND\s+(?P<pattern>{_WHERE_PATTERN_SEQUENCE_RE.pattern})$",
-    re.IGNORECASE | re.DOTALL,
-)
-_WHERE_CLAUSE_BODY_RE = re.compile(
-    r"\bWHERE\b(?P<body>.*?)(?=\bRETURN\b|\bWITH\b|\bORDER\s+BY\b|\bSKIP\b|\bLIMIT\b|\bUNWIND\b|\bCALL\b|\bMATCH\b|\bOPTIONAL\s+MATCH\b|\bUNION\b|;|$)",
-    re.IGNORECASE | re.DOTALL,
-)
-_BOOLEAN_KEYWORD_RE = re.compile(r"\b(?:AND|OR|XOR|NOT)\b", re.IGNORECASE)
-
-
 class _ParserLike:
     def parse(self, text: str) -> object:
         raise NotImplementedError
@@ -397,10 +511,13 @@ class _BoundPattern:
 @lru_cache(maxsize=1)
 def _parser() -> _ParserLike:
     Lark, _, _, _ = _lark_imports()
+    # Earley required: LALR(1) cannot resolve `comparable AND WHERE_PATTERN`
+    # where WHERE_PATTERN is a leaf in `?primary`.  Ambiguity defaults to
+    # Lark's "resolve" mode (highest-priority derivation).
     parser = Lark(
         _GRAMMAR,
         start="start",
-        parser="lalr",
+        parser="earley",
         maybe_placeholders=False,
         propagate_positions=True,
     )
@@ -413,7 +530,7 @@ def _pattern_parser() -> _ParserLike:
     parser = Lark(
         _GRAMMAR,
         start="pattern",
-        parser="lalr",
+        parser="earley",
         maybe_placeholders=False,
         propagate_positions=True,
     )
@@ -444,135 +561,6 @@ def _to_unsupported(message: str, *, line: Optional[int] = None, column: Optiona
     )
 
 
-def _line_and_column_from_offset(source: str, offset: int) -> Tuple[int, int]:
-    line = source.count("\n", 0, offset) + 1
-    last_newline = source.rfind("\n", 0, offset)
-    column = offset + 1 if last_newline < 0 else offset - last_newline
-    return line, column
-
-
-def _mixed_where_pattern_expr_error(source: str) -> Optional[GFQLValidationError]:
-    for match in _WHERE_CLAUSE_BODY_RE.finditer(source):
-        body = match.group("body").strip()
-        if body == "":
-            continue
-        if _WHERE_PATTERN_ITEM_RE.search(body) is None:
-            continue
-        if _WHERE_PATTERN_SEQUENCE_RE.fullmatch(body) is not None:
-            continue
-        if _BOOLEAN_KEYWORD_RE.search(body) is None:
-            continue
-        line, column = _line_and_column_from_offset(source, match.start("body"))
-        return _to_unsupported(
-            "Cypher WHERE pattern predicates cannot yet be mixed with generic row expressions",
-            line=line,
-            column=column,
-            field="where",
-            value=body,
-        )
-    return None
-
-
-def _split_top_level_and_terms(expr: str) -> Optional[Tuple[str, ...]]:
-    terms: list[str] = []
-    term_start = 0
-    paren_depth = 0
-    bracket_depth = 0
-    brace_depth = 0
-    string_quote: Optional[str] = None
-    in_backtick = False
-    i = 0
-    while i < len(expr):
-        ch = expr[i]
-        if string_quote is not None:
-            if ch == "\\":
-                i += 2
-                continue
-            if ch == string_quote:
-                string_quote = None
-            i += 1
-            continue
-        if in_backtick:
-            if ch == "`":
-                in_backtick = False
-            i += 1
-            continue
-        if ch in {"'", '"'}:
-            string_quote = ch
-            i += 1
-            continue
-        if ch == "`":
-            in_backtick = True
-            i += 1
-            continue
-        if ch == "(":
-            paren_depth += 1
-            i += 1
-            continue
-        if ch == ")":
-            paren_depth = max(0, paren_depth - 1)
-            i += 1
-            continue
-        if ch == "[":
-            bracket_depth += 1
-            i += 1
-            continue
-        if ch == "]":
-            bracket_depth = max(0, bracket_depth - 1)
-            i += 1
-            continue
-        if ch == "{":
-            brace_depth += 1
-            i += 1
-            continue
-        if ch == "}":
-            brace_depth = max(0, brace_depth - 1)
-            i += 1
-            continue
-        if (
-            paren_depth == 0
-            and bracket_depth == 0
-            and brace_depth == 0
-            and expr[i:i + 3].upper() == "AND"
-            and (i == 0 or expr[i - 1].isspace())
-            and (i + 3 == len(expr) or expr[i + 3].isspace())
-        ):
-            term = expr[term_start:i].strip()
-            if term == "":
-                return None
-            terms.append(term)
-            i += 3
-            while i < len(expr) and expr[i].isspace():
-                i += 1
-            term_start = i
-            continue
-        i += 1
-    tail = expr[term_start:].strip()
-    if tail == "":
-        return None
-    terms.append(tail)
-    return tuple(terms) if len(terms) > 1 else None
-
-
-def _canonicalize_where_single_pattern_and_expr(source: str) -> Optional[str]:
-    for match in _WHERE_CLAUSE_BODY_RE.finditer(source):
-        body = match.group("body").strip()
-        terms = _split_top_level_and_terms(body)
-        if terms is None:
-            continue
-        pattern_indices = [idx for idx, term in enumerate(terms) if _WHERE_PATTERN_SEQUENCE_RE.fullmatch(term) is not None]
-        if len(pattern_indices) != 1:
-            continue
-        pattern_index = pattern_indices[0]
-        pattern_text = terms[pattern_index].strip()
-        expr_terms = [term for idx, term in enumerate(terms) if idx != pattern_index]
-        if not expr_terms:
-            continue
-        canonical_body = f"{pattern_text} AND {' AND '.join(expr_terms)}"
-        if canonical_body == body:
-            continue
-        return f"{source[:match.start('body')]}{canonical_body}{source[match.end('body'):]}"
-    return None
 
 
 def _build_transformer(source: str) -> _TransformerLike:
@@ -1044,54 +1032,109 @@ def _build_transformer(source: str) -> _TransformerLike:
                 )
             return WherePatternPredicate(pattern=cast(Tuple[PatternElement, ...], pattern_node), span=span)
 
-        def _mixed_where_clause(
-            self,
-            *,
-            pattern_text: str,
-            expr_text: str,
-            span: SourceSpan,
-        ) -> WhereClause:
-            if expr_text.strip() == "":
-                raise _to_syntax_error("Invalid WHERE clause", line=span.line, column=span.column)
-            return WhereClause(
-                predicates=(self._parse_where_pattern_predicate_text(pattern_text, span),),
-                expr=ExpressionText(text=expr_text.strip(), span=span),
-                span=span,
-            )
-
-        def where_pattern_only_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
+        def pattern_atom(self, meta: Any, items: Sequence[Any]) -> BooleanExpr:
             if len(items) != 1:
                 raise _to_syntax_error("Invalid WHERE pattern predicate", line=meta.line, column=meta.column)
+            span = _span_from_meta(meta)
             pattern_text = str(items[0]).strip()
-            span = _span_from_meta(meta)
-            return WhereClause(
-                predicates=(self._parse_where_pattern_predicate_text(pattern_text, span),),
-                expr=None,
+            pattern_pred = self._parse_where_pattern_predicate_text(pattern_text, span)
+            return BooleanExpr(
+                op="pattern",
                 span=span,
+                atom_text=pattern_text,
+                atom_span=span,
+                pattern=pattern_pred.pattern,
             )
 
-        def where_pattern_and_expr_clause(self, meta: Any, _items: Sequence[Any]) -> WhereClause:
-            span = _span_from_meta(meta)
-            body = self._slice(span)[len("WHERE"):].strip()
-            match = _WHERE_PATTERN_THEN_EXPR_RE.fullmatch(body)
-            if match is None:
-                raise _to_syntax_error("Invalid WHERE clause", line=meta.line, column=meta.column)
-            return self._mixed_where_clause(
-                pattern_text=match.group("pattern").strip(),
-                expr_text=match.group("expr").strip(),
+        def _wrap_as_boolean_atom(self, operand: Any, enclosing_meta: Any) -> BooleanExpr:
+            """Coerce a parsed expression operand into a ``BooleanExpr`` atom.
+
+            Recursion bottom-out for ``and_op`` / ``or_op`` / ``xor_op`` /
+            ``not_op``.  ``BooleanExpr`` passes through.  Lark ``Tree`` and
+            ``_ExpressionSlice`` operands carry their own span, so we use
+            it to extract the source slice precisely.
+
+            **Known limitation — primitive literal atoms.**  Literal
+            transformers (``true_lit`` / ``false_lit`` / ``null_lit`` /
+            ``number_lit``) return raw Python values without span info.
+            When such a value reaches us as a boolean-operator operand
+            (``WHERE true AND false``), we cannot recover the original
+            source text for that specific operand; we approximate with
+            the enclosing operator's span and ``str(operand)`` (which
+            produces Python-style text like ``"True"`` not Cypher-style
+            ``"true"``).  No current consumer reads ``atom_text`` on
+            literal atoms — the binder is not wired to ``expr_tree`` in
+            this slice.  Accuracy for this path is a follow-up concern
+            tracked in issue #1200; if/when literal transformers gain
+            span-carrying wrappers, this fallback can be removed.
+            """
+            if isinstance(operand, BooleanExpr):
+                return operand
+            if isinstance(operand, _ExpressionSlice):
+                span = operand.span
+                text = operand.text
+            else:
+                operand_meta = getattr(operand, "meta", None)
+                if operand_meta is None:
+                    # Primitive literal — see docstring caveat.
+                    span = _span_from_meta(enclosing_meta)
+                    text = str(operand)
+                else:
+                    span = _span_from_meta(operand_meta)
+                    text = self._slice(span)
+            return BooleanExpr(
+                op="atom",
                 span=span,
+                atom_text=text,
+                atom_span=span,
             )
 
-        def expr_and_where_pattern_clause(self, meta: Any, _items: Sequence[Any]) -> WhereClause:
-            span = _span_from_meta(meta)
-            body = self._slice(span)[len("WHERE"):].strip()
-            match = _WHERE_EXPR_THEN_PATTERN_RE.fullmatch(body)
-            if match is None:
-                raise _to_syntax_error("Invalid WHERE clause", line=meta.line, column=meta.column)
-            return self._mixed_where_clause(
-                pattern_text=match.group("pattern").strip(),
-                expr_text=match.group("expr").strip(),
-                span=span,
+        def _boolean_binary(
+            self,
+            op: Literal["and", "or", "xor"],
+            meta: Any,
+            items: Sequence[Any],
+        ) -> BooleanExpr:
+            if len(items) != 2:
+                raise _to_syntax_error(
+                    f"{op.upper()} expression requires two operands",
+                    line=meta.line, column=meta.column,
+                )
+            return BooleanExpr(
+                op=op,
+                span=_span_from_meta(meta),
+                left=self._wrap_as_boolean_atom(items[0], meta),
+                right=self._wrap_as_boolean_atom(items[1], meta),
+            )
+
+        def grouped_expr(self, _meta: Any, items: Sequence[Any]) -> Any:
+            # ``(expr)`` — passthrough so a parenthesized BooleanExpr bubbles
+            # up unchanged to enclosing ``and_op`` / ``or_op`` / ``xor_op`` /
+            # ``not_op`` handlers.  Without this, Lark would wrap the parens
+            # as a ``grouped_expr`` Tree and our ``_wrap_as_boolean_atom``
+            # would collapse the inner structure into a text atom, losing
+            # the nested boolean tree that this PR exists to preserve.
+            return items[0] if len(items) == 1 else items
+
+        def and_op(self, meta: Any, items: Sequence[Any]) -> BooleanExpr:
+            return self._boolean_binary("and", meta, items)
+
+        def or_op(self, meta: Any, items: Sequence[Any]) -> BooleanExpr:
+            return self._boolean_binary("or", meta, items)
+
+        def xor_op(self, meta: Any, items: Sequence[Any]) -> BooleanExpr:
+            return self._boolean_binary("xor", meta, items)
+
+        def not_op(self, meta: Any, items: Sequence[Any]) -> BooleanExpr:
+            if len(items) != 1:
+                raise _to_syntax_error(
+                    "NOT expression requires one operand",
+                    line=meta.line, column=meta.column,
+                )
+            return BooleanExpr(
+                op="not",
+                span=_span_from_meta(meta),
+                left=self._wrap_as_boolean_atom(items[0], meta),
             )
 
         def where_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
@@ -1099,31 +1142,80 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("WHERE clause cannot be empty", line=meta.line, column=meta.column)
             if isinstance(items[0], _ExpressionSlice):
                 expr = cast(_ExpressionSlice, items[0])
-                return WhereClause(predicates=(), expr=ExpressionText(text=expr.text, span=expr.span), span=_span_from_meta(meta))
+                where_span = _span_from_meta(meta)
+                # Wrap the raw slice as a single-atom ``BooleanExpr`` so the
+                # ``(expr is None) == (expr_tree is None)`` invariant holds
+                # (#1213 sub-PR A); ``where_clause`` reaches this branch only
+                # for atom-shaped WHERE bodies that bypassed Lark's
+                # ``and_op`` / ``or_op`` rules.
+                atom_tree = BooleanExpr(op="atom", span=expr.span, atom_text=expr.text, atom_span=expr.span)
+                return WhereClause(
+                    predicates=(),
+                    expr_tree=atom_tree,
+                    span=where_span,
+                )
             predicates = cast(Tuple[WherePredicate, ...], items[0])
             if len(predicates) == 0:
                 raise _to_syntax_error("WHERE clause cannot be empty", line=meta.line, column=meta.column)
-            return WhereClause(predicates=cast(Any, predicates), expr=None, span=_span_from_meta(meta))
+            return WhereClause(predicates=cast(Any, predicates), span=_span_from_meta(meta))
 
-        def generic_where_clause(self, meta: Any, _items: Sequence[Any]) -> WhereClause:
+        def generic_where_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
             span = _span_from_meta(meta)
-            expr = self._slice(span)[len("WHERE"):].strip()
-            bare_label_match = _BARE_LABEL_PREDICATE_RE.fullmatch(expr)
-            if bare_label_match is not None:
-                labels = tuple(label for label in bare_label_match.group(2).split(":") if label)
-                return WhereClause(
-                    predicates=(
-                        WherePredicate(
-                            left=LabelRef(alias=bare_label_match.group("alias"), labels=labels, span=span),
-                            op="has_labels",
-                            right=None,
-                            span=span,
-                        ),
-                    ),
-                    expr=None,
+            expr_text = self._slice(span)[len("WHERE"):].strip()
+            # Capture Lark's structural expression tree.  Only ``and_op`` /
+            # ``or_op`` / ``xor_op`` / ``not_op`` produce ``BooleanExpr``;
+            # atomic WHERE expressions (single predicate) route here with a
+            # non-BooleanExpr operand and are wrapped as a single-atom tree
+            # so the invariant ``(expr is None) == (expr_tree is None)``
+            # holds (#1213 sub-PR A / #1214).
+            expr_tree: BooleanExpr = (
+                cast(BooleanExpr, items[0])
+                if items and isinstance(items[0], BooleanExpr)
+                else BooleanExpr(op="atom", span=span, atom_text=expr_text, atom_span=span)
+            )
+            # Lark's ambiguity resolution prefers the generic `expr` path over
+            # `where_predicates` (#1194), so bare label predicates and AND
+            # chains of them land here as a ``BooleanExpr``.  Walk the parsed
+            # tree (single source of truth) to lift them to structured
+            # predicates instead of re-splitting the WHERE body text on
+            # top-level ``AND``.  Any non-AND boolean op, non-atom node, or
+            # non-bare-label atom causes a conservative fallback to raw expr
+            # (preserved on ``expr_tree`` for downstream consumers).
+            lifted = _lift_label_only_and_spine(expr_tree)
+            if lifted:
+                predicates = tuple(
+                    WherePredicate(
+                        left=LabelRef(alias=alias, labels=labels, span=span),
+                        op="has_labels",
+                        right=None,
+                        span=span,
+                    )
+                    for alias, labels in lifted
+                )
+                return WhereClause(predicates=predicates, span=span)
+            # Pattern-leaf lift (slice 1 of #1031).  Pattern leaves
+            # produced by the new ``pattern_atom`` grammar rule sit at
+            # top-level AND positions; extract them as
+            # ``WherePatternPredicate`` entries so the existing AST-
+            # normalizer step (``_rewrite_where_pattern_predicates_to_matches``)
+            # can lift them to a separate ``MatchClause`` later.  Pattern
+            # leaves nested under non-AND ops (NOT/OR/XOR) and multiple
+            # positive patterns are rejected here with shape-specific
+            # E108 errors — slice 2/3/4 territory.
+            pattern_leaves, other_conjuncts, nested_pattern = _split_top_level_and_pattern_leaves(expr_tree)
+            if pattern_leaves or nested_pattern:
+                return _build_where_with_pattern_lift(
+                    pattern_leaves=pattern_leaves,
+                    other_conjuncts=other_conjuncts,
+                    nested_pattern=nested_pattern,
+                    expr_text=expr_text,
                     span=span,
                 )
-            return WhereClause(predicates=(), expr=ExpressionText(text=expr, span=span), span=span)
+            return WhereClause(
+                predicates=(),
+                expr_tree=expr_tree,
+                span=span,
+            )
 
         def unwind_clause(self, meta: Any, items: Sequence[Any]) -> UnwindClause:
             if len(items) != 2:
@@ -1835,17 +1927,6 @@ def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery, CypherGraph
         if isinstance(exc, (GFQLSyntaxError, GFQLValidationError)):
             raise
         if isinstance(exc, LarkError):
-            canonical_query = _canonicalize_where_single_pattern_and_expr(query)
-            if canonical_query is not None and canonical_query != query:
-                canonical_transformer = _build_transformer(canonical_query)
-                tree = parser.parse(canonical_query)
-                node = canonical_transformer.transform(tree)
-                if not isinstance(node, (CypherQuery, CypherUnionQuery, CypherGraphQuery)):
-                    raise _to_syntax_error("Cypher parser did not produce a query")
-                return node
-            mixed_where_error = _mixed_where_pattern_expr_error(query)
-            if mixed_where_error is not None:
-                raise mixed_where_error from exc
             err_line = cast(Optional[int], getattr(exc, "line", None))
             err_column = cast(Optional[int], getattr(exc, "column", None))
             raise _to_syntax_error("Invalid Cypher query syntax", line=err_line, column=err_column) from exc

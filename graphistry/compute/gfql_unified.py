@@ -41,6 +41,15 @@ from graphistry.compute.gfql.df_executor import (
     build_same_path_inputs,
     execute_same_path_chain,
 )
+from graphistry.compute.gfql.ir.compilation import PhysicalPlan, PlanContext
+from graphistry.compute.gfql.ir.logical_plan import LogicalPlan
+from graphistry.compute.gfql.physical_planner import (
+    PhysicalPlanner,
+    RowPipelineExecutorWrapper,
+    SamePathExecutorWrapper,
+    WavefrontExecutorWrapper,
+)
+from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager
 from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
@@ -279,14 +288,51 @@ def _apply_connected_optional_match(
     """
     from graphistry.compute.ast import ASTCall, serialize_binding_ops
 
+    def _split_binding_and_post_ops(ops: Sequence[ASTObject]) -> Tuple[List[ASTObject], List[ASTObject]]:
+        """Split ops into contiguous binding path ops and post-row ops."""
+        binding_ops: List[ASTObject] = []
+        post_ops: List[ASTObject] = []
+        saw_post = False
+
+        for op in ops:
+            is_binding = isinstance(op, (ASTNode, ASTEdge))
+            if is_binding and not saw_post:
+                binding_ops.append(op)
+                continue
+            saw_post = True
+            post_ops.append(op)
+
+        if not binding_ops:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Connected OPTIONAL MATCH lowering requires at least one ASTNode/ASTEdge binding op",
+                field="match",
+                value=[type(op).__name__ for op in ops],
+                suggestion="Ensure MATCH/OPTIONAL MATCH clauses lower to path bindings before row-only operations.",
+                language="cypher",
+            )
+
+        if any(isinstance(op, (ASTNode, ASTEdge)) for op in post_ops):
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Connected OPTIONAL MATCH lowering requires binding ops to be contiguous",
+                field="match",
+                value=[type(op).__name__ for op in ops],
+                suggestion="Keep node/edge bindings contiguous; apply row-only operations after rows(binding_ops).",
+                language="cypher",
+            )
+
+        return binding_ops, post_ops
+
     concrete_engine = resolve_engine(cast(Any, engine), base_graph)
     df_ctor = df_cons(concrete_engine)
     node_col = str(getattr(base_graph, "_node", "id"))
 
     # Run base chain to get binding rows.
-    base_binding_ops = serialize_binding_ops(plan.base_chain.chain)
+    base_binding_chain, base_post_ops = _split_binding_and_post_ops(plan.base_chain.chain)
+    base_binding_ops = serialize_binding_ops(base_binding_chain)
     base_with_rows = Chain(
-        list(plan.base_chain.chain) + [ASTCall("rows", {"binding_ops": base_binding_ops})],
+        list(base_binding_chain) + [ASTCall("rows", {"binding_ops": base_binding_ops})] + base_post_ops,
         where=plan.base_chain.where,
     )
     base_rows_result = _chain_dispatch(base_graph, base_with_rows, engine, policy, context)
@@ -300,9 +346,10 @@ def _apply_connected_optional_match(
 
     # Chained left-outer-join: one pass per OPTIONAL MATCH arm.
     for arm in plan.arms:
-        opt_binding_ops = serialize_binding_ops(arm.chain.chain)
+        opt_binding_chain, opt_post_ops = _split_binding_and_post_ops(arm.chain.chain)
+        opt_binding_ops = serialize_binding_ops(opt_binding_chain)
         opt_with_rows = Chain(
-            list(arm.chain.chain) + [ASTCall("rows", {"binding_ops": opt_binding_ops})],
+            list(opt_binding_chain) + [ASTCall("rows", {"binding_ops": opt_binding_ops})] + opt_post_ops,
             where=arm.chain.where,
         )
         opt_rows_result = _chain_dispatch(base_graph, opt_with_rows, engine, policy, context)
@@ -601,6 +648,159 @@ def _execute_compiled_query(
         out._edges = df_ctor()
         return out
 
+    return _execute_compiled_query_non_union(
+        base_graph,
+        compiled_query=compiled_query,
+        engine=engine,
+        policy=policy,
+        context=context,
+        start_nodes=start_nodes,
+    )
+
+
+def _execute_compiled_query_non_union(
+    base_graph: Plottable,
+    *,
+    compiled_query: CompiledCypherQuery,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+    start_nodes: Optional[DataFrameT] = None,
+) -> Plottable:
+    logical_plan = compiled_query.logical_plan
+    if logical_plan is None:
+        return _execute_compiled_query_compat_non_union(
+            base_graph,
+            compiled_query=compiled_query,
+            engine=engine,
+            policy=policy,
+            context=context,
+            start_nodes=start_nodes,
+        )
+
+    ctx = PlanContext(scope_stack=compiled_query.scope_stack)
+    logical_plan = _run_logical_pass_pipeline(logical_plan, ctx)
+
+    try:
+        physical_plan = PhysicalPlanner().plan(logical_plan, ctx)
+    except GFQLValidationError as exc:
+        # Temporary compatibility shim: CALL-backed compiled queries still run via
+        # the legacy path while planner coverage catches up.
+        if compiled_query.procedure_call is not None:
+            logger.debug(
+                "PhysicalPlanner unsupported for CALL-backed query; using compatibility shim: %s",
+                exc.message,
+            )
+            return _execute_compiled_query_compat_non_union(
+                base_graph,
+                compiled_query=compiled_query,
+                engine=engine,
+                policy=policy,
+                context=context,
+                start_nodes=start_nodes,
+            )
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher planned route could not be lowered to a supported physical execution path",
+            field="logical_plan",
+            value=exc.message,
+            suggestion="Use a covered M3 query shape (same-path / wavefront / row-pipeline) or retain compatibility shims for this lane.",
+            language="cypher",
+        ) from exc
+
+    return _execute_compiled_query_via_physical_plan(
+        base_graph,
+        compiled_query=compiled_query,
+        physical_plan=physical_plan,
+        engine=engine,
+        policy=policy,
+        context=context,
+        start_nodes=start_nodes,
+    )
+
+
+def _run_logical_pass_pipeline(logical_plan: LogicalPlan, ctx: PlanContext) -> LogicalPlan:
+    """Run logical pass pipeline: Tier 1 structural passes then Tier 2 fixed-point rewrite loop."""
+    return PassManager(DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES).run(logical_plan, ctx).plan
+
+
+def _execute_compiled_query_via_physical_plan(
+    base_graph: Plottable,
+    *,
+    compiled_query: CompiledCypherQuery,
+    physical_plan: PhysicalPlan,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+    start_nodes: Optional[DataFrameT] = None,
+) -> Plottable:
+    if len(physical_plan.operators) != 1:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "PhysicalPlan currently requires exactly one operator wrapper in this lane",
+            field="physical_plan.operators",
+            value=len(physical_plan.operators),
+            suggestion="Use a covered single-operator M3 route or extend the runtime dispatcher.",
+            language="cypher",
+        )
+
+    operator = physical_plan.operators[0]
+    if isinstance(operator, (SamePathExecutorWrapper, RowPipelineExecutorWrapper)):
+        return _execute_compiled_query_compat_non_union(
+            base_graph,
+            compiled_query=compiled_query,
+            engine=engine,
+            policy=policy,
+            context=context,
+            start_nodes=start_nodes,
+        )
+
+    if isinstance(operator, WavefrontExecutorWrapper):
+        if compiled_query.connected_match_join is not None:
+            return _apply_connected_match_join(
+                base_graph,
+                compiled_query.connected_match_join,
+                engine=engine,
+                policy=policy,
+                context=context,
+            )
+        if compiled_query.connected_optional_match is not None:
+            # Compatibility shim while optional-wavefront lowering converges.
+            return _apply_connected_optional_match(
+                base_graph,
+                compiled_query.connected_optional_match,
+                engine=engine,
+                policy=policy,
+                context=context,
+            )
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher wavefront physical route selected but compiled query has no connected join payload to execute",
+            field="physical_plan.route",
+            value=physical_plan.route,
+            suggestion="Use a supported connected MATCH/OPTIONAL MATCH lowering shape for wavefront execution.",
+            language="cypher",
+        )
+
+    raise GFQLValidationError(
+        ErrorCode.E108,
+        "Cypher physical plan produced an unknown operator wrapper",
+        field="physical_plan.operator",
+        value=type(operator).__name__,
+        suggestion="Use a covered M3 wrapper type or extend the runtime dispatcher.",
+        language="cypher",
+    )
+
+
+def _execute_compiled_query_compat_non_union(
+    base_graph: Plottable,
+    *,
+    compiled_query: CompiledCypherQuery,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+    start_nodes: Optional[DataFrameT] = None,
+) -> Plottable:
     if compiled_query.connected_match_join is not None:
         return _apply_connected_match_join(
             base_graph,
@@ -1199,7 +1399,7 @@ def _compile_string_query(
             suggestion="Use language='cypher' for now; Gremlin string compilation is not implemented yet.",
             language="gfql",
         )
-    return compile_cypher(query, params=params)
+    return compile_cypher(query, params=params, _warn_deprecated=False)
 
 
 @otel_traced("gfql.run", attrs_fn=_gfql_otel_attrs)
