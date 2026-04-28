@@ -288,14 +288,51 @@ def _apply_connected_optional_match(
     """
     from graphistry.compute.ast import ASTCall, serialize_binding_ops
 
+    def _split_binding_and_post_ops(ops: Sequence[ASTObject]) -> Tuple[List[ASTObject], List[ASTObject]]:
+        """Split ops into contiguous binding path ops and post-row ops."""
+        binding_ops: List[ASTObject] = []
+        post_ops: List[ASTObject] = []
+        saw_post = False
+
+        for op in ops:
+            is_binding = isinstance(op, (ASTNode, ASTEdge))
+            if is_binding and not saw_post:
+                binding_ops.append(op)
+                continue
+            saw_post = True
+            post_ops.append(op)
+
+        if not binding_ops:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Connected OPTIONAL MATCH lowering requires at least one ASTNode/ASTEdge binding op",
+                field="match",
+                value=[type(op).__name__ for op in ops],
+                suggestion="Ensure MATCH/OPTIONAL MATCH clauses lower to path bindings before row-only operations.",
+                language="cypher",
+            )
+
+        if any(isinstance(op, (ASTNode, ASTEdge)) for op in post_ops):
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Connected OPTIONAL MATCH lowering requires binding ops to be contiguous",
+                field="match",
+                value=[type(op).__name__ for op in ops],
+                suggestion="Keep node/edge bindings contiguous; apply row-only operations after rows(binding_ops).",
+                language="cypher",
+            )
+
+        return binding_ops, post_ops
+
     concrete_engine = resolve_engine(cast(Any, engine), base_graph)
     df_ctor = df_cons(concrete_engine)
     node_col = str(getattr(base_graph, "_node", "id"))
 
     # Run base chain to get binding rows.
-    base_binding_ops = serialize_binding_ops(plan.base_chain.chain)
+    base_binding_chain, base_post_ops = _split_binding_and_post_ops(plan.base_chain.chain)
+    base_binding_ops = serialize_binding_ops(base_binding_chain)
     base_with_rows = Chain(
-        list(plan.base_chain.chain) + [ASTCall("rows", {"binding_ops": base_binding_ops})],
+        list(base_binding_chain) + [ASTCall("rows", {"binding_ops": base_binding_ops})] + base_post_ops,
         where=plan.base_chain.where,
     )
     base_rows_result = _chain_dispatch(base_graph, base_with_rows, engine, policy, context)
@@ -309,9 +346,10 @@ def _apply_connected_optional_match(
 
     # Chained left-outer-join: one pass per OPTIONAL MATCH arm.
     for arm in plan.arms:
-        opt_binding_ops = serialize_binding_ops(arm.chain.chain)
+        opt_binding_chain, opt_post_ops = _split_binding_and_post_ops(arm.chain.chain)
+        opt_binding_ops = serialize_binding_ops(opt_binding_chain)
         opt_with_rows = Chain(
-            list(arm.chain.chain) + [ASTCall("rows", {"binding_ops": opt_binding_ops})],
+            list(opt_binding_chain) + [ASTCall("rows", {"binding_ops": opt_binding_ops})] + opt_post_ops,
             where=arm.chain.where,
         )
         opt_rows_result = _chain_dispatch(base_graph, opt_with_rows, engine, policy, context)

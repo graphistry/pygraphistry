@@ -8162,16 +8162,19 @@ def _apply_where_to_ops(
     alias_targets: Dict[str, ASTObject],
     *,
     params: Optional[Mapping[str, Any]],
-) -> List[WhereComparison]:
+) -> Tuple[List[WhereComparison], List[ExpressionText]]:
     """Apply a WHERE clause's predicates to already-lowered ops.
 
     Label predicates mutate the ASTNode filter in *alias_targets* (in-place).
     Property-comparison predicates are returned as ``WhereComparison`` entries
-    for the chain's ``where`` list.
+    for the chain's ``where`` list. Expressions that cannot be lowered to
+    node/edge filter dicts are returned as row-expression filters so connected
+    OPTIONAL MATCH lowering can apply them via ``where_rows(expr=...)``.
     """
     where_out: List[WhereComparison] = []
+    row_expr_filters: List[ExpressionText] = []
     if where is None:
-        return where_out
+        return where_out, row_expr_filters
     where_expr = _where_clause_expr_text(where)
     if where_expr is not None:
         type_where = _extract_relationship_type_where(
@@ -8183,13 +8186,16 @@ def _apply_where_to_ops(
             left, op, right = type_where
             _apply_literal_where(alias_targets, left=left, op=op, right=right, params=params)
         else:
-            raise _unsupported(
-                "Cypher WHERE expressions that cannot be lowered to node/edge filters are not yet supported in connected OPTIONAL MATCH queries",
+            rewritten = _rewrite_connected_join_expr(
+                where_expr,
+                alias_targets=alias_targets,
+                params=params,
                 field="where",
-                value=where_expr.text,
                 line=where_expr.span.line,
                 column=where_expr.span.column,
             )
+            if rewritten is not None:
+                row_expr_filters.append(rewritten)
     for predicate in where.predicates:
         if isinstance(predicate, WherePatternPredicate):
             raise _unsupported(
@@ -8230,7 +8236,7 @@ def _apply_where_to_ops(
             right=cast(Optional[CypherLiteral], predicate.right),
             params=params,
         )
-    return where_out
+    return where_out, row_expr_filters
 
 
 def _compile_connected_optional_match(
@@ -8249,8 +8255,20 @@ def _compile_connected_optional_match(
     base_ops = lower_match_clause(base_clause, params=params)
     base_alias_targets = _alias_target(base_ops)
     base_aliases = _match_clause_aliases(base_clause)
-    base_where = _apply_where_to_ops(base_clause.where, base_alias_targets, params=params)
-    base_chain = Chain(base_ops, where=base_where)
+    base_where, base_row_expr_filters = _apply_where_to_ops(base_clause.where, base_alias_targets, params=params)
+    base_chain_ops: List[ASTObject] = list(base_ops)
+    for expr in base_row_expr_filters:
+        base_chain_ops.append(
+            where_rows(
+                expr=_row_expr_arg(
+                    expr,
+                    params=params,
+                    alias_targets={},
+                    field="where",
+                )
+            )
+        )
+    base_chain = Chain(base_chain_ops, where=base_where)
 
     arms: List[_OptionalMatchArm] = []
     optional_components: List[ConnectedComponent] = []
@@ -8288,9 +8306,25 @@ def _compile_connected_optional_match(
                 column=opt_clause.span.column,
             )
 
-        opt_where = _apply_where_to_ops(opt_clause.where, opt_alias_targets, params=params)
+        opt_where, opt_row_expr_filters = _apply_where_to_ops(
+            opt_clause.where,
+            opt_alias_targets,
+            params=params,
+        )
+        opt_chain_ops: List[ASTObject] = list(opt_ops)
+        for expr in opt_row_expr_filters:
+            opt_chain_ops.append(
+                where_rows(
+                    expr=_row_expr_arg(
+                        expr,
+                        params=params,
+                        alias_targets={},
+                        field="where",
+                    )
+                )
+            )
         arms.append(_OptionalMatchArm(
-            chain=Chain(opt_ops, where=opt_where),
+            chain=Chain(opt_chain_ops, where=opt_where),
             shared_node_aliases=tuple(shared_node_aliases),
             opt_only_aliases=tuple(sorted(opt_only_aliases)),
         ))
