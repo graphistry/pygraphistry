@@ -473,7 +473,10 @@ class TestArrowUploader_Comms(unittest.TestCase):
         mock_switch.assert_called_once_with('mock-org', '123')
 
     @mock.patch('requests.get')
-    def test_sso_get_token_missing_org_raises(self, mock_get):
+    def test_sso_get_token_missing_active_organization_no_caller_org(self, mock_get):
+        # Site-wide SSO: server omits active_organization, caller passed no
+        # org_name. Expect graceful fallback: no crash, org stays unset, no
+        # _switch_org call.
 
         mock_resp = self._mock_response(
             json_data={
@@ -485,7 +488,65 @@ class TestArrowUploader_Comms(unittest.TestCase):
         })
         mock_get.return_value = mock_resp
 
-        au = ArrowUploader()
+        client = PyGraphistry.client()
+        client.session.org_name = None
+        PyGraphistry.session.org_name = None
 
-        with pytest.raises(Exception):
+        au = ArrowUploader(client_session=client.session)
+
+        with mock.patch.object(ArrowUploader, "_switch_org") as mock_switch:
             au.sso_get_token(state='ignored-valid')
+
+        assert au.token == '123'
+        assert au.org_name is None
+        mock_switch.assert_not_called()
+
+    @mock.patch('requests.get')
+    def test_sso_get_token_missing_active_organization_preserves_caller_org(self, mock_get):
+        # Site-wide SSO: server omits active_organization, caller passed
+        # org_name to register(...). Expect the caller-supplied value is
+        # preserved and _switch_org is not called.
+
+        mock_resp = self._mock_response(
+            json_data={
+                'status': 'OK',
+                'message': 'State is valid',
+                'data': {
+                    'token': '123',
+                }
+        })
+        mock_get.return_value = mock_resp
+
+        au = ArrowUploader(org_name="caller-org")
+
+        with mock.patch.object(ArrowUploader, "_switch_org") as mock_switch:
+            au.sso_get_token(state='ignored-valid')
+
+        assert au.token == '123'
+        assert au.org_name == "caller-org"
+        mock_switch.assert_not_called()
+
+    @mock.patch('requests.get')
+    def test_sso_get_token_null_active_organization_falls_back(self, mock_get):
+        # Server returns active_organization: None (vs absent). Same
+        # graceful fallback path.
+
+        mock_resp = self._mock_response(
+            json_data={
+                'status': 'OK',
+                'message': 'State is valid',
+                'data': {
+                    'token': '123',
+                    'active_organization': None,
+                }
+        })
+        mock_get.return_value = mock_resp
+
+        au = ArrowUploader(org_name="caller-org")
+
+        with mock.patch.object(ArrowUploader, "_switch_org") as mock_switch:
+            au.sso_get_token(state='ignored-valid')
+
+        assert au.token == '123'
+        assert au.org_name == "caller-org"
+        mock_switch.assert_not_called()
