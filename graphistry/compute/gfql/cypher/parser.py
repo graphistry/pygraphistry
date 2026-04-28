@@ -405,30 +405,23 @@ def _build_where_with_pattern_lift(
             "Cypher WHERE pattern predicates cannot yet be mixed with generic row expressions",
             field="where",
             value=expr_text,
-            suggestion="Use a single positive top-level pattern predicate joined by AND.",
+            suggestion="Use positive top-level pattern predicates joined by AND.",
             line=span.line,
             column=span.column,
             language="cypher",
         )
-    if len(pattern_leaves) > 1:
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            "Cypher WHERE pattern predicates beyond a single positive predicate are unsupported",
-            field="where",
-            value=expr_text,
-            suggestion="Use a single positive top-level pattern predicate.",
-            line=span.line,
-            column=span.column,
-            language="cypher",
-        )
-    leaf = pattern_leaves[0]
-    assert leaf.pattern is not None, "pattern_atom invariant: pattern payload always set"
-    pattern_pred = WherePatternPredicate(pattern=leaf.pattern, span=leaf.span)
+    # Multi-positive (slice 3 of #1031): emit one ``WherePatternPredicate`` per
+    # leaf; downstream ``_rewrite_where_pattern_predicates_to_matches`` lifts
+    # each into its own appended ``MatchClause``.
+    pattern_preds: List[WherePatternPredicate] = []
+    for leaf in pattern_leaves:
+        assert leaf.pattern is not None, "pattern_atom invariant: pattern payload always set"
+        pattern_preds.append(WherePatternPredicate(pattern=leaf.pattern, span=leaf.span))
     new_expr_tree = _rebuild_and_tree(other_conjuncts)
     if new_expr_tree is None:
-        return WhereClause(predicates=(pattern_pred,), expr_tree=None, span=span)
+        return WhereClause(predicates=tuple(pattern_preds), expr_tree=None, span=span)
     return WhereClause(
-        predicates=(pattern_pred,),
+        predicates=tuple(pattern_preds),
         expr_tree=new_expr_tree,
         span=span,
     )
@@ -978,22 +971,16 @@ def _build_transformer(source: str) -> _TransformerLike:
         def where_predicates(self, _meta: Any, items: Sequence[Any]) -> Tuple[WherePredicate, ...]:
             return tuple(items)
 
-        def _parse_where_pattern_predicate_text(self, pattern_text: str, span: SourceSpan) -> WherePatternPredicate:
-            pattern_items = [match.group(0).strip() for match in _WHERE_PATTERN_ITEM_RE.finditer(pattern_text)]
-            if len(pattern_items) != 1:
-                raise GFQLValidationError(
-                    ErrorCode.E108,
-                    "Cypher WHERE currently supports one positive pattern predicate at a time",
-                    field="where",
-                    value=pattern_text,
-                    suggestion="Use a single positive relationship existence pattern in WHERE for the current GFQL Cypher subset.",
-                    line=span.line,
-                    column=span.column,
-                    language="cypher",
-                )
+        def _parse_single_where_pattern_predicate_text(self, pattern_item_text: str, span: SourceSpan) -> WherePatternPredicate:
+            """Parse one bare-pattern-item text (no AND-chain) into a WherePatternPredicate.
+
+            Caller is responsible for splitting the WHERE_PATTERN token text into individual
+            pattern-item segments via ``_WHERE_PATTERN_ITEM_RE``.  This helper handles the
+            single-item parse + Lark-error wrapping.
+            """
             try:
-                pattern_tree = _pattern_parser().parse(pattern_items[0])
-                pattern_node = _build_transformer(pattern_items[0]).transform(pattern_tree)
+                pattern_tree = _pattern_parser().parse(pattern_item_text)
+                pattern_node = _build_transformer(pattern_item_text).transform(pattern_tree)
             except Exception as exc:
                 _, _, LarkError, _ = _lark_imports()
                 if isinstance(exc, (GFQLSyntaxError, GFQLValidationError)):
@@ -1003,8 +990,8 @@ def _build_transformer(source: str) -> _TransformerLike:
                         ErrorCode.E108,
                         "Cypher WHERE pattern predicate is outside the currently supported GFQL Cypher subset",
                         field="where",
-                        value=pattern_text,
-                        suggestion="Use a single positive fixed-length relationship existence pattern in WHERE.",
+                        value=pattern_item_text,
+                        suggestion="Use a positive fixed-length relationship existence pattern in WHERE.",
                         line=span.line,
                         column=span.column,
                         language="cypher",
@@ -1013,8 +1000,8 @@ def _build_transformer(source: str) -> _TransformerLike:
                     ErrorCode.E108,
                     "Cypher WHERE pattern predicate is outside the currently supported GFQL Cypher subset",
                     field="where",
-                    value=pattern_text,
-                    suggestion="Use a single positive fixed-length relationship existence pattern in WHERE.",
+                    value=pattern_item_text,
+                    suggestion="Use a positive fixed-length relationship existence pattern in WHERE.",
                     line=span.line,
                     column=span.column,
                     language="cypher",
@@ -1024,8 +1011,8 @@ def _build_transformer(source: str) -> _TransformerLike:
                     ErrorCode.E108,
                     "Cypher WHERE pattern predicate is outside the currently supported GFQL Cypher subset",
                     field="where",
-                    value=pattern_text,
-                    suggestion="Use a single positive fixed-length relationship existence pattern in WHERE.",
+                    value=pattern_item_text,
+                    suggestion="Use a positive fixed-length relationship existence pattern in WHERE.",
                     line=span.line,
                     column=span.column,
                     language="cypher",
@@ -1033,18 +1020,32 @@ def _build_transformer(source: str) -> _TransformerLike:
             return WherePatternPredicate(pattern=cast(Tuple[PatternElement, ...], pattern_node), span=span)
 
         def pattern_atom(self, meta: Any, items: Sequence[Any]) -> BooleanExpr:
+            # The ``WHERE_PATTERN`` lexer token is greedy and gobbles
+            # ``pattern AND pattern AND ...`` chains as a single match.  Split it
+            # back into individual pattern-item texts here and emit one
+            # ``BooleanExpr(op="pattern")`` per item; multi-item input becomes an
+            # AND-tree that ``_split_top_level_and_pattern_leaves`` upstream
+            # reassembles as N pattern leaves (#1031 slice 3).
             if len(items) != 1:
                 raise _to_syntax_error("Invalid WHERE pattern predicate", line=meta.line, column=meta.column)
             span = _span_from_meta(meta)
             pattern_text = str(items[0]).strip()
-            pattern_pred = self._parse_where_pattern_predicate_text(pattern_text, span)
-            return BooleanExpr(
-                op="pattern",
-                span=span,
-                atom_text=pattern_text,
-                atom_span=span,
-                pattern=pattern_pred.pattern,
-            )
+            pattern_item_texts = [match.group(0).strip() for match in _WHERE_PATTERN_ITEM_RE.finditer(pattern_text)]
+            if not pattern_item_texts:
+                raise _to_syntax_error("Invalid WHERE pattern predicate", line=meta.line, column=meta.column)
+            atoms: List[BooleanExpr] = []
+            for item_text in pattern_item_texts:
+                pattern_pred = self._parse_single_where_pattern_predicate_text(item_text, span)
+                atoms.append(BooleanExpr(
+                    op="pattern",
+                    span=span,
+                    atom_text=item_text,
+                    atom_span=span,
+                    pattern=pattern_pred.pattern,
+                ))
+            tree = _rebuild_and_tree(atoms)
+            assert tree is not None  # gated above by `if not pattern_item_texts`
+            return tree
 
         def _wrap_as_boolean_atom(self, operand: Any, enclosing_meta: Any) -> BooleanExpr:
             """Coerce a parsed expression operand into a ``BooleanExpr`` atom.

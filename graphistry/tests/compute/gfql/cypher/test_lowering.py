@@ -1334,6 +1334,28 @@ def test_gfql_executes_positive_where_pattern_predicate_between_bound_aliases_fo
     assert result._nodes.to_dict(orient="records") == [{"n_id": "a"}]
 
 
+def test_gfql_executes_multi_positive_where_pattern_predicates_as_intersected_seed() -> None:
+    # Slice 3 of #1031: AND-joined positive WHERE pattern predicates against a
+    # single bound seed alias execute as the intersection (rows where ALL
+    # patterns exist).  Fixture: ``a`` has both R and T outgoing; ``b`` has
+    # both; ``c`` has only T; ``d`` has neither.  Expected result: only
+    # rows where both relationships exist.
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "a", "b", "b", "c"],
+            "d": ["b", "c", "c", "d", "d"],
+            "type": ["R", "T", "R", "T", "T"],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (n) WHERE (n)-[:R]->() AND (n)-[:T]->() RETURN n.id AS id ORDER BY id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "a"}, {"id": "b"}]
+
+
 def test_compile_cypher_supports_cartesian_node_only_bindings_rows() -> None:
     compiled = _compile_query(
         "MATCH (n), (m) RETURN n.num AS n_num, m.num AS m_num ORDER BY n_num, m_num"
@@ -1650,9 +1672,13 @@ def test_lower_match_query_rejects_bare_where_pattern_predicate_without_relation
         lower_cypher_query(_parse_query("MATCH (n) WHERE (n) RETURN n"))
 
 
-def test_lower_match_query_rejects_multiple_where_pattern_predicates() -> None:
-    with pytest.raises(GFQLValidationError, match="one positive pattern predicate at a time"):
-        lower_cypher_query(_parse_query("MATCH (n) WHERE (n)-[:R]->() AND (n)-[:S]->() RETURN n"))
+def test_lower_match_query_supports_multiple_where_pattern_predicates() -> None:
+    # Slice 3 of #1031: AND-joined positive WHERE pattern predicates lift into a
+    # single appended MatchClause whose ``patterns`` carries one tuple per
+    # predicate (multi-positive cartesian within MATCH).  Verifies that the
+    # legacy rejection has been removed and the lift produces a compileable IR.
+    compiled = lower_cypher_query(_parse_query("MATCH (n) WHERE (n)-[:R]->() AND (n)-[:S]->() RETURN n"))
+    assert compiled is not None
 
 
 def test_lower_match_query_rejects_where_pattern_predicate_introducing_new_aliases() -> None:
