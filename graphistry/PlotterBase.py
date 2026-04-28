@@ -2298,7 +2298,10 @@ class PlotterBase(Plottable):
             'type': 'arrow',
             'viztoken': str(uuid.uuid4())
         }
-        url_params = dict(self._url_params)
+        # Validate collections in url_params (catches bypass of .collections() method)
+        from graphistry.validate.validate_collections import normalize_collections_url_params
+        url_params = normalize_collections_url_params(self._url_params, validate=validate_mode, warn=warn)
+
         token = self.session.api_token
         if token:
             try:
@@ -2307,15 +2310,15 @@ class PlotterBase(Plottable):
                     '%s/api/v1/auth/jwt/ott/' % server_base,
                     headers=inject_trace_headers({'Authorization': 'Bearer %s' % token}),
                     verify=self.session.certificate_validation,
+                    timeout=30,
                 )
                 resp.raise_for_status()
                 url_params['token'] = resp.json()['ott']
+            except requests.HTTPError as e:
+                logger.warning("Failed to exchange JWT for OTT: %s (status=%s, body=%.200s)",
+                               e, resp.status_code, resp.text)
             except Exception as e:
                 logger.warning("Failed to exchange JWT for OTT: %s", e)
-
-        # Validate collections in url_params (catches bypass of .collections() method)
-        from graphistry.validate.validate_collections import normalize_collections_url_params
-        url_params = normalize_collections_url_params(self._url_params, validate=validate_mode, warn=warn)
 
         viz_url = self._pygraphistry._viz_url(info, url_params)
         cfg_client_protocol_hostname = self.session.client_protocol_hostname

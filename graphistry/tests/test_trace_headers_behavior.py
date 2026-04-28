@@ -84,6 +84,22 @@ def test_plot_injects_traceparent(mock_post):
 
 
 @mock.patch("requests.post")
+def test_plot_ott_in_url(mock_post):
+    """OTT from JWT exchange must appear as ?token= in the returned viz URL."""
+    mock_post.side_effect = lambda url, **kw: _post_response_for_plot(url)
+
+    plotter_base_module = sys.modules["graphistry.PlotterBase"]
+    arrow_uploader_module = sys.modules["graphistry.arrow_uploader"]
+
+    with mock.patch.object(arrow_uploader_module, "inject_trace_headers", side_effect=_inject_trace), \
+         mock.patch.object(plotter_base_module, "inject_trace_headers", side_effect=_inject_trace):
+        g = _make_graph()
+        url = g.plot(render="url", as_files=False, validate=False, warn=False, memoize=False)
+
+    assert "token=test-ott-token" in url, f"OTT missing from viz URL: {url}"
+
+
+@mock.patch("requests.post")
 def test_upload_injects_traceparent(mock_post):
     headers_seen = []
 
