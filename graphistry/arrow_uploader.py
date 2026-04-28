@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict, Any
 
-import io, pyarrow as pa, requests, sys
+import base64, io, json, pyarrow as pa, requests, sys
 
 from graphistry.privacy import Mode, Privacy, ModeAction
 from graphistry.otel import inject_trace_headers
@@ -20,6 +20,19 @@ from .utils.requests import log_requests_error
 from .util import setup_logger
 from graphistry.models.types import ValidationParam
 logger = setup_logger(__name__)
+
+
+def _personal_org_from_jwt(token: str) -> Optional[str]:
+    """Decode JWT payload (no verification) to extract username as personal-org slug."""
+    try:
+        parts = token.split('.')
+        if len(parts) < 2:
+            return None
+        segment = parts[1] + '=' * (4 - len(parts[1]) % 4)
+        return json.loads(base64.urlsafe_b64decode(segment)).get('username')
+    except Exception:
+        return None
+
 
 class ArrowUploader:
 
@@ -428,15 +441,20 @@ class ArrowUploader:
             self.token = token_value
 
             active_org = data.get('active_organization')
-            if not active_org or not active_org.get('slug'):
-                raise Exception(
-                    "SSO response missing active organization; see graphistry/graphistry#2933"
-                )
+            slug = active_org.get('slug') if isinstance(active_org, dict) else None
 
-            slug = active_org['slug']
-            logger.debug("@ArrowUploader.sso_get_token, org_name: %s", slug)
-            self.org_name = slug
-            self._switch_org(slug, token_value or self.token)
+            if not slug:
+                # New SSO users may have no active_org yet; fall back to personal org (slug == username)
+                slug = _personal_org_from_jwt(token_value)
+                if slug:
+                    logger.info("SSO response missing active_organization; falling back to personal org: %s", slug)
+                else:
+                    logger.warning("SSO response missing active_organization and JWT has no username; proceeding without org")
+
+            if slug:
+                logger.debug("@ArrowUploader.sso_get_token, org_name: %s", slug)
+                self.org_name = slug
+                self._switch_org(slug, token_value)
 
         except Exception as e:
             logger.error('Unexpected SSO authentication error: %s', out, exc_info=True)
