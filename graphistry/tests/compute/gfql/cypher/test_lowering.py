@@ -3414,6 +3414,31 @@ def test_string_cypher_executes_de_morgan_compositions(
     assert compound_ids == distributed_ids  # De Morgan equivalence
 
 
+def test_string_cypher_executes_xor_with_null_uses_three_valued_logic() -> None:
+    # XOR + IS NULL on the 4-row 3VL fixture (n3 + n4 carry NaN x).
+    # Cypher 3VL: x=1 IS NULL evaluates to FALSE/TRUE deterministically
+    # (no NULL); XOR with concrete F/T for IS NULL is well-defined.
+    #
+    #   n1{x=1, y=10}:   x=1=T,    y IS NULL=F → T XOR F = T → keep
+    #   n2{x=2, y=NaN}:  x=1=F,    y IS NULL=T → F XOR T = T → keep
+    #   n3{x=NaN,y=20}:  x=1=NULL, y IS NULL=F → NULL XOR F = NULL → drop
+    #   n4{x=NaN,y=NaN}: x=1=NULL, y IS NULL=T → NULL XOR T = NULL → drop
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3", "n4"],
+            "label__N": [True, True, True, True],
+            "x":        [1.0, 2.0, float("nan"), float("nan")],
+            "y":        [10.0, float("nan"), 20.0, float("nan")],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n:N) WHERE n.x = 1 XOR n.y IS NULL RETURN n.id AS id")
+
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["n1", "n2"]
+
+
 def test_string_cypher_executes_xor_returns_symmetric_difference() -> None:
     # Sibling to the OR/AND/NOT runtime locks: XOR(A, B) ≡ (A AND NOT B) OR (NOT A AND B).
     # Locks pandas-backed evaluator returns the symmetric-difference row set
@@ -3446,26 +3471,29 @@ def test_string_cypher_executes_double_negation_returns_original() -> None:
 
 
 def test_string_cypher_executes_mixed_string_numeric_and_inside_or() -> None:
-    # `WHERE (n.s = 'a' AND n.x > 0) OR n.x < -1` — exercises the
-    # `_StringAllowingComparisonMixin` (#1217) paired with OR composition.
+    # `WHERE (n.s > 'a' AND n.x > 0) OR n.x < -1` — exercises the
+    # `_StringAllowingComparisonMixin` (#1217: extended GT/LT/GE/LE/NE
+    # to strings) paired with OR composition.  The string GT branch
+    # `n.s > 'a'` is the mixin-specific path; plain EQ on strings was
+    # already supported pre-#1217 and would not exercise the mixin.
     # Truth table over the 5-row fixture:
-    #   n1{s='a', x=5}:  (T AND T)=T;  T OR (5<-1)=T → keep
-    #   n2{s='a', x=-5}: (T AND F)=F;  F OR (-5<-1)=T → keep
-    #   n3{s='b', x=5}:  (F AND T)=F;  F OR (5<-1)=F → drop
-    #   n4{s='b', x=-5}: (F AND F)=F;  F OR (-5<-1)=T → keep
-    #   n5{s='b', x=0}:  (F AND F)=F;  F OR (0<-1)=F → drop
+    #   n1{s='b', x=5}:  ('b'>'a' AND 5>0)=T;  T OR (5<-1)=T → keep
+    #   n2{s='b', x=-5}: ('b'>'a' AND -5>0)=F; F OR (-5<-1)=T → keep
+    #   n3{s='a', x=5}:  ('a'>'a' AND 5>0)=F;  F OR (5<-1)=F → drop
+    #   n4{s='a', x=-5}: ('a'>'a' AND -5>0)=F; F OR (-5<-1)=T → keep
+    #   n5{s='a', x=0}:  ('a'>'a' AND 0>0)=F;  F OR (0<-1)=F → drop
     graph = _mk_graph(
         pd.DataFrame({
             "id":       ["n1", "n2", "n3", "n4", "n5"],
             "label__N": [True, True, True, True, True],
-            "s":        ["a", "a", "b", "b", "b"],
+            "s":        ["b", "b", "a", "a", "a"],
             "x":        [5, -5, 5, -5, 0],
         }),
         pd.DataFrame({"s": [], "d": []}),
     )
 
     result = graph.gfql(
-        "MATCH (n:N) WHERE (n.s = 'a' AND n.x > 0) OR n.x < -1 RETURN n.id AS id"
+        "MATCH (n:N) WHERE (n.s > 'a' AND n.x > 0) OR n.x < -1 RETURN n.id AS id"
     )
 
     ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
