@@ -3383,11 +3383,6 @@ def _de_morgan_fixture_graph() -> _CypherTestGraph:
     )
 
 
-def _ids_for(graph: _CypherTestGraph, query: str) -> List[str]:
-    result = graph.gfql(query)
-    return sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
-
-
 @pytest.mark.parametrize("compound,distributed,expected", [
     # NOT(A OR B) ≡ NOT(A) AND NOT(B) — both forms must return {n4}
     (
@@ -3406,13 +3401,13 @@ def test_string_cypher_executes_de_morgan_compositions(
     compound: str, distributed: str, expected: List[str],
 ) -> None:
     # Each NOT-of-compound and its De-Morganed equivalent must return the
-    # same row set AND that row set must equal the hardcoded expected
-    # (catches the case where both forms drift in lockstep but to a
-    # different-from-expected answer).
+    # same row set AND that row set must equal the hardcoded expected.
     graph = _de_morgan_fixture_graph()
 
-    compound_ids = _ids_for(graph, compound)
-    distributed_ids = _ids_for(graph, distributed)
+    compound_result = graph.gfql(compound)
+    distributed_result = graph.gfql(distributed)
+    compound_ids = sorted(row["id"] for row in compound_result._nodes.to_dict(orient="records"))
+    distributed_ids = sorted(row["id"] for row in distributed_result._nodes.to_dict(orient="records"))
 
     assert compound_ids == expected
     assert distributed_ids == expected
@@ -3420,12 +3415,13 @@ def test_string_cypher_executes_de_morgan_compositions(
 
 
 def test_string_cypher_executes_double_negation_returns_original() -> None:
-    # NOT(NOT A) ≡ A.  Locks compound-NOT lowering doesn't drop one
-    # negation.  Same fixture as De Morgan tests for ease of comparison.
+    # NOT(NOT A) ≡ A.  Locks compound-NOT lowering doesn't drop one negation.
     graph = _de_morgan_fixture_graph()
 
-    plain_ids = _ids_for(graph, "MATCH (n:N) WHERE n.x = 1 RETURN n.id AS id")
-    double_neg_ids = _ids_for(graph, "MATCH (n:N) WHERE NOT NOT n.x = 1 RETURN n.id AS id")
+    plain_result = graph.gfql("MATCH (n:N) WHERE n.x = 1 RETURN n.id AS id")
+    double_neg_result = graph.gfql("MATCH (n:N) WHERE NOT NOT n.x = 1 RETURN n.id AS id")
+    plain_ids = sorted(row["id"] for row in plain_result._nodes.to_dict(orient="records"))
+    double_neg_ids = sorted(row["id"] for row in double_neg_result._nodes.to_dict(orient="records"))
 
     assert plain_ids == ["n1", "n2"]
     assert double_neg_ids == plain_ids

@@ -59,15 +59,9 @@ def boolean_expr_to_text(expr: BooleanExpr) -> str:
     if expr.op == "atom":
         return expr.atom_text or ""
     if expr.op == "pattern":
-        # Pattern-leaf nodes are produced by the parser's ``pattern_atom``
-        # transformer (#1217) and always carry ``atom_text`` — the WHERE
-        # pattern source slice.  In normal flow they're lifted out of
-        # ``expr_tree`` by ``_split_top_level_and_pattern_leaves`` before
-        # the binder walks the tree, so this branch is unreachable in
-        # production today.  Kept explicit so the contract is documented:
-        # if a future code path reaches `boolean_expr_to_text` with a
-        # pattern leaf, emit the raw pattern source (round-trippable) —
-        # not the empty fallthrough that silently erased the leaf.
+        # Unreachable today (lifted by ``_split_top_level_and_pattern_leaves``
+        # before the binder walks the tree).  Contract: emit raw pattern
+        # source for round-trippability.
         return expr.atom_text or ""
     if expr.op == "not":
         operand = boolean_expr_to_text(expr.left) if expr.left is not None else ""
