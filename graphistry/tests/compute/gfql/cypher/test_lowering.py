@@ -3414,6 +3414,24 @@ def test_string_cypher_executes_de_morgan_compositions(
     assert compound_ids == distributed_ids  # De Morgan equivalence
 
 
+def test_string_cypher_executes_xor_returns_symmetric_difference() -> None:
+    # Sibling to the OR/AND/NOT runtime locks: XOR(A, B) ≡ (A AND NOT B) OR (NOT A AND B).
+    # Locks pandas-backed evaluator returns the symmetric-difference row set
+    # rather than treating XOR as OR (the boolean_expr_to_text and parse-tree
+    # tests already cover structure; this is the runtime sibling).
+    #
+    #   n1{x=1, y=2}: x=1=T, y=2=T → T XOR T = F → drop
+    #   n2{x=1, y=3}: x=1=T, y=2=F → T XOR F = T → keep
+    #   n3{x=2, y=2}: x=1=F, y=2=T → F XOR T = T → keep
+    #   n4{x=2, y=3}: x=1=F, y=2=F → F XOR F = F → drop
+    graph = _de_morgan_fixture_graph()
+
+    result = graph.gfql("MATCH (n:N) WHERE n.x = 1 XOR n.y = 2 RETURN n.id AS id")
+
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["n2", "n3"]
+
+
 def test_string_cypher_executes_double_negation_returns_original() -> None:
     # NOT(NOT A) ≡ A.  Locks compound-NOT lowering doesn't drop one negation.
     graph = _de_morgan_fixture_graph()
