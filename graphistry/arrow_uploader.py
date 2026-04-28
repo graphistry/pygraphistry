@@ -428,15 +428,26 @@ class ArrowUploader:
             self.token = token_value
 
             active_org = data.get('active_organization')
-            if not active_org or not active_org.get('slug'):
-                raise Exception(
-                    "SSO response missing active organization; see graphistry/graphistry#2933"
-                )
+            slug = active_org.get('slug') if isinstance(active_org, dict) else None
 
-            slug = active_org['slug']
-            logger.debug("@ArrowUploader.sso_get_token, org_name: %s", slug)
-            self.org_name = slug
-            self._switch_org(slug, token_value or self.token)
+            if slug:
+                logger.debug("@ArrowUploader.sso_get_token, org_name: %s", slug)
+                self.org_name = slug
+                self._switch_org(slug, token_value or self.token)
+            else:
+                # Site-wide SSO servers legitimately omit active_organization
+                # when the user has no per-org binding. Preserve the caller-
+                # supplied self.org_name (set in __init__) and skip _switch_org.
+                if self.org_name:
+                    logger.info(
+                        "SSO response did not include active_organization; "
+                        "preserving caller-supplied org_name=%s", self.org_name
+                    )
+                else:
+                    logger.info(
+                        "SSO response did not include active_organization; "
+                        "site-wide SSO login (no org binding)"
+                    )
 
         except Exception as e:
             logger.error('Unexpected SSO authentication error: %s', out, exc_info=True)
