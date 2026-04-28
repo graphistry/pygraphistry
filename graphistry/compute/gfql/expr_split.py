@@ -25,6 +25,18 @@ def split_top_level_and(expr: str) -> Tuple[str, ...]:
     them do not split.  Leading and trailing whitespace on each term is
     stripped.
 
+    **AND-only by design.**  Do NOT add a sibling ``split_top_level_or``
+    that pushes individual OR branches independently — predicate
+    pushdown's correctness depends on OR conjuncts staying intact past
+    a join.  Specifically, distributing ``a.x = 1 OR b.y = 2`` into two
+    pre-join filters and unioning produces the same answer ONLY for
+    1:1 join topologies; for cross-product / fan-out topologies it
+    produces wrong rows.  The current pushdown leaves OR/XOR/NOT trees
+    as opaque single conjuncts (referenced by all aliases they touch),
+    which is correct under any join topology but conservative.  Lifting
+    OR-awareness is a separate design problem (#1219 territory) that
+    must be paired with topology-aware pushdown safety logic.
+
     :param expr: The expression text to split (typically a WHERE body).
     :returns: A tuple of non-empty terms.  ``()`` when *expr* is empty,
         whitespace-only, has a leading/trailing top-level ``AND``, or

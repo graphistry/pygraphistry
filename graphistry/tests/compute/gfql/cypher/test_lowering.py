@@ -3298,6 +3298,109 @@ def test_string_cypher_executes_homogeneous_or_returns_correct_union() -> None:
     assert ids == ["n1", "n3"]
 
 
+# Compositional row-boolean shapes (#1219 residual matrix).  Each shape locks
+# Cypher 3VL semantics + boolean-tree composition correctness against
+# fixtures designed to discriminate against subtle bugs.
+
+
+def test_string_cypher_executes_nullable_not_or_uses_three_valued_logic() -> None:
+    # `WHERE NOT n.x = 1 OR n.y IS NULL` against a fixture mixing actual
+    # and projected nulls.  Cypher 3VL truth table:
+    #   n1{x=1, y=10}:   NOT(1=1)=F,    y IS NULL=F → F OR F = F → drop
+    #   n2{x=2, y=NaN}:  NOT(2=1)=T,    y IS NULL=T → T OR T = T → keep
+    #   n3{x=NaN,y=20}:  NOT(NaN=1)=NULL, y IS NULL=F → NULL OR F = NULL → drop
+    #   n4{x=NaN,y=NaN}: NOT(NaN=1)=NULL, y IS NULL=T → NULL OR T = T → keep
+    # Locks that the pandas-backed row-evaluator preserves NULL OR T = T.
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3", "n4"],
+            "label__N": [True, True, True, True],
+            "x":        [1.0, 2.0, float("nan"), float("nan")],
+            "y":        [10.0, float("nan"), 20.0, float("nan")],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n:N) WHERE NOT n.x = 1 OR n.y IS NULL RETURN n.id AS id")
+
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["n2", "n4"]
+
+
+def test_string_cypher_executes_nary_or_returns_full_union() -> None:
+    # `WHERE n.x = 1 OR n.x = 2 OR n.x = 3` — three OR branches.  Locks
+    # that the binder's left-associative parse `or(or(=1, =2), =3)` doesn't
+    # accidentally degenerate (e.g. silently treating the rightmost branch
+    # as redundant under some associativity bug).
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3", "n4", "n5"],
+            "label__N": [True, True, True, True, True],
+            "x":        [1, 2, 3, 4, 5],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n:N) WHERE n.x = 1 OR n.x = 2 OR n.x = 3 RETURN n.id AS id")
+
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["n1", "n2", "n3"]
+
+
+@pytest.mark.parametrize("query,expected", [
+    # NOT(A OR B) ≡ NOT(A) AND NOT(B)
+    ("MATCH (n:N) WHERE NOT (n.x = 1 OR n.y = 2) RETURN n.id AS id", ["n4"]),
+    ("MATCH (n:N) WHERE NOT n.x = 1 AND NOT n.y = 2 RETURN n.id AS id", ["n4"]),
+    # NOT(A AND B) ≡ NOT(A) OR NOT(B)
+    ("MATCH (n:N) WHERE NOT (n.x = 1 AND n.y = 2) RETURN n.id AS id", ["n2", "n3", "n4"]),
+    ("MATCH (n:N) WHERE NOT n.x = 1 OR NOT n.y = 2 RETURN n.id AS id", ["n2", "n3", "n4"]),
+])
+def test_string_cypher_executes_de_morgan_compositions(query: str, expected: list) -> None:
+    # Each NOT-of-compound and its De-Morganed equivalent must return the
+    # same row set.  4-row fixture covers all (x∈{1,2}, y∈{2,3}) combos.
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3", "n4"],
+            "label__N": [True, True, True, True],
+            "x":        [1, 1, 2, 2],
+            "y":        [2, 3, 2, 3],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(query)
+
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == expected
+
+
+def test_string_cypher_executes_mixed_string_numeric_and_inside_or() -> None:
+    # `WHERE (n.s = 'a' AND n.x > 0) OR n.x < -1` — exercises the
+    # `_StringAllowingComparisonMixin` (#1217) paired with OR composition.
+    # Truth table over the 5-row fixture:
+    #   n1{s='a', x=5}:  (T AND T)=T;  T OR (5<-1)=T → keep
+    #   n2{s='a', x=-5}: (T AND F)=F;  F OR (-5<-1)=T → keep
+    #   n3{s='b', x=5}:  (F AND T)=F;  F OR (5<-1)=F → drop
+    #   n4{s='b', x=-5}: (F AND F)=F;  F OR (-5<-1)=T → keep
+    #   n5{s='b', x=0}:  (F AND F)=F;  F OR (0<-1)=F → drop
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3", "n4", "n5"],
+            "label__N": [True, True, True, True, True],
+            "s":        ["a", "a", "b", "b", "b"],
+            "x":        [5, -5, 5, -5, 0],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n:N) WHERE (n.s = 'a' AND n.x > 0) OR n.x < -1 RETURN n.id AS id"
+    )
+
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["n1", "n2", "n4"]
+
+
 @pytest.mark.parametrize(
     "query,expected_rows",
     [
