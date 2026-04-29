@@ -476,23 +476,9 @@ def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQu
     pattern_preds = [predicate for predicate in query.where.predicates if isinstance(predicate, WherePatternPredicate)]
     if not pattern_preds:
         return query
-    first = pattern_preds[0]
-    if len(pattern_preds) > 1:
-        raise _unsupported(
-            "Cypher WHERE currently supports one positive pattern predicate at a time",
-            field="where",
-            value=len(pattern_preds),
-            line=first.span.line,
-            column=first.span.column,
-        )
-    if len(first.pattern) < 3:
-        raise _unsupported(
-            "Cypher WHERE pattern predicates must include a relationship",
-            field="where",
-            value=None,
-            line=first.span.line,
-            column=first.span.column,
-        )
+    # Slice 3 of #1031: support N positive pattern predicates by emitting one
+    # appended ``MatchClause`` per predicate.  Each predicate is independently
+    # validated (must include a relationship; cannot introduce new aliases).
     bound_aliases = {
         cast(str, element.variable)
         for clause in query.matches
@@ -500,19 +486,42 @@ def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQu
         for element in pattern
         if getattr(element, "variable", None) is not None
     }
-    introduced_aliases = sorted(
-        cast(str, element.variable)
-        for element in first.pattern
-        if getattr(element, "variable", None) is not None and cast(str, element.variable) not in bound_aliases
-    )
-    if introduced_aliases:
-        raise _unsupported(
-            "Cypher WHERE pattern predicates cannot introduce new aliases in this phase",
-            field="where",
-            value=introduced_aliases,
-            line=first.span.line,
-            column=first.span.column,
+    # Validate every pattern; collect into a single appended MatchClause whose
+    # ``patterns`` tuple holds N patterns (multi-positive WHERE pattern via
+    # cartesian-style multi-pattern MATCH; #1031 slice 3).  Packing into one
+    # MatchClause (rather than N appended MatchClauses) preserves the lowering
+    # invariant that only the FINAL match is connected — seeds remain node-only.
+    for pred in pattern_preds:
+        if len(pred.pattern) < 3:
+            raise _unsupported(
+                "Cypher WHERE pattern predicates must include a relationship",
+                field="where",
+                value=None,
+                line=pred.span.line,
+                column=pred.span.column,
+            )
+        introduced_aliases = sorted(
+            cast(str, element.variable)
+            for element in pred.pattern
+            if getattr(element, "variable", None) is not None and cast(str, element.variable) not in bound_aliases
         )
+        if introduced_aliases:
+            raise _unsupported(
+                "Cypher WHERE pattern predicates cannot introduce new aliases in this phase",
+                field="where",
+                value=introduced_aliases,
+                line=pred.span.line,
+                column=pred.span.column,
+            )
+
+    first = pattern_preds[0]
+    extra_match = MatchClause(
+        patterns=tuple(pred.pattern for pred in pattern_preds),
+        span=first.span,
+        optional=False,
+        pattern_aliases=tuple(None for _ in pattern_preds),
+        pattern_alias_kinds=tuple("pattern" for _ in pattern_preds),
+    )
 
     remaining = tuple(predicate for predicate in query.where.predicates if not isinstance(predicate, WherePatternPredicate))
     remaining_where = None
@@ -522,13 +531,6 @@ def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQu
             expr_tree=query.where.expr_tree,
             span=query.where.span,
         )
-    extra_match = MatchClause(
-        patterns=(first.pattern,),
-        span=first.span,
-        optional=False,
-        pattern_aliases=(None,),
-        pattern_alias_kinds=("pattern",),
-    )
     return replace(query, matches=query.matches + (extra_match,), where=remaining_where)
 
 
