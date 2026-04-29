@@ -129,7 +129,12 @@ def _optional_arm_aliases(pattern: PatternMatch) -> FrozenSet[str]:
 
 
 def _split_conjuncts(predicate: BoundPredicate) -> List[BoundPredicate]:
-    """Split ``A AND B`` into top-level conjunct predicates."""
+    """Split ``A AND B`` into top-level conjunct predicates.
+
+    AND-only — splitting an OR here would be silently wrong because
+    ``_combine_conjuncts`` (below) AND-joins residuals.  See
+    ``expr_split.split_top_level_and`` docstring for the full rationale.
+    """
     expression = predicate.expression.strip()
     if not expression:
         return []

@@ -3324,6 +3324,205 @@ def test_string_cypher_executes_homogeneous_or_returns_correct_union() -> None:
     assert ids == ["n1", "n3"]
 
 
+# Compositional row-boolean shapes (#1219 residual matrix).  Each shape locks
+# Cypher 3VL semantics + boolean-tree composition correctness against
+# fixtures designed to discriminate against subtle bugs.
+
+
+def _three_valued_logic_fixture_graph() -> _CypherTestGraph:
+    # 4-row fixture mixing actual and projected NaN over (x, y) for 3VL tests.
+    return _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3", "n4"],
+            "label__N": [True, True, True, True],
+            "x":        [1.0, 2.0, float("nan"), float("nan")],
+            "y":        [10.0, float("nan"), 20.0, float("nan")],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+
+def test_string_cypher_executes_nullable_not_or_uses_three_valued_logic() -> None:
+    # `WHERE NOT n.x = 1 OR n.y IS NULL` against a fixture mixing actual
+    # and projected nulls.  Cypher 3VL truth table:
+    #   n1{x=1, y=10}:   NOT(1=1)=F,    y IS NULL=F → F OR F = F → drop
+    #   n2{x=2, y=NaN}:  NOT(2=1)=T,    y IS NULL=T → T OR T = T → keep
+    #   n3{x=NaN,y=20}:  NOT(NaN=1)=NULL, y IS NULL=F → NULL OR F = NULL → drop
+    #   n4{x=NaN,y=NaN}: NOT(NaN=1)=NULL, y IS NULL=T → NULL OR T = T → keep
+    # Locks that the pandas-backed row-evaluator preserves NULL OR T = T.
+    graph = _three_valued_logic_fixture_graph()
+
+    result = graph.gfql("MATCH (n:N) WHERE NOT n.x = 1 OR n.y IS NULL RETURN n.id AS id")
+
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["n2", "n4"]
+
+
+def test_string_cypher_executes_nary_or_returns_full_union() -> None:
+    # `WHERE n.x = 1 OR n.x = 2 OR n.x = 3` — three OR branches against a
+    # 5-row fixture where each value matches a unique row.  Locks that the
+    # binder's parse evaluates ALL branches; silently dropping any one
+    # branch yields a 2-row result and fails the assertion.
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3", "n4", "n5"],
+            "label__N": [True, True, True, True, True],
+            "x":        [1, 2, 3, 4, 5],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n:N) WHERE n.x = 1 OR n.x = 2 OR n.x = 3 RETURN n.id AS id")
+
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["n1", "n2", "n3"]
+
+
+def test_string_cypher_executes_nary_or_with_duplicate_branch_locks_specific_associativity() -> None:
+    # Companion to test_string_cypher_executes_nary_or_returns_full_union:
+    # `WHERE n.x = 1 OR n.x = 1 OR n.x = 3` has a duplicated leftmost
+    # branch.  If the binder silently dropped the rightmost branch under
+    # an associativity bug, the result would be `[n1]` only.  If it
+    # silently dropped one of the duplicates, the result is still `[n1, n3]`
+    # (correct) — so this isolates the rightmost-drop case from the
+    # any-branch-drop case the previous test covers.
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3"],
+            "label__N": [True, True, True],
+            "x":        [1, 2, 3],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("MATCH (n:N) WHERE n.x = 1 OR n.x = 1 OR n.x = 3 RETURN n.id AS id")
+
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["n1", "n3"]
+
+
+def _de_morgan_fixture_graph() -> _CypherTestGraph:
+    # 4-row fixture covering all (x∈{1,2}, y∈{2,3}) combos.
+    return _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3", "n4"],
+            "label__N": [True, True, True, True],
+            "x":        [1, 1, 2, 2],
+            "y":        [2, 3, 2, 3],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+
+@pytest.mark.parametrize("compound,distributed,expected", [
+    # NOT(A OR B) ≡ NOT(A) AND NOT(B) — both forms must return {n4}
+    (
+        "MATCH (n:N) WHERE NOT (n.x = 1 OR n.y = 2) RETURN n.id AS id",
+        "MATCH (n:N) WHERE NOT n.x = 1 AND NOT n.y = 2 RETURN n.id AS id",
+        ["n4"],
+    ),
+    # NOT(A AND B) ≡ NOT(A) OR NOT(B) — both forms must return {n2,n3,n4}
+    (
+        "MATCH (n:N) WHERE NOT (n.x = 1 AND n.y = 2) RETURN n.id AS id",
+        "MATCH (n:N) WHERE NOT n.x = 1 OR NOT n.y = 2 RETURN n.id AS id",
+        ["n2", "n3", "n4"],
+    ),
+])
+def test_string_cypher_executes_de_morgan_compositions(
+    compound: str, distributed: str, expected: List[str],
+) -> None:
+    # Each NOT-of-compound and its De-Morganed equivalent must return the
+    # same row set AND that row set must equal the hardcoded expected.
+    graph = _de_morgan_fixture_graph()
+
+    compound_result = graph.gfql(compound)
+    distributed_result = graph.gfql(distributed)
+    compound_ids = sorted(row["id"] for row in compound_result._nodes.to_dict(orient="records"))
+    distributed_ids = sorted(row["id"] for row in distributed_result._nodes.to_dict(orient="records"))
+
+    assert compound_ids == expected
+    assert distributed_ids == expected
+    assert compound_ids == distributed_ids  # De Morgan equivalence
+
+
+def test_string_cypher_executes_xor_with_null_uses_three_valued_logic() -> None:
+    # XOR + IS NULL on the 3VL fixture.  IS NULL is deterministic
+    # (NaN → TRUE, non-null → FALSE; no NULL output), so XOR's NULL
+    # comes only from the comparison branch.
+    #
+    #   n1{x=1, y=10}:   x=1=T,    y IS NULL=F → T XOR F = T → keep
+    #   n2{x=2, y=NaN}:  x=1=F,    y IS NULL=T → F XOR T = T → keep
+    #   n3{x=NaN,y=20}:  x=1=NULL, y IS NULL=F → NULL XOR F = NULL → drop
+    #   n4{x=NaN,y=NaN}: x=1=NULL, y IS NULL=T → NULL XOR T = NULL → drop
+    graph = _three_valued_logic_fixture_graph()
+
+    result = graph.gfql("MATCH (n:N) WHERE n.x = 1 XOR n.y IS NULL RETURN n.id AS id")
+
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["n1", "n2"]
+
+
+def test_string_cypher_executes_xor_returns_symmetric_difference() -> None:
+    # Sibling to the OR/AND/NOT runtime locks: XOR(A, B) ≡ (A AND NOT B) OR (NOT A AND B).
+    # Locks pandas-backed evaluator returns the symmetric-difference row set
+    # rather than treating XOR as OR (the boolean_expr_to_text and parse-tree
+    # tests already cover structure; this is the runtime sibling).
+    #
+    #   n1{x=1, y=2}: x=1=T, y=2=T → T XOR T = F → drop
+    #   n2{x=1, y=3}: x=1=T, y=2=F → T XOR F = T → keep
+    #   n3{x=2, y=2}: x=1=F, y=2=T → F XOR T = T → keep
+    #   n4{x=2, y=3}: x=1=F, y=2=F → F XOR F = F → drop
+    graph = _de_morgan_fixture_graph()
+
+    result = graph.gfql("MATCH (n:N) WHERE n.x = 1 XOR n.y = 2 RETURN n.id AS id")
+
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["n2", "n3"]
+
+
+def test_string_cypher_executes_double_negation_returns_original() -> None:
+    # NOT(NOT A) ≡ A.  Locks compound-NOT lowering doesn't drop one negation.
+    graph = _de_morgan_fixture_graph()
+
+    plain_result = graph.gfql("MATCH (n:N) WHERE n.x = 1 RETURN n.id AS id")
+    double_neg_result = graph.gfql("MATCH (n:N) WHERE NOT NOT n.x = 1 RETURN n.id AS id")
+    plain_ids = sorted(row["id"] for row in plain_result._nodes.to_dict(orient="records"))
+    double_neg_ids = sorted(row["id"] for row in double_neg_result._nodes.to_dict(orient="records"))
+
+    assert plain_ids == ["n1", "n2"]
+    assert double_neg_ids == plain_ids
+
+
+def test_string_cypher_executes_mixed_string_numeric_and_inside_or() -> None:
+    # `WHERE (n.s > 'a' AND n.x > 0) OR n.x < -1` — exercises the
+    # `_StringAllowingComparisonMixin` (#1217: extended GT/LT/GE/LE/NE
+    # to strings) paired with OR composition.  The string GT branch
+    # `n.s > 'a'` is the mixin-specific path; plain EQ on strings was
+    # already supported pre-#1217 and would not exercise the mixin.
+    # Truth table over the 5-row fixture:
+    #   n1{s='b', x=5}:  ('b'>'a' AND 5>0)=T;  T OR (5<-1)=T → keep
+    #   n2{s='b', x=-5}: ('b'>'a' AND -5>0)=F; F OR (-5<-1)=T → keep
+    #   n3{s='a', x=5}:  ('a'>'a' AND 5>0)=F;  F OR (5<-1)=F → drop
+    #   n4{s='a', x=-5}: ('a'>'a' AND -5>0)=F; F OR (-5<-1)=T → keep
+    #   n5{s='a', x=0}:  ('a'>'a' AND 0>0)=F;  F OR (0<-1)=F → drop
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3", "n4", "n5"],
+            "label__N": [True, True, True, True, True],
+            "s":        ["b", "b", "a", "a", "a"],
+            "x":        [5, -5, 5, -5, 0],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n:N) WHERE (n.s > 'a' AND n.x > 0) OR n.x < -1 RETURN n.id AS id"
+    )
+
+    ids = sorted(row["id"] for row in result._nodes.to_dict(orient="records"))
+    assert ids == ["n1", "n2", "n4"]
+
+
 @pytest.mark.parametrize(
     "query,expected_rows",
     [

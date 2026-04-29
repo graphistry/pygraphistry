@@ -219,3 +219,28 @@ def test_literal_boolean_atoms_known_limitation_python_style_text() -> None:
     assert tree.left.atom_text == "True"  # known limitation — see docstring
     # Right operand is a comparable with a Lark Tree span — accurate slice.
     assert tree.right is not None and tree.right.atom_text == "n.x > 1"
+
+
+# ---------------------------------------------------------------------------
+# boolean_expr_to_text contract for the op == "pattern" branch
+# ---------------------------------------------------------------------------
+
+
+def test_boolean_expr_to_text_emits_atom_text_for_pattern_op() -> None:
+    # Pattern leaves are normally lifted out of expr_tree by
+    # _split_top_level_and_pattern_leaves before the binder walks the
+    # tree, so this branch is unreachable in production.  The unit test
+    # locks the contract explicitly so a future code path that DOES
+    # reach boolean_expr_to_text with a pattern leaf gets the raw
+    # pattern source rather than the empty-string fallthrough.
+    from graphistry.compute.gfql.cypher.ast import SourceSpan
+    from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
+
+    span = SourceSpan(line=1, column=1, end_line=1, end_column=10, start_pos=0, end_pos=10)
+    pattern_leaf = BooleanExpr(
+        op="pattern",
+        span=span,
+        atom_text="(a)-->(b)",
+        atom_span=span,
+    )
+    assert boolean_expr_to_text(pattern_leaf) == "(a)-->(b)"

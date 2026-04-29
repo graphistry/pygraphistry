@@ -25,6 +25,21 @@ def split_top_level_and(expr: str) -> Tuple[str, ...]:
     them do not split.  Leading and trailing whitespace on each term is
     stripped.
 
+    **AND-only by design.**  Do NOT add a sibling ``split_top_level_or``.
+    The pushdown pipeline (``predicate_pushdown._push_filter_into_pattern``)
+    splits a filter into conjuncts, decides per-conjunct whether to
+    push, and silently AND-combines the pushed conjuncts inside
+    ``PatternMatch.predicates``.  That contract is correct for AND
+    (split + AND-recombine is the identity on the original AND-tree)
+    but wrong for OR: splitting ``a.x = 1 OR b.y = 2`` and AND-recombining
+    yields ``a.x = 1 AND b.y = 2``, which is a strict subset of the
+    correct answer.  An OR-aware split would need a UNION-of-pushed-
+    branches recombine path (with row-multiplicity / dedup logic) that
+    the current pipeline does not implement.  See #1219 for the design
+    space.  Cross-alias OR conjuncts route through the per-pattern
+    pushdown intact today (verified by
+    ``test_string_cypher_executes_cross_alias_or_returns_correct_union``).
+
     :param expr: The expression text to split (typically a WHERE body).
     :returns: A tuple of non-empty terms.  ``()`` when *expr* is empty,
         whitespace-only, has a leading/trailing top-level ``AND``, or
