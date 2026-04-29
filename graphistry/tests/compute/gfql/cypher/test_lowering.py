@@ -10931,6 +10931,48 @@ def test_issue_1024_where_label_on_optional_match() -> None:
     assert rows[0]["zid"] == "c"
 
 
+def test_issue_1024_where_not_pattern_on_optional_match_filters_candidates() -> None:
+    """WHERE NOT(pattern) on OPTIONAL MATCH keeps only rows passing negated pattern."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d", "e"]})
+    edges = pd.DataFrame({
+        "s": ["a", "b", "b", "c"],
+        "d": ["b", "c", "d", "e"],
+        "type": ["R1", "T", "T", "U"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x)-[:R1]->(y) "
+        "OPTIONAL MATCH (y)-[:T]->(z) "
+        "WHERE NOT (z)-[:U]->() "
+        "RETURN y.id AS yid, z.id AS zid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert rows == [{"yid": "b", "zid": "d"}]
+
+
+def test_issue_1024_where_not_pattern_on_optional_match_null_fills_when_all_filtered() -> None:
+    """WHERE NOT(pattern) on OPTIONAL MATCH null-fills when every optional row is filtered out."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "e"]})
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c"],
+        "d": ["b", "c", "e"],
+        "type": ["R1", "T", "U"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x)-[:R1]->(y) "
+        "OPTIONAL MATCH (y)-[:T]->(z) "
+        "WHERE NOT (z)-[:U]->() "
+        "RETURN y.id AS yid, z.id AS zid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert rows == [{"yid": "b", "zid": None}]
+
+
 def test_issue_1024_where_on_both_match_and_optional() -> None:
     """WHERE on both MATCH and OPTIONAL MATCH — TCK match-where6-1 shape."""
     nodes = pd.DataFrame({
