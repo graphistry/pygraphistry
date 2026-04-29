@@ -347,17 +347,37 @@ def _lift_label_only_and_spine(
 
 def _split_top_level_and_pattern_leaves(
     expr: BooleanExpr,
-) -> Tuple[List[BooleanExpr], List[BooleanExpr], bool]:
-    """Split *expr* at top-level AND boundaries into (patterns, others, has_nested_pattern)."""
+) -> Tuple[List[BooleanExpr], List[BooleanExpr], List[BooleanExpr], bool]:
+    """Split *expr* at top-level AND boundaries.
+
+    Returns ``(positive_patterns, negated_patterns, others, has_nested_pattern)``.
+
+    - ``positive_patterns``: leaf ``BooleanExpr(op="pattern")`` nodes at top-level
+      AND positions.  Lifted to ``WherePatternPredicate(negated=False)``.
+    - ``negated_patterns``: leaf ``BooleanExpr(op="pattern")`` nodes wrapped in a
+      single top-level ``not`` (i.e. ``NOT (n)-[:R]->()``).  Lifted to
+      ``WherePatternPredicate(negated=True)`` for #1031 slice 2 anti-semi-join
+      lowering.  Returns the inner ``pattern`` leaf (the ``not`` is consumed).
+    - ``others``: non-pattern conjuncts that should remain in ``expr_tree``.
+    - ``has_nested_pattern``: True when a pattern atom appears in a deeper
+      non-AND/non-direct-NOT context (e.g. ``OR`` with a pattern leaf, or
+      ``NOT (and-tree-of-patterns)``).  Triggers the legacy E108 reject so
+      slice 4 / De-Morgan-NOT compositions stay deferred.
+    """
     if expr.op == "and":
         if expr.left is None or expr.right is None:
-            return [], [expr], False
-        left_pat, left_other, left_bad = _split_top_level_and_pattern_leaves(expr.left)
-        right_pat, right_other, right_bad = _split_top_level_and_pattern_leaves(expr.right)
-        return left_pat + right_pat, left_other + right_other, left_bad or right_bad
+            return [], [], [expr], False
+        l_pos, l_neg, l_oth, l_bad = _split_top_level_and_pattern_leaves(expr.left)
+        r_pos, r_neg, r_oth, r_bad = _split_top_level_and_pattern_leaves(expr.right)
+        return l_pos + r_pos, l_neg + r_neg, l_oth + r_oth, l_bad or r_bad
     if expr.op == "pattern":
-        return [expr], [], False
-    return [], [expr], _has_pattern_descendant(expr)
+        return [expr], [], [], False
+    if expr.op == "not" and expr.left is not None and expr.left.op == "pattern":
+        # `WHERE NOT (pattern)` — slice 2 anti-semi-join target.  Strip the NOT
+        # and emit the inner pattern leaf as a negated pattern.  No nested
+        # pattern; rest of the tree continues structural traversal as usual.
+        return [], [expr.left], [], False
+    return [], [], [expr], _has_pattern_descendant(expr)
 
 
 def _has_pattern_descendant(expr: BooleanExpr) -> bool:
@@ -394,6 +414,7 @@ def _rebuild_and_tree(conjuncts: List[BooleanExpr]) -> Optional[BooleanExpr]:
 def _build_where_with_pattern_lift(
     *,
     pattern_leaves: List[BooleanExpr],
+    negated_pattern_leaves: List[BooleanExpr],
     other_conjuncts: List[BooleanExpr],
     nested_pattern: bool,
     expr_text: str,
@@ -410,13 +431,18 @@ def _build_where_with_pattern_lift(
             column=span.column,
             language="cypher",
         )
-    # Multi-positive (slice 3 of #1031): emit one ``WherePatternPredicate`` per
-    # leaf; downstream ``_rewrite_where_pattern_predicates_to_matches`` lifts
-    # each into its own appended ``MatchClause``.
+    # Slice 3 (#1031): N positive patterns each become a WherePatternPredicate
+    # (negated=False).  Slice 2 (#1031): N NOT-patterns each become a
+    # WherePatternPredicate (negated=True) for downstream anti-semi-join
+    # lowering.  Both groups travel together in WhereClause.predicates;
+    # ast_normalizer dispatches by the negated flag.
     pattern_preds: List[WherePatternPredicate] = []
     for leaf in pattern_leaves:
         assert leaf.pattern is not None, "pattern_atom invariant: pattern payload always set"
-        pattern_preds.append(WherePatternPredicate(pattern=leaf.pattern, span=leaf.span))
+        pattern_preds.append(WherePatternPredicate(pattern=leaf.pattern, span=leaf.span, negated=False))
+    for leaf in negated_pattern_leaves:
+        assert leaf.pattern is not None, "pattern_atom invariant: pattern payload always set"
+        pattern_preds.append(WherePatternPredicate(pattern=leaf.pattern, span=leaf.span, negated=True))
     new_expr_tree = _rebuild_and_tree(other_conjuncts)
     if new_expr_tree is None:
         return WhereClause(predicates=tuple(pattern_preds), expr_tree=None, span=span)
@@ -1199,14 +1225,15 @@ def _build_transformer(source: str) -> _TransformerLike:
             # top-level AND positions; extract them as
             # ``WherePatternPredicate`` entries so the existing AST-
             # normalizer step (``_rewrite_where_pattern_predicates_to_matches``)
-            # can lift them to a separate ``MatchClause`` later.  Pattern
-            # leaves nested under non-AND ops (NOT/OR/XOR) and multiple
-            # positive patterns are rejected here with shape-specific
-            # E108 errors — slice 2/3/4 territory.
-            pattern_leaves, other_conjuncts, nested_pattern = _split_top_level_and_pattern_leaves(expr_tree)
-            if pattern_leaves or nested_pattern:
+            # can lift them.  Slice 2 (#1031): top-level ``NOT (pattern)``
+            # leaves are also lifted, marked ``negated=True`` for anti-semi-
+            # join lowering.  Patterns nested deeper (under OR/XOR or
+            # double-NOT) trip the legacy E108 reject.
+            pos_leaves, neg_leaves, other_conjuncts, nested_pattern = _split_top_level_and_pattern_leaves(expr_tree)
+            if pos_leaves or neg_leaves or nested_pattern:
                 return _build_where_with_pattern_lift(
-                    pattern_leaves=pattern_leaves,
+                    pattern_leaves=pos_leaves,
+                    negated_pattern_leaves=neg_leaves,
                     other_conjuncts=other_conjuncts,
                     nested_pattern=nested_pattern,
                     expr_text=expr_text,

@@ -476,6 +476,13 @@ def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQu
     pattern_preds = [predicate for predicate in query.where.predicates if isinstance(predicate, WherePatternPredicate)]
     if not pattern_preds:
         return query
+    # Slice 2 of #1031: WherePatternPredicate.negated stays in place — the
+    # ast_normalizer rewriter only handles positive predicates (which compile
+    # to MatchClause append).  Negated predicates are passed through to
+    # lowering, which emits an anti-semi-join row-pipeline step.
+    positive_preds = [p for p in pattern_preds if not p.negated]
+    if not positive_preds:
+        return query
     # Slice 3 of #1031: support N positive pattern predicates by emitting one
     # appended ``MatchClause`` per predicate.  Each predicate is independently
     # validated (must include a relationship; cannot introduce new aliases).
@@ -486,12 +493,13 @@ def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQu
         for element in pattern
         if getattr(element, "variable", None) is not None
     }
-    # Validate every pattern; collect into a single appended MatchClause whose
-    # ``patterns`` tuple holds N patterns (multi-positive WHERE pattern via
-    # cartesian-style multi-pattern MATCH; #1031 slice 3).  Packing into one
-    # MatchClause (rather than N appended MatchClauses) preserves the lowering
-    # invariant that only the FINAL match is connected — seeds remain node-only.
-    for pred in pattern_preds:
+    # Validate every positive pattern; collect into a single appended
+    # MatchClause whose ``patterns`` tuple holds N patterns (multi-positive
+    # WHERE pattern via cartesian-style multi-pattern MATCH; #1031 slice 3).
+    # Packing into one MatchClause (rather than N appended MatchClauses)
+    # preserves the lowering invariant that only the FINAL match is
+    # connected — seeds remain node-only.
+    for pred in positive_preds:
         if len(pred.pattern) < 3:
             raise _unsupported(
                 "Cypher WHERE pattern predicates must include a relationship",
@@ -514,16 +522,21 @@ def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQu
                 column=pred.span.column,
             )
 
-    first = pattern_preds[0]
+    first = positive_preds[0]
     extra_match = MatchClause(
-        patterns=tuple(pred.pattern for pred in pattern_preds),
+        patterns=tuple(pred.pattern for pred in positive_preds),
         span=first.span,
         optional=False,
-        pattern_aliases=tuple(None for _ in pattern_preds),
-        pattern_alias_kinds=tuple("pattern" for _ in pattern_preds),
+        pattern_aliases=tuple(None for _ in positive_preds),
+        pattern_alias_kinds=tuple("pattern" for _ in positive_preds),
     )
 
-    remaining = tuple(predicate for predicate in query.where.predicates if not isinstance(predicate, WherePatternPredicate))
+    # Keep negated WherePatternPredicates in `remaining` so lowering sees them
+    # for anti-semi-join emission (#1031 slice 2).
+    remaining = tuple(
+        predicate for predicate in query.where.predicates
+        if (not isinstance(predicate, WherePatternPredicate)) or predicate.negated
+    )
     remaining_where = None
     if remaining or query.where.expr_tree is not None:
         remaining_where = WhereClause(

@@ -6389,6 +6389,18 @@ def lower_match_query(
                 )
         for predicate in query.where.predicates:
             if isinstance(predicate, WherePatternPredicate):
+                if predicate.negated:
+                    # #1031 slice 2: NOT-pattern parses + survives ast_normalizer
+                    # but lowering for anti-semi-join is not yet implemented.
+                    # See plans/1031-slices-2-3-4/findings/slice-2-scope.md
+                    # for the path-C (row-pipeline anti-join) approach.
+                    raise _unsupported(
+                        "Cypher WHERE NOT (pattern) anti-semi-join lowering is not yet supported",
+                        field="where",
+                        value=None,
+                        line=predicate.span.line,
+                        column=predicate.span.column,
+                    )
                 raise _unsupported(
                     "Cypher WHERE pattern predicates must be rewritten before lowering",
                     field="where",
@@ -8198,6 +8210,14 @@ def _apply_where_to_ops(
                 row_expr_filters.append(rewritten)
     for predicate in where.predicates:
         if isinstance(predicate, WherePatternPredicate):
+            if predicate.negated:
+                raise _unsupported(
+                    "Cypher WHERE NOT (pattern) anti-semi-join lowering is not yet supported",
+                    field="where",
+                    value=None,
+                    line=predicate.span.line,
+                    column=predicate.span.column,
+                )
             raise _unsupported(
                 "Cypher WHERE pattern predicates must be rewritten before lowering",
                 field="where",

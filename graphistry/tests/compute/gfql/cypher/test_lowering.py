@@ -5145,7 +5145,6 @@ def test_string_cypher_executes_where_pattern_predicate_and_expr_mix(
     "query",
     [
         "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'z' RETURN n",
-        "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n",
     ],
 )
 def test_string_cypher_failfast_rejects_unsupported_mixed_variable_length_where_pattern_predicates(query: str) -> None:
@@ -5156,6 +5155,27 @@ def test_string_cypher_failfast_rejects_unsupported_mixed_variable_length_where_
 
     assert exc_info.value.code == ErrorCode.E108
     assert "mixed with generic row expressions" in exc_info.value.message
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n",
+        "MATCH (n) WHERE NOT (n)-[:R]->() RETURN n",
+    ],
+)
+def test_string_cypher_failfast_rejects_negated_pattern_until_slice2_lowering(query: str) -> None:
+    # #1031 slice 2 plumbing: parser lifts NOT-pattern to
+    # ``WherePatternPredicate(negated=True)``; lowering raises a scoped error
+    # until the anti-semi-join lowering lands.  Locks the precise message
+    # so future engine work knows where to plug in.
+    graph = _mk_empty_graph()
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(query)
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert "anti-semi-join" in exc_info.value.message
 
 
 def test_string_cypher_failfast_rejects_multi_alias_return_star_projection() -> None:
