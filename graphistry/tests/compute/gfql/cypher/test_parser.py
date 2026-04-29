@@ -961,20 +961,34 @@ def test_parse_supports_where_pattern_predicate_and_expr_mix(query: str, expr_te
 @pytest.mark.parametrize(
     "query",
     [
-        # Variable-length patterns
+        # OR-around-pattern remains slice 4 territory — still rejected at parse.
         "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'z' RETURN n",
-        "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n",
-        # Non-variable-length patterns — same lift-step rejector path,
-        # but a more common shape to hit in practice.  Locks the
-        # rejection so future slice 2/3/4 lifts can't silently regress
-        # the simple-edge variant.
         "MATCH (n) WHERE (n)-[:R]->() OR n.id = 'z' RETURN n",
-        "MATCH (n) WHERE NOT (n)-[:R]->() RETURN n",
     ],
 )
 def test_parse_rejects_mixed_where_pattern_predicates_as_unsupported(query: str) -> None:
     with pytest.raises(GFQLValidationError, match="mixed with generic row expressions"):
         parse_cypher(query)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        # NOT-pattern: parse succeeds (#1031 slice 2 plumbing); the inner
+        # ``WherePatternPredicate`` is lifted with ``negated=True`` and
+        # surfaces the lowering-stage gate when compiled.
+        "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n",
+        "MATCH (n) WHERE NOT (n)-[:R]->() RETURN n",
+    ],
+)
+def test_parse_lifts_top_level_not_pattern_to_negated_predicate(query: str) -> None:
+    parsed = _parse_query(query)
+    assert parsed.where is not None
+    pattern_preds = [
+        p for p in parsed.where.predicates if isinstance(p, WherePatternPredicate)
+    ]
+    assert len(pattern_preds) == 1
+    assert pattern_preds[0].negated is True
 
 
 def test_parse_aggregate_projection_items() -> None:
