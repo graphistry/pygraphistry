@@ -3303,15 +3303,9 @@ def test_string_cypher_executes_homogeneous_or_returns_correct_union() -> None:
 # fixtures designed to discriminate against subtle bugs.
 
 
-def test_string_cypher_executes_nullable_not_or_uses_three_valued_logic() -> None:
-    # `WHERE NOT n.x = 1 OR n.y IS NULL` against a fixture mixing actual
-    # and projected nulls.  Cypher 3VL truth table:
-    #   n1{x=1, y=10}:   NOT(1=1)=F,    y IS NULL=F → F OR F = F → drop
-    #   n2{x=2, y=NaN}:  NOT(2=1)=T,    y IS NULL=T → T OR T = T → keep
-    #   n3{x=NaN,y=20}:  NOT(NaN=1)=NULL, y IS NULL=F → NULL OR F = NULL → drop
-    #   n4{x=NaN,y=NaN}: NOT(NaN=1)=NULL, y IS NULL=T → NULL OR T = T → keep
-    # Locks that the pandas-backed row-evaluator preserves NULL OR T = T.
-    graph = _mk_graph(
+def _three_valued_logic_fixture_graph() -> _CypherTestGraph:
+    # 4-row fixture mixing actual and projected NaN over (x, y) for 3VL tests.
+    return _mk_graph(
         pd.DataFrame({
             "id":       ["n1", "n2", "n3", "n4"],
             "label__N": [True, True, True, True],
@@ -3320,6 +3314,17 @@ def test_string_cypher_executes_nullable_not_or_uses_three_valued_logic() -> Non
         }),
         pd.DataFrame({"s": [], "d": []}),
     )
+
+
+def test_string_cypher_executes_nullable_not_or_uses_three_valued_logic() -> None:
+    # `WHERE NOT n.x = 1 OR n.y IS NULL` against a fixture mixing actual
+    # and projected nulls.  Cypher 3VL truth table:
+    #   n1{x=1, y=10}:   NOT(1=1)=F,    y IS NULL=F → F OR F = F → drop
+    #   n2{x=2, y=NaN}:  NOT(2=1)=T,    y IS NULL=T → T OR T = T → keep
+    #   n3{x=NaN,y=20}:  NOT(NaN=1)=NULL, y IS NULL=F → NULL OR F = NULL → drop
+    #   n4{x=NaN,y=NaN}: NOT(NaN=1)=NULL, y IS NULL=T → NULL OR T = T → keep
+    # Locks that the pandas-backed row-evaluator preserves NULL OR T = T.
+    graph = _three_valued_logic_fixture_graph()
 
     result = graph.gfql("MATCH (n:N) WHERE NOT n.x = 1 OR n.y IS NULL RETURN n.id AS id")
 
@@ -3415,23 +3420,15 @@ def test_string_cypher_executes_de_morgan_compositions(
 
 
 def test_string_cypher_executes_xor_with_null_uses_three_valued_logic() -> None:
-    # XOR + IS NULL on the 4-row 3VL fixture (n3 + n4 carry NaN x).
-    # Cypher 3VL: x=1 IS NULL evaluates to FALSE/TRUE deterministically
-    # (no NULL); XOR with concrete F/T for IS NULL is well-defined.
+    # XOR + IS NULL on the 3VL fixture.  IS NULL is deterministic
+    # (NaN → TRUE, non-null → FALSE; no NULL output), so XOR's NULL
+    # comes only from the comparison branch.
     #
     #   n1{x=1, y=10}:   x=1=T,    y IS NULL=F → T XOR F = T → keep
     #   n2{x=2, y=NaN}:  x=1=F,    y IS NULL=T → F XOR T = T → keep
     #   n3{x=NaN,y=20}:  x=1=NULL, y IS NULL=F → NULL XOR F = NULL → drop
     #   n4{x=NaN,y=NaN}: x=1=NULL, y IS NULL=T → NULL XOR T = NULL → drop
-    graph = _mk_graph(
-        pd.DataFrame({
-            "id":       ["n1", "n2", "n3", "n4"],
-            "label__N": [True, True, True, True],
-            "x":        [1.0, 2.0, float("nan"), float("nan")],
-            "y":        [10.0, float("nan"), 20.0, float("nan")],
-        }),
-        pd.DataFrame({"s": [], "d": []}),
-    )
+    graph = _three_valued_logic_fixture_graph()
 
     result = graph.gfql("MATCH (n:N) WHERE n.x = 1 XOR n.y IS NULL RETURN n.id AS id")
 
