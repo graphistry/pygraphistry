@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict, Any
 
-import io, pyarrow as pa, requests, sys
+import base64, io, json, pyarrow as pa, requests, sys
 
 from graphistry.privacy import Mode, Privacy, ModeAction
 from graphistry.otel import inject_trace_headers
@@ -20,6 +20,41 @@ from .utils.requests import log_requests_error
 from .util import setup_logger
 from graphistry.models.types import ValidationParam
 logger = setup_logger(__name__)
+
+
+def _personal_org_from_jwt(token: str) -> Optional[str]:
+    """Extract the username claim from a JWT payload, used as a personal-org slug.
+
+    Trust chain: callers pass a JWT just received from the authenticated
+    /api/v2/o/sso/oidc/jwt/{state}/ endpoint in the same exchange, so we decode
+    the payload without local signature verification. The server re-validates
+    the token signature on every subsequent request — an incorrect username
+    can at worst route the session to an org the user isn't a member of (server
+    rejects), not grant unauthorized access. Do NOT reuse this helper for
+    tokens received from outside that trust chain.
+
+    Server contract: ``personal_org.slug == jwt_payload.username`` for users
+    auto-provisioned via SSO.
+
+    Returns None on any decode/parse failure or missing/non-string username.
+    """
+    try:
+        parts = token.split('.')
+        if len(parts) < 2:
+            return None
+        # base64 padding: only the missing chars (0, 2, or 3); never extra.
+        # Inputs whose stripped length is 1 mod 4 are invalid b64; the decode
+        # call below will raise and the caller-level except returns None.
+        segment = parts[1] + '=' * (-len(parts[1]) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(segment))
+        if not isinstance(payload, dict):
+            return None
+        username = payload.get('username')
+        return username if isinstance(username, str) and username else None
+    except Exception as exc:
+        logger.debug("@_personal_org_from_jwt: failed to extract username: %s", exc)
+        return None
+
 
 class ArrowUploader:
 
@@ -431,22 +466,52 @@ class ArrowUploader:
             slug = active_org.get('slug') if isinstance(active_org, dict) else None
 
             if slug:
+                # Layer 1: server-bound active_organization. Caller's intent
+                # (self.org_name from register(org_name=...) or session) must
+                # MATCH or be ABSENT. Symmetric with _finalize_login's strict
+                # check for username/password (line ~309-316).
+                if self.org_name and self.org_name != slug:
+                    raise Exception(
+                        f"SSO returned active_organization={slug!r}, but caller "
+                        f"requested org_name={self.org_name!r}. To use the "
+                        f"server-bound org, omit org_name from register(). To "
+                        f"require {self.org_name!r}, configure per-org SSO "
+                        f"routing for it server-side."
+                    )
                 logger.debug("@ArrowUploader.sso_get_token, org_name: %s", slug)
                 self.org_name = slug
-                self._switch_org(slug, token_value or self.token)
+                self._switch_org(slug, token_value)
+            elif self.org_name:
+                # Layer 2: caller-supplied, server silent. Preserve caller
+                # intent — subsequent authenticated requests will validate org
+                # membership lazily. WARNING because the asymmetric outcome
+                # (caller asked, server didn't bind) is operationally
+                # interesting and worth investigating per-org SSO config.
+                logger.warning(
+                    "SSO did not bind active_organization but caller requested "
+                    "org_name=%s; preserving caller value. Subsequent requests "
+                    "will validate. Verify server-side per-org SSO config if "
+                    "unintended.",
+                    self.org_name
+                )
             else:
-                # Site-wide SSO servers legitimately omit active_organization
-                # when the user has no per-org binding. Preserve the caller-
-                # supplied self.org_name (set in __init__) and skip _switch_org.
-                if self.org_name:
+                # Layer 3: caller didn't ask, server didn't bind. Try
+                # JWT-derived personal-org fallback for first-login UX. See
+                # _personal_org_from_jwt for the trust-chain rationale.
+                fallback = _personal_org_from_jwt(token_value)
+                if fallback:
                     logger.info(
-                        "SSO response did not include active_organization; "
-                        "preserving caller-supplied org_name=%s", self.org_name
+                        "SSO did not bind active_organization; falling back to "
+                        "JWT-derived personal org=%s", fallback
                     )
+                    self.org_name = fallback
+                    self._switch_org(fallback, token_value)
                 else:
+                    # Layer 4: nothing claimed, nothing bound, nothing inferable.
                     logger.info(
-                        "SSO response did not include active_organization; "
-                        "site-wide SSO login (no org binding)"
+                        "SSO did not bind active_organization and no JWT "
+                        "username present; site-wide SSO login completes with "
+                        "no org binding."
                     )
 
         except Exception as e:
