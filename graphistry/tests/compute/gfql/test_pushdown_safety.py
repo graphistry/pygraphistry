@@ -112,10 +112,10 @@ class TestIsNullRejecting:
 
     # --- OR expressions --- #
 
-    def test_or_with_is_null_form_is_not_rejecting(self):
-        # n IS NULL OR n.age > 5: if n=NULL → True OR NULL = True → row kept.
-        # The null-safe conjunct wins in an OR.
-        assert not is_null_rejecting(
+    def test_or_with_is_null_form_is_conservatively_rejecting(self):
+        # Conservative policy: OR compounds are always treated as
+        # null-rejecting when they reference optional aliases.
+        assert is_null_rejecting(
             _pred("n IS NULL OR n.age > 5", frozenset({"n"})),
             frozenset({"n"}),
         )
