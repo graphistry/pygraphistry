@@ -1694,6 +1694,21 @@ def test_lower_match_query_emits_row_anti_semi_filter_for_negated_where_pattern(
     assert [op.get("type") for op in binding_ops] == ["Node", "Edge", "Node"]
 
 
+def test_lower_match_query_emits_row_anti_semi_filter_for_bound_alias_negated_where_pattern() -> None:
+    lowered = lower_match_query(
+        _parse_query("MATCH (a)-[:R]->(b) WHERE NOT (b)-[:R]->(a) RETURN a.id AS a_id, b.id AS b_id")
+    )
+
+    assert len(lowered.row_pre_filters) == 1
+    anti = lowered.row_pre_filters[0]
+    assert isinstance(anti, ASTCall)
+    assert anti.function == "anti_semi_apply"
+    assert anti.params.get("join_aliases") == ["b", "a"]
+    binding_ops = anti.params.get("binding_ops")
+    assert isinstance(binding_ops, list)
+    assert [op.get("type") for op in binding_ops] == ["Node", "Edge", "Node"]
+
+
 def test_lower_match_query_rejects_where_pattern_predicate_introducing_new_aliases() -> None:
     with pytest.raises(GFQLValidationError, match="cannot introduce new aliases"):
         lower_cypher_query(_parse_query("MATCH (n) WHERE (n)-[r]->(a) RETURN n"))
@@ -5213,6 +5228,69 @@ def test_string_cypher_executes_mixed_row_and_negated_pattern_where_predicate() 
     )
 
     assert result._nodes.to_dict(orient="records") == [{"id": "c"}]
+
+
+def test_string_cypher_executes_bound_alias_negated_pattern_where_predicate() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c"],
+                "d": ["b", "a", "d"],
+                "type": ["R", "R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (a)-[:R]->(b) "
+        "WHERE NOT (b)-[:R]->(a) "
+        "RETURN a.id AS a_id, b.id AS b_id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"a_id": "c", "b_id": "d"}]
+
+
+def test_string_cypher_executes_mixed_row_and_bound_alias_negated_pattern_where_predicate() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d", "e"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c", "d"],
+                "d": ["b", "a", "d", "e"],
+                "type": ["R", "R", "R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (a)-[:R]->(b) "
+        "WHERE a.id <> 'd' AND NOT (b)-[:R]->(a) "
+        "RETURN a.id AS a_id, b.id AS b_id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"a_id": "c", "b_id": "d"}]
+
+
+def test_string_cypher_executes_ic10_shaped_bound_alias_negated_pattern_where_predicate() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d", "e"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "b", "a", "c"],
+                "d": ["b", "c", "d", "d", "e"],
+                "type": ["R", "R", "R", "R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (root {id: 'a'})-[:R]->(mid)-[:R]->(cand) "
+        "WHERE NOT (root)-[:R]->(cand) "
+        "RETURN cand.id AS cand_id ORDER BY cand_id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"cand_id": "c"}]
 
 
 def test_string_cypher_failfast_rejects_multi_alias_return_star_projection() -> None:
