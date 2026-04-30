@@ -1745,6 +1745,25 @@ def where_rows(
     return ASTCall("where_rows", params)
 
 
+def anti_semi_apply(
+    *,
+    binding_ops: List[Dict[str, Any]],
+    join_aliases: Sequence[str],
+) -> ASTCall:
+    """Filter active rows by removing rows matching a correlated pattern.
+
+    ``binding_ops`` encodes the pattern to evaluate as bindings rows.
+    ``join_aliases`` names shared aliases used as anti-join keys.
+    """
+    return ASTCall(
+        "anti_semi_apply",
+        {
+            "binding_ops": binding_ops,
+            "join_aliases": list(join_aliases),
+        },
+    )
+
+
 def order_by(keys: Iterable[Tuple[Any, str]]) -> ASTCall:
     """Create an ORDER BY operation for GFQL row pipelines."""
     return ASTCall("order_by", {"keys": list(keys)})

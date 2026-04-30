@@ -1681,6 +1681,19 @@ def test_lower_match_query_supports_multiple_where_pattern_predicates() -> None:
     assert compiled is not None
 
 
+def test_lower_match_query_emits_row_anti_semi_filter_for_negated_where_pattern() -> None:
+    lowered = lower_match_query(_parse_query("MATCH (n) WHERE NOT (n)-[:R]->() RETURN n.id AS id"))
+
+    assert len(lowered.row_pre_filters) == 1
+    anti = lowered.row_pre_filters[0]
+    assert isinstance(anti, ASTCall)
+    assert anti.function == "anti_semi_apply"
+    assert anti.params.get("join_aliases") == ["n"]
+    binding_ops = anti.params.get("binding_ops")
+    assert isinstance(binding_ops, list)
+    assert [op.get("type") for op in binding_ops] == ["Node", "Edge", "Node"]
+
+
 def test_lower_match_query_rejects_where_pattern_predicate_introducing_new_aliases() -> None:
     with pytest.raises(GFQLValidationError, match="cannot introduce new aliases"):
         lower_cypher_query(_parse_query("MATCH (n) WHERE (n)-[r]->(a) RETURN n"))
@@ -5160,22 +5173,46 @@ def test_string_cypher_failfast_rejects_unsupported_mixed_variable_length_where_
 @pytest.mark.parametrize(
     "query",
     [
-        "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n",
-        "MATCH (n) WHERE NOT (n)-[:R]->() RETURN n",
+        "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n.id AS id ORDER BY id",
+        "MATCH (n) WHERE NOT (n)-[:R]->() RETURN n.id AS id ORDER BY id",
     ],
 )
-def test_string_cypher_failfast_rejects_negated_pattern_until_slice2_lowering(query: str) -> None:
-    # #1031 slice 2 plumbing: parser lifts NOT-pattern to
-    # ``WherePatternPredicate(negated=True)``; lowering raises a scoped error
-    # until the anti-semi-join lowering lands.  Locks the precise message
-    # so future engine work knows where to plug in.
-    graph = _mk_empty_graph()
+def test_string_cypher_executes_negated_pattern_where_predicate(query: str) -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "a", "b"],
+                "d": ["b", "c", "c"],
+                "type": ["R", "R", "R"],
+            }
+        ),
+    )
 
-    with pytest.raises(GFQLValidationError) as exc_info:
-        graph.gfql(query)
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": "c"},
+        {"id": "d"},
+    ]
 
-    assert exc_info.value.code == ErrorCode.E108
-    assert "anti-semi-join" in exc_info.value.message
+
+def test_string_cypher_executes_mixed_row_and_negated_pattern_where_predicate() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "a", "b"],
+                "d": ["b", "c", "c"],
+                "type": ["R", "R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) WHERE n.id <> 'd' AND NOT (n)-[:R]->() RETURN n.id AS id ORDER BY id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "c"}]
 
 
 def test_string_cypher_failfast_rejects_multi_alias_return_star_projection() -> None:
@@ -10892,6 +10929,48 @@ def test_issue_1024_where_label_on_optional_match() -> None:
     assert len(rows) == 1
     assert rows[0]["yid"] == "b"
     assert rows[0]["zid"] == "c"
+
+
+def test_issue_1024_where_not_pattern_on_optional_match_filters_candidates() -> None:
+    """WHERE NOT(pattern) on OPTIONAL MATCH keeps only rows passing negated pattern."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d", "e"]})
+    edges = pd.DataFrame({
+        "s": ["a", "b", "b", "c"],
+        "d": ["b", "c", "d", "e"],
+        "type": ["R1", "T", "T", "U"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x)-[:R1]->(y) "
+        "OPTIONAL MATCH (y)-[:T]->(z) "
+        "WHERE NOT (z)-[:U]->() "
+        "RETURN y.id AS yid, z.id AS zid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert rows == [{"yid": "b", "zid": "d"}]
+
+
+def test_issue_1024_where_not_pattern_on_optional_match_null_fills_when_all_filtered() -> None:
+    """WHERE NOT(pattern) on OPTIONAL MATCH null-fills when every optional row is filtered out."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "e"]})
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c"],
+        "d": ["b", "c", "e"],
+        "type": ["R1", "T", "U"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x)-[:R1]->(y) "
+        "OPTIONAL MATCH (y)-[:T]->(z) "
+        "WHERE NOT (z)-[:U]->() "
+        "RETURN y.id AS yid, z.id AS zid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert rows == [{"yid": "b", "zid": None}]
 
 
 def test_issue_1024_where_on_both_match_and_optional() -> None:

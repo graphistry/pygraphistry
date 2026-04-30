@@ -89,6 +89,7 @@ def _gfql_expr_runtime_parser_bundle() -> Optional[GFQLRuntimeParserBundle]:
 ROW_PIPELINE_CALLS = frozenset(
     {
         "rows",
+        "anti_semi_apply",
         "where_rows",
         "select",
         "with_",
@@ -2734,6 +2735,14 @@ class RowPipelineMixin:
         out._edge = self._edge if self._edge is not None and self._edge in table_df.columns else None
         if out._node is not None and out._node not in table_df.columns:
             out._node = None
+        base_graph = getattr(self, "_gfql_rows_base_graph", None)
+        if base_graph is None:
+            base_graph = getattr(self, "_g", None)
+        if base_graph is not None:
+            setattr(out, "_gfql_rows_base_graph", base_graph)
+        start_nodes = getattr(self, "_gfql_start_nodes", None)
+        if start_nodes is not None:
+            setattr(out, "_gfql_start_nodes", start_nodes)
         return out
 
     def _gfql_empty_frame(
@@ -3631,6 +3640,66 @@ class RowPipelineMixin:
             out_df = out_df.loc[mask]
 
         return self._gfql_row_table(out_df)
+
+    def anti_semi_apply(
+        self,
+        binding_ops: List[Dict[str, Any]],
+        join_aliases: List[str],
+    ) -> "Plottable":
+        """Row anti-semi-join against rows produced by ``binding_ops``."""
+        if not isinstance(binding_ops, list) or len(binding_ops) == 0:
+            raise ValueError("anti_semi_apply(binding_ops=...) requires a non-empty list")
+        if not isinstance(join_aliases, list) or len(join_aliases) == 0:
+            raise ValueError("anti_semi_apply(join_aliases=...) requires a non-empty list")
+        if not all(isinstance(alias, str) and alias.strip() for alias in join_aliases):
+            raise ValueError("anti_semi_apply(join_aliases=...) must be a list of non-empty strings")
+
+        left_df = self._gfql_get_active_table()
+        if left_df is None or len(left_df) == 0:
+            return self._gfql_row_table(self._gfql_empty_frame(left_df))
+
+        base_graph = getattr(self, "_gfql_rows_base_graph", None)
+        if base_graph is None:
+            base_graph = getattr(self, "_g", None)
+        if base_graph is None:
+            base_graph = self
+
+        right_rows = _RowPipelineAdapter(cast("Plottable", base_graph))._gfql_binding_ops_row_table(binding_ops)
+        right_df = getattr(right_rows, "_nodes", None)
+        if right_df is None or len(right_df) == 0:
+            return self._gfql_row_table(left_df.copy())
+
+        node_id_col = getattr(base_graph, "_node", None)
+        if not isinstance(node_id_col, str) or node_id_col == "":
+            node_id_col = "id"
+
+        join_cols: List[str] = []
+        missing_aliases: List[str] = []
+        for alias in join_aliases:
+            candidates = (f"{alias}.{node_id_col}", alias)
+            chosen = next((col for col in candidates if col in left_df.columns and col in right_df.columns), None)
+            if chosen is None:
+                missing_aliases.append(alias)
+                continue
+            if chosen not in join_cols:
+                join_cols.append(chosen)
+
+        if not join_cols:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Cypher WHERE NOT (pattern) anti-semi-join lowering could not recover shared alias join columns",
+                field="where",
+                value={"join_aliases": join_aliases, "missing_aliases": missing_aliases},
+                suggestion="Use a NOT-pattern that references aliases already bound in the active MATCH scope.",
+                language="cypher",
+            )
+
+        right_keys = right_df[join_cols].drop_duplicates()
+        marker_col = RowPipelineMixin._gfql_fresh_col_name(left_df.columns, "__gfql_anti_semi_hit__")
+        right_keys = right_keys.assign(**{marker_col: True})
+        merged = left_df.merge(right_keys, on=join_cols, how="left", sort=False)
+        kept = merged.loc[merged[marker_col].isna()].drop(columns=[marker_col])
+        return self._gfql_row_table(kept)
 
     def return_(self, items: List[Any]) -> "Plottable":
         return self.select(items)

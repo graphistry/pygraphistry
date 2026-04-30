@@ -12,6 +12,7 @@ from graphistry.compute.ast import (
     ASTEdge,
     ASTObject,
     ASTNode,
+    anti_semi_apply,
     distinct,
     drop_cols,
     e_forward,
@@ -125,6 +126,7 @@ class LoweredCypherMatch:
     query: List[ASTObject]
     where: List[WhereComparison]
     row_where: Optional[ExpressionText] = None
+    row_pre_filters: Tuple[ASTCall, ...] = ()
 
 
 _CYPHER_INT64_MIN = -(2**63)
@@ -4466,6 +4468,9 @@ def _append_match_row_where(
     allowed_match_aliases: Optional[AbstractSet[str]],
     params: Optional[Mapping[str, Any]],
 ) -> None:
+    if lowered.row_pre_filters:
+        row_steps.extend(lowered.row_pre_filters)
+
     expr = lowered.row_where
     if expr is None:
         return
@@ -4544,7 +4549,7 @@ def _lower_projection_chain(
         if plan.all_source_aliases is not None
         else binding_row_aliases
     )
-    if plan.all_source_aliases is not None or binding_row_aliases:
+    if plan.all_source_aliases is not None or binding_row_aliases or lowered.row_pre_filters:
         row_steps: List[ASTObject] = [rows(binding_ops=serialize_binding_ops(lowered.query))]
     else:
         row_steps = [rows(table=plan.table, source=plan.source_alias)]
@@ -4573,7 +4578,7 @@ def _lower_projection_chain(
             )
         )
     _append_page_ops(row_steps, query=query, params=params)
-    if binding_row_aliases:
+    if binding_row_aliases or lowered.row_pre_filters:
         return row_steps
     return lowered.query + row_steps
 
@@ -4635,7 +4640,7 @@ def _build_initial_row_scope(
     if active_match_alias is None:
         row_steps: List[ASTObject] = [rows(table="nodes")]
         scope_mode: Literal["match_alias", "row_columns"] = "row_columns"
-    elif binding_row_aliases:
+    elif binding_row_aliases or lowered.row_pre_filters:
         row_steps = [rows(binding_ops=serialize_binding_ops(lowered.query))]
         scope_mode = "match_alias"
     else:
@@ -6332,8 +6337,82 @@ def _reject_variable_length_relationship_alias_path_carriers(
                     item.expression.text,
                     field="order_by",
                     line=item.span.line,
-                    column=item.span.column,
-                )
+                        column=item.span.column,
+                    )
+
+
+def _predicate_pattern_aliases(predicate: WherePatternPredicate) -> List[str]:
+    aliases: List[str] = []
+    seen: Set[str] = set()
+    for element in predicate.pattern:
+        alias = getattr(element, "variable", None)
+        if alias is None:
+            continue
+        alias_name = cast(str, alias)
+        if alias_name in seen:
+            continue
+        seen.add(alias_name)
+        aliases.append(alias_name)
+    return aliases
+
+
+def _lower_negated_pattern_predicate_to_row_filter(
+    predicate: WherePatternPredicate,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+) -> ASTCall:
+    if len(predicate.pattern) < 3:
+        raise _unsupported(
+            "Cypher WHERE pattern predicates must include a relationship",
+            field="where",
+            value=None,
+            line=predicate.span.line,
+            column=predicate.span.column,
+        )
+
+    predicate_aliases = _predicate_pattern_aliases(predicate)
+    if not predicate_aliases:
+        raise _unsupported(
+            "Cypher WHERE NOT (pattern) currently requires at least one shared bound alias",
+            field="where",
+            value=None,
+            line=predicate.span.line,
+            column=predicate.span.column,
+        )
+
+    introduced_aliases = sorted(alias for alias in predicate_aliases if alias not in alias_targets)
+    if introduced_aliases:
+        raise _unsupported(
+            "Cypher WHERE pattern predicates cannot introduce new aliases in this phase",
+            field="where",
+            value=introduced_aliases,
+            line=predicate.span.line,
+            column=predicate.span.column,
+        )
+
+    shared_aliases = [alias for alias in predicate_aliases if alias in alias_targets]
+    if not shared_aliases:
+        raise _unsupported(
+            "Cypher WHERE NOT (pattern) currently requires at least one shared bound alias",
+            field="where",
+            value=predicate_aliases,
+            line=predicate.span.line,
+            column=predicate.span.column,
+        )
+
+    pattern_clause = MatchClause(
+        patterns=(predicate.pattern,),
+        span=predicate.span,
+        optional=False,
+        pattern_aliases=(None,),
+        pattern_alias_kinds=("pattern",),
+    )
+    pattern_ops = lower_match_clause(pattern_clause, params=params)
+    return anti_semi_apply(
+        binding_ops=serialize_binding_ops(pattern_ops),
+        join_aliases=shared_aliases,
+    )
 
 
 def lower_match_query(
@@ -6365,6 +6444,7 @@ def lower_match_query(
         params=params,
     )
     where_out.extend(dynamic_where_out)
+    row_pre_filters: List[ASTCall] = []
 
     row_where: Optional[ExpressionText] = None
     row_where_predicates: List[str] = list(dynamic_row_where_predicates)
@@ -6390,17 +6470,14 @@ def lower_match_query(
         for predicate in query.where.predicates:
             if isinstance(predicate, WherePatternPredicate):
                 if predicate.negated:
-                    # #1031 slice 2: NOT-pattern parses + survives ast_normalizer
-                    # but lowering for anti-semi-join is not yet implemented.
-                    # See plans/1031-slices-2-3-4/findings/slice-2-scope.md
-                    # for the path-C (row-pipeline anti-join) approach.
-                    raise _unsupported(
-                        "Cypher WHERE NOT (pattern) anti-semi-join lowering is not yet supported",
-                        field="where",
-                        value=None,
-                        line=predicate.span.line,
-                        column=predicate.span.column,
+                    row_pre_filters.append(
+                        _lower_negated_pattern_predicate_to_row_filter(
+                            predicate,
+                            alias_targets=alias_targets,
+                            params=params,
+                        )
                     )
+                    continue
                 raise _unsupported(
                     "Cypher WHERE pattern predicates must be rewritten before lowering",
                     field="where",
@@ -6439,7 +6516,12 @@ def lower_match_query(
             span=query.where.span if query.where is not None else merged_match.span,
         )
 
-    return LoweredCypherMatch(query=ops, where=where_out, row_where=row_where)
+    return LoweredCypherMatch(
+        query=ops,
+        where=where_out,
+        row_where=row_where,
+        row_pre_filters=tuple(row_pre_filters),
+    )
 
 
 def _fresh_temp_name(existing: Set[str], prefix: str) -> str:
@@ -8174,7 +8256,7 @@ def _apply_where_to_ops(
     alias_targets: Dict[str, ASTObject],
     *,
     params: Optional[Mapping[str, Any]],
-) -> Tuple[List[WhereComparison], List[ExpressionText]]:
+) -> Tuple[List[WhereComparison], List[ExpressionText], List[ASTCall]]:
     """Apply a WHERE clause's predicates to already-lowered ops.
 
     Label predicates mutate the ASTNode filter in *alias_targets* (in-place).
@@ -8185,8 +8267,9 @@ def _apply_where_to_ops(
     """
     where_out: List[WhereComparison] = []
     row_expr_filters: List[ExpressionText] = []
+    row_pre_filters: List[ASTCall] = []
     if where is None:
-        return where_out, row_expr_filters
+        return where_out, row_expr_filters, row_pre_filters
     where_expr = _where_clause_expr_text(where)
     if where_expr is not None:
         type_where = _extract_relationship_type_where(
@@ -8211,13 +8294,14 @@ def _apply_where_to_ops(
     for predicate in where.predicates:
         if isinstance(predicate, WherePatternPredicate):
             if predicate.negated:
-                raise _unsupported(
-                    "Cypher WHERE NOT (pattern) anti-semi-join lowering is not yet supported",
-                    field="where",
-                    value=None,
-                    line=predicate.span.line,
-                    column=predicate.span.column,
+                row_pre_filters.append(
+                    _lower_negated_pattern_predicate_to_row_filter(
+                        predicate,
+                        alias_targets=alias_targets,
+                        params=params,
+                    )
                 )
+                continue
             raise _unsupported(
                 "Cypher WHERE pattern predicates must be rewritten before lowering",
                 field="where",
@@ -8256,7 +8340,7 @@ def _apply_where_to_ops(
             right=cast(Optional[CypherLiteral], predicate.right),
             params=params,
         )
-    return where_out, row_expr_filters
+    return where_out, row_expr_filters, row_pre_filters
 
 
 def _compile_connected_optional_match(
@@ -8275,8 +8359,13 @@ def _compile_connected_optional_match(
     base_ops = lower_match_clause(base_clause, params=params)
     base_alias_targets = _alias_target(base_ops)
     base_aliases = _match_clause_aliases(base_clause)
-    base_where, base_row_expr_filters = _apply_where_to_ops(base_clause.where, base_alias_targets, params=params)
+    base_where, base_row_expr_filters, base_row_pre_filters = _apply_where_to_ops(
+        base_clause.where,
+        base_alias_targets,
+        params=params,
+    )
     base_chain_ops: List[ASTObject] = list(base_ops)
+    base_chain_ops.extend(base_row_pre_filters)
     for expr in base_row_expr_filters:
         base_chain_ops.append(
             where_rows(
@@ -8326,12 +8415,13 @@ def _compile_connected_optional_match(
                 column=opt_clause.span.column,
             )
 
-        opt_where, opt_row_expr_filters = _apply_where_to_ops(
+        opt_where, opt_row_expr_filters, opt_row_pre_filters = _apply_where_to_ops(
             opt_clause.where,
             opt_alias_targets,
             params=params,
         )
         opt_chain_ops: List[ASTObject] = list(opt_ops)
+        opt_chain_ops.extend(opt_row_pre_filters)
         for expr in opt_row_expr_filters:
             opt_chain_ops.append(
                 where_rows(

@@ -260,6 +260,17 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         schema_effects=_schema_effects(requires_node_cols=_where_rows_requires_node_cols),
     ),
 
+    'anti_semi_apply': _method_entry(
+        allowed_params={'binding_ops', 'join_aliases'},
+        required_params={'binding_ops', 'join_aliases'},
+        param_validators={
+            'binding_ops': is_list_of_dicts,
+            'join_aliases': is_non_empty_list_of_strings,
+        },
+        description='Filter active rows by anti-semi joining against correlated binding rows',
+        schema_effects=NO_SCHEMA_EFFECTS,
+    ),
+
     'order_by': _method_entry(
         allowed_params={'keys'},
         required_params={'keys'},
