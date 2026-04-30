@@ -514,6 +514,15 @@ def _parse_number_token(token: str) -> Union[int, float]:
     return int(token)
 
 
+def _cypher_literal_fallback_text(value: object) -> str:
+    """Render primitive Python literals in Cypher surface form."""
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
 @dataclass(frozen=True)
 class _ExpressionSlice:
     text: str
@@ -1081,19 +1090,16 @@ def _build_transformer(source: str) -> _TransformerLike:
             ``_ExpressionSlice`` operands carry their own span, so we use
             it to extract the source slice precisely.
 
-            **Known limitation — primitive literal atoms.**  Literal
+            **Primitive literal fallback path.**  Literal
             transformers (``true_lit`` / ``false_lit`` / ``null_lit`` /
             ``number_lit``) return raw Python values without span info.
             When such a value reaches us as a boolean-operator operand
             (``WHERE true AND false``), we cannot recover the original
             source text for that specific operand; we approximate with
-            the enclosing operator's span and ``str(operand)`` (which
-            produces Python-style text like ``"True"`` not Cypher-style
-            ``"true"``).  No current consumer reads ``atom_text`` on
-            literal atoms — the binder is not wired to ``expr_tree`` in
-            this slice.  Accuracy for this path is a follow-up concern
-            tracked in issue #1200; if/when literal transformers gain
-            span-carrying wrappers, this fallback can be removed.
+            the enclosing operator's span and a Cypher-literal render
+            (``true`` / ``false`` / ``null`` for primitive values).
+            If/when literal transformers gain span-carrying wrappers,
+            this fallback can be removed.
             """
             if isinstance(operand, BooleanExpr):
                 return operand
@@ -1105,7 +1111,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 if operand_meta is None:
                     # Primitive literal — see docstring caveat.
                     span = _span_from_meta(enclosing_meta)
-                    text = str(operand)
+                    text = _cypher_literal_fallback_text(operand)
                 else:
                     span = _span_from_meta(operand_meta)
                     text = self._slice(span)

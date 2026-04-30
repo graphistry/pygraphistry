@@ -8,9 +8,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
-from typing import Any, FrozenSet, List, Sequence, Tuple, cast
+from typing import Any, FrozenSet, List, Optional, Sequence, Tuple, cast
 
-from graphistry.compute.gfql.expr_split import split_top_level_and
 from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.logical_plan import CHILD_SLOTS, Filter, LogicalPlan, PatternMatch
 from graphistry.compute.gfql.ir.pushdown_safety import is_null_rejecting, with_barrier_blocks_pushdown
@@ -37,6 +36,99 @@ class PredicatePushdownPass(LogicalPass):
             },
             changed=pushed > 0,
         )
+
+
+def split_top_level_and_conjuncts(expr: str) -> Tuple[str, ...]:
+    """Split *expr* on whitespace-bounded top-level ``AND``.
+
+    This routine is quote-aware (single, double, backtick), tracks
+    bracket depth for ``()`` / ``[]`` / ``{}``, and preserves nested
+    boolean groups as opaque text.  Returns ``()`` for malformed chains
+    (leading/trailing/consecutive AND) so callers can conservatively
+    skip splitting.
+
+    #1226 retirement note: this is the in-module replacement for the
+    removed ``graphistry.compute.gfql.expr_split`` helper.
+    """
+    terms: list[str] = []
+    term_start = 0
+    paren_depth = 0
+    bracket_depth = 0
+    brace_depth = 0
+    string_quote: Optional[str] = None
+    in_backtick = False
+    i = 0
+    n = len(expr)
+    while i < n:
+        ch = expr[i]
+        if string_quote is not None:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == string_quote:
+                string_quote = None
+            i += 1
+            continue
+        if in_backtick:
+            if ch == "`":
+                in_backtick = False
+            i += 1
+            continue
+        if ch in {"'", '"'}:
+            string_quote = ch
+            i += 1
+            continue
+        if ch == "`":
+            in_backtick = True
+            i += 1
+            continue
+        if ch == "(":
+            paren_depth += 1
+            i += 1
+            continue
+        if ch == ")":
+            paren_depth = max(0, paren_depth - 1)
+            i += 1
+            continue
+        if ch == "[":
+            bracket_depth += 1
+            i += 1
+            continue
+        if ch == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+            i += 1
+            continue
+        if ch == "{":
+            brace_depth += 1
+            i += 1
+            continue
+        if ch == "}":
+            brace_depth = max(0, brace_depth - 1)
+            i += 1
+            continue
+        if (
+            paren_depth == 0
+            and bracket_depth == 0
+            and brace_depth == 0
+            and expr[i:i + 3].upper() == "AND"
+            and (i == 0 or expr[i - 1].isspace())
+            and (i + 3 == n or expr[i + 3].isspace())
+        ):
+            term = expr[term_start:i].strip()
+            if term == "":
+                return ()
+            terms.append(term)
+            i += 3
+            while i < n and expr[i].isspace():
+                i += 1
+            term_start = i
+            continue
+        i += 1
+    tail = expr[term_start:].strip()
+    if tail == "":
+        return ()
+    terms.append(tail)
+    return tuple(terms)
 
 
 def _rewrite_tree(
@@ -133,12 +225,12 @@ def _split_conjuncts(predicate: BoundPredicate) -> List[BoundPredicate]:
 
     AND-only — splitting an OR here would be silently wrong because
     ``_combine_conjuncts`` (below) AND-joins residuals.  See
-    ``expr_split.split_top_level_and`` docstring for the full rationale.
+    ``split_top_level_and_conjuncts`` docstring for the full rationale.
     """
     expression = predicate.expression.strip()
     if not expression:
         return []
-    parts = split_top_level_and(expression)
+    parts = split_top_level_and_conjuncts(expression)
     if len(parts) <= 1:
         return [predicate]
     return [
