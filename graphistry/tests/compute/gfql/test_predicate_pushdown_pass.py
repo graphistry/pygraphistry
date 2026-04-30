@@ -127,6 +127,31 @@ def test_predicate_pushdown_partial_push_with_bare_alias_and_empty_refs() -> Non
     assert [pred.expression for pred in result.input.predicates] == ["score IS NULL"]
 
 
+def test_predicate_pushdown_keeps_or_with_null_safe_subexpression_on_optional_arm() -> None:
+    input_scan = NodeScan(op_id=1, label="Person", output_schema=_schema("m"))
+    optional_match = PatternMatch(
+        op_id=2,
+        input=input_scan,
+        pattern={"aliases": ("n",)},
+        optional=True,
+        arm_id="arm1",
+        output_schema=_schema("m", "n"),
+    )
+    plan = Filter(
+        op_id=3,
+        input=optional_match,
+        predicate=_pred("n IS NOT NULL OR m.flag = 1", frozenset({"n", "m"})),
+        output_schema=_schema("m", "n"),
+    )
+
+    result = PredicatePushdownPass().run(plan, PlanContext()).plan
+
+    assert isinstance(result, Filter)
+    assert isinstance(result.input, PatternMatch)
+    assert result.input.predicates == []
+    assert result.predicate.expression == "n IS NOT NULL OR m.flag = 1"
+
+
 def test_predicate_pushdown_does_not_cross_with_like_projection_barrier() -> None:
     pattern = PatternMatch(
         op_id=2,

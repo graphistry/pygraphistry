@@ -55,9 +55,10 @@ def is_null_rejecting(
       regardless of the left side.  Example: ``n.name IS NULL AND n.type = 'x'``
       contains IS NULL but is null-rejecting overall.
 
-    Compound OR is not analyzed — a null-safe form anywhere in an OR chain
-    correctly triggers the null-safe classification because ``True OR <anything>``
-    is True when the null-safe conjunct evaluates to True for NULL inputs.
+    Compound OR is not analyzed and is treated as null-rejecting when any
+    null-extended alias is referenced.  This avoids false negatives on mixed
+    alias forms such as ``n.x IS NOT NULL OR m.y = 1`` where substring checks
+    alone cannot prove optional-arm safety.
 
     :param predicate: The bound predicate to classify.
     :param null_extended_aliases: Aliases that may be NULL from OPTIONAL MATCH.
@@ -71,6 +72,10 @@ def is_null_rejecting(
     # AND compounds are always null-rejecting: even if one conjunct is null-safe,
     # the other may not be, and True AND NULL = NULL (row filtered).
     if " and " in expr_lower:
+        return True
+    # OR compounds are conservatively treated as null-rejecting; we do not
+    # perform disjunct-level alias analysis in this helper.
+    if " or " in expr_lower:
         return True
     for form in _NULL_SAFE_FORMS:
         if form in expr_lower:

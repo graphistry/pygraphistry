@@ -199,26 +199,37 @@ def test_and_xor_mixed_precedence_via_parens() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Known-limitation lock: primitive literal atoms
+# Primitive literal fallback atoms
 # ---------------------------------------------------------------------------
 
 
-def test_literal_boolean_atoms_known_limitation_python_style_text() -> None:
-    # Locks the documented caveat in ``_wrap_as_boolean_atom``: literal
-    # transformers return raw Python values without span info, so atom_text
-    # falls back to ``str(True)`` → ``"True"`` instead of the source ``"true"``.
-    # No current consumer reads atom_text on literal atoms; if a future PR
-    # teaches literal transformers to carry span, this test should be updated
-    # to assert the Cypher-style lowercase text.
+def test_literal_boolean_atom_text_uses_cypher_keywords() -> None:
     parsed = _parsed_where("MATCH (n) WHERE true XOR n.x > 1 RETURN n")
     assert parsed.where is not None and parsed.where.expr_tree is not None
     tree = parsed.where.expr_tree
     assert tree.op == "xor"
-    # Left operand is the boolean literal `true` — atom_text is Python-stringified.
     assert tree.left is not None and tree.left.op == "atom"
-    assert tree.left.atom_text == "True"  # known limitation — see docstring
+    assert tree.left.atom_text == "true"
     # Right operand is a comparable with a Lark Tree span — accurate slice.
     assert tree.right is not None and tree.right.atom_text == "n.x > 1"
+
+
+def test_literal_false_atom_text_uses_cypher_keyword() -> None:
+    parsed = _parsed_where("MATCH (n) WHERE false OR n.x > 1 RETURN n")
+    assert parsed.where is not None and parsed.where.expr_tree is not None
+    tree = parsed.where.expr_tree
+    assert tree.op == "or"
+    assert tree.left is not None and tree.left.op == "atom"
+    assert tree.left.atom_text == "false"
+
+
+def test_literal_null_atom_text_uses_cypher_keyword() -> None:
+    parsed = _parsed_where("MATCH (n) WHERE null OR n.x > 1 RETURN n")
+    assert parsed.where is not None and parsed.where.expr_tree is not None
+    tree = parsed.where.expr_tree
+    assert tree.op == "or"
+    assert tree.left is not None and tree.left.op == "atom"
+    assert tree.left.atom_text == "null"
 
 
 # ---------------------------------------------------------------------------
