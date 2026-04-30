@@ -5170,19 +5170,38 @@ def test_string_cypher_executes_where_pattern_predicate_and_expr_mix(
 
 
 @pytest.mark.parametrize(
-    "query",
+    "query,expected_rows",
     [
-        "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'z' RETURN n",
+        (
+            "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'd' RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}, {"id": "d"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-[:R]->() XOR n.id = 'd' RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}, {"id": "d"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-[:R]->() XOR n.id = 'a' RETURN n.id AS id ORDER BY id",
+            [{"id": "b"}],
+        ),
     ],
 )
-def test_string_cypher_failfast_rejects_unsupported_mixed_variable_length_where_pattern_predicates(query: str) -> None:
-    graph = _mk_empty_graph()
-
-    with pytest.raises(GFQLValidationError) as exc_info:
-        graph.gfql(query)
-
-    assert exc_info.value.code == ErrorCode.E108
-    assert "mixed with generic row expressions" in exc_info.value.message
+def test_string_cypher_executes_or_xor_around_pattern_predicates(
+    query: str,
+    expected_rows: list[dict[str, object]],
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "a", "b"],
+                "d": ["b", "c", "c"],
+                "type": ["R", "R", "R"],
+            }
+        ),
+    )
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected_rows
 
 
 @pytest.mark.parametrize(

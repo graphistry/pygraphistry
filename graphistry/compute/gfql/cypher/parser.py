@@ -361,8 +361,8 @@ def _split_top_level_and_pattern_leaves(
     - ``others``: non-pattern conjuncts that should remain in ``expr_tree``.
     - ``has_nested_pattern``: True when a pattern atom appears in a deeper
       non-AND/non-direct-NOT context (e.g. ``OR`` with a pattern leaf, or
-      ``NOT (and-tree-of-patterns)``).  Triggers the legacy E108 reject so
-      slice 4 / De-Morgan-NOT compositions stay deferred.
+      ``NOT (and-tree-of-patterns)``).  Lowering consumes this by keeping
+      such leaves in ``expr_tree`` instead of lifting them to predicates.
     """
     if expr.op == "and":
         if expr.left is None or expr.right is None:
@@ -420,17 +420,6 @@ def _build_where_with_pattern_lift(
     expr_text: str,
     span: SourceSpan,
 ) -> WhereClause:
-    if nested_pattern:
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            "Cypher WHERE pattern predicates cannot yet be mixed with generic row expressions",
-            field="where",
-            value=expr_text,
-            suggestion="Use positive top-level pattern predicates joined by AND.",
-            line=span.line,
-            column=span.column,
-            language="cypher",
-        )
     # Slice 3 (#1031): N positive patterns each become a WherePatternPredicate
     # (negated=False).  Slice 2 (#1031): N NOT-patterns each become a
     # WherePatternPredicate (negated=True) for downstream anti-semi-join
@@ -446,6 +435,9 @@ def _build_where_with_pattern_lift(
     new_expr_tree = _rebuild_and_tree(other_conjuncts)
     if new_expr_tree is None:
         return WhereClause(predicates=tuple(pattern_preds), expr_tree=None, span=span)
+    # Nested pattern leaves (OR/XOR/complex NOT contexts) stay in expr_tree;
+    # lowering rewrites them to correlated semi-apply marker columns.
+    _ = nested_pattern
     return WhereClause(
         predicates=tuple(pattern_preds),
         expr_tree=new_expr_tree,

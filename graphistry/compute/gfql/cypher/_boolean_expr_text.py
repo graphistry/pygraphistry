@@ -57,11 +57,9 @@ def boolean_expr_to_text(expr: BooleanExpr) -> str:
     if expr.op == "atom":
         return expr.atom_text or ""
     if expr.op == "pattern":
-        # Unreachable today: top-level AND leaves are lifted out by
-        # ``_split_top_level_and_pattern_leaves`` before the binder walks
-        # the tree, and patterns nested under NOT/OR/XOR are rejected
-        # earlier with E108 errors.  Contract for the defensive branch:
-        # emit raw pattern source for round-trippability.
+        # Pattern leaves may remain in expr_tree for nested OR/XOR/NOT
+        # compositions. Emit raw source text for round-trippability; lowering
+        # can rewrite these leaves to marker columns before row evaluation.
         return expr.atom_text or ""
     if expr.op == "not":
         operand = boolean_expr_to_text(expr.left) if expr.left is not None else ""

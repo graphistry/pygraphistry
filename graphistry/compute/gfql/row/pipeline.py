@@ -89,6 +89,7 @@ def _gfql_expr_runtime_parser_bundle() -> Optional[GFQLRuntimeParserBundle]:
 ROW_PIPELINE_CALLS = frozenset(
     {
         "rows",
+        "semi_apply_mark",
         "anti_semi_apply",
         "where_rows",
         "select",
@@ -3700,6 +3701,78 @@ class RowPipelineMixin:
         merged = left_df.merge(right_keys, on=join_cols, how="left", sort=False)
         kept = merged.loc[merged[marker_col].isna()].drop(columns=[marker_col])
         return self._gfql_row_table(kept)
+
+    def semi_apply_mark(
+        self,
+        binding_ops: List[Dict[str, Any]],
+        join_aliases: List[str],
+        out_col: str,
+    ) -> "Plottable":
+        """Annotate each active row with correlated pattern-match existence."""
+        if not isinstance(binding_ops, list) or len(binding_ops) == 0:
+            raise ValueError("semi_apply_mark(binding_ops=...) requires a non-empty list")
+        if not isinstance(join_aliases, list) or len(join_aliases) == 0:
+            raise ValueError("semi_apply_mark(join_aliases=...) requires a non-empty list")
+        if not all(isinstance(alias, str) and alias.strip() for alias in join_aliases):
+            raise ValueError("semi_apply_mark(join_aliases=...) must be a list of non-empty strings")
+        if not isinstance(out_col, str) or out_col.strip() == "":
+            raise ValueError("semi_apply_mark(out_col=...) requires a non-empty string")
+
+        left_df = self._gfql_get_active_table()
+        if left_df is None:
+            empty = self._gfql_empty_frame()
+            empty[out_col] = pd.Series(dtype="bool")
+            return self._gfql_row_table(empty)
+        if len(left_df) == 0:
+            out_df = left_df.copy()
+            out_df[out_col] = pd.Series(dtype="bool")
+            return self._gfql_row_table(out_df)
+
+        base_graph = getattr(self, "_gfql_rows_base_graph", None)
+        if base_graph is None:
+            base_graph = getattr(self, "_g", None)
+        if base_graph is None:
+            base_graph = self
+
+        right_rows = _RowPipelineAdapter(cast("Plottable", base_graph))._gfql_binding_ops_row_table(binding_ops)
+        right_df = getattr(right_rows, "_nodes", None)
+        if right_df is None or len(right_df) == 0:
+            out_df = left_df.copy()
+            out_df[out_col] = False
+            return self._gfql_row_table(out_df)
+
+        node_id_col = getattr(base_graph, "_node", None)
+        if not isinstance(node_id_col, str) or node_id_col == "":
+            node_id_col = "id"
+
+        join_cols: List[str] = []
+        missing_aliases: List[str] = []
+        for alias in join_aliases:
+            candidates = (f"{alias}.{node_id_col}", alias)
+            chosen = next((col for col in candidates if col in left_df.columns and col in right_df.columns), None)
+            if chosen is None:
+                missing_aliases.append(alias)
+                continue
+            if chosen not in join_cols:
+                join_cols.append(chosen)
+
+        if not join_cols:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Cypher WHERE pattern semi-apply lowering could not recover shared alias join columns",
+                field="where",
+                value={"join_aliases": join_aliases, "missing_aliases": missing_aliases},
+                suggestion="Use a pattern that references aliases already bound in the active MATCH scope.",
+                language="cypher",
+            )
+
+        right_keys = right_df[join_cols].drop_duplicates()
+        marker_col = RowPipelineMixin._gfql_fresh_col_name(left_df.columns, "__gfql_semi_apply_hit__")
+        right_keys = right_keys.assign(**{marker_col: True})
+        merged = left_df.merge(right_keys, on=join_cols, how="left", sort=False)
+        out_df = merged.drop(columns=[marker_col])
+        out_df[out_col] = ~merged[marker_col].isna()
+        return self._gfql_row_table(out_df)
 
     def return_(self, items: List[Any]) -> "Plottable":
         return self.select(items)
