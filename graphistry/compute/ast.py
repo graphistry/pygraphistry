@@ -1764,6 +1764,28 @@ def anti_semi_apply(
     )
 
 
+def semi_apply_mark(
+    *,
+    binding_ops: List[Dict[str, Any]],
+    join_aliases: Sequence[str],
+    out_col: str,
+) -> ASTCall:
+    """Annotate active rows with a correlated pattern-existence boolean.
+
+    ``binding_ops`` encodes the pattern to evaluate as bindings rows.
+    ``join_aliases`` names shared aliases used as join keys.
+    ``out_col`` receives a bool marker where True means the pattern matched.
+    """
+    return ASTCall(
+        "semi_apply_mark",
+        {
+            "binding_ops": binding_ops,
+            "join_aliases": list(join_aliases),
+            "out_col": out_col,
+        },
+    )
+
+
 def order_by(keys: Iterable[Tuple[Any, str]]) -> ASTCall:
     """Create an ORDER BY operation for GFQL row pipelines."""
     return ASTCall("order_by", {"keys": list(keys)})

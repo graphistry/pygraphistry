@@ -21,7 +21,7 @@ from graphistry.compute.gfql.cypher import (
     parse_cypher,
 )
 from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
-from graphistry.compute.gfql.cypher.ast import GraphBinding, GraphConstructor, UseClause
+from graphistry.compute.gfql.cypher.ast import BooleanExpr, GraphBinding, GraphConstructor, UseClause
 
 
 def _parse_query(query: str) -> CypherQuery:
@@ -961,14 +961,26 @@ def test_parse_supports_where_pattern_predicate_and_expr_mix(query: str, expr_te
 @pytest.mark.parametrize(
     "query",
     [
-        # OR-around-pattern remains slice 4 territory — still rejected at parse.
+        # #1236: OR-around-pattern now stays in expr_tree for lowering/runtime.
         "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'z' RETURN n",
         "MATCH (n) WHERE (n)-[:R]->() OR n.id = 'z' RETURN n",
     ],
 )
-def test_parse_rejects_mixed_where_pattern_predicates_as_unsupported(query: str) -> None:
-    with pytest.raises(GFQLValidationError, match="mixed with generic row expressions"):
-        parse_cypher(query)
+def test_parse_supports_mixed_where_pattern_predicates_in_expr_tree(query: str) -> None:
+    parsed = _parse_query(query)
+    assert parsed.where is not None
+    assert parsed.where.expr_tree is not None
+    assert "OR" in boolean_expr_to_text(parsed.where.expr_tree).upper()
+    assert parsed.where.predicates == ()
+
+    def _has_pattern_leaf(node: BooleanExpr) -> bool:
+        if node.op == "pattern":
+            return True
+        left_has = _has_pattern_leaf(node.left) if node.left is not None else False
+        right_has = _has_pattern_leaf(node.right) if node.right is not None else False
+        return left_has or right_has
+
+    assert _has_pattern_leaf(parsed.where.expr_tree)
 
 
 @pytest.mark.parametrize(

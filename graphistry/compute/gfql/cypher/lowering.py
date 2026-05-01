@@ -23,6 +23,7 @@ from graphistry.compute.ast import (
     order_by,
     return_,
     rows,
+    semi_apply_mark,
     serialize_binding_ops,
     select,
     skip,
@@ -5993,9 +5994,12 @@ def _is_variable_length_relationship_pattern(relationship: RelationshipPattern) 
 def _reject_unsupported_variable_length_where_pattern_predicates(query: CypherQuery) -> None:
     if query.where is None:
         return
-    for predicate in query.where.predicates:
-        if not isinstance(predicate, WherePatternPredicate):
-            continue
+    predicates: List[WherePatternPredicate] = [
+        predicate for predicate in query.where.predicates if isinstance(predicate, WherePatternPredicate)
+    ]
+    if query.where.expr_tree is not None:
+        predicates.extend(_where_expr_tree_pattern_predicates(query.where.expr_tree))
+    for predicate in predicates:
         relationships = [
             element
             for element in predicate.pattern
@@ -6356,6 +6360,155 @@ def _predicate_pattern_aliases(predicate: WherePatternPredicate) -> List[str]:
     return aliases
 
 
+def _where_expr_tree_pattern_predicates(expr: BooleanExpr) -> List[WherePatternPredicate]:
+    out: List[WherePatternPredicate] = []
+    stack: List[BooleanExpr] = [expr]
+    while stack:
+        cur = stack.pop()
+        if cur.op == "pattern":
+            if cur.pattern is None:
+                raise _unsupported(
+                    "Cypher WHERE pattern predicates must include a relationship",
+                    field="where",
+                    value=cur.atom_text,
+                    line=cur.span.line,
+                    column=cur.span.column,
+                )
+            out.append(WherePatternPredicate(pattern=cur.pattern, span=cur.span, negated=False))
+            continue
+        if cur.left is not None:
+            stack.append(cur.left)
+        if cur.right is not None:
+            stack.append(cur.right)
+    return out
+
+
+def _lower_pattern_predicate_to_row_marker(
+    predicate: WherePatternPredicate,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+    out_col: str,
+) -> ASTCall:
+    if len(predicate.pattern) < 3:
+        raise _unsupported(
+            "Cypher WHERE pattern predicates must include a relationship",
+            field="where",
+            value=None,
+            line=predicate.span.line,
+            column=predicate.span.column,
+        )
+
+    predicate_aliases = _predicate_pattern_aliases(predicate)
+    if not predicate_aliases:
+        raise _unsupported(
+            "Cypher WHERE pattern predicates currently require at least one shared bound alias",
+            field="where",
+            value=None,
+            line=predicate.span.line,
+            column=predicate.span.column,
+        )
+
+    introduced_aliases = sorted(alias for alias in predicate_aliases if alias not in alias_targets)
+    if introduced_aliases:
+        raise _unsupported(
+            "Cypher WHERE pattern predicates cannot introduce new aliases in this phase",
+            field="where",
+            value=introduced_aliases,
+            line=predicate.span.line,
+            column=predicate.span.column,
+        )
+
+    shared_aliases = [alias for alias in predicate_aliases if alias in alias_targets]
+    if not shared_aliases:
+        raise _unsupported(
+            "Cypher WHERE pattern predicates currently require at least one shared bound alias",
+            field="where",
+            value=predicate_aliases,
+            line=predicate.span.line,
+            column=predicate.span.column,
+        )
+
+    pattern_clause = MatchClause(
+        patterns=(predicate.pattern,),
+        span=predicate.span,
+        optional=False,
+        pattern_aliases=(None,),
+        pattern_alias_kinds=("pattern",),
+    )
+    pattern_ops = lower_match_clause(pattern_clause, params=params)
+    return semi_apply_mark(
+        binding_ops=serialize_binding_ops(pattern_ops),
+        join_aliases=shared_aliases,
+        out_col=out_col,
+    )
+
+
+def _rewrite_where_expr_patterns_to_markers(
+    *,
+    where: WhereClause,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+) -> Tuple[Optional[ExpressionText], List[ASTCall]]:
+    if where.expr_tree is None:
+        return None, []
+
+    pattern_preds = _where_expr_tree_pattern_predicates(where.expr_tree)
+    if not pattern_preds:
+        return _where_clause_expr_text(where), []
+
+    marker_ops: List[ASTCall] = []
+    marker_counter = 0
+
+    def _fresh_marker_col(span: SourceSpan) -> str:
+        nonlocal marker_counter
+        marker_counter += 1
+        return (
+            "__gfql_where_pattern_"
+            f"{span.line}_{span.column}_{span.end_line}_{span.end_column}_{marker_counter}__"
+        )
+
+    def _rewrite(expr: BooleanExpr) -> BooleanExpr:
+        if expr.op == "pattern":
+            if expr.pattern is None:
+                raise _unsupported(
+                    "Cypher WHERE pattern predicates must include a relationship",
+                    field="where",
+                    value=expr.atom_text,
+                    line=expr.span.line,
+                    column=expr.span.column,
+                )
+            marker_col = _fresh_marker_col(expr.span)
+            marker_ops.append(
+                _lower_pattern_predicate_to_row_marker(
+                    WherePatternPredicate(pattern=expr.pattern, span=expr.span, negated=False),
+                    alias_targets=alias_targets,
+                    params=params,
+                    out_col=marker_col,
+                )
+            )
+            return BooleanExpr(
+                op="atom",
+                span=expr.span,
+                atom_text=marker_col,
+                atom_span=expr.atom_span or expr.span,
+            )
+        if expr.op in {"atom"}:
+            return expr
+        if expr.op == "not":
+            return replace(expr, left=_rewrite(cast(BooleanExpr, expr.left)))
+        if expr.op in {"and", "or", "xor"}:
+            return replace(
+                expr,
+                left=_rewrite(cast(BooleanExpr, expr.left)),
+                right=_rewrite(cast(BooleanExpr, expr.right)),
+            )
+        return expr
+
+    rewritten = _rewrite(where.expr_tree)
+    return ExpressionText(text=boolean_expr_to_text(rewritten), span=where.span), marker_ops
+
+
 def _lower_negated_pattern_predicate_to_row_filter(
     predicate: WherePatternPredicate,
     *,
@@ -6449,7 +6602,12 @@ def lower_match_query(
     row_where: Optional[ExpressionText] = None
     row_where_predicates: List[str] = list(dynamic_row_where_predicates)
     if query.where is not None:
-        where_expr = _where_clause_expr_text(query.where)
+        where_expr, where_pattern_row_filters = _rewrite_where_expr_patterns_to_markers(
+            where=query.where,
+            alias_targets=alias_targets,
+            params=params,
+        )
+        row_pre_filters.extend(where_pattern_row_filters)
         if where_expr is not None:
             type_where = _extract_relationship_type_where(
                 where_expr,
@@ -8270,7 +8428,12 @@ def _apply_where_to_ops(
     row_pre_filters: List[ASTCall] = []
     if where is None:
         return where_out, row_expr_filters, row_pre_filters
-    where_expr = _where_clause_expr_text(where)
+    where_expr, where_pattern_row_filters = _rewrite_where_expr_patterns_to_markers(
+        where=where,
+        alias_targets=alias_targets,
+        params=params,
+    )
+    row_pre_filters.extend(where_pattern_row_filters)
     if where_expr is not None:
         type_where = _extract_relationship_type_where(
             where_expr,
