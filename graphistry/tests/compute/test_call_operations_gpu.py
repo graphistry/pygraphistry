@@ -479,6 +479,25 @@ class TestCpuOnlyPluginsCudfRoundTrip:
             f"Expected Int64 but got {result['id'].dtype}"
 
     @skip_gpu
+    def testensure_pandas_falls_back_on_unsupported_dtype(self):
+        """ensure_pandas falls back to plain to_pandas() when nullable=True
+        raises NotImplementedError (e.g. cuDF rejects datetime[ms] with nullable)."""
+        import cudf
+        from graphistry.compute.engine_coercion import ensure_pandas
+
+        gdf = cudf.DataFrame({
+            'id': cudf.Series([1, 2, 3], dtype='Int64'),
+            'dt': cudf.Series(pd.to_datetime(['2024-01-01', '2024-01-02', '2024-01-03'])).astype('datetime64[ms]'),
+        })
+
+        result = ensure_pandas(gdf)
+
+        assert isinstance(result, pd.DataFrame)
+        assert not isinstance(result, cudf.DataFrame)
+        assert len(result) == 3
+        assert pd.api.types.is_datetime64_dtype(result['dt'])
+
+    @skip_gpu
     def testrestore_engine_converts_pandas_back_to_cudf(self):
         """restore_engine detects original cuDF engine and converts back."""
         import cudf

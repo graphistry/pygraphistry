@@ -200,15 +200,15 @@ def ensure_engine_match(g: Plottable, requested_engine: Engine) -> Plottable:
 def ensure_pandas(df: Any) -> pd.DataFrame:
     """Convert to pandas if not already (e.g. cuDF). No-op for pandas.
 
-    Uses nullable=True when available (cuDF >= 22.02) to preserve nullable
-    integer dtypes through the round-trip, avoiding silent Int64 to float64
-    conversion when nulls are present.
+    Tries nullable=True to preserve nullable integers; falls back to
+    plain to_pandas() if rejected (TypeError on older cuDF,
+    NotImplementedError on dtypes like datetime[ms]).
     """
     if isinstance(df, pd.DataFrame):
         return df
     try:
         return df.to_pandas(nullable=True)
-    except TypeError:
+    except (TypeError, NotImplementedError):
         return df.to_pandas()
 
 

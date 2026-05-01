@@ -95,6 +95,24 @@ class Test_from_igraph(NoAuthTestCase):
         assert len(g._edges[g._destination].dropna()) == len(edges)
         assert (g._edges['name'] == pd.Series(names)).all()
 
+    def test_minimal_attributed_edges_source_target_collision(self):
+        ig = igraph.Graph(edges)
+        ig.vs["name"] = [f"n{x}" for x in range(len(nodes))]
+        ig.es["source"] = [f"src_attr_{x}" for x in range(len(edges))]
+        ig.es["target"] = [f"dst_attr_{x}" for x in range(len(edges))]
+
+        g = graphistry.from_igraph(ig, load_nodes=False)
+
+        assert len(g._edges) == len(edges)
+        assert g._source is not None and g._destination is not None
+        assert len(g._edges[g._source].dropna()) == len(edges)
+        assert len(g._edges[g._destination].dropna()) == len(edges)
+
+        assert '__attr_source_2__' in g._edges.columns
+        assert '__attr_target_2__' in g._edges.columns
+        assert g._edges['__attr_source_2__'].tolist() == [f"src_attr_{x}" for x in range(len(edges))]
+        assert g._edges['__attr_target_2__'].tolist() == [f"dst_attr_{x}" for x in range(len(edges))]
+
     def test_minimal_attributed_edges_sparse(self):
         ig = igraph.Graph(edges_sparse)
         ig.es["name"] = names_sparse
