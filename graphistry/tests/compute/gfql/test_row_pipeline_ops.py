@@ -20,6 +20,7 @@ from graphistry.compute.ast import (
     return_,
     rows,
     select,
+    semi_apply_mark,
     skip,
     unwind,
     where_rows,
@@ -2115,6 +2116,76 @@ class TestRowPipelineSafelist:
             [("unknown_fn(score)", "asc")],
         ]:
             self._assert_e201("order_by", {"keys": bad_keys})
+
+    def test_row_pipeline_semi_apply_mark_validation(self):
+        params = {
+            "binding_ops": [{"type": "Node", "name": "n"}],
+            "join_aliases": ["n"],
+            "out_col": "__hit__",
+        }
+        self._assert_valid("semi_apply_mark", params)
+
+        effects = call_safelist.SAFELIST_V1["semi_apply_mark"]["schema_effects"]
+        adds_node_cols = effects["adds_node_cols"]
+        assert callable(adds_node_cols)
+        assert adds_node_cols({"out_col": "__hit__"}) == {"__hit__"}
+        assert adds_node_cols({"out_col": ""}) == set()
+
+        self._assert_valid("semi_apply_mark", {"binding_ops": [], "join_aliases": ["n"], "out_col": "__hit__"})
+        self._assert_e201(
+            "semi_apply_mark",
+            {"binding_ops": [{"type": "Node"}], "join_aliases": [], "out_col": "__hit__"},
+        )
+        self._assert_valid("semi_apply_mark", {"binding_ops": [{"type": "Node"}], "join_aliases": [""], "out_col": "__hit__"})
+        self._assert_e201(
+            "semi_apply_mark",
+            {"binding_ops": [{"type": "Node"}], "join_aliases": ["n"], "out_col": ""},
+        )
+        self._assert_e303(
+            "semi_apply_mark",
+            {"binding_ops": [{"type": "Node"}], "join_aliases": ["n"], "out_col": "__hit__", "extra": True},
+        )
+
+    def test_row_pipeline_semi_apply_mark_runtime_marks_matches(self, monkeypatch):
+        def _fake_binding_ops_rows(_self, _binding_ops):
+            return _mk_graph(pd.DataFrame({"id": ["a", "c"]}))
+
+        monkeypatch.setattr(
+            row_pipeline_mixin._RowPipelineAdapter,
+            "_gfql_binding_ops_row_table",
+            _fake_binding_ops_rows,
+        )
+
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "score": [1, 2, 3]})
+        result = _mk_graph(nodes_df).gfql(
+            [
+                rows(),
+                semi_apply_mark(
+                    binding_ops=[{"type": "Node", "name": "id"}],
+                    join_aliases=["id"],
+                    out_col="__hit__",
+                ),
+                order_by([("id", "asc")]),
+            ]
+        )
+
+        hit_values = [bool(v) for v in result._nodes["__hit__"].tolist()]
+        assert hit_values == [True, False, True]
+
+    def test_row_pipeline_semi_apply_mark_runtime_rejects_blank_join_alias(self):
+        with pytest.raises(GFQLTypeError) as exc_info:
+            _mk_graph(pd.DataFrame({"id": ["a"]})).gfql(
+                [
+                    rows(),
+                    semi_apply_mark(
+                        binding_ops=[{"type": "Node"}],
+                        join_aliases=[""],
+                        out_col="__hit__",
+                    ),
+                ]
+            )
+        assert exc_info.value.code == ErrorCode.E303
+        assert "join_aliases" in exc_info.value.message
 
     @pytest.mark.parametrize("function", ["skip", "limit"])
     def test_row_pipeline_skip_limit_validation(self, function):
