@@ -7205,24 +7205,127 @@ def _rewrite_reentry_expr_to_hidden_properties(
     )
 
 
+def _iter_property_refs(node: Any) -> Iterable[PropertyRef]:
+    """Yield PropertyRef nodes from a structured WHERE predicate or its operands."""
+    from dataclasses import fields as _df_fields  # local import to avoid top-level shadowing
+    if isinstance(node, PropertyRef):
+        yield node
+        return
+    if hasattr(node, "__dataclass_fields__"):
+        for f in _df_fields(node):
+            child = getattr(node, f.name)
+            yield from _iter_property_refs(child)
+        return
+    if isinstance(node, (tuple, list)):
+        for item in node:
+            yield from _iter_property_refs(item)
+
+
+def _collect_non_source_alias_references(
+    *,
+    query: CypherQuery,
+    non_source_aliases: Sequence[str],
+) -> Set[str]:
+    """Return any non_source_aliases referenced (bare or via property) in trailing clauses.
+
+    Slice 4.3 admits multi-whole-row prefix WITH only when the additional aliases
+    are *not* used downstream. If any of them are referenced, fail fast — the
+    full row-carrier rewrite under #989 will lift this constraint.
+    """
+
+    if not non_source_aliases:
+        return set()
+    targets = set(non_source_aliases)
+
+    referenced: Set[str] = set()
+
+    def _scan_text(text: Optional[str]) -> None:
+        if text is None or not text:
+            return
+        try:
+            node = parse_expr(text)
+        except (GFQLExprParseError, ImportError):
+            return
+        for ident in collect_identifiers(node):
+            if ident in targets:
+                referenced.add(ident)
+        # Property accesses contribute their root identifier via collect_identifiers,
+        # so x.id, x.name, etc. all show up as `x` above.
+
+    def _scan_where(where_clause: Optional[WhereClause]) -> None:
+        if where_clause is None:
+            return
+        # Tree path: serialize and parse for identifiers.
+        if where_clause.expr_tree is not None:
+            _scan_text(boolean_expr_to_text(where_clause.expr_tree))
+        # Structured-predicates path: walk PropertyRef / value sides directly.
+        for term in where_clause.predicates:
+            for ref in _iter_property_refs(term):
+                if ref.alias in targets:
+                    referenced.add(ref.alias)
+
+    # Pattern-property references like `(b {id: x.id})` are not scanned here —
+    # property maps resolve against the binding scope at compile time and the
+    # downstream binder will surface a different error if a non-source alias is
+    # referenced inside a pattern. The WHERE / WITH / RETURN / ORDER BY scan
+    # below covers IC3-shaped references.
+    for match_clause in query.reentry_matches:
+        _scan_where(match_clause.where)
+    for where_clause in query.reentry_wheres:
+        _scan_where(where_clause)
+    for stage in query.with_stages[1:]:
+        for item in stage.clause.items:
+            _scan_text(item.expression.text)
+        _scan_where(stage.where)
+    for unwind_clause in query.reentry_unwinds:
+        _scan_text(unwind_clause.expression.text)
+    for item in query.return_.items:
+        _scan_text(item.expression.text)
+    if query.order_by is not None:
+        for item in query.order_by.items:
+            _scan_text(item.expression.text)
+
+    return referenced
+
+
 def _bounded_reentry_carry_columns(
     prefix_projection: ResultProjectionPlan,
     *,
     projection_items: Sequence[str],
     query: CypherQuery,
     prefix_stage: ProjectionStage,
-) -> Tuple[str, Tuple[str, ...]]:
-    whole_row_columns = tuple(column.output_name for column in prefix_projection.columns if column.kind == "whole_row")
-    if len(whole_row_columns) != 1:
+    reentry_alias_hint: Optional[str] = None,
+) -> Tuple[str, Tuple[str, ...], Tuple[str, ...]]:
+    """Return (reentry_alias, carried_scalar_columns, non_source_alias_names).
+
+    Today's caller continues to consume the first two fields. The third lists
+    other whole-row aliases the prefix carries that aren't the trailing-MATCH
+    source — those are recorded on the ``ReentryPlan`` for future use and
+    drive a compile-time failfast if any of them are referenced downstream
+    (carrying non-source whole-row aliases through reentry is the slice
+    handled by `#989` follow-up work).
+    """
+
+    whole_row_columns = tuple(
+        column.output_name for column in prefix_projection.columns if column.kind == "whole_row"
+    )
+    if not whole_row_columns:
         raise _unsupported_at_span(
-            "Cypher MATCH after WITH currently requires the prefix WITH stage to project exactly one whole-row alias",
+            "Cypher MATCH after WITH currently requires the prefix WITH stage to project at least one whole-row alias",
             field="with",
             value=projection_items,
             span=prefix_stage.span,
         )
-    carried_columns = tuple(column.output_name for column in prefix_projection.columns if column.kind != "whole_row")
+    if reentry_alias_hint is not None and reentry_alias_hint in whole_row_columns:
+        reentry_alias = reentry_alias_hint
+    else:
+        reentry_alias = whole_row_columns[0]
+    non_source_aliases = tuple(name for name in whole_row_columns if name != reentry_alias)
+    carried_columns = tuple(
+        column.output_name for column in prefix_projection.columns if column.kind != "whole_row"
+    )
     if not carried_columns:
-        return whole_row_columns[0], ()
+        return reentry_alias, (), non_source_aliases
     invalid_output = next((name for name in carried_columns if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)), None)
     if invalid_output is not None:
         raise _unsupported_at_span(
@@ -7238,7 +7341,7 @@ def _bounded_reentry_carry_columns(
             value=carried_columns,
             span=prefix_stage.span,
         )
-    return whole_row_columns[0], carried_columns
+    return reentry_alias, carried_columns, non_source_aliases
 
 
 def _bounded_reentry_scalar_prefix_columns(
@@ -7596,12 +7699,27 @@ def _compile_bounded_reentry_query(
     else:
         assert prefix_projection is not None
         prefix_projection_table = prefix_projection.table
-        reentry_alias, carry_columns = _bounded_reentry_carry_columns(
+        reentry_alias, carry_columns, non_source_alias_names = _bounded_reentry_carry_columns(
             prefix_projection,
             projection_items=projection_items,
             query=query,
             prefix_stage=prefix_stage,
+            reentry_alias_hint=first_alias,
         )
+        if non_source_alias_names:
+            referenced = _collect_non_source_alias_references(
+                query=query,
+                non_source_aliases=non_source_alias_names,
+            )
+            if referenced:
+                raise _unsupported_at_span(
+                    "Cypher MATCH after WITH currently carries one whole-row alias through re-entry; "
+                    "additional prefix whole-row aliases referenced downstream require the row-carrier "
+                    "rewrite tracked under #989",
+                    field="with",
+                    value=sorted(referenced),
+                    span=prefix_stage.span,
+                )
     if not _bounded_reentry_prefix_order_is_safe(prefix_stage=prefix_stage, query=query):
         raise _unsupported(
             "Cypher MATCH after WITH does not yet preserve prefix WITH row ordering across MATCH re-entry for multi-row result shapes",
@@ -7638,9 +7756,11 @@ def _compile_bounded_reentry_query(
 
     hidden_columns = tuple(_reentry_hidden_column_name(output_name) for output_name in carry_columns)
 
-    # Slice 4.1: build the explicit ReentryPlan alongside the legacy scalar_reentry_*
-    # fields. Reads still go through scalar_reentry_alias / scalar_reentry_columns
-    # / _compiled_query_reentry_contract; later slices switch reads to the plan.
+    # Slice 4.1+4.3: build the explicit ReentryPlan alongside the legacy
+    # scalar_reentry_* fields. Plan now includes any additional whole-row aliases
+    # the prefix carries (non_source_alias_names); they are recorded as bare
+    # CarriedAlias entries so future slices can attach hidden-property carries
+    # without changing this construction site.
     if scalar_only_prefix:
         current_reentry_plan: ReentryPlan = ReentryPlan(
             reentry_alias_name=reentry_alias,
@@ -7650,15 +7770,24 @@ def _compile_bounded_reentry_query(
         )
     else:
         assert prefix_projection is not None
+        current_aliases: List[CarriedAlias] = [
+            CarriedAlias(
+                output_name=reentry_alias,
+                table=prefix_projection.table,
+                is_reentry_alias=True,
+            )
+        ]
+        for name in non_source_alias_names:
+            current_aliases.append(
+                CarriedAlias(
+                    output_name=name,
+                    table=prefix_projection.table,
+                    is_reentry_alias=False,
+                )
+            )
         current_reentry_plan = ReentryPlan(
             reentry_alias_name=reentry_alias,
-            aliases=(
-                CarriedAlias(
-                    output_name=reentry_alias,
-                    table=prefix_projection.table,
-                    is_reentry_alias=True,
-                ),
-            ),
+            aliases=tuple(current_aliases),
             scalar_columns=tuple(carry_columns),
             scalar_only=False,
         )

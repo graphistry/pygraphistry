@@ -7864,6 +7864,40 @@ def test_string_cypher_failfast_rejects_remaining_unsupported_multihop_row_bindi
         graph_factory().gfql(query, params=params)
 
 
+def test_string_cypher_admits_multi_whole_row_prefix_when_non_source_aliases_are_unused() -> None:
+    """#989 slice 4.3: admit `WITH a, x` prefix when only `a` is referenced downstream."""
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "RETURN b.id AS bid ORDER BY bid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    records = result._nodes.to_dict(orient="records")
+    assert records == [{"bid": "b"}, {"bid": "e"}]
+
+
+def test_string_cypher_failfast_rejects_multi_whole_row_prefix_when_non_source_alias_is_referenced() -> None:
+    """#989 slice 4.3: failfast when a non-source whole-row alias is referenced downstream.
+
+    Reading carried whole-row aliases other than the trailing-MATCH source requires
+    the row-carrier rewrite tracked under #989; current compiler scopes the failfast
+    so colleagues see a clear pointer to the architectural follow-up.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "WHERE b.id <> x.id "
+        "RETURN b.id AS bid"
+    )
+    with pytest.raises(
+        GFQLValidationError,
+        match="additional prefix whole-row aliases referenced downstream require the row-carrier rewrite",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
 def test_string_cypher_failfast_rejects_with_match_reentry_multiple_trailing_match_clauses() -> None:
     query = (
         "MATCH (a:A {id: $seed})-[:R]->(b:B) "
