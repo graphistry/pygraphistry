@@ -7948,7 +7948,8 @@ def test_string_cypher_connected_multi_pattern_mixed_node_and_edge_alias_project
     assert records[0]["did"] == "d1"
 
 
-def test_string_cypher_failfast_rejects_with_match_reentry_multiple_whole_row_aliases_with_carried_scalars() -> None:
+def test_string_cypher_with_match_reentry_multi_whole_row_alias_unreferenced_secondary() -> None:
+    """An unreferenced secondary whole-row alias in the prefix WITH is dropped (#1071)."""
     query = (
         "MATCH (a:A {id: $seed})-[:R]->(b:B) "
         "WITH a, b, b.id AS bid "
@@ -7956,7 +7957,97 @@ def test_string_cypher_failfast_rejects_with_match_reentry_multiple_whole_row_al
         "RETURN bid, c.id AS cid"
     )
 
-    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time"):
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1", "cid": "c1"}]
+
+
+def test_string_cypher_with_match_reentry_multi_whole_row_alias_property_carry() -> None:
+    """Secondary whole-row alias is referenced by property in the trailing
+    RETURN; rewritten to a hidden carry column (#1071)."""
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN a.id AS aid, b.id AS bid, c.id AS cid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a1", "bid": "b1", "cid": "c1"}]
+
+
+def test_string_cypher_executes_ic1_shaped_multi_alias_with_match_reentry() -> None:
+    """LDBC SNB IC1-shape: ``WITH p, friend MATCH (friend)-...`` with property
+    references to the secondary alias ``p`` in RETURN (#1071)."""
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["seed", "alice", "bob", "city1", "city2"],
+                "label__Person": [True, True, True, False, False],
+                "label__Place": [False, False, False, True, True],
+                "firstName": ["Seed", "Alice", "Bob", None, None],
+                "name": [None, None, None, "Springfield", "Shelbyville"],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["seed", "alice", "bob", "alice", "bob"],
+                "d": ["alice", "bob", "city1", "city1", "city2"],
+                "type": ["KNOWS", "KNOWS", "KNOWS", "IS_LOCATED_IN", "IS_LOCATED_IN"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (p:Person {id: $pid})-[:KNOWS]->(friend:Person) "
+        "WITH p, friend "
+        "MATCH (friend)-[:IS_LOCATED_IN]->(city:Place) "
+        "RETURN friend.id AS fid, p.firstName AS pfn, city.name AS cname "
+        "ORDER BY fid",
+        params={"pid": "seed"},
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"fid": "alice", "pfn": "Seed", "cname": "Springfield"},
+    ]
+
+
+def test_string_cypher_executes_three_alias_with_match_reentry() -> None:
+    """Three-alias carry through WITH; secondaries referenced by property in RETURN (#1071)."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["x1", "y1", "z1"], "label": ["X", "Y", "Z"]}),
+        pd.DataFrame(
+            {
+                "s": ["x1", "y1"],
+                "d": ["y1", "z1"],
+                "type": ["R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (x)-[:R]->(y)-[:R]->(z) "
+        "WITH x, y, z "
+        "MATCH (z) "
+        "RETURN x.label AS xl, y.label AS yl, z.label AS zl"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"xl": "X", "yl": "Y", "zl": "Z"},
+    ]
+
+
+def test_string_cypher_failfast_rejects_with_match_reentry_secondary_whole_row_return() -> None:
+    """Returning a secondary whole-row alias is unsupported in MVP (#1071)."""
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN a, c.id AS cid"
+    )
+
+    with pytest.raises(GFQLValidationError, match="secondary whole-row aliases as whole-row outputs"):
         _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
 
 
@@ -11625,12 +11716,12 @@ def test_issue_1026_with_limit_optional_match_null_fill() -> None:
     assert len(rows) == 2
 
 
-def test_issue_1026_multi_alias_with_optional_match_rejects_cleanly() -> None:
-    """Multi-alias WITH + OPTIONAL MATCH currently rejects with a validation error.
+def test_issue_1026_multi_alias_with_optional_match_carries_secondary_property() -> None:
+    """Multi-alias WITH + OPTIONAL MATCH with property carry (#1071).
 
-    The bounded reentry prefix compilation doesn't yet support multi-alias
-    whole-row projection (RETURN a, b) for connected patterns. This test
-    locks the current rejection so it doesn't silently regress to wrong answers.
+    Re-targeted from the prior rejection guardrail: multi-alias whole-row
+    projection (``WITH a, b``) is now supported when secondary aliases are
+    referenced only by property access (``a.id``).
     """
     nodes = pd.DataFrame({"id": ["a", "b", "c"], "num": [1, 2, 3]})
     edges = pd.DataFrame({
@@ -11640,13 +11731,14 @@ def test_issue_1026_multi_alias_with_optional_match_rejects_cleanly() -> None:
     })
     g = _mk_graph(nodes, edges)
 
-    with pytest.raises(GFQLValidationError):
-        g.gfql(
-            "MATCH (a)-[r:R]->(b) "
-            "WITH a, b "
-            "OPTIONAL MATCH (b)-[r2:T]->(c) "
-            "RETURN a.id AS aid, b.id AS bid, c.id AS cid"
-        )
+    result = g.gfql(
+        "MATCH (a)-[r:R]->(b) "
+        "WITH a, b "
+        "OPTIONAL MATCH (b)-[r2:T]->(c) "
+        "RETURN a.id AS aid, b.id AS bid, c.id AS cid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a", "bid": "b", "cid": "c"}]
 
 
 def test_issue_1026_with_limit_optional_match_all_match() -> None:
