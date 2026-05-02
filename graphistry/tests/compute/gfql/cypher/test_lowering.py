@@ -7924,23 +7924,41 @@ def test_string_cypher_admits_multi_whole_row_prefix_with_downstream_stage_where
     assert result._nodes.to_dict(orient="records") == [{"bid": "b"}]
 
 
-def test_string_cypher_failfast_rejects_multi_whole_row_prefix_when_non_source_alias_is_referenced() -> None:
-    """#989 slice 4.3: failfast when a non-source whole-row alias is referenced downstream.
-
-    Reading carried whole-row aliases other than the trailing-MATCH source requires
-    the row-carrier rewrite tracked under #989; current compiler scopes the failfast
-    so colleagues see a clear pointer to the architectural follow-up.
+def test_string_cypher_admits_non_source_alias_property_carry_through_reentry() -> None:
+    """#989 slice 4.3b: property references on non-source aliases (`x.id`) are
+    admitted. The prefix WITH is rewritten to project ``x.id AS <carry_name>``;
+    trailing ``x.id`` references rewrite to a property access on the
+    reentry-alias's hidden column. Carries the value end-to-end.
     """
     query = (
         "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
         "WITH a, x "
         "MATCH (a)-[:R]->(b) "
-        "WHERE b.id <> x.id "
+        "RETURN b.id AS bid, x.id AS xid ORDER BY bid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    # x.id == 'b' for every row; R-neighbors of 'a' are 'b' and 'e'.
+    assert result._nodes.to_dict(orient="records") == [
+        {"bid": "b", "xid": "b"},
+        {"bid": "e", "xid": "b"},
+    ]
+
+
+def test_string_cypher_failfast_rejects_multi_whole_row_prefix_when_non_source_alias_is_bare_referenced() -> None:
+    """#989 slice 4.3b: bare references to non-source whole-row aliases (no
+    property access) still failfast — that requires the full row-carrier IR
+    rewrite, not just per-property hidden-column carry.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "WITH b, x "
         "RETURN b.id AS bid"
     )
     with pytest.raises(
         GFQLValidationError,
-        match="additional prefix whole-row aliases referenced downstream require the row-carrier rewrite",
+        match="bare references like",
     ):
         _mk_multi_stage_reentry_graph().gfql(query)
 
@@ -11687,12 +11705,13 @@ def test_issue_1026_with_limit_optional_match_null_fill() -> None:
     assert len(rows) == 2
 
 
-def test_issue_1026_multi_alias_with_optional_match_rejects_cleanly() -> None:
-    """Multi-alias WITH + OPTIONAL MATCH currently rejects with a validation error.
+def test_issue_1026_multi_alias_with_optional_match_carries_non_source_property() -> None:
+    """Multi-alias WITH + OPTIONAL MATCH carries the non-source alias's referenced
+    properties through the reentry as hidden scalar columns (#989 slice 4.3b).
 
-    The bounded reentry prefix compilation doesn't yet support multi-alias
-    whole-row projection (RETURN a, b) for connected patterns. This test
-    locks the current rejection so it doesn't silently regress to wrong answers.
+    Previously this query rejected at compile time because the prefix WITH had
+    two whole-row aliases. Slice 4.3b rewrites the prefix to project ``a.id``
+    as a scalar carry; trailing ``a.id`` references resolve through the carrier.
     """
     nodes = pd.DataFrame({"id": ["a", "b", "c"], "num": [1, 2, 3]})
     edges = pd.DataFrame({
@@ -11702,13 +11721,15 @@ def test_issue_1026_multi_alias_with_optional_match_rejects_cleanly() -> None:
     })
     g = _mk_graph(nodes, edges)
 
-    with pytest.raises(GFQLValidationError):
-        g.gfql(
-            "MATCH (a)-[r:R]->(b) "
-            "WITH a, b "
-            "OPTIONAL MATCH (b)-[r2:T]->(c) "
-            "RETURN a.id AS aid, b.id AS bid, c.id AS cid"
-        )
+    result = g.gfql(
+        "MATCH (a)-[r:R]->(b) "
+        "WITH a, b "
+        "OPTIONAL MATCH (b)-[r2:T]->(c) "
+        "RETURN a.id AS aid, b.id AS bid, c.id AS cid"
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"aid": "a", "bid": "b", "cid": "c"}
+    ]
 
 
 def test_issue_1026_with_limit_optional_match_all_match() -> None:

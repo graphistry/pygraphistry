@@ -32,6 +32,7 @@ class CarriedAlias:
     output_name: str
     table: Literal["nodes", "edges"]
     is_reentry_alias: bool
+    carried_properties: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

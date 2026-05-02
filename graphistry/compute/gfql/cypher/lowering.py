@@ -7163,14 +7163,29 @@ def _reentry_hidden_column_name(output_name: str) -> str:
     return f"__cypher_reentry_{output_name}__"
 
 
+def _reentry_property_carry_name(alias: str, prop: str) -> str:
+    """Bare carry name for a non-source whole-row alias's property.
+
+    Used as the prefix WITH alias (`WITH a, x.id AS <carry_name>`); the existing
+    scalar-carry plumbing wraps this with ``_reentry_hidden_column_name`` to
+    produce the final hidden column on the reentry-alias's row table. Trailing
+    `<alias>.<prop>` references rewrite to a property access on the reentry
+    alias whose property name is that wrapped form, so both sides resolve to
+    the same column.
+    """
+    return f"{alias}__{prop}"
+
+
 def _rewrite_reentry_expr_to_hidden_properties(
     expr: ExpressionText,
     *,
     carried_alias: str,
     carried_columns: Sequence[str],
     field: str,
+    non_source_carried_props: Optional[Mapping[str, Tuple[str, ...]]] = None,
 ) -> ExpressionText:
-    if not carried_columns:
+    has_non_source = bool(non_source_carried_props)
+    if not carried_columns and not has_non_source:
         return expr
     normalized_text = expr.text
     for output_name in carried_columns:
@@ -7190,15 +7205,46 @@ def _rewrite_reentry_expr_to_hidden_properties(
             line=expr.span.line,
             column=expr.span.column,
         ) from exc
+
+    # Slice 4.3b: rewrite `<non_source>.<prop>` PropertyAccessExpr nodes to
+    # `<carried_alias>.<__cypher_reentry_<non_source>__<prop>__>` BEFORE the
+    # bare-identifier substitution runs. This way `x.id` lowers to a property
+    # access on the reentry-alias's row table where the prefix rewrite has
+    # planted the hidden column.
+    if has_non_source:
+        assert non_source_carried_props is not None
+
+        def _rewrite_property_access(child: ExprNode) -> ExprNode:
+            if (
+                isinstance(child, PropertyAccessExpr)
+                and isinstance(child.value, Identifier)
+                and child.value.name in non_source_carried_props
+                and child.property in non_source_carried_props[child.value.name]
+            ):
+                return PropertyAccessExpr(
+                    Identifier(carried_alias),
+                    _reentry_hidden_column_name(
+                        _reentry_property_carry_name(child.value.name, child.property)
+                    ),
+                )
+            return _rebuild_expr_node(
+                child,
+                rewrite=_rewrite_property_access,
+                error_context="reentry property carry rewrite",
+            )
+
+        node = _rewrite_property_access(node)
+
     replacements = {
         output_name: f"{carried_alias}.{_reentry_hidden_column_name(output_name)}"
         for output_name in carried_columns
     }
     identifiers = collect_identifiers(node)
     if not any(identifier in replacements for identifier in identifiers):
-        if normalized_text == expr.text:
+        rendered = _render_expr_node(node)
+        if rendered == expr.text:
             return expr
-        return ExpressionText(text=normalized_text, span=expr.span)
+        return ExpressionText(text=rendered, span=expr.span)
     return ExpressionText(
         text=_render_expr_node(_rewrite_expr_identifiers(node, replacements)),
         span=expr.span,
@@ -7225,23 +7271,31 @@ def _iter_property_refs(node: object) -> Iterable[PropertyRef]:
             yield from _iter_property_refs(item)
 
 
-def _collect_non_source_alias_references(
+def _collect_non_source_alias_property_refs(
     *,
     query: CypherQuery,
     non_source_aliases: Sequence[str],
-) -> Set[str]:
-    """Return any non_source_aliases referenced (bare or via property) in trailing clauses.
+) -> Tuple[Dict[str, Set[str]], Set[str]]:
+    """Scan trailing clauses for `<non_source>.<prop>` references and bare `<non_source>`.
 
-    Slice 4.3 admits multi-whole-row prefix WITH only when the additional aliases
-    are *not* used downstream. If any of them are referenced, fail fast — the
-    full row-carrier rewrite under #989 will lift this constraint.
+    Returns `(props_by_alias, bare_referenced)`:
+    * `props_by_alias[alias]` is the set of properties referenced via
+      `alias.prop` in any trailing clause — these become `carried_properties`
+      on the alias's `CarriedAlias`.
+    * `bare_referenced` is the set of non-source aliases referenced as bare
+      identifiers (e.g. `WHERE x = $p`, `RETURN x`). Bare carry of an entire
+      row is out-of-scope for slice 4.3b — caller fails fast if non-empty.
+
+    Pattern-property references inside MATCH bodies (e.g. `(b {id: x.id})`) are
+    not scanned here; the binder rejects those upstream.
     """
 
     if not non_source_aliases:
-        return set()
+        return ({}, set())
     targets = set(non_source_aliases)
 
-    referenced: Set[str] = set()
+    props_by_alias: Dict[str, Set[str]] = {alias: set() for alias in targets}
+    bare_referenced: Set[str] = set()
 
     def _scan_text(text: Optional[str]) -> None:
         if text is None or not text:
@@ -7250,23 +7304,37 @@ def _collect_non_source_alias_references(
             node = parse_expr(text)
         except (GFQLExprParseError, ImportError):
             return
+        # Walk the AST: PropertyAccessExpr(Identifier(target), prop) → carried prop.
+        # Bare Identifier matching a target → bare reference (out of scope).
+        property_refs_seen: Set[Tuple[str, str]] = set()
+
+        def _enter(child: ExprNode) -> None:
+            if (
+                isinstance(child, PropertyAccessExpr)
+                and isinstance(child.value, Identifier)
+                and child.value.name in targets
+            ):
+                property_refs_seen.add((child.value.name, child.property))
+
+        walk_expr_nodes(node, enter=_enter)
+        for alias, prop in property_refs_seen:
+            props_by_alias[alias].add(prop)
+        # Bare-identifier references show up via collect_identifiers minus the
+        # ones we just attributed to a property access.
+        property_alias_names = {alias for alias, _prop in property_refs_seen}
         for ident in collect_identifiers(node):
-            if ident in targets:
-                referenced.add(ident)
-        # Property accesses contribute their root identifier via collect_identifiers,
-        # so x.id, x.name, etc. all show up as `x` above.
+            if ident in targets and ident not in property_alias_names:
+                bare_referenced.add(ident)
 
     def _scan_where(where_clause: Optional[WhereClause]) -> None:
         if where_clause is None:
             return
-        # Tree path: serialize and parse for identifiers.
         if where_clause.expr_tree is not None:
             _scan_text(boolean_expr_to_text(where_clause.expr_tree))
-        # Structured-predicates path: walk PropertyRef / value sides directly.
         for term in where_clause.predicates:
             for ref in _iter_property_refs(term):
                 if ref.alias in targets:
-                    referenced.add(ref.alias)
+                    props_by_alias[ref.alias].add(ref.property)
 
     # Pattern-property references like `(b {id: x.id})` are not scanned here —
     # property maps resolve against the binding scope at compile time and the
@@ -7293,7 +7361,7 @@ def _collect_non_source_alias_references(
         for item in query.order_by.items:
             _scan_text(item.expression.text)
 
-    return referenced
+    return props_by_alias, bare_referenced
 
 
 def _bounded_reentry_carry_columns(
@@ -7609,6 +7677,85 @@ def _rewrite_collect_unwind_reentry_query(query: CypherQuery) -> Optional[Cypher
     )
 
 
+def _rewrite_multi_whole_row_prefix(
+    prefix_stage: ProjectionStage,
+    *,
+    query: CypherQuery,
+    reentry_first_alias: Optional[str],
+) -> Tuple[ProjectionStage, Dict[str, Tuple[str, ...]]]:
+    """Decompose non-source whole-row aliases in the prefix WITH into scalar carries.
+
+    Returns the (possibly rewritten) prefix stage plus a mapping
+    `{non_source_alias: tuple_of_carried_property_names}` that the caller uses
+    to populate ``CarriedAlias.carried_properties`` on the resulting plan and
+    to rewrite trailing `<non_source>.<prop>` references at AST level.
+
+    Bare-identifier prefix items other than `reentry_first_alias` are treated as
+    whole-row carries; if any are referenced as bare identifiers downstream
+    (`WHERE x = ...`), this pre-flight returns an empty mapping and lets the
+    main flow's failfast surface the issue.
+    """
+
+    if reentry_first_alias is None:
+        return prefix_stage, {}
+
+    bare_item_indices: Dict[str, int] = {}
+    identifier_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+    for idx, item in enumerate(prefix_stage.clause.items):
+        if item.alias is not None:
+            continue
+        text = item.expression.text.strip()
+        if identifier_re.fullmatch(text):
+            bare_item_indices[text] = idx
+
+    non_source_aliases = tuple(
+        name for name in bare_item_indices if name != reentry_first_alias
+    )
+    if not non_source_aliases:
+        return prefix_stage, {}
+
+    props_by_alias, bare_referenced = _collect_non_source_alias_property_refs(
+        query=query,
+        non_source_aliases=non_source_aliases,
+    )
+    if bare_referenced:
+        # Bare reference downstream is out of scope for this slice; let the
+        # main flow's failfast surface a precise message.
+        return prefix_stage, {}
+
+    referenced = tuple(name for name in non_source_aliases if props_by_alias.get(name))
+    if not referenced:
+        return prefix_stage, {}
+
+    # Rewrite items: drop bare entries for `referenced` aliases, then append a
+    # scalar projection per (alias, property) pair using the hidden column name.
+    drop_set = set(referenced)
+    new_items: List[ReturnItem] = [
+        item
+        for idx, item in enumerate(prefix_stage.clause.items)
+        if not any(idx == bare_item_indices[name] for name in drop_set)
+    ]
+    carried_props: Dict[str, Tuple[str, ...]] = {}
+    for alias in referenced:
+        props = tuple(sorted(props_by_alias[alias]))
+        carried_props[alias] = props
+        for prop in props:
+            hidden_name = _reentry_property_carry_name(alias, prop)
+            new_items.append(
+                ReturnItem(
+                    expression=ExpressionText(
+                        text=f"{alias}.{prop}",
+                        span=prefix_stage.clause.span,
+                    ),
+                    alias=hidden_name,
+                    span=prefix_stage.clause.span,
+                )
+            )
+
+    new_clause = replace(prefix_stage.clause, items=tuple(new_items))
+    return replace(prefix_stage, clause=new_clause), carried_props
+
+
 def _compile_bounded_reentry_query(
     query: CypherQuery,
     *,
@@ -7636,7 +7783,6 @@ def _compile_bounded_reentry_query(
             span=query.return_.span,
         )
     prefix_stage = query.with_stages[0]
-    projection_items = [item.expression.text for item in prefix_stage.clause.items]
     if prefix_stage.where is not None:
         raise _unsupported_at_span(
             "Cypher MATCH after WITH does not yet support WITH ... WHERE in the prefix stage",
@@ -7644,6 +7790,20 @@ def _compile_bounded_reentry_query(
             value=prefix_stage.where.text,
             span=prefix_stage.span,
         )
+
+    # Slice 4.3b: when the prefix WITH carries multiple bare-identifier (whole-row)
+    # aliases and only one of them is the trailing-MATCH source, rewrite the prefix
+    # to project the non-source aliases as scalar property carries. The existing
+    # single-whole-row + scalar-carry plumbing then forwards them onto the
+    # reentry-alias's row table as hidden columns; trailing `<non_source>.<prop>`
+    # references rewrite to `<reentry_alias>.<__cypher_reentry_<alias>__<prop>__>`.
+    reentry_first_alias = _first_pattern_node_alias(query.reentry_matches[0])
+    prefix_stage, multi_alias_carries = _rewrite_multi_whole_row_prefix(
+        prefix_stage,
+        query=query,
+        reentry_first_alias=reentry_first_alias,
+    )
+    projection_items = [item.expression.text for item in prefix_stage.clause.items]
     prefix_query = replace(
         query,
         call=None,
@@ -7715,19 +7875,24 @@ def _compile_bounded_reentry_query(
             reentry_alias_hint=first_alias,
         )
         if non_source_alias_names:
-            referenced = _collect_non_source_alias_references(
+            props_by_alias, bare_referenced = _collect_non_source_alias_property_refs(
                 query=query,
                 non_source_aliases=non_source_alias_names,
             )
-            if referenced:
+            if bare_referenced:
                 raise _unsupported_at_span(
-                    "Cypher MATCH after WITH currently carries one whole-row alias through re-entry; "
-                    "additional prefix whole-row aliases referenced downstream require the row-carrier "
-                    "rewrite tracked under #989",
+                    "Cypher MATCH after WITH currently carries non-source whole-row aliases only via property "
+                    "access (`<alias>.<prop>`); bare references like `WHERE x = ...` or `RETURN x` require "
+                    "the full row-carrier rewrite tracked under #989",
                     field="with",
-                    value=sorted(referenced),
+                    value=sorted(bare_referenced),
                     span=prefix_stage.span,
                 )
+            # Non-source aliases that survived the prefix rewrite (i.e. had no
+            # property refs and no bare refs) are simply unused; safe to admit.
+            # `multi_alias_carries` (computed before the prefix compile) holds
+            # the {alias: props} for the rewritten ones — used below to
+            # populate ReentryPlan.aliases and rewrite trailing PropertyAccessExpr.
     if not _bounded_reentry_prefix_order_is_safe(prefix_stage=prefix_stage, query=query):
         raise _unsupported(
             "Cypher MATCH after WITH does not yet preserve prefix WITH row ordering across MATCH re-entry for multi-row result shapes",
@@ -7792,6 +7957,18 @@ def _compile_bounded_reentry_query(
                     is_reentry_alias=False,
                 )
             )
+        # Aliases rewritten to scalar property carries (multi_alias_carries) live
+        # in the prefix as scalar columns now; surface them on the plan with the
+        # original alias's name and the set of carried properties.
+        for alias, props in multi_alias_carries.items():
+            current_aliases.append(
+                CarriedAlias(
+                    output_name=alias,
+                    table=prefix_projection.table,
+                    is_reentry_alias=False,
+                    carried_properties=props,
+                )
+            )
         current_reentry_plan = ReentryPlan(
             reentry_alias_name=reentry_alias,
             aliases=tuple(current_aliases),
@@ -7799,12 +7976,17 @@ def _compile_bounded_reentry_query(
             scalar_only=False,
         )
 
+    non_source_carried_props: Optional[Mapping[str, Tuple[str, ...]]] = (
+        multi_alias_carries if multi_alias_carries else None
+    )
+
     def rewrite_expr(expr: ExpressionText, field: str) -> ExpressionText:
         return _rewrite_reentry_expr_to_hidden_properties(
             expr,
             carried_alias=reentry_alias,
             carried_columns=carry_columns,
             field=field,
+            non_source_carried_props=non_source_carried_props,
         )
 
     reentry_where = query.reentry_where
