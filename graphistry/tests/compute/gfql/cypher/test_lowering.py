@@ -8051,6 +8051,37 @@ def test_string_cypher_failfast_rejects_with_match_reentry_secondary_whole_row_r
         _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
 
 
+def test_string_cypher_failfast_rejects_with_match_reentry_secondary_alias_rebinding() -> None:
+    """Re-binding a carried secondary alias as a node variable in the trailing
+    MATCH is unsupported in MVP — the alias would have two row identities at
+    once (#1071)."""
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(a) "
+        "RETURN b.id AS bid"
+    )
+
+    with pytest.raises(GFQLValidationError, match="re-binding a carried secondary alias"):
+        _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+
+def test_string_cypher_executes_with_match_reentry_multi_whole_row_alias_property_carry_on_cudf() -> None:
+    """cuDF parity for the property-carry path (#1071)."""
+    pytest.importorskip("cudf")
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN a.id AS aid, b.id AS bid, c.id AS cid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph_cudf().gfql(query, params={"seed": "a1"}, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"aid": "a1", "bid": "b1", "cid": "c1"}]
+
+
 def test_string_cypher_executes_with_match_reentry_cross_alias_carried_scalars_from_connected_prefix_shape() -> None:
     query = (
         "MATCH (a:A {id: $seed})-[:R]->(b:B) "
