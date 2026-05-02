@@ -8015,6 +8015,65 @@ def test_string_cypher_executes_ic1_shaped_multi_alias_with_match_reentry() -> N
     ]
 
 
+def test_string_cypher_executes_with_match_reentry_secondary_alias_user_scalar_collision() -> None:
+    """Defense-in-depth: a user-named carried scalar (``b.id AS a_id``) and a
+    demoted secondary property ref (``a.id`` on secondary alias ``a``) BOTH
+    feed an output named ``a_id`` in the prefix WITH. The double-prefix
+    wrapping in ``_reentry_hidden_column_name`` keeps the in-table columns
+    distinct, so values flow correctly to RETURN (#1071, Wave 3 regression)."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "b1", "c1"],
+            "label__A": [True, False, False],
+            "label__B": [False, True, False],
+            "label__C": [False, False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {"s": ["a1", "b1"], "d": ["b1", "c1"], "type": ["R", "S"]}
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH a, b, b.id AS a_id "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN a.id AS aid_demoted, a_id AS a_id_user, c.id AS cid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"aid_demoted": "a1", "a_id_user": "b1", "cid": "c1"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_secondary_alias_inline_pattern_property() -> None:
+    """Inline node-pattern property map referencing a secondary alias property
+    (``MATCH (c {tag: a.tag})``) is rewritten via the pattern-element walk in
+    ``_rewrite_reentry_match_clause`` (#1071, Wave 3 regression)."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "b1", "c1"],
+            "label__A": [True, False, False],
+            "label__B": [False, True, False],
+            "label__C": [False, False, True],
+            "tag": ["t1", "t1", "t1"],
+        }
+    )
+    edges = pd.DataFrame(
+        {"s": ["a1", "b1"], "d": ["b1", "c1"], "type": ["R", "S"]}
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C {tag: a.tag}) "
+        "RETURN c.id AS cid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"cid": "c1"}]
+
+
 def test_string_cypher_executes_with_match_reentry_secondary_alias_property_in_or_where() -> None:
     """Secondary alias property used in a tree-shape (OR) trailing WHERE: the
     demoter must rewrite ``a.score`` inside the OR atom so the trailing row
