@@ -7967,12 +7967,17 @@ def test_string_cypher_failfast_rejects_multi_whole_row_prefix_when_non_source_a
     """#989 slice 4.3b: bare references to non-source whole-row aliases (no
     property access) still failfast — that requires the full row-carrier IR
     rewrite, not just per-property hidden-column carry.
+
+    Note: pure forwarding patterns like ``WITH b, x`` (where ``x`` is just being
+    re-projected for downstream stages) are NOT bare uses — slice 4.3c drops
+    those at compile time. This test uses ``WITH a, x AS xref`` which renames
+    the bare alias — that's a use, not a forward, and still fails.
     """
     query = (
         "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
         "WITH a, x "
         "MATCH (a)-[:R]->(b) "
-        "WITH b, x "
+        "WHERE x = b "
         "RETURN b.id AS bid"
     )
     with pytest.raises(

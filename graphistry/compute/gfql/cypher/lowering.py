@@ -7681,30 +7681,65 @@ def _rewrite_collect_unwind_reentry_query(query: CypherQuery) -> Optional[Cypher
     )
 
 
+def _drop_bare_alias_items_from_stage(
+    stage: ProjectionStage,
+    aliases: AbstractSet[str],
+    *,
+    identifier_re: "re.Pattern[str]",
+) -> ProjectionStage:
+    """Drop bare-identifier projection items whose name is in ``aliases``.
+
+    Used by the multi-stage carry chain (slice 4.3c): downstream
+    ``WITH a, x, y, collect(...)`` re-projects carried whole-row aliases as
+    forwarding items. Once their properties are carried as hidden columns on
+    the reentry-alias's row table, the bare forwarding items are noise — the
+    carry continues through the chain regardless. Drop them so the bare-ref
+    scanner doesn't fail-fast on what is in fact a forwarding pattern.
+    """
+    new_items = tuple(
+        item
+        for item in stage.clause.items
+        if not (
+            item.alias is None
+            and identifier_re.fullmatch(item.expression.text.strip())
+            and item.expression.text.strip() in aliases
+        )
+    )
+    if len(new_items) == len(stage.clause.items):
+        return stage
+    return replace(stage, clause=replace(stage.clause, items=new_items))
+
+
 def _rewrite_multi_whole_row_prefix(
     prefix_stage: ProjectionStage,
     *,
     query: CypherQuery,
     reentry_first_alias: Optional[str],
-) -> Tuple[ProjectionStage, Dict[str, Tuple[str, ...]]]:
+) -> Tuple[ProjectionStage, Tuple[ProjectionStage, ...], Dict[str, Tuple[str, ...]]]:
     """Decompose non-source whole-row aliases in the prefix WITH into scalar carries.
 
-    Returns the (possibly rewritten) prefix stage plus a mapping
-    `{non_source_alias: tuple_of_carried_property_names}` that the caller uses
-    to populate ``CarriedAlias.carried_properties`` on the resulting plan and
-    to rewrite trailing `<non_source>.<prop>` references at AST level.
+    Returns ``(rewritten_prefix, rewritten_tail, multi_alias_carries)``:
+    * ``rewritten_prefix`` — prefix with non-source bare items replaced by scalar
+      carries (``x.id AS __carry_x__id__``), which the existing scalar-carry
+      plumbing forwards onto the reentry-alias's row table as hidden columns.
+    * ``rewritten_tail`` — ``query.with_stages[1:]`` with bare non-source-alias
+      forwarding items dropped (slice 4.3c). Carried properties survive the
+      chain via the hidden columns; bare items in downstream WITH stages were
+      pure forwarding noise.
+    * ``multi_alias_carries`` — ``{alias: (props...)}`` driving downstream
+      AST rewrites of ``<alias>.<prop>`` references.
 
-    Bare-identifier prefix items other than `reentry_first_alias` are treated as
-    whole-row carries; if any are referenced as bare identifiers downstream
-    (`WHERE x = ...`), this pre-flight returns an empty mapping and lets the
-    main flow's failfast surface the issue.
+    Bare-identifier non-source references in actual USE positions (WHERE
+    expressions, RETURN items, ORDER BY) cause this pre-flight to return
+    untouched query state so the main flow's failfast surfaces the issue.
     """
 
+    original_tail = tuple(query.with_stages[1:])
     if reentry_first_alias is None:
-        return prefix_stage, {}
+        return prefix_stage, original_tail, {}
 
-    bare_item_indices: Dict[str, int] = {}
     identifier_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+    bare_item_indices: Dict[str, int] = {}
     for idx, item in enumerate(prefix_stage.clause.items):
         if item.alias is not None:
             continue
@@ -7716,20 +7751,28 @@ def _rewrite_multi_whole_row_prefix(
         name for name in bare_item_indices if name != reentry_first_alias
     )
     if not non_source_aliases:
-        return prefix_stage, {}
+        return prefix_stage, original_tail, {}
+
+    # Slice 4.3c: drop bare forwarding items in downstream WITH stages BEFORE
+    # the bare-ref scan so we don't false-positive on `WITH a, x, y, ...` chain
+    # forwards.
+    candidate_set = set(non_source_aliases)
+    cleaned_tail = tuple(
+        _drop_bare_alias_items_from_stage(stage, candidate_set, identifier_re=identifier_re)
+        for stage in original_tail
+    )
+    cleaned_query = replace(query, with_stages=(prefix_stage,) + cleaned_tail)
 
     props_by_alias, bare_referenced = _collect_non_source_alias_property_refs(
-        query=query,
+        query=cleaned_query,
         non_source_aliases=non_source_aliases,
     )
     if bare_referenced:
-        # Bare reference downstream is out of scope for this slice; let the
-        # main flow's failfast surface a precise message.
-        return prefix_stage, {}
+        return prefix_stage, original_tail, {}
 
     referenced = tuple(name for name in non_source_aliases if props_by_alias.get(name))
     if not referenced:
-        return prefix_stage, {}
+        return prefix_stage, cleaned_tail, {}
 
     # Rewrite items: drop bare entries for `referenced` aliases, then append a
     # scalar projection per (alias, property) pair using the hidden column name.
@@ -7759,7 +7802,7 @@ def _rewrite_multi_whole_row_prefix(
             )
 
     new_clause = replace(prefix_stage.clause, items=tuple(new_items))
-    return replace(prefix_stage, clause=new_clause), carried_props
+    return replace(prefix_stage, clause=new_clause), cleaned_tail, carried_props
 
 
 def _compile_bounded_reentry_query(
@@ -7804,11 +7847,15 @@ def _compile_bounded_reentry_query(
     # reentry-alias's row table as hidden columns; trailing `<non_source>.<prop>`
     # references rewrite to `<reentry_alias>.<__cypher_reentry_<alias>__<prop>__>`.
     reentry_first_alias = _first_pattern_node_alias(query.reentry_matches[0])
-    prefix_stage, multi_alias_carries = _rewrite_multi_whole_row_prefix(
+    prefix_stage, rewritten_tail_with_stages, multi_alias_carries = _rewrite_multi_whole_row_prefix(
         prefix_stage,
         query=query,
         reentry_first_alias=reentry_first_alias,
     )
+    if rewritten_tail_with_stages != tuple(query.with_stages[1:]):
+        # Apply downstream-stage rewrite (forwarding-bare-item drop) to the query
+        # so the suffix construction below works against the cleaned tail.
+        query = replace(query, with_stages=(prefix_stage,) + rewritten_tail_with_stages)
     projection_items = [item.expression.text for item in prefix_stage.clause.items]
     prefix_query = replace(
         query,
