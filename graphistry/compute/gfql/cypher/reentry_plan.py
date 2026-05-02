@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional, Tuple
+
 from typing_extensions import Literal
 
 
@@ -22,15 +23,15 @@ class CarriedAlias:
     """A whole-row alias surviving from the prefix WITH into the trailing MATCH.
 
     Exactly one carried alias per `ReentryPlan` is the trailing-MATCH source
-    (`is_reentry_alias=True`). Other carried aliases are decomposed at runtime
-    into hidden scalar columns attached to the reentry-alias's row table.
+    (`is_reentry_alias=True`). Other carried aliases are recorded so the
+    compile-time gate can fail fast on downstream references; the row-carrier
+    rewrite that actually surfaces their properties downstream is tracked
+    under #989.
     """
 
     output_name: str
     table: Literal["nodes", "edges"]
     is_reentry_alias: bool
-    id_column: Optional[str] = None
-    carried_properties: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

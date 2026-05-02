@@ -7864,6 +7864,32 @@ def test_string_cypher_failfast_rejects_remaining_unsupported_multihop_row_bindi
         graph_factory().gfql(query, params=params)
 
 
+def test_compile_cypher_records_reentry_plan_for_multi_whole_row_prefix() -> None:
+    """#989 slice 4.1: ``compiled_query.reentry_plan`` is populated with one
+    CarriedAlias per prefix whole-row, exactly one marked as the reentry source.
+
+    Without this assertion, a future slice could regress the plan structure
+    while user-facing behavior keeps working via the legacy
+    ``scalar_reentry_*`` fields.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "RETURN b.id AS bid"
+    )
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    plan = compiled.reentry_plan
+    assert plan is not None
+    assert plan.reentry_alias_name == "a"
+    assert plan.scalar_only is False
+    assert tuple(alias.output_name for alias in plan.aliases) == ("a", "x")
+    source = plan.reentry_alias
+    assert source is not None and source.output_name == "a"
+    non_source = plan.non_source_aliases
+    assert len(non_source) == 1 and non_source[0].output_name == "x"
+
+
 def test_string_cypher_admits_multi_whole_row_prefix_when_non_source_aliases_are_unused() -> None:
     """#989 slice 4.3: admit `WITH a, x` prefix when only `a` is referenced downstream."""
     query = (

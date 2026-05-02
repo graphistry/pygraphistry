@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields as _dataclass_fields, replace
 import math
 import re
 from typing import AbstractSet, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
@@ -7205,16 +7205,20 @@ def _rewrite_reentry_expr_to_hidden_properties(
     )
 
 
-def _iter_property_refs(node: Any) -> Iterable[PropertyRef]:
-    """Yield PropertyRef nodes from a structured WHERE predicate or its operands."""
-    from dataclasses import fields as _df_fields  # local import to avoid top-level shadowing
+def _iter_property_refs(node: object) -> Iterable[PropertyRef]:
+    """Yield ``PropertyRef`` leaves reachable from a structured ``WhereClause`` predicate.
+
+    Walks frozen dataclasses (``WherePredicate``, ``WherePatternPredicate``, etc.)
+    via ``__dataclass_fields__`` and tuples/lists. Non-recurseable leaves (str,
+    int, ``CypherLiteral``, ``ParameterRef``, ``SourceSpan``, ``None``) yield
+    nothing — they cannot contain a ``PropertyRef``.
+    """
     if isinstance(node, PropertyRef):
         yield node
         return
     if hasattr(node, "__dataclass_fields__"):
-        for f in _df_fields(node):
-            child = getattr(node, f.name)
-            yield from _iter_property_refs(child)
+        for f in _dataclass_fields(node):
+            yield from _iter_property_refs(getattr(node, f.name))
         return
     if isinstance(node, (tuple, list)):
         for item in node:
@@ -7760,11 +7764,10 @@ def _compile_bounded_reentry_query(
 
     hidden_columns = tuple(_reentry_hidden_column_name(output_name) for output_name in carry_columns)
 
-    # Slice 4.1+4.3: build the explicit ReentryPlan alongside the legacy
-    # scalar_reentry_* fields. Plan now includes any additional whole-row aliases
-    # the prefix carries (non_source_alias_names); they are recorded as bare
-    # CarriedAlias entries so future slices can attach hidden-property carries
-    # without changing this construction site.
+    # Build the explicit ReentryPlan alongside the legacy scalar_reentry_* fields.
+    # The plan records every whole-row alias the prefix carries; the row-carrier
+    # rewrite (#989) replaces the legacy fields and uses CarriedAlias entries to
+    # surface non-source alias properties downstream.
     if scalar_only_prefix:
         current_reentry_plan: ReentryPlan = ReentryPlan(
             reentry_alias_name=reentry_alias,
