@@ -76,6 +76,7 @@ from graphistry.compute.gfql.expr_parser import (
     parse_expr,
     walk_expr_nodes,
 )
+from graphistry.compute.gfql.cypher.reentry_plan import CarriedAlias, ReentryPlan
 from graphistry.compute.gfql.cypher.ast import (
     CallClause,
     BooleanExpr,
@@ -150,6 +151,7 @@ class CompiledCypherExecutionExtras:
     optional_reentry: bool = False
     scalar_reentry_alias: Optional[str] = None
     scalar_reentry_columns: Tuple[str, ...] = ()
+    reentry_plan: Optional[ReentryPlan] = None
     scope_stack: Tuple[ScopeFrame, ...] = ()
     logical_plan: Optional[LogicalPlan] = None
     logical_plan_defer_reason: Optional[str] = None
@@ -208,6 +210,10 @@ class CompiledCypherQuery:
     @property
     def scalar_reentry_columns(self) -> Tuple[str, ...]:
         return () if self.execution_extras is None else self.execution_extras.scalar_reentry_columns
+
+    @property
+    def reentry_plan(self) -> Optional[ReentryPlan]:
+        return None if self.execution_extras is None else self.execution_extras.reentry_plan
 
     @property
     def scope_stack(self) -> Tuple[ScopeFrame, ...]:
@@ -312,6 +318,7 @@ def _normalize_execution_extras(
         and execution_extras.optional_reentry is False
         and execution_extras.scalar_reentry_alias is None
         and execution_extras.scalar_reentry_columns == ()
+        and execution_extras.reentry_plan is None
         and execution_extras.scope_stack == ()
         and execution_extras.logical_plan is None
         and execution_extras.logical_plan_defer_reason is None
@@ -347,6 +354,7 @@ def _execution_extras_with(
     optional_reentry: bool = False,
     scalar_reentry_alias: Optional[str] = None,
     scalar_reentry_columns: Tuple[str, ...] = (),
+    reentry_plan: Optional[ReentryPlan] = None,
     scope_stack: Tuple[ScopeFrame, ...] = (),
     logical_plan: Optional[LogicalPlan] = None,
     logical_plan_defer_reason: Optional[str] = None,
@@ -362,6 +370,7 @@ def _execution_extras_with(
             optional_reentry=optional_reentry,
             scalar_reentry_alias=scalar_reentry_alias,
             scalar_reentry_columns=scalar_reentry_columns,
+            reentry_plan=reentry_plan,
             scope_stack=scope_stack,
             logical_plan=logical_plan,
             logical_plan_defer_reason=logical_plan_defer_reason,
@@ -7332,6 +7341,7 @@ def _map_terminal_reentry_query(
             optional_reentry=compiled_query.optional_reentry,
             scalar_reentry_alias=compiled_query.scalar_reentry_alias,
             scalar_reentry_columns=compiled_query.scalar_reentry_columns,
+            reentry_plan=compiled_query.reentry_plan,
             logical_plan=compiled_query.logical_plan,
             logical_plan_defer_reason=compiled_query.logical_plan_defer_reason,
         ),
@@ -7628,6 +7638,31 @@ def _compile_bounded_reentry_query(
 
     hidden_columns = tuple(_reentry_hidden_column_name(output_name) for output_name in carry_columns)
 
+    # Slice 4.1: build the explicit ReentryPlan alongside the legacy scalar_reentry_*
+    # fields. Reads still go through scalar_reentry_alias / scalar_reentry_columns
+    # / _compiled_query_reentry_contract; later slices switch reads to the plan.
+    if scalar_only_prefix:
+        current_reentry_plan: ReentryPlan = ReentryPlan(
+            reentry_alias_name=reentry_alias,
+            aliases=(),
+            scalar_columns=tuple(carry_columns),
+            scalar_only=True,
+        )
+    else:
+        assert prefix_projection is not None
+        current_reentry_plan = ReentryPlan(
+            reentry_alias_name=reentry_alias,
+            aliases=(
+                CarriedAlias(
+                    output_name=reentry_alias,
+                    table=prefix_projection.table,
+                    is_reentry_alias=True,
+                ),
+            ),
+            scalar_columns=tuple(carry_columns),
+            scalar_only=False,
+        )
+
     def rewrite_expr(expr: ExpressionText, field: str) -> ExpressionText:
         return _rewrite_reentry_expr_to_hidden_properties(
             expr,
@@ -7744,6 +7779,7 @@ def _compile_bounded_reentry_query(
                 optional_reentry=is_optional,
                 scalar_reentry_alias=reentry_alias if scalar_only_prefix else target.scalar_reentry_alias,
                 scalar_reentry_columns=carry_columns if scalar_only_prefix else target.scalar_reentry_columns,
+                reentry_plan=current_reentry_plan if scalar_only_prefix else (target.reentry_plan or current_reentry_plan),
                 logical_plan=target.logical_plan,
                 logical_plan_defer_reason=target.logical_plan_defer_reason,
             ),
@@ -8563,6 +8599,7 @@ def _attach_logical_plan_route(
             optional_reentry=result.optional_reentry,
             scalar_reentry_alias=result.scalar_reentry_alias,
             scalar_reentry_columns=result.scalar_reentry_columns,
+            reentry_plan=result.reentry_plan,
             scope_stack=result.scope_stack,
             logical_plan=effective_logical_plan,
             logical_plan_defer_reason=effective_defer_reason,
@@ -8649,6 +8686,7 @@ def compile_cypher_query(
                 optional_reentry=out.optional_reentry,
                 scalar_reentry_alias=out.scalar_reentry_alias,
                 scalar_reentry_columns=out.scalar_reentry_columns,
+                reentry_plan=out.reentry_plan,
                 scope_stack=_bound_scope_stack,
                 logical_plan=out.logical_plan,
                 logical_plan_defer_reason=out.logical_plan_defer_reason,
