@@ -7877,6 +7877,27 @@ def test_string_cypher_admits_multi_whole_row_prefix_when_non_source_aliases_are
     assert records == [{"bid": "b"}, {"bid": "e"}]
 
 
+def test_string_cypher_admits_multi_whole_row_prefix_with_downstream_stage_where() -> None:
+    """#989 slice 4.3: regression for ProjectionStage.where vs WhereClause type mismatch.
+
+    The non-source-alias scanner walks `query.with_stages[1:]`, each of which has a
+    `where: Optional[ExpressionText]` (a raw text node, NOT a `WhereClause`). An
+    earlier draft passed it to a `WhereClause`-shaped helper and would have raised
+    `AttributeError: 'ExpressionText' object has no attribute 'expr_tree'` on any
+    multi-whole-row prefix WITH followed by a downstream stage that carries a WHERE.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "WITH b "
+        "WHERE b.id = 'b' "
+        "RETURN b.id AS bid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b"}]
+
+
 def test_string_cypher_failfast_rejects_multi_whole_row_prefix_when_non_source_alias_is_referenced() -> None:
     """#989 slice 4.3: failfast when a non-source whole-row alias is referenced downstream.
 
