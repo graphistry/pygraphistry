@@ -7944,6 +7944,25 @@ def test_string_cypher_admits_non_source_alias_property_carry_through_reentry() 
     ]
 
 
+def test_string_cypher_failfast_rejects_multi_whole_row_prefix_when_non_source_alias_is_bare_referenced_in_order_by() -> None:
+    """#989 slice 4.3b failfast scope: ORDER BY referencing a non-source alias bare.
+
+    Slice 4.3b admits property access (`x.id`); a bare ORDER BY on the alias
+    itself still requires the full row-carrier rewrite.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "RETURN b.id AS bid ORDER BY x"
+    )
+    with pytest.raises(
+        GFQLValidationError,
+        match="bare references like",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
 def test_string_cypher_failfast_rejects_multi_whole_row_prefix_when_non_source_alias_is_bare_referenced() -> None:
     """#989 slice 4.3b: bare references to non-source whole-row aliases (no
     property access) still failfast — that requires the full row-carrier IR

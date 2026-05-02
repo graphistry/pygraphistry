@@ -7164,7 +7164,7 @@ def _reentry_hidden_column_name(output_name: str) -> str:
 
 
 def _reentry_property_carry_name(alias: str, prop: str) -> str:
-    """Bare carry name for a non-source whole-row alias's property.
+    """Intermediate carry alias for a non-source whole-row alias's property.
 
     Used as the prefix WITH alias (`WITH a, x.id AS <carry_name>`); the existing
     scalar-carry plumbing wraps this with ``_reentry_hidden_column_name`` to
@@ -7172,8 +7172,12 @@ def _reentry_property_carry_name(alias: str, prop: str) -> str:
     `<alias>.<prop>` references rewrite to a property access on the reentry
     alias whose property name is that wrapped form, so both sides resolve to
     the same column.
+
+    The leading ``__carry_`` namespace plus surrounding underscores keep the
+    intermediate alias away from any user identifier that might survive in the
+    same prefix projection.
     """
-    return f"{alias}__{prop}"
+    return f"__carry_{alias}__{prop}__"
 
 
 def _rewrite_reentry_expr_to_hidden_properties(
@@ -7737,6 +7741,8 @@ def _rewrite_multi_whole_row_prefix(
     ]
     carried_props: Dict[str, Tuple[str, ...]] = {}
     for alias in referenced:
+        # Sort properties for deterministic prefix-result column ordering;
+        # downstream AST rewrites match by name, so order is purely cosmetic.
         props = tuple(sorted(props_by_alias[alias]))
         carried_props[alias] = props
         for prop in props:
