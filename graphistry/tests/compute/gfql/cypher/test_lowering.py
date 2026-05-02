@@ -8106,8 +8106,6 @@ def test_string_cypher_executes_with_match_reentry_secondary_alias_property_in_o
     )
 
     assert result._nodes.to_dict(orient="records") == [{"cid": "c1"}]
-
-
 def test_string_cypher_executes_three_alias_with_match_reentry() -> None:
     """Three-alias carry through WITH; secondaries referenced by property in RETURN (#1071)."""
     graph = _mk_graph(
