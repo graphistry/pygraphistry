@@ -2300,7 +2300,67 @@ class RowPipelineMixin:
             id_col = f"{txt}.{node_id}" if node_id else None
             if id_col is not None and id_col in table_df.columns:
                 return table_df[id_col]
+            # Relationship alias: prefer the edge-id column, else the source-node
+            # column, else render the relationship as a Cypher-style string so the
+            # bare alias can flow through select/where/group_by like a node alias. (#1072)
+            edge_id = getattr(self, "_edge", None)
+            edge_id_col = f"{txt}.{edge_id}" if edge_id else None
+            if edge_id_col is not None and edge_id_col in table_df.columns:
+                return table_df[edge_id_col]
+            return self._gfql_render_relationship_alias(table_df, txt)
         raise ValueError(f"unsupported token in row expression: {token!r}")
+
+    def _gfql_render_relationship_alias(self, table_df: Any, alias: str) -> Any:
+        """Render a relationship alias's binding rows as Cypher-style ``[:TYPE {props}]``
+        strings, mirroring ``RETURN <relAlias>``.  Returns NA for rows where the
+        relationship is unbound (no type and no non-null property values)."""
+        prefix = f"{alias}."
+        alias_cols = [c for c in table_df.columns if isinstance(c, str) and c.startswith(prefix)]
+        excluded = {x for x in (
+            getattr(self, "_source", None),
+            getattr(self, "_destination", None),
+            getattr(self, "_edge", None),
+        ) if x}
+        type_full = f"{prefix}type" if f"{prefix}type" in table_df.columns else None
+        prop_pairs: List[Tuple[str, str]] = []
+        for col in alias_cols:
+            short = col[len(prefix):]
+            if short == "type" or short == alias or short in excluded or short.startswith("__"):
+                continue
+            prop_pairs.append((col, short))
+
+        def _format_value(value: Any) -> str:
+            if isinstance(value, str):
+                return f"'{value}'"
+            if isinstance(value, bool):
+                return "true" if value else "false"
+            return str(value)
+
+        def _render(row: Any) -> Any:
+            type_val = row[type_full] if type_full is not None else None
+            type_present = type_val is not None and not (
+                isinstance(type_val, float) and math.isnan(type_val)
+            )
+            present_props: List[Tuple[str, Any]] = []
+            for full, short in prop_pairs:
+                value = row[full]
+                if value is None:
+                    continue
+                try:
+                    if pd.isna(value):
+                        continue
+                except (TypeError, ValueError):
+                    pass
+                present_props.append((short, value))
+            if not type_present and not present_props:
+                return pd.NA
+            head = f":{type_val}" if type_present else ""
+            if present_props:
+                body = ", ".join(f"{k}: {_format_value(v)}" for k, v in present_props)
+                return f"[{head} {{{body}}}]" if head else f"[{{{body}}}]"
+            return f"[{head}]"
+
+        return table_df.apply(_render, axis=1)
 
     def _gfql_eval_dynamic_list_subscript(
         self,

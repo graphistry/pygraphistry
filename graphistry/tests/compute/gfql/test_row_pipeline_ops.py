@@ -13,6 +13,7 @@ from graphistry.compute.ast import (
     ASTCall,
     distinct,
     drop_cols,
+    e_forward,
     group_by,
     limit,
     n,
@@ -2342,3 +2343,46 @@ class TestGroupByKeyPrefixes:
         out = result._nodes.sort_values("grp").reset_index(drop=True)
         assert list(out["grp"]) == ["a", "b"]
         assert list(out["total"]) == [3, 3]
+
+
+class TestRelationshipAliasInRowExpression:
+    """Bare relationship alias must resolve in select/where row expressions (#1072)."""
+
+    def _binding_graph(self):
+        nodes = pd.DataFrame([
+            {"id": "p3", "label__Person": True, "label__Company": False, "name": ""},
+            {"id": "c1", "label__Person": False, "label__Company": True, "name": "Acme"},
+        ])
+        edges = pd.DataFrame([{"s": "p3", "d": "c1", "type": "WORKS_AT", "workFrom": 2010}])
+        return _mk_graph(nodes, edges)
+
+    def _binding_ops(self):
+        return [
+            n({"label__Person": True}, name="friend"),
+            e_forward(edge_match={"type": "WORKS_AT"}, name="workAt"),
+            n({"label__Company": True}, name="company"),
+            rows(table="nodes", binding_ops=[
+                {"type": "Node", "filter_dict": {"label__Person": True}, "name": "friend"},
+                {"type": "Edge", "direction": "forward", "edge_match": {"type": "WORKS_AT"},
+                 "name": "workAt", "hops": 1, "to_fixed_point": False},
+                {"type": "Node", "filter_dict": {"label__Company": True}, "name": "company"},
+            ]),
+        ]
+
+    def test_select_bare_relationship_alias_renders_cypher_string(self):
+        g = self._binding_graph()
+        result = g.gfql(self._binding_ops() + [select(items=[("rel", "workAt")])])
+        assert result._nodes["rel"].tolist() == ["[:WORKS_AT {workFrom: 2010}]"]
+
+    def test_select_relationship_alias_property_still_works(self):
+        g = self._binding_graph()
+        result = g.gfql(self._binding_ops() + [select(items=[("yr", "workAt.workFrom")])])
+        assert result._nodes["yr"].tolist() == [2010]
+
+    def test_where_rows_bare_relationship_alias_is_truthy(self):
+        g = self._binding_graph()
+        result = g.gfql(
+            self._binding_ops()
+            + [where_rows(expr="workAt IS NOT NULL"), select(items=[("f", "friend")])]
+        )
+        assert result._nodes["f"].tolist() == ["p3"]
