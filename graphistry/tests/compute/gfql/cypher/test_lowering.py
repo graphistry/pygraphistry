@@ -7978,8 +7978,9 @@ def test_string_cypher_with_match_reentry_multi_whole_row_alias_property_carry()
 
 
 def test_string_cypher_executes_ic1_shaped_multi_alias_with_match_reentry() -> None:
-    """LDBC SNB IC1-shape: ``WITH p, friend MATCH (friend)-...`` with property
-    references to the secondary alias ``p`` in RETURN (#1071)."""
+    """LDBC SNB IC1-shape: variable-length ``KNOWS*1..3`` followed by
+    ``WITH p, friend MATCH (friend)-...`` with property references to the
+    secondary alias ``p`` in RETURN (#1071)."""
     graph = _mk_graph(
         pd.DataFrame(
             {
@@ -8000,7 +8001,7 @@ def test_string_cypher_executes_ic1_shaped_multi_alias_with_match_reentry() -> N
     )
 
     result = graph.gfql(
-        "MATCH (p:Person {id: $pid})-[:KNOWS]->(friend:Person) "
+        "MATCH (p:Person {id: $pid})-[:KNOWS*1..3]->(friend:Person) "
         "WITH p, friend "
         "MATCH (friend)-[:IS_LOCATED_IN]->(city:Place) "
         "RETURN friend.id AS fid, p.firstName AS pfn, city.name AS cname "
@@ -8010,7 +8011,42 @@ def test_string_cypher_executes_ic1_shaped_multi_alias_with_match_reentry() -> N
 
     assert result._nodes.to_dict(orient="records") == [
         {"fid": "alice", "pfn": "Seed", "cname": "Springfield"},
+        {"fid": "bob", "pfn": "Seed", "cname": "Shelbyville"},
     ]
+
+
+def test_string_cypher_executes_with_match_reentry_secondary_alias_property_in_or_where() -> None:
+    """Secondary alias property used in a tree-shape (OR) trailing WHERE: the
+    demoter must rewrite ``a.score`` inside the OR atom so the trailing row
+    pre-filter sees the carried hidden column (#1071, Wave 2 regression)."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "b1", "c1", "c2"],
+            "label__A": [True, False, False, False],
+            "label__B": [False, True, False, False],
+            "label__C": [False, False, True, True],
+            "score": [5, None, None, None],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a1", "b1", "b1"],
+            "d": ["b1", "c1", "c2"],
+            "type": ["R", "S", "S"],
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
+    # a.score = 5; first arm `a.score > 10` is false, so only c1 passes via second arm.
+    result = g.gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE a.score > 10 OR c.id = 'c1' "
+        "RETURN c.id AS cid ORDER BY cid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"cid": "c1"}]
 
 
 def test_string_cypher_executes_three_alias_with_match_reentry() -> None:
