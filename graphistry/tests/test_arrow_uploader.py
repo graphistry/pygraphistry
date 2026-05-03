@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import graphistry, pandas as pd, pytest, unittest
+import base64, graphistry, json, pandas as pd, pytest, unittest
 try:
     import mock  # type: ignore
 except ImportError:  # pragma: no cover - fallback for stdlib-only envs
@@ -473,19 +473,41 @@ class TestArrowUploader_Comms(unittest.TestCase):
         mock_switch.assert_called_once_with('mock-org', '123')
 
     @mock.patch('requests.get')
-    def test_sso_get_token_missing_org_raises(self, mock_get):
+    def test_sso_get_token_missing_org_falls_back_to_personal(self, mock_get):
+        payload = base64.urlsafe_b64encode(
+            json.dumps({'user_id': 1, 'username': 'testuser', 'exp': 9999999999}).encode()
+        ).rstrip(b'=').decode()
+        fake_token = f"eyJhbGciOiJIUzI1NiJ9.{payload}.fakesig"
 
         mock_resp = self._mock_response(
             json_data={
                 'status': 'OK',
                 'message': 'State is valid',
-                'data': {
-                    'token': '123',
-                }
+                'data': {'token': fake_token},
         })
         mock_get.return_value = mock_resp
 
         au = ArrowUploader()
-
-        with pytest.raises(Exception):
+        with mock.patch.object(ArrowUploader, "_switch_org") as mock_switch:
             au.sso_get_token(state='ignored-valid')
+
+        assert au.token == fake_token
+        assert au.org_name == 'testuser'
+        mock_switch.assert_called_once_with('testuser', fake_token)
+
+    @mock.patch('requests.get')
+    def test_sso_get_token_missing_org_no_username_in_jwt(self, mock_get):
+        mock_resp = self._mock_response(
+            json_data={
+                'status': 'OK',
+                'message': 'State is valid',
+                'data': {'token': '123'},
+        })
+        mock_get.return_value = mock_resp
+
+        au = ArrowUploader()
+        with mock.patch.object(ArrowUploader, "_switch_org") as mock_switch:
+            au.sso_get_token(state='ignored-valid')
+
+        assert au.token == '123'
+        mock_switch.assert_not_called()
