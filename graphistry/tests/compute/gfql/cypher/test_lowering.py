@@ -7977,7 +7977,7 @@ def test_string_cypher_failfast_rejects_multi_whole_row_prefix_when_non_source_a
     )
     with pytest.raises(
         GFQLValidationError,
-        match="bare references like",
+        match=r"(bare references like|whole-row outputs; reference them by property only)",
     ):
         _mk_multi_stage_reentry_graph().gfql(query)
 
@@ -8001,7 +8001,7 @@ def test_string_cypher_failfast_rejects_multi_whole_row_prefix_when_non_source_a
     )
     with pytest.raises(
         GFQLValidationError,
-        match="bare references like",
+        match=r"(bare references like|whole-row outputs; reference them by property only)",
     ):
         _mk_multi_stage_reentry_graph().gfql(query)
 
