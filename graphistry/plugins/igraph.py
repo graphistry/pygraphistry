@@ -176,6 +176,22 @@ def from_igraph(self,
         dst_col = g._destination or DST_IGRAPH
         edges_df = ig.get_edge_dataframe()
 
+        # igraph edge attributes named 'source' or 'target' collide with the
+        # endpoint columns from get_edge_dataframe(); endpoints come first,
+        # rename later occurrences so attributes stay accessible.
+        if edges_df.columns.duplicated().any():
+            counts: dict = {}
+            new_cols = []
+            for c in edges_df.columns:
+                n = counts.get(c, 0) + 1
+                counts[c] = n
+                new_cols.append(c if n == 1 else f'__attr_{c}_{n}__')
+            edges_df.columns = new_cols
+            logger.warning(
+                'igraph edge attribute names collide with endpoint columns; '
+                'renamed duplicate columns to __attr_<name>_<n>__'
+            )
+
         if ig_index_to_node_id_df is not None:
             edges_df['source'] = edges_df[['source']].merge(
                 ig_index_to_node_id_df.rename(columns={'ig_index': 'source'}),
