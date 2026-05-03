@@ -7883,6 +7883,129 @@ def test_string_cypher_failfast_rejects_remaining_unsupported_multihop_row_bindi
         graph_factory().gfql(query, params=params)
 
 
+def test_compile_cypher_records_reentry_plan_for_multi_whole_row_prefix() -> None:
+    """#989 slice 4.1: ``compiled_query.reentry_plan`` is populated with one
+    CarriedAlias per prefix whole-row, exactly one marked as the reentry source.
+
+    Without this assertion, a future slice could regress the plan structure
+    while user-facing behavior keeps working via the legacy
+    ``scalar_reentry_*`` fields.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "RETURN b.id AS bid"
+    )
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    plan = compiled.reentry_plan
+    assert plan is not None
+    assert plan.reentry_alias_name == "a"
+    assert plan.scalar_only is False
+    assert tuple(alias.output_name for alias in plan.aliases) == ("a", "x")
+    source = plan.reentry_alias
+    assert source is not None and source.output_name == "a"
+    non_source = plan.non_source_aliases
+    assert len(non_source) == 1 and non_source[0].output_name == "x"
+
+
+def test_string_cypher_admits_multi_whole_row_prefix_when_non_source_aliases_are_unused() -> None:
+    """#989 slice 4.3: admit `WITH a, x` prefix when only `a` is referenced downstream."""
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "RETURN b.id AS bid ORDER BY bid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    records = result._nodes.to_dict(orient="records")
+    assert records == [{"bid": "b"}, {"bid": "e"}]
+
+
+def test_string_cypher_admits_multi_whole_row_prefix_with_downstream_stage_where() -> None:
+    """#989 slice 4.3: regression for ProjectionStage.where vs WhereClause type mismatch.
+
+    The non-source-alias scanner walks `query.with_stages[1:]`, each of which has a
+    `where: Optional[ExpressionText]` (a raw text node, NOT a `WhereClause`). An
+    earlier draft passed it to a `WhereClause`-shaped helper and would have raised
+    `AttributeError: 'ExpressionText' object has no attribute 'expr_tree'` on any
+    multi-whole-row prefix WITH followed by a downstream stage that carries a WHERE.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "WITH b "
+        "WHERE b.id = 'b' "
+        "RETURN b.id AS bid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b"}]
+
+
+def test_string_cypher_admits_non_source_alias_property_carry_through_reentry() -> None:
+    """#989 slice 4.3b: property references on non-source aliases (`x.id`) are
+    admitted. The prefix WITH is rewritten to project ``x.id AS <carry_name>``;
+    trailing ``x.id`` references rewrite to a property access on the
+    reentry-alias's hidden column. Carries the value end-to-end.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "RETURN b.id AS bid, x.id AS xid ORDER BY bid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    # x.id == 'b' for every row; R-neighbors of 'a' are 'b' and 'e'.
+    assert result._nodes.to_dict(orient="records") == [
+        {"bid": "b", "xid": "b"},
+        {"bid": "e", "xid": "b"},
+    ]
+
+
+def test_string_cypher_failfast_rejects_multi_whole_row_prefix_when_non_source_alias_is_bare_referenced_in_order_by() -> None:
+    """#989 slice 4.3b failfast scope: ORDER BY referencing a non-source alias bare.
+
+    Slice 4.3b admits property access (`x.id`); a bare ORDER BY on the alias
+    itself still requires the full row-carrier rewrite.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "RETURN b.id AS bid ORDER BY x"
+    )
+    with pytest.raises(
+        GFQLValidationError,
+        match=r"(bare references like|whole-row outputs; reference them by property only)",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
+def test_string_cypher_failfast_rejects_multi_whole_row_prefix_when_non_source_alias_is_bare_referenced() -> None:
+    """#989 slice 4.3b: bare references to non-source whole-row aliases (no
+    property access) still failfast — that requires the full row-carrier IR
+    rewrite, not just per-property hidden-column carry.
+
+    Note: pure forwarding patterns like ``WITH b, x`` (where ``x`` is just being
+    re-projected for downstream stages) are NOT bare uses — slice 4.3c drops
+    those at compile time. This test uses ``WITH a, x AS xref`` which renames
+    the bare alias — that's a use, not a forward, and still fails.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "WHERE x = b "
+        "RETURN b.id AS bid"
+    )
+    with pytest.raises(
+        GFQLValidationError,
+        match=r"(bare references like|whole-row outputs; reference them by property only)",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
 def test_string_cypher_failfast_rejects_with_match_reentry_multiple_trailing_match_clauses() -> None:
     query = (
         "MATCH (a:A {id: $seed})-[:R]->(b:B) "
@@ -11863,7 +11986,6 @@ def test_issue_1026_multi_alias_with_optional_match_carries_secondary_property()
         "OPTIONAL MATCH (b)-[r2:T]->(c) "
         "RETURN a.id AS aid, b.id AS bid, c.id AS cid"
     )
-
     assert result._nodes.to_dict(orient="records") == [{"aid": "a", "bid": "b", "cid": "c"}]
 
 

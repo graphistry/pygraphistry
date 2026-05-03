@@ -1217,16 +1217,27 @@ def _compiled_query_reentry_contract(
     whole_row_columns = tuple(
         column.output_name for column in prefix_projection.columns if column.kind == "whole_row"
     )
-    if len(whole_row_columns) != 1:
+    if not whole_row_columns:
         raise _reentry_validation_error(
-            "Cypher MATCH after WITH could not recover exactly one whole-row alias from the prefix projection",
+            "Cypher MATCH after WITH could not recover any whole-row alias from the prefix projection",
             value=whole_row_columns,
-            suggestion="Carry exactly one whole-row node alias through WITH before MATCH re-entry.",
+            suggestion="Carry at least one whole-row node alias through WITH before MATCH re-entry.",
         )
+    # #989 slice 4.3: the bounded-reentry path admits multiple whole-row aliases
+    # in the prefix when only the trailing-MATCH source is referenced downstream
+    # (compile-time guard in lowering.py). Identify the source alias from the
+    # ReentryPlan if present; non-source whole-row aliases are accepted but their
+    # rows are not (yet) carried as hidden columns — that is the slice 4.3b
+    # follow-up tracked under #989.
+    plan = compiled_query.reentry_plan
+    if plan is not None and not plan.scalar_only and plan.reentry_alias_name in whole_row_columns:
+        reentry_alias = plan.reentry_alias_name
+    else:
+        reentry_alias = whole_row_columns[0]
     carried_columns = tuple(
         column.output_name for column in prefix_projection.columns if column.kind != "whole_row"
     )
-    return whole_row_columns[0], carried_columns
+    return reentry_alias, carried_columns
 
 
 def _aligned_reentry_rows(
