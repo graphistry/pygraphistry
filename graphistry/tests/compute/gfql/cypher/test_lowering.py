@@ -8081,17 +8081,13 @@ def test_string_cypher_admits_multi_alias_distinct_forwarding_through_reentry() 
     ]
 
 
-def test_string_cypher_chained_reentry_carry_with_aggregate_hits_existing_aggregate_failfast() -> None:
-    """#1256 wave-1 review W1-I1 regression-lock: hidden-column forwarding
-    appends ``__cypher_reentry_<S>_<X>__`` bare items to downstream WITH stages
-    so chained recursive compiles see them as scalar carries. The reviewer
-    flagged that a chained WITH with relationship-pattern aggregation could in
-    principle silently mutate grouping (`WITH a, friend, count(*) AS n` would
-    add the carry to the group key). Empirically those queries already fail at
-    the pre-existing aggregate-after-relationship-MATCH failfast, so no silent
-    wrong-result path exists. This test pins that behavior so a future change
-    that lifts the aggregate failfast must also reckon with carry-grouping
-    interaction explicitly.
+def test_string_cypher_chained_reentry_carry_with_aggregate_relationship_match_failfast() -> None:
+    """#1256 wave-1 review W1-I1 regression-lock: chained-reentry secondary-alias
+    carry combined with an aggregating downstream WITH stage following a
+    relationship-pattern MATCH is rejected with the scoped #1256 failfast.
+    The aggregate guard added in slice 4.3d.2 fires before the existing
+    relationship-multiplicity aggregate check would; the scoped error is
+    clearer about the actual gap.
     """
     query = (
         "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
@@ -8102,7 +8098,33 @@ def test_string_cypher_chained_reentry_carry_with_aggregate_hits_existing_aggreg
     )
     with pytest.raises(
         GFQLValidationError,
-        match=r"aggregate would need repeated MATCH rows",
+        match=r"chained-reentry secondary-alias carry does not yet survive",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
+def test_string_cypher_chained_reentry_carry_with_aggregate_node_only_match_failfast() -> None:
+    """#1256 wave-2 review W2-IMPORTANT-1 regression-lock: chained-reentry
+    secondary-alias carry combined with an aggregating downstream WITH stage
+    following a node-only MATCH (no relationship) is rejected with the scoped
+    #1256 failfast.
+
+    Without the aggregate guard, this shape returned a silent NULL because the
+    pre-existing relationship-pattern aggregate failfast did NOT fire (no
+    relationship in the trailing MATCH) and the appended hidden carry column
+    interacted poorly with the count grouping path. The guard ensures the user
+    gets a clear, scoped error pointing at #1256 instead of silent wrong data.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a) "
+        "WITH a, x, count(*) AS n "
+        "RETURN x.id AS xid, n"
+    )
+    with pytest.raises(
+        GFQLValidationError,
+        match=r"chained-reentry secondary-alias carry does not yet survive",
     ):
         _mk_multi_stage_reentry_graph().gfql(query)
 
