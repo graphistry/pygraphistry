@@ -8006,6 +8006,106 @@ def test_string_cypher_failfast_rejects_multi_whole_row_prefix_when_non_source_a
         _mk_multi_stage_reentry_graph().gfql(query)
 
 
+def test_string_cypher_admits_multi_stage_secondary_alias_carry_through_chained_reentry() -> None:
+    """#1256 slice 4.3d.2: secondary alias carry survives a chained reentry boundary
+    where the trailing MATCH continues to use the same primary alias.
+
+    `WITH a, x MATCH (a)-[:R]->(friend) WITH a, x, friend MATCH (a)-[:R]->(other)
+    RETURN other.id, x.id` requires the hidden carry column for `x.id` to be
+    forwarded explicitly through every downstream WITH stage so each recursive
+    bounded-reentry compile sees it as a scalar carry. Without slice 4.3d.2, the
+    inner compile fails alias resolution on the synthesized hidden identifier.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(friend) "
+        "WITH a, x, friend "
+        "MATCH (a)-[:R]->(other) "
+        "WHERE other.id <> friend.id "
+        "RETURN other.id AS oid, x.id AS xid ORDER BY oid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [
+        {"oid": "b", "xid": "b"},
+        {"oid": "e", "xid": "b"},
+    ]
+
+
+def test_string_cypher_admits_secondary_alias_carry_across_reentry_source_rebinding() -> None:
+    """#1256 slice 4.3d.2: secondary alias carry survives a reentry-source rebinding.
+
+    `WITH a, x MATCH (a)-[:R]->(friend) WITH friend, x MATCH (friend)-[:S]->(c)
+    RETURN c.id, x.id` rebinds the trailing-MATCH source from `a` to `friend`
+    between the two reentry boundaries. The carry `x.id` lives as a hidden
+    column on `a`'s row table; after the join with friend, on friend's table;
+    the second boundary's prefix WITH must continue to forward it as a scalar
+    so the inner compile can resolve it.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(friend) "
+        "WITH friend, x "
+        "MATCH (friend)-[:S]->(c) "
+        "RETURN c.id AS cid, x.id AS xid ORDER BY cid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [
+        {"cid": "c", "xid": "b"},
+        {"cid": "e", "xid": "b"},
+    ]
+
+
+def test_string_cypher_admits_multi_alias_distinct_forwarding_through_reentry() -> None:
+    """#1256 slice 4.3d.1: bare-identifier projection items in downstream
+    ``WITH a, x, friend`` (pure forwarding through a reentry boundary) are
+    dropped at compile time so the bare-ref scanner does not false-positive.
+
+    Before slice 4.3d.1, the active rewrite path
+    (``_demote_secondary_whole_row_aliases``) failed at line ~7900
+    ("does not yet support carrying secondary whole-row aliases as whole-row
+    outputs") because the bare ``x`` in stage[1] was treated as a true USE.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(friend) "
+        "WITH DISTINCT a, x, friend "
+        "RETURN friend.id AS fid, x.id AS xid ORDER BY fid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [
+        {"fid": "b", "xid": "b"},
+        {"fid": "e", "xid": "b"},
+    ]
+
+
+def test_string_cypher_failfast_rejects_intermediate_reentry_match_with_no_carried_source() -> None:
+    """#1256 slice 4.3d remaining gap: trailing MATCH that does NOT start from a
+    carried alias (free-form intermediate MATCH) is still unsupported.
+
+    The literal LDBC SNB IC3 query begins ``WITH a, x, y MATCH (city:City)
+    -[:IS_PART_OF]->(country:Country) ...`` — neither ``city`` nor ``country``
+    is a carried alias. Closing this requires admitting the trailing MATCH as
+    a fresh seed pattern that cross-joins with the carried row table; the
+    runtime then propagates carries onto the new bindings. This is the
+    remaining slice 4.3d work tracked under #1256.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "WHERE c.id = x.id OR c.id = 'c' "
+        "RETURN d.id AS did"
+    )
+    with pytest.raises(
+        GFQLValidationError,
+        match=r"(trailing MATCH to start from the same carried node alias|carries non-source whole-row aliases)",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
 def test_string_cypher_failfast_rejects_with_match_reentry_multiple_trailing_match_clauses() -> None:
     query = (
         "MATCH (a:A {id: $seed})-[:R]->(b:B) "
