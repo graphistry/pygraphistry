@@ -2297,23 +2297,19 @@ class RowPipelineMixin:
         # identity column (alias.{node_id_col}).  This lets expressions like
         # count(post) work when the table has post.id, post.name, etc. (#880)
         if "." not in txt and RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, txt):
+            edge_aliases = getattr(self, "_gfql_rows_edge_aliases", None)
+            if edge_aliases is not None and txt in edge_aliases:
+                # Relationship aliases should render as entities (parity with
+                # Cypher RETURN <relAlias>) instead of collapsing to id-like
+                # scalar columns such as `<rel>.id`.
+                return self._gfql_render_relationship_alias(table_df, txt)
             node_id = getattr(self, "_node", None)
             id_col = f"{txt}.{node_id}" if node_id else None
             if id_col is not None and id_col in table_df.columns:
                 return table_df[id_col]
-            # Relationship alias: prefer the edge-id column, else render the
-            # relationship as a Cypher-style string so the bare alias can flow
-            # through select/where/group_by like a node alias. (#1072)
-            edge_id = getattr(self, "_edge", None)
-            edge_id_col = f"{txt}.{edge_id}" if edge_id else None
-            if edge_id_col is not None and edge_id_col in table_df.columns:
-                return table_df[edge_id_col]
-            edge_aliases = getattr(self, "_gfql_rows_edge_aliases", None)
             if edge_aliases is not None and txt not in edge_aliases:
                 raise ValueError(f"unsupported token in row expression: {token!r}")
-            if edge_aliases is None and f"{txt}.type" not in table_df.columns:
-                raise ValueError(f"unsupported token in row expression: {token!r}")
-            return self._gfql_render_relationship_alias(table_df, txt)
+            raise ValueError(f"unsupported token in row expression: {token!r}")
         raise ValueError(f"unsupported token in row expression: {token!r}")
 
     def _gfql_render_relationship_alias(self, table_df: Any, alias: str) -> Any:
