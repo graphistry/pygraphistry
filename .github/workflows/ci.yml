@@ -326,6 +326,7 @@ jobs:
       run: |
         tck_repo="https://github.com/graphistry/tck-gfql.git"
         candidate_ref="main"
+        tck_sha_override=""
 
         if [[ "${EVENT_NAME}" == "pull_request" && -n "${HEAD_REF}" ]]; then
           candidate_ref="${HEAD_REF}"
@@ -338,7 +339,19 @@ jobs:
           tck_ref="${candidate_ref}"
         fi
 
+        # Temporary branch-specific contract pin:
+        # `feat/989-reentryplan-multi-alias-carry` now passes expr-pattern1-19,
+        # but tck-gfql `main` still expects GFQLValidationError for that case.
+        # Use the paired tck commit that lifts only expr-pattern1-19 (not 1-21).
+        if [[ "${HEAD_REF}" == "feat/989-reentryplan-multi-alias-carry" ]]; then
+          tck_sha_override="ae8b706c9dd5453780eba394465cd1f1e87c4382"
+        fi
+
         tck_sha=$(git ls-remote --exit-code --heads "${tck_repo}" "${tck_ref}" | awk '{print $1}')
+        if [[ -n "${tck_sha_override}" ]]; then
+          tck_ref="${tck_ref}+sha-override"
+          tck_sha="${tck_sha_override}"
+        fi
         if [[ -z "${tck_sha}" ]]; then
           echo "Failed to resolve sha for tck-gfql ref: ${tck_ref}" >&2
           exit 1
