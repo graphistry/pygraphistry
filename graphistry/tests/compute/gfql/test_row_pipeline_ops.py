@@ -2482,3 +2482,25 @@ class TestRelationshipAliasInRowExpression:
         nodes_df = pd.DataFrame({"id": ["a"], "a.type": ["X"], "a.k": [1]})
         with pytest.raises((ValueError, GFQLTypeError), match="unsupported token in row expression"):
             _run_node_steps(nodes_df, [rows(), select([("x", "a")])], edges_df=_self_loop_edges(nodes_df))
+
+    def test_select_bare_relationship_alias_renders_on_cudf_when_available(self):
+        cudf = pytest.importorskip("cudf")
+
+        nodes_pd = pd.DataFrame([
+            {"id": "p3", "label__Person": True, "label__Company": False, "name": ""},
+            {"id": "c1", "label__Person": False, "label__Company": True, "name": "Acme"},
+        ])
+        edges_pd = pd.DataFrame([
+            {"s": "p3", "d": "c1", "type": "WORKS_AT", "workFrom": 2010},
+        ])
+        g = self._binding_graph(
+            nodes=cudf.from_pandas(nodes_pd),
+            edges=cudf.from_pandas(edges_pd),
+        )
+        select_result = g.gfql(self._binding_ops() + [select(items=[("rel", "workAt")])])
+        return_result = g.gfql(self._binding_ops() + [return_([("rel", "workAt")])])
+        assert type(select_result._nodes).__module__.startswith("cudf")
+        select_vals = select_result._nodes["rel"].to_pandas().tolist()
+        return_vals = return_result._nodes["rel"].to_pandas().tolist()
+        assert select_vals == ["[:WORKS_AT {workFrom: 2010}]"]
+        assert select_vals == return_vals
