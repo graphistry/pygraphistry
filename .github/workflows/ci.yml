@@ -343,7 +343,7 @@ jobs:
         # `feat/989-reentryplan-multi-alias-carry` now passes expr-pattern1-19,
         # but tck-gfql `main` still expects GFQLValidationError for that case.
         # Use the paired tck commit that lifts only expr-pattern1-19 (not 1-21).
-        if [[ "${HEAD_REF}" == "feat/989-reentryplan-multi-alias-carry" ]]; then
+        if [[ "${HEAD_REF}" == "feat/989-reentryplan-multi-alias-carry" || "${REF_NAME}" == "feat/989-reentryplan-multi-alias-carry" ]]; then
           tck_sha_override="ae8b706c9dd5453780eba394465cd1f1e87c4382"
         fi
 
