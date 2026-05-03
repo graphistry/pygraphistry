@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, fields as _dataclass_fields, replace
 import math
 import re
-from typing import AbstractSet, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
+from typing import AbstractSet, Any, Callable, Dict, FrozenSet, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 from typing_extensions import Literal
 import pandas as pd
 
@@ -23,6 +23,7 @@ from graphistry.compute.ast import (
     order_by,
     return_,
     rows,
+    semi_apply_mark,
     serialize_binding_ops,
     select,
     skip,
@@ -6002,9 +6003,12 @@ def _is_variable_length_relationship_pattern(relationship: RelationshipPattern) 
 def _reject_unsupported_variable_length_where_pattern_predicates(query: CypherQuery) -> None:
     if query.where is None:
         return
-    for predicate in query.where.predicates:
-        if not isinstance(predicate, WherePatternPredicate):
-            continue
+    predicates: List[WherePatternPredicate] = [
+        predicate for predicate in query.where.predicates if isinstance(predicate, WherePatternPredicate)
+    ]
+    if query.where.expr_tree is not None:
+        predicates.extend(_where_expr_tree_pattern_predicates(query.where.expr_tree))
+    for predicate in predicates:
         relationships = [
             element
             for element in predicate.pattern
@@ -6365,6 +6369,155 @@ def _predicate_pattern_aliases(predicate: WherePatternPredicate) -> List[str]:
     return aliases
 
 
+def _where_expr_tree_pattern_predicates(expr: BooleanExpr) -> List[WherePatternPredicate]:
+    out: List[WherePatternPredicate] = []
+    stack: List[BooleanExpr] = [expr]
+    while stack:
+        cur = stack.pop()
+        if cur.op == "pattern":
+            if cur.pattern is None:
+                raise _unsupported(
+                    "Cypher WHERE pattern predicates must include a relationship",
+                    field="where",
+                    value=cur.atom_text,
+                    line=cur.span.line,
+                    column=cur.span.column,
+                )
+            out.append(WherePatternPredicate(pattern=cur.pattern, span=cur.span, negated=False))
+            continue
+        if cur.left is not None:
+            stack.append(cur.left)
+        if cur.right is not None:
+            stack.append(cur.right)
+    return out
+
+
+def _lower_pattern_predicate_to_row_marker(
+    predicate: WherePatternPredicate,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+    out_col: str,
+) -> ASTCall:
+    if len(predicate.pattern) < 3:
+        raise _unsupported(
+            "Cypher WHERE pattern predicates must include a relationship",
+            field="where",
+            value=None,
+            line=predicate.span.line,
+            column=predicate.span.column,
+        )
+
+    predicate_aliases = _predicate_pattern_aliases(predicate)
+    if not predicate_aliases:
+        raise _unsupported(
+            "Cypher WHERE pattern predicates currently require at least one shared bound alias",
+            field="where",
+            value=None,
+            line=predicate.span.line,
+            column=predicate.span.column,
+        )
+
+    introduced_aliases = sorted(alias for alias in predicate_aliases if alias not in alias_targets)
+    if introduced_aliases:
+        raise _unsupported(
+            "Cypher WHERE pattern predicates cannot introduce new aliases in this phase",
+            field="where",
+            value=introduced_aliases,
+            line=predicate.span.line,
+            column=predicate.span.column,
+        )
+
+    shared_aliases = [alias for alias in predicate_aliases if alias in alias_targets]
+    if not shared_aliases:
+        raise _unsupported(
+            "Cypher WHERE pattern predicates currently require at least one shared bound alias",
+            field="where",
+            value=predicate_aliases,
+            line=predicate.span.line,
+            column=predicate.span.column,
+        )
+
+    pattern_clause = MatchClause(
+        patterns=(predicate.pattern,),
+        span=predicate.span,
+        optional=False,
+        pattern_aliases=(None,),
+        pattern_alias_kinds=("pattern",),
+    )
+    pattern_ops = lower_match_clause(pattern_clause, params=params)
+    return semi_apply_mark(
+        binding_ops=serialize_binding_ops(pattern_ops),
+        join_aliases=shared_aliases,
+        out_col=out_col,
+    )
+
+
+def _rewrite_where_expr_patterns_to_markers(
+    *,
+    where: WhereClause,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+) -> Tuple[Optional[ExpressionText], List[ASTCall]]:
+    if where.expr_tree is None:
+        return None, []
+
+    pattern_preds = _where_expr_tree_pattern_predicates(where.expr_tree)
+    if not pattern_preds:
+        return _where_clause_expr_text(where), []
+
+    marker_ops: List[ASTCall] = []
+    marker_counter = 0
+
+    def _fresh_marker_col(span: SourceSpan) -> str:
+        nonlocal marker_counter
+        marker_counter += 1
+        return (
+            "__gfql_where_pattern_"
+            f"{span.line}_{span.column}_{span.end_line}_{span.end_column}_{marker_counter}__"
+        )
+
+    def _rewrite(expr: BooleanExpr) -> BooleanExpr:
+        if expr.op == "pattern":
+            if expr.pattern is None:
+                raise _unsupported(
+                    "Cypher WHERE pattern predicates must include a relationship",
+                    field="where",
+                    value=expr.atom_text,
+                    line=expr.span.line,
+                    column=expr.span.column,
+                )
+            marker_col = _fresh_marker_col(expr.span)
+            marker_ops.append(
+                _lower_pattern_predicate_to_row_marker(
+                    WherePatternPredicate(pattern=expr.pattern, span=expr.span, negated=False),
+                    alias_targets=alias_targets,
+                    params=params,
+                    out_col=marker_col,
+                )
+            )
+            return BooleanExpr(
+                op="atom",
+                span=expr.span,
+                atom_text=marker_col,
+                atom_span=expr.atom_span or expr.span,
+            )
+        if expr.op in {"atom"}:
+            return expr
+        if expr.op == "not":
+            return replace(expr, left=_rewrite(cast(BooleanExpr, expr.left)))
+        if expr.op in {"and", "or", "xor"}:
+            return replace(
+                expr,
+                left=_rewrite(cast(BooleanExpr, expr.left)),
+                right=_rewrite(cast(BooleanExpr, expr.right)),
+            )
+        return expr
+
+    rewritten = _rewrite(where.expr_tree)
+    return ExpressionText(text=boolean_expr_to_text(rewritten), span=where.span), marker_ops
+
+
 def _lower_negated_pattern_predicate_to_row_filter(
     predicate: WherePatternPredicate,
     *,
@@ -6458,7 +6611,12 @@ def lower_match_query(
     row_where: Optional[ExpressionText] = None
     row_where_predicates: List[str] = list(dynamic_row_where_predicates)
     if query.where is not None:
-        where_expr = _where_clause_expr_text(query.where)
+        where_expr, where_pattern_row_filters = _rewrite_where_expr_patterns_to_markers(
+            where=query.where,
+            alias_targets=alias_targets,
+            params=params,
+        )
+        row_pre_filters.extend(where_pattern_row_filters)
         if where_expr is not None:
             type_where = _extract_relationship_type_where(
                 where_expr,
@@ -7503,6 +7661,285 @@ def _first_pattern_node_alias(clause: MatchClause) -> Optional[str]:
     return pattern[0].variable
 
 
+def _secondary_reentry_hidden_column_name(alias: str, prop: str) -> str:
+    """Hidden carry column name for a secondary whole-row alias's property access.
+
+    Distinct from `_reentry_hidden_column_name` (which is keyed only by the
+    output name) so secondary `<S>.<X>` carries cannot collide with user-named
+    scalar carries on the primary alias (#1071).
+    """
+    return f"__cypher_reentry_{alias}_{prop}__"
+
+
+_BARE_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _is_whole_row_with_item(item: ReturnItem, *, match_node_aliases: Set[str]) -> bool:
+    """A WITH item is a whole-row carry when it is a bare identifier referencing
+    a node alias bound by the prior MATCH and has no rename alias (or aliases
+    to itself)."""
+    text = item.expression.text
+    if not _BARE_IDENT_RE.match(text):
+        return False
+    if item.alias is not None and item.alias != text:
+        return False
+    return text in match_node_aliases
+
+
+def _collect_secondary_property_refs(
+    expr: ExpressionText,
+    *,
+    secondary_aliases: Set[str],
+    field: str,
+) -> Tuple[ExpressionText, Set[Tuple[str, str]], Set[str]]:
+    """Walk one ExpressionText, replacing PropertyAccessExpr(Identifier(S), X)
+    with Identifier(__cypher_reentry_<S>_<X>__) for each S in
+    ``secondary_aliases``. Reports bare Identifier(S) usages too.
+
+    Returns (rewritten_expr, refs, bare_alias_uses).
+    """
+    if not secondary_aliases:
+        return expr, set(), set()
+    if not any(re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", expr.text) for name in secondary_aliases):
+        return expr, set(), set()
+    try:
+        node = parse_expr(expr.text)
+    except (GFQLExprParseError, ImportError) as exc:
+        raise _unsupported(
+            "Cypher MATCH after WITH multi-alias carry rewrite requires a locally supported scalar expression",
+            field=field,
+            value=expr.text,
+            line=expr.span.line,
+            column=expr.span.column,
+        ) from exc
+    refs: Set[Tuple[str, str]] = set()
+    bare: Set[str] = set()
+    rewritten = _rewrite_secondary_alias_property_refs(
+        node,
+        secondary_aliases=secondary_aliases,
+        refs=refs,
+        bare=bare,
+    )
+    if not refs and not bare:
+        return expr, set(), set()
+    new_text = _render_expr_node(rewritten)
+    if new_text == expr.text:
+        return expr, refs, bare
+    return ExpressionText(text=new_text, span=expr.span), refs, bare
+
+
+def _rewrite_secondary_alias_property_refs(
+    node: ExprNode,
+    *,
+    secondary_aliases: Set[str],
+    refs: Set[Tuple[str, str]],
+    bare: Set[str],
+    shadowed: Optional[FrozenSet[str]] = None,
+) -> ExprNode:
+    """AST walk that rewrites secondary `S.X` to a bare hidden identifier and
+    flags bare `S` references. Quantifier/ListComprehension binders shadow
+    matching alias names within their scope (mirrors
+    ``_rewrite_expr_identifiers``)."""
+    active_shadow = shadowed or frozenset()
+    if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
+        alias_name = node.value.name
+        if alias_name in secondary_aliases and alias_name not in active_shadow:
+            refs.add((alias_name, node.property))
+            return Identifier(_secondary_reentry_hidden_column_name(alias_name, node.property))
+    if isinstance(node, Identifier):
+        if node.name in secondary_aliases and node.name not in active_shadow:
+            bare.add(node.name)
+        return node
+    if isinstance(node, QuantifierExpr):
+        next_shadow = active_shadow | {node.var}
+        return QuantifierExpr(
+            node.fn,
+            node.var,
+            _rewrite_secondary_alias_property_refs(
+                node.source, secondary_aliases=secondary_aliases, refs=refs, bare=bare, shadowed=next_shadow,
+            ),
+            _rewrite_secondary_alias_property_refs(
+                node.predicate, secondary_aliases=secondary_aliases, refs=refs, bare=bare, shadowed=next_shadow,
+            ),
+        )
+    if isinstance(node, ListComprehension):
+        next_shadow = active_shadow | {node.var}
+        return ListComprehension(
+            node.var,
+            _rewrite_secondary_alias_property_refs(
+                node.source, secondary_aliases=secondary_aliases, refs=refs, bare=bare, shadowed=next_shadow,
+            ),
+            predicate=None if node.predicate is None else _rewrite_secondary_alias_property_refs(
+                node.predicate, secondary_aliases=secondary_aliases, refs=refs, bare=bare, shadowed=next_shadow,
+            ),
+            projection=None if node.projection is None else _rewrite_secondary_alias_property_refs(
+                node.projection, secondary_aliases=secondary_aliases, refs=refs, bare=bare, shadowed=next_shadow,
+            ),
+        )
+    return _rebuild_expr_node(
+        node,
+        rewrite=lambda child: _rewrite_secondary_alias_property_refs(
+            child, secondary_aliases=secondary_aliases, refs=refs, bare=bare, shadowed=active_shadow,
+        ),
+        error_context="secondary alias rewrite",
+    )
+
+
+def _all_match_node_aliases(query: CypherQuery) -> Set[str]:
+    out: Set[str] = set()
+    for clause in query.matches:
+        for pattern in clause.patterns:
+            out.update(_pattern_node_aliases(pattern))
+        for element in _match_pattern_elements(clause):
+            if isinstance(element, NodePattern) and element.variable is not None:
+                out.add(element.variable)
+    return out
+
+
+def _demote_secondary_whole_row_aliases(
+    query: CypherQuery,
+    *,
+    prefix_stage: ProjectionStage,
+    primary_alias: Optional[str],
+) -> Tuple[CypherQuery, ProjectionStage, Tuple[str, ...]]:
+    """Rewrite ``query`` to demote any secondary whole-row alias in the prefix
+    ``WITH`` to a synthesized scalar property carry (#1071).
+
+    Returns ``(rewritten_query, rewritten_prefix_stage, secondary_aliases)``.
+    When no demotion is needed, returns the inputs unchanged with empty
+    ``secondary_aliases``.
+
+    Why: the existing MATCH-after-WITH machinery requires exactly one whole-row
+    alias in the prefix projection. Other carried aliases need only support
+    property access (``S.X``) in subsequent clauses. By rewriting ``S.X`` to a
+    bare hidden identifier and synthesizing a new prefix item ``S.X AS
+    __cypher_reentry_<S>_<X>__``, multi-alias carry reduces to the existing
+    single-alias-plus-scalars path.
+    """
+    if not query.reentry_matches:
+        return query, prefix_stage, ()
+    match_node_aliases = _all_match_node_aliases(query)
+    whole_row_items: List[Tuple[int, ReturnItem]] = [
+        (idx, item)
+        for idx, item in enumerate(prefix_stage.clause.items)
+        if _is_whole_row_with_item(item, match_node_aliases=match_node_aliases)
+    ]
+    if len(whole_row_items) <= 1:
+        return query, prefix_stage, ()
+    if primary_alias is None:
+        # Existing downstream check at the trailing-MATCH start raises a clearer
+        # error; bail out so it fires.
+        return query, prefix_stage, ()
+
+    primary_indices = {idx for idx, item in whole_row_items if item.expression.text == primary_alias}
+    if not primary_indices:
+        # Trailing MATCH starts from an alias not carried by the prefix: existing
+        # check at line ~7779 raises "must start from the same carried node alias".
+        return query, prefix_stage, ()
+    secondary_items = [(idx, item) for idx, item in whole_row_items if idx not in primary_indices]
+    secondary_aliases: Set[str] = {item.expression.text for _idx, item in secondary_items}
+
+    # Reject re-binding a secondary alias as a node variable in any trailing MATCH.
+    for trailing in (*query.reentry_matches,):
+        trailing_aliases: Set[str] = set()
+        for pattern in trailing.patterns:
+            trailing_aliases.update(_pattern_node_aliases(pattern))
+        rebound = sorted(trailing_aliases & secondary_aliases)
+        if rebound:
+            raise _unsupported_at_span(
+                "Cypher MATCH after WITH does not yet support re-binding a carried secondary alias as a node variable in the trailing MATCH",
+                field="match",
+                value=rebound,
+                span=trailing.span,
+            )
+
+    refs_collected: Set[Tuple[str, str]] = set()
+    bare_collected: Set[str] = set()
+
+    def rewrite_text(expr: ExpressionText, field: str) -> ExpressionText:
+        rewritten, refs, bare = _collect_secondary_property_refs(
+            expr,
+            secondary_aliases=secondary_aliases,
+            field=field,
+        )
+        refs_collected.update(refs)
+        bare_collected.update(bare)
+        return rewritten
+
+    # Rewrite trailing MATCH expressions (node/edge property maps via WHERE
+    # comes through reentry_wheres / clause.where).
+    rewritten_reentry_matches = tuple(
+        _rewrite_reentry_match_clause(clause, rewrite_expr=rewrite_text)
+        for clause in query.reentry_matches
+    )
+    rewritten_reentry_wheres = tuple(
+        where_clause if where_clause is None else _rewrite_where_clause_and_resync(where_clause, rewrite_text, "where")
+        for where_clause in query.reentry_wheres
+    )
+    rewritten_with_stages_tail = tuple(
+        _rewrite_reentry_projection_stage(stage, rewrite_expr=rewrite_text)
+        for stage in query.with_stages[1:]
+    )
+    rewritten_unwinds = tuple(
+        replace(unwind, expression=rewrite_text(unwind.expression, "unwind"))
+        for unwind in query.reentry_unwinds
+    )
+    rewritten_return = _rewrite_reentry_projection_clause(query.return_, rewrite_expr=rewrite_text)
+    rewritten_order_by = (
+        None
+        if query.order_by is None
+        else replace(
+            query.order_by,
+            items=tuple(
+                replace(item, expression=rewrite_text(item.expression, "order_by"))
+                for item in query.order_by.items
+            ),
+        )
+    )
+
+    if bare_collected:
+        raise _unsupported_at_span(
+            "Cypher MATCH after WITH does not yet support carrying secondary whole-row aliases as whole-row outputs; reference them by property only",
+            field="return",
+            value=sorted(bare_collected),
+            span=query.return_.span,
+        )
+
+    # Synthesize prefix WITH items: drop the secondaries, append S.X AS hidden
+    # for each unique referenced (S, X) pair.
+    new_items: List[ReturnItem] = []
+    secondary_drop_indices = {idx for idx, _item in secondary_items}
+    for idx, item in enumerate(prefix_stage.clause.items):
+        if idx in secondary_drop_indices:
+            continue
+        new_items.append(item)
+    template_span = prefix_stage.span
+    for alias_name, prop in sorted(refs_collected):
+        hidden_alias = _secondary_reentry_hidden_column_name(alias_name, prop)
+        new_items.append(
+            ReturnItem(
+                expression=ExpressionText(text=f"{alias_name}.{prop}", span=template_span),
+                alias=hidden_alias,
+                span=template_span,
+            )
+        )
+    rewritten_prefix_stage = replace(
+        prefix_stage,
+        clause=replace(prefix_stage.clause, items=tuple(new_items)),
+    )
+
+    rewritten_query = replace(
+        query,
+        with_stages=(rewritten_prefix_stage,) + rewritten_with_stages_tail,
+        reentry_matches=rewritten_reentry_matches,
+        reentry_wheres=rewritten_reentry_wheres,
+        reentry_unwinds=rewritten_unwinds,
+        return_=rewritten_return,
+        order_by=rewritten_order_by,
+    )
+    return rewritten_query, rewritten_prefix_stage, tuple(sorted(secondary_aliases))
+
+
 def _map_terminal_reentry_query(
     compiled_query: CompiledCypherQuery,
     *,
@@ -7840,23 +8277,12 @@ def _compile_bounded_reentry_query(
             value=prefix_stage.where.text,
             span=prefix_stage.span,
         )
-
-    # Slice 4.3b: when the prefix WITH carries multiple bare-identifier (whole-row)
-    # aliases and only one of them is the trailing-MATCH source, rewrite the prefix
-    # to project the non-source aliases as scalar property carries. The existing
-    # single-whole-row + scalar-carry plumbing then forwards them onto the
-    # reentry-alias's row table as hidden columns; trailing `<non_source>.<prop>`
-    # references rewrite to `<reentry_alias>.<__cypher_reentry_<alias>__<prop>__>`.
-    reentry_first_alias = _first_pattern_node_alias(query.reentry_matches[0])
-    prefix_stage, rewritten_tail_with_stages, multi_alias_carries = _rewrite_multi_whole_row_prefix(
-        prefix_stage,
-        query=query,
-        reentry_first_alias=reentry_first_alias,
+    primary_alias_hint = _first_pattern_node_alias(query.reentry_matches[0])
+    query, prefix_stage, _demoted_secondary_aliases = _demote_secondary_whole_row_aliases(
+        query,
+        prefix_stage=prefix_stage,
+        primary_alias=primary_alias_hint,
     )
-    if rewritten_tail_with_stages != tuple(query.with_stages[1:]):
-        # Apply downstream-stage rewrite (forwarding-bare-item drop) to the query
-        # so the suffix construction below works against the cleaned tail.
-        query = replace(query, with_stages=(prefix_stage,) + rewritten_tail_with_stages)
     projection_items = [item.expression.text for item in prefix_stage.clause.items]
     prefix_query = replace(
         query,
@@ -8678,7 +9104,12 @@ def _apply_where_to_ops(
     row_pre_filters: List[ASTCall] = []
     if where is None:
         return where_out, row_expr_filters, row_pre_filters
-    where_expr = _where_clause_expr_text(where)
+    where_expr, where_pattern_row_filters = _rewrite_where_expr_patterns_to_markers(
+        where=where,
+        alias_targets=alias_targets,
+        params=params,
+    )
+    row_pre_filters.extend(where_pattern_row_filters)
     if where_expr is not None:
         type_where = _extract_relationship_type_where(
             where_expr,

@@ -5170,19 +5170,38 @@ def test_string_cypher_executes_where_pattern_predicate_and_expr_mix(
 
 
 @pytest.mark.parametrize(
-    "query",
+    "query,expected_rows",
     [
-        "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'z' RETURN n",
+        (
+            "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'd' RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}, {"id": "d"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-[:R]->() XOR n.id = 'd' RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}, {"id": "d"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-[:R]->() XOR n.id = 'a' RETURN n.id AS id ORDER BY id",
+            [{"id": "b"}],
+        ),
     ],
 )
-def test_string_cypher_failfast_rejects_unsupported_mixed_variable_length_where_pattern_predicates(query: str) -> None:
-    graph = _mk_empty_graph()
-
-    with pytest.raises(GFQLValidationError) as exc_info:
-        graph.gfql(query)
-
-    assert exc_info.value.code == ErrorCode.E108
-    assert "mixed with generic row expressions" in exc_info.value.message
+def test_string_cypher_executes_or_xor_around_pattern_predicates(
+    query: str,
+    expected_rows: list[dict[str, object]],
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "a", "b"],
+                "d": ["b", "c", "c"],
+                "type": ["R", "R", "R"],
+            }
+        ),
+    )
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected_rows
 
 
 @pytest.mark.parametrize(
@@ -8052,7 +8071,8 @@ def test_string_cypher_connected_multi_pattern_mixed_node_and_edge_alias_project
     assert records[0]["did"] == "d1"
 
 
-def test_string_cypher_failfast_rejects_with_match_reentry_multiple_whole_row_aliases_with_carried_scalars() -> None:
+def test_string_cypher_with_match_reentry_multi_whole_row_alias_unreferenced_secondary() -> None:
+    """An unreferenced secondary whole-row alias in the prefix WITH is dropped (#1071)."""
     query = (
         "MATCH (a:A {id: $seed})-[:R]->(b:B) "
         "WITH a, b, b.id AS bid "
@@ -8060,8 +8080,224 @@ def test_string_cypher_failfast_rejects_with_match_reentry_multiple_whole_row_al
         "RETURN bid, c.id AS cid"
     )
 
-    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time"):
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1", "cid": "c1"}]
+
+
+def test_string_cypher_with_match_reentry_multi_whole_row_alias_property_carry() -> None:
+    """Secondary whole-row alias is referenced by property in the trailing
+    RETURN; rewritten to a hidden carry column (#1071)."""
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN a.id AS aid, b.id AS bid, c.id AS cid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a1", "bid": "b1", "cid": "c1"}]
+
+
+def test_string_cypher_executes_ic1_shaped_multi_alias_with_match_reentry() -> None:
+    """LDBC SNB IC1-shape: variable-length ``KNOWS*1..3`` followed by
+    ``WITH p, friend MATCH (friend)-...`` with property references to the
+    secondary alias ``p`` in RETURN (#1071)."""
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["seed", "alice", "bob", "city1", "city2"],
+                "label__Person": [True, True, True, False, False],
+                "label__Place": [False, False, False, True, True],
+                "firstName": ["Seed", "Alice", "Bob", None, None],
+                "name": [None, None, None, "Springfield", "Shelbyville"],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["seed", "alice", "bob", "alice", "bob"],
+                "d": ["alice", "bob", "city1", "city1", "city2"],
+                "type": ["KNOWS", "KNOWS", "KNOWS", "IS_LOCATED_IN", "IS_LOCATED_IN"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (p:Person {id: $pid})-[:KNOWS*1..3]->(friend:Person) "
+        "WITH p, friend "
+        "MATCH (friend)-[:IS_LOCATED_IN]->(city:Place) "
+        "RETURN friend.id AS fid, p.firstName AS pfn, city.name AS cname "
+        "ORDER BY fid",
+        params={"pid": "seed"},
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"fid": "alice", "pfn": "Seed", "cname": "Springfield"},
+        {"fid": "bob", "pfn": "Seed", "cname": "Shelbyville"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_secondary_alias_user_scalar_collision() -> None:
+    """Defense-in-depth: a user-named carried scalar (``b.id AS a_id``) and a
+    demoted secondary property ref (``a.id`` on secondary alias ``a``) BOTH
+    feed an output named ``a_id`` in the prefix WITH. The double-prefix
+    wrapping in ``_reentry_hidden_column_name`` keeps the in-table columns
+    distinct, so values flow correctly to RETURN (#1071, Wave 3 regression)."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "b1", "c1"],
+            "label__A": [True, False, False],
+            "label__B": [False, True, False],
+            "label__C": [False, False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {"s": ["a1", "b1"], "d": ["b1", "c1"], "type": ["R", "S"]}
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH a, b, b.id AS a_id "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN a.id AS aid_demoted, a_id AS a_id_user, c.id AS cid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"aid_demoted": "a1", "a_id_user": "b1", "cid": "c1"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_secondary_alias_inline_pattern_property() -> None:
+    """Inline node-pattern property map referencing a secondary alias property
+    (``MATCH (c {tag: a.tag})``) is rewritten via the pattern-element walk in
+    ``_rewrite_reentry_match_clause`` (#1071, Wave 3 regression)."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "b1", "c1"],
+            "label__A": [True, False, False],
+            "label__B": [False, True, False],
+            "label__C": [False, False, True],
+            "tag": ["t1", "t1", "t1"],
+        }
+    )
+    edges = pd.DataFrame(
+        {"s": ["a1", "b1"], "d": ["b1", "c1"], "type": ["R", "S"]}
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C {tag: a.tag}) "
+        "RETURN c.id AS cid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"cid": "c1"}]
+
+
+def test_string_cypher_executes_with_match_reentry_secondary_alias_property_in_or_where() -> None:
+    """Secondary alias property used in a tree-shape (OR) trailing WHERE: the
+    demoter must rewrite ``a.score`` inside the OR atom so the trailing row
+    pre-filter sees the carried hidden column (#1071, Wave 2 regression)."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "b1", "c1", "c2"],
+            "label__A": [True, False, False, False],
+            "label__B": [False, True, False, False],
+            "label__C": [False, False, True, True],
+            "score": [5, None, None, None],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a1", "b1", "b1"],
+            "d": ["b1", "c1", "c2"],
+            "type": ["R", "S", "S"],
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
+    # a.score = 5; first arm `a.score > 10` is false, so only c1 passes via second arm.
+    result = g.gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE a.score > 10 OR c.id = 'c1' "
+        "RETURN c.id AS cid ORDER BY cid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"cid": "c1"}]
+
+
+def test_string_cypher_executes_three_alias_with_match_reentry() -> None:
+    """Three-alias carry through WITH; secondaries referenced by property in RETURN (#1071)."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["x1", "y1", "z1"], "label": ["X", "Y", "Z"]}),
+        pd.DataFrame(
+            {
+                "s": ["x1", "y1"],
+                "d": ["y1", "z1"],
+                "type": ["R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (x)-[:R]->(y)-[:R]->(z) "
+        "WITH x, y, z "
+        "MATCH (z) "
+        "RETURN x.label AS xl, y.label AS yl, z.label AS zl"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"xl": "X", "yl": "Y", "zl": "Z"},
+    ]
+
+
+def test_string_cypher_failfast_rejects_with_match_reentry_secondary_whole_row_return() -> None:
+    """Returning a secondary whole-row alias is unsupported in MVP (#1071)."""
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN a, c.id AS cid"
+    )
+
+    with pytest.raises(GFQLValidationError, match="secondary whole-row aliases as whole-row outputs"):
         _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+
+def test_string_cypher_failfast_rejects_with_match_reentry_secondary_alias_rebinding() -> None:
+    """Re-binding a carried secondary alias as a node variable in the trailing
+    MATCH is unsupported in MVP — the alias would have two row identities at
+    once (#1071)."""
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(a) "
+        "RETURN b.id AS bid"
+    )
+
+    with pytest.raises(GFQLValidationError, match="re-binding a carried secondary alias"):
+        _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+
+def test_string_cypher_executes_with_match_reentry_multi_whole_row_alias_property_carry_on_cudf() -> None:
+    """cuDF parity for the property-carry path (#1071)."""
+    pytest.importorskip("cudf")
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN a.id AS aid, b.id AS bid, c.id AS cid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph_cudf().gfql(query, params={"seed": "a1"}, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"aid": "a1", "bid": "b1", "cid": "c1"}]
 
 
 def test_string_cypher_executes_with_match_reentry_cross_alias_carried_scalars_from_connected_prefix_shape() -> None:
@@ -11729,13 +11965,12 @@ def test_issue_1026_with_limit_optional_match_null_fill() -> None:
     assert len(rows) == 2
 
 
-def test_issue_1026_multi_alias_with_optional_match_carries_non_source_property() -> None:
-    """Multi-alias WITH + OPTIONAL MATCH carries the non-source alias's referenced
-    properties through the reentry as hidden scalar columns (#989 slice 4.3b).
+def test_issue_1026_multi_alias_with_optional_match_carries_secondary_property() -> None:
+    """Multi-alias WITH + OPTIONAL MATCH with property carry (#1071).
 
-    Previously this query rejected at compile time because the prefix WITH had
-    two whole-row aliases. Slice 4.3b rewrites the prefix to project ``a.id``
-    as a scalar carry; trailing ``a.id`` references resolve through the carrier.
+    Re-targeted from the prior rejection guardrail: multi-alias whole-row
+    projection (``WITH a, b``) is now supported when secondary aliases are
+    referenced only by property access (``a.id``).
     """
     nodes = pd.DataFrame({"id": ["a", "b", "c"], "num": [1, 2, 3]})
     edges = pd.DataFrame({
@@ -11751,9 +11986,7 @@ def test_issue_1026_multi_alias_with_optional_match_carries_non_source_property(
         "OPTIONAL MATCH (b)-[r2:T]->(c) "
         "RETURN a.id AS aid, b.id AS bid, c.id AS cid"
     )
-    assert result._nodes.to_dict(orient="records") == [
-        {"aid": "a", "bid": "b", "cid": "c"}
-    ]
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a", "bid": "b", "cid": "c"}]
 
 
 def test_issue_1026_with_limit_optional_match_all_match() -> None:

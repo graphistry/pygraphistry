@@ -217,6 +217,13 @@ def _group_by_requires_node_cols(params: Dict[str, object]) -> List[str]:
     return out
 
 
+def _semi_apply_mark_added_node_cols(params: Dict[str, object]) -> Set[str]:
+    out_col = params.get("out_col")
+    if isinstance(out_col, str) and out_col != "":
+        return {out_col}
+    return set()
+
+
 # Parser-backed helpers stay local because tests monkeypatch parser availability
 # and capability behavior through this module.
 
@@ -269,6 +276,18 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         },
         description='Filter active rows by anti-semi joining against correlated binding rows',
         schema_effects=NO_SCHEMA_EFFECTS,
+    ),
+
+    'semi_apply_mark': _method_entry(
+        allowed_params={'binding_ops', 'join_aliases', 'out_col'},
+        required_params={'binding_ops', 'join_aliases', 'out_col'},
+        param_validators={
+            'binding_ops': is_list_of_dicts,
+            'join_aliases': is_non_empty_list_of_strings,
+            'out_col': is_non_empty_string,
+        },
+        description='Annotate active rows with correlated pattern-existence booleans',
+        schema_effects=_schema_effects(adds_node_cols=_semi_apply_mark_added_node_cols),
     ),
 
     'order_by': _method_entry(
