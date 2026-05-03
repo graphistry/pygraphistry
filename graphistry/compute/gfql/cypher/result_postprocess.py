@@ -16,7 +16,13 @@ from graphistry.compute.gfql.temporal_text import (
     LOCALTIME_CALL_TEXT_RE,
     TIME_CALL_TEXT_RE,
 )
-from graphistry.compute.gfql.row.entity_props import edge_property_columns, node_property_columns
+from graphistry.compute.gfql.row.entity_props import (
+    append_property_segments as shared_append_property_segments,
+    edge_property_columns,
+    format_edge_entity_text as shared_format_edge_entity_text,
+    node_property_columns,
+    render_scalar_value_text as shared_render_scalar_value_text,
+)
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter
 
 
@@ -270,42 +276,7 @@ def _normalize_temporal_constructor_series(
 
 
 def _render_scalar_value_text(df: DataFrameT, alias_col: str, series: SeriesT) -> SeriesT:
-    text = _object_text(cast(SeriesT, series.astype(str)))
-    dtype_txt = str(getattr(series, "dtype", "")).lower()
-    if "bool" in dtype_txt and hasattr(text, "str"):
-        return cast(SeriesT, text.str.lower())
-    if "float" in dtype_txt and hasattr(text, "str"):
-        return _normalize_scientific_numeric_text(text)
-    if any(token in dtype_txt for token in ("int", "double", "decimal")):
-        return text
-    if hasattr(text, "str"):
-        stripped = cast(SeriesT, text.str.strip())
-        non_null = cast(SeriesT, ~_is_null_mask(series))
-        list_like = cast(SeriesT, series_str_match(stripped, r"^\[.*\]$", na=False))
-        if _all_non_null_match(list_like, non_null):
-            return stripped
-        map_like = cast(SeriesT, series_str_match(stripped, r"^\{.*\}$", na=False))
-        if _all_non_null_match(map_like, non_null):
-            return stripped
-        temporal = _normalize_temporal_constructor_series(df, alias_col, series, text, quoted=True)
-        if temporal is not None:
-            return temporal
-        non_null = cast(SeriesT, ~_is_null_mask(series))
-        bool_like = cast(SeriesT, series_str_match(text, r"^(True|False)$", na=False))
-        num_like = cast(SeriesT, series_str_match(text, r"^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$", na=False))
-        if hasattr(bool_like, "where") and bool(bool_like.where(non_null, True).all()):
-            return cast(SeriesT, text.str.lower())
-        if hasattr(num_like, "where") and bool(num_like.where(non_null, True).all()):
-            return _normalize_scientific_numeric_text(text)
-        out = _quote_text_series(df, alias_col, text)
-        out = cast(SeriesT, out.where(~bool_like, text.str.lower()))
-        out = cast(SeriesT, out.where(~num_like, text.str.replace(r"\.0+$", "", regex=True)))
-        out = cast(SeriesT, out.where(~list_like, stripped))
-        out = cast(SeriesT, out.where(~map_like, stripped))
-        return out
-    if hasattr(text, "str"):
-        return _quote_text_series(df, alias_col, text)
-    return cast(SeriesT, _const_text(df, alias_col, "'") + text + "'")
+    return shared_render_scalar_value_text(df, alias_col, series)
 
 
 def _append_property_segments(
@@ -313,18 +284,7 @@ def _append_property_segments(
     alias_col: str,
     property_columns: Sequence[str],
 ) -> tuple[SeriesT, SeriesT]:
-    text = _empty_text(df, alias_col)
-    has_props = _false_mask(df, alias_col)
-    for col in property_columns:
-        series = cast(SeriesT, df[col])
-        include = cast(SeriesT, ~_is_null_mask(series))
-        value_text = _render_scalar_value_text(df, alias_col, series)
-        segment = _const_text(df, alias_col, f"{col}: ") + value_text
-        prefix = cast(SeriesT, _const_text(df, alias_col, ", ").where(has_props & include, ""))
-        append = cast(SeriesT, (prefix + segment).where(include, ""))
-        text = cast(SeriesT, text + append)
-        has_props = cast(SeriesT, has_props | include)
-    return text, has_props
+    return shared_append_property_segments(df, alias_col, property_columns)
 
 
 def _node_label_text(df: DataFrameT, alias_col: str) -> SeriesT:
@@ -377,25 +337,13 @@ def _format_node_entities(df: DataFrameT, projection: ResultProjectionPlan) -> S
 
 def _format_edge_entities(df: DataFrameT, projection: ResultProjectionPlan) -> SeriesT:
     alias_col = projection.alias
-    if "type" in df.columns:
-        type_series = cast(SeriesT, df["type"])
-        type_text = _object_text(cast(SeriesT, type_series.astype(str)))
-        type_part = cast(SeriesT, (_const_text(df, alias_col, ":") + type_text).where(~_is_null_mask(type_series), ""))
-    else:
-        type_part = _empty_text(df, alias_col)
-    prop_text, has_props = _append_property_segments(
+    return shared_format_edge_entity_text(
         df,
-        alias_col,
-        _edge_property_columns(df, alias_col, projection.exclude_columns),
+        alias_col=alias_col,
+        property_columns=_edge_property_columns(df, alias_col, projection.exclude_columns),
+        type_col="type",
+        nullify_missing_alias_rows=True,
     )
-    type_present = cast(SeriesT, type_part != "")
-    prop_block = cast(SeriesT, _const_text(df, alias_col, "{") + prop_text + "}")
-    prop_suffix = cast(
-        SeriesT,
-        (_const_text(df, alias_col, " ").where(has_props & type_present, "") + prop_block).where(has_props, ""),
-    )
-    rendered = cast(SeriesT, _const_text(df, alias_col, "[") + type_part + prop_suffix + "]")
-    return _nullify_missing_alias_rows(df, alias_col, rendered)
 
 
 def _project_property_column(

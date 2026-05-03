@@ -1,7 +1,7 @@
 import ast
+import math
 import re
 from functools import lru_cache
-import math
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, cast
 from typing_extensions import Literal
@@ -28,6 +28,7 @@ from graphistry.compute.gfql.row.dispatch import (
 from graphistry.compute.gfql.row.entity_props import (
     edge_property_columns,
     entity_keys_series,
+    format_edge_entity_text,
     node_property_columns,
 )
 from graphistry.compute.gfql.row.entity_text import (
@@ -2300,67 +2301,57 @@ class RowPipelineMixin:
             id_col = f"{txt}.{node_id}" if node_id else None
             if id_col is not None and id_col in table_df.columns:
                 return table_df[id_col]
-            # Relationship alias: prefer the edge-id column, else the source-node
-            # column, else render the relationship as a Cypher-style string so the
-            # bare alias can flow through select/where/group_by like a node alias. (#1072)
+            # Relationship alias: prefer the edge-id column, else render the
+            # relationship as a Cypher-style string so the bare alias can flow
+            # through select/where/group_by like a node alias. (#1072)
             edge_id = getattr(self, "_edge", None)
             edge_id_col = f"{txt}.{edge_id}" if edge_id else None
             if edge_id_col is not None and edge_id_col in table_df.columns:
                 return table_df[edge_id_col]
+            edge_aliases = getattr(self, "_gfql_rows_edge_aliases", None)
+            if edge_aliases is not None and txt not in edge_aliases:
+                raise ValueError(f"unsupported token in row expression: {token!r}")
+            if edge_aliases is None and f"{txt}.type" not in table_df.columns:
+                raise ValueError(f"unsupported token in row expression: {token!r}")
             return self._gfql_render_relationship_alias(table_df, txt)
         raise ValueError(f"unsupported token in row expression: {token!r}")
 
     def _gfql_render_relationship_alias(self, table_df: Any, alias: str) -> Any:
-        """Render a relationship alias's binding rows as Cypher-style ``[:TYPE {props}]``
-        strings, mirroring ``RETURN <relAlias>``.  Returns NA for rows where the
-        relationship is unbound (no type and no non-null property values)."""
+        """Render relationship-alias rows as Cypher-style ``[:TYPE {props}]`` strings."""
         prefix = f"{alias}."
-        alias_cols = [c for c in table_df.columns if isinstance(c, str) and c.startswith(prefix)]
-        excluded = {x for x in (
-            getattr(self, "_source", None),
-            getattr(self, "_destination", None),
-            getattr(self, "_edge", None),
-        ) if x}
-        type_full = f"{prefix}type" if f"{prefix}type" in table_df.columns else None
-        prop_pairs: List[Tuple[str, str]] = []
-        for col in alias_cols:
-            short = col[len(prefix):]
-            if short == "type" or short == alias or short in excluded or short.startswith("__"):
-                continue
-            prop_pairs.append((col, short))
+        alias_cols = [col for col in table_df.columns if isinstance(col, str) and col.startswith(prefix)]
+        if len(alias_cols) == 0:
+            return self._gfql_broadcast_scalar(table_df, pd.NA)
 
-        def _format_value(value: Any) -> str:
-            if isinstance(value, str):
-                return f"'{value}'"
-            if isinstance(value, bool):
-                return "true" if value else "false"
-            return str(value)
+        alias_df = table_df[alias_cols].copy().rename(columns={col: col[len(prefix):] for col in alias_cols})
+        presence_col = RowPipelineMixin._gfql_fresh_col_name(alias_df.columns, "__gfql_rel_alias__")
+        present_mask: Optional[Any] = None
+        for col in alias_df.columns:
+            col_present = ~alias_df[col].isna()
+            present_mask = col_present if present_mask is None else (present_mask | col_present)
+        if present_mask is None:
+            return self._gfql_broadcast_scalar(table_df, pd.NA)
+        alias_df[presence_col] = present_mask.where(present_mask, pd.NA)
 
-        def _render(row: Any) -> Any:
-            type_val = row[type_full] if type_full is not None else None
-            type_present = type_val is not None and not (
-                isinstance(type_val, float) and math.isnan(type_val)
+        excluded = [
+            str(x)
+            for x in (
+                getattr(self, "_source", None),
+                getattr(self, "_destination", None),
+                getattr(self, "_edge", None),
+                alias,
+                presence_col,
             )
-            present_props: List[Tuple[str, Any]] = []
-            for full, short in prop_pairs:
-                value = row[full]
-                if value is None:
-                    continue
-                try:
-                    if pd.isna(value):
-                        continue
-                except (TypeError, ValueError):
-                    pass
-                present_props.append((short, value))
-            if not type_present and not present_props:
-                return pd.NA
-            head = f":{type_val}" if type_present else ""
-            if present_props:
-                body = ", ".join(f"{k}: {_format_value(v)}" for k, v in present_props)
-                return f"[{head} {{{body}}}]" if head else f"[{{{body}}}]"
-            return f"[{head}]"
-
-        return table_df.apply(_render, axis=1)
+            if x is not None
+        ]
+        property_columns = edge_property_columns(alias_df, presence_col, excluded)
+        return format_edge_entity_text(
+            alias_df,
+            alias_col=presence_col,
+            property_columns=property_columns,
+            type_col="type",
+            nullify_missing_alias_rows=True,
+        )
 
     def _gfql_eval_dynamic_list_subscript(
         self,
@@ -2804,6 +2795,9 @@ class RowPipelineMixin:
         start_nodes = getattr(self, "_gfql_start_nodes", None)
         if start_nodes is not None:
             setattr(out, "_gfql_start_nodes", start_nodes)
+        edge_aliases = getattr(self, "_gfql_rows_edge_aliases", None)
+        if edge_aliases is not None:
+            setattr(out, "_gfql_rows_edge_aliases", edge_aliases)
         return out
 
     def _gfql_empty_frame(
@@ -3259,9 +3253,19 @@ class RowPipelineMixin:
         self,
         ops: Sequence[Any],
     ) -> "Plottable":
+        from graphistry.compute.ast import ASTEdge
+
         state_df, alias_frames = self._gfql_connected_bindings_state(ops)
         bindings = self._gfql_connected_bindings_row_frame_from_state(ops, state_df, alias_frames)
-        return self._gfql_row_table(bindings)
+        out = self._gfql_row_table(bindings)
+        edge_aliases = {
+            alias
+            for op in ops
+            for alias in [getattr(op, "_name", None)]
+            if isinstance(op, ASTEdge) and isinstance(alias, str)
+        }
+        setattr(out, "_gfql_rows_edge_aliases", edge_aliases)
+        return out
 
     def _gfql_connected_bindings_row_frame_from_state(
         self,
@@ -4227,6 +4231,7 @@ class _RowPipelineAdapter(RowPipelineMixin):
         self._g = g
         self._gfql_start_nodes = getattr(g, "_gfql_start_nodes", None)
         self._gfql_rows_base_graph = getattr(g, "_gfql_rows_base_graph", None)
+        self._gfql_rows_edge_aliases = getattr(g, "_gfql_rows_edge_aliases", None)
         self._nodes = getattr(g, "_nodes", None)
         self._edges = getattr(g, "_edges", None)
         self._node = getattr(g, "_node", None)
