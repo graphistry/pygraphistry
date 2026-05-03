@@ -4,9 +4,10 @@ from unittest import mock
 
 import pandas as pd
 
-# Import the ArrowFileUploader MODULE before graphistry shadows it with the class
-# This ensures sys.modules has the module, allowing proper mock patching
+# Import modules before graphistry shadows them with classes/symbols.
+# This ensures sys.modules has the modules, allowing proper mock patching.
 import graphistry.ArrowFileUploader as _arrow_file_uploader_module  # noqa: F401
+import graphistry.PlotterBase as _plotter_base_module  # noqa: F401
 
 import graphistry
 from graphistry.compute.ast import n, e_forward
@@ -55,13 +56,13 @@ def _post_response_for_plot(url: str):
         return _mock_response({"is_valid": True, "is_uploaded": True})
     if "/api/v2/share/link/" in url:
         return _mock_response({"success": True})
+    if "/api/v1/auth/jwt/ott/" in url:
+        return _mock_response({"ott": "test-ott-token"})
     raise AssertionError(f"Unexpected POST url: {url}")
 
 
-@mock.patch("graphistry.arrow_uploader.inject_trace_headers")
 @mock.patch("requests.post")
-def test_plot_injects_traceparent(mock_post, mock_inject):
-    mock_inject.side_effect = _inject_trace
+def test_plot_injects_traceparent(mock_post):
     headers_seen = []
 
     def _fake_post(url, **kwargs):
@@ -70,22 +71,36 @@ def test_plot_injects_traceparent(mock_post, mock_inject):
 
     mock_post.side_effect = _fake_post
 
-    g = _make_graph()
-    g.plot(render="g", as_files=False, validate=False, warn=False, memoize=False)
+    plotter_base_module = sys.modules["graphistry.PlotterBase"]
+    arrow_uploader_module = sys.modules["graphistry.arrow_uploader"]
+
+    with mock.patch.object(arrow_uploader_module, "inject_trace_headers", side_effect=_inject_trace), \
+         mock.patch.object(plotter_base_module, "inject_trace_headers", side_effect=_inject_trace):
+        g = _make_graph()
+        g.plot(render="g", as_files=False, validate=False, warn=False, memoize=False)
 
     assert headers_seen
     assert all(h.get("traceparent") == TRACEPARENT for h in headers_seen)
 
 
-@mock.patch("graphistry.arrow_uploader.inject_trace_headers")
 @mock.patch("requests.post")
-def test_upload_injects_traceparent(mock_post, mock_inject_uploader):
-    # Patch ArrowFileUploader module's inject_trace_headers via sys.modules
-    # This is needed because graphistry.ArrowFileUploader resolves to the class,
-    # not the module (due to re-exports in graphistry/__init__.py)
-    arrow_file_uploader_module = sys.modules["graphistry.ArrowFileUploader"]
+def test_plot_ott_in_url(mock_post):
+    """OTT from JWT exchange must appear as ?token= in the returned viz URL."""
+    mock_post.side_effect = lambda url, **kw: _post_response_for_plot(url)
 
-    mock_inject_uploader.side_effect = _inject_trace
+    plotter_base_module = sys.modules["graphistry.PlotterBase"]
+    arrow_uploader_module = sys.modules["graphistry.arrow_uploader"]
+
+    with mock.patch.object(arrow_uploader_module, "inject_trace_headers", side_effect=_inject_trace), \
+         mock.patch.object(plotter_base_module, "inject_trace_headers", side_effect=_inject_trace):
+        g = _make_graph()
+        url = g.plot(render="url", as_files=False, validate=False, warn=False, memoize=False)
+
+    assert "token=test-ott-token" in url, f"OTT missing from viz URL: {url}"
+
+
+@mock.patch("requests.post")
+def test_upload_injects_traceparent(mock_post):
     headers_seen = []
 
     def _fake_post(url, **kwargs):
@@ -94,7 +109,17 @@ def test_upload_injects_traceparent(mock_post, mock_inject_uploader):
 
     mock_post.side_effect = _fake_post
 
-    with mock.patch.object(arrow_file_uploader_module, "inject_trace_headers", side_effect=_inject_trace):
+    # Patch inject_trace_headers in all three modules that make POST requests:
+    # arrow_uploader.py, ArrowFileUploader.py, and PlotterBase.py (OTT exchange).
+    # Use sys.modules because graphistry/__init__.py re-exports some names as classes,
+    # shadowing the module attributes on the graphistry package.
+    arrow_uploader_module = sys.modules["graphistry.arrow_uploader"]
+    arrow_file_uploader_module = sys.modules["graphistry.ArrowFileUploader"]
+    plotter_base_module = sys.modules["graphistry.PlotterBase"]
+
+    with mock.patch.object(arrow_uploader_module, "inject_trace_headers", side_effect=_inject_trace), \
+         mock.patch.object(arrow_file_uploader_module, "inject_trace_headers", side_effect=_inject_trace), \
+         mock.patch.object(plotter_base_module, "inject_trace_headers", side_effect=_inject_trace):
         g = _make_graph()
         g.upload(validate=False, warn=False, memoize=False, erase_files_on_fail=False)
 
