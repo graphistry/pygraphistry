@@ -5865,9 +5865,24 @@ def _where_clause_expr_text(where: WhereClause) -> Optional[ExpressionText]:
     derived from the same ``_span_from_meta(meta)`` of the
     ``generic_where_clause`` rule) to preserve error-position semantics.
     """
-    if where.expr_tree is None:
-        return None
-    return ExpressionText(text=boolean_expr_to_text(where.expr_tree), span=where.span)
+    if where.expr_tree is not None:
+        return ExpressionText(text=boolean_expr_to_text(where.expr_tree), span=where.span)
+
+    # Structured-predicate WHERE clauses can still require downstream rewrite
+    # (for example, multi-alias re-entry secondary carry demotion).  Synthesize
+    # equivalent row-expression text when all predicates are row-renderable.
+    if where.predicates:
+        predicate_texts: List[str] = []
+        for predicate in where.predicates:
+            if not isinstance(predicate, WherePredicate):
+                return None
+            row_text = _row_where_predicate_text(predicate)
+            if row_text is None:
+                return None
+            predicate_texts.append(row_text)
+        if predicate_texts:
+            return ExpressionText(text=" and ".join(predicate_texts), span=where.span)
+    return None
 
 
 def _rewrite_where_clause_and_resync(
@@ -5898,7 +5913,10 @@ def _rewrite_where_clause_and_resync(
         atom_text=rewritten.text,
         atom_span=rewritten.span,
     )
-    return replace(where, expr_tree=new_tree)
+    rewritten_where = replace(where, expr_tree=new_tree)
+    if where.expr_tree is None and where.predicates:
+        rewritten_where = replace(rewritten_where, predicates=())
+    return rewritten_where
 
 
 def _extract_relationship_type_where(

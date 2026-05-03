@@ -5204,6 +5204,22 @@ def test_string_cypher_executes_or_xor_around_pattern_predicates(
     assert result._nodes.to_dict(orient="records") == expected_rows
 
 
+def test_string_cypher_failfast_rejects_not_over_pattern_or_expr_compound() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "a", "b"],
+                "d": ["b", "c", "c"],
+                "type": ["R", "R", "R"],
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError, match="Pattern existence expressions"):
+        graph.gfql("MATCH (n) WHERE NOT ((n)-[:R]->() OR n.id = 'd') RETURN n.id AS id")
+
+
 @pytest.mark.parametrize(
     "query",
     [
@@ -8239,6 +8255,47 @@ def test_string_cypher_executes_with_match_reentry_carried_scalar_where_on_cudf(
 
     assert type(result._nodes).__module__.startswith("cudf")
     assert result._nodes.to_pandas().to_dict(orient="records") == [{"property": 1, "id": "b1"}]
+
+
+def test_string_cypher_executes_with_match_reentry_secondary_alias_property_where() -> None:
+    query = (
+        "MATCH (a:A {id: 'a1'})-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE a.id = 'a1' "
+        "RETURN a.id AS aid, c.id AS cid "
+        "ORDER BY cid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a1", "cid": "c1"}]
+
+
+def test_string_cypher_executes_with_match_reentry_where_or_on_carried_and_trailing_alias_props() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE a.id = 'a1' OR c.id = 'missing' "
+        "RETURN a.id AS aid, c.id AS cid "
+        "ORDER BY cid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a1", "cid": "c1"}]
+
+
+def test_string_cypher_executes_with_match_reentry_where_xor_on_carried_and_trailing_alias_props() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE a.id = 'a1' XOR c.id = 'c1' "
+        "RETURN a.id AS aid, c.id AS cid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == []
 
 
 @pytest.mark.parametrize(

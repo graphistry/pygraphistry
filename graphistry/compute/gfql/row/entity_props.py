@@ -374,7 +374,11 @@ def format_edge_entity_text(
     if type_col in df.columns:
         type_series = cast(SeriesT, df[type_col])
         type_text = _object_text(cast(SeriesT, type_series.astype(str)))
-        type_part = cast(SeriesT, (_const_text(df, alias_col, ":") + type_text).where(~_is_null_mask(type_series), ""))
+        include_type = cast(SeriesT, ~_is_null_mask(type_series))
+        if hasattr(type_text, "str"):
+            non_blank = cast(SeriesT, type_text.str.strip() != "")
+            include_type = cast(SeriesT, include_type & non_blank)
+        type_part = cast(SeriesT, (_const_text(df, alias_col, ":") + type_text).where(include_type, ""))
     else:
         type_part = _empty_text(df, alias_col)
     prop_text, has_props = append_property_segments(df, alias_col, property_columns)
