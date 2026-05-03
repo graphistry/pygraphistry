@@ -342,9 +342,9 @@ jobs:
         # Temporary branch-specific contract pin:
         # `feat/989-reentryplan-multi-alias-carry` now passes expr-pattern1-19,
         # but tck-gfql `main` still expects GFQLValidationError for that case.
-        # Use the paired tck commit that lifts only expr-pattern1-19 (not 1-21).
+        # Use the paired tck commit that lifts expr-pattern1-19 and 1-21.
         if [[ "${HEAD_REF}" == "feat/989-reentryplan-multi-alias-carry" || "${REF_NAME}" == "feat/989-reentryplan-multi-alias-carry" ]]; then
-          tck_sha_override="ae8b706c9dd5453780eba394465cd1f1e87c4382"
+          tck_sha_override="25485364a2b4baa6e74bd8599f5077452f278d8e"
         fi
 
         tck_sha=$(git ls-remote --exit-code --heads "${tck_repo}" "${tck_ref}" | awk '{print $1}')
