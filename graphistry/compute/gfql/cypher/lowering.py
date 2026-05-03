@@ -7266,8 +7266,9 @@ def _iter_property_refs(node: object) -> Iterable[PropertyRef]:
     if isinstance(node, PropertyRef):
         yield node
         return
-    if hasattr(node, "__dataclass_fields__"):
-        for f in _dataclass_fields(node):
+    dataclass_node = cast(Any, node)
+    if hasattr(dataclass_node, "__dataclass_fields__"):
+        for f in _dataclass_fields(dataclass_node):
             yield from _iter_property_refs(getattr(node, f.name))
         return
     if isinstance(node, (tuple, list)):
@@ -7350,8 +7351,8 @@ def _collect_non_source_alias_property_refs(
     for where_clause in query.reentry_wheres:
         _scan_where(where_clause)
     for stage in query.with_stages[1:]:
-        for item in stage.clause.items:
-            _scan_text(item.expression.text)
+        for projection_item in stage.clause.items:
+            _scan_text(projection_item.expression.text)
         # ProjectionStage.where is Optional[ExpressionText] (parser stores the
         # post-projection WHERE as raw text), distinct from MatchClause.where
         # which is Optional[WhereClause] with predicates/expr_tree paths.
@@ -7359,11 +7360,11 @@ def _collect_non_source_alias_property_refs(
             _scan_text(stage.where.text)
     for unwind_clause in query.reentry_unwinds:
         _scan_text(unwind_clause.expression.text)
-    for item in query.return_.items:
-        _scan_text(item.expression.text)
+    for return_item in query.return_.items:
+        _scan_text(return_item.expression.text)
     if query.order_by is not None:
-        for item in query.order_by.items:
-            _scan_text(item.expression.text)
+        for order_item in query.order_by.items:
+            _scan_text(order_item.expression.text)
 
     return props_by_alias, bare_referenced
 
