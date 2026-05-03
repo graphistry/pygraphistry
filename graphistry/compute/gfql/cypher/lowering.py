@@ -8278,7 +8278,7 @@ def _compile_bounded_reentry_query(
             span=prefix_stage.span,
         )
     primary_alias_hint = _first_pattern_node_alias(query.reentry_matches[0])
-    query, prefix_stage, _demoted_secondary_aliases = _demote_secondary_whole_row_aliases(
+    query, prefix_stage, demoted_secondary_aliases = _demote_secondary_whole_row_aliases(
         query,
         prefix_stage=prefix_stage,
         primary_alias=primary_alias_hint,
@@ -8437,18 +8437,17 @@ def _compile_bounded_reentry_query(
                     is_reentry_alias=False,
                 )
             )
-        # Aliases rewritten to scalar property carries (multi_alias_carries) live
-        # in the prefix as scalar columns now; surface them on the plan with the
-        # original alias's name and the set of carried properties.
-        for alias, props in multi_alias_carries.items():
-            current_aliases.append(
-                CarriedAlias(
-                    output_name=alias,
-                    table=prefix_projection.table,
-                    is_reentry_alias=False,
-                    carried_properties=props,
+        # Keep secondary aliases recorded on the plan even when demoted to
+        # scalar carries by the #1071 rewrite path.
+        for alias in demoted_secondary_aliases:
+            if alias not in {entry.output_name for entry in current_aliases}:
+                current_aliases.append(
+                    CarriedAlias(
+                        output_name=alias,
+                        table=prefix_projection.table,
+                        is_reentry_alias=False,
+                    )
                 )
-            )
         current_reentry_plan = ReentryPlan(
             reentry_alias_name=reentry_alias,
             aliases=tuple(current_aliases),
@@ -8456,9 +8455,7 @@ def _compile_bounded_reentry_query(
             scalar_only=False,
         )
 
-    non_source_carried_props: Optional[Mapping[str, Tuple[str, ...]]] = (
-        multi_alias_carries if multi_alias_carries else None
-    )
+    non_source_carried_props: Optional[Mapping[str, Tuple[str, ...]]] = None
 
     def rewrite_expr(expr: ExpressionText, field: str) -> ExpressionText:
         return _rewrite_reentry_expr_to_hidden_properties(
