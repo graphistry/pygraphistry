@@ -2307,8 +2307,6 @@ class RowPipelineMixin:
             id_col = f"{txt}.{node_id}" if node_id else None
             if id_col is not None and id_col in table_df.columns:
                 return table_df[id_col]
-            if edge_aliases is not None and txt not in edge_aliases:
-                raise ValueError(f"unsupported token in row expression: {token!r}")
             raise ValueError(f"unsupported token in row expression: {token!r}")
         raise ValueError(f"unsupported token in row expression: {token!r}")
 
