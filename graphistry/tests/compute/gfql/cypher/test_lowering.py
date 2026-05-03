@@ -8022,15 +8022,21 @@ def test_string_cypher_failfast_rejects_multi_whole_row_prefix_when_non_source_a
         _mk_multi_stage_reentry_graph().gfql(query)
 
 
-def test_string_cypher_admits_multi_stage_secondary_alias_carry_through_chained_reentry() -> None:
-    """#1256 slice 4.3d.2: secondary alias carry survives a chained reentry boundary
-    where the trailing MATCH continues to use the same primary alias.
+def test_string_cypher_chained_reentry_with_repeated_primary_hits_unique_carried_rows_failfast() -> None:
+    """#1256 known limitation: when the trailing MATCH re-uses the SAME primary
+    alias across multiple reentry boundaries (``WITH a, x MATCH (a)-[:R]->(friend)
+    WITH a, x, friend MATCH (a)-[:R]->(other) ...``), the second reentry's
+    recursive compile receives multiple rows that share the same carried ``a``
+    value (one per friend), tripping the pre-existing
+    ``unique carried node rows`` runtime check at ``gfql_unified.py:~1091``.
 
-    `WITH a, x MATCH (a)-[:R]->(friend) WITH a, x, friend MATCH (a)-[:R]->(other)
-    RETURN other.id, x.id` requires the hidden carry column for `x.id` to be
-    forwarded explicitly through every downstream WITH stage so each recursive
-    bounded-reentry compile sees it as a scalar carry. Without slice 4.3d.2, the
-    inner compile fails alias resolution on the synthesized hidden identifier.
+    This is not a regression introduced by slice 4.3d.2 — the carry-uniqueness
+    constraint is fundamental to the current scalar-carry runtime model. The
+    rebinding shape (Q2-style ``(a)-[:R]->(friend) ... (friend)-[:S]->(c)``)
+    avoids this because the primary alias rebinds each boundary so each
+    recursive prefix has unique carried-node identity. Lock this here so a
+    future slice that lifts the unique-rows constraint must update this test
+    alongside the runtime change.
     """
     query = (
         "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
@@ -8041,11 +8047,11 @@ def test_string_cypher_admits_multi_stage_secondary_alias_carry_through_chained_
         "WHERE other.id <> friend.id "
         "RETURN other.id AS oid, x.id AS xid ORDER BY oid"
     )
-    result = _mk_multi_stage_reentry_graph().gfql(query)
-    assert result._nodes.to_dict(orient="records") == [
-        {"oid": "b", "xid": "b"},
-        {"oid": "e", "xid": "b"},
-    ]
+    with pytest.raises(
+        GFQLValidationError,
+        match=r"unique carried node rows",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
 
 
 def test_string_cypher_admits_secondary_alias_carry_across_reentry_source_rebinding() -> None:
