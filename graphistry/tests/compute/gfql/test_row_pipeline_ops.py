@@ -2348,22 +2348,26 @@ class TestGroupByKeyPrefixes:
 class TestRelationshipAliasInRowExpression:
     """Bare relationship alias must resolve in select/where row expressions (#1072)."""
 
-    def _binding_graph(self):
-        nodes = pd.DataFrame([
-            {"id": "p3", "label__Person": True, "label__Company": False, "name": ""},
-            {"id": "c1", "label__Person": False, "label__Company": True, "name": "Acme"},
-        ])
-        edges = pd.DataFrame([{"s": "p3", "d": "c1", "type": "WORKS_AT", "workFrom": 2010}])
+    def _binding_graph(self, *, nodes=None, edges=None):
+        if nodes is None:
+            nodes = pd.DataFrame([
+                {"id": "p3", "label__Person": True, "label__Company": False, "name": ""},
+                {"id": "c1", "label__Person": False, "label__Company": True, "name": "Acme"},
+            ])
+        if edges is None:
+            edges = pd.DataFrame([{"s": "p3", "d": "c1", "type": "WORKS_AT", "workFrom": 2010}])
         return _mk_graph(nodes, edges)
 
-    def _binding_ops(self):
+    def _binding_ops(self, *, edge_match=None):
+        if edge_match is None:
+            edge_match = {"type": "WORKS_AT"}
         return [
             n({"label__Person": True}, name="friend"),
-            e_forward(edge_match={"type": "WORKS_AT"}, name="workAt"),
+            e_forward(edge_match=edge_match, name="workAt"),
             n({"label__Company": True}, name="company"),
             rows(table="nodes", binding_ops=[
                 {"type": "Node", "filter_dict": {"label__Person": True}, "name": "friend"},
-                {"type": "Edge", "direction": "forward", "edge_match": {"type": "WORKS_AT"},
+                {"type": "Edge", "direction": "forward", "edge_match": edge_match,
                  "name": "workAt", "hops": 1, "to_fixed_point": False},
                 {"type": "Node", "filter_dict": {"label__Company": True}, "name": "company"},
             ]),
@@ -2386,3 +2390,57 @@ class TestRelationshipAliasInRowExpression:
             + [where_rows(expr="workAt IS NOT NULL"), select(items=[("f", "friend")])]
         )
         assert result._nodes["f"].tolist() == ["p3"]
+
+    def test_select_bare_relationship_alias_matches_return_projection(self):
+        g = self._binding_graph()
+        select_result = g.gfql(self._binding_ops() + [select(items=[("rel", "workAt")])])
+        return_result = g.gfql(self._binding_ops() + [return_([("rel", "workAt")])])
+        assert select_result._nodes["rel"].tolist() == return_result._nodes["rel"].tolist()
+
+    def test_select_bare_relationship_alias_escapes_text_and_backslashes(self):
+        edges = pd.DataFrame([{"s": "p3", "d": "c1", "type": "WORKS_AT", "role": "O'Brien\\HQ"}])
+        g = self._binding_graph(edges=edges)
+        result = g.gfql(self._binding_ops() + [select(items=[("rel", "workAt")])])
+        assert result._nodes["rel"].tolist() == ["[:WORKS_AT {role: 'O\\'Brien\\\\HQ'}]"]
+
+    def test_select_bare_relationship_alias_formats_float_like_int_without_trailing_decimal(self):
+        edges = pd.DataFrame([{"s": "p3", "d": "c1", "type": "WORKS_AT", "workFrom": 2010.0}])
+        g = self._binding_graph(edges=edges)
+        select_result = g.gfql(self._binding_ops() + [select(items=[("rel", "workAt")])])
+        return_result = g.gfql(self._binding_ops() + [return_([("rel", "workAt")])])
+        assert select_result._nodes["rel"].tolist() == ["[:WORKS_AT {workFrom: 2010}]"]
+        assert select_result._nodes["rel"].tolist() == return_result._nodes["rel"].tolist()
+
+    def test_select_bare_relationship_alias_null_property_only_row(self):
+        edges = pd.DataFrame([{"s": "p3", "d": "c1", "type": "WORKS_AT", "workFrom": None}])
+        g = self._binding_graph(edges=edges)
+        result = g.gfql(self._binding_ops() + [select(items=[("rel", "workAt")])])
+        assert result._nodes["rel"].tolist() == ["[:WORKS_AT]"]
+
+    def test_select_bare_relationship_alias_missing_type_row(self):
+        edges = pd.DataFrame([{"s": "p3", "d": "c1", "workFrom": 2010}])
+        g = self._binding_graph(edges=edges)
+        result = g.gfql(self._binding_ops(edge_match={}) + [select(items=[("rel", "workAt")])])
+        assert result._nodes["rel"].tolist() == ["[{workFrom: 2010}]"]
+
+    def test_select_bare_relationship_alias_multiple_rows(self):
+        nodes = pd.DataFrame([
+            {"id": "p3", "label__Person": True, "label__Company": False, "name": ""},
+            {"id": "c1", "label__Person": False, "label__Company": True, "name": "Acme"},
+            {"id": "c2", "label__Person": False, "label__Company": True, "name": "Roadrunner"},
+        ])
+        edges = pd.DataFrame([
+            {"s": "p3", "d": "c1", "type": "WORKS_AT", "workFrom": 2010},
+            {"s": "p3", "d": "c2", "type": "WORKS_AT", "workFrom": 2015},
+        ])
+        g = self._binding_graph(nodes=nodes, edges=edges)
+        result = g.gfql(self._binding_ops() + [select(items=[("rel", "workAt")]), order_by([("rel", "asc")])])
+        assert result._nodes["rel"].tolist() == [
+            "[:WORKS_AT {workFrom: 2010}]",
+            "[:WORKS_AT {workFrom: 2015}]",
+        ]
+
+    def test_select_node_alias_without_node_id_does_not_render_as_relationship(self):
+        g = self._binding_graph()
+        with pytest.raises((ValueError, GFQLTypeError), match="unsupported token in row expression"):
+            g.gfql(self._binding_ops() + [drop_cols(["friend", "friend.id"]), select(items=[("x", "friend")])])
