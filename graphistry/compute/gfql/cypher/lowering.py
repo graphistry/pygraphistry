@@ -7948,6 +7948,17 @@ def _demote_secondary_whole_row_aliases(
     # is in the prefix) but the subsequent WITH/RETURN scope-narrowing drops it,
     # and references like `RETURN x.id AS xid` (rewritten to a bare hidden
     # identifier) fail at the inner compile's alias resolution.
+    #
+    # Interaction with DISTINCT/aggregating downstream stages: appending the
+    # carry as a bare item makes it a participant in DISTINCT key sets and (in
+    # principle) aggregation grouping. For multi-alias carry semantics this is
+    # what callers want — DISTINCT over `(friend, x.id)` is the desired
+    # behavior when `x.id` is referenced downstream. Queries that combine carry
+    # forwarding with relationship-pattern aggregation already fail at the
+    # earlier "aggregate would need repeated MATCH rows" failfast, so no silent
+    # wrong-grouping reaches a user via this code path. A future tightening
+    # (gate per-stage on `not stage.clause.distinct and not has_aggregate`) is
+    # tracked under #1256 follow-up.
     if refs_collected and rewritten_with_stages_tail:
         forwarded_items: List[ReturnItem] = []
         for alias_name, prop in sorted(refs_collected):

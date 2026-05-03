@@ -8081,6 +8081,32 @@ def test_string_cypher_admits_multi_alias_distinct_forwarding_through_reentry() 
     ]
 
 
+def test_string_cypher_chained_reentry_carry_with_aggregate_hits_existing_aggregate_failfast() -> None:
+    """#1256 wave-1 review W1-I1 regression-lock: hidden-column forwarding
+    appends ``__cypher_reentry_<S>_<X>__`` bare items to downstream WITH stages
+    so chained recursive compiles see them as scalar carries. The reviewer
+    flagged that a chained WITH with relationship-pattern aggregation could in
+    principle silently mutate grouping (`WITH a, friend, count(*) AS n` would
+    add the carry to the group key). Empirically those queries already fail at
+    the pre-existing aggregate-after-relationship-MATCH failfast, so no silent
+    wrong-result path exists. This test pins that behavior so a future change
+    that lifts the aggregate failfast must also reckon with carry-grouping
+    interaction explicitly.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(friend) "
+        "WITH a, x, count(*) AS n "
+        "RETURN x.id AS xid, n"
+    )
+    with pytest.raises(
+        GFQLValidationError,
+        match=r"aggregate would need repeated MATCH rows",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
 def test_string_cypher_failfast_rejects_intermediate_reentry_match_with_no_carried_source() -> None:
     """#1256 slice 4.3d remaining gap: trailing MATCH that does NOT start from a
     carried alias (free-form intermediate MATCH) is still unsupported.
