@@ -537,6 +537,32 @@ def test_parse_return_simple_case_expression() -> None:
     assert parsed.return_.items[0].alias == "result"
 
 
+def test_parse_ic4_style_return_side_case_expression() -> None:
+    parsed = _parse_query(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "RETURN tag.name AS tagName, "
+        "CASE WHEN 1275350400000 <= post.creationDate AND post.creationDate < 1306886400000 "
+        "THEN post.id ELSE null END AS postId"
+    )
+
+    assert len(parsed.with_stages) == 1
+    assert parsed.with_stages[0].clause.distinct is True
+    assert parsed.with_stages[0].clause.items[0].expression.text == "tag"
+    assert parsed.with_stages[0].clause.items[1].expression.text == "post"
+    assert parsed.return_.items[1].expression.text == (
+        "CASE WHEN 1275350400000 <= post.creationDate AND post.creationDate < 1306886400000 "
+        "THEN post.id ELSE null END"
+    )
+    assert parsed.return_.items[1].alias == "postId"
+
+
+def test_parse_rejects_return_case_missing_end() -> None:
+    with pytest.raises(GFQLSyntaxError):
+        _parse_query("RETURN CASE WHEN score > 1 THEN true ELSE false AS result")
+
+
 @pytest.mark.parametrize(
     "query,expr_text",
     [

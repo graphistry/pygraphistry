@@ -291,6 +291,30 @@ def test_binder_unresolved_name_failure_after_with_scope_reset() -> None:
         FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
 
 
+def test_binder_ic4_return_case_across_with_distinct_scope() -> None:
+    query = (
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "RETURN CASE WHEN 1275350400000 <= post.creationDate AND post.creationDate < 1306886400000 "
+        "THEN post.id ELSE null END AS postId"
+    )
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert [part.clause for part in bound.query_parts] == ["MATCH", "WITH", "RETURN"]
+    assert "postId" in bound.semantic_table.variables
+    post_id_var = bound.semantic_table.variables["postId"]
+    assert isinstance(post_id_var.logical_type, ScalarType)
+    assert post_id_var.entity_kind == "scalar"
+
+
+def test_binder_unresolved_name_failure_inside_return_case_predicate() -> None:
+    query = "MATCH (n:Person) WITH n AS m RETURN CASE WHEN ghost IS NULL THEN 1 ELSE 0 END AS x"
+    with pytest.raises(GFQLValidationError, match="Unresolved identifier") as exc_info:
+        FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+    assert exc_info.value.code == ErrorCode.E204
+
+
 @pytest.mark.parametrize(
     "query",
     [
