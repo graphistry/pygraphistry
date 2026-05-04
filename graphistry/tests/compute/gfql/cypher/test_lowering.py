@@ -3287,6 +3287,76 @@ def test_string_cypher_executes_cross_alias_or_returns_correct_union() -> None:
     assert rows == [("a1", "b1"), ("a1", "b2"), ("a2", "b2")]
 
 
+def test_string_cypher_executes_cross_alias_or_on_cartesian_product_topology() -> None:
+    # Residual #1219 frontier: explicit cartesian-product topology stress.
+    # Ensure row-wise OR semantics stay correct when A/B are disconnected in
+    # MATCH and joined only by cartesian expansion.
+    nodes = pd.DataFrame({
+        "id":       ["a1", "a2", "a3", "b1", "b2", "b3"],
+        "label__A": [True, True, True, False, False, False],
+        "label__B": [False, False, False, True, True, True],
+        "x":        [1.0, 99.0, 99.0, float("nan"), float("nan"), float("nan")],
+        "y":        [float("nan"), float("nan"), float("nan"), 2.0, 99.0, 2.0],
+    })
+    graph = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []}))
+
+    result = graph.gfql(
+        "MATCH (a:A), (b:B) WHERE a.x = 1 OR b.y = 2 RETURN a.id AS a_id, b.id AS b_id"
+    )
+
+    rows = sorted(
+        (row["a_id"], row["b_id"])
+        for row in result._nodes.to_dict(orient="records")
+    )
+    assert rows == [
+        ("a1", "b1"),
+        ("a1", "b2"),
+        ("a1", "b3"),
+        ("a2", "b1"),
+        ("a2", "b3"),
+        ("a3", "b1"),
+        ("a3", "b3"),
+    ]
+
+
+def test_string_cypher_executes_cross_alias_or_on_two_hop_fanout_topology() -> None:
+    # Residual #1219 frontier: broader fan-out topology than the 2x2 lock.
+    # Stress a two-hop many-to-many path where both disjunct branches should
+    # independently retain rows across different path instances.
+    nodes = pd.DataFrame({
+        "id":       ["a1", "a2", "m1", "m2", "b1", "b2", "b3"],
+        "label__A": [True, True, False, False, False, False, False],
+        "label__M": [False, False, True, True, False, False, False],
+        "label__B": [False, False, False, False, True, True, True],
+        "x":        [1.0, 99.0, float("nan"), float("nan"), float("nan"), float("nan"), float("nan")],
+        "y":        [float("nan"), float("nan"), float("nan"), float("nan"), 99.0, 2.0, 99.0],
+    })
+    edges = pd.DataFrame({
+        "s": ["a1", "a1", "a2", "a2", "m1", "m1", "m2", "m2"],
+        "d": ["m1", "m2", "m1", "m2", "b1", "b2", "b2", "b3"],
+    })
+    graph = _mk_graph(nodes, edges)
+
+    result = graph.gfql(
+        "MATCH (a:A)-->(m:M)-->(b:B) "
+        "WHERE a.x = 1 OR b.y = 2 "
+        "RETURN a.id AS a_id, m.id AS m_id, b.id AS b_id"
+    )
+
+    rows = sorted(
+        (row["a_id"], row["m_id"], row["b_id"])
+        for row in result._nodes.to_dict(orient="records")
+    )
+    assert rows == [
+        ("a1", "m1", "b1"),
+        ("a1", "m1", "b2"),
+        ("a1", "m2", "b2"),
+        ("a1", "m2", "b3"),
+        ("a2", "m1", "b2"),
+        ("a2", "m2", "b2"),
+    ]
+
+
 @pytest.mark.parametrize("where_clause", [
     "",  # no WHERE at all
     "WHERE b.x = 1",  # simple WHERE
