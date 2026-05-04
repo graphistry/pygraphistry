@@ -1693,6 +1693,33 @@ class TestRowPipelineExecution:
         with pytest.raises(Exception, match="Invalid type for parameter|non-negative integer|non-negative"):
             _run_node_steps(pd.DataFrame({"id": ["a", "b"]}), [rows(), builder(value)])
 
+    def test_row_pipeline_list_scalar_concat_keeps_semantics_on_pandas(self):
+        nodes_pd = pd.DataFrame({"id": ["a", "b"], "vals": [[1, 2], []], "score": [3, 4]})
+        result = _run_node_steps(
+            nodes_pd,
+            [rows(), select([("right_splat", "vals + score"), ("left_splat", "score + vals")])],
+        )
+        records = _normalize_records(result.to_dict(orient="records"))
+        assert records == [
+            {"right_splat": [1, 2, 3], "left_splat": [3, 1, 2]},
+            {"right_splat": [4], "left_splat": [4]},
+        ]
+
+    def test_row_pipeline_list_scalar_concat_handles_null_scalar_and_null_list_on_pandas(self):
+        nodes_pd = pd.DataFrame(
+            {"id": ["a", "b", "c"], "vals": [[1], [], None], "score": [None, None, None]}
+        )
+        result = _run_node_steps(
+            nodes_pd,
+            [rows(), select([("right_splat", "vals + score"), ("left_splat", "score + vals")])],
+        )
+        records = _normalize_records(result.to_dict(orient="records"))
+        assert records == [
+            {"right_splat": [1, None], "left_splat": [None, 1]},
+            {"right_splat": [None], "left_splat": [None]},
+            {"right_splat": None, "left_splat": None},
+        ]
+
     def test_row_pipeline_vectorized_cudf_when_available(self):
         cudf = pytest.importorskip("cudf")
 
@@ -1708,6 +1735,41 @@ class TestRowPipelineExecution:
 
         assert type(result._nodes).__module__.startswith("cudf")
         assert result._nodes["score"].to_pandas().tolist() == [1, 2]
+
+    def test_row_pipeline_cudf_list_scalar_concat_when_available(self):
+        cudf = pytest.importorskip("cudf")
+
+        nodes_pd = pd.DataFrame({"id": ["a", "b"], "vals": [[1, 2], []], "score": [3, 4]})
+        edges_pd = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+
+        result = g.gfql([rows(), select([("right_splat", "vals + score"), ("left_splat", "score + vals")])])
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        records = _normalize_records(result._nodes.to_pandas().to_dict(orient="records"))
+        assert records == [
+            {"right_splat": [1, 2, 3], "left_splat": [3, 1, 2]},
+            {"right_splat": [4], "left_splat": [4]},
+        ]
+
+    def test_row_pipeline_cudf_list_scalar_concat_handles_null_scalar_and_null_list_when_available(self):
+        cudf = pytest.importorskip("cudf")
+
+        nodes_pd = pd.DataFrame(
+            {"id": ["a", "b", "c"], "vals": [[1], [], None], "score": [None, None, None]}
+        )
+        edges_pd = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+
+        result = g.gfql([rows(), select([("right_splat", "vals + score"), ("left_splat", "score + vals")])])
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        records = _normalize_records(result._nodes.to_pandas().to_dict(orient="records"))
+        assert records == [
+            {"right_splat": [1, None], "left_splat": [None, 1]},
+            {"right_splat": [None], "left_splat": [None]},
+            {"right_splat": None, "left_splat": None},
+        ]
 
     def test_row_pipeline_cudf_where_unwind_group_by_when_available(self):
         cudf = pytest.importorskip("cudf")

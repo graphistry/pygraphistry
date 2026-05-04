@@ -8393,13 +8393,8 @@ def test_string_cypher_executes_freeform_intermediate_reentry_match_with_empty_p
     assert result._nodes.to_dict(orient="records") == []
 
 
-def test_string_cypher_failfast_rejects_simple_freeform_intermediate_reentry_match_on_multi_row_prefix() -> None:
-    """#1263 conservative scope: the runtime helper rejects multi-prefix-row
-    free-form admits with a clear failfast pointing at the multi-row follow-up.
-
-    The compile gate admits — the rejection happens at runtime when the prefix
-    WITH produces more than one row (here: two ``A`` nodes match the prefix).
-    """
+def test_string_cypher_freeform_intermediate_reentry_preserves_bag_semantics_multi_row_prefix() -> None:
+    """#1263 safe subset: multi-row prefixes preserve bag semantics."""
     nodes = pd.DataFrame(
         {
             "id": ["a", "a2", "b", "c", "d"],
@@ -8423,11 +8418,8 @@ def test_string_cypher_failfast_rejects_simple_freeform_intermediate_reentry_mat
         "MATCH (c:C)-[:T]->(d:D) "
         "RETURN d.id AS did"
     )
-    with pytest.raises(
-        GFQLValidationError,
-        match=r"free-form intermediate MATCH; #1263\) currently supports a single-row prefix WITH only",
-    ):
-        graph.gfql(query)
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"did": "d"}, {"did": "d"}]
 
 
 def test_string_cypher_executes_simple_freeform_intermediate_reentry_match_on_cudf_when_available() -> None:
