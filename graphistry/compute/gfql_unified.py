@@ -951,12 +951,26 @@ def _execute_compiled_query_with_reentry(
                     engine=engine,
                 )
         else:
-            compiled_base_graph, start_nodes = _compiled_query_reentry_state(
-                base_graph,
-                compiled_query,
-                prefix_result,
-                engine=engine,
-            )
+            plan = compiled_query.reentry_plan
+            if plan is not None and plan.free_form:
+                # #1263 (LDBC SNB IC3 endpoint): trailing MATCH binds aliases
+                # none of which is in the prefix's carried set. Broadcast the
+                # carried hidden columns onto every base node so the row
+                # pipeline carries them through whichever alias the trailing
+                # MATCH binds; the suffix runs as a global MATCH (no seed).
+                compiled_base_graph, start_nodes = _compiled_query_freeform_reentry_state(
+                    base_graph,
+                    compiled_query,
+                    prefix_result,
+                    engine=engine,
+                )
+            else:
+                compiled_base_graph, start_nodes = _compiled_query_reentry_state(
+                    base_graph,
+                    compiled_query,
+                    prefix_result,
+                    engine=engine,
+                )
     result = _execute_compiled_query(
         compiled_base_graph,
         compiled_query=compiled_query,
@@ -1195,6 +1209,107 @@ def _compiled_query_scalar_reentry_state(
             }
         ),
     )
+    dispatch_graph = base_graph.bind()
+    dispatch_graph._nodes = node_rows
+    edges_df = getattr(base_graph, "_edges", None)
+    if edges_df is not None:
+        dispatch_graph._edges = edges_df
+    return dispatch_graph, None
+
+
+def _compiled_query_freeform_reentry_state(
+    base_graph: Plottable,
+    compiled_query: CompiledCypherQuery,
+    prefix_result: Plottable,
+    *,
+    engine: Union[EngineAbstract, str],
+) -> Tuple[Plottable, Optional[DataFrameT]]:
+    """#1263 free-form intermediate MATCH (LDBC SNB IC3 endpoint).
+
+    The trailing MATCH binds aliases that are NOT in the prefix WITH's carried
+    whole-row set, so it must run against the full base graph (no carried-id
+    seed filter). Carried hidden columns from the prefix row are broadcast
+    onto every base node so the row pipeline carries them through whichever
+    alias the trailing MATCH binds; downstream WHERE/RETURN expressions
+    referencing carried-alias properties resolve through those broadcast
+    columns.
+
+    Conservative scope: single-prefix-row only. Multi-prefix-row free-form
+    raises a clear failfast pointing at a follow-up slice; the existing
+    per-row-union pattern (used for scalar-only multi-row prefixes at
+    ``_compiled_query_scalar_reentry_state``) does not yet apply because
+    free-form has no shared anchor alias.
+    """
+    prefix_rows = getattr(prefix_result, "_nodes", None)
+    base_nodes = getattr(base_graph, "_nodes", None)
+    if base_nodes is None:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH (free-form intermediate MATCH; #1263) "
+            "could not recover the base node table for re-entry",
+            value=None,
+            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
+        )
+    if prefix_rows is None or len(prefix_rows) == 0:
+        # Empty prefix → empty result. Return a graph with empty nodes/edges
+        # so the suffix produces no rows.
+        dispatch_graph = base_graph.bind()
+        dispatch_graph._nodes = cast(DataFrameT, base_nodes.iloc[0:0])
+        edges_df = getattr(base_graph, "_edges", None)
+        if edges_df is not None:
+            dispatch_graph._edges = cast(DataFrameT, edges_df.iloc[0:0])
+        return dispatch_graph, None
+    if len(prefix_rows) > 1:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH (free-form intermediate MATCH; #1263) "
+            "currently supports a single-row prefix WITH only — multi-row "
+            "free-form admit is a follow-up slice.",
+            value=len(prefix_rows),
+            suggestion=(
+                "Restrict the prefix WITH to produce a single row (e.g. by "
+                "filtering on a unique node id) or wait for the multi-row "
+                "free-form follow-up under #1263 / #989."
+            ),
+        )
+
+    plan = compiled_query.reentry_plan
+    if plan is None:
+        # Defensive: caller already gated on plan.free_form, so reaching here
+        # without a plan is a programmer error.
+        raise _reentry_validation_error(
+            "Cypher free-form intermediate MATCH dispatched without a ReentryPlan",
+            value=None,
+            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
+        )
+
+    row = prefix_rows.iloc[0]
+    broadcast_values: Dict[str, Any] = {}
+    # Top-level scalar carries (e.g. ``WITH a, b.id AS bid``): the prefix row
+    # exposes them under their output names; the runtime hidden column on the
+    # base node table is keyed by ``_reentry_hidden_column_name``.
+    for col in plan.scalar_columns:
+        if col in prefix_rows.columns:
+            broadcast_values[_reentry_hidden_column_name(col)] = row[col]
+    # Non-source whole-row property carries (slice 4.3b from #1248): the prefix
+    # row already exposes these under their `__cypher_reentry_*` names; copy
+    # them across as-is.
+    for col in prefix_rows.columns:
+        if isinstance(col, str) and col.startswith("__cypher_reentry_"):
+            broadcast_values[col] = row[col]
+
+    if broadcast_values:
+        existing_hidden = [
+            c for c in base_nodes.columns
+            if isinstance(c, str) and c.startswith("__cypher_reentry_")
+        ]
+        node_rows = (
+            cast(DataFrameT, base_nodes.drop(columns=existing_hidden))
+            if existing_hidden
+            else base_nodes
+        )
+        node_rows = cast(DataFrameT, node_rows.assign(**broadcast_values))
+    else:
+        node_rows = cast(DataFrameT, base_nodes)
+
     dispatch_graph = base_graph.bind()
     dispatch_graph._nodes = node_rows
     edges_df = getattr(base_graph, "_edges", None)

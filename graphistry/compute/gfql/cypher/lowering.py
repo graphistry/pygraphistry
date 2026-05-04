@@ -8719,6 +8719,28 @@ def _compile_bounded_reentry_query(
                     value=sorted(bare_referenced),
                     span=prefix_stage.span,
                 )
+            if free_form and any(props for props in props_by_alias.values()):
+                # #1263 conservative scope: admit simple free-form intermediate
+                # MATCH only. Carried-alias property references in the trailing
+                # WHERE / RETURN compose poorly with the existing demote (#1071)
+                # + property-rewriter (#1248) chain — the rewriters double-wrap
+                # the synthesized hidden column name. Closing this requires a
+                # rewrite-order refactor that lands as its own follow-up slice.
+                referenced_props = sorted(
+                    f"{alias}.{prop}"
+                    for alias, props in props_by_alias.items()
+                    for prop in sorted(props)
+                )
+                raise _unsupported_at_span(
+                    "Cypher MATCH after WITH free-form intermediate MATCH (#1263) does not yet support "
+                    "carried-alias property references in the trailing scope (e.g. `WHERE country.id IN [x.id, y.id]` "
+                    "in LDBC SNB IC3). Simple free-form is admitted; carried-property cases compose with the "
+                    "existing demote/property-carry rewriters and require a rewrite-order refactor tracked under "
+                    "the #1263 follow-up.",
+                    field="match",
+                    value=referenced_props,
+                    span=reentry_match.span,
+                )
             # Non-source aliases that survived the prefix rewrite (i.e. had no
             # property refs and no bare refs) are simply unused; safe to admit.
             # `multi_alias_carries` (computed before the prefix compile) holds
