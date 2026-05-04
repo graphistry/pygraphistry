@@ -8353,6 +8353,9 @@ def _rewrite_reentry_match_clause(
     *,
     rewrite_expr: Callable[[ExpressionText, str], ExpressionText],
 ) -> MatchClause:
+    rewritten_where = None
+    if clause.where is not None:
+        rewritten_where = _rewrite_where_clause_and_resync(clause.where, rewrite_expr, "where")
     return replace(
         clause,
         patterns=tuple(
@@ -8362,6 +8365,7 @@ def _rewrite_reentry_match_clause(
             )
             for pattern in clause.patterns
         ),
+        where=rewritten_where if rewritten_where is not None else clause.where,
     )
 
 
@@ -8613,6 +8617,27 @@ def _compile_bounded_reentry_query(
             span=prefix_stage.span,
         )
     primary_alias_hint = _first_pattern_node_alias(query.reentry_matches[0])
+    multi_alias_carries: Dict[str, Tuple[str, ...]] = {}
+    if primary_alias_hint is not None:
+        match_node_aliases = _all_match_node_aliases(query)
+        whole_row_aliases = {
+            item.expression.text.strip()
+            for item in prefix_stage.clause.items
+            if _is_whole_row_with_item(item, match_node_aliases=match_node_aliases)
+        }
+        # #1275: for free-form trailing MATCH (first alias not carried by prefix
+        # whole-row items), pre-rewrite non-source whole-row carries into scalar
+        # hidden columns so trailing `<carried>.<prop>` references can rewrite
+        # cleanly without double-wrapping hidden names.
+        if primary_alias_hint not in whole_row_aliases:
+            rewritten_prefix, rewritten_tail, multi_alias_carries = _rewrite_multi_whole_row_prefix(
+                prefix_stage,
+                query=query,
+                reentry_first_alias=primary_alias_hint,
+            )
+            if multi_alias_carries:
+                query = replace(query, with_stages=(rewritten_prefix,) + rewritten_tail)
+                prefix_stage = rewritten_prefix
     query, prefix_stage, demoted_secondary_aliases = _demote_secondary_whole_row_aliases(
         query,
         prefix_stage=prefix_stage,
@@ -8719,28 +8744,9 @@ def _compile_bounded_reentry_query(
                     value=sorted(bare_referenced),
                     span=prefix_stage.span,
                 )
-            if free_form and any(props for props in props_by_alias.values()):
-                # #1263 conservative scope: admit simple free-form intermediate
-                # MATCH only. Carried-alias property references in the trailing
-                # WHERE / RETURN compose poorly with the existing demote (#1071)
-                # + property-rewriter (#1248) chain — the rewriters double-wrap
-                # the synthesized hidden column name. Closing this requires a
-                # rewrite-order refactor that lands as its own follow-up slice.
-                referenced_props = sorted(
-                    f"{alias}.{prop}"
-                    for alias, props in props_by_alias.items()
-                    for prop in sorted(props)
-                )
-                raise _unsupported_at_span(
-                    "Cypher MATCH after WITH free-form intermediate MATCH (#1263) does not yet support "
-                    "carried-alias property references in the trailing scope (e.g. `WHERE country.id IN [x.id, y.id]` "
-                    "in LDBC SNB IC3). Simple free-form is admitted; carried-property cases compose with the "
-                    "existing demote/property-carry rewriters and require a rewrite-order refactor tracked under "
-                    "the #1263 follow-up.",
-                    field="match",
-                    value=referenced_props,
-                    span=reentry_match.span,
-                )
+            # #1275: free-form + carried-property bridge refs are admitted via
+            # `multi_alias_carries` pre-rewrite and downstream hidden-column
+            # expression rewrites.
             # Non-source aliases that survived the prefix rewrite (i.e. had no
             # property refs and no bare refs) are simply unused; safe to admit.
             # `multi_alias_carries` (computed before the prefix compile) holds
@@ -8828,6 +8834,15 @@ def _compile_bounded_reentry_query(
                         is_reentry_alias=False,
                     )
                 )
+        for alias in multi_alias_carries:
+            if alias not in {entry.output_name for entry in current_aliases}:
+                current_aliases.append(
+                    CarriedAlias(
+                        output_name=alias,
+                        table=prefix_projection.table,
+                        is_reentry_alias=False,
+                    )
+                )
         current_reentry_plan = ReentryPlan(
             reentry_alias_name=reentry_alias,
             aliases=tuple(current_aliases),
@@ -8836,7 +8851,9 @@ def _compile_bounded_reentry_query(
             free_form=free_form,
         )
 
-    non_source_carried_props: Optional[Mapping[str, Tuple[str, ...]]] = None
+    non_source_carried_props: Optional[Mapping[str, Tuple[str, ...]]] = (
+        multi_alias_carries if multi_alias_carries else None
+    )
 
     def rewrite_expr(expr: ExpressionText, field: str) -> ExpressionText:
         return _rewrite_reentry_expr_to_hidden_properties(
@@ -8864,7 +8881,7 @@ def _compile_bounded_reentry_query(
         )
         rewritten_remaining_reentry_wheres = tuple(
             None
-            if where_clause is None or where_clause.expr_tree is None
+            if where_clause is None
             else _rewrite_where_clause_and_resync(where_clause, rewrite_expr, "where")
             for where_clause in remaining_reentry_wheres
         )
@@ -8879,7 +8896,7 @@ def _compile_bounded_reentry_query(
             )
             for unwind_clause in query.reentry_unwinds
         )
-        if query.reentry_where is not None and query.reentry_where.expr_tree is not None:
+        if query.reentry_where is not None:
             reentry_where = _rewrite_where_clause_and_resync(query.reentry_where, rewrite_expr, "where")
         if not remaining_reentry_matches:
             reentry_return = _rewrite_reentry_projection_clause(query.return_, rewrite_expr=rewrite_expr)
