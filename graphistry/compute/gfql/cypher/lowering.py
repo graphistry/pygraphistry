@@ -4617,6 +4617,38 @@ def _build_initial_row_scope(
     alias_targets = _alias_target(lowered.query) if query.match is not None else {}
     merged_match = _merged_match_clause(query)
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+    # Admit first-stage multi-alias non-aggregate WITH projections (shape A, #1273)
+    # by routing through the bindings-row path when multiple MATCH node aliases are
+    # referenced together in scalar expressions.
+    stage_has_aggregates = any(
+        _aggregate_spec(item, params=params, alias_targets=alias_targets) is not None
+        or _post_aggregate_expr_plan(item, params=params, alias_targets=alias_targets) is not None
+        for item in stage_clause.items
+    )
+    if (
+        not stage_has_aggregates
+        and len(alias_targets) > 1
+    ):
+        stage_non_aggregate_refs: Set[str] = set()
+        for item in stage_clause.items:
+            expr_text = item.expression.text
+            if expr_text == "*":
+                continue
+            stage_non_aggregate_refs.update(
+                _expr_non_aggregate_match_aliases(
+                    expr_text,
+                    alias_targets=alias_targets,
+                    params=params,
+                    field=stage_clause.kind,
+                    line=item.span.line,
+                    column=item.span.column,
+                )
+            )
+        if len(stage_non_aggregate_refs) > 1 and all(
+            isinstance(alias_targets.get(alias), ASTNode)
+            for alias in stage_non_aggregate_refs
+        ):
+            binding_row_aliases.update(stage_non_aggregate_refs)
     # For connected multi-pattern MATCH (not cartesian), enable binding-row
     # aliases when the first WITH/RETURN stage projects multiple whole-row
     # match aliases and all targets are nodes.  This allows multi-alias WITH
