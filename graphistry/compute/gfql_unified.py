@@ -1162,12 +1162,6 @@ def _compiled_query_scalar_reentry_state(
     row_index: int = 0,
 ) -> Tuple[Plottable, Optional[DataFrameT]]:
     carried_columns = compiled_query.scalar_reentry_columns
-    if not carried_columns:
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH scalar-only prefix stages could not recover carried scalar columns",
-            value=None,
-            suggestion="Project at least one identifier-style scalar column before MATCH re-entry.",
-        )
     prefix_rows = getattr(prefix_result, "_nodes", None)
     if prefix_rows is None:
         raise _reentry_validation_error(
@@ -1192,6 +1186,16 @@ def _compiled_query_scalar_reentry_state(
             value=None,
             suggestion="Retry with a node-backed graph before MATCH re-entry.",
         )
+    if not carried_columns:
+        # Free-form intermediate MATCH admission (#1263 safe subset) can route
+        # through scalar reentry with zero carried scalars. Keep full node table;
+        # row fan-out/union for multi-row prefixes happens in the caller.
+        dispatch_graph = base_graph.bind()
+        dispatch_graph._nodes = base_nodes
+        edges_df = getattr(base_graph, "_edges", None)
+        if edges_df is not None:
+            dispatch_graph._edges = edges_df
+        return dispatch_graph, None
     missing_column = next((name for name in carried_columns if name not in prefix_rows.columns), None)
     if missing_column is not None:
         raise _reentry_validation_error(

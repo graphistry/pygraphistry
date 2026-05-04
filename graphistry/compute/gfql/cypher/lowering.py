@@ -8772,9 +8772,8 @@ def _compile_bounded_reentry_query(
             value="*",
             span=query.return_.span,
         )
+    admit_freeform_intermediate_match = free_form
     if first_alias is None:
-        # The trailing MATCH must start from a named node alias for either the
-        # carried-alias path or the #1263 free-form admit path to apply.
         raise _unsupported_at_span(
             "Cypher MATCH after WITH currently requires the trailing MATCH to start from a named node alias",
             field="match",
@@ -8788,7 +8787,7 @@ def _compile_bounded_reentry_query(
     # The plan records every whole-row alias the prefix carries; the row-carrier
     # rewrite (#989) replaces the legacy fields and uses CarriedAlias entries to
     # surface non-source alias properties downstream.
-    if scalar_only_prefix:
+    if scalar_only_prefix or admit_freeform_intermediate_match:
         current_reentry_plan: ReentryPlan = ReentryPlan(
             reentry_alias_name=reentry_alias,
             aliases=(),
@@ -8953,9 +8952,9 @@ def _compile_bounded_reentry_query(
                 query_graph=target.query_graph,
                 start_nodes_query=prefix_compiled,
                 optional_reentry=is_optional,
-                scalar_reentry_alias=reentry_alias if scalar_only_prefix else target.scalar_reentry_alias,
-                scalar_reentry_columns=carry_columns if scalar_only_prefix else target.scalar_reentry_columns,
-                reentry_plan=current_reentry_plan if scalar_only_prefix else (target.reentry_plan or current_reentry_plan),
+                scalar_reentry_alias=reentry_alias if (scalar_only_prefix or admit_freeform_intermediate_match) else target.scalar_reentry_alias,
+                scalar_reentry_columns=carry_columns if (scalar_only_prefix or admit_freeform_intermediate_match) else target.scalar_reentry_columns,
+                reentry_plan=current_reentry_plan if (scalar_only_prefix or admit_freeform_intermediate_match) else (target.reentry_plan or current_reentry_plan),
                 logical_plan=target.logical_plan,
                 logical_plan_defer_reason=target.logical_plan_defer_reason,
             ),
