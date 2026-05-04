@@ -116,6 +116,7 @@ class PlottableMetadata(TypedDict, total=False):
     :field encodings: Visual encoding mappings (colors, sizes, labels, complex)
     :field metadata: Graph metadata (name, description)
     :field style: Visualization styles (background, layout, etc.)
+    :field url_params: Visualization URL parameter defaults
 
     **Example**
 
@@ -144,3 +145,4 @@ class PlottableMetadata(TypedDict, total=False):
     encodings: EncodingsDict
     metadata: MetadataDict
     style: Dict[str, Any]
+    url_params: Dict[str, Any]

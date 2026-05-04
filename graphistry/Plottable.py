@@ -781,7 +781,9 @@ class Plottable(Protocol):
     def settings(self,
         height: Optional[int] = None,
         url_params: Dict[str, Any] = {},
-        render: Optional[Union[bool, RenderModes]] = None
+        render: Optional[Union[bool, RenderModes]] = None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
     ) -> 'Plottable':
         ...
 

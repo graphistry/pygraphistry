@@ -386,5 +386,53 @@ class TestCallObjectCreation:
             call_obj.validate()
 
 
+class TestRingAxisValidation:
+    """Deep axis payload validation for ring layout calls."""
+
+    def test_ring_categorical_axis_label_map_valid(self):
+        params = validate_call_params('ring_categorical_layout', {
+            'ring_col': 'segment',
+            'axis': {'a': 'A', 'b': 'B'},
+        })
+        assert params['axis'] == {'a': 'A', 'b': 'B'}
+
+    def test_ring_categorical_axis_rows_valid(self):
+        params = validate_call_params('ring_categorical_layout', {
+            'ring_col': 'segment',
+            'axis': [{'r': 200, 'label': 'outer', 'external': True}],
+        })
+        assert isinstance(params['axis'], list)
+
+    def test_ring_categorical_axis_rejects_invalid_rows(self):
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('ring_categorical_layout', {
+                'ring_col': 'segment',
+                'axis': [{'label': 'missing_pos'}],
+            })
+        assert 'axis' in exc_info.value.message
+
+    def test_ring_continuous_axis_accepts_string_labels(self):
+        params = validate_call_params('ring_continuous_layout', {
+            'ring_col': 'score',
+            'axis': ['low', 'mid', 'high'],
+        })
+        assert params['axis'] == ['low', 'mid', 'high']
+
+    def test_ring_continuous_axis_accepts_numeric_map(self):
+        params = validate_call_params('ring_continuous_layout', {
+            'ring_col': 'score',
+            'axis': {100.0: 'inner', 200.0: 'outer'},
+        })
+        assert isinstance(params['axis'], dict)
+
+    def test_ring_continuous_axis_rejects_bad_bounds(self):
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('ring_continuous_layout', {
+                'ring_col': 'score',
+                'axis': [{'y': 40, 'bounds': {'min': '40', 'max': 100}}],
+            })
+        assert 'axis' in exc_info.value.message
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v', '--tb=short'])

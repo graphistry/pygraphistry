@@ -2374,9 +2374,16 @@ class GraphistryClient(AuthManagerProtocol):
     ):
         return self._plotter().from_cugraph(G, node_attributes, edge_attributes, load_nodes, load_edges, merge_if_existing)
 
-    def settings(self, height=None, url_params={}, render=None):
+    def settings(
+        self,
+        height=None,
+        url_params={},
+        render=None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True,
+    ):
 
-        return self._plotter().settings(height, url_params, render)
+        return self._plotter().settings(height, url_params, render, validate=validate, warn=warn)
 
     def collections(
         self,

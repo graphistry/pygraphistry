@@ -178,6 +178,79 @@ def is_list_of_dicts(v: object) -> bool:
     return isinstance(v, list) and all(isinstance(item, dict) for item in v)
 
 
+def _is_numeric(v: object) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _is_axis_bounds(v: object) -> bool:
+    if not isinstance(v, dict):
+        return False
+    allowed = {"min", "max"}
+    if any(k not in allowed for k in v.keys()):
+        return False
+    if "min" in v and not _is_numeric(v["min"]):
+        return False
+    if "max" in v and not _is_numeric(v["max"]):
+        return False
+    return True
+
+
+def _is_axis_row(v: object) -> bool:
+    if not isinstance(v, dict):
+        return False
+    allowed = {
+        "label", "r", "x", "y", "internal", "external", "space",
+        "width", "bounds",
+    }
+    if any(k not in allowed for k in v.keys()):
+        return False
+    if "label" in v and not isinstance(v["label"], str):
+        return False
+    if "r" in v and not _is_numeric(v["r"]):
+        return False
+    if "x" in v and not _is_numeric(v["x"]):
+        return False
+    if "y" in v and not _is_numeric(v["y"]):
+        return False
+    if "width" in v and not _is_numeric(v["width"]):
+        return False
+    if "internal" in v and not isinstance(v["internal"], bool):
+        return False
+    if "external" in v and not isinstance(v["external"], bool):
+        return False
+    if "space" in v and not isinstance(v["space"], bool):
+        return False
+    if "bounds" in v and not _is_axis_bounds(v["bounds"]):
+        return False
+    if "r" not in v and "x" not in v and "y" not in v:
+        return False
+    return True
+
+
+def _is_axis_rows(v: object) -> bool:
+    return isinstance(v, list) and all(_is_axis_row(item) for item in v)
+
+
+def _is_ring_axis_label_map(v: object) -> bool:
+    return isinstance(v, dict) and all(isinstance(val, str) for val in v.values())
+
+
+def _is_ring_continuous_axis(v: object) -> bool:
+    if _is_axis_rows(v):
+        return True
+    if isinstance(v, list):
+        return all(isinstance(item, str) for item in v)
+    if isinstance(v, dict):
+        return all(_is_numeric(k) and isinstance(val, str) for k, val in v.items())
+    return False
+
+
+def _is_ring_categorical_axis(v: object) -> bool:
+    if _is_axis_rows(v):
+        return True
+    return _is_ring_axis_label_map(v)
+
+
 def is_where_rows_expr(v: object) -> bool:
     if not is_non_empty_string(v):
         return False
@@ -608,7 +681,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'v_start': lambda v: v is None or is_int_or_float(v),
             'v_end': lambda v: v is None or is_int_or_float(v),
             'v_step': lambda v: v is None or is_int_or_float(v),
-            'axis': lambda v: v is None or is_list_or_dict(v),
+            'axis': lambda v: v is None or _is_ring_continuous_axis(v),
             'normalize_ring_col': is_bool,
             'reverse': is_bool,
             'play_ms': lambda v: v is None or is_int(v),
@@ -633,7 +706,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'append_unhandled': is_bool,
             'min_r': lambda v: v is None or is_int_or_float(v),
             'max_r': lambda v: v is None or is_int_or_float(v),
-            'axis': lambda v: v is None or is_list_or_dict(v),
+            'axis': lambda v: v is None or _is_ring_categorical_axis(v),
             'reverse': is_bool,
             'play_ms': lambda v: v is None or is_int(v),
             'engine': lambda v: v is None or v in ('auto', 'pandas', 'cudf', 'dask', 'dask_cudf')

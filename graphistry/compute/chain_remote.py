@@ -92,6 +92,28 @@ def _compiled_to_let_json(compiled: CompiledQueryLike) -> Dict[str, Any]:
     return {"type": "Let", "bindings": bindings}
 
 
+def _refresh_url_from_dataset_id(g: Plottable) -> None:
+    if not getattr(g, "_dataset_id", None):
+        return
+    info: DatasetInfo = {
+        "name": g._dataset_id,
+        "type": "arrow",
+        "viztoken": str(uuid.uuid4()),
+    }
+    g._url = g._pygraphistry._viz_url(info, g._url_params)
+
+
+def _apply_persist_axis_defaults(g: Plottable) -> None:
+    from graphistry.validate import apply_axis_url_defaults
+
+    merged = apply_axis_url_defaults(
+        getattr(g, "_url_params", None),
+        getattr(g, "_complex_encodings", None),
+    )
+    if isinstance(merged, dict):
+        g._url_params = merged
+
+
 def chain_remote_generic(
     self: Plottable,
     chain: Union[Chain, Dict[str, JSONVal], List[Any], 'ASTLet', str],
@@ -311,13 +333,7 @@ def chain_remote_generic(
 
                                 # Generate URL using existing infrastructure
                                 if result._dataset_id:  # Type guard
-                                    info: DatasetInfo = {
-                                        'name': result._dataset_id,
-                                        'type': 'arrow',
-                                        'viztoken': str(uuid.uuid4())
-                                    }
-
-                                    result._url = result._pygraphistry._viz_url(info, result._url_params)
+                                    _refresh_url_from_dataset_id(result)
 
                             # Optionally restore privacy settings
                             if 'privacy' in metadata:
@@ -325,6 +341,9 @@ def chain_remote_generic(
 
                         if 'gfql_metadata' in metadata:
                             result = deserialize_plottable_metadata(metadata['gfql_metadata'], result)
+                            _apply_persist_axis_defaults(result)
+                            if persist:
+                                _refresh_url_from_dataset_id(result)
 
                     except Exception as e:
                         if persist:
@@ -390,13 +409,7 @@ def chain_remote_generic(
 
                 # Generate URL using existing infrastructure
                 if result._dataset_id:  # Type guard
-                    dataset_info: DatasetInfo = {
-                        'name': result._dataset_id,
-                        'type': 'arrow',
-                        'viztoken': str(uuid.uuid4())
-                    }
-
-                    result._url = result._pygraphistry._viz_url(dataset_info, result._url_params)
+                    _refresh_url_from_dataset_id(result)
             else:
                 warnings.warn("persist=True requested but server did not return dataset_id in JSON response. "
                             "URL generation will not be available. This indicates an older server version that doesn't support persistence.",
@@ -404,6 +417,9 @@ def chain_remote_generic(
 
         if 'metadata' in o:
             result = deserialize_plottable_metadata(o['metadata'], result)
+            _apply_persist_axis_defaults(result)
+            if persist:
+                _refresh_url_from_dataset_id(result)
 
         return result
     else:

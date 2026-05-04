@@ -91,6 +91,46 @@ MOCK_FULL_METADATA = {
     }
 }
 
+MOCK_RADIAL_AXIS_METADATA = {
+    "encodings": {
+        "complex_encodings": {
+            "node_encodings": {
+                "default": {
+                    "pointAxisEncoding": {
+                        "graphType": "point",
+                        "encodingType": "axis",
+                        "variation": "categorical",
+                        "attribute": "degree",
+                        "rows": [{"r": 200, "label": "outer", "external": True}],
+                    }
+                },
+                "current": {},
+            },
+            "edge_encodings": {"default": {}, "current": {}},
+        }
+    }
+}
+
+MOCK_LINEAR_AXIS_METADATA = {
+    "encodings": {
+        "complex_encodings": {
+            "node_encodings": {
+                "default": {
+                    "pointAxisEncoding": {
+                        "graphType": "point",
+                        "encodingType": "axis",
+                        "variation": "categorical",
+                        "attribute": "degree",
+                        "rows": [{"y": 40, "label": "lvl", "internal": True}],
+                    }
+                },
+                "current": {},
+            },
+            "edge_encodings": {"default": {}, "current": {}},
+        }
+    }
+}
+
 
 class TestGFQLRemoteMetadataHydration(unittest.TestCase):
     """Test that gfql_remote() hydrates server metadata into returned Plottable."""
@@ -224,6 +264,49 @@ class TestGFQLRemoteMetadataHydration(unittest.TestCase):
             f"Expected bg color '#000000', got '{result._style['bg']['color']}'"
         assert result._style['fg']['blendMode'] == 'screen', \
             f"Expected fg blendMode 'screen', got '{result._style['fg']['blendMode']}'"
+
+    @patch('graphistry.compute.chain_remote.requests.post')
+    def test_persist_hydrates_radial_axis_url_defaults(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "nodes": self.nodes_df.to_dict("records"),
+            "edges": self.edges_df.to_dict("records"),
+            "dataset_id": "test_123",
+            "metadata": MOCK_RADIAL_AXIS_METADATA,
+        }
+        mock_response.ok = True
+        mock_response.raise_for_status.return_value = None
+        mock_post.return_value = mock_response
+
+        self.g._dataset_id = "test_dataset_123"
+
+        result = self.g.gfql_remote([ASTNode()], format="json", persist=True, api_token="test_token")
+
+        assert result._url_params["play"] == 0
+        assert result._url_params["lockedR"] is True
+        assert result._url_params["splashAfter"] is False
+
+    @patch('graphistry.compute.chain_remote.requests.post')
+    def test_persist_hydrates_linear_axis_url_defaults(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "nodes": self.nodes_df.to_dict("records"),
+            "edges": self.edges_df.to_dict("records"),
+            "dataset_id": "test_123",
+            "metadata": MOCK_LINEAR_AXIS_METADATA,
+        }
+        mock_response.ok = True
+        mock_response.raise_for_status.return_value = None
+        mock_post.return_value = mock_response
+
+        self.g._dataset_id = "test_dataset_123"
+
+        result = self.g.gfql_remote([ASTNode()], format="json", persist=True, api_token="test_token")
+
+        assert result._url_params["play"] == 0
+        assert result._url_params["lockedX"] is True
+        assert result._url_params["lockedY"] is True
+        assert result._url_params["splashAfter"] is False
 
     @patch('graphistry.compute.chain_remote.requests.post')
     def test_empty_metadata_doesnt_break(self, mock_post):

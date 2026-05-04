@@ -9,6 +9,7 @@ Format mirrors the arrow uploader metadata structure:
 - encodings: simple (point_color, etc.) and complex encodings
 - metadata: name, description
 - style: visualization styles
+- url_params: viewer URL parameter defaults
 """
 from typing import Any, Dict, List, TYPE_CHECKING
 import copy
@@ -21,6 +22,7 @@ from graphistry.io.types import (
     NodeEdgeEncodingsDict,
     PlottableMetadata,
 )
+from graphistry.validate import normalize_url_params
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
@@ -241,6 +243,10 @@ def serialize_plottable_metadata(g: 'Plottable') -> PlottableMetadata:
     style: Dict[str, Any] = {}
     if hasattr(g, '_style') and g._style:
         style = g._style
+    url_params: Dict[str, Any] = {}
+    if hasattr(g, "_url_params") and isinstance(g._url_params, dict):
+        # Keep serializer permissive and never raise from metadata export path.
+        url_params = normalize_url_params(g._url_params, validate="autofix", warn=False)
 
     result: PlottableMetadata = {}
     if bindings:
@@ -251,6 +257,8 @@ def serialize_plottable_metadata(g: 'Plottable') -> PlottableMetadata:
         result['metadata'] = metadata_obj
     if style:
         result['style'] = style
+    if url_params:
+        result['url_params'] = url_params
 
     return result
 
@@ -349,5 +357,14 @@ def deserialize_plottable_metadata(metadata: PlottableMetadata, g: 'Plottable') 
                 res = res.style(**style)
         except Exception as e:
             warnings.warn(f"Failed to hydrate style from metadata: {e}", UserWarning, stacklevel=2)
+
+    if 'url_params' in metadata:
+        try:
+            url_params = metadata['url_params']
+            if isinstance(url_params, dict):
+                res = copy.copy(res)
+                res._url_params = normalize_url_params(url_params, validate="autofix", warn=False)
+        except Exception as e:
+            warnings.warn(f"Failed to hydrate url_params from metadata: {e}", UserWarning, stacklevel=2)
 
     return res
