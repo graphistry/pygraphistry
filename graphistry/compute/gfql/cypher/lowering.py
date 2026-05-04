@@ -150,8 +150,6 @@ class CompiledCypherExecutionExtras:
     query_graph: Optional[QueryGraph] = None
     start_nodes_query: Optional["CompiledCypherQuery"] = None
     optional_reentry: bool = False
-    scalar_reentry_alias: Optional[str] = None
-    scalar_reentry_columns: Tuple[str, ...] = ()
     reentry_plan: Optional[ReentryPlan] = None
     scope_stack: Tuple[ScopeFrame, ...] = ()
     logical_plan: Optional[LogicalPlan] = None
@@ -203,14 +201,6 @@ class CompiledCypherQuery:
     @property
     def optional_reentry(self) -> bool:
         return False if self.execution_extras is None else self.execution_extras.optional_reentry
-
-    @property
-    def scalar_reentry_alias(self) -> Optional[str]:
-        return None if self.execution_extras is None else self.execution_extras.scalar_reentry_alias
-
-    @property
-    def scalar_reentry_columns(self) -> Tuple[str, ...]:
-        return () if self.execution_extras is None else self.execution_extras.scalar_reentry_columns
 
     @property
     def reentry_plan(self) -> Optional[ReentryPlan]:
@@ -317,8 +307,6 @@ def _normalize_execution_extras(
         and execution_extras.query_graph is None
         and execution_extras.start_nodes_query is None
         and execution_extras.optional_reentry is False
-        and execution_extras.scalar_reentry_alias is None
-        and execution_extras.scalar_reentry_columns == ()
         and execution_extras.reentry_plan is None
         and execution_extras.scope_stack == ()
         and execution_extras.logical_plan is None
@@ -353,8 +341,6 @@ def _execution_extras_with(
     query_graph: Optional[QueryGraph] = None,
     start_nodes_query: Optional[CompiledCypherQuery] = None,
     optional_reentry: bool = False,
-    scalar_reentry_alias: Optional[str] = None,
-    scalar_reentry_columns: Tuple[str, ...] = (),
     reentry_plan: Optional[ReentryPlan] = None,
     scope_stack: Tuple[ScopeFrame, ...] = (),
     logical_plan: Optional[LogicalPlan] = None,
@@ -369,8 +355,6 @@ def _execution_extras_with(
             query_graph=query_graph,
             start_nodes_query=start_nodes_query,
             optional_reentry=optional_reentry,
-            scalar_reentry_alias=scalar_reentry_alias,
-            scalar_reentry_columns=scalar_reentry_columns,
             reentry_plan=reentry_plan,
             scope_stack=scope_stack,
             logical_plan=logical_plan,
@@ -8295,8 +8279,6 @@ def _map_terminal_reentry_query(
             query_graph=compiled_query.query_graph,
             start_nodes_query=mapped_start_nodes,
             optional_reentry=compiled_query.optional_reentry,
-            scalar_reentry_alias=compiled_query.scalar_reentry_alias,
-            scalar_reentry_columns=compiled_query.scalar_reentry_columns,
             reentry_plan=compiled_query.reentry_plan,
             logical_plan=compiled_query.logical_plan,
             logical_plan_defer_reason=compiled_query.logical_plan_defer_reason,
@@ -8789,10 +8771,9 @@ def _compile_bounded_reentry_query(
 
     hidden_columns = tuple(_reentry_hidden_column_name(output_name) for output_name in carry_columns)
 
-    # Build the explicit ReentryPlan alongside the legacy scalar_reentry_* fields.
-    # The plan records every whole-row alias the prefix carries; the row-carrier
-    # rewrite (#989) replaces the legacy fields and uses CarriedAlias entries to
-    # surface non-source alias properties downstream.
+    # Build the explicit ReentryPlan contract. The plan records every whole-row
+    # alias the prefix carries; the row-carrier rewrite (#989) uses CarriedAlias
+    # entries to surface non-source alias properties downstream.
     if scalar_only_prefix or admit_freeform_intermediate_match:
         current_reentry_plan: ReentryPlan = ReentryPlan(
             reentry_alias_name=reentry_alias,
@@ -8969,8 +8950,6 @@ def _compile_bounded_reentry_query(
                 query_graph=target.query_graph,
                 start_nodes_query=prefix_compiled,
                 optional_reentry=is_optional,
-                scalar_reentry_alias=reentry_alias if (scalar_only_prefix or admit_freeform_intermediate_match) else target.scalar_reentry_alias,
-                scalar_reentry_columns=carry_columns if (scalar_only_prefix or admit_freeform_intermediate_match) else target.scalar_reentry_columns,
                 reentry_plan=current_reentry_plan if (scalar_only_prefix or admit_freeform_intermediate_match) else (target.reentry_plan or current_reentry_plan),
                 logical_plan=target.logical_plan,
                 logical_plan_defer_reason=target.logical_plan_defer_reason,
@@ -9794,8 +9773,6 @@ def _attach_logical_plan_route(
             query_graph=result.query_graph,
             start_nodes_query=result.start_nodes_query,
             optional_reentry=result.optional_reentry,
-            scalar_reentry_alias=result.scalar_reentry_alias,
-            scalar_reentry_columns=result.scalar_reentry_columns,
             reentry_plan=result.reentry_plan,
             scope_stack=result.scope_stack,
             logical_plan=effective_logical_plan,
@@ -9881,8 +9858,6 @@ def compile_cypher_query(
                 query_graph=out.query_graph,
                 start_nodes_query=out.start_nodes_query,
                 optional_reentry=out.optional_reentry,
-                scalar_reentry_alias=out.scalar_reentry_alias,
-                scalar_reentry_columns=out.scalar_reentry_columns,
                 reentry_plan=out.reentry_plan,
                 scope_stack=_bound_scope_stack,
                 logical_plan=out.logical_plan,

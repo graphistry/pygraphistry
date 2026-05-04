@@ -22,7 +22,7 @@ from graphistry.compute.gfql.cypher import (
     parse_cypher,
     WherePatternPredicate,
 )
-from graphistry.compute.gfql.cypher.lowering import CompiledCypherGraphQuery
+from graphistry.compute.gfql.cypher.lowering import CompiledCypherExecutionExtras, CompiledCypherGraphQuery
 from graphistry.compute.gfql.cypher.lowering import _logical_plan_route_for_query
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, SemanticTable
@@ -745,6 +745,13 @@ def test_compiled_query_escape_hatches_are_grouped() -> None:
     assert "empty_result_row" not in field_names
     assert "connected_match_join" not in field_names
     assert "connected_optional_match" not in field_names
+
+
+def test_compiled_query_execution_extras_retire_legacy_scalar_reentry_fields() -> None:
+    field_names = {f.name for f in dataclass_fields(CompiledCypherExecutionExtras)}
+    assert "reentry_plan" in field_names
+    assert "scalar_reentry_alias" not in field_names
+    assert "scalar_reentry_columns" not in field_names
 
 
 def test_compiled_query_sets_logical_plan_route_for_covered_shape() -> None:
@@ -8069,8 +8076,7 @@ def test_compile_cypher_records_reentry_plan_for_multi_whole_row_prefix() -> Non
     CarriedAlias per prefix whole-row, exactly one marked as the reentry source.
 
     Without this assertion, a future slice could regress the plan structure
-    while user-facing behavior keeps working via the legacy
-    ``scalar_reentry_*`` fields.
+    while user-facing behavior keeps working through incidental fallback paths.
     """
     query = (
         "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "

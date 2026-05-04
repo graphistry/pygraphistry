@@ -911,7 +911,8 @@ def _execute_compiled_query_with_reentry(
             policy=policy,
             context=context,
         )
-        if compiled_query.scalar_reentry_alias is not None:
+        plan = compiled_query.reentry_plan
+        if plan is not None and plan.scalar_only:
             prefix_rows = getattr(prefix_result, "_nodes", None)
             prefix_row_count = len(prefix_rows) if prefix_rows is not None else 0
             if prefix_row_count > 1:
@@ -928,8 +929,8 @@ def _execute_compiled_query_with_reentry(
                 for i in range(prefix_row_count):
                     row_graph, row_start = _compiled_query_scalar_reentry_state(
                         base_graph,
-                        compiled_query,
                         prefix_result,
+                        carried_columns=plan.scalar_columns,
                         engine=engine,
                         row_index=i,
                     )
@@ -947,12 +948,11 @@ def _execute_compiled_query_with_reentry(
             else:
                 compiled_base_graph, start_nodes = _compiled_query_scalar_reentry_state(
                     base_graph,
-                    compiled_query,
                     prefix_result,
+                    carried_columns=plan.scalar_columns,
                     engine=engine,
                 )
         else:
-            plan = compiled_query.reentry_plan
             if plan is not None and plan.free_form:
                 # #1263 (LDBC SNB IC3 endpoint): trailing MATCH binds aliases
                 # none of which is in the prefix's carried set. Broadcast the
@@ -1204,13 +1204,12 @@ def _union_scalar_reentry_results(
 
 def _compiled_query_scalar_reentry_state(
     base_graph: Plottable,
-    compiled_query: CompiledCypherQuery,
     prefix_result: Plottable,
     *,
+    carried_columns: Sequence[str],
     engine: Union[EngineAbstract, str],
     row_index: int = 0,
 ) -> Tuple[Plottable, Optional[DataFrameT]]:
-    carried_columns = compiled_query.scalar_reentry_columns
     prefix_rows = getattr(prefix_result, "_nodes", None)
     if prefix_rows is None:
         raise _reentry_validation_error(
@@ -1391,6 +1390,13 @@ def _compiled_query_freeform_reentry_state(
 def _compiled_query_reentry_contract(
     compiled_query: CompiledCypherQuery,
 ) -> Tuple[str, Tuple[str, ...]]:
+    plan = compiled_query.reentry_plan
+    if plan is not None and plan.scalar_only:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH scalar-only reentry should not use whole-row reentry contract extraction",
+            value=plan.reentry_alias_name,
+            suggestion=_REENTRY_SCALAR_SUGGESTION,
+        )
     prefix_query = compiled_query.start_nodes_query
     prefix_projection = None if prefix_query is None else prefix_query.result_projection
     if prefix_projection is None:
@@ -1414,14 +1420,16 @@ def _compiled_query_reentry_contract(
     # ReentryPlan if present; non-source whole-row aliases are accepted but their
     # rows are not (yet) carried as hidden columns — that is the slice 4.3b
     # follow-up tracked under #989.
-    plan = compiled_query.reentry_plan
     if plan is not None and not plan.scalar_only and plan.reentry_alias_name in whole_row_columns:
         reentry_alias = plan.reentry_alias_name
     else:
         reentry_alias = whole_row_columns[0]
-    carried_columns = tuple(
-        column.output_name for column in prefix_projection.columns if column.kind != "whole_row"
-    )
+    if plan is not None:
+        carried_columns = tuple(plan.scalar_columns)
+    else:
+        carried_columns = tuple(
+            column.output_name for column in prefix_projection.columns if column.kind != "whole_row"
+        )
     return reentry_alias, carried_columns
 
 
