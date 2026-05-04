@@ -22,7 +22,7 @@ from graphistry.io.types import (
     NodeEdgeEncodingsDict,
     PlottableMetadata,
 )
-from graphistry.validate import normalize_url_params
+from graphistry.validate import URLParamsDict, normalize_url_params
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
@@ -243,7 +243,7 @@ def serialize_plottable_metadata(g: 'Plottable') -> PlottableMetadata:
     style: Dict[str, Any] = {}
     if hasattr(g, '_style') and g._style:
         style = g._style
-    url_params: Dict[str, Any] = {}
+    url_params: URLParamsDict = {}
     if hasattr(g, "_url_params") and isinstance(g._url_params, dict):
         # Keep serializer permissive and never raise from metadata export path.
         url_params = normalize_url_params(g._url_params, validate="autofix", warn=False)

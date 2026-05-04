@@ -6,6 +6,8 @@ of metadata JSON used for server communication (uploads, GFQL responses, etc.).
 """
 from typing import Any, Dict, TypedDict
 
+from graphistry.validate import URLParamsDict
+
 
 # Complex Encodings Structure
 class ComplexEncodingModes(TypedDict):
@@ -145,4 +147,4 @@ class PlottableMetadata(TypedDict, total=False):
     encodings: EncodingsDict
     metadata: MetadataDict
     style: Dict[str, Any]
-    url_params: Dict[str, Any]
+    url_params: URLParamsDict

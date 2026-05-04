@@ -16,6 +16,8 @@ from .validate_settings import (  # noqa: E402, F401
     REACT_SETTING_NAMES,
     URL_PARAM_NAME_SET,
     REACT_SETTING_NAME_SET,
+    URLParamsDict,
+    ReactSettingsDict,
     RADIAL_AXIS_URL_DEFAULTS,
     LINEAR_AXIS_URL_DEFAULTS,
     axis_url_defaults,

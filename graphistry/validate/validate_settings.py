@@ -6,6 +6,8 @@ from graphistry.util import warn as emit_warn
 
 SettingsValue: TypeAlias = Union[None, str, int, float, bool, List[Any], Dict[str, Any]]
 AxisKind: TypeAlias = Literal["radial", "linear"]
+URLParamsDict: TypeAlias = Dict[str, SettingsValue]
+ReactSettingsDict: TypeAlias = Dict[str, SettingsValue]
 
 
 class AxisBounds(TypedDict, total=False):
@@ -226,7 +228,7 @@ def normalize_url_params(
     url_params: Optional[Dict[str, Any]],
     validate: ValidationParam = "autofix",
     warn: bool = True,
-) -> Dict[str, SettingsValue]:
+) -> URLParamsDict:
     return _normalize_settings(
         settings=url_params,
         allowed_keys=URL_PARAM_NAMES,
@@ -240,7 +242,7 @@ def normalize_react_settings(
     react_settings: Optional[Dict[str, Any]],
     validate: ValidationParam = "autofix",
     warn: bool = True,
-) -> Dict[str, SettingsValue]:
+) -> ReactSettingsDict:
     return _normalize_settings(
         settings=react_settings,
         allowed_keys=REACT_SETTING_NAMES,
