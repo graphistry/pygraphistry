@@ -9696,6 +9696,43 @@ def test_multi_alias_with_stage_scalar_projection_executes() -> None:
     assert result._nodes.to_dict(orient="records") == [{"a_id": "a", "b_id": "b"}]
 
 
+def test_multi_alias_with_stage_scalar_projection_with_where_executes() -> None:
+    """#1273 shape A: scalar aliases from WITH can drive same-stage WHERE filtering."""
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b1", "b2"],
+                "label__A": [True, False, False],
+                "label__B": [False, True, True],
+            }
+        ),
+        pd.DataFrame({"s": ["a", "a"], "d": ["b1", "b2"], "type": ["R", "R"]}),
+    )
+    result = g.gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH a.id AS a_id, b.id AS b_id "
+        "WHERE b_id = 'b2' "
+        "RETURN a_id, b_id"
+    )
+    assert result._nodes.to_dict(orient="records") == [{"a_id": "a", "b_id": "b2"}]
+
+
+def test_multi_alias_with_stage_whole_row_projection_still_failfasts_for_1273_boundary() -> None:
+    """Lock known TCK xfail boundary: whole-row WITH n, x remains outside admitted #1273 slice."""
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["n1", "n2", "x1", "x2"],
+                "animal": ["cat", "dog", "cat", "wolf"],
+            }
+        ),
+        pd.DataFrame({"s": ["n1", "n2"], "d": ["x1", "x2"], "type": ["R", "R"]}),
+    )
+    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time") as exc_info:
+        g.gfql("MATCH (n)-[rel]->(x) WITH n, x WHERE n.animal = x.animal RETURN n, x")
+    assert "#1273" in exc_info.value.message
+
+
 def test_compile_cypher_tracks_seeded_top_level_row_query() -> None:
     compiled = _compile_query("UNWIND [1, 2, 3] AS x RETURN x ORDER BY x DESC LIMIT 2")
 
