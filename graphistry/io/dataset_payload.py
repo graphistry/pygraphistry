@@ -9,14 +9,8 @@ serialization/deserialization.
 from typing import Any, Dict, cast
 import copy
 
-from graphistry.io.types import (
-    ComplexEncodingModes,
-    DatasetLegacyPayload,
-    EncodingsDict,
-    MetadataDict,
-    PlottableMetadata,
-    SIMPLE_ENCODING_SERVER_TO_CLIENT_MAP,
-)
+from graphistry.io.dataset_payload_types import DatasetLegacyPayload, SIMPLE_ENCODING_SERVER_TO_CLIENT_MAP
+from graphistry.io.types import ComplexEncodingModes, EncodingsDict, MetadataDict, PlottableMetadata
 from graphistry.validate import normalize_url_params
 
 

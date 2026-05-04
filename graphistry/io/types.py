@@ -74,9 +74,6 @@ class BindingsDict(TypedDict, total=False):
     edge_weight: str
 
 
-ServerBindingsDict = BindingsDict
-
-
 class EncodingsDict(TypedDict, total=False):
     """Visual encodings for nodes and edges.
 
@@ -150,27 +147,6 @@ SIMPLE_ENCODING_CLIENT_KEYS: Tuple[str, ...] = (
 )
 
 
-SIMPLE_ENCODING_SERVER_TO_CLIENT_MAP: Dict[str, str] = {
-    'node_color': 'point_color',
-    'node_size': 'point_size',
-    'node_title': 'point_title',
-    'node_label': 'point_label',
-    'node_icon': 'point_icon',
-    'node_opacity': 'point_opacity',
-    'node_x': 'point_x',
-    'node_y': 'point_y',
-    'edge_color': 'edge_color',
-    'edge_size': 'edge_size',
-    'edge_title': 'edge_title',
-    'edge_label': 'edge_label',
-    'edge_icon': 'edge_icon',
-    'edge_opacity': 'edge_opacity',
-    'edge_source_color': 'edge_source_color',
-    'edge_destination_color': 'edge_destination_color',
-    'edge_weight': 'edge_weight',
-}
-
-
 class NodeEdgeEncodingsDict(TypedDict, total=False):
     """Intermediate encoding structure with bindings and complex encodings.
 
@@ -222,23 +198,5 @@ class PlottableMetadata(TypedDict, total=False):
     bindings: Dict[str, str]
     encodings: EncodingsDict
     metadata: MetadataDict
-    style: Dict[str, Any]
-    url_params: URLParamsDict
-
-
-class DatasetNodeEdgeEncodingPayload(TypedDict, total=False):
-    bindings: ServerBindingsDict
-    complex: Dict[str, Any]
-
-
-class DatasetLegacyPayload(TypedDict, total=False):
-    dataset_id: str
-    bindings: BindingsDict
-    encodings: EncodingsDict
-    metadata: Dict[str, Any]
-    node_encodings: DatasetNodeEdgeEncodingPayload
-    edge_encodings: DatasetNodeEdgeEncodingPayload
-    name: str
-    description: str
     style: Dict[str, Any]
     url_params: URLParamsDict

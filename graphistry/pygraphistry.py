@@ -17,9 +17,9 @@ import calendar, copy, gzip, io, json, numpy as np, pandas as pd, requests, sys,
 from datetime import datetime
 
 from .arrow_uploader import ArrowUploader, ArrowFileUploader
+from .io.dataset_payload_types import DatasetLegacyPayload
 from .io.dataset_payload import coerce_dataset_payload_to_plottable_metadata
 from .io.metadata import deserialize_plottable_metadata
-from .io.types import DatasetLegacyPayload
 
 from . import util
 from . import bolt_util

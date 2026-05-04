@@ -22,8 +22,8 @@ from graphistry.io.types import (
     NodeEdgeEncodingsDict,
     PlottableMetadata,
     SIMPLE_ENCODING_CLIENT_KEYS,
-    SIMPLE_ENCODING_SERVER_TO_CLIENT_MAP,
 )
+from graphistry.io.dataset_payload_types import SIMPLE_ENCODING_SERVER_TO_CLIENT_MAP
 from graphistry.validate import URLParamsDict, normalize_url_params
 
 if TYPE_CHECKING:
