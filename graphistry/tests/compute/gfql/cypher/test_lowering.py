@@ -7733,9 +7733,13 @@ def test_compile_cypher_tracks_reentry_carried_scalar_columns(
 ) -> None:
     compiled = _compile_query(query)
     whole_row_output, carried_columns = _compiled_reentry_projection_outputs(compiled)
+    plan = compiled.reentry_plan
 
     assert whole_row_output == expected_whole_row_output
     assert carried_columns == expected_columns
+    assert plan is not None
+    assert plan.reentry_alias_name == expected_whole_row_output
+    assert tuple(plan.scalar_columns) == expected_columns
 
 
 @pytest.mark.parametrize(
