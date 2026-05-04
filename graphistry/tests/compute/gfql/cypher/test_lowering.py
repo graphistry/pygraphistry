@@ -11128,6 +11128,21 @@ def test_issue_1038_ic4_return_side_case_expression_regression_lock() -> None:
     ]
 
 
+def test_issue_1038_rejects_aggregate_inside_row_case_expression() -> None:
+    graph = _mk_ic4_shape_graph()
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "RETURN CASE WHEN post.creationDate > 150 THEN count(*) ELSE 0 END AS out",
+            params={"pid": "p1"},
+        )
+
+    assert exc_info.value.code == ErrorCode.E108
+
+
 # ---------------------------------------------------------------------------
 # Issue #996: MATCH (connected) OPTIONAL MATCH ... RETURN mixed + CASE
 # ---------------------------------------------------------------------------

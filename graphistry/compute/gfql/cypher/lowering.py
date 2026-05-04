@@ -1959,6 +1959,14 @@ def _row_expr_arg(
         line=expr.span.line,
         column=expr.span.column,
     )
+    if _contains_aggregate_call(node):
+        raise _unsupported(
+            "Cypher aggregate functions must be top-level RETURN/WITH projections or valid post-aggregate expressions",
+            field=field,
+            value=expr.text,
+            line=expr.span.line,
+            column=expr.span.column,
+        )
     return _render_expr_node(node)
 
 
