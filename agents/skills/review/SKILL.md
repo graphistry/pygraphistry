@@ -172,6 +172,8 @@ python -m pytest -q [targeted_test]
 - For GPU-affecting PRs, require GPU-path validation evidence:
   - Local GPU path: `cd docker && ./test-gpu-local.sh [targeted_test_or_path]`
   - No local GPU available: run equivalent GPU validation on `dgx-spark` and record exact command + output artifact path in wave evidence.
+- For RAPIDS/cuDF changes, prefer dual-version validation (`RAPIDS_VERSION=25.02` and `26.02`) and include at least one amplified pass beyond early-stop defaults (for example, avoid relying only on `--maxfail=1` harness behavior when triaging regression surface).
+- When shared GPU pressure blocks full-matrix execution, require explicit evidence of the constrained condition (for example `nvidia-smi` + failing stack site), then run targeted amplified subsets and document exactly which tests were excluded and why.
 - If startup/runtime claims are made, verify entrypoints/scripts in `bin/` and workflow behavior.
 - For docs-only PRs, prioritize spec/documentation accuracy and navigability (toctree links, anchors, cross-refs).
 
