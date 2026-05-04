@@ -9032,7 +9032,7 @@ def test_string_cypher_executes_post_with_match_collect_unwind_match_with_carrie
     assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "d"}]
 
 
-def test_string_cypher_failfast_rejects_post_with_match_collect_unwind_match_final_with_carried_scalar() -> None:
+def test_string_cypher_executes_post_with_match_collect_unwind_match_final_with_carried_scalar() -> None:
     query = (
         "MATCH (a:A)-[:R]->(b:B) "
         "WITH b, b.id AS bid "
@@ -9044,12 +9044,12 @@ def test_string_cypher_failfast_rejects_post_with_match_collect_unwind_match_fin
         "RETURN bid, d.id AS id"
     )
 
-    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time") as exc_info:
-        _mk_multi_stage_reentry_graph().gfql(query)
-    assert "#1273" in exc_info.value.message
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "d"}]
 
 
-def test_string_cypher_failfast_rejects_post_with_match_collect_unwind_match_final_with_order_by_limit() -> None:
+def test_string_cypher_executes_post_with_match_collect_unwind_match_final_with_order_by_limit() -> None:
     query = (
         "MATCH (a:A)-[:R]->(b:B) "
         "WITH b, b.id AS bid "
@@ -9063,9 +9063,9 @@ def test_string_cypher_failfast_rejects_post_with_match_collect_unwind_match_fin
         "RETURN bid, d.id AS id"
     )
 
-    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time") as exc_info:
-        _mk_connected_multi_pattern_fanout_graph().gfql(query)
-    assert "#1273" in exc_info.value.message
+    result = _mk_connected_multi_pattern_fanout_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1", "id": "d2"}]
 
 
 def test_string_cypher_executes_post_with_match_collect_unwind_match_empty_result() -> None:
