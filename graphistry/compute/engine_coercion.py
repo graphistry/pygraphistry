@@ -208,7 +208,8 @@ def ensure_pandas(df: Any) -> pd.DataFrame:
         return df
     try:
         return df.to_pandas(nullable=True)
-    except (TypeError, NotImplementedError):
+    except (TypeError, NotImplementedError) as e:
+        logger.debug("ensure_pandas: nullable=True rejected (%s); falling back to plain to_pandas()", type(e).__name__)
         return df.to_pandas()
 
 
