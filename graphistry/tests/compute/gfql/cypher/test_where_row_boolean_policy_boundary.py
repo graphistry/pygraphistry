@@ -156,6 +156,28 @@ def test_issue_1219_policy_boundary_execution_matrix() -> None:
     assert [r["id"] for r in _rows(out_pattern_or)] == ["a", "c", "z"]
 
 
+def test_issue_1219_policy_boundary_quoted_pattern_existence_lexemes_are_row_literals() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "txt": ["exists { marker }", "not((a)-[:R]->(b))", "plain"],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": [], "type": []}),
+    )
+
+    out_exists_text = graph.gfql(
+        "MATCH (n) WHERE n.txt = 'exists { marker }' RETURN n.id AS id ORDER BY id"
+    )
+    assert [r["id"] for r in _rows(out_exists_text)] == ["a"]
+
+    out_not_pattern_text = graph.gfql(
+        "MATCH (n) WHERE n.txt = 'not((a)-[:R]->(b))' RETURN n.id AS id ORDER BY id"
+    )
+    assert [r["id"] for r in _rows(out_not_pattern_text)] == ["b"]
+
+
 @pytest.mark.parametrize(
     "query",
     [
@@ -171,4 +193,3 @@ def test_issue_1219_policy_boundary_pattern_existence_forms_still_rejected(query
 
     with pytest.raises(GFQLValidationError, match="Pattern existence expressions"):
         graph.gfql(query)
-

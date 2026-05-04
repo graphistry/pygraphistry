@@ -1012,6 +1012,33 @@ def test_parse_supports_mixed_where_pattern_predicates_in_expr_tree(query: str) 
 @pytest.mark.parametrize(
     "query",
     [
+        "MATCH (n) WHERE n.txt = 'exists { shadow }' RETURN n",
+        "MATCH (n) WHERE n.txt = 'not exists { shadow }' RETURN n",
+        "MATCH (n) WHERE n.txt = 'not((a)-[:R]->(b))' RETURN n",
+        "MATCH (n) WHERE n.txt = \"exists { shadow }\" RETURN n",
+    ],
+)
+def test_parse_does_not_treat_pattern_existence_lexemes_inside_string_literals_as_unsupported(query: str) -> None:
+    parsed = _parse_query(query)
+    assert parsed.where is not None
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) WHERE exists { (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE not exists { (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE not((n)-[:R]->()) RETURN n",
+    ],
+)
+def test_parse_still_rejects_true_pattern_existence_expressions(query: str) -> None:
+    with pytest.raises(GFQLValidationError, match="Pattern existence expressions"):
+        _parse_query(query)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
         # NOT-pattern: parse succeeds (#1031 slice 2 plumbing); the inner
         # ``WherePatternPredicate`` is lifted with ``negated=True`` and
         # surfaces the lowering-stage gate when compiled.
