@@ -1,10 +1,10 @@
-from typing import Any, Callable, Dict, Iterable, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 from typing_extensions import Literal, TypeAlias
 
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.util import warn as emit_warn
 
-SettingsValue: TypeAlias = None | str | int | float | bool | list[Any] | dict[str, Any]
+SettingsValue: TypeAlias = Union[None, str, int, float, bool, List[Any], Dict[str, Any]]
 AxisKind: TypeAlias = Literal["radial", "linear"]
 
 # Canonical settings key exports for downstream integrations
@@ -168,7 +168,7 @@ def axis_url_defaults(kind: AxisKind) -> Dict[str, SettingsValue]:
     return dict(LINEAR_AXIS_URL_DEFAULTS)
 
 
-def _extract_axis_rows(complex_encodings: Any) -> Optional[list[dict[str, Any]]]:
+def _extract_axis_rows(complex_encodings: Any) -> Optional[List[Dict[str, Any]]]:
     if not isinstance(complex_encodings, dict):
         return None
     node_encodings = complex_encodings.get("node_encodings")
