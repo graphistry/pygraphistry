@@ -3368,6 +3368,12 @@ def _binding_row_aliases_for_hidden_reentry_refs(
     alias_targets: Mapping[str, ASTObject],
     params: Optional[Mapping[str, Any]],
 ) -> Set[str]:
+    if not unwinds and clause.kind != "with":
+        # Hidden reentry refs in plain MATCH→WITH/RETURN reentry flows do not
+        # require the bindings-row path. The forced promotion is only needed
+        # for collect/UNWIND carry forwarding corridors and trailing WITH
+        # narrowing stages that still reference hidden carry columns.
+        return set()
     aliases: Set[str] = set()
     expr_texts: List[Tuple[str, int, int, str]] = []
 
@@ -4963,9 +4969,20 @@ def _lower_match_alias_stage(
         semantic_entity_kinds=semantic_entity_kinds,
     )
     row_steps: List[ASTObject] = []
+    defer_return_projection = False
     if not plan.whole_row_output_names:
         projection_fn = with_ if stage.clause.kind == "with" else return_
-        row_steps.append(projection_fn(plan.projection_items))
+        if (
+            stage.clause.kind == "return"
+            and stage.order_by is not None
+            and not stage.clause.distinct
+        ):
+            # Keep pre-existing columns alive for ORDER BY references that are
+            # intentionally not part of the final RETURN projection.
+            row_steps.append(with_(plan.projection_items, extend=True))
+            defer_return_projection = True
+        else:
+            row_steps.append(projection_fn(plan.projection_items))
     elif scope.allowed_match_aliases and plan.projection_items:
         # Mixed case: whole-row aliases + scalar items on a bindings-row table.
         # Use extend mode to add scalar columns without dropping the existing
@@ -5026,6 +5043,8 @@ def _lower_match_alias_stage(
         limit_clause=stage.limit,
         params=params,
     )
+    if defer_return_projection:
+        row_steps.append(return_([(name, name) for name, _ in plan.projection_items]))
 
     if plan.whole_row_output_names:
         # In extend mode (bindings-row path), scalar columns land in the DataFrame under
