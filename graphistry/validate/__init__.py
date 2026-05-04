@@ -16,8 +16,12 @@ from .validate_settings import (  # noqa: E402, F401
     REACT_SETTING_NAMES,
     URL_PARAM_NAME_SET,
     REACT_SETTING_NAME_SET,
+    APPLY_ENCODINGS_REACT_KEYS,
+    APPLY_ENCODINGS_REACT_KEY_SET,
     URLParamsDict,
     ReactSettingsDict,
+    KnownURLParamsDict,
+    KnownReactSettingsDict,
     RADIAL_AXIS_URL_DEFAULTS,
     LINEAR_AXIS_URL_DEFAULTS,
     axis_url_defaults,
@@ -30,4 +34,7 @@ from .validate_settings import (  # noqa: E402, F401
     is_ring_categorical_axis_payload,
     classify_axis_kind,
     apply_axis_url_defaults,
+)
+from .validate_react_encodings import (  # noqa: E402, F401
+    parse_apply_encodings_ops,
 )

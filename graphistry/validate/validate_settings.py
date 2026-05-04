@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 from typing_extensions import Literal, TypeAlias, TypedDict
 
 from graphistry.models.types import ValidationMode, ValidationParam
@@ -8,6 +8,114 @@ SettingsValue: TypeAlias = Union[None, str, int, float, bool, List[Any], Dict[st
 AxisKind: TypeAlias = Literal["radial", "linear"]
 URLParamsDict: TypeAlias = Dict[str, SettingsValue]
 ReactSettingsDict: TypeAlias = Dict[str, SettingsValue]
+
+
+class KnownURLParamsDict(TypedDict, total=False):
+    bg: SettingsValue
+    bottom: SettingsValue
+    collections: SettingsValue
+    collectionsGlobalEdgeColor: SettingsValue
+    collectionsGlobalNodeColor: SettingsValue
+    dissuadeHubs: SettingsValue
+    edgeCurvature: SettingsValue
+    edgeInfluence: SettingsValue
+    edgeOpacity: SettingsValue
+    favicon: SettingsValue
+    gravity: SettingsValue
+    info: SettingsValue
+    labelBackground: SettingsValue
+    labelColor: SettingsValue
+    labelOpacity: SettingsValue
+    left: SettingsValue
+    linLog: SettingsValue
+    lockedR: SettingsValue
+    lockedX: SettingsValue
+    lockedY: SettingsValue
+    logoAutoInvert: SettingsValue
+    logoMaxHeight: SettingsValue
+    logoMaxWidth: SettingsValue
+    logoPosition: SettingsValue
+    logoUrl: SettingsValue
+    menu: SettingsValue
+    neighborhoodHighlight: SettingsValue
+    neighborhoodHighlightHops: SettingsValue
+    pageTitle: SettingsValue
+    play: SettingsValue
+    pointOpacity: SettingsValue
+    pointSize: SettingsValue
+    pointStrokeWidth: SettingsValue
+    pointsOfInterestMax: SettingsValue
+    precisionVsSpeed: SettingsValue
+    right: SettingsValue
+    scalingRatio: SettingsValue
+    shortenLabels: SettingsValue
+    showActions: SettingsValue
+    showArrows: SettingsValue
+    showCollections: SettingsValue
+    showHistograms: SettingsValue
+    showInspector: SettingsValue
+    showLabelOnHover: SettingsValue
+    showLabelPropertiesOnHover: SettingsValue
+    showLabels: SettingsValue
+    showPointsOfInterest: SettingsValue
+    showPointsOfInterestLabel: SettingsValue
+    splashAfter: SettingsValue
+    strongGravity: SettingsValue
+    top: SettingsValue
+
+
+class KnownReactSettingsDict(TypedDict, total=False):
+    axes: SettingsValue
+    backgroundColor: SettingsValue
+    controls: SettingsValue
+    edgeCurvature: SettingsValue
+    edgeInfluence: SettingsValue
+    edgeOpacity: SettingsValue
+    encodeAxis: SettingsValue
+    encodeEdgeColor: SettingsValue
+    encodeEdgeIcons: SettingsValue
+    encodePointColor: SettingsValue
+    encodePointIcons: SettingsValue
+    encodePointSize: SettingsValue
+    exclusions: SettingsValue
+    filters: SettingsValue
+    gravity: SettingsValue
+    iframeStyle: SettingsValue
+    labelBackground: SettingsValue
+    labelColor: SettingsValue
+    labelOpacity: SettingsValue
+    linLog: SettingsValue
+    lockedR: SettingsValue
+    lockedX: SettingsValue
+    lockedY: SettingsValue
+    neighborhoodHighlight: SettingsValue
+    neighborhoodHighlightHops: SettingsValue
+    play: SettingsValue
+    pointOpacity: SettingsValue
+    pointSize: SettingsValue
+    pointsOfInterestMax: SettingsValue
+    precisionVsSpeed: SettingsValue
+    pruneOrphans: SettingsValue
+    scalingRatio: SettingsValue
+    showArrows: SettingsValue
+    showHistograms: SettingsValue
+    showInfo: SettingsValue
+    showInspector: SettingsValue
+    showLabelActions: SettingsValue
+    showLabelInspector: SettingsValue
+    showLabelOnHover: SettingsValue
+    showLabelPropertiesOnHover: SettingsValue
+    showLabels: SettingsValue
+    showMenu: SettingsValue
+    showPointsOfInterest: SettingsValue
+    showPointsOfInterestLabel: SettingsValue
+    showSplashScreen: SettingsValue
+    showTimebars: SettingsValue
+    showToolbar: SettingsValue
+    strongGravity: SettingsValue
+    ticks: SettingsValue
+    type: SettingsValue
+    workbook: SettingsValue
 
 
 class AxisBounds(TypedDict, total=False):
@@ -76,6 +184,17 @@ REACT_SETTING_NAMES: Tuple[str, ...] = (
 
 URL_PARAM_NAME_SET = frozenset(URL_PARAM_NAMES)
 REACT_SETTING_NAME_SET = frozenset(REACT_SETTING_NAMES)
+APPLY_ENCODINGS_REACT_KEYS: Tuple[str, ...] = (
+    "encodePointColor",
+    "encodeEdgeColor",
+    "encodePointSize",
+    "encodePointIcons",
+    "encodePointIcon",
+    "encodeEdgeIcons",
+    "encodeEdgeIcon",
+    "encodeAxis",
+)
+APPLY_ENCODINGS_REACT_KEY_SET = frozenset(APPLY_ENCODINGS_REACT_KEYS)
 
 RADIAL_AXIS_URL_DEFAULTS: Dict[str, SettingsValue] = {
     "play": 0,
@@ -88,6 +207,19 @@ LINEAR_AXIS_URL_DEFAULTS: Dict[str, SettingsValue] = {
     "lockedY": True,
     "splashAfter": False,
 }
+
+
+def _typed_dict_keys(typed_dict_cls: Any) -> Set[str]:
+    raw = getattr(typed_dict_cls, "__annotations__", {})
+    if not isinstance(raw, dict):
+        return set()
+    return {str(k) for k in raw.keys()}
+
+
+if _typed_dict_keys(KnownURLParamsDict) != set(URL_PARAM_NAMES):
+    raise ValueError("KnownURLParamsDict keys must match URL_PARAM_NAMES")
+if _typed_dict_keys(KnownReactSettingsDict) != set(REACT_SETTING_NAMES):
+    raise ValueError("KnownReactSettingsDict keys must match REACT_SETTING_NAMES")
 
 
 def _is_non_bool_number(v: Any) -> bool:

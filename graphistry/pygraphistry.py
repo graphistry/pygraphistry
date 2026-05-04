@@ -8,7 +8,7 @@ from graphistry.client_session import ClientSession, ApiVersion, ENV_GRAPHISTRY_
 from graphistry.Engine import EngineAbstractType
 from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationParam
-from graphistry.validate import URLParamsDict
+from graphistry.validate import URLParamsDict, ReactSettingsDict
 from graphistry.otel import inject_trace_headers, otel as otel_config
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
@@ -18,6 +18,7 @@ from datetime import datetime
 
 from .arrow_uploader import ArrowUploader, ArrowFileUploader
 from .io.metadata import coerce_dataset_payload_to_plottable_metadata, deserialize_plottable_metadata
+from .io.types import DatasetLegacyPayload
 
 from . import util
 from . import bolt_util
@@ -1838,7 +1839,7 @@ class GraphistryClient(AuthManagerProtocol):
 
     def apply_encodings(
         self,
-        react_encodings: Optional[Dict[str, Any]],
+        react_encodings: Optional[ReactSettingsDict],
         validate: ValidationParam = "strict",
         warn: bool = True,
     ) -> Plotter:
@@ -1975,7 +1976,7 @@ class GraphistryClient(AuthManagerProtocol):
         resolved_dataset_id = server_dataset_id if isinstance(server_dataset_id, str) and server_dataset_id else dataset_id
         out = self.bind(dataset_id=resolved_dataset_id)
 
-        metadata = coerce_dataset_payload_to_plottable_metadata(data_payload)
+        metadata = coerce_dataset_payload_to_plottable_metadata(cast(DatasetLegacyPayload, data_payload))
         if metadata:
             out = cast(Plotter, deserialize_plottable_metadata(metadata, out))
             from graphistry.validate import apply_axis_url_defaults

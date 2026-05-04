@@ -2,6 +2,7 @@ import pytest
 
 import graphistry
 from graphistry.validate import (
+    APPLY_ENCODINGS_REACT_KEY_SET,
     AXIS_BOUNDS_ALLOWED_KEYS,
     AXIS_ROW_ALLOWED_KEYS,
     AXIS_ROW_BOOL_KEYS,
@@ -10,6 +11,8 @@ from graphistry.validate import (
     LINEAR_AXIS_URL_DEFAULTS,
     RADIAL_AXIS_URL_DEFAULTS,
     REACT_SETTING_NAME_SET,
+    KnownReactSettingsDict,
+    KnownURLParamsDict,
     URL_PARAM_NAME_SET,
     apply_axis_url_defaults,
     axis_url_defaults,
@@ -26,6 +29,12 @@ from graphistry.validate import (
 def test_settings_key_sets_exported():
     assert "play" in URL_PARAM_NAME_SET
     assert "encodeAxis" in REACT_SETTING_NAME_SET
+    assert "encodePointColor" in APPLY_ENCODINGS_REACT_KEY_SET
+
+
+def test_known_typed_dict_keyspaces_align_with_exported_sets():
+    assert set(KnownURLParamsDict.__annotations__.keys()) == URL_PARAM_NAME_SET
+    assert set(KnownReactSettingsDict.__annotations__.keys()) == REACT_SETTING_NAME_SET
 
 
 def test_axis_row_allowed_keys_contract():

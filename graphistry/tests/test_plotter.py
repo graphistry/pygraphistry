@@ -1011,6 +1011,16 @@ class TestPlotterEncodings(NoAuthTestCase):
         node_default = g2._complex_encodings["node_encodings"]["default"]
         assert node_default["pointColorEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "red"
 
+    def test_apply_encodings_singular_icon_aliases(self):
+        g2 = graphistry.bind().apply_encodings({
+            "encodePointIcon": ["kind", {"primary": "server"}],
+            "encodeEdgeIcon": ["kind", {"primary": "arrow-right"}],
+        })
+        node_default = g2._complex_encodings["node_encodings"]["default"]
+        edge_default = g2._complex_encodings["edge_encodings"]["default"]
+        assert node_default["pointIconEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "server"
+        assert edge_default["edgeIconEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "arrow-right"
+
     def test_badge(self):
 
         assert graphistry.bind().encode_point_badge(

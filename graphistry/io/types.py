@@ -4,7 +4,7 @@ Type definitions for Plottable metadata serialization/deserialization.
 This module contains TypedDict definitions that lock in the exact structure
 of metadata JSON used for server communication (uploads, GFQL responses, etc.).
 """
-from typing import Any, Dict, TypedDict
+from typing import Any, Dict, Tuple, TypedDict
 
 from graphistry.validate import URLParamsDict
 
@@ -47,6 +47,36 @@ class MetadataDict(TypedDict, total=False):
     description: str
 
 
+class BindingsDict(TypedDict, total=False):
+    node: str
+    source: str
+    destination: str
+    edge: str
+    node_color: str
+    node_size: str
+    node_title: str
+    node_label: str
+    node_icon: str
+    node_opacity: str
+    node_weight: str
+    node_x: str
+    node_y: str
+    node_longitude: str
+    node_latitude: str
+    edge_color: str
+    edge_size: str
+    edge_title: str
+    edge_label: str
+    edge_icon: str
+    edge_opacity: str
+    edge_source_color: str
+    edge_destination_color: str
+    edge_weight: str
+
+
+ServerBindingsDict = BindingsDict
+
+
 class EncodingsDict(TypedDict, total=False):
     """Visual encodings for nodes and edges.
 
@@ -78,6 +108,7 @@ class EncodingsDict(TypedDict, total=False):
     point_title: str
     point_label: str
     point_icon: str
+    point_badge: str
     point_opacity: str
     point_x: str
     point_y: str
@@ -87,12 +118,36 @@ class EncodingsDict(TypedDict, total=False):
     edge_title: str
     edge_label: str
     edge_icon: str
+    edge_badge: str
     edge_opacity: str
     edge_source_color: str
     edge_destination_color: str
     edge_weight: str
     # Complex encodings (nested structure)
     complex_encodings: ComplexEncodingsDict
+
+
+SIMPLE_ENCODING_CLIENT_KEYS: Tuple[str, ...] = (
+    'point_color',
+    'point_size',
+    'point_title',
+    'point_label',
+    'point_icon',
+    'point_badge',
+    'point_opacity',
+    'point_x',
+    'point_y',
+    'edge_color',
+    'edge_size',
+    'edge_title',
+    'edge_label',
+    'edge_icon',
+    'edge_badge',
+    'edge_opacity',
+    'edge_source_color',
+    'edge_destination_color',
+    'edge_weight',
+)
 
 
 class NodeEdgeEncodingsDict(TypedDict, total=False):
@@ -146,5 +201,23 @@ class PlottableMetadata(TypedDict, total=False):
     bindings: Dict[str, str]
     encodings: EncodingsDict
     metadata: MetadataDict
+    style: Dict[str, Any]
+    url_params: URLParamsDict
+
+
+class DatasetNodeEdgeEncodingPayload(TypedDict, total=False):
+    bindings: ServerBindingsDict
+    complex: Dict[str, Any]
+
+
+class DatasetLegacyPayload(TypedDict, total=False):
+    dataset_id: str
+    bindings: BindingsDict
+    encodings: EncodingsDict
+    metadata: Dict[str, Any]
+    node_encodings: DatasetNodeEdgeEncodingPayload
+    edge_encodings: DatasetNodeEdgeEncodingPayload
+    name: str
+    description: str
     style: Dict[str, Any]
     url_params: URLParamsDict

@@ -18,10 +18,12 @@ import warnings
 from graphistry.io.types import (
     ComplexEncodingModes,
     ComplexEncodingsDict,
+    DatasetLegacyPayload,
     EncodingsDict,
     MetadataDict,
     NodeEdgeEncodingsDict,
     PlottableMetadata,
+    SIMPLE_ENCODING_CLIENT_KEYS,
 )
 from graphistry.validate import URLParamsDict, normalize_url_params
 
@@ -317,15 +319,7 @@ def deserialize_plottable_metadata(metadata: PlottableMetadata, g: 'Plottable') 
             if isinstance(encodings, dict):
                 encode_kwargs: Dict[str, str] = {}
 
-                simple_encoding_keys: List[str] = [
-                    'point_color', 'point_size', 'point_title', 'point_label',
-                    'point_icon', 'point_badge', 'point_opacity', 'point_x', 'point_y',
-                    'edge_color', 'edge_size', 'edge_title', 'edge_label',
-                    'edge_icon', 'edge_badge', 'edge_opacity', 'edge_source_color',
-                    'edge_destination_color', 'edge_weight'
-                ]
-
-                for key in simple_encoding_keys:
+                for key in SIMPLE_ENCODING_CLIENT_KEYS:
                     if key in encodings and encodings.get(key) is not None:  # type: ignore[misc]
                         encode_kwargs[key] = encodings[key]  # type: ignore[literal-required, typeddict-item]
 
@@ -398,7 +392,7 @@ def _coerce_complex_mode(payload: Any) -> ComplexEncodingModes:
     return out
 
 
-def coerce_dataset_payload_to_plottable_metadata(dataset_payload: Dict[str, Any]) -> PlottableMetadata:
+def coerce_dataset_payload_to_plottable_metadata(dataset_payload: DatasetLegacyPayload) -> PlottableMetadata:
     """Best-effort normalize dataset API payloads into PlottableMetadata.
 
     Supports:
@@ -414,7 +408,7 @@ def coerce_dataset_payload_to_plottable_metadata(dataset_payload: Dict[str, Any]
 
     direct_bindings = dataset_payload.get('bindings')
     if isinstance(direct_bindings, dict):
-        out['bindings'] = copy.deepcopy(direct_bindings)
+        out['bindings'] = cast(Dict[str, str], copy.deepcopy(direct_bindings))
 
     direct_encodings = dataset_payload.get('encodings')
     if isinstance(direct_encodings, dict):
@@ -424,8 +418,8 @@ def coerce_dataset_payload_to_plottable_metadata(dataset_payload: Dict[str, Any]
     edge_encodings = dataset_payload.get('edge_encodings')
     node_bindings = node_encodings.get('bindings') if isinstance(node_encodings, dict) else None
     edge_bindings = edge_encodings.get('bindings') if isinstance(edge_encodings, dict) else None
-    node_bindings_dict: Dict[str, str] = node_bindings if isinstance(node_bindings, dict) else {}
-    edge_bindings_dict: Dict[str, str] = edge_bindings if isinstance(edge_bindings, dict) else {}
+    node_bindings_dict: Dict[str, str] = cast(Dict[str, str], node_bindings) if isinstance(node_bindings, dict) else {}
+    edge_bindings_dict: Dict[str, str] = cast(Dict[str, str], edge_bindings) if isinstance(edge_bindings, dict) else {}
 
     bindings: Dict[str, str] = {}
     for key in ['node', 'source', 'destination', 'edge']:
