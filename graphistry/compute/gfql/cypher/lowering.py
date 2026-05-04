@@ -4966,11 +4966,10 @@ def _lower_match_alias_stage(
     if not plan.whole_row_output_names:
         projection_fn = with_ if stage.clause.kind == "with" else return_
         row_steps.append(projection_fn(plan.projection_items))
-    elif plan.projection_items:
-        # Mixed case: whole-row aliases + scalar items. Keep the whole-row
-        # source columns while adding scalar projections, otherwise scalar carry
-        # columns (e.g. trailing WITH d, bid in #1272) get dropped.
-        # On bindings-row tables this also preserves alias-prefixed columns.
+    elif scope.allowed_match_aliases and plan.projection_items:
+        # Mixed case: whole-row aliases + scalar items on a bindings-row table.
+        # Use extend mode to add scalar columns without dropping the existing
+        # alias-prefixed bindings columns (#880).
         row_steps.append(with_(plan.projection_items, extend=True))
     if stage.clause.distinct:
         row_steps.append(distinct())
@@ -5029,12 +5028,12 @@ def _lower_match_alias_stage(
     )
 
     if plan.whole_row_output_names:
-        # In extend mode, scalar columns land in the DataFrame under their
-        # output_name after with_(extend=True). Using kind="property" would
-        # cause the next stage to form f"{active_alias}.{source_name}" as the
-        # runtime expression, double-qualifying columns. Use kind="expr" with
-        # source_name=output_name so the next stage resolves direct columns.
-        extend_mode = bool(plan.projection_items)
+        # In extend mode (bindings-row path), scalar columns land in the DataFrame under
+        # their output_name after with_(extend=True).  Using kind="property" would cause the
+        # next stage to form f"{active_alias}.{source_name}" as the runtime expression, which
+        # double-qualifies the column (e.g. "tag.cd" instead of "cd").  Use kind="expr" with
+        # source_name=output_name so the next stage resolves it as a direct DataFrame column.
+        extend_mode = bool(scope.allowed_match_aliases)
         next_projected_columns = {
             column.output_name: _StageColumnBinding(
                 kind="expr" if extend_mode else cast(Literal["property", "expr"], column.kind),
