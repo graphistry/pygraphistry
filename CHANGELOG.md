@@ -152,6 +152,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / Cypher**: Support direct local Cypher `shortestPath(...)` scalar execution for the benchmark-facing subset, including `length(path)`, `path IS NULL`, `CASE path IS NULL WHEN true THEN -1 ELSE length(path) END`, and the official comma-seeded `interactive-complex-13` shape. Generic path-carrier projections and `allShortestPaths(...)` remain explicit fail-fast boundaries (#1010).
 
 ### Fixed
+- **GFQL / Cypher (#1038, #1261 slices S1-S5)**: Hardened RETURN-side `CASE` handling in the local Cypher path for IC4-shaped query forms. Added a lowering fail-fast guard so aggregates nested inside row CASE expressions are rejected at compile-time with `E108` (instead of leaking to runtime row-expression failures), and stabilized regression-lock expectations across pandas compatibility lanes by asserting null-like semantics (`None`/`NaN`) where appropriate.
 - **GFQL / Cypher**: Non-final `WITH alias, agg()` aggregate stages on bindings-row tables (e.g., `WITH tag, sum(cd) AS total`) now correctly group per alias and preserve `alias.*` property columns for subsequent stages. Previously the group key used the wrong column name (`id` instead of `tag.id`), the entity-blob serializer made every row unique, and property columns like `tag.name` were dropped before the next `RETURN` stage could access them (#1054).
 - **GFQL / Cypher**: Extended scalar columns from a bindings-row `WITH` stage (e.g., `WITH tag, post.creationDate AS cd`) are now visible in subsequent non-aggregate stages (`WITH cd ... RETURN cd`). Previously, the next stage resolved the projected column name as an alias-qualified property path and prepended the active alias a second time, producing `None` instead of the actual scalar value (#1045).
 
@@ -171,6 +172,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Tests / RAPIDS compat**: Replace `cudf.DataFrame.from_pandas()` with `cudf.from_pandas()` across GFQL Cypher test suite for RAPIDS 25.02 + 26.02 compatibility.
 
 ### Tests
+- **GFQL / Cypher (#1038, #1261 slices S1-S5)**: Added/expanded regression coverage in `test_lowering.py`, `test_parser.py`, and `test_binder.py` for IC4-style RETURN-side CASE, parser rejection of malformed CASE, binder scope/name-resolution behavior for CASE after `WITH DISTINCT`, and explicit rejection of aggregate calls nested in row CASE expressions.
 - **GFQL / bindings rows**: Added benchmark-shaped regressions for native IS6-style multihop continuation plus direct Cypher IS1 / IS3 / IS6 projection shapes.
 - **GFQL / Cypher**: Added cartesian `MATCH` regressions covering scalar projection, non-simple row expressions, grouped/global aggregates, staged `WITH` filters, and direct `rows(binding_ops=[Node, Node])` cartesian row materialization.
 - **GFQL / Cypher**: Added exact IC6 runtime regression coverage plus multihop joined-row regressions for undirected no-backtracking, branching reentry fanout, and direct `rows(binding_ops=...)` bare-alias row expressions (#1000).
