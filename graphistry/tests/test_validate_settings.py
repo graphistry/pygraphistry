@@ -2,6 +2,11 @@ import pytest
 
 import graphistry
 from graphistry.validate import (
+    AXIS_BOUNDS_ALLOWED_KEYS,
+    AXIS_ROW_ALLOWED_KEYS,
+    AXIS_ROW_BOOL_KEYS,
+    AXIS_ROW_NUMERIC_KEYS,
+    AXIS_ROW_POSITION_KEYS,
     LINEAR_AXIS_URL_DEFAULTS,
     RADIAL_AXIS_URL_DEFAULTS,
     REACT_SETTING_NAME_SET,
@@ -16,6 +21,16 @@ from graphistry.validate import (
 def test_settings_key_sets_exported():
     assert "play" in URL_PARAM_NAME_SET
     assert "encodeAxis" in REACT_SETTING_NAME_SET
+
+
+def test_axis_row_allowed_keys_contract():
+    assert set(AXIS_BOUNDS_ALLOWED_KEYS) == {"min", "max"}
+    assert set(AXIS_ROW_ALLOWED_KEYS) == {
+        "label", "r", "x", "y", "internal", "external", "space", "width", "bounds",
+    }
+    assert set(AXIS_ROW_POSITION_KEYS) == {"r", "x", "y"}
+    assert set(AXIS_ROW_BOOL_KEYS) == {"internal", "external", "space"}
+    assert set(AXIS_ROW_NUMERIC_KEYS) == {"r", "x", "y", "width"}
 
 
 def test_normalize_url_params_strict_unknown_key_raises():

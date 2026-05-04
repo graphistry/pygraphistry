@@ -44,6 +44,13 @@ from graphistry.compute.gfql.call.support import (
     is_unwind_expr,
     validate_hypergraph_opts,
 )
+from graphistry.validate import (
+    AXIS_BOUNDS_ALLOWED_KEYS,
+    AXIS_ROW_ALLOWED_KEYS,
+    AXIS_ROW_BOOL_KEYS,
+    AXIS_ROW_NUMERIC_KEYS,
+    AXIS_ROW_POSITION_KEYS,
+)
 from graphistry.compute.gfql.row.order_expr import (
     is_order_aggregate_alias_ast,
     order_expr_ast_static_supported,
@@ -185,8 +192,7 @@ def _is_numeric(v: object) -> bool:
 def _is_axis_bounds(v: object) -> bool:
     if not isinstance(v, dict):
         return False
-    allowed = {"min", "max"}
-    if any(k not in allowed for k in v.keys()):
+    if any(k not in AXIS_BOUNDS_ALLOWED_KEYS for k in v.keys()):
         return False
     if "min" in v and not _is_numeric(v["min"]):
         return False
@@ -198,31 +204,19 @@ def _is_axis_bounds(v: object) -> bool:
 def _is_axis_row(v: object) -> bool:
     if not isinstance(v, dict):
         return False
-    allowed = {
-        "label", "r", "x", "y", "internal", "external", "space",
-        "width", "bounds",
-    }
-    if any(k not in allowed for k in v.keys()):
+    if any(k not in AXIS_ROW_ALLOWED_KEYS for k in v.keys()):
         return False
     if "label" in v and not isinstance(v["label"], str):
         return False
-    if "r" in v and not _is_numeric(v["r"]):
-        return False
-    if "x" in v and not _is_numeric(v["x"]):
-        return False
-    if "y" in v and not _is_numeric(v["y"]):
-        return False
-    if "width" in v and not _is_numeric(v["width"]):
-        return False
-    if "internal" in v and not isinstance(v["internal"], bool):
-        return False
-    if "external" in v and not isinstance(v["external"], bool):
-        return False
-    if "space" in v and not isinstance(v["space"], bool):
-        return False
+    for k in AXIS_ROW_NUMERIC_KEYS:
+        if k in v and not _is_numeric(v[k]):
+            return False
+    for k in AXIS_ROW_BOOL_KEYS:
+        if k in v and not isinstance(v[k], bool):
+            return False
     if "bounds" in v and not _is_axis_bounds(v["bounds"]):
         return False
-    if "r" not in v and "x" not in v and "y" not in v:
+    if all(k not in v for k in AXIS_ROW_POSITION_KEYS):
         return False
     return True
 

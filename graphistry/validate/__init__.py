@@ -2,6 +2,16 @@ from .validate_encodings import (  # noqa: E402, F401
     validate_encodings
 )
 from .validate_settings import (  # noqa: E402, F401
+    AxisBounds,
+    AxisRow,
+    AxisRows,
+    RingContinuousAxis,
+    RingCategoricalAxis,
+    AXIS_BOUNDS_ALLOWED_KEYS,
+    AXIS_ROW_ALLOWED_KEYS,
+    AXIS_ROW_POSITION_KEYS,
+    AXIS_ROW_BOOL_KEYS,
+    AXIS_ROW_NUMERIC_KEYS,
     URL_PARAM_NAMES,
     REACT_SETTING_NAMES,
     URL_PARAM_NAME_SET,
