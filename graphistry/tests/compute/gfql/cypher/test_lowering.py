@@ -8300,18 +8300,9 @@ def test_string_cypher_chained_reentry_carry_with_aggregate_node_only_match_fail
         _mk_multi_stage_reentry_graph().gfql(query)
 
 
-def test_string_cypher_failfast_rejects_intermediate_reentry_match_with_carried_property_in_trailing_where() -> None:
-    """#1263 conservative scope: free-form intermediate MATCH whose trailing
-    WHERE references a carried-alias property (e.g. ``WHERE country.id IN
-    [x.id, y.id]`` in literal LDBC SNB IC3) is REJECTED with a scoped #1263
-    failfast pointing at the rewrite-order refactor follow-up.
-
-    Simple free-form (no carried-property refs in trailing scope) is admitted
-    by the same #1263 PR; the carried-property variant defers to a focused
-    follow-up because the existing demote (#1071) and property-carry (#1248)
-    rewriters compose into a double-wrapped hidden column name without a
-    rewrite-order refactor.
-    """
+def test_string_cypher_executes_intermediate_reentry_match_with_carried_property_bridge_where() -> None:
+    """#1275: free-form intermediate MATCH admits bridge WHERE predicates that
+    reference both trailing aliases and carried-alias properties."""
     query = (
         "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
         "WITH a, x "
@@ -8319,11 +8310,35 @@ def test_string_cypher_failfast_rejects_intermediate_reentry_match_with_carried_
         "WHERE c.id = x.id OR c.id = 'c' "
         "RETURN d.id AS did"
     )
-    with pytest.raises(
-        GFQLValidationError,
-        match=r"free-form intermediate MATCH \(#1263\) does not yet support carried-alias property references",
-    ):
-        _mk_multi_stage_reentry_graph().gfql(query)
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"did": "d"}]
+
+
+def test_string_cypher_executes_intermediate_reentry_match_with_carried_property_bridge_where_on_cudf() -> None:
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "WHERE c.id = x.id OR c.id = 'c' "
+        "RETURN d.id AS did"
+    )
+    _require_cudf_runtime()
+    result = _mk_multi_stage_reentry_graph_cudf().gfql(query, engine="cudf")
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert records == [{"did": "d"}]
+
+
+def test_string_cypher_executes_intermediate_reentry_match_with_carried_property_bridge_where_and_return() -> None:
+    """#1275 issue-shape: bridge predicate + trailing RETURN include carried alias property."""
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:C {id: 'c'}) "
+        "WITH a, x "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "WHERE c.id = x.id "
+        "RETURN c.id AS cid, d.id AS did, x.id AS xid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"cid": "c", "did": "d", "xid": "c"}]
 
 
 def test_string_cypher_executes_simple_freeform_intermediate_reentry_match() -> None:
