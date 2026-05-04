@@ -178,6 +178,29 @@ def test_issue_1219_policy_boundary_quoted_pattern_existence_lexemes_are_row_lit
     assert [r["id"] for r in _rows(out_not_pattern_text)] == ["b"]
 
 
+def test_issue_1219_policy_boundary_comment_lexemes_do_not_trip_unsupported_gate() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "z"],
+                "x": [1, 9, 9, 0],
+                "y": [9, 2, 9, 0],
+            }
+        ),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+    )
+
+    out_inline_comment = graph.gfql(
+        "MATCH (n) WHERE n.x = 1 /* exists { shadow } */ OR n.y = 2 RETURN n.id AS id ORDER BY id"
+    )
+    assert [r["id"] for r in _rows(out_inline_comment)] == ["a", "b"]
+
+    out_line_comment = graph.gfql(
+        "MATCH (n) WHERE n.x = 1 // not((a)-[:R]->(b))\nOR n.y = 2 RETURN n.id AS id ORDER BY id"
+    )
+    assert [r["id"] for r in _rows(out_line_comment)] == ["a", "b"]
+
+
 @pytest.mark.parametrize(
     "query",
     [

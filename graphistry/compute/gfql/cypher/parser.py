@@ -1912,15 +1912,37 @@ _PATTERN_EXISTENCE_RE = re.compile(
 )
 
 
-def _mask_quoted_and_backticked_for_scan(expr: str) -> str:
-    """Replace quoted/backticked segments with spaces before regex scans."""
+def _mask_quoted_backticked_and_commented_for_scan(expr: str) -> str:
+    """Replace quoted/backticked/commented segments with spaces before regex scans."""
     chars = list(expr)
     quote: str | None = None
+    source = expr
     i = 0
     n = len(chars)
     while i < n:
         ch = chars[i]
         if quote is None:
+            if i + 1 < n and source[i] == "/" and source[i + 1] == "/":
+                chars[i] = " "
+                chars[i + 1] = " "
+                i += 2
+                while i < n and source[i] != "\n":
+                    chars[i] = " "
+                    i += 1
+                continue
+            if i + 1 < n and source[i] == "/" and source[i + 1] == "*":
+                chars[i] = " "
+                chars[i + 1] = " "
+                i += 2
+                while i < n:
+                    if i + 1 < n and source[i] == "*" and source[i + 1] == "/":
+                        chars[i] = " "
+                        chars[i + 1] = " "
+                        i += 2
+                        break
+                    chars[i] = " "
+                    i += 1
+                continue
             if ch in {"'", '"', "`"}:
                 quote = ch
                 chars[i] = " "
@@ -1941,7 +1963,7 @@ def _mask_quoted_and_backticked_for_scan(expr: str) -> str:
 
 def _check_unsupported_syntax_patterns(query: str) -> None:
     """Detect known-but-unsupported Cypher syntax and raise a clear error."""
-    if _PATTERN_EXISTENCE_RE.search(_mask_quoted_and_backticked_for_scan(query)):
+    if _PATTERN_EXISTENCE_RE.search(_mask_quoted_backticked_and_commented_for_scan(query)):
         raise _to_unsupported(
             "Pattern existence expressions (e.g., not((a)-[:R]-(b)) or exists { ... }) "
             "are not yet supported in the local Cypher compiler",
