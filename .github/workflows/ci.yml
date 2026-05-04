@@ -319,49 +319,16 @@ jobs:
 
     - name: Resolve tck-gfql ref
       id: tck_gfql
-      env:
-        EVENT_NAME: ${{ github.event_name }}
-        HEAD_REF: ${{ github.head_ref }}
-        REF_NAME: ${{ github.ref_name }}
       run: |
         tck_repo="https://github.com/graphistry/tck-gfql.git"
         # Keep tck-gfql deterministic to avoid unrelated CI breakage from
         # contract promotions landing on tck-gfql/main ahead of pygraphistry.
         # Bump intentionally when syncing conformance expectations.
         pinned_sha="1d3b05a67190f3cbf0cb5ed4540f7770a1ceb500"
-
-        if git ls-remote --exit-code "${tck_repo}" "${pinned_sha}^{commit}" >/dev/null 2>&1; then
-          echo "repo=${tck_repo}" >> "$GITHUB_OUTPUT"
-          echo "ref=pinned" >> "$GITHUB_OUTPUT"
-          echo "sha=${pinned_sha}" >> "$GITHUB_OUTPUT"
-          echo "Using pinned tck-gfql sha: ${pinned_sha}"
-          exit 0
-        fi
-
-        candidate_ref="main"
-
-        if [[ "${EVENT_NAME}" == "pull_request" && -n "${HEAD_REF}" ]]; then
-          candidate_ref="${HEAD_REF}"
-        elif [[ -n "${REF_NAME}" ]]; then
-          candidate_ref="${REF_NAME}"
-        fi
-
-        tck_ref="main"
-        if git ls-remote --exit-code --heads "${tck_repo}" "${candidate_ref}" >/dev/null 2>&1; then
-          tck_ref="${candidate_ref}"
-        fi
-
-        tck_sha=$(git ls-remote --exit-code --heads "${tck_repo}" "${tck_ref}" | awk '{print $1}')
-        if [[ -z "${tck_sha}" ]]; then
-          echo "Failed to resolve sha for tck-gfql ref: ${tck_ref}" >&2
-          exit 1
-        fi
-
         echo "repo=${tck_repo}" >> "$GITHUB_OUTPUT"
-        echo "ref=${tck_ref}" >> "$GITHUB_OUTPUT"
-        echo "sha=${tck_sha}" >> "$GITHUB_OUTPUT"
-        echo "Using tck-gfql ref: ${tck_ref}"
-        echo "Using tck-gfql sha: ${tck_sha}"
+        echo "ref=pinned" >> "$GITHUB_OUTPUT"
+        echo "sha=${pinned_sha}" >> "$GITHUB_OUTPUT"
+        echo "Using pinned tck-gfql sha: ${pinned_sha}"
 
     - name: Run tck-gfql
       run: |
