@@ -4634,6 +4634,10 @@ def _build_initial_row_scope(
             expr_text = item.expression.text
             if expr_text == "*":
                 continue
+            # Keep whole-row alias pipelines on the existing conservative path.
+            # This admission is scoped to multi-alias scalar/property projections.
+            if expr_text in alias_targets:
+                continue
             stage_non_aggregate_refs.update(
                 _expr_non_aggregate_match_aliases(
                     expr_text,

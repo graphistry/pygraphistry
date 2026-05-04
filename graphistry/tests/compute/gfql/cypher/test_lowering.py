@@ -4535,8 +4535,8 @@ def test_string_cypher_rejects_placeholder_quantifier_overlap_query_as_syntax() 
         ),
         (
             "MATCH (me: Person)--(you: Person)\nWITH me.age AS age, you\nRETURN age, age + count(you.age)",
-            "aggregate functions must be top-level RETURN/WITH projections",
-            False,
+            "one MATCH source alias at a time",
+            True,
         ),
         (
             "MATCH (me: Person)--(you: Person)\nRETURN me.age, me.age + count(you.age)",
@@ -9055,7 +9055,7 @@ def test_string_cypher_executes_post_with_match_collect_unwind_match_with_carrie
     assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "d"}]
 
 
-def test_string_cypher_executes_post_with_match_collect_unwind_match_final_with_carried_scalar() -> None:
+def test_string_cypher_failfast_rejects_post_with_match_collect_unwind_match_final_with_carried_scalar() -> None:
     query = (
         "MATCH (a:A)-[:R]->(b:B) "
         "WITH b, b.id AS bid "
@@ -9067,11 +9067,12 @@ def test_string_cypher_executes_post_with_match_collect_unwind_match_final_with_
         "RETURN bid, d.id AS id"
     )
 
-    result = _mk_multi_stage_reentry_graph().gfql(query)
-    assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "d"}]
+    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time") as exc_info:
+        _mk_multi_stage_reentry_graph().gfql(query)
+    assert "#1273" in exc_info.value.message
 
 
-def test_string_cypher_executes_post_with_match_collect_unwind_match_final_with_order_by_limit() -> None:
+def test_string_cypher_failfast_rejects_post_with_match_collect_unwind_match_final_with_order_by_limit() -> None:
     query = (
         "MATCH (a:A)-[:R]->(b:B) "
         "WITH b, b.id AS bid "
@@ -9085,8 +9086,9 @@ def test_string_cypher_executes_post_with_match_collect_unwind_match_final_with_
         "RETURN bid, d.id AS id"
     )
 
-    result = _mk_connected_multi_pattern_fanout_graph().gfql(query)
-    assert result._nodes.to_dict(orient="records") == [{"bid": "b1", "id": "d2"}]
+    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time") as exc_info:
+        _mk_connected_multi_pattern_fanout_graph().gfql(query)
+    assert "#1273" in exc_info.value.message
 
 
 def test_string_cypher_executes_post_with_match_collect_unwind_match_empty_result() -> None:
