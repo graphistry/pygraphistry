@@ -8154,7 +8154,8 @@ def test_string_cypher_chained_reentry_carry_with_aggregate_node_only_match_fail
 def test_string_cypher_failfast_rejects_intermediate_reentry_match_with_no_carried_source() -> None:
     """#1263 (LDBC SNB IC3 endpoint): trailing MATCH that does NOT start from
     a carried alias (free-form intermediate MATCH) raises a scoped failfast
-    pointing at #1263.
+    pointing at #1263 even when the trailing WHERE references carried-alias
+    properties.
 
     The literal LDBC SNB IC3 query begins ``WITH a, x, y MATCH (city:City)
     -[:IS_PART_OF]->(country:Country) ...`` — neither ``city`` nor ``country``
@@ -8163,11 +8164,7 @@ def test_string_cypher_failfast_rejects_intermediate_reentry_match_with_no_carri
     runtime then propagates carries onto the new bindings.
 
     Originally introduced under #1256 with a generic carried-alias gate
-    message; tightened in #1263 to call out the IC3 endpoint by name. The IC3
-    literal additionally hits the slice 4.3a/b admit gate (bare `x`/`y`
-    references in downstream WITH stages) which fires earlier — the test
-    matcher accepts either failfast site so the regression-lock holds at
-    whichever gate the compile reaches first.
+    message; tightened in #1263 to call out the IC3 endpoint by name.
     """
     query = (
         "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
@@ -8178,7 +8175,7 @@ def test_string_cypher_failfast_rejects_intermediate_reentry_match_with_no_carri
     )
     with pytest.raises(
         GFQLValidationError,
-        match=r"(free-form intermediate MATCH|carries non-source whole-row aliases)",
+        match=r"free-form intermediate MATCH",
     ):
         _mk_multi_stage_reentry_graph().gfql(query)
 
