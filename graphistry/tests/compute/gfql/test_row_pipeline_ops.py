@@ -70,6 +70,26 @@ def _normalize_records(records):
     return [{key: _normalize_record_value(value) for key, value in row.items()} for row in records]
 
 
+def _safe_series_to_list(series):
+    """Avoid cuDF 25.02 host-conversion segfault paths by preferring Arrow."""
+    if hasattr(series, "to_arrow"):
+        return series.to_arrow().to_pylist()
+    if hasattr(series, "to_pandas"):
+        return series.to_pandas().tolist()
+    if hasattr(series, "tolist"):
+        return series.tolist()
+    return list(series)
+
+
+def _safe_df_records(df):
+    """Avoid cuDF 25.02 to_pandas() segfault paths in test assertions."""
+    if hasattr(df, "to_arrow"):
+        return df.to_arrow().to_pylist()
+    if hasattr(df, "to_pandas"):
+        return df.to_pandas().to_dict(orient="records")
+    return df.to_dict(orient="records")
+
+
 def _self_loop_edges(nodes_df):
     if len(nodes_df) == 0:
         return pd.DataFrame({"s": [], "d": []})
@@ -1734,7 +1754,7 @@ class TestRowPipelineExecution:
         ])
 
         assert type(result._nodes).__module__.startswith("cudf")
-        assert result._nodes["score"].to_pandas().tolist() == [1, 2]
+        assert _safe_series_to_list(result._nodes["score"]) == [1, 2]
 
     def test_row_pipeline_cudf_list_scalar_concat_when_available(self):
         cudf = pytest.importorskip("cudf")
@@ -1746,7 +1766,7 @@ class TestRowPipelineExecution:
         result = g.gfql([rows(), select([("right_splat", "vals + score"), ("left_splat", "score + vals")])])
 
         assert type(result._nodes).__module__.startswith("cudf")
-        records = _normalize_records(result._nodes.to_pandas().to_dict(orient="records"))
+        records = _normalize_records(_safe_df_records(result._nodes))
         assert records == [
             {"right_splat": [1, 2, 3], "left_splat": [3, 1, 2]},
             {"right_splat": [4], "left_splat": [4]},
@@ -1764,7 +1784,7 @@ class TestRowPipelineExecution:
         result = g.gfql([rows(), select([("right_splat", "vals + score"), ("left_splat", "score + vals")])])
 
         assert type(result._nodes).__module__.startswith("cudf")
-        records = _normalize_records(result._nodes.to_pandas().to_dict(orient="records"))
+        records = _normalize_records(_safe_df_records(result._nodes))
         assert records == [
             {"right_splat": [1, None], "left_splat": [None, 1]},
             {"right_splat": [None], "left_splat": [None]},
@@ -1791,8 +1811,7 @@ class TestRowPipelineExecution:
             order_by([("grp", "asc")]),
         ])
         assert type(result._nodes).__module__.startswith("cudf")
-        pdf = result._nodes.to_pandas()
-        assert pdf.to_dict(orient="records") == [
+        assert _safe_df_records(result._nodes) == [
             {"grp": "x", "cnt": 1, "sum_v": 3},
             {"grp": "y", "cnt": 2, "sum_v": 9},
         ]
@@ -2562,7 +2581,7 @@ class TestRelationshipAliasInRowExpression:
         select_result = g.gfql(self._binding_ops() + [select(items=[("rel", "workAt")])])
         return_result = g.gfql(self._binding_ops() + [return_([("rel", "workAt")])])
         assert type(select_result._nodes).__module__.startswith("cudf")
-        select_vals = select_result._nodes["rel"].to_pandas().tolist()
-        return_vals = return_result._nodes["rel"].to_pandas().tolist()
+        select_vals = _safe_series_to_list(select_result._nodes["rel"])
+        return_vals = _safe_series_to_list(return_result._nodes["rel"])
         assert select_vals == ["[:WORKS_AT {workFrom: 2010}]"]
         assert select_vals == return_vals

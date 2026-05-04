@@ -721,6 +721,11 @@ def _assert_query_rows(
 
 
 def _to_pandas_df(df: Any) -> pd.DataFrame:
+    if isinstance(df, pd.DataFrame):
+        return df
+    # RAPIDS 25.02 can segfault on some direct to_pandas() paths; prefer Arrow.
+    if hasattr(df, "to_arrow"):
+        return cast(pd.DataFrame, df.to_arrow().to_pandas())
     return cast(pd.DataFrame, df.to_pandas() if hasattr(df, "to_pandas") else df)
 
 
