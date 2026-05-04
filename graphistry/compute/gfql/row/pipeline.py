@@ -1891,10 +1891,21 @@ class RowPipelineMixin:
             return True
         if not hasattr(series, "dropna"):
             return isinstance(series, bool)
+        if hasattr(series, "isna") and hasattr(series, "isin"):
+            try:
+                null_mask = series.isna()
+                non_null = ~null_mask
+                if hasattr(non_null, "any") and not bool(non_null.any()):
+                    return False
+                valid = series.isin([True, False])
+                if hasattr(valid, "where"):
+                    valid = valid.where(non_null, True)
+                if hasattr(valid, "all"):
+                    return bool(valid.all())
+            except Exception:
+                pass
         sample = series.dropna().head(128)
-        if hasattr(sample, "to_pandas"):
-            sample = sample.to_pandas()
-        values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
+        values = RowPipelineMixin._gfql_series_to_pylist(sample)
         return len(values) > 0 and all(isinstance(v, bool) for v in values)
 
     @staticmethod
@@ -1934,9 +1945,7 @@ class RowPipelineMixin:
         if not hasattr(series, "dropna"):
             return isinstance(series, str)
         sample = series.dropna().head(128)
-        if hasattr(sample, "to_pandas"):
-            sample = sample.to_pandas()
-        values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
+        values = RowPipelineMixin._gfql_series_to_pylist(sample)
         return len(values) > 0 and all(isinstance(v, str) for v in values)
 
     @staticmethod
@@ -1949,9 +1958,7 @@ class RowPipelineMixin:
         if not hasattr(series, "dropna"):
             return RowPipelineMixin._gfql_scalar_numeric_non_bool(series)
         sample = series.dropna().head(128)
-        if hasattr(sample, "to_pandas"):
-            sample = sample.to_pandas()
-        values = sample.tolist() if hasattr(sample, "tolist") else list(sample)
+        values = RowPipelineMixin._gfql_series_to_pylist(sample)
         return len(values) > 0 and all(RowPipelineMixin._gfql_scalar_numeric_non_bool(v) for v in values)
 
     @staticmethod
@@ -2585,15 +2592,7 @@ class RowPipelineMixin:
         scalar_series: Any,
         prepend: bool = False,
     ) -> Any:
-        use_pandas_fallback = (
-            isinstance(list_series, pd.Series)
-            or isinstance(scalar_series, pd.Series)
-            or (
-                resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF
-                and RowPipelineMixin._gfql_series_bool_like(scalar_series)
-            )
-        )
-        if use_pandas_fallback:
+        def _python_fallback() -> Any:
             list_values = self._gfql_series_to_pylist(list_series)
             scalar_values = self._gfql_series_to_pylist(scalar_series)
             out_values: List[Any] = []
@@ -2604,68 +2603,83 @@ class RowPipelineMixin:
                 seq = list(list_value) if isinstance(list_value, (list, tuple)) else [list_value]
                 scalar_item = None if is_null_scalar(scalar_value) else scalar_value
                 out_values.append(([scalar_item] + seq) if prepend else (seq + [scalar_item]))
+            if resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF:
+                try:
+                    out = s_cons(Engine.CUDF)(out_values)
+                    if hasattr(list_series, "name") and hasattr(out, "name"):
+                        out.name = list_series.name
+                    return out
+                except Exception:
+                    try:
+                        tmp_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_add_fallback__")
+                        out = table_df.assign(**{tmp_col: out_values})[tmp_col]
+                        if hasattr(list_series, "name") and hasattr(out, "name"):
+                            out.name = list_series.name
+                        return out
+                    except Exception:
+                        pass
             return pd.Series(out_values)
 
-        row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_add_row__")
-        list_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_add_list__")
-        val_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_add_val__")
-        pos_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_add_pos__")
-        len_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_add_len__")
+        if (
+            resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF
+            and RowPipelineMixin._gfql_series_bool_like(scalar_series)
+        ):
+            return _python_fallback()
 
-        base = table_df.assign(**{row_col: range(len(table_df)), list_col: list_series, val_col: scalar_series})
-        null_mask = self._gfql_null_mask(base, base[list_col])
         try:
+            row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_add_row__")
+            list_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_add_list__")
+            val_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_add_val__")
+            pos_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_add_pos__")
+            len_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_add_len__")
+
+            base = table_df.assign(**{row_col: range(len(table_df)), list_col: list_series, val_col: scalar_series})
+            null_mask = self._gfql_null_mask(base, base[list_col])
             lengths = series_sequence_len(base[list_col]).fillna(0)
-        except Exception as exc:
-            raise ValueError("unsupported row expression: list concatenation requires list/string accessor support") from exc
-        base = base.assign(**{len_col: lengths.astype("int64")})
+            base = base.assign(**{len_col: lengths.astype("int64")})
 
-        non_null = base.loc[~null_mask, [row_col, list_col, val_col, len_col]]
-        expanded = non_null[[row_col, list_col, len_col]].explode(list_col)
-        if len(expanded) > 0:
-            expanded = expanded.assign(
-                **{pos_col: expanded.groupby(row_col, sort=False).cumcount()}
-            )
-            expanded = expanded.loc[expanded[pos_col] < expanded[len_col]]
-            expanded = expanded[[row_col, pos_col, list_col]].rename(columns={list_col: val_col})
-        else:
-            expanded = non_null[[row_col]].iloc[0:0].copy()
-            expanded[pos_col] = []
-            expanded[val_col] = []
-
-        append_rows = non_null[[row_col, val_col, len_col]].copy()
-        append_rows = append_rows.assign(**{pos_col: 0 if prepend else append_rows[len_col]})
-        append_rows = append_rows[[row_col, pos_col, val_col]]
-
-        if prepend:
+            non_null = base.loc[~null_mask, [row_col, list_col, val_col, len_col]]
+            expanded = non_null[[row_col, list_col, len_col]].explode(list_col)
             if len(expanded) > 0:
-                expanded = expanded.assign(**{pos_col: expanded[pos_col] + 1})
-            combined = concat_frames([append_rows, expanded])
-        else:
-            combined = concat_frames([expanded, append_rows])
-        if combined is None:
-            combined = non_null[[row_col]].iloc[0:0].copy()
-            combined[pos_col] = []
-            combined[val_col] = []
-        if len(combined) > 0:
-            combined = combined.sort_values(by=[row_col, pos_col], kind="mergesort")
-            grouped = combined.groupby(row_col, sort=False)[val_col].agg(list).reset_index()
-        else:
-            grouped = non_null[[row_col]].iloc[0:0].copy()
-            grouped[val_col] = []
+                expanded = expanded.assign(
+                    **{pos_col: expanded.groupby(row_col, sort=False).cumcount()}
+                )
+                expanded = expanded.loc[expanded[pos_col] < expanded[len_col]]
+                expanded = expanded[[row_col, pos_col, list_col]].rename(columns={list_col: val_col})
+            else:
+                expanded = non_null[[row_col]].iloc[0:0].copy()
+                expanded[pos_col] = []
+                expanded[val_col] = []
 
-        out = self._gfql_restore_row_order(
-            base[[row_col, len_col]].merge(grouped, on=row_col, how="left", sort=False),
-            row_col,
-        )[val_col]
-        empty_mask = base[len_col] == 0
-        if hasattr(empty_mask, "any") and bool(empty_mask.any()):
-            out.loc[out.index[empty_mask]] = self._gfql_broadcast_scalar(
-                base.loc[empty_mask],
-                [],
-            )
-        out = self._gfql_mask_fill(out, null_mask, None)
-        return out.reset_index(drop=True)
+            append_rows = non_null[[row_col, val_col, len_col]].copy()
+            append_rows = append_rows.assign(**{pos_col: 0 if prepend else append_rows[len_col]})
+            append_rows = append_rows[[row_col, pos_col, val_col]]
+
+            if prepend:
+                if len(expanded) > 0:
+                    expanded = expanded.assign(**{pos_col: expanded[pos_col] + 1})
+                combined = concat_frames([append_rows, expanded])
+            else:
+                combined = concat_frames([expanded, append_rows])
+            if combined is None:
+                combined = non_null[[row_col]].iloc[0:0].copy()
+                combined[pos_col] = []
+                combined[val_col] = []
+            if len(combined) > 0:
+                combined = combined.sort_values(by=[row_col, pos_col], kind="mergesort")
+                grouped = combined.groupby(row_col, sort=False)[val_col].agg(list).reset_index()
+            else:
+                grouped = non_null[[row_col]].iloc[0:0].copy()
+                grouped[val_col] = []
+
+            out = self._gfql_restore_row_order(
+                base[[row_col, len_col]].merge(grouped, on=row_col, how="left", sort=False),
+                row_col,
+            )[val_col]
+            out = self._gfql_mask_fill(out, null_mask, None)
+            return out.reset_index(drop=True)
+        except Exception:
+            return _python_fallback()
 
     def _gfql_eval_in_expr(
         self,
