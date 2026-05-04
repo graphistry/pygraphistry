@@ -127,6 +127,18 @@ class TestIsNullRejecting:
             frozenset({"n"}),
         )
 
+    def test_or_with_newline_delimiter_is_rejecting(self):
+        assert is_null_rejecting(
+            _pred("n IS NULL\nOR n.age > 5", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
+    def test_or_with_tab_delimiter_is_rejecting(self):
+        assert is_null_rejecting(
+            _pred("n IS NULL\tOR\tn.age > 5", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
     # --- property-level IS NULL --- #
 
     def test_property_is_null_is_not_rejecting(self):
