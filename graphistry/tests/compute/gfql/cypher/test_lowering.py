@@ -8467,6 +8467,33 @@ def test_string_cypher_executes_freeform_intermediate_reentry_match_on_multi_row
     assert sum(1 for r in records if (r["cid"], r["did"]) == ("c2", "d2")) == 2
 
 
+def test_string_cypher_failfast_rejects_freeform_multi_row_prefix_with_optional_reentry() -> None:
+    """#1285: multi-prefix-row free-form combined with OPTIONAL MATCH is not
+    yet supported — the per-row union path returns early before any
+    null-fill branch, which would silently produce wrong results for prefix
+    rows that match nothing. Mirrors the scalar-only guard locked by
+    ``test_issue_1047_multi_row_scalar_prefix_with_optional_reentry_raises``.
+    """
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "a2", "c", "d"],
+            "label__A": [True, True, False, False],
+            "label__C": [False, False, True, False],
+            "label__D": [False, False, False, True],
+        }
+    )
+    edges = pd.DataFrame({"s": ["c"], "d": ["d"], "type": ["T"]})
+    graph = _mk_graph(nodes, edges)
+    query = (
+        "MATCH (a:A) "
+        "WITH a "
+        "OPTIONAL MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did"
+    )
+    with pytest.raises(Exception, match="optional"):
+        graph.gfql(query)
+
+
 def test_string_cypher_executes_freeform_intermediate_reentry_match_on_multi_row_prefix_on_cudf_when_available() -> None:
     """#1285 cuDF parity for the multi-prefix-row free-form admit."""
     cudf = pytest.importorskip("cudf")
