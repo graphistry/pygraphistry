@@ -8345,6 +8345,43 @@ def test_string_cypher_executes_simple_freeform_intermediate_reentry_match() -> 
     assert result._nodes.to_dict(orient="records") == [{"did": "d", "cid": "c"}]
 
 
+def test_string_cypher_failfast_rejects_simple_freeform_intermediate_reentry_match_on_multi_row_prefix() -> None:
+    """#1263 conservative scope: the runtime helper rejects multi-prefix-row
+    free-form admits with a clear failfast pointing at the multi-row follow-up.
+
+    The compile gate admits — the rejection happens at runtime when the prefix
+    WITH produces more than one row (here: two ``A`` nodes match the prefix).
+    """
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "a2", "b", "c", "d"],
+            "label__A": [True, True, False, False, False],
+            "label__B": [False, False, True, False, False],
+            "label__C": [False, False, False, True, False],
+            "label__D": [False, False, False, False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "a2", "b", "c"],
+            "d": ["b", "b", "c", "d"],
+            "type": ["R", "R", "S", "T"],
+        }
+    )
+    graph = _mk_graph(nodes, edges)
+    query = (
+        "MATCH (a:A) "
+        "WITH a "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did"
+    )
+    with pytest.raises(
+        GFQLValidationError,
+        match=r"free-form intermediate MATCH; #1263\) currently supports a single-row prefix WITH only",
+    ):
+        graph.gfql(query)
+
+
 def test_string_cypher_executes_simple_freeform_intermediate_reentry_match_on_cudf_when_available() -> None:
     """#1263 cuDF parity for the simple free-form admit (paired with the
     pandas case above)."""
