@@ -8492,8 +8492,18 @@ def _compile_bounded_reentry_query(
             span=query.return_.span,
         )
     if first_alias is None or first_alias != reentry_alias:
+        # #1263 (LDBC SNB IC3 endpoint): trailing MATCH whose first alias is
+        # not in the carried set is the free-form intermediate MATCH case.
+        # Closing this requires admitting the trailing MATCH as a fresh seed
+        # pattern that cross-joins with the carried row table at runtime, plus
+        # extending `ReentryPlan` with a per-stage mode marker so the runtime
+        # branches between the existing carried-alias path and a new free-form
+        # cross-join path. See `plans/1263-freeform-intermediate-match/design/freeform-admit-design.md`.
         raise _unsupported_at_span(
-            "Cypher MATCH after WITH currently requires the trailing MATCH to start from the same carried node alias",
+            "Cypher MATCH after WITH does not yet admit a trailing MATCH whose first alias is "
+            "not in the carried set (free-form intermediate MATCH; LDBC SNB IC3 endpoint, tracked under #1263). "
+            "The carried-alias path requires the trailing MATCH source to be one of the prefix WITH's "
+            "whole-row aliases.",
             field="match",
             value=first_alias,
             span=reentry_match.span,

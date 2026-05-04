@@ -8152,15 +8152,22 @@ def test_string_cypher_chained_reentry_carry_with_aggregate_node_only_match_fail
 
 
 def test_string_cypher_failfast_rejects_intermediate_reentry_match_with_no_carried_source() -> None:
-    """#1256 slice 4.3d remaining gap: trailing MATCH that does NOT start from a
-    carried alias (free-form intermediate MATCH) is still unsupported.
+    """#1263 (LDBC SNB IC3 endpoint): trailing MATCH that does NOT start from
+    a carried alias (free-form intermediate MATCH) raises a scoped failfast
+    pointing at #1263.
 
     The literal LDBC SNB IC3 query begins ``WITH a, x, y MATCH (city:City)
     -[:IS_PART_OF]->(country:Country) ...`` — neither ``city`` nor ``country``
     is a carried alias. Closing this requires admitting the trailing MATCH as
     a fresh seed pattern that cross-joins with the carried row table; the
-    runtime then propagates carries onto the new bindings. This is the
-    remaining slice 4.3d work tracked under #1256.
+    runtime then propagates carries onto the new bindings.
+
+    Originally introduced under #1256 with a generic carried-alias gate
+    message; tightened in #1263 to call out the IC3 endpoint by name. The IC3
+    literal additionally hits the slice 4.3a/b admit gate (bare `x`/`y`
+    references in downstream WITH stages) which fires earlier — the test
+    matcher accepts either failfast site so the regression-lock holds at
+    whichever gate the compile reaches first.
     """
     query = (
         "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
@@ -8171,7 +8178,29 @@ def test_string_cypher_failfast_rejects_intermediate_reentry_match_with_no_carri
     )
     with pytest.raises(
         GFQLValidationError,
-        match=r"(trailing MATCH to start from the same carried node alias|carries non-source whole-row aliases)",
+        match=r"(free-form intermediate MATCH|carries non-source whole-row aliases)",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
+def test_string_cypher_failfast_rejects_simple_freeform_intermediate_reentry_match() -> None:
+    """#1263 minimal free-form regression-lock: even with single-alias prefix
+    and no bare references downstream, a trailing MATCH that does not start
+    from the carried alias is rejected with the scoped #1263 failfast.
+
+    This is the minimal shape that *only* trips the free-form gate (Site A),
+    distinguished from the IC3-shaped query above which trips the bare-ref
+    gate (Site B) first.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}) "
+        "WITH a "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did, c.id AS cid"
+    )
+    with pytest.raises(
+        GFQLValidationError,
+        match=r"free-form intermediate MATCH",
     ):
         _mk_multi_stage_reentry_graph().gfql(query)
 
