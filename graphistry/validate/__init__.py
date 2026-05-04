@@ -21,6 +21,11 @@ from .validate_settings import (  # noqa: E402, F401
     axis_url_defaults,
     normalize_url_params,
     normalize_react_settings,
+    is_axis_bounds_payload,
+    is_axis_row_payload,
+    is_axis_rows_payload,
+    is_ring_continuous_axis_payload,
+    is_ring_categorical_axis_payload,
     classify_axis_kind,
     apply_axis_url_defaults,
 )

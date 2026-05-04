@@ -45,11 +45,8 @@ from graphistry.compute.gfql.call.support import (
     validate_hypergraph_opts,
 )
 from graphistry.validate import (
-    AXIS_BOUNDS_ALLOWED_KEYS,
-    AXIS_ROW_ALLOWED_KEYS,
-    AXIS_ROW_BOOL_KEYS,
-    AXIS_ROW_NUMERIC_KEYS,
-    AXIS_ROW_POSITION_KEYS,
+    is_ring_categorical_axis_payload,
+    is_ring_continuous_axis_payload,
 )
 from graphistry.compute.gfql.row.order_expr import (
     is_order_aggregate_alias_ast,
@@ -183,66 +180,6 @@ def is_where_rows_filter_dict(v: object) -> bool:
 
 def is_list_of_dicts(v: object) -> bool:
     return isinstance(v, list) and all(isinstance(item, dict) for item in v)
-
-
-def _is_numeric(v: object) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
-
-
-def _is_axis_bounds(v: object) -> bool:
-    if not isinstance(v, dict):
-        return False
-    if any(k not in AXIS_BOUNDS_ALLOWED_KEYS for k in v.keys()):
-        return False
-    if "min" in v and not _is_numeric(v["min"]):
-        return False
-    if "max" in v and not _is_numeric(v["max"]):
-        return False
-    return True
-
-
-def _is_axis_row(v: object) -> bool:
-    if not isinstance(v, dict):
-        return False
-    if any(k not in AXIS_ROW_ALLOWED_KEYS for k in v.keys()):
-        return False
-    if "label" in v and not isinstance(v["label"], str):
-        return False
-    for k in AXIS_ROW_NUMERIC_KEYS:
-        if k in v and not _is_numeric(v[k]):
-            return False
-    for k in AXIS_ROW_BOOL_KEYS:
-        if k in v and not isinstance(v[k], bool):
-            return False
-    if "bounds" in v and not _is_axis_bounds(v["bounds"]):
-        return False
-    if all(k not in v for k in AXIS_ROW_POSITION_KEYS):
-        return False
-    return True
-
-
-def _is_axis_rows(v: object) -> bool:
-    return isinstance(v, list) and all(_is_axis_row(item) for item in v)
-
-
-def _is_ring_axis_label_map(v: object) -> bool:
-    return isinstance(v, dict) and all(isinstance(val, str) for val in v.values())
-
-
-def _is_ring_continuous_axis(v: object) -> bool:
-    if _is_axis_rows(v):
-        return True
-    if isinstance(v, list):
-        return all(isinstance(item, str) for item in v)
-    if isinstance(v, dict):
-        return all(_is_numeric(k) and isinstance(val, str) for k, val in v.items())
-    return False
-
-
-def _is_ring_categorical_axis(v: object) -> bool:
-    if _is_axis_rows(v):
-        return True
-    return _is_ring_axis_label_map(v)
 
 
 def is_where_rows_expr(v: object) -> bool:
@@ -675,7 +612,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'v_start': lambda v: v is None or is_int_or_float(v),
             'v_end': lambda v: v is None or is_int_or_float(v),
             'v_step': lambda v: v is None or is_int_or_float(v),
-            'axis': lambda v: v is None or _is_ring_continuous_axis(v),
+            'axis': lambda v: v is None or is_ring_continuous_axis_payload(v),
             'normalize_ring_col': is_bool,
             'reverse': is_bool,
             'play_ms': lambda v: v is None or is_int(v),
@@ -700,7 +637,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'append_unhandled': is_bool,
             'min_r': lambda v: v is None or is_int_or_float(v),
             'max_r': lambda v: v is None or is_int_or_float(v),
-            'axis': lambda v: v is None or _is_ring_categorical_axis(v),
+            'axis': lambda v: v is None or is_ring_categorical_axis_payload(v),
             'reverse': is_bool,
             'play_ms': lambda v: v is None or is_int(v),
             'engine': lambda v: v is None or v in ('auto', 'pandas', 'cudf', 'dask', 'dask_cudf')

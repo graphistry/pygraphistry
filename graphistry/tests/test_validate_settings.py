@@ -13,6 +13,11 @@ from graphistry.validate import (
     URL_PARAM_NAME_SET,
     apply_axis_url_defaults,
     axis_url_defaults,
+    is_axis_bounds_payload,
+    is_axis_row_payload,
+    is_axis_rows_payload,
+    is_ring_categorical_axis_payload,
+    is_ring_continuous_axis_payload,
     normalize_react_settings,
     normalize_url_params,
 )
@@ -31,6 +36,24 @@ def test_axis_row_allowed_keys_contract():
     assert set(AXIS_ROW_POSITION_KEYS) == {"r", "x", "y"}
     assert set(AXIS_ROW_BOOL_KEYS) == {"internal", "external", "space"}
     assert set(AXIS_ROW_NUMERIC_KEYS) == {"r", "x", "y", "width"}
+
+
+def test_axis_payload_validators_exported_contract():
+    assert is_axis_bounds_payload({"min": 1, "max": 2})
+    assert not is_axis_bounds_payload({"min": "1"})
+
+    assert is_axis_row_payload({"r": 200, "label": "outer", "external": True})
+    assert not is_axis_row_payload({"label": "missing_pos"})
+
+    assert is_axis_rows_payload([{"y": 40, "label": "mid", "internal": True}])
+    assert not is_axis_rows_payload([{"label": "missing_pos"}])
+
+    assert is_ring_continuous_axis_payload({100.0: "inner", 200.0: "outer"})
+    assert is_ring_continuous_axis_payload(["low", "mid", "high"])
+    assert not is_ring_continuous_axis_payload({100.0: 1})
+
+    assert is_ring_categorical_axis_payload({"a": "A", "b": "B"})
+    assert not is_ring_categorical_axis_payload({"a": 1})
 
 
 def test_normalize_url_params_strict_unknown_key_raises():
