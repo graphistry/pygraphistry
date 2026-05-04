@@ -200,6 +200,11 @@ def test_issue_1219_policy_boundary_comment_lexemes_do_not_trip_unsupported_gate
     )
     assert [r["id"] for r in _rows(out_line_comment)] == ["a", "b"]
 
+    out_scalar_filter_with_comment = graph.gfql(
+        "MATCH (n) WHERE n.id = 'a' /* exists { shadow } */ RETURN n.id AS id"
+    )
+    assert [r["id"] for r in _rows(out_scalar_filter_with_comment)] == ["a"]
+
 
 @pytest.mark.parametrize(
     "query",
