@@ -390,6 +390,18 @@ def axis_url_defaults(kind: AxisKind) -> Dict[str, SettingsValue]:
     return dict(LINEAR_AXIS_URL_DEFAULTS)
 
 
+def url_param_keys() -> Tuple[str, ...]:
+    return URL_PARAM_NAMES
+
+
+def react_setting_keys() -> Tuple[str, ...]:
+    return REACT_SETTING_NAMES
+
+
+def apply_encodings_keys() -> Tuple[str, ...]:
+    return APPLY_ENCODINGS_REACT_KEYS
+
+
 def _extract_axis_rows(complex_encodings: Any) -> Optional[List[Dict[str, Any]]]:
     if not isinstance(complex_encodings, dict):
         return None

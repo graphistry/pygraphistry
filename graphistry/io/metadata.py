@@ -11,47 +11,23 @@ Format mirrors the arrow uploader metadata structure:
 - style: visualization styles
 - url_params: viewer URL parameter defaults
 """
-from typing import Any, Dict, List, TYPE_CHECKING, cast
+from typing import Any, Dict, List, TYPE_CHECKING
 import copy
 import warnings
 
 from graphistry.io.types import (
-    ComplexEncodingModes,
     ComplexEncodingsDict,
-    DatasetLegacyPayload,
     EncodingsDict,
     MetadataDict,
     NodeEdgeEncodingsDict,
     PlottableMetadata,
     SIMPLE_ENCODING_CLIENT_KEYS,
+    SIMPLE_ENCODING_SERVER_TO_CLIENT_MAP,
 )
 from graphistry.validate import URLParamsDict, normalize_url_params
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
-
-_SIMPLE_ENCODING_SERVER_TO_CLIENT_MAP: Dict[str, str] = {
-    'node_color': 'point_color',
-    'node_size': 'point_size',
-    'node_title': 'point_title',
-    'node_label': 'point_label',
-    'node_icon': 'point_icon',
-    'node_opacity': 'point_opacity',
-    'node_x': 'point_x',
-    'node_y': 'point_y',
-    'edge_color': 'edge_color',
-    'edge_size': 'edge_size',
-    'edge_title': 'edge_title',
-    'edge_label': 'edge_label',
-    'edge_icon': 'edge_icon',
-    'edge_opacity': 'edge_opacity',
-    'edge_source_color': 'edge_source_color',
-    'edge_destination_color': 'edge_destination_color',
-    'edge_weight': 'edge_weight'
-}
-
-_PLOTTABLE_METADATA_KEYS = frozenset(['bindings', 'encodings', 'metadata', 'style', 'url_params'])
-
 
 def serialize_bindings(g: 'Plottable', field_mapping: List[List[str]]) -> Dict[str, str]:
     """Extract bindings from Plottable using field mapping.
@@ -225,7 +201,7 @@ def serialize_plottable_metadata(g: 'Plottable') -> PlottableMetadata:
     node_bindings: Dict[str, str] = serialize_node_bindings(g)
     edge_bindings: Dict[str, str] = serialize_edge_bindings(g)
 
-    for server_key, encoding_key in _SIMPLE_ENCODING_SERVER_TO_CLIENT_MAP.items():
+    for server_key, encoding_key in SIMPLE_ENCODING_SERVER_TO_CLIENT_MAP.items():
         if server_key in node_bindings:
             encodings[encoding_key] = node_bindings[server_key]  # type: ignore[literal-required]
         elif server_key in edge_bindings:
@@ -364,110 +340,3 @@ def deserialize_plottable_metadata(metadata: PlottableMetadata, g: 'Plottable') 
             warnings.warn(f"Failed to hydrate url_params from metadata: {e}", UserWarning, stacklevel=2)
 
     return res
-
-
-def _is_plottable_metadata_dict(payload: Any) -> bool:
-    if not isinstance(payload, dict):
-        return False
-    # "metadata" by itself is ambiguous: dataset payloads often use it for just name/description.
-    if any(k in payload for k in ('bindings', 'encodings', 'style', 'url_params')):
-        return True
-    if 'metadata' in payload and isinstance(payload.get('metadata'), dict):
-        nested = payload['metadata']
-        return any(k in nested for k in ('name', 'description'))
-    return False
-
-
-def _coerce_complex_mode(payload: Any) -> ComplexEncodingModes:
-    out: ComplexEncodingModes = {'default': {}, 'current': {}}
-    if isinstance(payload, dict):
-        complex_payload = payload.get('complex')
-        if isinstance(complex_payload, dict):
-            default_payload = complex_payload.get('default')
-            current_payload = complex_payload.get('current')
-            if isinstance(default_payload, dict):
-                out['default'] = copy.deepcopy(default_payload)
-            if isinstance(current_payload, dict):
-                out['current'] = copy.deepcopy(current_payload)
-    return out
-
-
-def coerce_dataset_payload_to_plottable_metadata(dataset_payload: DatasetLegacyPayload) -> PlottableMetadata:
-    """Best-effort normalize dataset API payloads into PlottableMetadata.
-
-    Supports:
-    - direct metadata shape ({bindings, encodings, metadata, style, url_params})
-    - wrapped metadata shape under dataset_payload['metadata']
-    - legacy dataset payloads with node_encodings/edge_encodings/name/description
-    """
-    metadata_payload = dataset_payload.get('metadata')
-    if _is_plottable_metadata_dict(metadata_payload):
-        return cast(PlottableMetadata, copy.deepcopy(metadata_payload))
-
-    out: PlottableMetadata = {}
-
-    direct_bindings = dataset_payload.get('bindings')
-    if isinstance(direct_bindings, dict):
-        out['bindings'] = cast(Dict[str, str], copy.deepcopy(direct_bindings))
-
-    direct_encodings = dataset_payload.get('encodings')
-    if isinstance(direct_encodings, dict):
-        out['encodings'] = cast(EncodingsDict, copy.deepcopy(direct_encodings))
-
-    node_encodings = dataset_payload.get('node_encodings')
-    edge_encodings = dataset_payload.get('edge_encodings')
-    node_bindings = node_encodings.get('bindings') if isinstance(node_encodings, dict) else None
-    edge_bindings = edge_encodings.get('bindings') if isinstance(edge_encodings, dict) else None
-    node_bindings_dict: Dict[str, str] = cast(Dict[str, str], node_bindings) if isinstance(node_bindings, dict) else {}
-    edge_bindings_dict: Dict[str, str] = cast(Dict[str, str], edge_bindings) if isinstance(edge_bindings, dict) else {}
-
-    bindings: Dict[str, str] = {}
-    for key in ['node', 'source', 'destination', 'edge']:
-        if key in node_bindings_dict and node_bindings_dict[key] is not None:
-            bindings[key] = node_bindings_dict[key]
-        elif key in edge_bindings_dict and edge_bindings_dict[key] is not None:
-            bindings[key] = edge_bindings_dict[key]
-    if bindings and 'bindings' not in out:
-        out['bindings'] = bindings
-
-    encodings: EncodingsDict = {}
-    for server_key, encoding_key in _SIMPLE_ENCODING_SERVER_TO_CLIENT_MAP.items():
-        if server_key in node_bindings_dict and node_bindings_dict[server_key] is not None:
-            encodings[encoding_key] = node_bindings_dict[server_key]  # type: ignore[literal-required]
-        elif server_key in edge_bindings_dict and edge_bindings_dict[server_key] is not None:
-            encodings[encoding_key] = edge_bindings_dict[server_key]  # type: ignore[literal-required]
-
-    node_complex = _coerce_complex_mode(node_encodings)
-    edge_complex = _coerce_complex_mode(edge_encodings)
-    if node_complex['default'] or node_complex['current'] or edge_complex['default'] or edge_complex['current']:
-        encodings['complex_encodings'] = {
-            'node_encodings': node_complex,
-            'edge_encodings': edge_complex
-        }
-    if encodings and 'encodings' not in out:
-        out['encodings'] = encodings
-
-    metadata_obj: MetadataDict = {}
-    name = dataset_payload.get('name')
-    description = dataset_payload.get('description')
-    if isinstance(metadata_payload, dict):
-        if 'name' in metadata_payload and metadata_payload.get('name') is not None:
-            name = metadata_payload.get('name')
-        if 'description' in metadata_payload and metadata_payload.get('description') is not None:
-            description = metadata_payload.get('description')
-    if isinstance(name, str) and name != '':
-        metadata_obj['name'] = name
-    if isinstance(description, str) and description != '':
-        metadata_obj['description'] = description
-    if metadata_obj:
-        out['metadata'] = metadata_obj
-
-    style = dataset_payload.get('style')
-    if isinstance(style, dict):
-        out['style'] = copy.deepcopy(style)
-
-    url_params = dataset_payload.get('url_params')
-    if isinstance(url_params, dict):
-        out['url_params'] = normalize_url_params(url_params, validate="autofix", warn=False)
-
-    return out

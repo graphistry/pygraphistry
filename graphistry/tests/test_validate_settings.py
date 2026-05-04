@@ -23,6 +23,9 @@ from graphistry.validate import (
     is_ring_continuous_axis_payload,
     normalize_react_settings,
     normalize_url_params,
+    apply_encodings_keys,
+    react_setting_keys,
+    url_param_keys,
 )
 
 
@@ -35,6 +38,12 @@ def test_settings_key_sets_exported():
 def test_known_typed_dict_keyspaces_align_with_exported_sets():
     assert set(KnownURLParamsDict.__annotations__.keys()) == URL_PARAM_NAME_SET
     assert set(KnownReactSettingsDict.__annotations__.keys()) == REACT_SETTING_NAME_SET
+
+
+def test_introspection_key_accessors():
+    assert set(url_param_keys()) == URL_PARAM_NAME_SET
+    assert set(react_setting_keys()) == REACT_SETTING_NAME_SET
+    assert set(apply_encodings_keys()) == APPLY_ENCODINGS_REACT_KEY_SET
 
 
 def test_axis_row_allowed_keys_contract():
