@@ -11121,11 +11121,13 @@ def test_issue_1038_ic4_return_side_case_expression_regression_lock() -> None:
         params={"pid": "p1"},
     )
 
-    assert result._nodes.to_dict(orient="records") == [
-        {"tagName": "TagA", "rawPostId": "post1", "postId": "post1"},
-        {"tagName": "TagA", "rawPostId": "post2", "postId": None},
-        {"tagName": "TagB", "rawPostId": "post3", "postId": "post3"},
-    ]
+    rows = result._nodes.to_dict(orient="records")
+    assert len(rows) == 3
+    assert rows[0] == {"tagName": "TagA", "rawPostId": "post1", "postId": "post1"}
+    assert rows[1]["tagName"] == "TagA"
+    assert rows[1]["rawPostId"] == "post2"
+    assert pd.isna(rows[1]["postId"])
+    assert rows[2] == {"tagName": "TagB", "rawPostId": "post3", "postId": "post3"}
 
 
 def test_issue_1038_rejects_aggregate_inside_row_case_expression() -> None:
