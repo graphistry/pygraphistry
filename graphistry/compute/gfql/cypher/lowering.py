@@ -3380,12 +3380,12 @@ def _binding_row_aliases_for_hidden_reentry_refs(
             )
         )
     if order_by_clause is not None:
-        for item in order_by_clause.items:
+        for order_item in order_by_clause.items:
             expr_texts.append(
                 (
-                    item.expression.text,
-                    item.span.line,
-                    item.span.column,
+                    order_item.expression.text,
+                    order_item.span.line,
+                    order_item.span.column,
                     "order_by",
                 )
             )
