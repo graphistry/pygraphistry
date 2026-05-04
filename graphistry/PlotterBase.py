@@ -4,7 +4,7 @@ from typing_extensions import Literal
 from graphistry.io.types import ComplexEncodingsDict
 from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationMode, ValidationParam
-from graphistry.validate import URLParamsDict
+from graphistry.validate import URLParamsDict, REACT_SETTING_NAME_SET
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
 from graphistry.Engine import EngineAbstractType
@@ -514,6 +514,180 @@ class PlotterBase(Plottable):
         out = self.bind()
         out._complex_encodings = complex_encodings
         out._dataset_id = None
+        return out
+
+    def apply_encodings(
+        self,
+        react_encodings: Optional[Dict[str, Any]],
+        validate: ValidationParam = "strict",
+        warn: bool = True,
+    ) -> Plottable:
+        """Apply React-style declarative encoding payloads.
+
+        Supported keys:
+        - ``encodePointColor`` / ``encodeEdgeColor``: ``[column, variation?, mapping_or_palette?]``
+        - ``encodePointSize``: ``[column, categorical_mapping?, default_mapping?]``
+        - ``encodePointIcons`` / ``encodeEdgeIcons``: ``[column, categorical_mapping_or_bins?, default_mapping?]``
+        - ``encodeAxis``: ``rows`` list accepted by :meth:`encode_axis`
+        """
+        if react_encodings is None:
+            return self
+        if not isinstance(react_encodings, dict):
+            raise ValueError({"message": "react_encodings must be a dict", "data": {"type": type(react_encodings).__name__}})
+
+        if validate is True:
+            validate_mode: ValidationMode = "strict"
+        elif validate is False:
+            validate_mode = "autofix"
+            warn = False
+        else:
+            validate_mode = validate
+
+        out: Plottable = self
+        dispatcher_keys = frozenset([
+            "encodePointColor",
+            "encodeEdgeColor",
+            "encodePointSize",
+            "encodePointIcons",
+            "encodePointIcon",
+            "encodeEdgeIcons",
+            "encodeEdgeIcon",
+            "encodeAxis",
+        ])
+
+        def issue(message: str, data: Optional[Dict[str, Any]] = None) -> None:
+            err = ValueError({"message": message, "data": data} if data else {"message": message})
+            if validate_mode in ("strict", "strict-fast"):
+                raise err
+            if warn:
+                logger.warning("apply_encodings autofix: %s (%s)", message, data)
+
+        def expect_list_payload(raw_value: Any, key: str) -> Optional[List[Any]]:
+            if not isinstance(raw_value, list):
+                issue("React encoding payload must be a list", {"key": key, "type": type(raw_value).__name__})
+                return None
+            return raw_value
+
+        def expect_column(raw_value: Any, key: str) -> Optional[str]:
+            if not isinstance(raw_value, str) or raw_value.strip() == "":
+                issue("React encoding column must be a non-empty string", {"key": key, "value": raw_value})
+                return None
+            return raw_value
+
+        def apply_color_encoding(current: Plottable, key: str, raw_value: Any) -> Plottable:
+            method = current.encode_point_color if key == "encodePointColor" else current.encode_edge_color
+            payload = expect_list_payload(raw_value, key)
+            if payload is None or len(payload) == 0:
+                issue("React color encoding payload must include at least [column]", {"key": key})
+                return current
+            if len(payload) > 3:
+                issue("React color encoding payload supports at most 3 elements", {"key": key, "len": len(payload)})
+                return current
+            column = expect_column(payload[0], key)
+            if column is None:
+                return current
+            if len(payload) == 1:
+                return method(column)
+
+            variation: Optional[str] = None
+            mapping_or_palette: Any = None
+            second = payload[1]
+            if isinstance(second, str) and second in ("categorical", "continuous"):
+                variation = second
+                if len(payload) >= 3:
+                    mapping_or_palette = payload[2]
+            else:
+                mapping_or_palette = second
+
+            if mapping_or_palette is None:
+                return method(column)
+            if isinstance(mapping_or_palette, dict):
+                if variation == "continuous":
+                    issue("Continuous color payload must use a palette list, not dict mapping", {"key": key})
+                    return current
+                return method(column, categorical_mapping=mapping_or_palette)
+            if isinstance(mapping_or_palette, list):
+                kwargs: Dict[str, Any] = {"palette": mapping_or_palette}
+                if variation == "continuous":
+                    kwargs["as_continuous"] = True
+                elif variation == "categorical":
+                    kwargs["as_categorical"] = True
+                else:
+                    kwargs["as_categorical"] = True
+                return method(column, **kwargs)
+
+            issue("React color payload mapping/palette must be dict or list", {"key": key, "type": type(mapping_or_palette).__name__})
+            return current
+
+        def apply_size_encoding(current: Plottable, key: str, raw_value: Any) -> Plottable:
+            payload = expect_list_payload(raw_value, key)
+            if payload is None or len(payload) == 0:
+                issue("React size encoding payload must include at least [column]", {"key": key})
+                return current
+            if len(payload) > 3:
+                issue("React size encoding payload supports at most 3 elements", {"key": key, "len": len(payload)})
+                return current
+            column = expect_column(payload[0], key)
+            if column is None:
+                return current
+            kwargs: Dict[str, Any] = {}
+            if len(payload) >= 2:
+                if payload[1] is None:
+                    pass
+                elif isinstance(payload[1], dict):
+                    kwargs["categorical_mapping"] = payload[1]
+                else:
+                    issue("React size mapping must be a dict", {"key": key, "type": type(payload[1]).__name__})
+                    return current
+            if len(payload) == 3:
+                kwargs["default_mapping"] = payload[2]
+            return current.encode_point_size(column, **kwargs)
+
+        def apply_icon_encoding(current: Plottable, key: str, raw_value: Any) -> Plottable:
+            method = current.encode_point_icon if key in ("encodePointIcons", "encodePointIcon") else current.encode_edge_icon
+            payload = expect_list_payload(raw_value, key)
+            if payload is None or len(payload) == 0:
+                issue("React icon encoding payload must include at least [column]", {"key": key})
+                return current
+            if len(payload) > 3:
+                issue("React icon encoding payload supports at most 3 elements", {"key": key, "len": len(payload)})
+                return current
+            column = expect_column(payload[0], key)
+            if column is None:
+                return current
+            kwargs: Dict[str, Any] = {}
+            if len(payload) >= 2:
+                if payload[1] is None:
+                    pass
+                elif isinstance(payload[1], dict):
+                    kwargs["categorical_mapping"] = payload[1]
+                elif isinstance(payload[1], list):
+                    kwargs["continuous_binning"] = payload[1]
+                else:
+                    issue("React icon mapping must be dict or list", {"key": key, "type": type(payload[1]).__name__})
+                    return current
+            if len(payload) == 3:
+                kwargs["default_mapping"] = payload[2]
+            return method(column, **kwargs)
+
+        for key, value in react_encodings.items():
+            if key not in dispatcher_keys:
+                if key in REACT_SETTING_NAME_SET:
+                    issue("React setting key is valid but not handled by apply_encodings()", {"key": key})
+                else:
+                    issue("Unknown React setting key", {"key": key})
+                continue
+            if key in ("encodePointColor", "encodeEdgeColor"):
+                out = apply_color_encoding(out, key, value)
+            elif key == "encodePointSize":
+                out = apply_size_encoding(out, key, value)
+            elif key in ("encodePointIcons", "encodePointIcon", "encodeEdgeIcons", "encodeEdgeIcon"):
+                out = apply_icon_encoding(out, key, value)
+            elif key == "encodeAxis":
+                if not isinstance(value, list):
+                    issue("encodeAxis must be a list of axis row objects", {"type": type(value).__name__})
+                    continue
+                out = out.encode_axis(value)
         return out
 
 

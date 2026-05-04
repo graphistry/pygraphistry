@@ -12,11 +12,12 @@ from graphistry.validate import URLParamsDict
 from graphistry.otel import inject_trace_headers, otel as otel_config
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
-import calendar, copy, gzip, io, json, numpy as np, pandas as pd, requests, sys, time, warnings
+import calendar, copy, gzip, io, json, numpy as np, pandas as pd, requests, sys, time, uuid, warnings
 
 from datetime import datetime
 
 from .arrow_uploader import ArrowUploader, ArrowFileUploader
+from .io.metadata import coerce_dataset_payload_to_plottable_metadata, deserialize_plottable_metadata
 
 from . import util
 from . import bolt_util
@@ -1835,6 +1836,25 @@ class GraphistryClient(AuthManagerProtocol):
             shape=shape,
         )
 
+    def apply_encodings(
+        self,
+        react_encodings: Optional[Dict[str, Any]],
+        validate: ValidationParam = "strict",
+        warn: bool = True,
+    ) -> Plotter:
+        """Apply React-style declarative encodings.
+
+        See :meth:`graphistry.PlotterBase.PlotterBase.apply_encodings` for supported keys.
+        """
+        return cast(
+            Plotter,
+            self._plotter().apply_encodings(
+                react_encodings=react_encodings,
+                validate=validate,
+                warn=warn,
+            ),
+        )
+
     def bind(
         self,
         source: Optional[str] = None,
@@ -1908,6 +1928,69 @@ class GraphistryClient(AuthManagerProtocol):
             point_latitude=point_latitude,
             dataset_id=dataset_id
         ))
+
+    def from_dataset_id(self, dataset_id: str, api_token: Optional[str] = None) -> Plotter:
+        """Fetch existing remote dataset metadata and hydrate a Plotter.
+
+        :param dataset_id: Existing uploaded dataset id
+        :type dataset_id: str
+        :param api_token: Optional API token override. If omitted, uses current session token.
+        :type api_token: Optional[str]
+        :returns: Plotter bound to dataset id and hydrated from metadata payload
+        :rtype: Plotter
+        """
+        if not isinstance(dataset_id, str):
+            raise ValueError("dataset_id must be a string")
+        dataset_id = dataset_id.strip()
+        if dataset_id == "":
+            raise ValueError("dataset_id cannot be empty")
+
+        if api_token is None:
+            self.refresh()
+            api_token = self.session.api_token
+        if api_token is None:
+            raise ValueError("Missing API token: pass api_token or call graphistry.register()/login() first")
+
+        endpoint = f"{self.protocol()}://{self.server()}/api/v2/upload/datasets/{dataset_id}"
+        response = requests.get(
+            endpoint,
+            headers=inject_trace_headers({'Authorization': f'Bearer {api_token}'}),
+            verify=self.certificate_validation(),
+        )
+        log_requests_error(response)
+        if not (200 <= response.status_code < 300):
+            raise ValueError(
+                f"Failed to fetch dataset metadata for dataset_id='{dataset_id}': HTTP {response.status_code}"
+            )
+
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise ValueError("Dataset metadata endpoint returned non-object JSON")
+
+        data_payload = payload.get('data', payload)
+        if not isinstance(data_payload, dict):
+            raise ValueError("Dataset metadata endpoint returned invalid payload shape")
+
+        server_dataset_id = data_payload.get('dataset_id')
+        resolved_dataset_id = server_dataset_id if isinstance(server_dataset_id, str) and server_dataset_id else dataset_id
+        out = self.bind(dataset_id=resolved_dataset_id)
+
+        metadata = coerce_dataset_payload_to_plottable_metadata(data_payload)
+        if metadata:
+            out = cast(Plotter, deserialize_plottable_metadata(metadata, out))
+            from graphistry.validate import apply_axis_url_defaults
+            merged_url_params = apply_axis_url_defaults(out._url_params, out._complex_encodings)
+            if isinstance(merged_url_params, dict):
+                out._url_params = merged_url_params
+            out._dataset_id = resolved_dataset_id
+
+        info: DatasetInfo = {
+            'name': resolved_dataset_id,
+            'type': 'arrow',
+            'viztoken': str(uuid.uuid4()),
+        }
+        out._url = self._viz_url(info, out._url_params)
+        return out
 
     def client(self, inherit: bool = False) -> 'GraphistryClient':
         """Create a new client instance with isolated session state.
@@ -2612,6 +2695,7 @@ refresh = PyGraphistry.refresh
 api_token = PyGraphistry.api_token
 verify_token = PyGraphistry.verify_token
 bind = PyGraphistry.bind
+from_dataset_id = PyGraphistry.from_dataset_id
 addStyle = PyGraphistry.addStyle
 style = PyGraphistry.style
 encode_point_color = PyGraphistry.encode_point_color
@@ -2621,6 +2705,7 @@ encode_point_icon = PyGraphistry.encode_point_icon
 encode_edge_icon = PyGraphistry.encode_edge_icon
 encode_point_badge = PyGraphistry.encode_point_badge
 encode_edge_badge = PyGraphistry.encode_edge_badge
+apply_encodings = PyGraphistry.apply_encodings
 infer_labels = PyGraphistry.infer_labels
 name = PyGraphistry.name
 description = PyGraphistry.description

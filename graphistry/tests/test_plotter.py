@@ -973,6 +973,44 @@ class TestPlotterEncodings(NoAuthTestCase):
     def test_edge_color(self):
         assert graphistry.bind().encode_edge_color("z")._edge_color == "z"
 
+    def test_apply_encodings_happy_path(self):
+        g2 = graphistry.bind().apply_encodings({
+            "encodePointColor": ["kind", "categorical", {"primary": "red"}],
+            "encodePointIcons": ["kind", {"primary": "server"}],
+            "encodePointSize": ["bucket", {"small": 5, "large": 30}, 1],
+            "encodeAxis": [{"r": 200, "label": "outer", "external": True}],
+        })
+
+        node_default = g2._complex_encodings["node_encodings"]["default"]
+        assert node_default["pointColorEncoding"]["attribute"] == "kind"
+        assert node_default["pointColorEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "red"
+        assert node_default["pointIconEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "server"
+        assert node_default["pointSizeEncoding"]["mapping"]["categorical"]["fixed"]["small"] == 5
+        assert node_default["pointSizeEncoding"]["mapping"]["categorical"]["other"] == 1
+        assert node_default["pointAxisEncoding"]["rows"][0]["label"] == "outer"
+
+    def test_apply_encodings_autofix_continues(self):
+        g2 = graphistry.bind().apply_encodings(
+            {
+                "encodePointColor": "bad-shape",
+                "encodePointSize": ["bucket", {"small": 5}],
+            },
+            validate="autofix",
+            warn=False,
+        )
+        node_default = g2._complex_encodings["node_encodings"]["default"]
+        assert "pointColorEncoding" not in node_default
+        assert node_default["pointSizeEncoding"]["attribute"] == "bucket"
+
+    def test_apply_encodings_strict_rejects_unsupported_react_key(self):
+        with pytest.raises(ValueError):
+            graphistry.bind().apply_encodings({"showInfo": True}, validate="strict")
+
+    def test_apply_encodings_module_export(self):
+        g2 = graphistry.apply_encodings({"encodePointColor": ["kind", {"primary": "red"}]})
+        node_default = g2._complex_encodings["node_encodings"]["default"]
+        assert node_default["pointColorEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "red"
+
     def test_badge(self):
 
         assert graphistry.bind().encode_point_badge(
