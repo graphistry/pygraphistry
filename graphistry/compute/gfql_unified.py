@@ -34,6 +34,7 @@ from graphistry.compute.gfql.cypher.lowering import (
     ConnectedOptionalMatchPlan,
     _reentry_hidden_column_name,
 )
+from graphistry.compute.gfql.cypher.reentry_plan import ReentryPlan
 from graphistry.compute.gfql.cypher.call_procedures import execute_cypher_call
 from graphistry.compute.gfql.cypher.result_postprocess import WholeRowProjectionMeta, apply_result_projection
 from graphistry.compute.gfql.df_executor import (
@@ -958,6 +959,54 @@ def _execute_compiled_query_with_reentry(
                 # carried hidden columns onto every base node so the row
                 # pipeline carries them through whichever alias the trailing
                 # MATCH binds; the suffix runs as a global MATCH (no seed).
+                prefix_rows_for_freeform = getattr(prefix_result, "_nodes", None)
+                prefix_row_count_freeform = (
+                    len(prefix_rows_for_freeform) if prefix_rows_for_freeform is not None else 0
+                )
+                if prefix_row_count_freeform > 1:
+                    # #1285: multi-prefix-row free-form intermediate MATCH —
+                    # run suffix once per prefix row with that row's hidden
+                    # carry values broadcast, then union per-row results.
+                    # Mirrors the scalar-only multi-row pattern at lines 916-945
+                    # above; reuses ``_union_scalar_reentry_results`` (engine-
+                    # polymorphic concat).
+                    if compiled_query.optional_reentry:
+                        raise _reentry_validation_error(
+                            "Cypher OPTIONAL MATCH after a multi-row free-form WITH prefix is not yet supported"
+                            " — null-fill for unmatched prefix rows is not implemented for N>1 prefix rows",
+                            value=prefix_row_count_freeform,
+                            suggestion="Use MATCH instead of OPTIONAL MATCH, or reduce the WITH prefix to a single row",
+                            field="optional_reentry",
+                        )
+                    base_nodes_for_freeform = getattr(base_graph, "_nodes", None)
+                    if base_nodes_for_freeform is None:
+                        raise _reentry_validation_error(
+                            "Cypher MATCH after WITH (free-form intermediate MATCH; #1285) "
+                            "could not recover the base node table for re-entry",
+                            value=None,
+                            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
+                        )
+                    row_results = []
+                    for i in range(prefix_row_count_freeform):
+                        row_graph = _freeform_broadcast_row_to_nodes(
+                            base_graph,
+                            cast(DataFrameT, base_nodes_for_freeform),
+                            cast(DataFrameT, prefix_rows_for_freeform),
+                            plan,
+                            row_index=i,
+                        )
+                        row_result = _execute_compiled_query(
+                            row_graph,
+                            compiled_query=compiled_query,
+                            engine=engine,
+                            policy=policy,
+                            context=context,
+                            start_nodes=None,
+                        )
+                        row_results.append(row_result)
+                    return _union_scalar_reentry_results(
+                        row_results, base_graph=base_graph, engine=engine
+                    )
                 compiled_base_graph, start_nodes = _compiled_query_freeform_reentry_state(
                     base_graph,
                     compiled_query,
@@ -1221,71 +1270,22 @@ def _compiled_query_scalar_reentry_state(
     return dispatch_graph, None
 
 
-def _compiled_query_freeform_reentry_state(
+def _freeform_broadcast_row_to_nodes(
     base_graph: Plottable,
-    compiled_query: CompiledCypherQuery,
-    prefix_result: Plottable,
+    base_nodes: DataFrameT,
+    prefix_rows: DataFrameT,
+    plan: ReentryPlan,
     *,
-    engine: Union[EngineAbstract, str],
-) -> Tuple[Plottable, Optional[DataFrameT]]:
-    """#1263 free-form intermediate MATCH (LDBC SNB IC3 endpoint).
+    row_index: int,
+) -> Plottable:
+    """Build a dispatch graph for a single free-form prefix row.
 
-    The trailing MATCH binds aliases that are NOT in the prefix WITH's carried
-    whole-row set, so it must run against the full base graph (no carried-id
-    seed filter). Carried hidden columns from the prefix row are broadcast
-    onto every base node so the row pipeline carries them through whichever
-    alias the trailing MATCH binds; downstream WHERE/RETURN expressions
-    referencing carried-alias properties resolve through those broadcast
-    columns.
-
-    Conservative scope: single-prefix-row only. Multi-prefix-row free-form
-    raises a clear failfast pointing at a follow-up slice; the existing
-    per-row-union pattern (used for scalar-only multi-row prefixes at
-    ``_compiled_query_scalar_reentry_state``) does not yet apply because
-    free-form has no shared anchor alias.
+    Broadcasts that row's carried hidden columns onto every base node so the
+    trailing MATCH (running global, with `start_nodes=None`) inherits the
+    carried values via the row pipeline. Used for both single-prefix-row and
+    multi-prefix-row (#1285) free-form lanes.
     """
-    prefix_rows = getattr(prefix_result, "_nodes", None)
-    base_nodes = getattr(base_graph, "_nodes", None)
-    if base_nodes is None:
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH (free-form intermediate MATCH; #1263) "
-            "could not recover the base node table for re-entry",
-            value=None,
-            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
-        )
-    if prefix_rows is None or len(prefix_rows) == 0:
-        # Empty prefix → empty result. Return a graph with empty nodes/edges
-        # so the suffix produces no rows.
-        dispatch_graph = base_graph.bind()
-        dispatch_graph._nodes = cast(DataFrameT, base_nodes.iloc[0:0])
-        edges_df = getattr(base_graph, "_edges", None)
-        if edges_df is not None:
-            dispatch_graph._edges = cast(DataFrameT, edges_df.iloc[0:0])
-        return dispatch_graph, None
-    if len(prefix_rows) > 1:
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH (free-form intermediate MATCH; #1263) "
-            "currently supports a single-row prefix WITH only — multi-row "
-            "free-form admit is a follow-up slice.",
-            value=len(prefix_rows),
-            suggestion=(
-                "Restrict the prefix WITH to produce a single row (e.g. by "
-                "filtering on a unique node id) or wait for the multi-row "
-                "free-form follow-up under #1263 / #989."
-            ),
-        )
-
-    plan = compiled_query.reentry_plan
-    if plan is None:
-        # Defensive: caller already gated on plan.free_form, so reaching here
-        # without a plan is a programmer error.
-        raise _reentry_validation_error(
-            "Cypher free-form intermediate MATCH dispatched without a ReentryPlan",
-            value=None,
-            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
-        )
-
-    row = prefix_rows.iloc[0]
+    row = prefix_rows.iloc[row_index]
     broadcast_values: Dict[str, Any] = {}
     # Top-level scalar carries (e.g. ``WITH a, b.id AS bid``): the prefix row
     # exposes them under their output names; the runtime hidden column on the
@@ -1319,6 +1319,72 @@ def _compiled_query_freeform_reentry_state(
     edges_df = getattr(base_graph, "_edges", None)
     if edges_df is not None:
         dispatch_graph._edges = edges_df
+    return dispatch_graph
+
+
+def _compiled_query_freeform_reentry_state(
+    base_graph: Plottable,
+    compiled_query: CompiledCypherQuery,
+    prefix_result: Plottable,
+    *,
+    engine: Union[EngineAbstract, str],
+) -> Tuple[Plottable, Optional[DataFrameT]]:
+    """#1263 free-form intermediate MATCH (LDBC SNB IC3 endpoint), single-row.
+
+    The trailing MATCH binds aliases that are NOT in the prefix WITH's carried
+    whole-row set, so it must run against the full base graph (no carried-id
+    seed filter). Carried hidden columns from the prefix row are broadcast
+    onto every base node so the row pipeline carries them through whichever
+    alias the trailing MATCH binds; downstream WHERE/RETURN expressions
+    referencing carried-alias properties resolve through those broadcast
+    columns.
+
+    Single-prefix-row dispatch only. Multi-prefix-row free-form (#1285) is
+    handled at the caller via a per-row union loop (mirror of the scalar-only
+    multi-row pattern at ``_execute_compiled_query_with_reentry``).
+    """
+    prefix_rows = getattr(prefix_result, "_nodes", None)
+    base_nodes = getattr(base_graph, "_nodes", None)
+    if base_nodes is None:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH (free-form intermediate MATCH; #1263) "
+            "could not recover the base node table for re-entry",
+            value=None,
+            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
+        )
+    if prefix_rows is None or len(prefix_rows) == 0:
+        # Empty prefix → empty result. Return a graph with empty nodes/edges
+        # so the suffix produces no rows.
+        dispatch_graph = base_graph.bind()
+        dispatch_graph._nodes = cast(DataFrameT, base_nodes.iloc[0:0])
+        edges_df = getattr(base_graph, "_edges", None)
+        if edges_df is not None:
+            dispatch_graph._edges = cast(DataFrameT, edges_df.iloc[0:0])
+        return dispatch_graph, None
+    # Single-row dispatch only; the caller routes multi-row through the
+    # per-row union loop in ``_execute_compiled_query_with_reentry``.
+    if len(prefix_rows) > 1:
+        raise _reentry_validation_error(
+            "Cypher MATCH after WITH (free-form intermediate MATCH) single-row "
+            "dispatcher invoked with a multi-row prefix; the caller should "
+            "route multi-row free-form through the per-row union loop.",
+            value=len(prefix_rows),
+            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
+        )
+
+    plan = compiled_query.reentry_plan
+    if plan is None:
+        # Defensive: caller already gated on plan.free_form, so reaching here
+        # without a plan is a programmer error.
+        raise _reentry_validation_error(
+            "Cypher free-form intermediate MATCH dispatched without a ReentryPlan",
+            value=None,
+            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
+        )
+
+    dispatch_graph = _freeform_broadcast_row_to_nodes(
+        base_graph, cast(DataFrameT, base_nodes), cast(DataFrameT, prefix_rows), plan, row_index=0,
+    )
     return dispatch_graph, None
 
 

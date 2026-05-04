@@ -8394,7 +8394,14 @@ def test_string_cypher_executes_freeform_intermediate_reentry_match_with_empty_p
 
 
 def test_string_cypher_freeform_intermediate_reentry_preserves_bag_semantics_multi_row_prefix() -> None:
-    """#1263 safe subset: multi-row prefixes preserve bag semantics."""
+    """#1263/#1285 multi-prefix-row free-form intermediate MATCH executes via
+    per-row union (mirror of the scalar-only multi-row pattern from #1047).
+
+    Prefix yields 2 ``A`` rows; trailing MATCH ``(c:C)-[:T]->(d:D)`` yields 1
+    pair globally → cartesian product = 2 result rows (one per prefix row,
+    bag semantics preserved). Originally landed in #1287 as the bag-semantics
+    lock; #1285 reuses the same fixture/shape for the multi-row admit.
+    """
     nodes = pd.DataFrame(
         {
             "id": ["a", "a2", "b", "c", "d"],
@@ -8420,6 +8427,103 @@ def test_string_cypher_freeform_intermediate_reentry_preserves_bag_semantics_mul
     )
     result = graph.gfql(query)
     assert result._nodes.to_dict(orient="records") == [{"did": "d"}, {"did": "d"}]
+
+
+
+def test_string_cypher_executes_freeform_intermediate_reentry_match_on_multi_row_prefix_cartesian() -> None:
+    """#1285: confirm cartesian semantics — 2 prefix rows × 2 trailing-MATCH
+    pairs = 4 result rows. Locks per-row union behaves like a Cartesian
+    product over (prefix_row, trailing_row)."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "a2", "c1", "d1", "c2", "d2"],
+            "label__A": [True, True, False, False, False, False],
+            "label__C": [False, False, True, False, True, False],
+            "label__D": [False, False, False, True, False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["c1", "c2"],
+            "d": ["d1", "d2"],
+            "type": ["T", "T"],
+        }
+    )
+    graph = _mk_graph(nodes, edges)
+    query = (
+        "MATCH (a:A) "
+        "WITH a "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did, c.id AS cid"
+    )
+    result = graph.gfql(query)
+    records = result._nodes.to_dict(orient="records")
+    # 2 prefix rows × 2 trailing pairs = 4 rows; per-row union runs the
+    # trailing MATCH once per prefix row, so each (cid, did) pair appears twice.
+    assert len(records) == 4
+    counts = {(r["cid"], r["did"]) for r in records}
+    assert counts == {("c1", "d1"), ("c2", "d2")}
+    assert sum(1 for r in records if (r["cid"], r["did"]) == ("c1", "d1")) == 2
+    assert sum(1 for r in records if (r["cid"], r["did"]) == ("c2", "d2")) == 2
+
+
+def test_string_cypher_failfast_rejects_freeform_multi_row_prefix_with_optional_reentry() -> None:
+    """#1285: multi-prefix-row free-form combined with OPTIONAL MATCH is not
+    yet supported — the per-row union path returns early before any
+    null-fill branch, which would silently produce wrong results for prefix
+    rows that match nothing. Mirrors the scalar-only guard locked by
+    ``test_issue_1047_multi_row_scalar_prefix_with_optional_reentry_raises``.
+    """
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "a2", "c", "d"],
+            "label__A": [True, True, False, False],
+            "label__C": [False, False, True, False],
+            "label__D": [False, False, False, True],
+        }
+    )
+    edges = pd.DataFrame({"s": ["c"], "d": ["d"], "type": ["T"]})
+    graph = _mk_graph(nodes, edges)
+    query = (
+        "MATCH (a:A) "
+        "WITH a "
+        "OPTIONAL MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did"
+    )
+    with pytest.raises(Exception, match="optional"):
+        graph.gfql(query)
+
+
+def test_string_cypher_executes_freeform_intermediate_reentry_match_on_multi_row_prefix_on_cudf_when_available() -> None:
+    """#1285 cuDF parity for the multi-prefix-row free-form admit."""
+    cudf = pytest.importorskip("cudf")
+    nodes_pd = pd.DataFrame(
+        {
+            "id": ["a", "a2", "c", "d"],
+            "label__A": [True, True, False, False],
+            "label__C": [False, False, True, False],
+            "label__D": [False, False, False, True],
+        }
+    )
+    edges_pd = pd.DataFrame(
+        {
+            "s": ["c"],
+            "d": ["d"],
+            "type": ["T"],
+        }
+    )
+    graph = _mk_graph(cudf.from_pandas(nodes_pd), cudf.from_pandas(edges_pd))
+    query = (
+        "MATCH (a:A) "
+        "WITH a "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did"
+    )
+    result = graph.gfql(query)
+    nodes_pd_out = (
+        result._nodes.to_pandas() if hasattr(result._nodes, "to_pandas") else result._nodes
+    )
+    assert nodes_pd_out.to_dict(orient="records") == [{"did": "d"}, {"did": "d"}]
 
 
 def test_string_cypher_executes_simple_freeform_intermediate_reentry_match_on_cudf_when_available() -> None:
