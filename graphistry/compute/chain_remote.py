@@ -93,10 +93,11 @@ def _compiled_to_let_json(compiled: CompiledQueryLike) -> Dict[str, Any]:
 
 
 def _refresh_url_from_dataset_id(g: Plottable) -> None:
-    if not getattr(g, "_dataset_id", None):
+    dataset_id = getattr(g, "_dataset_id", None)
+    if not isinstance(dataset_id, str) or dataset_id == "":
         return
     info: DatasetInfo = {
-        "name": g._dataset_id,
+        "name": dataset_id,
         "type": "arrow",
         "viztoken": str(uuid.uuid4()),
     }
