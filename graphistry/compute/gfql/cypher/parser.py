@@ -1902,7 +1902,8 @@ def _build_transformer(source: str) -> _TransformerLike:
 
 _PATTERN_EXISTENCE_RE = re.compile(
     r"""
-    (?:not\s*)\(\s*\(\s*\w+\s*\)\s*-\s*\[  # not((a)-[
+    not\s*\(\s*\(\s*[^)\n]*\)\s*          # not((<node>)
+    (?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)
     |
     not\s+exists\s*\{                        # not exists {
     |
