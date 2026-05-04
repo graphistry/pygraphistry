@@ -8207,20 +8207,17 @@ def test_string_cypher_chained_reentry_carry_with_aggregate_node_only_match_fail
         _mk_multi_stage_reentry_graph().gfql(query)
 
 
-def test_string_cypher_failfast_rejects_intermediate_reentry_match_with_no_carried_source() -> None:
-    """#1263 (LDBC SNB IC3 endpoint): trailing MATCH that does NOT start from
-    a carried alias (free-form intermediate MATCH) raises a scoped failfast
-    pointing at #1263 even when the trailing WHERE references carried-alias
-    properties.
+def test_string_cypher_failfast_rejects_intermediate_reentry_match_with_carried_property_in_trailing_where() -> None:
+    """#1263 conservative scope: free-form intermediate MATCH whose trailing
+    WHERE references a carried-alias property (e.g. ``WHERE country.id IN
+    [x.id, y.id]`` in literal LDBC SNB IC3) is REJECTED with a scoped #1263
+    failfast pointing at the rewrite-order refactor follow-up.
 
-    The literal LDBC SNB IC3 query begins ``WITH a, x, y MATCH (city:City)
-    -[:IS_PART_OF]->(country:Country) ...`` — neither ``city`` nor ``country``
-    is a carried alias. Closing this requires admitting the trailing MATCH as
-    a fresh seed pattern that cross-joins with the carried row table; the
-    runtime then propagates carries onto the new bindings.
-
-    Originally introduced under #1256 with a generic carried-alias gate
-    message; tightened in #1263 to call out the IC3 endpoint by name.
+    Simple free-form (no carried-property refs in trailing scope) is admitted
+    by the same #1263 PR; the carried-property variant defers to a focused
+    follow-up because the existing demote (#1071) and property-carry (#1248)
+    rewriters compose into a double-wrapped hidden column name without a
+    rewrite-order refactor.
     """
     query = (
         "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
@@ -8231,19 +8228,19 @@ def test_string_cypher_failfast_rejects_intermediate_reentry_match_with_no_carri
     )
     with pytest.raises(
         GFQLValidationError,
-        match=r"free-form intermediate MATCH",
+        match=r"free-form intermediate MATCH \(#1263\) does not yet support carried-alias property references",
     ):
         _mk_multi_stage_reentry_graph().gfql(query)
 
 
-def test_string_cypher_failfast_rejects_simple_freeform_intermediate_reentry_match() -> None:
-    """#1263 minimal free-form regression-lock: even with single-alias prefix
-    and no bare references downstream, a trailing MATCH that does not start
-    from the carried alias is rejected with the scoped #1263 failfast.
+def test_string_cypher_executes_simple_freeform_intermediate_reentry_match() -> None:
+    """#1263 conservative admit: trailing MATCH whose first alias is NOT in
+    the prefix's carried whole-row set executes correctly when no
+    carried-alias property is referenced in the trailing scope.
 
-    This is the minimal shape that *only* trips the free-form gate (Site A),
-    distinguished from the IC3-shaped query above which trips the bare-ref
-    gate (Site B) first.
+    Single-alias prefix WITH (no demote interaction); the runtime broadcasts
+    carried hidden columns onto every base node and the trailing MATCH binds
+    fresh aliases (``c``, ``d``).
     """
     query = (
         "MATCH (a:A {id: 'a'}) "
@@ -8251,11 +8248,103 @@ def test_string_cypher_failfast_rejects_simple_freeform_intermediate_reentry_mat
         "MATCH (c:C)-[:T]->(d:D) "
         "RETURN d.id AS did, c.id AS cid"
     )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"did": "d", "cid": "c"}]
+
+
+def test_string_cypher_executes_freeform_intermediate_reentry_match_with_multi_carried_aliases() -> None:
+    """#1263 Wave 2 amplification: free-form admit composes with multi-alias
+    prefix `WITH a, b` when no carried-alias property is referenced in the
+    trailing scope. The demote (#1071) bails out (free-form path doesn't anchor
+    on a carried alias) and the runtime broadcasts both carried whole-row rows
+    onto every base node uniformly.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (b:B {id: 'b'}) "
+        "WITH a, b "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did, c.id AS cid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"did": "d", "cid": "c"}]
+
+
+def test_string_cypher_executes_freeform_intermediate_reentry_match_with_empty_prefix() -> None:
+    """#1263 Wave 2 amplification: when the prefix MATCH yields zero rows the
+    runtime helper short-circuits to an empty graph dispatch and the trailing
+    MATCH produces zero rows. Locks `_compiled_query_freeform_reentry_state`'s
+    early-return path at gfql_unified.py.
+    """
+    query = (
+        "MATCH (a:A {id: 'NONEXISTENT'}) "
+        "WITH a "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did, c.id AS cid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_string_cypher_failfast_rejects_simple_freeform_intermediate_reentry_match_on_multi_row_prefix() -> None:
+    """#1263 conservative scope: the runtime helper rejects multi-prefix-row
+    free-form admits with a clear failfast pointing at the multi-row follow-up.
+
+    The compile gate admits — the rejection happens at runtime when the prefix
+    WITH produces more than one row (here: two ``A`` nodes match the prefix).
+    """
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "a2", "b", "c", "d"],
+            "label__A": [True, True, False, False, False],
+            "label__B": [False, False, True, False, False],
+            "label__C": [False, False, False, True, False],
+            "label__D": [False, False, False, False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "a2", "b", "c"],
+            "d": ["b", "b", "c", "d"],
+            "type": ["R", "R", "S", "T"],
+        }
+    )
+    graph = _mk_graph(nodes, edges)
+    query = (
+        "MATCH (a:A) "
+        "WITH a "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did"
+    )
     with pytest.raises(
         GFQLValidationError,
-        match=r"free-form intermediate MATCH",
+        match=r"free-form intermediate MATCH; #1263\) currently supports a single-row prefix WITH only",
     ):
-        _mk_multi_stage_reentry_graph().gfql(query)
+        graph.gfql(query)
+
+
+def test_string_cypher_executes_simple_freeform_intermediate_reentry_match_on_cudf_when_available() -> None:
+    """#1263 cuDF parity for the simple free-form admit (paired with the
+    pandas case above)."""
+    cudf = pytest.importorskip("cudf")
+    base_graph = _mk_multi_stage_reentry_graph()
+    cudf_graph = base_graph.nodes(
+        cudf.from_pandas(base_graph._nodes), base_graph._node
+    ).edges(
+        cudf.from_pandas(base_graph._edges),
+        base_graph._source,
+        base_graph._destination,
+    )
+    query = (
+        "MATCH (a:A {id: 'a'}) "
+        "WITH a "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did, c.id AS cid"
+    )
+    result = cudf_graph.gfql(query)
+    nodes_pd = (
+        result._nodes.to_pandas() if hasattr(result._nodes, "to_pandas") else result._nodes
+    )
+    assert nodes_pd.to_dict(orient="records") == [{"did": "d", "cid": "c"}]
 
 
 def test_string_cypher_failfast_rejects_with_match_reentry_multiple_trailing_match_clauses() -> None:

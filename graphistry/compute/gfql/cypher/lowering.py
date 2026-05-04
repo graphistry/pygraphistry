@@ -8447,6 +8447,7 @@ def _compile_bounded_reentry_query(
             prefix_stage,
             projection_items=projection_items,
         )
+        free_form = False
     else:
         assert prefix_projection is not None
         prefix_projection_table = prefix_projection.table
@@ -8457,6 +8458,21 @@ def _compile_bounded_reentry_query(
             prefix_stage=prefix_stage,
             reentry_alias_hint=first_alias,
         )
+        # #1263 (LDBC SNB IC3 endpoint): detect free-form intermediate MATCH —
+        # the trailing MATCH's first alias is NOT in the prefix's carried
+        # whole-row set. Treat every carried whole-row alias as non-source so
+        # the existing property-carry rewriter materializes them as hidden
+        # columns; use ``first_alias`` as the carrier label so downstream
+        # ``<carried>.<prop>`` rewrites resolve against the trailing-MATCH row
+        # table at runtime (the runtime broadcasts the hidden columns onto
+        # every base node, so any alias the trailing MATCH binds carries them).
+        whole_row_carried = tuple(
+            column.output_name for column in prefix_projection.columns if column.kind == "whole_row"
+        )
+        free_form = first_alias is not None and first_alias not in whole_row_carried
+        if free_form:
+            reentry_alias = cast(str, first_alias)
+            non_source_alias_names = whole_row_carried
         if non_source_alias_names:
             props_by_alias, bare_referenced = _collect_non_source_alias_property_refs(
                 query=query,
@@ -8470,6 +8486,28 @@ def _compile_bounded_reentry_query(
                     field="with",
                     value=sorted(bare_referenced),
                     span=prefix_stage.span,
+                )
+            if free_form and any(props for props in props_by_alias.values()):
+                # #1263 conservative scope: admit simple free-form intermediate
+                # MATCH only. Carried-alias property references in the trailing
+                # WHERE / RETURN compose poorly with the existing demote (#1071)
+                # + property-rewriter (#1248) chain — the rewriters double-wrap
+                # the synthesized hidden column name. Closing this requires a
+                # rewrite-order refactor that lands as its own follow-up slice.
+                referenced_props = sorted(
+                    f"{alias}.{prop}"
+                    for alias, props in props_by_alias.items()
+                    for prop in sorted(props)
+                )
+                raise _unsupported_at_span(
+                    "Cypher MATCH after WITH free-form intermediate MATCH (#1263) does not yet support "
+                    "carried-alias property references in the trailing scope (e.g. `WHERE country.id IN [x.id, y.id]` "
+                    "in LDBC SNB IC3). Simple free-form is admitted; carried-property cases compose with the "
+                    "existing demote/property-carry rewriters and require a rewrite-order refactor tracked under "
+                    "the #1263 follow-up.",
+                    field="match",
+                    value=referenced_props,
+                    span=reentry_match.span,
                 )
             # Non-source aliases that survived the prefix rewrite (i.e. had no
             # property refs and no bare refs) are simply unused; safe to admit.
@@ -8502,19 +8540,11 @@ def _compile_bounded_reentry_query(
             value="*",
             span=query.return_.span,
         )
-    if first_alias is None or first_alias != reentry_alias:
-        # #1263 (LDBC SNB IC3 endpoint): trailing MATCH whose first alias is
-        # not in the carried set is the free-form intermediate MATCH case.
-        # Closing this requires admitting the trailing MATCH as a fresh seed
-        # pattern that cross-joins with the carried row table at runtime, plus
-        # extending `ReentryPlan` with a per-stage mode marker so the runtime
-        # branches between the existing carried-alias path and a new free-form
-        # cross-join path. See `plans/1263-freeform-intermediate-match/design/freeform-admit-design.md`.
+    if first_alias is None:
+        # The trailing MATCH must start from a named node alias for either the
+        # carried-alias path or the #1263 free-form admit path to apply.
         raise _unsupported_at_span(
-            "Cypher MATCH after WITH does not yet admit a trailing MATCH whose first alias is "
-            "not in the carried set (free-form intermediate MATCH; LDBC SNB IC3 endpoint, tracked under #1263). "
-            "The carried-alias path requires the trailing MATCH source to be one of the prefix WITH's "
-            "whole-row aliases.",
+            "Cypher MATCH after WITH currently requires the trailing MATCH to start from a named node alias",
             field="match",
             value=first_alias,
             span=reentry_match.span,
@@ -8535,13 +8565,18 @@ def _compile_bounded_reentry_query(
         )
     else:
         assert prefix_projection is not None
-        current_aliases: List[CarriedAlias] = [
-            CarriedAlias(
-                output_name=reentry_alias,
-                table=prefix_projection.table,
-                is_reentry_alias=True,
+        # #1263 free-form: no carried alias is the trailing-MATCH source, so
+        # every entry is recorded with is_reentry_alias=False. The carried-alias
+        # path keeps exactly one entry with is_reentry_alias=True.
+        current_aliases: List[CarriedAlias] = []
+        if not free_form:
+            current_aliases.append(
+                CarriedAlias(
+                    output_name=reentry_alias,
+                    table=prefix_projection.table,
+                    is_reentry_alias=True,
+                )
             )
-        ]
         for name in non_source_alias_names:
             current_aliases.append(
                 CarriedAlias(
@@ -8566,6 +8601,7 @@ def _compile_bounded_reentry_query(
             aliases=tuple(current_aliases),
             scalar_columns=tuple(carry_columns),
             scalar_only=False,
+            free_form=free_form,
         )
 
     non_source_carried_props: Optional[Mapping[str, Tuple[str, ...]]] = None

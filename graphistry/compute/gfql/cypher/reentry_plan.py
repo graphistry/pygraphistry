@@ -39,23 +39,34 @@ class CarriedAlias:
 class ReentryPlan:
     """Compile-time contract between a prefix `WITH` stage and the trailing `MATCH`.
 
-    Two shapes:
+    Three shapes:
 
     * Whole-row prefix: ``aliases`` is non-empty with exactly one
-      ``is_reentry_alias=True``. ``scalar_only`` is False. Top-level scalar
-      carries (e.g. ``WITH a, b.id AS bid``) live in ``scalar_columns``.
+      ``is_reentry_alias=True``. ``scalar_only`` is False. ``free_form`` is
+      False. Top-level scalar carries (e.g. ``WITH a, b.id AS bid``) live in
+      ``scalar_columns``.
 
     * Scalar-only prefix: ``aliases`` is empty. ``scalar_only`` is True.
-      ``reentry_alias_name`` is the trailing MATCH's first node alias (it is
-      not projected by the prefix; the runtime injects hidden scalar columns
-      onto its node table directly). ``scalar_columns`` lists the carried
-      scalar names.
+      ``free_form`` is False. ``reentry_alias_name`` is the trailing MATCH's
+      first node alias (it is not projected by the prefix; the runtime injects
+      hidden scalar columns onto its node table directly). ``scalar_columns``
+      lists the carried scalar names.
+
+    * Free-form intermediate MATCH (#1263, LDBC SNB IC3 endpoint): ``free_form``
+      is True. The trailing MATCH introduces aliases none of which is in the
+      prefix's carried set. ``aliases`` records every carried whole-row alias
+      with ``is_reentry_alias=False`` (no source-anchored reentry); the runtime
+      broadcasts the carried columns onto the base node table for the
+      single-prefix-row case so the trailing MATCH cross-joins implicitly via
+      the row pipeline. Multi-prefix-row free-form falls back to the existing
+      per-row union pattern.
     """
 
     reentry_alias_name: str
     aliases: Tuple[CarriedAlias, ...] = ()
     scalar_columns: Tuple[str, ...] = ()
     scalar_only: bool = False
+    free_form: bool = False
 
     @property
     def reentry_alias(self) -> Optional[CarriedAlias]:
