@@ -8345,6 +8345,39 @@ def test_string_cypher_executes_simple_freeform_intermediate_reentry_match() -> 
     assert result._nodes.to_dict(orient="records") == [{"did": "d", "cid": "c"}]
 
 
+def test_string_cypher_executes_freeform_intermediate_reentry_match_with_multi_carried_aliases() -> None:
+    """#1263 Wave 2 amplification: free-form admit composes with multi-alias
+    prefix `WITH a, b` when no carried-alias property is referenced in the
+    trailing scope. The demote (#1071) bails out (free-form path doesn't anchor
+    on a carried alias) and the runtime broadcasts both carried whole-row rows
+    onto every base node uniformly.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (b:B {id: 'b'}) "
+        "WITH a, b "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did, c.id AS cid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"did": "d", "cid": "c"}]
+
+
+def test_string_cypher_executes_freeform_intermediate_reentry_match_with_empty_prefix() -> None:
+    """#1263 Wave 2 amplification: when the prefix MATCH yields zero rows the
+    runtime helper short-circuits to an empty graph dispatch and the trailing
+    MATCH produces zero rows. Locks `_compiled_query_freeform_reentry_state`'s
+    early-return path at gfql_unified.py.
+    """
+    query = (
+        "MATCH (a:A {id: 'NONEXISTENT'}) "
+        "WITH a "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did, c.id AS cid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == []
+
+
 def test_string_cypher_failfast_rejects_simple_freeform_intermediate_reentry_match_on_multi_row_prefix() -> None:
     """#1263 conservative scope: the runtime helper rejects multi-prefix-row
     free-form admits with a clear failfast pointing at the multi-row follow-up.
