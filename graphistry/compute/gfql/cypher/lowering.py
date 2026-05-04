@@ -7894,9 +7894,23 @@ def _demote_secondary_whole_row_aliases(
         where_clause if where_clause is None else _rewrite_where_clause_and_resync(where_clause, rewrite_text, "where")
         for where_clause in query.reentry_wheres
     )
+    # Slice 4.3d.1 (#1256): Drop bare-identifier projection items that simply
+    # forward a secondary alias (`WITH a, x, y, collect(...)` pattern in IC3
+    # multi-stage chains). Their property carries already live as hidden columns
+    # on the reentry-source's row table; the bare items are pure forwarding
+    # noise. Without this pre-clean the bare-ref scanner inside
+    # `_collect_secondary_property_refs` would fail-fast on what is in fact a
+    # forwarding pattern, blocking IC3 even after #1248 admits the prefix WITH.
+    secondary_forwarding_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+    cleaned_with_stages_tail = tuple(
+        _drop_bare_alias_items_from_stage(
+            stage, secondary_aliases, identifier_re=secondary_forwarding_re
+        )
+        for stage in query.with_stages[1:]
+    )
     rewritten_with_stages_tail = tuple(
         _rewrite_reentry_projection_stage(stage, rewrite_expr=rewrite_text)
-        for stage in query.with_stages[1:]
+        for stage in cleaned_with_stages_tail
     )
     rewritten_unwinds = tuple(
         replace(unwind, expression=rewrite_text(unwind.expression, "unwind"))
@@ -7945,6 +7959,66 @@ def _demote_secondary_whole_row_aliases(
         prefix_stage,
         clause=replace(prefix_stage.clause, items=tuple(new_items)),
     )
+
+    # Slice 4.3d.2 (#1256): forward hidden carry columns through every downstream
+    # WITH stage so each recursive bounded-reentry compile sees them as scalar
+    # carries. Without this, the hidden column survives the first boundary (it
+    # is in the prefix) but the subsequent WITH/RETURN scope-narrowing drops it,
+    # and references like `RETURN x.id AS xid` (rewritten to a bare hidden
+    # identifier) fail at the inner compile's alias resolution.
+    #
+    # Interaction with DISTINCT in downstream stages: appending the carry as a
+    # bare item makes it a participant in DISTINCT key sets. For multi-alias
+    # carry semantics this is what callers want — DISTINCT over `(friend, x.id)`
+    # is the desired behavior when `x.id` is referenced downstream. Multi-row
+    # `x` cases that could observably mutate row count are blocked upstream by
+    # the pre-existing `unique carried node rows` failfast in `gfql_unified.py`.
+    #
+    # Aggregate guard (W2-IMPORTANT-1): if any downstream WITH stage contains
+    # an aggregate function call, refuse to forward the carry through it. The
+    # alternative — silently appending the hidden alias next to `count(*)` — can
+    # produce a wrong NULL value in the projected column when the trailing MATCH
+    # has no relationship to trigger the existing aggregate failfast. Better to
+    # raise a scoped #1256 error pointing at the gap than to risk silent wrong
+    # results. The relationship-pattern aggregate path is also covered by an
+    # earlier failfast; this guard is a single tighter rule that subsumes both.
+    if refs_collected and rewritten_with_stages_tail:
+        for stage in rewritten_with_stages_tail:
+            for item in stage.clause.items:
+                try:
+                    item_node = parse_expr(item.expression.text)
+                except (GFQLExprParseError, ImportError):
+                    continue
+                if _contains_aggregate_call(item_node):
+                    raise _unsupported_at_span(
+                        "Cypher MATCH after WITH chained-reentry secondary-alias carry "
+                        "does not yet survive a downstream aggregating WITH stage; "
+                        "tracked under #1256",
+                        field="with",
+                        value=item.expression.text,
+                        span=stage.span,
+                    )
+        forwarded_items: List[ReturnItem] = []
+        for alias_name, prop in sorted(refs_collected):
+            hidden_alias = _secondary_reentry_hidden_column_name(alias_name, prop)
+            forwarded_items.append(
+                ReturnItem(
+                    expression=ExpressionText(text=hidden_alias, span=template_span),
+                    alias=None,
+                    span=template_span,
+                )
+            )
+        forwarded_tuple = tuple(forwarded_items)
+        rewritten_with_stages_tail = tuple(
+            replace(
+                stage,
+                clause=replace(
+                    stage.clause,
+                    items=stage.clause.items + forwarded_tuple,
+                ),
+            )
+            for stage in rewritten_with_stages_tail
+        )
 
     rewritten_query = replace(
         query,
