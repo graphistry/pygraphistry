@@ -6,6 +6,7 @@ import json
 import warnings
 
 from graphistry.privacy import Privacy
+from graphistry.validate.validate_settings import URLParamsDict
 from . import util
 from .plugins_types.spanner_types import SpannerConfig
 from .plugins_types.kusto_types import KustoConfig
@@ -135,7 +136,7 @@ class AuthManagerProtocol(Protocol):
     def refresh(self, token: Optional[str] = None, fail_silent: bool = False) -> Optional[str]:
         ...
     
-    def _viz_url(self, info: DatasetInfo, url_params: Dict[str, Any]) -> str:
+    def _viz_url(self, info: DatasetInfo, url_params: URLParamsDict) -> str:
         ...
 
     def certificate_validation(self, value: Optional[bool] = None) -> bool:

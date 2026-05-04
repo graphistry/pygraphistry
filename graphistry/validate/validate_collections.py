@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 from urllib.parse import quote, unquote
 
 from graphistry.client_session import strtobool
@@ -7,6 +7,7 @@ from graphistry.compute.exceptions import GFQLSyntaxError, GFQLValidationError
 from graphistry.models.collections import Collection, CollectionsInput
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.util import warn as emit_warn
+from graphistry.validate.validate_settings import URLParamsDict
 _ALLOWED_COLLECTION_FIELDS_ORDER = (
     'type',
     'id',
@@ -433,21 +434,32 @@ def _validate_intersection_references(
 
 
 def normalize_collections_url_params(
-    url_params: Dict[str, Any],
+    url_params: URLParamsDict,
     validate: ValidationParam = 'autofix',
     warn: bool = True
-) -> Dict[str, Any]:
+) -> URLParamsDict:
     validate_mode, warn = normalize_validation_params(validate, warn)
     updated = dict(url_params)
 
     if 'collections' in updated:
-        normalized = normalize_collections(updated['collections'], validate_mode, warn)
-        if len(normalized) > 0:
-            updated['collections'] = encode_collections(normalized)
+        collections_value = updated['collections']
+        if isinstance(collections_value, (list, dict, str)):
+            normalized = normalize_collections(cast(CollectionsInput, collections_value), validate_mode, warn)
+            if len(normalized) > 0:
+                updated['collections'] = encode_collections(normalized)
+            else:
+                if validate_mode in ('strict', 'strict-fast'):
+                    return updated
+                updated.pop('collections', None)
         else:
-            if validate_mode in ('strict', 'strict-fast'):
-                return updated
-            updated.pop('collections', None)
+            _issue(
+                'collections must be a list, dict, or JSON string',
+                {'type': type(collections_value).__name__},
+                validate_mode,
+                warn
+            )
+            if validate_mode == 'autofix':
+                updated.pop('collections', None)
 
     if 'showCollections' in updated:
         value = updated['showCollections']

@@ -4,6 +4,7 @@ from typing_extensions import Literal
 from graphistry.io.types import ComplexEncodingsDict
 from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationMode, ValidationParam
+from graphistry.validate import URLParamsDict
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
 from graphistry.Engine import EngineAbstractType
@@ -227,7 +228,7 @@ class PlotterBase(Plottable):
         # Settings
         self._height : int = 500
         self._render : RenderModesConcrete = resolve_render_mode(self, True)
-        self._url_params : dict = {'info': 'true'}
+        self._url_params : URLParamsDict = {'info': 'true'}
         self._privacy : Optional[Privacy] = None
         # Metadata
         self._name : Optional[str] = None
@@ -1883,7 +1884,14 @@ class PlotterBase(Plottable):
         return res
 
 
-    def settings(self, height=None, url_params={}, render=None, validate: ValidationParam = 'autofix', warn: bool = True):
+    def settings(
+        self,
+        height=None,
+        url_params: Optional[URLParamsDict] = None,
+        render=None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
+    ):
         """Specify iframe height and add URL parameter dictionary.
 
         Collections URL params are normalized and URL-encoded at plot time; other
