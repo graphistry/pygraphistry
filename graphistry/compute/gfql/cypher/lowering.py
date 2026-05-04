@@ -3337,6 +3337,16 @@ def _binding_row_aliases_for_row_where(
 ) -> Set[str]:
     if row_where is None:
         return set()
+    hidden_refs = _expr_hidden_reentry_aliases(
+        row_where.text,
+        alias_targets=alias_targets,
+        params=params,
+        field="where",
+        line=row_where.span.line,
+        column=row_where.span.column,
+    )
+    if hidden_refs:
+        return set(alias_targets.keys())
     referenced = _expr_match_aliases(
         row_where.text,
         alias_targets=alias_targets,
@@ -4679,6 +4689,15 @@ def _lower_projection_chain(
     binding_row_aliases.update(
         _binding_row_aliases_for_row_where(
             lowered.row_where,
+            alias_targets=alias_targets,
+            params=params,
+        )
+    )
+    binding_row_aliases.update(
+        _binding_row_aliases_for_hidden_reentry_refs(
+            unwinds=query.unwinds,
+            clause=query.return_,
+            order_by_clause=query.order_by,
             alias_targets=alias_targets,
             params=params,
         )
