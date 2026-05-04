@@ -175,6 +175,59 @@ python -m pytest -q [targeted_test]
 - If startup/runtime claims are made, verify entrypoints/scripts in `bin/` and workflow behavior.
 - For docs-only PRs, prioritize spec/documentation accuracy and navigability (toctree links, anchors, cross-refs).
 
+#### Vectorization & engine compatibility (GFQL / row pipeline / compute)
+
+GFQL is vectorization-first and pure-functional. The row pipeline runs on pandas + cuDF; per-row Python loops are a pandas perf cliff and a cuDF break, and in-place mutation creates aliasing surprises. Audit edits in `graphistry/compute/**` (esp. `gfql/**`, `plotter/**`) for the patterns below.
+
+**Engine-polymorphic helpers** (use these instead of pandas-only APIs in compute paths):
+- `graphistry.Engine.df_cons(engine)`, `df_concat(engine)`, `df_to_engine(df, engine)`, `safe_merge`, `resolve_engine(arg, df)`
+- `graphistry.compute.dataframe_utils.template_df_cons(template_df, data)`
+- Type DataFrame params as `DataFrameT` (`graphistry.compute.typing`), not `pd.DataFrame`.
+
+**Vectorization** — flag (BLOCKER on hot rows / IMPORTANT elsewhere unless noted):
+
+| Pattern | Fix |
+|---|---|
+| `df.apply(fn, axis=1)`, `iterrows()`, `itertuples()` | Vectorized ops on Series |
+| `for x in df[col]` building a Series | `Series.map` / numpy / mask |
+| `sum(s)` / `max(s)` / etc. on a Series (SUGGESTION) | `s.sum()` / `s.max()` |
+| `df[col][i]` scalar access in a loop | Same vectorization fix; cuDF rejects this |
+
+**Mutation** — pygraphistry is pure-functional; flag IMPORTANT (BLOCKER if cell-wise in a loop):
+
+| Pattern | Pure alternative |
+|---|---|
+| `df[col] = v` / `df.col = v` | `df.assign(col=v)` |
+| `df.loc[mask, col] = v` | `df.assign(col=df[col].where(~mask, v))` |
+| `df.loc[i,c]=` / `df.iloc[]=` / `df.at[]=` in a loop | Build column vectorized + `df.assign(...)` |
+| `inplace=True` (drop/rename/sort/fillna/...) | Drop kwarg; assign return |
+| `del df[col]` | `df.drop(columns=[col])` |
+| `df.append(...)` (deprecated; not in cuDF) | `df_concat(engine)([df, other])` |
+| Mutating then returning the input df | Return a new df; no observable side effects |
+
+Vectorized mutation (`df.loc[mask, col] = v`) is still mutation — prefer `df.assign(...)`.
+
+**cuDF compatibility** — flag IMPORTANT unless noted:
+
+| Pattern | Fix |
+|---|---|
+| `df.apply(fn, axis=1)` (BLOCKER on cuDF lanes) | Vectorize |
+| `.to_pandas()` → pandas op → back | Round-trip = missing vectorization |
+| `is pd.NA` / `== pd.NA` | `s.isna()` |
+| `dtype == "<pandas-name>"` (SUGGESTION) | `pd.api.types.is_*_dtype` or engine-aware helper |
+| Param typed `pd.DataFrame` instead of `DataFrameT` | Use `DataFrameT` |
+
+**Hot row path** = row pipeline executor, edge/node materialization, anything called per-query in `_execute_*` / `_compile_*` / `_lower_*` / row-pipeline ops. **Control plane** = one-shot config builders, error formatters, parser glue (lower bar).
+
+**Paired cuDF coverage required** for changes in `compute/gfql/row/`, `compute/gfql/cypher/`, `compute/gfql_unified.py`, `compute/chain.py`, `compute/hop.py`, `compute/materialize_nodes.py`. Sibling pattern: `pytest.importorskip("cudf")` + engine-parametrized fixture. New DataFrame-touching helpers also need cuDF smoke if on a hot path.
+
+**Flag wording**:
+> [BLOCKER] `<file>:<line>` — `<pattern>` on hot row path. Use `<engine-polymorphic alt>`. See `agents/skills/review/SKILL.md#vectorization--engine-compatibility-gfql--row-pipeline--compute`.
+
+**Don't flag**: `apply(axis=0)` (column-wise = vectorized); `iterrows()` in CLI/test fixtures; mutation of a df the function itself just constructed (no aliasing — SUGGESTION at most); `inplace=True` in throwaway setup code.
+
+**Pre-existing patterns**: verify novelty via `git show origin/<base>:<file>` before raising. Don't re-flag repo debt.
+
 ### Per-file findings format
 
 ```markdown
