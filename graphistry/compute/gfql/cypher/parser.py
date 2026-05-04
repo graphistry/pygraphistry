@@ -1912,9 +1912,36 @@ _PATTERN_EXISTENCE_RE = re.compile(
 )
 
 
+def _mask_quoted_and_backticked_for_scan(expr: str) -> str:
+    """Replace quoted/backticked segments with spaces before regex scans."""
+    chars = list(expr)
+    quote: str | None = None
+    i = 0
+    n = len(chars)
+    while i < n:
+        ch = chars[i]
+        if quote is None:
+            if ch in {"'", '"', "`"}:
+                quote = ch
+                chars[i] = " "
+            i += 1
+            continue
+
+        chars[i] = " "
+        if ch == "\\" and quote in {"'", '"'}:
+            if i + 1 < n:
+                chars[i + 1] = " "
+                i += 2
+                continue
+        if ch == quote:
+            quote = None
+        i += 1
+    return "".join(chars)
+
+
 def _check_unsupported_syntax_patterns(query: str) -> None:
     """Detect known-but-unsupported Cypher syntax and raise a clear error."""
-    if _PATTERN_EXISTENCE_RE.search(query):
+    if _PATTERN_EXISTENCE_RE.search(_mask_quoted_and_backticked_for_scan(query)):
         raise _to_unsupported(
             "Pattern existence expressions (e.g., not((a)-[:R]-(b)) or exists { ... }) "
             "are not yet supported in the local Cypher compiler",
