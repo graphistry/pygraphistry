@@ -164,14 +164,36 @@ class TestIsNullRejecting:
 
     # --- string-literal AND heuristic boundary --- #
 
-    def test_coalesce_with_and_in_literal_is_conservatively_rejecting(self):
-        # Known limitation: " and " in a string literal triggers the AND guard.
-        # coalesce(n.name, 'Alice and Bob') IS NOT NULL is semantically null-safe
-        # (COALESCE always returns non-NULL here), but the substring heuristic
-        # cannot distinguish operator AND from the literal " and ".
-        # Over-conservative: prevents valid pushdown but never allows incorrect pushdown.
-        assert is_null_rejecting(
+    def test_coalesce_with_and_in_literal_is_not_rejecting(self):
+        # " and " inside the quoted literal should not trigger the top-level
+        # AND guard; this remains null-safe because the actual expression uses
+        # a COALESCE null-handling form.
+        assert not is_null_rejecting(
             _pred("coalesce(n.name, 'Alice and Bob') IS NOT NULL", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
+    def test_string_literal_is_not_null_substring_is_rejecting(self):
+        assert is_null_rejecting(
+            _pred("n.note = 'x is not null'", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
+    def test_string_literal_is_null_substring_is_rejecting(self):
+        assert is_null_rejecting(
+            _pred("n.note = 'x is null'", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
+    def test_string_literal_coalesce_substring_is_rejecting(self):
+        assert is_null_rejecting(
+            _pred("n.note = 'coalesce('", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
+    def test_string_literal_nullif_substring_is_rejecting(self):
+        assert is_null_rejecting(
+            _pred("n.note = 'nullif('", frozenset({"n"})),
             frozenset({"n"}),
         )
 

@@ -34,6 +34,34 @@ _NULL_SAFE_FORMS = (
 )
 
 
+def _mask_quoted_and_backticked(expr: str) -> str:
+    """Replace quoted/backticked segments with spaces for safe substring scans."""
+    chars = list(expr)
+    quote: str | None = None
+    i = 0
+    n = len(chars)
+    while i < n:
+        ch = chars[i]
+        if quote is None:
+            if ch in {"'", '"', "`"}:
+                quote = ch
+                chars[i] = " "
+            i += 1
+            continue
+
+        chars[i] = " "
+        if ch == "\\" and quote in {"'", '"'}:
+            # Respect escaped characters in quoted strings.
+            if i + 1 < n:
+                chars[i + 1] = " "
+                i += 2
+                continue
+        if ch == quote:
+            quote = None
+        i += 1
+    return "".join(chars)
+
+
 def is_null_rejecting(
     predicate: BoundPredicate,
     null_extended_aliases: FrozenSet[str],
@@ -68,7 +96,7 @@ def is_null_rejecting(
         return False
     if not predicate.expression:
         return True
-    expr_lower = predicate.expression.lower()
+    expr_lower = _mask_quoted_and_backticked(predicate.expression.lower())
     # AND compounds are always null-rejecting: even if one conjunct is null-safe,
     # the other may not be, and True AND NULL = NULL (row filtered).
     if " and " in expr_lower:

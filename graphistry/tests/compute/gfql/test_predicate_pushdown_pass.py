@@ -152,6 +152,31 @@ def test_predicate_pushdown_keeps_or_with_null_safe_subexpression_on_optional_ar
     assert result.predicate.expression == "n IS NOT NULL OR m.flag = 1"
 
 
+def test_predicate_pushdown_does_not_treat_null_keywords_inside_string_literals_as_safe() -> None:
+    input_scan = NodeScan(op_id=1, label="Person", output_schema=_schema("m"))
+    optional_match = PatternMatch(
+        op_id=2,
+        input=input_scan,
+        pattern={"aliases": ("n",)},
+        optional=True,
+        arm_id="arm1",
+        output_schema=_schema("m", "n"),
+    )
+    plan = Filter(
+        op_id=3,
+        input=optional_match,
+        predicate=_pred("n.note = 'x is not null'", frozenset({"n"})),
+        output_schema=_schema("m", "n"),
+    )
+
+    result = PredicatePushdownPass().run(plan, PlanContext()).plan
+
+    assert isinstance(result, Filter)
+    assert isinstance(result.input, PatternMatch)
+    assert result.input.predicates == []
+    assert result.predicate.expression == "n.note = 'x is not null'"
+
+
 def test_predicate_pushdown_does_not_cross_with_like_projection_barrier() -> None:
     pattern = PatternMatch(
         op_id=2,
