@@ -1026,9 +1026,41 @@ def test_parse_does_not_treat_pattern_existence_lexemes_inside_string_literals_a
 @pytest.mark.parametrize(
     "query",
     [
+        "MATCH (n) // exists { shadow }\nRETURN n",
+        "MATCH (n) /* not((a)-[:R]->(b)) */ RETURN n",
+        "MATCH (n) WHERE n.txt = 'ok' // exists { shadow }\nRETURN n",
+        "RETURN ['exists { shadow }', 'plain'] AS xs",
+        "RETURN {k: 'not((a)-[:R]->(b))', v: 1} AS m",
+        "RETURN CASE WHEN true THEN 'exists { shadow }' ELSE 'plain' END AS out",
+        "RETURN \"contains // exists { shadow }\" AS out",
+        "RETURN 'escaped \\'exists { shadow }\\'' AS out",
+    ],
+)
+def test_parse_does_not_treat_pattern_existence_lexemes_inside_comments_or_literal_contexts_as_unsupported(
+    query: str,
+) -> None:
+    parsed = parse_cypher(query)
+    assert isinstance(parsed, CypherQuery)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
         "MATCH (n) WHERE exists { (n)-[:R]->() } RETURN n",
         "MATCH (n) WHERE not exists { (n)-[:R]->() } RETURN n",
         "MATCH (n) WHERE not((n)-[:R]->()) RETURN n",
+        "MATCH (n) WHERE not((n:Admin)-[:R]->()) RETURN n",
+        "MATCH (n) WHERE not((n)-[:R {w: 1}]->()) RETURN n",
+        "MATCH (n) WHERE not((n)-[:R]->(:Admin)) RETURN n",
+        "MATCH (n) WHERE not((n)<-[:R]-()) RETURN n",
+        "MATCH (n) WHERE not((n)--()) RETURN n",
+        "MATCH (n) WHERE not((n)-[:R*]->()) RETURN n",
+        "MATCH (n) WHERE not((n)-[r:R]->()) RETURN n",
+        "MATCH (n) WHERE exists/*inline*/{ (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE not/*inline*/exists/*inline*/{ (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE not/*inline*/((n)-[:R]->()) RETURN n",
+        "MATCH (n) WHERE exists { (n)-[:R]->() } /* keep rejecting */ RETURN n",
+        "// leading comment\nMATCH (n) WHERE not((n)-[:R]->()) RETURN n",
     ],
 )
 def test_parse_still_rejects_true_pattern_existence_expressions(query: str) -> None:

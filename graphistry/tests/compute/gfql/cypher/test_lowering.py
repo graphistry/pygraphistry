@@ -5257,9 +5257,20 @@ def test_string_cypher_failfast_rejects_bounded_variable_length_where_pattern_pr
     "query",
     [
         "MATCH (a)-[:KNOWS]-(b) RETURN not((a)-[:KNOWS]-(b)) AS isNew",
+        "MATCH (a)-[:KNOWS]-(b) RETURN not((a:Person)-[:KNOWS]-(b)) AS isNew",
+        "MATCH (a)-[:KNOWS]-(b) RETURN not((a)-[:KNOWS {w: 1}]-(b)) AS isNew",
+        "MATCH (a)-[:KNOWS]-(b) RETURN not((a)-[:KNOWS]-(:Person)) AS isNew",
+        "MATCH (a)-[:KNOWS]-(b) RETURN not((a)<-[:KNOWS]-(b)) AS isNew",
+        "MATCH (a)-[:KNOWS]-(b) RETURN not((a)--(b)) AS isNew",
+        "MATCH (a)-[:KNOWS]-(b) RETURN not((a)-[:KNOWS*]->(b)) AS isNew",
+        "MATCH (a)-[:KNOWS]-(b) RETURN not((a)-[k:KNOWS]->(b)) AS isNew",
+        "MATCH (a)-[:KNOWS]-(b) RETURN not/*inline*/((a)-[:KNOWS]-(b)) AS isNew",
         "MATCH (a) RETURN exists { (a)-[:KNOWS]-() } AS has",
+        "MATCH (a) RETURN exists/*inline*/{ (a)-[:KNOWS]-() } AS has",
         "MATCH (a) RETURN not exists { (a)-[:KNOWS]-() } AS no",
+        "MATCH (a) RETURN not/*inline*/exists/*inline*/{ (a)-[:KNOWS]-() } AS no",
         "MATCH (a) WHERE exists { (a)-[:KNOWS]-() } RETURN a.id",
+        "MATCH (a) WHERE exists/*inline*/{ (a)-[:KNOWS]-() } RETURN a.id",
     ],
 )
 def test_string_cypher_failfast_rejects_pattern_existence(query: str) -> None:
