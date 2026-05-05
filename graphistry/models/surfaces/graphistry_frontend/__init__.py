@@ -2,6 +2,8 @@
 
 from .contract_version import (  # noqa: F401
     GRAPHISTRY_FRONTEND_CONTRACT_VERSION,
+    GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURE,
+    GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION,
     GRAPHISTRY_FRONTEND_UPSTREAM_VERSIONS,
     FrontendContractVersionInfo,
     graphistry_frontend_contract_version_info,

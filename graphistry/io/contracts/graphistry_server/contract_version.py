@@ -1,7 +1,11 @@
 """Version metadata for Graphistry server dataset contract bundle."""
 
+import hashlib
+import json
 from typing import Dict, Optional
 from typing_extensions import Final, Literal, TypedDict
+
+from .dataset import GRAPHISTRY_SERVER_BINDING_TO_PLOTTABLE_ENCODING_MAP
 
 GraphistryServerBundleName = Literal["graphistry_server_dataset"]
 
@@ -9,6 +13,7 @@ GraphistryServerBundleName = Literal["graphistry_server_dataset"]
 class GraphistryServerContractVersionInfo(TypedDict):
     bundle: GraphistryServerBundleName
     contract_version: int
+    contract_signature: str
     upstream_versions: Dict[str, Optional[str]]
 
 
@@ -21,9 +26,37 @@ GRAPHISTRY_SERVER_DATASET_UPSTREAM_VERSIONS: Final[Dict[str, Optional[str]]] = {
 }
 
 
+def _server_dataset_contract_signature_payload() -> Dict[str, object]:
+    return {
+        "binding_to_plottable_encoding_map": dict(GRAPHISTRY_SERVER_BINDING_TO_PLOTTABLE_ENCODING_MAP),
+    }
+
+
+def _contract_signature(payload: Dict[str, object]) -> str:
+    normalized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURE: Final[str] = _contract_signature(
+    _server_dataset_contract_signature_payload()
+)
+GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURES_BY_VERSION: Final[Dict[int, str]] = {
+    1: "1096ca85da67020943be3d886250a4ec837773c0cc4314ffae7c9b9f7e273b9d",
+}
+
+if GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURES_BY_VERSION.get(
+    GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION
+) != GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURE:
+    raise ValueError(
+        "GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION/signature mismatch: "
+        "bump version and register new signature"
+    )
+
+
 def graphistry_server_dataset_contract_version_info() -> GraphistryServerContractVersionInfo:
     return {
         "bundle": "graphistry_server_dataset",
         "contract_version": GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION,
+        "contract_signature": GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURE,
         "upstream_versions": dict(GRAPHISTRY_SERVER_DATASET_UPSTREAM_VERSIONS),
     }

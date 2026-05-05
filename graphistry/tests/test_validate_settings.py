@@ -2,12 +2,16 @@ import pytest
 
 import graphistry
 from graphistry.io.contracts import (
+    GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURE,
+    GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURES_BY_VERSION,
     GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION,
     GRAPHISTRY_SERVER_DATASET_UPSTREAM_VERSIONS,
     graphistry_server_dataset_contract_version_info,
 )
 from graphistry.validate import (
     APPLY_ENCODINGS_REACT_KEY_SET,
+    GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURE,
+    GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION,
     GRAPHISTRY_FRONTEND_CONTRACT_VERSION,
     GRAPHISTRY_FRONTEND_UPSTREAM_VERSIONS,
     ApplyEncodingsReactSettingsDict,
@@ -63,12 +67,22 @@ def test_bundle_contract_version_exports():
     frontend_info = graphistry_frontend_contract_version_info()
     assert frontend_info["bundle"] == "graphistry_frontend"
     assert frontend_info["contract_version"] == GRAPHISTRY_FRONTEND_CONTRACT_VERSION
+    assert frontend_info["contract_signature"] == GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURE
+    assert (
+        GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION[GRAPHISTRY_FRONTEND_CONTRACT_VERSION]
+        == GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURE
+    )
 
     assert GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION >= 1
     assert "graphistry_server" in GRAPHISTRY_SERVER_DATASET_UPSTREAM_VERSIONS
     server_info = graphistry_server_dataset_contract_version_info()
     assert server_info["bundle"] == "graphistry_server_dataset"
     assert server_info["contract_version"] == GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION
+    assert server_info["contract_signature"] == GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURE
+    assert (
+        GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURES_BY_VERSION[GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION]
+        == GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURE
+    )
 
 
 def test_axis_row_allowed_keys_contract():
