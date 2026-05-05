@@ -452,3 +452,141 @@ class TestPropagationContinuity:
         )
         errors = verify(plan)
         assert any("changed kind across input edge" in e.message for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# Seam amplification — T3 ↔ #1303 (lowering split into projection_planning /
+# cypher/reentry/runtime).  Both #1303 and T3 are children of #1262/#1260; the
+# diff overlap was zero (T3 in `ir/`, #1303 in `cypher/`), but they share the
+# conceptual surface "lowering produces LogicalPlan-shaped output that the IR
+# layer verifies".  These tests pin that the helper contract and invariant 6
+# stay consistent across plan shapes the post-#1303 split modules emit
+# (Project chains, optional-arm PatternMatch, Filter narrowing) and that
+# importing both surfaces together does not introduce a circular-import
+# surprise.
+# ---------------------------------------------------------------------------
+
+
+class TestSeamWith1303LoweringSplit:
+    def test_post_1303_modules_and_t3_helpers_coimport(self) -> None:
+        # #1303 split lowering.py into `projection_planning.py` and
+        # `cypher/reentry/runtime.py`.  These modules pull lowering helpers
+        # lazily inside function bodies (per #1295's pattern); confirm none
+        # of that interferes with eagerly importing T3's metadata module
+        # alongside.
+        from graphistry.compute.gfql.cypher import lowering
+        from graphistry.compute.gfql.cypher import projection_planning
+        from graphistry.compute.gfql.cypher.reentry import runtime
+        from graphistry.compute.gfql.ir import metadata
+
+        # Sanity: both T3 helpers and #1303 split modules expose the
+        # entry points their tests use, and lowering still re-exports the
+        # delegators per #1303's split-guard contract.
+        assert callable(metadata.is_nullable)
+        assert callable(metadata.bound_variable_is_nullable)
+        assert hasattr(projection_planning, "_projection_ref_from_expr")
+        assert hasattr(runtime, "_compile_bounded_reentry_query")
+        assert hasattr(lowering, "_compile_bounded_reentry_query")
+        assert hasattr(lowering, "_projection_ref_from_expr")
+
+    def test_realistic_match_with_filter_chain_passes_invariant_6(self) -> None:
+        # Plan shape representative of what the post-#1303 lowering pipeline
+        # emits for `MATCH (n:Person) WHERE n.age IS NOT NULL RETURN n.id`:
+        # NodeScan → PatternMatch (non-optional) → Filter (carve-out) →
+        # Project. Each edge respects type/nullability propagation continuity.
+        from graphistry.compute.gfql.ir.types import NodeRef as _NodeRef
+
+        scan = NodeScan(
+            label="Person",
+            op_id=1,
+            output_schema=RowSchema(
+                columns={
+                    "n": _NodeRef(frozenset({"Person"})),
+                    "age": ScalarType("int64", nullable=True),
+                    "id": ScalarType("int64", nullable=False),
+                }
+            ),
+        )
+        match = PatternMatch(
+            input=scan,
+            op_id=2,
+            optional=False,
+            output_schema=RowSchema(
+                columns={
+                    "n": _NodeRef(frozenset({"Person"})),
+                    "age": ScalarType("int64", nullable=True),
+                    "id": ScalarType("int64", nullable=False),
+                }
+            ),
+        )
+        filt = Filter(
+            input=match,
+            op_id=3,
+            predicate=BoundPredicate(
+                expression="age IS NOT NULL", references=frozenset({"age"})
+            ),
+            output_schema=RowSchema(
+                columns={
+                    "n": _NodeRef(frozenset({"Person"})),
+                    # Filter narrows nullability — invariant 6 carve-out.
+                    "age": ScalarType("int64", nullable=False),
+                    "id": ScalarType("int64", nullable=False),
+                }
+            ),
+        )
+        project = Project(
+            input=filt,
+            op_id=4,
+            output_schema=RowSchema(
+                columns={"id": ScalarType("int64", nullable=False)}
+            ),
+        )
+        assert verify(project) == []
+
+    def test_optional_arm_chain_produces_only_invariant_5_signal(self) -> None:
+        # Plan shape representative of OPTIONAL MATCH lowered via the post-#1303
+        # path: invariant 5 (PatternMatch optional=True must produce nullable
+        # outputs) is the active signal; invariant 6 must NOT double-flag here.
+        scan = NodeScan(
+            label="Person",
+            op_id=1,
+            output_schema=RowSchema(columns={"a": ScalarType("int64", nullable=False)}),
+        )
+        # An optional arm with a non-nullable scalar output is the exact
+        # shape invariant 5 catches; arm_id is set so the missing-arm-id
+        # error path doesn't muddy this test.
+        match = PatternMatch(
+            input=scan,
+            op_id=2,
+            optional=True,
+            arm_id="opt1",
+            output_schema=RowSchema(columns={"a": ScalarType("int64", nullable=False)}),
+        )
+        errors = verify(match)
+        # Exactly one error, from invariant 5 ("optional arms must produce
+        # nullable outputs").  Invariant 6 stays silent because the input
+        # already has nullable=False (no narrowing).
+        assert len(errors) == 1
+        assert "optional arms must produce nullable outputs" in errors[0].message
+
+    def test_helper_contract_on_post_lowering_shaped_schema(self) -> None:
+        # Drives metadata helpers on a RowSchema whose columns mirror what
+        # `projection_planning.py` emits for whole-row + scalar-projected
+        # patterns.  Pins that the helpers stay consistent across the kinds
+        # the new module shapes produce.
+        from graphistry.compute.gfql.ir.types import NodeRef as _NodeRef
+
+        schema = RowSchema(
+            columns={
+                "n": _NodeRef(frozenset({"Person"})),  # whole-row
+                "age": ScalarType("int64", nullable=True),  # scalar projection
+                "id": ScalarType("int64", nullable=False),  # non-null scalar
+            }
+        )
+        # Whole-row column: structural — `column_is_nullable` returns None
+        # (use bound_variable_is_nullable for variable nullability instead).
+        assert column_is_nullable(schema, "n") is None
+        assert column_logical_type(schema, "n") == _NodeRef(frozenset({"Person"}))
+        # Scalar columns: nullable bit threads through verbatim.
+        assert column_is_nullable(schema, "age") is True
+        assert column_is_nullable(schema, "id") is False
