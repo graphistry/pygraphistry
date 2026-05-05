@@ -6878,8 +6878,6 @@ def _cypher_return_output_names(clause: ReturnClause) -> Tuple[str, ...]:
         names.append(item.alias or item.expression.text)
     return tuple(names)
 
-
-
 def lower_cypher_query(
     query: Union[CypherQuery, CypherUnionQuery],
     *,
