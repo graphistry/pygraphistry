@@ -1,8 +1,15 @@
 import pytest
 
 import graphistry
+from graphistry.io.contracts import (
+    GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION,
+    GRAPHISTRY_SERVER_DATASET_UPSTREAM_VERSIONS,
+    graphistry_server_dataset_contract_version_info,
+)
 from graphistry.validate import (
     APPLY_ENCODINGS_REACT_KEY_SET,
+    GRAPHISTRY_FRONTEND_CONTRACT_VERSION,
+    GRAPHISTRY_FRONTEND_UPSTREAM_VERSIONS,
     ApplyEncodingsReactSettingsDict,
     AXIS_BOUNDS_ALLOWED_KEYS,
     AXIS_ROW_ALLOWED_KEYS,
@@ -24,6 +31,7 @@ from graphistry.validate import (
     is_ring_continuous_axis_payload,
     normalize_react_settings,
     normalize_url_params,
+    graphistry_frontend_contract_version_info,
     apply_encodings_keys,
     react_setting_keys,
     url_param_keys,
@@ -47,6 +55,20 @@ def test_introspection_key_accessors():
     assert set(url_param_keys()) == URL_PARAM_NAME_SET
     assert set(react_setting_keys()) == REACT_SETTING_NAME_SET
     assert set(apply_encodings_keys()) == APPLY_ENCODINGS_REACT_KEY_SET
+
+
+def test_bundle_contract_version_exports():
+    assert GRAPHISTRY_FRONTEND_CONTRACT_VERSION >= 1
+    assert "graphistry_js_client_api_react" in GRAPHISTRY_FRONTEND_UPSTREAM_VERSIONS
+    frontend_info = graphistry_frontend_contract_version_info()
+    assert frontend_info["bundle"] == "graphistry_frontend"
+    assert frontend_info["contract_version"] == GRAPHISTRY_FRONTEND_CONTRACT_VERSION
+
+    assert GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION >= 1
+    assert "graphistry_server" in GRAPHISTRY_SERVER_DATASET_UPSTREAM_VERSIONS
+    server_info = graphistry_server_dataset_contract_version_info()
+    assert server_info["bundle"] == "graphistry_server_dataset"
+    assert server_info["contract_version"] == GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION
 
 
 def test_axis_row_allowed_keys_contract():

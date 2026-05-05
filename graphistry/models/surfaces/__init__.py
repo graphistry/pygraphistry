@@ -5,6 +5,9 @@ Current exported surface family:
 """
 
 from .graphistry_frontend import (  # noqa: F401
+    GRAPHISTRY_FRONTEND_CONTRACT_VERSION,
+    GRAPHISTRY_FRONTEND_UPSTREAM_VERSIONS,
+    FrontendContractVersionInfo,
     AXIS_BOUNDS_ALLOWED_KEYS,
     AXIS_ROW_ALLOWED_KEYS,
     AXIS_ROW_BOOL_KEYS,
@@ -33,6 +36,7 @@ from .graphistry_frontend import (  # noqa: F401
     ReactSettingsDict,
     ReactSizeEncodingKey,
     ReactSizeEncodingPayload,
+    graphistry_frontend_contract_version_info,
     apply_encodings_keys,
     react_setting_keys,
     LINEAR_AXIS_URL_DEFAULTS,

@@ -1,5 +1,11 @@
 """Graphistry frontend surface contracts (URL params, React settings, axis payloads)."""
 
+from .contract_version import (  # noqa: F401
+    GRAPHISTRY_FRONTEND_CONTRACT_VERSION,
+    GRAPHISTRY_FRONTEND_UPSTREAM_VERSIONS,
+    FrontendContractVersionInfo,
+    graphistry_frontend_contract_version_info,
+)
 from .axis import (  # noqa: F401
     AXIS_BOUNDS_ALLOWED_KEYS,
     AXIS_ROW_ALLOWED_KEYS,
