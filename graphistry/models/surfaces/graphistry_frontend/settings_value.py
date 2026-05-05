@@ -1,4 +1,4 @@
-"""Recursive JSON-like value type used by viewer settings contracts."""
+"""Recursive JSON-like value type used by Graphistry frontend settings contracts."""
 
 from typing import Dict, List, Union
 from typing_extensions import TypeAlias

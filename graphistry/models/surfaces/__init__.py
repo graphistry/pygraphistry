@@ -1,10 +1,10 @@
 """Typed contracts for Graphistry-facing surfaces.
 
 Current exported surface family:
-- viewer: URL params, React settings, axis payloads
+- graphistry_frontend: URL params, React settings, axis payloads
 """
 
-from .viewer import (  # noqa: F401
+from .graphistry_frontend import (  # noqa: F401
     AXIS_BOUNDS_ALLOWED_KEYS,
     AXIS_ROW_ALLOWED_KEYS,
     AXIS_ROW_BOOL_KEYS,

@@ -8,8 +8,8 @@ from graphistry.client_session import ClientSession, ApiVersion, ENV_GRAPHISTRY_
 from graphistry.Engine import EngineAbstractType
 from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationParam
-from graphistry.models.surfaces.viewer.react_settings import ReactSettingsDict
-from graphistry.models.surfaces.viewer.url_params import URLParamsDict
+from graphistry.models.surfaces.graphistry_frontend.react_settings import ReactSettingsDict
+from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 from graphistry.otel import inject_trace_headers, otel as otel_config
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""

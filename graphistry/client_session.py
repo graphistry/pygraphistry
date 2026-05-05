@@ -5,7 +5,7 @@ from functools import lru_cache
 import json
 import warnings
 
-from graphistry.models.surfaces.viewer.url_params import URLParamsDict
+from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 from graphistry.privacy import Privacy
 from . import util
 from .plugins_types.spanner_types import SpannerConfig

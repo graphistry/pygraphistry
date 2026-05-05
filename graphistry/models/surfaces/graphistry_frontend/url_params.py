@@ -1,10 +1,10 @@
-"""Graphistry viewer URL-parameter contracts and axis-layout defaults."""
+"""Graphistry frontend URL-parameter contracts and axis-layout defaults."""
 
 from typing import Any, Dict, Set, Tuple
 from typing_extensions import TypeAlias, TypedDict
 
-from graphistry.models.surfaces.viewer.axis import AxisKind
-from graphistry.models.surfaces.viewer.settings_value import SettingsValue
+from graphistry.models.surfaces.graphistry_frontend.axis import AxisKind
+from graphistry.models.surfaces.graphistry_frontend.settings_value import SettingsValue
 
 URLParamsDict: TypeAlias = Dict[str, SettingsValue]
 

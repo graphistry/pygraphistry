@@ -1,9 +1,9 @@
-"""Graphistry viewer React-settings contracts and introspection keyspace."""
+"""Graphistry frontend React-settings contracts and introspection keyspace."""
 
 from typing import Any, Dict, Set, Tuple
 from typing_extensions import TypeAlias, TypedDict
 
-from graphistry.models.surfaces.viewer.settings_value import SettingsValue
+from graphistry.models.surfaces.graphistry_frontend.settings_value import SettingsValue
 
 ReactSettingsDict: TypeAlias = Dict[str, SettingsValue]
 

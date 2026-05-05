@@ -21,12 +21,12 @@ from graphistry.io.types import (
     MetadataDict,
     NodeEdgeEncodingsDict,
     PlottableMetadata,
-    SIMPLE_ENCODING_CLIENT_KEYS,
+    PLOTTABLE_SIMPLE_ENCODING_BIND_KEYS,
 )
 from graphistry.io.contracts.graphistry_server.dataset import (
     GRAPHISTRY_SERVER_BINDING_TO_PLOTTABLE_ENCODING_MAP,
 )
-from graphistry.models.surfaces.viewer.url_params import URLParamsDict
+from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 from graphistry.validate import normalize_url_params
 
 if TYPE_CHECKING:
@@ -298,7 +298,7 @@ def deserialize_plottable_metadata(metadata: PlottableMetadata, g: 'Plottable') 
             if isinstance(encodings, dict):
                 encode_kwargs: Dict[str, str] = {}
 
-                for key in SIMPLE_ENCODING_CLIENT_KEYS:
+                for key in PLOTTABLE_SIMPLE_ENCODING_BIND_KEYS:
                     if key in encodings and encodings.get(key) is not None:  # type: ignore[misc]
                         encode_kwargs[key] = encodings[key]  # type: ignore[literal-required, typeddict-item]
 

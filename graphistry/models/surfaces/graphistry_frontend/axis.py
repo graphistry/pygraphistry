@@ -1,4 +1,4 @@
-"""Viewer axis payload contracts shared by React encodeAxis and ring layout helpers."""
+"""Graphistry frontend axis payload contracts shared by React encodeAxis and ring layout helpers."""
 
 from typing import Any, Dict, List, Tuple, Union
 from typing_extensions import Literal, TypeAlias, TypedDict

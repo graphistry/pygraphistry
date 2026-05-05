@@ -1,4 +1,4 @@
-"""Viewer-facing surface contracts (URL params, React settings, axis payloads)."""
+"""Graphistry frontend surface contracts (URL params, React settings, axis payloads)."""
 
 from .axis import (  # noqa: F401
     AXIS_BOUNDS_ALLOWED_KEYS,

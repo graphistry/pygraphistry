@@ -6,7 +6,7 @@ of metadata JSON used for server communication (uploads, GFQL responses, etc.).
 """
 from typing import Any, Dict, Tuple, TypedDict
 
-from graphistry.models.surfaces.viewer.url_params import URLParamsDict
+from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 
 
 # Complex Encodings Structure
@@ -124,7 +124,7 @@ class EncodingsDict(TypedDict, total=False):
     complex_encodings: ComplexEncodingsDict
 
 
-SIMPLE_ENCODING_CLIENT_KEYS: Tuple[str, ...] = (
+PLOTTABLE_SIMPLE_ENCODING_BIND_KEYS: Tuple[str, ...] = (
     'point_color',
     'point_size',
     'point_title',
