@@ -297,12 +297,14 @@ def _check_propagation_continuity(op: LogicalPlan) -> list[CompilerError]:
             and parent_typ.nullable
             and not child_typ.nullable
         ):
+            narrowing_op_names = ", ".join(t.__name__ for t in _NULLABILITY_NARROWING_OPS)
             errors.append(CompilerError(
                 message=(
                     f"{type(op).__name__} op_id={op.op_id}: column {name!r} "
                     "narrowed nullability across input edge "
                     "(input nullable=True, output nullable=False); only "
-                    "Filter may drop NULL rows"
+                    f"row-dropping operators may narrow nullability "
+                    f"({narrowing_op_names})"
                 )
             ))
     return errors
