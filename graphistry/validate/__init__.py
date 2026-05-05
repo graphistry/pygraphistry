@@ -1,7 +1,7 @@
 from .validate_encodings import (  # noqa: E402, F401
     validate_encodings
 )
-from .validate_settings import (  # noqa: E402, F401
+from graphistry.models.surfaces import (  # noqa: E402, F401
     AxisBounds,
     AxisRow,
     AxisRows,
@@ -28,6 +28,9 @@ from .validate_settings import (  # noqa: E402, F401
     url_param_keys,
     react_setting_keys,
     apply_encodings_keys,
+    SettingsValue,
+)
+from .validate_settings import (  # noqa: E402, F401
     normalize_url_params,
     normalize_react_settings,
     is_axis_bounds_payload,

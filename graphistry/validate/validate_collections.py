@@ -5,9 +5,10 @@ from urllib.parse import quote, unquote
 from graphistry.client_session import strtobool
 from graphistry.compute.exceptions import GFQLSyntaxError, GFQLValidationError
 from graphistry.models.collections import Collection, CollectionsInput
+from graphistry.models.surfaces.graphistry_url import URLParamsDict
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.util import warn as emit_warn
-from graphistry.validate.validate_settings import URLParamsDict
+from graphistry.validate.common import normalize_validation_params
 _ALLOWED_COLLECTION_FIELDS_ORDER = (
     'type',
     'id',
@@ -18,20 +19,6 @@ _ALLOWED_COLLECTION_FIELDS_ORDER = (
     'expr',
 )
 _ALLOWED_COLLECTION_FIELDS_SET = set(_ALLOWED_COLLECTION_FIELDS_ORDER)
-
-
-def normalize_validation_params(
-    validate: ValidationParam = 'autofix',
-    warn: bool = True
-) -> Tuple[ValidationMode, bool]:
-    if validate is True:
-        validate_mode: ValidationMode = 'strict'
-    elif validate is False:
-        validate_mode = 'autofix'
-        warn = False
-    else:
-        validate_mode = validate
-    return validate_mode, warn
 
 
 def encode_collections(collections: List[Dict[str, Any]]) -> str:

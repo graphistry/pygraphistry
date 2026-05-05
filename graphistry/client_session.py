@@ -5,8 +5,8 @@ from functools import lru_cache
 import json
 import warnings
 
+from graphistry.models.surfaces.graphistry_url import URLParamsDict
 from graphistry.privacy import Privacy
-from graphistry.validate.validate_settings import URLParamsDict
 from . import util
 from .plugins_types.spanner_types import SpannerConfig
 from .plugins_types.kusto_types import KustoConfig

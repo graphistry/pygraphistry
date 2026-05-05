@@ -8,7 +8,7 @@ routes (for example, Nexus dataset records surfaced through Forge ETL paths).
 from typing import Any, Dict, TypedDict
 
 from graphistry.io.types import BindingsDict, EncodingsDict
-from graphistry.validate import URLParamsDict
+from graphistry.models.surfaces.graphistry_url import URLParamsDict
 
 
 GRAPHISTRY_SERVER_DATASET_BINDING_TO_PLOTTABLE_ENCODING_KEY: Dict[str, str] = {

@@ -26,7 +26,8 @@ from graphistry.io.types import (
 from graphistry.io.contracts.graphistry_server.dataset import (
     GRAPHISTRY_SERVER_DATASET_BINDING_TO_PLOTTABLE_ENCODING_KEY,
 )
-from graphistry.validate import URLParamsDict, normalize_url_params
+from graphistry.models.surfaces.graphistry_url import URLParamsDict
+from graphistry.validate import normalize_url_params
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable

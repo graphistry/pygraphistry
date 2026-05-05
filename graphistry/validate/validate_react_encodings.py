@@ -1,15 +1,15 @@
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 from typing_extensions import Literal, TypedDict
 
+from graphistry.models.surfaces.graphistry_axis import AxisRows
+from graphistry.models.surfaces.graphistry_react import (
+    APPLY_ENCODINGS_REACT_KEY_SET,
+    REACT_SETTING_NAME_SET,
+    ReactSettingsDict,
+)
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.util import warn as emit_warn
-from graphistry.validate.validate_settings import (
-    APPLY_ENCODINGS_REACT_KEY_SET,
-    AxisRows,
-    ReactSettingsDict,
-    REACT_SETTING_NAME_SET,
-    normalize_validation_params,
-)
+from graphistry.validate.common import normalize_validation_params
 
 EncodingVariation = Literal["categorical", "continuous"]
 ColorEncodingKey = Literal["encodePointColor", "encodeEdgeColor"]

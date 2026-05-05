@@ -1,225 +1,26 @@
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
-from typing_extensions import Literal, TypeAlias, TypedDict
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from graphistry.models.surfaces.graphistry_axis import (
+    AXIS_BOUNDS_ALLOWED_KEYS,
+    AXIS_ROW_ALLOWED_KEYS,
+    AXIS_ROW_BOOL_KEYS,
+    AXIS_ROW_NUMERIC_KEYS,
+    AXIS_ROW_POSITION_KEYS,
+    AxisKind,
+)
+from graphistry.models.surfaces.graphistry_react import (
+    REACT_SETTING_NAMES,
+    ReactSettingsDict,
+)
+from graphistry.models.surfaces.graphistry_url import (
+    URL_PARAM_NAMES,
+    URLParamsDict,
+    axis_url_defaults,
+)
+from graphistry.models.surfaces.settings_value import SettingsValue
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.util import warn as emit_warn
-
-SettingsValue: TypeAlias = Union[None, str, int, float, bool, List[Any], Dict[str, Any]]
-AxisKind: TypeAlias = Literal["radial", "linear"]
-URLParamsDict: TypeAlias = Dict[str, SettingsValue]
-ReactSettingsDict: TypeAlias = Dict[str, SettingsValue]
-
-
-class KnownURLParamsDict(TypedDict, total=False):
-    bg: SettingsValue
-    bottom: SettingsValue
-    collections: SettingsValue
-    collectionsGlobalEdgeColor: SettingsValue
-    collectionsGlobalNodeColor: SettingsValue
-    dissuadeHubs: SettingsValue
-    edgeCurvature: SettingsValue
-    edgeInfluence: SettingsValue
-    edgeOpacity: SettingsValue
-    favicon: SettingsValue
-    gravity: SettingsValue
-    info: SettingsValue
-    labelBackground: SettingsValue
-    labelColor: SettingsValue
-    labelOpacity: SettingsValue
-    left: SettingsValue
-    linLog: SettingsValue
-    lockedR: SettingsValue
-    lockedX: SettingsValue
-    lockedY: SettingsValue
-    logoAutoInvert: SettingsValue
-    logoMaxHeight: SettingsValue
-    logoMaxWidth: SettingsValue
-    logoPosition: SettingsValue
-    logoUrl: SettingsValue
-    menu: SettingsValue
-    neighborhoodHighlight: SettingsValue
-    neighborhoodHighlightHops: SettingsValue
-    pageTitle: SettingsValue
-    play: SettingsValue
-    pointOpacity: SettingsValue
-    pointSize: SettingsValue
-    pointStrokeWidth: SettingsValue
-    pointsOfInterestMax: SettingsValue
-    precisionVsSpeed: SettingsValue
-    right: SettingsValue
-    scalingRatio: SettingsValue
-    shortenLabels: SettingsValue
-    showActions: SettingsValue
-    showArrows: SettingsValue
-    showCollections: SettingsValue
-    showHistograms: SettingsValue
-    showInspector: SettingsValue
-    showLabelOnHover: SettingsValue
-    showLabelPropertiesOnHover: SettingsValue
-    showLabels: SettingsValue
-    showPointsOfInterest: SettingsValue
-    showPointsOfInterestLabel: SettingsValue
-    splashAfter: SettingsValue
-    strongGravity: SettingsValue
-    top: SettingsValue
-
-
-class KnownReactSettingsDict(TypedDict, total=False):
-    axes: SettingsValue
-    backgroundColor: SettingsValue
-    controls: SettingsValue
-    edgeCurvature: SettingsValue
-    edgeInfluence: SettingsValue
-    edgeOpacity: SettingsValue
-    encodeAxis: SettingsValue
-    encodeEdgeColor: SettingsValue
-    encodeEdgeIcons: SettingsValue
-    encodePointColor: SettingsValue
-    encodePointIcons: SettingsValue
-    encodePointSize: SettingsValue
-    exclusions: SettingsValue
-    filters: SettingsValue
-    gravity: SettingsValue
-    iframeStyle: SettingsValue
-    labelBackground: SettingsValue
-    labelColor: SettingsValue
-    labelOpacity: SettingsValue
-    linLog: SettingsValue
-    lockedR: SettingsValue
-    lockedX: SettingsValue
-    lockedY: SettingsValue
-    neighborhoodHighlight: SettingsValue
-    neighborhoodHighlightHops: SettingsValue
-    play: SettingsValue
-    pointOpacity: SettingsValue
-    pointSize: SettingsValue
-    pointsOfInterestMax: SettingsValue
-    precisionVsSpeed: SettingsValue
-    pruneOrphans: SettingsValue
-    scalingRatio: SettingsValue
-    showArrows: SettingsValue
-    showHistograms: SettingsValue
-    showInfo: SettingsValue
-    showInspector: SettingsValue
-    showLabelActions: SettingsValue
-    showLabelInspector: SettingsValue
-    showLabelOnHover: SettingsValue
-    showLabelPropertiesOnHover: SettingsValue
-    showLabels: SettingsValue
-    showMenu: SettingsValue
-    showPointsOfInterest: SettingsValue
-    showPointsOfInterestLabel: SettingsValue
-    showSplashScreen: SettingsValue
-    showTimebars: SettingsValue
-    showToolbar: SettingsValue
-    strongGravity: SettingsValue
-    ticks: SettingsValue
-    type: SettingsValue
-    workbook: SettingsValue
-
-
-class AxisBounds(TypedDict, total=False):
-    min: Union[int, float]
-    max: Union[int, float]
-
-
-class AxisRow(TypedDict, total=False):
-    label: str
-    r: Union[int, float]
-    x: Union[int, float]
-    y: Union[int, float]
-    internal: bool
-    external: bool
-    space: bool
-    width: Union[int, float]
-    bounds: AxisBounds
-
-
-AxisRows: TypeAlias = List[AxisRow]
-RingCategoricalAxisLabelMap: TypeAlias = Dict[Any, str]
-RingContinuousAxisLabelMap: TypeAlias = Dict[Union[int, float], str]
-RingContinuousAxis: TypeAlias = Union[RingContinuousAxisLabelMap, List[str], AxisRows]
-RingCategoricalAxis: TypeAlias = Union[RingCategoricalAxisLabelMap, AxisRows]
-
-AXIS_BOUNDS_ALLOWED_KEYS: Tuple[str, ...] = ("min", "max")
-AXIS_ROW_ALLOWED_KEYS: Tuple[str, ...] = (
-    "label", "r", "x", "y", "internal", "external", "space", "width", "bounds",
-)
-AXIS_ROW_POSITION_KEYS: Tuple[str, ...] = ("r", "x", "y")
-AXIS_ROW_BOOL_KEYS: Tuple[str, ...] = ("internal", "external", "space")
-AXIS_ROW_NUMERIC_KEYS: Tuple[str, ...] = ("r", "x", "y", "width")
-
-# Canonical settings key exports for downstream integrations
-URL_PARAM_NAMES: Tuple[str, ...] = (
-    "bg", "bottom", "collections", "collectionsGlobalEdgeColor",
-    "collectionsGlobalNodeColor", "dissuadeHubs", "edgeCurvature",
-    "edgeInfluence", "edgeOpacity", "favicon", "gravity", "info",
-    "labelBackground", "labelColor", "labelOpacity", "left", "linLog",
-    "lockedR", "lockedX", "lockedY", "logoAutoInvert", "logoMaxHeight",
-    "logoMaxWidth", "logoPosition", "logoUrl", "menu",
-    "neighborhoodHighlight", "neighborhoodHighlightHops", "pageTitle",
-    "play", "pointOpacity", "pointSize", "pointStrokeWidth",
-    "pointsOfInterestMax", "precisionVsSpeed", "right", "scalingRatio",
-    "shortenLabels", "showActions", "showArrows", "showCollections",
-    "showHistograms", "showInspector", "showLabelOnHover",
-    "showLabelPropertiesOnHover", "showLabels", "showPointsOfInterest",
-    "showPointsOfInterestLabel", "splashAfter", "strongGravity", "top",
-)
-
-REACT_SETTING_NAMES: Tuple[str, ...] = (
-    "axes", "backgroundColor", "controls", "edgeCurvature", "edgeInfluence",
-    "edgeOpacity", "encodeAxis", "encodeEdgeColor", "encodeEdgeIcons",
-    "encodePointColor", "encodePointIcons", "encodePointSize", "exclusions",
-    "filters", "gravity", "iframeStyle", "labelBackground", "labelColor",
-    "labelOpacity", "linLog", "lockedR", "lockedX", "lockedY",
-    "neighborhoodHighlight", "neighborhoodHighlightHops", "play",
-    "pointOpacity", "pointSize", "pointsOfInterestMax", "precisionVsSpeed",
-    "pruneOrphans", "scalingRatio", "showArrows", "showHistograms",
-    "showInfo", "showInspector", "showLabelActions", "showLabelInspector",
-    "showLabelOnHover", "showLabelPropertiesOnHover", "showLabels",
-    "showMenu", "showPointsOfInterest", "showPointsOfInterestLabel",
-    "showSplashScreen", "showTimebars", "showToolbar", "strongGravity",
-    "ticks", "type", "workbook",
-)
-
-URL_PARAM_NAME_SET = frozenset(URL_PARAM_NAMES)
-REACT_SETTING_NAME_SET = frozenset(REACT_SETTING_NAMES)
-APPLY_ENCODINGS_REACT_KEYS: Tuple[str, ...] = (
-    "encodePointColor",
-    "encodeEdgeColor",
-    "encodePointSize",
-    "encodePointIcons",
-    "encodePointIcon",
-    "encodeEdgeIcons",
-    "encodeEdgeIcon",
-    "encodeAxis",
-)
-APPLY_ENCODINGS_REACT_KEY_SET = frozenset(APPLY_ENCODINGS_REACT_KEYS)
-
-RADIAL_AXIS_URL_DEFAULTS: Dict[str, SettingsValue] = {
-    "play": 0,
-    "lockedR": True,
-    "splashAfter": False,
-}
-LINEAR_AXIS_URL_DEFAULTS: Dict[str, SettingsValue] = {
-    "play": 0,
-    "lockedX": True,
-    "lockedY": True,
-    "splashAfter": False,
-}
-
-
-def _typed_dict_keys(typed_dict_cls: Any) -> Set[str]:
-    raw = getattr(typed_dict_cls, "__annotations__", {})
-    if not isinstance(raw, dict):
-        return set()
-    return {str(k) for k in raw.keys()}
-
-
-if _typed_dict_keys(KnownURLParamsDict) != set(URL_PARAM_NAMES):
-    raise ValueError("KnownURLParamsDict keys must match URL_PARAM_NAMES")
-if _typed_dict_keys(KnownReactSettingsDict) != set(REACT_SETTING_NAMES):
-    raise ValueError("KnownReactSettingsDict keys must match REACT_SETTING_NAMES")
+from graphistry.validate.common import normalize_validation_params
 
 
 def _is_non_bool_number(v: Any) -> bool:
@@ -276,20 +77,6 @@ def is_ring_categorical_axis_payload(v: object) -> bool:
     if is_axis_rows_payload(v):
         return True
     return isinstance(v, dict) and all(isinstance(val, str) for val in v.values())
-
-
-def normalize_validation_params(
-    validate: ValidationParam = "autofix",
-    warn: bool = True
-) -> Tuple[ValidationMode, bool]:
-    if validate is True:
-        validate_mode: ValidationMode = "strict"
-    elif validate is False:
-        validate_mode = "autofix"
-        warn = False
-    else:
-        validate_mode = validate
-    return validate_mode, warn
 
 
 def _issue(
@@ -382,24 +169,6 @@ def normalize_react_settings(
         warn=warn,
         label="react_settings",
     )
-
-
-def axis_url_defaults(kind: AxisKind) -> Dict[str, SettingsValue]:
-    if kind == "radial":
-        return dict(RADIAL_AXIS_URL_DEFAULTS)
-    return dict(LINEAR_AXIS_URL_DEFAULTS)
-
-
-def url_param_keys() -> Tuple[str, ...]:
-    return URL_PARAM_NAMES
-
-
-def react_setting_keys() -> Tuple[str, ...]:
-    return REACT_SETTING_NAMES
-
-
-def apply_encodings_keys() -> Tuple[str, ...]:
-    return APPLY_ENCODINGS_REACT_KEYS
 
 
 def _extract_axis_rows(complex_encodings: Any) -> Optional[List[Dict[str, Any]]]:
