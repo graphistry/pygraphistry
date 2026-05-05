@@ -17,8 +17,8 @@ import calendar, copy, gzip, io, json, numpy as np, pandas as pd, requests, sys,
 from datetime import datetime
 
 from .arrow_uploader import ArrowUploader, ArrowFileUploader
-from .io.dataset_payload_types import DatasetLegacyPayload
-from .io.dataset_payload import coerce_dataset_payload_to_plottable_metadata
+from .io.contracts.graphistry_server.dataset import GraphistryDatasetResponsePayload
+from .io.adapters.graphistry_server_dataset import coerce_graphistry_server_dataset_to_plottable_metadata
 from .io.metadata import deserialize_plottable_metadata
 
 from . import util
@@ -1977,7 +1977,9 @@ class GraphistryClient(AuthManagerProtocol):
         resolved_dataset_id = server_dataset_id if isinstance(server_dataset_id, str) and server_dataset_id else dataset_id
         out = self.bind(dataset_id=resolved_dataset_id)
 
-        metadata = coerce_dataset_payload_to_plottable_metadata(cast(DatasetLegacyPayload, data_payload))
+        metadata = coerce_graphistry_server_dataset_to_plottable_metadata(
+            cast(GraphistryDatasetResponsePayload, data_payload)
+        )
         if metadata:
             out = cast(Plotter, deserialize_plottable_metadata(metadata, out))
             from graphistry.validate import apply_axis_url_defaults

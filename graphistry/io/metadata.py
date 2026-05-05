@@ -23,7 +23,7 @@ from graphistry.io.types import (
     PlottableMetadata,
     SIMPLE_ENCODING_CLIENT_KEYS,
 )
-from graphistry.io.dataset_payload_types import SIMPLE_ENCODING_SERVER_TO_CLIENT_MAP
+from graphistry.io.contracts.graphistry_server.dataset import GRAPHISTRY_SERVER_SIMPLE_ENCODING_BINDING_MAP
 from graphistry.validate import URLParamsDict, normalize_url_params
 
 if TYPE_CHECKING:
@@ -201,7 +201,7 @@ def serialize_plottable_metadata(g: 'Plottable') -> PlottableMetadata:
     node_bindings: Dict[str, str] = serialize_node_bindings(g)
     edge_bindings: Dict[str, str] = serialize_edge_bindings(g)
 
-    for server_key, encoding_key in SIMPLE_ENCODING_SERVER_TO_CLIENT_MAP.items():
+    for server_key, encoding_key in GRAPHISTRY_SERVER_SIMPLE_ENCODING_BINDING_MAP.items():
         if server_key in node_bindings:
             encodings[encoding_key] = node_bindings[server_key]  # type: ignore[literal-required]
         elif server_key in edge_bindings:
