@@ -3,18 +3,23 @@
 from typing import Any, Dict, Set, Tuple
 from typing_extensions import TypeAlias, TypedDict
 
-from graphistry.models.surfaces.graphistry_frontend.settings_value import SettingsValue
+from graphistry.models.surfaces.graphistry_frontend.settings_value import (
+    SettingBool,
+    SettingNumber,
+    SettingString,
+    SettingsValue,
+)
 
 ReactSettingsDict: TypeAlias = Dict[str, SettingsValue]
 
 
 class KnownReactSettingsDict(TypedDict, total=False):
     axes: SettingsValue
-    backgroundColor: SettingsValue
+    backgroundColor: SettingString
     controls: SettingsValue
-    edgeCurvature: SettingsValue
-    edgeInfluence: SettingsValue
-    edgeOpacity: SettingsValue
+    edgeCurvature: SettingNumber
+    edgeInfluence: SettingNumber
+    edgeOpacity: SettingNumber
     encodeAxis: SettingsValue
     encodeEdgeColor: SettingsValue
     encodeEdgeIcons: SettingsValue
@@ -23,42 +28,42 @@ class KnownReactSettingsDict(TypedDict, total=False):
     encodePointSize: SettingsValue
     exclusions: SettingsValue
     filters: SettingsValue
-    gravity: SettingsValue
+    gravity: SettingNumber
     iframeStyle: SettingsValue
-    labelBackground: SettingsValue
-    labelColor: SettingsValue
-    labelOpacity: SettingsValue
-    linLog: SettingsValue
-    lockedR: SettingsValue
-    lockedX: SettingsValue
-    lockedY: SettingsValue
-    neighborhoodHighlight: SettingsValue
-    neighborhoodHighlightHops: SettingsValue
-    play: SettingsValue
-    pointOpacity: SettingsValue
-    pointSize: SettingsValue
-    pointsOfInterestMax: SettingsValue
-    precisionVsSpeed: SettingsValue
-    pruneOrphans: SettingsValue
-    scalingRatio: SettingsValue
-    showArrows: SettingsValue
-    showHistograms: SettingsValue
-    showInfo: SettingsValue
-    showInspector: SettingsValue
-    showLabelActions: SettingsValue
-    showLabelInspector: SettingsValue
-    showLabelOnHover: SettingsValue
-    showLabelPropertiesOnHover: SettingsValue
-    showLabels: SettingsValue
-    showMenu: SettingsValue
-    showPointsOfInterest: SettingsValue
-    showPointsOfInterestLabel: SettingsValue
-    showSplashScreen: SettingsValue
-    showTimebars: SettingsValue
-    showToolbar: SettingsValue
-    strongGravity: SettingsValue
+    labelBackground: SettingString
+    labelColor: SettingString
+    labelOpacity: SettingNumber
+    linLog: SettingBool
+    lockedR: SettingBool
+    lockedX: SettingBool
+    lockedY: SettingBool
+    neighborhoodHighlight: SettingBool
+    neighborhoodHighlightHops: int
+    play: int
+    pointOpacity: SettingNumber
+    pointSize: SettingNumber
+    pointsOfInterestMax: int
+    precisionVsSpeed: SettingNumber
+    pruneOrphans: SettingBool
+    scalingRatio: SettingNumber
+    showArrows: SettingBool
+    showHistograms: SettingBool
+    showInfo: SettingBool
+    showInspector: SettingBool
+    showLabelActions: SettingBool
+    showLabelInspector: SettingBool
+    showLabelOnHover: SettingBool
+    showLabelPropertiesOnHover: SettingBool
+    showLabels: SettingBool
+    showMenu: SettingBool
+    showPointsOfInterest: SettingBool
+    showPointsOfInterestLabel: SettingBool
+    showSplashScreen: SettingBool
+    showTimebars: SettingBool
+    showToolbar: SettingBool
+    strongGravity: SettingBool
     ticks: SettingsValue
-    type: SettingsValue
+    type: SettingString
     workbook: SettingsValue
 
 
