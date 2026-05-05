@@ -6,7 +6,7 @@ of metadata JSON used for server communication (uploads, GFQL responses, etc.).
 """
 from typing import Any, Dict, Tuple, TypedDict
 
-from graphistry.models.surfaces.graphistry_url import URLParamsDict
+from graphistry.models.surfaces.viewer.url_params import URLParamsDict
 
 
 # Complex Encodings Structure

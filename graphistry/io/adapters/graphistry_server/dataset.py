@@ -9,7 +9,7 @@ from typing import Any, Dict, cast
 import copy
 
 from graphistry.io.contracts.graphistry_server.dataset import (
-    GRAPHISTRY_SERVER_DATASET_BINDING_TO_PLOTTABLE_ENCODING_KEY,
+    GRAPHISTRY_SERVER_BINDING_TO_PLOTTABLE_ENCODING_MAP,
     GraphistryServerDatasetPayload,
 )
 from graphistry.io.types import ComplexEncodingModes, EncodingsDict, MetadataDict, PlottableMetadata
@@ -85,7 +85,7 @@ def adapt_graphistry_server_dataset_payload_to_plottable_metadata(
 
     simple_encodings: EncodingsDict = {}
     for server_binding_key, plottable_encoding_key in (
-        GRAPHISTRY_SERVER_DATASET_BINDING_TO_PLOTTABLE_ENCODING_KEY.items()
+        GRAPHISTRY_SERVER_BINDING_TO_PLOTTABLE_ENCODING_MAP.items()
     ):
         if (
             server_binding_key in server_node_bindings_dict

@@ -1,6 +1,6 @@
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from graphistry.models.surfaces.graphistry_axis import (
+from graphistry.models.surfaces.viewer.axis import (
     AXIS_BOUNDS_ALLOWED_KEYS,
     AXIS_ROW_ALLOWED_KEYS,
     AXIS_ROW_BOOL_KEYS,
@@ -8,16 +8,16 @@ from graphistry.models.surfaces.graphistry_axis import (
     AXIS_ROW_POSITION_KEYS,
     AxisKind,
 )
-from graphistry.models.surfaces.graphistry_react import (
+from graphistry.models.surfaces.viewer.react_settings import (
     REACT_SETTING_NAMES,
     ReactSettingsDict,
 )
-from graphistry.models.surfaces.graphistry_url import (
+from graphistry.models.surfaces.viewer.url_params import (
     URL_PARAM_NAMES,
     URLParamsDict,
     axis_url_defaults,
 )
-from graphistry.models.surfaces.settings_value import SettingsValue
+from graphistry.models.surfaces.viewer.settings_value import SettingsValue
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.util import warn as emit_warn
 from graphistry.validate.common import normalize_validation_params

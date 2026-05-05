@@ -1,8 +1,8 @@
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 from typing_extensions import Literal, TypedDict
 
-from graphistry.models.surfaces.graphistry_axis import AxisRows
-from graphistry.models.surfaces.graphistry_react import (
+from graphistry.models.surfaces.viewer.axis import AxisRows
+from graphistry.models.surfaces.viewer.react_settings import (
     APPLY_ENCODINGS_REACT_KEY_SET,
     REACT_SETTING_NAME_SET,
     ReactSettingsDict,

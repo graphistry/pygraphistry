@@ -1,10 +1,6 @@
-"""Typed contracts for Graphistry-facing surfaces.
+"""Viewer-facing surface contracts (URL params, React settings, axis payloads)."""
 
-Current exported surface family:
-- viewer: URL params, React settings, axis payloads
-"""
-
-from .viewer import (  # noqa: F401
+from .axis import (  # noqa: F401
     AXIS_BOUNDS_ALLOWED_KEYS,
     AXIS_ROW_ALLOWED_KEYS,
     AXIS_ROW_BOOL_KEYS,
@@ -16,6 +12,8 @@ from .viewer import (  # noqa: F401
     AxisRows,
     RingCategoricalAxis,
     RingContinuousAxis,
+)
+from .react_settings import (  # noqa: F401
     APPLY_ENCODINGS_REACT_KEYS,
     APPLY_ENCODINGS_REACT_KEY_SET,
     KnownReactSettingsDict,
@@ -24,13 +22,15 @@ from .viewer import (  # noqa: F401
     ReactSettingsDict,
     apply_encodings_keys,
     react_setting_keys,
+)
+from .settings_value import SettingsValue  # noqa: F401
+from .url_params import (  # noqa: F401
     LINEAR_AXIS_URL_DEFAULTS,
     RADIAL_AXIS_URL_DEFAULTS,
+    KnownURLParamsDict,
     URL_PARAM_NAMES,
     URL_PARAM_NAME_SET,
     URLParamsDict,
-    KnownURLParamsDict,
     axis_url_defaults,
     url_param_keys,
-    SettingsValue,
 )

@@ -5,7 +5,7 @@ from urllib.parse import quote, unquote
 from graphistry.client_session import strtobool
 from graphistry.compute.exceptions import GFQLSyntaxError, GFQLValidationError
 from graphistry.models.collections import Collection, CollectionsInput
-from graphistry.models.surfaces.graphistry_url import URLParamsDict
+from graphistry.models.surfaces.viewer.url_params import URLParamsDict
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.util import warn as emit_warn
 from graphistry.validate.common import normalize_validation_params
