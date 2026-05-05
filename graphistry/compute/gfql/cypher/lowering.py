@@ -3604,18 +3604,9 @@ def _alias_table(
 
 
 def _split_qualified_name(expr: str, *, line: int, column: int) -> Tuple[str, Optional[str]]:
-    parts = expr.split(".")
-    if len(parts) == 1:
-        return parts[0], None
-    if len(parts) == 2:
-        return parts[0], parts[1]
-    raise _unsupported(
-        "Only simple aliases and alias.property expressions are supported in Cypher RETURN/ORDER BY",
-        field="expression",
-        value=expr,
-        line=line,
-        column=column,
-    )
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
+    return _projection._split_qualified_name(expr, line=line, column=column)
 
 
 def _qualified_ref_from_node(
@@ -3626,26 +3617,9 @@ def _qualified_ref_from_node(
     line: int,
     column: int,
 ) -> Tuple[str, Optional[str]]:
-    if isinstance(node, Identifier):
-        return _split_qualified_name(node.name, line=line, column=column)
-    if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
-        alias_name, prop = _split_qualified_name(node.value.name, line=line, column=column)
-        if prop is not None:
-            raise _unsupported(
-                "Only simple aliases and alias.property expressions are supported in Cypher RETURN/ORDER BY",
-                field=field,
-                value=value,
-                line=line,
-                column=column,
-            )
-        return alias_name, node.property
-    raise _unsupported(
-        "Only simple aliases and alias.property expressions are supported in Cypher RETURN/ORDER BY",
-        field=field,
-        value=value,
-        line=line,
-        column=column,
-    )
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
+    return _projection._qualified_ref_from_node(node, field=field, value=value, line=line, column=column)
 
 
 def _projection_ref_from_expr(
@@ -3657,47 +3631,13 @@ def _projection_ref_from_expr(
     line: int,
     column: int,
 ) -> Tuple[str, Optional[str]]:
-    node = _parse_row_expr(expr, params=params, field=field, line=line, column=column)
-    if isinstance(node, (Identifier, PropertyAccessExpr)):
-        return _qualified_ref_from_node(
-            node,
-            field=field,
-            value=expr,
-            line=line,
-            column=column,
-        )
-    if isinstance(node, FunctionCall) and node.name == "type":
-        if len(node.args) != 1 or not isinstance(node.args[0], Identifier):
-            raise _unsupported(
-                "type(...) is only supported with a single relationship alias argument in this phase",
-                field=field,
-                value=expr,
-                line=line,
-                column=column,
-            )
-        alias_name, prop = _split_qualified_name(node.args[0].name, line=line, column=column)
-        if prop is not None:
-            raise _unsupported(
-                "type(...) only supports bare relationship aliases in this phase",
-                field=field,
-                value=expr,
-                line=line,
-                column=column,
-            )
-        target = alias_targets.get(alias_name)
-        if not isinstance(target, ASTEdge):
-            raise _unsupported(
-                "type(...) is only supported for relationship aliases in this phase",
-                field=field,
-                value=expr,
-                line=line,
-                column=column,
-            )
-        return alias_name, "type"
-    raise _unsupported(
-        "Only simple aliases, alias.property, and type(rel_alias) expressions are supported in Cypher RETURN/ORDER BY",
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
+    return _projection._projection_ref_from_expr(
+        expr,
+        alias_targets=alias_targets,
+        params=params,
         field=field,
-        value=expr,
         line=line,
         column=column,
     )
@@ -3712,26 +3652,16 @@ def _raise_if_invalid_graph_projection_expr(
     line: int,
     column: int,
 ) -> None:
-    node = _parse_row_expr(expr, params=params, field=field, line=line, column=column)
-    if not isinstance(node, FunctionCall) or node.name != "type" or len(node.args) != 1:
-        return
-    arg = node.args[0]
-    if not isinstance(arg, Identifier):
-        return
-    alias_name, prop = _split_qualified_name(arg.name, line=line, column=column)
-    if prop is not None:
-        return
-    target = alias_targets.get(alias_name)
-    if target is None:
-        return
-    if not isinstance(target, ASTEdge):
-        raise _unsupported(
-            "type(...) is only supported for relationship aliases in this phase",
-            field=field,
-            value=expr,
-            line=line,
-            column=column,
-        )
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
+    _projection._raise_if_invalid_graph_projection_expr(
+        expr,
+        alias_targets=alias_targets,
+        params=params,
+        field=field,
+        line=line,
+        column=column,
+    )
 
 
 def _reject_duplicate_alias_row_refs(
@@ -3741,49 +3671,14 @@ def _reject_duplicate_alias_row_refs(
     duplicated_aliases: Set[str],
     params: Optional[Mapping[str, Any]],
 ) -> None:
-    if not duplicated_aliases:
-        return
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
 
-    def _check(expr_text: str, *, field: str, line: int, column: int) -> None:
-        refs = _expr_match_aliases(
-            expr_text,
-            alias_targets=alias_targets,
-            params=params,
-            field=field,
-            line=line,
-            column=column,
-        )
-        if refs & duplicated_aliases:
-            raise _unsupported(
-                "Cypher row projection from repeated MATCH aliases is not yet supported in the local compiler",
-                field=field,
-                value=expr_text,
-                line=line,
-                column=column,
-            )
-
-    for unwind_clause in query.unwinds:
-        _check(
-            unwind_clause.expression.text,
-            field="unwind",
-            line=unwind_clause.span.line,
-            column=unwind_clause.span.column,
-        )
-    for item in query.return_.items:
-        _check(
-            item.expression.text,
-            field=query.return_.kind,
-            line=item.span.line,
-            column=item.span.column,
-        )
-    if query.order_by is not None:
-        for order_item in query.order_by.items:
-            _check(
-                order_item.expression.text,
-                field="order_by",
-                line=order_item.span.line,
-                column=order_item.span.column,
-            )
+    _projection._reject_duplicate_alias_row_refs(
+        query,
+        alias_targets=alias_targets,
+        duplicated_aliases=duplicated_aliases,
+        params=params,
+    )
 
 
 def _build_projection_plan(
@@ -3795,252 +3690,15 @@ def _build_projection_plan(
     params: Optional[Mapping[str, Any]] = None,
     semantic_entity_kinds: Optional[Mapping[str, Literal["node", "edge", "scalar"]]] = None,
 ) -> _ProjectionPlan:
-    source_alias: Optional[str] = None
-    all_source_aliases: Optional[Set[str]] = None
-    whole_row_output_names: List[str] = []
-    whole_row_sources: Dict[str, str] = {}
-    projection_items: List[Tuple[str, Any]] = []
-    projection_columns: List[ResultProjectionColumn] = []
-    available_columns: Set[str] = set()
-    projected_property_outputs: Dict[str, str] = {}
-    output_to_source_property: Dict[str, str] = {}
-    output_to_expr_source: Dict[str, str] = {}
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
 
-    for item in clause.items:
-        binding: Optional[_StageColumnBinding] = None
-        projected_expr_binding = False
-        simple_ref = True
-        if item.expression.text == "*":
-            if len(alias_targets) > 1:
-                raise _unsupported(
-                    "Cypher RETURN * currently requires a single MATCH alias in the local compiler",
-                    field=f"{clause.kind}.items",
-                    value=item.expression.text,
-                    line=item.span.line,
-                    column=item.span.column,
-                )
-            if active_alias is not None:
-                alias_name = active_alias
-            elif len(alias_targets) == 1:
-                alias_name = next(iter(alias_targets.keys()))
-            else:
-                raise GFQLValidationError(
-                    ErrorCode.E108,
-                    "Cypher RETURN/WITH * currently requires a single active alias in the local compiler",
-                    field=f"{clause.kind}.items",
-                    value=item.expression.text,
-                    suggestion="Use a single MATCH alias or project explicit columns.",
-                    line=item.span.line,
-                    column=item.span.column,
-                    language="cypher",
-                )
-            prop = None
-            binding = None
-            projected_expr_binding = False
-        else:
-            try:
-                alias_name, prop = _projection_ref_from_expr(
-                    item.expression.text,
-                    alias_targets=alias_targets,
-                    params=params,
-                    field=f"{clause.kind}.items",
-                    line=item.span.line,
-                    column=item.span.column,
-                )
-            except GFQLValidationError:
-                _raise_if_invalid_graph_projection_expr(
-                    item.expression.text,
-                    alias_targets=alias_targets,
-                    params=params,
-                    field=f"{clause.kind}.items",
-                    line=item.span.line,
-                    column=item.span.column,
-                )
-                simple_ref = False
-                aliases = sorted(
-                    _expr_match_aliases(
-                        item.expression.text,
-                        alias_targets=alias_targets,
-                        params=params,
-                        field=f"{clause.kind}.items",
-                        line=item.span.line,
-                        column=item.span.column,
-                    )
-                )
-                if len(aliases) == 1:
-                    alias_name = aliases[0]
-                    prop = None
-                elif len(aliases) == 0:
-                    if active_alias is not None:
-                        alias_name = active_alias
-                        prop = None
-                    elif len(alias_targets) == 1:
-                        alias_name = next(iter(alias_targets.keys()))
-                        prop = None
-                    else:
-                        raise
-                else:
-                    raise
-        if alias_name not in alias_targets and projected_columns is not None:
-            binding = projected_columns.get(alias_name)
-            if binding is not None:
-                if prop is None and binding.kind == "property":
-                    if active_alias is None:
-                        raise _unsupported(
-                            "Projected Cypher column references require an active MATCH alias in this phase",
-                            field=f"{clause.kind}.items",
-                            value=item.expression.text,
-                            line=item.span.line,
-                            column=item.span.column,
-                        )
-                    alias_name = active_alias
-                    simple_ref = True
-                    prop = binding.source_name
-                else:
-                    simple_ref = False
-                    projected_expr_binding = True
-        if alias_name not in alias_targets:
-            if projected_expr_binding:
-                alias_name = active_alias or alias_name
-            else:
-                raise GFQLValidationError(
-                    ErrorCode.E108,
-                    f"Unknown Cypher alias '{alias_name}' in {clause.kind.upper()} clause",
-                    field=f"{clause.kind}.alias",
-                    value=alias_name,
-                    suggestion="Reference an alias declared in the MATCH pattern.",
-                    line=item.span.line,
-                    column=item.span.column,
-                    language="cypher",
-                )
-        if source_alias is None:
-            source_alias = alias_name
-        elif source_alias != alias_name:
-            if all_source_aliases is None:
-                all_source_aliases = {source_alias}
-            all_source_aliases.add(alias_name)
-        if item.expression.text == "*":
-            output_name = item.alias or alias_name
-            if output_name in available_columns or output_name in whole_row_output_names:
-                raise GFQLValidationError(
-                    ErrorCode.E108,
-                    "Duplicate Cypher projection names are not yet supported in local lowering",
-                    field=f"{clause.kind}.items",
-                    value=output_name,
-                    suggestion="Use distinct output names in RETURN/WITH.",
-                    line=item.span.line,
-                    column=item.span.column,
-                    language="cypher",
-                )
-            whole_row_output_names.append(output_name)
-            whole_row_sources[output_name] = alias_name
-            continue
-        if simple_ref and prop is None:
-            output_name = item.alias or alias_name
-            if output_name in available_columns or output_name in whole_row_output_names:
-                raise GFQLValidationError(
-                    ErrorCode.E108,
-                    "Duplicate Cypher projection names are not yet supported in local lowering",
-                    field=f"{clause.kind}.items",
-                    value=output_name,
-                    suggestion="Use distinct output names in RETURN/WITH.",
-                    line=item.span.line,
-                    column=item.span.column,
-                    language="cypher",
-                )
-            whole_row_output_names.append(output_name)
-            whole_row_sources[output_name] = alias_name
-            continue
-        output_name = item.alias or item.expression.text
-        if output_name in available_columns or output_name in whole_row_output_names:
-            raise GFQLValidationError(
-                ErrorCode.E108,
-                "Duplicate Cypher projection names are not yet supported in local lowering",
-                field=f"{clause.kind}.items",
-                value=output_name,
-                suggestion="Use distinct output names in RETURN/WITH.",
-                line=item.span.line,
-                column=item.span.column,
-                language="cypher",
-            )
-        row_expr = _rewrite_expr_to_projected_sources(
-            item.expression,
-            projected_columns=projected_columns,
-            params=params,
-            alias_targets=alias_targets,
-            field=f"{clause.kind}.items",
-        )
-        runtime_expr = (
-            f"{alias_name}.{prop}"
-            if simple_ref and prop is not None
-            else (
-                binding.source_name
-                if binding is not None and binding.kind == "expr" and prop is None
-                else _row_expr_arg(
-                    row_expr,
-                    params=params,
-                    alias_targets=alias_targets,
-                    field=f"{clause.kind}.items",
-                )
-            )
-        )
-        projection_items.append((output_name, runtime_expr))
-        available_columns.add(output_name)
-        if simple_ref and prop is not None:
-            projected_property_outputs.setdefault(prop, output_name)
-            source_property_name = prop if alias_name == source_alias else f"{alias_name}.{prop}"
-            output_to_source_property[output_name] = source_property_name
-            projection_columns.append(
-                ResultProjectionColumn(
-                    output_name=output_name,
-                    kind="property",
-                    source_name=source_property_name,
-                )
-            )
-        else:
-            if isinstance(runtime_expr, str):
-                output_to_expr_source[output_name] = runtime_expr
-            projection_columns.append(
-                ResultProjectionColumn(
-                    output_name=output_name,
-                    kind="expr",
-                    source_name=runtime_expr if isinstance(runtime_expr, str) else item.expression.text,
-                )
-            )
-
-    if source_alias is None:
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            f"Cypher {clause.kind.upper()} clause must project at least one supported expression",
-            field=clause.kind,
-            value=None,
-            suggestion="Project a match alias or alias.property expression.",
-            line=clause.span.line,
-            column=clause.span.column,
-            language="cypher",
-        )
-    if whole_row_output_names:
-        available_columns = set()
-    table = _alias_table(
-        alias_targets[source_alias],
-        alias=source_alias,
-        line=clause.span.line,
-        column=clause.span.column,
+    return _projection._build_projection_plan(
+        clause,
+        alias_targets=alias_targets,
+        active_alias=active_alias,
+        projected_columns=projected_columns,
+        params=params,
         semantic_entity_kinds=semantic_entity_kinds,
-    )
-    return _ProjectionPlan(
-        source_alias=source_alias,
-        table=table,
-        whole_row_output_names=whole_row_output_names,
-        whole_row_sources=whole_row_sources,
-        clause_kind=clause.kind,
-        projection_items=projection_items,
-        projection_columns=projection_columns,
-        available_columns=available_columns,
-        projected_property_outputs=projected_property_outputs,
-        output_to_source_property=output_to_source_property,
-        output_to_expr_source=output_to_expr_source,
-        all_source_aliases=all_source_aliases,
     )
 
 
@@ -4049,24 +3707,9 @@ def _can_lower_multi_alias_projection_bindings(
     *,
     alias_targets: Mapping[str, ASTObject],
 ) -> bool:
-    all_refs = (plan.all_source_aliases or set()) | {plan.source_alias}
-    all_are_edges = all(isinstance(alias_targets.get(alias_name), ASTEdge) for alias_name in all_refs)
-    has_non_scalar = bool(plan.whole_row_output_names) or bool(plan.output_to_expr_source)
-    if not has_non_scalar:
-        return not all_are_edges
-    if len(plan.whole_row_output_names) != 1:
-        return False
-    if isinstance(alias_targets.get(plan.source_alias), ASTEdge):
-        return False
-    simple_qualified_ref = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$")
-    for source_name in plan.output_to_expr_source.values():
-        match = simple_qualified_ref.fullmatch(source_name)
-        if match is None:
-            return False
-        alias_name = source_name.split(".", 1)[0]
-        if isinstance(alias_targets.get(alias_name), ASTEdge):
-            return False
-    return True
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
+    return _projection._can_lower_multi_alias_projection_bindings(plan, alias_targets=alias_targets)
 
 
 def _result_projection_plan(
@@ -4074,31 +3717,15 @@ def _result_projection_plan(
     *,
     alias_targets: Mapping[str, ASTObject],
 ) -> Optional[ResultProjectionPlan]:
-    if not plan.whole_row_output_names:
-        return None
-    columns: List[ResultProjectionColumn] = []
-    for output_name in plan.whole_row_output_names:
-        columns.append(
-            ResultProjectionColumn(
-                output_name=output_name,
-                kind="whole_row",
-                source_name=plan.whole_row_sources.get(output_name, plan.source_alias),
-            )
-        )
-    columns.extend(plan.projection_columns)
-    return ResultProjectionPlan(
-        alias=plan.source_alias,
-        table=cast(Literal["nodes", "edges"], plan.table),
-        columns=tuple(columns),
-        exclude_columns=tuple(sorted(alias_targets.keys())),
-    )
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
+    return _projection._result_projection_plan(plan, alias_targets=alias_targets)
 
 
 def _empty_optional_projection_row(plan: _ProjectionPlan) -> Dict[str, Any]:
-    out: Dict[str, Any] = {name: None for name in plan.whole_row_output_names}
-    for column in plan.projection_columns:
-        out[column.output_name] = None
-    return out
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
+    return _projection._empty_optional_projection_row(plan)
 
 
 def _optional_null_fill_plan(
@@ -4111,91 +3738,16 @@ def _optional_null_fill_plan(
     bound_visible_aliases: AbstractSet[str] = frozenset(),
     semantic_entity_kinds: Optional[Mapping[str, Literal["node", "edge", "scalar"]]] = None,
 ) -> Optional[OptionalNullFillPlan]:
-    if (
-        len(query.matches) != 2
-        or query.matches[0].optional
-        or not query.matches[1].optional
-        or query.where is not None
-        or query.with_stages
-        or query.unwinds
-        or query.order_by is not None
-        or query.skip is not None
-        or query.limit is not None
-    ):
-        return None
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
 
-    seed_alias = _single_node_seed_alias(query.matches[0])
-    if seed_alias is None:
-        return None
-
-    optional_aliases = _match_clause_aliases(query.matches[1]) - {seed_alias}
-    if not optional_aliases:
-        return None
-
-    referenced: Set[str] = set()
-    for item in query.return_.items:
-        referenced.update(
-            _expr_match_aliases(
-                item.expression.text,
-                alias_targets=alias_targets,
-                params=params,
-                field=query.return_.kind,
-                line=item.span.line,
-                column=item.span.column,
-            )
-        )
-    if not referenced or not referenced <= optional_aliases:
-        return None
-
-    alignment_output_name = "__cypher_optional_seed__"
-    alignment_table = cast(
-        Literal["nodes", "edges"],
-        _alias_table(
-            alias_targets[seed_alias],
-            alias=seed_alias,
-            line=query.return_.span.line,
-            column=query.return_.span.column,
-            semantic_entity_kinds=semantic_entity_kinds,
-        ),
-    )
-    alignment_plan = _ProjectionPlan(
-        source_alias=seed_alias,
-        table=alignment_table,
-        whole_row_output_names=[alignment_output_name],
-        whole_row_sources={alignment_output_name: seed_alias},
-        clause_kind="return",
-        projection_items=[],
-        projection_columns=[],
-        available_columns=set(),
-        projected_property_outputs={},
-        output_to_source_property={},
-        output_to_expr_source={},
-    )
-    alignment_projection = _result_projection_plan(alignment_plan, alias_targets=alias_targets)
-    if alignment_projection is None:
-        raise _unsupported(
-            "Cypher OPTIONAL MATCH null-row alignment could not construct a seed-row projection",
-            field="return",
-            value=[item.expression.text for item in query.return_.items],
-            line=query.return_.span.line,
-            column=query.return_.span.column,
-        )
-
-    return OptionalNullFillPlan(
-        base_chain=Chain(lower_match_clause(query.matches[0], params=params)),
-        null_row=_empty_optional_projection_row(plan),
-        alignment_chain=Chain(
-            _lower_projection_chain(
-                query,
-                lowered,
-                params=params,
-                plan=alignment_plan,
-                bound_visible_aliases=bound_visible_aliases,
-                semantic_entity_kinds=semantic_entity_kinds,
-            )
-        ),
-        alignment_projection=alignment_projection,
-        alignment_output_name=alignment_output_name,
+    return _projection._optional_null_fill_plan(
+        query,
+        lowered=lowered,
+        alias_targets=alias_targets,
+        plan=plan,
+        params=params,
+        bound_visible_aliases=bound_visible_aliases,
+        semantic_entity_kinds=semantic_entity_kinds,
     )
 
 
@@ -4204,65 +3756,24 @@ def _optional_projection_row_guard_plan(
     *,
     params: Optional[Mapping[str, Any]],
 ) -> Optional[OptionalProjectionRowGuardPlan]:
-    if (
-        len(query.matches) != 2
-        or query.matches[0].optional
-        or not query.matches[1].optional
-        or query.where is not None
-        or query.with_stages
-        or query.unwinds
-        or query.order_by is not None
-        or query.skip is not None
-        or query.limit is not None
-    ):
-        return None
-    base_clause = query.matches[0]
-    if len(base_clause.patterns) == 1:
-        return OptionalProjectionRowGuardPlan(
-            base_chains=(Chain(lower_match_clause(base_clause, params=params)),)
-        )
-    base_chains: List[Chain] = []
-    for idx, pattern in enumerate(base_clause.patterns):
-        if len(pattern) != 1 or not isinstance(pattern[0], NodePattern):
-            return None
-        pattern_clause = MatchClause(
-            patterns=(pattern,),
-            span=base_clause.span,
-            optional=False,
-            pattern_aliases=((base_clause.pattern_aliases[idx] if idx < len(base_clause.pattern_aliases) else None),),
-            pattern_alias_kinds=(_match_pattern_alias_kinds(base_clause)[idx],),
-        )
-        base_chains.append(Chain(lower_match_clause(pattern_clause, params=params)))
-    return OptionalProjectionRowGuardPlan(base_chains=tuple(base_chains))
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
+    return _projection._optional_projection_row_guard_plan(query, params=params)
 
 
 def _plan_with_visible_projected_columns(
     plan: _ProjectionPlan,
     projected_columns: Mapping[str, _StageColumnBinding],
 ) -> _ProjectionPlan:
-    if not projected_columns:
-        return plan
-    output_to_source_property = dict(plan.output_to_source_property)
-    output_to_expr_source = dict(plan.output_to_expr_source)
-    available_columns = set(plan.available_columns)
-    for name, binding in projected_columns.items():
-        available_columns.add(name)
-        if name in output_to_source_property or name in output_to_expr_source:
-            continue
-        if binding.kind == "property":
-            output_to_source_property[name] = binding.source_name
-        else:
-            output_to_expr_source[name] = binding.source_name
-    return replace(
-        plan,
-        available_columns=available_columns,
-        output_to_source_property=output_to_source_property,
-        output_to_expr_source=output_to_expr_source,
-    )
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
+    return _projection._plan_with_visible_projected_columns(plan, projected_columns=projected_columns)
 
 
 def _projection_output_names(plan: _ProjectionPlan) -> Set[str]:
-    return {name for name, _ in plan.projection_items} | set(plan.whole_row_output_names)
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
+    return _projection._projection_output_names(plan)
 
 
 def _lower_order_by_clause(
@@ -7910,26 +7421,9 @@ def _map_terminal_reentry_query(
     *,
     transform: Callable[[CompiledCypherQuery], CompiledCypherQuery],
 ) -> CompiledCypherQuery:
-    if compiled_query.start_nodes_query is None:
-        return transform(compiled_query)
-    mapped_start_nodes = _map_terminal_reentry_query(
-        compiled_query.start_nodes_query,
-        transform=transform,
-    )
-    return replace(
-        compiled_query,
-        execution_extras=_execution_extras_with(
-            compiled_query,
-            connected_optional_match=compiled_query.connected_optional_match,
-            connected_match_join=compiled_query.connected_match_join,
-            query_graph=compiled_query.query_graph,
-            start_nodes_query=mapped_start_nodes,
-            optional_reentry=compiled_query.optional_reentry,
-            reentry_plan=compiled_query.reentry_plan,
-            logical_plan=compiled_query.logical_plan,
-            logical_plan_defer_reason=compiled_query.logical_plan_defer_reason,
-        ),
-    )
+    from graphistry.compute.gfql.cypher.reentry import runtime as _reentry_runtime
+
+    return _reentry_runtime._map_terminal_reentry_query(compiled_query, transform=transform)
 
 
 def _drop_bare_alias_items_from_stage(
@@ -7938,27 +7432,9 @@ def _drop_bare_alias_items_from_stage(
     *,
     identifier_re: "re.Pattern[str]",
 ) -> ProjectionStage:
-    """Drop bare-identifier projection items whose name is in ``aliases``.
+    from graphistry.compute.gfql.cypher.reentry import runtime as _reentry_runtime
 
-    Used by the multi-stage carry chain (slice 4.3c): downstream
-    ``WITH a, x, y, collect(...)`` re-projects carried whole-row aliases as
-    forwarding items. Once their properties are carried as hidden columns on
-    the reentry-alias's row table, the bare forwarding items are noise — the
-    carry continues through the chain regardless. Drop them so the bare-ref
-    scanner doesn't fail-fast on what is in fact a forwarding pattern.
-    """
-    new_items = tuple(
-        item
-        for item in stage.clause.items
-        if not (
-            item.alias is None
-            and identifier_re.fullmatch(item.expression.text.strip())
-            and item.expression.text.strip() in aliases
-        )
-    )
-    if len(new_items) == len(stage.clause.items):
-        return stage
-    return replace(stage, clause=replace(stage.clause, items=new_items))
+    return _reentry_runtime._drop_bare_alias_items_from_stage(stage, aliases, identifier_re=identifier_re)
 
 
 def _rewrite_multi_whole_row_prefix(
@@ -7967,93 +7443,13 @@ def _rewrite_multi_whole_row_prefix(
     query: CypherQuery,
     reentry_first_alias: Optional[str],
 ) -> Tuple[ProjectionStage, Tuple[ProjectionStage, ...], Dict[str, Tuple[str, ...]]]:
-    """Decompose non-source whole-row aliases in the prefix WITH into scalar carries.
+    from graphistry.compute.gfql.cypher.reentry import runtime as _reentry_runtime
 
-    Returns ``(rewritten_prefix, rewritten_tail, multi_alias_carries)``:
-    * ``rewritten_prefix`` — prefix with non-source bare items replaced by scalar
-      carries (``x.id AS __carry_x__id__``), which the existing scalar-carry
-      plumbing forwards onto the reentry-alias's row table as hidden columns.
-    * ``rewritten_tail`` — ``query.with_stages[1:]`` with bare non-source-alias
-      forwarding items dropped (slice 4.3c). Carried properties survive the
-      chain via the hidden columns; bare items in downstream WITH stages were
-      pure forwarding noise.
-    * ``multi_alias_carries`` — ``{alias: (props...)}`` driving downstream
-      AST rewrites of ``<alias>.<prop>`` references.
-
-    Bare-identifier non-source references in actual USE positions (WHERE
-    expressions, RETURN items, ORDER BY) cause this pre-flight to return
-    untouched query state so the main flow's failfast surfaces the issue.
-    """
-
-    original_tail = tuple(query.with_stages[1:])
-    if reentry_first_alias is None:
-        return prefix_stage, original_tail, {}
-
-    identifier_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-    bare_item_indices: Dict[str, int] = {}
-    for idx, item in enumerate(prefix_stage.clause.items):
-        if item.alias is not None:
-            continue
-        text = item.expression.text.strip()
-        if identifier_re.fullmatch(text):
-            bare_item_indices[text] = idx
-
-    non_source_aliases = tuple(
-        name for name in bare_item_indices if name != reentry_first_alias
+    return _reentry_runtime._rewrite_multi_whole_row_prefix(
+        prefix_stage,
+        query=query,
+        reentry_first_alias=reentry_first_alias,
     )
-    if not non_source_aliases:
-        return prefix_stage, original_tail, {}
-
-    # Slice 4.3c: drop bare forwarding items in downstream WITH stages BEFORE
-    # the bare-ref scan so we don't false-positive on `WITH a, x, y, ...` chain
-    # forwards.
-    candidate_set = set(non_source_aliases)
-    cleaned_tail = tuple(
-        _drop_bare_alias_items_from_stage(stage, candidate_set, identifier_re=identifier_re)
-        for stage in original_tail
-    )
-    cleaned_query = replace(query, with_stages=(prefix_stage,) + cleaned_tail)
-
-    props_by_alias, bare_referenced = _collect_non_source_alias_property_refs(
-        query=cleaned_query,
-        non_source_aliases=non_source_aliases,
-    )
-    if bare_referenced:
-        return prefix_stage, original_tail, {}
-
-    referenced = tuple(name for name in non_source_aliases if props_by_alias.get(name))
-    if not referenced:
-        return prefix_stage, cleaned_tail, {}
-
-    # Rewrite items: drop bare entries for `referenced` aliases, then append a
-    # scalar projection per (alias, property) pair using the hidden column name.
-    drop_set = set(referenced)
-    new_items: List[ReturnItem] = [
-        item
-        for idx, item in enumerate(prefix_stage.clause.items)
-        if not any(idx == bare_item_indices[name] for name in drop_set)
-    ]
-    carried_props: Dict[str, Tuple[str, ...]] = {}
-    for alias in referenced:
-        # Sort properties for deterministic prefix-result column ordering;
-        # downstream AST rewrites match by name, so order is purely cosmetic.
-        props = tuple(sorted(props_by_alias[alias]))
-        carried_props[alias] = props
-        for prop in props:
-            hidden_name = _reentry_property_carry_name(alias, prop)
-            new_items.append(
-                ReturnItem(
-                    expression=ExpressionText(
-                        text=f"{alias}.{prop}",
-                        span=prefix_stage.clause.span,
-                    ),
-                    alias=hidden_name,
-                    span=prefix_stage.clause.span,
-                )
-            )
-
-    new_clause = replace(prefix_stage.clause, items=tuple(new_items))
-    return replace(prefix_stage, clause=new_clause), cleaned_tail, carried_props
 
 
 def _compile_bounded_reentry_query(
@@ -8061,397 +7457,9 @@ def _compile_bounded_reentry_query(
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> CompiledCypherQuery:
-    if query.unwinds:
-        rewritten_query = _rewrite_collect_unwind_reentry_query(query)
-        if rewritten_query is None:
-            first_unwind = query.unwinds[0]
-            raise _unsupported_at_span(
-                "Cypher UNWIND after WITH/RETURN currently supports only a single WITH collect([distinct] alias) AS list UNWIND list AS alias MATCH ... RETURN shape",
-                field="unwind",
-                value=first_unwind.expression.text,
-                span=first_unwind.span,
-            )
-        query = rewritten_query
-    if not query.reentry_matches or len(query.with_stages) not in {
-        len(query.reentry_matches),
-        len(query.reentry_matches) + 1,
-    }:
-        raise _unsupported_at_span(
-            "Cypher MATCH after WITH is only supported for alternating MATCH ... WITH ... MATCH ... [WITH ... MATCH ...] ... [WITH] RETURN read shapes in the local compiler",
-            field="match",
-            value=len(query.reentry_matches),
-            span=query.return_.span,
-        )
-    prefix_stage = query.with_stages[0]
-    if prefix_stage.where is not None:
-        raise _unsupported_at_span(
-            "Cypher MATCH after WITH does not yet support WITH ... WHERE in the prefix stage",
-            field="with.where",
-            value=prefix_stage.where.text,
-            span=prefix_stage.span,
-        )
-    primary_alias_hint = _first_pattern_node_alias(query.reentry_matches[0])
-    multi_alias_carries: Dict[str, Tuple[str, ...]] = {}
-    if primary_alias_hint is not None:
-        match_node_aliases = _all_match_node_aliases(query)
-        whole_row_aliases = {
-            item.expression.text.strip()
-            for item in prefix_stage.clause.items
-            if _is_whole_row_with_item(item, match_node_aliases=match_node_aliases)
-        }
-        # #1275: for free-form trailing MATCH (first alias not carried by prefix
-        # whole-row items), pre-rewrite non-source whole-row carries into scalar
-        # hidden columns so trailing `<carried>.<prop>` references can rewrite
-        # cleanly without double-wrapping hidden names.
-        if primary_alias_hint not in whole_row_aliases:
-            rewritten_prefix, rewritten_tail, multi_alias_carries = _rewrite_multi_whole_row_prefix(
-                prefix_stage,
-                query=query,
-                reentry_first_alias=primary_alias_hint,
-            )
-            if multi_alias_carries:
-                query = replace(query, with_stages=(rewritten_prefix,) + rewritten_tail)
-                prefix_stage = rewritten_prefix
-    query, prefix_stage, demoted_secondary_aliases = _demote_secondary_whole_row_aliases(
-        query,
-        prefix_stage=prefix_stage,
-        primary_alias=primary_alias_hint,
-    )
-    projection_items = [item.expression.text for item in prefix_stage.clause.items]
-    prefix_query = replace(
-        query,
-        call=None,
-        row_sequence=(),
-        reentry_matches=(),
-        reentry_wheres=(),
-        graph_bindings=(),
-        use=None,
-        with_stages=(),
-        return_=replace(prefix_stage.clause, kind="return"),
-        order_by=prefix_stage.order_by,
-        skip=prefix_stage.skip,
-        limit=prefix_stage.limit,
-        trailing_semicolon=False,
-        reentry_unwinds=(),
-    )
-    prefix_compiled = compile_cypher_query(prefix_query, params=params)
-    if not isinstance(prefix_compiled, CompiledCypherQuery):
-        raise _unsupported_at_span(
-            "Cypher MATCH after WITH prefix compilation produced an unexpected UNION program",
-            field="with",
-            value="union",
-            span=prefix_stage.span,
-        )
-    reentry_match = query.reentry_matches[0]
-    remaining_with_stages = query.with_stages[1:]
-    remaining_reentry_matches = query.reentry_matches[1:]
-    first_alias = _first_pattern_node_alias(reentry_match)
-    prefix_projection = prefix_compiled.result_projection
-    scalar_only_prefix = prefix_projection is None
-    prefix_projection_table: Optional[Literal["nodes", "edges"]] = None
-    if scalar_only_prefix:
-        scalar_prefix_aliases = {
-            item.alias
-            for item in prefix_stage.clause.items
-            if item.alias is not None
-        }
-        reused_scalar_aliases = sorted(
-            scalar_prefix_aliases
-            & set().union(*(_pattern_node_aliases(pattern) for pattern in reentry_match.patterns))
-        )
-        if reused_scalar_aliases:
-            raise _unsupported_at_span(
-                "Cypher MATCH after WITH scalar-only prefix aliases cannot be reused as node variables in the trailing MATCH",
-                field="match",
-                value=reused_scalar_aliases,
-                span=reentry_match.span,
-            )
-        if first_alias is None:
-            raise _unsupported_at_span(
-                "Cypher MATCH after WITH currently requires the trailing MATCH to start from a named node alias",
-                field="match",
-                value=first_alias,
-                span=reentry_match.span,
-            )
-        reentry_alias = first_alias
-        carry_columns = _bounded_reentry_scalar_prefix_columns(
-            prefix_stage,
-            projection_items=projection_items,
-        )
-        free_form = False
-    else:
-        assert prefix_projection is not None
-        prefix_projection_table = prefix_projection.table
-        reentry_alias, carry_columns, non_source_alias_names = _bounded_reentry_carry_columns(
-            prefix_projection,
-            projection_items=projection_items,
-            query=query,
-            prefix_stage=prefix_stage,
-            reentry_alias_hint=first_alias,
-        )
-        # #1263 (LDBC SNB IC3 endpoint): detect free-form intermediate MATCH —
-        # the trailing MATCH's first alias is NOT in the prefix's carried
-        # whole-row set. Treat every carried whole-row alias as non-source so
-        # the existing property-carry rewriter materializes them as hidden
-        # columns; use ``first_alias`` as the carrier label so downstream
-        # ``<carried>.<prop>`` rewrites resolve against the trailing-MATCH row
-        # table at runtime (the runtime broadcasts the hidden columns onto
-        # every base node, so any alias the trailing MATCH binds carries them).
-        whole_row_carried = tuple(
-            column.output_name for column in prefix_projection.columns if column.kind == "whole_row"
-        )
-        free_form = first_alias is not None and first_alias not in whole_row_carried
-        if free_form:
-            reentry_alias = cast(str, first_alias)
-            non_source_alias_names = whole_row_carried
-        if non_source_alias_names:
-            props_by_alias, bare_referenced = _collect_non_source_alias_property_refs(
-                query=query,
-                non_source_aliases=non_source_alias_names,
-            )
-            if bare_referenced:
-                raise _unsupported_at_span(
-                    "Cypher MATCH after WITH currently carries non-source whole-row aliases only via property "
-                    "access (`<alias>.<prop>`); bare references like `WHERE x = ...` or `RETURN x` require "
-                    "the full row-carrier rewrite tracked under #989",
-                    field="with",
-                    value=sorted(bare_referenced),
-                    span=prefix_stage.span,
-                )
-            # #1275: free-form + carried-property bridge refs are admitted via
-            # `multi_alias_carries` pre-rewrite and downstream hidden-column
-            # expression rewrites.
-            # Non-source aliases that survived the prefix rewrite (i.e. had no
-            # property refs and no bare refs) are simply unused; safe to admit.
-            # `multi_alias_carries` (computed before the prefix compile) holds
-            # the {alias: props} for the rewritten ones — used below to
-            # populate ReentryPlan.aliases and rewrite trailing PropertyAccessExpr.
-    if not _bounded_reentry_prefix_order_is_safe(prefix_stage=prefix_stage, query=query):
-        raise _unsupported(
-            "Cypher MATCH after WITH does not yet preserve prefix WITH row ordering across MATCH re-entry for multi-row result shapes",
-            field="with.order_by",
-            value=(
-                [item.expression.text for item in prefix_stage.order_by.items]
-                if prefix_stage.order_by is not None
-                else None
-            ),
-            line=prefix_stage.order_by.span.line if prefix_stage.order_by is not None else prefix_stage.span.line,
-            column=prefix_stage.order_by.span.column if prefix_stage.order_by is not None else prefix_stage.span.column,
-        )
-    if prefix_projection_table is not None and prefix_projection_table != "nodes":
-        raise _unsupported_at_span(
-            "Cypher MATCH after WITH currently supports node re-entry only",
-            field="with",
-            value=prefix_projection_table,
-            span=prefix_stage.span,
-        )
-    if len(query.return_.items) == 1 and query.return_.items[0].expression.text == "*":
-        raise _unsupported_at_span(
-            "Cypher MATCH after WITH does not yet support RETURN * from the trailing MATCH re-entry stage",
-            field=query.return_.kind,
-            value="*",
-            span=query.return_.span,
-        )
-    admit_freeform_intermediate_match = free_form
-    if first_alias is None:
-        raise _unsupported_at_span(
-            "Cypher MATCH after WITH currently requires the trailing MATCH to start from a named node alias",
-            field="match",
-            value=first_alias,
-            span=reentry_match.span,
-        )
+    from graphistry.compute.gfql.cypher.reentry import runtime as _reentry_runtime
 
-    hidden_columns = tuple(_reentry_hidden_column_name(output_name) for output_name in carry_columns)
-
-    # Build the explicit ReentryPlan contract. The plan records every whole-row
-    # alias the prefix carries; the row-carrier rewrite (#989) uses CarriedAlias
-    # entries to surface non-source alias properties downstream.
-    if scalar_only_prefix or admit_freeform_intermediate_match:
-        current_reentry_plan: ReentryPlan = ReentryPlan(
-            reentry_alias_name=reentry_alias,
-            aliases=(),
-            scalar_columns=tuple(carry_columns),
-            scalar_only=True,
-        )
-    else:
-        assert prefix_projection is not None
-        # #1263 free-form: no carried alias is the trailing-MATCH source, so
-        # every entry is recorded with is_reentry_alias=False. The carried-alias
-        # path keeps exactly one entry with is_reentry_alias=True.
-        current_aliases: List[CarriedAlias] = []
-        if not free_form:
-            current_aliases.append(
-                CarriedAlias(
-                    output_name=reentry_alias,
-                    table=prefix_projection.table,
-                    is_reentry_alias=True,
-                )
-            )
-        for name in non_source_alias_names:
-            current_aliases.append(
-                CarriedAlias(
-                    output_name=name,
-                    table=prefix_projection.table,
-                    is_reentry_alias=False,
-                )
-            )
-        # Keep secondary aliases recorded on the plan even when demoted to
-        # scalar carries by the #1071 rewrite path.
-        for alias in demoted_secondary_aliases:
-            if alias not in {entry.output_name for entry in current_aliases}:
-                current_aliases.append(
-                    CarriedAlias(
-                        output_name=alias,
-                        table=prefix_projection.table,
-                        is_reentry_alias=False,
-                    )
-                )
-        for alias in multi_alias_carries:
-            if alias not in {entry.output_name for entry in current_aliases}:
-                current_aliases.append(
-                    CarriedAlias(
-                        output_name=alias,
-                        table=prefix_projection.table,
-                        is_reentry_alias=False,
-                    )
-                )
-        current_reentry_plan = ReentryPlan(
-            reentry_alias_name=reentry_alias,
-            aliases=tuple(current_aliases),
-            scalar_columns=tuple(carry_columns),
-            scalar_only=False,
-            free_form=free_form,
-        )
-
-    non_source_carried_props: Optional[Mapping[str, Tuple[str, ...]]] = (
-        multi_alias_carries if multi_alias_carries else None
-    )
-
-    def rewrite_expr(expr: ExpressionText, field: str) -> ExpressionText:
-        return _rewrite_reentry_expr_to_hidden_properties(
-            expr,
-            carried_alias=reentry_alias,
-            carried_columns=carry_columns,
-            field=field,
-            non_source_carried_props=non_source_carried_props,
-        )
-
-    reentry_where = query.reentry_where
-    reentry_return = query.return_
-    reentry_order_by = query.order_by
-    rewritten_with_stages = remaining_with_stages
-    rewritten_reentry_unwinds = query.reentry_unwinds
-    remaining_reentry_wheres = query.reentry_wheres[1:] if query.reentry_wheres else ()
-    rewritten_remaining_reentry_wheres = remaining_reentry_wheres
-    rewritten_reentry_match = reentry_match
-    rewritten_remaining_reentry_matches = remaining_reentry_matches
-    if hidden_columns:
-        rewritten_reentry_match = _rewrite_reentry_match_clause(reentry_match, rewrite_expr=rewrite_expr)
-        rewritten_remaining_reentry_matches = tuple(
-            _rewrite_reentry_match_clause(match_clause, rewrite_expr=rewrite_expr)
-            for match_clause in remaining_reentry_matches
-        )
-        rewritten_remaining_reentry_wheres = tuple(
-            None
-            if where_clause is None
-            else _rewrite_where_clause_and_resync(where_clause, rewrite_expr, "where")
-            for where_clause in remaining_reentry_wheres
-        )
-        rewritten_with_stages = tuple(
-            _rewrite_reentry_projection_stage(stage, rewrite_expr=rewrite_expr)
-            for stage in remaining_with_stages
-        )
-        rewritten_reentry_unwinds = tuple(
-            replace(
-                unwind_clause,
-                expression=rewrite_expr(unwind_clause.expression, "unwind"),
-            )
-            for unwind_clause in query.reentry_unwinds
-        )
-        if query.reentry_where is not None:
-            reentry_where = _rewrite_where_clause_and_resync(query.reentry_where, rewrite_expr, "where")
-        if not remaining_reentry_matches:
-            reentry_return = _rewrite_reentry_projection_clause(query.return_, rewrite_expr=rewrite_expr)
-            if reentry_order_by is not None:
-                reentry_order_by = replace(
-                    reentry_order_by,
-                    items=tuple(
-                        replace(
-                            item,
-                            expression=rewrite_expr(item.expression, "order_by"),
-                        )
-                        for item in reentry_order_by.items
-                    ),
-                )
-    if rewritten_reentry_unwinds and rewritten_with_stages and not rewritten_remaining_reentry_matches:
-        first_unwind = rewritten_reentry_unwinds[0]
-        raise _unsupported_at_span(
-            "Cypher UNWIND after WITH/RETURN is not yet supported once MATCH has introduced graph aliases",
-            field="unwind",
-            value=first_unwind.expression.text,
-            span=first_unwind.span,
-        )
-    suffix_query = replace(
-        query,
-        call=None,
-        row_sequence=(),
-        graph_bindings=(),
-        use=None,
-        matches=(rewritten_reentry_match,),
-        where=reentry_where,
-        unwinds=rewritten_reentry_unwinds,
-        with_stages=rewritten_with_stages,
-        return_=reentry_return,
-        order_by=reentry_order_by,
-        reentry_matches=rewritten_remaining_reentry_matches,
-        reentry_wheres=rewritten_remaining_reentry_wheres,
-        reentry_unwinds=(),
-    )
-    suffix_compiled = compile_cypher_query(suffix_query, params=params)
-    if not isinstance(suffix_compiled, CompiledCypherQuery):
-        raise _unsupported_at_span(
-            "Cypher MATCH after WITH suffix compilation produced an unexpected UNION program",
-            field="match",
-            value="union",
-            span=reentry_match.span,
-        )
-    def attach_current_reentry(target: CompiledCypherQuery) -> CompiledCypherQuery:
-        target_projection = target.result_projection
-        if target_projection is not None and target_projection.alias == reentry_alias and hidden_columns:
-            target_projection = replace(
-                target_projection,
-                exclude_columns=tuple(
-                    dict.fromkeys(target_projection.exclude_columns + hidden_columns)
-                ),
-            )
-        is_optional = reentry_match.optional or target.optional_reentry
-        return replace(
-            target,
-            post_processing=_post_processing_with(
-                result_projection=target_projection,
-                # Clear empty_result_row when optional_reentry is set — the
-                # reentry null-fill handles missing rows instead.
-                empty_result_row=None if is_optional else target.empty_result_row,
-                optional_null_fill=target.optional_null_fill,
-                optional_projection_row_guard=target.optional_projection_row_guard,
-            ),
-            execution_extras=_execution_extras_with(
-                target,
-                connected_optional_match=target.connected_optional_match,
-                connected_match_join=target.connected_match_join,
-                query_graph=target.query_graph,
-                start_nodes_query=prefix_compiled,
-                optional_reentry=is_optional,
-                reentry_plan=current_reentry_plan if (scalar_only_prefix or admit_freeform_intermediate_match) else (target.reentry_plan or current_reentry_plan),
-                logical_plan=target.logical_plan,
-                logical_plan_defer_reason=target.logical_plan_defer_reason,
-            ),
-        )
-
-    return _map_terminal_reentry_query(
-        suffix_compiled,
-        transform=attach_current_reentry,
-    )
+    return _reentry_runtime._compile_bounded_reentry_query(query, params=params)
 
 
 def _compile_call_query(
