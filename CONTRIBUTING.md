@@ -62,3 +62,16 @@ The commit types are `fix()`, `feat()`, `infra()`, `garden()` / `refactor()`, `d
 
 * PRs must pass CI, including style checks
 * Maintainers are responsible for publishing
+
+## Contract bundle versioning
+
+PyGraphistry now publishes typed contract bundles for multiple surfaces (for example, `graphistry_frontend` and `graphistry_server_dataset`).
+
+When changing a bundle's exported contract shape (keys/defaults/mappings):
+
+1. Update the contract model files.
+2. Bump that bundle's `*_CONTRACT_VERSION`.
+3. Register the new computed `*_CONTRACT_SIGNATURE` under `*_CONTRACT_SIGNATURES_BY_VERSION`.
+4. Optionally set `*_UPSTREAM_VERSIONS` pins if you are explicitly targeting known upstream releases.
+
+If you forget, import-time checks in the bundle `contract_version.py` modules will raise with exact fix instructions.

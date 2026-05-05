@@ -56,8 +56,11 @@ GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION: Final[Dict[int, str]] = {
 
 if GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION.get(GRAPHISTRY_FRONTEND_CONTRACT_VERSION) != GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURE:
     raise ValueError(
-        "GRAPHISTRY_FRONTEND_CONTRACT_VERSION/signature mismatch: "
-        "bump version and register new signature"
+        "graphistry_frontend contract drift detected. "
+        "Update graphistry/models/surfaces/graphistry_frontend/contract_version.py: "
+        "(1) bump GRAPHISTRY_FRONTEND_CONTRACT_VERSION, "
+        "(2) add the new signature to GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION, "
+        "(3) optionally set GRAPHISTRY_FRONTEND_UPSTREAM_VERSIONS pins."
     )
 
 

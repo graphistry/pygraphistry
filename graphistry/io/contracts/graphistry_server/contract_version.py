@@ -48,8 +48,11 @@ if GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURES_BY_VERSION.get(
     GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION
 ) != GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURE:
     raise ValueError(
-        "GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION/signature mismatch: "
-        "bump version and register new signature"
+        "graphistry_server_dataset contract drift detected. "
+        "Update graphistry/io/contracts/graphistry_server/contract_version.py: "
+        "(1) bump GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION, "
+        "(2) add the new signature to GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURES_BY_VERSION, "
+        "(3) optionally set GRAPHISTRY_SERVER_DATASET_UPSTREAM_VERSIONS pins."
     )
 
 
