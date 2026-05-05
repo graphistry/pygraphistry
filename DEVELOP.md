@@ -99,6 +99,26 @@ GitHub Actions: See `.github/workflows`
 
 CI runs on every PR and updates them
 
+### Cypher Surface Growth Guard
+
+CI includes `cypher-frontend-surface-guard`, which enforces bounded growth for:
+
+- `graphistry/compute/gfql/cypher/lowering.py` total line count
+- `CompiledCypherQuery`, `CompiledGraphBinding`, `CompiledCypherGraphQuery` dataclass field/property counts
+
+Guard implementation + baseline:
+
+- Script: `bin/ci_cypher_surface_guard.py`
+- Baseline: `bin/ci_cypher_surface_guard_baseline.json`
+
+If growth is intentional, regenerate baseline in your branch and include explicit PR rationale:
+
+```bash
+python bin/ci_cypher_surface_guard.py --write-baseline
+```
+
+Then commit both code changes and baseline update together.
+
 ### GPU CI
 
 GPU CI can be manually triggered by core dev team members:

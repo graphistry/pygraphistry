@@ -569,6 +569,23 @@ jobs:
         printf 'Differential/parity tests:\n- %s\n' "${parity_tests[@]}"
         python -B -m pytest -vv -n auto "${parity_tests[@]}"
 
+  cypher-frontend-surface-guard:
+    name: cypher-frontend-surface-guard
+    needs: [changes]
+    if: ${{ (needs.changes.outputs.cypher_frontend_ci == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Cypher surface growth guard
+      run: |
+        python bin/ci_cypher_surface_guard.py
+
   test-minimal-python:
     # Lite sentinel: oldest + newest Python only, heavy test files excluded. Gates all downstream.
     # Heavy deferred files (test_hyper_dask, test_compute_chain, test_chain_let, test_hop, test_plotter)
@@ -624,8 +641,9 @@ jobs:
 
   cypher-frontend-ci-gates:
     name: cypher-frontend-ci-gates
-    # Keep cypher frontend gates chained to strict typing + differential/parity + full-suite sentinel.
-    needs: [changes, test-minimal-python, cypher-frontend-strict-typing, cypher-frontend-differential-parity]
+    # Keep cypher frontend gates chained to strict typing + differential/parity
+    # + surface guard + full-suite sentinel.
+    needs: [changes, test-minimal-python, cypher-frontend-strict-typing, cypher-frontend-differential-parity, cypher-frontend-surface-guard]
     if: ${{ (needs.changes.outputs.cypher_frontend_ci == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -635,6 +653,7 @@ jobs:
         echo "Cypher frontend gates passed:"
         echo "- cypher-frontend-strict-typing (py3.12)"
         echo "- cypher-frontend-differential-parity (py3.12)"
+        echo "- cypher-frontend-surface-guard"
         echo "- test-minimal-python (full-suite sentinel gate)"
 
 
