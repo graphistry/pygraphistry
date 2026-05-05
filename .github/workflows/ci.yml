@@ -581,6 +581,58 @@ jobs:
         printf 'Differential/parity tests:\n- %s\n' "${parity_tests[@]}"
         python -B -m pytest -vv -n auto "${parity_tests[@]}"
 
+  cypher-frontend-strict-rollout:
+    name: cypher-frontend-strict-rollout (py3.12)
+    needs: [changes, generate-lockfiles]
+    if: ${{ (needs.changes.outputs.cypher_frontend_ci == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-py3.12.lock
+        uv pip install -e . --no-deps
+
+    - name: Strict-mode rollout gate (env unset — default loose)
+      env:
+        # Explicitly clear in case the runner inherits anything; the test
+        # suite also defends with delenv, but we want both layers.
+        GRAPHISTRY_GFQL_STRICT_SCHEMA: ""
+      run: |
+        source pygraphistry/bin/activate
+        python -B -m pytest -vv \
+          graphistry/tests/compute/gfql/test_rollout.py \
+          graphistry/tests/compute/gfql/test_rollout_binder_integration.py
+
+    - name: Strict-mode rollout gate (env=true — canary on)
+      env:
+        GRAPHISTRY_GFQL_STRICT_SCHEMA: "true"
+      run: |
+        source pygraphistry/bin/activate
+        python -B -m pytest -vv \
+          graphistry/tests/compute/gfql/test_rollout.py \
+          graphistry/tests/compute/gfql/test_rollout_binder_integration.py
+
   cypher-frontend-surface-guard:
     name: cypher-frontend-surface-guard
     needs: [changes]
