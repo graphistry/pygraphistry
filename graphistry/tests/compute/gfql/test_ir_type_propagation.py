@@ -22,6 +22,7 @@ from graphistry.compute.gfql.ir.logical_plan import (
     Filter,
     NodeScan,
     OrderBy,
+    PatternMatch,
     Project,
     RowSchema,
 )
@@ -237,15 +238,28 @@ class TestBoundVariableType:
         )
         assert bound_variable_type(bv) == ScalarType("int64", nullable=False)
 
-    def test_structural_pass_through_ignores_bv_nullable(self) -> None:
+    @pytest.mark.parametrize(
+        "logical_type,entity_kind",
+        [
+            (NodeRef(frozenset({"Person"})), "node"),
+            (EdgeRef(type="KNOWS"), "edge"),
+            (PathType(min_hops=1, max_hops=3), "scalar"),
+            (ListType(ScalarType("int64")), "scalar"),
+        ],
+    )
+    def test_structural_pass_through_ignores_bv_nullable(
+        self, logical_type: object, entity_kind: str
+    ) -> None:
+        # Whole-row / structural variables — bv.nullable is recorded for
+        # provenance but does not propagate onto the LogicalType today.
         bv = BoundVariable(
-            name="n",
-            logical_type=NodeRef(frozenset({"Person"})),
-            nullable=True,  # whole-row optional-arm nullability lives elsewhere
+            name="x",
+            logical_type=logical_type,  # type: ignore[arg-type]
+            nullable=True,
             null_extended_from=frozenset({"opt_arm"}),
-            entity_kind="node",
+            entity_kind=entity_kind,  # type: ignore[arg-type]
         )
-        assert bound_variable_type(bv) == NodeRef(frozenset({"Person"}))
+        assert bound_variable_type(bv) is logical_type
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +315,21 @@ class TestPropagationContinuity:
             input=scan,
             op_id=2,
             predicate=BoundPredicate(expression="a IS NOT NULL", references=frozenset({"a"})),
+            output_schema=RowSchema(columns={"a": ScalarType("int64", nullable=False)}),
+        )
+        assert verify(plan) == []
+
+    def test_patternmatch_non_optional_may_narrow_nullability(self) -> None:
+        # Non-optional PatternMatch with a WHERE-style predicate can drop
+        # rows where the pattern fails — same row-dropping semantics as
+        # Filter, so it sits in the same carve-out.  Optional arms remain
+        # locked nullable=True by invariant 5.
+        scan = _scan("Person", {"a": ScalarType("int64", nullable=True)})
+        plan = PatternMatch(
+            input=scan,
+            op_id=2,
+            predicates=[BoundPredicate(expression="a IS NOT NULL", references=frozenset({"a"}))],
+            optional=False,
             output_schema=RowSchema(columns={"a": ScalarType("int64", nullable=False)}),
         )
         assert verify(plan) == []
