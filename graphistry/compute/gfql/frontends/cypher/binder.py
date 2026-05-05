@@ -1413,9 +1413,11 @@ def _looks_like_list_literal(text: str) -> bool:
 
 def _strict_schema_mode(state: _BindState) -> bool:
     catalog_strict = state.catalog.metadata.get("strict")
-    return resolve_strict_schema(
-        explicit=state.strict_name_resolution,
-        catalog_strict=bool(catalog_strict) if catalog_strict is not None else None,
+    return bool(
+        resolve_strict_schema(
+            explicit=state.strict_name_resolution,
+            catalog_strict=bool(catalog_strict) if catalog_strict is not None else None,
+        )
     )
 
 
