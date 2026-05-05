@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.55.0 - 2026-05-05]
+
 ### Infrastructure
 - **CI / supply-chain hardening (PR-G 7a)**: Deprecated all third-party GitHub Actions in favor of native primitives — `styfle/cancel-workflow-action` replaced by a workflow-level `concurrency:` block in `ci-gpu.yml`; `dorny/paths-filter` replaced by an inline `git diff --name-only` shell filter in `ci.yml` (preserves all 6 outputs: `infra`, `python`, `gfql`, `cypher_frontend_ci`, `benchmarks`, `docs`). Configured zizmor `unpinned-uses` rule with a provider safelist (`actions/*`, `github/*`, `pypa/*` permitted on floating refs; everything else must hash-pin) and lowered the workflow-security gate from `--min-severity high` to `medium` so policy violations actually fail CI. Closed 5 PR-B follow-up gaps by adding `persist-credentials: false` to LFS / fetch-depth checkouts in `ci.yml` (×3), `codeql-analysis.yml`, and `publish-pypi.yml`. Also fixed a silent fail-closed bug surfaced during multi-wave review: when `git merge-base` cannot resolve (force-pushed branch with orphaned `event.before`, or PR base rebased mid-flight), the `changes` job now conservatively emits `true` for every output and downstream jobs run, instead of silently emitting `false` and skipping all gated tests (#1221, #1215, #1130).
 - **CI / docs**: `test-readme` no longer runs `actions/setup-python` with an EOL Python 3.8 pin. The job now runs markdown lint directly via its Docker image, removing an unnecessary setup step and avoiding intermittent Python toolcache fetch timeouts.
