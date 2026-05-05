@@ -18,6 +18,7 @@ def _map_terminal_reentry_query(
     *,
     transform: Callable[[CompiledCypherQuery], CompiledCypherQuery],
 ) -> CompiledCypherQuery:
+    compiled_extras = compiled_query.execution_extras or CompiledCypherExecutionExtras()
     if compiled_query.start_nodes_query is None:
         return transform(compiled_query)
     mapped_start_nodes = _map_terminal_reentry_query(
@@ -28,9 +29,9 @@ def _map_terminal_reentry_query(
         compiled_query,
         execution_extras=_execution_extras_with(
             compiled_query,
-            connected_optional_match=compiled_query.connected_optional_match,
-            connected_match_join=compiled_query.connected_match_join,
-            query_graph=compiled_query.query_graph,
+            connected_optional_match=compiled_extras.connected_optional_match,
+            connected_match_join=compiled_extras.connected_match_join,
+            query_graph=compiled_extras.query_graph,
             start_nodes_query=mapped_start_nodes,
             optional_reentry=compiled_query.optional_reentry,
             reentry_plan=compiled_query.reentry_plan,
@@ -524,6 +525,7 @@ def _compile_bounded_reentry_query(
             span=reentry_match.span,
         )
     def attach_current_reentry(target: CompiledCypherQuery) -> CompiledCypherQuery:
+        target_extras = target.execution_extras or CompiledCypherExecutionExtras()
         target_projection = target.result_projection
         if target_projection is not None and target_projection.alias == reentry_alias and hidden_columns:
             target_projection = replace(
@@ -545,9 +547,9 @@ def _compile_bounded_reentry_query(
             ),
             execution_extras=_execution_extras_with(
                 target,
-                connected_optional_match=target.connected_optional_match,
-                connected_match_join=target.connected_match_join,
-                query_graph=target.query_graph,
+                connected_optional_match=target_extras.connected_optional_match,
+                connected_match_join=target_extras.connected_match_join,
+                query_graph=target_extras.query_graph,
                 start_nodes_query=prefix_compiled,
                 optional_reentry=is_optional,
                 reentry_plan=current_reentry_plan if (scalar_only_prefix or admit_freeform_intermediate_match) else (target.reentry_plan or current_reentry_plan),

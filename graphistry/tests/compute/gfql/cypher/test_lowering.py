@@ -737,6 +737,18 @@ def _compile_query(query: str) -> CompiledCypherQuery:
     return cast(CompiledCypherQuery, compile_cypher(query))
 
 
+def _compiled_execution_extras(compiled: CompiledCypherQuery) -> CompiledCypherExecutionExtras:
+    return compiled.execution_extras or CompiledCypherExecutionExtras()
+
+
+def _logical_plan_route(compiled: CompiledCypherQuery) -> str:
+    if compiled.logical_plan is not None:
+        return "planned"
+    if compiled.logical_plan_defer_reason is not None:
+        return "deferred"
+    return "none"
+
+
 def test_compiled_query_escape_hatches_are_grouped() -> None:
     field_names = {f.name for f in dataclass_fields(CompiledCypherQuery)}
     assert "post_processing" in field_names
@@ -756,29 +768,30 @@ def test_compiled_query_execution_extras_retire_legacy_scalar_reentry_fields() -
 
 def test_compiled_query_sets_logical_plan_route_for_covered_shape() -> None:
     compiled = _compile_query("MATCH (n:Person) RETURN n")
-    assert compiled.logical_plan_route == "planned"
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 
 
 def test_compiled_query_threads_bound_scope_stack_for_runtime_passes() -> None:
     compiled = _compile_query("MATCH (n:Person) RETURN n")
-    assert compiled.scope_stack
-    assert compiled.scope_stack[0].origin_clause.upper() == "MATCH"
-    assert compiled.scope_stack[-1].origin_clause.upper() == "RETURN"
-    assert "n" in compiled.scope_stack[-1].visible_vars
+    scope_stack = _compiled_execution_extras(compiled).scope_stack
+    assert scope_stack
+    assert scope_stack[0].origin_clause.upper() == "MATCH"
+    assert scope_stack[-1].origin_clause.upper() == "RETURN"
+    assert "n" in scope_stack[-1].visible_vars
 
 
 def test_compiled_query_sets_logical_plan_route_for_match_scalar_return_shape() -> None:
     compiled = _compile_query("MATCH (n:Person) RETURN 1 AS x")
-    assert compiled.logical_plan_route == "planned"
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 
 
 def test_compiled_query_sets_logical_plan_defer_reason_for_optional_shape() -> None:
     compiled = _compile_query("OPTIONAL MATCH (n:Person) RETURN n")
-    assert compiled.logical_plan_route == "deferred"
+    assert _logical_plan_route(compiled) == "deferred"
     assert compiled.logical_plan is None
     assert compiled.logical_plan_defer_reason is not None
     assert "OPTIONAL MATCH" in compiled.logical_plan_defer_reason
@@ -844,7 +857,7 @@ def test_logical_plan_route_for_query_emits_filter_for_where_predicate() -> None
 def test_compiled_query_sets_logical_plan_route_for_call_shape() -> None:
     compiled = _compile_query("CALL graphistry.degree()")
     assert compiled.procedure_call is not None
-    assert compiled.logical_plan_route == "planned"
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert isinstance(compiled.logical_plan, LogicalProcedureCall)
     assert compiled.logical_plan.procedure == "graphistry.degree"
@@ -854,49 +867,49 @@ def test_compiled_query_sets_logical_plan_route_for_call_shape() -> None:
 
 def test_compiled_query_sets_logical_plan_route_for_reentry_shape() -> None:
     compiled = _compile_query("MATCH (a:A) WITH a MATCH (a) RETURN a")
-    assert compiled.logical_plan_route == "planned"
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 
 
 def test_compiled_query_sets_logical_plan_route_for_reentry_multihop_shape() -> None:
     compiled = _compile_query("MATCH (a:A) WITH a MATCH (a)-->(b) RETURN b")
-    assert compiled.logical_plan_route == "planned"
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 
 
 def test_compiled_query_sets_logical_plan_route_for_edge_projection_shape() -> None:
     compiled = _compile_query("MATCH (a)-[r]->(b) RETURN r")
-    assert compiled.logical_plan_route == "planned"
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 
 
 def test_compiled_query_sets_logical_plan_route_for_reentry_edge_projection_shape() -> None:
     compiled = _compile_query("MATCH (a:A) WITH a MATCH (a)-[r]->(b) RETURN r")
-    assert compiled.logical_plan_route == "planned"
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 
 
 def test_compiled_query_sets_logical_plan_route_for_row_sequence_shape() -> None:
     compiled = _compile_query("UNWIND [1,2] AS n RETURN n")
-    assert compiled.logical_plan_route == "planned"
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 
 
 def test_compiled_query_sets_logical_plan_route_for_with_only_row_sequence_shape() -> None:
     compiled = _compile_query("WITH 1 AS n RETURN n")
-    assert compiled.logical_plan_route == "planned"
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 
 
 def test_compiled_query_sets_logical_plan_defer_reason_for_optional_reentry_shape() -> None:
     compiled = _compile_query("MATCH (a:A) WITH a OPTIONAL MATCH (a)-->(b) RETURN b")
-    assert compiled.logical_plan_route == "deferred"
+    assert _logical_plan_route(compiled) == "deferred"
     assert compiled.logical_plan is None
     assert compiled.logical_plan_defer_reason is not None
     assert "OPTIONAL MATCH" in compiled.logical_plan_defer_reason
@@ -904,19 +917,21 @@ def test_compiled_query_sets_logical_plan_defer_reason_for_optional_reentry_shap
 
 def test_connected_optional_query_sets_query_graph_and_logical_plan() -> None:
     compiled = _compile_query("MATCH (a)-[:A]->(b) OPTIONAL MATCH (b)-[:B]->(c) RETURN c")
-    assert compiled.connected_optional_match is not None
-    assert compiled.logical_plan_route == "planned"
+    compiled_extras = _compiled_execution_extras(compiled)
+    assert compiled_extras.connected_optional_match is not None
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
-    assert compiled.query_graph is not None
-    assert len(compiled.query_graph.components) == 2
-    assert len(compiled.query_graph.optional_arms) == 1
+    assert compiled_extras.query_graph is not None
+    assert len(compiled_extras.query_graph.components) == 2
+    assert len(compiled_extras.query_graph.optional_arms) == 1
 
 
 def test_compile_graph_query_sets_logical_plan_route_for_call_constructor() -> None:
     compiled = compile_cypher("GRAPH { CALL graphistry.degree.write() }")
     assert isinstance(compiled, CompiledCypherGraphQuery)
     assert compiled.procedure_call is not None
-    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
     assert compiled.logical_plan is not None
     assert isinstance(compiled.logical_plan, LogicalProcedureCall)
     assert compiled.logical_plan.procedure == "graphistry.degree.write"
@@ -932,7 +947,8 @@ def test_compile_query_sets_logical_plan_route_for_graph_binding_call_constructo
     assert len(compiled.graph_bindings) == 1
     binding = compiled.graph_bindings[0]
     assert binding.procedure_call is not None
-    assert binding.logical_plan_route == "planned"
+    assert binding.logical_plan is not None
+    assert binding.logical_plan_defer_reason is None
     assert binding.logical_plan is not None
     assert isinstance(binding.logical_plan, LogicalProcedureCall)
     assert binding.logical_plan.procedure == "graphistry.degree.write"
@@ -942,7 +958,8 @@ def test_compile_query_sets_logical_plan_route_for_graph_binding_call_constructo
 def test_compile_graph_query_sets_logical_plan_route_for_match_constructor_shape() -> None:
     compiled = compile_cypher("GRAPH { MATCH (a)-[r]->(b) WHERE a.id = 'a' }")
     assert isinstance(compiled, CompiledCypherGraphQuery)
-    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 

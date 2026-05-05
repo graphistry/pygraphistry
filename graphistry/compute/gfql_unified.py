@@ -668,6 +668,7 @@ def _execute_compiled_query_non_union(
     context: ExecutionContext,
     start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
+    compiled_extras = compiled_query.execution_extras
     logical_plan = compiled_query.logical_plan
     if logical_plan is None:
         return _execute_compiled_query_compat_non_union(
@@ -679,7 +680,7 @@ def _execute_compiled_query_non_union(
             start_nodes=start_nodes,
         )
 
-    ctx = PlanContext(scope_stack=compiled_query.scope_stack)
+    ctx = PlanContext(scope_stack=() if compiled_extras is None else compiled_extras.scope_stack)
     logical_plan = _run_logical_pass_pipeline(logical_plan, ctx)
 
     try:
@@ -735,6 +736,10 @@ def _execute_compiled_query_via_physical_plan(
     context: ExecutionContext,
     start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
+    compiled_extras = compiled_query.execution_extras
+    connected_match_join = None if compiled_extras is None else compiled_extras.connected_match_join
+    connected_optional_match = None if compiled_extras is None else compiled_extras.connected_optional_match
+
     if len(physical_plan.operators) != 1:
         raise GFQLValidationError(
             ErrorCode.E108,
@@ -757,19 +762,19 @@ def _execute_compiled_query_via_physical_plan(
         )
 
     if isinstance(operator, WavefrontExecutorWrapper):
-        if compiled_query.connected_match_join is not None:
+        if connected_match_join is not None:
             return _apply_connected_match_join(
                 base_graph,
-                compiled_query.connected_match_join,
+                connected_match_join,
                 engine=engine,
                 policy=policy,
                 context=context,
             )
-        if compiled_query.connected_optional_match is not None:
+        if connected_optional_match is not None:
             # Compatibility shim while optional-wavefront lowering converges.
             return _apply_connected_optional_match(
                 base_graph,
-                compiled_query.connected_optional_match,
+                connected_optional_match,
                 engine=engine,
                 policy=policy,
                 context=context,
@@ -802,10 +807,14 @@ def _execute_compiled_query_compat_non_union(
     context: ExecutionContext,
     start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
-    if compiled_query.connected_match_join is not None:
+    compiled_extras = compiled_query.execution_extras
+    connected_match_join = None if compiled_extras is None else compiled_extras.connected_match_join
+    connected_optional_match = None if compiled_extras is None else compiled_extras.connected_optional_match
+
+    if connected_match_join is not None:
         return _apply_connected_match_join(
             base_graph,
-            compiled_query.connected_match_join,
+            connected_match_join,
             engine=engine,
             policy=policy,
             context=context,
@@ -873,10 +882,10 @@ def _execute_compiled_query_compat_non_union(
             engine=engine,
             null_row=compiled_query.optional_null_fill.null_row,
         )
-    if compiled_query.connected_optional_match is not None:
+    if connected_optional_match is not None:
         result = _apply_connected_optional_match(
             base_graph,
-            compiled_query.connected_optional_match,
+            connected_optional_match,
             engine=engine,
             policy=policy,
             context=context,

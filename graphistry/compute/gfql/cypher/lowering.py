@@ -213,20 +213,8 @@ class CompiledCypherQuery:
         return None if self.post_processing is None else self.post_processing.optional_projection_row_guard
 
     @property
-    def connected_optional_match(self) -> Optional["ConnectedOptionalMatchPlan"]:
-        return None if self.execution_extras is None else self.execution_extras.connected_optional_match
-
-    @property
-    def connected_match_join(self) -> Optional["ConnectedMatchJoinPlan"]:
-        return None if self.execution_extras is None else self.execution_extras.connected_match_join
-
-    @property
     def start_nodes_query(self) -> Optional["CompiledCypherQuery"]:
         return None if self.execution_extras is None else self.execution_extras.start_nodes_query
-
-    @property
-    def query_graph(self) -> Optional[QueryGraph]:
-        return None if self.execution_extras is None else self.execution_extras.query_graph
 
     @property
     def optional_reentry(self) -> bool:
@@ -237,24 +225,12 @@ class CompiledCypherQuery:
         return None if self.execution_extras is None else self.execution_extras.reentry_plan
 
     @property
-    def scope_stack(self) -> Tuple[ScopeFrame, ...]:
-        return () if self.execution_extras is None else self.execution_extras.scope_stack
-
-    @property
     def logical_plan(self) -> Optional[LogicalPlan]:
         return None if self.execution_extras is None else self.execution_extras.logical_plan
 
     @property
     def logical_plan_defer_reason(self) -> Optional[str]:
         return None if self.execution_extras is None else self.execution_extras.logical_plan_defer_reason
-
-    @property
-    def logical_plan_route(self) -> Literal["planned", "deferred", "none"]:
-        if self.logical_plan is not None:
-            return "planned"
-        if self.logical_plan_defer_reason is not None:
-            return "deferred"
-        return "none"
 
 
 @dataclass(frozen=True)
@@ -273,15 +249,6 @@ class CompiledGraphBinding:
     logical_plan: Optional[LogicalPlan] = None
     logical_plan_defer_reason: Optional[str] = None
 
-    @property
-    def logical_plan_route(self) -> Literal["planned", "deferred", "none"]:
-        if self.logical_plan is not None:
-            return "planned"
-        if self.logical_plan_defer_reason is not None:
-            return "deferred"
-        return "none"
-
-
 @dataclass(frozen=True)
 class CompiledCypherGraphQuery:
     """A query whose final result is a graph (from standalone GRAPH { })."""
@@ -291,15 +258,6 @@ class CompiledCypherGraphQuery:
     use_ref: Optional[str] = None
     logical_plan: Optional[LogicalPlan] = None
     logical_plan_defer_reason: Optional[str] = None
-
-    @property
-    def logical_plan_route(self) -> Literal["planned", "deferred", "none"]:
-        if self.logical_plan is not None:
-            return "planned"
-        if self.logical_plan_defer_reason is not None:
-            return "deferred"
-        return "none"
-
 
 @dataclass(frozen=True)
 class OptionalNullFillPlan:
@@ -8257,6 +8215,7 @@ def _attach_logical_plan_route(
     logical_plan: Optional[LogicalPlan],
     logical_plan_defer_reason: Optional[str],
 ) -> CompiledCypherQuery:
+    result_extras = result.execution_extras or CompiledCypherExecutionExtras()
     effective_logical_plan = logical_plan if logical_plan is not None else result.logical_plan
     if effective_logical_plan is not None:
         effective_defer_reason = None
@@ -8268,13 +8227,13 @@ def _attach_logical_plan_route(
         result,
         execution_extras=_execution_extras_with(
             result,
-            connected_optional_match=result.connected_optional_match,
-            connected_match_join=result.connected_match_join,
-            query_graph=result.query_graph,
+            connected_optional_match=result_extras.connected_optional_match,
+            connected_match_join=result_extras.connected_match_join,
+            query_graph=result_extras.query_graph,
             start_nodes_query=result.start_nodes_query,
             optional_reentry=result.optional_reentry,
             reentry_plan=result.reentry_plan,
-            scope_stack=result.scope_stack,
+            scope_stack=result_extras.scope_stack,
             logical_plan=effective_logical_plan,
             logical_plan_defer_reason=effective_defer_reason,
         ),
@@ -8344,6 +8303,7 @@ def compile_cypher_query(
     _bound_scope_stack: Tuple[ScopeFrame, ...] = ()
 
     def _attach_graph_context(result: CompiledCypherQuery) -> CompiledCypherQuery:
+        result_extras = result.execution_extras or CompiledCypherExecutionExtras()
         out = result
         if not compiled_bindings and _use_ref is None:
             out = result
@@ -8353,9 +8313,9 @@ def compile_cypher_query(
             out,
             execution_extras=_execution_extras_with(
                 out,
-                connected_optional_match=out.connected_optional_match,
-                connected_match_join=out.connected_match_join,
-                query_graph=out.query_graph,
+                connected_optional_match=result_extras.connected_optional_match,
+                connected_match_join=result_extras.connected_match_join,
+                query_graph=result_extras.query_graph,
                 start_nodes_query=out.start_nodes_query,
                 optional_reentry=out.optional_reentry,
                 reentry_plan=out.reentry_plan,
