@@ -1,7 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
-from typing_extensions import Literal, TypedDict
-
-from graphistry.models.surfaces.graphistry_frontend.axis import AxisRows
+from typing import Any, Dict, List, Optional, cast
 from graphistry.models.surfaces.graphistry_frontend.react_settings import (
     APPLY_ENCODINGS_REACT_KEY_SET,
     ApplyEncodingsReactSettingsDict,
@@ -11,48 +8,15 @@ from graphistry.models.surfaces.graphistry_frontend.react_settings import (
     ReactEncodingVariation,
     ReactSizeEncodingKey,
 )
+from graphistry.models.surfaces.graphistry_frontend.react_encoding_ops import (
+    ColorEncodingOp,
+    SizeEncodingOp,
+    IconEncodingOp,
+    ReactEncodingOp,
+)
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.util import warn as emit_warn
 from graphistry.validate.common import normalize_validation_params
-
-AxisEncodingKey = Literal["encodeAxis"]
-EncodingOperationKind = Literal["color", "size", "icon", "axis"]
-
-
-class ColorEncodingOp(TypedDict, total=False):
-    kind: Literal["color"]
-    key: ReactColorEncodingKey
-    column: str
-    variation: ReactEncodingVariation
-    categorical_mapping: Dict[Any, Any]
-    palette: List[Any]
-
-
-class SizeEncodingOp(TypedDict, total=False):
-    kind: Literal["size"]
-    key: ReactSizeEncodingKey
-    column: str
-    categorical_mapping: Dict[Any, Any]
-    default_mapping: Any
-
-
-class IconEncodingOp(TypedDict, total=False):
-    kind: Literal["icon"]
-    key: ReactIconEncodingKey
-    column: str
-    categorical_mapping: Dict[Any, Any]
-    continuous_binning: List[Any]
-    default_mapping: Any
-
-
-class AxisEncodingOp(TypedDict):
-    kind: Literal["axis"]
-    key: AxisEncodingKey
-    rows: AxisRows
-
-
-ReactEncodingOp = Union[ColorEncodingOp, SizeEncodingOp, IconEncodingOp, AxisEncodingOp]
-
 
 def _issue(
     message: str,

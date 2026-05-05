@@ -21,6 +21,15 @@ from .axis import (  # noqa: F401
     RingCategoricalAxis,
     RingContinuousAxis,
 )
+from .react_encoding_ops import (  # noqa: F401
+    AxisEncodingKey,
+    AxisEncodingOp,
+    ColorEncodingOp,
+    EncodingOperationKind,
+    IconEncodingOp,
+    ReactEncodingOp,
+    SizeEncodingOp,
+)
 from .react_settings import (  # noqa: F401
     APPLY_ENCODINGS_REACT_KEYS,
     APPLY_ENCODINGS_REACT_KEY_SET,
