@@ -1,5 +1,5 @@
 """
-Graphistry server dataset response contract.
+Graphistry server dataset metadata response contract.
 
 These types model dataset metadata payloads retrieved through server-backed
 routes (for example, Nexus dataset records surfaced through Forge ETL paths).
@@ -11,7 +11,7 @@ from graphistry.io.types import BindingsDict, EncodingsDict
 from graphistry.validate import URLParamsDict
 
 
-GRAPHISTRY_SERVER_SIMPLE_ENCODING_BINDING_MAP: Dict[str, str] = {
+GRAPHISTRY_SERVER_DATASET_BINDING_TO_PLOTTABLE_ENCODING_KEY: Dict[str, str] = {
     "node_color": "point_color",
     "node_size": "point_size",
     "node_title": "point_title",
@@ -32,18 +32,18 @@ GRAPHISTRY_SERVER_SIMPLE_ENCODING_BINDING_MAP: Dict[str, str] = {
 }
 
 
-class GraphistryDatasetNodeEdgeEncodingPayload(TypedDict, total=False):
+class GraphistryServerDatasetNodeEdgeEncodingsPayload(TypedDict, total=False):
     bindings: BindingsDict
     complex: Dict[str, Any]
 
 
-class GraphistryDatasetResponsePayload(TypedDict, total=False):
+class GraphistryServerDatasetPayload(TypedDict, total=False):
     dataset_id: str
     bindings: BindingsDict
     encodings: EncodingsDict
     metadata: Dict[str, Any]
-    node_encodings: GraphistryDatasetNodeEdgeEncodingPayload
-    edge_encodings: GraphistryDatasetNodeEdgeEncodingPayload
+    node_encodings: GraphistryServerDatasetNodeEdgeEncodingsPayload
+    edge_encodings: GraphistryServerDatasetNodeEdgeEncodingsPayload
     name: str
     description: str
     style: Dict[str, Any]
