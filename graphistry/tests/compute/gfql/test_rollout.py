@@ -28,7 +28,7 @@ class TestEnvBool:
         monkeypatch.setenv("GRAPHISTRY_TEST_FLAG", value)
         assert env_bool("GRAPHISTRY_TEST_FLAG") is True
 
-    @pytest.mark.parametrize("value", sorted(ENV_FALSY - {""}))
+    @pytest.mark.parametrize("value", sorted(ENV_FALSY))
     def test_falsy_values(self, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
         monkeypatch.setenv("GRAPHISTRY_TEST_FLAG", value)
         assert env_bool("GRAPHISTRY_TEST_FLAG", default=True) is False

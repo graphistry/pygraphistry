@@ -36,7 +36,7 @@ __all__ = [
 STRICT_SCHEMA_ENV: str = "GRAPHISTRY_GFQL_STRICT_SCHEMA"
 
 ENV_TRUTHY: frozenset = frozenset({"1", "true", "yes", "on"})
-ENV_FALSY: frozenset = frozenset({"0", "false", "no", "off", ""})
+ENV_FALSY: frozenset = frozenset({"0", "false", "no", "off"})
 
 
 def env_bool(name: str, default: bool = False) -> bool:
