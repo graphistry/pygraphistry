@@ -8,7 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Tests
+- **GFQL / Cypher reentry contract coverage (#989 follow-through)**: Added compile-shape regression `test_compile_cypher_records_freeform_reentry_plan_contract` to lock free-form intermediate MATCH as `ReentryPlan(free_form=True, scalar_only=False)` and prevent regressions to scalar-only fallback tagging.
+
 ### Internal
+- **GFQL / Cypher reentry follow-through cleanup (#989, post-#1260 extraction)**: In `graphistry/compute/gfql/cypher/reentry/runtime.py`, free-form intermediate MATCH plan construction now routes through the whole-row/free-form `ReentryPlan` contract instead of scalar-only fallback tagging. This makes the dedicated runtime `plan.free_form` lane reachable again and removes incidental scalar-only-path dependence for free-form reentry dispatch.
 - **GFQL native types T4 — Arrow/type bridge contracts and coercion semantics (#1312, #1262, #1046)**: Added `graphistry/compute/gfql/ir/arrow_bridge.py` with stable schema-level interchange helpers `to_arrow()` and `from_arrow()` for `RowSchema` + schema-confidence metadata. The bridge records per-field logical-type metadata (`gfql.logical_type`) and confidence (`gfql.schema_confidence`) for deterministic round-trips, supports strict vs widening coercion (`coercion='strict'|'widen'`) at export/import boundaries, preserves scalar nullability exactly, and defines structural-type fallback behavior (`NodeRef`/`EdgeRef`/`PathType` as widened string bridge fields in widen mode). Added focused regression coverage in `graphistry/tests/compute/gfql/test_ir_arrow_bridge.py` for round-trip fidelity, nullability behavior, confidence handling, and strict/widen coercion boundaries.
 
 ## [0.55.0 - 2026-05-05]
