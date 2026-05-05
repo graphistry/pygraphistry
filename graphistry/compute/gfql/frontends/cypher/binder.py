@@ -24,16 +24,18 @@ from graphistry.compute.gfql.cypher.ast import (
     PathPatternKind,
     PatternElement,
     ProjectionStage,
+    PropertyRef,
     RelationshipPattern,
     ReturnClause,
     ReturnItem,
     UnwindClause,
     WhereClause,
+    WherePatternPredicate,
     WherePredicate,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, BoundVariable, ScopeFrame, SemanticTable
-from graphistry.compute.gfql.ir.compilation import PlanContext
+from graphistry.compute.gfql.ir.compilation import GraphSchemaCatalog, PlanContext
 from graphistry.compute.gfql.ir.logical_plan import RowSchema
 from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, ListType, LogicalType, NodeRef, PathType, ScalarType
 
@@ -99,6 +101,7 @@ class _BindState:
     next_scope_id: int = 1
     optional_arm_count: int = 0
     strict_name_resolution: bool = False
+    catalog: GraphSchemaCatalog = field(default_factory=GraphSchemaCatalog)
 
 
 class FrontendBinder:
@@ -118,7 +121,7 @@ class FrontendBinder:
         return self._bind_query(ast=ast, ctx=ctx, strict_name_resolution=strict_name_resolution)
 
     def _bind_query(self, ast: CypherQuery, ctx: PlanContext, *, strict_name_resolution: bool) -> BoundIR:
-        state = _BindState(strict_name_resolution=strict_name_resolution)
+        state = _BindState(strict_name_resolution=strict_name_resolution, catalog=ctx.catalog)
         _collect_parameter_names(ast, out=state.parameter_names)
 
         if ast.row_sequence and not ast.matches and not ast.reentry_matches:
@@ -259,7 +262,7 @@ class FrontendBinder:
         *,
         strict_name_resolution: bool,
     ) -> BoundIR:
-        state = _BindState(strict_name_resolution=strict_name_resolution)
+        state = _BindState(strict_name_resolution=strict_name_resolution, catalog=ctx.catalog)
         _collect_parameter_names(constructor, out=state.parameter_names)
 
         for clause in constructor.matches:
@@ -323,6 +326,13 @@ class FrontendBinder:
 
             for element_idx, element in enumerate(pattern):
                 if isinstance(element, NodePattern):
+                    self._validate_node_pattern_schema(
+                        state=state,
+                        alias=element.variable,
+                        node_pattern=element,
+                        stage=clause_kind,
+                        location=f"{clause_kind}.patterns[{pattern_idx}].elements[{element_idx}]",
+                    )
                     if element.variable is not None:
                         changed_aliases.add(
                             self._bind_node_pattern(
@@ -335,6 +345,13 @@ class FrontendBinder:
                         )
                     continue
 
+                self._validate_relationship_pattern_schema(
+                    state=state,
+                    alias=element.variable,
+                    relationship_pattern=element,
+                    stage=clause_kind,
+                    location=f"{clause_kind}.patterns[{pattern_idx}].elements[{element_idx}]",
+                )
                 if element.variable is not None:
                     src_labels = _node_labels_at(pattern=pattern, idx=element_idx - 1)
                     dst_labels = _node_labels_at(pattern=pattern, idx=element_idx + 1)
@@ -364,6 +381,7 @@ class FrontendBinder:
 
         predicates: List[BoundPredicate] = []
         if clause.where is not None:
+            self._validate_where_clause_schema(state=state, where=clause.where, stage=clause_kind)
             predicates.extend(_where_predicates(clause.where))
             _collect_parameter_names(clause.where, out=state.parameter_names)
             changed_aliases.update(_apply_where_label_narrowing(state=state, where=clause.where))
@@ -392,10 +410,12 @@ class FrontendBinder:
             state=state,
             items=stage.clause.items,
             clause_scope_id=clause_scope_id,
+            stage=origin,
         )
 
         predicates: List[BoundPredicate] = []
         if stage.where is not None:
+            self._validate_expression_property_refs(state=state, expression=stage.where, stage=f"{origin} WHERE")
             predicates.append(BoundPredicate(expression=stage.where.text))
             _collect_parameter_names(stage.where, out=state.parameter_names)
 
@@ -424,6 +444,7 @@ class FrontendBinder:
             confidence=state.scope_confidence,
             strict_name_resolution=state.strict_name_resolution,
         )
+        self._validate_expression_property_refs(state=state, expression=clause.expression, stage="UNWIND")
         _collect_parameter_names(clause.expression, out=state.parameter_names)
 
         next_scope = dict(state.scope)
@@ -461,10 +482,12 @@ class FrontendBinder:
             state=state,
             items=clause.items,
             clause_scope_id=clause_scope_id,
+            stage="RETURN",
         )
 
         predicates: List[BoundPredicate] = []
         if stage is not None and stage.where is not None:
+            self._validate_expression_property_refs(state=state, expression=stage.where, stage="RETURN WHERE")
             predicates.append(BoundPredicate(expression=stage.where.text))
             _collect_parameter_names(stage.where, out=state.parameter_names)
 
@@ -490,10 +513,16 @@ class FrontendBinder:
         state: _BindState,
         items: Sequence[ReturnItem],
         clause_scope_id: int,
+        stage: str,
     ) -> Tuple[Dict[str, BoundVariable], Dict[str, SchemaConfidence]]:
         next_scope: Dict[str, BoundVariable] = {}
         next_confidence: Dict[str, SchemaConfidence] = {}
         for item in items:
+            self._validate_expression_property_refs(
+                state=state,
+                expression=item.expression,
+                stage=stage,
+            )
             out_name = item.alias or item.expression.text
             binding = _infer_expression_binding(
                 expression=item.expression,
@@ -514,6 +543,7 @@ class FrontendBinder:
         return next_scope, next_confidence
 
     def _append_where_part(self, state: _BindState, clause_name: str, where: WhereClause) -> None:
+        self._validate_where_clause_schema(state=state, where=where, stage=clause_name)
         state.query_parts.append(
             BoundQueryPart(
                 clause=clause_name,
@@ -544,6 +574,8 @@ class FrontendBinder:
                     scope_id=clause_scope_id,
                 )
                 next_conf[output_name] = "inferred"
+        for arg in clause.args:
+            self._validate_expression_property_refs(state=state, expression=arg, stage="CALL")
 
         state.scope = next_scope
         state.scope_confidence = next_conf
@@ -560,6 +592,224 @@ class FrontendBinder:
             )
         )
         _append_scope_frame(state=state, origin_clause="CALL")
+
+    def _validate_node_pattern_schema(
+        self,
+        *,
+        state: _BindState,
+        alias: Optional[str],
+        node_pattern: NodePattern,
+        stage: str,
+        location: str,
+    ) -> None:
+        if not _strict_schema_mode(state):
+            return
+        node_columns = state.catalog.node_columns
+        if not node_columns:
+            return
+        alias_label = alias or "<anonymous-node>"
+        for label in node_pattern.labels:
+            label_col = f"label__{label}"
+            if label_col not in node_columns:
+                raise _missing_label_in_schema_error(
+                    alias=alias_label,
+                    label=label,
+                    stage=stage,
+                    field=f"{location}.labels",
+                    available_labels=_catalog_node_labels(state.catalog),
+                )
+        for entry in node_pattern.properties:
+            if entry.key not in node_columns:
+                raise _missing_property_in_schema_error(
+                    alias=alias_label,
+                    property_name=entry.key,
+                    stage=stage,
+                    field=f"{location}.properties",
+                    entity_kind="node",
+                    available_columns=tuple(sorted(node_columns)),
+                )
+
+    def _validate_relationship_pattern_schema(
+        self,
+        *,
+        state: _BindState,
+        alias: Optional[str],
+        relationship_pattern: RelationshipPattern,
+        stage: str,
+        location: str,
+    ) -> None:
+        if not _strict_schema_mode(state):
+            return
+        edge_columns = state.catalog.edge_columns
+        if not edge_columns:
+            return
+        alias_label = alias or "<anonymous-edge>"
+        for entry in relationship_pattern.properties:
+            if entry.key not in edge_columns:
+                raise _missing_property_in_schema_error(
+                    alias=alias_label,
+                    property_name=entry.key,
+                    stage=stage,
+                    field=f"{location}.properties",
+                    entity_kind="edge",
+                    available_columns=tuple(sorted(edge_columns)),
+                )
+
+    def _validate_where_clause_schema(self, *, state: _BindState, where: WhereClause, stage: str) -> None:
+        if not _strict_schema_mode(state):
+            return
+        for idx, term in enumerate(where.predicates):
+            if isinstance(term, WherePredicate):
+                self._validate_where_predicate_schema(
+                    state=state,
+                    predicate=term,
+                    stage=stage,
+                    location=f"{stage}.where.predicates[{idx}]",
+                )
+            elif isinstance(term, WherePatternPredicate):
+                for pattern_idx, pattern_element in enumerate(term.pattern):
+                    if isinstance(pattern_element, NodePattern):
+                        self._validate_node_pattern_schema(
+                            state=state,
+                            alias=pattern_element.variable,
+                            node_pattern=pattern_element,
+                            stage=stage,
+                            location=f"{stage}.where.pattern[{idx}].elements[{pattern_idx}]",
+                        )
+                    else:
+                        self._validate_relationship_pattern_schema(
+                            state=state,
+                            alias=pattern_element.variable,
+                            relationship_pattern=pattern_element,
+                            stage=stage,
+                            location=f"{stage}.where.pattern[{idx}].elements[{pattern_idx}]",
+                        )
+        if where.expr_tree is not None:
+            self._validate_expression_property_refs(
+                state=state,
+                expression=ExpressionText(text=_boolean_expr_to_text(where.expr_tree), span=where.span),
+                stage=f"{stage} WHERE",
+            )
+
+    def _validate_where_predicate_schema(
+        self,
+        *,
+        state: _BindState,
+        predicate: WherePredicate,
+        stage: str,
+        location: str,
+    ) -> None:
+        left = predicate.left
+        if isinstance(left, LabelRef):
+            self._validate_label_ref_schema(
+                state=state,
+                label_ref=left,
+                stage=stage,
+                field=f"{location}.left.labels",
+            )
+        else:
+            self._validate_property_ref_schema(
+                state=state,
+                property_ref=left,
+                stage=stage,
+                field=f"{location}.left.property",
+            )
+        right = predicate.right
+        if isinstance(right, PropertyRef):
+            self._validate_property_ref_schema(
+                state=state,
+                property_ref=right,
+                stage=stage,
+                field=f"{location}.right.property",
+            )
+
+    def _validate_expression_property_refs(
+        self,
+        *,
+        state: _BindState,
+        expression: ExpressionText,
+        stage: str,
+    ) -> None:
+        if not _strict_schema_mode(state):
+            return
+        spans = _string_literal_spans(expression.text)
+        for match in _PROPERTY_RE.finditer(expression.text):
+            start = match.start()
+            if any(lo <= start < hi for lo, hi in spans):
+                continue
+            self._validate_property_ref_schema(
+                state=state,
+                property_ref=PropertyRef(
+                    alias=match.group(1),
+                    property=match.group(2),
+                    span=expression.span,
+                ),
+                stage=stage,
+                field=f"{stage}.expression",
+            )
+
+    def _validate_label_ref_schema(
+        self,
+        *,
+        state: _BindState,
+        label_ref: LabelRef,
+        stage: str,
+        field: str,
+    ) -> None:
+        if not _strict_schema_mode(state):
+            return
+        node_columns = state.catalog.node_columns
+        if not node_columns:
+            return
+        if label_ref.alias not in state.scope:
+            if state.strict_name_resolution:
+                raise _unresolved_name_error(identifier=label_ref.alias, visible_scope=state.scope)
+            return
+        for label in label_ref.labels:
+            label_col = f"label__{label}"
+            if label_col not in node_columns:
+                raise _missing_label_in_schema_error(
+                    alias=label_ref.alias,
+                    label=label,
+                    stage=stage,
+                    field=field,
+                    available_labels=_catalog_node_labels(state.catalog),
+                )
+
+    def _validate_property_ref_schema(
+        self,
+        *,
+        state: _BindState,
+        property_ref: PropertyRef,
+        stage: str,
+        field: str,
+    ) -> None:
+        if not _strict_schema_mode(state):
+            return
+        source = state.scope.get(property_ref.alias)
+        if source is None:
+            if state.strict_name_resolution:
+                raise _unresolved_name_error(identifier=property_ref.alias, visible_scope=state.scope)
+            return
+        if source.entity_kind == "node":
+            columns = state.catalog.node_columns
+            entity_kind: Literal["node", "edge"] = "node"
+        elif source.entity_kind == "edge":
+            columns = state.catalog.edge_columns
+            entity_kind = "edge"
+        else:
+            return
+        if not columns:
+            return
+        if property_ref.property not in columns:
+            raise _missing_property_in_schema_error(
+                alias=property_ref.alias,
+                property_name=property_ref.property,
+                stage=stage,
+                field=field,
+                entity_kind=entity_kind,
+                available_columns=tuple(sorted(columns)),
+            )
 
     def _bind_node_pattern(
         self,
@@ -1157,6 +1407,68 @@ def _is_string_literal(text: str) -> bool:
 
 def _looks_like_list_literal(text: str) -> bool:
     return len(text) >= 2 and text[0] == "[" and text[-1] == "]"
+
+
+def _strict_schema_mode(state: _BindState) -> bool:
+    if state.strict_name_resolution:
+        return True
+    strict_flag = state.catalog.metadata.get("strict")
+    return bool(strict_flag)
+
+
+def _catalog_node_labels(catalog: GraphSchemaCatalog) -> Tuple[str, ...]:
+    labels = sorted(
+        str(column).split("label__", 1)[1]
+        for column in catalog.node_columns
+        if str(column).startswith("label__")
+    )
+    return tuple(labels)
+
+
+def _missing_label_in_schema_error(
+    *,
+    alias: str,
+    label: str,
+    stage: str,
+    field: str,
+    available_labels: Tuple[str, ...],
+) -> GFQLValidationError:
+    return GFQLValidationError(
+        ErrorCode.E301,
+        "Cypher label is missing from strict binder schema catalog",
+        field=field,
+        value=f"{alias}:{label}",
+        suggestion="Use labels that exist in the node schema or disable strict mode.",
+        alias=alias,
+        label=label,
+        stage=stage,
+        available_labels=available_labels,
+        language="cypher",
+    )
+
+
+def _missing_property_in_schema_error(
+    *,
+    alias: str,
+    property_name: str,
+    stage: str,
+    field: str,
+    entity_kind: Literal["node", "edge"],
+    available_columns: Tuple[str, ...],
+) -> GFQLValidationError:
+    return GFQLValidationError(
+        ErrorCode.E301,
+        "Cypher property is missing from strict binder schema catalog",
+        field=field,
+        value=f"{alias}.{property_name}",
+        suggestion=f"Use properties that exist in {entity_kind} schema columns or disable strict mode.",
+        alias=alias,
+        property=property_name,
+        stage=stage,
+        entity_kind=entity_kind,
+        available_columns=available_columns,
+        language="cypher",
+    )
 
 
 def _unresolved_name_error(identifier: str, visible_scope: Mapping[str, BoundVariable]) -> GFQLValidationError:

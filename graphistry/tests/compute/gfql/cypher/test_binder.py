@@ -15,7 +15,7 @@ from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundVariable, ScopeFrame, SemanticTable
 from graphistry.compute.gfql.ir.logical_plan import RowSchema
-from graphistry.compute.gfql.ir.compilation import PlanContext
+from graphistry.compute.gfql.ir.compilation import GraphSchemaCatalog, PlanContext
 from graphistry.compute.gfql.ir.types import EdgeRef, NodeRef, PathType, ScalarType
 from typing import Any, List, Tuple, cast
 
@@ -502,3 +502,133 @@ def test_binder_unresolved_identifier_code_is_e204() -> None:
     with pytest.raises(GFQLValidationError) as exc_info:
         FrontendBinder().bind(parse_cypher("RETURN ghost"), PlanContext(), strict_name_resolution=True)
     assert exc_info.value.code == ErrorCode.E204
+
+
+def _strict_catalog_ctx(
+    *,
+    node_columns: List[str],
+    edge_columns: List[str],
+    strict: bool = True,
+) -> PlanContext:
+    return PlanContext(
+        catalog=GraphSchemaCatalog.from_schema_parts(
+            node_columns=node_columns,
+            edge_columns=edge_columns,
+            metadata={"strict": strict},
+        )
+    )
+
+
+def test_binder_strict_schema_rejects_missing_match_label_with_context() -> None:
+    ctx = _strict_catalog_ctx(
+        node_columns=["id", "name", "label__Admin"],
+        edge_columns=["src", "dst"],
+    )
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(parse_cypher("MATCH (n:Person) RETURN n"), ctx, strict_name_resolution=True)
+    err = exc_info.value
+    assert err.code == ErrorCode.E301
+    assert err.context["alias"] == "n"
+    assert err.context["stage"] == "MATCH"
+    assert err.context["field"].startswith("MATCH.patterns[0].elements[0].labels")
+
+
+def test_binder_strict_schema_rejects_missing_property_in_return_with_context() -> None:
+    ctx = _strict_catalog_ctx(
+        node_columns=["id", "name", "label__Person"],
+        edge_columns=["src", "dst"],
+    )
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(parse_cypher("MATCH (n:Person) RETURN n.age AS age"), ctx, strict_name_resolution=True)
+    err = exc_info.value
+    assert err.code == ErrorCode.E301
+    assert err.context["alias"] == "n"
+    assert err.context["stage"] == "RETURN"
+    assert err.context["field"] == "RETURN.expression"
+    assert err.context["value"] == "n.age"
+
+
+def test_binder_strict_schema_accepts_admitted_label_and_property_shapes() -> None:
+    ctx = _strict_catalog_ctx(
+        node_columns=["id", "name", "label__Person"],
+        edge_columns=["src", "dst"],
+    )
+    bound = FrontendBinder().bind(
+        parse_cypher("MATCH (n:Person {id: 1}) WHERE n.name = 'alice' RETURN n.id AS nid"),
+        ctx,
+        strict_name_resolution=True,
+    )
+    assert "nid" in bound.semantic_table.variables
+
+
+def test_binder_loose_mode_keeps_permissive_behavior_for_missing_schema_fields() -> None:
+    ctx = _strict_catalog_ctx(
+        node_columns=["id"],
+        edge_columns=["src", "dst"],
+        strict=False,
+    )
+    bound = FrontendBinder().bind(
+        parse_cypher("MATCH (n:Person) RETURN n.unknown AS u"),
+        ctx,
+        strict_name_resolution=False,
+    )
+    assert "u" in bound.semantic_table.variables
+
+
+def test_binder_strict_metadata_mode_enforces_schema_without_strict_name_flag() -> None:
+    ctx = _strict_catalog_ctx(
+        node_columns=["id", "label__Person"],
+        edge_columns=["src", "dst"],
+        strict=True,
+    )
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(
+            parse_cypher("MATCH (n:Person) RETURN n.name AS name"),
+            ctx,
+            strict_name_resolution=False,
+        )
+    assert exc_info.value.code == ErrorCode.E301
+    assert exc_info.value.context["field"] == "RETURN.expression"
+
+
+def test_binder_strict_name_resolution_with_empty_catalog_keeps_existing_behavior() -> None:
+    bound = FrontendBinder().bind(
+        parse_cypher("MATCH (n:Person) RETURN n.unknown AS u"),
+        PlanContext(),
+        strict_name_resolution=True,
+    )
+    assert "u" in bound.semantic_table.variables
+
+
+def test_binder_strict_schema_checks_expr_tree_where_property_refs() -> None:
+    ctx = _strict_catalog_ctx(
+        node_columns=["id", "name", "label__Person"],
+        edge_columns=["src", "dst"],
+    )
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(
+            parse_cypher("MATCH (n:Person) WHERE (n.name = 'x') OR (n.age > 1) RETURN n"),
+            ctx,
+            strict_name_resolution=True,
+        )
+    err = exc_info.value
+    assert err.code == ErrorCode.E301
+    assert err.context["stage"] == "MATCH WHERE"
+    assert err.context["value"] == "n.age"
+
+
+def test_binder_strict_schema_rejects_missing_relationship_property_in_match_pattern() -> None:
+    ctx = _strict_catalog_ctx(
+        node_columns=["id", "label__Person"],
+        edge_columns=["src", "dst", "since"],
+    )
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(
+            parse_cypher("MATCH (a:Person)-[r:KNOWS {weight: 1}]->(b:Person) RETURN r"),
+            ctx,
+            strict_name_resolution=True,
+        )
+    err = exc_info.value
+    assert err.code == ErrorCode.E301
+    assert err.context["entity_kind"] == "edge"
+    assert "weight" in err.context["value"]
