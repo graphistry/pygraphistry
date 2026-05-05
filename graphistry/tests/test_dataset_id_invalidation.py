@@ -109,7 +109,7 @@ class TestDatasetIDInvalidation:
         assert g1._dataset_id == 'test_id_123'
 
         # settings() modifies _url_params, _height, _render (NOT part of dataset)
-        g2 = g1.settings(url_params={'filter': 'value'})
+        g2 = g1.settings(url_params={'play': 0})
 
         # Should preserve dataset_id (already correct behavior)
         assert g2._dataset_id == 'test_id_123', \

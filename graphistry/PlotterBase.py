@@ -4,7 +4,9 @@ from typing_extensions import Literal
 from graphistry.io.types import ComplexEncodingsDict
 from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationMode, ValidationParam
-from graphistry.validate import URLParamsDict
+from graphistry.models.surfaces.graphistry_frontend.react_settings import ApplyEncodingsReactSettingsDict
+from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
+from graphistry.validate.validate_react_encodings import parse_apply_encodings_ops
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
 from graphistry.Engine import EngineAbstractType
@@ -514,6 +516,66 @@ class PlotterBase(Plottable):
         out = self.bind()
         out._complex_encodings = complex_encodings
         out._dataset_id = None
+        return out
+
+    def apply_encodings(
+        self,
+        react_encodings: Optional[ApplyEncodingsReactSettingsDict],
+        validate: ValidationParam = "strict",
+        warn: bool = True,
+    ) -> Plottable:
+        """Apply React-style declarative encoding payloads.
+
+        Supported keys:
+        - ``encodePointColor`` / ``encodeEdgeColor``: ``[column, variation?, mapping_or_palette?]``
+        - ``encodePointSize``: ``[column, categorical_mapping?, default_mapping?]``
+        - ``encodePointIcons`` / ``encodeEdgeIcons``: ``[column, categorical_mapping_or_bins?, default_mapping?]``
+        - ``encodeAxis``: ``rows`` list accepted by :meth:`encode_axis`
+        """
+        out: Plottable = self
+        ops = parse_apply_encodings_ops(
+            react_encodings=react_encodings,
+            validate=validate,
+            warn=warn,
+        )
+        for op in ops:
+            if op["kind"] == "color":
+                column = op["column"]
+                method = out.encode_point_color if op["key"] == "encodePointColor" else out.encode_edge_color
+                color_kwargs: Dict[str, Any] = {}
+                if "categorical_mapping" in op:
+                    color_kwargs["categorical_mapping"] = op["categorical_mapping"]
+                if "palette" in op:
+                    color_kwargs["palette"] = op["palette"]
+                    if op.get("variation") == "continuous":
+                        color_kwargs["as_continuous"] = True
+                    else:
+                        color_kwargs["as_categorical"] = True
+                out = method(column, **color_kwargs)
+                continue
+
+            if op["kind"] == "size":
+                size_kwargs: Dict[str, Any] = {}
+                if "categorical_mapping" in op:
+                    size_kwargs["categorical_mapping"] = op["categorical_mapping"]
+                if "default_mapping" in op:
+                    size_kwargs["default_mapping"] = op["default_mapping"]
+                out = out.encode_point_size(op["column"], **size_kwargs)
+                continue
+
+            if op["kind"] == "icon":
+                icon_method = out.encode_point_icon if op["key"] == "encodePointIcons" else out.encode_edge_icon
+                icon_kwargs: Dict[str, Any] = {}
+                if "categorical_mapping" in op:
+                    icon_kwargs["categorical_mapping"] = op["categorical_mapping"]
+                if "continuous_binning" in op:
+                    icon_kwargs["continuous_binning"] = op["continuous_binning"]
+                if "default_mapping" in op:
+                    icon_kwargs["default_mapping"] = op["default_mapping"]
+                out = icon_method(op["column"], **icon_kwargs)
+                continue
+
+            out = out.encode_axis(cast(List[Dict[Any, Any]], op["rows"]))
         return out
 
 

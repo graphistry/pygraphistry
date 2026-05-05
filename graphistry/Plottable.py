@@ -19,7 +19,7 @@ from graphistry.utils.json import JSONVal
 from graphistry.client_session import ClientSession, AuthManagerProtocol
 from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationParam
-from graphistry.validate import URLParamsDict
+from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 
 if TYPE_CHECKING:
     try:

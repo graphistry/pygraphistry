@@ -1,7 +1,20 @@
 import pytest
 
 import graphistry
+from graphistry.io.contracts import (
+    GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURE,
+    GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURES_BY_VERSION,
+    GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION,
+    GRAPHISTRY_SERVER_DATASET_UPSTREAM_VERSIONS,
+    graphistry_server_dataset_contract_version_info,
+)
 from graphistry.validate import (
+    APPLY_ENCODINGS_REACT_KEY_SET,
+    GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURE,
+    GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION,
+    GRAPHISTRY_FRONTEND_CONTRACT_VERSION,
+    GRAPHISTRY_FRONTEND_UPSTREAM_VERSIONS,
+    ApplyEncodingsReactSettingsDict,
     AXIS_BOUNDS_ALLOWED_KEYS,
     AXIS_ROW_ALLOWED_KEYS,
     AXIS_ROW_BOOL_KEYS,
@@ -10,6 +23,8 @@ from graphistry.validate import (
     LINEAR_AXIS_URL_DEFAULTS,
     RADIAL_AXIS_URL_DEFAULTS,
     REACT_SETTING_NAME_SET,
+    KnownReactSettingsDict,
+    KnownURLParamsDict,
     URL_PARAM_NAME_SET,
     apply_axis_url_defaults,
     axis_url_defaults,
@@ -20,12 +35,54 @@ from graphistry.validate import (
     is_ring_continuous_axis_payload,
     normalize_react_settings,
     normalize_url_params,
+    graphistry_frontend_contract_version_info,
+    apply_encodings_keys,
+    react_setting_keys,
+    url_param_keys,
 )
 
 
 def test_settings_key_sets_exported():
     assert "play" in URL_PARAM_NAME_SET
     assert "encodeAxis" in REACT_SETTING_NAME_SET
+    assert "dissuadeHubs" in REACT_SETTING_NAME_SET
+    assert "encodePointColor" in APPLY_ENCODINGS_REACT_KEY_SET
+
+
+def test_known_typed_dict_keyspaces_align_with_exported_sets():
+    assert set(KnownURLParamsDict.__annotations__.keys()) == URL_PARAM_NAME_SET
+    assert set(KnownReactSettingsDict.__annotations__.keys()) == REACT_SETTING_NAME_SET
+    assert set(ApplyEncodingsReactSettingsDict.__annotations__.keys()) == APPLY_ENCODINGS_REACT_KEY_SET
+
+
+def test_introspection_key_accessors():
+    assert set(url_param_keys()) == URL_PARAM_NAME_SET
+    assert set(react_setting_keys()) == REACT_SETTING_NAME_SET
+    assert set(apply_encodings_keys()) == APPLY_ENCODINGS_REACT_KEY_SET
+
+
+def test_bundle_contract_version_exports():
+    assert GRAPHISTRY_FRONTEND_CONTRACT_VERSION >= 1
+    assert "graphistry_js_client_api_react" in GRAPHISTRY_FRONTEND_UPSTREAM_VERSIONS
+    frontend_info = graphistry_frontend_contract_version_info()
+    assert frontend_info["bundle"] == "graphistry_frontend"
+    assert frontend_info["contract_version"] == GRAPHISTRY_FRONTEND_CONTRACT_VERSION
+    assert frontend_info["contract_signature"] == GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURE
+    assert (
+        GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION[GRAPHISTRY_FRONTEND_CONTRACT_VERSION]
+        == GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURE
+    )
+
+    assert GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION >= 1
+    assert "graphistry_server" in GRAPHISTRY_SERVER_DATASET_UPSTREAM_VERSIONS
+    server_info = graphistry_server_dataset_contract_version_info()
+    assert server_info["bundle"] == "graphistry_server_dataset"
+    assert server_info["contract_version"] == GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION
+    assert server_info["contract_signature"] == GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURE
+    assert (
+        GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURES_BY_VERSION[GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION]
+        == GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURE
+    )
 
 
 def test_axis_row_allowed_keys_contract():
@@ -69,6 +126,30 @@ def test_normalize_url_params_autofix_drops_unknown_key():
 def test_normalize_react_settings_strict_invalid_type_raises():
     with pytest.raises(ValueError):
         normalize_react_settings({"encodeAxis": {1: "bad"}}, validate="strict")
+
+
+def test_normalize_react_settings_accepts_dissuade_hubs():
+    out = normalize_react_settings({"dissuadeHubs": True}, validate="strict")
+    assert out == {"dissuadeHubs": True}
+
+
+def test_normalize_url_params_accepts_neighborhood_string_modes():
+    out = normalize_url_params(
+        {
+            "neighborhoodHighlight": "incoming",
+            "neighborhoodHighlightHops": 2,
+        },
+        validate="strict",
+    )
+    assert out == {
+        "neighborhoodHighlight": "incoming",
+        "neighborhoodHighlightHops": 2,
+    }
+
+
+def test_normalize_url_params_accepts_extended_logo_position_values():
+    out = normalize_url_params({"logoPosition": "top-left"}, validate="strict")
+    assert out == {"logoPosition": "top-left"}
 
 
 def test_plotter_settings_strict_rejects_unknown_key():

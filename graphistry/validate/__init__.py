@@ -1,7 +1,7 @@
 from .validate_encodings import (  # noqa: E402, F401
     validate_encodings
 )
-from .validate_settings import (  # noqa: E402, F401
+from graphistry.models.surfaces import (  # noqa: E402, F401
     AxisBounds,
     AxisRow,
     AxisRows,
@@ -16,11 +16,38 @@ from .validate_settings import (  # noqa: E402, F401
     REACT_SETTING_NAMES,
     URL_PARAM_NAME_SET,
     REACT_SETTING_NAME_SET,
+    APPLY_ENCODINGS_REACT_KEYS,
+    APPLY_ENCODINGS_REACT_KEY_SET,
+    GRAPHISTRY_FRONTEND_CONTRACT_VERSION,
+    GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURE,
+    GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION,
+    GRAPHISTRY_FRONTEND_UPSTREAM_VERSIONS,
+    ApplyEncodingsReactSettingsDict,
+    ApplyEncodingsReactKey,
+    FrontendContractVersionInfo,
     URLParamsDict,
     ReactSettingsDict,
+    KnownURLParamsDict,
+    KnownReactSettingsDict,
+    ReactColorEncodingKey,
+    ReactEncodingVariation,
+    ReactEncodingMapping,
+    ReactEncodingPalette,
+    ReactColorEncodingPayload,
+    ReactSizeEncodingKey,
+    ReactSizeEncodingPayload,
+    graphistry_frontend_contract_version_info,
+    ReactIconEncodingKey,
+    ReactIconEncodingPayload,
     RADIAL_AXIS_URL_DEFAULTS,
     LINEAR_AXIS_URL_DEFAULTS,
     axis_url_defaults,
+    url_param_keys,
+    react_setting_keys,
+    apply_encodings_keys,
+    SettingsValue,
+)
+from .validate_settings import (  # noqa: E402, F401
     normalize_url_params,
     normalize_react_settings,
     is_axis_bounds_payload,
@@ -30,4 +57,7 @@ from .validate_settings import (  # noqa: E402, F401
     is_ring_categorical_axis_payload,
     classify_axis_kind,
     apply_axis_url_defaults,
+)
+from .validate_react_encodings import (  # noqa: E402, F401
+    parse_apply_encodings_ops,
 )
