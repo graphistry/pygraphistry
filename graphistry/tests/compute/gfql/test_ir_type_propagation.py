@@ -27,6 +27,7 @@ from graphistry.compute.gfql.ir.logical_plan import (
     RowSchema,
 )
 from graphistry.compute.gfql.ir.metadata import (
+    bound_variable_is_nullable,
     bound_variable_type,
     column_is_nullable,
     column_logical_type,
@@ -260,6 +261,46 @@ class TestBoundVariableType:
             entity_kind=entity_kind,  # type: ignore[arg-type]
         )
         assert bound_variable_type(bv) is logical_type
+
+
+# ---------------------------------------------------------------------------
+# bound_variable_is_nullable
+# ---------------------------------------------------------------------------
+
+
+class TestBoundVariableIsNullable:
+    @pytest.mark.parametrize(
+        "logical_type,entity_kind",
+        [
+            (ScalarType("int64", nullable=False), "scalar"),
+            (NodeRef(frozenset({"Person"})), "node"),
+            (EdgeRef(type="KNOWS"), "edge"),
+            (PathType(), "scalar"),
+            (ListType(), "scalar"),
+        ],
+    )
+    def test_returns_bv_nullable_directly_across_kinds(
+        self, logical_type: object, entity_kind: str
+    ) -> None:
+        # Source of truth is BoundVariable.nullable; the helper must NOT
+        # silently drop it for structural variables (which is what
+        # `is_nullable(bound_variable_type(bv))` would do).
+        bv_nullable = BoundVariable(
+            name="x",
+            logical_type=logical_type,  # type: ignore[arg-type]
+            nullable=True,
+            null_extended_from=frozenset({"opt_arm"}),
+            entity_kind=entity_kind,  # type: ignore[arg-type]
+        )
+        assert bound_variable_is_nullable(bv_nullable) is True
+        bv_not_nullable = BoundVariable(
+            name="x",
+            logical_type=logical_type,  # type: ignore[arg-type]
+            nullable=False,
+            null_extended_from=frozenset(),
+            entity_kind=entity_kind,  # type: ignore[arg-type]
+        )
+        assert bound_variable_is_nullable(bv_not_nullable) is False
 
 
 # ---------------------------------------------------------------------------

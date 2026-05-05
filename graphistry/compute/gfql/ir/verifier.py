@@ -9,8 +9,8 @@ verify(plan) walks the operator tree and checks six invariants:
   6. Type continuity   — for unary ops, columns shared between input.output_schema and
                          op.output_schema must agree on kind; ScalarType nullability is
                          monotone-widening except where the operator is allowed to drop NULL
-                         rows (currently: Filter). Skipped when either schema is empty.
-                         (#1300, T3 under #1262.)
+                         rows (currently: Filter, PatternMatch, SemiApply, AntiSemiApply).
+                         Skipped when either schema is empty. (#1300, T3 under #1262.)
 """
 from __future__ import annotations
 
@@ -18,12 +18,14 @@ from typing import Iterator, List, Set, Tuple
 
 from graphistry.compute.gfql.ir.compilation import CompilerError
 from graphistry.compute.gfql.ir.logical_plan import (
+    AntiSemiApply,
     CHILD_SLOTS,
     Filter,
     IndexScan,
     LogicalPlan,
     PatternMatch,
     RowSchema,
+    SemiApply,
     iter_children,
 )
 from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, ListType, NodeRef, PathType, ScalarType
@@ -240,11 +242,13 @@ def _check_schema(op: LogicalPlan, schema: RowSchema) -> list[CompilerError]:
 # `Filter` predicates can drop NULL rows directly. `PatternMatch` with
 # `where` and per-pattern `predicates` carries the same row-dropping
 # semantics — non-optional patterns also drop rows where the pattern fails
-# to match — so it sits in the same carve-out. The narrowing here is *not*
+# to match — so it sits in the same carve-out. `SemiApply` /
+# `AntiSemiApply` (Cypher EXISTS / NOT EXISTS subquery filters) are
+# filter-shaped row-droppers as well. The narrowing here is *not*
 # extended to `optional=True` PatternMatch arms: invariant 5 already pins
 # their outputs to nullable=True, so a narrowing output there is still a
 # correctness violation but is reported by invariant 5 rather than 6.
-_NULLABILITY_NARROWING_OPS: Tuple[type, ...] = (Filter, PatternMatch)
+_NULLABILITY_NARROWING_OPS: tuple[type, ...] = (Filter, PatternMatch, SemiApply, AntiSemiApply)
 
 
 def _check_propagation_continuity(op: LogicalPlan) -> list[CompilerError]:

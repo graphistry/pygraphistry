@@ -39,6 +39,7 @@ __all__ = [
     "column_is_nullable",
     "merge_types",
     "bound_variable_type",
+    "bound_variable_is_nullable",
 ]
 
 
@@ -149,9 +150,30 @@ def bound_variable_type(bv: BoundVariable) -> LogicalType:
     For scalar variables the binder may set ``BoundVariable.nullable``
     independently of the ``ScalarType.nullable`` field embedded in
     ``logical_type``; this helper returns a single LogicalType where the two
-    are reconciled (BoundVariable.nullable wins for scalars). For structural
-    types the LogicalType is returned unchanged.
+    are reconciled (BoundVariable.nullable wins for scalars).
+
+    For structural types (NodeRef/EdgeRef/PathType/ListType) the LogicalType
+    is returned unchanged — those families do not currently carry a
+    nullability dimension on the LogicalType itself, so callers asking
+    "is this *variable* nullable" should consult :func:`bound_variable_is_nullable`
+    directly. ``bv.nullable=True`` on a structural variable (e.g. an
+    optional-arm whole-row alias) is *not* propagated onto the returned
+    LogicalType; this is the documented contract.
     """
     if isinstance(bv.logical_type, ScalarType):
         return with_nullable(bv.logical_type, bv.nullable)
     return bv.logical_type
+
+
+def bound_variable_is_nullable(bv: BoundVariable) -> bool:
+    """Return whether *bv* admits NULL.
+
+    Source of truth is ``BoundVariable.nullable``: the binder records
+    nullability on every variable regardless of LogicalType family
+    (e.g. optional-arm whole-row aliases get ``nullable=True`` even though
+    their NodeRef/EdgeRef LogicalType has no nullable dimension). Use this
+    helper instead of ``is_nullable(bound_variable_type(bv))``, which
+    would always return ``False`` for structural variables and silently
+    drop the binder-recorded nullable bit.
+    """
+    return bv.nullable
