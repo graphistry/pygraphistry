@@ -1,7 +1,7 @@
 """Graphistry frontend React-settings contracts and introspection keyspace."""
 
 from typing import Any, Dict, Set, Tuple
-from typing_extensions import TypeAlias, TypedDict
+from typing_extensions import Literal, TypeAlias, TypedDict
 
 from graphistry.models.surfaces.graphistry_frontend.settings_value import (
     SettingBool,
@@ -11,6 +11,7 @@ from graphistry.models.surfaces.graphistry_frontend.settings_value import (
 )
 
 ReactSettingsDict: TypeAlias = Dict[str, SettingsValue]
+NeighborhoodHighlightSetting: TypeAlias = Literal["incoming", "outgoing", "both", "none", "node"]
 
 
 class KnownReactSettingsDict(TypedDict, total=False):
@@ -29,6 +30,7 @@ class KnownReactSettingsDict(TypedDict, total=False):
     exclusions: SettingsValue
     filters: SettingsValue
     gravity: SettingNumber
+    dissuadeHubs: SettingBool
     iframeStyle: SettingsValue
     labelBackground: SettingString
     labelColor: SettingString
@@ -37,12 +39,12 @@ class KnownReactSettingsDict(TypedDict, total=False):
     lockedR: SettingBool
     lockedX: SettingBool
     lockedY: SettingBool
-    neighborhoodHighlight: SettingBool
-    neighborhoodHighlightHops: int
+    neighborhoodHighlight: NeighborhoodHighlightSetting
+    neighborhoodHighlightHops: SettingNumber
     play: int
     pointOpacity: SettingNumber
     pointSize: SettingNumber
-    pointsOfInterestMax: int
+    pointsOfInterestMax: SettingNumber
     precisionVsSpeed: SettingNumber
     pruneOrphans: SettingBool
     scalingRatio: SettingNumber
@@ -71,7 +73,7 @@ REACT_SETTING_NAMES: Tuple[str, ...] = (
     "axes", "backgroundColor", "controls", "edgeCurvature", "edgeInfluence",
     "edgeOpacity", "encodeAxis", "encodeEdgeColor", "encodeEdgeIcons",
     "encodePointColor", "encodePointIcons", "encodePointSize", "exclusions",
-    "filters", "gravity", "iframeStyle", "labelBackground", "labelColor",
+    "filters", "gravity", "dissuadeHubs", "iframeStyle", "labelBackground", "labelColor",
     "labelOpacity", "linLog", "lockedR", "lockedX", "lockedY",
     "neighborhoodHighlight", "neighborhoodHighlightHops", "play",
     "pointOpacity", "pointSize", "pointsOfInterestMax", "precisionVsSpeed",

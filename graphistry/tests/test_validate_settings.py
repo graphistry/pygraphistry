@@ -32,6 +32,7 @@ from graphistry.validate import (
 def test_settings_key_sets_exported():
     assert "play" in URL_PARAM_NAME_SET
     assert "encodeAxis" in REACT_SETTING_NAME_SET
+    assert "dissuadeHubs" in REACT_SETTING_NAME_SET
     assert "encodePointColor" in APPLY_ENCODINGS_REACT_KEY_SET
 
 

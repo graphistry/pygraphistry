@@ -13,7 +13,7 @@ from graphistry.models.surfaces.graphistry_frontend.settings_value import (
 
 URLParamsDict: TypeAlias = Dict[str, SettingsValue]
 CollectionsSetting: TypeAlias = Union[SettingString, Dict[str, Any], List[Any]]
-LogoPositionSetting: TypeAlias = Literal["top", "bottom"]
+NeighborhoodHighlightSetting: TypeAlias = Literal["incoming", "outgoing", "both", "none", "node"]
 
 
 class KnownURLParamsDict(TypedDict, total=False):
@@ -38,19 +38,19 @@ class KnownURLParamsDict(TypedDict, total=False):
     lockedX: SettingBool
     lockedY: SettingBool
     logoAutoInvert: SettingBool
-    logoMaxHeight: int
-    logoMaxWidth: int
-    logoPosition: LogoPositionSetting
+    logoMaxHeight: SettingNumber
+    logoMaxWidth: SettingNumber
+    logoPosition: SettingString
     logoUrl: SettingString
     menu: SettingBool
-    neighborhoodHighlight: SettingBool
-    neighborhoodHighlightHops: int
+    neighborhoodHighlight: NeighborhoodHighlightSetting
+    neighborhoodHighlightHops: SettingNumber
     pageTitle: SettingString
     play: int
     pointOpacity: SettingNumber
     pointSize: SettingNumber
     pointStrokeWidth: SettingNumber
-    pointsOfInterestMax: int
+    pointsOfInterestMax: SettingNumber
     precisionVsSpeed: SettingNumber
     right: SettingNumber
     scalingRatio: SettingNumber
