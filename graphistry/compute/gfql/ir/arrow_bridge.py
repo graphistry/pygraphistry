@@ -142,8 +142,7 @@ def _payload_to_logical_type(payload: Mapping[str, Any]) -> LogicalType:
         )
     if family == "path":
         min_hops = int(payload.get("min_hops", 1))
-        max_hops_raw = payload.get("max_hops", 1)
-        max_hops = None if max_hops_raw is None else int(max_hops_raw)
+        max_hops = int(payload.get("max_hops", 1))
         return PathType(min_hops=min_hops, max_hops=max_hops)
     if family == "list":
         element = payload.get("element")
@@ -240,7 +239,7 @@ def _arrow_type_to_logical_type(
     if types.is_list(arrow_type) or types.is_large_list(arrow_type):
         element = _arrow_type_to_logical_type(
             arrow_type.value_type,
-            nullable=True,
+            nullable=bool(arrow_type.value_field.nullable),
             coercion=coercion,
             pa=pa,
         )
@@ -325,8 +324,18 @@ def from_arrow(
 
         raw_payload = metadata.get(_METADATA_LOGICAL_TYPE_KEY)
         if raw_payload is not None:
-            payload = json.loads(raw_payload.decode("utf-8"))
-            logical_type = _payload_to_logical_type(payload)
+            try:
+                payload = json.loads(raw_payload.decode("utf-8"))
+                logical_type = _payload_to_logical_type(payload)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                if coercion == "strict":
+                    raise
+                logical_type = _arrow_type_to_logical_type(
+                    field.type,
+                    nullable=bool(field.nullable),
+                    coercion=coercion,
+                    pa=pa,
+                )
         else:
             logical_type = _arrow_type_to_logical_type(
                 field.type,

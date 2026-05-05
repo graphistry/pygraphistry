@@ -75,6 +75,17 @@ class TestArrowBridgeRoundTrip:
         )
         assert conf == {"id": "inferred", "name": "inferred", "weights": "inferred"}
 
+    def test_infers_list_element_nullability_from_arrow_value_field(self) -> None:
+        arrow_schema = pa.schema(
+            [pa.field("ids", pa.list_(pa.field("item", pa.int64(), nullable=False)), nullable=True)]
+        )
+        inferred, _ = from_arrow(arrow_schema, coercion="widen")
+        assert inferred == RowSchema(
+            columns={
+                "ids": ListType(element_type=ScalarType(kind="int64", nullable=False)),
+            }
+        )
+
 
 class TestArrowBridgeCoercion:
     def test_strict_export_rejects_structural_types(self) -> None:
@@ -114,3 +125,14 @@ class TestArrowBridgeCoercion:
         schema, confidence = from_arrow(arrow_schema, coercion="widen")
         assert schema == RowSchema(columns={"x": ScalarType(kind="unknown", nullable=False)})
         assert confidence == {"x": "inferred"}
+
+    def test_widen_import_falls_back_when_logical_type_metadata_is_malformed(self) -> None:
+        field = pa.field(
+            "x",
+            pa.int64(),
+            metadata={b"gfql.logical_type": b"{not-json", b"gfql.schema_confidence": b"declared"},
+        )
+        arrow_schema = pa.schema([field])
+        schema, confidence = from_arrow(arrow_schema, coercion="widen")
+        assert schema == RowSchema(columns={"x": ScalarType(kind="int64", nullable=True)})
+        assert confidence == {"x": "declared"}
