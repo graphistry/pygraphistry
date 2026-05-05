@@ -595,9 +595,11 @@ class TestGFQLCypherReentryCarrier:
 
     @staticmethod
     def _run_reentry_state(g, compiled, prefix_result, *, engine: str = "pandas"):
+        plan = compiled.reentry_plan
+        assert plan is not None
         return _compiled_query_reentry_state(
             g,
-            compiled,
+            plan,
             prefix_result,
             engine=engine,
         )

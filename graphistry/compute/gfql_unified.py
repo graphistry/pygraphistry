@@ -911,7 +911,14 @@ def _execute_compiled_query_with_reentry(
             policy=policy,
             context=context,
         )
-        if compiled_query.scalar_reentry_alias is not None:
+        plan = compiled_query.reentry_plan
+        if plan is None:
+            raise _reentry_validation_error(
+                "Cypher MATCH after WITH reentry dispatched without a ReentryPlan",
+                value=None,
+                suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
+            )
+        if plan.scalar_only:
             prefix_rows = getattr(prefix_result, "_nodes", None)
             prefix_row_count = len(prefix_rows) if prefix_rows is not None else 0
             if prefix_row_count > 1:
@@ -928,8 +935,8 @@ def _execute_compiled_query_with_reentry(
                 for i in range(prefix_row_count):
                     row_graph, row_start = _compiled_query_scalar_reentry_state(
                         base_graph,
-                        compiled_query,
                         prefix_result,
+                        carried_columns=plan.scalar_columns,
                         engine=engine,
                         row_index=i,
                     )
@@ -947,79 +954,77 @@ def _execute_compiled_query_with_reentry(
             else:
                 compiled_base_graph, start_nodes = _compiled_query_scalar_reentry_state(
                     base_graph,
-                    compiled_query,
                     prefix_result,
+                    carried_columns=plan.scalar_columns,
                     engine=engine,
                 )
-        else:
-            plan = compiled_query.reentry_plan
-            if plan is not None and plan.free_form:
-                # #1263 (LDBC SNB IC3 endpoint): trailing MATCH binds aliases
-                # none of which is in the prefix's carried set. Broadcast the
-                # carried hidden columns onto every base node so the row
-                # pipeline carries them through whichever alias the trailing
-                # MATCH binds; the suffix runs as a global MATCH (no seed).
-                prefix_rows_for_freeform = getattr(prefix_result, "_nodes", None)
-                prefix_row_count_freeform = (
-                    len(prefix_rows_for_freeform) if prefix_rows_for_freeform is not None else 0
-                )
-                if prefix_row_count_freeform > 1:
-                    # #1285: multi-prefix-row free-form intermediate MATCH —
-                    # run suffix once per prefix row with that row's hidden
-                    # carry values broadcast, then union per-row results.
-                    # Mirrors the scalar-only multi-row pattern at lines 916-945
-                    # above; reuses ``_union_scalar_reentry_results`` (engine-
-                    # polymorphic concat).
-                    if compiled_query.optional_reentry:
-                        raise _reentry_validation_error(
-                            "Cypher OPTIONAL MATCH after a multi-row free-form WITH prefix is not yet supported"
-                            " — null-fill for unmatched prefix rows is not implemented for N>1 prefix rows",
-                            value=prefix_row_count_freeform,
-                            suggestion="Use MATCH instead of OPTIONAL MATCH, or reduce the WITH prefix to a single row",
-                            field="optional_reentry",
-                        )
-                    base_nodes_for_freeform = getattr(base_graph, "_nodes", None)
-                    if base_nodes_for_freeform is None:
-                        raise _reentry_validation_error(
-                            "Cypher MATCH after WITH (free-form intermediate MATCH; #1285) "
-                            "could not recover the base node table for re-entry",
-                            value=None,
-                            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
-                        )
-                    row_results = []
-                    for i in range(prefix_row_count_freeform):
-                        row_graph = _freeform_broadcast_row_to_nodes(
-                            base_graph,
-                            cast(DataFrameT, base_nodes_for_freeform),
-                            cast(DataFrameT, prefix_rows_for_freeform),
-                            plan,
-                            row_index=i,
-                        )
-                        row_result = _execute_compiled_query(
-                            row_graph,
-                            compiled_query=compiled_query,
-                            engine=engine,
-                            policy=policy,
-                            context=context,
-                            start_nodes=None,
-                        )
-                        row_results.append(row_result)
-                    return _union_scalar_reentry_results(
-                        row_results, base_graph=base_graph, engine=engine
+        elif plan.free_form:
+            # #1263 (LDBC SNB IC3 endpoint): trailing MATCH binds aliases
+            # none of which is in the prefix's carried set. Broadcast the
+            # carried hidden columns onto every base node so the row
+            # pipeline carries them through whichever alias the trailing
+            # MATCH binds; the suffix runs as a global MATCH (no seed).
+            prefix_rows_for_freeform = getattr(prefix_result, "_nodes", None)
+            prefix_row_count_freeform = (
+                len(prefix_rows_for_freeform) if prefix_rows_for_freeform is not None else 0
+            )
+            if prefix_row_count_freeform > 1:
+                # #1285: multi-prefix-row free-form intermediate MATCH —
+                # run suffix once per prefix row with that row's hidden
+                # carry values broadcast, then union per-row results.
+                # Mirrors the scalar-only multi-row pattern at lines 916-945
+                # above; reuses ``_union_scalar_reentry_results`` (engine-
+                # polymorphic concat).
+                if compiled_query.optional_reentry:
+                    raise _reentry_validation_error(
+                        "Cypher OPTIONAL MATCH after a multi-row free-form WITH prefix is not yet supported"
+                        " — null-fill for unmatched prefix rows is not implemented for N>1 prefix rows",
+                        value=prefix_row_count_freeform,
+                        suggestion="Use MATCH instead of OPTIONAL MATCH, or reduce the WITH prefix to a single row",
+                        field="optional_reentry",
                     )
-                compiled_base_graph, start_nodes = _compiled_query_freeform_reentry_state(
-                    base_graph,
-                    compiled_query,
-                    prefix_result,
-                    engine=engine,
+                base_nodes_for_freeform = getattr(base_graph, "_nodes", None)
+                if base_nodes_for_freeform is None:
+                    raise _reentry_validation_error(
+                        "Cypher MATCH after WITH (free-form intermediate MATCH; #1285) "
+                        "could not recover the base node table for re-entry",
+                        value=None,
+                        suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
+                    )
+                row_results = []
+                for i in range(prefix_row_count_freeform):
+                    row_graph = _freeform_broadcast_row_to_nodes(
+                        base_graph,
+                        cast(DataFrameT, base_nodes_for_freeform),
+                        cast(DataFrameT, prefix_rows_for_freeform),
+                        plan,
+                        row_index=i,
+                    )
+                    row_result = _execute_compiled_query(
+                        row_graph,
+                        compiled_query=compiled_query,
+                        engine=engine,
+                        policy=policy,
+                        context=context,
+                        start_nodes=None,
+                    )
+                    row_results.append(row_result)
+                return _union_scalar_reentry_results(
+                    row_results, base_graph=base_graph, engine=engine
                 )
-            else:
-                compiled_base_graph, start_nodes = _compiled_query_reentry_state(
-                    base_graph,
-                    compiled_query,
-                    prefix_result,
-                    engine=engine,
-                )
+            compiled_base_graph, start_nodes = _compiled_query_freeform_reentry_state(
+                base_graph,
+                compiled_query,
+                prefix_result,
+                engine=engine,
+            )
+        else:
+            compiled_base_graph, start_nodes = _compiled_query_reentry_state(
+                base_graph,
+                plan,
+                prefix_result,
+                engine=engine,
+            )
     result = _execute_compiled_query(
         compiled_base_graph,
         compiled_query=compiled_query,
@@ -1096,12 +1101,19 @@ def _apply_optional_reentry_null_fill(
 
 def _compiled_query_reentry_state(
     base_graph: Plottable,
-    compiled_query: CompiledCypherQuery,
+    plan: ReentryPlan,
     prefix_result: Plottable,
     *,
     engine: Union[EngineAbstract, str],
 ) -> Tuple[Plottable, DataFrameT]:
-    output_name, carried_columns = _compiled_query_reentry_contract(compiled_query)
+    if plan.scalar_only or plan.free_form:
+        raise _reentry_validation_error(
+            "Cypher whole-row reentry dispatcher received a non-whole-row ReentryPlan",
+            value=plan.reentry_alias_name,
+            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
+        )
+    output_name = plan.reentry_alias_name
+    carried_columns = tuple(plan.scalar_columns)
     meta = _entity_projection_meta_entry(
         prefix_result,
         output_name=output_name,
@@ -1204,13 +1216,12 @@ def _union_scalar_reentry_results(
 
 def _compiled_query_scalar_reentry_state(
     base_graph: Plottable,
-    compiled_query: CompiledCypherQuery,
     prefix_result: Plottable,
     *,
+    carried_columns: Sequence[str],
     engine: Union[EngineAbstract, str],
     row_index: int = 0,
 ) -> Tuple[Plottable, Optional[DataFrameT]]:
-    carried_columns = compiled_query.scalar_reentry_columns
     prefix_rows = getattr(prefix_result, "_nodes", None)
     if prefix_rows is None:
         raise _reentry_validation_error(
@@ -1386,43 +1397,6 @@ def _compiled_query_freeform_reentry_state(
         base_graph, cast(DataFrameT, base_nodes), cast(DataFrameT, prefix_rows), plan, row_index=0,
     )
     return dispatch_graph, None
-
-
-def _compiled_query_reentry_contract(
-    compiled_query: CompiledCypherQuery,
-) -> Tuple[str, Tuple[str, ...]]:
-    prefix_query = compiled_query.start_nodes_query
-    prefix_projection = None if prefix_query is None else prefix_query.result_projection
-    if prefix_projection is None:
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH could not recover the prefix projection contract for re-entry",
-            value=None,
-            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
-        )
-    whole_row_columns = tuple(
-        column.output_name for column in prefix_projection.columns if column.kind == "whole_row"
-    )
-    if not whole_row_columns:
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH could not recover any whole-row alias from the prefix projection",
-            value=whole_row_columns,
-            suggestion="Carry at least one whole-row node alias through WITH before MATCH re-entry.",
-        )
-    # #989 slice 4.3: the bounded-reentry path admits multiple whole-row aliases
-    # in the prefix when only the trailing-MATCH source is referenced downstream
-    # (compile-time guard in lowering.py). Identify the source alias from the
-    # ReentryPlan if present; non-source whole-row aliases are accepted but their
-    # rows are not (yet) carried as hidden columns — that is the slice 4.3b
-    # follow-up tracked under #989.
-    plan = compiled_query.reentry_plan
-    if plan is not None and not plan.scalar_only and plan.reentry_alias_name in whole_row_columns:
-        reentry_alias = plan.reentry_alias_name
-    else:
-        reentry_alias = whole_row_columns[0]
-    carried_columns = tuple(
-        column.output_name for column in prefix_projection.columns if column.kind != "whole_row"
-    )
-    return reentry_alias, carried_columns
 
 
 def _aligned_reentry_rows(

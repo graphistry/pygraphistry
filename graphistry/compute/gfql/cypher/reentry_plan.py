@@ -2,8 +2,6 @@
 
 Replaces the implicit handshake previously spread across:
 - tuple returns from `_bounded_reentry_carry_columns` (lowering.py)
-- `scalar_reentry_alias` / `scalar_reentry_columns` fields on
-  `CompiledCypherExecutionExtras` (lowering.py)
 - runtime contract re-extraction in `_compiled_query_reentry_contract`
   (gfql_unified.py)
 
