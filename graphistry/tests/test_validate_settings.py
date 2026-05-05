@@ -90,6 +90,30 @@ def test_normalize_react_settings_strict_invalid_type_raises():
         normalize_react_settings({"encodeAxis": {1: "bad"}}, validate="strict")
 
 
+def test_normalize_react_settings_accepts_dissuade_hubs():
+    out = normalize_react_settings({"dissuadeHubs": True}, validate="strict")
+    assert out == {"dissuadeHubs": True}
+
+
+def test_normalize_url_params_accepts_neighborhood_string_modes():
+    out = normalize_url_params(
+        {
+            "neighborhoodHighlight": "incoming",
+            "neighborhoodHighlightHops": 2,
+        },
+        validate="strict",
+    )
+    assert out == {
+        "neighborhoodHighlight": "incoming",
+        "neighborhoodHighlightHops": 2,
+    }
+
+
+def test_normalize_url_params_accepts_extended_logo_position_values():
+    out = normalize_url_params({"logoPosition": "top-left"}, validate="strict")
+    assert out == {"logoPosition": "top-left"}
+
+
 def test_plotter_settings_strict_rejects_unknown_key():
     with pytest.raises(ValueError):
         graphistry.bind().settings(url_params={"badKey": True}, validate="strict")
