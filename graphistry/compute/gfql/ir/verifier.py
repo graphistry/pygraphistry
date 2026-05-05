@@ -28,6 +28,7 @@ from graphistry.compute.gfql.ir.logical_plan import (
     SemiApply,
     iter_children,
 )
+from graphistry.compute.gfql.ir.metadata import is_nullable
 from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, ListType, NodeRef, PathType, ScalarType
 
 
@@ -184,7 +185,7 @@ def verify(plan: LogicalPlan) -> list[CompilerError]:
             # ScalarType columns in the output_schema must be nullable to
             # accommodate those NULL rows.
             for col, typ in op.output_schema.columns.items():
-                if isinstance(typ, ScalarType) and not typ.nullable:
+                if isinstance(typ, ScalarType) and not is_nullable(typ):
                     errors.append(CompilerError(
                         message=(
                             f"PatternMatch op_id={op.op_id}: optional=True "
@@ -294,8 +295,8 @@ def _check_propagation_continuity(op: LogicalPlan) -> list[CompilerError]:
             isinstance(parent_typ, ScalarType)
             and isinstance(child_typ, ScalarType)
             and not allow_narrow
-            and parent_typ.nullable
-            and not child_typ.nullable
+            and is_nullable(parent_typ)
+            and not is_nullable(child_typ)
         ):
             narrowing_op_names = ", ".join(t.__name__ for t in _NULLABILITY_NARROWING_OPS)
             errors.append(CompilerError(
