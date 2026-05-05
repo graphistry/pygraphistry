@@ -1,4 +1,9 @@
-"""Graphistry frontend React-settings contracts and introspection keyspace."""
+"""Graphistry frontend React-settings contracts and introspection keyspace.
+
+Contract-bundle note:
+- If exported keyspace/payload shapes change here, update
+  `graphistry/models/surfaces/graphistry_frontend/contract_version.py`.
+"""
 
 from typing import Any, Dict, List, Set, Tuple, Union
 from typing_extensions import Literal, TypeAlias, TypedDict

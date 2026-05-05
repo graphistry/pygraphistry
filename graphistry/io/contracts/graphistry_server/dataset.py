@@ -3,6 +3,10 @@ Graphistry server dataset metadata response contract.
 
 These types model dataset metadata payloads retrieved through server-backed
 routes (for example, Nexus dataset records surfaced through Forge ETL paths).
+
+Contract-bundle note:
+- If exported mapping/payload shapes change here, update
+  `graphistry/io/contracts/graphistry_server/contract_version.py`.
 """
 
 from typing import Any, Dict, TypedDict

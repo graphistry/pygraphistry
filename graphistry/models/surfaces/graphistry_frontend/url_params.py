@@ -1,4 +1,9 @@
-"""Graphistry frontend URL-parameter contracts and axis-layout defaults."""
+"""Graphistry frontend URL-parameter contracts and axis-layout defaults.
+
+Contract-bundle note:
+- If exported keyspace/defaults change here, update
+  `graphistry/models/surfaces/graphistry_frontend/contract_version.py`.
+"""
 
 from typing import Any, Dict, List, Set, Tuple, Union
 from typing_extensions import Literal, TypeAlias, TypedDict
