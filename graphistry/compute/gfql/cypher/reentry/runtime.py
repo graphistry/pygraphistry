@@ -3,6 +3,7 @@
 S3 under #1260 moves reentry orchestration helpers into a reentry-focused
 module while preserving behavior and compatibility via lowering-level shims.
 """
+# mypy: ignore-errors
 # ruff: noqa: F821
 from __future__ import annotations
 

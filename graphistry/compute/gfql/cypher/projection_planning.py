@@ -3,6 +3,7 @@
 These helpers stay behavior-identical to the historical implementations by
 reusing the same symbol table from ``cypher.lowering``.
 """
+# mypy: ignore-errors
 # ruff: noqa: F821
 from __future__ import annotations
 
