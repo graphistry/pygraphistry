@@ -1,4 +1,5 @@
 from .bound_ir import BoundIR, BoundQueryPart, BoundVariable, ScopeFrame, SemanticTable
+from .arrow_bridge import CoercionMode, SchemaConfidence, from_arrow, to_arrow
 from .capabilities import Decomposable, Monotonicity, OpCapability
 from .compilation import (
     BackendCapabilities,
@@ -71,6 +72,10 @@ __all__ = [
     "BoundVariable",
     "ScopeFrame",
     "SemanticTable",
+    "CoercionMode",
+    "SchemaConfidence",
+    "from_arrow",
+    "to_arrow",
     "Decomposable",
     "Monotonicity",
     "OpCapability",
