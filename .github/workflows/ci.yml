@@ -1350,18 +1350,25 @@ jobs:
       with:
         python-version: '3.14'
 
-    - name: Install pyspark stack
+    - name: Restore uv cache (spark)
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/uv
+        key: uv-spark-${{ runner.os }}-py3.14-v2-${{ hashFiles('setup.py', '.github/workflows/ci.yml') }}
+        restore-keys: |
+          uv-spark-${{ runner.os }}-py3.14-v2-
+
+    - name: Install pyspark stack + graphistry
       run: |
-        sudo apt-get install -y default-jdk
+        if ! command -v java >/dev/null 2>&1; then
+          sudo apt-get install -y default-jdk
+        fi
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
         uv pip install pyspark pyarrow pandas requests pytest
-
-    - name: Install graphistry
-      run: |
-        source pygraphistry/bin/activate
-        uv pip install -e .[test]
+        # Spark smoke tests do not require the full test extra toolchain.
+        uv pip install -e . --no-deps
 
     - name: Run Spark tests
       run: |
