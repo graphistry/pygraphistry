@@ -121,6 +121,36 @@ from graphistry.compute.gfql.temporal_text import (
     rewrite_temporal_constructors_in_expr,
 )
 from graphistry.compute.gfql.same_path_types import WhereComparison, col, compare
+# #1295 / #1260 S2 — bounded reentry helpers extracted to focused subpackage.
+# These are re-exported here to keep existing imports
+# (``from graphistry.compute.gfql.cypher.lowering import _reentry_hidden_column_name``)
+# working unchanged across the codebase. The moved modules import this module
+# lazily inside function bodies for the few helpers (``_unsupported``,
+# ``_render_expr_node``, etc.) they still need from lowering.py.
+from graphistry.compute.gfql.cypher.reentry.naming import (
+    _is_hidden_reentry_property,
+    _reentry_hidden_column_name,
+    _reentry_property_carry_name,
+    _secondary_reentry_hidden_column_name,
+)
+from graphistry.compute.gfql.cypher.reentry.scope import (
+    _binding_row_aliases_for_hidden_reentry_refs,
+    _expr_hidden_reentry_aliases,
+)
+from graphistry.compute.gfql.cypher.reentry.carry import (
+    _bounded_reentry_carry_columns,
+    _bounded_reentry_prefix_order_is_safe,
+    _bounded_reentry_scalar_prefix_columns,
+)
+from graphistry.compute.gfql.cypher.reentry.rewrite import (
+    _rewrite_collect_unwind_reentry_query,
+    _rewrite_reentry_expr_to_hidden_properties,
+    _rewrite_reentry_match_clause,
+    _rewrite_reentry_pattern_element,
+    _rewrite_reentry_projection_clause,
+    _rewrite_reentry_projection_stage,
+    _rewrite_reentry_property_entry,
+)
 
 
 @dataclass(frozen=True)
@@ -1815,95 +1845,6 @@ def _expr_match_alias_usage(
     return non_aggregate_aliases, aggregate_aliases
 
 
-def _expr_hidden_reentry_aliases(
-    expr_text: str,
-    *,
-    alias_targets: Mapping[str, ASTObject],
-    params: Optional[Mapping[str, Any]] = None,
-    field: str,
-    line: int,
-    column: int,
-) -> Set[str]:
-    node = _parse_row_expr(
-        expr_text,
-        params=params,
-        alias_targets=alias_targets,
-        allow_missing_params=True,
-        field=field,
-        line=line,
-        column=column,
-    )
-    aliases: Set[str] = set()
-
-    def _visit(node_in: ExprNode) -> None:
-        if isinstance(node_in, Identifier):
-            return
-        if isinstance(node_in, ExprLiteral):
-            return
-        if isinstance(node_in, UnaryOp):
-            _visit(node_in.operand)
-            return
-        if isinstance(node_in, BinaryOp):
-            _visit(node_in.left)
-            _visit(node_in.right)
-            return
-        if isinstance(node_in, IsNullOp):
-            _visit(node_in.value)
-            return
-        if isinstance(node_in, FunctionCall):
-            for arg in node_in.args:
-                _visit(arg)
-            return
-        if isinstance(node_in, Wildcard):
-            return
-        if isinstance(node_in, CaseWhen):
-            _visit(node_in.condition)
-            _visit(node_in.when_true)
-            _visit(node_in.when_false)
-            return
-        if isinstance(node_in, QuantifierExpr):
-            _visit(node_in.source)
-            _visit(node_in.predicate)
-            return
-        if isinstance(node_in, ListComprehension):
-            _visit(node_in.source)
-            if node_in.predicate is not None:
-                _visit(node_in.predicate)
-            if node_in.projection is not None:
-                _visit(node_in.projection)
-            return
-        if isinstance(node_in, ListLiteral):
-            for item in node_in.items:
-                _visit(item)
-            return
-        if isinstance(node_in, MapLiteral):
-            for _key, value in node_in.items:
-                _visit(value)
-            return
-        if isinstance(node_in, SubscriptExpr):
-            _visit(node_in.value)
-            _visit(node_in.key)
-            return
-        if isinstance(node_in, SliceExpr):
-            _visit(node_in.value)
-            if node_in.start is not None:
-                _visit(node_in.start)
-            if node_in.stop is not None:
-                _visit(node_in.stop)
-            return
-        if isinstance(node_in, PropertyAccessExpr):
-            if _is_hidden_reentry_property(node_in.property) and isinstance(node_in.value, Identifier):
-                root = node_in.value.name.split(".", 1)[0]
-                if root in alias_targets:
-                    aliases.add(root)
-                return
-            _visit(node_in.value)
-            return
-
-    _visit(node)
-    return aliases
-
-
 def _expr_match_aliases(
     expr_text: str,
     *,
@@ -2855,10 +2796,6 @@ def _render_dynamic_property_entry_predicate(
     return f"{alias}.{key} = ({expr.text})"
 
 
-def _is_hidden_reentry_property(property_name: str) -> bool:
-    return property_name.startswith("__cypher_reentry_") or property_name.startswith("__gfql_hidden_")
-
-
 def _dynamic_property_entry_constraints(
     clause: MatchClause,
     *,
@@ -3342,68 +3279,6 @@ def _binding_row_aliases_for_row_where(
     if len(referenced) <= 1:
         return set()
     return set(alias_targets.keys())
-
-
-def _binding_row_aliases_for_hidden_reentry_refs(
-    *,
-    unwinds: Sequence[UnwindClause],
-    clause: ReturnClause,
-    order_by_clause: Optional[OrderByClause],
-    alias_targets: Mapping[str, ASTObject],
-    params: Optional[Mapping[str, Any]],
-) -> Set[str]:
-    if not unwinds and clause.kind != "with":
-        # Hidden reentry refs in plain MATCH→WITH/RETURN reentry flows do not
-        # require the bindings-row path. The forced promotion is only needed
-        # for collect/UNWIND carry forwarding corridors and trailing WITH
-        # narrowing stages that still reference hidden carry columns.
-        return set()
-    aliases: Set[str] = set()
-    expr_texts: List[Tuple[str, int, int, str]] = []
-
-    for unwind_clause in unwinds:
-        expr_texts.append(
-            (
-                unwind_clause.expression.text,
-                unwind_clause.span.line,
-                unwind_clause.span.column,
-                "unwind",
-            )
-        )
-    for item in clause.items:
-        expr_texts.append(
-            (
-                item.expression.text,
-                item.span.line,
-                item.span.column,
-                clause.kind,
-            )
-        )
-    if order_by_clause is not None:
-        for order_item in order_by_clause.items:
-            expr_texts.append(
-                (
-                    order_item.expression.text,
-                    order_item.span.line,
-                    order_item.span.column,
-                    "order_by",
-                )
-            )
-
-    for expr_text, line, column, field_name in expr_texts:
-        if expr_text == "*":
-            continue
-        aliases.update(
-            _expr_hidden_reentry_aliases(
-                expr_text,
-                alias_targets=alias_targets,
-                params=params,
-                field=field_name,
-                line=line,
-                column=column,
-            )
-        )
-    return aliases
 
 
 def _first_allowed_alias(
@@ -7562,102 +7437,6 @@ def lower_cypher_query(
     return compiled.chain
 
 
-def _reentry_hidden_column_name(output_name: str) -> str:
-    return f"__cypher_reentry_{output_name}__"
-
-
-def _reentry_property_carry_name(alias: str, prop: str) -> str:
-    """Intermediate carry alias for a non-source whole-row alias's property.
-
-    Used as the prefix WITH alias (`WITH a, x.id AS <carry_name>`); the existing
-    scalar-carry plumbing wraps this with ``_reentry_hidden_column_name`` to
-    produce the final hidden column on the reentry-alias's row table. Trailing
-    `<alias>.<prop>` references rewrite to a property access on the reentry
-    alias whose property name is that wrapped form, so both sides resolve to
-    the same column.
-
-    The leading ``__carry_`` namespace plus surrounding underscores keep the
-    intermediate alias away from any user identifier that might survive in the
-    same prefix projection.
-    """
-    return f"__carry_{alias}__{prop}__"
-
-
-def _rewrite_reentry_expr_to_hidden_properties(
-    expr: ExpressionText,
-    *,
-    carried_alias: str,
-    carried_columns: Sequence[str],
-    field: str,
-    non_source_carried_props: Optional[Mapping[str, Tuple[str, ...]]] = None,
-) -> ExpressionText:
-    has_non_source = bool(non_source_carried_props)
-    if not carried_columns and not has_non_source:
-        return expr
-    normalized_text = expr.text
-    for output_name in carried_columns:
-        hidden_name = _reentry_hidden_column_name(output_name)
-        normalized_text = re.sub(
-            rf"(?<![A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*\.{re.escape(hidden_name)}(?![A-Za-z0-9_])",
-            f"{carried_alias}.{hidden_name}",
-            normalized_text,
-        )
-    try:
-        node = parse_expr(normalized_text)
-    except (GFQLExprParseError, ImportError) as exc:
-        raise _unsupported(
-            "Cypher MATCH after WITH carried-column rewrite requires a locally supported scalar expression",
-            field=field,
-            value=normalized_text,
-            line=expr.span.line,
-            column=expr.span.column,
-        ) from exc
-
-    # Slice 4.3b: rewrite `<non_source>.<prop>` PropertyAccessExpr nodes to
-    # `<carried_alias>.<__cypher_reentry_<non_source>__<prop>__>` BEFORE the
-    # bare-identifier substitution runs. This way `x.id` lowers to a property
-    # access on the reentry-alias's row table where the prefix rewrite has
-    # planted the hidden column.
-    if has_non_source:
-        assert non_source_carried_props is not None
-
-        def _rewrite_property_access(child: ExprNode) -> ExprNode:
-            if (
-                isinstance(child, PropertyAccessExpr)
-                and isinstance(child.value, Identifier)
-                and child.value.name in non_source_carried_props
-                and child.property in non_source_carried_props[child.value.name]
-            ):
-                return PropertyAccessExpr(
-                    Identifier(carried_alias),
-                    _reentry_hidden_column_name(
-                        _reentry_property_carry_name(child.value.name, child.property)
-                    ),
-                )
-            return _rebuild_expr_node(
-                child,
-                rewrite=_rewrite_property_access,
-                error_context="reentry property carry rewrite",
-            )
-
-        node = _rewrite_property_access(node)
-
-    replacements = {
-        output_name: f"{carried_alias}.{_reentry_hidden_column_name(output_name)}"
-        for output_name in carried_columns
-    }
-    identifiers = collect_identifiers(node)
-    if not any(identifier in replacements for identifier in identifiers):
-        rendered = _render_expr_node(node)
-        if rendered == expr.text:
-            return expr
-        return ExpressionText(text=rendered, span=expr.span)
-    return ExpressionText(
-        text=_render_expr_node(_rewrite_expr_identifiers(node, replacements)),
-        span=expr.span,
-    )
-
-
 def _iter_property_refs(node: object) -> Iterable[PropertyRef]:
     """Yield ``PropertyRef`` leaves reachable from a structured ``WhereClause`` predicate.
 
@@ -7772,129 +7551,6 @@ def _collect_non_source_alias_property_refs(
     return props_by_alias, bare_referenced
 
 
-def _bounded_reentry_carry_columns(
-    prefix_projection: ResultProjectionPlan,
-    *,
-    projection_items: Sequence[str],
-    query: CypherQuery,
-    prefix_stage: ProjectionStage,
-    reentry_alias_hint: Optional[str] = None,
-) -> Tuple[str, Tuple[str, ...], Tuple[str, ...]]:
-    """Return (reentry_alias, carried_scalar_columns, non_source_alias_names).
-
-    Today's caller continues to consume the first two fields. The third lists
-    other whole-row aliases the prefix carries that aren't the trailing-MATCH
-    source — those are recorded on the ``ReentryPlan`` for future use and
-    drive a compile-time failfast if any of them are referenced downstream
-    (carrying non-source whole-row aliases through reentry is the slice
-    handled by `#989` follow-up work).
-    """
-
-    whole_row_columns = tuple(
-        column.output_name for column in prefix_projection.columns if column.kind == "whole_row"
-    )
-    if not whole_row_columns:
-        raise _unsupported_at_span(
-            "Cypher MATCH after WITH currently requires the prefix WITH stage to project at least one whole-row alias",
-            field="with",
-            value=projection_items,
-            span=prefix_stage.span,
-        )
-    if reentry_alias_hint is not None and reentry_alias_hint in whole_row_columns:
-        reentry_alias = reentry_alias_hint
-    else:
-        reentry_alias = whole_row_columns[0]
-    non_source_aliases = tuple(name for name in whole_row_columns if name != reentry_alias)
-    carried_columns = tuple(
-        column.output_name for column in prefix_projection.columns if column.kind != "whole_row"
-    )
-    if not carried_columns:
-        return reentry_alias, (), non_source_aliases
-    invalid_output = next((name for name in carried_columns if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)), None)
-    if invalid_output is not None:
-        raise _unsupported_at_span(
-            "Cypher MATCH after WITH carried scalar columns currently require identifier-style WITH aliases",
-            field="with",
-            value=invalid_output,
-            span=prefix_stage.span,
-        )
-    if len(set(carried_columns)) != len(carried_columns):
-        raise _unsupported_at_span(
-            "Cypher MATCH after WITH carried scalar columns currently require distinct WITH aliases",
-            field="with",
-            value=carried_columns,
-            span=prefix_stage.span,
-        )
-    return reentry_alias, carried_columns, non_source_aliases
-
-
-def _bounded_reentry_scalar_prefix_columns(
-    prefix_stage: ProjectionStage,
-    *,
-    projection_items: Sequence[str],
-) -> Tuple[str, ...]:
-    if prefix_stage.order_by is not None or prefix_stage.skip is not None or prefix_stage.limit is not None:
-        raise _unsupported_at_span(
-            "Cypher MATCH after WITH scalar-only prefix stages do not yet support ORDER BY, SKIP, or LIMIT",
-            field="with",
-            value=projection_items,
-            span=prefix_stage.span,
-        )
-    carried_columns = tuple(
-        item.alias or item.expression.text
-        for item in prefix_stage.clause.items
-    )
-    if not carried_columns:
-        raise _unsupported_at_span(
-            "Cypher MATCH after WITH scalar-only prefix stages require at least one scalar output",
-            field="with",
-            value=projection_items,
-            span=prefix_stage.span,
-        )
-    invalid_output = next((name for name in carried_columns if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)), None)
-    if invalid_output is not None:
-        raise _unsupported_at_span(
-            "Cypher MATCH after WITH scalar-only prefix stages currently require identifier-style WITH aliases",
-            field="with",
-            value=invalid_output,
-            span=prefix_stage.span,
-        )
-    if len(set(carried_columns)) != len(carried_columns):
-        raise _unsupported_at_span(
-            "Cypher MATCH after WITH scalar-only prefix stages currently require distinct WITH aliases",
-            field="with",
-            value=carried_columns,
-            span=prefix_stage.span,
-        )
-    return carried_columns
-
-
-def _literal_limit_value(limit_clause: Optional[LimitClause]) -> Optional[int]:
-    if limit_clause is None:
-        return None
-    value = limit_clause.value
-    if isinstance(value, int):
-        return value
-    if isinstance(value, ParameterRef):
-        return None
-    text = value.text.strip()
-    if not re.fullmatch(r"\d+", text):
-        return None
-    return int(text)
-
-
-def _bounded_reentry_prefix_order_is_safe(
-    *,
-    prefix_stage: ProjectionStage,
-    query: CypherQuery,
-) -> bool:
-    if prefix_stage.order_by is None:
-        return True
-    if query.order_by is not None:
-        return True
-    return prefix_stage.skip is None and _literal_limit_value(prefix_stage.limit) == 1
-
-
 def _first_pattern_node_alias(clause: MatchClause) -> Optional[str]:
     if clause.patterns:
         first_pattern = clause.patterns[0]
@@ -7904,16 +7560,6 @@ def _first_pattern_node_alias(clause: MatchClause) -> Optional[str]:
     if not pattern or not isinstance(pattern[0], NodePattern):
         return None
     return pattern[0].variable
-
-
-def _secondary_reentry_hidden_column_name(alias: str, prop: str) -> str:
-    """Hidden carry column name for a secondary whole-row alias's property access.
-
-    Distinct from `_reentry_hidden_column_name` (which is keyed only by the
-    output name) so secondary `<S>.<X>` carries cannot collide with user-named
-    scalar carries on the primary alias (#1071).
-    """
-    return f"__cypher_reentry_{alias}_{prop}__"
 
 
 _BARE_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -8283,160 +7929,6 @@ def _map_terminal_reentry_query(
             logical_plan=compiled_query.logical_plan,
             logical_plan_defer_reason=compiled_query.logical_plan_defer_reason,
         ),
-    )
-
-
-def _rewrite_reentry_projection_clause(
-    clause: ReturnClause,
-    *,
-    rewrite_expr: Callable[[ExpressionText, str], ExpressionText],
-) -> ReturnClause:
-    return replace(
-        clause,
-        items=tuple(
-            replace(
-                item,
-                expression=rewritten_expr,
-                alias=item.alias or (item.expression.text if rewritten_expr.text != item.expression.text else None),
-            )
-            for item in clause.items
-            for rewritten_expr in (rewrite_expr(item.expression, clause.kind),)
-        ),
-    )
-
-
-def _rewrite_reentry_property_entry(
-    entry: PropertyEntry,
-    *,
-    rewrite_expr: Callable[[ExpressionText, str], ExpressionText],
-) -> PropertyEntry:
-    if not isinstance(entry.value, ExpressionText):
-        return entry
-    return replace(
-        entry,
-        value=rewrite_expr(entry.value, "match.property"),
-    )
-
-
-def _rewrite_reentry_pattern_element(
-    element: PatternElement,
-    *,
-    rewrite_expr: Callable[[ExpressionText, str], ExpressionText],
-) -> PatternElement:
-    rewritten_properties = tuple(
-        _rewrite_reentry_property_entry(entry, rewrite_expr=rewrite_expr)
-        for entry in element.properties
-    )
-    return replace(element, properties=rewritten_properties)
-
-
-def _rewrite_reentry_match_clause(
-    clause: MatchClause,
-    *,
-    rewrite_expr: Callable[[ExpressionText, str], ExpressionText],
-) -> MatchClause:
-    rewritten_where = None
-    if clause.where is not None:
-        rewritten_where = _rewrite_where_clause_and_resync(clause.where, rewrite_expr, "where")
-    return replace(
-        clause,
-        patterns=tuple(
-            tuple(
-                _rewrite_reentry_pattern_element(element, rewrite_expr=rewrite_expr)
-                for element in pattern
-            )
-            for pattern in clause.patterns
-        ),
-        where=rewritten_where if rewritten_where is not None else clause.where,
-    )
-
-
-def _rewrite_reentry_projection_stage(
-    stage: ProjectionStage,
-    *,
-    rewrite_expr: Callable[[ExpressionText, str], ExpressionText],
-) -> ProjectionStage:
-    rewritten_order_by = None
-    if stage.order_by is not None:
-        rewritten_order_by = replace(
-            stage.order_by,
-            items=tuple(
-                replace(
-                    item,
-                    expression=rewrite_expr(item.expression, "order_by"),
-                )
-                for item in stage.order_by.items
-            ),
-        )
-    return replace(
-        stage,
-        clause=_rewrite_reentry_projection_clause(stage.clause, rewrite_expr=rewrite_expr),
-        where=None if stage.where is None else rewrite_expr(stage.where, "where"),
-        order_by=rewritten_order_by,
-    )
-
-
-def _rewrite_collect_unwind_reentry_query(query: CypherQuery) -> Optional[CypherQuery]:
-    if not query.with_stages or len(query.unwinds) != 1 or len(query.reentry_matches) != 1:
-        return None
-    prefix_stage = query.with_stages[0]
-    remaining_with_stages = query.with_stages[1:]
-    if (
-        prefix_stage.where is not None
-        or prefix_stage.order_by is not None
-        or prefix_stage.skip is not None
-        or prefix_stage.limit is not None
-        or len(prefix_stage.clause.items) < 1
-    ):
-        return None
-    unwind_clause = query.unwinds[0]
-    # Find the collect(...) item that feeds the UNWIND
-    collected_idx: Optional[int] = None
-    collected_match_result: Optional[re.Match[str]] = None
-    for idx, item in enumerate(prefix_stage.clause.items):
-        output_name = item.alias or item.expression.text
-        if output_name != unwind_clause.expression.text:
-            continue
-        m = re.fullmatch(
-            r"collect\(\s*(distinct\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\)",
-            item.expression.text,
-            flags=re.IGNORECASE,
-        )
-        if m is not None:
-            collected_idx = idx
-            collected_match_result = m
-            break
-    if collected_idx is None or collected_match_result is None:
-        return None
-    reentry_alias = _first_pattern_node_alias(query.reentry_matches[0])
-    if reentry_alias is None or reentry_alias != unwind_clause.alias:
-        return None
-    collected_item = prefix_stage.clause.items[collected_idx]
-    source_alias = collected_match_result.group(2)
-    rewritten_item = replace(
-        collected_item,
-        expression=ExpressionText(text=source_alias, span=collected_item.expression.span),
-        alias=unwind_clause.alias,
-    )
-    # Rebuild items: put the whole-row alias first, then carried scalars.
-    # The reentry machinery expects the whole-row alias to be the primary
-    # projection source, so it must come first.
-    other_items = tuple(
-        item for i, item in enumerate(prefix_stage.clause.items) if i != collected_idx
-    )
-    rewritten_items = (rewritten_item,) + other_items
-    rewritten_prefix_stage = replace(
-        prefix_stage,
-        clause=replace(
-            prefix_stage.clause,
-            items=rewritten_items,
-            distinct=bool(collected_match_result.group(1)),
-        ),
-    )
-    return replace(
-        query,
-        with_stages=(rewritten_prefix_stage,) + remaining_with_stages,
-        unwinds=(),
     )
 
 
