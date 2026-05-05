@@ -1,13 +1,20 @@
 """Structural verifier for LogicalPlan (M2-PR3 / issue #1127).
 
-Scope note: ``verify(...)`` is currently invoked only by the test suite; no
-production caller in the repo runs it on planner-emitted plans today. The
-invariants below therefore document the *intended semantics* of LogicalPlan
-shapes — they catch hand-built test fixtures that drift from contract, and
-guard against regressions in code paths that already exercise verify in
-tests. They are NOT an always-on runtime safety net. Callers integrating
-strict-mode validation (T2 #1302) or arrow coercion (T4 #1262) should plan
-on calling verify explicitly at their entry points.
+Production callers: ``passes/manager.py`` runs ``verify(...)`` after every
+tier-1 structural pass and every tier-2 rewrite-rule fixed-point step
+(treats any returned diagnostic as fatal); ``cypher/lowering.py`` runs it
+through ``_verify_selected_logical_plan`` to gate LogicalPlan routing for
+covered Cypher shapes. So the invariants below are real safety nets on the
+paths that exercise them.
+
+Scope caveat for invariant 6 (#1300, T3): the kind/nullability check is
+short-circuited when either ``input.output_schema.columns`` or
+``op.output_schema.columns`` is empty. Most planner-emitted ``Project``
+and ``Aggregate`` nodes today initialise ``output_schema=RowSchema()``
+empty — until the schema-population slice lands, invariant 6 mainly
+catches hand-built fixtures and pass-emitted plans that explicitly
+populate schemas. This is intentional — populating projection schemas is
+T4-adjacent work, not T3.
 
 verify(plan) walks the operator tree and checks six invariants:
   1. op_id uniqueness  — non-zero op_ids are distinct across the whole tree

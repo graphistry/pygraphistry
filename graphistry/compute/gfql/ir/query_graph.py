@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, FrozenSet, List, Set
 
+from graphistry.compute.gfql.ir.metadata import bound_variable_is_nullable
 from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, LogicalType
 
 if TYPE_CHECKING:
@@ -221,7 +222,7 @@ def extract_query_graph(bound_ir: BoundIR) -> QueryGraph:
         for alias in part.inputs:
             var = bound_ir.semantic_table.variables.get(alias)
             if var is not None:
-                is_required = not var.nullable
+                is_required = not bound_variable_is_nullable(var)
             elif alias in _scope_entity_kind:
                 # Alias was bound but dropped by RETURN; non-nullable unless it was
                 # a new alias introduced by an OPTIONAL MATCH (nullable by definition).
