@@ -40,6 +40,10 @@ def _contract_signature(payload: Dict[str, object]) -> str:
 GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURE: Final[str] = _contract_signature(
     _server_dataset_contract_signature_payload()
 )
+# Signature map is keyed by contract version.
+# Each value must be the output of:
+#   _contract_signature(_server_dataset_contract_signature_payload())
+# for the payload shape shipped with that version.
 GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURES_BY_VERSION: Final[Dict[int, str]] = {
     1: "1096ca85da67020943be3d886250a4ec837773c0cc4314ffae7c9b9f7e273b9d",
 }
@@ -52,7 +56,10 @@ if GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURES_BY_VERSION.get(
         "Update graphistry/io/contracts/graphistry_server/contract_version.py: "
         "(1) bump GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION, "
         "(2) add the new signature to GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURES_BY_VERSION, "
-        "(3) optionally set GRAPHISTRY_SERVER_DATASET_UPSTREAM_VERSIONS pins."
+        "(3) optionally set GRAPHISTRY_SERVER_DATASET_UPSTREAM_VERSIONS pins. "
+        f"computed_signature={GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURE}, "
+        "expected_signature="
+        f"{GRAPHISTRY_SERVER_DATASET_CONTRACT_SIGNATURES_BY_VERSION.get(GRAPHISTRY_SERVER_DATASET_CONTRACT_VERSION)}."
     )
 
 

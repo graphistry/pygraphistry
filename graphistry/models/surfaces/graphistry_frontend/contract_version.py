@@ -50,6 +50,10 @@ def _contract_signature(payload: Dict[str, object]) -> str:
 GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURE: Final[str] = _contract_signature(
     _frontend_contract_signature_payload()
 )
+# Signature map is keyed by contract version.
+# Each value must be the output of:
+#   _contract_signature(_frontend_contract_signature_payload())
+# for the payload shape shipped with that version.
 GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION: Final[Dict[int, str]] = {
     1: "bf54644c941670c46000fd7590077e33bfbda881095e77ebcf2f11821045edbd",
 }
@@ -60,7 +64,10 @@ if GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION.get(GRAPHISTRY_FRONTEND_CO
         "Update graphistry/models/surfaces/graphistry_frontend/contract_version.py: "
         "(1) bump GRAPHISTRY_FRONTEND_CONTRACT_VERSION, "
         "(2) add the new signature to GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION, "
-        "(3) optionally set GRAPHISTRY_FRONTEND_UPSTREAM_VERSIONS pins."
+        "(3) optionally set GRAPHISTRY_FRONTEND_UPSTREAM_VERSIONS pins. "
+        f"computed_signature={GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURE}, "
+        "expected_signature="
+        f"{GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION.get(GRAPHISTRY_FRONTEND_CONTRACT_VERSION)}."
     )
 
 
