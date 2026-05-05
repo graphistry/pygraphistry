@@ -1,5 +1,14 @@
 """Structural verifier for LogicalPlan (M2-PR3 / issue #1127).
 
+Scope note: ``verify(...)`` is currently invoked only by the test suite; no
+production caller in the repo runs it on planner-emitted plans today. The
+invariants below therefore document the *intended semantics* of LogicalPlan
+shapes — they catch hand-built test fixtures that drift from contract, and
+guard against regressions in code paths that already exercise verify in
+tests. They are NOT an always-on runtime safety net. Callers integrating
+strict-mode validation (T2 #1302) or arrow coercion (T4 #1262) should plan
+on calling verify explicitly at their entry points.
+
 verify(plan) walks the operator tree and checks six invariants:
   1. op_id uniqueness  — non-zero op_ids are distinct across the whole tree
   2. Dangling refs     — child slots (input/left/right/subquery) hold LogicalPlan | None

@@ -473,21 +473,32 @@ class TestSeamWith1303LoweringSplit:
         # `cypher/reentry/runtime.py`.  These modules pull lowering helpers
         # lazily inside function bodies (per #1295's pattern); confirm none
         # of that interferes with eagerly importing T3's metadata module
-        # alongside.
-        from graphistry.compute.gfql.cypher import lowering
-        from graphistry.compute.gfql.cypher import projection_planning
-        from graphistry.compute.gfql.cypher.reentry import runtime
+        # alongside (no circular-import surprise at module load).
+        #
+        # Behavioral only — we deliberately do NOT assert presence of #1303's
+        # private split-guard symbols here.  Those are #1303's contract and
+        # have a dedicated guard test in `test_lowering_s3_split_guard.py`;
+        # duplicating them here would couple T3's tests to an internal
+        # symbol surface we don't own and don't need to pin.
+        import sys
+
+        # The import-coexistence smoke: each module must land in sys.modules
+        # without raising. We can't check __name__/__file__ on the #1303
+        # extracted modules because they `globals().update(vars(lowering))`
+        # to inherit the shared symbol table, which clobbers those dunders.
+        # sys.modules registration happens independently of that update, so
+        # it is the right load-success witness.
+        from graphistry.compute.gfql.cypher import lowering  # noqa: F401
+        from graphistry.compute.gfql.cypher import projection_planning  # noqa: F401
+        from graphistry.compute.gfql.cypher.reentry import runtime  # noqa: F401
         from graphistry.compute.gfql.ir import metadata
 
-        # Sanity: both T3 helpers and #1303 split modules expose the
-        # entry points their tests use, and lowering still re-exports the
-        # delegators per #1303's split-guard contract.
+        assert "graphistry.compute.gfql.cypher.lowering" in sys.modules
+        assert "graphistry.compute.gfql.cypher.projection_planning" in sys.modules
+        assert "graphistry.compute.gfql.cypher.reentry.runtime" in sys.modules
+        # T3's own contract surface stays asserted.
         assert callable(metadata.is_nullable)
         assert callable(metadata.bound_variable_is_nullable)
-        assert hasattr(projection_planning, "_projection_ref_from_expr")
-        assert hasattr(runtime, "_compile_bounded_reentry_query")
-        assert hasattr(lowering, "_compile_bounded_reentry_query")
-        assert hasattr(lowering, "_projection_ref_from_expr")
 
     def test_realistic_match_with_filter_chain_passes_invariant_6(self) -> None:
         # Plan shape representative of what the post-#1303 lowering pipeline
