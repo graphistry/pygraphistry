@@ -8,7 +8,7 @@ from graphistry.client_session import ClientSession, ApiVersion, ENV_GRAPHISTRY_
 from graphistry.Engine import EngineAbstractType
 from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationParam
-from graphistry.models.surfaces.graphistry_frontend.react_settings import ReactSettingsDict
+from graphistry.models.surfaces.graphistry_frontend.react_settings import ApplyEncodingsReactSettingsDict
 from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 from graphistry.otel import inject_trace_headers, otel as otel_config
 
@@ -1841,7 +1841,7 @@ class GraphistryClient(AuthManagerProtocol):
 
     def apply_encodings(
         self,
-        react_encodings: Optional[ReactSettingsDict],
+        react_encodings: Optional[ApplyEncodingsReactSettingsDict],
         validate: ValidationParam = "strict",
         warn: bool = True,
     ) -> Plotter:

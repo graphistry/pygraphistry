@@ -1,8 +1,9 @@
 """Graphistry frontend React-settings contracts and introspection keyspace."""
 
-from typing import Any, Dict, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple, Union
 from typing_extensions import Literal, TypeAlias, TypedDict
 
+from graphistry.models.surfaces.graphistry_frontend.axis import AxisRows
 from graphistry.models.surfaces.graphistry_frontend.settings_value import (
     SettingBool,
     SettingNumber,
@@ -12,6 +13,57 @@ from graphistry.models.surfaces.graphistry_frontend.settings_value import (
 
 ReactSettingsDict: TypeAlias = Dict[str, SettingsValue]
 NeighborhoodHighlightSetting: TypeAlias = Literal["incoming", "outgoing", "both", "none", "node"]
+ReactEncodingVariation: TypeAlias = Literal["categorical", "continuous"]
+ReactEncodingMapping: TypeAlias = Dict[Any, Any]
+ReactEncodingPalette: TypeAlias = List[Any]
+ReactColorEncodingKey: TypeAlias = Literal["encodePointColor", "encodeEdgeColor"]
+ReactSizeEncodingKey: TypeAlias = Literal["encodePointSize"]
+ReactIconEncodingKey: TypeAlias = Literal["encodePointIcons", "encodeEdgeIcons"]
+ApplyEncodingsReactKey: TypeAlias = Literal[
+    "encodePointColor",
+    "encodeEdgeColor",
+    "encodePointSize",
+    "encodePointIcons",
+    "encodePointIcon",
+    "encodeEdgeIcons",
+    "encodeEdgeIcon",
+    "encodeAxis",
+]
+
+ReactColorEncodingPayload: TypeAlias = Union[
+    Tuple[str],
+    Tuple[str, ReactEncodingVariation],
+    Tuple[str, ReactEncodingMapping],
+    Tuple[str, ReactEncodingPalette],
+    Tuple[str, ReactEncodingVariation, ReactEncodingMapping],
+    Tuple[str, ReactEncodingVariation, ReactEncodingPalette],
+    List[Any],
+]
+ReactSizeEncodingPayload: TypeAlias = Union[
+    Tuple[str],
+    Tuple[str, ReactEncodingMapping],
+    Tuple[str, ReactEncodingMapping, Any],
+    List[Any],
+]
+ReactIconEncodingPayload: TypeAlias = Union[
+    Tuple[str],
+    Tuple[str, ReactEncodingMapping],
+    Tuple[str, ReactEncodingPalette],
+    Tuple[str, ReactEncodingMapping, Any],
+    Tuple[str, ReactEncodingPalette, Any],
+    List[Any],
+]
+
+
+class ApplyEncodingsReactSettingsDict(TypedDict, total=False):
+    encodePointColor: ReactColorEncodingPayload
+    encodeEdgeColor: ReactColorEncodingPayload
+    encodePointSize: ReactSizeEncodingPayload
+    encodePointIcons: ReactIconEncodingPayload
+    encodePointIcon: ReactIconEncodingPayload
+    encodeEdgeIcons: ReactIconEncodingPayload
+    encodeEdgeIcon: ReactIconEncodingPayload
+    encodeAxis: AxisRows
 
 
 class KnownReactSettingsDict(TypedDict, total=False):
@@ -21,12 +73,12 @@ class KnownReactSettingsDict(TypedDict, total=False):
     edgeCurvature: SettingNumber
     edgeInfluence: SettingNumber
     edgeOpacity: SettingNumber
-    encodeAxis: SettingsValue
-    encodeEdgeColor: SettingsValue
-    encodeEdgeIcons: SettingsValue
-    encodePointColor: SettingsValue
-    encodePointIcons: SettingsValue
-    encodePointSize: SettingsValue
+    encodeAxis: AxisRows
+    encodeEdgeColor: ReactColorEncodingPayload
+    encodeEdgeIcons: ReactIconEncodingPayload
+    encodePointColor: ReactColorEncodingPayload
+    encodePointIcons: ReactIconEncodingPayload
+    encodePointSize: ReactSizeEncodingPayload
     exclusions: SettingsValue
     filters: SettingsValue
     gravity: SettingNumber
@@ -86,7 +138,7 @@ REACT_SETTING_NAMES: Tuple[str, ...] = (
 )
 
 REACT_SETTING_NAME_SET = frozenset(REACT_SETTING_NAMES)
-APPLY_ENCODINGS_REACT_KEYS: Tuple[str, ...] = (
+APPLY_ENCODINGS_REACT_KEYS: Tuple[ApplyEncodingsReactKey, ...] = (
     "encodePointColor",
     "encodeEdgeColor",
     "encodePointSize",

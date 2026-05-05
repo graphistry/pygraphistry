@@ -4,7 +4,7 @@ from typing_extensions import Literal
 from graphistry.io.types import ComplexEncodingsDict
 from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationMode, ValidationParam
-from graphistry.models.surfaces.graphistry_frontend.react_settings import ReactSettingsDict
+from graphistry.models.surfaces.graphistry_frontend.react_settings import ApplyEncodingsReactSettingsDict
 from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 from graphistry.validate.validate_react_encodings import parse_apply_encodings_ops
 from graphistry.plugins_types.hypergraph import HypergraphResult
@@ -520,7 +520,7 @@ class PlotterBase(Plottable):
 
     def apply_encodings(
         self,
-        react_encodings: Optional[ReactSettingsDict],
+        react_encodings: Optional[ApplyEncodingsReactSettingsDict],
         validate: ValidationParam = "strict",
         warn: bool = True,
     ) -> Plottable:

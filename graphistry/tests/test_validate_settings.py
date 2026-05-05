@@ -3,6 +3,7 @@ import pytest
 import graphistry
 from graphistry.validate import (
     APPLY_ENCODINGS_REACT_KEY_SET,
+    ApplyEncodingsReactSettingsDict,
     AXIS_BOUNDS_ALLOWED_KEYS,
     AXIS_ROW_ALLOWED_KEYS,
     AXIS_ROW_BOOL_KEYS,
@@ -39,6 +40,7 @@ def test_settings_key_sets_exported():
 def test_known_typed_dict_keyspaces_align_with_exported_sets():
     assert set(KnownURLParamsDict.__annotations__.keys()) == URL_PARAM_NAME_SET
     assert set(KnownReactSettingsDict.__annotations__.keys()) == REACT_SETTING_NAME_SET
+    assert set(ApplyEncodingsReactSettingsDict.__annotations__.keys()) == APPLY_ENCODINGS_REACT_KEY_SET
 
 
 def test_introspection_key_accessors():

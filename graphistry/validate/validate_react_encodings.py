@@ -4,33 +4,33 @@ from typing_extensions import Literal, TypedDict
 from graphistry.models.surfaces.graphistry_frontend.axis import AxisRows
 from graphistry.models.surfaces.graphistry_frontend.react_settings import (
     APPLY_ENCODINGS_REACT_KEY_SET,
+    ApplyEncodingsReactSettingsDict,
+    ReactColorEncodingKey,
     REACT_SETTING_NAME_SET,
-    ReactSettingsDict,
+    ReactIconEncodingKey,
+    ReactEncodingVariation,
+    ReactSizeEncodingKey,
 )
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.util import warn as emit_warn
 from graphistry.validate.common import normalize_validation_params
 
-EncodingVariation = Literal["categorical", "continuous"]
-ColorEncodingKey = Literal["encodePointColor", "encodeEdgeColor"]
-SizeEncodingKey = Literal["encodePointSize"]
-IconEncodingKey = Literal["encodePointIcons", "encodeEdgeIcons"]
 AxisEncodingKey = Literal["encodeAxis"]
 EncodingOperationKind = Literal["color", "size", "icon", "axis"]
 
 
 class ColorEncodingOp(TypedDict, total=False):
     kind: Literal["color"]
-    key: ColorEncodingKey
+    key: ReactColorEncodingKey
     column: str
-    variation: EncodingVariation
+    variation: ReactEncodingVariation
     categorical_mapping: Dict[Any, Any]
     palette: List[Any]
 
 
 class SizeEncodingOp(TypedDict, total=False):
     kind: Literal["size"]
-    key: SizeEncodingKey
+    key: ReactSizeEncodingKey
     column: str
     categorical_mapping: Dict[Any, Any]
     default_mapping: Any
@@ -38,7 +38,7 @@ class SizeEncodingOp(TypedDict, total=False):
 
 class IconEncodingOp(TypedDict, total=False):
     kind: Literal["icon"]
-    key: IconEncodingKey
+    key: ReactIconEncodingKey
     column: str
     categorical_mapping: Dict[Any, Any]
     continuous_binning: List[Any]
@@ -92,7 +92,7 @@ def _expect_column(
 
 
 def _parse_color_payload(
-    key: ColorEncodingKey,
+    key: ReactColorEncodingKey,
     raw_value: Any,
     validate_mode: ValidationMode,
     warn: bool,
@@ -117,7 +117,7 @@ def _parse_color_payload(
 
     mapping_or_palette: Any = None
     if isinstance(second, str) and second in ("categorical", "continuous"):
-        op["variation"] = cast(EncodingVariation, second)
+        op["variation"] = cast(ReactEncodingVariation, second)
         mapping_or_palette = third
     else:
         mapping_or_palette = second
@@ -147,7 +147,7 @@ def _parse_size_payload(
     validate_mode: ValidationMode,
     warn: bool,
 ) -> Optional[SizeEncodingOp]:
-    key: SizeEncodingKey = "encodePointSize"
+    key: ReactSizeEncodingKey = "encodePointSize"
     payload = _expect_list_payload(raw_value, key, validate_mode, warn)
     if payload is None or len(payload) == 0:
         _issue("React size encoding payload must include at least [column]", {"key": key}, validate_mode, warn)
@@ -175,7 +175,7 @@ def _parse_size_payload(
 
 
 def _parse_icon_payload(
-    key: IconEncodingKey,
+    key: ReactIconEncodingKey,
     raw_value: Any,
     validate_mode: ValidationMode,
     warn: bool,
@@ -208,7 +208,7 @@ def _parse_icon_payload(
     return op
 
 
-def _normalize_icon_key(key: str) -> Optional[IconEncodingKey]:
+def _normalize_icon_key(key: str) -> Optional[ReactIconEncodingKey]:
     if key in ("encodePointIcons", "encodePointIcon"):
         return "encodePointIcons"
     if key in ("encodeEdgeIcons", "encodeEdgeIcon"):
@@ -217,7 +217,7 @@ def _normalize_icon_key(key: str) -> Optional[IconEncodingKey]:
 
 
 def parse_apply_encodings_ops(
-    react_encodings: Optional[ReactSettingsDict],
+    react_encodings: Optional[ApplyEncodingsReactSettingsDict],
     validate: ValidationParam = "strict",
     warn: bool = True,
 ) -> List[ReactEncodingOp]:
@@ -238,7 +238,7 @@ def parse_apply_encodings_ops(
             continue
 
         if key in ("encodePointColor", "encodeEdgeColor"):
-            color_op = _parse_color_payload(cast(ColorEncodingKey, key), value, validate_mode, warn)
+            color_op = _parse_color_payload(cast(ReactColorEncodingKey, key), value, validate_mode, warn)
             if color_op is not None:
                 out.append(color_op)
             continue
