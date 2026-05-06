@@ -14,7 +14,7 @@ from graphistry.compute.chain_let import (
     detect_cycles, determine_execution_order
 )
 from graphistry.compute.execution_context import ExecutionContext
-from graphistry.compute.exceptions import GFQLTypeError
+from graphistry.compute.exceptions import GFQLTypeError, GFQLSyntaxError, ErrorCode
 from graphistry.tests.test_compute import CGFull
 
 
@@ -547,9 +547,9 @@ class TestErrorHandling:
         """Test helpful error when dag parameter is wrong type"""
         g = CGFull()
         
-        with pytest.raises(TypeError) as exc_info:
+        with pytest.raises(GFQLSyntaxError) as exc_info:
             g.gfql("not a dag")
-        assert "Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict" in str(exc_info.value)
+        assert exc_info.value.code == ErrorCode.E107
         
         # When passed a dict, gfql creates an ASTLet which validates
         with pytest.raises(GFQLTypeError) as exc_info:
@@ -1249,10 +1249,9 @@ class TestChainDagInternal:
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         
         # Invalid DAG should raise during validation
-        with pytest.raises(TypeError) as exc_info:
+        with pytest.raises(GFQLSyntaxError) as exc_info:
             g.gfql("not a dag")
-        
-        assert "Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict" in str(exc_info.value)
+        assert exc_info.value.code == ErrorCode.E107
     
     def test_chain_let_output_selection(self):
         """Test output parameter selects specific binding"""

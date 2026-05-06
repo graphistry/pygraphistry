@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 from typing import Any, Dict, List
+from unittest.mock import patch
 from graphistry.compute.ast import ASTLet, ASTRef, n, e
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
@@ -257,6 +258,45 @@ class TestGFQL:
 
         with pytest.raises(ValueError):
             g.gfql([n()], params={"x": 1})
+
+    def test_gfql_validate_true_runs_preflight_before_compile(self):
+        g = _mk_people_company_graph3()
+        with patch(
+            "graphistry.compute.gfql_unified.gfql_preflight_validate",
+            side_effect=GFQLValidationError(ErrorCode.E108, "synthetic preflight failure"),
+        ):
+            with patch(
+                "graphistry.compute.gfql_unified._compile_string_query",
+                side_effect=AssertionError("compile should not run when preflight fails"),
+            ):
+                with pytest.raises(GFQLValidationError, match="synthetic preflight failure"):
+                    g.gfql("MATCH (p) RETURN p", validate=True)
+
+    def test_gfql_validate_false_skips_preflight(self):
+        g = _mk_people_company_graph3()
+
+        with patch(
+            "graphistry.compute.gfql_unified.gfql_preflight_validate",
+            side_effect=AssertionError("preflight should not run when validate=False"),
+        ):
+            result = g.gfql([n()])
+            assert result is not None
+
+    def test_gfql_validate_true_catches_cypher_schema_errors_by_default(self):
+        g = _mk_people_company_graph3()
+
+        with pytest.raises(GFQLValidationError) as exc_info:
+            g.gfql("MATCH (p:Employee) RETURN p.id AS id", validate=True)
+
+        assert exc_info.value.code == ErrorCode.E301
+
+    def test_gfql_validate_true_treats_all_strings_as_cypher(self):
+        g = _mk_people_company_graph3()
+
+        with pytest.raises(GFQLSyntaxError) as exc_info:
+            g.gfql("hello world not cypher", validate=True)
+
+        assert exc_info.value.code == ErrorCode.E107
 
     @pytest.mark.parametrize(
         ("direction", "expected"),

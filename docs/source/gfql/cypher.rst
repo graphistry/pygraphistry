@@ -440,7 +440,37 @@ Static Validation / Preflight Check
 -----------------------------------
 
 If you want to know whether a query fits the current Cypher-in-GFQL subset before
-execution, preflight it with the helper APIs:
+execution, start with the bound-graph inline preflight APIs:
+
+.. code-block:: python
+
+    g.gfql_validate(
+        "MATCH (p) RETURN p.name AS name ORDER BY name DESC LIMIT $top_n",
+        params={"top_n": 5},
+        # strict=True is the default for local bound-graph preflight
+    )
+
+    # On failure:
+    # - GFQLSyntaxError for invalid syntax
+    # - GFQLValidationError for unsupported/scheme-invalid shapes
+
+- Use ``g.gfql_validate(...)`` when you want a stable validate-only entrypoint
+  that never executes query operators and raises structured exceptions on invalid queries.
+- Use ``g.gfql(..., validate=True)`` when you want execution guarded by a
+  local preflight check. For Cypher strings, this uses schema-aware strict
+  preflight by default.
+- Use ``g.gfql_remote(..., validate=True)`` when you want remote execution
+  guarded by local preflight before upload/network dispatch. For Cypher strings,
+  remote preflight uses ``strict=False`` by default because remote schema is authoritative.
+- Use ``parse_cypher()`` when you only want grammar validation and access to
+  the parsed representation.
+- Use ``compile_cypher()`` when you need low-level compiler/lowering output for
+  tooling or whitebox inspection.
+- Use ``cypher_to_gfql()`` only when you specifically need a single GFQL
+  ``Chain``. It is intentionally stricter than direct execution through
+  ``g.gfql("...")``.
+
+Low-level helper example:
 
 .. code-block:: python
 
@@ -450,25 +480,19 @@ execution, preflight it with the helper APIs:
     query = "MATCH (p:Person) RETURN p.name AS name"
 
     try:
-        parse_cypher(query)      # grammar + AST checks
-        compile_cypher(query)    # GFQL Cypher compiler / lowering checks
+        parsed = parse_cypher(query)   # grammar + AST checks
+        compiled = compile_cypher(query)  # compiler/lowering checks
     except GFQLSyntaxError as exc:
         print("Invalid Cypher syntax for g.gfql(\"MATCH ...\"):", exc)
     except GFQLValidationError as exc:
         print("Valid Cypher, but outside the current GFQL Cypher surface:", exc)
 
-- Use ``parse_cypher()`` when you only want syntax and AST validation.
-- Use ``compile_cypher()`` for the strongest compiler preflight, because it also
-  catches unsupported-but-valid query shapes in lowering.
-- Use ``cypher_to_gfql()`` only when you specifically need a single GFQL
-  ``Chain``. It is intentionally stricter than direct execution through
-  ``g.gfql("...")``.
-
 Common Rewrites
 ---------------
 
 - Need remote execution on Graphistry infrastructure instead of running against
-  the current bound graph? Prefer ``g.gfql_remote([...])`` for remote GFQL.
+  the current bound graph? Prefer ``g.gfql_remote(...)`` for remote GFQL, and
+  keep ``validate=True`` (default) for local preflight before upload.
 - Need remote database Cypher against Neo4j/Bolt-style backends instead of
   remote GFQL? Use ``graphistry.cypher("...")`` or ``g.cypher("...")``.
 - Need a pure GFQL chain object? Use ``cypher_to_gfql()`` when the query fits a

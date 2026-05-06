@@ -16,6 +16,7 @@ from graphistry.compute.ast import ASTLet, ASTObject
 from graphistry.compute.chain import Chain
 from graphistry.compute.gfql.cypher.lowering import compile_cypher_query
 from graphistry.compute.gfql.cypher.parser import parse_cypher
+from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
 from graphistry.io.metadata import deserialize_plottable_metadata
 from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType, output_types_graph
 from graphistry.utils.json import JSONVal
@@ -136,18 +137,8 @@ def chain_remote_generic(
         self._pygraphistry.refresh()
         api_token = self.session.api_token
 
-    if not dataset_id:
-        dataset_id = self._dataset_id
-
-    if not dataset_id:
-        self = self.upload(validate=validate)
-        dataset_id = self._dataset_id
-
     if output_type not in output_types_graph:
         raise ValueError(f"Unknown output_type, expected one of {output_types_graph}, got: {output_type}")
-    
-    if not dataset_id:
-        raise ValueError("Missing dataset_id; either pass in, or call on g2=g1.plot(render='g') in api=3 mode ahead of time")
 
     # Resolve engine: auto -> pandas/cudf based on graph DataFrame type
     engine_resolved = resolve_engine(engine, self)
@@ -201,8 +192,25 @@ def chain_remote_generic(
     else:
         raise TypeError(f"gfql_remote() query must be Chain, List, ASTLet, Dict, or str. Got {type(chain)}")
 
-    if validate and not is_let:
-        Chain.from_json(chain_json)
+    if validate:
+        gfql_preflight_validate(
+            self,
+            chain,
+            params=params,
+            strict=False,
+            collect_all=False,
+            schema=False,
+        )
+
+    if not dataset_id:
+        dataset_id = self._dataset_id
+
+    if not dataset_id:
+        self = self.upload(validate=validate)
+        dataset_id = self._dataset_id
+
+    if not dataset_id:
+        raise ValueError("Missing dataset_id; either pass in, or call on g2=g1.plot(render='g') in api=3 mode ahead of time")
 
     # --- Build request body (dual-field for backward compat) ---
     if is_let:
@@ -504,8 +512,8 @@ def chain_remote(
     
     Uses the latest bound `_dataset_id`, and uploads current dataset if not already bound. Note that rebinding calls of `edges()` and `nodes()` reset the `_dataset_id` binding.
 
-    :param chain: GFQL chain query as a Python object or in serialized JSON format
-    :type chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]]
+    :param chain: GFQL query as a Python object, serialized GFQL JSON, or Cypher string
+    :type chain: Union[Chain, List[ASTObject], Dict[str, JSONVal], ASTLet, str]
 
     :param api_token: Optional JWT token. If not provided, refreshes JWT and uses that.
     :type api_token: Optional[str]

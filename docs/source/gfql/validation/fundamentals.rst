@@ -152,7 +152,77 @@ GFQL validates automatically - just write your queries and run them:
 Pre-Execution Validation Options
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Use ``validate_chain_schema()`` to check compatibility without running the query, then execute separately:
+Use the inline GFQL entrypoints first:
+
+1. ``g.gfql_validate(...)`` for validate-only preflight (no execution)
+2. ``g.gfql(..., validate=True)`` for preflight + execution
+3. ``validate_chain_schema()`` for low-level chain-schema checks only
+
+``g.gfql_validate(...)`` (validate-only, no execution) supports:
+
+* **Input forms**: Cypher strings, GFQL JSON payloads, and GFQL Python objects
+  (for example ``Chain(...)``, ``[n(), e(), n()]``, and ``ASTLet(...)``)
+  String inputs are always validated as Cypher (no separate string-shape precheck).
+* **Predicate + structural validation**: yes
+* **Schema validation**:
+
+  * GFQL JSON and GFQL Python chain-like forms: yes (default ``schema=True``)
+  * GFQL Let/DAG forms: DAG structure + schema checks for direct graph-bound
+    steps; reference-based steps stay structural-only
+  * Cypher strings: syntax/compile + schema-aware name checks against the bound
+    graph schema by default (``strict=True``); pass ``strict=False`` for
+    syntax/compile-only preflight
+
+.. code-block:: python
+
+   # Chain / JSON-style GFQL
+   g.gfql_validate([n({'type': 'customer'})], collect_all=True)
+
+   # Cypher
+   g.gfql_validate("MATCH (c) RETURN c.id AS id LIMIT $n", params={"n": 10})
+
+Validation failures raise ``GFQLValidationError`` / ``GFQLSyntaxError`` with
+structured, inspectable context:
+
+.. code-block:: python
+
+   from graphistry.compute.exceptions import GFQLValidationError
+
+   try:
+       g.gfql_validate([n({"missing_col": "x"})], collect_all=True)
+   except GFQLValidationError as exc:
+       payload = exc.to_dict()
+       # LM-friendly payload:
+       # {
+       #   "code": "...",
+       #   "message": "...",
+       #   "query_type": "chain",
+       #   "language": "gfql",
+       #   "diagnostics": [...]
+       # }
+       print(payload)
+
+``g.gfql(..., validate=True)`` accepts the same query inputs as ``g.gfql(...)``
+(Cypher string, GFQL JSON, GFQL Python objects), runs local preflight first, and
+executes only when preflight passes. Its preflight uses ``g.gfql_validate(...)``
+defaults, so local bound-graph execution runs schema-aware checks by default.
+
+.. code-block:: python
+
+   # Run preflight first; execute only if preflight passes
+   result = g.gfql(
+       "MATCH (c) RETURN c.id AS id LIMIT $n",
+       params={"n": 10},
+       validate=True,
+   )
+
+Use ``validate_chain_schema()`` when you specifically want the low-level chain-schema helper.
+It is intentionally narrower than ``g.gfql_validate(...)``:
+
+* validates chain operations against currently bound node/edge dataframe columns
+* does **not** parse/compile Cypher strings
+* does **not** run Let/DAG orchestration validation
+* does **not** execute query operators
 
 .. code-block:: python
 
@@ -168,6 +238,22 @@ Use ``validate_chain_schema()`` to check compatibility without running the query
    # Step 2: Execute (after validation passes)
    result = g.gfql(chain.chain)
    print(f"Query executed: {len(result._nodes)} nodes")
+
+Execution-time Preflight Toggles
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For remote execution, ``g.gfql_remote(..., validate=True)`` runs local query
+prevalidation before implicit upload/network execution, so invalid queries fail
+before data upload when possible. For Cypher strings, remote prevalidation uses
+``strict=False`` by default because the authoritative schema is on the remote dataset.
+
+Grounded vs Ungrounded Validation
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Schema checks are most useful when local graph tables are bound on ``g``.
+If local node/edge tables are missing, GFQL JSON/AST chain validation can only
+do structural/predicate checks, and column-existence checks are effectively
+ungrounded.
 
 Error Collection
 ^^^^^^^^^^^^^^^^
