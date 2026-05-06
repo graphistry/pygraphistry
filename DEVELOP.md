@@ -159,7 +159,7 @@ GPU tests can also be run locally via `./docker/test-gpu-local.sh` .
 
 1. Confirm the [publish](https://github.com/graphistry/pygraphistry/actions?query=workflow%3A%22Publish+Python+%F0%9F%90%8D+distributions+%F0%9F%93%A6+to+PyPI+and+TestPyPI%22) Github Action published to [pypi](https://pypi.org/project/graphistry/)
 	- Auto-triggers on tag push
-	- **Expected gate**: on tag-triggered releases, the final `Publish distribution 📦 to PyPI` job can pause in `waiting` until a maintainer approves `Review deployments` for environment `pypi-release`.
+	- **Expected gate**: on tag-triggered releases, the final `Publish distribution to PyPI` job can pause in `waiting` until a maintainer approves `Review deployments` for environment `pypi-release`.
 	- If the run is waiting, open the run page and approve `Review deployments`, then wait for the PyPI job to complete.
 	- If manually triggering (`workflow_dispatch`), choose `release_mode`:
 	  - `evidence`: build + SBOM + provenance + evidence artifacts only (no publish)
