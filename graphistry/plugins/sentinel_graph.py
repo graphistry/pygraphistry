@@ -378,11 +378,12 @@ class SentinelGraphMixin(Plottable):
 
             # Get token
             token_obj = credential.get_token(cfg.auth_scope)
-            cfg._token = token_obj.token
+            token = token_obj.token
+            cfg._token = token
             cfg._token_expiry = token_obj.expires_on
 
             logger.info("Successfully obtained authentication token")
-            return cfg._token
+            return token
 
         except Exception:
             # Security: Don't expose credential details or exception messages
