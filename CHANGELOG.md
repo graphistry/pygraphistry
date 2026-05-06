@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.55.1 - 2026-05-05]
+
 ### Tests
 - **GFQL / Cypher reentry contract coverage (#989 follow-through)**: Added compile-shape regression `test_compile_cypher_records_freeform_reentry_plan_contract` to lock free-form intermediate MATCH as `ReentryPlan(free_form=True, scalar_only=False)` and prevent regressions to scalar-only fallback tagging.
 
