@@ -59,8 +59,8 @@ def _serialize_error(exc: Exception, *, stage: str) -> Dict[str, Any]:
 
 
 def _build_schema_catalog(g: Plottable, *, strict: bool) -> GraphSchemaCatalog:
-    node_columns = ()
-    edge_columns = ()
+    node_columns: Tuple[str, ...] = tuple()
+    edge_columns: Tuple[str, ...] = tuple()
     if getattr(g, "_nodes", None) is not None:
         node_columns = tuple(str(c) for c in cast(Any, g)._nodes.columns)
     if getattr(g, "_edges", None) is not None:
@@ -260,4 +260,3 @@ def gfql_validate(
             "language": "cypher" if isinstance(query, str) else "gfql",
             "diagnostics": [_serialize_error(exc, stage="validate")],
         }
-
