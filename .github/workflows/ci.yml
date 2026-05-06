@@ -581,58 +581,6 @@ jobs:
         printf 'Differential/parity tests:\n- %s\n' "${parity_tests[@]}"
         python -B -m pytest -vv -n auto "${parity_tests[@]}"
 
-  cypher-frontend-strict-rollout:
-    name: cypher-frontend-strict-rollout (py3.12)
-    needs: [changes, generate-lockfiles]
-    if: ${{ (needs.changes.outputs.cypher_frontend_ci == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-    - name: Checkout repo
-      uses: actions/checkout@v4
-      with:
-        lfs: true
-        persist-credentials: false
-
-    - name: Download lockfiles
-      uses: actions/download-artifact@v4
-      with:
-        name: lockfiles
-        path: requirements
-
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.12"
-
-    - name: Install dependencies
-      run: |
-        python -m venv pygraphistry
-        source pygraphistry/bin/activate
-        python -m pip install --upgrade pip uv
-        uv pip install --require-hashes -r requirements/test-py3.12.lock
-        uv pip install -e . --no-deps
-
-    - name: Strict-mode rollout gate (env unset — default loose)
-      env:
-        # Explicitly clear in case the runner inherits anything; the test
-        # suite also defends with delenv, but we want both layers.
-        GRAPHISTRY_GFQL_STRICT_SCHEMA: ""
-      run: |
-        source pygraphistry/bin/activate
-        python -B -m pytest -vv \
-          graphistry/tests/compute/gfql/test_rollout.py \
-          graphistry/tests/compute/gfql/test_rollout_binder_integration.py
-
-    - name: Strict-mode rollout gate (env=true — canary on)
-      env:
-        GRAPHISTRY_GFQL_STRICT_SCHEMA: "true"
-      run: |
-        source pygraphistry/bin/activate
-        python -B -m pytest -vv \
-          graphistry/tests/compute/gfql/test_rollout.py \
-          graphistry/tests/compute/gfql/test_rollout_binder_integration.py
-
   cypher-frontend-surface-guard:
     name: cypher-frontend-surface-guard
     needs: [changes]
@@ -820,12 +768,27 @@ jobs:
           graphistry/tests/compute/gfql/test_row_pipeline_ops.py \
           graphistry/tests/compute/gfql/test_schema_changers.py \
           graphistry/tests/compute/gfql/test_let_schema_changers.py \
+          graphistry/tests/compute/gfql/test_rollout.py \
+          graphistry/tests/compute/gfql/test_rollout_binder_integration.py \
           graphistry/tests/compute/test_hop.py \
           graphistry/tests/compute/test_chain.py \
           graphistry/tests/compute/test_chain_let.py \
           graphistry/tests/compute/test_chain_concat.py \
           graphistry/tests/compute/test_dataframe_primitives.py \
           tests/gfql/ref/
+
+    - name: T5 rollout gate — execution-path canary (env=true)
+      # Default-loose path is exercised by the env-unset run above (T5 #1311).
+      # This step asserts the env-on canary path: the same rollout test slice
+      # run with GRAPHISTRY_GFQL_STRICT_SCHEMA=true to confirm strict-mode
+      # default behavior on the binder execution compile path.
+      env:
+        GRAPHISTRY_GFQL_STRICT_SCHEMA: "true"
+      run: |
+        source pygraphistry/bin/activate
+        python -B -m pytest -vv \
+          graphistry/tests/compute/gfql/test_rollout.py \
+          graphistry/tests/compute/gfql/test_rollout_binder_integration.py
 
 
   test-pandas-compat:
@@ -941,12 +904,25 @@ jobs:
           graphistry/tests/compute/gfql/test_row_pipeline_ops.py \
           graphistry/tests/compute/gfql/test_schema_changers.py \
           graphistry/tests/compute/gfql/test_let_schema_changers.py \
+          graphistry/tests/compute/gfql/test_rollout.py \
+          graphistry/tests/compute/gfql/test_rollout_binder_integration.py \
           graphistry/tests/compute/test_hop.py \
           graphistry/tests/compute/test_chain.py \
           graphistry/tests/compute/test_chain_let.py \
           graphistry/tests/compute/test_chain_concat.py \
           graphistry/tests/compute/test_dataframe_primitives.py \
           tests/gfql/ref/
+
+    - name: T5 rollout gate — execution-path canary (env=true)
+      # Default-loose path is exercised by the env-unset run above (T5 #1311).
+      # This step asserts the env-on canary path on pandas-compat matrix.
+      env:
+        GRAPHISTRY_GFQL_STRICT_SCHEMA: "true"
+      run: |
+        source pygraphistry/bin/activate
+        python -B -m pytest -vv \
+          graphistry/tests/compute/gfql/test_rollout.py \
+          graphistry/tests/compute/gfql/test_rollout_binder_integration.py
 
 
   test-core-python:

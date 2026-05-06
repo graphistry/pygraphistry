@@ -1,13 +1,22 @@
-Strict Schema Mode (Cypher Binder)
-==================================
+Strict Schema Mode
+==================
 
-GFQL's Cypher binder ships with an opt-in **strict schema mode** that rejects
-queries referencing labels or properties absent from the bound
-``GraphSchemaCatalog``. The default loose mode admits unknown names so today's
-exploratory and partially-typed workflows keep working unchanged.
+GFQL ships with an opt-in **strict schema mode** that rejects Cypher queries
+referencing labels or properties absent from the bound graph schema. The
+default loose mode admits unknown names so today's exploratory and
+partially-typed workflows keep working unchanged.
 
-This page is the operator-side reference for enabling strict mode safely as
-part of staged adoption (#1311 / #1262).
+GFQL exposes strict mode through two complementary surfaces:
+
+1. **Explicit preflight** — :py:meth:`g.gfql_validate(...) <graphistry.compute.ComputeMixin.ComputeMixin.gfql_validate>`
+   and :py:meth:`g.gfql(..., validate=True) <graphistry.compute.ComputeMixin.ComputeMixin.gfql>` —
+   the **primary operator entrypoint** for explicit, predictable, fail-fast
+   schema checks. See :doc:`validation/fundamentals` and :doc:`cypher`.
+2. **Execution-path rollout gate** — environment variable / catalog metadata
+   precedence ladder governing the default for non-validate-flagged
+   :py:meth:`g.gfql() <graphistry.compute.ComputeMixin.ComputeMixin.gfql>`
+   execution. **This is a canary surface for staged organisation-wide
+   adoption.** This page is its operator reference.
 
 What strict mode covers
 -----------------------
@@ -23,22 +32,62 @@ Strict mode is purely a binder gate — it raises ``GFQLValidationError`` (with
 is no runtime cost in loose mode; there is no behavior difference for valid
 queries between modes.
 
-It does **not** yet cover:
+It does **not** cover dataframe-side per-row type checks. Arrow/type-bridge
+coercion semantics are handled by ``graphistry.compute.gfql.ir.arrow_bridge``
+(landed under #1312); rollout controls for that surface are not part of this
+page.
 
-* Arrow-bridge type coercion (deferred to the T4 lane under #1262 / #1312).
-* Per-row dataframe-side type checks.
+The two surfaces in detail
+--------------------------
 
-How to enable
--------------
+Explicit preflight (the primary operator entrypoint)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Strict mode has three opt-in paths, listed by precedence (most specific wins):
+For most operator workflows, prefer the explicit preflight API. It returns
+structured diagnostics and never executes query operators:
 
-1. **Explicit caller parameter** — the strongest signal.
+.. code-block:: python
+
+   report = g.gfql_validate(
+       "MATCH (p:Person) RETURN p.name AS name",
+       strict=True,
+   )
+   if not report["ok"]:
+       for diag in report["diagnostics"]:
+           print(diag["code"], diag["message"])
+
+For execution guarded by a preflight check, use the ``validate=True`` flag
+on ``g.gfql(...)`` (which runs the same preflight in strict mode before
+executing):
+
+.. code-block:: python
+
+   result = g.gfql(
+       "MATCH (p:Person) RETURN p.name AS name",
+       validate=True,
+   )
+
+These surfaces are predictable and not influenced by environment variables —
+they always run strict checks when invoked, and they are the right tool for
+explicit per-call enforcement (request handlers, notebooks, CI gates).
+
+Execution-path rollout gate (this page's primary topic)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For rollout scenarios where you want to flip strict-mode default behavior
+across an environment **without modifying every call site**, GFQL exposes a
+three-tier precedence ladder for the binder default used by
+``g.gfql(query)`` (i.e., the path with ``validate=False``, the default):
+
+1. **Explicit binder parameter** — the strongest signal.
 
    .. code-block:: python
 
       from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
       FrontendBinder().bind(ast, ctx, strict_name_resolution=True)
+
+   This is rarely useful directly — most callers reach the binder via
+   ``g.gfql(query)`` rather than constructing it themselves.
 
 2. **Catalog metadata flag** — pinned per dataset.
 
@@ -50,7 +99,7 @@ Strict mode has three opt-in paths, listed by precedence (most specific wins):
           metadata={"strict": True},
       )
 
-3. **Process-wide environment variable** — for staged rollout / canary.
+3. **Process-wide environment variable** — the canary toggle.
 
    .. code-block:: bash
 
@@ -58,9 +107,6 @@ Strict mode has three opt-in paths, listed by precedence (most specific wins):
 
    Truthy values: ``1``, ``true``, ``yes``, ``on`` (case-insensitive).
    Falsy / unset: anything else (default ``false``).
-
-Precedence
-----------
 
 When more than one tier opts in, strict applies. Monotonic widening:
 
@@ -72,6 +118,13 @@ When more than one tier opts in, strict applies. Monotonic widening:
 An explicit ``False`` is treated as *no preference* — it does not force loose
 mode when the catalog or env elects strict. To force loose, do not set any of
 the three opt-ins.
+
+**Important scoping note:** this precedence ladder governs the binder default
+on the *execution* compile path. The explicit preflight API
+(``g.gfql_validate(strict=True)``, ``g.gfql(validate=True)``) is unaffected
+by these tiers — it always runs strict checks when invoked. The two surfaces
+are independent on purpose: explicit preflight for predictable per-call
+diagnostics, environment ladder for organization-wide canary rollout.
 
 Diagnostic shape
 ----------------
@@ -108,24 +161,45 @@ Recommended rollout sequence
 
 Stage adoption from the least invasive control to the most specific:
 
-1. **Canary** — set ``GRAPHISTRY_GFQL_STRICT_SCHEMA=true`` in a non-production
-   shadow environment. Watch validation diagnostics. Catch and triage any
-   queries that reject under strict.
-2. **Per-dataset opt-in** — once the canary surface is clean, enable
-   ``metadata={"strict": True}`` on the catalogs that should fail closed.
-3. **Per-call enforcement** — for the tightest path (for example a request
-   handler that should never accept unknown identifiers), pass
-   ``strict_name_resolution=True`` directly. This wins over both lower tiers
-   and is the most readable signal at the call site.
+1. **Canary via environment variable** — set
+   ``GRAPHISTRY_GFQL_STRICT_SCHEMA=true`` in a non-production shadow
+   environment. Watch validation diagnostics from any ``g.gfql(query)`` calls
+   that previously ran loose. Catch and triage queries that newly reject.
+2. **Per-dataset opt-in via catalog metadata** — once the canary surface is
+   clean, enable ``metadata={"strict": True}`` on the catalogs that should
+   fail closed in production. This pins behavior independently of the env.
+3. **Per-call enforcement via explicit preflight** — for the tightest path
+   (for example a request handler that should never accept unknown
+   identifiers), prefer the explicit preflight surface:
 
-Rolling back is always safe: clear the env var or remove the catalog flag /
-parameter; loose mode behavior returns immediately on the next bind.
+   .. code-block:: python
+
+      result = g.gfql(query, validate=True)
+
+   This is more readable than the binder param and runs structured
+   diagnostics. Use it for code that wants strict regardless of catalog or
+   env.
+
+Rolling back the rollout gate is always safe: clear the env var or remove the
+catalog flag; loose mode returns immediately on the next bind. The explicit
+preflight surface is unaffected by either.
 
 Related lanes
 -------------
 
+* T1 (#1296) — schema catalog contract.
 * T2 (#1302) — added the binder-time strict checks themselves.
-* T3 (#1300) — added type/nullability metadata propagation contract.
-* T4 (#1312, in progress) — Arrow/type-bridge contract surface; once landed,
-  this page will gain a parallel section for arrow-bridge rollout gates.
+* T3 (#1300) — type/nullability metadata propagation contract.
+* T3.b (#1309) — nullable-helper consolidation follow-through.
+* T4 (#1313) — Arrow/type-bridge contract surface.
 * T5 (#1311) — this page; rollout / docs / CI receipts for staged adoption.
+* #1320 / #1321 — explicit preflight API (``g.gfql_validate``,
+  ``g.gfql(validate=True)``) — the primary operator entrypoint for explicit
+  strict-mode invocation.
+
+See also
+--------
+
+* :doc:`validation/fundamentals` — preflight + execution-time validation
+  primitives, including ``g.gfql_validate(...)``.
+* :doc:`cypher` — Cypher syntax reference and preflight examples.
