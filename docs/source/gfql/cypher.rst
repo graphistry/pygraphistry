@@ -445,7 +445,7 @@ execution, start with the bound-graph inline preflight APIs:
 .. code-block:: python
 
     g.gfql_validate(
-        "MATCH (p:Person) RETURN p.name AS name ORDER BY name DESC LIMIT $top_n",
+        "MATCH (p) RETURN p.name AS name ORDER BY name DESC LIMIT $top_n",
         params={"top_n": 5},
         # strict=True is the default for local bound-graph preflight
     )
