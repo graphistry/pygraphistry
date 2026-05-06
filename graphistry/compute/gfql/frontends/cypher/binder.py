@@ -39,6 +39,7 @@ from graphistry.compute.gfql.ir.compilation import GraphSchemaCatalog, PlanConte
 from graphistry.compute.gfql.ir.metadata import bound_variable_is_nullable
 from graphistry.compute.gfql.ir.logical_plan import RowSchema
 from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, ListType, LogicalType, NodeRef, PathType, ScalarType
+from graphistry.compute.gfql.rollout import resolve_strict_schema
 
 CypherAST = Union[CypherQuery, CypherUnionQuery, CypherGraphQuery]
 SchemaConfidence = Literal["declared", "propagated", "inferred"]
@@ -1411,10 +1412,13 @@ def _looks_like_list_literal(text: str) -> bool:
 
 
 def _strict_schema_mode(state: _BindState) -> bool:
-    if state.strict_name_resolution:
-        return True
-    strict_flag = state.catalog.metadata.get("strict")
-    return bool(strict_flag)
+    catalog_strict = state.catalog.metadata.get("strict")
+    return bool(
+        resolve_strict_schema(
+            explicit=state.strict_name_resolution,
+            catalog_strict=bool(catalog_strict) if catalog_strict is not None else None,
+        )
+    )
 
 
 def _catalog_node_labels(catalog: GraphSchemaCatalog) -> Tuple[str, ...]:

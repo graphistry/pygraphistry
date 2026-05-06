@@ -62,6 +62,7 @@ See also:
    datetime_filtering
    builtin_calls
    policy
+   strict_mode
    wire_protocol_examples
 
 .. toctree::
