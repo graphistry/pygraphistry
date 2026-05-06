@@ -12,7 +12,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL / Cypher reentry contract coverage (#989 follow-through)**: Added compile-shape regression `test_compile_cypher_records_freeform_reentry_plan_contract` to lock free-form intermediate MATCH as `ReentryPlan(free_form=True, scalar_only=False)` and prevent regressions to scalar-only fallback tagging.
 
 ### Infrastructure
-- **CI / Spark lane install speedup**: `test-spark` now restores `~/.cache/uv` with a Spark-specific cache key, skips unconditional JDK apt install when `java` is already present, and installs `graphistry` via `-e . --no-deps` instead of the full `.[test]` extra for this smoke lane. This trims dependency setup overhead while keeping the Spark test target unchanged.
+- **CI / Spark lane speedup + gating**: `test-spark` now restores `~/.cache/uv` with a Spark-specific cache key, skips unconditional JDK apt install when `java` is already present, installs `graphistry` via `-e . --no-deps` instead of the full `.[test]` extra for this smoke lane, and only runs when Spark-relevant paths (or infra/manual/scheduled triggers) are touched. This trims setup overhead and avoids running Spark setup on unrelated PRs.
 - **Release process / deploy gate reminder**: Documented that tag-triggered PyPI publishes can pause in `waiting` on environment approval, and explicitly call out approving `Review deployments` for `pypi-release` before expecting the final PyPI job to complete.
 
 ### Internal

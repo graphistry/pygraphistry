@@ -35,6 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       python: ${{ steps.filter.outputs.python }}
+      spark: ${{ steps.filter.outputs.spark }}
       docs: ${{ steps.filter.outputs.docs }}
       infra: ${{ steps.filter.outputs.infra }}
       gfql: ${{ steps.filter.outputs.gfql }}
@@ -57,7 +58,7 @@ jobs:
         HEAD_SHA: ${{ github.sha }}
       run: |
         set -euo pipefail
-        keys=(infra python gfql cypher_frontend_ci benchmarks docs)
+        keys=(infra python spark gfql cypher_frontend_ci benchmarks docs)
 
         emit_all() {
           # $1 = "true" or "false" — emit the same value for every key
@@ -161,6 +162,17 @@ jobs:
           '^graphistry/models/gfql/' \
           '^graphistry/Plottable\.py$' \
           '^tests/gfql/'
+
+        # Spark lane: spark coercion/runtime + spark-focused tests + workflow changes.
+        emit spark \
+          '^\.github/workflows/ci\.yml$' \
+          '^setup\.py$' \
+          '^graphistry/Engine\.py$' \
+          '^graphistry/PlotterBase\.py$' \
+          '^graphistry/hyper_dask\.py$' \
+          '^graphistry/compute/ComputeMixin\.py$' \
+          '^graphistry/tests/compute/test_df_types\.py$' \
+          '^graphistry/tests/compute/test_engine_coercion\.py$'
 
         # Cypher frontend gate-relevant paths (workflow defs included so a CI
         # change here re-triggers the cypher gate alongside gfql/infra).
@@ -1337,6 +1349,7 @@ jobs:
 
   test-spark:
     needs: [changes, test-minimal-python, test-gfql-core]
+    if: ${{ (needs.changes.outputs.spark == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
