@@ -296,6 +296,14 @@ class TestGFQL:
 
         assert exc_info.value.code == ErrorCode.E301
 
+    def test_gfql_validate_true_treats_all_strings_as_cypher(self):
+        g = _mk_people_company_graph3()
+
+        with pytest.raises(GFQLSyntaxError) as exc_info:
+            g.gfql("hello world not cypher", validate=True)
+
+        assert exc_info.value.code == ErrorCode.E107
+
     @pytest.mark.parametrize(
         ("direction", "expected"),
         [

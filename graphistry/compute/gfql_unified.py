@@ -2,7 +2,6 @@
 # ruff: noqa: E501
 
 from dataclasses import replace
-import re
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple, Union, cast
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine, safe_merge
@@ -62,16 +61,6 @@ logger = setup_logger(__name__)
 
 _REENTRY_WHOLE_ROW_SUGGESTION = "Carry a whole-row node alias through WITH before MATCH re-entry."
 _REENTRY_SCALAR_SUGGESTION = "Carry scalar columns through WITH before MATCH re-entry."
-
-_CYPHER_LEAD_RE = re.compile(
-    r"^\s*(?:MATCH|OPTIONAL\s+MATCH|WITH|RETURN|UNWIND|CALL|CREATE|MERGE|DELETE|DETACH\s+DELETE|SET|REMOVE|FOREACH|GRAPH|USE)\b",
-    re.IGNORECASE,
-)
-
-
-def _looks_like_cypher_query(query: str) -> bool:
-    return _CYPHER_LEAD_RE.match(query) is not None
-
 
 def _series_to_pylist(values: Any) -> List[Any]:
     if hasattr(values, "to_arrow"):
@@ -1811,8 +1800,6 @@ def gfql(self: Plottable,
         if isinstance(query, str):
             if where_param:
                 raise ValueError("where cannot be combined with string queries; embed Cypher predicates in the query itself")
-            if language is None and not _looks_like_cypher_query(query):
-                raise TypeError("Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. Got str")
 
         if validate:
             report = gfql_preflight_validate(

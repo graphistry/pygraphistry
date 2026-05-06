@@ -202,7 +202,13 @@ defaults, so local bound-graph execution runs schema-aware checks by default.
        validate=True,
    )
 
-Use ``validate_chain_schema()`` when you specifically want the low-level chain-schema helper:
+Use ``validate_chain_schema()`` when you specifically want the low-level chain-schema helper.
+It is intentionally narrower than ``g.gfql_validate(...)``:
+
+* validates chain operations against currently bound node/edge dataframe columns
+* does **not** parse/compile Cypher strings
+* does **not** run Let/DAG orchestration validation
+* does **not** execute query operators
 
 .. code-block:: python
 
@@ -226,6 +232,14 @@ For remote execution, ``g.gfql_remote(..., validate=True)`` runs local query
 prevalidation before implicit upload/network execution, so invalid queries fail
 before data upload when possible. For Cypher strings, remote prevalidation uses
 ``strict=False`` by default because the authoritative schema is on the remote dataset.
+
+Grounded vs Ungrounded Validation
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Schema checks are most useful when local graph tables are bound on ``g``.
+If local node/edge tables are missing, GFQL JSON/AST chain validation can only
+do structural/predicate checks, and column-existence checks are effectively
+ungrounded.
 
 Error Collection
 ^^^^^^^^^^^^^^^^

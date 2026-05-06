@@ -111,3 +111,12 @@ def test_gfql_validate_let_schema_failure():
     assert report["query_type"] == "dag"
     assert report["diagnostics"]
     assert report["diagnostics"][0]["code"] == "column-not-found"
+
+
+def test_gfql_validate_chain_without_bound_tables_is_structural_only():
+    g = CGFull()
+    report = g.gfql_validate([n({"missing_col": "x"})])
+    assert report["ok"] is True
+    assert report["language"] == "gfql"
+    assert report["query_type"] == "chain"
+    assert report["diagnostics"] == []
