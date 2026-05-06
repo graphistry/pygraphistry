@@ -440,24 +440,7 @@ Static Validation / Preflight Check
 -----------------------------------
 
 If you want to know whether a query fits the current Cypher-in-GFQL subset before
-execution, preflight it with the helper APIs:
-
-.. code-block:: python
-
-    from graphistry.compute.exceptions import GFQLSyntaxError, GFQLValidationError
-    from graphistry.compute.gfql.cypher import parse_cypher, compile_cypher
-
-    query = "MATCH (p:Person) RETURN p.name AS name"
-
-    try:
-        parse_cypher(query)      # grammar + AST checks
-        compile_cypher(query)    # GFQL Cypher compiler / lowering checks
-    except GFQLSyntaxError as exc:
-        print("Invalid Cypher syntax for g.gfql(\"MATCH ...\"):", exc)
-    except GFQLValidationError as exc:
-        print("Valid Cypher, but outside the current GFQL Cypher surface:", exc)
-
-For a first-class preflight API on bound graphs, use ``g.gfql_validate(...)``:
+execution, start with the bound-graph inline preflight APIs:
 
 .. code-block:: python
 
@@ -471,22 +454,43 @@ For a first-class preflight API on bound graphs, use ``g.gfql_validate(...)``:
         for diag in report["diagnostics"]:
             print(diag["code"], diag["message"], diag.get("field"))
 
-- Use ``parse_cypher()`` when you only want syntax and AST validation.
-- Use ``compile_cypher()`` for the strongest compiler preflight, because it also
-  catches unsupported-but-valid query shapes in lowering.
 - Use ``g.gfql_validate(...)`` when you want a stable validate-only entrypoint
   that returns structured diagnostics and never executes query operators.
 - Use ``g.gfql(..., validate=True)`` when you want execution guarded by a
   local preflight check.
+- Use ``g.gfql_remote(..., validate=True)`` when you want remote execution
+  guarded by local preflight before upload/network dispatch.
+- Use ``parse_cypher()`` when you only want grammar/AST validation and access
+  to the parsed representation.
+- Use ``compile_cypher()`` when you need low-level compiler/lowering output for
+  tooling or whitebox inspection.
 - Use ``cypher_to_gfql()`` only when you specifically need a single GFQL
   ``Chain``. It is intentionally stricter than direct execution through
   ``g.gfql("...")``.
+
+Low-level helper example:
+
+.. code-block:: python
+
+    from graphistry.compute.exceptions import GFQLSyntaxError, GFQLValidationError
+    from graphistry.compute.gfql.cypher import parse_cypher, compile_cypher
+
+    query = "MATCH (p:Person) RETURN p.name AS name"
+
+    try:
+        parsed = parse_cypher(query)   # grammar + AST checks
+        compiled = compile_cypher(query)  # compiler/lowering checks
+    except GFQLSyntaxError as exc:
+        print("Invalid Cypher syntax for g.gfql(\"MATCH ...\"):", exc)
+    except GFQLValidationError as exc:
+        print("Valid Cypher, but outside the current GFQL Cypher surface:", exc)
 
 Common Rewrites
 ---------------
 
 - Need remote execution on Graphistry infrastructure instead of running against
-  the current bound graph? Prefer ``g.gfql_remote([...])`` for remote GFQL.
+  the current bound graph? Prefer ``g.gfql_remote(...)`` for remote GFQL, and
+  keep ``validate=True`` (default) for local preflight before upload.
 - Need remote database Cypher against Neo4j/Bolt-style backends instead of
   remote GFQL? Use ``graphistry.cypher("...")`` or ``g.cypher("...")``.
 - Need a pure GFQL chain object? Use ``cypher_to_gfql()`` when the query fits a
