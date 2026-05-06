@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple, Union, cast
 
 from graphistry.Plottable import Plottable
@@ -27,16 +26,6 @@ from graphistry.compute.validate.validate_schema import validate_chain_schema
 
 
 GFQLValidationQuery = Union[ASTObject, List[ASTObject], ASTLet, Chain, dict, str]
-
-_CYPHER_LEAD_RE = re.compile(
-    r"^\s*(?:MATCH|OPTIONAL\s+MATCH|WITH|RETURN|UNWIND|CALL|CREATE|MERGE|DELETE|DETACH\s+DELETE|SET|REMOVE|FOREACH|GRAPH|USE)\b",
-    re.IGNORECASE,
-)
-
-
-def _looks_like_cypher_query(query: str) -> bool:
-    return _CYPHER_LEAD_RE.match(query) is not None
-
 
 def _serialize_error(exc: Exception, *, stage: str) -> Dict[str, Any]:
     if hasattr(exc, "to_dict") and callable(getattr(exc, "to_dict")):
@@ -326,8 +315,6 @@ def gfql_validate(
                     suggestion="Use language='cypher' for now; Gremlin string compilation is not implemented yet.",
                     language="gfql",
                 )
-            if language is None and not _looks_like_cypher_query(query):
-                raise TypeError("Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. Got str")
             return _validate_cypher(g, query, params=params, strict=strict)
 
         if language is not None:

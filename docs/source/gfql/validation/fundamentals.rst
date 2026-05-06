@@ -162,6 +162,7 @@ Use the inline GFQL entrypoints first:
 
 * **Input forms**: Cypher strings, GFQL JSON payloads, and GFQL Python objects
   (for example ``Chain(...)``, ``[n(), e(), n()]``, and ``ASTLet(...)``)
+  String inputs are always validated as Cypher (no separate string-shape precheck).
 * **Predicate + structural validation**: yes
 * **Schema validation**:
 

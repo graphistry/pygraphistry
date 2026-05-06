@@ -72,6 +72,15 @@ def test_gfql_validate_cypher_can_disable_strict_schema_checks():
     assert report["diagnostics"] == []
 
 
+def test_gfql_validate_treats_all_strings_as_cypher():
+    g = _mk_graph()
+    report = g.gfql_validate("hello world not cypher")
+    assert report["ok"] is False
+    assert report["language"] == "cypher"
+    assert report["diagnostics"]
+    assert "Got str" not in report["diagnostics"][0]["message"]
+
+
 def test_gfql_validate_does_not_execute_query_operators(monkeypatch):
     g = _mk_graph()
 
