@@ -16,7 +16,7 @@ from graphistry.compute.ast import ASTLet, ASTObject
 from graphistry.compute.chain import Chain
 from graphistry.compute.gfql.cypher.lowering import compile_cypher_query
 from graphistry.compute.gfql.cypher.parser import parse_cypher
-from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate, raise_first_diagnostic
+from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
 from graphistry.io.metadata import deserialize_plottable_metadata
 from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType, output_types_graph
 from graphistry.utils.json import JSONVal
@@ -193,7 +193,7 @@ def chain_remote_generic(
         raise TypeError(f"gfql_remote() query must be Chain, List, ASTLet, Dict, or str. Got {type(chain)}")
 
     if validate:
-        report = gfql_preflight_validate(
+        gfql_preflight_validate(
             self,
             chain,
             params=params,
@@ -201,8 +201,6 @@ def chain_remote_generic(
             collect_all=False,
             schema=False,
         )
-        if not bool(report.get("ok", False)):
-            raise_first_diagnostic(report)
 
     if not dataset_id:
         dataset_id = self._dataset_id

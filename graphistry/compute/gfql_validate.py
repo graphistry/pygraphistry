@@ -47,6 +47,37 @@ def _serialize_error(exc: Exception, *, stage: str) -> Dict[str, Any]:
     return out
 
 
+def _raise_diagnostics(
+    diagnostics: List[Dict[str, Any]],
+    *,
+    query_type: str,
+    language: str,
+) -> None:
+    first = diagnostics[0]
+    code = cast(Any, first.get("code")) or ErrorCode.E108
+    message = cast(Any, first.get("message")) or "GFQL validation failed"
+    if len(diagnostics) > 1:
+        message = f"GFQL validation failed with {len(diagnostics)} errors; first: {message}"
+    extra = {
+        key: value
+        for key, value in first.items()
+        if key not in {"code", "message", "field", "value", "suggestion", "operation_index"}
+    }
+    exc_cls = GFQLSyntaxError if code == ErrorCode.E107 else GFQLValidationError
+    raise exc_cls(
+        code,
+        message,
+        field=cast(Optional[str], first.get("field")),
+        value=first.get("value"),
+        suggestion=cast(Optional[str], first.get("suggestion")),
+        operation_index=cast(Optional[int], first.get("operation_index")),
+        diagnostics=diagnostics,
+        query_type=query_type,
+        language=language,
+        **extra,
+    )
+
+
 def _build_schema_catalog(g: Plottable, *, strict: bool) -> GraphSchemaCatalog:
     node_columns: Tuple[str, ...] = tuple()
     edge_columns: Tuple[str, ...] = tuple()
@@ -176,11 +207,14 @@ def _validate_non_string_query(
         if not schema:
             if collect_all:
                 errors = cast(Any, coerced).validate(collect_all=True) or []
+                diagnostics = [cast(Any, e).to_dict() for e in errors]
+                if diagnostics:
+                    _raise_diagnostics(diagnostics, query_type="chain", language="gfql")
                 return {
-                    "ok": len(errors) == 0,
+                    "ok": True,
                     "query_type": "chain",
                     "language": "gfql",
-                    "diagnostics": [cast(Any, e).to_dict() for e in errors],
+                    "diagnostics": [],
                 }
             cast(Any, coerced).validate(collect_all=False)
             return {
@@ -191,11 +225,14 @@ def _validate_non_string_query(
             }
         if collect_all:
             errors = validate_chain_schema(g, coerced.chain, collect_all=True) or []
+            diagnostics = [cast(Any, e).to_dict() for e in errors]
+            if diagnostics:
+                _raise_diagnostics(diagnostics, query_type="chain", language="gfql")
             return {
-                "ok": len(errors) == 0,
+                "ok": True,
                 "query_type": "chain",
                 "language": "gfql",
-                "diagnostics": [cast(Any, e).to_dict() for e in errors],
+                "diagnostics": [],
             }
         validate_chain_schema(g, coerced.chain, collect_all=False)
         return {
@@ -212,16 +249,19 @@ def _validate_non_string_query(
     # surface without introducing a new schema simulator.
     if collect_all:
         errors = cast(Any, coerced).validate(collect_all=True) or []
+        diagnostics = [cast(Any, e).to_dict() for e in errors]
+        if diagnostics:
+            _raise_diagnostics(diagnostics, query_type="single", language="gfql")
         return {
-            "ok": len(errors) == 0,
-            "query_type": "dag" if isinstance(coerced, ASTLet) else "single",
+            "ok": True,
+            "query_type": "single",
             "language": "gfql",
-            "diagnostics": [cast(Any, e).to_dict() for e in errors],
+            "diagnostics": [],
         }
     cast(Any, coerced).validate(collect_all=False)
     return {
         "ok": True,
-        "query_type": "dag" if isinstance(coerced, ASTLet) else "single",
+        "query_type": "single",
         "language": "gfql",
         "diagnostics": [],
     }
@@ -265,11 +305,14 @@ def _validate_let_query(
         if schema:
             for value in let_query.bindings.values():
                 errors.extend(_validate_let_binding_schema_errors(g, value))
+        diagnostics = [cast(Any, e).to_dict() for e in errors]
+        if diagnostics:
+            _raise_diagnostics(diagnostics, query_type="dag", language="gfql")
         return {
-            "ok": len(errors) == 0,
+            "ok": True,
             "query_type": "dag",
             "language": "gfql",
-            "diagnostics": [cast(Any, e).to_dict() for e in errors],
+            "diagnostics": [],
         }
 
     cast(Any, let_query).validate(collect_all=False)
@@ -299,7 +342,8 @@ def gfql_validate(
 ) -> Dict[str, Any]:
     """Validate a GFQL/Cypher query without executing it.
 
-    Returns structured diagnostics and never dispatches query execution operators.
+    Raises structured GFQL exceptions on validation failures and never dispatches
+    query execution operators.
     """
     try:
         if isinstance(query, str):
@@ -322,49 +366,12 @@ def gfql_validate(
         if params is not None:
             raise ValueError("params is only supported when query is a string")
         return _validate_non_string_query(g, query, where=where, collect_all=collect_all, schema=schema)
+    except GFQLValidationError:
+        raise
     except Exception as exc:
-        return {
-            "ok": False,
-            "query_type": "chain" if isinstance(query, str) else "single",
-            "language": "cypher" if isinstance(query, str) else "gfql",
-            "diagnostics": [_serialize_error(exc, stage="validate")],
-        }
-
-
-def raise_first_diagnostic(report: Mapping[str, Any]) -> None:
-    diagnostics = report.get("diagnostics")
-    if not isinstance(diagnostics, list) or len(diagnostics) == 0:
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            "GFQL validation failed without diagnostic details",
-            language=cast(Any, report.get("language")),
+        diagnostic = _serialize_error(exc, stage="validate")
+        _raise_diagnostics(
+            [diagnostic],
+            query_type="chain" if isinstance(query, str) else "single",
+            language="cypher" if isinstance(query, str) else "gfql",
         )
-
-    first = diagnostics[0]
-    if not isinstance(first, dict):
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            "GFQL validation failed with invalid diagnostic payload",
-            value=first,
-            language=cast(Any, report.get("language")),
-        )
-
-    code = cast(Any, first.get("code")) or ErrorCode.E108
-    message = cast(Any, first.get("message")) or "GFQL validation failed"
-
-    # Keep core structured keys explicit and pass the rest through as context.
-    extra = {
-        key: value
-        for key, value in first.items()
-        if key not in {"code", "message", "field", "value", "suggestion", "operation_index"}
-    }
-    exc_cls = GFQLSyntaxError if code == ErrorCode.E107 else GFQLValidationError
-    raise exc_cls(
-        code,
-        message,
-        field=cast(Optional[str], first.get("field")),
-        value=first.get("value"),
-        suggestion=cast(Optional[str], first.get("suggestion")),
-        operation_index=cast(Optional[int], first.get("operation_index")),
-        **extra,
-    )

@@ -54,7 +54,7 @@ from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
-from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate, raise_first_diagnostic
+from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
 from graphistry.otel import otel_traced, otel_detail_enabled
 
 logger = setup_logger(__name__)
@@ -1802,7 +1802,7 @@ def gfql(self: Plottable,
                 raise ValueError("where cannot be combined with string queries; embed Cypher predicates in the query itself")
 
         if validate:
-            report = gfql_preflight_validate(
+            gfql_preflight_validate(
                 dispatch_self,
                 query,
                 where=where_param,
@@ -1812,8 +1812,6 @@ def gfql(self: Plottable,
                 schema=True,
                 collect_all=False,
             )
-            if not bool(report.get("ok", False)):
-                raise_first_diagnostic(report)
 
         if isinstance(query, str):
             compiled_query = _compile_string_query(query, language=language, params=params)

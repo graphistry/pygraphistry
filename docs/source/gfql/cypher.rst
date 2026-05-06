@@ -444,18 +444,18 @@ execution, start with the bound-graph inline preflight APIs:
 
 .. code-block:: python
 
-    report = g.gfql_validate(
+    g.gfql_validate(
         "MATCH (p:Person) RETURN p.name AS name ORDER BY name DESC LIMIT $top_n",
         params={"top_n": 5},
         # strict=True is the default for local bound-graph preflight
     )
 
-    if not report["ok"]:
-        for diag in report["diagnostics"]:
-            print(diag["code"], diag["message"], diag.get("field"))
+    # On failure:
+    # - GFQLSyntaxError for invalid syntax
+    # - GFQLValidationError for unsupported/scheme-invalid shapes
 
 - Use ``g.gfql_validate(...)`` when you want a stable validate-only entrypoint
-  that returns structured diagnostics and never executes query operators.
+  that never executes query operators and raises structured exceptions on invalid queries.
 - Use ``g.gfql(..., validate=True)`` when you want execution guarded by a
   local preflight check. For Cypher strings, this uses schema-aware strict
   preflight by default.

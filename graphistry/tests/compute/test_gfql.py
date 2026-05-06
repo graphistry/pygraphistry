@@ -261,16 +261,10 @@ class TestGFQL:
 
     def test_gfql_validate_true_runs_preflight_before_compile(self):
         g = _mk_people_company_graph3()
-        fake_report = {
-            "ok": False,
-            "query_type": "chain",
-            "language": "cypher",
-            "diagnostics": [
-                {"code": ErrorCode.E108, "message": "synthetic preflight failure", "stage": "validate"}
-            ],
-        }
-
-        with patch("graphistry.compute.gfql_unified.gfql_preflight_validate", return_value=fake_report):
+        with patch(
+            "graphistry.compute.gfql_unified.gfql_preflight_validate",
+            side_effect=GFQLValidationError(ErrorCode.E108, "synthetic preflight failure"),
+        ):
             with patch(
                 "graphistry.compute.gfql_unified._compile_string_query",
                 side_effect=AssertionError("compile should not run when preflight fails"),

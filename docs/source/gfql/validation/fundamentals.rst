@@ -176,17 +176,31 @@ Use the inline GFQL entrypoints first:
 .. code-block:: python
 
    # Chain / JSON-style GFQL
-   report = g.gfql_validate([n({'type': 'customer'})], collect_all=True)
-   if not report["ok"]:
-       print(report["diagnostics"])
+   g.gfql_validate([n({'type': 'customer'})], collect_all=True)
 
    # Cypher
-   cypher_report = g.gfql_validate(
-       "MATCH (c) RETURN c.id AS id LIMIT $n",
-       params={"n": 10},
-   )
-   if not cypher_report["ok"]:
-       print(cypher_report["diagnostics"])
+   g.gfql_validate("MATCH (c) RETURN c.id AS id LIMIT $n", params={"n": 10})
+
+Validation failures raise ``GFQLValidationError`` / ``GFQLSyntaxError`` with
+structured, inspectable context:
+
+.. code-block:: python
+
+   from graphistry.compute.exceptions import GFQLValidationError
+
+   try:
+       g.gfql_validate([n({"missing_col": "x"})], collect_all=True)
+   except GFQLValidationError as exc:
+       payload = exc.to_dict()
+       # LM-friendly payload:
+       # {
+       #   "code": "...",
+       #   "message": "...",
+       #   "query_type": "chain",
+       #   "language": "gfql",
+       #   "diagnostics": [...]
+       # }
+       print(payload)
 
 ``g.gfql(..., validate=True)`` accepts the same query inputs as ``g.gfql(...)``
 (Cypher string, GFQL JSON, GFQL Python objects), runs local preflight first, and
