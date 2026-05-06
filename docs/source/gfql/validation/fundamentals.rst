@@ -181,7 +181,7 @@ Use the inline GFQL entrypoints first:
 
    # Cypher
    cypher_report = g.gfql_validate(
-       "MATCH (c:Customer) RETURN c.id AS id LIMIT $n",
+       "MATCH (c) RETURN c.id AS id LIMIT $n",
        params={"n": 10},
    )
    if not cypher_report["ok"]:
@@ -196,7 +196,7 @@ defaults, so local bound-graph execution runs schema-aware checks by default.
 
    # Run preflight first; execute only if preflight passes
    result = g.gfql(
-       "MATCH (c:Customer) RETURN c.id AS id LIMIT $n",
+       "MATCH (c) RETURN c.id AS id LIMIT $n",
        params={"n": 10},
        validate=True,
    )
