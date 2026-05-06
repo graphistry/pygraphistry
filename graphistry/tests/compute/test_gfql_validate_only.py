@@ -55,13 +55,21 @@ def test_gfql_validate_cypher_success():
     assert report["diagnostics"] == []
 
 
-def test_gfql_validate_cypher_strict_reports_schema_errors():
+def test_gfql_validate_cypher_default_reports_schema_errors():
     g = _mk_graph()
-    report = g.gfql_validate("MATCH (p:Employee) RETURN p.name AS name", strict=True)
+    report = g.gfql_validate("MATCH (p:Employee) RETURN p.name AS name")
     assert report["ok"] is False
     assert report["language"] == "cypher"
     assert report["diagnostics"]
     assert report["diagnostics"][0]["code"] == "column-not-found"
+
+
+def test_gfql_validate_cypher_can_disable_strict_schema_checks():
+    g = _mk_graph()
+    report = g.gfql_validate("MATCH (p:Employee) RETURN p.name AS name", strict=False)
+    assert report["ok"] is True
+    assert report["language"] == "cypher"
+    assert report["diagnostics"] == []
 
 
 def test_gfql_validate_does_not_execute_query_operators(monkeypatch):

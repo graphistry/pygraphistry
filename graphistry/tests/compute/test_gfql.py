@@ -288,6 +288,14 @@ class TestGFQL:
             result = g.gfql([n()])
             assert result is not None
 
+    def test_gfql_validate_true_catches_cypher_schema_errors_by_default(self):
+        g = _mk_people_company_graph3()
+
+        with pytest.raises(GFQLValidationError) as exc_info:
+            g.gfql("MATCH (p:Employee) RETURN p.id AS id", validate=True)
+
+        assert exc_info.value.code == ErrorCode.E301
+
     @pytest.mark.parametrize(
         ("direction", "expected"),
         [

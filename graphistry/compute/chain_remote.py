@@ -197,6 +197,7 @@ def chain_remote_generic(
             self,
             chain,
             params=params,
+            strict=False,
             collect_all=False,
             schema=False,
         )

@@ -447,7 +447,7 @@ execution, start with the bound-graph inline preflight APIs:
     report = g.gfql_validate(
         "MATCH (p:Person) RETURN p.name AS name ORDER BY name DESC LIMIT $top_n",
         params={"top_n": 5},
-        strict=True,  # optional strict binder/schema mode
+        # strict=True is the default for local bound-graph preflight
     )
 
     if not report["ok"]:
@@ -457,9 +457,11 @@ execution, start with the bound-graph inline preflight APIs:
 - Use ``g.gfql_validate(...)`` when you want a stable validate-only entrypoint
   that returns structured diagnostics and never executes query operators.
 - Use ``g.gfql(..., validate=True)`` when you want execution guarded by a
-  local preflight check.
+  local preflight check. For Cypher strings, this uses schema-aware strict
+  preflight by default.
 - Use ``g.gfql_remote(..., validate=True)`` when you want remote execution
-  guarded by local preflight before upload/network dispatch.
+  guarded by local preflight before upload/network dispatch. For Cypher strings,
+  remote preflight uses ``strict=False`` by default because remote schema is authoritative.
 - Use ``parse_cypher()`` when you only want grammar/AST validation and access
   to the parsed representation.
 - Use ``compile_cypher()`` when you need low-level compiler/lowering output for

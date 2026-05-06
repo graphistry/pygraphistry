@@ -304,7 +304,7 @@ def gfql_validate(
     where: Optional[Sequence[WhereComparison]] = None,
     language: Optional[Literal["cypher", "gremlin"]] = None,
     params: Optional[Mapping[str, Any]] = None,
-    strict: bool = False,
+    strict: bool = True,
     collect_all: bool = False,
     schema: bool = True,
 ) -> Dict[str, Any]:

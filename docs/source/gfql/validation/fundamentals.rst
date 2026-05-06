@@ -167,8 +167,9 @@ Use the inline GFQL entrypoints first:
   * Chain/list/AST chain-like forms: yes (default ``schema=True``)
   * Let/DAG: structural validation for the DAG + schema checks for direct chain-like bindings
     (``Chain``, ``Node``, ``Edge``, ``Call``); ``Ref`` bindings stay structural-only
-  * Cypher strings: syntax/compile validation by default; use ``strict=True`` for schema-aware
-    name-resolution checks against the bound graph schema
+  * Cypher strings: syntax/compile + schema-aware name-resolution checks against
+    the bound graph schema by default (``strict=True``); pass ``strict=False``
+    for syntax/compile-only preflight
 
 .. code-block:: python
 
@@ -181,15 +182,14 @@ Use the inline GFQL entrypoints first:
    cypher_report = g.gfql_validate(
        "MATCH (c:Customer) RETURN c.id AS id LIMIT $n",
        params={"n": 10},
-       strict=True,  # enable schema-aware Cypher name checks
    )
    if not cypher_report["ok"]:
        print(cypher_report["diagnostics"])
 
 ``g.gfql(..., validate=True)`` supports the same Cypher + GFQL JSON/AST + Let query
 inputs as ``g.gfql(...)``, runs local preflight first, and executes only when preflight
-passes. Its preflight uses ``g.gfql_validate(...)`` defaults, so chain/JSON/AST/Let paths
-include schema checks, while Cypher uses syntax/compile preflight (not strict schema binding).
+passes. Its preflight uses ``g.gfql_validate(...)`` defaults, so chain/JSON/AST/Let and
+Cypher paths all run schema-aware checks by default on local bound-graph execution.
 
 .. code-block:: python
 
@@ -222,7 +222,8 @@ Execution-time Preflight Toggles
 
 For remote execution, ``g.gfql_remote(..., validate=True)`` runs local query
 prevalidation before implicit upload/network execution, so invalid queries fail
-before data upload when possible.
+before data upload when possible. For Cypher strings, remote prevalidation uses
+``strict=False`` by default because the authoritative schema is on the remote dataset.
 
 Error Collection
 ^^^^^^^^^^^^^^^^
