@@ -10,6 +10,7 @@ from .ast import ASTLet, ASTObject
 from .chain import Chain, chain as chain_base
 from .chain_let import chain_let as chain_let_base
 from .gfql_unified import gfql as gfql_base
+from .gfql_validate import gfql_validate as gfql_validate_base
 from .chain_remote import (
     chain_remote as chain_remote_base,
     chain_remote_shape as chain_remote_shape_base
@@ -507,6 +508,10 @@ class ComputeMixin(Plottable):
     def gfql(self, *args, **kwargs):
         return gfql_base(self, *args, **kwargs)
     gfql.__doc__ = gfql_base.__doc__
+
+    def gfql_validate(self, *args, **kwargs):
+        return gfql_validate_base(self, *args, **kwargs)
+    gfql_validate.__doc__ = gfql_validate_base.__doc__
 
     def chain_remote(self, *args, **kwargs) -> Plottable:
         """

@@ -457,9 +457,25 @@ execution, preflight it with the helper APIs:
     except GFQLValidationError as exc:
         print("Valid Cypher, but outside the current GFQL Cypher surface:", exc)
 
+For a first-class preflight API on bound graphs, use ``g.gfql_validate(...)``:
+
+.. code-block:: python
+
+    report = g.gfql_validate(
+        "MATCH (p:Person) RETURN p.name AS name ORDER BY name DESC LIMIT $top_n",
+        params={"top_n": 5},
+        strict=True,  # optional strict binder/schema mode
+    )
+
+    if not report["ok"]:
+        for diag in report["diagnostics"]:
+            print(diag["code"], diag["message"], diag.get("field"))
+
 - Use ``parse_cypher()`` when you only want syntax and AST validation.
 - Use ``compile_cypher()`` for the strongest compiler preflight, because it also
   catches unsupported-but-valid query shapes in lowering.
+- Use ``g.gfql_validate(...)`` when you want a stable validate-only entrypoint
+  that returns structured diagnostics and never executes query operators.
 - Use ``cypher_to_gfql()`` only when you specifically need a single GFQL
   ``Chain``. It is intentionally stricter than direct execution through
   ``g.gfql("...")``.

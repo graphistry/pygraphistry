@@ -169,6 +169,24 @@ Use ``validate_chain_schema()`` to check compatibility without running the query
    result = g.gfql(chain.chain)
    print(f"Query executed: {len(result._nodes)} nodes")
 
+For mixed GFQL + Cypher preflight on a bound graph, use ``g.gfql_validate(...)``:
+
+.. code-block:: python
+
+   # Chain / JSON-style GFQL
+   report = g.gfql_validate([n({'type': 'customer'})], collect_all=True)
+   if not report["ok"]:
+       print(report["diagnostics"])
+
+   # Cypher
+   cypher_report = g.gfql_validate(
+       "MATCH (c:Customer) RETURN c.id AS id LIMIT $n",
+       params={"n": 10},
+       strict=True,
+   )
+   if not cypher_report["ok"]:
+       print(cypher_report["diagnostics"])
+
 Error Collection
 ^^^^^^^^^^^^^^^^
 
