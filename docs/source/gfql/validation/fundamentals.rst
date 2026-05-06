@@ -152,7 +152,55 @@ GFQL validates automatically - just write your queries and run them:
 Pre-Execution Validation Options
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Use ``validate_chain_schema()`` to check compatibility without running the query, then execute separately:
+Use the inline GFQL entrypoints first:
+
+1. ``g.gfql_validate(...)`` for validate-only preflight (no execution)
+2. ``g.gfql(..., validate=True)`` for preflight + execution
+3. ``validate_chain_schema()`` for low-level chain-schema checks only
+
+``g.gfql_validate(...)`` (validate-only, no execution) supports:
+
+* **Query protocols**: Cypher strings, GFQL JSON/AST chain forms, and Let/DAG payloads
+* **Predicate + structural validation**: yes (for all supported protocols)
+* **Schema validation**:
+
+  * Chain/list/AST chain-like forms: yes (default ``schema=True``)
+  * Let/DAG: structural validation for the DAG + schema checks for direct chain-like bindings
+    (``Chain``, ``Node``, ``Edge``, ``Call``); ``Ref`` bindings stay structural-only
+  * Cypher strings: syntax/compile validation by default; use ``strict=True`` for schema-aware
+    name-resolution checks against the bound graph schema
+
+.. code-block:: python
+
+   # Chain / JSON-style GFQL
+   report = g.gfql_validate([n({'type': 'customer'})], collect_all=True)
+   if not report["ok"]:
+       print(report["diagnostics"])
+
+   # Cypher
+   cypher_report = g.gfql_validate(
+       "MATCH (c:Customer) RETURN c.id AS id LIMIT $n",
+       params={"n": 10},
+       strict=True,  # enable schema-aware Cypher name checks
+   )
+   if not cypher_report["ok"]:
+       print(cypher_report["diagnostics"])
+
+``g.gfql(..., validate=True)`` supports the same Cypher + GFQL JSON/AST + Let query
+inputs as ``g.gfql(...)``, runs local preflight first, and executes only when preflight
+passes. Its preflight uses ``g.gfql_validate(...)`` defaults, so chain/JSON/AST/Let paths
+include schema checks, while Cypher uses syntax/compile preflight (not strict schema binding).
+
+.. code-block:: python
+
+   # Run preflight first; execute only if preflight passes
+   result = g.gfql(
+       "MATCH (c:Customer) RETURN c.id AS id LIMIT $n",
+       params={"n": 10},
+       validate=True,
+   )
+
+Use ``validate_chain_schema()`` when you specifically want the low-level chain-schema helper:
 
 .. code-block:: python
 
@@ -169,41 +217,8 @@ Use ``validate_chain_schema()`` to check compatibility without running the query
    result = g.gfql(chain.chain)
    print(f"Query executed: {len(result._nodes)} nodes")
 
-For mixed GFQL + Cypher preflight on a bound graph, use ``g.gfql_validate(...)``:
-
-.. code-block:: python
-
-   # Chain / JSON-style GFQL
-   report = g.gfql_validate([n({'type': 'customer'})], collect_all=True)
-   if not report["ok"]:
-       print(report["diagnostics"])
-
-   # Cypher
-   cypher_report = g.gfql_validate(
-       "MATCH (c:Customer) RETURN c.id AS id LIMIT $n",
-       params={"n": 10},
-       strict=True,
-   )
-   if not cypher_report["ok"]:
-       print(cypher_report["diagnostics"])
-
-``g.gfql_validate(...)`` also supports Let/DAG payloads. It performs AST structural
-validation for the DAG and schema checks for direct chain-like binding steps
-(``Chain``, ``Node``, ``Edge``, ``Call``) without executing operators.
-
 Execution-time Preflight Toggles
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-If you want execution plus a preflight gate, ``g.gfql`` exposes an explicit flag:
-
-.. code-block:: python
-
-   # Run preflight first; execute only if preflight passes
-   result = g.gfql(
-       "MATCH (c:Customer) RETURN c.id AS id LIMIT $n",
-       params={"n": 10},
-       validate=True,
-   )
 
 For remote execution, ``g.gfql_remote(..., validate=True)`` runs local query
 prevalidation before implicit upload/network execution, so invalid queries fail
