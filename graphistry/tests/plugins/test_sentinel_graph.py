@@ -279,7 +279,7 @@ class TestQueryExecution:
         g = graphistry.bind()
         g.configure_sentinel_graph(graph_instance="TestInstance", max_retries=3)
 
-        result = g._sentinel_graph_query("MATCH (n) RETURN n", "GQL", ["Graph"])
+        g._sentinel_graph_query("MATCH (n) RETURN n", "GQL", ["Graph"])
 
         assert mock_post.call_count == 3
         assert mock_sleep.call_count == 2
@@ -644,8 +644,8 @@ class TestSentinelGraphList:
         call_args = mock_get.call_args
         url = call_args[0][0]
         params = call_args[1]['params']
-        assert "graph-instances" in url
-        assert "api.securityplatform.microsoft.com" in url
+        assert url.startswith("https://api.securityplatform.microsoft.com/")
+        assert "/graphs/graph-instances" in url
         assert params == {"graphTypes": "Custom"}
 
     @patch('graphistry.plugins.sentinel_graph.requests.get')
