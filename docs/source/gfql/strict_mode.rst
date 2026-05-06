@@ -46,6 +46,8 @@ Explicit preflight (the primary operator entrypoint)
 For most operator workflows, prefer the explicit preflight API. It returns
 structured diagnostics and never executes query operators:
 
+.. doc-test: skip
+
 .. code-block:: python
 
    report = g.gfql_validate(
@@ -59,6 +61,8 @@ structured diagnostics and never executes query operators:
 For execution guarded by a preflight check, use the ``validate=True`` flag
 on ``g.gfql(...)`` (which runs the same preflight in strict mode before
 executing):
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -81,32 +85,37 @@ three-tier precedence ladder for the binder default used by
 
 1. **Explicit binder parameter** — the strongest signal.
 
-   .. code-block:: python
+.. doc-test: skip
 
-      from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
-      FrontendBinder().bind(ast, ctx, strict_name_resolution=True)
+.. code-block:: python
 
-   This is rarely useful directly — most callers reach the binder via
-   ``g.gfql(query)`` rather than constructing it themselves.
+   from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
+   FrontendBinder().bind(ast, ctx, strict_name_resolution=True)
+
+This is rarely useful directly — most callers reach the binder via
+``g.gfql(query)`` rather than constructing it themselves.
 
 2. **Catalog metadata flag** — pinned per dataset.
 
-   .. code-block:: python
+.. doc-test: skip
 
-      catalog = GraphSchemaCatalog.from_schema_parts(
-          node_columns={"id", "label__Person"},
-          edge_columns={"src", "dst", "label__KNOWS"},
-          metadata={"strict": True},
-      )
+.. code-block:: python
+
+   from graphistry.compute.gfql.ir.compilation import GraphSchemaCatalog
+   catalog = GraphSchemaCatalog.from_schema_parts(
+       node_columns={"id", "label__Person"},
+       edge_columns={"src", "dst", "label__KNOWS"},
+       metadata={"strict": True},
+   )
 
 3. **Process-wide environment variable** — the canary toggle.
 
-   .. code-block:: bash
+.. code-block:: bash
 
-      export GRAPHISTRY_GFQL_STRICT_SCHEMA=true
+   export GRAPHISTRY_GFQL_STRICT_SCHEMA=true
 
-   Truthy values: ``1``, ``true``, ``yes``, ``on`` (case-insensitive).
-   Falsy / unset: anything else (default ``false``).
+Truthy values: ``1``, ``true``, ``yes``, ``on`` (case-insensitive).
+Falsy / unset: anything else (default ``false``).
 
 When more than one tier opts in, strict applies. Monotonic widening:
 
@@ -172,13 +181,14 @@ Stage adoption from the least invasive control to the most specific:
    (for example a request handler that should never accept unknown
    identifiers), prefer the explicit preflight surface:
 
-   .. code-block:: python
+.. doc-test: skip
 
-      result = g.gfql(query, validate=True)
+.. code-block:: python
 
-   This is more readable than the binder param and runs structured
-   diagnostics. Use it for code that wants strict regardless of catalog or
-   env.
+   result = g.gfql(query, validate=True)
+
+This is more readable than the binder param and runs structured diagnostics.
+Use it for code that wants strict regardless of catalog or env.
 
 Rolling back the rollout gate is always safe: clear the env var or remove the
 catalog flag; loose mode returns immediately on the next bind. The explicit
