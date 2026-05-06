@@ -287,7 +287,7 @@ class TestEdgeCases:
         g.upload.assert_not_called()
         mock_post.assert_not_called()
 
-    def test_validate_true_uses_full_local_preflight(self) -> None:
+    def test_validate_true_uses_remote_safe_local_preflight(self) -> None:
         g = _mock_plottable()
         ok_report = {"ok": True, "query_type": "chain", "language": "gfql", "diagnostics": []}
 
@@ -302,5 +302,5 @@ class TestEdgeCases:
                 )
 
         kwargs = mock_validate.call_args.kwargs
-        assert kwargs["strict"] is True
-        assert kwargs["schema"] is True
+        assert kwargs["strict"] is False
+        assert kwargs["schema"] is False

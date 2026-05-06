@@ -460,7 +460,8 @@ execution, start with the bound-graph inline preflight APIs:
   local preflight check. For Cypher strings, this uses schema-aware strict
   preflight by default.
 - Use ``g.gfql_remote(..., validate=True)`` when you want remote execution
-  guarded by local preflight before upload/network dispatch.
+  guarded by local preflight before upload/network dispatch. For Cypher strings,
+  remote preflight uses ``strict=False`` by default because remote schema is authoritative.
 - Use ``parse_cypher()`` when you only want grammar validation and access to
   the parsed representation.
 - Use ``compile_cypher()`` when you need low-level compiler/lowering output for

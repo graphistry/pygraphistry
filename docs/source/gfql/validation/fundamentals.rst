@@ -223,7 +223,8 @@ Execution-time Preflight Toggles
 
 For remote execution, ``g.gfql_remote(..., validate=True)`` runs local query
 prevalidation before implicit upload/network execution, so invalid queries fail
-before data upload when possible.
+before data upload when possible. For Cypher strings, remote prevalidation uses
+``strict=False`` by default because the authoritative schema is on the remote dataset.
 
 Error Collection
 ^^^^^^^^^^^^^^^^

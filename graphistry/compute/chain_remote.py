@@ -197,9 +197,9 @@ def chain_remote_generic(
             self,
             chain,
             params=params,
-            strict=True,
+            strict=False,
             collect_all=False,
-            schema=True,
+            schema=False,
         )
         if not bool(report.get("ok", False)):
             raise_first_diagnostic(report)
