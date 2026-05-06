@@ -437,16 +437,54 @@ class TestCollapse(NoAuthTestCase):
     def _test_graph_collapse(self, g, g2):
         assert len(g._nodes) == len(g2._nodes)  # now we don't drop any since we write to FINAL columns instead. so nodes table will be same
         assert len(g._edges) >= len(g2._edges)
-        assert g2._nodes.astype(str).to_dict() == collapse_result_nodes_overwrite, "collapsed nodes dataframe.astype(str) should match collapsed nodes df"
+
+        # Test user-visible columns (node, level, node_final)
+        actual_nodes = g2._nodes.astype(str).to_dict()
+        assert actual_nodes['node'] == collapse_result_nodes_overwrite['node'], "node column should match"
+        assert actual_nodes['level'] == collapse_result_nodes_overwrite['level'], "level column should match"
+        assert actual_nodes['node_final'] == collapse_result_nodes_overwrite['node_final'], "node_final column should match"
+
+        # Test the generated collapse column (will be __gfql_node_collapse_0__)
+        if g2._collapse_node_col:
+            assert g2._collapse_node_col in actual_nodes, f"collapse column {g2._collapse_node_col} should exist"
+            assert actual_nodes[g2._collapse_node_col] == collapse_result_nodes_overwrite['node_collapse'], "collapse column data should match"
+
         assert g._nodes.astype(str).to_dict() == parent_result_nodes_should_stay_same, "original node dataframe.astype(str) should match parent ndf"
-        assert g2._edges.astype(str).to_dict() == collapse_result_edges_overwrite, "collapsed edges dataframe.astype(str) should match collapsed edges df"
+
+        # Test edges
+        actual_edges = g2._edges.astype(str).to_dict()
+        assert actual_edges['src'] == collapse_result_edges_overwrite['src'], "src column should match"
+        assert actual_edges['dst'] == collapse_result_edges_overwrite['dst'], "dst column should match"
+        assert actual_edges['src_final'] == collapse_result_edges_overwrite['src_final'], "src_final column should match"
+        assert actual_edges['dst_final'] == collapse_result_edges_overwrite['dst_final'], "dst_final column should match"
+
+        # Test the generated collapse columns
+        if g2._collapse_src_col:
+            assert g2._collapse_src_col in actual_edges, f"src collapse column {g2._collapse_src_col} should exist"
+            assert actual_edges[g2._collapse_src_col] == collapse_result_edges_overwrite['src_collapse'], "src_collapse data should match"
+        if g2._collapse_dst_col:
+            assert g2._collapse_dst_col in actual_edges, f"dst collapse column {g2._collapse_dst_col} should exist"
+            assert actual_edges[g2._collapse_dst_col] == collapse_result_edges_overwrite['dst_collapse'], "dst_collapse data should match"
+
         assert g._edges.astype(str).to_dict() == parent_result_edges_should_stay_same, "original edge dataframe.astype(str) should match parent edf"
 
     def _test_graph_chain_collapse(self, g, g2):
         assert len(g._nodes) == len(g2._nodes)  # now we don't drop any since we write to FINAL columns instead. so nodes table will be same
         assert len(g._edges) >= len(g2._edges)
-        assert g2._nodes.astype(str).to_dict() == collapse_all_nodes, "chained collapsed nodes dataframe.astype(str) should match collapsed nodes df"
-        assert g2._edges.astype(str).to_dict() == collapse_all_edges, "chained collapsed edges dataframe.astype(str) should match collapsed edges df"
+
+        # For chained collapse, we only care about node_final, not intermediate collapse columns
+        # The intermediate columns will have names like __gfql_node_collapse_0__, __gfql_node_collapse_1__, etc.
+        actual_nodes = g2._nodes.astype(str).to_dict()
+        assert actual_nodes['node'] == collapse_all_nodes['node'], "node column should match"
+        assert actual_nodes['level'] == collapse_all_nodes['level'], "level column should match"
+        assert actual_nodes['node_final'] == collapse_all_nodes['node_final'], "node_final column should match"
+
+        # For edges
+        actual_edges = g2._edges.astype(str).to_dict()
+        assert actual_edges['src'] == collapse_all_edges['src'], "src column should match"
+        assert actual_edges['dst'] == collapse_all_edges['dst'], "dst column should match"
+        assert actual_edges['src_final'] == collapse_all_edges['src_final'], "src_final column should match"
+        assert actual_edges['dst_final'] == collapse_all_edges['dst_final'], "dst_final column should match"
 
     def test_collapse_over_string_values(self):
         g = get_collapse_graph(as_string=True)

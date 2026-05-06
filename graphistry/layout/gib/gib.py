@@ -40,7 +40,7 @@ def group_in_a_box_layout(
     encode_colors: bool = True,
     colors: Optional[List[str]] = None,
     partition_key: Optional[str] = None,
-    engine: Union[Engine, Literal["auto"]] = "auto"
+    engine: Union[Engine, Literal["auto", "cpu", "gpu", "pandas", "cudf"]] = "auto"
 ) -> 'Plottable':
     """
     Perform a group-in-a-box layout on a graph, supporting both CPU and GPU execution modes.
@@ -123,6 +123,17 @@ def group_in_a_box_layout(
     resolved_partition_key = resolve_partition_key(self, partition_key, partition_alg)
     #print('resolved_partition_key', resolved_partition_key)
     #print('engine', engine)
+
+    if isinstance(engine, str):
+        # Accept legacy `'pandas'`/`'cudf'` names as CPU/GPU aliases
+        if engine == "pandas":
+            engine = Engine.PANDAS
+        elif engine == "cudf":
+            engine = Engine.CUDF
+        elif engine == "cpu":
+            engine = Engine.PANDAS
+        elif engine == "gpu":
+            engine = Engine.CUDF
 
     if engine == "auto":
         if isinstance(self._edges, pd.DataFrame):

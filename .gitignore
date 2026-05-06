@@ -14,6 +14,8 @@ pypirc
 # Distribution / packaging
 .Python
 env/
+.venv/
+.hypothesis/
 build/
 develop-eggs/
 dist/
@@ -26,6 +28,8 @@ parts/
 sdist/
 var/
 data/
+!graphistry/tests/data/
+!graphistry/tests/data/**
 *.egg-info/
 .installed.cfg
 *.egg
@@ -74,6 +78,7 @@ demos/data/BIOGRID-IDENTIFIERS-3.3.123.tab.txt
 
 # Ignore local Python virtualenv folders (used by Jenkins when running tests, etc.)
 /.pyenv*/
+.venv/
 
 # Ignore IDE stuff
 .idea
@@ -83,6 +88,9 @@ demos/data/BIOGRID-IDENTIFIERS-3.3.123.tab.txt
 .local/share/jupyter
 .pycharmenv
 .vscode
+
+# Pyre type checker cache
+.pyre/
 
 # Ignore the 'test_results' folder, which is where Jenkins, et al, writes `nose` test results
 /test_results
@@ -95,6 +103,10 @@ docs/source/demos
 # Legacy - kept for backward compatibility
 AI_PROGRESS/
 /PLAN.md
+/plan.md
 plans/
 tmp/
 test_env/
+.agents
+.agents/
+.claude/

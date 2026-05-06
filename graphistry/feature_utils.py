@@ -38,9 +38,26 @@ from .PlotterBase import WeakValueDictionary, Plottable
 from .util import setup_logger
 from .utils.plottable_memoize import check_set_memoize
 from .ai_utils import infer_graph, infer_self_graph
+from graphistry.otel import otel_traced, otel_detail_enabled
 
 # add this inside classes and have a method that can set log level
 logger = setup_logger(__name__)
+
+
+def _featurize_otel_attrs(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+    kind = kwargs.get("kind")
+    if kind is None and len(args) > 1:
+        kind = args[1]
+    attrs: Dict[str, Any] = {
+        "graphistry.featurize.kind": str(kind),
+        "graphistry.featurize.feature_engine": str(kwargs.get("feature_engine", "auto")),
+    }
+    if otel_detail_enabled():
+        attrs["graphistry.featurize.embedding"] = kwargs.get("embedding", False)
+        attrs["graphistry.featurize.memoize"] = kwargs.get("memoize", True)
+        attrs["graphistry.featurize.dbscan"] = kwargs.get("dbscan", False)
+    return attrs
+
 
 if TYPE_CHECKING:
     MIXIN_BASE = ComputeMixin
@@ -1040,9 +1057,9 @@ def process_dirty_dataframes(
         y_enc, label_encoder = encode_multi_target(y, mlb=None)
     elif (
         y is not None
-        and len(y.columns) > 0  # noqa: E126,W503
-        and not is_dataframe_all_numeric(y)  # noqa: E126,W503
-        and has_skrub  # noqa: E126,W503
+        and len(y.columns) > 0
+        and not is_dataframe_all_numeric(y)
+        and has_skrub
     ):
         t2 = time()
         logger.debug("-Fitting Targets --\n%s", y.columns)
@@ -1086,9 +1103,9 @@ def process_dirty_dataframes(
         )
     elif (
         y is not None
-        and len(y.columns) > 0  # noqa: E126,W503
-        and not is_dataframe_all_numeric(y)  # noqa: E126,W503
-        and not has_skrub  # noqa: E126,W503
+        and len(y.columns) > 0
+        and not is_dataframe_all_numeric(y)
+        and not has_skrub
     ):
         logger.warning("-*-*- y is not numeric and no skrub, dropping non-numeric")
         y2 = y.select_dtypes(include=[np.number])  # type: ignore
@@ -2569,6 +2586,7 @@ class FeatureMixin(ComputeMixin):
         return X, y
 
 
+    @otel_traced("graphistry.featurize", attrs_fn=_featurize_otel_attrs)
     def featurize(
         self,
         kind: str = "nodes",

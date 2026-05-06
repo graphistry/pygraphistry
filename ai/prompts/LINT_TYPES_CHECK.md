@@ -10,7 +10,7 @@ Status: [IN_PROGRESS/COMPLETE/BLOCKED]
 
 ## Instructions for AI Assistant
 
-This template guides systematic code quality checks using flake8 (linting) and mypy (type checking) for PyGraphistry.
+This template guides systematic code quality checks using ruff (linting) and mypy (type checking) for PyGraphistry.
 
 ### Quick Start - Docker Commands
 ```bash
@@ -54,7 +54,7 @@ cd docker && WITH_TYPECHECK=0 WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
 The lint/type check process is **iterative by design**:
 - **Steps 1-2**: Identify issues AND FIX THEM IMMEDIATELY
 - **Step 3**: Verify and decide to iterate or finish
-- **Repeat**: Continue until clean (0 flake8, 0 mypy)
+- **Repeat**: Continue until clean (0 ruff, 0 mypy)
 - **Step 4**: Generate final report and cleanup
 - **Exit**: When clean OR blocked AFTER ATTEMPTING FIXES
 
@@ -75,7 +75,7 @@ The lint/type check process is **iterative by design**:
 
 ## Execution Protocol
 
-### Step 1: Check Lint Issues with flake8
+### Step 1: Check Lint Issues with ruff
 **Started**: [YYYY-MM-DD HH:MM:SS]
 **Command (containerized)**: `cd docker && WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh`
 **Command (direct)**: `./bin/lint.sh` (requires local environment)
@@ -121,7 +121,7 @@ The lint/type check process is **iterative by design**:
 ### Step 2: Type Check with MyPy
 **Started**: [YYYY-MM-DD HH:MM:SS]
 **Command (containerized)**: `cd docker && WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh`
-**Command (direct)**: `./bin/typecheck.sh` (requires local environment)
+**Command (direct)**: `./bin/mypy.sh` (requires local environment)
 **Purpose**: Verify type safety across the codebase
 **Action**: Run and filter results
 
@@ -174,15 +174,15 @@ cd docker && WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
 
 # Or run directly if you have local environment
 # ./bin/lint.sh
-# ./bin/typecheck.sh
+# ./bin/mypy.sh
 ```
 
 **Results**:
-- **Flake8 issues remaining**: [count]
+- **Ruff issues remaining**: [count]
 - **MyPy issues remaining**: [count]
 
 **Decision**:
-- [ ] ✅ **CLEAN** - 0 flake8 issues AND 0 mypy issues (excluding P4/P5) → Go to Step 4
+- [ ] ✅ **CLEAN** - 0 ruff issues AND 0 mypy issues (excluding P4/P5) → Go to Step 4
 - [ ] 🔄 **ITERATE** - P0-P3 issues remain → REPEAT Steps 1-3
 - [ ] 🛑 **BLOCKED** - Cannot fix remaining P0-P3 issues → Document blockers → Go to Step 4
 
@@ -198,7 +198,7 @@ Examples of valid blockers:
 - "Circular import that breaks when fixed"
 - "Third-party library missing type stubs configured in mypy.ini"
 - "Type system limitation requiring major refactor"
-- "Flake8 rule conflicts with project style guide"
+- "Ruff rule conflicts with project style guide"
 
 NOT valid reasons for BLOCKED:
 - "Too many errors" 
@@ -222,7 +222,7 @@ Issues Fixed: [count] ([percentage]%)
 Time Elapsed: [duration]
 
 Summary by Tool:
-- Flake8 issues fixed: [count]
+- Ruff issues fixed: [count]
 - MyPy issues fixed: [count]
 - Remaining issues: [count]
 
@@ -250,20 +250,20 @@ Result: ✅ CLEAN / 🔧 IMPROVED / 🛑 BLOCKED
 - **Current Status**: [count remaining]
 
 **Per-Iteration Progress**:
-| Iteration | Started | Flake8 Fixed | Flake8 Remaining | MyPy Fixed | MyPy Remaining | P4/P5 | Status |
+| Iteration | Started | Ruff Fixed | Ruff Remaining | MyPy Fixed | MyPy Remaining | P4/P5 | Status |
 |-----------|---------|--------------|------------------|------------|----------------|-------|--------|
 | 1         | [time]  | [count]      | [count]          | [count]    | [count]        | [count]| 🔄     |
 | 2         | [time]  | [count]      | [count]          | [count]    | [count]        | [count]| ✅     |
 
 **Total Issues Fixed**:
-- Flake8 issues fixed: [count]
+- Ruff issues fixed: [count]
 - MyPy errors fixed: [count]
 - **P0-P3 remaining**: [count]
 - **P4/P5 ignored**: [count]
 
 ## PyGraphistry-Specific Patterns
 
-### Common Flake8 Fixes
+### Common Ruff Fixes
 ```python
 # E501: Line too long (max 127)
 # Break long lines
@@ -311,7 +311,7 @@ df['new_col'] = values  # Avoid
 
 ### Configuration Reference
 
-**Flake8 Ignored Rules (from bin/lint.sh)**:
+**Ruff Ignored Rules (from pyproject.toml [tool.ruff.lint])**:
 - C901: Function complexity
 - E121-E128: Indentation rules
 - E201-E203: Whitespace around brackets
@@ -328,7 +328,7 @@ df['new_col'] = values  # Avoid
 
 **P4 - Nice to Have (low impact)**:
 - Minor style inconsistencies that don't affect readability
-- Flake8 rules explicitly ignored in bin/lint.sh (E121-E128, etc.)
+- Ruff rules explicitly ignored in pyproject.toml (E121-E128, etc.)
 - MyPy errors in excluded files (tests/, _version.py)
 - Import errors for packages with `ignore_missing_imports = True`
 - Optional type annotations that would add minimal safety benefit
@@ -384,10 +384,10 @@ If you have the dependencies installed locally:
 ```bash
 # From project root
 ./bin/lint.sh
-./bin/typecheck.sh
+./bin/mypy.sh
 
 # For specific files
-flake8 graphistry/embed_utils.py --max-line-length=127
+ruff check graphistry/embed_utils.py
 mypy graphistry/embed_utils.py
 ```
 
@@ -440,17 +440,17 @@ Started: [YYYY-MM-DD HH:MM:SS]
 
 Fixes Applied:
 1. File: [path]
-   - Issue: [flake8/mypy code] - [description]
+   - Issue: [ruff/mypy code] - [description]
    - Fix: [what was changed]
    - Status: ✅ Fixed
 
 2. File: [path]
-   - Issue: [flake8/mypy code] - [description]
+   - Issue: [ruff/mypy code] - [description]
    - Fix: [what was changed]
    - Status: ❌ Failed - [reason]
 
 Verification:
-- Flake8: [count] remaining
+- Ruff: [count] remaining
 - MyPy: [count] remaining
 - Next: [ITERATE/COMPLETE/BLOCKED]
 ```
@@ -467,7 +467,7 @@ Issues Fixed: 23 (100%)
 Time Elapsed: 5 minutes 15 seconds
 
 Summary by Tool:
-- Flake8 issues fixed: 21
+- Ruff issues fixed: 21
 - MyPy issues fixed: 2
 - Remaining issues: 0
 

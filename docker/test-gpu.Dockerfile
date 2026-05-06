@@ -1,9 +1,14 @@
 #NOTE: context is ..
 
-ARG BASE_VERSION=v2.41.0
-ARG CUDA_SHORT_VERSION=11.8
-FROM graphistry/graphistry-nvidia:${BASE_VERSION}-${CUDA_SHORT_VERSION}
+ARG GPU_IMAGE=graphistry/graphistry-nvidia:v2.41.0-11.8
+FROM ${GPU_IMAGE}
 ARG PIP_DEPS="-e .[umap-learn,test,ai]"
+# Supply-chain: reject packages published in the last N days (pip ≥26: --uploaded-prior-to)
+ARG PIP_EXCLUDE_NEWER=6d
+ENV PIP_EXCLUDE_NEWER=${PIP_EXCLUDE_NEWER}
+
+SHELL ["/bin/bash", "-lc"]
+USER root
 
 RUN mkdir /opt/pygraphistry
 WORKDIR /opt/pygraphistry
@@ -13,10 +18,15 @@ COPY README.md setup.py setup.cfg versioneer.py MANIFEST.in ./
 COPY graphistry/_version.py ./graphistry/_version.py
 
 RUN --mount=type=cache,target=/root/.cache \
-    source activate base \
-    && pip list \
+    if command -v conda >/dev/null 2>&1; then \
+        conda_base="$(conda info --base 2>/dev/null || true)"; \
+        if [[ -n "$conda_base" && -f "$conda_base/etc/profile.d/conda.sh" ]]; then source "$conda_base/etc/profile.d/conda.sh" && conda activate base || true; fi; \
+    fi \
+    && python --version \
+    && pip --version \
     && touch graphistry/__init__.py \
     && echo "PIP_DEPS: $PIP_DEPS" \
+    && pip install build \
     && pip install $PIP_DEPS \
     && pip list
 

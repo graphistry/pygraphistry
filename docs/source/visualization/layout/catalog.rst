@@ -35,6 +35,12 @@ Visit the :ref:`PyGraphistry visualization tutorial <10min-viz>`.
     
         g.time_ring_layout('time_col').plot()
 
+.. note::
+   When building layouts via GFQL or other JSON interfaces, provide
+   ``time_start``/``time_end`` as ISO-8601 strings. PyGraphistry converts them
+   to ``numpy.datetime64`` before computing the layout, so the experience matches
+   direct Python usage where you pass Timestamp objects.
+
 .. _cugraph-plugin:
 
 cuGraph Plugin
@@ -84,6 +90,8 @@ Visit the :ref:`API reference on graphviz page <graphviz>` for more examples.
 .. code-block:: python
 
     g.layout_graphviz('dot').plot()
+
+For static image export (SVG, PNG) instead of interactive visualization, see :py:meth:`~graphistry.PlotterBase.PlotterBase.plot_static` and the `static rendering tutorial <../../../demos/demos_databases_apis/graphviz/static_rendering.ipynb>`_.
 
 .. _igraph-plugin:
 

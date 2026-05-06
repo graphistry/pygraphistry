@@ -1,0 +1,76 @@
+name: Workflow Security
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+    paths:
+      - ".github/workflows/**"
+      - ".github/actionlint.yaml"
+      - ".github/zizmor.yml"
+  push:
+    branches:
+      - master
+    paths:
+      - ".github/workflows/**"
+      - ".github/actionlint.yaml"
+      - ".github/zizmor.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  UV_EXCLUDE_NEWER: "6 days"
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download actionlint (latest stable older than cooldown)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COOLDOWN_DAYS: "6"
+        run: |
+          set -euo pipefail
+          cutoff=$(date -u -d "${COOLDOWN_DAYS} days ago" +%s)
+          tag=$(gh api repos/rhysd/actionlint/releases \
+            --jq "[.[] | select(.draft|not) | select(.prerelease|not) | select((.published_at | fromdateiso8601) <= ${cutoff})][0].tag_name")
+          if [ -z "${tag}" ] || [ "${tag}" = "null" ]; then
+            echo "::error::No eligible actionlint release older than ${COOLDOWN_DAYS} days"
+            exit 1
+          fi
+          ver="${tag#v}"
+          asset="actionlint_${ver}_linux_amd64.tar.gz"
+          gh release download "${tag}" --repo rhysd/actionlint --pattern "${asset}" --clobber
+          tar -xzf "${asset}" actionlint
+          chmod +x ./actionlint
+      - name: Run actionlint
+        run: |
+          ./actionlint -shellcheck=
+
+  zizmor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install zizmor
+        run: |
+          python3 -m pip install --disable-pip-version-check --no-cache-dir --no-deps "uv==0.11.3"
+          python3 -m venv .venv-zizmor
+          source .venv-zizmor/bin/activate
+          uv pip install --upgrade zizmor
+      - name: Run zizmor (medium severity gate)
+        # Lowered from `high` to `medium` to enable enforcement of the
+        # `unpinned-uses` provider safelist (see #1130 / #1215). zizmor's
+        # `unpinned-uses` rule emits at medium severity for policy violations.
+        run: |
+          .venv-zizmor/bin/zizmor --format=github --no-progress --config .github/zizmor.yml --min-severity medium .github/workflows/*.yml

@@ -2,6 +2,8 @@
 
 Specialized documentation for AI assistants working on PyGraphistry. These guides supplement the main CLAUDE.md with detailed, topic-specific information.
 
+> **Note:** This directory is for *developing* PyGraphistry. For AI assistants *using* PyGraphistry, see [graphistry-skills](https://github.com/graphistry/graphistry-skills) which provides skills for Claude Code, Cursor, Codex, etc.
+
 ## 🎯 Quick Reference
 
 ### Critical Development Rules
@@ -22,13 +24,21 @@ WITH_BUILD=0 ./test-cpu-local-minimal.sh
 # Run specific tests fast
 WITH_LINT=0 WITH_TYPECHECK=0 WITH_BUILD=0 ./test-cpu-local.sh graphistry/tests/test_file.py
 
+# GPU tests - FAST (reuse base image, no rebuild)
+IMAGE="graphistry/graphistry-nvidia:${APP_BUILD_TAG:-latest}-${CUDA_SHORT_VERSION:-12.8}"
+docker run --rm --gpus all -v "$(pwd)/graphistry:/opt/pygraphistry/graphistry:ro" \
+    $IMAGE pytest /opt/pygraphistry/graphistry/tests/test_file.py -v
+
+# GPU tests - SLOW (full rebuild, use before merge)
+cd docker && ./test-gpu-local.sh
+
 # Validate RST documentation syntax
 ./docs/validate-docs.sh                           # All docs
 ./docs/validate-docs.sh docs/source/gfql/*.rst   # Specific files
 git diff --name-only HEAD -- '*.rst' | xargs ./docs/validate-docs.sh  # Changed files
 
 # Note: Direct script execution requires local environment setup
-# ./bin/lint.sh && ./bin/typecheck.sh
+# ./bin/lint.sh && ./bin/mypy.sh && ./bin/pytest.sh
 ```
 
 ### Performance Must-Haves
@@ -83,11 +93,15 @@ ai/
 │   ├── gpu/                # GPU/CUDA development notes
 │   └── connectors/         # Database connector patterns
 └── prompts/                # Reusable workflow templates
-    ├── PLAN.md                   # Task planning template with strict execution protocol
-    ├── LINT_TYPES_CHECK.md       # Code quality enforcement (with P0-P5)
-    ├── CONVENTIONAL_COMMITS.md   # Git commit workflow with PyGraphistry conventions
-    ├── IMPLEMENTATION_PLAN.md    # [TODO] Feature implementation tracking
-    └── USER_TESTING_PLAYBOOK.md  # [TODO] AI-driven testing workflows
+    ├── PLAN.md                        # Task planning template with strict execution protocol
+    ├── LINT_TYPES_CHECK.md            # Code quality enforcement (with P0-P5)
+    ├── CONVENTIONAL_COMMITS.md        # Git commit workflow with PyGraphistry conventions
+    ├── PYRE_ANALYSIS.md               # Advanced code analysis with pyre-check
+    ├── GFQL_LLM_GUIDE_MAINTENANCE.md  # Process for maintaining GFQL JSON generation guide
+    ├── HOISTIMPORTS.md                # Import hoisting and organization patterns
+    ├── DECOMMENT.md                   # Comment removal and cleanup guidance
+    ├── IMPLEMENTATION_PLAN.md         # [TODO] Feature implementation tracking
+    └── USER_TESTING_PLAYBOOK.md       # [TODO] AI-driven testing workflows
 ```
 
 ## 📖 Usage Guidelines
@@ -129,6 +143,7 @@ When adding a new guide:
 - CPU/GPU fallback handling
 - cuDF vs pandas compatibility
 - **Load when**: Implementing GPU features, optimizing performance
+- [`dgx-spark-testing.md`](docs/gpu/dgx-spark-testing.md): how to sync code and run GFQL/cuDF tests on the shared DGX-Spark GPU machine
 
 ### Connectors
 - Database-specific patterns
@@ -141,9 +156,10 @@ When adding a new guide:
 - **PLAN.md**: Task planning template with strict execution protocol for multi-step work
 - **LINT_TYPES_CHECK.md**: Code quality enforcement with P0-P5 priorities
 - **CONVENTIONAL_COMMITS.md**: Git commit workflow following PyGraphistry conventions
+- **PYRE_ANALYSIS.md**: Advanced code analysis with pyre-check for refactoring and type-aware searching
 - **IMPLEMENTATION_PLAN.md** [TODO]: Systematic feature implementation
 - **USER_TESTING_PLAYBOOK.md** [TODO]: AI-driven testing workflows
-- **Load when**: Starting new tasks, creating commits, fixing code quality issues, planning complex work
+- **Load when**: Starting new tasks, creating commits, fixing code quality issues, planning complex work, refactoring code
 
 ## 🧪 Testing Quick Reference
 
@@ -165,18 +181,65 @@ WITH_BUILD=0 WITH_TEST=0 ./test-cpu-local.sh
 
 # Specific features
 ./test-umap-learn-core.sh  # UMAP embeddings
-./test-dgl.sh              # Graph neural networks  
+./test-dgl.sh              # Graph neural networks
 ./test-embed.sh            # Embedding features
 ```
+
+### GPU Testing - Fast (Reuse Base Image)
+
+Docker containers include: **pytest, mypy, ruff** (preinstalled)
+
+```bash
+# Reuse existing graphistry image (no rebuild)
+IMAGE="graphistry/graphistry-nvidia:${APP_BUILD_TAG:-latest}-${CUDA_SHORT_VERSION:-12.8}"
+
+docker run --rm --gpus all \
+    -v "$(pwd):/workspace:ro" \
+    -w /workspace -e PYTHONPATH=/workspace \
+    $IMAGE pytest graphistry/tests/test_file.py -v
+```
+
+**Fast iteration**: Use this during development
+**Full rebuild**: Use `./docker/test-gpu-local.sh` before merge
 
 ### Environment Control
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `WITH_LINT` | 1 | Run flake8 linting |
+| `WITH_LINT` | 1 | Run ruff linting |
 | `WITH_TYPECHECK` | 1 | Run mypy type checking |
 | `WITH_BUILD` | 0 | Build documentation |
 | `WITH_NEO4J` | 0 | Run Neo4j integration tests |
 | `PYTHON_VERSION` | - | Override Python version |
+
+## 🔍 Code Analysis & Search Tools
+
+### Tool Selection Guide
+
+**Use Grep/Ripgrep for:**
+- Simple text/pattern search
+- Quick file location
+- Initial exploration
+```bash
+grep -r "dataset_id" graphistry/*.py
+rg "_dataset_id" --type py
+```
+
+**Use AST Scripts for:**
+- Custom pattern detection (e.g., "methods that modify attribute X")
+- Fast iteration during development (< 1 second)
+- When pyre is too slow or times out
+```bash
+python3 plans/task_name/analyze_*.py
+```
+
+**Use Pyre for:**
+- Type-aware analysis and refactoring
+- Find-all-references (call graph analysis)
+- Finding all implementations of an interface
+- Complex dependency chain analysis
+- See [prompts/PYRE_ANALYSIS.md](prompts/PYRE_ANALYSIS.md) for detailed guide
+
+**Recommendation**: Start with grep for exploration, use AST scripts for custom analysis, use pyre only when you need type-aware refactoring or call graphs.
 
 ## 🔧 Common Patterns
 
@@ -218,7 +281,7 @@ def process(df: Union[pd.DataFrame, 'cudf.DataFrame']) -> Optional[pd.DataFrame]
 
 ### Before Starting
 1. Read CLAUDE.md for general context
-2. Run baseline: `./bin/lint.sh && ./bin/typecheck.sh`
+2. Run baseline: `./bin/lint.sh && ./bin/mypy.sh`
 3. Load specific guide if needed
 
 ### During Development  
@@ -229,7 +292,17 @@ def process(df: Union[pd.DataFrame, 'cudf.DataFrame']) -> Optional[pd.DataFrame]
 
 ### Before Committing
 1. Run Docker tests: `cd docker && WITH_BUILD=0 ./test-cpu-local.sh`
-2. Update CHANGELOG.md under `## [Development]`
+2. Update CHANGELOG.md under `## [Development]` for user-visible changes:
+   - **Added**: New features, predicates, call methods, API additions
+   - **Fixed**: Bug fixes, breaking changes resolved
+   - **Changed**: Behavior changes, deprecations
+   - **Breaking 🔥**: API changes that require user code updates
+   - **Docs**: Documentation improvements, examples, tutorials
+   - **Infra**: CI/CD, testing infrastructure, build system changes
+   - **Security**: Security fixes and improvements
+   - **Perf**: Performance improvements with benchmarks
+   - Include PR/issue numbers, examples, and impact descriptions
+   - Omit: Internal refactorings, test updates, type-only changes
 3. Use conventional commit: `fix(scope): description` (see `prompts/CONVENTIONAL_COMMITS.md`)
 4. Remove debug code and Claude comments
 

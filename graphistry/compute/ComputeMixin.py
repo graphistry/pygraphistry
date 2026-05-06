@@ -2,16 +2,15 @@ import numpy as np
 import pandas as pd
 from typing import Any, Dict, List, Optional, Union
 from typing_extensions import Literal
-from inspect import getmodule
-
-from graphistry.Engine import Engine, EngineAbstract
+from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, resolve_engine, df_to_engine, df_concat, safe_merge
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
-from .ast import ASTObject
+from .ast import ASTLet, ASTObject
 from .chain import Chain, chain as chain_base
 from .chain_let import chain_let as chain_let_base
 from .gfql_unified import gfql as gfql_base
+from .gfql_validate import gfql_validate as gfql_validate_base
 from .chain_remote import (
     chain_remote as chain_remote_base,
     chain_remote_shape as chain_remote_shape_base
@@ -30,6 +29,75 @@ from .filter_by_dict import (
 )
 
 logger = setup_logger(__name__)
+
+
+def _safe_len(df: Any) -> int:
+    """
+    Safely get length of DataFrame, handling dask_cudf specially to avoid groupby aggregation issues.
+
+    For dask_cudf DataFrames with lazy operations (concat + drop_duplicates), calling len() triggers
+    a compute that can fail with "All requested aggregations are unsupported" error. This function
+    uses an alternative method for dask_cudf.
+
+    WORKAROUND: This is a workaround for dask_cudf limitations with groupby on empty DataFrames.
+    TODO: Remove this function when dask_cudf properly supports len() on DataFrames with lazy operations,
+    or when we materialize all dask_cudf DataFrames eagerly (which may have performance implications).
+    Monitor: https://github.com/rapidsai/dask-cuda/issues and https://github.com/rapidsai/cudf/issues
+    for fixes to groupby aggregation errors on empty DataFrames.
+    """
+    type_module = type(df).__module__
+    if 'dask_cudf' in type_module:
+        try:
+            import dask_cudf
+            if isinstance(df, dask_cudf.DataFrame):
+                try:
+                    partition_lengths = df.map_partitions(len, meta=pd.Series([], dtype='int64'))
+                    total_length = partition_lengths.sum().compute()
+                    return int(total_length)
+                except Exception as e:
+                    logger.warning("Could not compute length for dask_cudf DataFrame via map_partitions: %s", e)
+                    return len(df.compute())
+        except ImportError as e:
+            logger.error("DataFrame type from dask_cudf module but import failed: %s", e)
+            raise
+        except AttributeError as e:
+            logger.error("Imported dask_cudf but attribute error occurred: %s", e)
+            raise
+
+    return len(df)
+
+
+def _coerce_input_formats(g: "Plottable", engine: Engine) -> "Plottable":
+    """Coerce input-format types (Arrow, Spark, dask, Polars) to the target engine.
+
+    Engine.PANDAS: polars/arrow/spark/dask → pandas; cuDF and dask_cudf preserved as GPU compute engines.
+    Engine.CUDF:   polars/arrow/spark/dask/pandas → cuDF; dask_cudf preserved.
+
+    The 'cudf' substring check catches both cudf.core.dataframe and dask_cudf.core —
+    both are GPU compute engines that must not be silently downgraded to pandas.
+    """
+    def _is_already_correct(df: Any) -> bool:
+        type_mod = str(type(df).__module__)
+        if engine == Engine.PANDAS:
+            return isinstance(df, pd.DataFrame) or 'cudf' in type_mod
+        elif engine == Engine.CUDF:
+            from graphistry.utils.lazy_import import lazy_cudf_import
+            has_cudf, _, _ = lazy_cudf_import()
+            if not has_cudf:
+                return True  # cudf unavailable — skip coercion; downstream handles gracefully
+            return 'cudf' in type_mod
+        return True
+
+    if g._edges is not None and not _is_already_correct(g._edges):
+        g = g.edges(df_to_engine(g._edges, engine), g._source, g._destination)
+    if g._nodes is not None and not _is_already_correct(g._nodes):
+        g = g.nodes(df_to_engine(g._nodes, engine), g._node)
+    return g
+
+
+def _coerce_to_pandas(g: "Plottable") -> "Plottable":
+    """Coerce input formats to pandas. Thin wrapper around _coerce_input_formats(g, PANDAS)."""
+    return _coerce_input_formats(g, Engine.PANDAS)
 
 
 class ComputeMixin(Plottable):
@@ -70,28 +138,15 @@ class ComputeMixin(Plottable):
         return g
                 
     def to_pandas(self) -> 'Plottable':
+        """Convert nodes and edges to pandas DataFrames.
+
+        Supports all input types: cuDF, Arrow, Polars, Spark, dask, and pandas (identity).
         """
-        Convert to CPU mode by converting any defined nodes and edges to pandas dataframes
-
-        When nodes or edges are already pandas dataframes, they are left as is"""
-
         g = self.bind()
-        if g._edges is not None:
-            if not isinstance(g._edges, pd.DataFrame):
-                import cudf
-                if isinstance(g._edges, cudf.DataFrame):
-                    g = g.edges(g._edges.to_pandas())
-                else:
-                    raise ValueError('Expected edges to be cudf, got: {}'.format(type(g._edges)))
-                
-        if g._nodes is not None:
-            if not isinstance(g._nodes, pd.DataFrame):
-                import cudf
-                if isinstance(g._nodes, cudf.DataFrame):
-                    g = g.nodes(g._nodes.to_pandas())
-                else:
-                    raise ValueError('Expected nodes to be cudf, got: {}'.format(type(g._nodes)))
-        
+        if g._edges is not None and not isinstance(g._edges, pd.DataFrame):
+            g = g.edges(df_to_engine(g._edges, Engine.PANDAS), g._source, g._destination)
+        if g._nodes is not None and not isinstance(g._nodes, pd.DataFrame):
+            g = g.nodes(df_to_engine(g._nodes, Engine.PANDAS), g._node)
         return g
 
     def materialize_nodes(
@@ -123,80 +178,55 @@ class ComputeMixin(Plottable):
         if isinstance(engine, str):
             engine = EngineAbstract(engine)
 
-        g = self
+        g: Plottable = self
 
-        # Check reuse first - if we have nodes and reuse is True, just return
+        # Resolve target engine from ORIGINAL data BEFORE coercion, then coerce input formats
+        # to that engine. This ensures GPU mode is preserved: polars/arrow/spark/dask are
+        # converted to cuDF (not pandas) when engine='cudf'. The old pattern
+        # (ensure_local_engine_match then _coerce_to_pandas) was wrong for cross-engine scenarios.
+        engine_concrete = resolve_engine(engine, g)
+        g = _coerce_input_formats(g, engine_concrete)
+
         if reuse:
-            if g._nodes is not None and len(g._nodes) > 0:
+            if g._nodes is not None and _safe_len(g._nodes) > 0:
                 if g._node is None:
                     logger.warning(
                         "Must set node id binding, not just nodes; set via .bind() or .nodes()"
                     )
-                    # raise ValueError('Must set node id binding, not just nodes; set via .bind() or .nodes()')
                 else:
                     return g
 
-        # Only check for edges if we actually need to materialize
         if g._edges is None:
-            # If no edges but we have nodes via reuse, that's OK
-            if reuse and g._nodes is not None and len(g._nodes) > 0:
+            if reuse and g._nodes is not None and _safe_len(g._nodes) > 0:
                 return g
             raise ValueError("Missing edges")
         if g._source is None or g._destination is None:
             raise ValueError(
                 "Missing source/destination bindings; set via .bind() or .edges()"
             )
-        if len(g._edges) == 0:
+        if _safe_len(g._edges) == 0:
             return g
-        # TODO use built-ins for igraph/nx/...
 
         node_id = g._node if g._node is not None else "id"
-        engine_concrete : Engine
-        if engine == EngineAbstract.AUTO:
-            if isinstance(g._edges, pd.DataFrame):
-                engine_concrete = Engine.PANDAS
-            else:
-
-                def raiser(df: Any):
-                    raise ValueError('Could not determine engine for edges, expected pandas or cudf dataframe, got: {}'.format(type(df)))
-
-                try:
-                    if 'cudf' in str(getmodule(g._edges)):
-                        import cudf
-                        if isinstance(g._edges, cudf.DataFrame):
-                            engine_concrete = Engine.CUDF
-                        else:
-                            raiser(g._edges)
-                    else:
-                        raiser(g._edges)
-                except ImportError as e:
-                    raise e
-                except Exception:
-                    raiser(g._edges)
-
-        else:
-            engine_concrete = Engine(engine.value)
-
-        if engine_concrete == Engine.PANDAS:
-            concat_df = pd.concat([g._edges[g._source], g._edges[g._destination]])
-        elif engine_concrete == Engine.CUDF:
-            import cudf
-            if isinstance(g._edges, cudf.DataFrame):
-                edges_gdf = g._edges
-            elif isinstance(g._edges, pd.DataFrame):
-                edges_gdf = cudf.from_pandas(g._edges)
-            else:
-                raise ValueError('Unexpected edges type; convert edges to cudf.DataFrame')
-            concat_df = cudf.concat([edges_gdf[g._source].rename(node_id), edges_gdf[g._destination].rename(node_id)])
-        else:
-            raise ValueError('Expected engine to be pandas or cudf, got: {}'.format(engine_concrete))
+        concat_fn = df_concat(engine_concrete)
+        concat_df = concat_fn([g._edges[g._source], g._edges[g._destination]])
         nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)
         return g.nodes(nodes_df, node_id)
 
     def get_indegrees(self, col: str = "degree_in"):
         """See get_degrees"""
-        g = self
-        g_nodes = g.materialize_nodes()
+        engine_concrete = resolve_engine(EngineAbstract.AUTO, self)
+        g = _coerce_input_formats(self, engine_concrete)
+        g_nodes = g.materialize_nodes(engine=engine_concrete.value)
+
+        if _safe_len(g._edges) == 0:
+            if col not in g_nodes._nodes.columns:
+                nodes_df = g_nodes._nodes.assign(**{col: 0})
+                nodes_df = nodes_df.assign(**{col: nodes_df[col].astype("int32")})
+            else:
+                nodes_df = g_nodes._nodes.copy()
+            return g.nodes(nodes_df, g_nodes._node)
+
         in_degree_df = (
             g._edges[[g._source, g._destination]]
             .groupby(g._destination)
@@ -204,9 +234,11 @@ class ComputeMixin(Plottable):
             .reset_index()
             .rename(columns={g._source: col, g._destination: g_nodes._node})
         )
-        nodes_df = g_nodes._nodes[
+
+        nodes_subset = g_nodes._nodes[
             [c for c in g_nodes._nodes.columns if c != col]
-        ].merge(in_degree_df, how="left", on=g._node)
+        ]
+        nodes_df = safe_merge(nodes_subset, in_degree_df, on=g_nodes._node, how='left')
         nodes_df = nodes_df.assign(**{
             col: nodes_df[col].fillna(0).astype("int32")
         })
@@ -214,7 +246,8 @@ class ComputeMixin(Plottable):
 
     def get_outdegrees(self, col: str = "degree_out"):
         """See get_degrees"""
-        g = self
+        engine_concrete = resolve_engine(EngineAbstract.AUTO, self)
+        g = _coerce_input_formats(self, engine_concrete)
         g2 = g.edges(
             g._edges.rename(
                 columns={g._source: g._destination, g._destination: g._source}
@@ -248,7 +281,7 @@ class ComputeMixin(Plottable):
         """
         g = self
         g2 = g.get_indegrees(degree_in).get_outdegrees(degree_out)
-        g2._nodes[col] = g2._nodes["degree_in"] + g2._nodes["degree_out"]
+        g2._nodes[col] = g2._nodes[degree_in] + g2._nodes[degree_out]
         return g2
 
     def drop_nodes(self, nodes):
@@ -287,7 +320,6 @@ class ComputeMixin(Plottable):
         """
         g = self.materialize_nodes()
 
-        #convert to Dict[Str, Union[Series, List-like]]
         if isinstance(nodes, dict):
             pass
         elif isinstance(nodes, np.ndarray) or isinstance(nodes, list):
@@ -301,28 +333,18 @@ class ComputeMixin(Plottable):
                     nodes = {g._node: nodes.to_numpy()}
                 else:
                     raise ValueError('Unexpected nodes type: {}'.format(type(nodes)))
-        #convert to Dict[Str, List-like]
-        #print('nodes mid', nodes)
         nodes = {
             k: v if isinstance(v, np.ndarray) or isinstance(v, list) else v.to_numpy()
             for k, v in nodes.items()
         }
 
-        #print('self nodes', g._nodes)
-        #print('pre nodes', nodes)
-        #print('keys', list(nodes.keys()))
         hits = g._nodes[list(nodes.keys())].isin(nodes)
-        #print('hits', hits)
         hits_s = hits[g._node]
         for c in hits.columns:
             if c != g._node:
                 hits_s = hits_s & hits[c]
-        #print('hits_s', hits_s)
         new_nodes = g._nodes[hits_s]
-        #print(new_nodes)
         new_node_ids = new_nodes[g._node].to_numpy()
-        #print('new_node_ids', new_node_ids)
-        #print('new node_ids', type(new_node_ids), len(g._nodes), '->', len(new_node_ids))
         new_edges_hits_df = (
             g._edges[[g._source, g._destination]]
             .isin({
@@ -330,12 +352,9 @@ class ComputeMixin(Plottable):
                 g._destination: new_node_ids
             })
         )
-        #print('new_edges_hits_df', new_edges_hits_df)
         new_edges = g._edges[
             new_edges_hits_df[g._source] & new_edges_hits_df[g._destination]
         ]
-        #print('new_edges', new_edges)
-        #print('new edges', len(g._edges), '->', len(new_edges))
         return g.nodes(new_nodes).edges(new_edges)
 
     def get_topological_levels(
@@ -361,11 +380,10 @@ class ComputeMixin(Plottable):
         g2._nodes.info()  # pd.DataFrame with | 'id' , 'level' |
 
         """
-
         g2_base = self.materialize_nodes()
 
         g2 = g2_base
-        if (g2._nodes is None) or (len(g2._nodes) == 0):
+        if (g2._nodes is None) or (_safe_len(g2._nodes) == 0):
             return g2
 
         g2 = g2.edges(g2._edges.drop_duplicates([g2._source, g2._destination]))
@@ -375,7 +393,7 @@ class ComputeMixin(Plottable):
 
         nodes_with_levels: List[Any] = []
         while True:
-            if len(g2._nodes) == 0:
+            if _safe_len(g2._nodes) == 0:
                 break
             g2 = g2.get_degrees()
 
@@ -385,7 +403,6 @@ class ComputeMixin(Plottable):
                     raise ValueError(
                         "Cyclic graph in get_topological_levels(); remove cycles or set allow_cycles=True"
                     )
-                # tie break by picking biggest node
                 max_degree = g2._nodes["degree"].max()
                 roots = g2._nodes[g2._nodes["degree"] == max_degree][:1]
                 if warn_cycles:
@@ -408,17 +425,17 @@ class ComputeMixin(Plottable):
             g2 = g2.drop_nodes(roots[g2._node])
         nodes_df0 = nodes_with_levels[0]
         if len(nodes_with_levels) > 1:
-            nodes_df = pd.concat([nodes_df0] + nodes_with_levels[1:])
+            engine = resolve_engine(EngineAbstract.AUTO, nodes_df0)
+            concat_fn = df_concat(engine)
+            nodes_df = concat_fn([nodes_df0] + nodes_with_levels[1:])
         else:
             nodes_df = nodes_df0
 
         if self._nodes is None:
             return self.nodes(nodes_df)
         else:
-            # use orig cols, esp. in case collisions like degree
-            out_df = g2_base._nodes.merge(
-                nodes_df[[g2_base._node, level_col]], on=g2_base._node, how="left"
-            )
+            levels_df = nodes_df[[g2_base._node, level_col]]
+            out_df = safe_merge(g2_base._nodes, levels_df, on=g2_base._node, how='left')
             return self.nodes(out_df)
 
     def prune_self_edges(self):
@@ -449,7 +466,6 @@ class ComputeMixin(Plottable):
         :returns:A new Graphistry instance with nodes and edges DataFrame containing collapsed nodes and edges given by column attribute -- nodes and edges DataFrames contain six new columns `collapse_{node | edges}` and `final_{node | edges}`, while original (node, src, dst) columns are left untouched
         :rtype: Plottable
         """
-        # TODO FIXME CHECK SELF LOOPS?
         return collapse_by(
             self,
             start_node=node,
@@ -487,21 +503,15 @@ class ComputeMixin(Plottable):
             stacklevel=2
         )
         return chain_base(self, *args, **kwargs)
-    # Preserve original docstring after deprecation notice
     chain.__doc__ = (chain.__doc__ or "") + "\n\n" + (chain_base.__doc__ or "")
-
-    # chain_let removed from public API - use gfql() instead
-    # (chain_let_base still available internally for gfql dispatch)
-    
-    # Commented out to remove from public API - use gfql() instead
-    # def chain_let(self, *args, **kwargs):
-    #     """Execute a DAG of named graph operations with dependency resolution."""
-    #     return chain_let_base(self, *args, **kwargs)
-    # chain_let.__doc__ = chain_let_base.__doc__
     
     def gfql(self, *args, **kwargs):
         return gfql_base(self, *args, **kwargs)
     gfql.__doc__ = gfql_base.__doc__
+
+    def gfql_validate(self, *args, **kwargs):
+        return gfql_validate_base(self, *args, **kwargs)
+    gfql_validate.__doc__ = gfql_validate_base.__doc__
 
     def chain_remote(self, *args, **kwargs) -> Plottable:
         """
@@ -515,7 +525,6 @@ class ComputeMixin(Plottable):
             stacklevel=2
         )
         return chain_remote_base(self, *args, **kwargs)
-    # Preserve original docstring after deprecation notice
     chain_remote.__doc__ = (chain_remote.__doc__ or "") + "\n\n" + (chain_remote_base.__doc__ or "")
 
     def chain_remote_shape(self, *args, **kwargs) -> pd.DataFrame:
@@ -530,12 +539,11 @@ class ComputeMixin(Plottable):
             stacklevel=2
         )
         return chain_remote_shape_base(self, *args, **kwargs)
-    # Preserve original docstring after deprecation notice
     chain_remote_shape.__doc__ = (chain_remote_shape.__doc__ or "") + "\n\n" + (chain_remote_shape_base.__doc__ or "")
 
     def gfql_remote(
         self,
-        chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]],
+        chain: Union[Chain, List[ASTObject], ASTLet, Dict[str, JSONVal], str],
         api_token: Optional[str] = None,
         dataset_id: Optional[str] = None,
         output_type: OutputTypeGraph = "all",
@@ -543,40 +551,59 @@ class ComputeMixin(Plottable):
         df_export_args: Optional[Dict[str, Any]] = None,
         node_col_subset: Optional[List[str]] = None,
         edge_col_subset: Optional[List[str]] = None,
-        engine: Optional[Literal["pandas", "cudf"]] = None,
+        engine: EngineAbstractType = 'auto',
         validate: bool = True,
-        persist: bool = False
+        persist: bool = False,
+        params: Optional[Dict[str, Any]] = None,
+        output: Optional[str] = None,
     ) -> Plottable:
         """Run GFQL query remotely.
 
-        This is the remote execution version of :meth:`gfql`. It supports both simple chains
-        and complex DAG patterns with Let bindings, including transformations like hypergraph.
+        This is the remote execution version of :meth:`gfql`. It supports chains,
+        Let/DAG patterns, and Cypher strings.
 
-        Example:
-            # Remote hypergraph transformation
-            hg = g.gfql_remote(call('hypergraph', {'entity_types': ['user', 'product']}))
+        The query is compiled locally and sent to the server as wire-protocol
+        JSON. A ``gfql_query`` field carries the full typed envelope (including
+        WHERE clauses); ``gfql_operations`` carries a flat array for backward
+        compatibility with older servers.
 
-            # Or using typed builder
-            from graphistry.compute import hypergraph
-            hg = g.gfql_remote(hypergraph(entity_types=['user', 'product']))
+        :param chain: GFQL query — Chain, List[ASTObject], ASTLet, Dict, or
+            Cypher string (compiled locally before sending).
+        :param params: Optional parameter dict for Cypher string queries
+            (e.g., ``params={"val": 10}`` for ``$val`` references).
 
-        See :meth:`chain_remote` for detailed documentation (chain_remote is deprecated).
+        Example::
+
+            # Chain (existing)
+            g.gfql_remote([n(), e(), n()])
+
+            # Cypher string with params
+            g.gfql_remote(
+                "MATCH (n) WHERE n.score > $cutoff RETURN n",
+                params={"cutoff": 10},
+            )
+
+            # GRAPH constructor
+            g.gfql_remote("GRAPH { MATCH (a)-[r]->(b) WHERE a.score > 5 }")
+
+        See :meth:`chain_remote` for additional parameter documentation.
         """
         return chain_remote_base(
             self, chain, api_token, dataset_id, output_type, format,
-            df_export_args, node_col_subset, edge_col_subset, engine, validate, persist
+            df_export_args, node_col_subset, edge_col_subset, engine, validate, persist,
+            params=params, output=output,
         )
     
     def gfql_remote_shape(
         self,
-        chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]],
+        chain: Union[Chain, List[ASTObject], ASTLet, Dict[str, JSONVal], str],
         api_token: Optional[str] = None,
         dataset_id: Optional[str] = None,
         format: Optional[FormatType] = None,
         df_export_args: Optional[Dict[str, Any]] = None,
         node_col_subset: Optional[List[str]] = None,
         edge_col_subset: Optional[List[str]] = None,
-        engine: Optional[Literal["pandas", "cudf"]] = None,
+        engine: EngineAbstractType = 'auto',
         validate: bool = True,
         persist: bool = False
     ) -> pd.DataFrame:

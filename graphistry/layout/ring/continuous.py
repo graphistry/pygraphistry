@@ -2,7 +2,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 import numpy as np
 import pandas as pd
 
-from graphistry.Engine import EngineAbstract, resolve_engine
+from graphistry.Engine import EngineAbstract, EngineAbstractType, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.layout.ring.util import polar_to_xy
 
@@ -78,7 +78,7 @@ def ring_continuous(
     format_labels: Optional[Callable[[float, int, float], str]] = None,
     reverse: bool = False,
     play_ms: int = 0,
-    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO
+    engine: EngineAbstractType = EngineAbstract.AUTO
 ) -> Plottable:
 
     """Radial graph layout where nodes are positioned based on a numeric-typed column ring_col
@@ -106,7 +106,7 @@ def ring_continuous(
     :format_label: Optional[Callable[[float, int, float], str]] Optional transform function to format axis label text based on axis value, ring number, and ring width
     :reverse: bool Reverse the direction of the rings
     :play_ms: int initial layout time in milliseconds, default 2000
-    :engine: Union[EngineAbstract, str], default EngineAbstract.AUTO, pick CPU vs GPU engine via 'auto', 'pandas', 'cudf' 
+    :engine: EngineAbstractType, default EngineAbstract.AUTO, pick CPU vs GPU engine via 'auto', 'pandas', 'cudf' 
 
     :returns: Plotter
     :rtype: Plotter

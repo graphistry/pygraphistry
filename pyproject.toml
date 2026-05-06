@@ -1,0 +1,75 @@
+# Ruff linter configuration — replaces flake8 (see issue #466)
+# NOTE: Build config remains in setup.py / setup.cfg (versioneer constraint).
+
+[tool.ruff]
+target-version = "py38"          # match setup.py python_requires
+line-length = 127                # match previous flake8 --max-line-length
+
+exclude = [
+    "graphistry/graph_vector_pb2.py",
+    "graphistry/_version.py",
+    "versioneer.py",
+]
+
+[tool.ruff.lint]
+# --- Rule selection --------------------------------------------------------
+# Enable the same rule families flake8 checked:
+#   E/W = pycodestyle   F = pyflakes   C90 = mccabe
+select = ["E", "W", "F", "C90"]
+
+# --- Ignored rules ---------------------------------------------------------
+# Carried over from the old flake8 --ignore list.
+#
+# Codes NOT ported (no ruff equivalents):
+#   E121, E122, E123, E124, E125, E128, E131 — indentation/continuation
+#       rules that ruff does not implement (ruff delegates formatting to
+#       ruff-format or black).
+#   E144 — non-standard flake8 code, no ruff equivalent.
+#   W503 — line break before binary operator; PEP 8 reversed its stance
+#       and ruff does not enforce this.
+ignore = [
+    # --- mccabe ---------------------------
+    "C901",    # function too complex
+
+    # --- whitespace (preview) -------------
+    "E201",    # whitespace after '('
+    "E202",    # whitespace before ')'
+    "E203",    # whitespace before ':' / ',' / ';'
+    "E231",    # missing whitespace after ',' / ';' / ':'
+    "E251",    # unexpected spaces around keyword / parameter default
+
+    # --- comments (preview) ---------------
+    "E265",    # block comment should start with '# '
+
+    # --- blank lines (preview) ------------
+    "E301",    # expected 1 blank line before a nested definition
+    "E302",    # expected 2 blank lines before a function / class definition
+    "E303",    # too many blank lines
+
+    # --- imports --------------------------
+    "E401",    # multiple imports on one line
+    "E402",    # module import not at top of file (conditional imports)
+    "F401",    # module imported but unused
+
+    # --- line length ----------------------
+    "E501",    # line too long (handled by line-length setting as backstop)
+
+    # --- comparison style -----------------
+    # Ruff finds these but flake8 did not flag them; ignore for parity.
+    # Consider enabling in a follow-up (95 auto-fixable occurrences).
+    "E713",    # test for membership should be 'not in x'
+    "E714",    # test for object identity should be 'is not'
+
+    # --- naming ---------------------------
+    "E741",    # ambiguous variable name (e.g. 'l')
+
+    # --- bare except ----------------------
+    "E722",    # do not use bare 'except'
+
+    # --- trailing whitespace --------------
+    "W291",    # trailing whitespace
+    "W293",    # whitespace before a comment
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10              # match previous flake8 --max-complexity

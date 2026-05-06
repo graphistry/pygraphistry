@@ -2,8 +2,9 @@
 # Like hypergraph(); adds engine = 'pandas' | 'cudf' | 'dask' | 'dask-cudf'
 #
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
-from .Engine import Engine, DataframeLike, DataframeLocalLike
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing_extensions import Literal
+from .Engine import Engine, EngineAbstractType, DataframeLike, DataframeLocalLike, resolve_engine, df_to_engine
 import numpy as np, pandas as pd, pyarrow as pa, sys
 from .util import setup_logger
 logger = setup_logger(__name__)
@@ -78,8 +79,8 @@ def make_reverse_lookup(categories):
 def coerce_col_safe(s, to_dtype):
     if s.dtype.name == to_dtype.name:
         return s
-    if to_dtype.name == 'int64':
-        return s.fillna(0).astype('int64')
+    if to_dtype.name in ['int64', 'int32']:
+        return s.fillna(0).astype(to_dtype.name)
     if to_dtype.name == 'timedelta64[ns]':
         return s.fillna(np.datetime64('NAT')).astype(str)
     logger.debug('CEORCING %s :: %s -> %s', s.name, s.dtype, to_dtype)
@@ -292,6 +293,20 @@ def series_cons(engine: Engine, arr: List, dtype='int32', npartitions=None, chun
 
 
 def mt_series(engine: Engine, dtype='int32'):
+    """Create empty Series for given engine with proper dtype handling"""
+    # Special case: dask/dask_cudf cannot be constructed directly, must wrap base engine
+    if engine == Engine.DASK:
+        import dask.dataframe
+        # Dask Series requires wrapping a pandas Series first
+        return dask.dataframe.from_pandas(pd.Series([], dtype=dtype), npartitions=1).astype(dtype)
+
+    if engine == Engine.DASK_CUDF:
+        import cudf, dask_cudf
+        # Dask-cudf Series requires wrapping a cudf Series first
+        gs = cudf.Series([], dtype=dtype)
+        return dask_cudf.from_cudf(gs, npartitions=1).astype(dtype)
+
+    # Standard case: pandas, cudf, and any future engines that support direct construction
     cons = get_series_cons(engine)
     return cons([], dtype=dtype)
 
@@ -436,8 +451,8 @@ def format_hyperedges(
             ([x for x in events.columns.tolist() if not x == defs.node_type] 
                 if not drop_edge_attrs 
                 else [])
-            + [defs.edge_type, defs.attrib_id, defs.event_id]  # noqa: W503
-            + ([defs.category] if is_using_categories else []) ))  # noqa: W503
+            + [defs.edge_type, defs.attrib_id, defs.event_id]
+            + ([defs.category] if is_using_categories else []) ))
         if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
             #subframes = [df.persist() for df in subframes]
             for df in subframes:
@@ -498,11 +513,11 @@ def format_direct_edges(
 
     if len(subframes):
         result_cols = list(set(
-            ([x for x in events.columns.tolist() if not x == defs.node_type] 
-                if not drop_edge_attrs 
+            ([x for x in events.columns.tolist() if not x == defs.node_type]
+                if not drop_edge_attrs
                 else [])
-            + [defs.edge_type, defs.source, defs.destination, defs.event_id]  # noqa: W503
-            + ([defs.category] if is_using_categories else []) ))  # noqa: W503
+            + [defs.edge_type, defs.source, defs.destination, defs.event_id]
+            + ([defs.category] if is_using_categories else []) ))
         if debug and (engine in [Engine.DASK, Engine.DASK_CUDF]):
             # subframes = [ df.persist() for df in subframes ]
             for df in subframes:
@@ -514,7 +529,34 @@ def format_direct_edges(
             logger.debug('////format_direct_edges')
         return out
     else:
-        return events[:0][[]]
+        # No edges to create (e.g., single entity type with direct=True)
+        # Return empty DataFrame with proper column structure for downstream operations
+        logger.warning(
+            'hypergraph(direct=True) created no edges for entity_types=%s. '
+            'Direct mode with a single entity type produces nodes without edges. '
+            'This is valid but downstream operations like get_degrees() will find no edge data.',
+            [k for k in edge_shape.keys()]
+        )
+
+        # Build result_cols same way as when subframes exist
+        result_cols = list(set(
+            ([x for x in events.columns.tolist() if not x == defs.node_type]
+                if not drop_edge_attrs
+                else [])
+            + [defs.edge_type, defs.source, defs.destination, defs.event_id]
+            + ([defs.category] if is_using_categories else []) ))
+
+        # Create empty pandas DataFrame with correct column structure, then convert to target engine
+        # This pattern works across all engines (pandas, cudf, dask, dask_cudf)
+        empty_pdf = pd.DataFrame({col: pd.Series([], dtype='object') for col in result_cols})
+
+        # Convert to target engine if needed
+        if engine == Engine.PANDAS:
+            return empty_pdf
+        else:
+            # For dask/cudf engines, use df_coercion to properly convert
+            result = df_coercion(empty_pdf, engine, npartitions=1)
+            return result
 
 
 def format_hypernodes(events, defs, drop_na):
@@ -705,6 +747,7 @@ class Hypergraph():
             self.nodes = self.nodes.persist()
             self.nodes.compute()
             logger.debug('////Hypergraph nodes')
+
         self.graph = (g
             .edges(edges, source, destination)
             .nodes(self.nodes, defs.node_id)
@@ -713,16 +756,18 @@ class Hypergraph():
 
 def hypergraph(
     g,
-    raw_events: DataframeLike, 
+    raw_events: Optional[DataframeLike] = None,
     entity_types: Optional[List[str]] = None,
     opts: dict = {},
     drop_na: bool = True,
     drop_edge_attrs: bool = False,
     verbose: bool = True,
     direct: bool = False,
-    engine: str = 'pandas',  # see Engine for valid values
+    engine: EngineAbstractType = 'auto',
     npartitions: Optional[int] = None,
     chunksize: Optional[int] = None,
+    from_edges: bool = False,
+    return_as: Literal['graph', 'all', 'entities', 'events', 'edges', 'nodes'] = 'graph',
     debug: bool = False
 ) -> Hypergraph:
     """
@@ -733,11 +778,49 @@ def hypergraph(
     # TODO: String -> categorical
     # TODO: col_name column can be prohibitively wide & sparse: drop / warning?
 
+    # Smart parameter detection: Allow list as second param (convenience) or explicit dataframe
+    # Supports both: hypergraph(g, df, ['cols']) and hypergraph(g, ['cols'])
+    if raw_events is not None and isinstance(raw_events, list):
+        # Convenience: second param is entity_types list, auto-select dataframe from graph
+        entity_types = raw_events
+        raw_events = None
+
+    # Handle from_edges parameter or auto-select dataframe from graph if not provided
+    if raw_events is None:
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        if from_edges:
+            # Use edges dataframe as input
+            if g._edges is None or len(g._edges) == 0:
+                raise GFQLTypeError(
+                    ErrorCode.E105,
+                    "Hypergraph from_edges=True requires edges data",
+                    field="edges",
+                    value="None or empty",
+                    suggestion="Ensure graph has edges before calling hypergraph with from_edges=True"
+                )
+            raw_events = g._edges
+        else:
+            # Use nodes dataframe as input (default behavior)
+            if g._nodes is None or len(g._nodes) == 0:
+                raise GFQLTypeError(
+                    ErrorCode.E105,
+                    "Hypergraph requires nodes data",
+                    field="nodes",
+                    value="None or empty",
+                    suggestion="Ensure graph has nodes before calling hypergraph"
+                )
+            raw_events = g._nodes
+
     engine_resolved : Engine
     if not isinstance(engine, Engine):
-        engine_resolved = getattr(Engine, str(engine).upper())  # type: ignore
+        # Use raw_events to detect engine type since g may be a class (PyGraphistry) not a Plottable
+        engine_resolved = resolve_engine(engine, raw_events)
     else:
         engine_resolved = engine
+    # Coerce input-format types (Arrow, Spark, Polars, dask) to the resolved engine's native type
+    if raw_events is not None and engine_resolved == Engine.PANDAS and not isinstance(raw_events, pd.DataFrame):
+        raw_events = df_to_engine(raw_events, Engine.PANDAS)
+
     defs = HyperBindings(**opts)
     entity_types = [i for i in screen_entities(raw_events, entity_types, defs) if i != defs.event_id]
     events = clean_events(raw_events, defs, dropna=drop_na, engine=engine_resolved, npartitions=npartitions, chunksize=chunksize, debug=debug)  # type: ignore
@@ -753,6 +836,7 @@ def hypergraph(
         event_entities = df_coercion(mt_nodes(defs, events, entity_types, direct, engine_resolved), engine_resolved, npartitions=1)
         if debug:
             logger.debug('mt event_entities: %s', event_entities.dtypes)
+
         edges = format_direct_edges(engine_resolved, events, entity_types, defs, edge_shape, drop_na, drop_edge_attrs, debug)
     else:        
         event_entities = format_hypernodes(events, defs, drop_na)

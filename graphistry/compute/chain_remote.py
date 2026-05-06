@@ -1,21 +1,124 @@
 from inspect import getmodule
 from io import BytesIO
-from typing import Any, Dict, List, Optional, Union
-from typing_extensions import Literal
+from typing import Any, Dict, List, Optional, Sequence, Union
+from typing_extensions import Literal, Protocol, TypeGuard
+import json
 import pandas as pd
 import requests
+import uuid
+import warnings
 import zipfile
 
+from graphistry.Engine import Engine, EngineAbstractType, resolve_engine
 from graphistry.Plottable import Plottable
-from graphistry.compute.ast import ASTObject
+from graphistry.client_session import DatasetInfo
+from graphistry.compute.ast import ASTLet, ASTObject
 from graphistry.compute.chain import Chain
+from graphistry.compute.gfql.cypher.lowering import compile_cypher_query
+from graphistry.compute.gfql.cypher.parser import parse_cypher
+from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
+from graphistry.io.metadata import deserialize_plottable_metadata
 from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType, output_types_graph
 from graphistry.utils.json import JSONVal
+from graphistry.otel import inject_trace_headers
+
+
+class CompiledProcedureCallLike(Protocol):
+    procedure: str
+    call_params: Optional[Dict[str, Any]]
+
+
+class CompiledBindingLike(Protocol):
+    name: str
+    chain: Chain
+    procedure_call: Optional[CompiledProcedureCallLike]
+    use_ref: Optional[str]
+
+
+class CompiledQueryLike(Protocol):
+    chain: Chain
+    graph_bindings: Sequence[CompiledBindingLike]
+    procedure_call: Optional[CompiledProcedureCallLike]
+    use_ref: Optional[str]
+
+
+class CompiledUnionLike(Protocol):
+    branches: Sequence[Any]
+
+
+def _has_attrs(obj: Any, *names: str) -> bool:
+    return all(hasattr(obj, name) for name in names)
+
+
+def _is_compiled_union_query_shape(compiled: Any) -> TypeGuard[CompiledUnionLike]:
+    return _has_attrs(compiled, "branches") and not _has_attrs(compiled, "chain")
+
+
+def _is_compiled_query_shape(compiled: Any) -> TypeGuard[CompiledQueryLike]:
+    return _has_attrs(compiled, "chain", "graph_bindings", "procedure_call", "use_ref")
+
+
+def _step_to_json(
+    chain: Chain,
+    procedure_call: Optional[CompiledProcedureCallLike],
+    use_ref: Optional[str],
+) -> Dict[str, Any]:
+    """Serialize one graph-pipeline step (binding or final clause) to wire format."""
+    if procedure_call is not None:
+        if not _has_attrs(procedure_call, "procedure"):
+            raise TypeError(
+                "Compiled procedure call must provide `procedure` for remote serialization. "
+                f"Got {type(procedure_call)}"
+            )
+        call_params = getattr(procedure_call, "call_params", None)
+        val: Dict[str, Any] = {
+            "type": "Call",
+            "function": procedure_call.procedure,
+            "params": dict(call_params) if call_params else {},
+        }
+    else:
+        val = chain.to_json()
+    if use_ref is not None:
+        return {"type": "Ref", "ref": use_ref, "chain": val.get('chain', [val])}
+    return val
+
+
+def _compiled_to_let_json(compiled: CompiledQueryLike) -> Dict[str, Any]:
+    """Convert a structural compiled query with graph_bindings to Let wire format."""
+    bindings: Dict[str, Any] = {
+        b.name: _step_to_json(b.chain, b.procedure_call, b.use_ref)
+        for b in compiled.graph_bindings
+    }
+    bindings["__result__"] = _step_to_json(compiled.chain, compiled.procedure_call, compiled.use_ref)
+    return {"type": "Let", "bindings": bindings}
+
+
+def _refresh_url_from_dataset_id(g: Plottable) -> None:
+    dataset_id = getattr(g, "_dataset_id", None)
+    if not isinstance(dataset_id, str) or dataset_id == "":
+        return
+    info: DatasetInfo = {
+        "name": dataset_id,
+        "type": "arrow",
+        "viztoken": str(uuid.uuid4()),
+    }
+    g._url = g._pygraphistry._viz_url(info, g._url_params)
+
+
+def _apply_persist_axis_defaults(g: Plottable) -> None:
+    from graphistry.validate import apply_axis_url_defaults
+
+    merged = apply_axis_url_defaults(
+        getattr(g, "_url_params", None),
+        getattr(g, "_complex_encodings", None),
+    )
+    if isinstance(merged, dict):
+        g._url_params = merged
 
 
 def chain_remote_generic(
     self: Plottable,
-    chain: Union[Chain, Dict[str, JSONVal], List[Any]],
+    chain: Union[Chain, Dict[str, JSONVal], List[Any], 'ASTLet', str],
     api_token: Optional[str] = None,
     dataset_id: Optional[str] = None,
     output_type: OutputTypeGraph = "all",
@@ -23,29 +126,27 @@ def chain_remote_generic(
     df_export_args: Optional[Dict[str, Any]] = None,
     node_col_subset: Optional[List[str]] = None,
     edge_col_subset: Optional[List[str]] = None,
-    engine: Optional[Literal["pandas", "cudf"]] = None,
+    engine: EngineAbstractType = 'auto',
     validate: bool = True,
-    persist: bool = False
+    persist: bool = False,
+    params: Optional[Dict[str, Any]] = None,
+    output: Optional[str] = None,
 ) -> Union[Plottable, pd.DataFrame]:
 
     if not api_token:
         self._pygraphistry.refresh()
         api_token = self.session.api_token
 
-    if not dataset_id:
-        dataset_id = self._dataset_id
-
-    if not dataset_id:
-        self = self.upload(validate=validate)
-        dataset_id = self._dataset_id
-
     if output_type not in output_types_graph:
         raise ValueError(f"Unknown output_type, expected one of {output_types_graph}, got: {output_type}")
-    
-    if not dataset_id:
-        raise ValueError("Missing dataset_id; either pass in, or call on g2=g1.plot(render='g') in api=3 mode ahead of time")
 
-    assert (engine is None) or engine in ["pandas", "cudf"], f"engine should be None, 'pandas', or 'cudf', got: {engine}" 
+    # Resolve engine: auto -> pandas/cudf based on graph DataFrame type
+    engine_resolved = resolve_engine(engine, self)
+    if engine_resolved not in [Engine.PANDAS, Engine.CUDF]:
+        raise ValueError(f"Remote GFQL only supports 'pandas' or 'cudf' engines (or 'auto' which resolves to one of them). "
+                       f"Got engine='{engine}' which resolved to '{engine_resolved.value}'. "
+                       f"Dask engines are not supported for remote execution.")
+    engine_str = engine_resolved.value 
 
     if format is None:
         if output_type == "shape":
@@ -58,21 +159,82 @@ def chain_remote_generic(
         raise ValueError(f"persist=True is not supported with output_type='{output_type}'. "
                         f"Use output_type='all' for persistence support.")
 
-    if isinstance(chain, Chain):
+    # --- Input normalization ---
+    # Produces: chain_json (wire-format dict) + is_let (bool)
+    is_let = False
+
+    if isinstance(chain, str):
+        # Cypher string: compile locally, serialize result
+        parsed = parse_cypher(chain)
+        compiled = compile_cypher_query(parsed, params=params)
+        if _is_compiled_union_query_shape(compiled):
+            raise ValueError(
+                "UNION queries are not yet supported for remote execution via gfql_remote(). "
+                "Execute locally with g.gfql() instead."
+            )
+        if not _is_compiled_query_shape(compiled):
+            raise TypeError(f"Unexpected compiled Cypher type: {type(compiled)}")
+        if compiled.graph_bindings or compiled.use_ref:
+            chain_json = _compiled_to_let_json(compiled)
+            is_let = True
+        else:
+            chain_json = compiled.chain.to_json()
+    elif isinstance(chain, ASTLet):
+        chain_json = chain.to_json()
+        is_let = True
+    elif isinstance(chain, Chain):
         chain_json = chain.to_json()
     elif isinstance(chain, list):
         chain_json = Chain(chain).to_json()
-    else:
-        assert isinstance(chain, dict)
+    elif isinstance(chain, dict):
         chain_json = chain
+        is_let = chain_json.get('type') == 'Let'
+    else:
+        raise TypeError(f"gfql_remote() query must be Chain, List, ASTLet, Dict, or str. Got {type(chain)}")
 
     if validate:
-        Chain.from_json(chain_json)
+        gfql_preflight_validate(
+            self,
+            chain,
+            params=params,
+            strict=False,
+            collect_all=False,
+            schema=False,
+        )
 
-    request_body: Dict[str, Any] = {
-        "gfql_operations": chain_json['chain'],  # unwrap
-        "format": format
-    }
+    if not dataset_id:
+        dataset_id = self._dataset_id
+
+    if not dataset_id:
+        self = self.upload(validate=validate)
+        dataset_id = self._dataset_id
+
+    if not dataset_id:
+        raise ValueError("Missing dataset_id; either pass in, or call on g2=g1.plot(render='g') in api=3 mode ahead of time")
+
+    # --- Build request body (dual-field for backward compat) ---
+    if is_let:
+        warnings.warn(
+            "gfql_remote() is sending a Let/DAG query. Servers that do not support "
+            "the gfql_query field will receive an empty gfql_operations array and "
+            "return the original graph unchanged. Upgrade to a server that reads "
+            "gfql_query for full Let/DAG support.",
+            UserWarning,
+            stacklevel=2,
+        )
+        request_body: Dict[str, Any] = {
+            "gfql_operations": [],
+            "gfql_query": chain_json,
+            "format": format
+        }
+        if output is not None:
+            request_body["gfql_output"] = output
+    else:
+        request_body = {
+            "gfql_operations": chain_json.get('chain', []),
+            "gfql_query": chain_json,
+            "format": format
+        }
 
     if node_col_subset is not None:
         request_body["node_col_subset"] = node_col_subset
@@ -80,8 +242,7 @@ def chain_remote_generic(
         request_body["edge_col_subset"] = edge_col_subset
     if df_export_args is not None:
         request_body["df_export_args"] = df_export_args
-    if engine is not None:
-        request_body["engine"] = engine
+    request_body["engine"] = engine_str
     if persist:
         request_body["persist"] = persist
 
@@ -96,10 +257,27 @@ def chain_remote_generic(
         "Authorization": f"Bearer {api_token}",
         "Content-Type": "application/json",
     }
+    headers = inject_trace_headers(headers)
 
     response = requests.post(url, headers=headers, json=request_body, verify=self.session.certificate_validation)
 
-    response.raise_for_status()
+    # Enhanced error handling for GFQL validation errors
+    if not response.ok:
+        try:
+            # Try to parse JSON error response for more details
+            if response.headers.get('content-type', '').startswith('application/json'):
+                error_data = response.json()
+                error_msg = error_data.get('error', str(error_data))
+                raise ValueError(f"GFQL remote operation failed: {error_msg} (HTTP {response.status_code})")
+            else:
+                # Fallback to generic error with response text
+                raise ValueError(f"GFQL remote operation failed: {response.text[:500]} (HTTP {response.status_code})")
+        except (ValueError,) as ve:
+            # Re-raise our custom ValueError
+            raise ve
+        except Exception:
+            # If JSON parsing fails, re-raise the original HTTP error
+            response.raise_for_status()
 
     # deserialize based on output_type & format
 
@@ -131,69 +309,80 @@ def chain_remote_generic(
             raise ValueError(f"Unknown format, expected json/csv/parquet, got: {format}")
     elif output_type == "all" and format in ["csv", "parquet"]:
         zip_buffer = BytesIO(response.content)
-        with zipfile.ZipFile(zip_buffer, "r") as zip_ref:
-            nodes_file = [f for f in zip_ref.namelist() if "nodes" in f][0]
-            edges_file = [f for f in zip_ref.namelist() if "edges" in f][0]
+        try:
+            with zipfile.ZipFile(zip_buffer, "r") as zip_ref:
+                nodes_file = [f for f in zip_ref.namelist() if "nodes" in f][0]
+                edges_file = [f for f in zip_ref.namelist() if "edges" in f][0]
 
-            nodes_data = zip_ref.read(nodes_file)
-            edges_data = zip_ref.read(edges_file)
+                nodes_data = zip_ref.read(nodes_file)
+                edges_data = zip_ref.read(edges_file)
 
-            if len(nodes_data) > 0:
-                nodes_df = read_parquet(BytesIO(nodes_data)) if format == "parquet" else read_csv(BytesIO(nodes_data))
-            else:
-                nodes_df = df_cons()
+                if len(nodes_data) > 0:
+                    nodes_df = read_parquet(BytesIO(nodes_data)) if format == "parquet" else read_csv(BytesIO(nodes_data))
+                else:
+                    nodes_df = df_cons()
 
-            if len(edges_data) > 0:
-                edges_df = read_parquet(BytesIO(edges_data)) if format == "parquet" else read_csv(BytesIO(edges_data))
-            else:
-                edges_df = df_cons()
+                if len(edges_data) > 0:
+                    edges_df = read_parquet(BytesIO(edges_data)) if format == "parquet" else read_csv(BytesIO(edges_data))
+                else:
+                    edges_df = df_cons()
 
-            result = self.edges(edges_df).nodes(nodes_df)
+                result = self.edges(edges_df).nodes(nodes_df)
 
-            # Handle persist response for zip format
-            if persist:
-                # Look for metadata.json in zip (new servers)
+                # Check for metadata.json in zip (both persist and GFQL metadata)
                 if 'metadata.json' in zip_ref.namelist():
                     try:
-                        import json
                         metadata_content = zip_ref.read('metadata.json')
                         metadata = json.loads(metadata_content.decode('utf-8'))
 
-                        # Extract dataset_id for URL generation
-                        if 'dataset_id' in metadata:
-                            result._dataset_id = metadata['dataset_id']
+                        if persist:
+                            # Extract dataset_id for URL generation
+                            if 'dataset_id' in metadata:
+                                result._dataset_id = metadata['dataset_id']
 
-                            # Generate URL using existing infrastructure
-                            if result._dataset_id:  # Type guard
-                                import uuid
-                                from graphistry.client_session import DatasetInfo
+                                # Generate URL using existing infrastructure
+                                if result._dataset_id:  # Type guard
+                                    _refresh_url_from_dataset_id(result)
 
-                                info: DatasetInfo = {
-                                    'name': result._dataset_id,
-                                    'type': 'arrow',
-                                    'viztoken': str(uuid.uuid4())
-                                }
+                            # Optionally restore privacy settings
+                            if 'privacy' in metadata:
+                                result._privacy = metadata['privacy']
 
-                                result._url = result._pygraphistry._viz_url(info, result._url_params)
-
-                        # Optionally restore privacy settings
-                        if 'privacy' in metadata:
-                            result._privacy = metadata['privacy']
+                        if 'gfql_metadata' in metadata:
+                            result = deserialize_plottable_metadata(metadata['gfql_metadata'], result)
+                            _apply_persist_axis_defaults(result)
+                            if persist:
+                                _refresh_url_from_dataset_id(result)
 
                     except Exception as e:
-                        # Gracefully handle metadata parsing errors
-                        import warnings
-                        warnings.warn(f"persist=True requested but failed to parse metadata.json: {e}. "
+                        if persist:
+                            warnings.warn(f"persist=True requested but failed to parse metadata.json: {e}. "
                                     f"URL generation will not be available. This may indicate an older server version.",
                                     UserWarning, stacklevel=2)
-                else:
-                    # No metadata.json found - older server
-                    import warnings
+                        else:
+                            warnings.warn(f"Failed to parse metadata.json: {e}. GFQL metadata will not be hydrated.",
+                                    UserWarning, stacklevel=2)
+                elif persist:
                     warnings.warn("persist=True requested but server did not return metadata.json. "
                                 "URL generation will not be available. This indicates an older server version that doesn't support zip format persistence.",
                                 UserWarning, stacklevel=2)
 
-        return result
+                return result
+        except zipfile.BadZipFile as e:
+            # Server likely returned an error response instead of zip data
+            # Try to parse the response as JSON for a better error message
+            try:
+                if response.headers.get('content-type', '').startswith('application/json'):
+                    error_data = response.json()
+                    error_msg = error_data.get('error', str(error_data))
+                    raise ValueError(f"GFQL remote operation failed with validation error: {error_msg}")
+                else:
+                    # Show the response text for debugging
+                    raise ValueError(f"GFQL remote operation failed - server returned non-zip response: {response.text[:500]}")
+            except Exception:
+                # If all else fails, re-raise the original BadZipFile error with context
+                raise ValueError(f"GFQL remote operation failed - server response is not a valid zip file. "
+                               f"This usually indicates a server validation error. Response status: {response.status_code}") from e
     elif output_type in ["nodes", "edges"] and format in ["csv", "parquet"]:
         data = BytesIO(response.content)
         if len(response.content) > 0:
@@ -229,21 +418,17 @@ def chain_remote_generic(
 
                 # Generate URL using existing infrastructure
                 if result._dataset_id:  # Type guard
-                    import uuid
-                    from graphistry.client_session import DatasetInfo
-
-                    dataset_info: DatasetInfo = {
-                        'name': result._dataset_id,
-                        'type': 'arrow',
-                        'viztoken': str(uuid.uuid4())
-                    }
-
-                    result._url = result._pygraphistry._viz_url(dataset_info, result._url_params)
+                    _refresh_url_from_dataset_id(result)
             else:
-                import warnings
                 warnings.warn("persist=True requested but server did not return dataset_id in JSON response. "
                             "URL generation will not be available. This indicates an older server version that doesn't support persistence.",
                             UserWarning, stacklevel=2)
+
+        if 'metadata' in o:
+            result = deserialize_plottable_metadata(o['metadata'], result)
+            _apply_persist_axis_defaults(result)
+            if persist:
+                _refresh_url_from_dataset_id(result)
 
         return result
     else:
@@ -252,14 +437,14 @@ def chain_remote_generic(
 
 def chain_remote_shape(
     self: Plottable,
-    chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]],
+    chain: Union[Chain, List[ASTObject], Dict[str, JSONVal], ASTLet, str],
     api_token: Optional[str] = None,
     dataset_id: Optional[str] = None,
     format: Optional[FormatType] = None,
     df_export_args: Optional[Dict[str, Any]] = None,
     node_col_subset: Optional[List[str]] = None,
     edge_col_subset: Optional[List[str]] = None,
-    engine: Optional[Literal["pandas", "cudf"]] = None,
+    engine: EngineAbstractType = 'auto',
     validate: bool = True,
     persist: bool = False
 ) -> pd.DataFrame:
@@ -309,7 +494,7 @@ def chain_remote_shape(
 
 def chain_remote(
     self: Plottable,
-    chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]],
+    chain: Union[Chain, List[ASTObject], Dict[str, JSONVal], ASTLet, str],
     api_token: Optional[str] = None,
     dataset_id: Optional[str] = None,
     output_type: OutputTypeGraph = "all",
@@ -317,16 +502,18 @@ def chain_remote(
     df_export_args: Optional[Dict[str, Any]] = None,
     node_col_subset: Optional[List[str]] = None,
     edge_col_subset: Optional[List[str]] = None,
-    engine: Optional[Literal["pandas", "cudf"]] = None,
+    engine: EngineAbstractType = 'auto',
     validate: bool = True,
-    persist: bool = False
+    persist: bool = False,
+    params: Optional[Dict[str, Any]] = None,
+    output: Optional[str] = None,
 ) -> Plottable:
     """Remotely run GFQL chain query on a remote dataset.
     
     Uses the latest bound `_dataset_id`, and uploads current dataset if not already bound. Note that rebinding calls of `edges()` and `nodes()` reset the `_dataset_id` binding.
 
-    :param chain: GFQL chain query as a Python object or in serialized JSON format
-    :type chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]]
+    :param chain: GFQL query as a Python object, serialized GFQL JSON, or Cypher string
+    :type chain: Union[Chain, List[ASTObject], Dict[str, JSONVal], ASTLet, str]
 
     :param api_token: Optional JWT token. If not provided, refreshes JWT and uses that.
     :type api_token: Optional[str]
@@ -349,8 +536,8 @@ def chain_remote(
     :param edge_col_subset: When server returns edges, what property subset to return. Defaults to all.
     :type edge_col_subset: Optional[List[str]]
 
-    :param engine: Override which run mode GFQL uses. By default, inspects graph size to decide.
-    :type engine: Optional[Literal["pandas", "cudf]]
+    :param engine: Override which run mode GFQL uses. Defaults to 'auto' which auto-detects based on DataFrame type. Also accepts 'pandas' or 'cudf'.
+    :type engine: EngineAbstractType
 
     :param validate: Whether to locally test code, and if uploading data, the data. Default true.
     :type validate: bool
@@ -406,7 +593,9 @@ def chain_remote(
         edge_col_subset,
         engine,
         validate,
-        persist
+        persist,
+        params=params,
+        output=output,
     )
     assert isinstance(g, Plottable)
     return g

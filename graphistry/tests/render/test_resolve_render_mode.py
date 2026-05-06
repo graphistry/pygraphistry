@@ -1,7 +1,7 @@
 import importlib
 import logging, pandas as pd, pytest
 import sys
-from mock import patch
+from unittest.mock import patch
 from unittest.mock import Mock
 
 import graphistry.render

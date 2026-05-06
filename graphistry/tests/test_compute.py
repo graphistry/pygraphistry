@@ -4,6 +4,9 @@ import os, pandas as pd, pytest, unittest
 from graphistry.compute import ComputeMixin
 from graphistry.plotter import PlotterBase
 from graphistry.tests.common import NoAuthTestCase
+from graphistry.umap_utils import UMAPMixin
+from graphistry.feature_utils import FeatureMixin
+from graphistry.layouts import LayoutsMixin
 
 
 class CG(ComputeMixin):
@@ -12,11 +15,14 @@ class CG(ComputeMixin):
         ComputeMixin.__init__(self, *args, **kwargs)
 
 
-class CGFull(ComputeMixin, PlotterBase, object):
+class CGFull(UMAPMixin, FeatureMixin, LayoutsMixin, ComputeMixin, PlotterBase, object):
     def __init__(self, *args, **kwargs):
         print("CGFull init")
         super(CGFull, self).__init__(*args, **kwargs)
         PlotterBase.__init__(self, *args, **kwargs)
+        FeatureMixin.__init__(self, *args, **kwargs)
+        UMAPMixin.__init__(self, *args, **kwargs)
+        LayoutsMixin.__init__(self, *args, **kwargs)
         ComputeMixin.__init__(self, *args, **kwargs)
 
 
@@ -73,6 +79,24 @@ class TestComputeMixin(NoAuthTestCase):
         ]
         assert g._node == "id"
 
+
+    def test_materialize_empty_edges(self):
+        """Test materialize_nodes() with empty edges DataFrame.
+
+        This is an edge case where materialize_nodes() returns early without
+        setting _node binding, which is why validation checks in hop() are necessary.
+        """
+        cg = CGFull()
+        # Create graph with empty edges
+        g = cg.edges(pd.DataFrame({"s": [], "d": []}), "s", "d")
+
+        # materialize_nodes() should return early for empty edges
+        g2 = g.materialize_nodes()
+
+        # The critical assertion: _node should be None because materialize_nodes()
+        # returns early at ComputeMixin.py line 196 without calling .nodes()
+        assert g2._node is None, "Empty edges should leave _node as None"
+        assert g2._nodes is None or len(g2._nodes) == 0
 
     def test_degrees_in(self):
         cg = CGFull()

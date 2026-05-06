@@ -1,0 +1,14 @@
+"""Bounded-reentry helpers extracted from ``cypher.lowering`` (#1295, #1260 S2).
+
+Subpackage owns:
+- naming conventions for hidden carry columns (``naming``)
+- alias-scope traversal helpers (``scope``)
+- prefix carry-column / order helpers (``carry``)
+- AST/query rewriters that retarget reentry expressions onto carried columns
+  (``rewrite``)
+
+Public symbols are re-exported from ``cypher.lowering`` so existing imports
+(``from graphistry.compute.gfql.cypher.lowering import _reentry_hidden_column_name``)
+continue to work.
+"""
+from __future__ import annotations

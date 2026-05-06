@@ -1,12 +1,14 @@
-from typing import Any, Dict, Optional, Set
-import logging
+from typing import Dict, Optional, Set
+import os
+import tempfile
 import pandas as pd
-  
+
 from graphistry.Plottable import Plottable
+from graphistry.compute.engine_coercion import ensure_pandas, restore_engine
 from graphistry.plugins_types.graphviz_types import (
     AGraph,
     EDGE_ATTRS, FORMATS, GRAPH_ATTRS, NODE_ATTRS, PROGS, UNSANITARY_ATTRS,
-    EdgeAttr, Format, GraphAttr, NodeAttr, Prog
+    EdgeAttr, Format, GraphAttr, NodeAttr, Prog, GraphvizAttrValue
 )
 from graphistry.util import setup_logger
 
@@ -21,7 +23,8 @@ def g_to_pgv(
     g: Plottable,
     directed: bool = True,
     strict: bool = False,
-    drop_unsanitary: bool = False
+    drop_unsanitary: bool = False,
+    include_positions: bool = False
 ) -> AGraph:
 
     import pygraphviz as pgv
@@ -41,10 +44,22 @@ def g_to_pgv(
             if c in UNSANITARY_ATTRS:
                 raise ValueError(f"Unsanitary node_attr {c} is not allowed")
 
-    for _, row in g._nodes.iterrows():
+    pos_cols = None
+    if include_positions:
+        # prefer bound x/y; fallback to literal x/y columns
+        x_col = g._point_x or ('x' if 'x' in g._nodes.columns else None)
+        y_col = g._point_y or ('y' if 'y' in g._nodes.columns else None)
+        if x_col and y_col and x_col in g._nodes.columns and y_col in g._nodes.columns:
+            pos_cols = (x_col, y_col)
+
+    nodes_pdf = ensure_pandas(g._nodes)
+    for _, row in nodes_pdf.iterrows():
+        attrs = {c: row[c] for c in node_attr_cols if row[c] is not None}
+        if pos_cols is not None:
+            attrs['pos'] = f"{row[pos_cols[0]]},{row[pos_cols[1]]}"
         graph.add_node(
             row[g._node],
-            **{c: row[c] for c in node_attr_cols if row[c] is not None}
+            **attrs
         )
 
     edge_attr_cols: Set[EdgeAttr] = {
@@ -57,7 +72,8 @@ def g_to_pgv(
             if d in UNSANITARY_ATTRS:
                 raise ValueError(f"Unsanitary edge_attr {d} is not allowed")
 
-    for _, row in g._edges.iterrows():
+    edges_pdf = ensure_pandas(g._edges)
+    for _, row in edges_pdf.iterrows():
         graph.add_edge(
             row[g._source],
             row[g._destination],
@@ -74,9 +90,11 @@ def g_with_pgv_layout(g: Plottable, graph: AGraph) -> Plottable:
         # Get the position of the node
         pos = node.attr['pos'].split(',')
         x, y = float(pos[0]), float(pos[1])
-        node_positions.append({g._node: node, 'x': x, 'y': y})
+        node_positions.append({g._node: str(node), 'x': x, 'y': y})
     positions_df = pd.DataFrame(node_positions)
-    nodes_df = positions_df.merge(g._nodes, on=g._node, how='left')
+    g_nodes_pdf = ensure_pandas(g._nodes)
+    positions_df[g._node] = positions_df[g._node].astype(g_nodes_pdf[g._node].dtype)
+    nodes_df = positions_df.merge(g_nodes_pdf, on=g._node, how='left')
 
     return g.nodes(nodes_df)
 
@@ -94,13 +112,14 @@ def layout_graphviz_core(
     args: Optional[str] = None,
     directed: bool = True,
     strict: bool = False,
-    graph_attr: Optional[Dict[GraphAttr, Any]] = None,
-    node_attr: Optional[Dict[NodeAttr, Any]] = None,
-    edge_attr: Optional[Dict[EdgeAttr, Any]] = None,
+    graph_attr: Optional[Dict[GraphAttr, GraphvizAttrValue]] = None,
+    node_attr: Optional[Dict[NodeAttr, GraphvizAttrValue]] = None,
+    edge_attr: Optional[Dict[EdgeAttr, GraphvizAttrValue]] = None,
     drop_unsanitary: bool = False,
+    include_positions: bool = False,
 ) -> AGraph:
 
-    graph = g_to_pgv(g, directed, strict, drop_unsanitary)
+    graph = g_to_pgv(g, directed, strict, drop_unsanitary, include_positions)
 
     if graph_attr is not None:
         for k, v in graph_attr.items():
@@ -113,7 +132,7 @@ def layout_graphviz_core(
         for k2, v in node_attr.items():
             if k2 not in NODE_ATTRS:
                 raise ValueError(f"Unknown node_attr {k2}, expected one of {NODE_ATTRS}")
-            if drop_unsanitary and k in UNSANITARY_ATTRS:
+            if drop_unsanitary and k2 in UNSANITARY_ATTRS:
                 raise ValueError(f"Unsanitary node_attr {k2} is not allowed")
             graph.node_attr[k2] = v
     if edge_attr is not None:
@@ -128,10 +147,9 @@ def layout_graphviz_core(
         raise ValueError(f"Unknown prog {prog}, expected one of {PROGS}")
 
     if args:
-        #TODO: Security reasoning
-        raise NotImplementedError("NotImplementedError: Passthrough of commandline arguments not implemented")
-
-    graph.layout(prog=prog)
+        graph.layout(prog=prog, args=args)
+    else:
+        graph.layout(prog=prog)
 
     return graph
 
@@ -142,9 +160,9 @@ def layout_graphviz(
     args: Optional[str] = None,
     directed: bool = True,
     strict: bool = False,
-    graph_attr: Optional[Dict[GraphAttr, Any]] = None,
-    node_attr: Optional[Dict[NodeAttr, Any]] = None,
-    edge_attr: Optional[Dict[EdgeAttr, Any]] = None,
+    graph_attr: Optional[Dict[GraphAttr, GraphvizAttrValue]] = None,
+    node_attr: Optional[Dict[NodeAttr, GraphvizAttrValue]] = None,
+    edge_attr: Optional[Dict[EdgeAttr, GraphvizAttrValue]] = None,
     skip_styling: bool = False,
     render_to_disk: bool = False,  # unsafe in server settings
     path: Optional[str] = None,
@@ -156,6 +174,9 @@ def layout_graphviz(
     Use graphviz for layout, such as hierarchical trees and directed acycle graphs
 
     Requires pygraphviz Python bindings and graphviz native libraries to be installed, see https://pygraphviz.github.io/documentation/stable/install.html
+
+    Graphviz is a CPU-only library. cuDF DataFrames are automatically converted to pandas
+    before calling graphviz, and the result is converted back.
 
     See PROGS for available layout algorithms
 
@@ -177,13 +198,13 @@ def layout_graphviz(
     :type strict: bool
 
     :param graph_attr: Graphviz graph attributes, see https://graphviz.org/docs/graph/
-    :type graph_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.GraphAttr`, Any]]
+    :type graph_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.GraphAttr`, :py:data:`graphistry.plugins_types.graphviz_types.GraphvizAttrValue`]]
 
     :param node_attr: Graphviz node attributes, see https://graphviz.org/docs/nodes/
-    :type node_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.NodeAttr`, Any]]
+    :type node_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.NodeAttr`, :py:data:`graphistry.plugins_types.graphviz_types.GraphvizAttrValue`]]
 
     :param edge_attr: Graphviz edge attributes, see https://graphviz.org/docs/edges/
-    :type edge_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.EdgeAttr`, Any]]
+    :type edge_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.EdgeAttr`, :py:data:`graphistry.plugins_types.graphviz_types.GraphvizAttrValue`]]
 
     :param skip_styling: Whether to skip applying default styling (False, default) or not (True)
     :type skip_styling: bool
@@ -280,6 +301,9 @@ def layout_graphviz(
         g = g.materialize_nodes()
         assert g._nodes is not None
 
+    original_nodes = g._nodes
+    original_edges = g._edges
+
     graph = layout_graphviz_core(g, prog, args, directed, strict, graph_attr, node_attr, edge_attr, drop_unsanitary)
 
     if render_to_disk:
@@ -295,4 +319,107 @@ def layout_graphviz(
     else:
         g3 = g2
 
-    return g3
+    return restore_engine(g3, original_nodes, original_edges)
+
+
+def render_graphviz(
+    self: Plottable,
+    prog: Prog = 'dot',
+    format: Format = 'svg',
+    args: Optional[str] = None,
+    directed: bool = True,
+    strict: bool = False,
+    graph_attr: Optional[Dict[GraphAttr, GraphvizAttrValue]] = None,
+    node_attr: Optional[Dict[NodeAttr, GraphvizAttrValue]] = None,
+    edge_attr: Optional[Dict[EdgeAttr, GraphvizAttrValue]] = None,
+    drop_unsanitary: bool = False,
+    max_nodes: Optional[int] = None,
+    max_edges: Optional[int] = None,
+    path: Optional[str] = None,
+    include_positions: bool = False,
+) -> bytes:
+    """
+    Render a graph to an image via graphviz and return the rendered bytes.
+
+    This wraps :func:`layout_graphviz_core` to compute positions, then draws with pygraphviz.
+    Optionally enforces caps to keep renders small/deterministic for docs/examples.
+
+    When ``include_positions`` is True and the plot has bound x/y values, the existing layout
+    is preserved rather than recomputed by Graphviz.
+
+    :param self: Base graph
+    :type self: Plottable
+    :param prog: Layout algorithm
+    :type prog: :py:data:`graphistry.plugins_types.graphviz_types.Prog`
+    :param format: Render format
+    :type format: :py:data:`graphistry.plugins_types.graphviz_types.Format`
+    :param directed: Whether the graph is directed
+    :type directed: bool
+    :param strict: Whether to treat the graph as strict
+    :type strict: bool
+    :param graph_attr: Graph-level attributes
+    :type graph_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.GraphAttr`, :py:data:`graphistry.plugins_types.graphviz_types.GraphvizAttrValue`]]
+    :param node_attr: Node-level attributes
+    :type node_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.NodeAttr`, :py:data:`graphistry.plugins_types.graphviz_types.GraphvizAttrValue`]]
+    :param edge_attr: Edge-level attributes
+    :type edge_attr: Optional[Dict[:py:data:`graphistry.plugins_types.graphviz_types.EdgeAttr`, :py:data:`graphistry.plugins_types.graphviz_types.GraphvizAttrValue`]]
+    :param drop_unsanitary: Reject unsanitary attrs
+    :type drop_unsanitary: bool
+    :param max_nodes: Optional cap on nodes for rendering
+    :type max_nodes: Optional[int]
+    :param max_edges: Optional cap on edges for rendering
+    :type max_edges: Optional[int]
+    :param path: Optional path to also write the render
+    :type path: Optional[str]
+    :return: Rendered bytes (SVG/PNG/etc.)
+    :rtype: bytes
+    """
+
+    g = self
+    if g._edges is None:
+        raise ValueError("render_graphviz requires edges to be set")
+    if g._nodes is None:
+        g = g.materialize_nodes()
+        assert g._nodes is not None
+
+    if max_nodes is not None and len(g._nodes) > max_nodes:
+        raise ValueError(f"Graph has {len(g._nodes)} nodes; exceeds max_nodes={max_nodes}")
+    if max_edges is not None and len(g._edges) > max_edges:
+        raise ValueError(f"Graph has {len(g._edges)} edges; exceeds max_edges={max_edges}")
+
+    if format not in FORMATS:
+        raise ValueError(f"Unknown format {format}, expected one of {FORMATS}")
+
+    graph = layout_graphviz_core(
+        g,
+        prog,
+        args=args,
+        directed=directed,
+        strict=strict,
+        graph_attr=graph_attr,
+        node_attr=node_attr,
+        edge_attr=edge_attr,
+        drop_unsanitary=drop_unsanitary,
+        include_positions=include_positions
+    )
+
+    target_path = path
+    cleanup_path: Optional[str] = None
+    if target_path is None:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f'.{format}')
+        tmp.close()
+        target_path = tmp.name
+        cleanup_path = target_path
+
+    graph.draw(path=target_path, format=format)
+
+    with open(target_path, 'rb') as f:
+        data = f.read()
+
+    if cleanup_path is not None:
+        try:
+            os.remove(cleanup_path)
+        except OSError:
+            logger.warning("Unable to remove temporary graphviz render at %s", cleanup_path)
+
+    return data

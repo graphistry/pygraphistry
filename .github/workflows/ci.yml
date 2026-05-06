@@ -10,10 +10,23 @@ on:
 
   #Enable UI-driven branch testing
   workflow_dispatch:
+    inputs:
+      cooldown_days:
+        description: 'Lockfile cooldown days (0 = no cooldown/force-refresh, default 6)'
+        required: false
+        default: '6'
 
   #Test main bidaily @ 1a
   schedule:
     - cron: '0 1 1-31/2 * *'
+
+permissions:
+  contents: read
+
+env:
+  # 6-day dependency cooldown: refuse packages uploaded less than 6 days ago
+  # to mitigate supply chain attacks. Belt-and-suspenders with lockfile --exclude-newer.
+  UV_EXCLUDE_NEWER: "6 days"
 
 jobs:
 
@@ -22,61 +35,427 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       python: ${{ steps.filter.outputs.python }}
+      spark: ${{ steps.filter.outputs.spark }}
       docs: ${{ steps.filter.outputs.docs }}
       infra: ${{ steps.filter.outputs.infra }}
+      gfql: ${{ steps.filter.outputs.gfql }}
+      cypher_frontend_ci: ${{ steps.filter.outputs.cypher_frontend_ci }}
+      benchmarks: ${{ steps.filter.outputs.benchmarks }}
+      docs_only_latest: ${{ steps.docs_only_latest.outputs.docs_only_latest }}
     steps:
-    - uses: actions/checkout@v3
-    - uses: dorny/paths-filter@v3
-      id: filter
+    - uses: actions/checkout@v4
       with:
-        filters: |
-          # Infrastructure changes that affect all tests
-          infra:
-            - '.github/workflows/ci.yml'
-            - 'docker/**'
-            - 'bin/**'
-            - 'setup.py'
-            - 'setup.cfg'
-            - 'MANIFEST.in'
-            
-          # Python code changes
-          python:
-            - '**.py'
-            - 'graphistry/**'
-            - 'setup.py'
-            - 'setup.cfg'
-            - 'pytest.ini'
-            - 'mypy.ini'
-            - 'bin/lint.sh'
-            - 'bin/typecheck.sh'
-            
-          # Documentation changes
-          docs:
-            - 'docs/**'
-            - '**.md'
-            - '**.rst'
-            - 'demos/**'
-            - 'notebooks/**'
+        persist-credentials: false
+        # full history needed so `git diff <base>..<head>` resolves on PRs / non-trivial pushes
+        fetch-depth: 0
+    - name: Compute path filters
+      id: filter
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        PUSH_BEFORE: ${{ github.event.before }}
+        HEAD_SHA: ${{ github.sha }}
+      run: |
+        set -euo pipefail
+        keys=(infra python spark gfql cypher_frontend_ci benchmarks docs)
+
+        emit_all() {
+          # $1 = "true" or "false" — emit the same value for every key
+          for k in "${keys[@]}"; do
+            echo "${k}=$1" >> "$GITHUB_OUTPUT"
+          done
+        }
+
+        # Non diff-bearing events: rely on downstream `event_name == 'workflow_dispatch'`
+        # / `'schedule'` OR-conditions in job `if:` expressions. Emit false safely.
+        if [[ "$EVENT_NAME" != "pull_request" && "$EVENT_NAME" != "push" ]]; then
+          emit_all false
+          exit 0
+        fi
+
+        if [[ "$EVENT_NAME" == "pull_request" ]]; then
+          base="$PR_BASE_SHA"
+          head="$PR_HEAD_SHA"
+        else
+          base="$PUSH_BEFORE"
+          head="$HEAD_SHA"
+        fi
+
+        # New branch / first push: zero-SHA base. Conservative: run everything.
+        if [[ -z "$base" || "$base" == "0000000000000000000000000000000000000000" ]]; then
+          emit_all true
+          exit 0
+        fi
+
+        # Diff vs the merge-base so PR runs see only commits that diverge from base
+        # (avoids picking up unrelated commits the base ref has gained meanwhile).
+        # If either resolution fails (e.g., force-pushed branch with orphaned
+        # event.before, or rebased PR base ref), fall back to the conservative
+        # "couldn't compute, run everything" stance and surface a GHA warning
+        # so operators can see why every job ran. Note: stderr is left
+        # un-redirected so the underlying git error (e.g., "Not a valid object
+        # name") shows up in the runner log alongside the warning.
+        if ! merge_base=$(git merge-base "$base" "$head"); then
+          echo "::warning::path-filter: git merge-base failed for $base..$head; running all gated jobs conservatively"
+          emit_all true
+          exit 0
+        fi
+        if ! changed=$(git diff --name-only "$merge_base" "$head"); then
+          echo "::warning::path-filter: git diff failed for $merge_base..$head; running all gated jobs conservatively"
+          emit_all true
+          exit 0
+        fi
+
+        # emit <key> <regex>...  — joins regex args with `|` and emits true/false.
+        # Each pattern goes on its own line at the call site for readability;
+        # this is the reason emit takes variadic args instead of a pre-joined string.
+        emit() {
+          local key="$1"
+          shift
+          local IFS='|'
+          local pat="$*"
+          # Use a here-string instead of `printf "%s\n" "$changed" | grep -qE`.
+          # Why: with `set -o pipefail`, if `grep -q` matches early on a $changed
+          # larger than the pipe buffer (~64 KB; thousands of files), `grep` exits
+          # before `printf` finishes flushing. `printf` then receives SIGPIPE and
+          # exits 141. `pipefail` propagates that 141 to the pipeline, the `if`
+          # sees non-zero, and we'd silently emit `false` for a key that should
+          # be `true`. A here-string is a pure redirection (not a pipeline), so
+          # the data is fully buffered before grep reads, eliminating the race.
+          if [[ -n "$changed" ]] && grep -qE "$pat" <<< "$changed"; then
+            echo "${key}=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "${key}=false" >> "$GITHUB_OUTPUT"
+          fi
+        }
+
+        # Filter dimensions — patterns mirror the prior dorny/paths-filter YAML
+        # globs converted to anchored regex. Keep one pattern per line so adds
+        # / removes diff cleanly and the conversion stays auditable.
+
+        # Infrastructure: workflow defs, docker, bin scripts, root build config.
+        emit infra \
+          '^\.github/workflows/ci\.yml$' \
+          '^docker/' \
+          '^bin/' \
+          '^setup\.py$' \
+          '^setup\.cfg$' \
+          '^MANIFEST\.in$'
+
+        # Python code + lint/type config.
+        emit python \
+          '\.py$' \
+          '^graphistry/' \
+          '^setup\.py$' \
+          '^setup\.cfg$' \
+          '^pytest\.ini$' \
+          '^mypy\.ini$' \
+          '^bin/lint\.sh$' \
+          '^bin/typecheck\.sh$'
+
+        # GFQL core + tests.
+        emit gfql \
+          '^graphistry/gfql/' \
+          '^graphistry/compute/gfql/' \
+          '^graphistry/compute/gfql_unified\.py$' \
+          '^graphistry/models/gfql/' \
+          '^graphistry/Plottable\.py$' \
+          '^tests/gfql/'
+
+        # Spark lane: spark coercion/runtime + spark-focused tests + workflow changes.
+        emit spark \
+          '^\.github/workflows/ci\.yml$' \
+          '^setup\.py$' \
+          '^graphistry/Engine\.py$' \
+          '^graphistry/PlotterBase\.py$' \
+          '^graphistry/hyper_dask\.py$' \
+          '^graphistry/compute/ComputeMixin\.py$' \
+          '^graphistry/tests/compute/test_df_types\.py$' \
+          '^graphistry/tests/compute/test_engine_coercion\.py$'
+
+        # Cypher frontend gate-relevant paths (workflow defs included so a CI
+        # change here re-triggers the cypher gate alongside gfql/infra).
+        emit cypher_frontend_ci \
+          '^\.github/workflows/ci\.yml$' \
+          '^\.github/workflows/ci-gpu\.yml$' \
+          '^graphistry/compute/gfql/ir/' \
+          '^graphistry/compute/gfql/cypher/' \
+          '^graphistry/compute/gfql/frontends/cypher/' \
+          '^graphistry/tests/compute/gfql/cypher/' \
+          '^tests/gfql/ref/'
+
+        # Benchmarks suite.
+        emit benchmarks \
+          '^benchmarks/'
+
+        # Documentation: docs tree + any md/rst at any depth + demos + notebooks.
+        emit docs \
+          '^docs/' \
+          '\.md$' \
+          '\.rst$' \
+          '^demos/' \
+          '^notebooks/'
+
+    - name: Detect docs-only change on tip
+      id: docs_only_latest
+      run: |
+        # Only apply the latest-commit docs-only optimization on push.
+        # PR runs already have path-filter gating and should not infer commit ancestry from merge refs.
+        docs_only=false
+
+        if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+          base_ref="${{ github.event.before }}"
+          if [[ -z "$base_ref" ]]; then
+            base_ref=$(git rev-parse HEAD^ 2>/dev/null || true)
+          fi
+
+          changed_files=""
+          if [[ -n "${base_ref:-}" ]]; then
+            changed_files=$(git diff --name-only "$base_ref" HEAD 2>/dev/null || true)
+          fi
+
+          if [[ -n "$changed_files" ]]; then
+            docs_only=true
+            for f in $changed_files; do
+              if [[ "$f" == "README.md" || "$f" == "CHANGELOG.md" || "$f" == docs/* || "$f" == demos/* || "$f" == notebooks/* || "$f" == *.md || "$f" == *.rst ]]; then
+                continue
+              else
+                docs_only=false
+                break
+              fi
+            done
+          else
+            echo "Could not determine latest-commit diff; conservatively disabling docs-only skip."
+          fi
+        fi
+
+        echo "docs_only_latest=${docs_only}" >> "$GITHUB_OUTPUT"
+
+  no-plans-in-repo:
+    # Reject PRs that add or modify files under plans/ (gitignored working directory).
+    # Uses the PR head ref (not merge ref) to avoid false positives from
+    # plans/ files that already exist on the base branch.
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Reject plans/ files added by this PR
+      env:
+        BASE_REF: ${{ github.base_ref }}
+      run: |
+        merge_base=$(git merge-base "origin/${BASE_REF}" HEAD)
+        plans_files=$(git diff --name-only --diff-filter=ACMR "$merge_base"..HEAD -- 'plans/' || true)
+        if [ -n "$plans_files" ]; then
+          echo "::error::PR adds or modifies files under plans/ which is gitignored and must not be committed:"
+          echo "$plans_files"
+          exit 1
+        fi
+
+  generate-lockfiles:
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Cache lockfiles
+      id: lockfile-cache
+      uses: actions/cache@v4
+      with:
+        path: requirements/*.lock
+        key: lockfiles-cd${{ inputs.cooldown_days || '6' }}-${{ hashFiles('setup.py', 'pyproject.toml', 'requirements/*.txt', 'bin/generate-lockfiles.sh') }}
+    - name: Install uv
+      if: steps.lockfile-cache.outputs.cache-hit != 'true'
+      run: pip install "uv==0.11.3"  # pinned version; bump periodically
+    - name: Generate lockfiles
+      if: steps.lockfile-cache.outputs.cache-hit != 'true'
+      env:
+        COOLDOWN_DAYS: ${{ inputs.cooldown_days || '6' }}
+      run: |
+        if ! [[ "${COOLDOWN_DAYS}" =~ ^[0-9]+$ ]]; then
+          echo "::error::cooldown_days must be a non-negative integer"
+          exit 1
+        fi
+        ./bin/generate-lockfiles.sh
+    - name: Upload lockfiles
+      uses: actions/upload-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements/*.lock
+        retention-days: 1
+
+  tck-gfql:
+    needs: [changes, test-minimal-python, generate-lockfiles]
+    if: ${{ (needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Install dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/tck-py3.12.lock
+        uv pip install -e . --no-deps
+
+    - name: Resolve tck-gfql ref
+      id: tck_gfql
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        HEAD_REF: ${{ github.head_ref }}
+        REF_NAME: ${{ github.ref_name }}
+      run: |
+        tck_repo="https://github.com/graphistry/tck-gfql.git"
+        candidate_ref="main"
+
+        if [[ "${EVENT_NAME}" == "pull_request" && -n "${HEAD_REF}" ]]; then
+          candidate_ref="${HEAD_REF}"
+        elif [[ -n "${REF_NAME}" ]]; then
+          candidate_ref="${REF_NAME}"
+        fi
+
+        tck_ref="main"
+        if git ls-remote --exit-code --heads "${tck_repo}" "${candidate_ref}" >/dev/null 2>&1; then
+          tck_ref="${candidate_ref}"
+        fi
+
+        tck_sha=$(git ls-remote --exit-code --heads "${tck_repo}" "${tck_ref}" | awk '{print $1}')
+        if [[ -z "${tck_sha}" ]]; then
+          echo "Failed to resolve sha for tck-gfql ref: ${tck_ref}" >&2
+          exit 1
+        fi
+
+        echo "repo=${tck_repo}" >> "$GITHUB_OUTPUT"
+        echo "ref=${tck_ref}" >> "$GITHUB_OUTPUT"
+        echo "sha=${tck_sha}" >> "$GITHUB_OUTPUT"
+        echo "Using tck-gfql ref: ${tck_ref}"
+        echo "Using tck-gfql sha: ${tck_sha}"
+
+    - name: Run tck-gfql
+      run: |
+        source pygraphistry/bin/activate
+        git init tck-gfql
+        cd tck-gfql
+        git remote add origin "${{ steps.tck_gfql.outputs.repo }}"
+        git fetch --depth 1 origin "${{ steps.tck_gfql.outputs.sha }}"
+        git checkout --detach FETCH_HEAD
+        echo "### tck-gfql conformance report" >> "$GITHUB_STEP_SUMMARY"
+        echo "- tck-gfql ref: \`${{ steps.tck_gfql.outputs.ref }}\`" >> "$GITHUB_STEP_SUMMARY"
+        echo "- tck-gfql sha: \`${{ steps.tck_gfql.outputs.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+        PYGRAPHISTRY_PATH="${{ github.workspace }}" PYGRAPHISTRY_INSTALL=1 ./bin/ci.sh
+
+  gfql-benchmarks:
+    needs: [changes, generate-lockfiles]
+    if: ${{ (needs.changes.outputs.gfql == 'true' || needs.changes.outputs.benchmarks == 'true' || github.event_name == 'workflow_dispatch') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-py3.12.lock
+        uv pip install -e . --no-deps
+
+    - name: Run GFQL benchmarks (small)
+      run: |
+        source pygraphistry/bin/activate
+        if [[ ! -f graphistry/compute/gfql/df_executor.py ]]; then
+          echo "df_executor missing; skipping benchmarks." >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+        python benchmarks/gfql/chain_vs_samepath.py \
+          --runs 1 \
+          --warmup 0 \
+          --max-scenario-seconds 10 \
+          --graph-filter tiny,small \
+          --scenario-filter 1hop_simple,2hop_where_nonadj_eq_lowcard,2hop_where_nonadj_multi_eq \
+          --output gfql-bench.md
+        cat gfql-bench.md
+        cat gfql-bench.md >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload benchmark artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: gfql-benchmarks
+        path: gfql-bench.md
 
   python-lint-types:
-    needs: changes
+    needs: [changes, generate-lockfiles]
     # Run if Python files changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     
     strategy:
       matrix:
-        python-version: [3.8, 3.9, '3.10', 3.11, 3.12]  # Run lint/types on all versions
+        python-version: [3.8, 3.9, '3.10', 3.11, 3.12, '3.13', '3.14']  # Run lint/types on all versions
     
     steps:
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
+        persist-credentials: false
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -84,8 +463,9 @@ jobs:
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
-        python -m pip install --upgrade pip
-        python -m pip install -e .[test]
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-py${{ matrix.python-version }}.lock
+        uv pip install -e . --no-deps
 
     - name: Lint
       run: |
@@ -93,35 +473,162 @@ jobs:
         ./bin/lint.sh
 
     - name: Type check
-      env:
-        PYTHON_VERSION: ${{ matrix.python-version }}
       run: |
         source pygraphistry/bin/activate
         ./bin/typecheck.sh
 
-  test-minimal-python:
-    needs: [changes, python-lint-types]
-    # Run if Python files changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+  cypher-frontend-strict-typing:
+    name: cypher-frontend-strict-typing (py3.12)
+    needs: [changes, generate-lockfiles]
+    if: ${{ (needs.changes.outputs.cypher_frontend_ci == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 6
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-py3.12.lock
+        uv pip install -e . --no-deps
+
+    - name: Cypher frontend strict typing gate (binder + IR)
+      run: |
+        source pygraphistry/bin/activate
+        targets=()
+        for f in graphistry/compute/gfql/ir/*.py; do
+          if [[ -f "$f" ]]; then
+            targets+=("$f")
+          fi
+        done
+        if [[ -f graphistry/compute/gfql/frontends/cypher/binder.py ]]; then
+          targets+=(graphistry/compute/gfql/frontends/cypher/binder.py)
+        fi
+        if [[ ${#targets[@]} -eq 0 ]]; then
+          echo "No binder/IR strict typing targets present on this branch; skipping."
+          exit 0
+        fi
+        printf 'Strict typing targets:\n- %s\n' "${targets[@]}"
+        mypy --strict --follow-imports=skip "${targets[@]}"
+
+  cypher-frontend-differential-parity:
+    name: cypher-frontend-differential-parity (py3.12)
+    needs: [changes, generate-lockfiles]
+    if: ${{ (needs.changes.outputs.cypher_frontend_ci == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-py3.12.lock
+        uv pip install -e . --no-deps
+
+    - name: Differential/parity gate tests
+      run: |
+        source pygraphistry/bin/activate
+        parity_tests=()
+        for pattern in \
+          tests/gfql/ref/test_m1_*.py \
+          tests/gfql/ref/test_differential*.py \
+          graphistry/tests/compute/gfql/cypher/test_m1_*.py \
+          graphistry/tests/compute/gfql/cypher/test_differential*.py; do
+          for f in $pattern; do
+            if [[ -f "$f" ]]; then
+              parity_tests+=("$f")
+            fi
+          done
+        done
+        if [[ ${#parity_tests[@]} -eq 0 ]]; then
+          parity_tests=("tests/gfql/ref/test_enumerator_parity.py")
+        fi
+        printf 'Differential/parity tests:\n- %s\n' "${parity_tests[@]}"
+        python -B -m pytest -vv -n auto "${parity_tests[@]}"
+
+  cypher-frontend-surface-guard:
+    name: cypher-frontend-surface-guard
+    needs: [changes]
+    if: ${{ (needs.changes.outputs.cypher_frontend_ci == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Cypher surface growth guard
+      run: |
+        python bin/ci_cypher_surface_guard.py
+
+  test-minimal-python:
+    # Lite sentinel: oldest + newest Python only, heavy test files excluded. Gates all downstream.
+    # Heavy deferred files (test_hyper_dask, test_compute_chain, test_chain_let, test_hop, test_plotter)
+    # run in test-minimal-python-rest alongside the middle versions (3.9-3.13).
+    needs: [changes, python-lint-types, generate-lockfiles]
+    # Run if Python files changed OR infrastructure changed OR manual/scheduled run
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     strategy:
       matrix:
-        python-version: [3.8, 3.9, '3.10', 3.11, 3.12]
+        python-version: [3.8, '3.14']
 
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
+        persist-credentials: false
 
-    - name: Checkout LFS objects
-      run: git lfs pull
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -129,8 +636,9 @@ jobs:
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
-        python -m pip install --upgrade pip
-        python -m pip install -e .[test]
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-py${{ matrix.python-version }}.lock
+        uv pip install -e . --no-deps
 
     - name: Test pip install (Docker)
       env:
@@ -138,35 +646,57 @@ jobs:
       run: |
         ./docker/test-pip-install.sh
 
-    - name: Minimal tests
+    - name: Minimal lite tests (fast sentinel gate)
       run: |
         source pygraphistry/bin/activate
-        ./bin/test-minimal.sh
+        ./bin/test-minimal-lite.sh -n auto
+
+  cypher-frontend-ci-gates:
+    name: cypher-frontend-ci-gates
+    # Keep cypher frontend gates chained to strict typing + differential/parity
+    # + surface guard + full-suite sentinel.
+    needs: [changes, test-minimal-python, cypher-frontend-strict-typing, cypher-frontend-differential-parity, cypher-frontend-surface-guard]
+    if: ${{ (needs.changes.outputs.cypher_frontend_ci == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+    - name: Report cypher frontend gate status
+      run: |
+        echo "Cypher frontend gates passed:"
+        echo "- cypher-frontend-strict-typing (py3.12)"
+        echo "- cypher-frontend-differential-parity (py3.12)"
+        echo "- cypher-frontend-surface-guard"
+        echo "- test-minimal-python (full-suite sentinel gate)"
 
 
-  test-core-python:
-    needs: [ test-minimal-python ]
-    # Inherit condition from test-minimal-python
+  test-minimal-python-rest:
+    # Middle versions (3.9-3.13) + deferred heavy files, run after sentinel passes in parallel with downstream.
+    needs: [changes, test-minimal-python, test-gfql-core, generate-lockfiles]
     if: ${{ success() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
 
     strategy:
       matrix:
-        python-version: [3.8, 3.9, '3.10', 3.11, 3.12]
+        python-version: [3.9, '3.10', 3.11, 3.12, '3.13']
 
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
+        persist-credentials: false
 
-    - name: Checkout LFS objects
-      run: git lfs pull
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -174,8 +704,265 @@ jobs:
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
-        python -m pip install --upgrade pip
-        python -m pip install -e .[test,build,bolt,igraph,networkx,gremlin,nodexl,jupyter]
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-py${{ matrix.python-version }}.lock
+        uv pip install -e . --no-deps
+
+    - name: Test pip install (Docker)
+      env:
+        PYTHON_VERSION: ${{ matrix.python-version }}
+      run: |
+        ./docker/test-pip-install.sh
+
+    - name: Minimal full tests (includes deferred heavy files from sentinel)
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-minimal.sh -n auto
+
+
+  # GFQL-heavy tests split out of the minimal gate to reduce critical path.
+  # Runs in parallel with downstream jobs instead of blocking them.
+  test-gfql-core:
+    needs: [changes, python-lint-types, generate-lockfiles]
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+
+    strategy:
+      matrix:
+        python-version: [3.12, '3.14']
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install test dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-py${{ matrix.python-version }}.lock
+        uv pip install -e . --no-deps
+
+    - name: GFQL core tests
+      run: |
+        source pygraphistry/bin/activate
+        python -B -m pytest -vv -n auto \
+          graphistry/tests/compute/gfql/cypher/test_lowering.py \
+          graphistry/tests/compute/gfql/cypher/test_parser.py \
+          graphistry/tests/compute/gfql/test_row_pipeline_ops.py \
+          graphistry/tests/compute/gfql/test_schema_changers.py \
+          graphistry/tests/compute/gfql/test_let_schema_changers.py \
+          graphistry/tests/compute/gfql/test_rollout.py \
+          graphistry/tests/compute/gfql/test_rollout_binder_integration.py \
+          graphistry/tests/compute/test_hop.py \
+          graphistry/tests/compute/test_chain.py \
+          graphistry/tests/compute/test_chain_let.py \
+          graphistry/tests/compute/test_chain_concat.py \
+          graphistry/tests/compute/test_dataframe_primitives.py \
+          tests/gfql/ref/
+
+    - name: T5 rollout gate — execution-path canary (env=true)
+      # Default-loose path is exercised by the env-unset run above (T5 #1311).
+      # This step asserts the env-on canary path: the same rollout test slice
+      # run with GRAPHISTRY_GFQL_STRICT_SCHEMA=true to confirm strict-mode
+      # default behavior on the binder execution compile path.
+      env:
+        GRAPHISTRY_GFQL_STRICT_SCHEMA: "true"
+      run: |
+        source pygraphistry/bin/activate
+        python -B -m pytest -vv \
+          graphistry/tests/compute/gfql/test_rollout.py \
+          graphistry/tests/compute/gfql/test_rollout_binder_integration.py
+
+
+  test-pandas-compat:
+    name: test-pandas-compat (${{ matrix.label }}, py${{ matrix.python-version }})
+    needs: [changes, test-minimal-python, generate-lockfiles]
+    # Run if Python files changed OR infrastructure changed OR manual/scheduled run
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      matrix:
+        include:
+          - python-version: '3.9'    # oldest Python supporting pandas 2.2.3 (>=3.9); lockfile: test-compat-legacy
+            label: 'legacy'
+          - python-version: '3.13'   # RAPIDS 26.02: pandas 2.3.3 + py3.13; lockfile: test-compat-rapids-aligned
+            label: 'rapids-aligned'
+          - python-version: '3.14'   # latest pandas 3.x; lockfile: test-compat-latest
+            label: 'latest'
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install test dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-compat-${{ matrix.label }}-py${{ matrix.python-version }}.lock
+        uv pip install -e . --no-deps
+
+    - name: Pandas compatibility tests
+      run: |
+        source pygraphistry/bin/activate
+        python -B -m pytest -vv -n auto \
+          graphistry/tests/test_plotter.py \
+          graphistry/tests/test_compute_chain.py \
+          graphistry/tests/test_hypergraph.py \
+          graphistry/tests/test_compute_hops.py \
+          graphistry/tests/test_compute_collapse.py \
+          graphistry/tests/test_compute_filter_by_dict.py \
+          graphistry/tests/test_bolt_util.py \
+          graphistry/tests/test_nodexl.py
+
+
+  test-pandas-compat-gfql:
+    name: test-pandas-compat-gfql (${{ matrix.label }}, py${{ matrix.python-version }})
+    needs: [changes, test-minimal-python, generate-lockfiles]
+    # Run if Python files changed OR infrastructure changed OR manual/scheduled run
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    strategy:
+      matrix:
+        include:
+          - python-version: '3.9'    # pandas 2.2.3 — oldest; lockfile: test-compat-gfql-legacy
+            label: 'legacy'
+          # rapids-aligned (pandas 2.3.3 / py3.13) is SKIPPED — test-gfql-core resolves ~2.3.x already
+          - python-version: '3.14'   # pandas >=3.x — latest; lockfile: test-compat-gfql-latest
+            label: 'latest'
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install test dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-compat-gfql-${{ matrix.label }}-py${{ matrix.python-version }}.lock
+        uv pip install -e . --no-deps
+
+    - name: GFQL pandas compat tests
+      run: |
+        source pygraphistry/bin/activate
+        python -B -m pytest -vv -n auto \
+          graphistry/tests/compute/gfql/cypher/test_lowering.py \
+          graphistry/tests/compute/gfql/cypher/test_parser.py \
+          graphistry/tests/compute/gfql/test_row_pipeline_ops.py \
+          graphistry/tests/compute/gfql/test_schema_changers.py \
+          graphistry/tests/compute/gfql/test_let_schema_changers.py \
+          graphistry/tests/compute/gfql/test_rollout.py \
+          graphistry/tests/compute/gfql/test_rollout_binder_integration.py \
+          graphistry/tests/compute/test_hop.py \
+          graphistry/tests/compute/test_chain.py \
+          graphistry/tests/compute/test_chain_let.py \
+          graphistry/tests/compute/test_chain_concat.py \
+          graphistry/tests/compute/test_dataframe_primitives.py \
+          tests/gfql/ref/
+
+    - name: T5 rollout gate — execution-path canary (env=true)
+      # Default-loose path is exercised by the env-unset run above (T5 #1311).
+      # This step asserts the env-on canary path on pandas-compat matrix.
+      env:
+        GRAPHISTRY_GFQL_STRICT_SCHEMA: "true"
+      run: |
+        source pygraphistry/bin/activate
+        python -B -m pytest -vv \
+          graphistry/tests/compute/gfql/test_rollout.py \
+          graphistry/tests/compute/gfql/test_rollout_binder_integration.py
+
+
+  test-core-python:
+    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
+    # Inherit condition from test-minimal-python
+    if: ${{ success() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9, '3.10', 3.11, 3.12, '3.13', '3.14']
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install test dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-core-py${{ matrix.python-version }}.lock
+        uv pip install -e . --no-deps
 
     - name: Core tests
       run: |
@@ -183,7 +970,7 @@ jobs:
         ./bin/test.sh
 
   test-graphviz:
-    needs: [ test-minimal-python ]
+    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
     # Inherit condition from test-minimal-python
     if: ${{ success() }}
     runs-on: ubuntu-latest
@@ -191,22 +978,27 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.8, 3.9, '3.10', 3.11, 3.12]
+        python-version: [3.8, 3.9, '3.10', 3.11, 3.12, '3.13', '3.14']
 
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
+        persist-credentials: false
 
-    - name: Checkout LFS objects
-      run: git lfs pull
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
 
     - name: Install system dependencies
       run: |
@@ -217,15 +1009,13 @@ jobs:
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
 
-        # Retry pip install up to 3 times with exponential backoff
-        # This handles network issues and transient PyPI problems
+        # Retry uv install up to 3 times with exponential backoff
         for attempt in 1 2 3; do
           echo "==== Attempt $attempt of 3 ===="
 
-          if python -m pip install -e .[test,pygraphviz] \
-              --timeout 120 \
-              --retries 3; then
+          if uv pip install --require-hashes -r requirements/test-graphviz-py${{ matrix.python-version }}.lock && uv pip install -e . --no-deps; then
             echo "✅ Installation successful on attempt $attempt"
             break
           fi
@@ -233,9 +1023,7 @@ jobs:
           if [ $attempt -lt 3 ]; then
             wait_time=$((attempt * 30))
             echo "⚠️ Installation failed, retrying in ${wait_time}s..."
-            # Clear pip cache after failure to avoid bad intermediate state
-            echo "🧹 Clearing pip cache to ensure fresh state..."
-            python -m pip cache purge || true
+            uv cache clean || true
             sleep $wait_time
           else
             echo "❌ Installation failed after 3 attempts"
@@ -248,8 +1036,50 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/test-graphviz.sh
 
+  test-polars:
+    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
+    if: ${{ success() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    strategy:
+      matrix:
+        python-version: [3.9, '3.10', 3.11, 3.12, '3.13', '3.14']
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Install Python dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-polars-py${{ matrix.python-version }}.lock
+        uv pip install -e . --no-deps
+
+    - name: Polars tests
+      run: |
+        source pygraphistry/bin/activate
+        ./bin/test-polars.sh
+
   test-core-umap:
-    needs: [ test-minimal-python ]
+    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
     # Inherit condition from test-minimal-python
     if: ${{ success() }}
     runs-on: ubuntu-latest
@@ -257,29 +1087,108 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.9, '3.10', 3.11, 3.12]
+        # RAPIDS (umap-learn/numba) lacks Python 3.14 wheels as of 2025-11, so keep <=3.13 here
+        python-version: [3.9, '3.10', 3.11, 3.12, '3.13']
 
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
+        persist-credentials: false
 
-    - name: Checkout LFS objects
-      run: git lfs pull
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Set HF cache env
+      run: |
+        echo "HF_HOME=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
+        echo "HF_HUB_CACHE=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
+        echo "PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu" >> "$GITHUB_ENV"
+        echo "PIP_PREFER_BINARY=1" >> "$GITHUB_ENV"
+
+    - name: Prepare HF cache directory
+      run: |
+        mkdir -p "${HF_HOME}"
+
+    - name: Restore HF cache
+      id: hf-cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.HF_HOME }}
+        key: hf-cache-${{ runner.os }}-v2
+        restore-keys: |
+          hf-cache-${{ runner.os }}-
 
     - name: Install test dependencies
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
-        python -m pip install --upgrade pip
-        python -m pip install -e .[test,testai,umap-learn]
+        python -m pip install --upgrade pip uv
+        uv pip install -r requirements/test-umap-py${{ matrix.python-version }}.lock
+        # Keep pip for torch +cpu from the PyTorch CPU wheel index: uv cannot resolve this local-version pin.
+        python -m pip install --no-deps torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
+        uv pip install -e . --no-deps
+
+    - name: Warm HF cache (sentence-transformers)
+      id: warm-hf
+      if: steps['hf-cache'].outputs['cache-hit'] != 'true'
+      continue-on-error: true
+      run: |
+        mkdir -p "${HF_HOME}"
+        source pygraphistry/bin/activate
+        # sentence-transformers already installed from lockfile
+        python - <<'PY'
+        import os
+        from pathlib import Path
+        from sentence_transformers import SentenceTransformer
+
+        models = [
+            "sentence-transformers/average_word_embeddings_komninos",
+            "sentence-transformers/paraphrase-MiniLM-L6-v2",
+            "sentence-transformers/paraphrase-albert-small-v2",
+        ]
+
+        cache_dir = os.environ["HF_HOME"]
+        status_file = Path(cache_dir) / ".hf_cache_warmed"
+        status_file.parent.mkdir(parents=True, exist_ok=True)
+
+        success = True
+        for model in models:
+            try:
+                SentenceTransformer(model, cache_folder=cache_dir)
+            except Exception as exc:  # pragma: no cover - logging only
+                success = False
+                print(f"⚠️ HF warm failed for {model}: {exc}")
+
+        status_file.write_text("ok\n" if success else "partial\n")
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+            fh.write(f"success={str(success).lower()}\n")
+
+        print(f"✅ HF cache warm {'succeeded' if success else 'partial/fail'} at {cache_dir}")
+        PY
+
+    - name: Enable HF offline for tests
+      run: |
+        cache_hit="${{ steps['hf-cache'].outputs['cache-hit'] }}"
+        warm_success="${{ steps['warm-hf'].outputs.success }}"
+        if [ "${cache_hit}" = "true" ] || [ "${warm_success}" = "true" ]; then
+          echo "HF_HUB_OFFLINE=1" >> "$GITHUB_ENV"
+          echo "Using HF cache at ${HF_HOME} (cache-hit: ${cache_hit}, warm_success: ${warm_success})"
+        else
+          echo "HF_HUB_OFFLINE=0" >> "$GITHUB_ENV"
+          echo "HF cache not available; HF-dependent tests may skip or go online."
+        fi
 
     - name: Core feature tests (weak featurize)
       run: |
@@ -292,7 +1201,7 @@ jobs:
         ./bin/test-umap-learn-core.sh
 
   test-full-ai:
-    needs: [ test-minimal-python ]
+    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
     # Inherit condition from test-minimal-python
     if: ${{ success() }}
     runs-on: ubuntu-latest
@@ -300,7 +1209,8 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.9, '3.10', 3.11, 3.12]
+        # RAPIDS stack not available on Python 3.14 yet
+        python-version: [3.9, '3.10', 3.11, 3.12, '3.13']
         #include:
         #  - python-version: 3.12
         #    continue-on-error: true
@@ -308,24 +1218,52 @@ jobs:
     steps:
 
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
+        persist-credentials: false
 
-    - name: Checkout LFS objects
-      run: git lfs pull
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Set HF cache env
+      run: |
+        echo "HF_HOME=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
+        echo "HF_HUB_CACHE=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
+        echo "PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu" >> "$GITHUB_ENV"
+        echo "PIP_PREFER_BINARY=1" >> "$GITHUB_ENV"
+
+    - name: Prepare HF cache directory
+      run: |
+        mkdir -p "${HF_HOME}"
+
+    - name: Restore HF cache
+      id: hf-cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.HF_HOME }}
+        key: hf-cache-${{ runner.os }}-v2
+        restore-keys: |
+          hf-cache-${{ runner.os }}-
 
     - name: Install test dependencies
       run: |
         python -m venv pygraphistry
         source pygraphistry/bin/activate
-        python -m pip install --upgrade pip
-        python -m pip install -e .[test,testai,ai]
+        python -m pip install --upgrade pip uv
+        uv pip install -r requirements/test-ai-py${{ matrix.python-version }}.lock
+        # Keep pip for torch +cpu from the PyTorch CPU wheel index: uv cannot resolve this local-version pin.
+        python -m pip install --no-deps torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
+        uv pip install -e . --no-deps
         echo "skrub: `pip show skrub | grep Version`"
         echo "pandas: `pip show pandas | grep Version`"
         echo "numpy: `pip show numpy | grep Version`"
@@ -333,39 +1271,155 @@ jobs:
         echo "scipy: `pip show scipy | grep Version`"
         echo "umap-learn: `pip show umap-learn | grep Version`"
 
-    - name: Full dbscan tests (rich featurize)
+    - name: Warm HF cache (sentence-transformers)
+      id: warm-hf
+      if: steps['hf-cache'].outputs['cache-hit'] != 'true'
       run: |
+        mkdir -p "${HF_HOME}"
         source pygraphistry/bin/activate
-        ./bin/test-dbscan.sh
-        
-    - name: Full feature tests (rich featurize)
-      run: |
-        source pygraphistry/bin/activate
-        ./bin/test-features.sh
+        # sentence-transformers already installed from lockfile
+        python - <<'PY'
+        import os
+        from pathlib import Path
+        from sentence_transformers import SentenceTransformer
 
-    - name: Full search tests (rich featurize)
-      run: |
-        source pygraphistry/bin/activate
-        ./bin/test-text.sh
+        models = [
+            "sentence-transformers/average_word_embeddings_komninos",
+            "sentence-transformers/paraphrase-MiniLM-L6-v2",
+            "sentence-transformers/paraphrase-albert-small-v2",
+        ]
 
-    - name: Full umap tests (rich featurize)
-      run: |
-        source pygraphistry/bin/activate
-        ./bin/test-umap-learn-core.sh
+        cache_dir = os.environ["HF_HOME"]
+        status_file = Path(cache_dir) / ".hf_cache_warmed"
+        status_file.parent.mkdir(parents=True, exist_ok=True)
 
-    - name: Full embed tests (rich featurize)
+        success = True
+        for model in models:
+            try:
+                SentenceTransformer(model, cache_folder=cache_dir)
+            except Exception as exc:  # pragma: no cover - logging only
+                success = False
+                print(f"⚠️ HF warm failed for {model}: {exc}")
+
+        status_file.write_text("ok\n" if success else "partial\n")
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+            fh.write(f"success={str(success).lower()}\n")
+
+        print(f"✅ HF cache warm {'succeeded' if success else 'partial/fail'} at {cache_dir}")
+        PY
+
+    - name: Enable HF offline for tests
+      run: |
+        cache_hit="${{ steps['hf-cache'].outputs['cache-hit'] }}"
+        warm_success="${{ steps['warm-hf'].outputs.success }}"
+        if [ "${cache_hit}" = "true" ] || [ "${warm_success}" = "true" ]; then
+          echo "HF_HUB_OFFLINE=1" >> "$GITHUB_ENV"
+          echo "Using HF cache at ${HF_HOME} (cache-hit: ${cache_hit}, warm_success: ${warm_success})"
+        else
+          echo "HF_HUB_OFFLINE=0" >> "$GITHUB_ENV"
+          echo "HF cache not available; HF-dependent tests may skip or go online."
+        fi
+
+    - name: Full AI tests (rich featurize)
       run: |
         source pygraphistry/bin/activate
+        python -B -m pytest -vv -n auto \
+          graphistry/tests/test_compute_cluster.py \
+          graphistry/tests/test_feature_utils.py \
+          graphistry/tests/test_text_utils.py \
+          graphistry/tests/test_umap_utils.py
+
+  test-dgl-cpu:
+    needs: [changes, test-minimal-python, test-gfql-core]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
+      PIP_PREFER_BINARY: "1"
+      DGLBACKEND: pytorch
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install DGL stack (CPU, legacy)
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        cat <<'EOF' > /tmp/dgl-constraints.txt
+        torch==2.0.1
+        torchdata==0.6.1
+        dgl==2.1.0
+        sentence-transformers==5.1.2
+        faiss-cpu
+        EOF
+        uv pip install --constraint /tmp/dgl-constraints.txt torch==2.0.1 torchdata==0.6.1 dgl==2.1.0
+        uv pip install --constraint /tmp/dgl-constraints.txt -e .[test,testai,ai,dgl-cpu]
+
+    - name: Run DGL tests
+      env:
+        HF_HUB_OFFLINE: 1
+        HF_HOME: /tmp/hf-cache
+        HF_HUB_CACHE: /tmp/hf-cache
+      run: |
+        source pygraphistry/bin/activate
+        mkdir -p "${HF_HOME}"
         ./bin/test-embed.sh
-
-    - name: Full DGL tests (rich featurize)
-      run: |
-        source pygraphistry/bin/activate
         ./bin/test-dgl.sh
 
 
+  test-spark:
+    needs: [changes, test-minimal-python, test-gfql-core]
+    if: ${{ (needs.changes.outputs.spark == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Set up Python 3.14
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.14'
+
+    - name: Restore uv cache (spark)
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/uv
+        key: uv-spark-${{ runner.os }}-py3.14-v2-${{ hashFiles('setup.py', '.github/workflows/ci.yml') }}
+        restore-keys: |
+          uv-spark-${{ runner.os }}-py3.14-v2-
+
+    - name: Install pyspark stack + graphistry
+      run: |
+        if ! command -v java >/dev/null 2>&1; then
+          sudo apt-get install -y default-jdk
+        fi
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install pyspark pyarrow pandas requests pytest
+        # Spark smoke tests do not require the full test extra toolchain.
+        # Install base graphistry deps, but skip heavy contributor-only [test] extras.
+        uv pip install -e .
+
+    - name: Run Spark tests
+      run: |
+        source pygraphistry/bin/activate
+        python -B -m pytest graphistry/tests/compute/test_df_types.py -v -k spark
+
+
   test-neo4j:
-    needs: [ test-minimal-python ]
+    needs: [ test-minimal-python, test-gfql-core ]
     # Inherit condition from test-minimal-python
     if: ${{ success() }}
     runs-on: ubuntu-latest
@@ -375,12 +1429,11 @@ jobs:
       DOCKER_BUILDKIT: 1
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         lfs: true
+        persist-credentials: false
 
-    - name: Checkout LFS objects
-      run: git lfs pull
 
     - name: Neo4j connector tests
       run: |
@@ -388,29 +1441,35 @@ jobs:
 
 
   test-build:
-    needs: [ test-minimal-python ]
+    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
     # Inherit condition from test-minimal-python
     if: ${{ success() }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         lfs: true
+        persist-credentials: false
 
-    - name: Checkout LFS objects
-      run: git lfs pull
 
-    - name: Set up Python 3.8
-      uses: actions/setup-python@v4
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
       with:
-        python-version: 3.8
+        name: lockfiles
+        path: requirements
+
+    - name: Set up Python 3.14
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.14'
 
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        python -m pip install -e .[build]
+        python -m pip install --upgrade pip uv
+        UV_SYSTEM_PYTHON=1 uv pip install --require-hashes -r requirements/build-py3.14.lock
+        UV_SYSTEM_PYTHON=1 uv pip install -e . --no-deps
 
     - name: Test building
       run: |
@@ -422,15 +1481,33 @@ jobs:
         echo "✅ py.typed marker confirmed in wheel distribution"
 
 
+  docs-latex-unicode-guard:
+    needs: [changes]
+    # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run
+    if: ${{ needs.changes.outputs.docs == 'true' || needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Guard LaTeX-unsafe Unicode in docs-fed text
+      run: |
+        ./bin/check_docs_latex_unicode.sh
+
   test-docs:
-    needs: [changes, python-lint-types]
+    needs: [changes, python-lint-types, docs-latex-unicode-guard]
     # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run
     if: ${{ needs.changes.outputs.docs == 'true' || needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
 
     - name: Test building docs
       env:
@@ -447,14 +1524,11 @@ jobs:
     timeout-minutes: 1
 
     steps:
-    - uses: actions/checkout@v3
-
-    - name: Set up Python 3.8
-      uses: actions/setup-python@v4
+    - uses: actions/checkout@v4
       with:
-        python-version: 3.8
+        persist-credentials: false
 
-    - name: Test building docs
+    - name: Lint README markdown
       continue-on-error: true
       run: |
         docker run --rm -v "$(pwd)/README.md:/workdir/README.md:ro" -v "$(pwd)/.markdownlint.yaml:/workdir/.markdownlint.yaml:ro" ghcr.io/igorshubovych/markdownlint-cli:v0.37.0 README.md

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import datetime as dt, logging, numpy as np, os, pandas as pd, pyarrow as pa, pytest
+from pandas.api.types import is_datetime64_any_dtype
 
 from graphistry.pygraphistry import PyGraphistry
 from graphistry.Engine import Engine, DataframeLike
@@ -61,11 +62,6 @@ def honeypot_pdf() -> pd.DataFrame:
         "time(max)": "float64",
         "time(min)": "float64",
     }
-    base_dtypes = {
-        **base_csv_dtypes,
-        "time(max)": "datetime64[ns]",
-        "time(min)": "datetime64[ns]",
-    }
     df = pd.read_csv(
         "graphistry/tests/data/honeypot.5.csv",
         #'graphistry/tests/data/honeypot.csv',
@@ -73,7 +69,13 @@ def honeypot_pdf() -> pd.DataFrame:
         parse_dates=["time(max)", "time(min)"],
         date_parser=lambda v: pd.to_datetime(int(float(v))),
     )
-    assert df.dtypes.to_dict() == base_dtypes
+    dtypes = df.dtypes.to_dict()
+    parsed_date_cols = ("time(max)", "time(min)")
+    for col, dtype in base_csv_dtypes.items():
+        if col not in parsed_date_cols:
+            assert dtypes[col] == dtype
+    for col in parsed_date_cols:
+        assert is_datetime64_any_dtype(dtypes[col])
     assert len(df) == HONEYPOT_ROWS
     return df
 
@@ -340,6 +342,44 @@ class TestHypergraphPandas(NoAuthTestCase):
         )
         self.assertEqual(len(h2.edges), 12)
 
+    def test_single_entity_direct_with_get_degrees(self):
+        """Test that hypergraph with single entity + direct=True creates proper empty edges for get_degrees()"""
+        # Issue #766: hypergraph(entity_types=['single'], direct=True) should create
+        # empty DataFrame with proper columns so get_degrees() works
+
+        test_df = pd.DataFrame([
+            ['Pineville Park', 'Pineville', 'Park'],
+            ['Pineville Grocery', 'Pineville', 'Store'],
+            ['Maplewood Shop', 'Maplewood', 'Store'],
+        ], columns=['name', 'town', 'type'])
+
+        # Create hypergraph with single entity type + direct=True
+        # This creates nodes but no edges (only one entity type)
+        h = hypergraph(
+            PyGraphistry.bind(),
+            test_df,
+            entity_types=['town'],
+            verbose=False,
+            direct=True
+        )
+
+        # Should have nodes but no edges
+        self.assertEqual(len(h.nodes), 2)  # 2 unique towns
+        self.assertEqual(len(h.edges), 0)  # No edges (single entity)
+
+        # Edges DataFrame should have proper columns even when empty
+        self.assertIn('src', h.edges.columns)
+        self.assertIn('dst', h.edges.columns)
+
+        # Call get_degrees() - should work without KeyError
+        g_with_degrees = h.graph.get_degrees()
+
+        # Should return graph with degree columns
+        self.assertIsNotNone(g_with_degrees._nodes)
+        self.assertIn('degree', g_with_degrees._nodes.columns)
+        # All degrees should be 0 (no edges)
+        self.assertTrue((g_with_degrees._nodes['degree'] == 0).all())
+
     def test_drop_edge_attrs(self):
 
         h = hypergraph(
@@ -499,6 +539,23 @@ class TestHypergraphPandas(NoAuthTestCase):
         nodes_arr = pa.Table.from_pandas(hg.graph._nodes)
         assert len(nodes_arr) == HONEYPOT_NODES
 
+    @pytest.mark.parametrize("unit", ["ms", "us"])
+    def test_hyper_to_pa_mixed2_unit_variants(self, unit):
+        df = honeypot_pdf().copy()
+        for col in ("time(max)", "time(min)"):
+            df[col] = df[col].astype(f"datetime64[{unit}]")
+
+        hg = hypergraph(**honeypot_hyperparams(df))
+
+        for col in ("time(max)", "time(min)"):
+            assert is_datetime64_any_dtype(hg.graph._edges.dtypes[col])
+            assert is_datetime64_any_dtype(hg.graph._nodes.dtypes[col])
+
+        edges_arr = pa.Table.from_pandas(hg.graph._edges)
+        assert len(edges_arr) == HONEYPOT_EDGES
+        nodes_arr = pa.Table.from_pandas(hg.graph._nodes)
+        assert len(nodes_arr) == HONEYPOT_NODES
+
     def test_hyper_to_pa_na(self):
 
         df = pd.DataFrame({"x": ["a", None, "c"], "y": [1, 2, None]})
@@ -655,13 +712,54 @@ class TestHypergraphCudf(NoAuthTestCase):
         )
         self.assertEqual(len(h2.edges), 12)
 
+    def test_single_entity_direct_with_get_degrees(self):
+        """Test that hypergraph with single entity + direct=True creates proper empty edges for get_degrees()"""
+        # Issue #766: hypergraph(entity_types=['single'], direct=True) should create
+        # empty DataFrame with proper columns so get_degrees() works across all engines
+
+        import cudf
+
+        test_df = cudf.DataFrame({
+            'name': ['Pineville Park', 'Pineville Grocery', 'Maplewood Shop'],
+            'town': ['Pineville', 'Pineville', 'Maplewood'],
+            'type': ['Park', 'Store', 'Store']
+        })
+
+        # Create hypergraph with single entity type + direct=True
+        # This creates nodes but no edges (only one entity type)
+        h = hypergraph(
+            PyGraphistry.bind(),
+            test_df,
+            entity_types=['town'],
+            verbose=False,
+            direct=True,
+            engine=Engine.CUDF
+        )
+
+        # Should have nodes but no edges
+        self.assertEqual(len(h.nodes), 2)  # 2 unique towns
+        self.assertEqual(len(h.edges), 0)  # No edges (single entity)
+
+        # Edges DataFrame should have proper columns even when empty
+        self.assertIn('src', h.edges.columns)
+        self.assertIn('dst', h.edges.columns)
+
+        # Call get_degrees() - should work without KeyError
+        g_with_degrees = h.graph.get_degrees()
+
+        # Should return graph with degree columns
+        self.assertIsNotNone(g_with_degrees._nodes)
+        self.assertIn('degree', g_with_degrees._nodes.columns)
+        # All degrees should be 0 (no edges)
+        self.assertTrue((g_with_degrees._nodes['degree'] == 0).all())
+
     def test_drop_edge_attrs(self):
         import cudf
 
         h = hypergraph(
             PyGraphistry.bind(),
             cudf.DataFrame.from_pandas(triangleNodes),
-            ["id", "a1", "🙈"],
+            entity_types=["id", "a1", "🙈"],
             verbose=False,
             drop_edge_attrs=True,
             engine=Engine.CUDF,
@@ -706,7 +804,7 @@ class TestHypergraphCudf(NoAuthTestCase):
         h = hypergraph(
             PyGraphistry.bind(),
             cudf.DataFrame.from_pandas(triangleNodes),
-            ["id", "a1", "🙈"],
+            entity_types=["id", "a1", "🙈"],
             verbose=False,
             direct=True,
             drop_edge_attrs=True,
@@ -749,7 +847,6 @@ class TestHypergraphCudf(NoAuthTestCase):
         assert len(hg.graph._nodes) == 7
         assert len(hg.graph._edges) == 4
 
-    @pytest.mark.xfail(reason="https://github.com/rapidsai/cudf/issues/7735")
     def test_drop_na_direct(self):
         import cudf
 
@@ -875,7 +972,7 @@ class TestHypergraphCudf(NoAuthTestCase):
         hg = hypergraph(
             PyGraphistry.bind(),
             cudf.DataFrame.from_pandas(triangleNodes),
-            ["id", "a1", "🙈"],
+            entity_types=["id", "a1", "🙈"],
             engine=Engine.CUDF,
         )
         nodes_arr = hg.graph._nodes.to_arrow()
@@ -891,7 +988,7 @@ class TestHypergraphCudf(NoAuthTestCase):
         hg = hypergraph(
             PyGraphistry.bind(),
             cudf.DataFrame.from_pandas(triangleNodes),
-            ["id", "a1", "🙈"],
+            entity_types=["id", "a1", "🙈"],
             direct=True,
             engine=Engine.CUDF,
         )
@@ -1055,6 +1152,50 @@ class TestHypergraphDask(NoAuthTestCase):
                 debug=DEBUG,
             )
             self.assertEqual(len(h2.edges.compute()), 12)
+
+    def test_single_entity_direct_with_get_degrees(self):
+        """Test that hypergraph with single entity + direct=True creates proper empty edges for get_degrees()"""
+        # Issue #766: hypergraph(entity_types=['single'], direct=True) should create
+        # empty DataFrame with proper columns so get_degrees() works across all engines
+
+        import dask
+        from dask.distributed import Client
+
+        with Client(processes=True):
+            test_df = pd.DataFrame([
+                ['Pineville Park', 'Pineville', 'Park'],
+                ['Pineville Grocery', 'Pineville', 'Store'],
+                ['Maplewood Shop', 'Maplewood', 'Store'],
+            ], columns=['name', 'town', 'type'])
+
+            # Create hypergraph with single entity type + direct=True
+            # This creates nodes but no edges (only one entity type)
+            h = hypergraph(
+                PyGraphistry.bind(),
+                test_df,
+                entity_types=['town'],
+                verbose=False,
+                direct=True,
+                engine=Engine.DASK,
+                npartitions=2
+            )
+
+            # Should have nodes but no edges
+            self.assertEqual(len(h.nodes.compute()), 2)  # 2 unique towns
+            self.assertEqual(len(h.edges.compute()), 0)  # No edges (single entity)
+
+            # Edges DataFrame should have proper columns even when empty
+            self.assertIn('src', h.edges.columns)
+            self.assertIn('dst', h.edges.columns)
+
+            # Call get_degrees() - should work without KeyError
+            g_with_degrees = h.graph.get_degrees()
+
+            # Should return graph with degree columns
+            self.assertIsNotNone(g_with_degrees._nodes)
+            self.assertIn('degree', g_with_degrees._nodes.columns)
+            # All degrees should be 0 (no edges)
+            self.assertTrue((g_with_degrees._nodes.compute()['degree'] == 0).all())
 
     def test_drop_edge_attrs(self):
         import dask
@@ -1540,6 +1681,49 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 )
                 self.assertEqual(len(h2.edges.compute()), 12)
 
+    def test_single_entity_direct_with_get_degrees(self):
+        """Test that hypergraph with single entity + direct=True creates proper empty edges for get_degrees()"""
+        # Issue #766: hypergraph(entity_types=['single'], direct=True) should create
+        # empty DataFrame with proper columns so get_degrees() works across all engines
+
+        cluster, client = make_cluster_client()
+        with cluster:
+            with client:
+                test_df = pd.DataFrame([
+                    ['Pineville Park', 'Pineville', 'Park'],
+                    ['Pineville Grocery', 'Pineville', 'Store'],
+                    ['Maplewood Shop', 'Maplewood', 'Store'],
+                ], columns=['name', 'town', 'type'])
+
+                # Create hypergraph with single entity type + direct=True
+                # This creates nodes but no edges (only one entity type)
+                h = hypergraph(
+                    PyGraphistry.bind(),
+                    test_df,
+                    entity_types=['town'],
+                    verbose=False,
+                    direct=True,
+                    engine=Engine.DASK_CUDF,
+                    npartitions=2
+                )
+
+                # Should have nodes but no edges
+                self.assertEqual(len(h.nodes.compute()), 2)  # 2 unique towns
+                self.assertEqual(len(h.edges.compute()), 0)  # No edges (single entity)
+
+                # Edges DataFrame should have proper columns even when empty
+                self.assertIn('src', h.edges.columns)
+                self.assertIn('dst', h.edges.columns)
+
+                # Call get_degrees() - should work without KeyError
+                g_with_degrees = h.graph.get_degrees()
+
+                # Should return graph with degree columns
+                self.assertIsNotNone(g_with_degrees._nodes)
+                self.assertIn('degree', g_with_degrees._nodes.columns)
+                # All degrees should be 0 (no edges)
+                self.assertTrue((g_with_degrees._nodes.compute()['degree'] == 0).all())
+
     def test_drop_edge_attrs(self):
         cluster, client = make_cluster_client()
         with cluster:
@@ -1650,7 +1834,6 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                     logger.error("actual: %s", getattr(h, k).compute())
                     self.assertEqual(len(getattr(h, k).compute()), v)
 
-    @pytest.mark.xfail(reason="https://github.com/rapidsai/cudf/issues/7735")
     def test_drop_na_hyper(self):
         cluster, client = make_cluster_client()
         with cluster:
@@ -1667,7 +1850,6 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 assert len(hg.graph._nodes.compute()) == 7
                 assert len(hg.graph._edges.compute()) == 4
 
-    @pytest.mark.xfail(reason="https://github.com/rapidsai/cudf/issues/7735")
     def test_drop_nan_hyper(self):
         cluster, client = make_cluster_client()
         with cluster:
@@ -1684,7 +1866,6 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 assert len(hg.graph._nodes.compute()) == 7
                 assert len(hg.graph._edges.compute()) == 4
 
-    @pytest.mark.xfail(reason="https://github.com/rapidsai/cudf/issues/7735")
     def test_drop_na_direct(self):
         cluster, client = make_cluster_client()
         with cluster:
@@ -1703,7 +1884,6 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 assert len(hg.graph._nodes.compute()) == 2
                 assert len(hg.graph._edges.compute()) == 1
 
-    @pytest.mark.xfail(reason="https://github.com/rapidsai/cudf/issues/7735")
     def test_drop_nan_direct(self):
         cluster, client = make_cluster_client()
         with cluster:
@@ -1722,7 +1902,6 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 assert len(hg.graph._nodes.compute()) == 2
                 assert len(hg.graph._edges.compute()) == 1
 
-    @pytest.mark.xfail(reason="https://github.com/rapidsai/cudf/issues/7735")
     def test_skip_na_hyperedge(self):
         cluster, client = make_cluster_client()
         with cluster:
@@ -1748,7 +1927,6 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 ).edges
                 self.assertEqual(len(default_h_edges.compute()), len(expected_hits))
 
-    @pytest.mark.xfail(reason="https://github.com/rapidsai/cudf/issues/7735")
     def test_skip_nan_hyperedge(self):
         cluster, client = make_cluster_client()
         with cluster:
@@ -1872,7 +2050,6 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 nodes_arr = nodes_gdf.to_arrow()
                 assert len(nodes_arr) == HONEYPOT_NODES
 
-    @pytest.mark.xfail(reason="https://github.com/rapidsai/cudf/issues/7735")
     def test_hyper_to_pa_na(self):
         cluster, client = make_cluster_client()
         with cluster:
@@ -1894,7 +2071,6 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 assert len(hg.graph._edges) == 6
                 assert len(edges_err) == 6
 
-    @pytest.mark.xfail(reason="https://github.com/rapidsai/cudf/issues/7735")
     def test_hyper_to_pa_nan(self):
         cluster, client = make_cluster_client()
         with cluster:
@@ -1970,3 +2146,236 @@ class TestHypergraphDaskCudf(NoAuthTestCase):
                 )
                 self.assertEqual(len(h["edges"]), 9)
                 self.assertEqual(len(h["nodes"]), 9)
+
+
+@pytest.mark.skipif(
+    not ("TEST_PANDAS" in os.environ and os.environ["TEST_PANDAS"] == "1"),
+    reason="pandas tests need TEST_PANDAS=1",
+)
+class TestHypergraphAPICompatibility(NoAuthTestCase):
+    """Test suite to verify backward compatibility of hypergraph() API calling conventions.
+
+    This test suite prevents regressions on the smart type detection feature that allows
+    three different calling forms:
+    1. Old positional API: hypergraph(g, df, ['cols'])
+    2. New convenience API: hypergraph(g, ['cols']) - auto-selects dataframe from graph
+    3. Keyword API: hypergraph(g, entity_types=['cols'])
+    """
+
+    def test_positional_api_with_dataframe_and_list(self):
+        """Test old positional API: hypergraph(g, df, ['cols'])
+
+        This was the original API before entity_types became optional.
+        DataFrame as 2nd arg, list as 3rd arg.
+        """
+        h = hypergraph(
+            PyGraphistry.bind(),
+            triangleNodes,
+            ["id", "a1", "🙈"],
+            verbose=False,
+            drop_edge_attrs=True,
+        )
+
+        # Verify correct hypergraph structure
+        self.assertEqual(len(h.entities), 9)
+        self.assertEqual(len(h.nodes), 12)
+        self.assertEqual(len(h.edges), 9)
+        self.assertEqual(len(h.events), 3)
+
+    def test_convenience_api_with_list_only(self):
+        """Test new convenience API: hypergraph(g, ['cols'])
+
+        When only a list is passed as 2nd arg, it's treated as entity_types
+        and dataframe is auto-selected from graph._nodes or graph._edges.
+        """
+        g = PyGraphistry.bind().nodes(triangleNodes)
+
+        h = hypergraph(
+            g,
+            ["id", "a1", "🙈"],  # List as 2nd arg triggers convenience mode
+            verbose=False,
+            drop_edge_attrs=True,
+        )
+
+        # Verify correct hypergraph structure
+        self.assertEqual(len(h.entities), 9)
+        self.assertEqual(len(h.nodes), 12)
+        self.assertEqual(len(h.edges), 9)
+        self.assertEqual(len(h.events), 3)
+
+    def test_keyword_api_explicit_entity_types(self):
+        """Test keyword API: hypergraph(g, entity_types=['cols'])
+
+        Explicit keyword argument for entity_types.
+        """
+        h = hypergraph(
+            PyGraphistry.bind(),
+            triangleNodes,
+            entity_types=["id", "a1", "🙈"],
+            verbose=False,
+            drop_edge_attrs=True,
+        )
+
+        # Verify correct hypergraph structure
+        self.assertEqual(len(h.entities), 9)
+        self.assertEqual(len(h.nodes), 12)
+        self.assertEqual(len(h.edges), 9)
+        self.assertEqual(len(h.events), 3)
+
+    def test_keyword_api_explicit_raw_events_and_entity_types(self):
+        """Test explicit keyword API: hypergraph(g, raw_events=df, entity_types=['cols'])
+
+        Both raw_events and entity_types passed as keywords.
+        """
+        h = hypergraph(
+            PyGraphistry.bind(),
+            raw_events=triangleNodes,
+            entity_types=["id", "a1", "🙈"],
+            verbose=False,
+            drop_edge_attrs=True,
+        )
+
+        # Verify correct hypergraph structure
+        self.assertEqual(len(h.entities), 9)
+        self.assertEqual(len(h.nodes), 12)
+        self.assertEqual(len(h.edges), 9)
+        self.assertEqual(len(h.events), 3)
+
+    def test_all_apis_produce_identical_results(self):
+        """Verify all three API forms produce identical results"""
+        # Old positional API
+        h1 = hypergraph(
+            PyGraphistry.bind(),
+            triangleNodes,
+            ["id", "a1"],
+            verbose=False,
+        )
+
+        # New convenience API
+        g = PyGraphistry.bind().nodes(triangleNodes)
+        h2 = hypergraph(
+            g,
+            ["id", "a1"],
+            verbose=False,
+        )
+
+        # Keyword API
+        h3 = hypergraph(
+            PyGraphistry.bind(),
+            triangleNodes,
+            entity_types=["id", "a1"],
+            verbose=False,
+        )
+
+        # All should produce identical structure sizes
+        for h in [h1, h2, h3]:
+            self.assertEqual(len(h.entities), 6)
+            self.assertEqual(len(h.nodes), 9)
+            self.assertEqual(len(h.edges), 6)
+            self.assertEqual(len(h.events), 3)
+
+
+@pytest.mark.skipif(
+    not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
+    reason="cudf tests need TEST_CUDF=1",
+)
+class TestHypergraphAPICompatibilityCudf(NoAuthTestCase):
+    """GPU version of API compatibility tests using cuDF"""
+
+    def test_positional_api_with_dataframe_and_list(self):
+        """Test old positional API with cuDF: hypergraph(g, gdf, ['cols'])"""
+        import cudf
+
+        h = hypergraph(
+            PyGraphistry.bind(),
+            cudf.DataFrame.from_pandas(triangleNodes),
+            ["id", "a1", "🙈"],
+            verbose=False,
+            drop_edge_attrs=True,
+            engine=Engine.CUDF,
+        )
+
+        # Verify correct hypergraph structure
+        self.assertEqual(len(h.entities), 9)
+        self.assertEqual(len(h.nodes), 12)
+        self.assertEqual(len(h.edges), 9)
+        self.assertEqual(len(h.events), 3)
+
+    def test_convenience_api_with_list_only(self):
+        """Test new convenience API with cuDF: hypergraph(g, ['cols'])"""
+        import cudf
+
+        g = PyGraphistry.bind().nodes(cudf.DataFrame.from_pandas(triangleNodes))
+
+        h = hypergraph(
+            g,
+            ["id", "a1", "🙈"],
+            verbose=False,
+            drop_edge_attrs=True,
+            engine=Engine.CUDF,
+        )
+
+        # Verify correct hypergraph structure
+        self.assertEqual(len(h.entities), 9)
+        self.assertEqual(len(h.nodes), 12)
+        self.assertEqual(len(h.edges), 9)
+        self.assertEqual(len(h.events), 3)
+
+    def test_keyword_api_explicit_entity_types(self):
+        """Test keyword API with cuDF: hypergraph(g, entity_types=['cols'])"""
+        import cudf
+
+        h = hypergraph(
+            PyGraphistry.bind(),
+            cudf.DataFrame.from_pandas(triangleNodes),
+            entity_types=["id", "a1", "🙈"],
+            verbose=False,
+            drop_edge_attrs=True,
+            engine=Engine.CUDF,
+        )
+
+        # Verify correct hypergraph structure
+        self.assertEqual(len(h.entities), 9)
+        self.assertEqual(len(h.nodes), 12)
+        self.assertEqual(len(h.edges), 9)
+        self.assertEqual(len(h.events), 3)
+
+    def test_all_apis_produce_identical_results(self):
+        """Verify all three API forms produce identical results with cuDF"""
+        import cudf
+
+        gdf = cudf.DataFrame.from_pandas(triangleNodes)
+
+        # Old positional API
+        h1 = hypergraph(
+            PyGraphistry.bind(),
+            gdf,
+            ["id", "a1"],
+            verbose=False,
+            engine=Engine.CUDF,
+        )
+
+        # New convenience API
+        g = PyGraphistry.bind().nodes(gdf)
+        h2 = hypergraph(
+            g,
+            ["id", "a1"],
+            verbose=False,
+            engine=Engine.CUDF,
+        )
+
+        # Keyword API
+        h3 = hypergraph(
+            PyGraphistry.bind(),
+            gdf,
+            entity_types=["id", "a1"],
+            verbose=False,
+            engine=Engine.CUDF,
+        )
+
+        # All should produce identical structure sizes
+        for h in [h1, h2, h3]:
+            self.assertEqual(len(h.entities), 6)
+            self.assertEqual(len(h.nodes), 9)
+            self.assertEqual(len(h.edges), 6)
+            self.assertEqual(len(h.events), 3)

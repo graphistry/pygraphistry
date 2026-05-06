@@ -87,7 +87,7 @@ def hash_pdf(df: pd.DataFrame) -> str:
         hashlib.sha256(
             putil.hash_pandas_object(df, index=True).to_numpy().tobytes()
         ).hexdigest()
-        + hashlib.sha256(str(df.columns).encode("utf-8")).hexdigest()  # noqa: W503
+        + hashlib.sha256(str(df.columns).encode("utf-8")).hexdigest()
     )
 
 

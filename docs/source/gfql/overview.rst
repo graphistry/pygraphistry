@@ -2,6 +2,11 @@
 Overview of GFQL
 =================
 
+.. image:: _static/gfql-mascot.png
+   :alt: GFQL mascot
+   :width: 200px
+   :align: center
+
 New to GFQL, the open source dataframe-native graph query language? This article overviews the gaps it fills, special features like GPU accelerations, and where to go next.
 
 
@@ -47,36 +52,146 @@ Key GFQL Concepts
 GFQL works on the same graphs as the rest of the PyGraphistry library. The operations run on top of the dataframe engine of your choice, with initial support for Pandas dataframes (CPU) and cuDF dataframes (GPU). 
 
 - **Nodes and Edges**: Represented using dataframes, making integration with Pandas and cuDF seamless
-- **Functional**: Build queries by layering operations, similar to functional method chaining in Pandas
-- **Query**: Run graph pattern matching using method `chain()` in a style similar to the popoular OpenCypher graph query language
+- **Cypher strings**: Write queries as Cypher strings — ``g.gfql("MATCH (n) WHERE n.score > 5 RETURN n")``
+- **Native chains**: Or compose queries as Python objects — ``g.gfql([n({"score": gt(5)})])``
 - **Predicates**: Apply conditions to filter nodes and edges based on their properties, reusing the optimized native operations of the underlying dataframe engine
+- **Same-path constraints (WHERE)**: Relate attributes across steps in a chain using `where`
+- **Row pipelines (`MATCH ... RETURN` style)**: Move from graph pattern matches to tabular results with `rows()`, `where_rows()`, `return_()`, `order_by()`, `group_by()`, `skip()`, and `limit()`
+- **Result kinds**: Some stages keep you in graph state, while row-pipeline stages and row-returning local Cypher `CALL` queries move you into row state
 - **GPU & CPU vectorization**: GFQL automatically leverages GPU acceleration and in-memory columnar processing for massive speedups on your queries
 - **Optional remote mode**: Bind to remote data or upload it quickly as Arrow, and run your same Python and GFQL queries on remote GPU resources when available
+
+Choosing Entry Points And Result Kinds
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use the entrypoint that matches where the query executes:
+
+- **Local in-memory GFQL / Cypher-style execution**: `g.gfql([...])` or `g.gfql("MATCH ...")` runs on the current `Plottable` in pandas/cuDF.
+- **Remote GFQL execution**: `g.gfql_remote([...])` runs the same GFQL chains/DAGs remotely, which is useful for larger datasets and remote GPU execution. See :ref:`gfql-remote`.
+
+.. warning::
+   `graphistry.cypher("...")` and `g.cypher("...")` are a separate remote database Cypher path
+   (for example, Neo4j/Neptune integrations), not the GFQL execution surface described on this page.
+   Do not treat them as interchangeable with `g.gfql(...)` or `g.gfql_remote(...)`.
+
+GFQL pipelines also have two practical result kinds:
+
+- **Graph state**: Traversable graph results with meaningful `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, `let()` / `ref()` DAG stages, local Cypher `CALL graphistry.*.write()` queries, and local Cypher `GRAPH { MATCH ... }` constructors stay in graph state.
+- **Row state**: Tabular results stored in `_nodes`, with `_edges` reduced to an empty placeholder frame. Row-pipeline steps like `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning local Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
+- A bare local Cypher procedure call without `.write()` is also row-returning. For example, `CALL graphistry.degree()` materializes the default procedure output columns into `_nodes` and clears `_edges`.
+
+If you need to enrich a graph and keep matching locally, use graph-preserving `call()` / `let()` composition or a bare local Cypher `CALL graphistry.*.write()`. The local Cypher compiler currently supports `graphistry.degree.write()` plus `graphistry.igraph.<alg>.write()` and `graphistry.cugraph.<alg>.write()` for algorithms exposed through `compute_igraph()` / `compute_cugraph()`, along with the smaller compatibility subset `graphistry.nx.pagerank.write()`, `graphistry.nx.betweenness_centrality.write()`, `graphistry.nx.edge_betweenness_centrality.write()`, and `graphistry.nx.k_core.write()`.
 
 Quick Examples
 ~~~~~~~~~~~~~~~
 
+GFQL supports Cypher strings and native Python chains through the same ``g.gfql(...)`` entrypoint:
+
 **Find Nodes of a Certain Type**
 
-Example: Find all nodes where the `type` is `"person"`.
-
 .. code-block:: python
 
+    # Cypher string — returns a DataFrame of matching nodes
+    nodes_df = g.gfql("MATCH (n {type: 'person'}) RETURN n")._nodes
+
+    # Equivalent native chain
     from graphistry import n
+    nodes_df = g.gfql([ n({"type": "person"}) ])._nodes
 
-    people_nodes_df = g.gfql([ n({"type": "person"}) ])._nodes
-    print('Number of person nodes:', len(people_nodes_df))
-
-**Visualize 2-Hop Edge Sequences with an Attribute**
-
-Example: Find 2-hop paths where edges have `"interesting": True`.
+**Extract a Subgraph**
 
 .. code-block:: python
 
-    from graphistry import n, e_forward
+    # Cypher string — GRAPH { } returns a subgraph with ._nodes and ._edges
+    g2 = g.gfql(
+        "GRAPH { "
+        "MATCH (a)-[e]->(b) "
+        "WHERE e.interesting = true "
+        "}"
+    )
 
-    g_2_hops = g.gfql([n(), e_forward({"interesting": True}, hops=2) ])
-    g_2_hops.plot()
+    # Equivalent native chain
+    from graphistry import n, e_forward
+    g2 = g.gfql([n(), e_forward({"interesting": True}, hops=2) ])
+    g2.plot()
+
+**Same-Path Constraints (WHERE)**
+
+Example: Match an account and its owner when both steps share an attribute.
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, col, compare
+
+    g_filtered = g.gfql(
+        [
+            n({"type": "account"}, name="a"),
+            e_forward(),
+            n({"type": "user"}, name="c"),
+        ],
+        where=[compare(col("a", "owner_id"), "==", col("c", "owner_id"))],
+    )
+
+**Row-Pipeline `RETURN` Example**
+
+Example: Match people, filter rows, project columns, then sort/limit.
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, gt
+    from graphistry.compute import rows, where_rows, return_, order_by, limit
+
+    top_people = g.gfql([
+        n({"type": "Person"}),
+        e_forward({"type": "FOLLOWS"}),
+        n({"type": "Person", "score": gt(0)}, name="p"),
+        rows(table="nodes", source="p"),
+        where_rows(expr="score >= 50"),
+        return_(["id", "name", "score"]),
+        order_by([("score", "desc"), ("name", "asc")]),
+        limit(10),
+    ])
+
+    top_people._nodes
+
+**Local Cypher `CALL ... .write()` Example**
+
+Example: Enrich a graph locally, keep graph state, then run a later `MATCH`.
+
+.. code-block:: python
+
+    g_enriched = g.gfql("CALL graphistry.degree.write()")
+    assert not g_enriched._edges.empty
+    top_degree = g_enriched.gfql(
+        "MATCH (n) "
+        "WHERE n.degree >= 2 "
+        "RETURN n.id AS id, n.degree AS degree "
+        "ORDER BY degree DESC, id ASC "
+        "LIMIT 10"
+    )
+
+    top_degree._nodes
+
+**Local Cypher row-returning `CALL` Example**
+
+Example: Omit `.write()` when you want procedure rows instead of an enriched graph.
+
+.. code-block:: python
+
+    degree_rows = g.gfql("CALL graphistry.degree()")
+    assert degree_rows._edges.empty
+    degree_rows._nodes
+
+This row result uses ``nodeId`` as the row identifier, stores the projected procedure outputs in ``_nodes``, and clears ``_edges``. Use ``.write()`` when the next step needs graph topology.
+
+Example visualization (static):
+
+.. raw:: html
+
+   <figure class="align-center">
+     <img src="../_static/gfql/gfql_overview_2_hops.png" alt="GFQL 2-hop example rendered with plot_static" style="width: 90%;" />
+     <figcaption>2-hop "interesting" edges rendered with <code>plot_static()</code>.</figcaption>
+   </figure>
 
 **Find Nodes 1-2 Hops Away and Label Each Hop**
 
@@ -107,15 +222,15 @@ Example: Find recent transactions using temporal predicates.
 
     # Find transactions after a specific date
     recent = g.gfql([
-        n(edge_match={"timestamp": gt(pd.Timestamp("2023-01-01"))})
+        n(), e_forward(edge_match={"timestamp": gt(pd.Timestamp("2023-01-01"))}), n()
     ])
-    
+
     # Find transactions in a date range during business hours
     business_hours_txns = g.gfql([
-        n(edge_match={
+        n(), e_forward(edge_match={
             "date": between(date(2023, 6, 1), date(2023, 6, 30)),
             "time": between(time(9, 0), time(17, 0))
-        })
+        }), n()
     ])
 
 **Query for Transaction Nodes Between Risky Nodes**
@@ -170,19 +285,21 @@ Traditional Python approach (manual variable management):
 
 GFQL Let approach (declarative DAG with named bindings):
 
+.. doc-test: skip
+
 .. code-block:: python
 
-    from graphistry import let, ref, Chain
+    from graphistry import let, ref, n, e_forward, ge
 
     # GFQL Let: Define a DAG of named operations
-    # Note: Currently requires Chain wrapper for matchers (will be simplified in future)
     result = g.gfql(let({
-        'persons': Chain([n({'type': 'person'})]),
+        'persons': n({'type': 'person'}),
         'adults': ref('persons', [n({'age': ge(18)})]),  # Reference and filter persons
-        'connections': ref('adults', [
+        'connections': [
+            n({'type': 'person', 'age': ge(18)}),
             e_forward({'type': 'knows'}),
             n()  # Find connections from adults
-        ])
+        ]
     }))
 
     # Access any named result from the DAG
@@ -297,6 +414,33 @@ Example: Visualize high PageRank nodes.
     # Plot the subgraph
     g_high_pagerank.plot()
 
+Example visualization (graphviz):
+
+.. graphviz::
+
+   digraph high_pagerank {
+       rankdir=LR;
+       node [shape=ellipse];
+
+       a [label="a\npagerank=0.18", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       b [label="b\npagerank=0.12", style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+       c [label="c\npagerank=0.05", shape=box, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       tx1 [label="tx1", shape=diamond, style=filled, fillcolor="#D3D3D3", color="#A9A9A9", fontcolor="#696969"];
+       tx2 [label="tx2\npagerank=0.16", shape=diamond, style="filled,bold", fillcolor="#90EE90", penwidth=3, color="#228B22"];
+
+       a -> b [color="#228B22", penwidth=2];
+       b -> c [color="#A9A9A9"];
+       a -> tx1 [color="#A9A9A9"];
+       tx1 -> tx2 [color="#228B22", penwidth=2];
+       tx2 -> c [color="#A9A9A9"];
+   }
+
+Example visualization (interactive):
+
+.. raw:: html
+
+    <iframe src="https://hub.graphistry.com/graph/graph.html?dataset=1d52d9a62e034d9c94e09f5be45e3caa&type=arrow&viztoken=70cfc1a1-9ec0-44af-bbe3-d55d18e5ac4d&usertag=ef9e6f8d-pygraphistry-0.48.0+75.gf422e208&splashAfter=1766373305&info=true" style="width: 100%; height: 500px; border: 0;" loading="lazy"></iframe>
+
 .. rubric:: Learn More
 
 Explore the following sections to dive deeper into GFQL's capabilities:
@@ -329,4 +473,3 @@ Access detailed documentation of GFQL's API:
 - **Predicates**: Apply advanced filtering using predicates.
 
   - :doc:`../api/gfql/predicates`
-

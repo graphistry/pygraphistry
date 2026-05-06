@@ -1,9 +1,10 @@
-from typing import Dict, Literal, TYPE_CHECKING, Union, cast, overload
-from datetime import date, datetime, time
+from typing import Any, Callable, Dict, TYPE_CHECKING, Union, cast
+from datetime import date, time
+import operator
 import numpy as np
 import pandas as pd
 
-from graphistry.compute.ast_temporal import DateTimeValue, DateValue, TemporalValue, TimeValue
+from graphistry.compute.ast_temporal import DateTimeValue, DateValue, TemporalValue, TimeValue, _resolve_timezone
 from graphistry.compute.typing import SeriesT
 from graphistry.models.gfql.coercions.temporal import to_ast
 from graphistry.models.gfql.types.guards import is_any_temporal, is_native_numeric, is_string
@@ -22,7 +23,7 @@ class ComparisonPredicate(ASTPredicate):
     def __init__(self, val: ComparisonInput) -> None:
         self.val = self._normalize_value(val)
     
-    def _normalize_value(self, val: ComparisonInput) -> Union[int, float, np.number, TemporalValue]:
+    def _normalize_value(self, val: ComparisonInput) -> Union[int, float, np.number, TemporalValue, str]:
         """Convert various input types to internal representation"""
         # Comparison predicates need:
         # - Numerics as-is
@@ -48,26 +49,32 @@ class ComparisonPredicate(ASTPredicate):
         if isinstance(temporal_val, DateTimeValue):
             # Normalize series to target timezone for comparison
             if hasattr(s, 'dt') and hasattr(s.dt, 'tz_localize'):
-                if s.dt.tz is None:
-                    return s.dt.tz_localize('UTC').dt.tz_convert(temporal_val.timezone)
+                tzinfo = _resolve_timezone(temporal_val.timezone) or temporal_val.timezone
+                if getattr(s.dt, 'tz', None) is None:
+                    result = s.dt.tz_localize('UTC').dt.tz_convert(tzinfo)
                 else:
-                    return s.dt.tz_convert(temporal_val.timezone)
+                    result = s.dt.tz_convert(tzinfo)
+                # cudf does not support binary ops on tz-aware Series (RAPIDS 26.02+);
+                # strip tz after conversion — values are already in the target timezone
+                if hasattr(result, '__module__') and 'cudf' in result.__module__:
+                    result = result.dt.tz_localize(None)
+                return result
             return s
-        
+
         elif isinstance(temporal_val, DateValue):
             # Extract date from datetime series if needed
             if hasattr(s, 'dt'):
                 return s.dt.date
             return s
-        
+
         elif isinstance(temporal_val, TimeValue):
             # Extract time from datetime series if needed
             if hasattr(s, 'dt'):
                 return s.dt.time
             return s
-        
+
         raise TypeError(f"Unknown temporal value type: {type(temporal_val)}")
-    
+
     def _get_temporal_comparison_value(self, temporal_val: TemporalValue) -> Union[pd.Timestamp, date, time]:
         """Get the appropriate comparison value from a TemporalValue"""
         if isinstance(temporal_val, DateTimeValue):
@@ -75,6 +82,56 @@ class ComparisonPredicate(ASTPredicate):
         elif isinstance(temporal_val, (DateValue, TimeValue)):
             return temporal_val._parsed
         raise TypeError(f"Unknown temporal value type: {type(temporal_val)}")
+
+    def _prepare_temporal_comparison(self, s: SeriesT, temporal_val: TemporalValue):
+        """Prepare both series and comparison value for temporal comparison.
+
+        Handles cudf compatibility: when the series had tz stripped (because cudf
+        does not support tz-aware binary ops), also strip tz from the scalar.
+        """
+        prepared_s = self._prepare_temporal_series(s, temporal_val)
+        comparison_val = self._get_temporal_comparison_value(temporal_val)
+        # Match: if series was made tz-naive for cudf, make scalar naive too
+        if (
+            hasattr(prepared_s, '__module__') and 'cudf' in prepared_s.__module__
+            and isinstance(comparison_val, pd.Timestamp)
+            and comparison_val.tzinfo is not None
+        ):
+            comparison_val = comparison_val.tz_localize(None)
+        return prepared_s, comparison_val
+
+    def _safe_scalar_compare(
+        self, s: SeriesT, op: Callable[[Any, Any], Any]
+    ) -> SeriesT:
+        """Compare scalars while treating incomparable mixed values as null/False.
+
+        Cypher null semantics require mixed-type comparison cells (e.g., int vs str)
+        to not crash query execution; they simply do not satisfy the predicate.
+        """
+        try:
+            return op(s, self.val)
+        except TypeError:
+            def _cmp_cell(cell: Any) -> bool:
+                if pd.isna(cell):
+                    return False
+                try:
+                    out = op(cell, self.val)
+                except TypeError:
+                    return False
+                if pd.isna(out):
+                    return False
+                return bool(out)
+
+            if isinstance(s, pd.Series):
+                return cast(SeriesT, s.map(_cmp_cell))
+
+            # cuDF path: TypeError here is dtype-level incompatibility in current
+            # RAPIDS builds; emit an all-False mask to preserve Cypher filter
+            # semantics without host round-trips (which can crash in some setups).
+            if hasattr(s, "to_pandas") and s.__class__.__module__.startswith("cudf"):
+                return cast(SeriesT, s.notna() & False)
+
+            raise
     
     
     def _validate_fields(self) -> None:
@@ -114,14 +171,50 @@ class NumericASTPredicate(ComparisonPredicate):
 
 ###
 
-class GT(ComparisonPredicate):
+class _StringAllowingComparisonMixin:
+    """Mixin that lets subclasses of ``ComparisonPredicate`` accept raw strings.
+
+    The base ``ComparisonPredicate`` rejects raw strings to force users of
+    the IR-direct API to disambiguate string vs. datetime intent (e.g.
+    ``pd.Timestamp("2024-01-15")`` vs. literal ``"2024-01-15"``).  For
+    Cypher-sourced predicates the type is already unambiguous: a Cypher
+    quoted literal ``'value'`` is unambiguously a string, and Cypher
+    datetime literals use ``datetime('...')``.  Lexicographic comparison
+    on strings is well-defined (pandas Series ``>``/``<``/``==``/``!=``
+    operate elementwise on strings), so all comparison ops should accept
+    strings.
+
+    ``EQ`` predates this mixin with an inline override; the other
+    comparison ops (``NE`` / ``GT`` / ``LT`` / ``GE`` / ``LE``) gain
+    string acceptance through this mixin in #1031 — Earley's broader
+    unification of label + comparison through ``where_predicates``
+    surfaces every comparison-with-string-literal Cypher query.
+    """
+
+    def _normalize_value(self, val):  # type: ignore[no-untyped-def]
+        if is_string(val):
+            return val
+        return super()._normalize_value(val)  # type: ignore[misc]
+
+    def _validate_fields(self) -> None:
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        if not isinstance(self.val, (int, float, TemporalValue, str)):  # type: ignore[attr-defined]
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "val must be numeric, temporal, or string",
+                field="val",
+                value=type(self.val).__name__,  # type: ignore[attr-defined]
+                suggestion="Use numeric/temporal values or strings",
+            )
+
+
+class GT(_StringAllowingComparisonMixin, ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         """Greater than comparison"""
-        if isinstance(self.val, (int, float)):
-            return s > self.val
+        if isinstance(self.val, (int, float, str)):
+            return self._safe_scalar_compare(s, operator.gt)
         elif isinstance(self.val, TemporalValue):
-            prepared_s = self._prepare_temporal_series(s, self.val)
-            comparison_val = self._get_temporal_comparison_value(self.val)
+            prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
             return prepared_s > comparison_val
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
@@ -132,14 +225,13 @@ def gt(val: ComparisonInput) -> GT:
     """
     return GT(val)
 
-class LT(ComparisonPredicate):
+class LT(_StringAllowingComparisonMixin, ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         """Less than comparison"""
-        if isinstance(self.val, (int, float)):
-            return s < self.val
+        if isinstance(self.val, (int, float, str)):
+            return self._safe_scalar_compare(s, operator.lt)
         elif isinstance(self.val, TemporalValue):
-            prepared_s = self._prepare_temporal_series(s, self.val)
-            comparison_val = self._get_temporal_comparison_value(self.val)
+            prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
             return prepared_s < comparison_val
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
@@ -150,14 +242,13 @@ def lt(val: ComparisonInput) -> LT:
     """
     return LT(val)
 
-class GE(ComparisonPredicate):
+class GE(_StringAllowingComparisonMixin, ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         """Greater than or equal comparison"""
-        if isinstance(self.val, (int, float)):
-            return s >= self.val
+        if isinstance(self.val, (int, float, str)):
+            return self._safe_scalar_compare(s, operator.ge)
         elif isinstance(self.val, TemporalValue):
-            prepared_s = self._prepare_temporal_series(s, self.val)
-            comparison_val = self._get_temporal_comparison_value(self.val)
+            prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
             return prepared_s >= comparison_val
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
@@ -168,14 +259,13 @@ def ge(val: ComparisonInput) -> GE:
     """
     return GE(val)
 
-class LE(ComparisonPredicate):
+class LE(_StringAllowingComparisonMixin, ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         """Less than or equal comparison"""
-        if isinstance(self.val, (int, float)):
-            return s <= self.val
+        if isinstance(self.val, (int, float, str)):
+            return self._safe_scalar_compare(s, operator.le)
         elif isinstance(self.val, TemporalValue):
-            prepared_s = self._prepare_temporal_series(s, self.val)
-            comparison_val = self._get_temporal_comparison_value(self.val)
+            prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
             return prepared_s <= comparison_val
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
@@ -186,32 +276,37 @@ def le(val: ComparisonInput) -> LE:
     """
     return LE(val)
 
-class EQ(ComparisonPredicate):
+class EQ(_StringAllowingComparisonMixin, ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         """Equal comparison"""
-        if isinstance(self.val, (int, float)):
+        if isinstance(self.val, (int, float, str)):
             return s == self.val
         elif isinstance(self.val, TemporalValue):
-            prepared_s = self._prepare_temporal_series(s, self.val)
-            comparison_val = self._get_temporal_comparison_value(self.val)
+            prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
             return prepared_s == comparison_val
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
 
 def eq(val: ComparisonInput) -> EQ:
     """
-    Return whether a given value is equal to a threshold
+    Return whether a given value is equal to a threshold.
+
+    Accepts:
+    - Numeric values (int, float, np.number, bool)
+    - Temporal values (datetime/date/time/pd.Timestamp, temporal wire dicts, TemporalValue)
+    - Strings (e.g., eq("active"))
+
+    For null checks, use `isna()` / `notna()` instead.
     """
     return EQ(val)
 
-class NE(ComparisonPredicate):
+class NE(_StringAllowingComparisonMixin, ComparisonPredicate):
     def __call__(self, s: SeriesT) -> SeriesT:
         """Not equal comparison"""
-        if isinstance(self.val, (int, float)):
+        if isinstance(self.val, (int, float, str)):
             return s != self.val
         elif isinstance(self.val, TemporalValue):
-            prepared_s = self._prepare_temporal_series(s, self.val)
-            comparison_val = self._get_temporal_comparison_value(self.val)
+            prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
             return prepared_s != comparison_val
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")

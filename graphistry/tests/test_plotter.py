@@ -2,7 +2,7 @@
 
 import copy, datetime as dt, graphistry, os, pandas as pd, pyarrow as pa, pytest
 
-from mock import patch
+from unittest.mock import patch
 from graphistry.tests.common import NoAuthTestCase
 from graphistry.constants import NODE
 
@@ -102,9 +102,20 @@ class Fake_Response(object):
         pass
 
     def json(self):
-        return {"success": True, "dataset": "fakedatasetname", "viztoken": "faketoken"}
+        # Include all fields needed by different endpoints:
+        # - 'token': for refresh endpoint
+        # - 'data': for create_dataset endpoint (api=3)
+        # - 'dataset', 'viztoken': for legacy compatibility
+        return {
+            "success": True,
+            "token": "faketoken",
+            "dataset": "fakedatasetname",
+            "viztoken": "faketoken",
+            "data": {"dataset_id": "fakedatasetname", "viztoken": "faketoken"}
+        }
 
     status_code = 200
+    text = '{"success": true}'  # Required for error handling in arrow_uploader
 
 def assertFrameEqual(df1, df2, **kwds):
     """Assert that two dataframes are equal, ignoring ordering of columns"""
@@ -114,147 +125,6 @@ def assertFrameEqual(df1, df2, **kwds):
     return assert_frame_equal(
         df1.sort_index(axis=1), df2.sort_index(axis=1), check_names=True, **kwds
     )
-
-
-@patch("webbrowser.open")
-@patch.object(graphistry.pygraphistry.PyGraphistry, "_etl1")
-class TestPlotterBindings_API_1(NoAuthTestCase):
-    @classmethod
-    def setUpClass(cls):
-        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
-        graphistry.register(api=1)
-
-    def test_no_src_dst(self, mock_etl, mock_open):
-        with self.assertRaises(ValueError):
-            graphistry.bind().plot(triangleEdges)
-        with self.assertRaises(ValueError):
-            graphistry.bind(source="src").plot(triangleEdges)
-        with self.assertRaises(ValueError):
-            graphistry.bind(destination="dst").plot(triangleEdges)
-        with self.assertRaises(ValueError):
-            graphistry.bind(source="doesnotexist", destination="dst").plot(
-                triangleEdges
-            )
-
-    def test_no_nodeid(self, mock_etl, mock_open):
-        plotter = graphistry.bind(source="src", destination="dst")
-        with self.assertRaises(ValueError):
-            plotter.plot(triangleEdges, triangleNodes)
-
-    def test_triangle_edges(self, mock_etl, mock_open):
-        plotter = graphistry.bind(source="src", destination="dst")
-        plotter.plot(triangleEdges)
-        self.assertTrue(mock_etl.called)
-
-    def test_bind_edges(self, mock_etl, mock_open):
-        plotter = graphistry.bind(source="src", destination="dst", edge_title="src")
-        plotter.plot(triangleEdges)
-        self.assertTrue(mock_etl.called)
-
-    def test_bind_graph_short(self, mock_etl, mock_open):
-        g = graphistry.nodes(pd.DataFrame({"n": []}), "n").edges(
-            pd.DataFrame({"a": [], "b": []}), "a", "b"
-        )
-        assert g._node == "n"
-        assert g._source == "a"
-        assert g._destination == "b"
-        g2 = (
-            graphistry.bind(source="a", destination="b", node="n")
-            .nodes(pd.DataFrame({"n": []}))
-            .edges(pd.DataFrame({"a": [], "b": []}))
-        )
-        assert g2._node == "n"
-        assert g2._source == "a"
-        assert g2._destination == "b"
-
-    def test_bind_nodes(self, mock_etl, mock_open):
-        plotter = graphistry.bind(
-            source="src", destination="dst", node="id", point_title="a2"
-        )
-        plotter.plot(triangleEdges, triangleNodes)
-        self.assertTrue(mock_etl.called)
-
-    def test_bind_nodes_rich(self, mock_etl, mock_open):
-        plotter = graphistry.bind(
-            source="src", destination="dst", node="id", point_title="a2"
-        )
-        plotter.plot(triangleEdges, triangleNodesRich)
-        self.assertTrue(mock_etl.called)
-
-    def test_bind_edges_rich_2(self, mock_etl, mock_open):
-        plotter = graphistry.bind(source="src", destination="dst")
-        plotter.plot(squareEvil)
-        self.assertTrue(mock_etl.called)
-
-    def test_unknown_col_edges(self, mock_etl, mock_open):
-        plotter = graphistry.bind(
-            source="src", destination="dst", edge_title="doesnotexist"
-        )
-        with pytest.warns(RuntimeWarning):
-            plotter.plot(triangleEdges)
-        self.assertTrue(mock_etl.called)
-
-    def test_unknown_col_nodes(self, mock_etl, mock_open):
-        plotter = graphistry.bind(
-            source="src", destination="dst", node="id", point_title="doesnotexist"
-        )
-        with pytest.warns(RuntimeWarning):
-            plotter.plot(triangleEdges, triangleNodes)
-        self.assertTrue(mock_etl.called)
-
-    @patch("requests.post", return_value=Fake_Response())
-    def test_empty_graph(self, mock_post, mock_etl, mock_open):
-        plotter = graphistry.bind(source="src", destination="dst")
-        with pytest.warns(RuntimeWarning):
-            plotter.plot(pd.DataFrame({"src": [], "dst": []}))
-        self.assertTrue(mock_etl.called)
-
-    def test_edges(self, mock_etl, mock_open):
-        df = pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 0]})
-        g = graphistry.edges(df)
-        assert g._edges is df
-        g = graphistry.edges(df, "s")
-        assert g._source == "s"
-        g = graphistry.edges(df, "s", "d")
-        assert g._destination == "d"
-        df2 = pd.DataFrame({"s": [2, 4, 6], "d": [1, 2, 0]})
-        g2 = graphistry.edges(lambda g: g.edges(df2)._edges)
-        assert g2._edges is df2
-        g3 = graphistry.edges(lambda g: g.edges(df2)._edges, source="s")
-        assert g3._source == "s"
-        g4 = graphistry.edges(
-            (lambda g, s: g.edges(df2)._edges.assign(**{s: 1})),
-            None, None, None,
-            's2')
-        assert (g4._edges.columns == ['s', 'd', 's2']).all()
-
-    def test_nodes(self, mock_etl, mock_open):
-        df = pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 0]})
-        g = graphistry.nodes(df)
-        assert g._nodes is df
-        g = graphistry.nodes(df, "s")
-        assert g._node == "s"
-        df2 = pd.DataFrame({"s": [2, 4, 6], "d": [1, 2, 0]})
-        g2 = g.nodes(lambda g: g.nodes(df2)._nodes)
-        assert g2._nodes is df2
-        assert g2._node == "s"
-        g3 = graphistry.nodes(
-            (lambda g, n: g.nodes(df2, n)._nodes.assign(**{n: 1})), None, "n2"
-        )
-        assert (g3._nodes.columns == ["s", "d", "n2"]).all()
-
-    def test_pipe(self, mock_etl, mock_open):
-        df = pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 0]})
-        g = graphistry.nodes(df, "s")
-        df2 = pd.DataFrame({"s": [2, 4, 6], "d": [1, 2, 0]})
-        g2 = g.pipe((lambda g, s, d: g.edges(df2, s, d)), "s", "d")
-        assert g2._nodes is df
-        assert g2._edges is df2
-        assert g2._source == "s"
-        assert g2._destination == "d"
-        df3 = pd.DataFrame({"s": [3, 6, 9], "d": [1, 2, 0]})
-        g3 = g2.pipe((lambda g: g.edges(df3)))
-        assert g3._edges is df3
 
 
 class TestPlotterConversions(NoAuthTestCase):
@@ -520,6 +390,199 @@ class TestPlotterArrowConversions(NoAuthTestCase):
 
         assert not (arr1 is plotter._table_to_arrow(df))
 
+    # ==========================================================================
+    # Auto-coerce mixed-type columns tests (Issue #867)
+    # ==========================================================================
+
+    def test_table_to_arrow_mixed_types_coerced(self):
+        """Mixed-type columns (bytes/float/str) are auto-coerced to string with warning."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1, 2, 3], 'amount': [b'bytes', 1.5, 'str']})
+        with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
+            arr = plotter._table_to_arrow(df, memoize=False)
+        assert isinstance(arr, pa.Table)
+        assert pa.types.is_string(arr.schema.field('amount').type) or pa.types.is_large_string(arr.schema.field('amount').type)
+
+    def test_table_to_arrow_clean_data_no_warning(self):
+        """Clean data does not emit warnings."""
+        import warnings
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'src': [1, 2, 3], 'dst': [2, 3, 1], 'weight': [1.0, 2.0, 3.0]})
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            arr = plotter._table_to_arrow(df)
+        assert isinstance(arr, pa.Table)
+
+    def test_to_arrow_public_method(self):
+        """Public to_arrow() method works for debugging."""
+        df = pd.DataFrame({'src': [1, 2, 3], 'dst': [2, 3, 1]})
+        g = graphistry.edges(df, 'src', 'dst')
+        assert isinstance(g.to_arrow(df), pa.Table)
+        assert isinstance(g.to_arrow(), pa.Table)
+
+    # ==========================================================================
+    # Validate mode tests (Issue #867)
+    # ==========================================================================
+
+    def test_validate_strict_raises_on_mixed(self):
+        """strict mode raises ArrowConversionError on mixed types."""
+        from graphistry.exceptions import ArrowConversionError
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1, 2, 3], 'mixed': [b'bytes', 1.5, 'str']})
+        with pytest.raises(ArrowConversionError, match='Arrow conversion failed'):
+            plotter._table_to_arrow(df, memoize=False, validate_mode='strict')
+
+    def test_validate_strict_fast_raises_on_mixed(self):
+        """strict-fast mode raises ArrowConversionError on mixed types."""
+        from graphistry.exceptions import ArrowConversionError
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1, 2, 3], 'mixed': [b'bytes', 1.5, 'str']})
+        with pytest.raises(ArrowConversionError, match='Arrow conversion failed'):
+            plotter._table_to_arrow(df, memoize=False, validate_mode='strict-fast')
+
+    def test_validate_autofix_coerces_with_warning(self):
+        """autofix mode coerces mixed types with warning."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1, 2, 3], 'mixed': [b'bytes', 1.5, 'str']})
+        with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
+            arr = plotter._table_to_arrow(df, memoize=False, validate_mode='autofix')
+        assert isinstance(arr, pa.Table)
+
+    def test_validate_strict_allows_clean_data(self):
+        """strict mode allows clean data through."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1, 2, 3], 'weight': [1.1, 2.2, 3.3]})
+        arr = plotter._table_to_arrow(df, memoize=False, validate_mode='strict')
+        assert isinstance(arr, pa.Table)
+
+    # ==========================================================================
+    # plot() entrypoint validation tests (Issue #867)
+    # ==========================================================================
+
+    def test_plot_strict_mixed_raises(self):
+        """plot(validate='strict') raises on mixed types."""
+        from graphistry.exceptions import ArrowConversionError
+        # Use unique data to avoid memoization from other tests
+        g = graphistry.edges(pd.DataFrame({
+            'src': [10, 20, 30], 'dst': [20, 30, 10], 'mixed': [b'strict1', 1.1, 'test']
+        }), 'src', 'dst')
+        with pytest.raises(ArrowConversionError):
+            g.plot(skip_upload=True, validate='strict')
+
+    def test_plot_validate_true_raises(self):
+        """plot(validate=True) maps to strict and raises."""
+        from graphistry.exceptions import ArrowConversionError
+        # Use unique data to avoid memoization from other tests
+        g = graphistry.edges(pd.DataFrame({
+            'src': [11, 21, 31], 'dst': [21, 31, 11], 'mixed': [b'strict2', 2.2, 'test']
+        }), 'src', 'dst')
+        with pytest.raises(ArrowConversionError):
+            g.plot(skip_upload=True, validate=True)
+
+    def test_plot_autofix_warn_true_warns(self):
+        """plot(validate='autofix', warn=True) coerces WITH warning."""
+        # Use unique data to avoid memoization from other tests
+        g = graphistry.edges(pd.DataFrame({
+            'src': [12, 22, 32], 'dst': [22, 32, 12], 'mixed': [b'warn1', 3.3, 'test']
+        }), 'src', 'dst')
+        with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
+            result = g.plot(skip_upload=True, validate='autofix', warn=True)
+        assert result is not None
+
+    def test_plot_autofix_warn_false_silent(self):
+        """plot(validate='autofix', warn=False) coerces WITHOUT warning."""
+        import warnings
+        # Use unique data to avoid memoization from other tests
+        g = graphistry.edges(pd.DataFrame({
+            'src': [13, 23, 33], 'dst': [23, 33, 13], 'mixed': [b'silent1', 4.4, 'test']
+        }), 'src', 'dst')
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = g.plot(skip_upload=True, validate='autofix', warn=False)
+            coerce_warnings = [x for x in w if 'Coerced' in str(x.message)]
+            assert len(coerce_warnings) == 0, f"Expected no warnings with warn=False, got: {coerce_warnings}"
+        assert result is not None
+
+    def test_plot_validate_false_silent(self):
+        """plot(validate=False) maps to autofix+warn=False, coerces silently."""
+        import warnings
+        # Use unique data to avoid memoization from other tests
+        g = graphistry.edges(pd.DataFrame({
+            'src': [14, 24, 34], 'dst': [24, 34, 14], 'mixed': [b'silent2', 5.5, 'test']
+        }), 'src', 'dst')
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = g.plot(skip_upload=True, validate=False)
+            coerce_warnings = [x for x in w if 'Coerced' in str(x.message)]
+            assert len(coerce_warnings) == 0, f"Expected no warnings with validate=False, got: {coerce_warnings}"
+        assert result is not None
+
+    # ==========================================================================
+    # Encoding validation tests (Issue #867)
+    # ==========================================================================
+
+    def test_encoding_validation_strict_raises(self):
+        """Strict encoding validation raises on invalid attribute."""
+        from graphistry.arrow_uploader import ArrowUploader
+        uploader = ArrowUploader.__new__(ArrowUploader)
+        uploader.nodes = pa.table({'n': [1, 2], 'col': ['a', 'b']})
+        uploader.edges = pa.table({'s': [1, 2], 'd': [2, 1]})
+        invalid_json = {
+            "node_encodings": {"bindings": {"node": "n"}, "complex": {"default": {
+                "pointColorEncoding": {"graphType": "point", "encodingType": "color",
+                    "attribute": "nonexistent", "variation": "categorical",
+                    "mapping": {"categorical": {"fixed": {"a": "red"}, "other": "blue"}}}}}},
+            "edge_encodings": {"bindings": {"source": "s", "destination": "d"}}
+        }
+        with pytest.raises(ValueError):
+            uploader.create_dataset(invalid_json, validate='strict', warn=True)
+
+    def test_encoding_validation_warn_mode(self):
+        """Non-strict encoding validation warns instead of raising."""
+        from graphistry.arrow_uploader import ArrowUploader
+        import warnings
+        uploader = ArrowUploader.__new__(ArrowUploader)
+        uploader.nodes = pa.table({'n': [1, 2], 'col': ['a', 'b']})
+        uploader.edges = pa.table({'s': [1, 2], 'd': [2, 1]})
+        invalid_json = {
+            "node_encodings": {"bindings": {"node": "n"}, "complex": {"default": {
+                "pointColorEncoding": {"graphType": "point", "encodingType": "color",
+                    "attribute": "nonexistent", "variation": "categorical",
+                    "mapping": {"categorical": {"fixed": {"a": "red"}, "other": "blue"}}}}}},
+            "edge_encodings": {"bindings": {"source": "s", "destination": "d"}}
+        }
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            try:
+                uploader.create_dataset(invalid_json, validate='autofix', warn=True)
+            except Exception:
+                pass
+            encoding_warnings = [x for x in w if 'Encoding validation warning' in str(x.message)]
+            assert len(encoding_warnings) > 0, f"Expected encoding warning, got: {[str(x.message) for x in w]}"
+
+    def test_encoding_validation_silent_mode(self):
+        """Encoding validation with warn=False is silent."""
+        from graphistry.arrow_uploader import ArrowUploader
+        import warnings
+        uploader = ArrowUploader.__new__(ArrowUploader)
+        uploader.nodes = pa.table({'n': [1, 2], 'col': ['a', 'b']})
+        uploader.edges = pa.table({'s': [1, 2], 'd': [2, 1]})
+        invalid_json = {
+            "node_encodings": {"bindings": {"node": "n"}, "complex": {"default": {
+                "pointColorEncoding": {"graphType": "point", "encodingType": "color",
+                    "attribute": "nonexistent", "variation": "categorical",
+                    "mapping": {"categorical": {"fixed": {"a": "red"}, "other": "blue"}}}}}},
+            "edge_encodings": {"bindings": {"source": "s", "destination": "d"}}
+        }
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            try:
+                uploader.create_dataset(invalid_json, validate='autofix', warn=False)
+            except Exception:
+                pass
+            encoding_warnings = [x for x in w if 'Encoding validation warning' in str(x.message)]
+            assert len(encoding_warnings) == 0, f"Expected no warnings with warn=False, got: {encoding_warnings}"
+
     @pytest.mark.skipif(
         not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
         reason="cudf tests need TEST_CUDF=1",
@@ -768,33 +831,6 @@ class TestPlotterStylesArrow(NoAuthTestCase):
         assert ds.metadata["page"] == page
 
 
-class TestPlotterStylesJSON(NoAuthTestCase):
-    @classmethod
-    def setUpClass(cls):
-        graphistry.pygraphistry.PyGraphistry._is_authenticated = True
-        graphistry.pygraphistry.PyGraphistry.store_token_creds_in_memory(True)
-        graphistry.pygraphistry.PyGraphistry.relogin = lambda: True
-        graphistry.register(api=1)
-
-    def test_styleApi_reject(self):
-        bg = {"color": "red"}
-        fg = {"blendMode": 1}
-        logo = {"url": "zzz"}
-        page = {"title": "zzz"}
-        g2 = graphistry.edges(pd.DataFrame({"s": [0], "d": [0]})).bind(
-            source="s", destination="d"
-        )
-        g3 = g2.addStyle(
-            bg=copy.deepcopy(bg),
-            fg=copy.deepcopy(fg),
-            page=copy.deepcopy(page),
-            logo=copy.deepcopy(logo),
-        )
-
-        with pytest.raises(ValueError):
-            g3.plot(skip_upload=True)
-
-
 class TestPlotterEncodings(NoAuthTestCase):
 
     COMPLEX_EMPTY = {
@@ -936,6 +972,54 @@ class TestPlotterEncodings(NoAuthTestCase):
 
     def test_edge_color(self):
         assert graphistry.bind().encode_edge_color("z")._edge_color == "z"
+
+    def test_apply_encodings_happy_path(self):
+        g2 = graphistry.bind().apply_encodings({
+            "encodePointColor": ["kind", "categorical", {"primary": "red"}],
+            "encodePointIcons": ["kind", {"primary": "server"}],
+            "encodePointSize": ["bucket", {"small": 5, "large": 30}, 1],
+            "encodeAxis": [{"r": 200, "label": "outer", "external": True}],
+        })
+
+        node_default = g2._complex_encodings["node_encodings"]["default"]
+        assert node_default["pointColorEncoding"]["attribute"] == "kind"
+        assert node_default["pointColorEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "red"
+        assert node_default["pointIconEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "server"
+        assert node_default["pointSizeEncoding"]["mapping"]["categorical"]["fixed"]["small"] == 5
+        assert node_default["pointSizeEncoding"]["mapping"]["categorical"]["other"] == 1
+        assert node_default["pointAxisEncoding"]["rows"][0]["label"] == "outer"
+
+    def test_apply_encodings_autofix_continues(self):
+        g2 = graphistry.bind().apply_encodings(
+            {
+                "encodePointColor": "bad-shape",
+                "encodePointSize": ["bucket", {"small": 5}],
+            },
+            validate="autofix",
+            warn=False,
+        )
+        node_default = g2._complex_encodings["node_encodings"]["default"]
+        assert "pointColorEncoding" not in node_default
+        assert node_default["pointSizeEncoding"]["attribute"] == "bucket"
+
+    def test_apply_encodings_strict_rejects_unsupported_react_key(self):
+        with pytest.raises(ValueError):
+            graphistry.bind().apply_encodings({"showInfo": True}, validate="strict")
+
+    def test_apply_encodings_module_export(self):
+        g2 = graphistry.apply_encodings({"encodePointColor": ["kind", {"primary": "red"}]})
+        node_default = g2._complex_encodings["node_encodings"]["default"]
+        assert node_default["pointColorEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "red"
+
+    def test_apply_encodings_singular_icon_aliases(self):
+        g2 = graphistry.bind().apply_encodings({
+            "encodePointIcon": ["kind", {"primary": "server"}],
+            "encodeEdgeIcon": ["kind", {"primary": "arrow-right"}],
+        })
+        node_default = g2._complex_encodings["node_encodings"]["default"]
+        edge_default = g2._complex_encodings["edge_encodings"]["default"]
+        assert node_default["pointIconEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "server"
+        assert edge_default["edgeIconEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "arrow-right"
 
     def test_badge(self):
 

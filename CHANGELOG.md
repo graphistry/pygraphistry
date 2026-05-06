@@ -5,7 +5,1082 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
-## Dev
+## [Development]
+<!-- Do Not Erase This Section - Used for tracking unreleased changes -->
+
+## [0.55.1 - 2026-05-05]
+
+### Tests
+- **GFQL / Cypher reentry contract coverage (#989 follow-through)**: Added compile-shape regression `test_compile_cypher_records_freeform_reentry_plan_contract` to lock free-form intermediate MATCH as `ReentryPlan(free_form=True, scalar_only=False)` and prevent regressions to scalar-only fallback tagging.
+
+### Infrastructure
+- **CI / Spark lane speedup + gating**: `test-spark` now restores `~/.cache/uv` with a Spark-specific cache key, skips unconditional JDK apt install when `java` is already present, installs base `graphistry` (`-e .`) instead of the full `.[test]` extra for this smoke lane, and only runs when Spark-relevant paths (or infra/manual/scheduled triggers) are touched. This trims setup overhead and avoids running Spark setup on unrelated PRs.
+- **CI / docs preflight guard**: Added `bin/check_docs_latex_unicode.sh` and a fast `docs-latex-unicode-guard` CI job to fail early on non-BMP Unicode in docs-fed text sources before the slower Dockerized `test-docs` LaTeX build.
+- **Release process / deploy gate reminder**: Documented that tag-triggered PyPI publishes can pause in `waiting` on environment approval, and explicitly call out approving `Review deployments` for `pypi-release` before expecting the final PyPI job to complete.
+
+### Added
+- **GFQL/Cypher validate-only preflight API (#1320)**: Added `g.gfql_validate(...)` on `ComputeMixin` as a public no-execution validation entrypoint for GFQL chains/JSON-style queries, Let/DAG queries, and Cypher strings. The API returns structured diagnostics (`ok`, `diagnostics`, query/language metadata) instead of executing query operators. Cypher preflight runs parser+compiler checks and supports optional strict binder/schema mode (`strict=True`) using the bound graph schema catalog; chain/JSON preflight reuses existing `validate_chain_schema()` semantics (including `collect_all=True`), and Let/DAG preflight now includes best-effort schema checks for direct chain-like bindings.
+
+### Changed
+- **GFQL execution prevalidation semantics (#1320)**: `g.gfql(..., validate=True)` now runs local preflight validation before execution. `g.gfql_remote(..., validate=True)` now validates query payloads before implicit upload/network dispatch, so invalid queries fail locally prior to upload when possible. String query inputs are now treated consistently as Cypher during preflight (`g.gfql_validate("...")` and `g.gfql("...", validate=True)`), so users get Cypher parser/compiler diagnostics instead of shape-guessing type errors. `g.gfql_validate(...)` now raises structured GFQL exceptions on invalid queries (instead of returning `ok=False`), and collect-all mode surfaces full diagnostics via exception context for LM/retry workflows.
+
+### Internal
+- **GFQL / Cypher reentry follow-through cleanup (#989, post-#1260 extraction)**: In `graphistry/compute/gfql/cypher/reentry/runtime.py`, free-form intermediate MATCH plan construction now routes through the whole-row/free-form `ReentryPlan` contract instead of scalar-only fallback tagging. This makes the dedicated runtime `plan.free_form` lane reachable again and removes incidental scalar-only-path dependence for free-form reentry dispatch.
+- **GFQL native types T4 — Arrow/type bridge contracts and coercion semantics (#1312, #1262, #1046)**: Added `graphistry/compute/gfql/ir/arrow_bridge.py` with stable schema-level interchange helpers `to_arrow()` and `from_arrow()` for `RowSchema` + schema-confidence metadata. The bridge records per-field logical-type metadata (`gfql.logical_type`) and confidence (`gfql.schema_confidence`) for deterministic round-trips, supports strict vs widening coercion (`coercion='strict'|'widen'`) at export/import boundaries, preserves scalar nullability exactly, and defines structural-type fallback behavior (`NodeRef`/`EdgeRef`/`PathType` as widened string bridge fields in widen mode). Added focused regression coverage in `graphistry/tests/compute/gfql/test_ir_arrow_bridge.py` for round-trip fidelity, nullability behavior, confidence handling, and strict/widen coercion boundaries.
+- **GFQL type-system T3.b — nullable-helper consolidation follow-through (#1309, #1304 audit continuation under #1262/#1046)**: Migrated the two deferred nullable call sites onto `ir.metadata` helpers: binder UNION branch merge now derives `nullable` via `bound_variable_is_nullable(existing|branch_var)` instead of direct field OR, and lowering bound-nullable alias derivation now uses `bound_variable_is_nullable(variable)` instead of the inline `nullable or bool(null_extended_from)` flatten. Converted the IC1 differential scaffold trust-check to the same helper contract and added focused binder regression coverage (`RETURN null AS x UNION RETURN 2 AS x`) locking nullable-bit preservation across UNION branch merge.
+- **GFQL type-system T5 — rollout-gate canary for the binder execution path (#1311, #1262 T5)**: Added `graphistry/compute/gfql/rollout.py` with a stable env-driven canary contract (`STRICT_SCHEMA_ENV = "GRAPHISTRY_GFQL_STRICT_SCHEMA"`, `env_bool`, `strict_schema_env_default`, `resolve_strict_schema`) and re-exports from `graphistry.compute.gfql`. Wired the resolver into `binder._strict_schema_mode` so the strict/permissive precedence on the *execution* compile path is now: explicit caller param > catalog `metadata["strict"]` > env-default > loose. Default off — existing loose-mode callers see no behavior change. **Scope:** T5 is complementary to the explicit preflight surface added in #1320/#1321 (`g.gfql_validate(strict=True)`, `g.gfql(..., validate=True)`) which hardcode strict at preflight. T5's env-gate exclusively governs the *execution* compile path's binder default — i.e., what `g.gfql(query)` does when the caller doesn't opt into explicit preflight. This is the canary surface for org-wide rollout. Added focused regression coverage in `graphistry/tests/compute/gfql/test_rollout.py` (39 tests across env-bool truth set, env-default semantics, resolver precedence, and package re-export pin) and `test_rollout_binder_integration.py` (12 tests pinning the binder seam: env-off preserves loose behavior, env-on rejects unknown labels, explicit/catalog tiers still win, valid queries continue to pass under env=strict). Both rollout test files were folded into the existing `test-gfql-core` and `test-pandas-compat-gfql` CI lanes — default-loose path runs with the main pytest invocation, env-on path runs as a follow-on `GRAPHISTRY_GFQL_STRICT_SCHEMA=true` step in the same job (so the canary receipt rides existing matrix axes rather than a new standalone lane). Operator-guidance doc landed at `docs/source/gfql/strict_mode.rst` (added to user-guide toctree) leading with the #1320 preflight API as the explicit operator entrypoint and framing the env-gate as the execution-path canary. With T3.b (#1309), T4 (#1313), and T5 (this) all landed, meta-issue #1262 close criteria are now satisfied.
+
+## [0.55.0 - 2026-05-05]
+
+### Infrastructure
+- **CI / supply-chain hardening (PR-G 7a)**: Deprecated all third-party GitHub Actions in favor of native primitives — `styfle/cancel-workflow-action` replaced by a workflow-level `concurrency:` block in `ci-gpu.yml`; `dorny/paths-filter` replaced by an inline `git diff --name-only` shell filter in `ci.yml` (preserves all 6 outputs: `infra`, `python`, `gfql`, `cypher_frontend_ci`, `benchmarks`, `docs`). Configured zizmor `unpinned-uses` rule with a provider safelist (`actions/*`, `github/*`, `pypa/*` permitted on floating refs; everything else must hash-pin) and lowered the workflow-security gate from `--min-severity high` to `medium` so policy violations actually fail CI. Closed 5 PR-B follow-up gaps by adding `persist-credentials: false` to LFS / fetch-depth checkouts in `ci.yml` (×3), `codeql-analysis.yml`, and `publish-pypi.yml`. Also fixed a silent fail-closed bug surfaced during multi-wave review: when `git merge-base` cannot resolve (force-pushed branch with orphaned `event.before`, or PR base rebased mid-flight), the `changes` job now conservatively emits `true` for every output and downstream jobs run, instead of silently emitting `false` and skipping all gated tests (#1221, #1215, #1130).
+- **CI / docs**: `test-readme` no longer runs `actions/setup-python` with an EOL Python 3.8 pin. The job now runs markdown lint directly via its Docker image, removing an unnecessary setup step and avoiding intermittent Python toolcache fetch timeouts.
+- **CI / build lane**: `test-build` now runs on Python 3.14 with `build-py3.14.lock` instead of a fixed Python 3.8 runner, reducing reliance on EOL interpreter setup while preserving explicit 3.8 compatibility test lanes elsewhere in CI.
+- **CI / token hardening**: CI workflows now declare explicit least-privilege default token scope (`permissions: contents: read`) and set `persist-credentials: false` on all checkout steps in `ci.yml` and `ci-gpu.yml`; GPU cancel job keeps a scoped `actions: write` override for run cancellation (#1130).
+- **CI / GPU lockdown**: Temporarily disabled `ci-gpu.yml` GPU execution path (including `gpu_public` jobs) while runner availability and PR-D security hardening are addressed; attempted GPU-triggered runs now fail fast with re-enable guidance referencing issue #1130.
+- **CI / release permissions**: `publish-pypi.yml` now explicitly declares `contents: read` alongside `id-token: write` for the publish job, keeping release workflow permissions least-privilege and resilient after repository default token permissions were tightened under issue #1130.
+- **CI / workflow scanners**: Added `workflow-security.yml` with two checks for workflow changes: `actionlint` (with custom runner-label config in `.github/actionlint.yaml`) and a `zizmor` high-severity gate using `.github/zizmor.yml`. This phase explicitly defers SHA-pin enforcement (`unpinned-uses`) to future unscheduled work.
+- **CI / trusted release gate**: `publish-pypi.yml` now binds publishing to environment `pypi-release` (for required-reviewer approvals), verifies pushed publish tags point to commits in `master` history, and restricts manual `workflow_dispatch` publishes to `master`.
+- **Release docs / metadata**: Updated publish instructions to pull `master` in fast-forward-only mode (`git pull --ff-only origin master`), require a clean working tree before tagging (`git status --short` should be empty), push only the intended tag ref (`git push origin refs/tags/X.Y.Z`) instead of `--tags`/ambiguous ref pushes, clarified manual publish dispatch as maintainer-only recovery on `master`, added guidance to avoid rerunning already-published versions, and normalized legacy `pypi.python.org` links in `README.md` to `pypi.org`.
+- **CI / OIDC context tightening**: `publish-pypi.yml` now verifies repository/workflow identity via `GITHUB_REPOSITORY` + `GITHUB_WORKFLOW_REF` and enforces release-tag format checks before publish. `DEVELOP.md` now documents the required PyPI Trusted Publisher binding (`repository`, `workflow`, `environment`, and trusted refs) so external OIDC policy stays aligned with workflow constraints.
+- **CI / release provenance baseline**: `publish-pypi.yml` now adds CycloneDX SBOM generation (`evidence/sbom-cyclonedx.json`), GitHub build-provenance attestation for built distributions (`dist/*.whl`, `dist/*.tar.gz`), and release-evidence artifact upload for auditability. PyPI publish attestations are now enabled for both TestPyPI and PyPI paths.
+- **CI / publish mode controls**: `publish-pypi.yml` now uses explicit `release_mode` (`evidence`, `test`, `release`) and split jobs (`build-evidence`, `publish-testpypi`, `publish-pypi`) so dry-run evidence generation does not trigger `pypi-release` approval prompts. Only `release` mode (or tag push) reaches PyPI publish and environment approval.
+- **CI / TestPyPI dispatch compatibility**: `publish-pypi.yml` now creates a synthetic runner-local tag (`0.0.dev<run_id>`) for `workflow_dispatch` `release_mode=test` runs so Versioneer emits a PEP 440 uploadable version instead of a local-version (`+g<sha>`) string rejected by TestPyPI.
+- **CI / release cooldown enforcement**: `publish-pypi.yml` now installs release build dependencies via pinned `uv` (`uv==0.11.3`) instead of direct pip dependency resolution (`-e .[build]`, `cyclonedx-bom`), so the existing `UV_EXCLUDE_NEWER: "6 days"` policy applies consistently on Python 3.8 publish runners.
+- **CI / pip cooldown enforcement cleanup**: direct workflow dependency installs for GPU, DGL, Spark, UMAP/AI torch, and `workflow-security` `zizmor` now run through `uv pip` (with pinned `uv` bootstrap where needed) so `UV_EXCLUDE_NEWER: "6 days"` is the single enforced cooldown path; removed ambiguous `PIP_EXCLUDE_NEWER` workflow env usage.
+
+### Added
+- **CI / Polars**: Added `test-polars` CI job (Python 3.9–3.14) with a dedicated `test-polars` lockfile profile; `polars` is now a named `setup.py` extra so the test matrix installs and exercises `test_polars.py` on every PR (#1133).
+- **Polars support**: `polars.DataFrame` and `polars.LazyFrame` now work in `plot()`, `materialize_nodes()`, `get_degrees()`, `get_indegrees()`, `get_outdegrees()`, and `hypergraph()`. Polars is an optional dependency — no behavior change when not installed. Upload path uses efficient Arrow conversion (`to_arrow()` with schema-metadata stripping and memoization); compute/hypergraph paths coerce to pandas at entry. `LazyFrame` is materialized via `.collect()` at each boundary. Adds `test_polars.py` with 17 tests; skips gracefully when polars is absent (#1133).
+- **Validation / settings + axis contracts (#1240, #1239, #1251)**: Added reusable public validation/settings contracts under `graphistry.validate` including `URL_PARAM_NAMES`/`REACT_SETTING_NAMES` (and set forms), `normalize_url_params()` / `normalize_react_settings()`, axis URL default contracts (`RADIAL_AXIS_URL_DEFAULTS`, `LINEAR_AXIS_URL_DEFAULTS`, `axis_url_defaults()`), and typed axis payload contracts (`AxisRow`, `AxisBounds`, `RingContinuousAxis`, `RingCategoricalAxis`, plus centralized allowed-field constants). GFQL call validation now deep-validates `ring_continuous_layout.axis` and `ring_categorical_layout.axis` against these contracts, and `gfql_remote(persist=True)` metadata hydration now round-trips and reapplies URL params/defaults correctly after server persistence.
+- **Dataset metadata hydration helper (#1252)**: Added `graphistry.from_dataset_id(...)` / `GraphistryClient.from_dataset_id(...)` to fetch `/api/v2/upload/datasets/{id}`, tolerate wrapped (`{"data": ...}`) and flat payloads, normalize legacy encoding payloads (`node_encodings`/`edge_encodings`) into plottable metadata shape, hydrate bindings/encodings/style/url params, and materialize a dataset URL on the returned `Plottable`.
+- **Declarative React-shape encoding dispatcher (#1250)**: Added `g.apply_encodings(...)` / `graphistry.apply_encodings(...)` for React-style payloads (`encodePointColor`, `encodeEdgeColor`, `encodePointSize`, `encodePointIcons`, `encodeEdgeIcons`, `encodeAxis`) with strict/autofix validation behavior and parity-focused tests.
+
+### Fixed
+- **GFQL / cuDF row pipeline**: Hardened list+scalar concat execution to preserve cuDF-native row tables across fallback paths (including null/empty list edges), and reduced eager host-conversion in row-type probes to avoid unnecessary `to_pandas()` pressure in constrained GPU-sharing environments. This keeps `vals + score` / `score + vals` semantics aligned across pandas and cuDF while improving vectorized-path stability on RAPIDS 25.02/26.02.
+
+### Tests
+- **GFQL / cuDF coverage amplification**: Added explicit cuDF regression coverage for list+scalar concat in both splat directions with empty-list and null-scalar/null-list edge cases. Validated amplified GFQL suites on `dgx-spark`: RAPIDS 26.02 full row-pipeline + parser/lowering passes; RAPIDS 25.02 passes targeted amplified subsets, with remaining instability isolated to existing cuDF host-conversion paths under shared-memory pressure.
+
+### Internal
+- **GFQL / Cypher compiler (S4 compatibility-surface reduction, #1305, #1260)**: Reduced `CompiledCypher*` accessor surface by retiring planner/metadata compatibility properties no longer required by active compile/runtime paths. Removed from `CompiledCypherQuery`: `connected_optional_match`, `connected_match_join`, `query_graph`, `scope_stack`, and derived `logical_plan_route`; removed derived `logical_plan_route` from `CompiledGraphBinding` and `CompiledCypherGraphQuery`. Runtime/compile wiring now reads canonical nested payloads from `execution_extras` directly (`gfql_unified.py`, `reentry/runtime.py`, lowering attach helpers), preserving execution behavior while shrinking deprecated inspection surface. Added regression locking in `test_lowering.py` via canonical `execution_extras`/logical-plan assertions.
+- **GFQL type-system T2 — binder strict schema validation hooks (#1302)**: Added binder-time strict schema checks in `graphistry/compute/gfql/frontends/cypher/binder.py` against `GraphSchemaCatalog` for missing labels/properties across MATCH patterns, WHERE predicates (including expr-tree path), and projection/unwind/call expressions. Diagnostics are deterministic and include alias/field/stage context with sorted availability hints. Strict-mode gating preserves loose/default behavior unless strict mode is enabled. Added focused regression coverage in `graphistry/tests/compute/gfql/cypher/test_binder.py` for admitted/rejected shapes and targeted strict/loose intersection amplification.
+- **GFQL type-system T3 — type/nullability metadata propagation contract (#1300, #1262 T3)**: Added `graphistry/compute/gfql/ir/metadata.py` exposing a stable helper surface over the type/nullability metadata BoundIR/LogicalPlan already carry: `is_nullable`, `with_nullable`, `widen_to_nullable`, `column_logical_type`, `column_is_nullable`, `merge_types`, `bound_variable_type`, and `bound_variable_is_nullable`. Helpers treat `ScalarType.nullable` as the only LogicalType-level nullable bit today and pass `NodeRef`/`EdgeRef`/`PathType`/`ListType` through unchanged; `bound_variable_is_nullable` exposes `BoundVariable.nullable` directly so downstream passes asking "is this variable nullable" do not silently drop the binder-recorded bit on structural variables. Extended the LogicalPlan verifier with invariant 6 — type propagation continuity across a unary op's `input` slot: shared columns must agree on kind family (NodeRef/EdgeRef/ScalarType/PathType/ListType) and ScalarType nullability is monotone-widening, with `Filter`, `PatternMatch`, `SemiApply`, and `AntiSemiApply` carved out as the row-dropping operators that may legitimately narrow nullability. The check is skipped when either schema has no columns so existing planner-emitted plans that initialise `output_schema=RowSchema()` remain valid until the schema-population slice lands. Added `graphistry/tests/compute/gfql/test_ir_type_propagation.py` (61 tests) covering helper contract surface and verifier pass/fail cases (kind mismatch, nullability narrowing on Project/Distinct/OrderBy, Filter and PatternMatch carve-outs, dropped columns, structural-type pass-through, list-element recursion) plus a seam-amplification class that pins T3's helper + invariant-6 contract on plan shapes the post-#1303 lowering split (`projection_planning.py`, `cypher/reentry/runtime.py`) emits. Consolidated three existing inline patterns onto helpers within `ir/`: the two `isinstance(typ, ScalarType) and ... typ.nullable` checks inside `verifier.py` (invariant 5 optional-arm at line 188; invariant 6 nullability monotonicity at line 295) onto `is_nullable`, plus the BoundVariable read in `query_graph.py:224` (`is_required = not var.nullable`) onto `bound_variable_is_nullable`. Two further consolidation candidates were intentionally deferred under the cross-PR coordination guardrails: `binder.py:151` (`existing.nullable or branch_var.nullable` union merge — sits in T2 #1302's hot zone) and `lowering.py:571` (`variable.nullable or bool(variable.null_extended_from)` — sits in #1295/#1303's recently-landed hot zone). Those will land in a follow-on **T3.b slice tracked in #1309** once the sibling lanes settle. Helpers are also re-exported from `graphistry.compute.gfql.ir` (the package surface) so external adopters don't need to reach into the deep `ir.metadata` path.
+- **GFQL / Cypher reentry cleanup — retire dual-contract scalar reentry extras path (#1294, #1260 S1)**: Removed legacy `CompiledCypherExecutionExtras` fields `scalar_reentry_alias` / `scalar_reentry_columns` and migrated runtime/compile branching to the canonical `reentry_plan` contract (`scalar_only` / `free_form` / whole-row lanes). `_execute_compiled_query_with_reentry` now dispatches scalar-only reentry via `ReentryPlan.scalar_columns` instead of legacy fields, lowering extras threading no longer forwards legacy scalars through `_execution_extras_with`, and whole-row reentry dispatch now requires a `ReentryPlan` (retiring the residual projection-contract fallback path). Added regression coverage locking absence of legacy extras fields and scalar-column plan parity in `test_lowering.py`.
+- **GFQL type-system T1 — schema contract + canonical naming alignment (#1296)**: Stabilized the IR schema-catalog contract in `graphistry/compute/gfql/ir/compilation.py` while preserving existing `GFQLSchema is GraphSchemaCatalog` alias behavior. Added `GraphSchemaCatalog.from_schema_parts(...)` to normalize iterable inputs into frozen-set contract shapes and copy metadata safely, plus canonical accessors (`node_id`, `edge_source`, `edge_destination`) and membership helpers (`has_node_column`, `has_edge_column`) to provide a minimal stable interface for follow-on T2/T3 schema-validation and type-propagation lanes under #1262/#1259. Added focused contract tests in `graphistry/tests/compute/gfql/test_ir_compilation.py` and validated adjacent M0B conformance coverage remains green.
+- **GFQL / Cypher monolith shrinkdown — extract bounded reentry glue from `lowering.py` (#1295, #1260 S2)**: Moved 17 reentry helpers (16 public + carry-internal `_literal_limit_value`, ~470 LOC) out of `graphistry/compute/gfql/cypher/lowering.py` into a new `graphistry/compute/gfql/cypher/reentry/` subpackage with four focused modules: `naming.py` (hidden-column / carry-name conventions), `scope.py` (alias-scope traversal for hidden reentry references), `carry.py` (prefix carry-column / order helpers, including `_literal_limit_value`), and `rewrite.py` (AST/query rewriters that retarget reentry expressions onto carried columns). The 16 public names are re-exported from `lowering.py` so existing callers (`from graphistry.compute.gfql.cypher.lowering import _reentry_hidden_column_name`) keep working unchanged; the moved modules pull lowering-internal helpers (`_unsupported`, `_unsupported_at_span`, `_render_expr_node`, `_rebuild_expr_node`, `_rewrite_expr_identifiers`, `_rewrite_where_clause_and_resync`, `_first_pattern_node_alias`, `_parse_row_expr`) lazily inside function bodies to avoid circular imports at module load. `carry.py` declares `ResultProjectionPlan` as a `TYPE_CHECKING`-only forward-string back-edge to lowering. `lowering.py` shrinks materially after the move; the orchestrator (`_compile_bounded_reentry_query`) and `_map_terminal_reentry_query` stay in `lowering.py` and are deferred to a follow-on monolith-shrinkdown slice.
+- **GFQL / Cypher lowering — admit free-form carried-property bridge WHERE+RETURN shape (#1275)**: Extended bounded reentry lowering to admit intermediate free-form `MATCH` shapes where trailing predicates and projections reference carried alias properties (for example `WHERE c.id = x.id` and `RETURN x.id`) by wiring `_rewrite_multi_whole_row_prefix(...)` into the free-form lane, threading `multi_alias_carries` into `ReentryPlan.aliases` + expression rewrite, and removing the prior conservative carried-property failfast. Also fixed a structured-WHERE rewrite gap in reentry lowering: reentry `WhereClause` instances with `expr_tree=None` (predicate-only form) are now rewritten/resynced instead of being skipped/dropped, preventing runtime alias-validation failures on carried-property bridge predicates. Added/converted positive execution tests (including cuDF parity guard) for bridge WHERE and bridge WHERE+RETURN variants in `test_lowering.py` while preserving adjacent #1263 regression coverage.
+- **GFQL / Cypher runtime — admit multi-prefix-row free-form intermediate MATCH (#1285, #1263 follow-up)**: Replaces the single-row-only failfast in `_compiled_query_freeform_reentry_state` with a per-row union loop in `_execute_compiled_query_with_reentry`, mirroring the scalar-only multi-row pattern from #1047. New `_freeform_broadcast_row_to_nodes` helper isolates per-row hidden-carry broadcast; the outer dispatcher loops over prefix rows, runs the suffix as a global MATCH per row, and unions results via the existing engine-polymorphic `_union_scalar_reentry_results`. Cartesian semantics fall out naturally — every prefix row × every trailing-MATCH row appears in the output. Out of scope (preserved as failfasts): `optional_reentry + multi-row free-form` (mirrors the scalar lane's existing guard at #1047). Carried-property bridge admit landed separately in #1287. Tests retargeted: the prior `..._failfast_rejects_..._on_multi_row_prefix` is now `..._executes_..._on_multi_row_prefix` (positive). New tests cover Cartesian semantics (2 prefix × 2 trailing = 4 rows; each pair appears twice), cuDF parity, and the OPTIONAL MATCH failfast. Pre-existing simple (single-row) free-form admits from #1279 stay green.
+- **GFQL / Cypher lowering — #1273 acceptance slice admits scalar multi-alias WITH shape A**: First-stage bounded reentry now admits `MATCH ... WITH a.id AS a_id, b.id AS b_id ... MATCH ...` multi-alias scalar/property projections (shape A) while keeping whole-row multi-alias carries (for example `WITH a, b`) outside the admitted lane. The admission gate is explicitly narrowed to scalar/property projections only, so known TCK xfail contract shape `WITH n, x` (`with-where3-3`) remains fail-fast and unchanged pending broader #1273 closure. Tests were converted to positive execution assertions for the admitted shape, and remaining rejected shapes continue to point explicitly to #1273.
+- **GFQL / Cypher row-boolean residual topology amplification (#1219)**: Added two cross-alias OR stress tests in `test_lowering.py` for previously under-covered topology classes: (1) disconnected cartesian-product `MATCH (a:A), (b:B)` with `WHERE a.x = 1 OR b.y = 2`, and (2) broader two-hop fanout `MATCH (a:A)-->(m:M)-->(b:B)` with the same disjunction. These lock row-wise disjunction semantics over wider join/fanout shapes on top of the existing 2x2 cross-alias union test.
+- **GFQL / predicate pushdown safety — quote-aware null-safety classification hardening (#1219)**: `is_null_rejecting()` now masks quoted/backticked segments before scanning for boolean operators and null-safe forms (`IS NULL`, `IS NOT NULL`, `COALESCE`, `NULLIF`). This closes false-safe substring matches like `n.note = 'x is not null'` / `'coalesce('` that could previously be misclassified as null-safe for OPTIONAL-arm pushdown. Added regression coverage in `test_pushdown_safety.py` and pass-level lock in `test_predicate_pushdown_pass.py` to ensure quoted literal text does not trigger null-safe admission.
+- **GFQL / predicate pushdown safety — whitespace-delimited OR detection hardening (#1219)**: `is_null_rejecting()` now normalizes unquoted whitespace and detects boolean operators via word-boundary token checks instead of exact `" and "` / `" or "` substrings. This closes a false-safe gap where newline/tab-delimited OR compounds (for example `n IS NULL\\nOR n.age > 5`) could bypass conservative OR handling and be incorrectly pushed into OPTIONAL arms. Added regression coverage in `test_pushdown_safety.py` plus a pass-level lock in `test_predicate_pushdown_pass.py`.
+- **GFQL / Cypher row-boolean policy-boundary audit (#1219)**: Added `test_where_row_boolean_policy_boundary.py` to explicitly map current support boundaries before any future reject-subset gate decision. The suite locks parser/binder routing for structured/tree/mixed WHERE forms (including OR/NOT/XOR and pattern+row mixes), locks top-down execution behavior for representative row-boolean shapes, and pins known unsupported pattern-existence forms (`NOT((pattern))`, `exists { ... }`) as explicit validation failures. This codifies current behavior and provides a concrete evidence baseline for future policy changes.
+- **GFQL / Cypher parser — quote-aware pattern-existence pre-scan (#1219)**: `_check_unsupported_syntax_patterns()` now masks quoted/backticked segments before applying pattern-existence unsupported-form regex checks. This fixes false-positive `unsupported-cypher-query` rejections for row-only queries where string literals contain lexemes like `exists { ... }` or `not((a)-...)`, while preserving rejection of true pattern-existence expressions. Added parser and policy-boundary regression coverage.
+- **GFQL / Cypher parser — comment-aware pattern-existence pre-scan amplification (#1219)**: Extended the same unsupported-form pre-scan shielding to ignore `// ...` and `/* ... */` comment bodies. This closes an additional false-positive lane where comment text containing `exists { ... }` / `not((a)-...)` previously triggered `unsupported-cypher-query` on otherwise valid queries. Added narrow parser lexical-matrix tests and broader row-boolean boundary runtime checks with comment-wrapped lexemes.
+- **GFQL / Cypher parser — pattern-existence boundary tightening for labeled/typed `NOT((pattern))` forms (#1219)**: Broadened unsupported-form pre-scan detection for `NOT((...))` pattern existence so node labels/properties and richer relationship tokens no longer bypass fail-fast rejection (for example `NOT((n:Admin)-[:R]->())`). Added parser, lowering, and policy-boundary regressions locking rejection of these variants while preserving valid row-boolean execution paths.
+- **GFQL / Cypher lowering — runtime carry forwarding through trailing WITH narrowing (#1272, #999 partial)**: Fixed the IC5 sub-A collect/unwind reentry residual where carried scalars could degrade to null/NaN across a trailing `WITH d, bid` stage. Hidden reentry-property references are now excluded from one-source alias guard counting while still forcing bindings-row lowering for stages that reference hidden carry columns, so carry fields survive narrowing and remain readable in subsequent RETURN/ORDER BY. Updated regression coverage by converting the two #1272 failfast locks into positive execution assertions for both plain trailing-WITH and ORDER BY/LIMIT variants.
+- **GFQL / Cypher lowering — residual multi-source row-projection failfast now points to issue #1273**: Remaining unsupported one-MATCH-source row-lowering residuals now raise the same `E108` boundary with an explicit `#1273` pointer so rejected shapes route directly to the tracked closure lane. Updated rejection-lock tests assert the issue pointer is present in emitted validation messages.
+- **GFQL / Cypher lowering — admit simple free-form intermediate MATCH after WITH (#1263, #999 partial)**: Lifts the failfast at the `first_alias != reentry_alias` site of `_compile_bounded_reentry_query` for the conservative case: trailing MATCH whose first alias is not in the prefix WITH's carried whole-row set, with no carried-alias property reference in the trailing scope. Three-commit shape: (1) IR adds `ReentryPlan.free_form: bool = False` to mark the new shape (`graphistry/compute/gfql/cypher/reentry_plan.py`); (2) compile sets `reentry_alias = first_alias` and `non_source_alias_names = whole_row_carried` so the trailing MATCH compiles as a regular fresh-MATCH and the existing property-carry rewriter (#1248) treats every carried alias as non-source (`graphistry/compute/gfql/cypher/lowering.py`); (3) runtime adds `_compiled_query_freeform_reentry_state` in `gfql_unified.py` — for a single-prefix-row, broadcasts every `__cypher_reentry_*` hidden column from the prefix row onto every base node and returns `start_nodes=None` so the suffix runs as a global MATCH and the row pipeline carries the broadcast values through whichever alias the trailing MATCH binds. Compile-time failfast added for the carried-property variant (`free_form` AND any `<carried>.<prop>` ref in trailing scope) — the existing demote (#1071) + property-rewriter (#1248) chain double-wraps the synthesized hidden column name, and closing that case requires a rewrite-order refactor that lands as its own focused follow-up. Runtime-side multi-prefix-row free-form raises a clear failfast pointing at the multi-row follow-up. Tests retargeted: `..._failfast_rejects_intermediate_reentry_match_with_no_carried_source` → `..._failfast_rejects_intermediate_reentry_match_with_carried_property_in_trailing_where`; `..._failfast_rejects_simple_freeform_intermediate_reentry_match` → `..._executes_simple_freeform_intermediate_reentry_match`. Adds cuDF parity test and a multi-prefix-row failfast regression. Three TCK xfail-contract scenarios admitted to `MATCHES_EXPECTED` (`expr-typeconversion2-7`, `expr-typeconversion3-5`, `expr-typeconversion4-7` — all `MATCH (single-node) WITH * MATCH (n) RETURN <typecast>(n.<prop>)` shape) (#1263, #999, #989).
+- **GFQL / Cypher lowering — scoped failfast for free-form intermediate MATCH after WITH (#1263, #999 partial)**: Replaced the generic `Cypher MATCH after WITH currently requires the trailing MATCH to start from the same carried node alias` error at `_compile_bounded_reentry_query` with a `#1263`-scoped error that names the LDBC SNB IC3 endpoint and points at the design doc for closure. The scoped wording calls out the gap shape — trailing MATCH whose first alias is not in the prefix `WITH`'s carried set — so users can identify whether their query falls into this lane or one of the other open IC3 sub-cases. Two regression-lock tests added: `test_string_cypher_failfast_rejects_simple_freeform_intermediate_reentry_match` (single-alias prefix; isolates the free-form gate without the slice 4.3a/b bare-ref interaction) and `test_string_cypher_failfast_rejects_intermediate_reentry_match_with_no_carried_source` retargeted from the prior #1256 wording. Closure of the gap (admitting the trailing MATCH as a fresh seed pattern that cross-joins with the carried row table at runtime) remains follow-up under #1263.
+- **AI skills / workflow**: Updated the local `plan` skill template to reflect current pygraphistry validation commands, and added a new `review` skill with phased multi-wave review flow, adversarial confirmation, and explicit GPU validation guidance (local `docker/test-gpu-local.sh` or `dgx-spark` evidence path when no local GPU is available).
+- **GFQL / Cypher lowering — secondary whole-row carry survives chained reentry boundaries (#1256, #989, #999 partial)**: Two extensions to `_demote_secondary_whole_row_aliases` in `graphistry/compute/gfql/cypher/lowering.py` so multi-alias carry survives a chained reentry compile. (1) **Forwarding-item drop** — bare-identifier projection items in downstream `WITH` stages whose name is a secondary alias are dropped at compile time (the same intent as slice 4.3c, integrated into the post-#1071 active rewrite path). Without this, a forwarding pattern like `WITH a, x, friend, ...` triggered the bare-ref failfast even though the carry already lives as a hidden scalar on the reentry-source's row table. (2) **Hidden-column forwarding** — for every `(secondary_alias, prop)` reference collected from trailing clauses, the synthesized `__cypher_reentry_<S>_<X>__` hidden alias is appended as a bare passthrough item to every downstream `WITH` stage so each recursive `compile_cypher_query` call sees it as a scalar carry. Without this, the inner compile failed alias resolution on the rewritten hidden identifier (`Unknown Cypher alias '__cypher_reentry_x_id__' in RETURN clause`) once a chained reentry stage narrowed the projection scope. New positive tests cover (a) chained reentry where the trailing MATCH continues to use the same primary alias, (b) chained reentry where the source is rebound between boundaries (`MATCH (a)-[:R]->(friend) ... MATCH (friend)-[:S]->(c)`), and (c) multi-alias `DISTINCT` forwarding through a single boundary. New failfast test pins the remaining gap — a trailing MATCH that does not start from any carried alias (free-form intermediate MATCH, the LDBC SNB IC3 prefix shape) — to the existing scoped error so future closure of that lane is regression-locked. Closes the chained-reentry portion of #1256; the free-form intermediate-MATCH case remains open follow-up.
+- **GFQL / Cypher lowering — `ReentryPlan` IR + multi-alias whole-row carry slices (#989, #1026, #999 partial)**: Introduces an explicit `ReentryPlan` + `CarriedAlias` dataclass (`graphistry/compute/gfql/cypher/reentry_plan.py`) as the compile-time contract between a prefix `WITH` stage and the trailing `MATCH`, replacing the implicit handshake spread across tuple returns from `_bounded_reentry_carry_columns`, the `scalar_reentry_alias` / `scalar_reentry_columns` fields on `CompiledCypherExecutionExtras`, and runtime contract re-extraction in `_compiled_query_reentry_contract` (#987 step 1). Plan is exposed via `compiled_query.reentry_plan` and threaded through `_map_terminal_reentry_query` + `_attach_graph_context`. Builds three additional admit slices on top of the #1071 lift: (1) **slice 4.3a** lifts the residual single-whole-row gate at the compile site (`lowering.py`) and runtime contract (`gfql_unified.py`) so `WITH a, x` admits whenever only the trailing-MATCH source alias is referenced downstream — `ReentryPlan.aliases` records all whole-row aliases as `CarriedAlias` entries, with downstream non-source-alias bare references emitting an actionable failfast pointing to #989; (2) **slice 4.3b** adds a compile-time prefix rewrite (`_rewrite_multi_whole_row_prefix`) that turns `WITH a, x` into `WITH a, x.id AS __carry_x__id__` for every property of `x` referenced in trailing clauses (collected via `_collect_non_source_alias_property_refs` walking `WhereClause.expr_tree`, `ProjectionStage.where`, `ReturnItem`, `OrderItem`), and AST-rewrites trailing `<non_source>.<prop>` references to property access on the reentry-alias's hidden column — closes the multi-alias case of `#1026` regression-lock (`MATCH (a), (x) WITH a, x OPTIONAL MATCH (a)-->(b) RETURN x.id, b.id` now executes correctly with left-outer-join semantics, previously raised `GFQLValidationError`); (3) **slice 4.3c** drops bare carried-alias items at compile time when downstream `WITH a, x, y, collect(...)` re-projects them, so the bare-ref failfast does not false-positive on forwarding patterns. Adds 5 new positive/structure tests + 2 failfast-scope tests, retargets one prior `pytest.raises(GFQLValidationError)` regression-lock to a positive row assertion, and adds the multi-alias `OPTIONAL MATCH` regression test `test_issue_1026_multi_alias_with_optional_match_carries_secondary_property`. Cross-reentry-boundary forwarding (carry survival across `MATCH (a)-[:KNOWS]-(friend)`, the IC3 LDBC SNB shape) remains follow-up work tracked as #999 / slice 4.3d (#989, #1026, #999, #987).
+- **GFQL / Cypher lowering — multi-alias carry through `WITH` before MATCH re-entry (#1071)**: Lifted the residual constraint that `WITH` before a MATCH re-entry must project exactly one whole-row node alias. The local Cypher compiler now accepts patterns like `MATCH (p)-[:KNOWS]-(friend) WITH p, friend MATCH (friend)-[:IS_LOCATED_IN]->(c) RETURN p.firstName, c.name` (LDBC SNB IC1 shape). Implementation pre-rewrites the prefix `WITH` in `_compile_bounded_reentry_query`: the trailing-MATCH primary alias is preserved as the sole whole-row carry; secondary aliases are demoted to scalar property carries via synthesized `S.X AS __cypher_reentry_<S>_<X>__` items, with downstream `S.X` references rewritten to bare hidden identifiers that compose with the existing single-alias carried-scalar machinery (#1047 / #1068). Returning a secondary alias as a whole-row entity (`RETURN s`) and re-binding a secondary alias as a node variable in the trailing MATCH remain unsupported with precise errors. Two prior failfast tests retargeted to assert correct multi-alias behavior; new tests cover IC1-shape, three-alias carry, and the secondary-whole-row-return rejection.
+- **GFQL / Cypher lowering — OR/XOR around pattern predicates (#1236, #1031 slice 4)**: Local Cypher `WHERE` boolean trees now support disjunctive compositions that mix pattern-existence leaves with row expressions (for example `pattern OR expr`, `pattern XOR expr`). Lowering rewrites pattern leaves into correlated `semi_apply_mark(...)` row pre-filters that emit boolean marker columns, then evaluates the rewritten boolean expression in `where_rows(...)`. Added direct row-pipeline/safelist coverage for `semi_apply_mark` plus parser/lowering runtime regression tests for OR/XOR-around-pattern query shapes.
+- **GFQL / Cypher residual cleanup (#1226, #1219)**: Retired `graphistry/compute/gfql/expr_split.py` by migrating top-level-AND splitting to `predicate_pushdown.py` (`split_top_level_and_conjuncts`) and updating conformance coverage to target the migrated splitter path. Fixed primitive literal atom fallback text in parser boolean-tree construction so `atom_text` now preserves Cypher keyword casing (`true`/`false`/`null`) instead of Python casing. Tightened optional-arm pushdown null-safety guardrails by treating OR-compound predicates as conservatively null-rejecting (disjunct-level alias analysis remains out of scope), with new regression coverage for mixed-alias `IS NOT NULL OR ...` forms.
+- **GFQL / Cypher lowering — WHERE NOT (pattern) anti-semi execution (#1031 slice 2 phase 2b)**: `WherePatternPredicate(negated=True)` no longer hard-fails at lowering. The compiler now emits a row pre-filter call (`anti_semi_apply`) for negated pattern predicates in both general MATCH lowering and connected OPTIONAL MATCH clause lowering, with per-predicate validation (must include relationship, must not introduce new aliases, must share bound aliases). Added `anti_semi_apply` row-pipeline runtime operation + call-safelist entry, plus row-table base-graph context preservation needed for correlated bindings execution. New tests cover compile shape (`row_pre_filters` emission) and runtime behavior for `MATCH (n) WHERE NOT (n)-[:R]->()` (including mixed row-expression + NOT-pattern filtering), plus connected `OPTIONAL MATCH ... WHERE NOT (pattern)` filtering/null-fill semantics. Full `cypher/test_lowering.py` suite passes (756 passed / 66 skipped) and touched-module mypy is clean.
+- **GFQL / Cypher parser + ast_normalizer — NOT-pattern AST plumbing (#1031 slice 2 phase 2a)**: Top-level `WHERE NOT (pattern)` shapes (e.g. `WHERE NOT (n)-[:R]->()`) now parse cleanly and lift into `WhereClause.predicates` as `WherePatternPredicate(negated=True)` entries instead of tripping the legacy "cannot yet be mixed with generic row expressions" E108.  `_split_top_level_and_pattern_leaves` adds a top-level `not(pattern_atom)` case that strips the NOT and emits the inner pattern as a negated leaf; `_build_where_with_pattern_lift` accepts both positive and negated leaves and emits one `WherePatternPredicate` per leaf with the matching `negated` flag.  ast_normalizer's `_rewrite_where_pattern_predicates_to_matches` partitions into positive (rewrites to appended MatchClause as before) vs negated (passes through to lowering).  Lowering now distinguishes the two cases: positive `WherePatternPredicate` still raises "must be rewritten before lowering" (defensive — slice 3 already rewrites all positives in ast_normalizer); negated raises a scoped "Cypher WHERE NOT (pattern) anti-semi-join lowering is not yet supported" pointing the way for the engine half (path-C row-pipeline anti-join, see `plans/1031-slices-2-3-4/findings/slice-2-scope.md`).  Adds `test_parse_lifts_top_level_not_pattern_to_negated_predicate` and `test_string_cypher_failfast_rejects_negated_pattern_until_slice2_lowering`.  De Morgan compositions, OR-around-pattern, and double-NOT remain rejected at the lift step (slice 4 / future).  Phase 2a only — runtime (anti-semi-join lowering) ships in a follow-up sub-PR (#1031).
+- **GFQL / Cypher row-boolean residual matrix + guardrails (#1219 hardening)**: Locks compositional row-boolean WHERE shapes that #1217's Earley swap admitted but its initial test surface didn't cover.  Adds 11 native tests: nullable NOT/OR over a 4-row 3VL fixture (`NULL OR T = T`); N-ary OR (3 branches) + duplicate-branch companion isolating rightmost-drop associativity bugs; De Morgan equivalences (`NOT (A OR B)` ≡ `NOT A AND NOT B`; `NOT (A AND B)` ≡ `NOT A OR NOT B`) parametrized to assert both per-form expected rows AND the form-equivalence; double negation; XOR symmetric difference + XOR with NULL preserving 3VL; mixed-string-numeric AND inside OR exercising `_StringAllowingComparisonMixin` GT path; unit test locking `boolean_expr_to_text(BooleanExpr(op="pattern", ...))` round-trip for the (currently unreachable) defensive branch.  Three docstring guardrails: `expr_split.split_top_level_and` documents AND-only intent + the `_combine_conjuncts` AND-recombine mechanism that makes a hypothetical `split_top_level_or` silently incorrect; `predicate_pushdown._split_conjuncts` mirrored guard naming the failure mode; `_boolean_expr_text.boolean_expr_to_text` explicit `op == "pattern"` branch with both unreachability paths documented.  No production-code behavior change.  Closes the residual-frontier portion of #1219; deeper compositional shapes beyond current fixtures remain tracked under that issue (#1219, #1227).
+- **GFQL / Cypher row-boolean residual matrix — cuDF parity follow-up (#1219 task 3)**: Parameterized the #1227 residual row-boolean test block across pandas and cuDF engines (`engine in [None, "cudf"]`) with runtime-gated cuDF execution and backend-stable row extraction for assertions. This extends the residual matrix coverage to cuDF paths without changing row-boolean semantics (#1276).
+- **GFQL / Cypher parser + ast_normalizer — multi-positive WHERE pattern predicates (#1031 slice 3)**: AND-joined positive WHERE pattern predicates (`WHERE (n)-[:R]->() AND (n)-[:T]->()`) now lift into structured `WhereClause.predicates` as N `WherePatternPredicate` entries.  The ast_normalizer packs them into a single appended `MatchClause` whose `patterns: Tuple[Tuple[PatternElement, ...], ...]` carries one tuple per predicate (multi-pattern cartesian within MATCH), preserving the lowering invariant that only the FINAL match is connected — pre-binding seeds remain node-only.  Per-predicate validation (must include a relationship; cannot introduce new aliases) runs independently before the lift.  Removes the legacy `len(pattern_leaves) > 1` gate in `parser.py::_build_where_with_pattern_lift` and the corresponding gate in `ast_normalizer._rewrite_where_pattern_predicates_to_matches`.  Refactors `pattern_atom` to split the greedy `WHERE_PATTERN` lexer token (which gobbles `pattern AND pattern AND ...` chains as a single match) back into individual pattern-item texts via `_WHERE_PATTERN_ITEM_RE.finditer` and emit one `BooleanExpr(op="pattern")` per item, joined by an AND-tree via `_rebuild_and_tree`.  Adds `test_gfql_executes_multi_positive_where_pattern_predicates_as_intersected_seed` and updates the legacy rejection test to assert the new lift + compile shape.  Closes #1031 slice 3 (#1031).
+- **GFQL / Cypher lowering**: Connected `MATCH + OPTIONAL MATCH` compilation now supports row-boolean `WHERE` expressions (`OR`/`NOT`/`XOR` and mixed row predicates) by carrying non-lowerable expressions into post-binding `where_rows(...)` filters for base and optional arms, preserving null-extension behavior while expanding supported disjunction shapes (#1219, #1224).
+- **GFQL / Cypher parser**: switched the Cypher parser from Lark's LALR(1) backend to Earley.  *Earley's broader unification incidentally lifts the implicit LALR rejection on row-side OR/NOT/XOR among row predicates.  Coverage validated empirically across the risky shapes available to current fixtures: simple homogeneous AND/OR/NOT (correct rows); cross-alias OR with predicate-pushdown candidates (correct union — pushdown leaves the OR intact past the join); OPTIONAL MATCH + WHERE OR (the pre-existing OPTIONAL-MATCH-projection validator gates the projection shape regardless of WHERE — including the OR variant); type-coerced OR against a mixed-type Series (the call executor wraps pandas's `TypeError` as `GFQLTypeError(E303)` via the generic unsupported-row-expression path).  No silent wrong-rows surfaced in the shapes exercised; deeper compositional shapes (NOT inside OR with nullable arms, N-ary OR associativity, mixed-string-numeric AND inside OR, De Morgan compositions) are tracked under #1219.*  This eliminates four LALR-induced workarounds: the 3 dedicated pattern-shape `where_clause` grammar alternatives (now collapsed into a single `WHERE_PATTERN -> pattern_atom` leaf in `?primary`), `_canonicalize_where_single_pattern_and_expr` (regex source-rewrite that reordered `expr AND pattern AND expr` to `pattern AND <rest>` so LALR could match), `_mixed_where_pattern_expr_error` (pre-flight rejector replaced with a structural lift in `generic_where_clause`), and the `parse_cypher` `except LarkError` retry block.  `BooleanExpr.op` literal extended with `"pattern"` plus a new `BooleanExpr.pattern` payload field; the `pattern_atom` transformer wraps `WHERE_PATTERN` tokens as boolean-tree leaves; `_split_top_level_and_pattern_leaves` + `_rebuild_and_tree` + `_build_where_with_pattern_lift` extract pattern leaves from `expr_tree` into `WhereClause.predicates` as `WherePatternPredicate` entries before lowering.  Strict-improvement consequences (Earley accepts what LALR rejected): `WHERE expr OR expr` now parses as a structured `or` tree; `WHERE expr AND (expr OR expr)` parses as `and(left, or(...))`; `WHERE n:Label AND n.prop = X` routes through structured `where_predicates`; mixed label+property+string-comparison shapes work via the paired `_StringAllowingComparisonMixin` fix in `comparison.py`.  Slice 2/3/4 of #1200 territory (NOT-pattern, multi-positive-pattern, OR/XOR-around-pattern) emit explicit `unsupported` errors at the lift step.  1551 GFQL tests pass; the matching `tck-gfql` branch (`issue-1031-grammar-mixed-where-pattern-expr`) carries 8 paired contract refinements: `match-where1-10` lifted to UNEXPECTED_SUCCESS; `match-where5-{1,2,3}` + `expr-comparison2-1` + `with-where5-3` migrated to a new TYPE_ERROR_KEYS bucket (string-comparison-on-mixed-Series wraps as `GFQLTypeError(E303)`); `match-where5-4` upgraded to MATCHES_EXPECTED (Earley + 3-valued OR makes `WHERE i.var > 'te' OR i.var IS NOT NULL` semantically correct); `with2-1` filed under WRONG_ROW_KEYS (WITH-pipelined join now parses + executes but rows differ from oracle — separate gap); `with-where5-3` demoted from PROMOTION_ROW_KEYS (#1031, #1217).
+- **GFQL / Comparison predicates**: extended `EQ`'s pre-existing string-accepting `_normalize_value` + `_validate_fields` overrides to its sibling comparison ops `NE` / `GT` / `LT` / `GE` / `LE` via a new `_StringAllowingComparisonMixin`.  Each `__call__` now handles `isinstance(self.val, str)` (pandas Series supports lexicographic `>`/`<`/`!=` on strings natively).  The strict raw-string rejection on the base `ComparisonPredicate` stays (still applies to `Between` and any direct-IR constructors where datetime-vs-string ambiguity matters).  Closes a latent gap surfaced by #1031's Earley swap, which unifies label + comparison routing and exposed that `WHERE prop OP 'string' AND <label>` patterns previously sidestepped `ComparisonPredicate` via raw-expr text (#1031, #1217).
+- **GFQL / Cypher — `WhereClause.expr` field removal (closes #1213, completes #1200)**: Final slice of the umbrella. Drops the legacy raw-text `WhereClause.expr: Optional[ExpressionText]` field now that all production readers (binder, lowering, ast_normalizer) consume `expr_tree`-derived text via `boolean_expr_to_text()`. Sub-PR D removed the `expr=` argument from every `WhereClause(...)` writer site (3 in `parser.py` that synthesized `BooleanExpr` atoms in #1214, plus the structured-path constructions, plus `ast_normalizer.py:509` forwarder; gates switched to `expr_tree is not None`). Sub-PR E removed the field declaration from `cypher/ast.py` and rewrote the `WhereClause` docstring to the surviving routing contract: structured (predicates only — including `WherePatternPredicate`-only via `where_pattern_only_clause`), tree (expr_tree only), or mixed (both — for `WHERE pattern AND expr`). Test surface updated: `test_where_clause_expr_tree_invariant.py` rewritten from the now-vacuous `(expr is None) == (expr_tree is None)` symmetry assertion to a routing-shape contract test (9 query forms across the 3 shapes); 12 raw-text reader assertions across `test_parser.py`, `test_boolean_expr.py`, `test_ast_normalizer.py`, and `test_where_bool_conformance.py` migrated to `boolean_expr_to_text(where.expr_tree)`; the slice-1 backward-compat test asserting both fields was deleted as obsolete. `ExpressionText` itself stays — other AST nodes still use it (`ReturnItem`, `WithItem`, `OrderByItem`, page values, etc.). **API note**: `WhereClause` is exported from `graphistry.compute.gfql.cypher`; external code that constructs it directly (rare — it's parser output, not user-facing) must drop the `expr=` kwarg (#1200, #1213).
+- **GFQL / Cypher lowering + ast_normalizer — `ExpressionText`-passthrough `WhereClause.expr` reader migration**: Second read-side slice of #1213. Migrated all `ExpressionText`-passthrough readers of `WhereClause.expr` to consume `WhereClause.expr_tree`-derived values via two new helpers in `cypher/lowering.py`: `_where_clause_expr_text(where)` synthesizes a fresh `ExpressionText` from `where.expr_tree` (using `where.span` to preserve master's error-position semantics — `where.span == where.expr.span` for parser-produced WhereClauses); `_rewrite_where_clause_and_resync(where, rewrite, field)` applies a text rewrite via the existing callback shape and resynchronizes `expr_tree` to a single-atom `BooleanExpr` carrying the rewritten text. **Side-effect fix**: closes the latent text/tree staleness bug that existed on master post-#1214 where `replace(where, expr=rewrite(where.expr, ...))` left `expr_tree` pointing at the pre-rewrite text. Sites migrated: `_extract_relationship_type_where` callers (2: connected-OPTIONAL-MATCH lowering at L8176, dynamic row-where extraction at L6322); `rewrite_expr` callers in reentry-where rewriting (2 sites at L7530-7538 and L7550-7553); `pre_join_filters.append` at L7998; `ast_normalizer.py::_rewrite_where` shortest-path rewrite. The last remaining read in `ast_normalizer.py:520` is a constructor passthrough (`expr=query.where.expr` inside a `WhereClause(...)` re-construction) — left for sub-PR D to drop along with the other writer-side construction-site updates. Behavior-preserving: full GFQL suite (1538/1538) green; targeted mypy clean. Sets up sub-PRs D + E (drop `expr=` from constructions; remove the field) for the colleague who landed #1214 (#1200, #1213).
+- **GFQL / Cypher binder + lowering — text-only `WhereClause.expr` reader migration**: First read-side slice of #1213. Migrated all text-only readers of `WhereClause.expr.text` to consume `boolean_expr_to_text(WhereClause.expr_tree)` instead, leveraging the parser invariant `(expr is None) == (expr_tree is None)` from #1214. Sites: `frontends/cypher/binder.py::_where_predicates` (dropped the now-dead `elif where.expr is not None` fallback — unreachable per invariant), `cypher/lowering.py::_reject_unsupported_where_expr_forms`, `cypher/lowering.py::_reject_unsupported_variable_length_where_pattern_predicates`, and three `_check_expr` callers in lowering. Behavior-preserving: per-call output identical to master (verified via 1538 GFQL tests). Removed the now-redundant `test_where_predicates_with_expr_tree_none_falls_back_to_expr_text` test which exercised the dead fallback via a hand-built `WhereClause(expr=..., expr_tree=None)` fixture that violates the parser invariant. Span-access readers (entangled with `ExpressionText` passthrough) and `rewrite_expr` callers stay on `.expr` until #1213 sub-PR C (#1200, #1213).
+- **GFQL / Cypher parser**: `generic_where_clause` now walks Lark's parsed `BooleanExpr` (always populated post-#1214 via single-atom synthesis for non-BooleanExpr operands) to lift bare label predicates and AND-spines of bare label predicates into structured `WhereClause.predicates`, replacing the previous text-level `split_top_level_and` + regex loop. Closes #1194 in the spirit of the issue: the grammar already declares the structured rule we want, and Lark's parsed tree is the single source of truth — no top-level AND splitting on text inside the WHERE body. `_BARE_LABEL_PREDICATE_RE.fullmatch` remains load-bearing on each atom as the false-positive guard from #1125 (unchanged). Adds two helpers: `_match_bare_label_atom` (atom-text → `(alias, labels)`) and `_lift_label_only_and_spine` (BooleanExpr AND-spine walker). Backward-compatible: identical I/O contract for all WHERE shapes (single label, multi-AND label chains, mixed label+property, OR/XOR/NOT, parenthesized boolean trees, string-literal false-positive guards). 4 new focused unit tests for the helpers complement the existing parser/binder/conformance/lowering coverage. Composes cleanly with #1214's expr_tree invariant — the walker now sees a uniform `BooleanExpr` for every routing case (#1194, #1213).
+- **GFQL / Cypher WHERE expr_tree invariant**: Lifted `_boolean_expr_to_text` and `_flatten_top_level_ands` from `frontends/cypher/binder.py` to a new shared module `graphistry/compute/gfql/cypher/_boolean_expr_text.py` so subsequent slices can reconstruct WHERE-body text from `WhereClause.expr_tree` without depending on binder internals. Established the parser invariant `(WhereClause.expr is None) == (WhereClause.expr_tree is None)` by synthesizing single-atom `BooleanExpr` at three previously-asymmetric construction sites (`_mixed_where_clause`, `where_clause` non-structured branch, `generic_where_clause` single-atom fallback). Behavior-preserving: binder primary path now emits one `BoundPredicate` per top-level AND conjunct uniformly. Adds `test_where_clause_expr_tree_invariant.py` with 11 tests across structured, mixed, atom, and boolean-tree shapes (#1200, #1213).
+- **GFQL / Cypher binder**: ``_where_predicates`` now walks ``WhereClause.expr_tree`` when populated and emits one ``BoundPredicate`` per top-level AND conjunct — flattened via ``_flatten_top_level_ands`` and stringified via ``_boolean_expr_to_text``.  Downstream passes (predicate pushdown) see pre-split single-conjunct strings, eliminating one source of text re-parsing.  Backward-compatible: when ``expr_tree`` is ``None`` (mixed-clause routes, structured ``where_predicates``, queries with no boolean operators), falls back to the existing ``where.expr.text`` path.  Inherits the slice-1 literal-atom fidelity caveat (``str(True) == "True"``).  20 tests in ``test_binder_expr_tree.py`` covering helper invariants, hand-built ``WhereClause`` fixtures (backward-compat, OR root, AND chain, no-expr), and end-to-end through ``parse_cypher`` + ``FrontendBinder`` (#1200, #1207).
+- **GFQL / Cypher parser**: Parser now captures Lark's already-parsed boolean-expression tree (`and_op` / `or_op` / `xor_op` / `not_op`) as a structural `BooleanExpr` value on `WhereClause.expr_tree`, alongside the existing raw-text `.expr`.  Adds `grouped_expr` passthrough so parenthesized subexpressions preserve nested boolean structure rather than collapsing to atom leaves.  Backward-compatible: `.expr` stays populated; no binder/pushdown/`expr_split.py` changes this slice.  Downstream migration (binder walks tree to emit one `BoundPredicate` per top-level AND conjunct; pushdown drops text-split fallback; `expr_split.py` retired) is tracked in the remaining slices of #1200.  Slice 1 is strictly additive (#1200, #1202).
+- **GFQL / Cypher WHERE boolean-shape conformance matrix**: Added `graphistry/tests/compute/gfql/cypher/test_where_bool_conformance.py` — 31 tests locking WHERE boolean-shape contracts across all 7 expression shapes (plain AND, `AND (OR)`, `(OR) AND`, NOT-prefix, XOR, mixed label+property, quoted/escaped AND) × 3 pipeline layers (parser routing to `.predicates` vs `.expr`, binder MATCH-clause predicate counts, pushdown `split_top_level_and` + `is_null_rejecting` per shape). Guards against silent drift in #1194 (grammar disambiguation) and #1200 (IR boolean-tree) migrations (#1201).
+- **GFQL / IR refactor**: Consolidated the `("input", "left", "right", "subquery")` child-slot tuple that was duplicated across 5 sites (IR verifier, physical planner, two rewrite passes, one test helper) into a single `CHILD_SLOTS` constant and `iter_children` helper in `graphistry/compute/gfql/ir/logical_plan.py`. Adds 8 regression tests including: identity-preservation for `UnnestApply` and `PredicatePushdownPass` when no descendant is rewritten (the `rewritten_child is not child` guard is load-bearing for tier-2 fixed-point convergence), asymmetric identity preservation across `Join` when only one branch is rewritten, and a reflective `typing.get_type_hints` check that any future `LogicalPlan` subclass adding a new child slot must update `CHILD_SLOTS` (#1196, #1199).
+
+### Fixed
+- **GFQL / row pipeline — relationship alias in row expressions (#1072)**: Bare edge-alias tokens in row expressions (`select([("rel", "workAt")])`, `WHERE rel IS NOT NULL`, `RETURN rel`) no longer raise `unsupported token in row expression: '<alias>'`. `_gfql_resolve_token` in `graphistry/compute/gfql/row/pipeline.py` extends the bare-alias branch with edge-alias resolution: prefer `{alias}.{_edge}` when present, otherwise render `[:TYPE {prop: value, ...}]` via a new shared vectorized renderer in `graphistry/compute/gfql/row/entity_props.py` reused by `cypher/result_postprocess.py::_format_edge_entities` and the row-pipeline path. Edge-alias classification is gated on `_gfql_rows_edge_aliases` metadata propagated through row-table adapters so node-alias frames missing a node-id column are not misrendered as edges. Renderer normalizes string escaping (`\\`, `'`), float formatting (strips trailing `.0+`), and treats blank/whitespace `type` as absent (`[{...}]` instead of `[: {...}]`). Re-entry `WHERE` secondary-alias property predicates (`MATCH ... WITH a, b ... MATCH ... WHERE b.x = ...`) are now rewritten when the predicate has no `expr_tree` by synthesizing WHERE expression text from structured predicates and clearing consumed predicates in `cypher/lowering.py` to avoid stale dual representation. Carries upstream prerequisites #1071 (multi-alias carry through `WITH` before MATCH re-entry) and #1236 (OR/XOR-around-pattern WHERE lowering) needed for current TCK contract behavior. Adds regressions in `test_row_pipeline_ops.py` covering string escaping, float normalization, null-only properties, missing/empty `type`, multi-edge rows, `select`/`return` parity, node-alias misclassification guard, and bare-alias `id` parity; adds `test_lowering.py` regressions for re-entry WHERE rewrites on secondary aliases and OR/XOR-around carried+trailing alias property paths (#1072).
+- **GFQL / comparison predicates**: Mixed-type scalar comparisons in Cypher `WHERE` execution (`>`, `<`, `>=`, `<=`) now preserve null-safe filter semantics across pandas and cuDF backends instead of failing whole-series evaluation on incomparable rows. Comparable rows keep backend-native ordering; incomparable/null rows evaluate non-matching (`False`) (#1219, #1223).
+- **GFQL / predicate pushdown**: Fixed a silent `\b` regex bug in `_refs_for_segment` (`graphistry/compute/gfql/passes/predicate_pushdown.py`). The rf-string `rf"\\b..."` produced a literal backslash-b sequence, not a word-boundary assertion, so per-conjunct alias detection never matched and always fell back to the full original reference set — widening reference sets for every split conjunct and preventing some safe-pushable conjuncts from being recognized. Tests passed because the fallback is a superset. Also consolidated two duplicate "split WHERE body on top-level AND" implementations (one in `parser.py`, one in `predicate_pushdown.py`) into a shared helper `graphistry/compute/gfql/expr_split.py::split_top_level_and` with strictly quote/bracket/paren/backtick-aware splitting. Adds 20 direct unit tests for the shared helper and one regression test locking the `\b` fix (#1195, #1198).
+- **GFQL / Cypher binder**: Replaced fragile regex-based WHERE label narrowing fallback in `_apply_where_label_narrowing` with AST-derived narrowing. `generic_where_clause` now lifts AND-joined bare label predicates (`WHERE n:Admin AND n:Active`) to structured `WhereClause.predicates` using the existing quote/bracket/paren/backtick-aware `_split_top_level_and_terms` helper; string-literal false-matches (e.g. `WHERE n.name = 'n:Admin'` incorrectly narrowing alias `n`) are closed by `fullmatch` anchoring. Removes `_WHERE_LABEL_RE` and `_WHERE_NON_CONJUNCTIVE_RE` from `binder.py`. Adds 10 targeted tests covering single/double/triple AND, multi-alias, multi-label-per-alias, lowercase `and`, XOR/OR/NOT conservative non-narrowing, mixed label+property all-or-nothing, and string-literal false-positive guards (#1125, #1193).
+- **DataFrame engine coercion**: Unified all DataFrame-to-engine conversion behind `df_to_engine()` with explicit dispatch for Arrow, Spark, dask, dask_cudf, cuDF, Polars, and pandas; unknown types now raise `ValueError` instead of silently calling `.to_pandas()`. `_coerce_input_formats(g, engine)` replaces `_coerce_to_pandas(g)` as the engine-aware coercion entry point in `chain()`, `hop()`, and `materialize_nodes()`, preserving GPU (cuDF) output when input is cuDF. `to_pandas()` now handles all input types via the same dispatch. Adds `test_engine_coercion.py` with 50+ tests (#1148).
+- **GFQL / cuDF engine guard**: `DFSamePathExecutor.run()` now checks cuDF availability before calling `_forward()` so `mode=auto` silently falls back to pandas and `mode=strict` raises a clear error, rather than propagating `ModuleNotFoundError` from inside hop/coerce internals (#1148).
+- **RAPIDS 25.x / cuDF API**: Replaced deprecated `cudf.DataFrame.from_pandas()` with `cudf.from_pandas()` in `_cudf_from_pandas_best_effort()` (6 call sites) for RAPIDS 25.x+ compatibility (#1148).
+- **GFQL / IR verifier**: `ListType.element_type` is now validated recursively by invariant 4 (schema consistency), catching invalid nested types at arbitrary depth. Converts the `xfail` placeholder test to a passing regression; adds a positive test for valid deep nesting (#1153).
+- **GFQL / IR query graph**: `extract_query_graph` now preserves all optional-arm metadata when intermediate aliases are dropped by a final `RETURN` projection. Chained `OPTIONAL MATCH` arms retain their arm IDs and nullable-alias sets even when their outputs are absent from `RETURN`; `BoundQueryPart.metadata["arm_id"]` is used as the authoritative arm identity and unconditionally preferred over (potentially stale) `semantic_table` entries. Each nullable alias is now guaranteed to belong to exactly one arm even when sequential optional parts share the same output alias (#1156).
+- **DataFrame input types**: `pa.Table` (Apache Arrow) and `pyspark.sql.DataFrame` (Spark) now work in `materialize_nodes()`, `get_degrees()`, `get_indegrees()`, `get_outdegrees()`, and `hypergraph()` without crashing. Both are coerced to pandas at each entry boundary; pandas/cuDF paths are unaffected. Mixed inputs (e.g. Arrow edges + pandas nodes) are handled correctly. Adds `test_df_types.py` with 22 tests covering Arrow compute, Arrow hypergraph, mixed-type boundaries, and Spark paths; adds a `test-spark` parallel CI job (Python 3.14, pyspark 4.x) (#1132).
+- **GFQL / remote Cypher string path**: `gfql_remote("...")` no longer compiles strings through deprecated `compile_cypher()` compatibility API. Remote string compilation now uses the non-deprecated internal parser+lowering path (`parse_cypher` + `compile_cypher_query`) while preserving wire JSON behavior (`gfql_query`, `gfql_operations`, Let/Ref/CALL params, and union rejection). Added focused regressions in `graphistry/tests/compute/test_chain_remote_v2.py` to ensure the deprecated helper is not called from remote execution (#1185).
+
+### Fixed
+- **Plugins / cuDF**: `compute_igraph`, `layout_igraph`, and `layout_graphviz` now handle cuDF-backed graphs. Input DataFrames are converted to pandas via `ensure_pandas()` (with `nullable=True` to preserve nullable integer dtypes), and output DataFrames are restored to the detected original engine via `restore_engine()` (both in `graphistry.compute.engine_coercion`). `from_igraph` and `g_with_pgv_layout` merges with existing node/edge tables are also converted to pandas to avoid mixed-type merge errors. Previously, passing a cuDF graph to these functions would raise a `TypeError` inside the native library. The Cypher CALL path also benefits since it delegates to `compute_igraph` which now handles engine restoration internally.
+- **Plugins / igraph + engine coercion (#1246)**: `from_igraph` renames duplicate `source`/`target` column labels emitted by `ig.get_edge_dataframe()` when those names also exist as edge attributes, fixing `"column 'source' is not unique"` crashes during endpoint remapping. `ensure_pandas` broadens its `to_pandas(nullable=True)` fallback to catch `NotImplementedError` (raised by newer cuDF on dtypes like `datetime64[ms]`) in addition to `TypeError`.
+
+### Deprecated
+- **GFQL / Cypher public API**: `compile_cypher()`, `compile_cypher_query()`, `CompiledCypherQuery`, `CompiledCypherUnionQuery`, and `CompiledCypherProcedureCall` are deprecated and **scheduled for removal in a future release**. All emit `DeprecationWarning` at use. Migrate to `g.gfql(..., language="cypher")` for execution or `cypher_to_gfql()` / `gfql_from_cypher()` for chain translation. Tracked in #1169.
+
+### Added
+- **Collections**: New `g.collections(...)` API for defining subsets via GFQL expressions with priority-based visual encodings. Includes helper constructors `graphistry.collection_set(...)` and `graphistry.collection_intersection(...)`, support for `showCollections`, `collectionsGlobalNodeColor`, and `collectionsGlobalEdgeColor` URL params, and automatic JSON encoding. Accepts GFQL AST, Chain objects, or wire-protocol dicts (#874).
+- **Docs / Collections**: Added collections usage guide in visualization/layout/settings, tutorial notebook (`demos/more_examples/graphistry_features/collections.ipynb`), and cross-references in 10-minute guides, cheatsheet, and GFQL docs (#875).
+- **GFQL / two-tier pass execution**: Extended `PassManager` to support two explicit pass tiers: Tier 1 structural passes run once in configured order; Tier 2 rewrite rules run in a fixed-point loop until a full sweep makes no changes or `max_iterations` is exceeded. `PassResult` gains a `changed: bool` field (default `True` for backward compatibility) used by the convergence check. Added `UnnestApply` as the first Tier 1 structural pass — rewrites non-correlated `Apply` nodes (empty `correlation_vars`) to `Join(join_type="cross")`, exposing them to downstream join-ordering passes; correlated Apply nodes are preserved. `PredicatePushdownPass` is wired as the first Tier 2 rewrite rule and now sets `changed=pushed > 0` for correct convergence. `DEFAULT_LOGICAL_PASSES` and `DEFAULT_TIER2_PASSES` are populated accordingly and wired into `gfql()` execution. 19 new unit tests across `test_pass_manager.py` and `test_unnest_apply.py` (#1189).
+- **GFQL / pass framework skeleton**: Added `graphistry/compute/gfql/passes/` with `LogicalPass`, `PassResult`, and deterministic `PassManager.run()` sequencing. The pass manager now invokes IR `verify()` after each pass and fails fast on invalid pass output. Wired a new logical-pass pipeline hook into `gfql()` execution between logical-plan and physical-planner stages using a default no-op pass configuration to preserve runtime behavior. Added focused tests for pass ordering, verifier-failure propagation, and runtime pipeline hook invocation (`test_pass_manager.py`, `test_runtime_physical_cutover.py`) (#1180).
+- **GFQL / predicate pushdown safety**: Added `graphistry/compute/gfql/ir/pushdown_safety.py` with three reusable utilities for `PredicatePushdownPass`: `is_null_rejecting(pred, null_extended_aliases)` — conservative syntactic heuristic returning True when a predicate references a null-extended alias (OPTIONAL MATCH) and does not use a null-safe form (IS NULL, IS NOT NULL, COALESCE, NULLIF); `is_null_safe` — inverse; `with_barrier_blocks_pushdown(scope_stack, pred_refs)` — returns True when a WITH-clause `ScopeFrame` prevents backward predicate movement for the given reference set. All three exported from `ir/__init__.py`. 41 unit tests (#1181).
+- **GFQL / predicate pushdown rewrite**: Added `PredicatePushdownPass` implementation in `graphistry/compute/gfql/passes/predicate_pushdown.py` and wired it into logical planning route execution. The pass rewrites `Filter(input=PatternMatch(...))` by pushing safe predicates into `PatternMatch.predicates`, keeps residual filters for partial-push cases, and blocks null-rejecting pushdown into optional arms using existing safety helpers. Added focused pass tests and a lowering-route integration assertion (`test_predicate_pushdown_pass.py`, `cypher/test_lowering.py`) (#1187).
+- **GFQL / scope-aware pushdown barriers**: Threaded binder scope metadata (`BoundIR.scope_stack`) into runtime logical-pass context via `CompiledCypherExecutionExtras` and `PlanContext`, and updated `PredicatePushdownPass` to enforce `with_barrier_blocks_pushdown()` using real scope data before moving conjuncts into `PatternMatch.predicates`. Added targeted regressions for blocked vs allowed WITH-boundary movement and compile-route scope metadata threading (`test_predicate_pushdown_pass.py`, `cypher/test_lowering.py`) (#1190).
+- **GFQL / remote wire migration (M3 follow-up)**: `chain_remote.py` remote Cypher string path no longer imports or dispatches on `CompiledCypher*` classes for wire serialization. It now validates/serializes structural compiled-query shapes (`chain`, `graph_bindings`, `procedure_call`, `use_ref`) so remote wire payload generation is decoupled from compiler IR class identity while preserving existing Let and CALL wire formats. Added parity tests in `test_chain_remote_v2.py` for structural fake compiled-query inputs (including Let bindings/result serialization and structural union rejection) (#1168).
+- **GFQL / M3 compatibility-deletion gate (PR3 slice)**: Cypher public compatibility surfaces now mark `compile_cypher()` and legacy `CompiledCypher*` exports as deprecated while retaining runtime compatibility. `graphistry.compute.gfql.cypher` now serves deprecated `CompiledCypherProcedureCall`, `CompiledCypherQuery`, `CompiledCypherUnionQuery`, and `compile_cypher_query` via lazy compatibility accessors with explicit deprecation warnings; `compile_cypher()` now emits a deprecation warning and migration guidance (`g.gfql(..., language="cypher")`, `cypher_to_gfql(...)`). API docs now describe `compile_cypher()` as deprecated/internal-shape oriented. Deferred boundaries remain unchanged: remote-wire migration stays tracked in #1168 and hard removal/versioned API cleanup stays tracked in #1169 (#1174).
+- **GFQL / M3 runtime cutover to PhysicalPlanner**: `gfql()` compiled-query execution in `graphistry/compute/gfql_unified.py` now dispatches through `PhysicalPlanner.plan(...)` for planned logical routes, then executes via physical operator wrappers (`same_path`, `wavefront`, `row_pipeline`). Added bounded compatibility shims for currently-required lanes (`CALL`-backed compiled queries and connected OPTIONAL wavefront payloads), and explicit validation failure when a planned wavefront route lacks executable join payload metadata (no silent unmatched fallback). Added focused runtime cutover tests in `graphistry/tests/compute/gfql/test_runtime_physical_cutover.py` covering planner invocation, optional-wavefront parity, compatibility-shim continuity, and explicit wavefront mismatch failure behavior (#1173).
+- **GFQL / M3 physical planner skeleton**: Added `graphistry/compute/gfql/physical_planner.py` with backend-neutral `PhysicalPlanner.plan(logical_plan, ctx) -> PhysicalPlan` route mapping and explicit wrapper contracts for current executor lanes: `same_path` (`execute_same_path_chain`), `wavefront` (`_apply_connected_match_join`), and `row_pipeline` (`execute_row_pipeline_call`). `PhysicalPlan` now carries stable route/operator metadata, and unsupported logical operator shapes fail with explicit planner errors (no silent fallback). Added focused planner route/wrapper tests in `graphistry/tests/compute/gfql/test_physical_planner.py` (#1164).
+- **GFQL / M3 B3 compatibility matrix**: Added `docs/source/gfql/spec/m3_b3_compat_matrix.md` — per-surface closure plan for `CompiledCypherQuery` / `CompiledCypherUnionQuery` / `CompiledCypherGraphQuery` / `compile_cypher_query` before M3 deletion gate. Covers 6 surfaces (compiler internals, public API, runtime execution, remote wire, tests, docs) with sequenced closure strategy. Two deferred items tracked for follow-up issues (remote wire migration, public API deprecation removal) (#1165).
+- **GFQL / Cypher compiler (M3 route coverage start)**: Expanded logical-plan route coverage for previously broad-deferred reentry/row-sequence flows under issue `#1154`. `MATCH ... WITH ... MATCH ...` reentry and row-sequence shapes (including `WITH`-only / `UNWIND` forms) now route as `planned` when supported by `LogicalPlanner`; planner now emits `PatternMatch` for covered multi-alias and edge-alias MATCH skeleton shapes. Route-boundary tests were added for planned reentry/row-sequence paths and for the still-deferred optional-reentry boundary (`OPTIONAL MATCH`) in this slice (#1155).
+- **GFQL / M2 closure**: Added in-repo M2 exit-gate closure artifact at `docs/source/gfql/spec/m2_exit_gate_closure.md` with: PR1-PR5 evidence matrix, M2 exit checklist, RF4 implemented-vs-deferred construct mapping, merged-lane CI receipt summaries, and targeted local conformance receipts for planner/querygraph/verifier/cycle-policy plus scope/alias rejection slices. Includes deferred follow-up tracking issues `#1153` (verifier deep `ListType` recursion checks) and `#1154` (M3 route coverage for currently deferred reentry/row-sequence flows) for explicit deferred-item accounting under `#1137`/`#1139`.
+- **GFQL / IR query graph**: Added `extract_query_graph(bound_ir: BoundIR) -> QueryGraph` in `graphistry/compute/gfql/ir/query_graph.py`. Walks `BoundQueryPart` query_parts, splits on WITH/RETURN scope boundaries, groups aliases within each scope into `ConnectedComponent` clusters via union-find on shared alias sets, collects boundary aliases (WITH outputs, handling renames like `WITH a AS b`) with their `LogicalType` from the scope-stack frame, and builds `OptionalArm` entries by grouping `null_extended_from` provenance sets — with `join_aliases` inferred from required (non-nullable) inputs to `optional_match` parts. Cycle-policy regression tests lock the existing lowering.py contracts for connected comma patterns, disconnected comma errors, and cross-WITH scalar alias reuse. `extract_query_graph` is exported from `ir/__init__.py`. 25 focused tests (#1135).
+- **GFQL / IR compiler**: Added `graphistry/compute/gfql/ir/verifier.py` with `verify(plan: LogicalPlan) -> list[CompilerError]`. Tree-walks the operator DAG and checks five structural invariants: op_id uniqueness, dangling child references, predicate scope (non-empty expression and alias-visibility against `output_schema` on PatternMatch/Filter/IndexScan), output schema validity (all columns are LogicalType instances), and optional-arm nullability (PatternMatch optional=True requires non-empty arm_id and nullable ScalarType outputs). Traversal is cycle-safe via DFS ancestor tracking. `BoundPredicate` gains a `references: FrozenSet[str]` field; when non-empty the verifier checks that all referenced aliases appear in the operator's `output_schema.columns`. `verify` is exported from `ir/__init__.py`. 67 focused positive/negative tests; one documented xfail for ListType element_type deep recursion (future PR) (#1127).
+- **GFQL / compiler**: Added initial `LogicalPlanner` skeleton in `graphistry/compute/gfql/logical_planner.py` with monotonic per-plan `IdGen` `op_id` assignment, minimal covered clause planning (`MATCH`/`WHERE`/`WITH`/`RETURN`/`UNWIND` + deterministic fallback), fail-fast guards for unsupported skeleton shapes (multi-alias/non-node `MATCH`, `DISTINCT` projections, `OPTIONAL MATCH`, unknown clauses), and contract tests for importability, deterministic purity, typed schema propagation, and unique op IDs (#1126).
+- **GFQL / Cypher compiler**: CALL/GRAPH compatibility routing now maps supported Cypher CALL shapes to verified logical `ProcedureCall` operators instead of hard-defer, and graph-constructor artifacts (`CompiledCypherGraphQuery` + `CompiledGraphBinding`) now carry explicit logical route metadata (`logical_plan`, defer reason, route kind) while preserving existing runtime execution semantics (#1128).
+- **GFQL / Cypher compiler**: `CompiledCypherQuery` escape-hatch surface was consolidated into grouped `post_processing` and `execution_extras` containers with backward-compatible properties, compile output now includes explicit logical route metadata (`logical_plan`, defer reason, and route kind), and connected OPTIONAL lowering now emits `QueryGraph` + logical-operator metadata while preserving existing execution parity checks (#1136).
+- **GFQL / Cypher**: Extracted `ASTNormalizer` into `graphistry/compute/gfql/cypher/ast_normalizer.py` and moved shortestPath + WHERE-pattern-predicate rewrite ownership out of `lowering.py`, with parity-preserving wiring in compile/lowering flows and focused regression coverage for rewrite behavior and invocation order (#1117).
+- **GFQL / Cypher compiler**: Lowering now functionally consumes `BoundIR` metadata for the M1 integration slice: binder-provided params are merged into effective lowering params (runtime overrides preserved) with binder metadata keys filtered out of runtime-param resolution, scope membership narrowing uses the active scope frame for WITH-boundary correctness, semantic-table entity kinds inform alias table routing, and nullable alias metadata is wired into optional-only alias detection. `_StageScope` duplicated table bookkeeping was reduced, binder now runs pre- and post-normalization in compile flow, and binder-path regression tests were added for these code paths (#1116).
+
+### Changed
+- **Collections**: Autofix validation now drops invalid collections (e.g., invalid GFQL ops) and non-string collection color fields instead of string-coercing them; warnings still emit when `warn=True`.
+- **Collections**: `collections(...)` now always canonicalizes to URL-encoded JSON (string inputs are parsed + re-encoded); the `encode` parameter was removed to avoid ambiguous behavior.
+- **Collections**: Set collections require an `id` field for server-side subgraph storage. In `strict` validation mode, missing IDs fail validation; in `autofix`, missing IDs are warned and deterministically auto-generated (`set-<index>` / `intersection-<index>`).
+- **Collections**: Intersection collections now cross-validate that referenced set IDs exist; dangling references are warned and dropped in autofix mode.
+- **Collections**: GFQL parsing consolidated to use `_wrap_gfql_expr` from `collections.py` as the canonical implementation with precise exception handling.
+
+### Tests
+- **Collections**: Added `test_collections.py` covering encoding, GFQL Chain/AST normalization, wire-protocol acceptance, validation modes, and helper constructors.
+- **GFQL / Cypher binder**: Added PR-4 white-box binder semantic conformance coverage for name resolution success/failure (including unresolved alias errors), WITH scope-reset visibility, OPTIONAL MATCH `null_extended_from` lineage as `frozenset` clause ids, label narrowing from MATCH labels + conjunctive `WHERE alias:Label` checks, and SchemaConfidence rules (min-rule propagation, operand inheritance, and strong literal/`COUNT` behavior). Parser/lowering regression lanes remain green (#1114).
+- **Plugins / cuDF**: 14 GPU tests in `TestCpuOnlyPluginsCudfRoundTrip` (`test_call_operations_gpu.py`) verifying real cuDF→pandas→cuDF round-trip for `compute_igraph` (pagerank, spanning_tree Graph-returning path, articulation_points list-return path, edge-attribute merge path), `layout_igraph`, `layout_graphviz`, `render_graphviz`, `execute_call`, `ensure_pandas` nullable dtype preservation, and `restore_engine` conversion. Requires `TEST_CUDF=1` and RAPIDS.
+- **GFQL / Cypher**: Added bound-alias `WHERE NOT (pattern)` regression coverage for issue `#1237`, including an IC10-shaped direct-Cypher case (`MATCH (root {id: 'a'})-[:R]->(mid)-[:R]->(cand) WHERE NOT (root)-[:R]->(cand)`) plus compile-shape and mixed row+NOT predicate tests in `graphistry/tests/compute/gfql/cypher/test_lowering.py`.
+
+## [0.54.1 - 2026-04-08]
+
+### Infrastructure
+- **CI / speedup**: All CI install steps migrated from floating `pip` to `uv` with per-Python-version hashed lockfiles, cutting the gating `test-minimal-python` job by **~47%** (e.g. 3.12: 733s → 406s, 3.8: 673s → 332s) and `python-lint-types` by **~47%** (49s → 26s avg). A single `generate-lockfiles` job (≤30s) runs in parallel with lint, so the new lockfile overhead does not extend the critical path (#1050).
+- **CI / supply-chain security**: Introduced `UV_EXCLUDE_NEWER: "6 days"` globally across all CI jobs (belt-and-suspenders on top of hashed lockfiles) to reject packages published within the last 6 days, preventing 0-day supply chain attacks from reaching CI. All install steps use `--require-hashes` where feasible; umap/AI jobs exempt due to torch local-version-tag incompatibility with `--require-hashes` (#1050).
+- **CI / GFQL split**: 944 GFQL-heavy tests (`test_lowering.py` + `test_row_pipeline_ops.py` + `test_parser.py`) moved from the serial `test-minimal-python` gate to a new parallel `test-gfql-core` job, further reducing the gating critical path (#1050).
+- **Dockerfiles / supply-chain**: Added `ARG PIP_EXCLUDE_NEWER=6d` with matching `PIP_EXCLUDE_NEWER` env to all test Dockerfiles (`test-cpu`, `test-gpu`, `test-rapids-official`), applying the same 6-day cooldown to Docker-based installs (#1050).
+
+### Added
+- **GFQL / compiler**: Added initial IR type layer under `graphistry/compute/gfql/ir/` with `types.py` (`CypherAST`, `NodeRef`, `EdgeRef`, `RelSpec`, `LogicalType`, `QueryGraph`) and `bound_ir.py` (`BoundVariable`, `SemanticTable`, `ScopeFrame`, `BoundIR`) as frozen dataclasses for M0 binder scaffolding. No runtime behavior changes (#1091).
+
+### Fixed
+- **GFQL / Cypher**: `OPTIONAL MATCH` execution no longer materializes the full opt-arm result before joining. A semi-join filter now restricts the optional arm to join-key values present in the base MATCH result before the left-outer-join. On real benchmark graphs (LDBC SNB sf1 IS7) this eliminates the intermediate cross-product that previously caused ~120 GB RSS and a SIGKILL (#1052).
+- **GFQL / Cypher**: `MATCH ... WITH scalar1, scalar2 ... MATCH ...` re-entry now supports multi-row WITH prefixes (N rows, not just 1). Each prefix row's scalars are broadcast independently to the base graph and the suffix MATCH runs once per row; results are unioned. This unblocks IC6 (`tag-cooccurrence`): the UNWIND fanout before the tag-cooccurrence MATCH produces 4+ prefix rows (#1047).
+- **GFQL / cudf**: `graph.gfql(query, engine="cudf")` no longer crashes with SIGSEGV (returncode 139) on RAPIDS 25.02. Root cause: `Series.map(dict)` and `Series.to_pandas()` on cudf Series trigger numba JIT (via `numba_cuda.as_cuda_array`) which SIGSEGVs in RAPIDS 25.02. Fixed by introducing `safe_map_series()` in `Engine.py` that uses a GPU-native merge-based lookup with `to_arrow()` for cudf (stays on GPU, avoids numba path entirely), and replacing all eight affected call sites in `hop.py` (4 sites), `chain.py`, `df_executor.py` (2 sites), and `pipeline.py`. Validated on both RAPIDS 25.02 and 26.02. GPU performance lane restored (#977).
+- **GFQL / Cypher**: Bounded zero-min variable-length relationship patterns (`*0..N`, e.g. `[:HAS_TYPE|IS_SUBCLASS_OF*0..3]`) are now supported. Previously `*0..N` raised an "unsupported" error at parse time while the open form `*0..` already worked. Fixes LDBC SNB IC12 and any query using bounded zero-min ranges (#983).
+- **GFQL / Cypher**: Multi-row scalar prefix combined with `OPTIONAL MATCH` re-entry now raises a clear error instead of silently dropping null-fill rows. The multi-row fan-out path returns early before the optional null-fill branch; until null-fill is implemented for N>1 prefix rows, the engine raises `GFQLValidationError` with an actionable message (#1047).
+- **GFQL / Cypher**: `CASE x WHEN null THEN ... ELSE ... END` now correctly matches when `x` is null. Previously `__cypher_case_eq__` used `pd.Series == None` which always evaluates to `False` in pandas; the fix returns the null-mask of the non-null operand when the other is a scalar null literal. This was the root blocker for IS7-style `CASE r WHEN null THEN false ELSE true END` over edge aliases from an OPTIONAL MATCH arm (#996).
+
+### Tests
+- **GFQL / comparison conformance**: Added exhaustive cross-backend comparison matrix coverage in `test_comparison_conformance.py` for pandas+cuDF over mixed scalar domains (`int`, `float`, `bool`, `string`) and null sentinels (`None`, `pd.NA`, `NaN`, `NaT`), with parity checks plus focused Cypher lowering regressions validated on RAPIDS 25.02 and 26.02 (#1219, #1223).
+- **GFQL / oracle parity**: Extended reference enumerator (`graphistry/gfql/ref/enumerator.py`) to support multi-hop edge aliases — previously raised `ValueError`; oracle validates node/edge membership only so the engine's bare presence-marker column requires no special handling. Cleared `TestOracleLimitations` xfail; added `TestMultiHopEdgeAlias` with three parity tests. Added `_MIN_PARITY_CASES` count guard in `test_enumerator_parity.py` so future chain-kernel features must extend the parity suite or CI fails at import time. Added ref suite (`tests/gfql/ref/`) to `test-gfql-core` and `test-pandas-compat-gfql` CI jobs so oracle drift is caught automatically (#1086).
+- **GFQL / Cypher**: Multi-row scalar prefix reentry — 13 new/updated tests: two-tag fanout, carried scalar visible in RETURN, empty prefix, single-row regression, bag-semantics duplicate-seed (explicit 4-row assertion), partial-hit (some prefix rows empty), partial-hit zero-contribution has no null rows, DISTINCT collapses duplicate prefix rows to single-row path, single-row + OPTIONAL MATCH still works (guard only fires for N>1), optional_reentry + multi-row guard raises `GFQLValidationError` specifically, empty base graph with multi-row prefix, cuDF path (#1047).
+- **GFQL / Cypher**: Parser and execution tests for bounded zero-min variable-length relationships: `*0..N`, typed, multi-type, `*0..1` (seed + direct neighbors), `*0..100` (large bound stops at graph depth), `*0..0` (documents current empty-return behavior), `*0` exact still rejected; negative hop bounds `*-1`, `*-5..10`, `*1..-3` raise `GFQLSyntaxError` specifically (#983).
+- **Tests / DRY**: Extracted `_mk_prefix_scalar_reentry_data()` and `_mk_multi_row_scalar_prefix_data()` helpers; pandas and cuDF factory twins now delegate to the shared data function eliminating duplicated DataFrame literals.
+- **GFQL / Cypher**: Added 19 connected `MATCH + OPTIONAL MATCH` regression tests covering expression breadth (`type()`, `coalesce()`, arithmetic, `CASE WHEN ... IS NULL`), join edge cases (no matches, all match, multi-row, empty base, two shared aliases, integer IDs, custom node column, longer optional chains), and post-projection ops (ORDER BY, SKIP, LIMIT, DISTINCT) (#996).
+- **GFQL / Cypher**: Added IS7-shape regression test for `CASE r WHEN null THEN false ELSE true END` over a connected MATCH + OPTIONAL MATCH with edge alias, covering both matching and non-matching OPTIONAL arms (#996).
+- **GFQL / cudf**: 23 new tests for the `safe_map_series` cudf SIGSEGV fix (#977): unit tests for all mapping types (dict, `pd.Series`, `cudf.Series`, cudf+`pd.Series` path), edge cases (missing keys, empty mapping, NaN values, non-default index, mixed value types); hop integration tests (reverse, undirected, node-only, edge-only, empty result with edge hops, multi-hop ordering, missing-mask guard); chain integration test; Cypher label-filter, single-hop, and ORDER BY regression tests; DGX smoke script validating both pandas and cudf paths on RAPIDS 25.02 and 26.02 hardware (#977).
+- **GFQL / chain**: Regression test — `safe_merge()` does not mutate the caller's right DataFrame (#892).
+- **GFQL / chain**: Regression test — chain hop tag columns emit no `FutureWarning` on `fillna` (#881).
+- **GFQL / schema**: Regression test — filtering on `bool` `label__*` columns does not raise `GFQLSchemaError` (#876).
+
+## [0.54.0 - 2026-04-04]
+
+### Added
+- **Layout / treemap**: Built-in squarified treemap layout implementation (`graphistry/layout/gib/_squarify.py`); removes external layout dependency from `install_requires`. Coordinate transforms in `partitioned_layout.py` are now vectorized via DataFrame merge instead of per-row dict lookups (~3× faster CPU baseline). GPU path uses engine-native DataFrame throughout. 353 unit tests added (#1059).
+- **GFQL / Cypher**: Support multi-alias `WITH DISTINCT` projections from connected MATCH patterns, including aggregation (e.g., `WITH DISTINCT tag, post RETURN tag.name, count(post)`). Bare alias references in row expressions now resolve to the alias-prefixed identity column on bindings-row tables (#880).
+- **GFQL / Cypher**: Support multi-stage WITH chains on bindings-row tables (e.g., `WITH DISTINCT tag, post WITH tag, post.creationDate AS cd RETURN tag.name, sum(cd)`). Mixed whole-row + scalar WITH projections now use `extend` mode to add scalar columns without dropping alias-prefixed bindings columns (#880).
+- **GFQL / Cypher**: Support connected `MATCH ... OPTIONAL MATCH ... RETURN` queries where the non-optional MATCH is a connected path (not just a single node). The compiler lowers each clause independently, left-outer-joins the binding-row tables on shared node aliases, and delegates RETURN / ORDER BY / SKIP / LIMIT to the standard row pipeline. This unblocks LDBC SNB Interactive `interactive-short-7` (IS7) and any query shape that combines a connected traversal with an optional extension and mixed-alias or `CASE`-expression projections (#996).
+- **GFQL / Cypher**: Support `WHERE` clauses scoped to `OPTIONAL MATCH`, including label predicates and property comparisons. Each `WHERE` is associated with its preceding `MATCH` clause at parse time via `MatchClause.where` (#1024).
+- **GFQL / Cypher**: Support multiple `OPTIONAL MATCH` clauses (1 non-optional + N optional) via chained left-outer-joins. Queries like `MATCH (a)-->(b) OPTIONAL MATCH (b)-->(c) OPTIONAL MATCH (c)-->(d) RETURN ...` now execute correctly (#1025).
+- **GFQL / Cypher**: Support direct local Cypher `shortestPath(...)` scalar execution for the benchmark-facing subset, including `length(path)`, `path IS NULL`, `CASE path IS NULL WHEN true THEN -1 ELSE length(path) END`, and the official comma-seeded `interactive-complex-13` shape. Generic path-carrier projections and `allShortestPaths(...)` remain explicit fail-fast boundaries (#1010).
+
+### Fixed
+- **GFQL / Cypher (#1038, #1261 slices S1-S5)**: Hardened RETURN-side `CASE` handling in the local Cypher path for IC4-shaped query forms. Added a lowering fail-fast guard so aggregates nested inside row CASE expressions are rejected at compile-time with `E108` (instead of leaking to runtime row-expression failures), and stabilized regression-lock expectations across pandas compatibility lanes by asserting null-like semantics (`None`/`NaN`) where appropriate.
+- **GFQL / Cypher**: Non-final `WITH alias, agg()` aggregate stages on bindings-row tables (e.g., `WITH tag, sum(cd) AS total`) now correctly group per alias and preserve `alias.*` property columns for subsequent stages. Previously the group key used the wrong column name (`id` instead of `tag.id`), the entity-blob serializer made every row unique, and property columns like `tag.name` were dropped before the next `RETURN` stage could access them (#1054).
+- **GFQL / Cypher**: Extended scalar columns from a bindings-row `WITH` stage (e.g., `WITH tag, post.creationDate AS cd`) are now visible in subsequent non-aggregate stages (`WITH cd ... RETURN cd`). Previously, the next stage resolved the projected column name as an alias-qualified property path and prepended the active alias a second time, producing `None` instead of the actual scalar value (#1045).
+
+- **GFQL / Cypher**: `MATCH (x) WITH x OPTIONAL MATCH (x)-->(y) RETURN ...` now null-fills unmatched rows (left-outer-join semantics) instead of silently dropping them. Previously produced wrong results with inner-join semantics (#1026).
+
+- **GFQL / bindings rows**: `rows(binding_ops=...)` on `engine="cudf"` now preserves active-engine empty/intermediate tables instead of leaking pandas objects into the GPU path, and undirected multihop no-backtrack masking no longer uses a mixed-type sentinel that cuDF rejects. This fixes the `#1040` IC6 cudf/GPU failure class and the adjacent direct multihop/cartesian bindings-row replay cases.
+- **GFQL / Cypher**: Support `WITH scalar, collect(alias) AS list UNWIND list AS alias MATCH ... RETURN` queries where carried scalars accompany the `collect()`. Previously only the single-item `WITH collect(alias) AS list` shape was supported (#1000).
+- **GFQL / Cypher**: Pattern property maps in direct local Cypher now accept expression-valued entries such as `MATCH (a)-[:R]->(b {num: a.num})` and reentry-carried identifiers such as `MATCH (b {id: bid})`. Literal and parameter-valued property maps keep their existing lowering path.
+- **GFQL / Cypher**: Alternating reentry shapes like `MATCH ... WITH ... MATCH ... WHERE ... WITH ... MATCH ... RETURN` are now supported in the local Cypher compiler. This moves the exact `#1000` IC6 query past the earlier post-reentry-`WHERE` barrier and up to the next `UNWIND after post-WITH MATCH` blocker.
+- **GFQL / Cypher**: Alternating reentry shapes now preserve one `WHERE` per post-`WITH MATCH` stage, so queries like `MATCH ... WITH ... MATCH ... WHERE ... WITH ... MATCH ... WHERE ... WITH ... RETURN` no longer fail on the earlier single-global-`WHERE` compiler limit (#1000).
+- **GFQL / Cypher**: Bounded reentry now supports scalar-only prefix `WITH ... MATCH ...` continuation for single-row prefix shapes, so queries like `MATCH (t) WITH t.id AS tid MATCH (p)-[:R]->(u {id: tid}) RETURN ...` no longer require carrying a whole-row alias through the prefix `WITH` stage (#1000).
+- **GFQL / Cypher**: Connected comma-pattern row execution now lowers through joined bindings rows in the local compiler, so non-linear fanout shapes and grouped overlap cases like `MATCH (p)<-[:R]-(x), (x)-[:S]->(a), (x)-[:S]->(b)` and `RETURN a.id, count(b)` can execute through downstream row stages instead of failing on the older single-linear-path / single-source-row limitations (#1000).
+- **GFQL / Cypher**: Exact official `interactive-complex-6` / `tag-cooccurrence` Cypher now runs in the local compiler. The remaining `#1000` gaps were cleared by attaching nested scalar-prefix reentry to the terminal consumer stage and by allowing joined-row multihop bindings to carry undirected, branching endpoint rows without dropping bare alias ids needed by row filters (#1000).
+- **GFQL / bindings rows**: Native `rows()` and direct `rows(binding_ops=...)` now preserve open-range / fixed-point edge semantics during bindings serialization instead of collapsing those segments back to a single hop. This restores IS6-style multihop continuation row shaping from native GFQL chains under `#880`.
+- **GFQL / Cypher**: Removed guard that rejected multi-hop connected patterns with edge alias projections (e.g., `MATCH (a)-[r:R]->(b)-[s:S]->(c) RETURN r.since, c.id`). The runtime bindings table already handles this correctly (#880).
+- **GFQL / Cypher**: Direct local Cypher now supports comma-separated node-only `MATCH` cartesian products such as `MATCH (n), (m) RETURN n.num, m.num`, including cross-alias row filters, grouped/global aggregates, and `WITH`-staged row execution. This unlocks the `#990` prerequisite lane for `#1010`.
+- **Tests / RAPIDS compat**: Replace `cudf.DataFrame.from_pandas()` with `cudf.from_pandas()` across GFQL Cypher test suite for RAPIDS 25.02 + 26.02 compatibility.
+
+### Tests
+- **GFQL / Cypher (#1038, #1261 slices S1-S5)**: Added/expanded regression coverage in `test_lowering.py`, `test_parser.py`, and `test_binder.py` for IC4-style RETURN-side CASE, parser rejection of malformed CASE, binder scope/name-resolution behavior for CASE after `WITH DISTINCT`, and explicit rejection of aggregate calls nested in row CASE expressions.
+- **GFQL / bindings rows**: Added benchmark-shaped regressions for native IS6-style multihop continuation plus direct Cypher IS1 / IS3 / IS6 projection shapes.
+- **GFQL / Cypher**: Added cartesian `MATCH` regressions covering scalar projection, non-simple row expressions, grouped/global aggregates, staged `WITH` filters, and direct `rows(binding_ops=[Node, Node])` cartesian row materialization.
+- **GFQL / Cypher**: Added exact IC6 runtime regression coverage plus multihop joined-row regressions for undirected no-backtracking, branching reentry fanout, and direct `rows(binding_ops=...)` bare-alias row expressions (#1000).
+
+## [0.53.16 - 2026-04-01]
+
+### Added
+- **GFQL / native chain**: Support connected multi-alias bindings-table materialization from native GFQL chains ending in bare `rows()`. Named traversal chains like `g.gfql([n(name="a"), e_forward(), n(name="b"), rows()])` now reuse connected `binding_ops` row materialization and expose alias-prefixed columns such as `a.id`, `b.id`, and edge alias properties (#880).
+
+### Fixed
+- **GFQL / bindings rows**: Reject duplicate aliases both in legacy named-chain execution and in direct `rows(binding_ops=...)` execution instead of silently overwriting labels or producing corrupted duplicate-prefixed row output.
+- **GFQL / bindings rows**: Missing alias-prefixed properties on bindings tables now project as null in row expressions instead of failing with the generic `unsupported token in row expression` error. This aligns native-chain `rows() ... select()` behavior with the existing direct Cypher multi-alias projection path.
+
+### Tests
+- **GFQL / bindings rows**: Added regression coverage for direct `binding_ops` duplicate aliases and for native-chain injection guards that must preserve explicit `rows(source=...)`, `rows(alias_endpoints=...)`, `rows(binding_ops=...)`, and non-traversal middle segments.
+
+## [0.53.15 - 2026-04-01]
+
+### Added
+- **GFQL / Cypher**: `shortestPath()` and `allShortestPaths()` syntax now parses and raises a clear "not yet supported" validation error instead of a generic syntax error (#997).
+- **GFQL / Cypher**: Pattern existence expressions (`not((a)-[:R]-(b))`, `exists { ... }`) now detected and raise a clear validation error instead of a generic syntax error (#998).
+
+### Fixed
+- **GFQL / Cypher**: Fixed undirected MATCH returning the seed node instead of the peer when the stored edge is incoming (#994). The connected bindings row materializer now correctly orients undirected edges in both directions.
+
+## [0.53.14 - 2026-04-01]
+
+### Added
+- **GFQL / Cypher**: Support bounded alternating multi-stage reentry read shapes in direct local Cypher, including `MATCH ... WITH ... MATCH ... WITH ... MATCH ... RETURN` for connected vectorized pipelines, plus nested reentry runtime composition and bindings-backed whole-row/scalar projection handling needed by this shape (#999).
+
+## [0.53.13 - 2026-04-01]
+
+### Added
+- **GFQL / Cypher**: Support connected multi-alias row bindings for direct Cypher scalar projections and bounded `WITH ... MATCH` reentry. Connected single-path and connected multi-pattern shapes like `MATCH (a)-[:R]->(b), (b)-[:S]->(c) RETURN a.id, c.id` and the benchmark-facing `WITH ... MATCH` continuation behind `interactive-short-2` now materialize row bindings correctly while branching multihop and connected relationship-alias projection shapes remain explicit fail-fast boundaries.
+
+## [0.53.12 - 2026-04-01]
+
+### Added
+- **GFQL / Cypher**: Support variable-length relationships in connected multi-relationship patterns. `MATCH (a)-[:R*2]->()-[:R]->(c) RETURN c` now works — variable-length hops at any position (start, middle, end) are supported with exact, range, and open-range forms (#973).
+
+### Infra
+- **CI**: Bump `test-minimal-python` timeout from 8 to 12 minutes (Python 3.14 suite exceeds 8 minutes on hosted runners).
+
+## [0.53.11 - 2026-03-31]
+
+### Fixed
+- **GFQL / Cypher**: Added direct local Cypher support for the narrow graph-backed `MATCH ... With collect([DISTINCT] alias) AS list UNWIND list AS alias MATCH ... RETURN` reentry shape, moving those queries past the earlier parser rejection while preserving explicit fail-fast behavior for older unsupported multi-alias row-scope cases.
+
+## [0.53.10 - 2026-03-31]
+
+### Added
+- **GFQL / Cypher**: Added bounded direct local Cypher reentry support for the vectorized same-alias `MATCH ... WITH ... MATCH ...` subset, including carried scalar projections and trailing `RETURN` / `ORDER BY` use on the carried alias.
+
+### Fixed
+- **GFQL / Cypher**: Unsupported cross-alias, fresh row-seeded, and prefix-order-dependent bounded reentry shapes now fail fast instead of silently miscompiling.
+
+### Tests
+- **GFQL / Cypher / cuDF**: Added pandas and cuDF regression coverage for bounded reentry at both the helper and end-to-end lowering layers, including targeted DGX validation on official RAPIDS `26.02` `cuda13`.
+
+## [0.53.9 - 2026-03-31]
+
+### Fixed
+- **GFQL / GPU traversal**: Added a narrow one-hop undirected `hop()` fast path that avoids doubled edge-pair materialization for the common no-predicate traversal shape. On DGX-backed RAPIDS validation, warm `gplus` pipeline time improved `-39.67%` on `25.02` and `-39.27%` on `26.02`.
+
+### Added
+- **GFQL / Cypher**: Support multi-alias scalar `RETURN` projections in direct Cypher queries. `MATCH (a)-[:R]->(b) RETURN a.id AS a_id, b.id AS b_id` now works by building a bindings table from edges joined with node properties (#981).
+- **GFQL / Cypher**: Edge alias property access in multi-alias `RETURN`. `MATCH (a)-[r:KNOWS]->(b) RETURN a.id, r.creationDate, b.firstName` now works — edge properties are accessible alongside node properties (#982).
+
+## [0.53.8 - 2026-03-31]
+
+### Added
+- **GFQL / Cypher**: Support `*0..`, `*1..`, and other open-max variable-length relationship ranges in direct Cypher queries. For example, `MATCH (m)-[:REPLY_OF*0..]->(p) RETURN p` now parses and executes correctly, matching zero or more hops (#983).
+
+### Docs
+- **GFQL**: Show Cypher string syntax above the fold in "10 Minutes to GFQL" and "Overview" pages so the first code a reader sees is familiar Cypher, not the native chain API.
+
+### Infra
+- **CI**: Make GFQL doc example test CI-blocking instead of warning-only. Broken doc examples now fail the `test-docs` job.
+
+## [0.53.7 - 2026-03-29]
+
+### Fixed
+- **GFQL docs**: Fixed 29 broken code examples across 12 doc files — wrong API params (`n(edge_match=...)`→`e_forward(edge_match=...)`), wrong imports (`remote`, `Chain`, `eq`), nonexistent classes (`PlottableValidator`, `is_not_in`), and wrong param names (`col_in`/`col_out`, `entity_cols`).
+- **GFQL / Let**: Fixed nested `let()` inside `let()` failing at execution time despite passing `validate()`. The dependency resolver now treats nested `ASTLet` bindings as opaque execution units instead of walking into their internal bindings, which caused false "references undefined nodes" errors (#968).
+
+### Tests
+- **GFQL doc examples**: Added automated test harness (`docs/test_doc_examples.py`) that extracts and runs code examples from all GFQL doc files. Runs in CI via the docs docker build. Uses `.. doc-test: skip` / `xfail` markers for blocks that need special handling. 33 skip + 23 xfail markers on genuinely untestable blocks.
+- **GFQL / Let**: Fixed nested let runtime scope isolation. Inner let bindings no longer leak into the outer scope's `ExecutionContext`. Added `child_context()` with read-through (lexical closure) and write-local semantics. Fixes name collisions between sibling inner lets and shadowing corruption (#968).
+- **GFQL / Let**: Fixed nested let receiving the accumulated result instead of the original graph. Inner lets now filter from the outer scope's original graph independently, matching the behavior of Chain/Node bindings (#968).
+
+### Docs
+- **GFQL**: Documented nested let lexical scope rules (read-through, write-local, shadowing, sibling isolation) in wire protocol spec and LLM guide.
+
+### Added
+- **Docker / RAPIDS**: Added `docker/test-rapids-official-matrix.sh` to run the official RAPIDS compatibility matrix sequentially across `25.02` and `26.02` for `basic`, `gfql`, and `ai`.
+
+### Changed
+- **Docker / RAPIDS AI**: Official RAPIDS `ai` validation now preinstalls `torch==2.11.0+cpu` from the PyTorch CPU index before `-e .[test,testai,ai]`, preventing pip from layering CUDA 13 Torch wheels onto CUDA 12 RAPIDS images.
+
+### Tests
+- **Docker / RAPIDS matrix**: Validated no-GPU official-image cells for `25.02/basic`, `25.02/gfql`, `25.02/ai`, `26.02/basic`, `26.02/gfql`, and `26.02/ai`, using smoke imports of `cudf`, `cugraph`, `cuml`, `dask_cudf`, and `graphistry` plus focused `basic`, `gfql`, and `ai` test slices.
+
+## [0.53.6 - 2026-03-28]
+
+### Fixed
+- **RAPIDS 26.02 compatibility**: Added backward-compatible shim in `lazy_cudf_import()` restoring `cudf.DataFrame.from_pandas()` and `cudf.Series.from_pandas()` class methods removed in RAPIDS 26.02, so all existing code paths and downstream users keep working across RAPIDS 24.12–26.02+.
+- **RAPIDS 26.02 compatibility**: Fixed pre-existing bug where `calc_core_sample_indices=True` was passed to `cuml.DBSCAN.fit()` (never a valid `fit()` parameter on any cuml version — it is an `__init__()` parameter only).
+- **RAPIDS 26.02 compatibility**: Added fallback for `cugraph.jaccard_w`, `cugraph.overlap_w`, and `cugraph.sorensen_w` weighted similarity functions removed in cugraph 24.04 — automatically reroutes to base algorithm with `use_weight=True` when unavailable, native call on older versions.
+- **GFQL**: Fixed timezone-aware temporal comparisons (GT, LT, GE, LE, EQ, NE) crashing on cudf with `NotImplementedError: Binary operations with timezone aware operands is not supported`. Values are now compared as naive timestamps after tz conversion. Also fixed `s.dt.tz` attribute access that was missing on cudf < 26.02.
+- **TigerGraph**: Replaced removed `pandas.Series.append()` with `pd.concat()` for pandas 2.0+ compatibility.
+
+### Tests
+- **Hypergraph**: Fixed contradictory dtype assertion in `honeypot_pdf()` test helper where datetime-parsed columns were asserted as both `float64` and `datetime64`.
+
+## [0.53.5 - 2026-03-17]
+
+### Fixed
+- **GFQL**: Fixed `g.gfql()` rejecting pre-serialized Let dict envelopes (`{"type": "Let", "bindings": {...}}`). The dict dispatch now recognizes typed Let envelopes and deserializes via `ASTLet.from_json()` instead of misinterpreting them as bare binding dicts. This unblocks the ETL server from passing `gfql_query` Let payloads to `g.gfql()`.
+- **GFQL / Remote**: Fixed `_step_to_json` emitting `"ChainRef"` instead of `"Ref"` for wire-protocol Ref entries. The wire type has always been `"Ref"` — removed the spurious `"ChainRef"` alias from `from_json()` and all documentation.
+
+### Added
+- **GFQL / Remote**: `gfql_remote()` now accepts `output` parameter for selecting which Let/DAG binding to return (sent as `gfql_output` in the request body).
+
+## [0.53.4 - 2026-03-17]
+
+### Fixed
+- **GFQL / Remote**: Fixed `gfql_remote()` silently dropping WHERE clauses — queries with same-path constraints (e.g., `WHERE a.x = b.y`) now send the full Chain envelope via a new `gfql_query` request field. The existing `gfql_operations` flat array is still sent for backward compatibility with older servers.
+
+### Added
+- **GFQL / Remote**: `gfql_remote()` now accepts ASTLet/Let dict input for DAG queries, serialized as `{"type": "Let", ...}` in the `gfql_query` field.
+- **GFQL / Remote**: `gfql_remote()` now accepts Cypher strings (compiled locally, sent as Chain or Let wire format). Supports `MATCH ... RETURN`, `GRAPH { ... }`, and `GRAPH g = ... USE g ...` forms.
+- **GFQL / Remote**: `gfql_remote()` now accepts `params` for parameterized Cypher queries (e.g., `params={"cutoff": 10}` for `$cutoff` references).
+
+### Docs
+- **GFQL / Remote docs**: Updated remote mode guide with Cypher string, GRAPH constructor, multi-stage pipeline, and params examples.
+
+## [0.53.3 - 2026-03-16]
+
+### Docs
+- **GFQL / Cypher Benchmark**: Fixed double-brace rendering in docs code example by replacing f-string with plain string.
+
+## [0.53.2 - 2026-03-16]
+
+### Docs
+- **GFQL**: Added GFQL mascot to key docs pages (10 Minutes to GFQL, Overview, Cypher Benchmark).
+- **GFQL / Cypher Benchmark**: Added GPU DataFrame ecosystem mention (Apache Arrow, NVIDIA RAPIDS / cuDF, cugraph) to benchmark notebook.
+
+## [0.53.1 - 2026-03-16]
+
+### Changed
+- **GFQL / Cypher Benchmark**: Rewrote benchmark to use compound ``GRAPH { }`` pipeline (single ``g.gfql(...)`` call), retitled to "GFQL Cypher Benchmark: CPU/GPU DataFrames vs Neo4j", added Neo4j ETL timing, tightened to 2 lifecycle charts (ETL/Search/Analytics stacked bars, Neo4j → CPU → GPU ordering), and reran all benchmarks with warmup=2 runs=5. GPlus: 22.7x GPU vs CPU; Twitter 3-way: GPU 46x faster than Neo4j.
+
+### Docs
+- **GFQL / translate guide**: Added Cypher-string and ``GRAPH { }`` examples to the SQL/Pandas/Cypher/GFQL translation guide.
+- **GFQL / Cypher Benchmark docs**: Added "Why the GFQL pipeline is shorter" design callout covering first-class graph values, multi-language single engine, and modern columnar execution.
+
+## [0.53.0 - 2026-03-16]
+
+### Added
+- **GFQL / Cypher**: Added `GRAPH { MATCH ... }` graph constructors, `GRAPH g = GRAPH { ... }` named bindings, and `USE g` scoped graph switching as GFQL extensions to Cypher. These replace the earlier `RETURN GRAPH` syntax with a design aligned with GQL's deferred graph constructor direction and G-CORE's composable graph-in/graph-out vision. Graph constructors keep query results in graph state instead of flattening to rows, enabling multi-stage graph pipelines.
+- **GFQL / Cypher**: Added `CALL graphistry.*.write()` support inside `GRAPH { }` constructors, enabling single-expression graph pipelines that chain search, enrichment, and analytics.
+- **Benchmarks**: Added end-to-end GFQL CPU/GPU/Neo4j benchmark suite under `benchmarks/gfql/filter_pagerank/` with a filter → PageRank → filter pipeline on SNAP social graphs. Includes benchmark scripts, RTD docs page, presentation notebook, and rendered SVG charts. GPlus warm speedup: 25x GPU vs CPU; Twitter 3-way: GPU 54x faster than Neo4j.
+
+### Changed
+- **GFQL / Cypher**: Replaced `RETURN GRAPH` with `GRAPH { }` constructors to avoid overloading `RETURN` (row projection) with graph semantics.
+
+### Docs
+- **GFQL / Cypher docs**: Documented `GRAPH { }` constructors, `GRAPH g = ...` bindings, and `USE g` graph switching as GFQL extensions aligned with the GQL/G-CORE direction.
+- **GFQL / translate guide**: Added Cypher-string and `GRAPH { }` examples to the SQL/Pandas/Cypher/GFQL translation guide, showing `g.gfql("MATCH ...")` alongside native chain syntax for each translation pattern.
+- **GFQL / Benchmark docs**: Added story-first RTD benchmark page at `docs/source/gfql/benchmark_filter_pagerank.rst` with comparison charts for Graphistry GPU, Graphistry CPU, and Neo4j across Twitter and GPlus datasets.
+
+## [0.52.0 - 2026-03-15]
+
+### Added
+- **GFQL / Cypher**: Added direct local Cypher multihop support for single variable-length relationship endpoint traversals through `g.gfql("MATCH ...")`, including `[*n]`, `[*m..n]`, and `[*]` in forward, reverse, undirected, and typed forms.
+
+### Fixed
+- **GFQL / Cypher WHERE lowering**: Supported direct local Cypher queries that combine one positive `WHERE` pattern predicate with ordinary row filters through top-level `AND`, including cases where the pattern predicate appears at either end or in the middle of the conjunction chain.
+- **GFQL / Cypher validation**: Tightened direct local Cypher fail-fast boundaries for unsupported variable-length subfamilies, including path/list-carrier uses of relationship aliases, named path alias projections like `RETURN p` / `length(p)` / `relationships(p)`, exact/bounded `WHERE` pattern predicates, connected patterns that mix variable-length and standard relationships, and unsupported multi-alias `RETURN *` projections.
+- **GFQL / Cypher pandas parity**: Normalized direct local Cypher row semantics across pandas 2/3 for stringified-list subscripts and string `min` / `max` aggregations with nulls, removing the last sibling TCK contract split on the current supported surface.
+- **GFQL / multihop semantics**: Tightened undirected fixed-point wave-front output semantics so local Cypher `-[*]-` endpoint queries and the underlying GFQL/hop runtime exclude trivial seed backtracking while still keeping seeds that are rediscovered through a real cycle or another seed.
+
+### Docs
+- **GFQL / Cypher docs**: Clarified the current direct `g.gfql("MATCH ...")` multihop support boundary: endpoint-only `[*n]`, `[*m..n]`, and `[*]` relationship patterns are supported, while path-carrier and mixed-pattern residuals remain explicit validation failures.
+
+## [0.52.1 - 2026-03-15]
+
+### Added
+- **GFQL / Cypher**: Added shared-registry-backed local Cypher `CALL graphistry.degree`, `CALL graphistry.igraph.<alg>`, and `CALL graphistry.cugraph.<alg>` procedure families. Bare calls stay row-returning for supported node/edge algorithms, while `.write()` preserves graph state and also covers topology-returning algorithms. The branch also keeps a smaller `graphistry.nx.*` compatibility subset on the same row/write contract: `pagerank`, `betweenness_centrality`, `edge_betweenness_centrality`, and `k_core.write()`.
+
+### Fixed
+- **GFQL / Cypher cugraph CALL parity**: Aligned local `CALL graphistry.cugraph.*` row/write output naming with real `compute_cugraph()` behavior for edge algorithms and multi-column node algorithms, and added backend-backed regression coverage for representative cuGraph and igraph CALL paths.
+
+### Docs
+- **GFQL docs**: Documented the local graph-preserving `CALL graphistry.*.write()` subset, clarified that omitting `.write()` keeps row-returning behavior, and updated enrich-then-match examples to show when local Cypher stays in graph state versus when `CALL ... YIELD ... RETURN ...` moves into row state.
+
+## [0.51.3 - 2026-03-14]
+
+### Docs
+- **GFQL docs**: Clarified that `g.gfql_remote([...])` is the remote GFQL path for larger datasets and remote GPU execution, while `graphistry.cypher(...)` / `g.cypher(...)` is a separate remote database Cypher integration rather than the GFQL execution surface.
+- **GFQL / Cypher docs**: Added a dedicated guide and helper reference for Cypher syntax through `g.gfql("MATCH ...")`, plus updated spec/reference docs to clarify the bound-graph execution path, helper APIs, and the current translation boundaries.
+
+## [0.51.2 - 2026-03-13]
+
+### Fixed
+- **GFQL / Cypher validation**: Hardened local Cypher fail-fast handling for additional unsupported read-only query shapes so valid-but-unsupported queries raise `GFQLValidationError` instead of surfacing syntax errors, runtime errors, or wrong rows.
+
+## [0.51.1 - 2026-03-12]
+
+### Added
+- **GFQL / Cypher**: Added local Cypher-string execution through `g.gfql(query, params=...)`. String queries that look like Cypher now execute locally through GFQL; remote `g.cypher(...)` semantics stay unchanged.
+- **GFQL / Cypher compiler**: Added the `graphistry.compute.gfql.cypher` parser/compiler surface, including `parse_cypher`, `compile_cypher`, `cypher_to_gfql`, and `gfql_from_cypher`.
+- **GFQL / Cypher runtime**: Added local lowering/execution support for the current Cypher fragment, including `MATCH` / `OPTIONAL MATCH`, `WHERE`, `WITH`, `RETURN`, `ORDER BY`, `SKIP`, `LIMIT`, `UNWIND`, `UNION`, and `CALL graphistry.*`.
+- **GFQL / Row pipeline**: Added and expanded the row-pipeline operators used by Cypher lowering: `rows()`, `where_rows()`, `return_()`, `with_()`, `order_by()`, `skip()`, `limit()`, `distinct()`, `unwind()`, and `group_by()`.
+- **GFQL / Row results**: Added whole-row entity projection helpers for Cypher node/edge/map outputs plus temporal/entity text normalization.
+
+### Fixed
+- **GFQL / Cypher validation/runtime parity**: Hardened lowering and row-pipeline boundaries so unsupported Cypher/query shapes fail fast with validation errors instead of falling through to unsupported execution paths.
+- **GFQL / Cypher compatibility**: Fixed local Cypher execution across pandas 2/3 and Python 3.8-3.14 for temporal constructor rendering/parsing, whole-row projection text normalization, and Arrow-string null RHS handling in string predicates.
+- **GFQL / Cypher aggregates**: Reject unsound aggregate multiplicity query shapes during local Cypher lowering instead of returning incorrect results.
+- **GFQL / cuDF row projections**: Preserve list/map/entity row projections through pandas<->cuDF fallback paths, harden schema validation and struct/map access, and keep RAPIDS CUDA 13 execution aligned with pandas for supported local string-Cypher queries.
+
+### Tests
+- **GFQL / Cypher**: Added parser, lowering, execution, procedure-call, UNION, temporal, whole-row projection, and compatibility coverage for local Cypher execution.
+- **GFQL / Row pipeline**: Expanded unit coverage for projection aliasing, ordering/grouping semantics, DISTINCT/UNWIND flows, and parser/precedence regressions across pure-vector execution paths.
+- **GFQL / cuDF**: Added RAPIDS-focused regression coverage for schema validation, row projection precedence/list cases, and row-table preservation, keeping the supported string-Cypher TCK slice green on the latest GPU validation flow.
+
+### Infra
+- **Docker / GPU tests**: Added an opt-in RAPIDS CUDA 13 GPU validation path for local/DGX cuDF testing while keeping the default Graphistry GPU image flow unchanged.
+- **CI**: Scoped the `docs_only_latest` optimization to push workflows so shallow PR refs do not suppress required jobs.
+
+## [0.51.0 - 2026-03-02]
+
+### Added
+- **GEXF**: Added GEXF import/export with viz attribute bindings (color/size/position/thickness/opacity), validation, tests, and demo notebook.
+- **GEXF**: Map node viz shapes to FA4 point icons on import.
+- **GFQL / WHERE** (experimental): Added `Chain.where` field for same-path WHERE clause constraints. New modules: `same_path_types.py`, `df_executor.py`, and `same_path/` submodules implementing Yannakakis-style semijoin reduction for efficient WHERE filtering. Supports equality, inequality, and comparison operators on named alias columns.
+- **GFQL / WHERE**: `gfql([...], where=[...])` list form now supports same-path WHERE constraints (no need to wrap in `Chain(...)`).
+- **GFQL / cuDF same-path**: Added execution-mode gate `GRAPHISTRY_CUDF_SAME_PATH_MODE` (auto/oracle/strict) for GFQL cuDF same-path executor. Auto falls back to oracle when GPU unavailable; strict requires cuDF or raises.
+- **GFQL / WHERE**: Added opt-in `GRAPHISTRY_NON_ADJ_WHERE_MULTI_EQ_SEMIJOIN` for multi-equality semijoin pruning (2-hop, experimental).
+- **GFQL / WHERE**: Added opt-in `GRAPHISTRY_NON_ADJ_WHERE_INEQ_AGG` for aggregated inequality pruning on 2-hop non-adj clauses (experimental).
+- **Telemetry**: Added optional OpenTelemetry helper and propagated trace headers through plot/upload/remote GFQL paths.
+
+### Fixed
+- **GFQL / chain**: Fixed `from_json` to validate `where` field type before casting, preventing type errors on malformed input.
+- **GFQL / WHERE**: Fixed undirected edge handling in WHERE clause filtering to check both src→dst and dst→src directions.
+- **GFQL / WHERE**: Fixed multi-hop path edge retention to keep all edges in valid paths, not just terminal edges.
+- **GFQL / WHERE**: Fixed unfiltered start node handling with multi-hop edges in native path executor.
+- **GFQL / WHERE**: Fixed vector-strategy guard to initialize start/end domains before pair-est gating (prevents UnboundLocalError).
+
+### Performance
+- **Compute / hop**: Optimized hop traversal with simplified domain operations and reduced redundant checks (8-35% faster across scenarios).
+- **GFQL / WHERE**: Use DF-native forward pruning for cuDF equality constraints to avoid host syncs (pandas path unchanged).
+- **GFQL / WHERE**: Default non-adjacent WHERE mode now `auto`, enabling value-mode + domain semijoin auto, with edge semijoin auto for edge clauses (opt-out via env).
+- **GFQL / WHERE**: Auto mode skips value-mode on multi-clause non-adjacent WHERE when pair estimates exceed the semijoin threshold (guardrail against blowups).
+- **GFQL / WHERE**: Avoid building semijoin pair tables when AUTO semijoin stays inactive; uses cheap pair estimates to gate work.
+- **GFQL / WHERE**: Reduce semijoin dedup overhead and reuse cached edge pairs per edge when `allowed_edges` is unset.
+
+### Tests
+- **GFQL / df_executor**: Added comprehensive test suite (core, amplify, patterns, dimension) with 200+ tests covering Yannakakis semijoin, WHERE clause filtering, multi-hop paths, and pandas/cuDF parity.
+- **GFQL / cuDF same-path**: Added strict/auto mode coverage for cuDF executor fallback behavior.
+
+### Infra
+- **Benchmarks**: Added GFQL benchmark scripts and a CI job that runs a small subset on GFQL/benchmark changes and uploads `gfql-bench.md`.
+- **GFQL / same_path**: Modular architecture for WHERE execution: `same_path_types.py` (types), `df_executor.py` (execution), plus `same_path/` submodules for BFS, edge semantics, multihop, and WHERE filtering.
+- **GFQL / WHERE**: Added OTel detail counters for semijoin pair sizes and mid-intersection sizes to help diagnose dense multi-clause blowups.
+- **Linting**: Replace flake8 with ruff for linting (closes #466). Config in `pyproject.toml`, scripts in `bin/ruff.sh` / `bin/lint.sh`. Cleaned stale `# noqa` comments for W503/W504/E126 (codes not applicable in ruff).
+
+## [0.50.6 - 2026-01-27]
+
+### Fixed
+- **GFQL / hypergraph**: Avoid `DataFrame.style` access when `return_as` yields a DataFrame, preventing Jinja2 import errors in minimal environments without Jinja2 (PR #909).
+
+### Tests
+- **Temporal**: Added datetime unit parity coverage (ms/us/ns) for ring layouts, GFQL time ring layouts, and temporal comparison predicates; relaxed honeypot hypergraph datetime unit expectations.
+
+## [0.50.5 - 2026-01-25]
+
+### Fixed
+- **Predicates / str**: Centralized pandas/cuDF string predicate evaluation and NA handling; case-insensitive match/fullmatch now uses flags to align pandas 3 semantics.
+- **Temporal**: Use pandas timezone localization/conversion for GFQL temporal parsing; drop `pytz` runtime dependency.
+- **NodeXL**: Require `openpyxl>=3.1.5` in the `nodexl` extra for pandas 3 compatibility.
+
+### Tests
+- **Predicates / str**: Added NA=True and empty-tuple NA coverage for pandas and cuDF startswith/endswith/match/fullmatch.
+- **Temporal**: Added timezone comparison/parity tests (pandas and cuDF) and ring layout microsecond vs nanosecond equivalence coverage.
+- **Bolt util**: Relaxed dtype assertions to accept pandas 2/3 string and datetime unit differences.
+
+### Docs
+- **Docs / GFQL**: Updated datetime filtering and wire protocol examples to use pandas tz strings (no `pytz`).
+- **Demos**: Removed `pytz` from demo notebooks/HTML.
+
+### Infra
+- **CI**: Added pandas 2.2.3/3.0.0 compatibility jobs and minimal suite coverage.
+
+## [0.50.4 - 2026-01-15]
+
+### Fixed
+- **Compute / hop (cuDF)**: Hop label tracking could error or force host sync because it used pandas Index conversions; now stays engine-native. Example: `g.chain([n(), e(hops=2, label_node_hops='nh', label_edge_hops='eh', label_seeds=True)])`.
+
+## [0.50.3 - 2026-01-14]
+
+### Fixed
+- **GFQL / let-ref**: Documented and tested existing letrec semantics for ref; list bindings now accept implicit Chains.
+- **GFQL / schema**: Apply call() schema effects during validation so enrichments like `get_degrees` are recognized by downstream filters, and prioritize boundary-call validation before schema errors.
+- **GFQL / filters**: Treat boolean literal filters on object-typed columns as booleans instead of numeric mismatches.
+
+### Tests
+- **Tests / GFQL**: Fixed cuDF compatibility in test files by using `to_set()` helper instead of `.tolist()` (cuDF doesn't support `tolist()`)
+
+### Docs
+- **Docs / GFQL**: Updated the GFQL remote notebook examples to use valid ref/edge traversals.
+
+## [0.50.2 - 2026-01-11]
+
+### Performance
+- **Compute / hop**: Use scalar broadcast `Series(True, index=...)` instead of Python list splatting `Series([True] * len(...), ...)` for efficient GPU-friendly constant initialization
+- **Predicates / str**: Use scalar broadcast for constant Series in `startswith`/`endswith` empty tuple edge cases
+- **DGL**: Use `np.ones()` instead of `np.array([1] * len(...))` for efficient array initialization
+
+### Fixed
+- **Hypergraph**: Fixed engine auto-detection to use input DataFrame type instead of defaulting to cuDF when available
+- **GFQL / chain**: Fixed cuDF compatibility in backward pass by removing `set()` wrappers around Series passed to `.isin()` (cuDF `.isin()` works directly with Series)
+- **GFQL / chain**: Fixed cuDF compatibility by replacing `.combine_first()` with `.where()` pattern (cuDF lacks `combine_first`)
+- **Compute / hop**: Fixed cuDF compatibility by making all operations engine-agnostic: vectorized `.isin()` instead of Python `set()`, engine-aware Series/concat construction, and `s_na(engine)` instead of `pd.NA` (fully GPU-accelerated)
+
+### Infra
+- **Engine.py**: Added `s_to_numeric(engine)` and `s_na(engine)` polymorphic utilities for engine-agnostic numeric conversion and null assignment
+
+### Tests
+- **GFQL / chain**: Added `engine_mode` parametrized fixture for automatic pandas/cuDF parity testing (enabled via `TEST_CUDF=1`). Chain optimization tests now run 156 tests (78 pandas + 78 cuDF) when GPU is available.
+
+## [0.50.1 - 2026-01-09]
+
+### Added
+- **Compute / hop**: `hop()` supports `min_hops`/`max_hops` traversal bounds plus optional hop labels for nodes, edges, and seeds, and post-traversal slicing via `output_min_hops`/`output_max_hops` to keep outputs compact while traversing wider ranges.
+- **Docs / hop**: Added bounded-hop walkthrough notebook (`docs/source/gfql/hop_bounds.ipynb`), cheatsheet and GFQL spec updates, and examples showing how to combine hop ranges, labels, and output slicing.
+- **GFQL / reference**: Extended the pandas reference enumerator and parity tests to cover hop ranges, labeling, and slicing so GFQL correctness checks include the new traversal shapes.
+- **Docs / GFQL**: Documented the external `tck-gfql` conformance harness and local run instructions in GFQL docs.
+
+### Performance
+- **GFQL / chain**: Optimized backward pass for simple single-hop edges by skipping full `hop()` call and using vectorized merge filtering instead (~50% faster on small graphs). Added `is_simple_single_hop()` method on `ASTEdge` for optimization eligibility checks.
+
+### Fixed
+- **Compute / hop**: Exact-hop traversals now prune branches that do not reach `min_hops`, avoid reapplying min-hop pruning in reverse passes, keep seeds in wavefront outputs, and reuse forward wavefronts when recomputing labels so edge/node hop labels stay aligned (fixes 3-hop branch inclusion issues and mislabeled slices).
+- **GFQL / chain**: Fixed `output_min_hops`/`output_max_hops` semantics to correctly slice output nodes/edges matching oracle behavior.
+- **GFQL / chain**: Fixed multi-hop detection in `_is_simple_single_hop` to check `to_fixed_point` flag and correctly identify optimization-eligible edges.
+- **GFQL / enumerator**: Fixed hop labeling for paths outside `min_hops` range to use shortest path distance instead of enumeration order.
+- **Compute / hop**: Fixed `min_hops` goal node calculation to use edge endpoints instead of lossy node merge, ensuring correct branch pruning.
+
+### Tests
+- **GFQL / hop**: Expanded `test_compute_hops.py` and GFQL parity suites to assert branch pruning, bounded outputs, label collision handling, and forward/reverse slice behavior.
+- **Reference enumerator**: Added oracle parity tests for hop ranges and output slices to guard GFQL integrations.
+- **GFQL / chain**: Added 78 tests for backward pass and combine_steps optimizations covering edge cases, direction semantics, hop labels, and multi-step chains.
+
+### Infra
+- **Tooling**: `bin/flake8.sh` / `bin/mypy.sh` now require installed tools (no auto-install), honor `FLAKE8_CMD` / `MYPY_CMD` and optional `MYPY_EXTRA_ARGS`; `bin/lint.sh` / `bin/typecheck.sh` resolve via uvx → python -m → bare.
+- **CI / typecheck**: Stop forcing `PYTHON_VERSION` for mypy; rely on the job interpreter and `mypy.ini` defaults.
+- **CI / GFQL**: Run the external `tck-gfql` conformance harness only when GFQL-related paths change (or on manual/scheduled runs).
+
+## [0.50.0 - 2025-12-24]
+
+### Added
+- **Graphviz / plot_static**: Added text outputs (`graphviz-dot`, `mermaid-code`) and image outputs (`graphviz-svg`, `graphviz-png`), plus `graphviz` for any Graphviz format. Honors `reuse_layout` for bound positions, supports optional file outputs, and returns display-ready SVG/Image objects for notebooks; Graphviz render accepts passthrough args/positions for consistent layouts.
+
+### Docs
+- **Graphviz guides (RST)**: Updated [10min](https://pygraphistry.readthedocs.io/en/latest/10min.html), [Visualization 10min](https://pygraphistry.readthedocs.io/en/latest/visualization/10min.html), [GFQL overview](https://pygraphistry.readthedocs.io/en/latest/gfql/overview.html), [GFQL about](https://pygraphistry.readthedocs.io/en/latest/gfql/about.html), [Ecosystem](https://pygraphistry.readthedocs.io/en/latest/ecosystem.html), and [Layout catalog](https://pygraphistry.readthedocs.io/en/latest/visualization/layout/catalog.html) with static Graphviz examples, DOT/Mermaid text output snippets where relevant, and improved diagrams.
+- **Graphviz reference (RST)**: Expanded [Graphviz plugin docs](https://pygraphistry.readthedocs.io/en/latest/api/plugins/compute/graphviz.html) with static rendering guidance.
+- **Graphviz notebooks (ipynb)**: Refreshed outputs in [Graphviz demo](https://pygraphistry.readthedocs.io/en/latest/demos/demos_databases_apis/graphviz/graphviz.html), [Static rendering](https://pygraphistry.readthedocs.io/en/latest/demos/demos_databases_apis/graphviz/static_rendering.html), and [Hop/Chain graph pattern mining](https://pygraphistry.readthedocs.io/en/latest/demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.html).
+- **Docs tooling**: Enabled `sphinx.ext.graphviz`, allowed rstcheck `graphviz` directive, and installed graphviz/pygraphviz/gcc in the docs Docker image; `docs/ci.sh` now builds only the sphinx service for CI.
+- **Related MyST/Markdown**: GFQL spec docs remain at [GFQL spec index](https://pygraphistry.readthedocs.io/en/latest/gfql/spec/index.html).
+- **RTD**: Fixed graphviz on Read the Docs by switching from `build.commands` to `build.jobs` (RTD's `apt_packages` is incompatible with `commands`). Docs now fail fast with clear error if `dot` is missing.
+
+### Tests
+- **Graphviz**: Added coverage for `plot_static` DOT/Mermaid engines and position reuse.
+
+## [0.48.0 - 2025-12-20]
+
+### Added
+- **Arrow:** New `to_arrow()` public method for debugging DataFrame->Arrow conversion issues (#867).
+- **Validation:** New `validate` parameter for `plot()` and `upload()` with modes:
+  - `'autofix'` (default): Auto-coerce mixed-type columns to string + emit warning
+  - `'strict'`: Raise `ArrowConversionError` on mixed types; may do data-level inspection
+  - `'strict-fast'`: Same as strict but stays at metadata/schema level only (for high-throughput pipelines)
+
+- **Validation:** New `validate` + `warn` parameters for `plot()`, `upload()`, and `to_arrow()` to control conversion behavior. `warn` controls warning emission during autofix conversions (default `True`; `validate=False` forces `warn=False`). Backward compatible: `validate=True` maps to `'strict'`, `validate=False` maps to `'autofix'` with `warn=False`. Encoding validation errors are also controlled by these modes. Works with pandas, cuDF, dask, dask_cudf, and Spark/Databricks DataFrames (#867).
+
+### Changed
+- **Arrow:** Auto-coerce mixed-type columns to string during Arrow conversion, preventing `ArrowTypeError` and `ArrowInvalid` exceptions when DataFrames contain columns with mixed types (e.g., bytes/float/string or list/scalar). Emits `RuntimeWarning` listing coerced columns. Applies to pandas, cuDF, and distributed DataFrames (dask, Spark) after collection (#867).
+
+## [0.47.0 - 2025-12-15]
+
+### Breaking 🔥
+- **API v1 Removal**: Removed legacy VGraph/protobuf API v1 support in favor of API v3.
+  * Removed `_etl1()`, `_etl_url()`, `_check_url()` methods from `pygraphistry.py`
+  * Removed API v1 dispatch path from `PlotterBase.py`
+  * Changed `register(api=...)` parameter type from `Literal[1, 3]` to `Literal[3]`
+  * Updated `client_session.py` type from `Literal["arrow", "vgraph"]` to `Literal["arrow"]`
+  * **Server Compatibility**: Graphistry server v2.45.7+ no longer supports api=1/2 uploads
+  * **Migration**: Users calling `graphistry.register(api=1)` must switch to `graphistry.register(api=3)` or omit the parameter (defaults to v3)
+  * **Auth Migration**: Users previously using `register(api=1, key="...")` must switch to JWT-based auth:
+    - Username/password: `graphistry.register(api=3, username="...", password="...")`
+    - Personal keys (recommended for scripts): `graphistry.register(api=3, personal_key_id="...", personal_key_secret="...")`
+    - SSO: `graphistry.register(api=3, org_name="...", idp_name="...")`
+    - See [authentication docs](https://pygraphistry.readthedocs.io/en/latest/server/register.html) for full options
+
+## [0.46.1 - 2025-12-10]
+
+### Added
+- **GFQL**: Added auto_graph_renderer_switching config option for Kepler maps.
+
+### Fixed
+- **GFQL:** `Chain` now validates on construction (matching docs) and rejects invalid hops immediately; pass `validate=False` to defer validation when assembling advanced flows (fixes #860).
+- **GFQL / eq:** `eq()` now accepts strings in addition to numeric/temporal values (use `isna()`/`notna()` for nulls); added coverage across validator, schema validation, JSON, and GFQL runtime (fixes #862).
+
+### Docs
+- **GFQL validation:** Clarified `Chain` constructor validation defaults, `validate=False` defer option, validation phases, and guidance for large/nested ASTs to reduce redundant validation (issue #860).
+
+## [0.46.0 - 2025-12-01]
+
+### Added
+- **Plot: Geographic visualization support with Kepler.gl integration** (#799)
+  * New bindings: `point_longitude` and `point_latitude` for specifying geographic coordinates
+  * Kepler.gl encoding methods: `encode_kepler()`, `encode_kepler_dataset()`, `encode_kepler_layer()`, `encode_kepler_options()`, `encode_kepler_config()`
+  * Configuration classes: `KeplerEncoding`, `KeplerDataset`, `KeplerLayer`, `KeplerOptions`, `KeplerConfig`
+  * `mercator_layout()` - Convert lat/lon to Mercator projection with GPU/CPU support
+  * Comprehensive user guide and API documentation
+  * Added 55 tests in `test_kepler.py` and 6 tests in `test_layout.py`
+
+## [0.45.10 - 2025-11-19]
+
+### Added
+- **GFQL / Oracle**: Introduced `graphistry.gfql.ref.enumerator`, a pandas-only reference implementation that enumerates fixed-length chains, enforces local + same-path predicates, applies strict null semantics, enforces safety caps, and emits alias tags/optional path bindings for use as a correctness oracle.
+
+### Changed
+- **GFQL / Chain**: AST graph operators now expose `execute(...)` instead of `__call__(...)`, and `chain.py` now invokes operators via explicit `op.execute(...)` / `op.reverse().execute(...)` to make the execution boundary explicit for binder extraction follow-up work.
+
+### Fixed
+- **Auth:** Work around server issue [graphistry/graphistry#2933](https://github.com/graphistry/graphistry/issues/2933) by automatically calling `/api/v2/o/<slug>/switch/` in ArrowUploader logins, SSO, and token refresh paths so `org_name` is honored for entitlements. Track the last `(org, token)` we switched to in the session to avoid redundant calls. (PR [#832](https://github.com/graphistry/pygraphistry/pull/832))
+- **GFQL / Hypergraph:** Prevent `return_as=*` calls from importing pandas Styler/Jinja by skipping Protocol `isinstance()` checks whenever hypergraph legitimately returns DataFrames, fixing CI/test failures on setups without Jinja2.
+- **UMAP / CuPy 13**: `umap_graph_to_weighted_edges()` now converts cuML COO matrices via `cupy.asnumpy()` / legacy `.get()` fallbacks instead of the removed `cupyx.scipy.sparse.coo_matrix.get()` so GFQL UMAP operations work again on RAPIDS 25.10 / CUDA 13 while staying compatible with older stacks (#844).
+- **Init / Exports**: Re-export `graphistry.compute` from the top-level package so GFQL/remote tests importing `graphistry.compute` via `import graphistry` keep working across Python versions (#844).
+
+### Tests
+- **CI / Python**: Expand GitHub Actions coverage to Python 3.13 + 3.13/3.14 for CPU lint/type/test jobs, while pinning RAPIDS-dependent CPU/GPU suites to <=3.13 until NVIDIA publishes 3.14 wheels (ensures lint/mypy/pytest signal on the latest interpreter without breaking RAPIDS installs).
+- **GFQL**: Added deterministic + property-based oracle tests (triangles, alias reuse, cuDF conversions, Hypothesis) plus parity checks ensuring pandas GFQL chains match the oracle outputs.
+- **GFQL / Chain**: Added regression coverage that forces runtime `__call__` on AST operators to raise, confirming chain execution uses explicit `execute(...)` paths only.
+- **Layouts**: Added comprehensive test coverage for `circle_layout()` and `group_in_a_box_layout()` with partition support (CPU/GPU)
+
+### Infra
+- **CI / HuggingFace cache**: Prewarm sentence-transformers models into a shared `HF_HOME` cache via Actions cache (per-OS key) using anonymous downloads, then run `test-core-umap` and `test-full-ai` with `HF_HUB_OFFLINE=1` to avoid HF 429s in `feature_utils` tests; no `HF_TOKEN` required (#853).
+- **CI / DGL isolation**: Moved DGL/embed tests into a legacy CPU job pinned to torch 2.0.1/torchdata 0.6.1/dgl 2.1 (CPU wheels only) and removed DGL from the main matrix. Extras split into `dgl-cpu` (pinned) and `dgl-gpu` (torch 2.4.1 + dgl-cu12 2.4.0, opt-in); main jobs stay on newer torch without DGL install to avoid wheel/ABI churn (#856).
+
+### Breaking 🔥
+* **DGL extras**: `graphistry[ai]` no longer installs DGL. Use `graphistry[dgl-cpu]` (torch 2.0.1/torchdata 0.6.1/dgl 2.1, CPU-only) or `graphistry[dgl-gpu]` (torch 2.4.1 + dgl-cu12 2.4.0). `pip install graphistry[ai]` users must add one of the new DGL extras to keep DGL.
+
+## [0.45.9 - 2025-11-10]
+
+### Fixed
+- **Layouts**: Fixed `group_in_a_box_layout` with GPU engine failing on older cuDF versions where `groupby.transform('size')` is not supported. Replaced with cuDF-compatible `groupby.size()` + `map()` pattern that works across all pandas and cuDF versions (#829).
+
+## [0.45.8 - 2025-11-04]
+
+### Changed
+- **Docker**: Update `docker/test-cpu.Dockerfile` to default to Python 3.12 for parity with supported environments.
+
+### Fixed
+
+- **GFQL - let, ref**: `graphistry.compute.let` and `graphistry.compute.ref` are now accessible through the top-level `graphistry` module.
+
+## [0.45.7 - 2025-10-21]
+
+### Fixed
+- **Auth**: `register(token=...)` now marks sessions authenticated, disables unused credential caching, and verifies tokens by default (opt-out) to unblock GFQL persistence workflows (fixes #824).
+
+## [0.45.6 - 2025-10-21]
+
+### Added
+- **GFQL / Layouts:** Safelisted `ring_continuous_layout()`, `ring_categorical_layout()`, and `time_ring_layout()` for GFQL use, including stricter parameter validation, typing, and CPU/GPU coverage.
+
+### Fixed
+- **Layouts / FA2:** GFQL `fa2_layout()` now surfaces a clear GPU requirement instead of silently substituting a different CPU layout, while existing CPU workflows opt-in through an explicit fallback hook (PR #819).
+
+## [0.45.5 - 2025-10-19]
+
+### Added
+- **GFQL: Relax chain homogeneity to allow call() at boundaries** (#792)
+  - **Enhancement**: Relaxes v0.45.0 restriction to allow call() at chain start/end
+  - Enables patterns like `[call('filter'), n(), e(), call('enrich')]` without requiring `let()`
+  - Interior mixing still disallowed: `[n(), call(), e()]` raises GFQLValidationError
+  - **Migration from v0.45.0**: Code that used `let()` for boundary patterns can now use simpler boundary syntax
+  - Provides convenience for common filter/enrich patterns
+
+### Docs
+* **GFQL: Add LLM JSON generation guide to documentation site** (#807)
+  * Comprehensive guide for LLMs (Claude, GPT, etc.) to generate valid GFQL JSON queries
+  * Covers Core Types, Predicates, Common Patterns, Graph Algorithms, Visualization, Domain Examples
+  * Includes generation rules, common mistakes, and call functions reference
+  * Available at `docs/source/gfql/spec/llm_guide.md` with reference label `gfql-spec-llm-guide`
+  * Includes maintenance process guide at `ai/prompts/GFQL_LLM_GUIDE_MAINTENANCE.md` for keeping guide updated
+
+### Infra
+- Refactored DataFrame type coercion into Engine module (#784)
+  - Moved `safe_concat()` and `safe_merge()` from `compute/primitives.py` to `Engine.py`
+  - Colocated with other polymorphic DataFrame methods (`df_concat`, `df_to_engine`, `resolve_engine`)
+  - Centralized pandas/cuDF type handling prevents future type mismatch bugs
+  - Fixed bug in `materialize_nodes()` using wrong concat method for Series
+  - Comprehensive CPU and GPU Docker test coverage (80 tests passing with cuDF)
+
+### Fixed
+- Fixed potential None dereference crashes in DGL utilities and Sugiyama layout (#801)
+  - Added None check for `_entity_to_index` in `dgl_utils.py:309` before calling `isin()` and `len()`
+  - Added None checks for `layer` attributes in `sugiyamaLayout.py` before passing to `range()` (lines 474, 761)
+  - Fixed `cast()` usage in `call_executor.py` to use proper `isinstance()` checks for polymorphic returns
+  - Prevents TypeError crashes when optional attributes are None and when accessing DataFrame attributes
+  - Added regression tests in `test_dgl_utils.py` and `test_sugiyama_none_dereference.py`
+
+## [0.45.4 - 2025-10-18]
+
+### Added
+* **GFQL Remote: engine='auto' support for automatic DataFrame engine detection**
+  * Remote GFQL operations now default to `engine='auto'` instead of manual engine specification
+  * `chain_remote()`, `python_remote_g()`, `python_remote_table()`, `python_remote_json()` all support 'auto'
+  * Client-side resolution inspects graph's DataFrame type (pandas/cudf) and passes resolved engine to server
+  * **Example**: `g.gfql_remote(call('hypergraph', {'entity_types': ['user', 'product']}))` - automatically uses the right engine
+  * **Migration**: Users who need explicit engine control can still pass `engine='pandas'` or `engine='cudf'`
+  * **Benefits**: Seamless GPU/CPU usage without manual configuration, consistent with local GFQL behavior
+  * Validates that dask engines aren't used remotely (server only supports pandas/cudf)
+  * Updated type signatures across 5 files: `chain_remote.py`, `python_remote.py`, `chain_let.py`, `ComputeMixin.py`, `Plottable.py`
+
+### Fixed
+* **GFQL: Fix get_degrees parameter validation in remote operations**
+  * Fixed `call('get_degrees', {'degree_in': '...', 'degree_out': '...'})` validation rejecting correct parameter names
+  * **Problem**: Safelist had incorrect parameter names (`col_in`, `col_out`) instead of actual method signature (`degree_in`, `degree_out`)
+  * **Solution**: Updated safelist to match `ComputeMixin.get_degrees()` signature (line 295-300)
+  * Also fixed `GetDegreesParams` TypedDict in `graphistry/models/gfql/types/call.py` which had same incorrect names
+  * Example that now works: `g.gfql_remote(call('get_degrees', {'degree_in': 'in_deg', 'degree_out': 'out_deg'}))`
+  * Prevents confusing "Unknown parameters" errors for valid parameter names
+* **Type Safety: Resolved all mypy type errors in graphistry codebase**
+  * Fixed 6 mypy errors across 5 files (down from 10 total - remaining 4 are in external pyarrow-stubs package)
+  * **arrow_uploader.py**: Added None checks before passing Optional[pa.Table] to methods expecting pa.Table
+  * **PlotterBase.py**: Fixed `_table_to_arrow` return type to Optional[pa.Table] and updated `_make_arrow_dataset` signature
+  * **Plottable.py & umap_utils.py**: Fixed overload signature overlaps for `umap()` method by removing default from `inplace: Literal[True]` parameter
+  * **Impact**: Better IDE type checking and autocomplete, prevents type-related bugs at compile time
+* **Hypergraph: Fix int32 NaN handling in Arrow-optimized columns**
+  * Fixed `IntCastingNaNError: Cannot convert non-finite values (NA or inf) to integer` when hypergraph operations introduce NaN in int32 columns
+  * **Problem**: Arrow serialization optimizes int64 → int32, then pandas merge/reindex introduces NaN. `coerce_col_safe()` handled int64 with NaN but not int32
+  * **Solution**: Extended `coerce_col_safe()` in `hyper_dask.py` to handle both `int32` and `int64` dtypes with NaN values (fillna(0) before conversion)
+  * **Root cause**: When client uploads clean int64 data, Arrow optimizes to int32, then hypergraph merge operations introduce NaN, causing conversion failures
+  * **Impact**: Prevents cryptic server errors during GFQL remote hypergraph operations and local hypergraph with Arrow-optimized data
+
+## [0.45.3 - 2025-10-17]
+
+### Breaking 🔥
+* **Hypergraph: Engine parameter now defaults to 'auto'**
+  * Default changed from `engine='pandas'` to `engine='auto'`
+  * Auto-detects DataFrame engine from graph's current nodes/edges (pandas/cudf/dask/dask_cudf)
+  * **Migration**: Explicitly pass `engine='pandas'` to maintain old behavior
+  * **Example**: `g.hypergraph(entity_types=['user', 'product'], engine='pandas')`
+  * **Rationale**: Enables seamless GPU/CPU usage and proper engine propagation through GFQL operations
+  * **Impact**: Users who relied on pandas-only behavior may see different DataFrame types returned
+  * Most users benefit from automatic engine detection - only explicitly set if you need pandas-only
+
+### Added
+* **Type Safety: Introduced EngineAbstractType for engine parameters**
+  * New type alias: `EngineAbstractType = Union[EngineAbstract, Literal['pandas', 'cudf', 'dask', 'dask_cudf', 'auto']]`
+  * Provides compile-time type checking for engine string values (prevents typos)
+  * IDE autocomplete now shows valid engine options
+  * Supports both enum values (`EngineAbstract.AUTO`) and string literals (`'auto'`)
+  * Updated 9 files with proper type annotations
+
+### Changed
+* **Hypergraph: Engine parameter propagation improvements**
+  * Benefits outer engine parameter propagation: `g.gfql(call('hypergraph'), engine='cudf')` now works as expected
+  * Updated all hypergraph signatures to use `EngineAbstractType` for type-safe API
+  * Example that now works: `g.gfql(call('hypergraph', {'entity_types': ['a', 'b']}), engine='cudf')` - hypergraph respects outer engine
+  * Files updated: `Engine.py`, `hyper_dask.py`, `hyper.py`, `Plottable.py`, `PlotterBase.py`, `pygraphistry.py`
+
+### Fixed
+* **Plot: Fix UnboundLocalError and improve API version error handling**
+  * Fixed `UnboundLocalError` when calling `plot()` with `api_version=1` and certain render modes
+  * Added proper initialization of `uploader` variable before conditional branches
+  * Added clear error message for unsupported API versions (only 1 and 3 are supported)
+  * Prevents confusing crashes and provides actionable error messages for configuration issues
+* **GFQL Remote: Client-side validation now enforced before sending to server**
+  * Fixed remote GFQL operations not validating `call()` parameters against safelist before execution
+  * `ASTCall._validate_fields()` now calls `validate_call_params()` during deserialization
+  * Catches invalid parameters during `Chain.from_json()` before sending requests to server
+  * Prevents server-side errors from malformed client requests (e.g., invalid `engine`, `return_as` values, unknown parameters)
+  * Added comprehensive test suite in `test_gfql_call_validation.py` with 28 validation tests covering:
+    * Graph transformations: `hypergraph`, `umap`
+    * Graph algorithms: `compute_igraph`, `get_degrees`
+    * Graph traversals: `hop`
+    * Visual encodings: `encode_point_color`
+    * Metadata: `name`, `description`
+  * Example that now fails fast client-side: `g.gfql_remote(call('hypergraph', {'engine': 'invalid'}))` → `GFQLTypeError` instead of server error
+
+### Refactored
+* **Import organization**: Hoisted dynamic imports to module level following PEP 8 conventions
+  * Moved `validate_call_params` import to top-level in `ast.py`
+  * Moved `resolve_engine` import to top-level in `hyper_dask.py`
+* **Code cleanup**: Removed redundant comments per DECOMMENT protocol in test files
+
+## [0.45.2 - 2025-10-17]
+
+### Fixed
+* **GFQL Remote: Metadata hydration after server-computed operations** (#798)
+  * Server-computed metadata (bindings, encodings, styles, name/description) now returned to client after GFQL operations like `call('umap')`
+  * Centralized metadata serialization/deserialization in `graphistry.io.metadata` with TypedDict structures
+  * Properly typed `_complex_encodings` as `ComplexEncodingsDict` throughout codebase
+* **Plot: Fix dataset_id invalidation in encoding and style methods** (#797)
+  * Fixed 7 methods not invalidating `dataset_id` after modifying encodings/metadata/styles: `__encode()`, `encode_axis()`, `name()`, `description()`, `bind()` (conditional), `style()`, `addStyle()`
+  * Added 25 tests in `test_dataset_id_invalidation.py` with parametric coverage of all encoding methods
+  * Found via AST pattern matching + Pysa call graph analysis (Pysa found 2 additional bugs AST missed)
+
+### Refactored
+* **Import organization**: Hoisted dynamic imports to module level following PEP 8 conventions (#798)
+
+## [0.45.1 - 2025-10-16]
+
+### Fixed
+* **UMAP: Fix mixed DataFrame types when engine='cudf' causing GFQL chain concatenation to fail** (#794)
+  * **Problem**: UMAP with `engine='cuml'` was returning pandas nodes + cuDF edges, causing `TypeError: can only concatenate objects which are instances of...` in GFQL chain operations
+  * **Example that now works**: `g.gfql([call('umap', {'X': ['col1', 'col2'], 'engine': 'cuml'}), call('name', {'name': 'result'})], engine='cudf')`
+  * **Solution**: Now ensures both nodes and edges match the specified engine type (cuDF or pandas)
+  * Added comprehensive test coverage in `TestCudfUmap` class
+
+### Docs
+* **GFQL: Fix critical documentation bugs where graph algorithms were called without edges** (#795)
+  * **Critical fixes (3 instances):** PageRank and Louvain examples were calling algorithms on node-only patterns `n({...})` that lack the edges these algorithms require for meaningful computation
+    * PageRank computes centrality from link structure - calling on nodes without edges produces meaningless scores
+    * Louvain detects communities through connections - calling on nodes without edges cannot identify communities
+  * Fixed 2 instances in quick.rst (lines ~377, ~407 PageRank Let binding examples)
+  * Fixed 1 instance in about.rst (line ~305 Louvain multi-stage fraud analysis)
+  * Changed patterns from `n({...})` to `[n({...}), e(), n()]` to include graph structure
+  * **Style improvements:**
+    * Removed unnecessary `Chain([...])` wrappers in Let binding examples (quick.rst lines ~335, ~353; about.rst ~287; overview.rst ~178)
+    * Replaced low-level `ASTCall()` with user-friendly `call()` API in gfql_remote.ipynb (4 instances)
+  * Examples now follow best practices and produce meaningful results when executed
+
+## [0.45.0 - 2025-01-15]
+
+### Breaking 🔥
+* **GFQL: Chains must be homogeneous** (#786, #791)
+  * Chains must be either all `call()` or all `n()`/`e()` operations, cannot mix
+  * Previous behavior was likely buggy - mixed chains had unpredictable results
+  * Mixed chains now raise `GFQLValidationError` with clear guidance
+  * Migration: Use `let()` to compose sequences, e.g., `let({'filtered': [n(), e()], 'enriched': ref('filtered', [call(...)])})`
+  * Affects both `.gfql()` and `.gfql_remote()`
+  * **Note**: Boundary call patterns re-enabled in v0.45.5 (#792)
+
+### Added
+* **GFQL: Type-safe call() operations** - `from graphistry import call, CallMethodName` (#789)
+  * TypedDict parameter classes with IDE autocomplete (e.g., `HopParams`, `UmapParams`)
+  * Overloaded signatures for MyPy type checking
+* **GFQL: Internal column validation** (#788)
+  * Prevents filtering on or using `__gfql_*__` pattern in column names
+
+### Fixed
+* **Compute: Fix get_degrees() to respect degree_in/degree_out parameters** (#788)
+* **GFQL: Fix chained ASTCall operations** - Pure `call()` chains now correctly apply sequentially (#786)
+
+### Infra
+* **Tests: Column name restriction coverage** (#788)
+
+## [0.44.1 - 2025-10-13]
+
+### Added
+* **GFQL: Enhanced string predicates** (#697, #774)
+  * **Case-insensitive matching**: `startswith()` and `endswith()` now support `case` parameter - `startswith('test', case=False)`
+  * **Tuple pattern matching**: OR logic via tuples - `startswith(('test', 'prod'))` matches either pattern
+  * **Full-string matching**: New `fullmatch(pat, case=True)` predicate for exact pattern validation
+  * Examples:
+    * `n({'filename': endswith(('.txt', '.csv'), case=False)})` - Case-insensitive file extensions
+    * `n({'email': fullmatch(r'.*@company\.com')})` - Email validation
+  * Works in both pandas and cuDF backends
+
+### Fixed
+* **Hypergraph: Restore backward compatibility with smart type detection** (#785)
+  * **Breaking change introduced in version 0.43.2 has been eliminated** - all three API styles now work:
+    * Old positional: `hypergraph(g, df, ['cols'])` - works again!
+    * New convenience: `hypergraph(g, ['cols'])` - auto-selects dataframe from graph
+    * Keyword: `hypergraph(g, entity_types=['cols'])` - explicit keyword style
+  * **Root cause**: Version 0.43.2 added `*` marker forcing keyword-only arguments, breaking existing user code
+  * **Solution**: Removed keyword-only argument restriction and added smart type detection
+  * When second parameter is a list, treats it as `entity_types` and auto-selects dataframe from graph
+  * When second parameter is DataFrame-like, treats it as `raw_events`
+  * **User impact**: No migration needed - existing code continues to work as before version 0.43.2
+  * Added comprehensive API compatibility test suites (`TestHypergraphAPICompatibility`, `TestHypergraphAPICompatibilityCudf`) with 9 tests total to prevent future regressions
+* **GFQL: Extend engine coercion to let() and call() operations** (#783)
+  * Fixed `gfql(ASTLet, engine='pandas'|'cudf')` and `call('umap', ...)` to honor engine parameter
+  * Schema-changing operations (UMAP, hypergraph) in let/call context now correctly coerce DataFrames
+  * Added `ensure_engine_match()` helper with graceful degradation for defensive type conversion
+  * Added 40 comprehensive tests (8 helper + 16 let + 14 call + 2 get_indegrees integration) covering pandas↔cuDF coercion
+  * **Root cause fixes**:
+    * `is_legacy_cuml()` now catches both `ModuleNotFoundError` and `ImportError` for robust cuML handling
+    * `CGFull` test fixture now includes `UMAPMixin` and `FeatureMixin` for proper UMAP support
+  * Solves `get_indegrees()` merge error when UMAP creates cuDF edges but nodes remain pandas
+  * Complements #777 (chain engine coercion) with consistent behavior across all GFQL operations
+* **GFQL: Fix column name conflicts with internal tracking columns** (#776)
+  * Fixed `collapse(column='index')` and similar operations failing when user columns conflicted with GFQL internal columns
+  * Auto-generates unique internal column names to avoid all collisions
+* **Compute: Fix engine-aware merge in get_degrees for cuDF/pandas compatibility** (#778)
+  * Fixed `get_degrees()`, `get_indegrees()`, `get_topological_levels()` failing when merging mixed DataFrame types
+  * Added engine detection and DataFrame conversion before merge operations
+  * Pattern follows #777 fix - detect engine mismatch, convert to compatible types before merge
+  * **UMAP lazy init behavior**: Enhanced UMAP engine initialization with three-level fallback (import detection, lazy import validation, runtime initialization) to gracefully handle broken GPU libraries (e.g., broken RMM). Note: `umap_lazy_init()` creates a new UMAP instance when parameters change - consider memoization for workflows with repeated calls using same parameters.
+* **GFQL Chain: Fix engine parameter to correctly convert DataFrames after schema-changing operations** (#777)
+  * Fixed `chain(engine='pandas'|'cudf')` returning wrong DataFrame type after UMAP/hypergraph operations
+  * Added comprehensive test coverage (19 tests for pandas↔cuDF coercion with UMAP)
+* **Search: Fix `search(..., fuzzy=True)` after `umap(y=['label'])` AssertionError** (#773, #629)
+
+### Docs
+* README: Added connector tutorials table with 16 categorized badges linking to demo notebooks (#771)
+* ai: Compact CONVENTIONAL_COMMITS guide and enforce PLAN.md usage (3e537db)
+* ai: Streamline PLAN.md template with phases, timestamps, and linear structure (1a85e6e)
+
+## [0.44.0 - 2025-10-11]
+
+### Added
+* **GFQL Policy System enhancements** (#764)
+  * **Policy shortcuts** - Reduce from 10 keys to 2: `'pre'`/`'post'` expand to all pre*/post* hooks, `'load'`/`'let'`/`'chain'`/`'binding'`/`'call'` for scope-specific hooks. Automatic composition with predictable order (general → scope → specific). Use `debug_policy()` for visibility.
+  * **Complete execution hierarchy** - 10 hooks covering all levels: query (preload/postload), let/chain (prelet/postlet/prechain/postchain), binding (preletbinding/postletbinding), call (precall/postcall)
+  * **OpenTelemetry fields** - `execution_depth`, `operation_path`, `parent_operation` enable proper span parent-child relationships
+  * **Binding context** - Per-binding control with `binding_name`, `binding_index`, `total_bindings`, `binding_dependencies`, `binding_ast`
+  * **Error context** - All post* hooks receive `success`, `error`, `error_type` fields
+  * **Use cases**: OpenTelemetry tracing (2 keys instead of 10), server multi-policy composition, per-binding/DAG/chain-level control
+  * 69 tests passing (48 core + 24 shortcuts + 14 let/chain + 5 binding hooks)
+
+### Docs
+* **Notebooks: Fix broken register link in memgraph demo** (#772, #627)
+  * Follow up to #692 which fixed 47 notebooks but missed the memgraph tutorial
+  * Changed broken link from `github.com/graphistry/pygraphistry#configure` to working docs: `pygraphistry.readthedocs.io/en/latest/server/register.html`
+
+### Fixed
+* **Hypergraph: Fix empty DataFrame structure when single entity + direct=True** (#766)
+  * **Problem**: `hypergraph(entity_types=['single'], direct=True)` returned empty DataFrame with NO columns, causing `get_degrees()` to fail with `KeyError`
+  * **Solution**: Empty edges DataFrame now has proper column structure (src, dst, edgeType, EventID, etc.)
+  * **Engines**: All engines fixed (pandas, cudf, dask, dask_cudf)
+  * **Additional fixes**:
+    * `mt_series()` - Properly creates empty Series for dask/dask_cudf by wrapping pandas Series
+    * `format_direct_edges()` - Uses `df_coercion()` for cross-engine empty DataFrame creation
+    * `get_indegrees()` - Uses `.assign()` for cross-engine compatibility
+    * `_safe_len()` - Fixed meta parameter for dask_cudf (was `meta=int`, now `meta=pd.Series([], dtype='int64')`)
+    * Removed unnecessary `persist()` calls that broke lazy evaluation in dask_cudf
+* **UMAP: Handle cuDF DataFrames with string node columns + improve error messages** (#765, #770)
+  * **Fixed `TypeError: String arrays are not supported by cupy`** when using UMAP with cuDF DataFrames containing string-typed node ID columns (#765)
+    * cuDF string columns are now converted to pandas before value extraction, avoiding cupy limitations
+    * Simplified node ID extraction logic since values are always numpy arrays after conversion
+  * **Improved error message when no numeric features available** (#770)
+    * Validates after featurization to detect when all columns are dropped (all-strings edge case)
+    * Provides helpful guidance: "No numeric features available for UMAP after featurization. Please provide at least one numeric column, or install 'skrub' for automatic string encoding: pip install skrub"
+    * Applied validation to both nodes and edges paths
+* **GFQL Policy: Ensure post* hooks always fire even on errors** (#764)
+  * post* hooks now use consistent try/except/finally pattern
+  * PolicyException takes precedence over operation errors
+  * Error chaining preserved (`raise PolicyException from error`)
+  * All post* hooks receive error context (success, error, error_type)
+
+### Documentation
+* **GFQL Policy**: Updated `docs/source/gfql/policy.rst` with new hooks and fields
+* **OpenTelemetry Integration**: New guide `docs/source/gfql/policy_opentelemetry.rst`
+  * Complete working examples for span tracing
+  * Integration patterns for Jaeger, OTLP, and custom exporters
+  * Best practices and performance considerations
+
+## [0.43.2 - 2025-10-09]
+
+### Breaking 🔥
+* **Hypergraph: All parameters after `raw_events` now require keyword arguments** (#763) - **FIXED in version 0.44.1**
+  * Added `*` marker in `hypergraph()` signature forcing keyword-only arguments
+  * **Old code breaks**: `hypergraph(g, df, ['cols'])` → Must use `hypergraph(g, df, entity_types=['cols'])`
+  * **Migration**: Upgrade to version 0.44.1+ for backward compatibility restoration - no code changes needed
+  * **Note**: This breaking change only affected versions 0.43.2 - 0.44.0 (short-lived)
+
+### Added
+* **Hypergraph `from_edges` and `return_as` parameters now available in ALL contexts** (#763)
+  * Works everywhere: GFQL, instance methods (`g.hypergraph()`), and module-level (`graphistry.hypergraph()`)
+  * **`from_edges` parameter**: Use edges dataframe instead of nodes as input
+    * `g.edges(df).hypergraph(from_edges=True)` - Direct method call
+    * `g.gfql(call('hypergraph', {'from_edges': True}))` - GFQL
+    * Default: `from_edges=False` (backward compatible)
+  * **`return_as` parameter**: Control what hypergraph returns
+    * `'graph'` - Returns Plottable (for method chaining)
+    * `'all'` - Returns full dict with 5 keys: graph, entities, events, edges, nodes
+    * `'entities'/'events'/'edges'/'nodes'` - Returns specific DataFrame
+  * **Context-specific defaults** for optimal UX:
+    * Module-level `graphistry.hypergraph(df)`: `return_as='all'` (backward compatible - returns dict)
+    * Instance method `g.hypergraph()`: `return_as='graph'` (chainable - returns Plottable)
+    * GFQL `g.gfql(call('hypergraph'))`: `return_as='graph'` (chainable - returns Plottable)
+  * **Type safety**: Added `@overload` decorators for MyPy type inference based on `return_as` value
+  * **Examples**:
+    * Chainable: `g.hypergraph().plot()` - Returns Plottable
+    * Full dict: `result = graphistry.hypergraph(df); g = result['graph']` - Backward compatible
+    * Explicit all: `result = g.hypergraph(return_as='all')` - Get all 5 components
+    * Extract DataFrame: `entities = g.hypergraph(return_as='entities')` - Just entities
+    * From edges: `g.edges(df).hypergraph(from_edges=True, entity_types=['src', 'dst'])`
+
+### Fixed
+* **Hypergraph: Critical bug fix for return_as='graph' routing** (#763)
+  * **Before**: `g.hypergraph()` incorrectly returned full dict (preventing method chaining)
+  * **After**: `g.hypergraph()` correctly returns Plottable (enables `g.hypergraph().plot()`)
+  * Impact: Instance methods and GFQL calls now chainable as designed
+  * Added 'all' option for explicit full dict access when needed
+* **Type safety: Resolved all mypy errors in PlotterBase and time ring layout**
+  * Fixed Protocol signature mismatch in PlotterBase.hypergraph - added explicit `raw_events: Optional[Any]` type annotation
+  * Fixed 10 pre-existing numpy type errors in layout/ring/time.py with proper `np.int64`, `np.datetime64`, `np.timedelta64` annotations
+  * Added type: ignore comments for genuine numpy datetime arithmetic stub limitations
+  * All 42 layout tests pass, full codebase now passes mypy type checks
+
+## [0.43.1 - 2025-10-09]
+
+### Added
+* GFQL: Schema-changing operations (UMAP, hypergraph) now supported in chains (#761)
+  * **UMAP in chains**: Can now use `call('umap', {...})` mixed with filters and other operations
+  * **Hypergraph in chains**: Removed mixing restriction - now allows `[n(...), call('hypergraph', {...})]`
+  * **Usage**: `g.gfql([n({'type': 'person'}), call('umap', {'n_neighbors': 15}), e()])`
+  * Implemented via recursive dispatch that splits chains at schema-changer boundaries
+
+### Fixed
+* GFQL: Fix `"Column 'index' not found in edges"` error in schema-changing operations (#761)
+  * Schema-changers now execute as: `before → schema_changer → rest` for proper isolation
+  * Prevents tracking column conflicts when UMAP/hypergraph create new graph structures
+* GFQL: Respect validate_schema flag for singleton schema-changers
+  * Added validation check before execute_call() to honor user's validate_schema setting
+* GFQL: Replace assertion with GFQLTypeError for proper error handling
+  * Schema-changer type validation now uses structured exception instead of assert
+
+## [0.43.0 - 2025-10-08]
+
+### Added
+* GFQL: Policy hook system for external query control and Hub integration
+  * **Four-phase hooks**: `preload`, `postload`, `precall`, `postcall`
+  * **Accept/Deny pattern**: Policies return `None` (accept) or raise `PolicyException` (deny)
+  * **Context-rich**: Full access to query, graph stats, operation details, and timing
+  * **Features**:
+    * `preload` - Control before data loading (JWT validation, dataset access)
+    * `postload` - Validate after data loading (size limits, content checks)
+    * `precall` - Control before operation execution (feature gating, parameter validation)
+    * `postcall` - Monitor after execution (performance tracking, result validation)
+  * **Remote data support**: Special handling for `ASTRemoteGraph` with `is_remote` flag
+  * **Thread-safe**: Uses thread-local storage with recursion prevention
+  * **Usage**: `g.gfql(query, policy={'preload': check_auth, 'postcall': track_perf})`
+* GFQL: Added UMAP call operation support
+  * **UMAP embeddings**: UMAP dimensionality reduction available via `call('umap', {...})`
+  * **Full parameter support**: All UMAP parameters validated through call safelist
+  * **Policy integration**: UMAP operations controllable through precall/postcall policy hooks
+  * **Usage**: `g.gfql(call('umap', {'X': ['x', 'y'], 'n_neighbors': 15}))`
+
+### Fixed
+* GFQL: Fixed remote operations incorrectly treating HTTP error responses as zip files
+  * Added proper HTTP status code checking before attempting to parse server responses
+  * Server validation errors now surface correctly instead of being masked by zip parsing failures
 
 ## [0.42.4 - 2025-10-05]
 
@@ -57,6 +1132,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   * `./bin/pytest.sh` - Runs tests with highest available Python (3.8-3.14)
   * `./bin/mypy.sh` - Type checking without Docker overhead
   * `./bin/flake8.sh` - Linting with auto-detection of Python version
+* GFQL: Add policy hook system for external policy injection with schema validation
+  * Three-phase hooks: preload (before data), postload (after data), call (per operation)
+  * Enable accept/deny/modify capabilities for GFQL queries
+  * Schema validation for all policy modifications
+  * Recursion prevention at depth 1 for safety
+  * Enriched PolicyException with phase, reason, query_type, and data_size
+  * Safe graph statistics extraction for pandas, cudf, dask, and dask-cudf
+  * Closure-based state management pattern for Hub integration
+  * Comprehensive test coverage with 48 unit tests
 * GFQL: Add hypergraph transformation support for creating entity relationships from event data
   * Simple transformation: `g.gfql(hypergraph(entity_types=['user', 'product']))`
   * Typed builder with IDE support: `from graphistry.compute import hypergraph`

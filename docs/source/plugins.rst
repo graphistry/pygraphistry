@@ -9,6 +9,13 @@ Users typically prefer to go through PyGraphistry's native dataframe support (Ap
 
 Occasionally, native PyGraphistry plugins streamline common operations, such as with graph databases. We link to the native API integrations below as appropriate.
 
+.. note::
+
+   ``graphistry.cypher("...")`` / ``g.cypher("...")`` below refer to the
+   remote database Cypher integrations. For Cypher syntax through GFQL on a
+   bound graph, use ``g.gfql("MATCH ...")``; for remote GFQL execution, use
+   ``g.gfql_remote([...])``. See :doc:`gfql/cypher`.
+
 For more examples, see also the :ref:`notebook catalog <notebooks>`.
 
 
@@ -113,6 +120,7 @@ GPU-accelerated readers via `cuDF <https://docs.rapids.ai/api/cudf/stable/>`_  (
 Others, often via `fsspec <https://filesystem-spec.readthedocs.io/en/latest/>`_:
 
 * Azure blobstore
+* GEXF
 * GML
 * S3
 * XLS(X)

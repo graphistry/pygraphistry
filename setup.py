@@ -11,16 +11,17 @@ core_requires = [
   'numpy',
   'palettable >= 3.0',
   'pandas',
+  'lark >= 1.1, < 2',
   'pyarrow >= 0.15.0',
   'requests',
-  'squarify',
+
   'typing-extensions',
   'packaging >= 20.1',
   'setuptools',
 ]
 
 stubs = [
-  'pandas-stubs', 'types-requests', 'ipython', 'types-tqdm'
+  'pandas-stubs', 'types-defusedxml', 'types-requests', 'ipython', 'types-tqdm'
 ]
 
 test_workarounds = []
@@ -40,7 +41,7 @@ dev_extras = {
       'sphinx-copybutton==0.5.2',
       'sphinx-book-theme==1.1.3',
     ],
-    'test': ['flake8>=5.0', 'mock', 'mypy', 'pytest', 'pytest-xdist'] + stubs + test_workarounds,
+    'test': ['ruff>=0.8.0', 'hypothesis', 'mock', 'mypy', 'pytest', 'pytest-xdist'] + stubs + test_workarounds,
     'testai': [
       'numba>=0.57.1'  # https://github.com/numba/numba/issues/8615
     ],
@@ -52,11 +53,12 @@ base_extras_light = {
     'networkx': ['networkx>=2.5'],
     'gremlin': ['gremlinpython'],
     'bolt': ['neo4j', 'neotime'],
-    'nodexl': ['openpyxl==3.1.0', 'xlrd'],
+    'nodexl': ['openpyxl>=3.1.5', 'xlrd'],
     'jupyter': ['ipython'],
     'spanner': ['google-cloud-spanner'],
     'kusto': ['azure-kusto-data', 'azure-identity'],
-    'sentinel-graph': ['azure-identity']
+    'sentinel-graph': ['azure-identity'],
+    'polars': ['polars'],
 }
 
 base_extras_heavy = {
@@ -71,7 +73,21 @@ base_extras_heavy = {
   ],
 }
 # https://github.com/facebookresearch/faiss/issues/1589 for faiss-cpu 1.6.1, #'setuptools==67.4.0' removed
-base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'dgl', 'torch', 'sentence-transformers', 'faiss-cpu', 'joblib']
+base_extras_heavy['ai'] = base_extras_heavy['umap-learn'] + ['scipy', 'torch', 'sentence-transformers', 'faiss-cpu', 'joblib']
+# DGL extras are split by runtime flavor. CPU is pinned to the last
+# compatible stack; GPU is available as a separate opt-in extra (not
+# included in 'all' to avoid torch conflicts).
+base_extras_heavy['dgl-cpu'] = [
+    'torch==2.0.1',
+    'torchdata==0.6.1',
+    'dgl==2.1.0',
+]
+dgl_gpu_extra = {
+  'dgl-gpu': [
+    'torch==2.4.1',
+    'dgl-cu12==2.4.0',
+  ]
+}
 
 base_extras = {**base_extras_light, **base_extras_heavy}
 
@@ -80,6 +96,7 @@ extras_require = {
   **base_extras_light,
   **base_extras_heavy,
   **dev_extras,
+  **dgl_gpu_extra,
 
   #kitchen sink for users -- not recommended
   'all': unique_flatten_dict(base_extras),

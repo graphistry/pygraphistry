@@ -1,10 +1,11 @@
 import os
 from dataclasses import is_dataclass, replace
-from typing import Any, Optional, Literal, cast, Protocol, TypedDict, Dict, MutableMapping, Type, TypeVar, Union, overload, Iterator
+from typing import Any, Optional, Literal, cast, Protocol, TypedDict, Dict, MutableMapping, Type, TypeVar, Union, overload, Iterator, Tuple
 from functools import lru_cache
 import json
 import warnings
 
+from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 from graphistry.privacy import Privacy
 from . import util
 from .plugins_types.spanner_types import SpannerConfig
@@ -13,7 +14,7 @@ from .plugins_types.sentinel_graph_types import SentinelGraphConfig
 
 
 
-ApiVersion = Literal[1, 3]
+ApiVersion = Literal[3]
 
 ENV_GRAPHISTRY_API_KEY = "GRAPHISTRY_API_KEY"
 
@@ -56,9 +57,9 @@ class ClientSession:
 
         env_api_version = get_from_env("GRAPHISTRY_API_VERSION", int)
         if env_api_version is None:
-            env_api_version = 1
-        elif env_api_version not in [1, 3]:
-            raise ValueError("Expected API version to be 1, 3, instead got (likely from API_VERSION): %s" % env_api_version)
+            env_api_version = 3
+        elif env_api_version != 3:
+            raise ValueError("Expected API version to be 3. Legacy API versions 1 and 2 are no longer supported. Got: %s" % env_api_version)
         self.api_version: ApiVersion = cast(ApiVersion, env_api_version)  
 
         self.dataset_prefix: str = get_from_env("GRAPHISTRY_DATASET_PREFIX", str, "PyGraphistry/")
@@ -90,6 +91,8 @@ class ClientSession:
 
         # TODO: Migrate to a pattern like Kusto or Spanner
         self._bolt_driver: Optional[Any] = None
+        # Tracks the last (org_slug, jwt_token) we successfully switched to on the Hub server
+        self._last_switched_org_token: Optional[Tuple[str, str]] = None
 
     def copy(self) -> "ClientSession":
         """
@@ -125,20 +128,17 @@ class ClientSession:
 class DatasetInfo(TypedDict):
     name: str
     viztoken: str
-    type: Literal["arrow", "vgraph"]
+    type: Literal["arrow"]
 
 
 
 class AuthManagerProtocol(Protocol):
     session: ClientSession
 
-    def _etl1(self, dataset: Any) -> DatasetInfo:
-        ...
-
     def refresh(self, token: Optional[str] = None, fail_silent: bool = False) -> Optional[str]:
         ...
     
-    def _viz_url(self, info: DatasetInfo, url_params: Dict[str, Any]) -> str:
+    def _viz_url(self, info: DatasetInfo, url_params: URLParamsDict) -> str:
         ...
 
     def certificate_validation(self, value: Optional[bool] = None) -> bool:

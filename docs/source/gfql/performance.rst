@@ -56,6 +56,10 @@ GFQL excels in scenarios requiring deep analytical capabilities. It is designed 
 
 By focusing on these areas, GFQL meets the demands of modern data projects, from initial exploration to advanced analysis, without the overhead typically associated with large-scale analytics.
 
+.. note::
+   Same-path constraints (``where``) can be more expensive on dense graphs.
+   Prefer selective per-step predicates and see :doc:`/gfql/where` for details.
+
 Built on Graphistry's Expertise
 -------------------------------
 
@@ -83,6 +87,6 @@ Next Steps
 ----------
 
 - **Explore GFQL**: Dive deeper into GFQL's capabilities in :ref:`10min-gfql`.
-- **Get Started with PyGraphistry**: Follow the :ref:`10min` to setup and experience the performance firsthand.
+- **Get Started with PyGraphistry**: Follow the :ref:`10min-pygraphistry` to setup and experience the performance firsthand.
 - **Learn About Vectorization and GPUs**: Understand the partner ecosystem technologies behind GFQL by exploring `Apache Arrow <https://arrow.apache.org/>`_ and `NVIDIA RAPIDS <https://rapids.ai/>`_.
 - **Connect with Us**: Join our :ref:`community` to share insights and collaborate with others pushing the boundaries of graph analytics.

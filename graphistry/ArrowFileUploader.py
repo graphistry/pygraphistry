@@ -5,6 +5,7 @@ import pyarrow.ipc as pa_ipc
 import requests
 
 from graphistry.utils.requests import log_requests_error
+from graphistry.otel import inject_trace_headers
 from .util import setup_logger
 
 logger = setup_logger(__name__)
@@ -76,7 +77,7 @@ class ArrowFileUploader():
         res = requests.post(
             self.uploader.server_base_path + '/api/v2/files/',
             verify=self.uploader.certificate_validation,
-            headers={'Authorization': f'Bearer {tok}'},
+            headers=inject_trace_headers({'Authorization': f'Bearer {tok}'}),
             json=json_extended)
         log_requests_error(res)
 

@@ -125,6 +125,39 @@ class TestChainRemoteAuth:
             # Should use the provided token
             assert mock_post.call_args[1]['headers']['Authorization'] == "Bearer explicit_token_789"
 
+    def test_chain_remote_injects_traceparent(self):
+        """Verify chain_remote includes traceparent when injected."""
+        mock_plottable = Mock()
+        mock_plottable.session = Mock()
+        mock_plottable.session.api_token = "session_token_999"
+        mock_plottable.session.certificate_validation = True
+        mock_plottable._pygraphistry = Mock()
+        mock_plottable._dataset_id = "dataset_trace"
+        mock_plottable.base_url_server = Mock(return_value="https://test.server")
+        mock_plottable._edges = pd.DataFrame()
+
+        chain = {'chain': []}
+        traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+
+        with patch('graphistry.compute.chain_remote.inject_trace_headers') as mock_inject:
+            mock_inject.side_effect = lambda headers: {**headers, "traceparent": traceparent}
+            with patch('graphistry.compute.chain_remote.requests.post') as mock_post:
+                mock_response = Mock()
+                mock_response.raise_for_status = Mock()
+                mock_response.text = '{"nodes": [], "edges": []}'
+                mock_response.json = Mock(return_value={"nodes": [], "edges": []})
+                mock_post.return_value = mock_response
+
+                chain_remote_generic(
+                    mock_plottable,
+                    chain,
+                    api_token=None,
+                    output_type="shape"
+                )
+
+                headers = mock_post.call_args[1]["headers"]
+                assert headers["traceparent"] == traceparent
+
 
 class TestPythonRemoteAuth:
     """Test that python_remote uses instance session, not global PyGraphistry"""

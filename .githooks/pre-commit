@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Block committing files under plans/ (ignored but may be force-added).
+if git diff --cached --name-only | grep -E '^plans/' >/dev/null; then
+  echo "error: committing files under plans/ is not allowed. Move them to /tmp or ~/.codex/plans, or unstage." >&2
+  exit 1
+fi

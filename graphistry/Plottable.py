@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tupl
 from typing_extensions import Literal, runtime_checkable
 import pandas as pd
 
+from graphistry.io.types import ComplexEncodingsDict
 from graphistry.models.ModelDict import ModelDict
 from graphistry.models.compute.chain_remote import FormatType, OutputTypeAll, OutputTypeDf, OutputTypeGraph
 from graphistry.models.compute.dbscan import DBSCANEngine
@@ -13,9 +14,12 @@ from graphistry.plugins_types.graphviz_types import EdgeAttr, Format, GraphAttr,
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.plugins_types.umap_types import UMAPEngine
 from graphistry.privacy import Mode as PrivacyMode, Privacy, ModeAction
-from graphistry.Engine import EngineAbstract
+from graphistry.Engine import EngineAbstractType
 from graphistry.utils.json import JSONVal
 from graphistry.client_session import ClientSession, AuthManagerProtocol
+from graphistry.models.collections import CollectionsInput
+from graphistry.models.types import ValidationParam
+from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 
 if TYPE_CHECKING:
     try:
@@ -76,14 +80,16 @@ class Plottable(Protocol):
     _point_opacity : Optional[str]
     _point_x : Optional[str]
     _point_y : Optional[str]
+    _point_longitude : Optional[str]
+    _point_latitude : Optional[str]
     _height : int
     _render : RenderModesConcrete
-    _url_params : dict
+    _url_params : URLParamsDict
     _privacy : Optional[Privacy]
     _name : Optional[str]
     _description : Optional[str]
     _style : Optional[dict]
-    _complex_encodings : dict
+    _complex_encodings : ComplexEncodingsDict
     _bolt_driver : Any
     _tigergraph : Any
 
@@ -135,6 +141,11 @@ class Plottable(Protocol):
     _dbscan_params: Optional[ModelDict]
     _dbscan_nodes: Optional[Any]  # fit model
     _dbscan_edges: Optional[Any]  # fit model
+
+    # Collapse operation internal column names (generated dynamically)
+    _collapse_node_col: Optional[str]
+    _collapse_src_col: Optional[str]
+    _collapse_dst_col: Optional[str]
 
     _adjacency : Optional[Any]
     _entity_to_index : Optional[Dict]
@@ -338,6 +349,8 @@ class Plottable(Protocol):
         point_icon: Optional[str] = None,
         point_x: Optional[str] = None,
         point_y: Optional[str] = None,
+        point_longitude: Optional[str] = None,
+        point_latitude: Optional[str] = None,
         dataset_id: Optional[str] = None,
         url: Optional[str] = None,
         nodes_file_id: Optional[str] = None,
@@ -364,7 +377,7 @@ class Plottable(Protocol):
     ) -> 'Plottable':
         ...
 
-    def materialize_nodes(self, reuse: bool = True, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> 'Plottable':
+    def materialize_nodes(self, reuse: bool = True, engine: EngineAbstractType = 'auto') -> 'Plottable':
         ...
 
     def get_topological_levels(
@@ -399,6 +412,14 @@ class Plottable(Protocol):
     def hop(self,
         nodes: Optional[pd.DataFrame],
         hops: Optional[int] = 1,
+        *,
+        min_hops: Optional[int] = None,
+        max_hops: Optional[int] = None,
+        output_min_hops: Optional[int] = None,
+        output_max_hops: Optional[int] = None,
+        label_node_hops: Optional[str] = None,
+        label_edge_hops: Optional[str] = None,
+        label_seeds: bool = False,
         to_fixed_point: bool = False,
         direction: str = 'forward',
         edge_match: Optional[dict] = None,
@@ -408,7 +429,8 @@ class Plottable(Protocol):
         destination_node_query: Optional[str] = None,
         edge_query: Optional[str] = None,
         return_as_wave_front: bool = False,
-        target_wave_front: Optional[pd.DataFrame] = None
+        target_wave_front: Optional[pd.DataFrame] = None,
+        engine: EngineAbstractType = 'auto'
     ) -> 'Plottable':
         ...
 
@@ -425,19 +447,79 @@ class Plottable(Protocol):
         """
         ...
 
+    @overload
     def hypergraph(
         self,
-        raw_events: Any,
+        raw_events: Optional[Any] = None,
+        *,
         entity_types: Optional[List[str]] = None,
         opts: dict = {},
         drop_na: bool = True,
         drop_edge_attrs: bool = False,
         verbose: bool = True,
         direct: bool = False,
-        engine: str = 'pandas',
+        engine: EngineAbstractType = 'auto',
         npartitions: Optional[int] = None,
-        chunksize: Optional[int] = None
+        chunksize: Optional[int] = None,
+        from_edges: bool = False,
+        return_as: Literal['graph'] = 'graph'
+    ) -> 'Plottable':
+        ...
+
+    @overload
+    def hypergraph(
+        self,
+        raw_events: Optional[Any] = None,
+        *,
+        entity_types: Optional[List[str]] = None,
+        opts: dict = {},
+        drop_na: bool = True,
+        drop_edge_attrs: bool = False,
+        verbose: bool = True,
+        direct: bool = False,
+        engine: EngineAbstractType = 'auto',
+        npartitions: Optional[int] = None,
+        chunksize: Optional[int] = None,
+        from_edges: bool = False,
+        return_as: Literal['all']
     ) -> HypergraphResult:
+        ...
+
+    @overload
+    def hypergraph(
+        self,
+        raw_events: Optional[Any] = None,
+        *,
+        entity_types: Optional[List[str]] = None,
+        opts: dict = {},
+        drop_na: bool = True,
+        drop_edge_attrs: bool = False,
+        verbose: bool = True,
+        direct: bool = False,
+        engine: EngineAbstractType = 'auto',
+        npartitions: Optional[int] = None,
+        chunksize: Optional[int] = None,
+        from_edges: bool = False,
+        return_as: Literal['entities', 'events', 'edges', 'nodes']
+    ) -> Any:
+        ...
+
+    def hypergraph(
+        self,
+        raw_events: Optional[Any] = None,
+        *,
+        entity_types: Optional[List[str]] = None,
+        opts: dict = {},
+        drop_na: bool = True,
+        drop_edge_attrs: bool = False,
+        verbose: bool = True,
+        direct: bool = False,
+        engine: EngineAbstractType = 'auto',
+        npartitions: Optional[int] = None,
+        chunksize: Optional[int] = None,
+        from_edges: bool = False,
+        return_as: Literal['graph', 'all', 'entities', 'events', 'edges', 'nodes'] = 'graph'
+    ) -> Union['Plottable', HypergraphResult, Any]:
         ...
 
     def chain_remote(
@@ -487,7 +569,7 @@ class Plottable(Protocol):
         df_export_args: Optional[Dict[str, Any]] = None,
         node_col_subset: Optional[List[str]] = None,
         edge_col_subset: Optional[List[str]] = None,
-        engine: Optional[Literal["pandas", "cudf"]] = None,
+        engine: EngineAbstractType = 'auto',
         validate: bool = True,
         persist: bool = False
     ) -> 'Plottable':
@@ -505,7 +587,7 @@ class Plottable(Protocol):
         df_export_args: Optional[Dict[str, Any]] = None,
         node_col_subset: Optional[List[str]] = None,
         edge_col_subset: Optional[List[str]] = None,
-        engine: Optional[Literal["pandas", "cudf"]] = None,
+        engine: EngineAbstractType = 'auto',
         validate: bool = True,
         persist: bool = False
     ) -> pd.DataFrame:
@@ -521,7 +603,7 @@ class Plottable(Protocol):
         dataset_id: Optional[str] = None,
         format: Optional[FormatType] = 'parquet',
         output_type: Optional[OutputTypeAll] = 'all',
-        engine: Literal["pandas", "cudf"] = "cudf",
+        engine: EngineAbstractType = 'auto',
         run_label: Optional[str] = None,
         validate: bool = True
     ) -> 'Plottable':
@@ -534,7 +616,7 @@ class Plottable(Protocol):
         dataset_id: Optional[str] = None,
         format: Optional[FormatType] = 'parquet',
         output_type: Optional[OutputTypeDf] = 'table',
-        engine: Literal["pandas", "cudf"] = "cudf",
+        engine: EngineAbstractType = 'auto',
         run_label: Optional[str] = None,
         validate: bool = True
     ) -> pd.DataFrame:
@@ -545,7 +627,7 @@ class Plottable(Protocol):
         code: str,
         api_token: Optional[str] = None,
         dataset_id: Optional[str] = None,
-        engine: Literal["pandas", "cudf"] = "cudf",
+        engine: EngineAbstractType = 'auto',
         run_label: Optional[str] = None,
         validate: bool = True
     ) -> Any:
@@ -652,7 +734,8 @@ class Plottable(Protocol):
         circle_layout_params: Optional[Dict[str, Any]] = None,
         singleton_layout: Optional[Callable[['Plottable', Union[Tuple[float, float, float, float], Any]], 'Plottable']] = None,
         partition_key: Optional[str] = None,
-        engine: Union[EngineAbstract, str] = EngineAbstract.AUTO
+        engine: EngineAbstractType = 'auto',
+        allow_cpu_fallback: bool = False
     ) -> 'Plottable':
         ...
 
@@ -698,8 +781,21 @@ class Plottable(Protocol):
 
     def settings(self,
         height: Optional[int] = None,
-        url_params: Dict[str, Any] = {},
-        render: Optional[Union[bool, RenderModes]] = None
+        url_params: Optional[URLParamsDict] = None,
+        render: Optional[Union[bool, RenderModes]] = None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
+    ) -> 'Plottable':
+        ...
+
+    def collections(
+        self,
+        collections: Optional[CollectionsInput] = None,
+        show_collections: Optional[bool] = None,
+        collections_global_node_color: Optional[str] = None,
+        collections_global_edge_color: Optional[str] = None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
     ) -> 'Plottable':
         ...
 
@@ -708,8 +804,16 @@ class Plottable(Protocol):
 
     def to_cudf(self) -> 'Plottable':
         ...
-    
+
     def to_pandas(self) -> 'Plottable':
+        ...
+
+    def to_arrow(
+        self,
+        table: Optional[Any] = None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
+    ) -> Optional[Any]:
         ...
 
     def protocol(self, v: Optional[str] = None) -> str:
@@ -734,8 +838,9 @@ class Plottable(Protocol):
     def upload(
         self,
         memoize: bool = True,
-        erase_files_on_fail=True,
-        validate: bool = True
+        erase_files_on_fail: bool = True,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
     ) -> 'Plottable':
         ...
 
@@ -752,7 +857,8 @@ class Plottable(Protocol):
         erase_files_on_fail: bool = True,
         extra_html: str = "",
         override_html_style: Optional[str] = None,
-        validate: bool = True
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
     ) -> Any:
         ...
 
@@ -933,7 +1039,8 @@ class Plottable(Protocol):
         dbscan: bool = False,
         engine: UMAPEngine = "auto",
         feature_engine: str = "auto",
-        inplace: Literal[True] = ...,
+        *,
+        inplace: Literal[True],
         memoize: bool = True,
         umap_kwargs: Dict[str, Any] = {},
         umap_fit_kwargs: Dict[str, Any] = {},

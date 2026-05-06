@@ -1,7 +1,6 @@
 Visualization
 ==========================
 
-
 Encodings
 ---------
 
@@ -14,6 +13,27 @@ Encodings
    Sizes <../demos/more_examples/graphistry_features/encodings-sizes.ipynb>
    Icons <../demos/more_examples/graphistry_features/encodings-icons.ipynb>
    Badges <../demos/more_examples/graphistry_features/encodings-badges.ipynb>
+   Collections <../demos/more_examples/graphistry_features/collections.ipynb>
+
+Geographic (Kepler.gl)
+----------------------
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Geographic visualization with Kepler.gl
+   :titlesonly:
+
+   Geospatial Network Visualization <../demos/more_examples/graphistry_features/layout_map.ipynb>
+
+Static Export
+-------------
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Static image export for docs, reports, presentations
+   :titlesonly:
+
+   Static Rendering <../demos/demos_databases_apis/graphviz/static_rendering.ipynb>
 
 Layout
 -------

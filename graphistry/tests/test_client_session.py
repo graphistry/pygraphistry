@@ -3,6 +3,7 @@ import graphistry
 from graphistry.pygraphistry import GraphistryClient, PyGraphistry
 
 import pandas as pd
+from unittest import mock
 
 
 class TestClientSession:
@@ -22,7 +23,7 @@ class TestClientSession:
         Reset global state at the start of every test.  Calling register()
         without credentials clears the in-memory session cleanly.
         """
-        graphistry.register(api=1)
+        graphistry.register(api=3, verify_token=False)
 
     # --------------------------------------------------------------------- #
     # Basic config proxy                                                    #
@@ -32,7 +33,7 @@ class TestClientSession:
         """
         The session proxy still behaves like a mapping for read access.
         """
-        cfg = graphistry.register(api=3, token="tok123")._config
+        cfg = graphistry.register(api=3, token="tok123", verify_token=False)._config
 
         assert cfg["api_token"] == "tok123"
         assert "nonexistent" not in cfg
@@ -51,6 +52,7 @@ class TestClientSession:
         global_session = PyGraphistry.session
 
         client = graphistry.client()
+        # Use a dedicated client instance to avoid polluting global state.
         assert isinstance(client, GraphistryClient)
 
         # Set client session state directly  
@@ -77,6 +79,7 @@ class TestClientSession:
             protocol="https",
             server="test.graphistry.com",
             token="global_token",
+            verify_token=False,
         )
 
         # Inherit = True copies the *current* session
@@ -116,6 +119,65 @@ class TestClientSession:
         assert g._destination == "dst"
         assert g._pygraphistry.session.api_key == "client_key"
 
+    @mock.patch('graphistry.pygraphistry.ArrowUploader._switch_org')
+    @mock.patch('requests.post')
+    def test_client_register_with_org_sets_session(self, mock_post, mock_switch_org):
+        mock_resp = mock.Mock()
+        mock_resp.json.return_value = {
+            'token': 'tok123',
+            'active_organization': {
+                'slug': 'mock-org',
+                'is_found': True,
+                'is_member': True
+            }
+        }
+        mock_resp.status_code = 200
+        mock_resp.content = b''
+        mock_resp.text = ''
+        mock_resp.headers = {}
+        mock_resp.raise_for_status = mock.Mock()
+        mock_post.return_value = mock_resp
+
+        client = graphistry.client()
+        assert client.session.org_name is None
+
+        client.register(api=3, username='u', password='p', org_name='mock-org')
+
+        assert client.session.org_name == 'mock-org'
+        assert client.org_name() == 'mock-org'
+        mock_switch_org.assert_called_with('mock-org', 'tok123')
+
+    @mock.patch('graphistry.pygraphistry.ArrowUploader._switch_org')
+    @mock.patch('requests.post')
+    def test_client_register_updates_last_switched_cache(self, mock_post, mock_switch_org):
+        client = graphistry.client()
+
+        def fake_switch(org_name, token):
+            client.session._last_switched_org_token = (org_name, token)
+
+        mock_switch_org.side_effect = fake_switch
+        mock_resp = mock.Mock()
+        mock_resp.json.return_value = {
+            'token': 'tok123',
+            'active_organization': {
+                'slug': 'mock-org',
+                'is_found': True,
+                'is_member': True
+            }
+        }
+        mock_resp.status_code = 200
+        mock_resp.content = b''
+        mock_resp.text = ''
+        mock_resp.headers = {}
+        mock_resp.raise_for_status = mock.Mock()
+        mock_post.return_value = mock_resp
+
+        assert client.session._last_switched_org_token is None
+
+        client.register(api=3, username='u', password='p', org_name='mock-org')
+
+        assert client.session._last_switched_org_token == ('mock-org', 'tok123')
+
     # --------------------------------------------------------------------- #
     # Persistence of arbitrary config                                       #
     # --------------------------------------------------------------------- #
@@ -127,6 +189,7 @@ class TestClientSession:
             protocol="https",
             server="my.server.com",
             token="my_token",
+            verify_token=False,
             certificate_validation=False,
         )
 
@@ -174,3 +237,60 @@ class TestClientSession:
 
         assert PyGraphistry.session.api_key == "global2"
         assert client.session.api_key == "global1"
+
+    # ------------------------------------------------------------------ #
+    # Token-based registration                                          #
+    # ------------------------------------------------------------------ #
+
+    def test_register_token_marks_authenticated(self, monkeypatch):
+        """
+        register(token=...) should configure the session as authenticated so
+        downstream calls (plot, gfql, etc.) don't have to patch private fields.
+        """
+        client = graphistry.client()
+        calls = {}
+
+        def fake_verify(token, fail_silent=False):
+            calls["token"] = token
+            calls["fail_silent"] = fail_silent
+            return True
+
+        monkeypatch.setattr(client, "verify_token", fake_verify)
+
+        client.register(
+            api=3,
+            protocol="https",
+            server="example.graphistry.com",
+            token="tok123",
+        )
+
+        assert client.session.api_token == "tok123"
+        assert client.session._is_authenticated is True
+        assert client.session.store_token_creds_in_memory is False
+        assert calls["token"] == "tok123"
+        assert calls["fail_silent"] is False
+
+    def test_register_token_verify_opt_out(self, monkeypatch):
+        """
+        verify_token=False should skip server verification while still authenticating.
+        """
+        client = graphistry.client()
+        calls = {}
+
+        def fake_verify(token, fail_silent=False):
+            calls["token"] = token
+            calls["fail_silent"] = fail_silent
+            return True
+
+        monkeypatch.setattr(client, "verify_token", fake_verify)
+
+        client.register(
+            api=3,
+            protocol="https",
+            server="example.graphistry.com",
+            token=" tokABC ",
+            verify_token=False,
+        )
+
+        assert calls == {}
+        assert client.session._is_authenticated is True

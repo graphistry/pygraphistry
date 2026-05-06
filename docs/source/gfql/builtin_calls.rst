@@ -16,19 +16,20 @@ Call operations are invoked using the ``call()`` function within GFQL chains or 
 
 .. code-block:: python
 
-    from graphistry import call, n, e_forward
-    
-    # Basic usage in a chain
+    from graphistry import call, let, ref, n, e_forward, gt
+
+    # Pure call() chains work - filter then enrich
     result = g.gfql([
-        n({'type': 'person'}),
-        call('get_degrees', {'col': 'degree'}),
-        n({'degree': gt(10)})
+        call('filter_nodes_by_dict', {'filter_dict': {'type': 'person'}}),
+        call('get_degrees', {'col': 'degree'})
     ])
-    
-    # Usage in Let bindings
+
+    # For filter->enrich->filter patterns, use let()
     result = g.gfql(let({
-        'high_degree': [n(), call('get_degrees'), n({'degree': gt(10)})],
-        'connected': ref('high_degree', [e_forward()])
+        'persons': n({'type': 'person'}),
+        'with_degrees': ref('persons', [call('get_degrees', {'col': 'degree'})]),
+        'high_degree': ref('with_degrees', [n({'degree': gt(10)})]),
+        'connected': ref('with_degrees', [n({'degree': gt(10)}), e_forward(), n()])
     }))
 
 All Call operations:
@@ -37,6 +38,8 @@ All Call operations:
 - Return a modified graph (immutable - original is unchanged)
 - Can add columns to nodes or edges (schema effects)
 - Are restricted to methods in the safelist for security
+
+Call operations stay in graph state: the result remains a traversable graph with meaningful `_edges`, so you can keep matching or compose additional graph stages with `let()` / `ref()`. If you want row/tabular output, switch into row-pipeline operators such as `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, or use a row-returning local Cypher `CALL ... YIELD ... RETURN ...` query.
 
 Graph Transformation Methods
 ----------------------------
@@ -92,6 +95,14 @@ Transform event data into entity relationships by connecting entities that appea
      - integer
      - No
      - Chunk size for streaming processing
+   * - from_edges
+     - boolean
+     - No
+     - If True, use edges dataframe as input instead of nodes dataframe (default: False)
+   * - return_as
+     - string
+     - No
+     - What to return from hypergraph result: 'graph' (default), 'all', 'entities', 'events', 'edges', 'nodes'
 
 **The opts Parameter:**
 
@@ -199,12 +210,43 @@ The ``opts`` dictionary configures advanced hypergraph behavior by controlling h
     ))
 
     # In a DAG with other operations
-    from graphistry.compute import let, ref, n
+    from graphistry import let, ref, n
 
     result = g.gfql(let({
         'hg': hypergraph(entity_types=['user', 'product']),
         'filtered': ref('hg', [n({'type': 'user'})])
     }))
+
+    # Use edges dataframe as input
+    edges_df = pd.DataFrame({
+        'src_user': ['alice', 'bob', 'alice'],
+        'dst_item': ['laptop', 'phone', 'tablet']
+    })
+    g = graphistry.edges(edges_df, 'src_user', 'dst_item')
+
+    hg = g.gfql(hypergraph(
+        from_edges=True,
+        entity_types=['src_user', 'dst_item']
+    ))
+
+    # Extract only entities dataframe (not full graph)
+    entities_df = g.gfql(hypergraph(
+        entity_types=['user', 'product'],
+        return_as='entities'  # Returns DataFrame instead of Plottable
+    ))
+
+    # Extract edges only
+    edges_df = g.gfql(hypergraph(
+        entity_types=['user', 'product'],
+        return_as='edges'
+    ))
+
+    # Combine both parameters
+    entity_nodes = g.gfql(hypergraph(
+        from_edges=True,
+        entity_types=['src_user', 'dst_item'],
+        return_as='entities'
+    ))
 
 **Use Cases:**
 
@@ -220,6 +262,17 @@ Creates a new graph structure where:
 - Nodes represent unique entities from the specified columns
 - Edges connect entities that appeared in the same event
 - Edge attributes can include event metadata (if drop_edge_attrs=False)
+
+**Return Value:**
+
+By default (``return_as='graph'``), returns a Plottable graph object for method chaining. The ``return_as`` parameter controls what is returned:
+
+- ``'graph'``: Plottable graph (default) - enables chaining like ``.plot()``
+- ``'all'``: Dict with all 5 components (graph, entities, events, edges, nodes) - backward compatible with module-level ``graphistry.hypergraph()``
+- ``'entities'``: DataFrame of entity nodes only
+- ``'events'``: DataFrame of event/hypernode nodes only
+- ``'edges'``: DataFrame of edges only
+- ``'nodes'``: DataFrame of all nodes (entities + events)
 
 .. note::
    Hypergraph transformations cannot be mixed with other operations in chains. Use as a single operation or within Let/DAG constructs for complex compositions.
@@ -272,18 +325,12 @@ Run GPU-accelerated graph algorithms using `cuGraph <https://github.com/rapidsai
 
 **Supported Algorithms:**
 
-- **pagerank**: PageRank centrality
-- **louvain**: Community detection
-- **betweenness_centrality**: Betweenness centrality
-- **eigenvector_centrality**: Eigenvector centrality
-- **katz_centrality**: Katz centrality
-- **hits**: HITS (hubs and authorities)
-- **bfs**: Breadth-first search
-- **sssp**: Single-source shortest path
-- **connected_components**: Find connected components
-- **strongly_connected_components**: Find strongly connected components
-- **k_core**: K-core decomposition
-- **triangle_count**: Count triangles per node
+The exact procedure names mirror ``graphistry.plugins.cugraph.compute_algs``.
+Current categories include:
+
+- **Node-enriching:** ``betweenness_centrality``, ``bfs``, ``bfs_edges``, ``connected_components``, ``core_number``, ``ecg``, ``hits``, ``katz_centrality``, ``leiden``, ``louvain``, ``pagerank``, ``shortest_path``, ``shortest_path_length``, ``spectralBalancedCutClustering``, ``spectralModularityMaximizationClustering``, ``sssp``, ``strongly_connected_components``
+- **Edge-enriching:** ``batched_ego_graphs``, ``edge_betweenness_centrality``, ``jaccard``, ``jaccard_w``, ``overlap``, ``overlap_coefficient``, ``overlap_w``, ``sorensen``, ``sorensen_coefficient``, ``sorensen_w``
+- **Topology-returning:** ``ego_graph``, ``k_core``, ``minimum_spanning_tree``
 
 **Examples:**
 
@@ -315,7 +362,15 @@ Run GPU-accelerated graph algorithms using `cuGraph <https://github.com/rapidsai
         })
     ])
 
-**Schema Effects:** Adds one column to nodes with the algorithm result.
+**Schema Effects:** Depends on the algorithm family. Node algorithms add node columns, edge algorithms add edge columns, and topology-returning algorithms return a new graph topology.
+
+**Local Cypher Modes:**
+
+- **Procedure naming:** ``CALL graphistry.cugraph.<alg>()`` and ``CALL graphistry.cugraph.<alg>.write()`` mirror ``compute_cugraph(alg=...)`` for the supported algorithm names above.
+- **Row mode for node algorithms:** ``g.gfql("CALL graphistry.cugraph.louvain()")`` returns row state with ``nodeId`` plus the default algorithm output columns in ``_nodes`` and an empty placeholder ``_edges`` frame (for example, ``assert result._edges.empty``).
+- **Row mode for edge algorithms:** ``g.gfql("CALL graphistry.cugraph.edge_betweenness_centrality()")`` returns row state with ``source``, ``destination``, and the edge result columns in ``_nodes`` while leaving ``_edges`` empty.
+- **Graph mode / topology mode:** ``g.gfql("CALL graphistry.cugraph.edge_betweenness_centrality.write()")`` enriches the graph in place and keeps traversable edges (for example, ``assert not result._edges.empty``). Topology-returning algorithms such as ``k_core`` and ``minimum_spanning_tree`` require ``.write()``.
+- **Options map:** Local Cypher procedures accept one optional map argument. ``out_col``, ``directed``, ``kind``, and ``params`` mirror ``compute_cugraph()`` directly, and any extra keys are forwarded into the nested algorithm ``params`` dictionary. For example, ``CALL graphistry.cugraph.louvain({resolution: 1.0})`` maps to ``compute_cugraph('louvain', params={'resolution': 1.0})``.
 
 **Parameter Discovery:** For detailed algorithm parameters, see the `cuGraph documentation <https://docs.rapids.ai/api/cugraph/stable/>`_. Parameters are passed via the ``params`` dictionary.
 
@@ -360,21 +415,17 @@ Run CPU-based graph algorithms using `igraph <https://igraph.org/>`_, the compre
 
 **Supported Algorithms:**
 
-Similar to cuGraph but on CPU, including:
+The exact procedure names mirror ``graphistry.plugins.igraph.compute_algs``.
+Current supported names include:
 
-- **pagerank**: PageRank centrality
-- **community_multilevel**: Louvain community detection
-- **betweenness**: Betweenness centrality
-- **closeness**: Closeness centrality
-- **eigenvector_centrality**: Eigenvector centrality
-- **authority_score**: Authority scores (HITS)
-- **hub_score**: Hub scores (HITS)
-- **coreness**: K-core values
-- **clusters**: Connected components
-- **maximal_cliques**: Find maximal cliques
-- **shortest_paths**: Compute shortest paths
+- ``articulation_points``, ``authority_score``, ``betweenness``, ``bibcoupling``, ``closeness``, ``clusters``, ``cocitation``
+- ``community_edge_betweenness``, ``community_fastgreedy``, ``community_infomap``, ``community_label_propagation``, ``community_leading_eigenvector``, ``community_leiden``, ``community_multilevel``, ``community_optimal_modularity``, ``community_spinglass``, ``community_walktrap``
+- ``constraint``, ``coreness``, ``eccentricity``, ``eigenvector_centrality``, ``harmonic_centrality``, ``hub_score``, ``k_core``, ``pagerank``, ``personalized_pagerank``
+- Topology-returning procedures: ``gomory_hu_tree`` and ``spanning_tree``
 
 **Examples:**
+
+.. doc-test: xfail
 
 .. code-block:: python
 
@@ -395,7 +446,21 @@ Similar to cuGraph but on CPU, including:
         })
     ])
 
-**Schema Effects:** Adds one column to nodes with the algorithm result.
+**Schema Effects:** Most algorithms add one node column. Topology-returning algorithms such as ``gomory_hu_tree`` and ``spanning_tree`` return a new graph topology instead.
+
+**Local Cypher Modes:**
+
+- **Procedure naming:** ``CALL graphistry.igraph.<alg>()`` and ``CALL graphistry.igraph.<alg>.write()`` mirror ``compute_igraph(alg=...)`` for the supported algorithm names above.
+- **Row mode:** ``g.gfql("CALL graphistry.igraph.pagerank()")`` returns row state with ``nodeId`` plus the default algorithm output column in ``_nodes`` and an empty placeholder ``_edges`` frame (for example, ``assert result._edges.empty``).
+- **Graph mode / topology mode:** ``g.gfql("CALL graphistry.igraph.pagerank.write()")`` keeps the result in graph state with traversable edges (for example, ``assert not result._edges.empty``). Topology-returning algorithms such as ``spanning_tree`` and ``gomory_hu_tree`` require ``.write()``.
+- **Options map:** Local Cypher procedures accept one optional map argument. ``out_col``, ``directed``, ``use_vids``, and ``params`` mirror ``compute_igraph()`` directly, and any extra keys are forwarded into the nested algorithm ``params`` dictionary. For example, ``CALL graphistry.igraph.pagerank({damping: 0.9, directed: false})`` maps to ``compute_igraph('pagerank', directed=False, params={'damping': 0.9})``.
+- **NetworkX compatibility subset:** The local Cypher compiler also keeps a small ``graphistry.nx.*`` subset for parity with the older branch behavior:
+
+  - Node-enriching calls: ``CALL graphistry.nx.pagerank()`` / ``.write()`` and ``CALL graphistry.nx.betweenness_centrality()`` / ``.write()``
+  - Edge-enriching calls: ``CALL graphistry.nx.edge_betweenness_centrality()`` / ``.write()``
+  - Topology-returning calls: ``CALL graphistry.nx.k_core.write()``
+
+  They follow the same row-vs-``.write()`` contract as the other backends: node calls use ``nodeId`` + value column rows, edge calls use ``source`` / ``destination`` + value column rows, and topology-returning calls require ``.write()``.
 
 **Parameter Discovery:** For detailed algorithm parameters, see the `Python igraph documentation <https://igraph.org/python/>`_. Parameters are passed via the ``params`` dictionary.
 
@@ -421,11 +486,11 @@ Calculate degree centrality for nodes (in-degree, out-degree, and total degree).
      - string
      - No
      - Column name for total degree
-   * - col_in
+   * - degree_in
      - string
      - No
      - Column name for in-degree
-   * - col_out
+   * - degree_out
      - string
      - No
      - Column name for out-degree
@@ -438,8 +503,8 @@ Calculate degree centrality for nodes (in-degree, out-degree, and total degree).
     g.gfql([
         call('get_degrees', {
             'col': 'total_degree',
-            'col_in': 'in_degree',
-            'col_out': 'out_degree'
+            'degree_in': 'in_degree',
+            'degree_out': 'out_degree'
         })
     ])
     
@@ -448,13 +513,20 @@ Calculate degree centrality for nodes (in-degree, out-degree, and total degree).
         call('get_degrees', {'col': 'degree'})
     ])
     
-    # Filter by degree
-    g.gfql([
-        call('get_degrees', {'col': 'degree'}),
-        n({'degree': gt(10)})
-    ])
+    # Filter by degree using let()
+    from graphistry import let, ref, call, n, gt
+
+    g.gfql(let({
+        'with_degrees': call('get_degrees', {'col': 'degree'}),
+        'filtered': ref('with_degrees', [n({'degree': gt(10)})])
+    }))
 
 **Schema Effects:** Adds up to 3 columns to nodes (based on parameters provided).
+
+**Local Cypher Modes:**
+
+- **Row mode:** ``g.gfql("CALL graphistry.degree()")`` returns row state with default ``nodeId``, ``degree``, ``degree_in``, and ``degree_out`` columns in ``_nodes`` and an empty placeholder ``_edges`` frame (for example, ``assert result._edges.empty``). Add ``YIELD ... RETURN ...`` when you want to project or sort those rows explicitly.
+- **Graph mode:** ``g.gfql("CALL graphistry.degree.write()")`` materializes ``degree``, ``degree_in``, and ``degree_out`` on nodes while preserving the graph for later matches with traversable edges (for example, ``assert not result._edges.empty``).
 
 get_indegrees
 ~~~~~~~~~~~~~
@@ -541,6 +613,8 @@ Compute topological levels for directed acyclic graphs (DAGs).
      - Whether to allow cycles (default: True)
 
 **Example:**
+
+.. doc-test: xfail
 
 .. code-block:: python
 
@@ -643,7 +717,7 @@ Compute CPU-based graph layouts using igraph.
      - Description
    * - layout
      - string
-     - No
+     - Yes
      - Layout algorithm name
    * - params
      - dict
@@ -688,12 +762,14 @@ Compute CPU-based graph layouts using igraph.
 
 **Example:**
 
+.. doc-test: xfail
+
 .. code-block:: python
 
     g.gfql([
         call('layout_igraph', {
             'layout': 'fruchterman_reingold',
-            'params': {'iterations': 500}
+            'params': {'niter': 500}
         })
     ])
 
@@ -796,6 +872,8 @@ Apply ForceAtlas2 layout algorithm (CPU-based implementation).
 
 **Example:**
 
+.. doc-test: xfail
+
 .. code-block:: python
 
     g.gfql([
@@ -881,6 +959,8 @@ PyGraphistry's implementation is optimized for large graphs on both CPU and GPU.
      - Engine ('auto', 'cpu', 'gpu', 'pandas', 'cudf')
 
 **Examples:**
+
+.. doc-test: xfail
 
 .. code-block:: python
 
@@ -1113,6 +1193,8 @@ Merge nodes based on a shared attribute value.
 
 **Example:**
 
+.. doc-test: xfail
+
 .. code-block:: python
 
     # Collapse by department
@@ -1140,19 +1222,24 @@ Remove nodes based on a column value.
      - Type
      - Required
      - Description
-   * - column
-     - string
+   * - nodes
+     - list or dict
      - Yes
-     - Boolean column indicating nodes to drop
+     - Node IDs to drop (list) or filter specification (dict)
 
 **Example:**
 
 .. code-block:: python
 
-    # Mark and drop nodes
+    # Drop specific nodes by ID
     g.gfql([
-        n({'status': 'inactive'}, name='to_remove'),
-        call('drop_nodes', {'column': 'to_remove'})
+        call('drop_nodes', {'nodes': ['node_id_1', 'node_id_2']})
+    ])
+
+    # Drop nodes matching a filter — use filter_nodes_by_dict first, then drop
+    inactive = g._nodes[g._nodes['status'] == 'inactive']['id'].tolist()
+    g.gfql([
+        call('drop_nodes', {'nodes': inactive})
     ])
 
 **Schema Effects:** None (only removes nodes).
@@ -1172,19 +1259,25 @@ Keep only nodes where a column is True.
      - Type
      - Required
      - Description
-   * - column
-     - string
+   * - nodes
+     - list or dict
      - Yes
-     - Boolean column indicating nodes to keep
+     - Node IDs to keep (list) or filter specification (dict)
 
 **Example:**
 
+.. doc-test: xfail
+
 .. code-block:: python
 
-    # Mark and keep nodes
+    # Keep specific nodes by ID
     g.gfql([
-        n({'importance': gt(0.5)}, name='important'),
-        call('keep_nodes', {'column': 'important'})
+        call('keep_nodes', {'nodes': ['node_id_1', 'node_id_2']})
+    ])
+
+    # Keep nodes matching a filter — use dict form for column-based filtering
+    g.gfql([
+        call('keep_nodes', {'nodes': {'importance': [True]}})
     ])
 
 **Schema Effects:** None (only filters nodes).
@@ -1214,6 +1307,7 @@ Generate a node table from edges when only edges are provided.
 .. code-block:: python
 
     # Create nodes from edges
+    g_edges_only = graphistry.edges(edges, 's', 'd')
     g_edges_only.gfql([
         call('materialize_nodes')
     ])
@@ -1592,15 +1686,17 @@ Best Practices
 
    .. code-block:: python
 
-       # After get_degrees, these columns exist:
-       g.gfql([
-           call('get_degrees', {
+       # After get_degrees, these columns exist - use let() for mixed operations:
+       from graphistry import let, ref, call, n, gt
+
+       g.gfql(let({
+           'enriched': call('get_degrees', {
                'col': 'total',
-               'col_in': 'incoming',
-               'col_out': 'outgoing'
+               'degree_in': 'incoming',
+               'degree_out': 'outgoing'
            }),
-           n({'total': gt(10)})  # Can now filter on degree
-       ])
+           'filtered': ref('enriched', [n({'total': gt(10)})])  # Filter on degree
+       }))
 
 See Also
 --------

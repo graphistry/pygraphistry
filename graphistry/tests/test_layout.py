@@ -725,7 +725,136 @@ class TestLayout(unittest.TestCase):
     def test_fork(self):
         g = create_graph_from_arrays(["0", "1", "2", "3", "4"], ["10", "20", "30", "04"])
         component = g.components[0]
-        #sug = 
+        #sug =
         SugiyamaLayout(component)
-        #pos = 
+        #pos =
         SugiyamaLayout.arrange(g, root = None)
+
+class TestMercatorLayout(unittest.TestCase):
+
+    def test_default_columns(self):
+        """Test mercator_layout with default 'latitude' and 'longitude' columns"""
+        nodes_df = pd.DataFrame({
+            'id': ['NYC', 'LA', 'London'],
+            'latitude': [40.7128, 34.0522, 51.5074],
+            'longitude': [-74.0060, -118.2437, -0.1278]
+        })
+
+        g = LGFull().nodes(nodes_df, 'id').mercator_layout()
+
+        # Check that x and y columns were created
+        assert 'x' in g._nodes.columns
+        assert 'y' in g._nodes.columns
+
+        # Check that bindings were set
+        assert g._point_x == 'x'
+        assert g._point_y == 'y'
+
+        # Check that values are reasonable (scaled mode)
+        assert g._nodes['x'].abs().max() < 2000
+        assert g._nodes['y'].abs().max() < 10000
+
+    def test_custom_bindings(self):
+        """Test mercator_layout with custom point_latitude and point_longitude bindings"""
+        nodes_df = pd.DataFrame({
+            'id': ['NYC', 'LA', 'London'],
+            'lat': [40.7128, 34.0522, 51.5074],
+            'lon': [-74.0060, -118.2437, -0.1278]
+        })
+
+        g = (LGFull()
+             .nodes(nodes_df, 'id')
+             .bind(point_latitude='lat', point_longitude='lon')
+             .mercator_layout())
+
+        # Check that x and y columns were created
+        assert 'x' in g._nodes.columns
+        assert 'y' in g._nodes.columns
+
+        # Check that bindings were set
+        assert g._point_x == 'x'
+        assert g._point_y == 'y'
+        assert g._point_latitude == 'lat'
+        assert g._point_longitude == 'lon'
+
+    def test_existing_xy_bindings(self):
+        """Test that mercator_layout respects existing point_x and point_y bindings"""
+        nodes_df = pd.DataFrame({
+            'id': ['NYC', 'LA', 'London'],
+            'latitude': [40.7128, 34.0522, 51.5074],
+            'longitude': [-74.0060, -118.2437, -0.1278]
+        })
+
+        g = (LGFull()
+             .nodes(nodes_df, 'id')
+             .bind(point_x='custom_x', point_y='custom_y')
+             .mercator_layout())
+
+        # Check that custom columns were created
+        assert 'custom_x' in g._nodes.columns
+        assert 'custom_y' in g._nodes.columns
+
+        # Check that bindings point to custom columns
+        assert g._point_x == 'custom_x'
+        assert g._point_y == 'custom_y'
+
+    def test_scaled_mode(self):
+        """Test mercator_layout with scale_for_graphistry=True (default)"""
+        nodes_df = pd.DataFrame({
+            'id': ['NYC', 'LA'],
+            'latitude': [40.7128, 34.0522],
+            'longitude': [-74.0060, -118.2437]
+        })
+
+        g = LGFull().nodes(nodes_df, 'id').mercator_layout(scale_for_graphistry=True)
+
+        # Scaled coordinates should be relatively small
+        assert g._nodes['x'].abs().max() < 2000
+        assert g._nodes['y'].abs().max() < 10000
+
+    def test_unscaled_mode(self):
+        """Test mercator_layout with scale_for_graphistry=False"""
+        nodes_df = pd.DataFrame({
+            'id': ['NYC', 'LA'],
+            'latitude': [40.7128, 34.0522],
+            'longitude': [-74.0060, -118.2437]
+        })
+
+        g = LGFull().nodes(nodes_df, 'id').mercator_layout(scale_for_graphistry=False)
+
+        # Unscaled coordinates should be large (meters)
+        assert g._nodes['x'].abs().max() > 1000000
+        assert g._nodes['y'].abs().max() > 1000000
+
+    def test_mercator_projection_correctness(self):
+        """Test that mercator projection produces correct relative positions"""
+        nodes_df = pd.DataFrame({
+            'id': ['equator', 'north', 'south'],
+            'latitude': [0.0, 45.0, -45.0],
+            'longitude': [0.0, 0.0, 0.0]
+        })
+
+        g = LGFull().nodes(nodes_df, 'id').mercator_layout()
+
+        # All should have same x (same longitude)
+        assert np.isclose(g._nodes['x'].iloc[0], g._nodes['x'].iloc[1])
+        assert np.isclose(g._nodes['x'].iloc[0], g._nodes['x'].iloc[2])
+
+        # North and south should be equidistant from equator
+        y_equator = g._nodes['y'].iloc[0]
+        y_north = g._nodes['y'].iloc[1]
+        y_south = g._nodes['y'].iloc[2]
+
+        assert np.isclose(abs(y_north - y_equator), abs(y_south - y_equator))
+
+    def test_missing_columns_error(self):
+        """Test that missing lat/lon columns raise appropriate error"""
+        nodes_df = pd.DataFrame({
+            'id': ['a', 'b'],
+            'other': [1, 2]
+        })
+
+        g = LGFull().nodes(nodes_df, 'id')
+
+        with pytest.raises(ValueError, match='Did not find columns'):
+            g.mercator_layout()

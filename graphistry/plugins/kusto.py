@@ -456,7 +456,9 @@ def _unwrap_nested(result: "KustoQueryResult") -> pd.DataFrame:
         if df[col].isna().all():
             df = df.drop(columns=[col])
 
-    df = df.astype(object).where(pd.notna(df), None)
+    df = df.astype(object)
+    df = df.where(pd.notna(df))
+    df = df.fillna(value=None)
     return df.reset_index(drop=True)
 
 

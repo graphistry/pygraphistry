@@ -48,6 +48,7 @@ extensions = [
     'myst_parser',
     'nbsphinx',
     "sphinx.ext.autodoc",
+    "sphinx.ext.graphviz",
     #'sphinx.ext.autosummary',
     'sphinx.ext.intersphinx',
     "sphinx.ext.ifconfig",
@@ -68,6 +69,25 @@ typehints_document_rtype = True
 #suppress_warnings = [
 #    'nbsphinx.localfile',  # Suppresses local file warnings in notebooks
 #]
+
+# Use SVG for HTML graphviz, PNG for LaTeX/PDF.
+# Fail hard if dot is missing - no silent degradation.
+graphviz_output_format = "svg"
+
+# Check for graphviz at startup and fail fast if missing
+import shutil
+if shutil.which("dot") is None:
+    raise RuntimeError(
+        "Graphviz 'dot' command not found. "
+        "Install graphviz: apt-get install graphviz (Linux) or brew install graphviz (macOS)"
+    )
+
+# Align builder-specific graphviz output format
+def _set_graphviz_format(app):
+    if app.builder.name == "latex":
+        app.config.graphviz_output_format = "png"
+    else:
+        app.config.graphviz_output_format = "svg"
 
 #FIXME Why is sphinx/autodoc failing here?
 nitpick_ignore = [
@@ -104,6 +124,7 @@ nitpick_ignore = [
     ('py:class', 'graphistry.compute.predicates.str.IsTitle'),
     ('py:class', 'graphistry.compute.predicates.str.IsUpper'),
     ('py:class', 'graphistry.compute.predicates.str.Match'),
+    ('py:class', 'graphistry.compute.predicates.str.Fullmatch'),
     ('py:class', 'graphistry.compute.predicates.str.NotNull'),
     ('py:class', 'graphistry.compute.predicates.str.Startswith'),
     ('py:class', 'graphistry.compute.predicates.temporal.IsLeapYear'),
@@ -319,7 +340,7 @@ exclude_patterns = [
     #'demos/demos_databases_apis/gpu_rapids/part_ii_gpu_cudf.ipynb',
     #'demos/demos_databases_apis/gpu_rapids/part_i_cpu_pandas.ipynb',
     #'demos/demos_databases_apis/gpu_rapids/cugraph.ipynb',
-    #'demos/demos_databases_apis/memgraph/visualizing_iam_dataset.ipynb',
+    'demos/demos_databases_apis/memgraph/visualizing_iam_dataset.ipynb',
     #'demos/demos_databases_apis/databricks_pyspark/graphistry-notebook-dashboard.ipynb',
     #'demos/demos_databases_apis/arango/arango_tutorial.ipynb',
     #'demos/demos_databases_apis/nodexl/official/nodexl_graphistry.ipynb',
@@ -342,7 +363,7 @@ exclude_patterns = [
     #'demos/more_examples/graphistry_features/layout_tree.ipynb',
     #'demos/more_examples/graphistry_features/encodings-icons.ipynb',
     #'demos/more_examples/graphistry_features/layout_time_ring.ipynb',
-    #'demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb',
+    'demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb',
     #'demos/more_examples/graphistry_features/encodings-colors.ipynb',
     #'demos/more_examples/graphistry_features/encodings-sizes.ipynb',
     #'demos/more_examples/graphistry_features/layout_modularity_weighted.ipynb',
@@ -752,7 +773,7 @@ def remove_external_images_for_latex(app, doctree, fromdocname):
 
 def assert_external_images_removed(app, doctree, fromdocname):
     """Assert that external images have been removed."""
-    if app.builder.name in ['html']:  # Extend to all builds if needed
+    if app.builder.name in ['html', 'singlehtml']:  # HTML builders can render external images
         return
 
     for node in doctree.traverse(nodes.image):
@@ -796,4 +817,4 @@ def setup(app: Sphinx):
         print('No custom handling for app.builder.name=', app.builder.name)
 
     app.connect('builder-inited', on_builder)
-
+    app.connect('builder-inited', _set_graphviz_format)

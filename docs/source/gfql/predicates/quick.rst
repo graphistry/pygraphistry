@@ -10,6 +10,20 @@ Operators
 
 The following table lists the available operators, their descriptions, and examples of how to use them in GFQL.
 
+WHERE Operators (Cross-Reference)
+---------------------------------
+
+This page covers predicate functions used inside step filters like
+``n({...})`` and ``e_forward({...})``. WHERE operators are documented separately:
+
+- Same-path MATCH WHERE uses ``compare(col(...), op, col(...))`` with
+  ``op`` in ``==``, ``!=``, ``<``, ``<=``, ``>``, ``>=``.
+- Row-pipeline WHERE uses ``where_rows(expr="...")`` with comparators
+  ``=``, ``!=``, ``<>``, ``<``, ``<=``, ``>``, ``>=``.
+
+See :doc:`/gfql/where` (same-path constraints) and :doc:`/gfql/return`
+(``MATCH ... RETURN`` row pipelines).
+
 **Numeric and Comparison Operators**
 
 .. list-table::
@@ -32,7 +46,7 @@ The following table lists the available operators, their descriptions, and examp
      - ``n({ "score": le(70) })``
    * - ``eq(value)``
      - Equal to ``value``.
-     - ``n({ "status": eq("active") })``
+     - ``n({ "status": eq("active") })`` (supports strings, numeric, temporals; use ``isna()/notna()`` for nulls)
    * - ``ne(value)``
      - Not equal to ``value``.
      - ``n({ "status": ne("inactive") })``
@@ -41,12 +55,16 @@ The following table lists the available operators, their descriptions, and examp
      - ``n({ "age": between(18, 65) })``
 
 .. note::
-   All numeric comparison operators (``gt``, ``lt``, ``ge``, ``le``, ``eq``, ``ne``, ``between``) also support temporal values:
-   
-   - **DateTime**: ``n({ "created_at": gt(pd.Timestamp("2023-01-01 12:00:00")) })``
-   - **Date**: ``n({ "event_date": eq(date(2023, 6, 15)) })``
-   - **Time**: ``n({ "daily_time": between(time(9, 0), time(17, 0)) })``
-   
+   Null handling and temporal comparisons are separate:
+
+   - Use ``isna()`` / ``notna()`` for null-safe checks:
+     - ``n({ "closed_at": isna() })``
+     - ``n({ "created_at": notna() })``
+   - Use comparison operators for non-null values (including temporal columns):
+     - **DateTime**: ``n({ "created_at": gt(pd.Timestamp("2023-01-01 12:00:00")) })``
+     - **Date**: ``n({ "event_date": eq(date(2023, 6, 15)) })``
+     - **Time**: ``n({ "daily_time": between(time(9, 0), time(17, 0)) })``
+
    See :doc:`/gfql/datetime_filtering` for datetime filtering examples.
 
 **Categorical Operators**
@@ -60,9 +78,6 @@ The following table lists the available operators, their descriptions, and examp
    * - ``is_in(values)``
      - Value is in ``values`` list.
      - ``n({ "type": is_in(["person", "company"]) })``
-   * - ``is_not_in(values)``
-     - Value is not in ``values`` list.
-     - ``n({ "type": is_not_in(["bot", "spam"]) })``
    * - ``duplicated(keep='first')``
      - Marks duplicated values.
      - ``n({ "email": duplicated() })``
@@ -75,18 +90,21 @@ The following table lists the available operators, their descriptions, and examp
    * - Operator
      - Description
      - Example
-   * - ``contains(pattern)``
-     - String contains ``pattern``.
-     - ``n({ "name": contains("Smith") })``
-   * - ``startswith(prefix)``
-     - String starts with ``prefix``.
-     - ``n({ "username": startswith("admin") })``
-   * - ``endswith(suffix)``
-     - String ends with ``suffix``.
-     - ``n({ "email": endswith("@example.com") })``
-   * - ``match(pattern)``
-     - String matches regex ``pattern``.
+   * - ``contains(pattern, case=True)``
+     - String contains ``pattern``. Case-insensitive if ``case=False``.
+     - ``n({ "name": contains("smith", case=False) })``
+   * - ``startswith(prefix, case=True)``
+     - String starts with ``prefix``. Case-insensitive if ``case=False``.
+     - ``n({ "username": startswith("admin", case=False) })``
+   * - ``endswith(suffix, case=True)``
+     - String ends with ``suffix``. Case-insensitive if ``case=False``.
+     - ``n({ "email": endswith(".com", case=False) })``
+   * - ``match(pattern, case=True)``
+     - String matches regex ``pattern`` from start. Case-insensitive if ``case=False``.
      - ``n({ "phone": match(r"^\d{3}-\d{4}$") })``
+   * - ``fullmatch(pattern, case=True)``
+     - String matches regex ``pattern`` entirely. Case-insensitive if ``case=False``.
+     - ``n({ "code": fullmatch(r"\d{3}", case=False) })``
    * - ``isnumeric()``
      - String is numeric.
      - ``n({ "code": isnumeric() })``
@@ -217,14 +235,44 @@ Usage Examples
         })
     ])
 
+**Example 5: Same-Path Constraint with WHERE**
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, col, compare
+
+    g_filtered = g.gfql(
+        [
+            n({"type": "account"}, name="a"),
+            e_forward(),
+            n({"type": "user"}, name="c"),
+        ],
+        where=[compare(col("a", "owner_id"), "==", col("c", "owner_id"))],
+    )
+
 Additional Notes
 ----------------
 
-- **Lambda Functions**: You can use lambda functions for custom conditions.
+- **Predicate Functions**: Use predicate instances for filter conditions.
 
   .. code-block:: python
 
-      n({ "score": lambda x: (x > 50) & (x % 2 == 0) })
+      n({ "score": gt(50) })
+
+  For compound conditions (e.g., ``score > 50 AND score is even``), use a
+  ``query`` string instead:
+
+  .. code-block:: python
+
+      n(query="score > 50 and score % 2 == 0")
+
+  .. note::
+
+     Lambda functions in ``filter_dict`` (e.g., ``n({"score": lambda x: ...})``)
+     are no longer supported because ``filter_dict`` values must be
+     JSON-serializable for the wire protocol and remote execution. Use
+     predicates like ``gt()``, ``between()``, or ``query=`` strings for
+     compound conditions.
 
 - **Importing Operators**: Remember to import the necessary functions.
 
@@ -232,11 +280,14 @@ Additional Notes
 
       from graphistry import n, e_forward, gt, contains
 
-- **Combining Conditions**: Use logical operators within lambdas for complex expressions.
+- **Combining Conditions**: Use range predicates or ``query`` strings for complex expressions.
 
   .. code-block:: python
 
-      n({ "age": lambda x: (x > 18) & (x < 65) })
+      # Range predicate
+      n({ "age": between(19, 64) })
+
+      # Or equivalently with a query string
+      n(query="age > 18 and age < 65")
 
 - **Predicates Module**: Operators are available in the `graphistry.predicates` module.
-

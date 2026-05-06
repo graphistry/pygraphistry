@@ -90,6 +90,33 @@ class TestMultiHopChainForward():
             {'s': 'c', 'd': 'd'}
         ]
 
+    def test_chain_exact_named_terminal_alias_marks_only_endpoint_nodes(self, g_long_forwards_chain):
+        g2 = g_long_forwards_chain.gfql([n({'v': 'a'}, name='seed'), e_forward(min_hops=3, max_hops=3), n(name='hit')])
+        assert sorted(g2._nodes.loc[g2._nodes['seed'], 'v'].tolist()) == ['a']
+        assert sorted(g2._nodes.loc[g2._nodes['hit'], 'v'].tolist()) == ['d']
+
+    def test_chain_exact_multihop_then_single_hop_marks_following_terminal_alias(self, g_long_forwards_chain):
+        g2 = g_long_forwards_chain.gfql([
+            n({'v': 'a'}, name='seed'),
+            e_forward(min_hops=1, max_hops=1),
+            n(name='mid'),
+            e_forward(),
+            n(name='hit'),
+        ])
+        assert sorted(g2._nodes.loc[g2._nodes['mid'], 'v'].tolist()) == ['b']
+        assert sorted(g2._nodes.loc[g2._nodes['hit'], 'v'].tolist()) == ['c']
+
+    def test_chain_single_hop_then_exact_multihop_marks_following_terminal_alias(self, g_long_forwards_chain):
+        g2 = g_long_forwards_chain.gfql([
+            n({'v': 'a'}, name='seed'),
+            e_forward(),
+            n(name='mid'),
+            e_forward(min_hops=2, max_hops=2),
+            n(name='hit'),
+        ])
+        assert sorted(g2._nodes.loc[g2._nodes['mid'], 'v'].tolist()) == ['b']
+        assert sorted(g2._nodes.loc[g2._nodes['hit'], 'v'].tolist()) == ['d']
+
     def test_chain_predicates_ok_source(self, g_long_forwards_chain):
         g2 = g_long_forwards_chain.gfql([
             n({'v': 'a'}),
@@ -119,6 +146,24 @@ class TestMultiHopChainForward():
             n({'v': 'd'})
         ])
         assert set(g2._nodes['v'].tolist()) == set(['a', 'b', 'c', 'd'])
+        assert g2._edges[['s', 'd']].sort_values(['s', 'd']).reset_index(drop=True).to_dict(orient='records') == [
+            {'s': 'a', 'd': 'b'},
+            {'s': 'b', 'd': 'c'},
+            {'s': 'c', 'd': 'd'}
+        ]
+
+    def test_chain_uses_execute_even_if_dunder_call_exists(self, g_long_forwards_chain, monkeypatch):
+        """Regression: operator execution path must not rely on __call__."""
+
+        def _boom(*_args, **_kwargs):
+            raise AssertionError("__call__ should not be used by chain execution")
+
+        # If chain still used op(...), this would fail immediately.
+        monkeypatch.setattr(ASTNode, "__call__", _boom, raising=False)
+        monkeypatch.setattr(ASTEdge, "__call__", _boom, raising=False)
+
+        g2 = g_long_forwards_chain.gfql([n({'v': 'a'}), e_forward(hops=3), n({'v': 'd'})])
+        assert set(g2._nodes['v'].tolist()) == {'a', 'b', 'c', 'd'}
         assert g2._edges[['s', 'd']].sort_values(['s', 'd']).reset_index(drop=True).to_dict(orient='records') == [
             {'s': 'a', 'd': 'b'},
             {'s': 'b', 'd': 'c'},
@@ -462,3 +507,91 @@ def test_chain_binding_reuse():
     assert g2_chain._edges.shape[0] > 0
     assert g3_chain._nodes.shape[0] > 0
     assert g3_chain._edges.shape[0] > 0
+
+
+def test_chain_preserves_none_edge_binding():
+    """Test that chain() preserves None edge binding when no edge column is set.
+    
+    When g._edge is None, chain() internally adds a temporary index column for tracking,
+    but the output graph should restore the original None binding.
+    
+    Regression test for bug where output graph would have _edge set to internal column
+    name like '__gfql_edge_index_0__' instead of None.
+    """
+    # Create a graph with NO edge binding (g._edge = None)
+    edges_df = pd.DataFrame({
+        's': ['a', 'b', 'c'],
+        'd': ['b', 'c', 'd']
+    })
+    nodes_df = pd.DataFrame({
+        'v': ['a', 'b', 'c', 'd']
+    })
+    
+    g = CGFull().edges(edges_df, 's', 'd').nodes(nodes_df, 'v')
+    
+    # Verify g._edge is None before chain
+    assert g._edge is None, "Input graph should have None edge binding"
+    
+    # Run a simple chain operation
+    g_result = g.gfql([n({'v': 'a'}), e_forward(hops=2)])
+    
+    # The bug was that g_result._edge would be set to the internal column name like '__gfql_edge_index_0__'
+    # The fix ensures it's restored to None
+    assert g_result._edge is None, f"Output graph should have None edge binding, but got: {g_result._edge}"
+    
+    # Verify the chain operation actually worked
+    assert len(g_result._nodes) > 0
+    assert len(g_result._edges) > 0
+    # Verify the internal column was properly removed
+    assert '__gfql_edge_index_0__' not in g_result._edges.columns
+
+
+def test_chain_preserves_custom_edge_binding():
+    """Test that chain() preserves custom edge binding when edge column is set."""
+    # Create a graph WITH an edge binding
+    edges_df = pd.DataFrame({
+        's': ['a', 'b', 'c'],
+        'd': ['b', 'c', 'd'],
+        'edge_id': ['e1', 'e2', 'e3']
+    })
+    nodes_df = pd.DataFrame({
+        'v': ['a', 'b', 'c', 'd']
+    })
+
+    g = CGFull().edges(edges_df, 's', 'd', edge='edge_id').nodes(nodes_df, 'v')
+
+    # Verify g._edge is 'edge_id' before chain
+    assert g._edge == 'edge_id', "Input graph should have 'edge_id' edge binding"
+
+    # Run a simple chain operation
+    g_result = g.gfql([n({'v': 'a'}), e_forward(hops=2)])
+
+    # Should preserve the 'edge_id' binding
+    assert g_result._edge == 'edge_id', f"Output graph should have 'edge_id' edge binding, but got: {g_result._edge}"
+
+    # Verify the chain operation actually worked
+    assert len(g_result._nodes) > 0
+    assert len(g_result._edges) > 0
+    assert 'edge_id' in g_result._edges.columns
+
+
+def test_chain_hop_label_node_hops():
+    """label_node_hops propagates hop numbers to nodes; chain combine_steps passes columns with 'hop' in the name."""
+    # a -> b -> c -> d  (linear chain of 4 nodes)
+    nodes_df = pd.DataFrame({'v': ['a', 'b', 'c', 'd'], 'type': ['T', 'T', 'T', 'T']})
+    edges_df = pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'd'], 'etype': ['E', 'E', 'E']})
+    g = CGFull().nodes(nodes_df, 'v').edges(edges_df, 's', 'd')
+
+    # Direct hop with label_seeds: seed gets hop 0, reached nodes get hop > 0
+    seed = pd.DataFrame({'v': ['a']})
+    g2 = g.hop(nodes=seed, hops=3, label_node_hops='node_hop', label_seeds=True, direction='forward')
+    assert 'node_hop' in g2._nodes.columns, f"Expected 'node_hop' in nodes, got: {list(g2._nodes.columns)}"
+    nodes_by_id = g2._nodes.set_index('v')
+    assert nodes_by_id.loc['a', 'node_hop'] == 0
+    assert nodes_by_id.loc['b', 'node_hop'] == 1
+    assert nodes_by_id.loc['c', 'node_hop'] == 2
+    assert nodes_by_id.loc['d', 'node_hop'] == 3
+
+    # gfql chain: combine_steps propagates columns whose name contains 'hop'
+    g3 = g.gfql([n({'v': 'a'}), e_forward(hops=2, label_node_hops='node_hop')])
+    assert 'node_hop' in g3._nodes.columns, f"Expected 'node_hop' in gfql chain nodes, got: {list(g3._nodes.columns)}"

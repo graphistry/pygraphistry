@@ -1,12 +1,29 @@
 import pandas as pd
-from typing import List, Optional, Any
+from typing import Any, List, Optional
 from graphistry.constants import NODE
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 logger = setup_logger(__name__)
 
-#import logging
-#logger.setLevel(logging.DEBUG)
+
+def ensure_pandas(df: Any) -> pd.DataFrame:
+    """Convert to pandas if not already (e.g. cuDF). No-op for pandas.
+
+    Delegates to :func:`graphistry.compute.engine_coercion.ensure_pandas`.
+    Defined here to avoid a circular import at module load time.
+    """
+    from graphistry.compute.engine_coercion import ensure_pandas as _impl
+    return _impl(df)
+
+
+def restore_engine(g: Plottable, original_nodes: Any, original_edges: Any) -> Plottable:
+    """Convert result DataFrames back to the original engine if needed.
+
+    Delegates to :func:`graphistry.compute.engine_coercion.restore_engine`.
+    Defined here to avoid a circular import at module load time.
+    """
+    from graphistry.compute.engine_coercion import restore_engine as _impl
+    return _impl(g, original_nodes, original_edges)
 
 
 # preferring igraph naming convetions over graphistry.constants
@@ -91,8 +108,8 @@ def from_igraph(self,
         if node_col not in nodes_df:
             #TODO if no g._nodes but 'name' in nodes_df, still use?
             if (
-                ('name' in nodes_df) and  # noqa: W504
-                (g._nodes is not None and g._node is not None) and  # noqa: W504
+                ('name' in nodes_df) and
+                (g._nodes is not None and g._node is not None) and
                 (g._nodes[g._node].dtype.name == nodes_df['name'].dtype.name)
             ):
                 nodes_df = nodes_df.rename(columns={'name': node_col})
@@ -111,7 +128,7 @@ def from_igraph(self,
                 logger.warning('node tables do not match in length; switch merge_if_existing to False or load_nodes to False or add missing nodes')
 
             g_nodes_trimmed = g._nodes[[x for x in g._nodes if x not in nodes_df or x == g._node]]
-            nodes_df = nodes_df.merge(g_nodes_trimmed, how='left', on=g._node)
+            nodes_df = nodes_df.merge(ensure_pandas(g_nodes_trimmed), how='left', on=g._node)
 
         nodes_df = nodes_df.reset_index(drop=True)
         g = g.nodes(nodes_df, node_col)
@@ -159,6 +176,22 @@ def from_igraph(self,
         dst_col = g._destination or DST_IGRAPH
         edges_df = ig.get_edge_dataframe()
 
+        # igraph edge attributes named 'source' or 'target' collide with the
+        # endpoint columns from get_edge_dataframe(); endpoints come first,
+        # rename later occurrences so attributes stay accessible.
+        if edges_df.columns.duplicated().any():
+            counts: dict = {}
+            new_cols = []
+            for c in edges_df.columns:
+                n = counts.get(c, 0) + 1
+                counts[c] = n
+                new_cols.append(c if n == 1 else f'__attr_{c}_{n}__')
+            edges_df.columns = new_cols
+            logger.warning(
+                'igraph edge attribute names collide with endpoint columns; '
+                'renamed duplicate columns to __attr_<name>_<n>__'
+            )
+
         if ig_index_to_node_id_df is not None:
             edges_df['source'] = edges_df[['source']].merge(
                 ig_index_to_node_id_df.rename(columns={'ig_index': 'source'}),
@@ -204,7 +237,7 @@ def from_igraph(self,
                 if len(g._edges) != len(edges_df):
                     logger.warning('edge tables do not match in length; switch merge_if_existing to False or load_edges to False or add missing edges')
                 g_edges_trimmed = g_indexed._edges[[x for x in g_indexed._edges if x not in edges_df or x == g_indexed._edge]]
-                edges_df = edges_df.merge(g_edges_trimmed, how='left', on=g_indexed._edge)
+                edges_df = edges_df.merge(ensure_pandas(g_edges_trimmed), how='left', on=g_indexed._edge)
 
             if g._edge is None:
                 edges_df = edges_df[[x for x in edges_df if x != g_indexed._edge]]
@@ -223,6 +256,9 @@ def to_igraph(
     use_vids: bool = False
 ) -> Any:
     """Convert current item to igraph Graph . See examples in from_igraph.
+
+    igraph is a CPU-only library. cuDF DataFrames are automatically converted to pandas before
+    being passed to igraph. For a GPU-native alternative, see :meth:`to_cugraph`.
 
     :param directed: Whether to create a directed graph (default True)
     :type directed: bool
@@ -253,12 +289,12 @@ def to_igraph(
     #igraph expects src/dst first
     edge_attrs = g._edges.columns if edge_attributes is None else edge_attributes
     edge_attrs = [x for x in edge_attrs if x not in [g._source, g._destination]]
-    edges_df = g._edges[[g._source, g._destination] + edge_attrs]
+    edges_df = ensure_pandas(g._edges[[g._source, g._destination] + edge_attrs])
 
     #igraph expects node first
     node_attrs = g._nodes if node_attributes is None else node_attributes
     node_attrs = [x for x in node_attrs if x != g._node]
-    nodes_df = g._nodes[[g._node] + node_attrs]
+    nodes_df = ensure_pandas(g._nodes[[g._node] + node_attrs])
     return igraph.Graph.DataFrame(
         edges_df, directed=directed, vertices=nodes_df, use_vids=use_vids
     )
@@ -310,6 +346,10 @@ def compute_igraph(
     stringify_rich_types=True
 ) -> Plottable:
     """Enrich or replace graph using igraph methods
+
+    igraph is a CPU-only library. cuDF DataFrames are automatically converted to pandas
+    before calling igraph, and the result is converted back. For a GPU-native alternative,
+    see :meth:`compute_cugraph`.
 
     :param alg: Name of an igraph.Graph method like `pagerank`
     :type alg: str
@@ -387,6 +427,9 @@ def compute_igraph(
     if out_col is None:
         out_col = alg
 
+    original_nodes = self._nodes
+    original_edges = self._edges
+
     try:
         ig = self.to_igraph(directed=True if directed is None else directed, use_vids=use_vids)
         out = getattr(ig, alg)(**params)
@@ -402,7 +445,7 @@ def compute_igraph(
     elif isinstance(out, igraph.clustering.VertexDendrogram):
         clustering = out.as_clustering().membership
     elif isinstance(out, igraph.Graph):
-        return from_igraph(self, out)
+        return restore_engine(from_igraph(self, out), original_nodes, original_edges)
     elif isinstance(out, list) and self._nodes is None:
         raise ValueError("No g._nodes table found; use .bind(), .nodes(), .materialize_nodes()")
     elif alg == 'articulation_points':
@@ -427,7 +470,7 @@ def compute_igraph(
 
     ig.vs[out_col] = clustering
 
-    return self.from_igraph(ig)
+    return restore_engine(self.from_igraph(ig), original_nodes, original_edges)
 
 
 layout_algs: List[str] = [
@@ -468,6 +511,10 @@ def layout_igraph(
     params: dict = {}
 ) -> Plottable:
     """Compute graph layout using igraph algorithm. For a list of layouts, see layout_algs or igraph documentation.
+
+    igraph is a CPU-only library. cuDF DataFrames are automatically converted to pandas
+    before calling igraph, and the result is converted back. For a GPU-native alternative,
+    see :meth:`layout_cugraph`.
 
     :param layout: Name of an igraph.Graph.layout method like `sugiyama`
     :type layout: str
@@ -529,6 +576,9 @@ def layout_igraph(
             g3.plot()
     """
 
+    original_nodes = self._nodes
+    original_edges = self._edges
+
     try:
         ig = self.to_igraph(directed=True if directed is None else directed, use_vids=use_vids)
         layout_df = pd.DataFrame([x for x in ig.layout(layout, **params)])
@@ -545,4 +595,4 @@ def layout_igraph(
         g2 = g2.bind(point_x=x_out_col, point_y=y_out_col)
     if play is not None:
         g2 = g2.layout_settings(play=play)
-    return g2
+    return restore_engine(g2, original_nodes, original_edges)

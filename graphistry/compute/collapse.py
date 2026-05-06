@@ -1,15 +1,21 @@
-from typing import Union, Optional, List
-import copy, logging, pandas as pd, numpy as np
+from typing import Union
+import copy
+import logging
+import pandas as pd
+import numpy as np
 
 from graphistry.PlotterBase import Plottable
+from .util import generate_safe_column_name
 
 logger = logging.getLogger(__name__)
 # Handler configuration removed - let users control their own logging setup
 # Use graphistry.util.setup_logger() if needed for consistent configuration
 
-COLLAPSE_NODE = "node_collapse"
-COLLAPSE_SRC = "src_collapse"
-COLLAPSE_DST = "dst_collapse"
+# Default base names for internal collapse columns
+# Actual names are generated dynamically to avoid conflicts with user data
+_COLLAPSE_NODE_BASE = "node_collapse"
+_COLLAPSE_SRC_BASE = "src_collapse"
+_COLLAPSE_DST_BASE = "dst_collapse"
 FINAL_NODE = 'node_final'
 FINAL_SRC = 'src_final'
 FINAL_DST = 'dst_final'
@@ -131,27 +137,29 @@ def get_edges_in_out_cluster(
     return None, None, None
 
 
-def get_cluster_store_keys(ndf: pd.DataFrame, node: Union[str, int]):
+def get_cluster_store_keys(ndf: pd.DataFrame, node: Union[str, int], collapse_node_col: str):
     """Main innovation in finding and adding to super node. Checks if node is a segment in any collapse_node in COLLAPSE column of nodes DataFrame
 
     :param ndf: node DataFrame
     :param node: node to find
+    :param collapse_node_col: the collapse node column name
 
     :returns: DataFrame of bools of where `wrap_key(node)` exists in COLLAPSE column
     """
     node = wrap_key(node)
-    return ndf[COLLAPSE_NODE].astype(str).str.contains(node, na=False)
+    return ndf[collapse_node_col].astype(str).str.contains(node, na=False)
 
 
-def in_cluster_store_keys(ndf: pd.DataFrame, node: Union[str, int]) -> bool:
+def in_cluster_store_keys(ndf: pd.DataFrame, node: Union[str, int], collapse_node_col: str) -> bool:
     """checks if node is in collapse_node in COLLAPSE column of nodes DataFrame
 
     :param ndf: nodes DataFrame
     :param node: node to find
+    :param collapse_node_col: the collapse node column name
 
     :returns: bool
     """
-    return any(get_cluster_store_keys(ndf, node))
+    return any(get_cluster_store_keys(ndf, node, collapse_node_col))
 
 
 def reduce_key(key: Union[str, int]) -> str:
@@ -189,7 +197,7 @@ def wrap_key(name: Union[str, int]) -> str:
     return f"{WRAP}{name}{WRAP}"
 
 
-def melt(ndf: pd.DataFrame, node: Union[str, int]) -> str:
+def melt(ndf: pd.DataFrame, node: Union[str, int], collapse_node_col: str) -> str:
     """Reduces node if in cluster store, otherwise passes it through.
     ex:
 
@@ -198,22 +206,23 @@ def melt(ndf: pd.DataFrame, node: Union[str, int]) -> str:
 
     :param ndf, node DataFrame
     :param node: node to melt
+    :param collapse_node_col: the collapse node column name
     :returns new_parent_name of super node
 
     """
-    rdf = ndf[get_cluster_store_keys(ndf, node)]
+    rdf = ndf[get_cluster_store_keys(ndf, node, collapse_node_col)]
     topkey = wrap_key(node)
     if not rdf.empty:
-        for key in rdf[COLLAPSE_NODE].values:  # all these are already wrapped
+        for key in rdf[collapse_node_col].values:  # all these are already wrapped
             # add the keys to cluster
             topkey += f" {key}"  # keep whitespace
         topkey = reduce_key(topkey)
     return topkey
 
-def check_has_set(ndf, parent, child):
+def check_has_set(ndf, parent, child, collapse_node_col: str):
 
-    ckey = in_cluster_store_keys(ndf, child)
-    pkey = in_cluster_store_keys(ndf, parent)
+    ckey = in_cluster_store_keys(ndf, child, collapse_node_col)
+    pkey = in_cluster_store_keys(ndf, parent, collapse_node_col)
 
     if ckey and pkey:
         return True
@@ -221,27 +230,28 @@ def check_has_set(ndf, parent, child):
 
 
 def get_new_node_name(
-    ndf: pd.DataFrame, parent: Union[str, int], child: Union[str, int]
+    ndf: pd.DataFrame, parent: Union[str, int], child: Union[str, int], collapse_node_col: str
 ) -> str:
     """If child in cluster group, melts name, else makes new parent_name from parent, child
 
     :param ndf: node DataFrame
     :param parent: `node` with `attribute` in `column`
     :param child: `node` with `attribute` in `column`
+    :param collapse_node_col: the collapse node column name
 
     :returns new_parent_name
     """
     # THIS IS IMPORTANT FUNCTION -- it is where we wrap the parent/child in WRAP
     # if child in cluster group, we melt it
-    ckey = in_cluster_store_keys(ndf, child)
-    pkey = in_cluster_store_keys(ndf, parent)
+    ckey = in_cluster_store_keys(ndf, child, collapse_node_col)
+    pkey = in_cluster_store_keys(ndf, parent, collapse_node_col)
     # new_parent_name = wrap_key(parent)
     if ckey and pkey:
-        new_parent_name = melt(ndf, child)
+        new_parent_name = melt(ndf, child, collapse_node_col)
         new_parent_name = f"{new_parent_name} {wrap_key(parent)}"
 
     else:  # if not, then append child to parent as the start of a new cluster group
-        new_parent_name = melt(ndf, parent)
+        new_parent_name = melt(ndf, parent, collapse_node_col)
         new_parent_name = f"{new_parent_name} {wrap_key(child)}"
     if VERBOSE:
         logger.info(
@@ -269,8 +279,18 @@ def collapse_nodes_and_edges(
     """
 
     ndf, edf, src, dst, node = unpack(g)
-    
-    new_parent_name = get_new_node_name(ndf, parent, child)
+
+    # Get dynamically generated column names from graph object
+    COLLAPSE_NODE = g._collapse_node_col
+    COLLAPSE_SRC = g._collapse_src_col
+    COLLAPSE_DST = g._collapse_dst_col
+
+    # These should never be None if check_default_columns_present_and_coerce_to_string() was called
+    assert COLLAPSE_NODE is not None, "Collapse columns must be initialized"
+    assert COLLAPSE_SRC is not None, "Collapse columns must be initialized"
+    assert COLLAPSE_DST is not None, "Collapse columns must be initialized"
+
+    new_parent_name = get_new_node_name(ndf, parent, child, COLLAPSE_NODE)
 
     ndf.loc[ndf[node] == parent, COLLAPSE_NODE] = new_parent_name
     ndf.loc[ndf[node] == child, COLLAPSE_NODE] = new_parent_name
@@ -303,11 +323,29 @@ def has_property(
 
 def check_default_columns_present_and_coerce_to_string(g: Plottable):
     """Helper to set COLLAPSE columns to nodes and edges dataframe, while converting src, dst, node to dtype(str)
+
+    Generates unique internal column names to avoid conflicts with user data.
+    Stores the generated names as attributes on the graph object:
+    - g._collapse_node_col
+    - g._collapse_src_col
+    - g._collapse_dst_col
+
     :param g: graphistry instance
 
     :returns: graphistry instance
     """
     ndf, edf, src, dst, node = unpack(g)
+
+    # Generate guaranteed unique internal column names to avoid conflicts with user data
+    COLLAPSE_NODE = generate_safe_column_name(_COLLAPSE_NODE_BASE, ndf)
+    COLLAPSE_SRC = generate_safe_column_name(_COLLAPSE_SRC_BASE, edf)
+    COLLAPSE_DST = generate_safe_column_name(_COLLAPSE_DST_BASE, edf)
+
+    # Store the generated column names on the graph object
+    g._collapse_node_col = COLLAPSE_NODE
+    g._collapse_src_col = COLLAPSE_SRC
+    g._collapse_dst_col = COLLAPSE_DST
+
     if COLLAPSE_NODE not in ndf.columns:
         ndf[COLLAPSE_NODE] = DEFAULT_VAL
         ndf[node] = ndf[node].astype(str)
@@ -416,6 +454,16 @@ def normalize_graph(
 
     ndf, edf, src, dst, node = unpack(g)
 
+    # Get dynamically generated column names from graph object
+    COLLAPSE_NODE = g._collapse_node_col
+    COLLAPSE_SRC = g._collapse_src_col
+    COLLAPSE_DST = g._collapse_dst_col
+
+    # These should never be None if check_default_columns_present_and_coerce_to_string() was called
+    assert COLLAPSE_NODE is not None, "Collapse columns must be initialized"
+    assert COLLAPSE_SRC is not None, "Collapse columns must be initialized"
+    assert COLLAPSE_DST is not None, "Collapse columns must be initialized"
+
     # we set src and COLLAPSE to FINAL so that we can run algo idempotently and in chain without having to know new node ids
     # move the new node names from COLLAPSE COL to the FINAL COLS
     ndf.loc[ndf[COLLAPSE_NODE] != DEFAULT_VAL, FINAL_NODE] = ndf.loc[
@@ -441,7 +489,7 @@ def normalize_graph(
     edf.loc[edf[COLLAPSE_DST] == DEFAULT_VAL, FINAL_DST] = edf.loc[
         edf[COLLAPSE_DST] == DEFAULT_VAL, dst
     ]
-    
+
     if not self_edges:
         edf = edf.drop_duplicates()
 

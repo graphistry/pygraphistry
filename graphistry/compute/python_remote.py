@@ -8,8 +8,10 @@ import ast
 import pandas as pd
 import requests
 
+from graphistry.Engine import Engine, EngineAbstractType, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.models.compute.chain_remote import FormatType, OutputTypeAll, OutputTypeDf
+from graphistry.otel import inject_trace_headers
 
 
 def validate_python_str(code: str) -> bool:
@@ -38,7 +40,7 @@ def python_remote_generic(
     dataset_id: Optional[str] = None,
     format: Optional[FormatType] = 'json',
     output_type: Optional[OutputTypeAll] = 'json',
-    engine: Literal["pandas", "cudf"] = "cudf",
+    engine: EngineAbstractType = 'auto',
     run_label: Optional[str] = None,
     validate: bool = True
 ) -> Union[Plottable, pd.DataFrame, Any]:
@@ -61,8 +63,8 @@ def python_remote_generic(
     :param output_type: What shape of output to fetch. Defaults to 'json'. Options include 'nodes', 'edges', 'all' (both), 'table', 'shape', and 'json'.
     :type output_type: Optional[OutputTypeAll]
 
-    :param engine: Override which run mode GFQL uses. Defaults to "cudf".
-    :type engine: Literal["pandas", "cudf]
+    :param engine: Override which run mode GFQL uses. Defaults to 'auto' which auto-detects based on DataFrame type. Also accepts 'pandas' or 'cudf'.
+    :type engine: EngineAbstractType
 
     :param run_label: Optional label for the run for serverside job tracking.
     :type run_label: Optional[str]
@@ -123,7 +125,13 @@ def python_remote_generic(
     
     assert format in ["json", "csv", "parquet"], f"format should be 'json', 'csv', or 'parquet', got: {format}"
 
-    assert engine in ["pandas", "cudf"], f"engine should be 'pandas' or 'cudf', got: {engine}"
+    # Resolve engine: auto -> pandas/cudf based on graph DataFrame type
+    engine_resolved = resolve_engine(engine, self)
+    if engine_resolved not in [Engine.PANDAS, Engine.CUDF]:
+        raise ValueError(f"Remote Python execution only supports 'pandas' or 'cudf' engines (or 'auto' which resolves to one of them). "
+                       f"Got engine='{engine}' which resolved to '{engine_resolved.value}'. "
+                       f"Dask engines are not supported for remote execution.")
+    engine_str = engine_resolved.value
 
     # TODO remove auto-indent when server updated
     # workaround parsing bug by indenting each line by 4 spaces
@@ -131,7 +139,7 @@ def python_remote_generic(
 
     request_body = {
         "execute": code_indented,
-        "engine": engine,
+        "engine": engine_str,
         **({"run_label": run_label} if run_label else {}),
         **({'format': format} if format != 'json' else {}),
         **({'output_type': output_type} if output_type is not None and output_type != 'json' else {})
@@ -144,10 +152,25 @@ def python_remote_generic(
         "Authorization": f"Bearer {api_token}",
         "Content-Type": "application/json",
     }
+    headers = inject_trace_headers(headers)
 
     response = requests.post(url, headers=headers, json=request_body, verify=self.session.certificate_validation)
 
-    response.raise_for_status()
+    # Enhanced error handling for GFQL validation errors
+    if not response.ok:
+        try:
+            # Try to parse JSON error response for more details
+            if response.headers.get('content-type', '').startswith('application/json'):
+                error_data = response.json()
+                error_msg = error_data.get('error', str(error_data))
+                raise ValueError(f"GFQL remote operation failed: {error_msg} (HTTP {response.status_code})")
+        except ValueError:
+            # Re-raise ValueError (which includes our custom message)
+            raise
+        except Exception:
+            # Fall back to default error handling for other JSON parsing errors
+            pass
+        response.raise_for_status()
 
     if self._edges is None or isinstance(self._edges, pd.DataFrame):
         df_cons = pd.DataFrame
@@ -172,24 +195,43 @@ def python_remote_generic(
             raise ValueError(f"Unknown format, expected json/csv/parquet, got: {format}")
     elif output_type == "all" and format in ["csv", "parquet"]:
         zip_buffer = BytesIO(response.content)
-        with zipfile.ZipFile(zip_buffer, "r") as zip_ref:
-            nodes_file = [f for f in zip_ref.namelist() if "nodes" in f][0]
-            edges_file = [f for f in zip_ref.namelist() if "edges" in f][0]
+        try:
+            with zipfile.ZipFile(zip_buffer, "r") as zip_ref:
+                nodes_file = [f for f in zip_ref.namelist() if "nodes" in f][0]
+                edges_file = [f for f in zip_ref.namelist() if "edges" in f][0]
 
-            nodes_data = zip_ref.read(nodes_file)
-            edges_data = zip_ref.read(edges_file)
+                nodes_data = zip_ref.read(nodes_file)
+                edges_data = zip_ref.read(edges_file)
 
-            if len(nodes_data) > 0:
-                nodes_df = read_parquet(BytesIO(nodes_data)) if format == "parquet" else read_csv(BytesIO(nodes_data))
-            else:
-                nodes_df = df_cons()
+                if len(nodes_data) > 0:
+                    nodes_df = read_parquet(BytesIO(nodes_data)) if format == "parquet" else read_csv(BytesIO(nodes_data))
+                else:
+                    nodes_df = df_cons()
 
-            if len(edges_data) > 0:
-                edges_df = read_parquet(BytesIO(edges_data)) if format == "parquet" else read_csv(BytesIO(edges_data))
-            else:
-                edges_df = df_cons()
+                if len(edges_data) > 0:
+                    edges_df = read_parquet(BytesIO(edges_data)) if format == "parquet" else read_csv(BytesIO(edges_data))
+                else:
+                    edges_df = df_cons()
 
-            return self.edges(edges_df).nodes(nodes_df)
+                return self.edges(edges_df).nodes(nodes_df)
+        except zipfile.BadZipFile as e:
+            # Handle case where response is not a zip file (e.g., error response)
+            try:
+                # Try to parse as JSON error response
+                if response.headers.get('content-type', '').startswith('application/json'):
+                    error_data = response.json()
+                    error_msg = error_data.get('error', str(error_data))
+                    raise ValueError(f"GFQL remote operation failed: {error_msg} (Expected zip file but got JSON error)")
+                else:
+                    # Try to decode as text for better error context
+                    try:
+                        error_text = response.content.decode('utf-8')[:500]  # First 500 chars
+                        raise ValueError(f"GFQL remote operation failed: Expected zip file but received: {error_text}")
+                    except UnicodeDecodeError:
+                        raise ValueError(f"GFQL remote operation failed: Expected zip file but received invalid data (HTTP {response.status_code})")
+            except Exception:
+                # Fallback: re-raise original BadZipFile with more context
+                raise ValueError(f"GFQL remote operation failed: {str(e)} - Response may be an error message instead of expected zip file")
     elif output_type in ["nodes", "edges", "table"] and format in ["csv", "parquet"]:
         data = BytesIO(response.content)
         if len(response.content) > 0:
@@ -237,7 +279,7 @@ def python_remote_g(
     dataset_id: Optional[str] = None,
     format: Optional[FormatType] = 'parquet',
     output_type: Optional[OutputTypeAll] = 'all',
-    engine: Literal["pandas", "cudf"] = "cudf",
+    engine: EngineAbstractType = 'auto',
     run_label: Optional[str] = None,
     validate: bool = True
 ) -> Plottable:
@@ -260,8 +302,8 @@ def python_remote_g(
     :param output_type: What shape of output to fetch. Defaults to 'all'. Options include 'nodes', 'edges', 'all' (both). For other variants, see python_remote_shape and python_remote_json.
     :type output_type: Optional[OutputTypeGraph]
 
-    :param engine: Override which run mode GFQL uses. Defaults to "cudf".
-    :type engine: Literal["pandas", "cudf]
+    :param engine: Override which run mode GFQL uses. Defaults to 'auto' which auto-detects based on DataFrame type. Also accepts 'pandas' or 'cudf'.
+    :type engine: EngineAbstractType
 
     :param run_label: Optional label for the run for serverside job tracking.
     :type run_label: Optional[str]
@@ -318,7 +360,7 @@ def python_remote_table(
     dataset_id: Optional[str] = None,
     format: Optional[FormatType] = 'parquet',
     output_type: Optional[OutputTypeDf] = 'table',
-    engine: Literal["pandas", "cudf"] = "cudf",
+    engine: EngineAbstractType = 'auto',
     run_label: Optional[str] = None,
     validate: bool = True
 ) -> pd.DataFrame:
@@ -341,8 +383,8 @@ def python_remote_table(
     :param output_type: What shape of output to fetch. Defaults to 'table'. Options include 'table', 'nodes', and 'edges'.
     :type output_type: Optional[OutputTypeGraph]
 
-    :param engine: Override which run mode GFQL uses. Defaults to "cudf".
-    :type engine: Literal["pandas", "cudf]
+    :param engine: Override which run mode GFQL uses. Defaults to 'auto' which auto-detects based on DataFrame type. Also accepts 'pandas' or 'cudf'.
+    :type engine: EngineAbstractType
 
     :param run_label: Optional label for the run for serverside job tracking.
     :type run_label: Optional[str]
@@ -396,7 +438,7 @@ def python_remote_json(
     code: Union[str, Callable[..., object]],
     api_token: Optional[str] = None,
     dataset_id: Optional[str] = None,
-    engine: Literal["pandas", "cudf"] = "cudf",
+    engine: EngineAbstractType = 'auto',
     run_label: Optional[str] = None,
     validate: bool = True
 ) -> Any:
@@ -413,8 +455,8 @@ def python_remote_json(
     :param dataset_id: Optional dataset_id. If not provided, will fallback to self._dataset_id. If not defined, will upload current data, store that dataset_id, and run code against that.
     :type dataset_id: Optional[str]
 
-    :param engine: Override which run mode GFQL uses. Defaults to "cudf".
-    :type engine: Literal["pandas", "cudf]
+    :param engine: Override which run mode GFQL uses. Defaults to 'auto' which auto-detects based on DataFrame type. Also accepts 'pandas' or 'cudf'.
+    :type engine: EngineAbstractType
 
     :param run_label: Optional label for the run for serverside job tracking.
     :type run_label: Optional[str]

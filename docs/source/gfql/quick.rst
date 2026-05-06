@@ -3,21 +3,76 @@
 GFQL Quick Reference
 ====================
 
-This quick reference page provides short examples of various parameters and usage patterns.
+GFQL is the first fully vectorized dataframe-native graph query language with
+an open-source GPU runtime. This quick reference page provides short examples
+of various parameters and usage patterns.
+
+If you are new to Cypher: Cypher is a graph query language popularized by
+Neo4j and related tools. It uses ASCII-art graph patterns such as
+``(n1)-[e1]->(n2)`` to describe node-edge-node traversals, so GFQL docs use
+that notation as a familiar shorthand when discussing Cypher syntax through
+``g.gfql("MATCH ...")``.
 
 Basic Usage
 -----------
 
 **Chaining Operations**
 
+.. doc-test: skip
+
 .. code-block:: python
 
-    g.gfql(ops=[...], engine=EngineAbstract.AUTO)
+    g.gfql([...], engine=EngineAbstract.AUTO)
 
 :meth:`gfql <graphistry.compute.gfql>` sequences multiple matchers for more complex patterns of paths and subgraphs
 
-- **ops**: Sequence of graph node and edge matchers (:class:`ASTObject <graphistry.compute.ast.ASTObject>` instances).
+- **query**: Sequence of graph node/edge matchers and optional row-pipeline call steps (for example, `rows()`, `where_rows()`, `return_()`, `order_by()`, `limit()`), or an equivalent GFQL chain object.
 - **engine**: Optional execution engine. Engine is typically not set, defaulting to `'auto'`. Use `'cudf'` for GPU acceleration and `'pandas'` for CPU.
+
+Use this page as a quick MATCH/chain reference.
+For row-pipeline RETURN semantics, see :doc:`return`.
+
+Choose The Right Entrypoint
+---------------------------
+
+- Use `g.gfql([...])` for native GFQL operators and `g.gfql("MATCH ...")` for Cypher syntax on the current graph.
+- Use `g.gfql_remote([...])` for remote GFQL when the dataset size or hardware profile calls for remote execution, including remote GPU execution. See :ref:`gfql-remote`.
+
+.. warning::
+   `graphistry.cypher("...")` and `g.cypher("...")` are a separate remote database Cypher path
+   (for example, Neo4j/Neptune integrations), not the GFQL execution surface summarized on this page.
+
+Graph State Vs Row State
+------------------------
+
+- **Graph state** keeps a traversable graph in `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, `let()` / `ref()` graph DAG stages, local Cypher `CALL graphistry.*.write()` queries, and local Cypher `GRAPH { MATCH ... }` constructors stay in graph state. (`GRAPH { }` is a GFQL extension — see :doc:`cypher` for details.)
+- **Row state** stores tabular results in `_nodes` and uses an empty placeholder `_edges` frame. Row-pipeline steps such as `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning local Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
+- A bare local Cypher procedure call without `.write()` also moves into row state. For example, `CALL graphistry.degree()` projects its default output columns into `_nodes` and clears `_edges`.
+- If you want to enrich a graph and keep matching locally, use a graph-preserving `call()` / `let()` pattern or a bare local Cypher `CALL graphistry.*.write()`. The local Cypher compiler currently supports `graphistry.degree.write()` plus `graphistry.igraph.<alg>.write()` and `graphistry.cugraph.<alg>.write()` for algorithms exposed through `compute_igraph()` / `compute_cugraph()`, along with the smaller compatibility subset `graphistry.nx.pagerank.write()`, `graphistry.nx.betweenness_centrality.write()`, `graphistry.nx.edge_betweenness_centrality.write()`, and `graphistry.nx.k_core.write()`.
+
+Cypher Strings Through ``g.gfql()``
+-----------------------------------
+
+Use ``g.gfql("MATCH ...")`` when you want Cypher syntax and declarative graph
+semantics on a bound graph instead of writing the equivalent GFQL chain by
+hand:
+
+.. doc-test: xfail
+
+.. code-block:: python
+
+    result = g.gfql(
+        "MATCH (n1:Person)-[e1:FOLLOWS]->(n2:Person) "
+        "RETURN n1.name AS source_name, n2.name AS target_name "
+        "ORDER BY source_name, target_name "
+        "LIMIT $top_n",
+        params={"top_n": 5},
+    )
+
+    result._nodes
+
+For the dedicated guide, helper APIs, and direct-vs-translation guidance, see
+:doc:`cypher`.
 
 Node Matchers
 -------------
@@ -61,12 +116,12 @@ Edge Matchers
 
 .. code-block:: python
 
-  e_forward(edge_match=None, hops=1, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
-  e_reverse(edge_match=None, hops=1, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
-  e_undirected(edge_match=None, hops=1, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
+  e_forward(edge_match=None, hops=1, min_hops=None, max_hops=None, output_min_hops=None, output_max_hops=None, label_node_hops=None, label_edge_hops=None, label_seeds=False, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
+  e_reverse(edge_match=None, hops=1, min_hops=None, max_hops=None, output_min_hops=None, output_max_hops=None, label_node_hops=None, label_edge_hops=None, label_seeds=False, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
+  e_undirected(edge_match=None, hops=1, min_hops=None, max_hops=None, output_min_hops=None, output_max_hops=None, label_node_hops=None, label_edge_hops=None, label_seeds=False, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
   
   # alias for e_undirected
-  e(edge_match=None, hops=1, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
+  e(edge_match=None, hops=1, min_hops=None, max_hops=None, output_min_hops=None, output_max_hops=None, label_node_hops=None, label_edge_hops=None, label_seeds=False, to_fixed_point=False, source_node_match=None, destination_node_match=None, source_node_query=None, destination_node_query=None, edge_query=None, name=None)
 
 :meth:`e <graphistry.compute.ast.e>` matches edges based on their attributes (undirected). May also include matching on edge's source and destination nodes.
 
@@ -77,6 +132,9 @@ Edge Matchers
   - `edge_match`: `{attribute: value}` or `{attribute: condition_function}`
   - `edge_query`: Custom query string for edge attributes.
   - `hops`: `int`, number of hops to traverse.
+  - `min_hops`/`max_hops`: Inclusive traversal bounds (min defaults to 1 unless max_hops is 0; max defaults to `hops`).
+  - `output_min_hops`/`output_max_hops`: Optional post-filter slice; defaults keep all traversed hops up to `max_hops`.
+  - `label_node_hops`/`label_edge_hops`: Optional column names for hop numbers; `label_seeds=True` adds hop 0 for seeds.
   - `to_fixed_point`: `bool`, continue traversal until no more matches.
   - `source_node_match`: Filter for source nodes.
   - `destination_node_match`: Filter for destination nodes.
@@ -86,11 +144,23 @@ Edge Matchers
 
 **Examples:**
 
-- Traverse 2 hops forward on edges where `status` is `'active'`:
+- Traverse up to 2 hops forward on edges where `status` is `'active'`:
 
   .. code-block:: python
 
       e_forward({"status": "active"}, hops=2)
+
+- Traverse 2..4 hops but show only hops 3..4 with labels:
+
+  .. code-block:: python
+
+      e_forward(
+          {"status": "active"},
+          min_hops=2,
+          max_hops=4,
+          output_min_hops=3,
+          label_edge_hops="edge_hop"
+      )
 
 - Use custom edge query strings:
 
@@ -146,8 +216,122 @@ See :doc:`predicates/quick` for more information.
 
       n({"category": is_in(["A", "B", "C"])})
 
+Where (Same-Path Constraints)
+-----------------------------
+
+Use `where` to relate attributes across named steps in a chain.
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, col, compare
+
+    g.gfql(
+        [
+            n({"type": "account"}, name="a"),
+            e_forward(name="e"),
+            n({"type": "user"}, name="c"),
+        ],
+        where=[
+            compare(col("a", "owner_id"), "==", col("c", "owner_id")),
+            compare(col("e", "org_id"), "==", col("a", "org_id")),
+        ],
+    )
+
+`compare()` can relate node and edge columns when the column types align.
+Supported `compare(..., op, ...)` operators: `==`, `!=`, `<`, `<=`, `>`, `>=`.
+WHERE works with `g.gfql([...], where=[...])`; `Chain(..., where=[...])` is the
+equivalent explicit form.
+Multiple WHERE comparisons are ANDed.
+
+Row Pipelines (`MATCH ... RETURN` style)
+----------------------------------------
+
+Use row-pipeline operators to move from pattern matching to tabular Cypher-like
+`RETURN` processing.
+
+.. code-block:: python
+
+    from graphistry import n, e_forward, gt
+    from graphistry.compute import rows, where_rows, return_, order_by, limit
+
+    top_people = g.gfql([
+        n({"type": "Person"}),
+        e_forward({"type": "FOLLOWS"}),
+        n({"type": "Person", "score": gt(10)}, name="p"),
+        rows(table="nodes", source="p"),
+        where_rows(expr="score >= 50 AND name STARTS WITH 'A'"),
+        return_(["id", "name", ("score_bucket", "score / 10")]),
+        order_by([("score_bucket", "desc"), ("name", "asc")]),
+        limit(25),
+    ])
+
+    top_people._nodes
+
+Notes:
+
+- `rows(table="nodes" or table="edges", source="alias")` picks the active row table.
+  `source` must be an alias introduced earlier via `name="..."` on a matcher.
+  In the example above, `source="p"` refers to `n(..., name="p")`, so only
+  rows matched by alias `p` are used.
+- Edge example: `e_forward(..., name="e")` followed by
+  `rows(table="edges", source="e")` scopes rows to edges matched as `e`.
+- If `source` is omitted (for example, `rows(table="nodes")`), the full active
+  nodes/edges table is used.
+- `return_(["col"])` is shorthand for `return_([("col", "col")])`.
+- `with_(...)` and `select(...)` share projection semantics with `return_(...)`:
+
+  .. code-block:: python
+
+      from graphistry.compute import rows, with_, select, return_
+
+      # Equivalent projections
+      rows(table="nodes", source="p")
+      return_(["id", ("score2", "score * 2")])
+      with_(["id", ("score2", "score * 2")])
+      select([("id", "id"), ("score2", "score * 2")])
+
+  `return_(["id"])`, `with_(["id"])`, and `select([("id", "id")])` all project
+  the same `id` column.
+- `where_rows()` evaluates row expressions and filter dictionaries in a
+  vectorized dataframe execution path (pandas/cuDF engines).
+- In `where_rows(expr="...")`, supported comparison operators are
+  `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`.
+
 Combined Examples
 -----------------
+
+- **MATCH with same-path WHERE constraints:**
+
+  .. code-block:: python
+
+      from graphistry import n, e_forward, col, compare
+
+      g.gfql(
+          [
+              n({"type": "account"}, name="a"),
+              e_forward({"status": "active"}, name="e"),
+              n({"type": "user"}, name="u"),
+          ],
+          where=[compare(col("a", "org_id"), "==", col("u", "org_id"))],
+      )
+
+- **MATCH then RETURN (row pipeline):**
+
+  .. code-block:: python
+
+      from graphistry import n, e_forward, gt
+      from graphistry.compute import rows, where_rows, return_, order_by, limit
+
+      g.gfql([
+          n({"type": "Person"}),
+          e_forward({"type": "FOLLOWS"}),
+          n({"type": "Person", "score": gt(0)}, name="p"),
+          rows(table="nodes", source="p"),
+          where_rows(expr="score >= 50"),
+          return_(["id", "name", "score"]),
+          order_by([("score", "desc"), ("name", "asc")]),
+          limit(10),
+      ])
 
 - **Find people connected to transactions via active relationships:**
 
@@ -324,22 +508,21 @@ Remote Mode
 Let Bindings and DAG Patterns
 -----------------------------
 
-Use Let bindings to create directed acyclic graph (DAG) patterns with named operations:
+Use Let bindings to create directed acyclic graph (DAG) patterns with named operations. Lists are treated as implicit Chains.
 
 - **Basic Let with named bindings:**
 
   .. code-block:: python
 
-      from graphistry import let, ref, Chain
+      from graphistry import let, ref, n, e_forward, gt
 
-      # Note: Currently, Let bindings must be Chain/Plottable objects, not bare matchers
-      # This will be improved in a future release
       result = g.gfql(let({
-          'suspects': Chain([n({'risk_score': gt(80)})]),
-          'connections': ref('suspects', [
+          'suspects': n({'risk_score': gt(80)}),
+          'connections': [
+              n({'risk_score': gt(80)}),
               e_forward({'type': 'transaction'}),
               n()
-          ])
+          ]
       }))
 
       # Access results by name
@@ -350,14 +533,15 @@ Use Let bindings to create directed acyclic graph (DAG) patterns with named oper
 
   .. code-block:: python
 
-      from graphistry import Chain
+      from graphistry import let, ref, n, e_forward, gt
 
       result = g.gfql(let({
-          'high_value': Chain([n({'balance': gt(100000)})]),
-          'large_transfers': ref('high_value', [
+          'high_value': n({'balance': gt(100000)}),
+          'large_transfers': [
+              n({'balance': gt(100000)}),
               e_forward({'type': 'transfer', 'amount': gt(10000)}),
               n()
-          ]),
+          ],
           'suspicious': ref('large_transfers', [
               n({'created_recent': True, 'verified': False})
           ])
@@ -372,25 +556,51 @@ Run graph algorithms like PageRank, community detection, and layouts directly wi
 
   .. code-block:: python
 
-      from graphistry import call
+      from graphistry import call, let, ref, n, e
 
-      result = g.gfql([
-          n({'type': 'person'}),
-          call('compute_cugraph', {'alg': 'pagerank', 'damping': 0.85})
-      ])
+      # Use let() to compose filter + enrichment
+      result = g.gfql(let({
+          'persons': [n({'type': 'person'}), e(), n()],
+          'ranked': ref('persons', [call('compute_cugraph', {'alg': 'pagerank', 'damping': 0.85})])
+      }))
 
       # Results have pagerank column
       top_nodes = result._nodes.sort_values('pagerank', ascending=False).head(10)
+
+- **Enrich a graph, then keep matching:**
+
+  .. code-block:: python
+
+      g_enriched = g.gfql("CALL graphistry.degree.write()")
+      assert not g_enriched._edges.empty
+      top_degree = g_enriched.gfql(
+          "MATCH (n) WHERE n.degree >= 2 RETURN n.id AS id, n.degree AS degree ORDER BY degree DESC LIMIT 10"
+      )
+
+  Local note: a bare `g.gfql("CALL graphistry.*.write()")` stays in graph state and can feed later `MATCH` queries.
+  `g.gfql("CALL ... YIELD ... RETURN ...")` still targets row-returning procedure flows.
+
+- **Return procedure rows instead of an enriched graph:**
+
+  .. code-block:: python
+
+      degree_rows = g.gfql("CALL graphistry.degree()")
+      assert degree_rows._edges.empty
+
+      # Row state: _nodes has nodeId/degree columns and _edges is empty
+      degree_rows._nodes
 
 - **Community detection with Louvain:**
 
   .. code-block:: python
 
-      result = g.gfql([
-          n({'active': True}),
-          e_forward(to_fixed_point=True),
-          call('compute_cugraph', {'alg': 'louvain'})
-      ])
+      from graphistry import call, let, ref, n, e_forward
+
+      # Use let() to compose traversal + community detection
+      result = g.gfql(let({
+          'reachable': [n({'active': True}), e_forward(to_fixed_point=True), n()],
+          'communities': ref('reachable', [call('compute_cugraph', {'alg': 'louvain'})])
+      }))
 
       # Results have community column
       communities = result._nodes.groupby('community').size()
@@ -399,8 +609,11 @@ Run graph algorithms like PageRank, community detection, and layouts directly wi
 
   .. code-block:: python
 
+      from graphistry import call, let, ref, n, e, gt
+
+      # Split mixed chain into separate bindings
       result = g.gfql(let({
-          'suspects': n({'flagged': True}),
+          'suspects': [n({'flagged': True}), e(), n()],
           'ranked': ref('suspects', [
               call('compute_cugraph', {'alg': 'pagerank'})
           ]),
@@ -413,15 +626,19 @@ Run graph algorithms like PageRank, community detection, and layouts directly wi
 
   .. code-block:: python
 
-      # ForceAtlas2 layout
-      result = g.gfql([
-          n({'type': is_in(['person', 'company'])}),
-          e_forward(),
-          call('fa2_layout', {'iterations': 100})
-      ])
+      from graphistry import call, let, ref, n, e_forward, is_in
+
+      # Use let() to compose traversal + layout
+      result = g.gfql(let({
+          'entities': [n({'type': is_in(['person', 'company'])}), e_forward(), n()],
+          'positioned': ref('entities', [call('fa2_layout', {'iterations': 100})])
+      }))
 
       # Results have x, y coordinates for visualization
       result.plot()
+
+Tip: For subset-based coloring after GFQL, use ``result.collections(...)`` and see
+:doc:`/visualization/layout/settings`.
 
 Remote Graph References
 -----------------------
@@ -432,7 +649,7 @@ Reference graphs on remote servers for distributed computing:
 
   .. code-block:: python
 
-      from graphistry import remote
+      from graphistry.compute import remote
 
       result = g.gfql([
           remote(dataset_id='fraud-network-2024'),
@@ -444,12 +661,15 @@ Reference graphs on remote servers for distributed computing:
 
   .. code-block:: python
 
+      from graphistry.compute import remote
+
       result = g.gfql(let({
           'remote_data': remote(dataset_id='historical-2023'),
           'high_risk': ref('remote_data', [
               n({'risk_score': gt(95)})
           ]),
-          'connections': ref('high_risk', [
+          'connections': ref('remote_data', [
+              n({'risk_score': gt(95)}),
               e_forward({'type': 'transaction'}),
               n()
           ])
@@ -499,7 +719,7 @@ Parameter Summary
 
   - `filter_dict`: Attribute filters (e.g., `{"status": "active"}`)
   - `query`: Custom query string (e.g., `"age > 30"`)
-  - `hops`: Number of steps to traverse (`int`, default `1`)
+  - `hops`: Max hops to traverse (shorthand for `max_hops`, default `1`)
   - `to_fixed_point`: Continue traversal until no more matches (`bool`, default `False`)
   - `name`: Label for matchers (`str`)
   - `source_node_match`, `destination_node_match`: Filters for connected nodes
@@ -568,4 +788,3 @@ Examples at a Glance
           e_forward(edge_query="interaction == 'message'"),
           n(query="location == 'NYC'")
       ])
-

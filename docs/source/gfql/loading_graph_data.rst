@@ -96,6 +96,8 @@ For larger datasets, Parquet files offer better performance:
 JSON Files
 ~~~~~~~~~~
 
+.. doc-test: skip
+
 .. code-block:: python
 
     import json
@@ -171,6 +173,8 @@ NoSQL Databases
 
 Graph Database Export
 ~~~~~~~~~~~~~~~~~~~~~
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -250,6 +254,8 @@ Type Conversion
 
 Ensure proper data types for optimal performance:
 
+.. doc-test: skip
+
 .. code-block:: python
 
     # Convert types
@@ -264,6 +270,8 @@ Ensure proper data types for optimal performance:
 
 Handling Missing Data
 ~~~~~~~~~~~~~~~~~~~~~
+
+.. doc-test: skip
 
 .. code-block:: python
 
@@ -280,6 +288,8 @@ Handling Missing Data
 
 Data Validation
 ~~~~~~~~~~~~~~~
+
+.. doc-test: skip
 
 .. code-block:: python
 

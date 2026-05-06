@@ -244,13 +244,14 @@ def circle_layout(
             node_centers_y = nodes_with_partitions['cy']  # (num_nodes,)
             node_widths = nodes_with_partitions['w']  # (num_nodes,)
             node_heights = nodes_with_partitions['h']  # (num_nodes,)
-            if engine_concrete == Engine.CUDF:
-                node_partition_sizes = groupby_partition.transform('size')[g._node]  # (num_nodes,)
-            else:
-                node_partition_sizes = groupby_partition.transform('size')  # (num_nodes,)
-                #node_partition_sizes = groupby_partition.transform('size')  # (num_nodes,)
-                assert len(node_partition_sizes) == num_nodes
-                assert isinstance(node_partition_sizes, Series)
+
+            # Compute partition sizes using groupby.size() + map for cuDF compatibility
+            # cuDF doesn't support transform('size'), so we use size() and map back
+            partition_size_series = groupby_partition.size()  # Series: partition_key -> count
+            node_partition_sizes = g._nodes[partition_by].map(partition_size_series)  # Broadcast to all nodes
+
+            assert len(node_partition_sizes) == num_nodes, f"Expected {num_nodes} partition sizes, got {len(node_partition_sizes)}"
+            assert isinstance(node_partition_sizes, Series)
 
             #singleton nodes will not be placed yet, so place now
             node_centers_x = node_centers_x.fillna(0.)  # (num_nodes,)

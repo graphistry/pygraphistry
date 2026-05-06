@@ -135,7 +135,7 @@ class Tigeristry(object):
             except:
                 self.__log('Failed to extract node attrs')
         else:        
-            nodes_df = pd.DataFrame({'node_id': edges_df['from_id'].append(edges_df['to_id'])}) \
+            nodes_df = pd.DataFrame({'node_id': pd.concat([edges_df['from_id'], edges_df['to_id']])}) \
               .drop_duplicates().reset_index(drop=True)           
             from_types = nodes_df.merge(edges_df[['from_id', 'from_type']].rename(columns={'from_id': 'node_id', 'from_type': 'type'}), on='node_id', how='left')
             to_types = nodes_df.merge(edges_df[['to_id', 'to_type']].rename(columns={'to_id': 'node_id', 'to_type': 'type'}), on='node_id', how='left')

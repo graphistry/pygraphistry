@@ -3,7 +3,7 @@ from typing_extensions import Literal  # 3.7
 import numpy as np
 import pandas as pd
 from functools import lru_cache
-from graphistry.Engine import EngineAbstract, resolve_engine
+from graphistry.Engine import EngineAbstract, EngineAbstractType, resolve_engine
 from graphistry.Plottable import Plottable
 from .util import polar_to_xy
 
@@ -76,11 +76,11 @@ def round_to_nearest(time: np.datetime64, unit: np.timedelta64) -> np.datetime64
     assert isinstance(time, np.datetime64)
     assert isinstance(unit, np.timedelta64)
 
-    unit_in_ns = unit.astype('timedelta64[ns]').astype('int64')
-    time_in_ns = time.astype('datetime64[ns]').astype('int64')
+    unit_in_ns: np.int64 = unit.astype('timedelta64[ns]').astype('int64')
+    time_in_ns: np.int64 = time.astype('datetime64[ns]').astype('int64')
     adjustment = unit_in_ns // 2  # Avoid rounding error issues
     rounded_time_in_ns = ((time_in_ns + adjustment) // unit_in_ns) * unit_in_ns
-    rounded_time = rounded_time_in_ns.astype('datetime64[ns]')
+    rounded_time: np.datetime64 = rounded_time_in_ns.astype('datetime64[ns]')
 
     return rounded_time
 
@@ -133,15 +133,15 @@ def time_stats(
 
     if num_rings is None:
         if time_unit is not None:
-            time_dur: np.timedelta64 = time_end - time_start
+            time_dur: np.timedelta64 = time_end - time_start  # type: ignore[assignment]  # numpy stub: datetime64 - datetime64 -> timedelta64
             unit_step = unit_to_timedelta(time_unit)
-            rounded = (time_dur // unit_step).astype('int')
-            num_rings = rounded + 1
+            rounded: np.int64 = (time_dur // unit_step).astype('int')
+            num_rings = int(rounded + 1)
         else:
             num_rings = 10 if len(s) > 1000 else 5
             #print('target_bins', num_rings)
-    
-    step_dur_s = ((time_end - time_start) / num_rings)
+
+    step_dur_s: np.timedelta64 = ((time_end - time_start) / num_rings)  # type: ignore[assignment, operator]  # numpy stub: timedelta64 / int -> timedelta64
     #print('step_dur_s', step_dur_s)
     #print('step_dur_s[D]', np.timedelta64(step_dur_s, 'D'))
     #print('time_unit', time_unit)
@@ -222,16 +222,17 @@ def time_ring(
     g: Plottable,
     time_col: Optional[str] = None,
     num_rings: Optional[int] = None,
-    time_start: Optional[np.datetime64] = None,
-    time_end: Optional[np.datetime64] = None,
+    time_start: Optional[Union[str, np.datetime64]] = None,
+    time_end: Optional[Union[str, np.datetime64]] = None,
     time_unit: Optional[TimeUnit] = None,
     min_r: float = MIN_R_DEFAULT,
     max_r: float = MAX_R_DEFAULT,
     reverse: bool = False,
     format_axis: Optional[Callable[[List[Dict]], List[Dict]]] = None,
     format_label: Optional[Callable[[np.datetime64, int, np.timedelta64], str]] = None,
+    format_labels: Optional[Callable[[np.datetime64, int, np.timedelta64], str]] = None,
     play_ms: int = 2000,
-    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO
+    engine: EngineAbstractType = EngineAbstract.AUTO
 ) -> Plottable:
     """Radial graph layout where nodes are positioned based on a datetime64-typed column time_col
 
@@ -240,16 +241,17 @@ def time_ring(
     :g: Plottable
     :time_col: Optional[str] Column name of nodes datetime64-typed column; defaults to first node datetime64 column
     :num_rings: Optional[int] Number of rings
-    :time_start: Optional[numpy.datetime64] First ring and axis label
-    :time_end: Optional[numpy.datetime64] Last ring and axis label
+    :time_start: Optional[Union[str, numpy.datetime64]] First ring and axis label
+    :time_end: Optional[Union[str, numpy.datetime64]] Last ring and axis label
     :time_unit: Optional[TimeUnit] Time unit for axis labels
     :min_r: float Minimum radius, default 100
     :max_r: float Maximum radius, default 1000
     :reverse: bool Reverse the direction of the rings in terms of time
     :format_axis: Optional[Callable[[List[Dict]], List[Dict]]] Optional transform function to format axis
     :format_label: Optional[Callable[[numpy.datetime64, int, numpy.timedelta64], str]] Optional transform function to format axis label text based on axis time, ring number, and ring duration width
+    :format_labels: Optional[Callable[[numpy.datetime64, int, numpy.timedelta64], str]] Deprecated alias for ``format_label``
     :play_ms: int initial layout time in milliseconds, default 2000
-    :engine: Union[EngineAbstract, str], default EngineAbstract.AUTO, pick CPU vs GPU engine via 'auto', 'pandas', 'cudf' 
+    :engine: EngineAbstractType, default EngineAbstract.AUTO, pick CPU vs GPU engine via 'auto', 'pandas', 'cudf' 
 
     :returns: Plotter
     :rtype: Plotter
@@ -311,8 +313,22 @@ def time_ring(
 
     """
 
-    assert time_start is None or isinstance(time_start, np.datetime64)
-    assert time_end is None or isinstance(time_end, np.datetime64)
+    if time_start is not None and not isinstance(time_start, np.datetime64):
+        time_start = np.datetime64(time_start)
+    if time_end is not None and not isinstance(time_end, np.datetime64):
+        time_end = np.datetime64(time_end)
+
+    if format_label is None and format_labels is not None:
+        format_label = format_labels
+
+    if time_start is not None and not isinstance(time_start, np.datetime64):
+        raise ValueError("time_start must be a numpy.datetime64 or ISO-8601 string")
+    if time_end is not None and not isinstance(time_end, np.datetime64):
+        raise ValueError("time_end must be a numpy.datetime64 or ISO-8601 string")
+    if time_start is not None and np.isnat(time_start):
+        raise ValueError("time_start could not be parsed as a valid datetime")
+    if time_end is not None and np.isnat(time_end):
+        raise ValueError("time_end could not be parsed as a valid datetime")
 
     if g._nodes is None:
         raise ValueError('Expected nodes table')
@@ -348,8 +364,8 @@ def time_ring(
         num_rings
     ) = time_stats(s, num_rings, time_start=time_start, time_end=time_end, time_unit=time_unit)
 
-    sf_max = time_end_rounded.astype('datetime64[ns]').astype('int64')
-    sf_min = time_start_rounded.astype('datetime64[ns]').astype('int64')
+    sf_max: np.int64 = time_end_rounded.astype('datetime64[ns]').astype('int64')
+    sf_min: np.int64 = time_start_rounded.astype('datetime64[ns]').astype('int64')
     scalar = (max_r - min_r) / (sf_max - sf_min)
     r = (sf - sf_min) * scalar + min_r
 
@@ -375,7 +391,7 @@ def time_ring(
         round_unit,
         min_r,
         max_r,
-        scalar,
+        float(scalar),
         format_label,
         reverse=reverse
     )

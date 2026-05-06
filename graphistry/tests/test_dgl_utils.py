@@ -177,3 +177,23 @@ class TestDGL(unittest.TestCase):
             use_edge_scaler="robust",
         )
         self._test_cases_dgl(g2)
+
+    def test_entity_to_index_none_dereference(self):
+        """
+        Regression test for None dereference bug in dgl_utils.py:314 (Issue #801)
+
+        When _entity_to_index is None, calling len() or isin() on it raises TypeError.
+        This test ensures the fix prevents the crash by checking for None first.
+        """
+        df = pd.DataFrame({
+            'src': ['A', 'B', 'C'],
+            'dst': ['B', 'C', 'A']
+        })
+
+        g = graphistry.edges(df, 'src', 'dst')
+
+        # Manually set _entity_to_index to None to trigger the bug scenario
+        g._entity_to_index = None
+
+        # After fix: This should NOT crash (None check prevents the bug)
+        g._check_nodes_lineup_with_edges()

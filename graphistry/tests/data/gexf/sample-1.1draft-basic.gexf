@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf xmlns="http://www.gephi.org/gexf/1.1draft"
+      xmlns:viz="http://www.gephi.org/gexf/1.1draft/viz"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.gephi.org/gexf/1.1draft http://gephi.org/gexf/1.1draft.xsd"
+      version="1.1">
+  <meta lastmodifieddate="2026-01-01">
+    <creator>graphistry</creator>
+    <description>Sample 1.1draft</description>
+  </meta>
+  <graph mode="static" defaultedgetype="directed">
+    <attributes class="node">
+      <attribute id="0" title="role" type="string">
+        <default>member</default>
+      </attribute>
+      <attribute id="1" title="score" type="float"/>
+    </attributes>
+    <attributes class="edge">
+      <attribute id="0" title="weight_attr" type="float"/>
+    </attributes>
+    <nodes>
+      <node id="n0" label="Alpha">
+        <attvalues>
+          <attvalue for="0" value="hub"/>
+          <attvalue for="1" value="1.5"/>
+        </attvalues>
+      </node>
+      <node id="n1" label="Beta">
+        <attvalues>
+          <attvalue for="1" value="2.5"/>
+        </attvalues>
+      </node>
+      <node id="n2" label="Gamma"/>
+    </nodes>
+    <edges>
+      <edge id="e0" source="n0" target="n1" label="connects"/>
+      <edge id="e1" source="n1" target="n2" label="links">
+        <attvalues>
+          <attvalue for="0" value="0.75"/>
+        </attvalues>
+      </edge>
+    </edges>
+  </graph>
+</gexf>

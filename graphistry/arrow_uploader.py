@@ -3,14 +3,22 @@ from typing import List, Optional, Dict, Any
 import io, pyarrow as pa, requests, sys
 
 from graphistry.privacy import Mode, Privacy, ModeAction
+from graphistry.otel import inject_trace_headers
 
 from .client_session import ClientSession
 from .ArrowFileUploader import ArrowFileUploader
+from .io.metadata import (
+    serialize_node_bindings,
+    serialize_edge_bindings,
+    serialize_node_encodings,
+    serialize_edge_encodings
+)
 
 from .exceptions import TokenExpireException
 from .validate.validate_encodings import validate_encodings
 from .utils.requests import log_requests_error
 from .util import setup_logger
+from graphistry.models.types import ValidationParam
 logger = setup_logger(__name__)
 
 class ArrowUploader:
@@ -224,6 +232,28 @@ class ArrowUploader:
     ########################################################################3
 
 
+    def _switch_org(self, org_name: Optional[str], token: Optional[str]) -> None:
+        if not org_name or not token:
+            return
+        last = self._client_session._last_switched_org_token
+        if last == (org_name, token):
+            return
+        try:
+            switch_url = f"{self.server_base_path}/api/v2/o/{org_name}/switch/"
+            response = requests.post(
+                switch_url,
+                data={'slug': org_name},
+                headers=inject_trace_headers({'Authorization': f'Bearer {token}'}),
+                verify=self.certificate_validation,
+            )
+            log_requests_error(response)
+            self._client_session._last_switched_org_token = (org_name, token)
+            from .pygraphistry import PyGraphistry
+            if PyGraphistry.session is self._client_session:
+                PyGraphistry.session._last_switched_org_token = (org_name, token)
+        except Exception as exc:
+            logger.warning("Failed to switch organization %s: %s", org_name, exc)
+
 
     def login(self, username, password, org_name=None):
         # base_path = self.server_base_path
@@ -235,10 +265,11 @@ class ArrowUploader:
         out = requests.post(
             f'{self.server_base_path}/api-token-auth/',
             verify=self.certificate_validation,
+            headers=inject_trace_headers({}),
             json=json_data)
         log_requests_error(out)
 
-        return self._handle_login_response(out, org_name)
+        return self._finalize_login(out, org_name)
 
     def pkey_login(self, personal_key_id: str, personal_key_secret: str, org_name: Optional[str] = None) -> 'ArrowUploader':
         # json_data = {'personal_key_id': personal_key_id, 'personal_key_secret': personal_key}
@@ -253,17 +284,25 @@ class ArrowUploader:
         out = requests.get(
             url,
             verify=self.certificate_validation,
-            json=json_data, headers=headers)
+            json=json_data, headers=inject_trace_headers(headers))
         log_requests_error(out)
-        return self._handle_login_response(out, org_name)
+        return self._finalize_login(out, org_name)
 
-    def _handle_login_response(self, out: requests.Response, org_name: Optional[str]) -> 'ArrowUploader':
+    def _finalize_login(self, out: requests.Response, org_name: Optional[str]) -> 'ArrowUploader':
         from .pygraphistry import PyGraphistry
         json_response = None
         try:
+            # Check HTTP status before parsing
+            if not (200 <= out.status_code < 300):
+                raise Exception(f"Login failed with HTTP {out.status_code}: {out.text}")
+            
             json_response = out.json()
-            if not ('token' in json_response):
-                raise Exception(out.text)
+            token_value = json_response.get('token', None)
+            if not token_value:
+                raise Exception(
+                    f"Server login response successful (HTTP {out.status_code}) but unexpected return format: "
+                    f"missing 'token' key in response. Response content: {out.text}"
+                )
 
             org = json_response.get('active_organization',{})
             logged_in_org_name = org.get('slug', None)
@@ -286,19 +325,25 @@ class ArrowUploader:
                     raise Exception("You are not authorized or not a member of {}".format(org_name))
 
             if logged_in_org_name is None and org_name is None:
+                if self._client_session.org_name is not None:
+                    self._client_session.org_name = None
                 if PyGraphistry.session.org_name is not None:
                     PyGraphistry.session.org_name = None
             else:
                 if PyGraphistry.session.org_name is not None:
                     logger.debug("@ArrowUploder, handle login reponse, org_name: %s", PyGraphistry.session.org_name)
+                self._client_session.org_name = logged_in_org_name
                 PyGraphistry.session.org_name = logged_in_org_name 
                 # PyGraphistry.org_name(logged_in_org_name)
+
+            if logged_in_org_name:
+                # Hashlink: graphistry/graphistry#2933 — Hub only honors org_name once /switch/ runs
+                self._switch_org(logged_in_org_name, token_value)
         except Exception:
             logger.error('Error: %s', out, exc_info=True)
             raise
             
-        self.token = out.json()['token']
-
+        self.token = token_value
         return self
 
     def sso_login(self, org_name: Optional[str] = None, idp_name: Optional[str] = None) -> 'ArrowUploader':
@@ -321,7 +366,8 @@ class ArrowUploader:
         # print("url : {}".format(url))
         out = requests.post(
             url, data={'client-type': 'pygraphistry'},
-            verify=self.certificate_validation
+            verify=self.certificate_validation,
+            headers=inject_trace_headers({})
         )
         log_requests_error(out)
 
@@ -361,23 +407,36 @@ class ArrowUploader:
         base_path = self.server_base_path
         out = requests.get(
             f'{base_path}/api/v2/o/sso/oidc/jwt/{state}/',
-            verify=self.certificate_validation
+            verify=self.certificate_validation,
+            headers=inject_trace_headers({})
         )
         log_requests_error(out)
         json_response = None
         try:
             json_response = out.json()
-            # print("get_jwt : {}".format(json_response))
             self.token = None
-            if not ('status' in json_response):
+            if 'status' not in json_response:
                 raise Exception(out.text)
-            else:
-                if json_response['status'] == 'OK':
-                    if 'token' in json_response['data']:
-                        self.token = json_response['data']['token']
-                    if 'active_organization' in json_response['data']:
-                        logger.debug("@ArrowUploader.sso_get_token, org_name: %s", json_response['data']['active_organization']['slug'])
-                        self.org_name = json_response['data']['active_organization']['slug']
+
+            if json_response['status'] != 'OK':
+                raise Exception(json_response.get('message', out.text))
+
+            data = json_response.get('data', {})
+            token_value = data.get('token')
+            if not token_value:
+                raise Exception("SSO response missing JWT token; cannot complete login")
+            self.token = token_value
+
+            active_org = data.get('active_organization')
+            if not active_org or not active_org.get('slug'):
+                raise Exception(
+                    "SSO response missing active organization; see graphistry/graphistry#2933"
+                )
+
+            slug = active_org['slug']
+            logger.debug("@ArrowUploader.sso_get_token, org_name: %s", slug)
+            self.org_name = slug
+            self._switch_org(slug, token_value or self.token)
 
         except Exception as e:
             logger.error('Unexpected SSO authentication error: %s', out, exc_info=True)
@@ -394,6 +453,7 @@ class ArrowUploader:
         out = requests.post(
             f'{base_path}/api/v2/auth/token/refresh',
             verify=self.certificate_validation,
+            headers=inject_trace_headers({}),
             json={'token': token})
         log_requests_error(out)
         json_response = None
@@ -420,17 +480,42 @@ class ArrowUploader:
         out = requests.post(
             f'{base_path}/api-token-verify/',
             verify=self.certificate_validation,
+            headers=inject_trace_headers({}),
             json={'token': token})
         log_requests_error(out)
-        return out.status_code == requests.codes.ok
+        return 200 <= out.status_code < 300
 
-    def create_dataset(self, json, validate: bool = True):  # noqa: F811
-        if validate:
-            validate_encodings(
-                json.get('node_encodings', {}),
-                json.get('edge_encodings', {}),
-                self.nodes.column_names if self.nodes is not None else None,
-                self.edges.column_names if self.edges is not None else None)
+    def create_dataset(self, json, validate: ValidationParam = 'autofix', warn: bool = True):  # noqa: F811
+        """Create dataset with optional encoding validation.
+
+        Args:
+            json: Dataset JSON payload
+            validate: 'autofix' (continue), 'strict'/'strict-fast' (raise); True maps to 'strict', False maps to 'autofix'
+            warn: If True and validate='autofix', emit warnings on validation errors. validate=False forces warn=False.
+        """
+        # Normalize validate parameter
+        if validate is True:
+            validate = 'strict'
+        elif validate is False:
+            validate = 'autofix'
+            warn = False
+
+        if validate in ('strict', 'strict-fast', 'autofix'):
+            try:
+                validate_encodings(
+                    json.get('node_encodings', {}),
+                    json.get('edge_encodings', {}),
+                    self.nodes.column_names if self.nodes is not None else None,
+                    self.edges.column_names if self.edges is not None else None)
+            except ValueError as e:
+                if validate in ('strict', 'strict-fast'):
+                    # Strict mode: re-raise the exception
+                    raise
+                elif warn:
+                    # Autofix + warn=True: emit warning, continue
+                    from graphistry.util import warn as emit_warn
+                    emit_warn(f"Encoding validation warning: {e}")
+                # else: warn=False means silent, continue anyway
         tok = self.token
         if self.org_name: 
             json['org_name'] = self.org_name
@@ -438,7 +523,7 @@ class ArrowUploader:
         res = requests.post(
             self.server_base_path + '/api/v2/upload/datasets/',
             verify=self.certificate_validation,
-            headers={'Authorization': f'Bearer {tok}'},
+            headers=inject_trace_headers({'Authorization': f'Bearer {tok}'}),
             json=json)
         log_requests_error(res)
         try: 
@@ -463,90 +548,37 @@ class ArrowUploader:
         return b.getvalue()
 
 
-    def maybe_bindings(self, g, bindings, base = {}):
-        out = { **base }
-        for old_field_name, new_field_name in bindings:
-            try:
-                val = getattr(g, old_field_name)
-                if val is None:
-                    continue
-                else:
-                    out[new_field_name] = val
-            except AttributeError:
-                continue
-        logger.debug('bindings: %s', out)
-        return out
-
     def g_to_node_bindings(self, g):
-        bindings = self.maybe_bindings(  # noqa: E126
-            g,  # noqa: E126
-            [
-                ['_node', 'node'],
-                ['_point_color', 'node_color'],
-                ['_point_label', 'node_label'],
-                ['_point_opacity', 'node_opacity'],
-                ['_point_size', 'node_size'],
-                ['_point_title', 'node_title'],
-                ['_point_weight', 'node_weight'],
-                ['_point_icon', 'node_icon'],
-                ['_point_x', 'node_x'],
-                ['_point_y', 'node_y']
-            ])
-
-        return bindings
+        return serialize_node_bindings(g)
 
     def g_to_node_encodings(self, g):
-        encodings = {
-            'bindings': self.g_to_node_bindings(g)
-        }
-        for mode in ['current', 'default']:
-            if len(g._complex_encodings['node_encodings'][mode].keys()) > 0:
-                if not ('complex' in encodings):
-                    encodings['complex'] = {}
-                encodings['complex'][mode] = g._complex_encodings['node_encodings'][mode]
-        return encodings
-
+        return serialize_node_encodings(g)
 
     def g_to_edge_bindings(self, g):
-        bindings = self.maybe_bindings(  # noqa: E126
-                g,  # noqa: E126
-                [
-                    ['_source', 'source'],
-                    ['_destination', 'destination'],
-                    ['_edge_color', 'edge_color'],
-                    ['_edge_source_color', 'edge_source_color'],
-                    ['_edge_destination_color', 'edge_destination_color'],
-                    ['_edge_label', 'edge_label'],
-                    ['_edge_opacity', 'edge_opacity'],
-                    ['_edge_size', 'edge_size'],
-                    ['_edge_title', 'edge_title'],
-                    ['_edge_weight', 'edge_weight'],
-                    ['_edge_icon', 'edge_icon']
-                ])
-        return bindings
-
+        return serialize_edge_bindings(g)
 
     def g_to_edge_encodings(self, g):
-        encodings = {
-            'bindings': self.g_to_edge_bindings(g)
-        }
-        for mode in ['current', 'default']:
-            if len(g._complex_encodings['edge_encodings'][mode].keys()) > 0:
-                if not ('complex' in encodings):
-                    encodings['complex'] = {}
-                encodings['complex'][mode] = g._complex_encodings['edge_encodings'][mode]
-        return encodings
+        return serialize_edge_encodings(g)
 
 
     def post(
         self,
         as_files: bool = True,
         memoize: bool = True,
-        validate: bool = True,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True,
         erase_files_on_fail: bool = True
     ) -> 'ArrowUploader':
-        """
+        """Upload data to Graphistry server.
+
         Note: likely want to pair with self.maybe_post_share_link(g)
+
+        Args:
+            as_files: Upload as separate files (default True)
+            memoize: Memoize conversions (default True)
+            validate: 'autofix' (continue), 'strict'/'strict-fast' (raise); True maps to 'strict', False maps to 'autofix'
+            warn: If True and validate='autofix', emit warnings on validation errors. validate=False forces warn=False.
+            erase_files_on_fail: Clean up files on failure (default True)
         """
         logger.debug("@ArrowUploader.post, self.org_name : %s", self.org_name)
         if as_files:
@@ -557,6 +589,8 @@ class ArrowUploader:
                 file_opts['org_name'] = self.org_name
             upload_url_opts = 'erase=true' if erase_files_on_fail else 'erase=false'
 
+            if self.edges is None:
+                raise ValueError("edges table is None")
             e_file_id, _ = file_uploader.create_and_post_file(self.edges, file_opts=file_opts, upload_url_opts=upload_url_opts)
             self.edges_file_id = e_file_id
 
@@ -572,7 +606,7 @@ class ArrowUploader:
                 "description": self.description,
                 "edge_files": [ e_file_id ],
                 **({"node_files": [ n_file_id ] if not (self.nodes is None) else []})
-            }, validate)
+            }, validate=validate, warn=warn)
 
         else:
 
@@ -582,7 +616,7 @@ class ArrowUploader:
                 "metadata": self.metadata,
                 "name": self.name,
                 "description": self.description
-            }, validate)
+            }, validate=validate, warn=warn)
 
             self.post_edges_arrow()
 
@@ -657,7 +691,7 @@ class ArrowUploader:
         res = requests.post(
             path,
             verify=self.certificate_validation,
-            headers={'Authorization': f'Bearer {tok}'},
+            headers=inject_trace_headers({'Authorization': f'Bearer {tok}'}),
             json={
                 'obj_pk': obj_pk,
                 'obj_type': obj_type,
@@ -698,11 +732,15 @@ class ArrowUploader:
     def post_edges_arrow(self, arr: Optional[pa.Table] = None, opts=''):
         if arr is None:
             arr = self.edges
+        if arr is None:
+            raise ValueError("edges table is None")
         return self.post_arrow(arr, 'edges', opts) 
 
     def post_nodes_arrow(self, arr: Optional[pa.Table] = None, opts=''):
         if arr is None:
             arr = self.nodes
+        if arr is None:
+            raise ValueError("nodes table is None")
         return self.post_arrow(arr, 'nodes', opts) 
 
     def post_arrow(self, arr: pa.Table, graph_type: str, opts: str = ''):
@@ -736,7 +774,7 @@ class ArrowUploader:
         resp = requests.post(
             url,
             verify=self.certificate_validation,
-            headers={'Authorization': f'Bearer {tok}'},
+            headers=inject_trace_headers({'Authorization': f'Bearer {tok}'}),
             data=buf)
         log_requests_error(resp)
 
@@ -801,7 +839,7 @@ class ArrowUploader:
             out = requests.post(
                 f'{base_path}/api/v2/upload/datasets/{dataset_id}/{graph_type}/{file_type}',
                 verify=self.certificate_validation,
-                headers={'Authorization': f'Bearer {tok}'},
+                headers=inject_trace_headers({'Authorization': f'Bearer {tok}'}),
                 data=file.read()).json()
             log_requests_error(out)
             if not out['success']:

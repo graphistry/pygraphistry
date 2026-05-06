@@ -1,6 +1,6 @@
 import graphistry, IPython
 from common import NoAuthTestCase
-from mock import patch
+from unittest.mock import patch
 from graphistry.render.resolve_render_mode import resolve_cascaded
 from graphistry.tests.test_plotter import Fake_Response, triangleEdges
 
@@ -15,7 +15,8 @@ class TestPlotterReturnValue(NoAuthTestCase):
         mock_in_ipython.return_value = False
         url = graphistry.bind(source="src", destination="dst").plot(triangleEdges, render="browser")
         self.assertIn("fakedatasetname", url)
-        self.assertIn("faketoken", url)
+        # API v3 generates viztoken client-side (UUID), so we check it's present rather than value
+        self.assertIn("viztoken=", url)
         self.assertTrue(mock_open.called)
         self.assertTrue(mock_post.called)
 

@@ -28,6 +28,9 @@ def assert_json_serializable(data):
 def serialize_to_json_val(obj: Any) -> JSONVal:
     if isinstance(obj, (str, int, float, bool, type(None))):
         return obj
+    elif isinstance(obj, tuple):
+        # Convert tuples to lists for JSON serialization
+        return [serialize_to_json_val(item) for item in obj]
     elif isinstance(obj, list):
         return [serialize_to_json_val(item) for item in obj]
     elif isinstance(obj, dict):

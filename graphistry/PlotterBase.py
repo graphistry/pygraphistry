@@ -1,21 +1,41 @@
 from graphistry.Plottable import Plottable, RenderModes, RenderModesConcrete
-from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast, overload, TYPE_CHECKING
+from typing_extensions import Literal
+from graphistry.io.types import ComplexEncodingsDict
+from graphistry.models.collections import CollectionsInput
+from graphistry.models.types import ValidationMode, ValidationParam
+from graphistry.models.surfaces.graphistry_frontend.react_settings import ApplyEncodingsReactSettingsDict
+from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
+from graphistry.validate.validate_react_encodings import parse_apply_encodings_ops
+from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
+from graphistry.Engine import EngineAbstractType
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
 from functools import lru_cache
 from weakref import WeakValueDictionary
 
 from graphistry.privacy import Privacy, Mode, ModeAction
-from graphistry.client_session import ClientSession, AuthManagerProtocol
+from graphistry.client_session import ClientSession, AuthManagerProtocol, DatasetInfo
 
 from .constants import SRC, DST, NODE
 from .plugins.igraph import to_igraph, from_igraph, compute_igraph, layout_igraph
-from .plugins.graphviz import layout_graphviz
+from .plugins.gexf import from_gexf, to_gexf
+from .plugins.graphviz import layout_graphviz, render_graphviz
+from graphistry.plugins_types.graphviz_types import (
+    Format,
+    Prog,
+    GraphAttr,
+    NodeAttr,
+    EdgeAttr,
+    GraphvizAttrValue,
+    PlotStaticResult,
+)
 from .plugins.cugraph import to_cugraph, from_cugraph, compute_cugraph, layout_cugraph
 from .util import (
     error, hash_pdf, in_ipython, in_databricks, make_iframe, random_string, warn,
     cache_coercion, cache_coercion_helper, WeakValueWrapper
 )
+from graphistry.otel import otel_traced, otel_detail_enabled
 
 from .bolt_util import (
     bolt_graph_to_edges_dataframe,
@@ -25,12 +45,56 @@ from .bolt_util import (
     end_node_id_key,
     to_bolt_driver)
 
-
 from .arrow_uploader import ArrowUploader
+from .kepler import KeplerDataset, KeplerLayer, KeplerOptions, KeplerConfig, KeplerEncoding
 from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
 from .util import setup_logger
 logger = setup_logger(__name__)
+
+
+def _upload_otel_attrs(
+    self: Plottable,
+    memoize: bool = True,
+    erase_files_on_fail: bool = True,
+    validate: ValidationParam = "autofix",
+    warn: bool = True,
+) -> Dict[str, Any]:
+    attrs: Dict[str, Any] = {"graphistry.memoize": memoize}
+    if otel_detail_enabled():
+        attrs["graphistry.validate"] = str(validate)
+        attrs["graphistry.erase_files_on_fail"] = erase_files_on_fail
+        attrs["graphistry.warn"] = warn
+    return attrs
+
+
+def _plot_otel_attrs(
+    self: Plottable,
+    graph: Optional[Any] = None,
+    nodes: Optional[Any] = None,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    render: Optional[Union[bool, RenderModes]] = "auto",
+    skip_upload: bool = False,
+    as_files: bool = False,
+    memoize: bool = True,
+    erase_files_on_fail: bool = True,
+    extra_html: str = "",
+    override_html_style: Optional[str] = None,
+    validate: ValidationParam = "autofix",
+    warn: bool = True,
+) -> Dict[str, Any]:
+    attrs: Dict[str, Any] = {
+        "graphistry.render": str(render),
+        "graphistry.skip_upload": skip_upload,
+        "graphistry.as_files": as_files,
+    }
+    if otel_detail_enabled():
+        attrs["graphistry.validate"] = str(validate)
+        attrs["graphistry.memoize"] = memoize
+        attrs["graphistry.erase_files_on_fail"] = erase_files_on_fail
+        attrs["graphistry.warn"] = warn
+    return attrs
 
 
 # #####################################
@@ -81,6 +145,17 @@ def maybe_spark():
         logger.warning('Runtime error import pyspark: Available but failed to initialize', exc_info=True)
     return None
 
+@lru_cache(maxsize=1)
+def maybe_polars():
+    try:
+        import polars
+        return polars
+    except ImportError:
+        1
+    except RuntimeError:
+        logger.warning('Runtime error importing polars', exc_info=True)
+    return None
+
 # #####################################
 
 
@@ -104,13 +179,15 @@ class PlotterBase(Plottable):
     
     _pd_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
     _cudf_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
+    _polars_hash_to_arrow : WeakValueDictionary = WeakValueDictionary()
     _umap_param_to_g : WeakValueDictionary = WeakValueDictionary()
     _feat_param_to_g : WeakValueDictionary = WeakValueDictionary()
 
-    def reset_caches(self): 
+    def reset_caches(self):
         """Reset memoization caches"""
         self._pd_hash_to_arrow.clear()
         self._cudf_hash_to_arrow.clear()
+        self._polars_hash_to_arrow.clear()
         self._umap_param_to_g.clear()
         self._feat_param_to_g.clear()
         cache_coercion_helper.cache_clear()
@@ -148,16 +225,18 @@ class PlotterBase(Plottable):
         self._point_opacity : Optional[str] = None
         self._point_x : Optional[str] = None
         self._point_y : Optional[str] = None
+        self._point_longitude : Optional[str] = None
+        self._point_latitude : Optional[str] = None
         # Settings
         self._height : int = 500
         self._render : RenderModesConcrete = resolve_render_mode(self, True)
-        self._url_params : dict = {'info': 'true'}
+        self._url_params : URLParamsDict = {'info': 'true'}
         self._privacy : Optional[Privacy] = None
         # Metadata
         self._name : Optional[str] = None
         self._description : Optional[str] = None
         self._style : Optional[dict] = None
-        self._complex_encodings : dict = {
+        self._complex_encodings : ComplexEncodingsDict = {
             'node_encodings': {'current': {}, 'default': {} },
             'edge_encodings': {'current': {}, 'default': {} }
         }
@@ -216,6 +295,11 @@ class PlotterBase(Plottable):
         self._dbscan_params = None
         self._dbscan_nodes = None  # fit model
         self._dbscan_edges = None  # fit model
+
+        # Collapse operation internal column names (generated dynamically)
+        self._collapse_node_col: Optional[str] = None
+        self._collapse_src_col: Optional[str] = None
+        self._collapse_dst_col: Optional[str] = None
 
         self._adjacency = None
         self._entity_to_index: Optional[Dict] = None
@@ -316,8 +400,9 @@ class PlotterBase(Plottable):
                     style[k] = v
         res = self.bind()
         res._style = style
+        res._dataset_id = None  # Style changes affect visualization, invalidate dataset
         return res
-        
+
 
 
     def style(
@@ -374,6 +459,7 @@ class PlotterBase(Plottable):
                 style[k] = v
         res = self.bind()
         res._style = style
+        res._dataset_id = None  # Style changes affect visualization, invalidate dataset
         return res
 
 
@@ -409,12 +495,17 @@ class PlotterBase(Plottable):
 
         """
 
-        complex_encodings = {**self._complex_encodings} if self._complex_encodings else {}
-        node_encodings = {**complex_encodings['node_encodings']} if 'node_encodings' not in complex_encodings else {}
-        complex_encodings['node_encodings'] = node_encodings
-        node_encodings['current'] = {**node_encodings['current']} if 'current' in node_encodings else {}
-        node_encodings['default'] = {**node_encodings['default']} if 'default' in node_encodings else {}
-        node_encodings['default']["pointAxisEncoding"] = {
+        complex_encodings: ComplexEncodingsDict = {
+            'node_encodings': {
+                'current': {**self._complex_encodings['node_encodings']['current']},
+                'default': {**self._complex_encodings['node_encodings']['default']}
+            },
+            'edge_encodings': {
+                'current': {**self._complex_encodings['edge_encodings']['current']},
+                'default': {**self._complex_encodings['edge_encodings']['default']}
+            }
+        }
+        complex_encodings['node_encodings']['default']["pointAxisEncoding"] = {
             "graphType": "point",
             "encodingType": "axis",
             "variation": "categorical",
@@ -424,6 +515,67 @@ class PlotterBase(Plottable):
 
         out = self.bind()
         out._complex_encodings = complex_encodings
+        out._dataset_id = None
+        return out
+
+    def apply_encodings(
+        self,
+        react_encodings: Optional[ApplyEncodingsReactSettingsDict],
+        validate: ValidationParam = "strict",
+        warn: bool = True,
+    ) -> Plottable:
+        """Apply React-style declarative encoding payloads.
+
+        Supported keys:
+        - ``encodePointColor`` / ``encodeEdgeColor``: ``[column, variation?, mapping_or_palette?]``
+        - ``encodePointSize``: ``[column, categorical_mapping?, default_mapping?]``
+        - ``encodePointIcons`` / ``encodeEdgeIcons``: ``[column, categorical_mapping_or_bins?, default_mapping?]``
+        - ``encodeAxis``: ``rows`` list accepted by :meth:`encode_axis`
+        """
+        out: Plottable = self
+        ops = parse_apply_encodings_ops(
+            react_encodings=react_encodings,
+            validate=validate,
+            warn=warn,
+        )
+        for op in ops:
+            if op["kind"] == "color":
+                column = op["column"]
+                method = out.encode_point_color if op["key"] == "encodePointColor" else out.encode_edge_color
+                color_kwargs: Dict[str, Any] = {}
+                if "categorical_mapping" in op:
+                    color_kwargs["categorical_mapping"] = op["categorical_mapping"]
+                if "palette" in op:
+                    color_kwargs["palette"] = op["palette"]
+                    if op.get("variation") == "continuous":
+                        color_kwargs["as_continuous"] = True
+                    else:
+                        color_kwargs["as_categorical"] = True
+                out = method(column, **color_kwargs)
+                continue
+
+            if op["kind"] == "size":
+                size_kwargs: Dict[str, Any] = {}
+                if "categorical_mapping" in op:
+                    size_kwargs["categorical_mapping"] = op["categorical_mapping"]
+                if "default_mapping" in op:
+                    size_kwargs["default_mapping"] = op["default_mapping"]
+                out = out.encode_point_size(op["column"], **size_kwargs)
+                continue
+
+            if op["kind"] == "icon":
+                icon_method = out.encode_point_icon if op["key"] == "encodePointIcons" else out.encode_edge_icon
+                icon_kwargs: Dict[str, Any] = {}
+                if "categorical_mapping" in op:
+                    icon_kwargs["categorical_mapping"] = op["categorical_mapping"]
+                if "continuous_binning" in op:
+                    icon_kwargs["continuous_binning"] = op["continuous_binning"]
+                if "default_mapping" in op:
+                    icon_kwargs["default_mapping"] = op["default_mapping"]
+                out = icon_method(op["column"], **icon_kwargs)
+                continue
+
+            out = out.encode_axis(cast(List[Dict[Any, Any]], op["rows"]))
         return out
 
 
@@ -786,6 +938,400 @@ class PlotterBase(Plottable):
             for_current=for_current, for_default=for_default,
             as_text=as_text, blend_mode=blend_mode, style=style, border=border, shape=shape)
 
+    def __encode_kepler_item(self, item_type: Optional[str] = None, item_dict: Optional[dict] = None, replace_encoding: Optional[dict] = None) -> Plottable:
+        """
+        Internal helper to add or replace Kepler encoding.
+
+        Args:
+            item_type: 'datasets', 'layers', 'options', or 'config'
+            item_dict: The dictionary representation of the item to append or replace
+            replace_encoding: Complete encoding dict to replace existing (for encode_kepler)
+
+        Returns:
+            New Plotter instance with the encoding updated
+        """
+        # Deep copy complex encodings
+        res = copy.copy(self)
+        res._complex_encodings = copy.deepcopy(self._complex_encodings)
+
+        if replace_encoding is not None:
+            # Replace entire encoding (for encode_kepler)
+            # Ensure encodingType is set to "kepler"
+            replace_encoding['encodingType'] = 'kepler'
+            replace_encoding['graphType'] = 'point'
+            res._complex_encodings['node_encodings']['default']['pointKeplerEncoding'] = replace_encoding
+        else:
+            # Append or replace item
+            kepler_encoding = res._complex_encodings['node_encodings']['default'].get('pointKeplerEncoding', {
+                'encodingType': 'kepler',
+                'graphType': 'point',
+                'datasets': [],
+                'layers': [],
+                'options': {},
+                'config': {}
+            })
+
+            # For datasets and layers, append to array
+            # For options and config, replace the dict
+            if item_type in ('datasets', 'layers'):
+                kepler_encoding[item_type].append(item_dict)
+            elif item_type in ('options', 'config'):
+                kepler_encoding[item_type] = item_dict
+
+            res._complex_encodings['node_encodings']['default']['pointKeplerEncoding'] = kepler_encoding
+
+        res._dataset_id = None
+        return res
+
+    # Overload for raw_dict mode
+    @overload
+    def encode_kepler_dataset(
+        self,
+        raw_dict: Dict[str, Any]
+    ) -> Plottable:
+        ...
+
+    # Overload for nodes dataset
+    @overload
+    def encode_kepler_dataset(
+        self,
+        raw_dict: None = None,
+        *,
+        id: Optional[str] = None,
+        type: Literal["nodes"] = "nodes",
+        label: Optional[str] = None,
+        include: Optional[List[str]] = None,
+        exclude: Optional[List[str]] = None,
+        computed_columns: Optional[Dict[str, Any]] = None
+    ) -> Plottable:
+        ...
+
+    # Overload for edges dataset
+    @overload
+    def encode_kepler_dataset(
+        self,
+        raw_dict: None = None,
+        *,
+        id: Optional[str] = None,
+        type: Literal["edges"] = "edges",
+        label: Optional[str] = None,
+        include: Optional[List[str]] = None,
+        exclude: Optional[List[str]] = None,
+        map_node_coords: Optional[bool] = None,
+        map_node_coords_mapping: Optional[Dict[str, str]] = None,
+        computed_columns: Optional[Dict[str, Any]] = None
+    ) -> Plottable:
+        ...
+
+    # Overload for countries/zeroOrderAdminRegions dataset
+    @overload
+    def encode_kepler_dataset(
+        self,
+        raw_dict: None = None,
+        *,
+        id: Optional[str] = None,
+        type: Literal["countries", "zeroOrderAdminRegions"] = "countries",
+        label: Optional[str] = None,
+        include: Optional[List[str]] = None,
+        exclude: Optional[List[str]] = None,
+        resolution: Optional[Literal[10, 50, 110]] = None,
+        boundary_lakes: Optional[bool] = None,
+        filter_countries_by_col: Optional[str] = None,
+        include_countries: Optional[List[str]] = None,
+        exclude_countries: Optional[List[str]] = None,
+        computed_columns: Optional[Dict[str, Any]] = None
+    ) -> Plottable:
+        ...
+
+    # Overload for states/provinces/firstOrderAdminRegions dataset
+    @overload
+    def encode_kepler_dataset(
+        self,
+        raw_dict: None = None,
+        *,
+        id: Optional[str] = None,
+        type: Literal["states", "provinces", "firstOrderAdminRegions"] = "states",
+        label: Optional[str] = None,
+        include: Optional[List[str]] = None,
+        exclude: Optional[List[str]] = None,
+        boundary_lakes: Optional[bool] = None,
+        filter_states_by_col: Optional[str] = None,
+        include_states: Optional[List[str]] = None,
+        exclude_states: Optional[List[str]] = None,
+        computed_columns: Optional[Dict[str, Any]] = None
+    ) -> Plottable:
+        ...
+
+    def encode_kepler_dataset(
+        self,
+        *args: Any,
+        **kwargs: Any
+    ) -> Plottable:
+        """Add a Kepler.gl dataset to the encoding.
+
+        Accepts same parameters as :class:`graphistry.kepler.KeplerDataset`.
+        Returns a new Plotter instance with the dataset appended (immutable pattern).
+
+        :param raw_dict: Native Kepler.gl dataset dictionary (if provided, all other params ignored)
+        :type raw_dict: Optional[Dict[str, Any]]
+        :param id: Dataset identifier (auto-generated if None)
+        :type id: Optional[str]
+        :param type: Dataset type - 'nodes', 'edges', 'countries', 'states', etc.
+        :type type: Optional[str]
+        :param label: Display label (defaults to id)
+        :type label: Optional[str]
+        :param include: Columns to include (whitelist)
+        :type include: Optional[List[str]]
+        :param exclude: Columns to exclude (blacklist)
+        :type exclude: Optional[List[str]]
+        :param computed_columns: Computed/aggregated columns for data enrichment
+        :type computed_columns: Optional[Dict[str, Any]]
+        :param map_node_coords: Auto-map source/target node coordinates to edges (edges only)
+        :type map_node_coords: Optional[bool]
+        :param map_node_coords_mapping: Custom column names for mapped coordinates (edges only)
+        :type map_node_coords_mapping: Optional[Dict[str, str]]
+        :param resolution: Map resolution - 10 (high), 50 (medium), 110 (low) (geographic datasets only)
+        :type resolution: Optional[Literal[10, 50, 110]]
+        :param boundary_lakes: Include lake boundaries (geographic datasets only)
+        :type boundary_lakes: Optional[bool]
+        :return: New Plotter instance with the dataset added
+        :rtype: Plottable
+
+        **Example: Node dataset**
+            ::
+
+                g = g.encode_kepler_dataset(id="companies", type="nodes", label="Companies")
+
+        **Example: Edge dataset with coordinate mapping**
+            ::
+
+                g = g.encode_kepler_dataset(
+                    id="relationships",
+                    type="edges",
+                    map_node_coords=True
+                )
+
+        **Example: Countries dataset**
+            ::
+
+                g = g.encode_kepler_dataset(
+                    id="countries",
+                    type="countries",
+                    resolution=50
+                )
+
+        See :class:`graphistry.kepler.KeplerDataset` for complete parameter documentation.
+        """
+        dataset = KeplerDataset(*args, **kwargs)
+
+        # Use helper to add dataset
+        return self.__encode_kepler_item('datasets', dataset.to_dict())
+
+    def encode_kepler_layer(
+        self,
+        raw_dict: Dict[str, Any]
+    ) -> Plottable:
+        """Add a Kepler.gl layer to the encoding.
+
+        Accepts native Kepler.gl layer dictionary (same as :class:`graphistry.kepler.KeplerLayer`).
+        Returns a new Plotter instance with the layer appended (immutable pattern).
+
+        :param raw_dict: Native Kepler.gl layer dictionary with structure: {'id': ..., 'type': ..., 'config': {...}}
+        :type raw_dict: Dict[str, Any]
+        :return: New Plotter instance with the layer added
+        :rtype: Plottable
+
+        **Example: Point layer**
+            ::
+
+                g = g.encode_kepler_layer({
+                    "id": "my-layer",
+                    "type": "point",
+                    "config": {
+                        "dataId": "my-dataset",
+                        "columns": {"lat": "latitude", "lng": "longitude"},
+                        "color": [255, 140, 0]
+                    }
+                })
+
+        **Example: Arc layer**
+            ::
+
+                g = g.encode_kepler_layer({
+                    "id": "connections",
+                    "type": "arc",
+                    "config": {
+                        "dataId": "edges",
+                        "columns": {
+                            "lat0": "edgeSourceLatitude",
+                            "lng0": "edgeSourceLongitude",
+                            "lat1": "edgeTargetLatitude",
+                            "lng1": "edgeTargetLongitude"
+                        }
+                    }
+                })
+
+        See :class:`graphistry.kepler.KeplerLayer` and :ref:`kepler-layer-format` for layer format details.
+        """
+        layer = KeplerLayer(raw_dict)
+
+        # Use helper to add layer
+        return self.__encode_kepler_item('layers', layer.to_dict())
+
+    @overload
+    def encode_kepler_options(
+        self,
+        raw_dict: Dict[str, Any]
+    ) -> Plottable:
+        ...
+
+    @overload
+    def encode_kepler_options(
+        self,
+        raw_dict: None = None,
+        *,
+        center_map: Optional[bool] = None,
+        read_only: Optional[bool] = None,
+    ) -> Plottable:
+        ...
+
+    def encode_kepler_options(self, *args: Any, **kwargs: Any) -> Plottable:
+        """Apply Kepler.gl visualization options to the plotter.
+
+        Accepts same parameters as :class:`graphistry.kepler.KeplerOptions`.
+        Returns a new Plotter instance with the options applied (immutable pattern).
+
+        :param raw_dict: Native Kepler.gl options dictionary (if provided, all other params ignored)
+        :type raw_dict: Optional[Dict[str, Any]]
+        :param center_map: Auto-center map on data (default: True)
+        :type center_map: Optional[bool]
+        :param read_only: Disable map interactions (default: False)
+        :type read_only: Optional[bool]
+        :return: New Plotter instance with the options applied
+        :rtype: Plottable
+
+        **Example: Structured params**
+            ::
+
+                g = g.encode_kepler_options(center_map=True, read_only=False)
+
+        **Example: Native format**
+            ::
+
+                g = g.encode_kepler_options({"centerMap": True, "readOnly": False})
+
+        See :class:`graphistry.kepler.KeplerOptions` for complete parameter documentation.
+        """
+        options = KeplerOptions(*args, **kwargs)
+
+        # Use helper to set options
+        return self.__encode_kepler_item('options', options.to_dict())
+
+    @overload
+    def encode_kepler_config(
+        self,
+        raw_dict: Dict[str, Any]
+    ) -> Plottable:
+        ...
+
+    @overload
+    def encode_kepler_config(
+        self,
+        raw_dict: None = None,
+        *,
+        cull_unused_columns: Optional[bool] = None,
+        overlay_blending: Optional[Literal['normal', 'additive', 'subtractive']] = None,
+        tile_style: Optional[Dict[str, Any]] = None
+    ) -> Plottable:
+        ...
+
+    def encode_kepler_config(self, *args: Any, **kwargs: Any) -> Plottable:
+        """Apply Kepler.gl configuration settings to the plotter.
+
+        Accepts same parameters as :class:`graphistry.kepler.KeplerConfig`.
+        Returns a new Plotter instance with the config applied (immutable pattern).
+
+        :param raw_dict: Native Kepler.gl config dictionary (if provided, all other params ignored)
+        :type raw_dict: Optional[Dict[str, Any]]
+        :param cull_unused_columns: Remove columns not used by layers (default: True)
+        :type cull_unused_columns: Optional[bool]
+        :param overlay_blending: Blend mode - 'normal', 'additive', 'subtractive' (default: 'normal')
+        :type overlay_blending: Optional[Literal['normal', 'additive', 'subtractive']]
+        :param tile_style: Base map tile style configuration
+        :type tile_style: Optional[Dict[str, Any]]
+        :return: New Plotter instance with the config applied
+        :rtype: Plottable
+
+        **Example: Structured params**
+            ::
+
+                g = g.encode_kepler_config(
+                    cull_unused_columns=True,
+                    overlay_blending='additive'
+                )
+
+        **Example: Native format**
+            ::
+
+                g = g.encode_kepler_config({
+                    "cullUnusedColumns": True,
+                    "overlayBlending": "additive"
+                })
+
+        See :class:`graphistry.kepler.KeplerConfig` for complete parameter documentation.
+        """
+        config = KeplerConfig(*args, **kwargs)
+
+        # Use helper to set config
+        return self.__encode_kepler_item('config', config.to_dict())
+
+    def encode_kepler(self, kepler_encoding: Union[Dict[str, Any], KeplerEncoding]) -> Plottable:
+        """Apply a complete Kepler.gl encoding to the plotter.
+
+        Accepts a :class:`graphistry.kepler.KeplerEncoding` object or plain dictionary.
+        Returns a new Plotter instance with the encoding applied (immutable pattern).
+
+        :param kepler_encoding: KeplerEncoding object or dict with structure: {'datasets': [...], 'layers': [...], 'options': {...}, 'config': {...}}
+        :type kepler_encoding: Union[Dict[str, Any], KeplerEncoding]
+        :return: New Plotter instance with the Kepler encoding applied
+        :rtype: Plottable
+
+        **Example: Using KeplerEncoding container**
+            ::
+
+                from graphistry import KeplerEncoding, KeplerDataset, KeplerLayer
+
+                kepler = (KeplerEncoding()
+                         .with_dataset(KeplerDataset(id="points", type="nodes"))
+                         .with_layer(KeplerLayer({
+                             "id": "point-layer",
+                             "type": "point",
+                             "config": {"dataId": "points", "columns": {"lat": "lat", "lng": "lng"}}
+                         })))
+                g = g.encode_kepler(kepler)
+
+        **Example: Using plain dict**
+            ::
+
+                kepler_dict = {
+                    'datasets': [{'info': {'id': 'points'}, 'type': 'nodes'}],
+                    'layers': [{'id': 'point-layer', 'type': 'point', 'config': {'dataId': 'points'}}],
+                    'options': {'centerMap': True},
+                    'config': {'cullUnusedColumns': True}
+                }
+                g = g.encode_kepler(kepler_dict)
+
+        See :class:`graphistry.kepler.KeplerEncoding` for complete documentation.
+        """
+        # Handle both KeplerEncoding instances and dict-like objects
+        if isinstance(kepler_encoding, KeplerEncoding):
+            kepler_dict = kepler_encoding.to_dict()
+        else:
+            kepler_dict = kepler_encoding.copy()
+
+        # Use helper to replace entire encoding
+        return self.__encode_kepler_item(replace_encoding=kepler_dict)
+
     def __encode_badge(
         self,
         graph_type: str,
@@ -937,13 +1483,20 @@ class PlotterBase(Plottable):
         graph_type_2 = 'node' if graph_type == 'point' else graph_type
 
         #NOTE: parameter feature_binding for cases like Legend
-        if for_current:
-            complex_encodings[f'{graph_type_2}_encodings']['current'][feature_binding] = encoding
-        if for_default:
-            complex_encodings[f'{graph_type_2}_encodings']['default'][feature_binding] = encoding
+        if graph_type_2 == 'node':
+            if for_current:
+                complex_encodings['node_encodings']['current'][feature_binding] = encoding
+            if for_default:
+                complex_encodings['node_encodings']['default'][feature_binding] = encoding
+        else:  # edge
+            if for_current:
+                complex_encodings['edge_encodings']['current'][feature_binding] = encoding
+            if for_default:
+                complex_encodings['edge_encodings']['default'][feature_binding] = encoding
 
         res = copy.copy(self)
         res._complex_encodings = complex_encodings
+        res._dataset_id = None
         return res
 
 
@@ -970,6 +1523,8 @@ class PlotterBase(Plottable):
             point_icon: Optional[str] = None,
             point_x: Optional[str] = None,
             point_y: Optional[str] = None,
+            point_longitude: Optional[str] = None,
+            point_latitude: Optional[str] = None,
             dataset_id: Optional[str] = None,
             url: Optional[str] = None,
             nodes_file_id: Optional[str] = None,
@@ -1024,6 +1579,12 @@ class PlotterBase(Plottable):
 
         :param point_y: Attribute overriding node's initial y position. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
         :type point_y: Optional[str]
+
+        :param point_longitude: Attribute containing node's longitude coordinate for geographic visualization. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
+        :type point_longitude: Optional[str]
+
+        :param point_latitude: Attribute containing node's latitude coordinate for geographic visualization. Combine with ".settings(url_params={'play': 0}))" to create a custom layout
+        :type point_latitude: Optional[str]
 
         :param dataset_id: Remote dataset id
         :type dataset_id: Optional[str]
@@ -1110,11 +1671,25 @@ class PlotterBase(Plottable):
         res._point_icon = point_icon or self._point_icon
         res._point_x = point_x or self._point_x
         res._point_y = point_y or self._point_y
+        res._point_longitude = point_longitude or self._point_longitude
+        res._point_latitude = point_latitude or self._point_latitude
         res._dataset_id = dataset_id or self._dataset_id
         res._url = url or self._url
         res._nodes_file_id = nodes_file_id or self._nodes_file_id
         res._edges_file_id = edges_file_id or self._edges_file_id
-        
+
+        # Invalidate dataset_id if we're changing encodings, not setting IDs
+        encoding_params_changed = any([
+            edge_title, edge_label, edge_color, edge_source_color,
+            edge_destination_color, edge_size, edge_weight, edge_icon, edge_opacity,
+            point_title, point_label, point_color, point_size, point_weight,
+            point_opacity, point_icon, point_x, point_y, point_longitude, point_latitude
+        ])
+        id_params_set = any([dataset_id, url, nodes_file_id, edges_file_id])
+
+        if encoding_params_changed and not id_params_set:
+            res._dataset_id = None
+
         return res
 
     def copy(self) -> Plottable:
@@ -1210,6 +1785,7 @@ class PlotterBase(Plottable):
 
         res = copy.copy(self)
         res._name = name
+        res._dataset_id = None
         return res
 
     def description(self, description):
@@ -1220,6 +1796,7 @@ class PlotterBase(Plottable):
 
         res = copy.copy(self)
         res._description = description
+        res._dataset_id = None
         return res
 
 
@@ -1369,10 +1946,18 @@ class PlotterBase(Plottable):
         return res
 
 
-    def settings(self, height=None, url_params={}, render=None):
+    def settings(
+        self,
+        height=None,
+        url_params: Optional[URLParamsDict] = None,
+        render=None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
+    ):
         """Specify iframe height and add URL parameter dictionary.
 
-        The library takes care of URI component encoding for the dictionary.
+        Collections URL params are normalized and URL-encoded at plot time; other
+        params should already be URL-safe.
 
         :param height: Height in pixels.
         :type height: int
@@ -1383,13 +1968,66 @@ class PlotterBase(Plottable):
         :param render: Whether to render the visualization using the native notebook environment (default True), or return the visualization URL
         :type render: bool
 
+        :param validate: Validation mode for url_params. 'autofix' (default) drops invalid keys/types with warnings; 'strict' raises.
+        :type validate: ValidationParam
+
+        :param warn: Whether to emit warnings in autofix mode.
+        :type warn: bool
+
         """
+        from graphistry.validate import normalize_url_params
 
         res = copy.copy(self)
         res._height = height or self._height
-        res._url_params = dict(self._url_params, **url_params)
+        normalized = normalize_url_params(url_params, validate=validate, warn=warn)
+        res._url_params = dict(self._url_params, **normalized)
         res._render = self._render if render is None else resolve_render_mode(self, render)
         return res
+
+
+    def collections(
+        self,
+        collections: Optional[CollectionsInput] = None,
+        show_collections: Optional[bool] = None,
+        collections_global_node_color: Optional[str] = None,
+        collections_global_edge_color: Optional[str] = None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
+    ) -> 'Plottable':
+        """Set collections URL parameters. Additive over previous settings.
+
+        :param collections: List/dict of collections or JSON/URL-encoded JSON string (stored as URL-encoded JSON).
+        :param show_collections: Toggle collections panel display.
+        :param collections_global_node_color: Hex color for non-collection nodes (leading # stripped).
+        :param collections_global_edge_color: Hex color for non-collection edges (leading # stripped).
+        :param validate: Validation mode. 'autofix' (default) drops invalid collections and color fields with warnings, 'strict' raises on issues.
+        :param warn: Whether to emit warnings when validate='autofix'. validate=False forces warn=False.
+        """
+        from graphistry.validate.validate_collections import (
+            encode_collections,
+            normalize_collections,
+            normalize_collections_url_params,
+        )
+
+        settings: Dict[str, Any] = {}
+        if collections is not None:
+            normalized = normalize_collections(collections, validate=validate, warn=warn)
+            settings['collections'] = encode_collections(normalized)
+        extras: Dict[str, Any] = {}
+        if show_collections is not None:
+            extras['showCollections'] = show_collections
+        if collections_global_node_color is not None:
+            extras['collectionsGlobalNodeColor'] = collections_global_node_color
+        if collections_global_edge_color is not None:
+            extras['collectionsGlobalEdgeColor'] = collections_global_edge_color
+        if extras:
+            extras = normalize_collections_url_params(extras, validate=validate, warn=warn)
+            settings.update(extras)
+
+        if len(settings.keys()) > 0:
+            return self.settings(url_params={**self._url_params, **settings})
+        else:
+            return self
 
 
     def privacy(
@@ -1559,11 +2197,13 @@ class PlotterBase(Plottable):
         """
         return self._url
 
+    @otel_traced("graphistry.upload", attrs_fn=_upload_otel_attrs)
     def upload(
         self,
         memoize: bool = True,
-        erase_files_on_fail=True,
-        validate: bool = True
+        erase_files_on_fail: bool = True,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
     ) -> Plottable:
         """Upload data to the Graphistry server and return as a Plottable. Headless-centric variant of plot().
 
@@ -1578,8 +2218,11 @@ class PlotterBase(Plottable):
         :param erase_files_on_fail: Removes uploaded files if an error is encountered during parse. Only applicable when upload as files enabled. Default on.
         :type erase_files_on_fail: bool
 
-        :param validate: Controls validations, including those for encodings. Default true.
-        :type validate: bool
+        :param validate: Data validation mode. 'autofix' (default) auto-coerces mixed-type columns to string. 'strict' or 'strict-fast' raises ArrowConversionError on mixed types. For backward compatibility: True maps to 'strict', False maps to 'autofix'.
+        :type validate: ValidationParam
+
+        :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix'). validate=False forces warn=False. Default True.
+        :type warn: bool
 
         **Example: Simple**
             ::
@@ -1597,9 +2240,11 @@ class PlotterBase(Plottable):
             as_files=True,
             memoize=memoize,
             erase_files_on_fail=erase_files_on_fail,
-            validate=validate
+            validate=validate,
+            warn=warn
         )
 
+    @otel_traced("graphistry.plot", attrs_fn=_plot_otel_attrs)
     def plot(
         self,
         graph: Optional[Any] = None,
@@ -1613,7 +2258,8 @@ class PlotterBase(Plottable):
         erase_files_on_fail: bool = True,
         extra_html: str = "",
         override_html_style: Optional[str] = None,
-        validate: bool = True
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
     ) -> Any:
         """Upload data to the Graphistry server and show as an iframe of it.
 
@@ -1655,8 +2301,11 @@ class PlotterBase(Plottable):
         :param override_html_style: Set fully custom style tag.
         :type override_html_style: Optional[str]
 
-        :param validate: Controls validations, including those for encodings.
-        :type validate: Optional[bool]
+        :param validate: Data validation mode. 'autofix' (default) auto-coerces mixed-type columns to string. 'strict' or 'strict-fast' raises ArrowConversionError on mixed types. For backward compatibility: True maps to 'strict', False maps to 'autofix'.
+        :type validate: ValidationParam
+
+        :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix'). validate=False forces warn=False. Default True.
+        :type warn: bool
 
         **Example: Simple**
             ::
@@ -1680,6 +2329,16 @@ class PlotterBase(Plottable):
         """
         logger.debug("1. @PloatterBase plot: _pygraphistry.org_name: {}".format(self.session.org_name))
 
+        # Normalize validate param for backward compatibility
+        validate_mode: ValidationMode
+        if validate is True:
+            validate_mode = 'strict'
+        elif validate is False:
+            validate_mode = 'autofix'
+            warn = False  # validate=False means "don't bother me"
+        else:
+            validate_mode = validate
+
         if graph is None:
             if self._edges is None:
                 error('Graph/edges must be specified.')
@@ -1693,31 +2352,36 @@ class PlotterBase(Plottable):
         self._check_mandatory_bindings(not isinstance(n, type(None)))
 
         logger.debug("2. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
-        dataset: Union[ArrowUploader, Dict[str, Any], None] = None
-        if self.session.api_version == 1:
-            dataset = self._plot_dispatch(g, n, name, description, 'json', self._style, memoize)
-            if skip_upload:
-                return dataset
-            info = self._pygraphistry._etl1(dataset)
-        elif self.session.api_version == 3:
-            logger.debug("3. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
-            self._pygraphistry.refresh()
-            logger.debug("4. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
+        uploader = None
 
-            uploader = dataset = self._plot_dispatch_arrow(g, n, name, description, self._style, memoize)
-            assert uploader is not None
-            if skip_upload:
-                return uploader
-            uploader.token = self.session.api_token  # type: ignore[assignment]
-            uploader.post(as_files=as_files, memoize=memoize, validate=validate, erase_files_on_fail=erase_files_on_fail)
-            uploader.maybe_post_share_link(self)
-            info = {
-                'name': uploader.dataset_id,
-                'type': 'arrow',
-                'viztoken': str(uuid.uuid4())
-            }
+        logger.debug("3. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
+        self._pygraphistry.refresh()
+        logger.debug("4. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
 
-        viz_url = self._pygraphistry._viz_url(info, self._url_params)
+        uploader = self._plot_dispatch_arrow(g, n, name, description, self._style, memoize, validate_mode, warn)
+        assert uploader is not None
+        if skip_upload:
+            return uploader
+        uploader.token = self.session.api_token  # type: ignore[assignment]
+        uploader.post(
+            as_files=as_files,
+            memoize=memoize,
+            validate=validate_mode,
+            warn=warn,
+            erase_files_on_fail=erase_files_on_fail
+        )
+        uploader.maybe_post_share_link(self)
+        info: DatasetInfo = {
+            'name': uploader.dataset_id,
+            'type': 'arrow',
+            'viztoken': str(uuid.uuid4())
+        }
+
+        # Validate collections in url_params (catches bypass of .collections() method)
+        from graphistry.validate.validate_collections import normalize_collections_url_params
+        url_params = normalize_collections_url_params(self._url_params, validate=validate_mode, warn=warn)
+
+        viz_url = self._pygraphistry._viz_url(info, url_params)
         cfg_client_protocol_hostname = self.session.client_protocol_hostname
         full_url = ('%s:%s' % (self.session.protocol, viz_url)) if cfg_client_protocol_hostname is None else viz_url
 
@@ -1753,6 +2417,8 @@ class PlotterBase(Plottable):
             raise ValueError(f"Unexpected render mode resolution: {render_mode}")
 
     from_igraph = from_igraph
+    from_gexf = from_gexf
+    to_gexf = to_gexf
     to_igraph = to_igraph
     compute_igraph = compute_igraph
     layout_igraph = layout_igraph
@@ -1965,6 +2631,185 @@ class PlotterBase(Plottable):
     layout_cugraph = layout_cugraph
 
     layout_graphviz = layout_graphviz
+    render_graphviz = render_graphviz
+
+    def plot_static(
+        self,
+        format: Format = 'svg',
+        path: Optional[str] = None,
+        engine: str = 'graphviz-svg',
+        prog: Prog = 'dot',
+        args: Optional[str] = None,
+        reuse_layout: bool = True,
+        directed: bool = True,
+        strict: bool = False,
+        graph_attr: Optional[Dict[GraphAttr, GraphvizAttrValue]] = None,
+        node_attr: Optional[Dict[NodeAttr, GraphvizAttrValue]] = None,
+        edge_attr: Optional[Dict[EdgeAttr, GraphvizAttrValue]] = None,
+        drop_unsanitary: bool = False,
+        max_nodes: Optional[int] = None,
+        max_edges: Optional[int] = None,
+    ) -> PlotStaticResult:
+        """
+        Render a static image of the current graph (e.g., for notebooks/docs).
+
+        Returns an IPython display object (SVG or Image) that auto-displays in notebooks.
+        Use ``.data`` to access raw bytes for programmatic use.
+
+        Engines:
+        - graphviz-svg (default) / graphviz-png: render image (optionally write to path)
+        - graphviz: render to any Graphviz format (see Format), e.g., pdf
+        - graphviz-dot: return DOT string (optionally write to path)
+        - mermaid-code: return Mermaid DSL string (optionally write to path)
+
+        If point x/y encodings are bound (or columns named x/y exist), reuse them for rendering.
+        Otherwise, Graphviz lays out the graph. When positions are reused, Graphviz is invoked
+        with ``neato -n2`` to respect them.
+
+        :param format: Output format, e.g., 'svg', 'png', 'pdf' (graphviz engines)
+        :param path: Optional path to also write the image/text
+        :param engine: Rendering engine; supports graphviz, graphviz-svg/png, graphviz-dot, mermaid-code
+        :param prog: Graphviz layout program when computing layout
+        :param args: Optional args passed to graphviz (e.g., '-n2' when reusing positions)
+        :param reuse_layout: If True and positions are bound/available, reuse them; else layout
+        :param directed: Graphviz directed flag
+        :param strict: Graphviz strict flag
+        :param graph_attr: Graphviz graph attributes
+        :param node_attr: Graphviz node attributes
+        :param edge_attr: Graphviz edge attributes
+        :param drop_unsanitary: Reject unsanitary attributes
+        :param max_nodes: Optional cap on node count
+        :param max_edges: Optional cap on edge count
+        :return: SVG or Image display object (use .data for bytes), or DOT/Mermaid string
+
+        **Example: Basic usage**
+            ::
+
+                g.plot_static()  # Returns SVG, auto-displays in notebook
+
+        **Example: Save to file**
+            ::
+
+                g.plot_static(path='graph.svg')  # Writes file AND returns SVG
+
+        **Example: Get raw bytes**
+            ::
+
+                svg_bytes = g.plot_static().data
+        """
+
+        if engine not in ('graphviz', 'graphviz-svg', 'graphviz-png', 'graphviz-dot', 'mermaid-code'):
+            raise ValueError(f"Unsupported static engine {engine}")
+
+        g: Plottable = self
+        if g._edges is None:
+            raise ValueError("plot_static requires edges to be set")
+        if g._nodes is None:
+            g = g.materialize_nodes()
+            assert g._nodes is not None
+
+        x_col: Optional[str] = g._point_x
+        y_col: Optional[str] = g._point_y
+
+        if reuse_layout and (x_col is None or y_col is None):
+            if 'x' in g._nodes.columns and 'y' in g._nodes.columns:
+                x_col, y_col = 'x', 'y'
+
+        use_positions = reuse_layout and x_col is not None and y_col is not None
+
+        if max_nodes is not None and len(g._nodes) > max_nodes:
+            raise ValueError(f"Graph has {len(g._nodes)} nodes; exceeds max_nodes={max_nodes}")
+        if max_edges is not None and len(g._edges) > max_edges:
+            raise ValueError(f"Graph has {len(g._edges)} edges; exceeds max_edges={max_edges}")
+
+        g_render = g
+        render_prog = prog
+        render_args = args
+
+        if use_positions:
+            if x_col not in g._nodes or y_col not in g._nodes:
+                raise ValueError(f"Did not find position columns {x_col}/{y_col} in nodes")
+            pos_col = g._nodes[x_col].astype(str) + ',' + g._nodes[y_col].astype(str)
+            g_render = g_render.nodes(lambda gtmp: gtmp._nodes.assign(pos=pos_col))
+            render_prog = 'neato'
+            if render_args is None:
+                render_args = '-n2'
+
+        # Engine routing
+        if engine in ('graphviz', 'graphviz-svg', 'graphviz-png'):
+            fmt: Format
+            if engine == 'graphviz-png':
+                fmt = 'png'
+            elif engine == 'graphviz-svg':
+                fmt = format if format != 'svg' else 'svg'
+            else:
+                fmt = format
+            result = render_graphviz(
+                g_render,
+                prog=render_prog,
+                args=render_args,
+                format=fmt,
+                directed=directed,
+                strict=strict,
+                graph_attr=graph_attr,
+                node_attr=node_attr,
+                edge_attr=edge_attr,
+                drop_unsanitary=drop_unsanitary,
+                max_nodes=max_nodes,
+                max_edges=max_edges,
+                path=path
+            )
+            # Return IPython display objects for auto-display in notebooks
+            # Falls back to raw bytes if IPython not available
+            try:
+                from IPython.display import SVG, Image
+                if fmt == 'svg':
+                    return SVG(result)
+                if fmt == 'png':
+                    return Image(result)
+            except ImportError:
+                pass
+            return result
+
+        if engine == 'graphviz-dot':
+            from graphistry.plugins.graphviz import layout_graphviz_core
+            graph = layout_graphviz_core(
+                g_render,
+                prog=render_prog,
+                args=render_args,
+                directed=directed,
+                strict=strict,
+                graph_attr=graph_attr,
+                node_attr=node_attr,
+                edge_attr=edge_attr,
+                drop_unsanitary=drop_unsanitary,
+                include_positions=use_positions
+            )
+            dot = graph.to_string()
+            if path is not None:
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(dot)
+            return dot
+
+        if engine == 'mermaid-code':
+            # Minimal Mermaid formatter: graph LR with edges; optional positions as comments
+            # Only supports directed graphs for now (Graphviz prog covers hierarchy)
+            lines = ["graph LR"]
+            nodes_df = g_render._nodes
+            edges_df = g_render._edges
+            # Add edges
+            for _, row in edges_df.iterrows():
+                lines.append(f"    {row[g_render._source]} --> {row[g_render._destination]}")
+            if use_positions and x_col and y_col:
+                for _, row in nodes_df.iterrows():
+                    lines.append(f"    %% pos {row[g_render._node]}: {row[x_col]},{row[y_col]}")
+            mermaid_text = "\n".join(lines)
+            if path is not None:
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(mermaid_text)
+            return mermaid_text
+
+        raise ValueError(f"Unexpected engine {engine}")
 
     def _check_mandatory_bindings(self, node_required):
         if self._source is None or self._destination is None:
@@ -1980,12 +2825,12 @@ class PlotterBase(Plottable):
             if b not in cols:
                 error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
 
-    def _plot_dispatch_arrow(self, graph, nodes, name, description, metadata=None, memoize=True):
-        out = self._plot_dispatch(graph, nodes, name, description, 'arrow', metadata, memoize)
+    def _plot_dispatch_arrow(self, graph, nodes, name, description, metadata=None, memoize=True, validate_mode: ValidationMode = 'autofix', emit_warnings=True):
+        out = self._plot_dispatch(graph, nodes, name, description, 'arrow', metadata, memoize, validate_mode, emit_warnings)
         assert isinstance(out, ArrowUploader)
         return out
 
-    def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None, memoize=True) -> Union[ArrowUploader, Dict[str, Any]] :
+    def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None, memoize=True, validate_mode: ValidationMode = 'autofix', emit_warnings=True) -> Union[ArrowUploader, Dict[str, Any]]:
 
         g: "PlotterBase" = self
         if self._point_title is None and self._point_label is None and g._nodes is not None:
@@ -1999,14 +2844,15 @@ class PlotterBase(Plottable):
                 or ( not (maybe_cudf() is None) and isinstance(graph, maybe_cudf().DataFrame) ) \
                 or ( not (maybe_dask_cudf() is None) and isinstance(graph, maybe_dask_cudf().DataFrame) ) \
                 or ( not (maybe_dask_dataframe() is None) and isinstance(graph, maybe_dask_dataframe().DataFrame) ) \
-                or ( not (maybe_spark() is None) and isinstance(graph, maybe_spark().sql.dataframe.DataFrame) ):
-            return g._make_dataset(graph, nodes, name, description, mode, metadata, memoize)
+                or ( not (maybe_spark() is None) and isinstance(graph, maybe_spark().sql.dataframe.DataFrame) ) \
+                or ( not (maybe_polars() is None) and isinstance(graph, (maybe_polars().DataFrame, maybe_polars().LazyFrame)) ):
+            return g._make_dataset(graph, nodes, name, description, mode, metadata, memoize, validate_mode, emit_warnings)
 
         try:
             import igraph
             if isinstance(graph, igraph.Graph):
                 g2 = g.from_igraph(graph)
-                return g._make_dataset(g2._nodes, g2._edges, name, description, mode, metadata, memoize)
+                return g._make_dataset(g2._nodes, g2._edges, name, description, mode, metadata, memoize, validate_mode, emit_warnings)
         except ImportError:
             pass
 
@@ -2017,7 +2863,7 @@ class PlotterBase(Plottable):
                isinstance(graph, networkx.classes.multigraph.MultiGraph) or \
                isinstance(graph, networkx.classes.multidigraph.MultiDiGraph):
                 (e, n) = g.networkx2pandas(graph)
-                return g._make_dataset(e, n, name, description, mode, metadata, memoize)
+                return g._make_dataset(e, n, name, description, mode, metadata, memoize, validate_mode, emit_warnings)
         except ImportError:
             pass
 
@@ -2107,7 +2953,7 @@ class PlotterBase(Plottable):
 
     def _table_to_pandas(self, table) -> Optional[pd.DataFrame]:
         """
-            pandas | arrow | dask | cudf | dask_cudf => pandas
+            pandas | arrow | dask | cudf | dask_cudf | polars | spark => pandas
         """
 
         if table is None:
@@ -2128,16 +2974,62 @@ class PlotterBase(Plottable):
         if not (maybe_dask_dataframe() is None) and isinstance(table, maybe_dask_dataframe().DataFrame):
             return self._table_to_pandas(table.compute())
 
+        if not (maybe_polars() is None) and isinstance(table, (maybe_polars().DataFrame, maybe_polars().LazyFrame)):
+            if isinstance(table, maybe_polars().LazyFrame):
+                table = table.collect()
+            return table.to_pandas()
+
         raise Exception('Unknown type %s: Could not convert data to Pandas dataframe' % str(type(table)))
 
-    def _table_to_arrow(self, table: Any, memoize: bool = True) -> pa.Table:  # noqa: C901
+    def _find_bad_arrow_columns(self, df: Any, is_cudf: bool = False) -> List[str]:
+        """Find columns that fail Arrow conversion due to mixed types."""
+        bad_cols: List[str] = []
+        for col in df.columns:
+            if df[col].dtype == object:
+                try:
+                    if is_cudf:
+                        df[[col]].to_arrow()  # type: ignore[union-attr]
+                    else:
+                        pa.array(df[col], from_pandas=True)
+                except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
+                    bad_cols.append(str(col))
+        return bad_cols
+
+    def _coerce_mixed_type_columns(self, df: Any, is_cudf: bool = False, emit_warning: bool = True) -> Any:
+        """Coerce mixed-type columns to string for Arrow conversion."""
+        coerced_cols: List[str] = []
+        coerce_cols: List[Any] = []
+        for col in df.columns:
+            if df[col].dtype == object:
+                try:
+                    if is_cudf:
+                        df[[col]].to_arrow()  # type: ignore[union-attr]
+                    else:
+                        pa.array(df[col], from_pandas=True)
+                except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
+                    coerce_cols.append(col)
+                    coerced_cols.append(str(col))
+        if coerce_cols:
+            df_fixed = df.astype({col: str for col in coerce_cols})
+        else:
+            df_fixed = df
+        if coerced_cols and emit_warning:
+            warn(f'Coerced mixed-type columns to string for Arrow conversion: {coerced_cols}. '
+                 f'Convert explicitly before plot() for better control.')
+        return df_fixed
+
+    def _table_to_arrow(self, table: Any, memoize: bool = True, validate_mode: ValidationMode = 'autofix', emit_warnings: bool = True) -> Optional[pa.Table]:  # noqa: C901
         """
-            pandas | arrow | dask | cudf | dask_cudf => arrow
+            pandas | arrow | dask | cudf | dask_cudf | polars | spark => arrow
 
             dask/dask_cudf convert to pandas/cudf
+
+            :param validate_mode: 'autofix' (default) coerces mixed-type columns to string with warning,
+                                  'strict' or 'strict-fast' raises ArrowConversionError on mixed types
+            :param warn: Whether to emit warnings when auto-coercing (only applies to autofix mode)
         """
 
-        logger.debug('_table_to_arrow of %s (memoize: %s)', type(table), memoize)
+        logger.debug('_table_to_arrow of %s (memoize: %s, validate_mode: %s)', type(table), memoize, validate_mode)
 
         if table is None:
             return None
@@ -2168,7 +3060,16 @@ class PlotterBase(Plottable):
                     logger.debug('Failed to hash pdf', exc_info=True)
                     1
 
-            out = pa.Table.from_pandas(table, preserve_index=False).replace_schema_metadata({})
+            try:
+                out = pa.Table.from_pandas(table, preserve_index=False).replace_schema_metadata({})
+            except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid) as e:
+                if validate_mode in ('strict', 'strict-fast'):
+                    bad_cols = self._find_bad_arrow_columns(table, is_cudf=False)
+                    from graphistry.exceptions import ArrowConversionError
+                    raise ArrowConversionError(columns=bad_cols, original_error=e)
+                logger.debug('Arrow conversion failed, auto-coercing: %s', e)
+                table_fixed = self._coerce_mixed_type_columns(table, is_cudf=False, emit_warning=emit_warnings)
+                out = pa.Table.from_pandas(table_fixed, preserve_index=False).replace_schema_metadata({})
 
             if memoize and (hashed is not None):
                 w = WeakValueWrapper(out)
@@ -2178,13 +3079,11 @@ class PlotterBase(Plottable):
             return out
 
         if not (maybe_cudf() is None) and isinstance(table, maybe_cudf().DataFrame):
-
             hashed = None
             if memoize:
-                #https://stackoverflow.com/questions/31567401/get-the-same-hash-value-for-a-pandas-dataframe-each-time
                 hashed = (
                     hashlib.sha256(table.hash_values().to_numpy().tobytes()).hexdigest()
-                    + hashlib.sha256(str(table.columns).encode('utf-8')).hexdigest()  # noqa: W503
+                    + hashlib.sha256(str(table.columns).encode('utf-8')).hexdigest()
                 )
                 try:
                     if hashed in PlotterBase._cudf_hash_to_arrow:
@@ -2196,7 +3095,16 @@ class PlotterBase(Plottable):
                     logger.debug('Failed to hash cudf', exc_info=True)
                     1
 
-            out = table.to_arrow()
+            try:
+                out = table.to_arrow()
+            except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid) as e:
+                if validate_mode in ('strict', 'strict-fast'):
+                    bad_cols = self._find_bad_arrow_columns(table, is_cudf=True)
+                    from graphistry.exceptions import ArrowConversionError
+                    raise ArrowConversionError(columns=bad_cols, original_error=e)
+                logger.debug('cuDF Arrow conversion failed, auto-coercing: %s', e)
+                table_fixed = self._coerce_mixed_type_columns(table, is_cudf=True, emit_warning=emit_warnings)
+                out = table_fixed.to_arrow()  # type: ignore[union-attr]
 
             if memoize:
                 w = WeakValueWrapper(out)
@@ -2204,33 +3112,116 @@ class PlotterBase(Plottable):
                 PlotterBase._cudf_hash_to_arrow[hashed] = w
 
             return out
-        
-        # TODO: per-gdf hashing? 
+
+        # TODO: per-gdf hashing?
         if not (maybe_dask_cudf() is None) and isinstance(table, maybe_dask_cudf().DataFrame):
             logger.debug('dgdf->arrow via gdf hash check')
             dgdf = table.persist()
             gdf = dgdf.compute()
-            return self._table_to_arrow(gdf, memoize)
+            return self._table_to_arrow(gdf, memoize, validate_mode, emit_warnings)
 
         if not (maybe_dask_dataframe() is None) and isinstance(table, maybe_dask_dataframe().DataFrame):
             logger.debug('ddf->arrow via df hash check')
             ddf = table.persist()
             df = ddf.compute()
-            return self._table_to_arrow(df, memoize)
+            return self._table_to_arrow(df, memoize, validate_mode, emit_warnings)
 
         if not (maybe_spark() is None) and isinstance(table, maybe_spark().sql.dataframe.DataFrame):
             logger.debug('spark->arrow via df')
             df = table.toPandas()
             #TODO push the hash check to Spark
-            return self._table_to_arrow(df, memoize)
+            return self._table_to_arrow(df, memoize, validate_mode, emit_warnings)
+
+        if not (maybe_polars() is None) and isinstance(table, (maybe_polars().DataFrame, maybe_polars().LazyFrame)):
+            # validate_mode and emit_warnings are not applied for polars input: polars frames are
+            # strictly typed so mixed-type columns cannot exist, making validation a no-op here.
+            if isinstance(table, maybe_polars().LazyFrame):
+                table = table.collect()
+            hashed = None
+            if memoize:
+                try:
+                    hashed = (
+                        hashlib.sha256(table.hash_rows().to_numpy().tobytes()).hexdigest()
+                        + hashlib.sha256(str(table.columns).encode('utf-8')).hexdigest()
+                    )
+                    if hashed in PlotterBase._polars_hash_to_arrow:
+                        return PlotterBase._polars_hash_to_arrow[hashed].v
+                except Exception:
+                    logger.debug('Failed to hash polars frame', exc_info=True)
+            out = table.to_arrow().replace_schema_metadata({})
+            if memoize and hashed is not None:
+                w = WeakValueWrapper(out)
+                cache_coercion(hashed, w)
+                PlotterBase._polars_hash_to_arrow[hashed] = w
+            return out
 
         raise Exception('Unknown type %s: Could not convert data to Arrow' % str(type(table)))
 
+    def to_arrow(
+        self,
+        table: Optional[Any] = None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
+    ) -> Optional[pa.Table]:
+        """
+        Convert a DataFrame to Arrow format.
 
-    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True) -> Union[ArrowUploader, Dict[str, Any]]:  # noqa: C901
+        This method is useful for debugging Arrow conversion issues.
+        If the DataFrame contains mixed-type columns that would cause Arrow
+        conversion to fail, they will be automatically coerced to strings
+        with a warning in autofix mode.
 
-        logger.debug('_make_dataset (mode %s, memoize %s) name:[%s] des:[%s] (e::%s, n::%s) ',
-            mode, memoize, name, description, type(edges), type(nodes))
+        :param validate: Data validation mode. 'autofix' (default) auto-coerces mixed-type columns to string.
+                         'strict' or 'strict-fast' raises ArrowConversionError on mixed types.
+                         For backward compatibility: True maps to 'strict', False maps to 'autofix'.
+        :type validate: ValidationParam
+
+        :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix').
+                     validate=False forces warn=False. Default True.
+        :type warn: bool
+
+        :param table: DataFrame to convert. If None, converts the bound edges.
+        :type table: Optional[pandas.DataFrame, cudf.DataFrame, pyarrow.Table]
+
+        :returns: PyArrow Table, or None if table is None
+        :rtype: Optional[pyarrow.Table]
+
+        **Example: Debug Arrow conversion**
+            ::
+
+                import graphistry
+                import pandas as pd
+
+                df = pd.DataFrame({
+                    'src': [1, 2, 3],
+                    'dst': [2, 3, 1],
+                    'mixed': [b'bytes', 1.5, 'string']  # Mixed types
+                })
+                g = graphistry.edges(df, 'src', 'dst')
+
+                # Debug: see what Arrow conversion produces
+                arr = g.to_arrow(df, validate='autofix', warn=True)
+                print(arr.schema)
+
+                # Or convert bound edges
+                arr2 = g.to_arrow(validate='strict')
+        """
+        if table is None:
+            table = self._edges
+        validate_mode: ValidationMode
+        if validate is True:
+            validate_mode = 'strict'
+        elif validate is False:
+            validate_mode = 'autofix'
+            warn = False
+        else:
+            validate_mode = validate
+        return self._table_to_arrow(table, memoize=False, validate_mode=validate_mode, emit_warnings=warn)
+
+    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True, validate_mode: ValidationMode = 'autofix', emit_warnings: bool = True) -> Union[ArrowUploader, Dict[str, Any]]:  # noqa: C901
+
+        logger.debug('_make_dataset (mode %s, memoize %s, validate_mode %s) name:[%s] des:[%s] (e::%s, n::%s) ',
+            mode, memoize, validate_mode, name, description, type(edges), type(nodes))
 
         try:
             if len(edges) == 0:
@@ -2243,7 +3234,7 @@ class PlotterBase(Plottable):
                 if ('bg' in metadata) or ('fg' in metadata) or ('logo' in metadata) or ('page' in metadata):
                     raise ValueError('Cannot set bg/fg/logo/page in api=1; try using api=3')
             if not (self._complex_encodings is None
-                or self._complex_encodings == {  # noqa: W503
+                or self._complex_encodings == {
                     'node_encodings': {'current': {}, 'default': {} },
                     'edge_encodings': {'current': {}, 'default': {} }}):
                 raise ValueError('Cannot set complex encodings ".encode_[point/edge]_[feature]()" in api=1; try using api=3 or .bind()')
@@ -2253,8 +3244,8 @@ class PlotterBase(Plottable):
             nodes_df = self._table_to_pandas(nodes)
             return self._make_json_dataset(edges_df, nodes_df, name)
         elif mode == 'arrow':
-            edges_arr = self._table_to_arrow(edges, memoize)
-            nodes_arr = self._table_to_arrow(nodes, memoize)
+            edges_arr = self._table_to_arrow(edges, memoize, validate_mode, emit_warnings)
+            nodes_arr = self._table_to_arrow(nodes, memoize, validate_mode, emit_warnings)
             return self._make_arrow_dataset(edges=edges_arr, nodes=nodes_arr, name=name, description=description, metadata=metadata)
             #token=None, dataset_id=None, url_params = None)
         else:
@@ -2286,7 +3277,7 @@ class PlotterBase(Plottable):
         return dataset
 
 
-    def _make_arrow_dataset(self, edges: pa.Table, nodes: pa.Table, name: str, description: str, metadata: Optional[Dict[str, Any]]) -> ArrowUploader:
+    def _make_arrow_dataset(self, edges: Optional[pa.Table], nodes: Optional[pa.Table], name: str, description: str, metadata: Optional[Dict[str, Any]]) -> ArrowUploader:
 
         au : ArrowUploader = ArrowUploader(
             client_session=self.session,
@@ -2661,13 +3652,55 @@ class PlotterBase(Plottable):
         """        
         return self._tigergraph.gsql(self, query, bindings, dry_run)
 
+    @overload
     def hypergraph(
         self,
-        raw_events, entity_types: Optional[List[str]] = None, opts: dict = {},
+        raw_events: Optional[Any] = None,
+        *,
+        entity_types: Optional[List[str]] = None, opts: dict = {},
         drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
-        engine: str = 'pandas', npartitions: Optional[int] = None, chunksize: Optional[int] = None
+        engine: EngineAbstractType = 'auto', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
+        from_edges: bool = False,
+        return_as: Literal['graph'] = 'graph'
+    ) -> 'Plottable':
+        ...
 
-    ):
+    @overload
+    def hypergraph(
+        self,
+        raw_events: Optional[Any] = None,
+        *,
+        entity_types: Optional[List[str]] = None, opts: dict = {},
+        drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
+        engine: EngineAbstractType = 'auto', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
+        from_edges: bool = False,
+        return_as: Literal['all']
+    ) -> HypergraphResult:
+        ...
+
+    @overload
+    def hypergraph(
+        self,
+        raw_events: Optional[Any] = None,
+        *,
+        entity_types: Optional[List[str]] = None, opts: dict = {},
+        drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
+        engine: EngineAbstractType = 'auto', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
+        from_edges: bool = False,
+        return_as: Literal['entities', 'events', 'edges', 'nodes'] = ...
+    ) -> Any:
+        ...
+
+    def hypergraph(
+        self,
+        raw_events: Optional[Any] = None,
+        *,
+        entity_types: Optional[List[str]] = None, opts: dict = {},
+        drop_na: bool = True, drop_edge_attrs: bool = False, verbose: bool = True, direct: bool = False,
+        engine: EngineAbstractType = 'auto', npartitions: Optional[int] = None, chunksize: Optional[int] = None,
+        from_edges: bool = False,
+        return_as: Literal['graph', 'all', 'entities', 'events', 'edges', 'nodes'] = 'graph'
+    ) -> Union['Plottable', HypergraphResult, Any]:
         """Transform a dataframe into a hypergraph.
 
         :param raw_events: Dataframe to transform (pandas or cudf). 
@@ -2778,8 +3811,11 @@ class PlotterBase(Plottable):
         """
         from . import hyper
         return hyper.Hypergraph().hypergraph(
-            self, raw_events, entity_types, opts, drop_na, drop_edge_attrs, verbose, direct,
-            engine=engine, npartitions=npartitions, chunksize=chunksize)
+            self, raw_events,
+            entity_types=entity_types, opts=opts, drop_na=drop_na, drop_edge_attrs=drop_edge_attrs,
+            verbose=verbose, direct=direct,
+            engine=engine, npartitions=npartitions, chunksize=chunksize,
+            from_edges=from_edges, return_as=return_as)
 
 
     def layout_settings(

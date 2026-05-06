@@ -53,12 +53,55 @@ Path pattern expressions for matching graph structures:
 - Define paths through the graph: start nodes → edges → end nodes
 - Each operation refines the pattern match based on previous results
 
+#### WHERE (Same-Path Constraints)
+
+WHERE ties attributes across named steps in a chain. Use it when you need to
+enforce relationships between nodes/edges on the same path (for example,
+start.owner_id equals end.owner_id).
+Multiple WHERE comparisons are conjunctive (AND).
+
+**Python example:**
+
+```python
+from graphistry import n, e_forward, col, compare
+
+g.gfql(
+    [n({"type": "account"}, name="a"), e_forward(), n({"type": "user"}, name="c")],
+    where=[compare(col("a", "owner_id"), "==", col("c", "owner_id"))],
+)
+```
+
+**Wire format (JSON):**
+
+```json
+{
+  "type": "Chain",
+  "chain": [
+    {"type": "Node", "filter_dict": {"type": "account"}, "name": "a"},
+    {"type": "Edge", "direction": "forward"},
+    {"type": "Node", "filter_dict": {"type": "user"}, "name": "c"}
+  ],
+  "where": [{"eq": {"left": "a.owner_id", "right": "c.owner_id"}}]
+}
+```
+
+WHERE context boundaries:
+- Same-path `where=[...]` uses `compare(col(...), op, col(...))` with
+  `op` in `==`, `!=`, `<`, `<=`, `>`, `>=`.
+- Predicate helper calls (for example, `gt(...)`, `between(...)`) are not used
+  inside same-path `where=[...]`.
+- Row-table filtering after `rows(...)` uses `where_rows(...)`:
+  - `where_rows(filter_dict=...)` supports predicate helpers.
+  - `where_rows(expr="...")` uses expression comparators
+    `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`.
+
 #### Operations
 
-Act on graph entities (nodes and edges):
-- Node matchers: Filter and select nodes
-- Edge matchers: Traverse relationships
-- Operations work on the graph structure itself
+GFQL supports two operation families:
+- Graph matchers act on graph entities (nodes and edges).
+- Row-pipeline operators act on tabular outputs from matched graph entities.
+- `g.gfql([...], where=[...])` filters same-path alias relationships.
+- `where_rows(...)` filters the active row table in RETURN/WITH-style pipelines.
 
 #### Predicates
 
@@ -77,16 +120,17 @@ Type system matching modern data formats:
 
 ## Formal Grammar
 
-```{code-block} ebnf
+```{code-block} text
 :caption: GFQL Grammar in Extended Backus-Naur Form
 
 (* Entry point *)
 query ::= chain
 
 (* Chain - path pattern expression *)
-chain ::= "[" operation ("," operation)* "]"
+chain ::= "[" step ("," step)* "]"
+step ::= operation | row_operation | call_operation
 
-(* Operations *)
+(* Graph operations *)
 operation ::= node_matcher | edge_matcher
 
 (* Node Matcher *)
@@ -101,13 +145,50 @@ edge_forward ::= "e_forward(" edge_params? ")"
 edge_reverse ::= "e_reverse(" edge_params? ")"  
 edge_undirected ::= ("e" | "e_undirected") "(" edge_params? ")"
 
+(* WHERE (same-path constraints) *)
+where_clause ::= "where=" where_list
+where_list ::= "[" where_expr ("," where_expr)* "]"
+where_expr ::= "compare(" column_ref "," compare_op "," column_ref ")"
+compare_op ::= "'=='" | "'!='" | "'<'" | "'<='" | "'>'" | "'>='"
+column_ref ::= alias "." column
+alias ::= identifier
+column ::= identifier
+
+(* Row operations - Cypher RETURN/WITH-style pipeline *)
+row_operation ::= rows_op | where_rows_op | select_op | with_op | return_op
+                | order_by_op | skip_op | limit_op | distinct_op
+                | unwind_op | group_by_op
+call_operation ::= "call(" string ("," params_object)? ")"
+params_object ::= "{" (string ":" value_or_expr ("," string ":" value_or_expr)*)? "}"
+rows_op ::= "rows(" (rows_arg ("," rows_arg)*)? ")"
+rows_arg ::= "table=" ("'nodes'" | "'edges'") | "source=" string
+where_rows_op ::= "where_rows(" (where_rows_arg ("," where_rows_arg)*)? ")"
+where_rows_arg ::= "filter_dict=" filter_dict | "expr=" string
+select_op ::= "select(" (projection_items | "items=" projection_items) ")"
+with_op ::= "with_(" (projection_items | "items=" projection_items) ")"
+return_op ::= "return_(" (projection_items | "items=" projection_items) ")"
+projection_items ::= "[" projection_item ("," projection_item)* "]"
+projection_item ::= string | "(" string "," value_or_expr ")"
+value_or_expr ::= value | string
+order_by_op ::= "order_by(" (order_keys | "keys=" order_keys) ")"
+order_keys ::= "[" "(" value_or_expr "," ("'asc'" | "'desc'") ")" ("," "(" value_or_expr "," ("'asc'" | "'desc'") ")")* "]"
+skip_op ::= "skip(" (integer | "value=" integer) ")"
+limit_op ::= "limit(" (integer | "value=" integer) ")"
+distinct_op ::= "distinct()"
+unwind_op ::= "unwind(" "expr=" value_or_expr ("," "as_=" string)? ")"
+group_by_op ::= "group_by(" "keys=" "[" string ("," string)* "]" "," "aggregations=" "[" aggregation_spec ("," aggregation_spec)* "]" ")"
+aggregation_spec ::= "(" string "," string ")" | "(" string "," string "," value_or_expr ")"
+
 (* Parameters *)
 edge_params ::= edge_match_params ("," hop_params)? ("," node_filter_params)? ("," name_param)?
 
 filter_dict ::= "{" (property_filter ("," property_filter)*)? "}"
 property_filter ::= string ":" (value | predicate)
 
-hop_params ::= "hops=" integer | "to_fixed_point=True"
+hop_params ::= hop_bound_params | hop_slice_params | hop_label_params | "hops=" integer | "to_fixed_point=True"
+hop_bound_params ::= "min_hops=" integer | "max_hops=" integer
+hop_slice_params ::= "output_min_hops=" integer | "output_max_hops=" integer
+hop_label_params ::= "label_node_hops=" string | "label_edge_hops=" string | "label_seeds=True"
 node_filter_params ::= source_filter ("," dest_filter)?
 source_filter ::= "source_node_match=" filter_dict | "source_node_query=" string
 dest_filter ::= "destination_node_match=" filter_dict | "destination_node_query=" string
@@ -123,12 +204,13 @@ predicate ::= comparison | membership | range | null_check | string_pred | tempo
 comparison ::= ("gt" | "lt" | "ge" | "le" | "eq" | "ne") "(" value ")"
 membership ::= "is_in(" "[" value ("," value)* "]" ")"
 range ::= "between(" value "," value ("," "inclusive=" boolean)? ")"
-null_check ::= "is_null()" | "not_null()" | "is_na()" | "not_na()"
+null_check ::= "isnull()" | "notnull()" | "isna()" | "notna()"
 string_pred ::= string_match | string_check
 string_match ::= "contains(" string ("," "case=" boolean)? ("," "regex=" boolean)? ")"
-              | "match(" string ("," "case=" boolean)? ")"
-              | ("startswith" | "endswith") "(" string ")"
-string_check ::= ("isalpha" | "isnumeric" | "isdigit" | "isalnum" 
+              | "match(" string ("," "case=" boolean)? ("," "flags=" integer)? ")"
+              | "fullmatch(" string ("," "case=" boolean)? ("," "flags=" integer)? ")"
+              | ("startswith" | "endswith") "(" string ("," "case=" boolean)? ")"
+string_check ::= ("isalpha" | "isnumeric" | "isdigit" | "isalnum"
                | "isupper" | "islower") "()"
 temporal_pred ::= temporal_check "()"
 temporal_check ::= "is_month_start" | "is_month_end" | "is_quarter_start" 
@@ -151,6 +233,7 @@ integer ::= ["-"]? [0-9]+
 float ::= ["-"]? [0-9]+ "." [0-9]+
 boolean ::= "True" | "False"
 null ::= "None"
+identifier ::= [A-Za-z_][A-Za-z0-9_]*
 datetime_args ::= integer ("," integer)*
 date_args ::= integer "," integer "," integer
 time_args ::= integer "," integer ("," integer)?
@@ -184,11 +267,14 @@ n(query="age > 30 and status == 'active'")  # Query string
 
 Traverses edges in forward direction (source → destination).
 
-**Syntax**: `e_forward(edge_match?, hops?, to_fixed_point?, source_node_match?, destination_node_match?, name?)`
+**Syntax**: `e_forward(edge_match?, hops?, min_hops?, max_hops?, output_min_hops?, output_max_hops?, label_node_hops?, label_edge_hops?, label_seeds?, to_fixed_point?, source_node_match?, destination_node_match?, name?)`
 
 **Parameters**:
 - `edge_match`: Edge attribute filters
-- `hops`: Number of hops (default: 1)
+- `hops`: Number of hops (default: 1; shorthand for `max_hops`)
+- `min_hops`/`max_hops`: Inclusive traversal bounds (default min=1 unless max=0; max defaults to hops)
+- `output_min_hops`/`output_max_hops`: Optional post-filter slice; defaults keep all traversed hops up to `max_hops`
+- `label_node_hops`/`label_edge_hops`: Optional hop-number columns; `label_seeds=True` writes hop 0 for seeds when labeling
 - `to_fixed_point`: Continue until no new nodes (default: False)
 - `source_node_match`: Filters for source nodes
 - `destination_node_match`: Filters for destination nodes
@@ -198,6 +284,7 @@ Traverses edges in forward direction (source → destination).
 ```python
 e_forward()                           # One hop forward
 e_forward(hops=2)                     # Two hops forward
+e_forward(min_hops=2, max_hops=4, output_min_hops=3, label_edge_hops="edge_hop")  # bounded + sliced + labeled
 e_forward(to_fixed_point=True)        # All reachable nodes
 e_forward({"type": "follows"})        # Only 'follows' edges
 e_forward(source_node_match={"active": True})  # From active nodes
@@ -215,10 +302,61 @@ Traverses edges in both directions.
 
 **Syntax**: Same as `e_forward()`
 
+### Row-Pipeline Operations
+
+These operations are encoded as call steps in the chain and are used for
+Cypher-style `MATCH ... RETURN` processing:
+- `rows(table=..., source=...)`: select active row table (nodes/edges; optional alias scope)
+- `where_rows(filter_dict=..., expr=...)`: row-level filtering on active row table
+- `select(...)` / `with_(...)` / `return_(...)`: projection and expression shaping
+- `order_by(...)`, `skip(...)`, `limit(...)`, `distinct()`: row sorting/paging/dedup
+- `unwind(...)`: expand list-valued expressions into rows
+- `group_by(...)`: grouped vectorized aggregations
+
+Row-pipeline operators are part of the chain list itself (not top-level
+`g.gfql()` keyword arguments):
+
+```python
+from graphistry import n, e_forward
+from graphistry.compute import rows, where_rows, return_, order_by, limit
+
+g.gfql([
+    n({"type": "Person"}, name="p"),
+    e_forward({"type": "FOLLOWS"}),
+    n({"type": "Person"}, name="q"),
+    rows(table="nodes", source="q"),
+    where_rows(expr="score >= 50"),
+    return_([("id", "id"), ("name", "name"), ("score", "score")]),
+    order_by([("score", "desc"), ("name", "asc")]),
+    limit(25),
+])
+```
+
+Equivalent explicit `Chain` form:
+
+```python
+from graphistry.compute.chain import Chain
+
+query = Chain([
+    n({"type": "Person"}, name="p"),
+    e_forward({"type": "FOLLOWS"}),
+    n({"type": "Person"}, name="q"),
+    rows(table="nodes", source="q"),
+    where_rows(expr="score >= 50"),
+    return_(["id", "name", "score"]),
+])
+g.gfql(query)
+```
+
+`where=[...]` and `where_rows(...)` are intentionally different:
+- `where=[...]` compares values across named path aliases in the MATCH pattern.
+- `where_rows(...)` evaluates scalar expressions against the active row table.
+
 ## Predicates
 
 ### Comparison Predicates
 
+<!-- doc-test: skip -->
 ```python
 gt(value)    # Greater than
 lt(value)    # Less than
@@ -230,12 +368,14 @@ ne(value)    # Not equal
 
 ### Membership Predicate
 
+<!-- doc-test: skip -->
 ```python
 is_in([value1, value2, ...])  # Value in list
 ```
 
 ### Range Predicate
 
+<!-- doc-test: skip -->
 ```python
 between(lower, upper, inclusive=True)  # Value in range
 ```
@@ -243,14 +383,17 @@ between(lower, upper, inclusive=True)  # Value in range
 ### String Predicates
 
 Pattern matching predicates:
+<!-- doc-test: skip -->
 ```python
-contains(pat, case=True, regex=True)  # Contains pattern (substring or regex)
-startswith(prefix)                    # Starts with prefix (case-sensitive)
-endswith(suffix)                      # Ends with suffix (case-sensitive)
-match(pat, case=True)                 # Matches regex from start of string
+contains(pat, case=True, regex=True)     # Contains pattern (substring or regex)
+startswith(prefix, case=True)            # Starts with prefix
+endswith(suffix, case=True)              # Ends with suffix
+match(pat, case=True, flags=0)           # Matches regex from start of string
+fullmatch(pat, case=True, flags=0)       # Matches regex against entire string
 ```
 
 String type checking predicates:
+<!-- doc-test: skip -->
 ```python
 isalpha()    # Alphabetic characters only
 isnumeric()  # Numeric characters only
@@ -262,15 +405,17 @@ islower()    # All lowercase
 
 ### Null Predicates
 
+<!-- doc-test: skip -->
 ```python
-is_null()     # Is null/None
-not_null()    # Is not null/None
-is_na()       # Is NaN (numeric)
-not_na()      # Is not NaN
+isnull()     # Is null/None
+notnull()    # Is not null/None
+isna()       # Is NaN (numeric)
+notna()      # Is not NaN
 ```
 
 ### Temporal Predicates
 
+<!-- doc-test: skip -->
 ```python
 is_month_start()    # First day of month
 is_month_end()      # Last day of month
@@ -287,6 +432,7 @@ is_leap_year()      # Is leap year
 
 GFQL supports calling Plottable methods through the `call()` operation, providing controlled access to graph transformation and analysis capabilities:
 
+<!-- doc-test: skip -->
 ```python
 call(function: str, params: dict) -> ASTCall
 ```
@@ -296,6 +442,8 @@ Call operations enable:
 - Layout computations (ForceAtlas2, Graphviz)
 - Data transformations (filtering, collapsing)
 - Visual encodings (color, size, icons)
+- Row-pipeline operations (`rows`, `where_rows`, `select`, `with_`, `return_`,
+  `order_by`, `skip`, `limit`, `distinct`, `unwind`, `group_by`)
 
 ### Safelist Architecture
 
@@ -326,12 +474,24 @@ For security and stability, Call operations are restricted to a predefined safel
 - `layout_igraph`: CPU-based layouts
 - `layout_graphviz`: Graphviz layouts
 - `fa2_layout`: ForceAtlas2 layout
+- `ring_continuous_layout`: Radial layout driven by numeric attributes
+- `ring_categorical_layout`: Radial layout grouping by categories
+- `time_ring_layout`: Time-series radial layout (accepts ISO timestamp bounds)
+
+```{note}
+`time_ring_layout` accepts ISO-8601 strings for `time_start` / `time_end` when
+sent over the wire. GFQL converts them to `numpy.datetime64` before use so the
+behavior matches direct Plotter calls.
+```
 
 **Visual Encoding**
 - `encode_point_color`: Color nodes/edges
 - `encode_point_size`: Size nodes
 - `encode_point_icon`: Set icons
 - `bind`: Attach visual attributes
+
+**Embeddings & Dimensionality Reduction**
+- `umap`: UMAP dimensionality reduction for graph embeddings
 
 ### Validation
 
@@ -386,23 +546,32 @@ GFQL follows a declarative execution model similar to Neo4j's Cypher:
    - Patterns specify *what* paths to match, not *how* to find them
    - The engine optimizes pattern matching based on data characteristics
 
-2. **Set-Based Operations**: All operations work on sets of entities
-   - No explicit iteration or traversal order
-   - Results include all matching patterns in the graph
-   - Current GFQL engines use a novel bulk-oriented execution model that is asymptotically faster than traditional iterative approaches used for Cypher, but this is not a requirement of the language itself
+2. **Row-Pipeline Transformation**: Optional call steps shape tabular outputs
+   - `rows(...)` chooses active table (`nodes` or `edges`, optionally alias-scoped)
+   - `where_rows(...)`, projections, sorting, grouping, and paging transform rows
+   - Expressions are validated before execution and unsupported forms fail fast
 
-3. **Lazy Evaluation**: Chains define pattern transformations without immediate execution
-   - Allows engines to optimize path finding and pattern matching strategies
-\
+3. **Set-Based Operations**: Graph and row operations run in bulk
+   - No explicit user-managed iteration or traversal order
+   - Results include all matching paths/rows satisfying constraints
+   - Execution is vectorized in supported engines (pandas/cuDF)
+
+4. **Lazy Evaluation**: Chains define transformations without immediate execution
+   - Allows engines to optimize path finding and row-table transformations
+
 ### Result Access
 
-Query execution returns filtered node and edge datasets. In the Python embedding:
+Query execution returns graph and/or row-tabular outputs according to the
+embedding implementation.
 
+<!-- doc-test: skip -->
 ```python
 result = g.gfql([...])
-nodes_df = result._nodes  # Filtered nodes
-edges_df = result._edges  # Filtered edges
+# accessors are embedding-specific
 ```
+
+For Python accessor details (including row-pipeline result materialization), see
+{ref}`gfql-spec-python-embedding`.
 
 ### Named Results
 

@@ -139,28 +139,40 @@ class TestGFQLHypergraph:
         assert len(result._nodes) > 0, "Hypergraph should have non-empty nodes"
         assert len(result._edges) > 0, "Hypergraph should have non-empty edges"
 
-    def test_hypergraph_rejected_when_mixed(self):
-        """Test that hypergraph cannot be mixed with other operations in chains."""
+    def test_hypergraph_allowed_when_mixed(self):
+        """Test that hypergraph CAN be mixed with other operations via recursive dispatch.
+
+        This test verifies the fix for GitHub issue #761 where schema-changing operations
+        like hypergraph are now handled via recursive dispatch, allowing them to be mixed
+        with other GFQL operations.
+        """
         events_df = pd.DataFrame({
             'user': ['alice', 'bob'],
             'product': ['laptop', 'phone'],
             'type': ['person', 'person']
         })
 
-        g = CGFull().nodes(events_df)
+        # Create graph with edges to avoid NoneType errors in ASTNode
+        edges_df = pd.DataFrame({
+            'src': ['alice'],
+            'dst': ['bob']
+        })
+        g = CGFull().nodes(events_df, 'user').edges(edges_df, 'src', 'dst')
 
-        # Mixing hypergraph with other operations should raise an error
-        with pytest.raises(ValueError) as exc_info:
-            g.gfql([
-                n({'type': 'person'}),  # Filter operation
-                call('hypergraph', {    # Transform operation
-                    'entity_types': ['user', 'product'],
-                    'direct': True
-                })
-            ])
+        # Mixing hypergraph with other operations should now work via recursive dispatch
+        # The chain will be split: before → hypergraph → rest
+        result = g.gfql([
+            n({'type': 'person'}),  # Filter operation (before)
+            call('hypergraph', {    # Schema-changer (will be dispatched separately)
+                'entity_types': ['user', 'product'],
+                'direct': True
+            })
+        ])
 
-        assert "cannot be mixed with other operations" in str(exc_info.value)
-        assert "use hypergraph alone" in str(exc_info.value)
+        # Should execute successfully and return a graph
+        assert result is not None
+        assert hasattr(result, '_nodes')
+        # Note: Result structure depends on hypergraph implementation with CGFull mock
 
     def test_hypergraph_with_chaining_in_let(self):
         """Test chaining operations after hypergraph transformation using let."""
@@ -543,7 +555,8 @@ class TestGFQLHypergraphRemote:
         def mock_server_hypergraph(g, chain, api_token=None, dataset_id=None,
                                   output_type='all', format=None, df_export_args=None,
                                   node_col_subset=None, edge_col_subset=None,
-                                  engine=None, validate=True, persist=False):
+                                  engine=None, validate=True, persist=False,
+                                  params=None, output=None):
             """Mock server that executes hypergraph locally."""
             from graphistry.compute.ast import ASTCall
 
@@ -587,3 +600,297 @@ class TestGFQLHypergraphRemote:
         assert len(result._edges) > 0
         # Check that it actually created entity relationships
         assert set(result._nodes.columns) != set(events_df.columns)  # Should have transformed columns
+
+
+class TestGFQLHypergraphFromEdgesReturnAs:
+    """Test hypergraph from_edges and return_as parameters."""
+
+    def test_hypergraph_from_edges_true(self):
+        """Test hypergraph with from_edges=True uses edges dataframe as input."""
+        # Create edges dataframe
+        edges_df = pd.DataFrame({
+            'user': ['alice', 'bob', 'alice', 'carol'],
+            'product': ['laptop', 'phone', 'tablet', 'laptop'],
+            'amount': [1000, 500, 300, 1000]
+        })
+
+        # Create graph with edges (no nodes needed for from_edges=True)
+        g = CGFull().edges(edges_df, 'user', 'product')
+
+        # Use from_edges=True to use edges as input
+        result = g.gfql(
+            hypergraph(
+                from_edges=True,
+                entity_types=['user', 'product'],
+                direct=True,
+                engine='pandas'
+            )
+        )
+
+        # Verify result has both nodes and edges
+        assert result._nodes is not None, "Hypergraph should have nodes"
+        assert result._edges is not None, "Hypergraph should have edges"
+        assert len(result._nodes) > 0, "Hypergraph should have non-empty nodes"
+        assert len(result._edges) > 0, "Hypergraph should have non-empty edges"
+
+    def test_hypergraph_from_edges_error_no_edges(self):
+        """Test hypergraph from_edges=True fails when no edges dataframe."""
+        # Create graph with only nodes
+        nodes_df = pd.DataFrame({
+            'user': ['alice', 'bob'],
+            'product': ['laptop', 'phone']
+        })
+        g = CGFull().nodes(nodes_df)
+
+        # Should fail with clear error message
+        from graphistry.compute.exceptions import GFQLTypeError
+        with pytest.raises(GFQLTypeError) as exc_info:
+            g.gfql(
+                hypergraph(
+                    from_edges=True,
+                    entity_types=['user', 'product']
+                )
+            )
+
+        error_msg = str(exc_info.value).lower()
+        assert "from_edges=true" in error_msg or "edges" in error_msg
+
+    def test_hypergraph_return_as_entities(self):
+        """Test hypergraph return_as='entities' returns entities DataFrame."""
+        events_df = pd.DataFrame({
+            'user': ['alice', 'bob', 'alice', 'carol'],
+            'product': ['laptop', 'phone', 'tablet', 'laptop']
+        })
+
+        g = CGFull().nodes(events_df)
+
+        # Use return_as='entities' to get only entities dataframe
+        result = g.gfql(
+            hypergraph(
+                entity_types=['user', 'product'],
+                return_as='entities',
+                direct=True,
+                engine='pandas'
+            )
+        )
+
+        # Result should be a DataFrame, not a Plottable
+        assert isinstance(result, pd.DataFrame), "return_as='entities' should return DataFrame"
+        assert result is not None
+        assert len(result) > 0, "Entities dataframe should have rows"
+
+    def test_hypergraph_return_as_entities_without_jinja(self, monkeypatch):
+        """Ensure return_as DataFrames do not require pandas Styler/Jinja imports."""
+        from pandas.compat import _optional
+
+        real_import = _optional.import_optional_dependency
+
+        def fake_import(name, *args, **kwargs):
+            if name == 'jinja2':
+                raise ImportError("Jinja2 should not be required for hypergraph return_as")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(_optional, 'import_optional_dependency', fake_import)
+
+        events_df = pd.DataFrame({
+            'user': ['alice', 'bob'],
+            'product': ['laptop', 'phone']
+        })
+
+        g = CGFull().nodes(events_df)
+
+        result = g.gfql(
+            hypergraph(
+                entity_types=['user', 'product'],
+                return_as='entities',
+                engine='pandas'
+            )
+        )
+
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) > 0
+
+    def test_hypergraph_return_as_events(self):
+        """Test hypergraph return_as='events' returns events DataFrame."""
+        events_df = pd.DataFrame({
+            'user': ['alice', 'bob'],
+            'product': ['laptop', 'phone']
+        })
+
+        g = CGFull().nodes(events_df)
+
+        # Use return_as='events'
+        result = g.gfql(
+            hypergraph(
+                entity_types=['user', 'product'],
+                return_as='events',
+                direct=False,  # direct=False creates event nodes
+                engine='pandas'
+            )
+        )
+
+        # Result should be a DataFrame
+        assert isinstance(result, pd.DataFrame), "return_as='events' should return DataFrame"
+
+    def test_hypergraph_return_as_edges(self):
+        """Test hypergraph return_as='edges' returns edges DataFrame."""
+        events_df = pd.DataFrame({
+            'user': ['alice', 'bob'],
+            'product': ['laptop', 'phone']
+        })
+
+        g = CGFull().nodes(events_df)
+
+        # Use return_as='edges'
+        result = g.gfql(
+            hypergraph(
+                entity_types=['user', 'product'],
+                return_as='edges',
+                direct=True,
+                engine='pandas'
+            )
+        )
+
+        # Result should be a DataFrame
+        assert isinstance(result, pd.DataFrame), "return_as='edges' should return DataFrame"
+        assert len(result) > 0, "Edges dataframe should have rows"
+
+    def test_hypergraph_return_as_nodes(self):
+        """Test hypergraph return_as='nodes' returns combined nodes DataFrame."""
+        events_df = pd.DataFrame({
+            'user': ['alice', 'bob'],
+            'product': ['laptop', 'phone']
+        })
+
+        g = CGFull().nodes(events_df)
+
+        # Use return_as='nodes' (entities + events)
+        result = g.gfql(
+            hypergraph(
+                entity_types=['user', 'product'],
+                return_as='nodes',
+                direct=False,
+                engine='pandas'
+            )
+        )
+
+        # Result should be a DataFrame
+        assert isinstance(result, pd.DataFrame), "return_as='nodes' should return DataFrame"
+        assert len(result) > 0, "Nodes dataframe should have rows"
+
+    def test_hypergraph_return_as_graph_default(self):
+        """Test hypergraph return_as='graph' (default) returns Plottable."""
+        events_df = pd.DataFrame({
+            'user': ['alice', 'bob'],
+            'product': ['laptop', 'phone']
+        })
+
+        g = CGFull().nodes(events_df)
+
+        # Use return_as='graph' explicitly (same as default)
+        result = g.gfql(
+            hypergraph(
+                entity_types=['user', 'product'],
+                return_as='graph',
+                direct=True
+            )
+        )
+
+        # Result should be a Plottable (default behavior)
+        assert hasattr(result, '_nodes'), "return_as='graph' should return Plottable"
+        assert hasattr(result, '_edges'), "return_as='graph' should return Plottable"
+
+    def test_hypergraph_invalid_return_as(self):
+        """Test hypergraph with invalid return_as value is rejected."""
+        events_df = pd.DataFrame({
+            'user': ['alice', 'bob'],
+            'product': ['laptop', 'phone']
+        })
+
+        g = CGFull().nodes(events_df)
+
+        # Should fail validation at safelist level
+        from graphistry.compute.exceptions import GFQLTypeError
+        with pytest.raises(GFQLTypeError) as exc_info:
+            g.gfql(
+                call('hypergraph', {
+                    'entity_types': ['user', 'product'],
+                    'return_as': 'invalid_value'
+                })
+            )
+
+        error_msg = str(exc_info.value).lower()
+        assert "return_as" in error_msg or "invalid" in error_msg
+
+    def test_hypergraph_from_edges_and_return_as_combined(self):
+        """Test using both from_edges=True and return_as together."""
+        edges_df = pd.DataFrame({
+            'src_user': ['alice', 'bob', 'alice'],
+            'dst_item': ['laptop', 'phone', 'tablet']
+        })
+
+        g = CGFull().edges(edges_df, 'src_user', 'dst_item')
+
+        # Use both parameters together
+        result = g.gfql(
+            hypergraph(
+                from_edges=True,
+                entity_types=['src_user', 'dst_item'],
+                return_as='entities',
+                direct=True,
+                engine='pandas'
+            )
+        )
+
+        # Result should be entities DataFrame
+        assert isinstance(result, pd.DataFrame), "Should return DataFrame when return_as='entities'"
+        assert len(result) > 0, "Entities dataframe should have rows"
+
+    def test_hypergraph_from_edges_in_let(self):
+        """Test from_edges parameter works in let/DAG context."""
+        edges_df = pd.DataFrame({
+            'user': ['alice', 'bob'],
+            'product': ['laptop', 'phone'],
+            'type': ['purchase', 'purchase']
+        })
+
+        g = CGFull().edges(edges_df, 'user', 'product')
+
+        # Use from_edges in DAG
+        result = g.gfql(
+            let({
+                'hg': hypergraph(
+                    from_edges=True,
+                    entity_types=['user', 'product'],
+                    direct=True
+                )
+            }),
+            output='hg'
+        )
+
+        assert result._nodes is not None
+        assert result._edges is not None
+
+    def test_hypergraph_return_as_in_let(self):
+        """Test return_as parameter works in let/DAG context."""
+        events_df = pd.DataFrame({
+            'user': ['alice', 'bob', 'alice'],
+            'product': ['laptop', 'phone', 'tablet']
+        })
+
+        g = CGFull().nodes(events_df)
+
+        # Use return_as in DAG to extract dataframe
+        result = g.gfql(
+            let({
+                'entities': hypergraph(
+                    entity_types=['user', 'product'],
+                    return_as='entities',
+                    direct=True
+                )
+            }),
+            output='entities'
+        )
+
+        # Result should be DataFrame
+        assert isinstance(result, pd.DataFrame)

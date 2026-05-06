@@ -1,3 +1,4 @@
+"""PyGraphistry: A visual graph analytics library for big graphs."""
 
 from graphistry.pygraphistry import (  # noqa: E402, F401
     client_protocol_hostname,
@@ -6,6 +7,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     register,
     sso_get_token,
     privacy,
+    otel,
     login,
     refresh,
     api_token,
@@ -14,6 +16,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     name,
     description,
     bind,
+    from_dataset_id,
     client,
     set_client_for,
     style,
@@ -22,6 +25,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     nodes,
     graph,
     settings,
+    collections,
     encode_point_color,
     encode_point_size,
     encode_point_icon,
@@ -29,6 +33,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     encode_edge_icon,
     encode_point_badge,
     encode_edge_badge,
+    apply_encodings,
     hypergraph,
     bolt,
     cypher,
@@ -56,17 +61,29 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     org_name,
     scene_settings,
     nodexl,
+    gexf,
+    to_gexf,
     ArrowUploader,
     ArrowFileUploader,
     PyGraphistry,
     GraphistryClient,
     from_igraph,
+    from_gexf,
     from_cugraph
+)
+
+from graphistry.collections import (
+    collection_set,
+    collection_intersection,
+    CollectionSet,
+    CollectionIntersection,
 )
 
 from graphistry.compute import (
     n, e, e_forward, e_reverse, e_undirected,
+    let, ref,
     Chain,
+    call, CallMethodName,
 
     is_in, IsIn,
 
@@ -90,10 +107,13 @@ from graphistry.compute import (
     isna, IsNA,
     notna, NotNA,
 
+    col, compare,
+
     contains, Contains,
     startswith, Startswith,
     endswith, Endswith,
     match, Match,
+    fullmatch, Fullmatch,
     isnumeric, IsNumeric,
     isalpha, IsAlpha,
     isdigit, IsDigit,
@@ -112,6 +132,11 @@ from graphistry.Engine import Engine
 from graphistry.privacy import (
     Mode, Privacy
 )
+
+from . import compute as compute  # noqa: F401
+from . import pygraphistry as pygraphistry  # noqa: F401
+from . import render as render  # noqa: F401
+from . import arrow_uploader as arrow_uploader  # noqa: F401
 
 from ._version import get_versions
 

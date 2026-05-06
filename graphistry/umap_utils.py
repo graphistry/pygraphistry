@@ -12,7 +12,6 @@ from graphistry.Engine import Engine, df_to_engine
 from graphistry.models.compute.features import GraphEntityKind
 from graphistry.models.compute.umap import UMAPEngine, UMAPEngineConcrete, umap_engine_values
 from graphistry.utils.lazy_import import (
-    lazy_cudf_import,
     lazy_umap_import,
     lazy_cuml_import,
 )
@@ -24,8 +23,53 @@ from graphistry.plugins_types.embed_types import XSymbolic, YSymbolic
 from .PlotterBase import Plottable, PlotterBase
 from .util import setup_logger
 from .utils.plottable_memoize import check_set_memoize
+from graphistry.otel import otel_traced, otel_detail_enabled
 
 logger = setup_logger(__name__)
+
+
+def _umap_otel_attrs(
+    self: Plottable,
+    X: XSymbolic = None,
+    y: YSymbolic = None,
+    kind: GraphEntityKind = "nodes",
+    scale: float = 1.0,
+    n_neighbors: int = 12,
+    min_dist: float = 0.1,
+    spread: float = 0.5,
+    local_connectivity: int = 1,
+    repulsion_strength: float = 1,
+    negative_sample_rate: int = 5,
+    n_components: int = 2,
+    metric: str = "euclidean",
+    suffix: str = "",
+    play: Optional[int] = 0,
+    encode_position: bool = True,
+    encode_weight: bool = True,
+    dbscan: bool = False,
+    engine: UMAPEngine = "auto",
+    feature_engine: str = "auto",
+    inplace: bool = False,
+    memoize: bool = True,
+    umap_kwargs: Dict[str, Any] = {},
+    umap_fit_kwargs: Dict[str, Any] = {},
+    umap_transform_kwargs: Dict[str, Any] = {},
+    **featurize_kwargs: Any,
+) -> Dict[str, Any]:
+    attrs: Dict[str, Any] = {
+        "graphistry.umap.kind": str(kind),
+        "graphistry.umap.engine": str(engine),
+        "graphistry.umap.n_components": n_components,
+    }
+    if otel_detail_enabled():
+        attrs["graphistry.umap.n_neighbors"] = n_neighbors
+        attrs["graphistry.umap.min_dist"] = min_dist
+        attrs["graphistry.umap.dbscan"] = dbscan
+        attrs["graphistry.umap.memoize"] = memoize
+        attrs["graphistry.umap.feature_engine"] = str(feature_engine)
+        attrs["graphistry.umap.inplace"] = inplace
+    return attrs
+
 
 if TYPE_CHECKING:
     MIXIN_BASE = FeatureMixin
@@ -34,6 +78,16 @@ else:
 
 
 DataFrameLike = Union[pd.DataFrame, Any]
+
+# Error message for empty feature matrix
+_EMPTY_FEATURES_ERROR_MSG = (
+    "UMAP requires at least one numeric feature column, but received empty feature matrix. "
+    "This can happen if: (1) DataFrame has no feature columns besides node/edge ID, "
+    "(2) all feature columns are non-numeric and were dropped during featurization, "
+    "or (3) X parameter was explicitly set to empty. "
+    "To fix: provide numeric columns, or install 'skrub' for automatic string encoding: "
+    "pip install skrub"
+)
 
 ###############################################################################
 
@@ -53,15 +107,18 @@ def assert_imported_cuml():
 
 
 def is_legacy_cuml():
-    try:
-        import cuml
+    # Use lazy import to handle broken cuML installations gracefully
+    has_cuml, _, cuml = lazy_cuml_import()
+    if not has_cuml:
+        return False
 
+    try:
         vs = cuml.__version__.split(".")
         if (vs[0] in ["0", "21"]) or (vs[0] == "22" and float(vs[1]) < 6):
             return True
         else:
             return False
-    except ModuleNotFoundError:
+    except Exception:
         return False
 
 
@@ -118,8 +175,6 @@ def make_safe_umap_gpu_dataframes(
         raise ValueError(f"Expected engine to be umap_learn or cuml, got {engine}")
 
     def safe_cudf(X, y):
-        import cudf
-
         #if y is not None and normalize:
         #    X, y = normalize_X_y(X, y)
         #    logger.debug('Normalized X: %s %s', X.dtypes, y.dtypes if y is not None else None)
@@ -166,15 +221,29 @@ def umap_graph_to_weighted_edges(umap_graph, engine: UMAPEngineConcrete, is_lega
     logger.debug("Calculating weighted adjacency (edge) DataFrame")
     coo = umap_graph.tocoo()
     src, dst, weight_col = cfg.SRC, cfg.DST, cfg.WEIGHT
-    if (engine == "umap_learn") or is_legacy:
-        return pd.DataFrame(
-            {src: coo.row, dst: coo.col, weight_col: coo.data}
-        )
+    if engine == "umap_learn" or is_legacy:
+        return pd.DataFrame({src: coo.row, dst: coo.col, weight_col: coo.data})
     assert engine == "cuml"
     import cudf
-    return cudf.DataFrame(
-        {src: coo.get().row, dst: coo.get().col, weight_col: coo.get().data}
-    )
+
+    try:
+        import cupy  # type: ignore[import-not-found]
+    except Exception:  # pragma: no cover
+        cupy = None
+
+    def _to_host(values):
+        # CUDA 13 (CuPy 13) removed COO.get(); prefer cupy.asnumpy while retaining legacy support (#844)
+        if cupy is not None and isinstance(values, cupy.ndarray):
+            return cupy.asnumpy(values)
+        get_fn = getattr(values, "get", None)
+        if callable(get_fn):
+            return get_fn()
+        return values
+
+    row = _to_host(coo.row)
+    col = _to_host(coo.col)
+    data = _to_host(coo.data)
+    return cudf.DataFrame({src: row, dst: col, weight_col: data})
 
 
 ##############################################################################
@@ -251,11 +320,30 @@ class UMAPMixin(MIXIN_BASE):
         from graphistry.models.ModelDict import ModelDict
 
         engine_resolved = resolve_umap_engine(engine)
+
         # FIXME remove as set_new_kwargs will always replace?
         if engine_resolved == UMAP_LEARN:
-            _, _, umap_engine = lazy_umap_import()
+            has_umap, umap_msg, umap_engine = lazy_umap_import()
+            if not has_umap:
+                raise ValueError(f"UMAP-LEARN engine selected but library not available: {umap_msg}")
         elif engine_resolved == CUML:
-            _, _, umap_engine = lazy_cuml_import()
+            has_cuml, cuml_msg, umap_engine = lazy_cuml_import()
+            if not has_cuml:
+                # If cuML was selected via 'auto' mode, try falling back to umap_learn
+                if engine == 'auto':
+                    logger.warning(
+                        "cuML selected via 'auto' but library not available: %s. "
+                        "Falling back to umap_learn.", cuml_msg
+                    )
+                    has_umap, umap_msg, umap_engine = lazy_umap_import()
+                    if not has_umap:
+                        raise ValueError(
+                            f"Both cuML and umap_learn unavailable: cuML ({cuml_msg}), umap_learn ({umap_msg})"
+                        )
+                    engine_resolved = cast(UMAPEngineConcrete, UMAP_LEARN)
+                else:
+                    # Explicit cuML request - raise
+                    raise ValueError(f"cuML engine selected but library not available: {cuml_msg}")
         else:
             raise ValueError(
                 "No umap engine, ensure 'auto', 'umap_learn', or 'cuml', and the library is installed"
@@ -273,7 +361,7 @@ class UMAPMixin(MIXIN_BASE):
                     **umap_kwargs
                 }
             )
-        
+
         if (
             getattr(res, '_umap_params', None) == umap_params
             and getattr(res, '_umap_fit_kwargs', None) == umap_fit_kwargs
@@ -281,7 +369,7 @@ class UMAPMixin(MIXIN_BASE):
         ):
             logger.debug('Same umap params as last time, skipping new init')
             return res
-        
+
         logger.debug('lazy init')
         # set new umap kwargs
         res._umap_engine = engine_resolved
@@ -298,10 +386,49 @@ class UMAPMixin(MIXIN_BASE):
         res._local_connectivity = local_connectivity
         res._repulsion_strength = repulsion_strength
         res._negative_sample_rate = negative_sample_rate
-        res._umap = umap_engine.UMAP(**umap_params)
-        logger.debug('Initialized UMAP with params: %s', umap_params)
+
+        # Try to initialize UMAP with selected engine
+        # If cuML fails with runtime errors (e.g., broken RMM library), fall back to umap_learn
+        try:
+            res._umap = umap_engine.UMAP(**umap_params)
+            logger.debug('Initialized UMAP with params: %s', umap_params)
+        except (ImportError, OSError, RuntimeError) as e:
+            # cuML may fail at runtime even if import succeeds (e.g., broken RMM dependencies)
+            if engine_resolved == CUML and engine == 'auto':
+                logger.warning(
+                    "cuML UMAP initialization failed (likely broken GPU libraries): %s. "
+                    "Falling back to umap_learn (CPU mode).", str(e)
+                )
+                # Fall back to umap_learn for 'auto' mode
+                has_umap, umap_msg, umap_engine = lazy_umap_import()
+                if not has_umap:
+                    raise ValueError(f"cuML failed and umap_learn fallback not available: {umap_msg}") from e
+
+                engine_resolved = cast(UMAPEngineConcrete, UMAP_LEARN)
+                # Update umap_params to include metric (required for umap_learn)
+                umap_params = ModelDict("UMAP Parameters",
+                    **{
+                        "n_neighbors": n_neighbors,
+                        "min_dist": min_dist,
+                        "spread": spread,
+                        "local_connectivity": local_connectivity,
+                        "repulsion_strength": repulsion_strength,
+                        "negative_sample_rate": negative_sample_rate,
+                        "n_components": n_components,
+                        "metric": metric,  # Required for umap_learn
+                        **umap_kwargs
+                    }
+                )
+                res._umap_engine = engine_resolved
+                res._umap_params = umap_params
+                res._umap = umap_engine.UMAP(**umap_params)
+                logger.info('Successfully fell back to umap_learn engine')
+            else:
+                # Explicit cuML request or umap_learn failed - raise the error
+                raise
+
         res._suffix = suffix
-                                                            
+
         return res
 
     #@safe_gpu_dataframes
@@ -643,6 +770,7 @@ class UMAPMixin(MIXIN_BASE):
         ...
 
     @overload
+    @otel_traced("graphistry.umap", attrs_fn=_umap_otel_attrs)
     def umap(
         self,
         X: XSymbolic = None,
@@ -664,7 +792,8 @@ class UMAPMixin(MIXIN_BASE):
         dbscan: bool = False,
         engine: UMAPEngine = "auto",
         feature_engine: str = "auto",
-        inplace: Literal[True] = ...,
+        *,
+        inplace: Literal[True],
         memoize: bool = True,
         umap_kwargs: Dict[str, Any] = {},
         umap_fit_kwargs: Dict[str, Any] = {},
@@ -824,7 +953,13 @@ class UMAPMixin(MIXIN_BASE):
                 )
                 res._nodes.index = index
 
-            nodes = res._nodes[res._node].values
+            node_series = res._nodes[res._node]
+            # Use .to_numpy() which works for both pandas and cuDF, handles all dtypes consistently
+            if hasattr(node_series, 'to_numpy'):
+                nodes = node_series.to_numpy()
+            else:
+                # Fallback for numpy arrays or other array-like types
+                nodes = node_series.values if hasattr(node_series, 'values') else np.array(node_series)
 
             logger.debug("propagating with featurize_kwargs: %s", featurize_kwargs)
             (
@@ -838,14 +973,12 @@ class UMAPMixin(MIXIN_BASE):
             logger.debug("umap X_ (%s): %s", type(X_), X_.columns)
             logger.debug("umap y_ (%s): %s", type(y_), y_.columns)
             logger.debug("data is type :: %s", (type(X_)))
-            if isinstance(X_, pd.DataFrame):
-                index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
-            elif 'cudf.core.dataframe' in str(getmodule(X_)):
-                import cudf
-                assert isinstance(X_, cudf.DataFrame)
-                logger.debug('nodes type: %s', type(nodes))
-                import cupy as cp
-                index_to_nodes_dict = dict(zip(range(len(nodes)), cp.asnumpy(nodes)))
+
+            # Validate that we have at least one feature column for UMAP
+            if len(X_.columns) == 0:
+                raise ValueError(_EMPTY_FEATURES_ERROR_MSG)
+
+            index_to_nodes_dict = dict(zip(range(len(nodes)), nodes))
 
             X_, y_ = make_safe_umap_gpu_dataframes(X_, y_, engine_resolved)  # type: ignore
 
@@ -876,7 +1009,11 @@ class UMAPMixin(MIXIN_BASE):
                 **featurize_kwargs
             )
 
-            # add the safe coercion here 
+            # Validate that we have at least one feature column for UMAP
+            if len(X_.columns) == 0:
+                raise ValueError(_EMPTY_FEATURES_ERROR_MSG)
+
+            # add the safe coercion here
             X_, y_ = make_safe_umap_gpu_dataframes(X_, y_, engine_resolved)  # type: ignore
 
             res = res._process_umap(
@@ -949,7 +1086,7 @@ class UMAPMixin(MIXIN_BASE):
             emb = res._node_embedding
         else:
             emb = res._edge_embedding
-            
+
         if isinstance(df, type(emb)):
             df[x_name] = emb.values.T[0]
             df[y_name] = emb.values.T[1]
@@ -957,6 +1094,7 @@ class UMAPMixin(MIXIN_BASE):
             df[x_name] = emb.to_numpy().T[0]
             df[y_name] = emb.to_numpy().T[1]
 
+        # Update graph with modified DataFrame
         res = res.nodes(df) if kind == "nodes" else res.edges(df)
 
         if encode_weight and kind == "nodes":
@@ -971,6 +1109,32 @@ class UMAPMixin(MIXIN_BASE):
                 f"embedding of shape {res._edges.shape}"
             )
             res = res.bind(edge_weight=w_name)
+
+            # Ensure DataFrame type consistency when engine='cuml' is specified
+            # This fixes mixed DataFrame types (pandas nodes + cuDF edges) that cause
+            # chain concatenation to fail with TypeError
+            # Note: This must run AFTER edges are created above
+            if hasattr(res, '_umap_engine'):
+                engine = res._umap_engine
+                if engine == CUML:
+                    # When using cuML engine, ensure nodes DataFrame matches edges type (cuDF)
+                    # Check if nodes are pandas but edges are cuDF
+                    if res._edges is not None and isinstance(res._nodes, pd.DataFrame) and not isinstance(res._nodes, type(res._edges)):
+                        try:
+                            import cudf
+                            res = res.nodes(cudf.DataFrame.from_pandas(res._nodes))
+                            logger.debug('Converted nodes to cuDF to match cuML engine and cuDF edges')
+                        except (ImportError, AttributeError) as e:
+                            logger.warning(f'Could not convert nodes to cuDF despite cuML engine: {e}')
+                elif engine == UMAP_LEARN:
+                    # When using umap_learn engine, ensure nodes DataFrame matches edges type (pandas)
+                    # Check if nodes are cuDF but edges are pandas
+                    if res._edges is not None and 'cudf.core.dataframe' in str(getmodule(res._nodes)) and 'cudf.core.dataframe' not in str(getmodule(res._edges)):
+                        try:
+                            res = res.nodes(res._nodes.to_pandas())
+                            logger.debug('Converted nodes to pandas to match umap_learn engine and pandas edges')
+                        except (AttributeError) as e:
+                            logger.warning(f'Could not convert nodes to pandas despite umap_learn engine: {e}')
 
         if encode_position and kind == "nodes":
             if play is not None:

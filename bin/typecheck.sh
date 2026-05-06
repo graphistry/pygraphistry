@@ -4,11 +4,12 @@ set -ex
 # Run from project root
 # Non-zero exit code on fail
 
-mypy --version
-
-if [ -n "$PYTHON_VERSION" ]; then
-  SHORT_VERSION=$(echo "$PYTHON_VERSION" | cut -d. -f1,2)
-  mypy --python-version "$SHORT_VERSION" --config-file mypy.ini graphistry
+# Resolve mypy command, then delegate to runner (prefer uvx, then venv)
+if command -v uvx >/dev/null 2>&1; then
+  MYPY_CMD="uvx mypy"
+elif command -v python >/dev/null 2>&1; then
+  MYPY_CMD="python -m mypy"
 else
-  mypy --config-file mypy.ini graphistry
+  MYPY_CMD="mypy"
 fi
+MYPY_CMD="$MYPY_CMD" ./bin/mypy.sh "$@"

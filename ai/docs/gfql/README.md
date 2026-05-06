@@ -4,6 +4,12 @@ Guide for AI assistants working with GFQL (Graph Frame Query Language) in PyGrap
 
 ## 🎯 Quick Reference
 
+### Process & Checklists
+- [`calls_checklist.md`](./calls_checklist.md) — Required steps for exposing or updating GFQL `call()` functions.
+- [`predicates_checklist.md`](./predicates_checklist.md) — End-to-end checklist for predicate implementations.
+- [`conformance.md`](./conformance.md) — Cypher TCK conformance harness and CI wiring.
+- [`../prompts/GFQL_LLM_GUIDE_MAINTENANCE.md`](../prompts/GFQL_LLM_GUIDE_MAINTENANCE.md) — Guidance for keeping AI assistants aligned with GFQL changes.
+
 ### Essential GFQL Operations
 ```python
 # Node matching
@@ -217,10 +223,22 @@ Before generating GFQL:
 
 ## 📚 Additional Resources
 
-- Full specifications in: `AI_PROGRESS/gfql_llm_specs/`
-  - `gfql_language_spec.md` - Complete language specification
-  - `gfql_wire_protocol_spec.md` - JSON wire format
-  - `cypher_to_gfql_mapping_spec.md` - Cypher translation
+### For AI Assistants
+
+- **`predicates_checklist.md`** - Complete implementation guide for adding/modifying GFQL predicates
+  - Covers all 16 integration points (implementation, JSON, validators, docs)
+  - Real-world examples using IsIn predicate
+  - Common patterns and mistakes to avoid
+
+### Full Specifications
+
+- Full specifications in: `ai/prompts/`
+  - `GFQL_LLM_GUIDE.md` - Complete language guidance
+  - `GFQL_LLM_GUIDE_MAINTENANCE.md` - Maintenance workflow
+- Cypher-in-GFQL docs now span:
+  - `docs/source/gfql/cypher.rst` - Cypher syntax guide
+  - `docs/source/api/gfql/cypher.rst` - Helper/API reference
+  - `docs/source/gfql/spec/cypher_mapping.md` - Translation-first mapping
 
 ## 🎯 Key Takeaways
 

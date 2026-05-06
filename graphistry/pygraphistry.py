@@ -3,14 +3,24 @@ from typing_extensions import Literal
 from graphistry.privacy import Mode, ModeAction
 from graphistry.utils.requests import log_requests_error
 from graphistry.plugins_types.hypergraph import HypergraphResult
+from graphistry.plugins_types.gexf_types import GexfEdgeViz, GexfNodeViz, GexfParseEngine
 from graphistry.client_session import ClientSession, ApiVersion, ENV_GRAPHISTRY_API_KEY, DatasetInfo, AuthManagerProtocol, strtobool
+from graphistry.Engine import EngineAbstractType
+from graphistry.models.collections import CollectionsInput
+from graphistry.models.types import ValidationParam
+from graphistry.models.surfaces.graphistry_frontend.react_settings import ApplyEncodingsReactSettingsDict
+from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
+from graphistry.otel import inject_trace_headers, otel as otel_config
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
-import calendar, copy, gzip, io, json, numpy as np, pandas as pd, requests, sys, time, warnings
+import calendar, copy, gzip, io, json, numpy as np, pandas as pd, requests, sys, time, uuid, warnings
 
 from datetime import datetime
 
 from .arrow_uploader import ArrowUploader, ArrowFileUploader
+from .io.contracts.graphistry_server.dataset import GraphistryServerDatasetPayload
+from .io.adapters.graphistry_server.dataset import adapt_graphistry_server_dataset_payload_to_plottable_metadata
+from .io.metadata import deserialize_plottable_metadata
 
 from . import util
 from . import bolt_util
@@ -103,26 +113,16 @@ class GraphistryClient(AuthManagerProtocol):
         self.session._is_authenticated = value
 
     def authenticate(self) -> None:
-        """Authenticate via already provided configuration (api=1,2).
+        """Authenticate via already provided configuration.
         This is called once automatically per session when uploading and rendering a visualization.
-        In api=3, if token_refresh_ms > 0 (defaults to 10min), this starts an automatic refresh loop.
-        In that case, note that a manual .login() is still required every 24hr by default.
+        If token_refresh_ms > 0 (defaults to 10min), this starts an automatic refresh loop.
+        Note that a manual .login() is still required every 24hr by default.
         """
 
-        if self.api_version() == 3:
-            if not (self.api_token() is None):
-                self.refresh()
-        else:
-            key = self.api_key()
-            # Mocks may set to True, so bypass in that case
-            if (key is None) and (self.session._is_authenticated is False):
-                util.error(
-                    "In api=1 mode, API key not set explicitly in `register()` or available at "
-                    + ENV_GRAPHISTRY_API_KEY
-                )
-            if not self.session._is_authenticated:
-                self._check_key_and_version()
-                self.session._is_authenticated = True
+        if not (self.api_token() is None):
+            self.refresh()
+        elif not self.session._is_authenticated:
+            self.session._is_authenticated = True
 
     def __reset_token_creds_in_memory(self) -> None:
         """Reset the token and creds in memory, used when switching hosts, switching register method"""
@@ -140,7 +140,11 @@ class GraphistryClient(AuthManagerProtocol):
 
     def login(self, username: str, password: str, org_name: Optional[str] = None, fail_silent: bool = False) -> str:
         """Authenticate and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
-        By default, must be reinvoked within 24hr."""
+        By default, must be reinvoked within 24hr.
+
+        Note: Hub keeps a separate “active organization” slot (defaulting to the personal org) that powers
+        `/api-token-verify()` and entitlement lookup. After the JWT login succeeds, ArrowUploader.login() still
+        needs to POST `/api/v2/o/<slug>/switch/` or the server continues enforcing the default org’s limits."""
         logger.debug("@PyGraphistry login : org_name :{} vs PyGraphistry.org_name() : {}".format(org_name, self.org_name()))
 
         if not org_name:
@@ -156,8 +160,8 @@ class GraphistryClient(AuthManagerProtocol):
             ArrowUploader(
                 client_session=self.session,
                 server_base_path=self.protocol()
-                + "://"                     # noqa: W503
-                + self.server(),    # noqa: W503
+                + "://"                   
+                + self.server(),  
                 certificate_validation=self.certificate_validation(),
             )
             .login(username, password, org_name)
@@ -187,8 +191,8 @@ class GraphistryClient(AuthManagerProtocol):
             ArrowUploader(
                 client_session=self.session,
                 server_base_path=self.protocol()
-                + "://"                     # noqa: W503
-                + self.server(),    # noqa: W503
+                + "://"                   
+                + self.server(),  
                 certificate_validation=self.certificate_validation(),
             )
             .pkey_login(personal_key_id, personal_key_secret, org_name)
@@ -225,8 +229,8 @@ class GraphistryClient(AuthManagerProtocol):
         arrow_uploader = ArrowUploader(
             client_session=self.session,
             server_base_path=self.protocol()
-            + "://"                     # noqa: W503
-            + self.server(),    # noqa: W503
+            + "://"                   
+            + self.server(),  
             certificate_validation=self.certificate_validation(),
         ).sso_login(org_name, idp_name)
         try:
@@ -236,6 +240,7 @@ class GraphistryClient(AuthManagerProtocol):
                 raise ValueError("ArrowUploader.sso_login returned no token")
             self.api_token(token)
             self.session._is_authenticated = True
+            self._maybe_switch_org(org_name or self.session.org_name)
             arrow_uploader.token = None  # type: ignore[assignment]
             return token
 
@@ -318,6 +323,7 @@ class GraphistryClient(AuthManagerProtocol):
                 # finish, set back to None
                 self.session.sso_state = None
                 print("Successfully logged in")
+                self._maybe_switch_org(org_name)
                 return self.api_token()
             else:
                 print("Please run graphistry.sso_get_token() to complete the authentication after you have authenticated via SSO")
@@ -343,6 +349,7 @@ class GraphistryClient(AuthManagerProtocol):
         token, org_name = self._sso_get_token()
         # set org_name to sso org
         self.session.org_name = org_name
+        self._maybe_switch_org(org_name)
         return token
 
     def _sso_get_token(self) -> Tuple[Optional[str], Optional[str]]:
@@ -356,8 +363,8 @@ class GraphistryClient(AuthManagerProtocol):
         arrow_uploader = ArrowUploader(
             client_session=self.session,
             server_base_path=self.protocol()
-            + "://"                     # noqa: W503
-            + self.server(),    # noqa: W503
+            + "://"                   
+            + self.server(),  
             certificate_validation=self.certificate_validation(),
         ).sso_get_token(state)
 
@@ -392,8 +399,8 @@ class GraphistryClient(AuthManagerProtocol):
                 ArrowUploader(
                     client_session=self.session,
                     server_base_path=self.protocol()
-                    + "://"                   # noqa: W503
-                    + self.server(),  # noqa: W503
+                    + "://"                 
+                    + self.server(),
                     certificate_validation=self.certificate_validation(),
                 )
                 .refresh(self.api_token() if using_self_token else token)
@@ -401,6 +408,7 @@ class GraphistryClient(AuthManagerProtocol):
             )
             self.api_token(token)
             self.session._is_authenticated = True
+            self._maybe_switch_org(self.session.org_name)
             return self.api_token()
         except Exception as e:
 
@@ -426,8 +434,8 @@ class GraphistryClient(AuthManagerProtocol):
             ok = ArrowUploader(
                 client_session=self.session,
                 server_base_path=self.protocol()
-                + "://"                   # noqa: W503
-                + self.server(),  # noqa: W503
+                + "://"                 
+                + self.server(),
                 certificate_validation=self.certificate_validation(),
             ).verify(self.api_token() if using_self_token else token)
             if using_self_token:
@@ -525,16 +533,29 @@ class GraphistryClient(AuthManagerProtocol):
         self.session.protocol = value
         return value
 
+    def otel(
+        self,
+        enabled: Optional[bool] = None,
+        detail: Optional[bool] = None,
+        reset: bool = False,
+    ) -> Tuple[bool, bool]:
+        """Get/set OpenTelemetry tracing for Graphistry (process-wide)."""
+        if isinstance(enabled, str):
+            enabled = bool(strtobool(enabled))
+        if isinstance(detail, str):
+            detail = bool(strtobool(detail))
+        return otel_config(enabled=enabled, detail=detail, reset=reset)
+
     def api_version(self, value: Optional[ApiVersion] = None) -> ApiVersion:
-        """Set or get the API version: 1 for 1.0 (deprecated), 3 for 2.0.
-        Setting api=2 (protobuf) fully deprecated from the PyGraphistry client.
+        """Set or get the API version. Only api=3 is supported.
+        Legacy API versions 1 and 2 are no longer supported.
         Also set via environment variable GRAPHISTRY_API_VERSION."""
 
         if value is None:
             value = self.session.api_version
 
-        if value not in [1, 3]:
-            raise ValueError("Expected API version to be 1, 3, instead got: %s" % value)
+        if value != 3:
+            raise ValueError("Expected API version to be 3. Legacy API versions 1 and 2 are no longer supported. Got: %s" % value)
 
         # setter
         self.session.api_version = value
@@ -569,7 +590,7 @@ class GraphistryClient(AuthManagerProtocol):
         personal_key_secret: Optional[str] = None,
         server: Optional[str] = None,
         protocol: Optional[str] = None,
-        api: Optional[Literal[1, 3]] = None,
+        api: Optional[Literal[3]] = None,
         certificate_validation: Optional[bool] = None,
         bolt: Optional[Union[Dict, Any]] = None,
         store_token_creds_in_memory: Optional[bool] = None,
@@ -578,21 +599,22 @@ class GraphistryClient(AuthManagerProtocol):
         idp_name: Optional[str] = None,
         is_sso_login: Optional[bool] = False,
         sso_timeout: int = SSO_GET_TOKEN_ELAPSE_SECONDS,
-        sso_opt_into_type: Optional[Literal["display", "browser"]] = None
+        sso_opt_into_type: Optional[Literal["display", "browser"]] = None,
+        verify_token: Optional[bool] = None,
     ) -> "GraphistryClient":
         """API key registration and server selection
 
         Changing the key effects all derived Plotter instances.
 
-        Provide one of key (deprecated api=1), username/password (api=3) or temporary token (api=3).
+        Provide username/password or temporary token for authentication.
 
-        :param key: API key (deprecated 1.0 API)
+        :param key: API key (deprecated, ignored)
         :type key: Optional[str]
-        :param username: Account username (2.0 API).
+        :param username: Account username.
         :type username: Optional[str]
-        :param password: Account password (2.0 API).
+        :param password: Account password.
         :type password: Optional[str]
-        :param token: Valid Account JWT token (2.0). Provide token, or username/password, but not both.
+        :param token: Valid Account JWT token. Provide token, or username/password, but not both.
         :type token: Optional[str]
         :param personal_key_id: Personal Key id for service account.
         :type personal_key_id: Optional[str]
@@ -602,8 +624,8 @@ class GraphistryClient(AuthManagerProtocol):
         :type server: Optional[str]
         :param protocol: Protocol to use for server uploaders, defaults to "https".
         :type protocol: Optional[str]
-        :param api: API version to use, defaults to 1 (deprecated slow json 1.0 API), prefer 3 (2.0 API with Arrow+JWT)
-        :type api: Optional[Literal[1, 3]]
+        :param api: API version (only 3 is supported, uses Arrow+JWT)
+        :type api: Optional[Literal[3]]
         :param certificate_validation: Override default-on check for valid TLS certificate by setting to True.
         :type certificate_validation: Optional[bool]
         :param bolt: Neo4j bolt information. Optional driver or named constructor arguments for instantiating a new one.
@@ -624,6 +646,8 @@ class GraphistryClient(AuthManagerProtocol):
         :type sso_timeout: Optional[int]
         :param sso_opt_into_type: Show the SSO url with display(), webbrowser.open(), or print()
         :type sso_opt_into_type: Optional[Literal["display", "browser"]]
+        :param verify_token: Whether to validate the provided token with the server before accepting it (defaults to True).
+        :type verify_token: Optional[bool]
         :returns: None.
         :rtype: None
 
@@ -677,12 +701,6 @@ class GraphistryClient(AuthManagerProtocol):
                     import graphistry
                     graphistry.register(api=3, protocol='http', server='nginx', client_protocol_hostname='https://my.site.com', token='abc')
 
-        **Example: Standard (1.0)**
-                ::
-
-                    import graphistry
-                    graphistry.register(api=1, key="my api key")
-
         """
         global _is_client_mode_warned
         if self is PyGraphistry and _client_mode_enabled and not _is_client_mode_warned:
@@ -693,6 +711,12 @@ class GraphistryClient(AuthManagerProtocol):
             )
             _is_client_mode_warned = True
         
+        should_verify_token = (
+            bool(strtobool(verify_token))
+            if isinstance(verify_token, str)
+            else (True if verify_token is None else bool(verify_token))
+        )
+
         self.session = ClientSession()  # Reset Session
         self._config = self.session.as_proxy()  # Update config proxy to point to new session
         
@@ -712,6 +736,7 @@ class GraphistryClient(AuthManagerProtocol):
             self.login(username, password, org_name)
             self.api_token(token or self.session.api_token)
             self.authenticate()
+            self._maybe_switch_org(org_name)
         elif (username is None and not (password is None)):
             raise Exception(MSG_REGISTER_MISSING_USERNAME)
         elif not (username is None) and password is None:
@@ -720,17 +745,49 @@ class GraphistryClient(AuthManagerProtocol):
             self.pkey_login(personal_key_id, personal_key_secret, org_name=org_name)
             self.api_token(token or self.session.api_token)
             self.authenticate()
+            self._maybe_switch_org(org_name)
         elif personal_key_id is None and not (personal_key_secret is None):
             raise Exception(MSG_REGISTER_MISSING_PKEY_ID)
         elif not (personal_key_id is None) and personal_key_secret is None:
             raise Exception(MSG_REGISTER_MISSING_PKEY_SECRET)
         elif not (token is None):
-            self.api_token(token or self.session.api_token)
+            raw_token_value = token or self.session.api_token
+            token_value = str(raw_token_value).strip() if raw_token_value is not None else None
+            if not token_value:
+                raise ValueError("register(token=...) requires a non-empty token string")
+
+            self.api_token(token_value)
+
+            if should_verify_token:
+                is_valid = self.verify_token(token_value, fail_silent=False)
+                if not is_valid:
+                    raise ValueError("Provided token failed verification")
+
+            if store_token_creds_in_memory is None:
+                self.store_token_creds_in_memory(False)
+
+            # Track how the credentials entered the session for downstream diagnostics.
+            self.session.login_type = "token"
+            self.session._is_authenticated = True
+            self._maybe_switch_org(org_name)
         elif not (org_name is None) or is_sso_login:
             print(MSG_REGISTER_ENTER_SSO_LOGIN)
             self.sso_login(org_name, idp_name, sso_timeout=sso_timeout, sso_opt_into_type=sso_opt_into_type)
         
         return self
+
+    def _maybe_switch_org(self, org_name: Optional[str]) -> None:
+        """Ensure Hub session switches to requested org for entitlement checks."""
+        if not org_name:
+            return
+        token = self.api_token()
+        last = self.session._last_switched_org_token
+        if token and last == (org_name, token):
+            return
+        try:
+            self.switch_org(org_name)
+        except Exception as exc:  # pragma: no cover - best-effort switch should not fail register()
+            logger.warning("Failed to switch organization: %s", exc)
 
     def __check_login_type_to_reset_token_creds(self, 
             origin_login_type: str,
@@ -845,7 +902,7 @@ class GraphistryClient(AuthManagerProtocol):
             'message': message
         }
 
-    def hypergraph(self, 
+    def hypergraph(self,
         raw_events,
         entity_types: Optional[List[str]] = None,
         opts: dict = {},
@@ -853,7 +910,7 @@ class GraphistryClient(AuthManagerProtocol):
         drop_edge_attrs: bool = False,
         verbose: bool = True,
         direct: bool = False,
-        engine: str = "pandas",
+        engine: EngineAbstractType = "auto",
         npartitions: Optional[int] = None,
         chunksize: Optional[int] = None,
     ) -> HypergraphResult:
@@ -970,15 +1027,16 @@ class GraphistryClient(AuthManagerProtocol):
         return hyper.Hypergraph().hypergraph(
             PyGraphistry,
             raw_events,
-            entity_types,
-            opts,
-            drop_na,
-            drop_edge_attrs,
-            verbose,
-            direct,
+            entity_types=entity_types,
+            opts=opts,
+            drop_na=drop_na,
+            drop_edge_attrs=drop_edge_attrs,
+            verbose=verbose,
+            direct=direct,
             engine=engine,
             npartitions=npartitions,
             chunksize=chunksize,
+            return_as='all',  # Module-level returns full dict for backward compatibility
         )
 
     def infer_labels(self) -> Plotter:
@@ -1059,6 +1117,93 @@ class GraphistryClient(AuthManagerProtocol):
             print("WARNING: Engine currently ignored, please contact if critical")
 
         return cast(Plotter, self._plotter().nodexl(xls_or_url, source, engine, verbose))
+
+    def gexf(
+        self,
+        source: Any,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        bind_node_viz: Optional[Iterable[GexfNodeViz]] = None,
+        bind_edge_viz: Optional[Iterable[GexfEdgeViz]] = None,
+        parse_engine: GexfParseEngine = "auto",
+    ) -> Plotter:
+        """
+        Load a GEXF file/URL/stream into a Plotter.
+
+        :param source: Path, URL, bytes, or file-like object containing GEXF XML
+        :param name: Optional Graphistry dataset name override
+        :param description: Optional Graphistry dataset description override
+        :param bind_node_viz: Optional allowlist of node viz fields to bind (honor). None means bind all available node
+            viz fields. Empty list means bind none. Choices: "color", "size", "opacity", "position", "icon".
+            Fields not bound are still parsed into columns for later use (e.g., you can re-bind after loading).
+        :param bind_edge_viz: Optional allowlist of edge viz fields to bind (honor). None means bind all available edge
+            viz fields. Empty list means bind none. Choices: "color", "size", "opacity".
+        :param parse_engine: XML parser to use: "auto" (prefer defusedxml if installed), "defused", or "stdlib".
+
+        **Example: Minimal (honor all GEXF viz)**
+            ::
+
+                g = graphistry.gexf("my_graph.gexf")
+                g.plot()
+
+        **Example: Drop GEXF colors/sizes, keep layout, then encode**
+            ::
+
+                g_layout = graphistry.gexf(
+                    "my_graph.gexf",
+                    bind_node_viz=["position"],
+                    bind_edge_viz=[],
+                )
+                g = (
+                    g_layout
+                    .encode_point_color("class", as_categorical=True)
+                    .encode_point_size("occurences")
+                )
+                g.plot()
+
+        If ``defusedxml`` is installed, it is used automatically for safer XML parsing of untrusted inputs.
+        """
+        return cast(
+            Plotter,
+            self._plotter().from_gexf(
+                source,
+                name=name,
+                description=description,
+                bind_node_viz=bind_node_viz,
+                bind_edge_viz=bind_edge_viz,
+                parse_engine=parse_engine,
+            ),
+        )
+
+    def from_gexf(
+        self,
+        source: Any,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        bind_node_viz: Optional[Iterable[GexfNodeViz]] = None,
+        bind_edge_viz: Optional[Iterable[GexfEdgeViz]] = None,
+        parse_engine: GexfParseEngine = "auto",
+    ) -> Plotter:
+        """
+        Alias for :meth:`gexf`.
+        """
+        return cast(
+            Plotter,
+            self.gexf(
+                source,
+                name=name,
+                description=description,
+                bind_node_viz=bind_node_viz,
+                bind_edge_viz=bind_edge_viz,
+                parse_engine=parse_engine,
+            ),
+        )
+
+    def to_gexf(self, path: Optional[str] = None, **kwargs: Any) -> str:
+        """
+        Export the current graph to a GEXF string (optionally writing to disk).
+        """
+        return cast(str, self._plotter().to_gexf(path, **kwargs))
 
     def gremlin(self, queries: Union[str, Iterable[str]]) -> Plotter:
         """Run one or more gremlin queries and get back the result as a graph object
@@ -1694,6 +1839,25 @@ class GraphistryClient(AuthManagerProtocol):
             shape=shape,
         )
 
+    def apply_encodings(
+        self,
+        react_encodings: Optional[ApplyEncodingsReactSettingsDict],
+        validate: ValidationParam = "strict",
+        warn: bool = True,
+    ) -> Plotter:
+        """Apply React-style declarative encodings.
+
+        See :meth:`graphistry.PlotterBase.PlotterBase.apply_encodings` for supported keys.
+        """
+        return cast(
+            Plotter,
+            self._plotter().apply_encodings(
+                react_encodings=react_encodings,
+                validate=validate,
+                warn=warn,
+            ),
+        )
+
     def bind(
         self,
         source: Optional[str] = None,
@@ -1718,6 +1882,8 @@ class GraphistryClient(AuthManagerProtocol):
         point_icon: Optional[str] = None,
         point_x: Optional[str] = None,
         point_y: Optional[str] = None,
+        point_longitude: Optional[str] = None,
+        point_latitude: Optional[str] = None,
         dataset_id: Optional[str] = None,
         url: Optional[str] = None,
         nodes_file_id: Optional[str] = None,
@@ -1761,8 +1927,75 @@ class GraphistryClient(AuthManagerProtocol):
             point_opacity=point_opacity,
             point_x=point_x,
             point_y=point_y,
+            point_longitude=point_longitude,
+            point_latitude=point_latitude,
             dataset_id=dataset_id
         ))
+
+    def from_dataset_id(self, dataset_id: str, api_token: Optional[str] = None) -> Plotter:
+        """Fetch existing remote dataset metadata and hydrate a Plotter.
+
+        :param dataset_id: Existing uploaded dataset id
+        :type dataset_id: str
+        :param api_token: Optional API token override. If omitted, uses current session token.
+        :type api_token: Optional[str]
+        :returns: Plotter bound to dataset id and hydrated from metadata payload
+        :rtype: Plotter
+        """
+        if not isinstance(dataset_id, str):
+            raise ValueError("dataset_id must be a string")
+        dataset_id = dataset_id.strip()
+        if dataset_id == "":
+            raise ValueError("dataset_id cannot be empty")
+
+        if api_token is None:
+            self.refresh()
+            api_token = self.session.api_token
+        if api_token is None:
+            raise ValueError("Missing API token: pass api_token or call graphistry.register()/login() first")
+
+        endpoint = f"{self.protocol()}://{self.server()}/api/v2/upload/datasets/{dataset_id}"
+        response = requests.get(
+            endpoint,
+            headers=inject_trace_headers({'Authorization': f'Bearer {api_token}'}),
+            verify=self.certificate_validation(),
+        )
+        log_requests_error(response)
+        if not (200 <= response.status_code < 300):
+            raise ValueError(
+                f"Failed to fetch dataset metadata for dataset_id='{dataset_id}': HTTP {response.status_code}"
+            )
+
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise ValueError("Dataset metadata endpoint returned non-object JSON")
+
+        data_payload = payload.get('data', payload)
+        if not isinstance(data_payload, dict):
+            raise ValueError("Dataset metadata endpoint returned invalid payload shape")
+
+        server_dataset_id = data_payload.get('dataset_id')
+        resolved_dataset_id = server_dataset_id if isinstance(server_dataset_id, str) and server_dataset_id else dataset_id
+        out = self.bind(dataset_id=resolved_dataset_id)
+
+        metadata = adapt_graphistry_server_dataset_payload_to_plottable_metadata(
+            cast(GraphistryServerDatasetPayload, data_payload)
+        )
+        if metadata:
+            out = cast(Plotter, deserialize_plottable_metadata(metadata, out))
+            from graphistry.validate import apply_axis_url_defaults
+            merged_url_params = apply_axis_url_defaults(out._url_params, out._complex_encodings)
+            if isinstance(merged_url_params, dict):
+                out._url_params = merged_url_params
+            out._dataset_id = resolved_dataset_id
+
+        info: DatasetInfo = {
+            'name': resolved_dataset_id,
+            'type': 'arrow',
+            'viztoken': str(uuid.uuid4()),
+        }
+        out._url = self._viz_url(info, out._url_params)
+        return out
 
     def client(self, inherit: bool = False) -> 'GraphistryClient':
         """Create a new client instance with isolated session state.
@@ -2292,21 +2525,36 @@ class GraphistryClient(AuthManagerProtocol):
     ):
         return self._plotter().from_cugraph(G, node_attributes, edge_attributes, load_nodes, load_edges, merge_if_existing)
 
-    def settings(self, height=None, url_params={}, render=None):
+    def settings(
+        self,
+        height=None,
+        url_params: Optional[URLParamsDict] = None,
+        render=None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True,
+    ):
 
-        return self._plotter().settings(height, url_params, render)
+        return self._plotter().settings(height, url_params, render, validate=validate, warn=warn)
 
-    def _etl_url(self):
-        hostname = self.session.hostname
-        protocol = self.session.protocol
-        return "%s://%s/etl" % (protocol, hostname)
+    def collections(
+        self,
+        collections: Optional[CollectionsInput] = None,
+        show_collections: Optional[bool] = None,
+        collections_global_node_color: Optional[str] = None,
+        collections_global_edge_color: Optional[str] = None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
+    ):
+        return self._plotter().collections(
+            collections=collections,
+            show_collections=show_collections,
+            collections_global_node_color=collections_global_node_color,
+            collections_global_edge_color=collections_global_edge_color,
+            validate=validate,
+            warn=warn
+        )
 
-    def _check_url(self):
-        hostname = self.session.hostname
-        protocol = self.session.protocol
-        return "%s://%s/api/check" % (protocol, hostname)
-
-    def _viz_url(self, info: DatasetInfo, url_params: Dict[str, Any]) -> str:
+    def _viz_url(self, info: DatasetInfo, url_params: URLParamsDict) -> str:
         splash_time = int(calendar.timegm(time.gmtime())) + 15
         extra = "&".join([k + "=" + str(v) for k, v in list(url_params.items())])
         cph = self.client_protocol_hostname()
@@ -2326,125 +2574,6 @@ class GraphistryClient(AuthManagerProtocol):
         protocol = self.session.protocol
         return "{}://{}/api/v2/o/{}/switch/".format(protocol, hostname, org_name)
 
-
-    def _coerce_str(self, v):
-        try:
-            return str(v)
-        except UnicodeDecodeError:
-            print("UnicodeDecodeError")
-            print("=", v, "=")
-            x = v.decode("utf-8")
-            print("x", x)
-            return x
-
-    def _get_data_file(self, dataset, mode):
-        out_file = io.BytesIO()
-        if mode == "json":
-            json_dataset = None
-            try:
-                json_dataset = json.dumps(
-                    dataset, ensure_ascii=False, cls=NumpyJSONEncoder
-                )
-            except TypeError:
-                warnings.warn("JSON: Switching from NumpyJSONEncoder to str()")
-                json_dataset = json.dumps(dataset, default=self._coerce_str)
-
-            with gzip.GzipFile(fileobj=out_file, mode="w", compresslevel=9) as f:
-                if sys.version_info < (3, 0) and isinstance(json_dataset, bytes):
-                    f.write(json_dataset)
-                else:
-                    f.write(json_dataset.encode("utf8"))
-        else:
-            raise ValueError("Unknown mode:", mode)
-
-        kb_size = len(out_file.getvalue()) // 1024
-        if kb_size >= 5 * 1024:
-            print("Uploading %d kB. This may take a while..." % kb_size)
-            sys.stdout.flush()
-
-        return out_file
-
-    def _etl1(self, dataset: Any) -> DatasetInfo:
-        self.authenticate()
-
-        headers = {"Content-Encoding": "gzip", "Content-Type": "application/json"}
-        params = {
-            "usertag": self.session._tag,
-            "agent": "pygraphistry",
-            "apiversion": "1",
-            "agentversion": sys.modules["graphistry"].__version__,
-            "key": self.session.api_key,
-        }
-
-        out_file = self._get_data_file(dataset, "json")
-        response = requests.post(
-            self._etl_url(),
-            out_file.getvalue(),
-            headers=headers,
-            params=params,
-            verify=self.session.certificate_validation,
-        )
-        log_requests_error(response)
-        response.raise_for_status()
-
-        try:
-            jres = response.json()
-        except Exception:
-            raise ValueError("Unexpected server response", response)
-
-        if jres["success"] is not True:
-            raise ValueError("Server reported error:", jres["msg"])
-        else:
-            return {
-                "name": jres["dataset"],
-                "viztoken": jres["viztoken"],
-                "type": "vgraph",
-            }
-
-
-    def _check_key_and_version(self):
-        params = {"text": self.session.api_key}
-        try:
-            response = requests.get(
-                self._check_url(),
-                params=params,
-                timeout=(3, 3),
-                verify=self.session.certificate_validation,
-            )
-            log_requests_error(response)
-            response.raise_for_status()
-            jres = response.json()
-
-            cver = sys.modules["graphistry"].__version__
-            if (
-                "pygraphistry" in jres
-                and "minVersion" in jres["pygraphistry"]     # noqa: W503
-                and "latestVersion" in jres["pygraphistry"]  # noqa: W503
-            ):
-                mver = jres["pygraphistry"]["minVersion"]
-                lver = jres["pygraphistry"]["latestVersion"]
-
-                from packaging.version import parse
-                try:
-                    if parse(mver) > parse(cver):
-                        util.warn(
-                            "Your version of PyGraphistry is no longer supported (installed=%s latest=%s). Please upgrade!"
-                            % (cver, lver)
-                        )
-                    elif parse(lver) > parse(cver):
-                        print(
-                            "A new version of PyGraphistry is available (installed=%s latest=%s)."
-                            % (cver, lver)
-                        )
-                except:
-                    raise ValueError(f'Unexpected version value format when comparing {mver}, {cver}, and {lver}')
-            if jres["success"] is not True:
-                util.warn(jres["error"])
-        except Exception:
-            util.warn(
-                "Could not contact %s. Are you connected to the Internet?"
-                % self.session.hostname
-            )
 
     def layout_settings(self, 
         play: Optional[int] = None,
@@ -2592,7 +2721,7 @@ class GraphistryClient(AuthManagerProtocol):
         response = requests.post(
             self._switch_org_url(value),
             data={'slug': value},
-            headers={'Authorization': f'Bearer {self.api_token()}'},
+            headers=inject_trace_headers({'Authorization': f'Bearer {self.api_token()}'}),
             verify=self.session.certificate_validation,
         )
         log_requests_error(response)
@@ -2627,11 +2756,13 @@ protocol = PyGraphistry.protocol
 register = PyGraphistry.register
 sso_get_token = PyGraphistry.sso_get_token
 privacy = PyGraphistry.privacy
+otel = PyGraphistry.otel
 login = PyGraphistry.login
 refresh = PyGraphistry.refresh
 api_token = PyGraphistry.api_token
 verify_token = PyGraphistry.verify_token
 bind = PyGraphistry.bind
+from_dataset_id = PyGraphistry.from_dataset_id
 addStyle = PyGraphistry.addStyle
 style = PyGraphistry.style
 encode_point_color = PyGraphistry.encode_point_color
@@ -2641,6 +2772,7 @@ encode_point_icon = PyGraphistry.encode_point_icon
 encode_edge_icon = PyGraphistry.encode_edge_icon
 encode_point_badge = PyGraphistry.encode_point_badge
 encode_edge_badge = PyGraphistry.encode_edge_badge
+apply_encodings = PyGraphistry.apply_encodings
 infer_labels = PyGraphistry.infer_labels
 name = PyGraphistry.name
 description = PyGraphistry.description
@@ -2652,6 +2784,7 @@ nodes = PyGraphistry.nodes
 pipe = PyGraphistry.pipe
 graph = PyGraphistry.graph
 settings = PyGraphistry.settings
+collections = PyGraphistry.collections
 hypergraph = PyGraphistry.hypergraph
 bolt = PyGraphistry.bolt
 cypher = PyGraphistry.cypher
@@ -2682,6 +2815,9 @@ org_name = PyGraphistry.org_name
 idp_name = PyGraphistry.idp_name
 sso_state = PyGraphistry.sso_state
 scene_settings = PyGraphistry.scene_settings
+gexf = PyGraphistry.gexf
+from_gexf = PyGraphistry.from_gexf
+to_gexf = PyGraphistry.to_gexf
 from_igraph = PyGraphistry.from_igraph
 from_cugraph = PyGraphistry.from_cugraph
 personal_key_id = PyGraphistry.personal_key_id

@@ -21,25 +21,38 @@ from graphistry.compute.gfql.exceptions import (
     GFQLColumnNotFoundError
 )
 
+from graphistry.compute.gfql.rollout import (
+    STRICT_SCHEMA_ENV,
+    env_bool,
+    resolve_strict_schema,
+    strict_schema_env_default,
+)
+
 __all__ = [
     # Validation classes
     'ValidationIssue',
     'Schema',
-    
+
     # Validation functions
     'validate_syntax',
-    'validate_schema', 
+    'validate_schema',
     'validate_query',
     'extract_schema',
     'extract_schema_from_dataframes',
     'format_validation_errors',
     'suggest_fixes',
-    
+
     # Exceptions
     'GFQLException',
     'GFQLValidationError',
     'GFQLSyntaxError',
     'GFQLSchemaError',
     'GFQLTypeError',
-    'GFQLColumnNotFoundError'
+    'GFQLColumnNotFoundError',
+
+    # Rollout gates (T5 #1311)
+    'STRICT_SCHEMA_ENV',
+    'env_bool',
+    'resolve_strict_schema',
+    'strict_schema_env_default',
 ]

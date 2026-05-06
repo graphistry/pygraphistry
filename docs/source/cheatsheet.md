@@ -160,9 +160,9 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
    }})['graph'].plot()
      ```
 
-* GFQL: Cypher-style graph pattern mining queries on dataframes with optional GPU acceleration ([ipynb demo](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb), [benchmark](https://github.com/graphistry/pygraphistry/blob/master/demos/gfql/benchmark_hops_cpu_gpu.ipynb))
+* GFQL: Graph pattern queries on dataframes with friendly Cypher syntax, declarative semantics, and optional GPU acceleration ([ipynb demo](https://github.com/graphistry/pygraphistry/blob/master/demos/more_examples/graphistry_features/hop_and_chain_graph_pattern_mining.ipynb), [benchmark](https://github.com/graphistry/pygraphistry/blob/master/demos/gfql/benchmark_hops_cpu_gpu.ipynb))
 
-  Run Cypher-style graph queries natively on dataframes without going to a database or Java with GFQL:
+  Run graph queries on dataframes with Cypher syntax through GFQL's columnar engine, without going to a database or Java:
 
     ```python
     from graphistry import n, e_undirected, is_in
@@ -247,6 +247,11 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
      edges = pa.Table.from_pandas(pd.read_csv('facebook_combined.txt', sep=' ', names=['src', 'dst']))
      graphistry.edges(edges, 'src', 'dst').plot()
     ```
+
+> The `graphistry.cypher(...)` examples below are the remote database Cypher
+> path. For Cypher syntax through GFQL on a bound graph, use `g.gfql("MATCH ...")`.
+> For remote GFQL execution, use `g.gfql_remote([...])`. See the
+> [GFQL Cypher guide](gfql/cypher.rst).
 
 * [Neo4j](http://neo4j.com) ([notebook demo](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/neo4j/official/graphistry_bolt_tutorial_public.ipynb))
 
@@ -517,7 +522,7 @@ g.bind(point_color='community', point_size='pagerank').plot()
 
 See the [color palette documentation](https://hub.graphistry.com/docs/api/2/rest/upload/colors/#extendedpalette2) for specifying color values by using built-in ColorBrewer palettes (`int32`) or custom RGB values (`int64`).
 
-To control the position, we can add `.bind(point_x='colA', point_y='colB').settings(url_params={'play': 0})` ([see demos](https://github.com/graphistry/pygraphistry/tree/master/demos/more_examples/graphistry_features/external_layout) and [additional url parameters](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions)]). In `api=1`, you created columns named `x` and `y`.
+To control the position, we can add `.bind(point_x='colA', point_y='colB').settings(url_params={'play': 0})` ([see demos](https://github.com/graphistry/pygraphistry/tree/master/demos/more_examples/graphistry_features/external_layout) and [additional url parameters](https://hub.graphistry.com/docs/api/1/rest/url/#urloptions)]).
 
 You may also want to bind `point_title`: `.bind(point_title='colA')`.
 
@@ -554,6 +559,11 @@ g.encode_point_color('time_col', ["blue", "red"], as_continuous=True)
 g.encode_point_color('type', as_categorical=True,
   categorical_mapping={"cat": "red", "sheep": "blue"}, default_mapping='#CCC') 
 ```
+
+For subset-based coloring and conditional styling across multiple encodings, use Collections
+via `g.collections(...)` with GFQL AST helpers. See
+{doc}`Layout settings </visualization/layout/settings>`
+and the [Collections tutorial notebook](demos/more_examples/graphistry_features/collections.ipynb).
 
 For more in-depth examples, check out the tutorials on [colors](https://github.com/graphistry/pygraphistry/tree/master/demos/more_examples/graphistry_features/encodings-colors.ipynb).
 
@@ -692,10 +702,10 @@ g2 = g.scene_settings(
   info=False,
   #tweak graph
   show_arrows=False,
-  point_size=1.0,
-  edge_curvature=0.0,
-  edge_opacity=0.5,
-  point_opacity=0.9
+  point_size=1.0,  # 0.1-10.0 range, log scale (1.0 → "50" in UI)
+  edge_curvature=0.0,  # 0.0-1.0 range
+  edge_opacity=0.5,  # 0.0-1.0 range
+  point_opacity=0.9  # 0.0-1.0 range
 ).plot()
 
 ```
@@ -773,6 +783,11 @@ g.time_ring_layout(
   #engine='auto'  # 'auto', 'pandas', 'cudf'
 ).plot()
 ```
+
+> **Tip:** When building GFQL JSON payloads, send ``time_start`` / ``time_end`` as
+> ISO-8601 strings (for example, ``"2014-01-22T00:00:00"``). The runtime converts
+> them to ``numpy.datetime64`` before computing the layout, matching the behavior
+> shown here with native ``np.datetime64`` inputs.
 
 ##### Continuous
 
@@ -901,6 +916,14 @@ g2.plot() # nodes are values from cols s, d, k1
     direction='forward', # 'reverse', 'undirected'
     hops=2, # number (1..n hops, inclusive) or None if to_fixed_point
     to_fixed_point=False, 
+    # optional traversal range + labeling
+    min_hops=1,  # inclusive lower bound (defaults to 1 unless hops==0)
+    max_hops=3,  # inclusive upper bound; defaults to hops
+    output_min_hops=None,  # optional output slice lower bound (post-filter; defaults keep early hops)
+    output_max_hops=None,  # optional output slice upper bound (post-filter; defaults to max_hops)
+    label_node_hops='hop',  # write first hop step each node is reached (omit/None to skip)
+    label_edge_hops='edge_hop',  # hop step for each traversed edge
+    label_seeds=True,  # also tag starting seeds as hop 0 when labeling
 
     #every edge source node must match these
     source_node_match={"k2": 0, "k3": is_in(['a', 'b', 3, 4])},
@@ -914,7 +937,7 @@ g2.plot() # nodes are values from cols s, d, k1
     destination_node_match={"k2": 2},
     destination_node_query='k2 == 2 or k2 == 4',
   )
-  .gfql([ # filter to subgraph with Cypher-style GFQL
+  .gfql([ # filter to subgraph with GFQL pattern matching
     n(),
     n({'k2': 0, "m": 'ok'}), #specific values
     n({'type': is_in(["type1", "type2"])}), #multiple valid values
@@ -1049,6 +1072,19 @@ g2c = g2.hop(
 
 # (a or b)-[1 to 8 hops]->(anynode), based on graph g2
 g3 = g2.hop(pd.DataFrame({g2._node: ['a', 'b']}), hops=8)
+
+# Bounded hops with labels and sliced outputs
+g4 = g2.hop(
+  pd.DataFrame({g2._node: ['a']}),
+  min_hops=2,
+  max_hops=3,
+  output_min_hops=2,
+  output_max_hops=3,
+  label_node_hops='hop',
+  label_edge_hops='edge_hop',
+  label_seeds=True
+)
+g4._nodes[['node', 'hop']]
 
 # (a or b)-[1 to 8 hops]->(anynode), based on graph g2
 g3 = g2.hop(pd.DataFrame({g2._node: is_in(['a', 'b'])}), hops=8)
@@ -1472,8 +1508,10 @@ Set visual attributes through [quick data bindings](https://hub.graphistry.com/d
         'play': 2000,
         'menu': True, 'info': True,
         'showArrows': True,
-        'pointSize': 2.0, 'edgeCurvature': 0.5,
-        'edgeOpacity': 1.0, 'pointOpacity': 1.0,
+        'pointSize': 1.0,  # Node size (0.1-10.0, log scale: 0.2→"15", 1.0→"50", 5.0→"85")
+        'edgeCurvature': 0.5,  # Edge curvature (0.0-1.0)
+        'edgeOpacity': 1.0,  # Edge transparency (0.0-1.0)
+        'pointOpacity': 1.0,  # Node transparency (0.0-1.0)
         'lockedX': False, 'lockedY': False, 'lockedR': False,
         'linLog': False, 'strongGravity': False, 'dissuadeHubs': False,
         'edgeInfluence': 1.0, 'precisionVsSpeed': 1.0, 'gravity': 1.0, 'scalingRatio': 1.0,

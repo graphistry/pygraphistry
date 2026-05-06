@@ -19,13 +19,75 @@ pred2 = gt(pd.Timestamp("2023-01-01"))
 pred3 = gt({"type": "datetime", "value": "2023-01-01T00:00:00", "timezone": "UTC"})
 ```
 
+## Comparator / Operator Mapping
+
+- Python predicate helpers: `gt`, `ge`, `lt`, `le`, `eq`, `ne`
+- Wire predicate types: `GT`, `GE`, `LT`, `LE`, `EQ`, `NE`
+- Same-path chain `where` JSON operators: `gt`, `ge`, `lt`, `le`, `eq`, `neq`
+- Row-expression comparators (`where_rows(expr="...")`):
+  `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`
+
+## WHERE Contexts in Wire JSON
+
+`WHERE`-style filtering appears in three distinct wire shapes:
+
+1. **Same-path chain WHERE (`where=[...]`)** uses lower-case operator keys and
+   alias-column references:
+
+```json
+{
+  "type": "Chain",
+  "chain": [
+    {"type": "Node", "name": "a"},
+    {"type": "Node", "name": "b"}
+  ],
+  "where": [
+    {"ge": {"left": "a.created_at", "right": "b.created_at"}}
+  ]
+}
+```
+
+2. **Matcher predicates (`filter_dict` / `edge_match`)** use predicate envelopes
+   (`GT/GE/LT/LE/EQ/NE/...`) and can carry typed temporal values:
+
+```json
+{
+  "type": "Node",
+  "filter_dict": {
+    "created_at": {
+      "type": "GT",
+      "val": {"type": "datetime", "value": "2024-01-01T00:00:00", "timezone": "UTC"}
+    }
+  }
+}
+```
+
+3. **Row-pipeline WHERE** after `rows(...)` supports either:
+   - expression string: `{"function": "where_rows", "params": {"expr": "..."} }`
+   - predicate dict: `{"function": "where_rows", "params": {"filter_dict": {...}} }`
+
+```json
+{
+  "type": "Call",
+  "function": "where_rows",
+  "params": {
+    "filter_dict": {
+      "created_at": {
+        "type": "GE",
+        "val": {"type": "datetime", "value": "2024-01-01T00:00:00", "timezone": "UTC"}
+      }
+    }
+  }
+}
+```
+
 ## 1. DateTime Comparisons
 
 ### Python API
 ```python
 import pandas as pd
 from datetime import datetime
-from graphistry import n
+from graphistry import n, e_forward
 from graphistry.compute import gt, between
 
 # Using pandas Timestamp
@@ -34,7 +96,7 @@ filter1 = n(filter_dict={
 })
 
 # Using Python datetime
-filter2 = n(edge_match={
+filter2 = e_forward(edge_match={
     "timestamp": between(
         datetime(2023, 1, 1),
         datetime(2023, 12, 31, 23, 59, 59)
@@ -82,6 +144,7 @@ filter2 = n(edge_match={
 ```
 
 ### Round-trip Example
+<!-- doc-test: xfail -->
 ```python
 # Create predicate
 from graphistry.compute import gt
@@ -159,6 +222,7 @@ filter2 = n(filter_dict={
 ### Python API
 ```python
 from datetime import time
+from graphistry import n, e_forward
 from graphistry.compute import is_in, between
 
 # Specific times
@@ -171,7 +235,7 @@ filter1 = n(filter_dict={
 })
 
 # Time range
-filter2 = n(edge_match={
+filter2 = e_forward(edge_match={
     "daily_schedule": between(
         time(9, 0, 0),
         time(17, 30, 0)
@@ -214,14 +278,12 @@ filter2 = n(edge_match={
 
 ### Python API
 ```python
-import pytz
 from graphistry.compute import DateTimeValue, gt
 
 # Using timezone-aware timestamp
-eastern = pytz.timezone('US/Eastern')
 filter1 = n(filter_dict={
     "timestamp": gt(
-        pd.Timestamp("2023-01-01 09:00:00", tz=eastern)
+        pd.Timestamp("2023-01-01 09:00:00", tz="US/Eastern")
     )
 })
 
@@ -253,6 +315,7 @@ filter2 = n(filter_dict={
 ## 5. Complex Chain with Temporal Predicates
 
 ### Python API
+<!-- doc-test: skip -->
 ```python
 from graphistry import n, e_forward
 from graphistry.compute import gt, eq, between
@@ -261,7 +324,8 @@ from datetime import datetime, timedelta
 # Multi-hop query with temporal filters
 chain = g.gfql([
     # Recent transactions
-    n(edge_match={
+    n(),
+    e_forward(edge_match={
         "timestamp": gt(datetime.now() - timedelta(days=7)),
         "amount": gt(1000)
     }),
@@ -400,6 +464,7 @@ dt_from_json = temporal_value_from_json(json_dt)
 
 ## 7. Full Round-Trip Example
 
+<!-- doc-test: xfail -->
 ```python
 # 1. Create a complex query with temporal predicates
 from graphistry import n, Chain
@@ -425,11 +490,11 @@ wire_data = json.dumps(json_query)
 received_data = json.loads(wire_data)
 
 # 4. Deserialize on receiving end
-from graphistry.compute.ast import Chain
+from graphistry import Chain
 reconstructed_query = Chain.from_json(received_data)
 
 # 5. Apply to graph data
-result = g.gfql(reconstructed_query.queries)
+result = g.gfql(reconstructed_query.chain)
 ```
 
 ## Wire Protocol Structure

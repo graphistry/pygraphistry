@@ -3,9 +3,10 @@ from typing import Dict, List, Type
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.categorical import Duplicated
 from graphistry.compute.predicates.is_in import IsIn
+from graphistry.compute.predicates.logical import AllOf
 from graphistry.compute.predicates.numeric import GT, LT, GE, LE, EQ, NE, Between, IsNA, NotNA
 from graphistry.compute.predicates.str import (
-    Contains, Startswith, Endswith, Match, IsNumeric, IsAlpha, IsDecimal, IsDigit, IsLower, IsUpper,
+    Contains, Startswith, Endswith, Match, Fullmatch, IsNumeric, IsAlpha, IsDecimal, IsDigit, IsLower, IsUpper,
     IsSpace, IsAlnum, IsTitle, IsNull, NotNull
 )
 from graphistry.compute.predicates.temporal import (
@@ -18,8 +19,9 @@ from graphistry.utils.json import JSONVal
 predicates : List[Type[ASTPredicate]] = [
     Duplicated,
     IsIn,
+    AllOf,
     GT, LT, GE, LE, EQ, NE, Between, IsNA, NotNA,
-    Contains, Startswith, Endswith, Match, IsNumeric, IsAlpha, IsDecimal, IsDigit, IsLower, IsUpper,
+    Contains, Startswith, Endswith, Match, Fullmatch, IsNumeric, IsAlpha, IsDecimal, IsDigit, IsLower, IsUpper,
     IsSpace, IsAlnum, IsDecimal, IsTitle, IsNull, NotNull,
     IsMonthStart, IsMonthEnd, IsQuarterStart, IsQuarterEnd,
     IsYearStart, IsYearEnd, IsLeapYear

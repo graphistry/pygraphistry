@@ -58,10 +58,16 @@ def layout_non_bulk_mode(
             layout_name = 'custom'
         elif engine == Engine.PANDAS:
             layout_name = layout_alg or 'fr'
-            positioned_subgraph_g = subgraph_g.layout_igraph(
-                layout=layout_name,
-                params={**({'niter': niter} if layout_name == 'fr' else {}), **(layout_params or {})}
-            )
+            try:
+                positioned_subgraph_g = subgraph_g.layout_igraph(
+                    layout=layout_name,
+                    params={**({'niter': niter} if layout_name == 'fr' else {}), **(layout_params or {})}
+                )
+            except ModuleNotFoundError as exc:
+                raise ModuleNotFoundError(
+                    "group_in_a_box_layout with the pandas engine requires python-igraph. "
+                    "Install it via `pip install igraph` or supply a custom layout callable."
+                ) from exc
         elif engine == Engine.CUDF:
             layout_name = layout_alg or 'force_atlas2'
             positioned_subgraph_g = subgraph_g.layout_cugraph(
