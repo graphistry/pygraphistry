@@ -13,6 +13,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Infrastructure
 - **CI / Spark lane speedup + gating**: `test-spark` now restores `~/.cache/uv` with a Spark-specific cache key, skips unconditional JDK apt install when `java` is already present, installs base `graphistry` (`-e .`) instead of the full `.[test]` extra for this smoke lane, and only runs when Spark-relevant paths (or infra/manual/scheduled triggers) are touched. This trims setup overhead and avoids running Spark setup on unrelated PRs.
+- **CI / docs preflight guard**: Added `bin/check_docs_latex_unicode.sh` and a fast `docs-latex-unicode-guard` CI job to fail early on non-BMP Unicode in docs-fed text sources before the slower Dockerized `test-docs` LaTeX build.
 - **Release process / deploy gate reminder**: Documented that tag-triggered PyPI publishes can pause in `waiting` on environment approval, and explicitly call out approving `Review deployments` for `pypi-release` before expecting the final PyPI job to complete.
 
 ### Internal

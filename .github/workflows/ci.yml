@@ -1453,8 +1453,24 @@ jobs:
         echo "✅ py.typed marker confirmed in wheel distribution"
 
 
+  docs-latex-unicode-guard:
+    needs: [changes]
+    # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run
+    if: ${{ needs.changes.outputs.docs == 'true' || needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Guard LaTeX-unsafe Unicode in docs-fed text
+      run: |
+        ./bin/check_docs_latex_unicode.sh
+
   test-docs:
-    needs: [changes, python-lint-types]
+    needs: [changes, python-lint-types, docs-latex-unicode-guard]
     # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run
     if: ${{ needs.changes.outputs.docs == 'true' || needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
