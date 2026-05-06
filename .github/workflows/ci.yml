@@ -35,6 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       python: ${{ steps.filter.outputs.python }}
+      spark: ${{ steps.filter.outputs.spark }}
       docs: ${{ steps.filter.outputs.docs }}
       infra: ${{ steps.filter.outputs.infra }}
       gfql: ${{ steps.filter.outputs.gfql }}
@@ -57,7 +58,7 @@ jobs:
         HEAD_SHA: ${{ github.sha }}
       run: |
         set -euo pipefail
-        keys=(infra python gfql cypher_frontend_ci benchmarks docs)
+        keys=(infra python spark gfql cypher_frontend_ci benchmarks docs)
 
         emit_all() {
           # $1 = "true" or "false" — emit the same value for every key
@@ -161,6 +162,17 @@ jobs:
           '^graphistry/models/gfql/' \
           '^graphistry/Plottable\.py$' \
           '^tests/gfql/'
+
+        # Spark lane: spark coercion/runtime + spark-focused tests + workflow changes.
+        emit spark \
+          '^\.github/workflows/ci\.yml$' \
+          '^setup\.py$' \
+          '^graphistry/Engine\.py$' \
+          '^graphistry/PlotterBase\.py$' \
+          '^graphistry/hyper_dask\.py$' \
+          '^graphistry/compute/ComputeMixin\.py$' \
+          '^graphistry/tests/compute/test_df_types\.py$' \
+          '^graphistry/tests/compute/test_engine_coercion\.py$'
 
         # Cypher frontend gate-relevant paths (workflow defs included so a CI
         # change here re-triggers the cypher gate alongside gfql/infra).
@@ -1337,6 +1349,7 @@ jobs:
 
   test-spark:
     needs: [changes, test-minimal-python, test-gfql-core]
+    if: ${{ (needs.changes.outputs.spark == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -1350,18 +1363,26 @@ jobs:
       with:
         python-version: '3.14'
 
-    - name: Install pyspark stack
+    - name: Restore uv cache (spark)
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/uv
+        key: uv-spark-${{ runner.os }}-py3.14-v2-${{ hashFiles('setup.py', '.github/workflows/ci.yml') }}
+        restore-keys: |
+          uv-spark-${{ runner.os }}-py3.14-v2-
+
+    - name: Install pyspark stack + graphistry
       run: |
-        sudo apt-get install -y default-jdk
+        if ! command -v java >/dev/null 2>&1; then
+          sudo apt-get install -y default-jdk
+        fi
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
         uv pip install pyspark pyarrow pandas requests pytest
-
-    - name: Install graphistry
-      run: |
-        source pygraphistry/bin/activate
-        uv pip install -e .[test]
+        # Spark smoke tests do not require the full test extra toolchain.
+        # Install base graphistry deps, but skip heavy contributor-only [test] extras.
+        uv pip install -e .
 
     - name: Run Spark tests
       run: |
@@ -1432,8 +1453,24 @@ jobs:
         echo "✅ py.typed marker confirmed in wheel distribution"
 
 
+  docs-latex-unicode-guard:
+    needs: [changes]
+    # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run
+    if: ${{ needs.changes.outputs.docs == 'true' || needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Guard LaTeX-unsafe Unicode in docs-fed text
+      run: |
+        ./bin/check_docs_latex_unicode.sh
+
   test-docs:
-    needs: [changes, python-lint-types]
+    needs: [changes, python-lint-types, docs-latex-unicode-guard]
     # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run
     if: ${{ needs.changes.outputs.docs == 'true' || needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
