@@ -596,7 +596,7 @@ class ComputeMixin(Plottable):
     
     def gfql_remote_shape(
         self,
-        chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]],
+        chain: Union[Chain, List[ASTObject], ASTLet, Dict[str, JSONVal], str],
         api_token: Optional[str] = None,
         dataset_id: Optional[str] = None,
         format: Optional[FormatType] = None,

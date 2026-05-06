@@ -197,9 +197,9 @@ def chain_remote_generic(
             self,
             chain,
             params=params,
-            strict=False,
+            strict=True,
             collect_all=False,
-            schema=False,
+            schema=True,
         )
         if not bool(report.get("ok", False)):
             raise_first_diagnostic(report)
@@ -514,8 +514,8 @@ def chain_remote(
     
     Uses the latest bound `_dataset_id`, and uploads current dataset if not already bound. Note that rebinding calls of `edges()` and `nodes()` reset the `_dataset_id` binding.
 
-    :param chain: GFQL chain query as a Python object or in serialized JSON format
-    :type chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]]
+    :param chain: GFQL query as a Python object, serialized GFQL JSON, or Cypher string
+    :type chain: Union[Chain, List[ASTObject], Dict[str, JSONVal], ASTLet, str]
 
     :param api_token: Optional JWT token. If not provided, refreshes JWT and uses that.
     :type api_token: Optional[str]

@@ -1822,6 +1822,7 @@ def gfql(self: Plottable,
                 language=language,
                 params=params,
                 strict=True,
+                schema=True,
                 collect_all=False,
             )
             if not bool(report.get("ok", False)):
