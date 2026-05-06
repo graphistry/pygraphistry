@@ -1,6 +1,7 @@
 import pandas as pd
 
-from graphistry.compute.ast import n
+from graphistry.compute.ast import ASTLet, n
+from graphistry.compute.chain import Chain
 from graphistry.tests.test_compute import CGFull
 
 
@@ -73,3 +74,23 @@ def test_gfql_validate_does_not_execute_query_operators(monkeypatch):
     report = g.gfql_validate([n({"name": "Alice"})])
     assert report["ok"] is True
 
+
+def test_gfql_validate_let_success():
+    g = _mk_graph()
+    query = ASTLet({"people": Chain([n({"name": "Alice"})])})
+    report = g.gfql_validate(query)
+    assert report["ok"] is True
+    assert report["language"] == "gfql"
+    assert report["query_type"] == "dag"
+    assert report["diagnostics"] == []
+
+
+def test_gfql_validate_let_schema_failure():
+    g = _mk_graph()
+    query = ASTLet({"people": Chain([n({"missing_col": "x"})])})
+    report = g.gfql_validate(query, collect_all=True)
+    assert report["ok"] is False
+    assert report["language"] == "gfql"
+    assert report["query_type"] == "dag"
+    assert report["diagnostics"]
+    assert report["diagnostics"][0]["code"] == "column-not-found"

@@ -476,6 +476,8 @@ For a first-class preflight API on bound graphs, use ``g.gfql_validate(...)``:
   catches unsupported-but-valid query shapes in lowering.
 - Use ``g.gfql_validate(...)`` when you want a stable validate-only entrypoint
   that returns structured diagnostics and never executes query operators.
+- Use ``g.gfql(..., validate=True)`` when you want execution guarded by a
+  local preflight check.
 - Use ``cypher_to_gfql()`` only when you specifically need a single GFQL
   ``Chain``. It is intentionally stricter than direct execution through
   ``g.gfql("...")``.

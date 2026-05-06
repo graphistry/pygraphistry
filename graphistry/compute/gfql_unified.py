@@ -55,6 +55,7 @@ from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
+from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate, raise_first_diagnostic
 from graphistry.otel import otel_traced, otel_detail_enabled
 
 logger = setup_logger(__name__)
@@ -1589,6 +1590,7 @@ def gfql(self: Plottable,
          where: Optional[Sequence[WhereComparison]] = None,
          language: Optional[Literal["cypher", "gremlin"]] = None,
          params: Optional[Mapping[str, Any]] = None,
+         validate: bool = False,
          shortest_path_backend: str = "auto") -> Plottable:
     """
     Execute a GFQL query - either a chain or a DAG
@@ -1603,6 +1605,7 @@ def gfql(self: Plottable,
     :param where: Optional same-path constraints for list/Chain queries
     :param language: Optional string-query language selector. Defaults to ``"cypher"`` when ``query`` is a string.
     :param params: Optional parameter dictionary for string-query compilation
+    :param validate: When ``True``, run local preflight validation before execution via ``g.gfql_validate(...)``.
     :param shortest_path_backend: Backend for shortestPath execution: ``"auto"`` (default),
         ``"igraph"`` (require igraph, raise if missing), ``"cugraph"`` (require cugraph,
         raise if missing), or ``"bfs"`` (always use DataFrame BFS). ``"auto"`` tries
@@ -1800,11 +1803,30 @@ def gfql(self: Plottable,
 
         if where_param and isinstance(query, (dict, ASTLet)):
             raise ValueError("where must be provided inside dict chain under the 'where' key")
+        if not isinstance(query, str):
+            if language is not None:
+                raise ValueError("language is only supported when query is a string")
+            if params is not None:
+                raise ValueError("params is only supported when query is a string")
         if isinstance(query, str):
             if where_param:
                 raise ValueError("where cannot be combined with string queries; embed Cypher predicates in the query itself")
             if language is None and not _looks_like_cypher_query(query):
                 raise TypeError("Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. Got str")
+
+        if validate:
+            report = gfql_preflight_validate(
+                dispatch_self,
+                query,
+                where=where_param,
+                language=language,
+                params=params,
+                collect_all=False,
+            )
+            if not bool(report.get("ok", False)):
+                raise_first_diagnostic(report)
+
+        if isinstance(query, str):
             compiled_query = _compile_string_query(query, language=language, params=params)
             if isinstance(compiled_query, CompiledCypherGraphQuery):
                 return _execute_graph_query(self, compiled_query, engine=engine, policy=expanded_policy, context=context)
@@ -1812,11 +1834,6 @@ def gfql(self: Plottable,
                 if compiled_query.graph_bindings or compiled_query.use_ref:
                     return _execute_query_with_graph_context(self, compiled_query, engine=engine, policy=expanded_policy, context=context)
                 query = compiled_query.chain
-        else:
-            if language is not None:
-                raise ValueError("language is only supported when query is a string")
-            if params is not None:
-                raise ValueError("params is only supported when query is a string")
 
         if isinstance(query, dict) and query.get("type") == "Let":
             from .ast import ASTLet as _ASTLet

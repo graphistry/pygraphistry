@@ -6,9 +6,9 @@ import re
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple, Union, cast
 
 from graphistry.Plottable import Plottable
-from graphistry.compute.ast import ASTLet, ASTObject, ASTNode, ASTEdge, from_json
+from graphistry.compute.ast import ASTLet, ASTObject, ASTNode, ASTEdge, ASTCall, ASTRef, from_json
 from graphistry.compute.chain import Chain
-from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.cypher.lowering import (
     CompiledCypherGraphQuery,
     CompiledCypherQuery,
@@ -147,6 +147,8 @@ def _coerce_non_string_query(
             if out.where:
                 raise ValueError("where provided for Chain that already includes where")
             out = Chain(out.chain, where=where_param)
+    elif isinstance(out, ASTLet):
+        pass
     elif isinstance(out, ASTObject):
         out = Chain([out], where=where_param)
     elif isinstance(out, list):
@@ -178,9 +180,26 @@ def _validate_non_string_query(
     *,
     where: Optional[Sequence[WhereComparison]],
     collect_all: bool,
+    schema: bool,
 ) -> Dict[str, Any]:
     coerced = _coerce_non_string_query(query, where=where)
     if isinstance(coerced, Chain):
+        if not schema:
+            if collect_all:
+                errors = cast(Any, coerced).validate(collect_all=True) or []
+                return {
+                    "ok": len(errors) == 0,
+                    "query_type": "chain",
+                    "language": "gfql",
+                    "diagnostics": [cast(Any, e).to_dict() for e in errors],
+                }
+            cast(Any, coerced).validate(collect_all=False)
+            return {
+                "ok": True,
+                "query_type": "chain",
+                "language": "gfql",
+                "diagnostics": [],
+            }
         if collect_all:
             errors = validate_chain_schema(g, coerced.chain, collect_all=True) or []
             return {
@@ -197,8 +216,11 @@ def _validate_non_string_query(
             "diagnostics": [],
         }
 
-    # For DAG/non-chain AST forms, preserve existing AST structural validation
-    # surface without introducing a new schema simulator for chain-let graphs.
+    if isinstance(coerced, ASTLet):
+        return _validate_let_query(g, coerced, collect_all=collect_all, schema=schema)
+
+    # For non-chain/non-let AST forms, preserve existing AST structural validation
+    # surface without introducing a new schema simulator.
     if collect_all:
         errors = cast(Any, coerced).validate(collect_all=True) or []
         return {
@@ -216,6 +238,65 @@ def _validate_non_string_query(
     }
 
 
+def _validate_let_binding_schema_errors(g: Plottable, value: Any) -> List[Any]:
+    # Structural validation for AST forms is handled by ASTSerializable.validate();
+    # this helper adds best-effort schema validation for bindings that execute
+    # directly against dataframe-like tables.
+    errors: List[Any] = []
+
+    if isinstance(value, ASTLet):
+        for nested in value.bindings.values():
+            errors.extend(_validate_let_binding_schema_errors(g, nested))
+        return errors
+
+    if isinstance(value, Chain):
+        return validate_chain_schema(g, value.chain, collect_all=True) or []
+
+    if isinstance(value, (ASTNode, ASTEdge, ASTCall)):
+        return validate_chain_schema(g, [value], collect_all=True) or []
+
+    # ASTRef bindings execute against prior DAG bindings and may have schema
+    # transformations not visible from root graph statically; keep structural
+    # checks only to avoid false positives.
+    if isinstance(value, ASTRef):
+        return []
+
+    return []
+
+
+def _validate_let_query(
+    g: Plottable,
+    let_query: ASTLet,
+    *,
+    collect_all: bool,
+    schema: bool,
+) -> Dict[str, Any]:
+    if collect_all:
+        errors = cast(Any, let_query).validate(collect_all=True) or []
+        if schema:
+            for value in let_query.bindings.values():
+                errors.extend(_validate_let_binding_schema_errors(g, value))
+        return {
+            "ok": len(errors) == 0,
+            "query_type": "dag",
+            "language": "gfql",
+            "diagnostics": [cast(Any, e).to_dict() for e in errors],
+        }
+
+    cast(Any, let_query).validate(collect_all=False)
+    if schema:
+        for value in let_query.bindings.values():
+            binding_errors = _validate_let_binding_schema_errors(g, value)
+            if binding_errors:
+                raise cast(Any, binding_errors[0])
+    return {
+        "ok": True,
+        "query_type": "dag",
+        "language": "gfql",
+        "diagnostics": [],
+    }
+
+
 def gfql_validate(
     g: Plottable,
     query: GFQLValidationQuery,
@@ -225,6 +306,7 @@ def gfql_validate(
     params: Optional[Mapping[str, Any]] = None,
     strict: bool = False,
     collect_all: bool = False,
+    schema: bool = True,
 ) -> Dict[str, Any]:
     """Validate a GFQL/Cypher query without executing it.
 
@@ -252,7 +334,7 @@ def gfql_validate(
             raise ValueError("language is only supported when query is a string")
         if params is not None:
             raise ValueError("params is only supported when query is a string")
-        return _validate_non_string_query(g, query, where=where, collect_all=collect_all)
+        return _validate_non_string_query(g, query, where=where, collect_all=collect_all, schema=schema)
     except Exception as exc:
         return {
             "ok": False,
@@ -260,3 +342,42 @@ def gfql_validate(
             "language": "cypher" if isinstance(query, str) else "gfql",
             "diagnostics": [_serialize_error(exc, stage="validate")],
         }
+
+
+def raise_first_diagnostic(report: Mapping[str, Any]) -> None:
+    diagnostics = report.get("diagnostics")
+    if not isinstance(diagnostics, list) or len(diagnostics) == 0:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "GFQL validation failed without diagnostic details",
+            language=cast(Any, report.get("language")),
+        )
+
+    first = diagnostics[0]
+    if not isinstance(first, dict):
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "GFQL validation failed with invalid diagnostic payload",
+            value=first,
+            language=cast(Any, report.get("language")),
+        )
+
+    code = cast(Any, first.get("code")) or ErrorCode.E108
+    message = cast(Any, first.get("message")) or "GFQL validation failed"
+
+    # Keep core structured keys explicit and pass the rest through as context.
+    extra = {
+        key: value
+        for key, value in first.items()
+        if key not in {"code", "message", "field", "value", "suggestion", "operation_index"}
+    }
+    exc_cls = GFQLSyntaxError if code == ErrorCode.E107 else GFQLValidationError
+    raise exc_cls(
+        code,
+        message,
+        field=cast(Optional[str], first.get("field")),
+        value=first.get("value"),
+        suggestion=cast(Optional[str], first.get("suggestion")),
+        operation_index=cast(Optional[int], first.get("operation_index")),
+        **extra,
+    )

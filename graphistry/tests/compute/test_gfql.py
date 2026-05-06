@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 from typing import Any, Dict, List
+from unittest.mock import patch
 from graphistry.compute.ast import ASTLet, ASTRef, n, e
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
@@ -257,6 +258,35 @@ class TestGFQL:
 
         with pytest.raises(ValueError):
             g.gfql([n()], params={"x": 1})
+
+    def test_gfql_validate_true_runs_preflight_before_compile(self):
+        g = _mk_people_company_graph3()
+        fake_report = {
+            "ok": False,
+            "query_type": "chain",
+            "language": "cypher",
+            "diagnostics": [
+                {"code": ErrorCode.E108, "message": "synthetic preflight failure", "stage": "validate"}
+            ],
+        }
+
+        with patch("graphistry.compute.gfql_unified.gfql_preflight_validate", return_value=fake_report):
+            with patch(
+                "graphistry.compute.gfql_unified._compile_string_query",
+                side_effect=AssertionError("compile should not run when preflight fails"),
+            ):
+                with pytest.raises(GFQLValidationError, match="synthetic preflight failure"):
+                    g.gfql("MATCH (p) RETURN p", validate=True)
+
+    def test_gfql_validate_false_skips_preflight(self):
+        g = _mk_people_company_graph3()
+
+        with patch(
+            "graphistry.compute.gfql_unified.gfql_preflight_validate",
+            side_effect=AssertionError("preflight should not run when validate=False"),
+        ):
+            result = g.gfql([n()])
+            assert result is not None
 
     @pytest.mark.parametrize(
         ("direction", "expected"),

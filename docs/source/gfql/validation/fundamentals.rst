@@ -187,6 +187,28 @@ For mixed GFQL + Cypher preflight on a bound graph, use ``g.gfql_validate(...)``
    if not cypher_report["ok"]:
        print(cypher_report["diagnostics"])
 
+``g.gfql_validate(...)`` also supports Let/DAG payloads. It performs AST structural
+validation for the DAG and schema checks for direct chain-like binding steps
+(``Chain``, ``Node``, ``Edge``, ``Call``) without executing operators.
+
+Execution-time Preflight Toggles
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If you want execution plus a preflight gate, ``g.gfql`` exposes an explicit flag:
+
+.. code-block:: python
+
+   # Run preflight first; execute only if preflight passes
+   result = g.gfql(
+       "MATCH (c:Customer) RETURN c.id AS id LIMIT $n",
+       params={"n": 10},
+       validate=True,
+   )
+
+For remote execution, ``g.gfql_remote(..., validate=True)`` runs local query
+prevalidation before implicit upload/network execution, so invalid queries fail
+before data upload when possible.
+
 Error Collection
 ^^^^^^^^^^^^^^^^
 

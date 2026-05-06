@@ -53,9 +53,9 @@ class _FakeCompiledUnion:
         self.branches = ()
 
 
-def _mock_plottable() -> MagicMock:
+def _mock_plottable(dataset_id: str | None = "test-dataset-123") -> MagicMock:
     mock = MagicMock()
-    mock._dataset_id = "test-dataset-123"
+    mock._dataset_id = dataset_id
     mock._edges = pd.DataFrame({"s": [0], "d": [1]})
     mock._nodes = pd.DataFrame({"id": [0, 1]})
     mock._privacy = None
@@ -271,3 +271,18 @@ class TestEdgeCases:
         finally:
             _cr.warnings.warn = _orig  # type: ignore
         assert any("Let/DAG" in str(a[0]) for a in captured)
+
+    def test_validate_true_rejects_before_implicit_upload(self) -> None:
+        g = _mock_plottable(dataset_id=None)
+
+        with patch("graphistry.compute.chain_remote.requests.post") as mock_post:
+            with pytest.raises(Exception):
+                chain_remote_generic(
+                    g,
+                    "MATCH (n RETURN n",
+                    format="json",
+                    validate=True,
+                )
+
+        g.upload.assert_not_called()
+        mock_post.assert_not_called()
