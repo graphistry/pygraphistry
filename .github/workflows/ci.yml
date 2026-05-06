@@ -1381,7 +1381,8 @@ jobs:
         python -m pip install --upgrade pip uv
         uv pip install pyspark pyarrow pandas requests pytest
         # Spark smoke tests do not require the full test extra toolchain.
-        uv pip install -e . --no-deps
+        # Install base graphistry deps, but skip heavy contributor-only [test] extras.
+        uv pip install -e .
 
     - name: Run Spark tests
       run: |
