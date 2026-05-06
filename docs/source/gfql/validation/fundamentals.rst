@@ -160,16 +160,17 @@ Use the inline GFQL entrypoints first:
 
 ``g.gfql_validate(...)`` (validate-only, no execution) supports:
 
-* **Query protocols**: Cypher strings, GFQL JSON/AST chain forms, and Let/DAG payloads
-* **Predicate + structural validation**: yes (for all supported protocols)
+* **Input forms**: Cypher strings, GFQL JSON payloads, and GFQL Python objects
+  (for example ``Chain(...)``, ``[n(), e(), n()]``, and ``ASTLet(...)``)
+* **Predicate + structural validation**: yes
 * **Schema validation**:
 
-  * Chain/list/AST chain-like forms: yes (default ``schema=True``)
-  * Let/DAG: structural validation for the DAG + schema checks for direct chain-like bindings
-    (``Chain``, ``Node``, ``Edge``, ``Call``); ``Ref`` bindings stay structural-only
-  * Cypher strings: syntax/compile + schema-aware name-resolution checks against
-    the bound graph schema by default (``strict=True``); pass ``strict=False``
-    for syntax/compile-only preflight
+  * GFQL JSON and GFQL Python chain-like forms: yes (default ``schema=True``)
+  * GFQL Let/DAG forms: DAG structure + schema checks for direct graph-bound
+    steps; reference-based steps stay structural-only
+  * Cypher strings: syntax/compile + schema-aware name checks against the bound
+    graph schema by default (``strict=True``); pass ``strict=False`` for
+    syntax/compile-only preflight
 
 .. code-block:: python
 
@@ -186,10 +187,10 @@ Use the inline GFQL entrypoints first:
    if not cypher_report["ok"]:
        print(cypher_report["diagnostics"])
 
-``g.gfql(..., validate=True)`` supports the same Cypher + GFQL JSON/AST + Let query
-inputs as ``g.gfql(...)``, runs local preflight first, and executes only when preflight
-passes. Its preflight uses ``g.gfql_validate(...)`` defaults, so chain/JSON/AST/Let and
-Cypher paths all run schema-aware checks by default on local bound-graph execution.
+``g.gfql(..., validate=True)`` accepts the same query inputs as ``g.gfql(...)``
+(Cypher string, GFQL JSON, GFQL Python objects), runs local preflight first, and
+executes only when preflight passes. Its preflight uses ``g.gfql_validate(...)``
+defaults, so local bound-graph execution runs schema-aware checks by default.
 
 .. code-block:: python
 
