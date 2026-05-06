@@ -20,6 +20,7 @@ from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundVariable, ScopeFrame, SemanticTable
 from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.logical_plan import RowSchema
+from graphistry.compute.gfql.ir.metadata import bound_variable_is_nullable
 from graphistry.compute.gfql.ir.types import ScalarType
 from graphistry.tests.test_compute import CGFull
 
@@ -246,7 +247,7 @@ def test_trust_ic1_null_extended_from_semantics(monkeypatch: pytest.MonkeyPatch)
     nullable_aliases = {
         alias
         for alias, var in bound_ir.semantic_table.variables.items()
-        if var.nullable or bool(var.null_extended_from)
+        if bound_variable_is_nullable(var)
     }
     assert bound_ir.semantic_table.variables["a"].null_extended_from != bound_ir.semantic_table.variables["b"].null_extended_from
     assert {"a", "b"} <= nullable_aliases

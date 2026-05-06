@@ -36,6 +36,7 @@ from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, ScopeFrame
 from graphistry.compute.gfql.ir.compilation import PlanContext
+from graphistry.compute.gfql.ir.metadata import bound_variable_is_nullable
 from graphistry.compute.gfql.ir.logical_plan import (
     Join as LogicalJoin,
     LogicalPlan,
@@ -526,7 +527,7 @@ def _bound_nullable_aliases(bound_ir: BoundIR) -> AbstractSet[str]:
     return frozenset(
         alias
         for alias, variable in bound_ir.semantic_table.variables.items()
-        if variable.nullable or bool(variable.null_extended_from)
+        if bound_variable_is_nullable(variable)
     )
 
 
@@ -6876,8 +6877,6 @@ def _cypher_return_output_names(clause: ReturnClause) -> Tuple[str, ...]:
             )
         names.append(item.alias or item.expression.text)
     return tuple(names)
-
-
 
 def lower_cypher_query(
     query: Union[CypherQuery, CypherUnionQuery],

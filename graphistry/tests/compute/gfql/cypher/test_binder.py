@@ -276,6 +276,13 @@ def test_binder_union_merges_branch_bindings() -> None:
     assert any(part.clause == "UNION" for part in bound.query_parts)
 
 
+def test_binder_union_merges_nullable_bit_across_branches() -> None:
+    bound = FrontendBinder().bind(parse_cypher("RETURN null AS x UNION RETURN 2 AS x"), PlanContext())
+    x_var = bound.semantic_table.variables["x"]
+    assert isinstance(x_var.logical_type, ScalarType)
+    assert x_var.nullable is True
+
+
 def test_binder_with_scope_boundary_keeps_projected_alias_only() -> None:
     query = "MATCH (n:Person) WITH n AS m RETURN m"
     bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
