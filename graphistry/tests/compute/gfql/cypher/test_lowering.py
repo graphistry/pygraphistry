@@ -8117,6 +8117,26 @@ def test_compile_cypher_records_reentry_plan_for_multi_whole_row_prefix() -> Non
     assert len(non_source) == 1 and non_source[0].output_name == "x"
 
 
+def test_compile_cypher_records_freeform_reentry_plan_contract() -> None:
+    """#989 follow-through: free-form intermediate MATCH must not degrade to
+    scalar-only reentry plan routing.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}) "
+        "WITH a "
+        "MATCH (n:B) "
+        "RETURN n.id AS nid"
+    )
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    plan = compiled.reentry_plan
+    assert plan is not None
+    assert plan.reentry_alias_name == "n"
+    assert plan.scalar_only is False
+    assert plan.free_form is True
+    assert tuple(alias.output_name for alias in plan.aliases) == ("a",)
+    assert plan.reentry_alias is None
+
+
 def test_string_cypher_admits_multi_whole_row_prefix_when_non_source_aliases_are_unused() -> None:
     """#989 slice 4.3: admit `WITH a, x` prefix when only `a` is referenced downstream."""
     query = (

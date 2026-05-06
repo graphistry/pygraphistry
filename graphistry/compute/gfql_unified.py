@@ -1256,9 +1256,8 @@ def _compiled_query_scalar_reentry_state(
             suggestion="Retry with a node-backed graph before MATCH re-entry.",
         )
     if not carried_columns:
-        # Free-form intermediate MATCH admission (#1263 safe subset) can route
-        # through scalar reentry with zero carried scalars. Keep full node table;
-        # row fan-out/union for multi-row prefixes happens in the caller.
+        # Scalar-only prefix with zero carried scalars: keep the full node table.
+        # Row fan-out/union for multi-row prefixes happens in the caller.
         dispatch_graph = base_graph.bind()
         dispatch_graph._nodes = base_nodes
         edges_df = getattr(base_graph, "_edges", None)

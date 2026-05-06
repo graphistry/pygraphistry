@@ -361,7 +361,6 @@ def _compile_bounded_reentry_query(
             value="*",
             span=query.return_.span,
         )
-    admit_freeform_intermediate_match = free_form
     if first_alias is None:
         raise _unsupported_at_span(
             "Cypher MATCH after WITH currently requires the trailing MATCH to start from a named node alias",
@@ -372,10 +371,10 @@ def _compile_bounded_reentry_query(
 
     hidden_columns = tuple(_reentry_hidden_column_name(output_name) for output_name in carry_columns)
 
-    # Build the explicit ReentryPlan contract. The plan records every whole-row
-    # alias the prefix carries; the row-carrier rewrite (#989) uses CarriedAlias
-    # entries to surface non-source alias properties downstream.
-    if scalar_only_prefix or admit_freeform_intermediate_match:
+    # Build the explicit ReentryPlan contract. Scalar-only prefixes carry
+    # scalar columns only, while whole-row prefixes (including free-form)
+    # record carried aliases explicitly.
+    if scalar_only_prefix:
         current_reentry_plan: ReentryPlan = ReentryPlan(
             reentry_alias_name=reentry_alias,
             aliases=(),
@@ -552,7 +551,7 @@ def _compile_bounded_reentry_query(
                 query_graph=target_extras.query_graph,
                 start_nodes_query=prefix_compiled,
                 optional_reentry=is_optional,
-                reentry_plan=current_reentry_plan if (scalar_only_prefix or admit_freeform_intermediate_match) else (target.reentry_plan or current_reentry_plan),
+                reentry_plan=current_reentry_plan,
                 logical_plan=target.logical_plan,
                 logical_plan_defer_reason=target.logical_plan_defer_reason,
             ),
