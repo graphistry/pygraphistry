@@ -371,6 +371,26 @@ Procedure And Multi-Branch Forms
   ``out_col``, ``directed``, ``kind``, ``use_vids``, and ``params``; any extra
   keys are forwarded into the nested algorithm ``params`` dictionary.
 
+Component-labeling examples:
+
+.. code-block:: python
+
+    # Graph-enrichment mode (keeps traversable _edges)
+    g.gfql(
+        "CALL graphistry.cugraph.connected_components.write({out_col: 'wcc_id', directed: false})",
+        language="cypher",
+    )
+    g.gfql(
+        "CALL graphistry.cugraph.strongly_connected_components.write({out_col: 'scc_id', directed: true})",
+        language="cypher",
+    )
+
+    # Row mode (no .write): returns nodeId + output column rows
+    g.gfql(
+        "CALL graphistry.cugraph.connected_components({out_col: 'wcc_row', directed: false})",
+        language="cypher",
+    )
+
 - Outside that smaller ``networkx`` subset, ``graphistry.nx.*`` is not part of
   the current local Cypher ``CALL`` surface.
 
