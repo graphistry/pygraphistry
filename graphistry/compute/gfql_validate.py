@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple, Union, cast
+from typing import Any, Dict, List, Literal, Mapping, NoReturn, Optional, Sequence, Tuple, Union, cast
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTLet, ASTObject, ASTNode, ASTEdge, ASTCall, ASTRef, from_json
@@ -52,7 +52,7 @@ def _raise_diagnostics(
     *,
     query_type: str,
     language: str,
-) -> None:
+) -> NoReturn:
     first = diagnostics[0]
     code = cast(Any, first.get("code")) or ErrorCode.E108
     message = cast(Any, first.get("message")) or "GFQL validation failed"
