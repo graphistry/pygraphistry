@@ -5590,34 +5590,6 @@ def _is_variable_length_relationship_pattern(relationship: RelationshipPattern) 
     )
 
 
-def _reject_unsupported_variable_length_where_pattern_predicates(query: CypherQuery) -> None:
-    if query.where is None:
-        return
-    predicates: List[WherePatternPredicate] = [
-        predicate for predicate in query.where.predicates if isinstance(predicate, WherePatternPredicate)
-    ]
-    if query.where.expr_tree is not None:
-        predicates.extend(_where_expr_tree_pattern_predicates(query.where.expr_tree))
-    for predicate in predicates:
-        relationships = [
-            element
-            for element in predicate.pattern
-            if isinstance(element, RelationshipPattern)
-        ]
-        for relationship in relationships:
-            if not _is_variable_length_relationship_pattern(relationship):
-                continue
-            if relationship.min_hops is None and relationship.max_hops is None and relationship.to_fixed_point:
-                continue
-            raise _unsupported(
-                "Cypher WHERE pattern predicates currently support only bare variable-length fixed-point relationships, not exact or bounded hop counts",
-                field="where",
-                value=boolean_expr_to_text(query.where.expr_tree) if query.where.expr_tree is not None else None,
-                line=predicate.span.line,
-                column=predicate.span.column,
-            )
-
-
 def _reject_nonterminal_variable_length_relationship_patterns(query: CypherQuery) -> None:  # noqa: ARG001
     """No-op: variable-length rels in connected patterns are now supported.
 
@@ -8287,7 +8259,6 @@ def compile_cypher_query(
 
     normalizer = ASTNormalizer()
     query = normalizer.rewrite_shortest_path(query)
-    _reject_unsupported_variable_length_where_pattern_predicates(query)
     _reject_variable_length_path_alias_references(query, params=params)
     query = normalizer.rewrite_where_pattern_predicates(query)
 

@@ -8,8 +8,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Internal
+- **GFQL / Cypher bounded-reentry runtime extraction (#987 Step 3)**: Moved bounded-reentry data-frame execution helpers (`_compiled_query_reentry_state`, `_compiled_query_scalar_reentry_state`, `_compiled_query_freeform_reentry_state`, `_freeform_broadcast_row_to_nodes`, `_union_scalar_reentry_results`, `_apply_optional_reentry_null_fill`, `_aligned_reentry_rows`, `_reentry_carry_payload`, `_ordered_reentry_start_nodes`, `_reentry_validation_error`, the two suggestion constants) out of `graphistry/compute/gfql_unified.py` into a new `graphistry/compute/gfql/cypher/reentry/execution.py` module so the bounded-reentry contract assembled at compile time (`ReentryPlan`) and the matching data-frame stitching live next to each other. `_entity_projection_meta_entry` moved to `graphistry/compute/gfql/cypher/result_postprocess.py` next to `WholeRowProjectionMeta` since it is shared between the connected-OPTIONAL-MATCH and bounded-reentry paths. Pure-move refactor — no semantic change; `gfql_unified.py` shrinks by ~440 LOC and now re-exports the moved private names via aliased imports so existing tests reaching into `graphistry.compute.gfql_unified._compiled_query_reentry_state` continue to work.
+
 ### Documentation
 - **GFQL component-labeling examples + README clarity (#1324)**: Added concise WCC/SCC labeling examples for `compute_cugraph`, `compute_igraph('clusters')`, and local Cypher `CALL graphistry.cugraph.*` write/row modes in GFQL docs, clarified that component IDs are partition labels (not stable semantic IDs), and tightened the main README GFQL intro sentence for readability.
+- **GFQL / Cypher docs — variable-length boundary refresh (#973)**: Updated direct-Cypher capability docs (`docs/source/gfql/cypher.rst`, `docs/source/gfql/spec/cypher_mapping.md`) to reflect current support for connected variable-length patterns and bounded/exact variable-length `WHERE` pattern predicates, while preserving explicit fail-fast notes for remaining path/list-carrier and advanced row-shaping gaps.
+
+### Changed
+- **GFQL / Cypher lowering — bounded/exact variable-length `WHERE` pattern predicates (#973)**: Removed the pre-normalization compiler gate that rejected bounded/exact variable-length `WHERE` pattern predicates and now lower these shapes through the existing WHERE-pattern rewrite and row-filter paths. Converted the old fail-fast test into positive execution coverage and added boolean-wrapper amplification (`OR`/`XOR`/`NOT`) for bounded variable-length `WHERE` predicates in `graphistry/tests/compute/gfql/cypher/test_lowering.py`.
 
 ### Tests
 - **GFQL / Cypher two-MATCH reentry varlen regression hardening (#1001)**: Strengthened reentry varlen acceptance assertions from shape-only checks to exact expected rows, and added forward/reverse split-vs-connected query equivalence regressions to guard against wrong-row drift in the `match5-25/26` query family.

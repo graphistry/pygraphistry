@@ -6,6 +6,8 @@ Subpackage owns:
 - prefix carry-column / order helpers (``carry``)
 - AST/query rewriters that retarget reentry expressions onto carried columns
   (``rewrite``)
+- compile-time bounded-reentry query rewrites (``runtime``)
+- data-frame execution stitching for bounded reentry (``execution``; #987 Step 3)
 
 Public symbols are re-exported from ``cypher.lowering`` so existing imports
 (``from graphistry.compute.gfql.cypher.lowering import _reentry_hidden_column_name``)
