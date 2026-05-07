@@ -5168,24 +5168,78 @@ def test_string_cypher_supports_unused_named_path_alias_for_endpoint_projection(
 
 
 @pytest.mark.parametrize(
-    "query",
+    "query,expected_names",
     [
-        "MATCH (a:A) MATCH (a)-[:LIKES*1]->()-[:LIKES]->(c) RETURN c.name",
-        "MATCH (a:A) MATCH (a)-[:LIKES*2]->()-[:LIKES]->(c) RETURN c.name",
-        "MATCH (a:A) MATCH (a)-[:LIKES]->()-[:LIKES*3]->(c) RETURN c.name",
-        "MATCH (a:A) MATCH (a)<-[:LIKES]-()-[:LIKES*3]->(c) RETURN c.name",
+        ("MATCH (a:A) MATCH (a)-[:LIKES*1]->()-[:LIKES]->(c) RETURN c.name AS name", ["C"]),
+        ("MATCH (a:A) MATCH (a)-[:LIKES*2]->()-[:LIKES]->(c) RETURN c.name AS name", ["D"]),
+        ("MATCH (a:A) MATCH (a)-[:LIKES]->()-[:LIKES*3]->(c) RETURN c.name AS name", []),
+        ("MATCH (a:A) MATCH (a)<-[:LIKES]-()-[:LIKES*3]->(c) RETURN c.name AS name", []),
     ],
 )
 def test_string_cypher_accepts_nonterminal_variable_length_relationship_patterns(
     query: str,
+    expected_names: List[str],
 ) -> None:
-    """Connected patterns with non-terminal variable-length relationships are now supported."""
+    """Connected reentry forms with varlen rels return expected rows."""
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c", "d"], "label__A": [True, False, False, False], "name": ["A", "B", "C", "D"]}),
         pd.DataFrame({"s": ["a", "b", "c"], "d": ["b", "c", "d"], "type": ["LIKES", "LIKES", "LIKES"]}),
     )
     result = graph.gfql(query)
-    assert result._nodes is not None
+    got_names = _to_pandas_df(result._nodes)["name"].tolist()
+    assert got_names == expected_names
+
+
+def test_string_cypher_two_match_reentry_varlen_forward_matches_connected_shape() -> None:
+    """Regression for #1001: split MATCH form should match connected form rows."""
+    nodes = []
+    edges = []
+    for level in range(5):
+        for idx in range(2 ** level):
+            node_id = f"n{level}_{idx}"
+            nodes.append({"id": node_id, "label__A": level == 0, "name": node_id})
+            if level > 0:
+                parent = f"n{level - 1}_{idx // 2}"
+                edges.append({"s": parent, "d": node_id, "type": "LIKES"})
+
+    graph = _mk_graph(pd.DataFrame(nodes), pd.DataFrame(edges))
+    split_query = "MATCH (a:A) MATCH (a)-[:LIKES]->()-[:LIKES*3]->(c) RETURN c.name AS name ORDER BY name"
+    connected_query = "MATCH (a:A)-[:LIKES]->()-[:LIKES*3]->(c) RETURN c.name AS name ORDER BY name"
+
+    split_rows = graph.gfql(split_query)._nodes.to_dict(orient="records")
+    connected_rows = graph.gfql(connected_query)._nodes.to_dict(orient="records")
+
+    assert split_rows == connected_rows
+    assert split_rows == [{"name": name} for name in sorted(f"n4_{i}" for i in range(16))]
+
+
+def test_string_cypher_two_match_reentry_varlen_reverse_matches_connected_shape() -> None:
+    """Regression for #1001 reverse direction shape from TCK-style query."""
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "x", "y1", "y2", "c1", "c2"],
+                "label__A": [True, False, False, False, False, False],
+                "name": ["a", "x", "y1", "y2", "c1", "c2"],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["x", "x", "y1", "y2", "y2"],
+                "d": ["a", "y1", "y2", "c1", "c2"],
+                "type": ["LIKES", "LIKES", "LIKES", "LIKES", "LIKES"],
+            }
+        ),
+    )
+
+    split_query = "MATCH (a:A) MATCH (a)<-[:LIKES]-()-[:LIKES*3]->(c) RETURN c.name AS name ORDER BY name"
+    connected_query = "MATCH (a:A)<-[:LIKES]-()-[:LIKES*3]->(c) RETURN c.name AS name ORDER BY name"
+
+    split_rows = graph.gfql(split_query)._nodes.to_dict(orient="records")
+    connected_rows = graph.gfql(connected_query)._nodes.to_dict(orient="records")
+
+    assert split_rows == connected_rows
+    assert split_rows == [{"name": "c1"}, {"name": "c2"}]
 
 
 def _mk_chain_graph():
