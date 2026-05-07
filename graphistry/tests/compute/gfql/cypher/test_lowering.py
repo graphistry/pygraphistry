@@ -1266,6 +1266,16 @@ def test_lower_match_query_rewrites_duplicate_node_aliases_to_internal_identity_
     assert lowered.where == [compare(col("n", "id"), "==", col(repeated._name, "id"))]
 
 
+def test_string_cypher_duplicate_node_alias_identity_shape_raises_gfql_validation_error() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"]}),
+        pd.DataFrame({"s": ["a"], "d": ["a"], "type": ["LOOP"]}),
+    )
+
+    with pytest.raises(GFQLValidationError):
+        graph.gfql("MATCH (n)--(n) RETURN count(*)")
+
+
 def test_parse_where_pattern_predicate() -> None:
     parsed = _parse_query("MATCH (n) WHERE (n)-[:R]->() RETURN n")
 
