@@ -5258,22 +5258,79 @@ def test_connected_variable_length_typed_mixed() -> None:
 
 
 @pytest.mark.parametrize(
-    "query",
+    "query,expected_rows",
     [
-        "MATCH (n) WHERE (n)-[:REL1*2]-() RETURN n",
-        "MATCH (n) WHERE (n)-[*2]-() RETURN n",
-        "MATCH (n) WHERE (n)<-[:REL1*1..2]-() RETURN n",
-        "MATCH (n) WHERE (n)-[:REL1*2]-() AND n.id <> 'a' RETURN n",
+        (
+            "MATCH (n) WHERE (n)-[:REL1*2]->() RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-[*2]->() RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)<-[:REL1*1..2]-() RETURN n.id AS id ORDER BY id",
+            [{"id": "b"}, {"id": "c"}, {"id": "d"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-[:REL1*2]->() AND n.id <> 'a' RETURN n.id AS id ORDER BY id",
+            [{"id": "b"}, {"id": "c"}],
+        ),
     ],
 )
-def test_string_cypher_failfast_rejects_bounded_variable_length_where_pattern_predicates(query: str) -> None:
-    graph = _mk_empty_graph()
+def test_string_cypher_executes_bounded_variable_length_where_pattern_predicates(
+    query: str,
+    expected_rows: list[dict[str, object]],
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c"],
+                "d": ["b", "c", "d"],
+                "type": ["REL1", "REL1", "REL1"],
+            }
+        ),
+    )
 
-    with pytest.raises(GFQLValidationError) as exc_info:
-        graph.gfql(query)
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected_rows
 
-    assert exc_info.value.code == ErrorCode.E108
-    assert "WHERE pattern predicates" in exc_info.value.message
+
+@pytest.mark.parametrize(
+    "query,expected_rows",
+    [
+        (
+            "MATCH (n) WHERE (n)-[:REL1*2]->() OR n.id = 'd' RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}, {"id": "d"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-[:REL1*2]->() XOR n.id = 'd' RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}, {"id": "d"}],
+        ),
+        (
+            "MATCH (n) WHERE NOT (n)-[:REL1*2]->() RETURN n.id AS id ORDER BY id",
+            [{"id": "c"}, {"id": "d"}],
+        ),
+    ],
+)
+def test_string_cypher_executes_bounded_variable_length_where_pattern_boolean_wrappers(
+    query: str,
+    expected_rows: list[dict[str, object]],
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c"],
+                "d": ["b", "c", "d"],
+                "type": ["REL1", "REL1", "REL1"],
+            }
+        ),
+    )
+
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected_rows
 
 
 

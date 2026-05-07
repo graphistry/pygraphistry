@@ -10,6 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Documentation
 - **GFQL component-labeling examples + README clarity (#1324)**: Added concise WCC/SCC labeling examples for `compute_cugraph`, `compute_igraph('clusters')`, and local Cypher `CALL graphistry.cugraph.*` write/row modes in GFQL docs, clarified that component IDs are partition labels (not stable semantic IDs), and tightened the main README GFQL intro sentence for readability.
+- **GFQL / Cypher docs — variable-length boundary refresh (#973)**: Updated direct-Cypher capability docs (`docs/source/gfql/cypher.rst`, `docs/source/gfql/spec/cypher_mapping.md`) to reflect current support for connected variable-length patterns and bounded/exact variable-length `WHERE` pattern predicates, while preserving explicit fail-fast notes for remaining path/list-carrier and advanced row-shaping gaps.
+
+### Changed
+- **GFQL / Cypher lowering — bounded/exact variable-length `WHERE` pattern predicates (#973)**: Removed the pre-normalization compiler gate that rejected bounded/exact variable-length `WHERE` pattern predicates and now lower these shapes through the existing WHERE-pattern rewrite and row-filter paths. Converted the old fail-fast test into positive execution coverage and added boolean-wrapper amplification (`OR`/`XOR`/`NOT`) for bounded variable-length `WHERE` predicates in `graphistry/tests/compute/gfql/cypher/test_lowering.py`.
 
 ## [0.55.1 - 2026-05-05]
 
