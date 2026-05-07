@@ -8,6 +8,7 @@ Guide for AI assistants working with GFQL (Graph Frame Query Language) in PyGrap
 - [`calls_checklist.md`](./calls_checklist.md) — Required steps for exposing or updating GFQL `call()` functions.
 - [`predicates_checklist.md`](./predicates_checklist.md) — End-to-end checklist for predicate implementations.
 - [`conformance.md`](./conformance.md) — Cypher TCK conformance harness and CI wiring.
+- [`scoping_1046_follow_on_slices.md`](./scoping_1046_follow_on_slices.md) — Follow-on child-slice plan for finishing the public-facing parts of GFQL native typing.
 - [`../prompts/GFQL_LLM_GUIDE_MAINTENANCE.md`](../prompts/GFQL_LLM_GUIDE_MAINTENANCE.md) — Guidance for keeping AI assistants aligned with GFQL changes.
 
 ### Essential GFQL Operations
