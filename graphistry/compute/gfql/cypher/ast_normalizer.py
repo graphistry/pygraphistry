@@ -483,9 +483,18 @@ def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQu
     positive_preds = [p for p in pattern_preds if not p.negated]
     if not positive_preds:
         return query
-    # Slice 3 of #1031: support N positive pattern predicates by emitting one
-    # appended ``MatchClause`` per predicate.  Each predicate is independently
-    # validated (must include a relationship; cannot introduce new aliases).
+    # Keep multi-positive pattern predicate conjunctions in WHERE so lowering
+    # can evaluate each predicate independently via semi-apply markers.
+    #
+    # Rewriting multiple positive predicates into one appended MatchClause
+    # can incorrectly couple otherwise independent existence checks and make
+    # `AND` operand order observable (#1332).
+    if len(positive_preds) > 1:
+        return query
+
+    # Single positive pattern predicate still rewrites to an appended MATCH.
+    # Each predicate is independently validated (must include a relationship;
+    # cannot introduce new aliases).
     bound_aliases = {
         cast(str, element.variable)
         for clause in query.matches
@@ -493,12 +502,7 @@ def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQu
         for element in pattern
         if getattr(element, "variable", None) is not None
     }
-    # Validate every positive pattern; collect into a single appended
-    # MatchClause whose ``patterns`` tuple holds N patterns (multi-positive
-    # WHERE pattern via cartesian-style multi-pattern MATCH; #1031 slice 3).
-    # Packing into one MatchClause (rather than N appended MatchClauses)
-    # preserves the lowering invariant that only the FINAL match is
-    # connected — seeds remain node-only.
+    # Validate the positive pattern; emit as a single appended MatchClause.
     for pred in positive_preds:
         if len(pred.pattern) < 3:
             raise _unsupported(

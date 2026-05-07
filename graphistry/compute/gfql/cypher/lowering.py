@@ -6080,6 +6080,18 @@ def _rewrite_where_expr_patterns_to_markers(
     return ExpressionText(text=boolean_expr_to_text(rewritten), span=where.span), marker_ops
 
 
+def _where_pattern_predicate_marker_col(
+    span: SourceSpan,
+    *,
+    existing: Set[str],
+) -> str:
+    base = (
+        "__gfql_where_pattern_"
+        f"{span.line}_{span.column}_{span.end_line}_{span.end_column}__"
+    )
+    return _fresh_temp_name(existing, base)
+
+
 def _lower_negated_pattern_predicate_to_row_filter(
     predicate: WherePatternPredicate,
     *,
@@ -6179,6 +6191,11 @@ def lower_match_query(
             params=params,
         )
         row_pre_filters.extend(where_pattern_row_filters)
+        marker_cols_in_use: Set[str] = {
+            cast(str, op.params.get("out_col"))
+            for op in row_pre_filters
+            if isinstance(op.params.get("out_col"), str)
+        }
         if where_expr is not None:
             type_where = _extract_relationship_type_where(
                 where_expr,
@@ -6207,13 +6224,20 @@ def lower_match_query(
                         )
                     )
                     continue
-                raise _unsupported(
-                    "Cypher WHERE pattern predicates must be rewritten before lowering",
-                    field="where",
-                    value=None,
-                    line=predicate.span.line,
-                    column=predicate.span.column,
+                marker_col = _where_pattern_predicate_marker_col(
+                    predicate.span,
+                    existing=marker_cols_in_use,
                 )
+                row_pre_filters.append(
+                    _lower_pattern_predicate_to_row_marker(
+                        predicate,
+                        alias_targets=alias_targets,
+                        params=params,
+                        out_col=marker_col,
+                    )
+                )
+                row_where_predicates.append(marker_col)
+                continue
             if isinstance(predicate.left, LabelRef):
                 _apply_label_where(alias_targets, left=predicate.left)
                 continue
@@ -7868,6 +7892,11 @@ def _apply_where_to_ops(
         params=params,
     )
     row_pre_filters.extend(where_pattern_row_filters)
+    marker_cols_in_use: Set[str] = {
+        cast(str, op.params.get("out_col"))
+        for op in row_pre_filters
+        if isinstance(op.params.get("out_col"), str)
+    }
     if where_expr is not None:
         type_where = _extract_relationship_type_where(
             where_expr,
@@ -7899,13 +7928,20 @@ def _apply_where_to_ops(
                     )
                 )
                 continue
-            raise _unsupported(
-                "Cypher WHERE pattern predicates must be rewritten before lowering",
-                field="where",
-                value=None,
-                line=predicate.span.line,
-                column=predicate.span.column,
+            marker_col = _where_pattern_predicate_marker_col(
+                predicate.span,
+                existing=marker_cols_in_use,
             )
+            row_pre_filters.append(
+                _lower_pattern_predicate_to_row_marker(
+                    predicate,
+                    alias_targets=alias_targets,
+                    params=params,
+                    out_col=marker_col,
+                )
+            )
+            row_expr_filters.append(ExpressionText(text=marker_col, span=predicate.span))
+            continue
         if isinstance(predicate.left, LabelRef):
             _apply_label_where(alias_targets, left=predicate.left)
             continue
