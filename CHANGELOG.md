@@ -11,6 +11,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Documentation
 - **GFQL component-labeling examples + README clarity (#1324)**: Added concise WCC/SCC labeling examples for `compute_cugraph`, `compute_igraph('clusters')`, and local Cypher `CALL graphistry.cugraph.*` write/row modes in GFQL docs, clarified that component IDs are partition labels (not stable semantic IDs), and tightened the main README GFQL intro sentence for readability.
 
+### Tests
+- **GFQL / Cypher two-MATCH reentry varlen regression hardening (#1001)**: Strengthened reentry varlen acceptance assertions from shape-only checks to exact expected rows, and added forward/reverse split-vs-connected query equivalence regressions to guard against wrong-row drift in the `match5-25/26` query family.
+
 ## [0.55.1 - 2026-05-05]
 
 ### Tests
