@@ -8114,6 +8114,36 @@ def test_string_cypher_executes_with_match_reentry_ordered_topk_multicolumn_shap
     ]
 
 
+def test_string_cypher_executes_with_match_reentry_ordered_topk_with_carried_scalar_shape() -> None:
+    result = _mk_reentry_carried_scalar_graph().gfql(
+        "MATCH (a:A) "
+        "WITH a, a.num AS property "
+        "ORDER BY property DESC "
+        "LIMIT 2 "
+        "MATCH (a)-->(b) "
+        "RETURN property, b.id AS bid "
+        "ORDER BY bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"property": 1, "bid": "b1"},
+        {"property": 2, "bid": "b2"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_ordered_limit_zero_shape() -> None:
+    result = _mk_reentry_carried_scalar_graph().gfql(
+        "MATCH (a:A) "
+        "WITH a "
+        "ORDER BY a.num DESC "
+        "LIMIT 0 "
+        "MATCH (a)-->(b) "
+        "RETURN b.id AS bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
 def test_string_cypher_rejects_reentry_with_parameterized_limit_and_order() -> None:
     """Regression for 992f2fc1: ParameterRef in LIMIT must not crash _literal_limit_value."""
     nodes = pd.DataFrame(
@@ -8200,6 +8230,19 @@ def test_string_cypher_executes_with_match_reentry_ordered_topk_multi_row_shape_
         {"aid": "a1", "bid": "b1"},
         {"aid": "a2", "bid": "b2"},
     ]
+
+
+def test_string_cypher_failfast_rejects_with_match_reentry_ordered_skip_shape() -> None:
+    with pytest.raises(GFQLValidationError, match="preserve prefix WITH row ordering"):
+        _mk_reentry_carried_scalar_graph().gfql(
+            "MATCH (a:A) "
+            "WITH a "
+            "ORDER BY a.num DESC "
+            "SKIP 1 "
+            "LIMIT 1 "
+            "MATCH (a)-->(b) "
+            "RETURN b.id AS bid"
+        )
 
 
 def test_string_cypher_executes_with_match_reentry_multihop_shape() -> None:
