@@ -8409,6 +8409,18 @@ def compile_cypher_query(
         params=params,
     )
     if query.reentry_matches:
+        # #1341: when the trailing MATCH only re-binds carried whole-row aliases
+        # (e.g. LDBC SNB IC1 ``shortestPath((p)-[:KNOWS*]-(friend))``), the WITH
+        # stage is a no-op. Flatten the reentry into a single MATCH so the
+        # supported single-MATCH paths (including two-endpoint shortestPath)
+        # handle it directly.
+        from graphistry.compute.gfql.cypher.reentry.flatten import (
+            flatten_carried_endpoint_rebind,
+        )
+
+        flattened = flatten_carried_endpoint_rebind(query)
+        if flattened is not None:
+            return compile_cypher_query(flattened, params=params)
         from graphistry.compute.gfql.cypher.reentry import compiletime as _reentry_compiletime
 
         return _attach_graph_context(_reentry_compiletime._compile_bounded_reentry_query(query, params=params))
