@@ -5444,7 +5444,13 @@ def test_string_cypher_executes_conjoined_bounded_varlen_where_predicates_across
     rows_forward = graph.gfql(
         "MATCH (n) WHERE (n)-[:REL1*2]->() AND (n)-[:REL2*1]->() RETURN n.id AS id ORDER BY id"
     )._nodes.to_dict(orient="records")
-    assert rows_forward == [{"id": "b"}]
+    rows_reverse = graph.gfql(
+        "MATCH (n) WHERE (n)-[:REL2*1]->() AND (n)-[:REL1*2]->() RETURN n.id AS id ORDER BY id"
+    )._nodes.to_dict(orient="records")
+
+    assert rows_forward == [{"id": "a"}, {"id": "b"}]
+    assert rows_reverse == [{"id": "a"}, {"id": "b"}]
+    assert rows_forward == rows_reverse
 
 
 def test_string_cypher_executes_xor_between_bounded_reverse_and_forward_where_patterns() -> None:
