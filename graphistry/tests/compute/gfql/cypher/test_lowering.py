@@ -211,6 +211,46 @@ def _mk_connected_reentry_carried_scalar_graph_cudf() -> _CypherTestGraph:
     )
 
 
+def _mk_reentry_order_limit_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p0", "f1", "f2", "f3", "f4", "u1", "u2", "u3", "u4", "u5"],
+                "label__Person": [True, True, True, True, True, False, False, False, False, False],
+                "label__University": [False, False, False, False, False, True, True, True, True, True],
+                "firstName": ["Seed", "Amy", "Bea", "Cara", "Dan", None, None, None, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p0", "p0", "p0", "p0", "f1", "f2", "f2", "f3", "f4"],
+                "d": ["f1", "f2", "f3", "f4", "u1", "u2", "u3", "u4", "u5"],
+                "type": ["KNOWS", "KNOWS", "KNOWS", "KNOWS", "STUDY_AT", "STUDY_AT", "STUDY_AT", "STUDY_AT", "STUDY_AT"],
+            }
+        ),
+    )
+
+
+def _mk_reentry_order_limit_graph_cudf() -> _CypherTestGraph:
+    return _mk_cudf_graph(
+        pd.DataFrame(
+            {
+                "id": ["p0", "f1", "f2", "f3", "f4", "u1", "u2", "u3", "u4", "u5"],
+                "label__Person": [True, True, True, True, True, False, False, False, False, False],
+                "label__University": [False, False, False, False, False, True, True, True, True, True],
+                "firstName": ["Seed", "Amy", "Bea", "Cara", "Dan", None, None, None, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p0", "p0", "p0", "p0", "f1", "f2", "f2", "f3", "f4"],
+                "d": ["f1", "f2", "f3", "f4", "u1", "u2", "u3", "u4", "u5"],
+                "type": ["KNOWS", "KNOWS", "KNOWS", "KNOWS", "STUDY_AT", "STUDY_AT", "STUDY_AT", "STUDY_AT", "STUDY_AT"],
+            }
+        ),
+    )
+
+
 def _mk_connected_multi_pattern_reentry_graph() -> _CypherTestGraph:
     return _mk_graph(
         pd.DataFrame(
@@ -9412,30 +9452,98 @@ def test_string_cypher_executes_with_match_reentry_where_xor_on_carried_and_trai
     assert result._nodes.to_dict(orient="records") == []
 
 
+def test_string_cypher_executes_with_match_reentry_preserves_orderby_single_column_limit_prefix() -> None:
+    query = (
+        "MATCH (p:Person {id: 'p0'})-[:KNOWS]->(friend:Person) "
+        "WITH friend "
+        "ORDER BY friend.firstName ASC "
+        "LIMIT 2 "
+        "MATCH (friend)-[:STUDY_AT]->(uni:University) "
+        "RETURN friend.id AS friendId, uni.id AS uniId "
+        "ORDER BY friendId, uniId"
+    )
+    result = _mk_reentry_order_limit_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [
+        {"friendId": "f1", "uniId": "u1"},
+        {"friendId": "f2", "uniId": "u2"},
+        {"friendId": "f2", "uniId": "u3"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_preserves_orderby_multi_column_limit_prefix() -> None:
+    query = (
+        "MATCH (p:Person {id: 'p0'})-[:KNOWS]->(friend:Person) "
+        "WITH friend "
+        "ORDER BY friend.firstName DESC, friend.id ASC "
+        "LIMIT 2 "
+        "MATCH (friend)-[:STUDY_AT]->(uni:University) "
+        "RETURN friend.id AS friendId, uni.id AS uniId "
+        "ORDER BY friendId, uniId"
+    )
+    result = _mk_reentry_order_limit_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [
+        {"friendId": "f3", "uniId": "u4"},
+        {"friendId": "f4", "uniId": "u5"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_preserves_orderby_desc_limit_prefix() -> None:
+    query = (
+        "MATCH (p:Person {id: 'p0'})-[:KNOWS]->(friend:Person) "
+        "WITH friend "
+        "ORDER BY friend.firstName DESC "
+        "LIMIT 1 "
+        "MATCH (friend)-[:STUDY_AT]->(uni:University) "
+        "RETURN friend.id AS friendId, uni.id AS uniId "
+        "ORDER BY friendId, uniId"
+    )
+    result = _mk_reentry_order_limit_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"friendId": "f4", "uniId": "u5"}]
+
+
+def test_string_cypher_executes_with_match_reentry_preserves_orderby_limit_prefix_on_cudf() -> None:
+    pytest.importorskip("cudf")
+    query = (
+        "MATCH (p:Person {id: 'p0'})-[:KNOWS]->(friend:Person) "
+        "WITH friend "
+        "ORDER BY friend.firstName ASC "
+        "LIMIT 2 "
+        "MATCH (friend)-[:STUDY_AT]->(uni:University) "
+        "RETURN friend.id AS friendId, uni.id AS uniId "
+        "ORDER BY friendId, uniId"
+    )
+    result = _mk_reentry_order_limit_graph_cudf().gfql(query, engine="cudf")
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"friendId": "f1", "uniId": "u1"},
+        {"friendId": "f2", "uniId": "u2"},
+        {"friendId": "f2", "uniId": "u3"},
+    ]
+
+
 @pytest.mark.parametrize(
-    ("query", "match"),
+    "query",
     [
         (
-            "MATCH (a:A) "
-            "WITH a "
-            "ORDER BY a.num DESC "
-            "MATCH (a)-->(b) "
-            "RETURN b.id AS bid",
-            "does not yet preserve prefix WITH row ordering",
+            "MATCH (p:Person {id: 'p0'})-[:KNOWS]->(friend:Person) "
+            "WITH friend "
+            "ORDER BY friend.firstName ASC "
+            "MATCH (friend)-[:STUDY_AT]->(uni:University) "
+            "RETURN friend.id AS friendId"
         ),
         (
-            "MATCH (a:A) "
-            "WITH a, a.num AS property "
-            "ORDER BY property DESC "
-            "MATCH (a)-->(b) "
-            "RETURN b.id AS bid",
-            "does not yet preserve prefix WITH row ordering",
+            "MATCH (p:Person {id: 'p0'})-[:KNOWS]->(friend:Person) "
+            "WITH friend "
+            "ORDER BY friend.firstName ASC "
+            "SKIP 1 LIMIT 2 "
+            "MATCH (friend)-[:STUDY_AT]->(uni:University) "
+            "RETURN friend.id AS friendId"
         ),
     ],
 )
-def test_string_cypher_failfast_rejects_with_match_reentry_unsupported_shapes(query: str, match: str) -> None:
-    with pytest.raises(GFQLValidationError, match=match):
-        _mk_reentry_carried_scalar_graph().gfql(query)
+def test_string_cypher_failfast_rejects_with_match_reentry_unbounded_or_skip_order_shapes(query: str) -> None:
+    with pytest.raises(GFQLValidationError, match="requires bounded literal LIMIT"):
+        _mk_reentry_order_limit_graph().gfql(query)
 
 
 def test_string_cypher_executes_seeded_multihop_then_with_match_reentry_shape() -> None:
