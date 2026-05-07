@@ -7132,13 +7132,13 @@ def _demote_secondary_whole_row_aliases(
     *,
     prefix_stage: ProjectionStage,
     primary_alias: Optional[str],
-) -> Tuple[CypherQuery, ProjectionStage, Tuple[str, ...]]:
+) -> Tuple[CypherQuery, ProjectionStage, Tuple[str, ...], Mapping[str, Tuple[str, ...]]]:
     """Rewrite ``query`` to demote any secondary whole-row alias in the prefix
     ``WITH`` to a synthesized scalar property carry (#1071).
 
-    Returns ``(rewritten_query, rewritten_prefix_stage, secondary_aliases)``.
+    Returns ``(rewritten_query, rewritten_prefix_stage, secondary_aliases, secondary_props)``.
     When no demotion is needed, returns the inputs unchanged with empty
-    ``secondary_aliases``.
+    ``secondary_aliases`` and ``secondary_props``.
 
     Why: the existing MATCH-after-WITH machinery requires exactly one whole-row
     alias in the prefix projection. Other carried aliases need only support
@@ -7148,7 +7148,7 @@ def _demote_secondary_whole_row_aliases(
     single-alias-plus-scalars path.
     """
     if not query.reentry_matches:
-        return query, prefix_stage, ()
+        return query, prefix_stage, (), {}
     match_node_aliases = _all_match_node_aliases(query)
     whole_row_items: List[Tuple[int, ReturnItem]] = [
         (idx, item)
@@ -7156,17 +7156,17 @@ def _demote_secondary_whole_row_aliases(
         if _is_whole_row_with_item(item, match_node_aliases=match_node_aliases)
     ]
     if len(whole_row_items) <= 1:
-        return query, prefix_stage, ()
+        return query, prefix_stage, (), {}
     if primary_alias is None:
         # Existing downstream check at the trailing-MATCH start raises a clearer
         # error; bail out so it fires.
-        return query, prefix_stage, ()
+        return query, prefix_stage, (), {}
 
     primary_indices = {idx for idx, item in whole_row_items if item.expression.text == primary_alias}
     if not primary_indices:
         # Trailing MATCH starts from an alias not carried by the prefix: existing
         # check at line ~7779 raises "must start from the same carried node alias".
-        return query, prefix_stage, ()
+        return query, prefix_stage, (), {}
     secondary_items = [(idx, item) for idx, item in whole_row_items if idx not in primary_indices]
     secondary_aliases: Set[str] = {item.expression.text for _idx, item in secondary_items}
 
@@ -7344,7 +7344,20 @@ def _demote_secondary_whole_row_aliases(
         return_=rewritten_return,
         order_by=rewritten_order_by,
     )
-    return rewritten_query, rewritten_prefix_stage, tuple(sorted(secondary_aliases))
+    secondary_props: Dict[str, Set[str]] = {alias: set() for alias in secondary_aliases}
+    for alias_name, prop in refs_collected:
+        secondary_props.setdefault(alias_name, set()).add(prop)
+    secondary_props_sorted = {
+        alias_name: tuple(sorted(props))
+        for alias_name, props in secondary_props.items()
+        if props
+    }
+    return (
+        rewritten_query,
+        rewritten_prefix_stage,
+        tuple(sorted(secondary_aliases)),
+        secondary_props_sorted,
+    )
 
 
 def _compile_call_query(

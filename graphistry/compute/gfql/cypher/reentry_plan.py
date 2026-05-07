@@ -22,9 +22,8 @@ class CarriedAlias:
 
     Exactly one carried alias per `ReentryPlan` is the trailing-MATCH source
     (`is_reentry_alias=True`). Other carried aliases are recorded so the
-    compile-time gate can fail fast on downstream references; the row-carrier
-    rewrite that actually surfaces their properties downstream is tracked
-    under #989.
+    compile-time/runtime row-carrier contract can track downstream property
+    dependencies explicitly in ``carried_properties``.
     """
 
     output_name: str

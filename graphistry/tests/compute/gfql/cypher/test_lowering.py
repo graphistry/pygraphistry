@@ -8330,6 +8330,39 @@ def test_compile_cypher_records_freeform_reentry_plan_contract() -> None:
     assert plan.reentry_alias is None
 
 
+def test_compile_cypher_records_non_source_carried_properties_on_reentry_plan() -> None:
+    """#989 row-carrier contract: non-source aliases record property-level carry deps."""
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "RETURN b.id AS bid, x.id AS xid"
+    )
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    plan = compiled.reentry_plan
+    assert plan is not None
+    non_source = {alias.output_name: alias for alias in plan.non_source_aliases}
+    assert "x" in non_source
+    assert non_source["x"].carried_properties == ("id",)
+
+
+def test_compile_cypher_records_freeform_non_source_carried_properties_on_reentry_plan() -> None:
+    """#989 free-form lane: plan metadata keeps property carries for non-source aliases."""
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (n:B) "
+        "RETURN n.id AS nid, x.id AS xid"
+    )
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    plan = compiled.reentry_plan
+    assert plan is not None
+    assert plan.free_form is True
+    aliases = {alias.output_name: alias for alias in plan.aliases}
+    assert "x" in aliases
+    assert aliases["x"].carried_properties == ("id",)
+
+
 def test_string_cypher_admits_multi_whole_row_prefix_when_non_source_aliases_are_unused() -> None:
     """#989 slice 4.3: admit `WITH a, x` prefix when only `a` is referenced downstream."""
     query = (
