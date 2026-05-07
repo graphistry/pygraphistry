@@ -7215,8 +7215,10 @@ def _demote_secondary_whole_row_aliases(
     # `_collect_secondary_property_refs` would fail-fast on what is in fact a
     # forwarding pattern, blocking IC3 even after #1248 admits the prefix WITH.
     secondary_forwarding_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+    from graphistry.compute.gfql.cypher.reentry import runtime as _reentry_runtime
+
     cleaned_with_stages_tail = tuple(
-        _drop_bare_alias_items_from_stage(
+        _reentry_runtime._drop_bare_alias_items_from_stage(
             stage, secondary_aliases, identifier_re=secondary_forwarding_re
         )
         for stage in query.with_stages[1:]
@@ -7343,52 +7345,6 @@ def _demote_secondary_whole_row_aliases(
         order_by=rewritten_order_by,
     )
     return rewritten_query, rewritten_prefix_stage, tuple(sorted(secondary_aliases))
-
-
-def _map_terminal_reentry_query(
-    compiled_query: CompiledCypherQuery,
-    *,
-    transform: Callable[[CompiledCypherQuery], CompiledCypherQuery],
-) -> CompiledCypherQuery:
-    from graphistry.compute.gfql.cypher.reentry import runtime as _reentry_runtime
-
-    return _reentry_runtime._map_terminal_reentry_query(compiled_query, transform=transform)
-
-
-def _drop_bare_alias_items_from_stage(
-    stage: ProjectionStage,
-    aliases: AbstractSet[str],
-    *,
-    identifier_re: "re.Pattern[str]",
-) -> ProjectionStage:
-    from graphistry.compute.gfql.cypher.reentry import runtime as _reentry_runtime
-
-    return _reentry_runtime._drop_bare_alias_items_from_stage(stage, aliases, identifier_re=identifier_re)
-
-
-def _rewrite_multi_whole_row_prefix(
-    prefix_stage: ProjectionStage,
-    *,
-    query: CypherQuery,
-    reentry_first_alias: Optional[str],
-) -> Tuple[ProjectionStage, Tuple[ProjectionStage, ...], Dict[str, Tuple[str, ...]]]:
-    from graphistry.compute.gfql.cypher.reentry import runtime as _reentry_runtime
-
-    return _reentry_runtime._rewrite_multi_whole_row_prefix(
-        prefix_stage,
-        query=query,
-        reentry_first_alias=reentry_first_alias,
-    )
-
-
-def _compile_bounded_reentry_query(
-    query: CypherQuery,
-    *,
-    params: Optional[Mapping[str, Any]] = None,
-) -> CompiledCypherQuery:
-    from graphistry.compute.gfql.cypher.reentry import runtime as _reentry_runtime
-
-    return _reentry_runtime._compile_bounded_reentry_query(query, params=params)
 
 
 def _compile_call_query(
@@ -8320,7 +8276,9 @@ def compile_cypher_query(
         params=params,
     )
     if query.reentry_matches:
-        return _attach_graph_context(_compile_bounded_reentry_query(query, params=params))
+        from graphistry.compute.gfql.cypher.reentry import runtime as _reentry_runtime
+
+        return _attach_graph_context(_reentry_runtime._compile_bounded_reentry_query(query, params=params))
     if query.call is not None:
         return _attach_graph_context(_compile_call_query(query, params=params))
     if query.row_sequence:

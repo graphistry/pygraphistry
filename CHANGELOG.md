@@ -21,6 +21,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Tests
 - **GFQL / Cypher two-MATCH reentry varlen regression hardening (#1001)**: Strengthened reentry varlen acceptance assertions from shape-only checks to exact expected rows, and added forward/reverse split-vs-connected query equivalence regressions to guard against wrong-row drift in the `match5-25/26` query family.
 
+### Internal
+- **GFQL / Cypher row-carrier follow-through cleanup (#989, post-#1260 split)**: Retired transitional lowering-level bounded-reentry delegator shims (`_map_terminal_reentry_query`, `_drop_bare_alias_items_from_stage`, `_rewrite_multi_whole_row_prefix`, `_compile_bounded_reentry_query`) that only forwarded into `graphistry/compute/gfql/cypher/reentry/runtime.py`. Lowering now calls runtime-owned reentry helpers directly at use sites, and the split-guard tests were trimmed to keep only projection-planning delegator assertions.
+
 ## [0.55.1 - 2026-05-05]
 
 ### Tests
