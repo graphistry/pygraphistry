@@ -4,17 +4,6 @@ Guide for AI assistants working with GFQL (Graph Frame Query Language) in PyGrap
 
 ## 🎯 Quick Reference
 
-### Type-System Execution Map (#1046)
-- Umbrella: [#1046](https://github.com/graphistry/pygraphistry/issues/1046)
-- Completed decomposition program: [#1262](https://github.com/graphistry/pygraphistry/issues/1262)
-- Active follow-on child slices:
-  - A: [#1337](https://github.com/graphistry/pygraphistry/issues/1337) - public declarative schema model + stable exports
-  - B: [#1338](https://github.com/graphistry/pygraphistry/issues/1338) - schema inference API + typed topology extraction
-  - C: [#1339](https://github.com/graphistry/pygraphistry/issues/1339) - public schema <-> Arrow APIs + plottable boundary enforcement
-- API contract alignment lane:
-  - D: Track cross-surface contract alignment independently so A/B/C can ship incrementally.
-  - Keep D non-blocking for A/B/C: each lane should merge with scoped acceptance tests and explicit compatibility notes, while D closes contract gaps and naming/version policy in parallel.
-
 ### Process & Checklists
 - [`calls_checklist.md`](./calls_checklist.md) — Required steps for exposing or updating GFQL `call()` functions.
 - [`predicates_checklist.md`](./predicates_checklist.md) — End-to-end checklist for predicate implementations.
