@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal, Optional, Sequence, TypedDict, cast
+from typing import Any, Dict, Literal, Optional, Sequence, TypedDict, cast
 
 import pandas as pd
 
@@ -31,6 +31,40 @@ class WholeRowProjectionMeta(TypedDict):
     alias: str
     id_column: str
     ids: SeriesT
+
+
+def entity_projection_meta_entry(
+    result: Plottable,
+    *,
+    output_name: str,
+    field: str,
+    message: str,
+    suggestion: str,
+) -> WholeRowProjectionMeta:
+    """Look up a whole-row projection-meta entry on a Plottable result.
+
+    Raises a Cypher-language ``GFQLValidationError`` (E108) when the
+    side-channel metadata is missing or does not contain ``output_name``.
+    Shared by the connected-OPTIONAL-MATCH and bounded-reentry execution
+    paths in ``gfql_unified``.
+    """
+    from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+
+    entity_meta = cast(
+        Optional[Dict[str, WholeRowProjectionMeta]],
+        getattr(result, "_cypher_entity_projection_meta", None),
+    )
+    if not isinstance(entity_meta, dict) or output_name not in entity_meta:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            message,
+            field=field,
+            value=output_name,
+            suggestion=suggestion,
+            language="cypher",
+        )
+    return entity_meta[output_name]
+
 
 
 def _object_text(series: SeriesT) -> SeriesT:
