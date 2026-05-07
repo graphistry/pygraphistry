@@ -4209,7 +4209,12 @@ def _build_initial_row_scope(
         aggregate_specs=stage_aggregate_specs,
         relationship_count=relationship_count,
     ):
-        binding_row_aliases = set(alias_targets.keys())
+        return_has_whole_row_alias = any(
+            item.expression.text in alias_targets
+            for item in query.return_.items
+        )
+        if len(query.with_stages) == 1 and not return_has_whole_row_alias:
+            binding_row_aliases = set(alias_targets.keys())
     binding_row_aliases.update(
         _binding_row_aliases_for_row_where(
             lowered.row_where,
@@ -6495,7 +6500,41 @@ def _lower_general_row_projection(
         aggregate_specs=aggregate_specs,
         relationship_count=relationship_count,
     ):
-        binding_row_aliases = set(alias_targets.keys())
+        base_active_alias: Optional[str] = None
+        can_force_bindings = True
+        try:
+            base_active_alias = _active_match_alias(
+                query,
+                alias_targets=alias_targets,
+                allowed_match_aliases=None,
+                params=params,
+            )
+        except GFQLValidationError:
+            can_force_bindings = False
+        if can_force_bindings and base_active_alias is not None:
+            if isinstance(alias_targets.get(base_active_alias), ASTEdge):
+                can_force_bindings = False
+        if can_force_bindings and base_active_alias is not None:
+            for agg_spec in aggregate_specs:
+                if agg_spec.expr_text is None:
+                    continue
+                try:
+                    refs = _expr_match_aliases(
+                        agg_spec.expr_text,
+                        alias_targets=alias_targets,
+                        params=params,
+                        field=query.return_.kind,
+                        line=agg_spec.span_line,
+                        column=agg_spec.span_column,
+                    )
+                except GFQLValidationError:
+                    can_force_bindings = False
+                    break
+                if len(refs) > 1 or (len(refs) == 1 and base_active_alias not in refs):
+                    can_force_bindings = False
+                    break
+        if can_force_bindings:
+            binding_row_aliases = set(alias_targets.keys())
     binding_row_aliases = _apply_bound_scope_membership(
         binding_row_aliases,
         alias_targets=alias_targets,
