@@ -7215,10 +7215,10 @@ def _demote_secondary_whole_row_aliases(
     # `_collect_secondary_property_refs` would fail-fast on what is in fact a
     # forwarding pattern, blocking IC3 even after #1248 admits the prefix WITH.
     secondary_forwarding_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-    from graphistry.compute.gfql.cypher.reentry import runtime as _reentry_runtime
+    from graphistry.compute.gfql.cypher.reentry import compiletime as _reentry_compiletime
 
     cleaned_with_stages_tail = tuple(
-        _reentry_runtime._drop_bare_alias_items_from_stage(
+        _reentry_compiletime._drop_bare_alias_items_from_stage(
             stage, secondary_aliases, identifier_re=secondary_forwarding_re
         )
         for stage in query.with_stages[1:]
@@ -8276,9 +8276,9 @@ def compile_cypher_query(
         params=params,
     )
     if query.reentry_matches:
-        from graphistry.compute.gfql.cypher.reentry import runtime as _reentry_runtime
+        from graphistry.compute.gfql.cypher.reentry import compiletime as _reentry_compiletime
 
-        return _attach_graph_context(_reentry_runtime._compile_bounded_reentry_query(query, params=params))
+        return _attach_graph_context(_reentry_compiletime._compile_bounded_reentry_query(query, params=params))
     if query.call is not None:
         return _attach_graph_context(_compile_call_query(query, params=params))
     if query.row_sequence:

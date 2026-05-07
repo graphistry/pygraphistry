@@ -6,7 +6,8 @@ Subpackage owns:
 - prefix carry-column / order helpers (``carry``)
 - AST/query rewriters that retarget reentry expressions onto carried columns
   (``rewrite``)
-- compile-time bounded-reentry query rewrites (``runtime``)
+- compile-time bounded-reentry query rewrites (``compiletime``; ``runtime`` is
+  a compatibility re-export shim)
 - data-frame execution stitching for bounded reentry (``execution``; #987 Step 3)
 
 Public symbols are re-exported from ``cypher.lowering`` so existing imports
