@@ -1738,6 +1738,48 @@ def test_lower_match_query_emits_row_anti_semi_filter_for_bound_alias_negated_wh
     assert [op.get("type") for op in binding_ops] == ["Node", "Edge", "Node"]
 
 
+def test_lower_match_query_emits_row_anti_semi_filter_for_bound_alias_negated_bounded_varlen_where_pattern() -> None:
+    lowered = lower_match_query(
+        _parse_query("MATCH (a)-[:R]->(b) WHERE NOT (b)-[:R*1..2]->(a) RETURN a.id AS a_id, b.id AS b_id")
+    )
+
+    assert len(lowered.row_pre_filters) == 1
+    anti = lowered.row_pre_filters[0]
+    assert isinstance(anti, ASTCall)
+    assert anti.function == "anti_semi_apply"
+    assert anti.params.get("join_aliases") == ["b", "a"]
+    binding_ops = anti.params.get("binding_ops")
+    assert isinstance(binding_ops, list)
+    assert [op.get("type") for op in binding_ops] == ["Node", "Edge", "Node"]
+    edge = binding_ops[1]
+    assert edge.get("min_hops") == 1
+    assert edge.get("max_hops") == 2
+    assert edge.get("to_fixed_point") is False
+
+
+def test_lower_match_query_emits_row_marker_for_xor_wrapped_bounded_varlen_where_pattern() -> None:
+    lowered = lower_match_query(
+        _parse_query("MATCH (n) WHERE (n)-[:R*2]->() XOR n.id = 'd' RETURN n.id AS id")
+    )
+
+    assert len(lowered.row_pre_filters) == 1
+    marker = lowered.row_pre_filters[0]
+    assert isinstance(marker, ASTCall)
+    assert marker.function == "semi_apply_mark"
+    assert marker.params.get("join_aliases") == ["n"]
+    out_col = marker.params.get("out_col")
+    assert isinstance(out_col, str) and out_col.startswith("__gfql_where_pattern_")
+    assert lowered.row_where is not None
+    assert " XOR " in lowered.row_where.text
+    assert out_col in lowered.row_where.text
+    binding_ops = marker.params.get("binding_ops")
+    assert isinstance(binding_ops, list)
+    edge = binding_ops[1]
+    assert edge.get("min_hops") == 2
+    assert edge.get("max_hops") == 2
+    assert edge.get("to_fixed_point") is False
+
+
 def test_lower_match_query_rejects_where_pattern_predicate_introducing_new_aliases() -> None:
     with pytest.raises(GFQLValidationError, match="cannot introduce new aliases"):
         lower_cypher_query(_parse_query("MATCH (n) WHERE (n)-[r]->(a) RETURN n"))
@@ -5312,22 +5354,119 @@ def test_connected_variable_length_typed_mixed() -> None:
 
 
 @pytest.mark.parametrize(
-    "query",
+    "query,expected_rows",
     [
-        "MATCH (n) WHERE (n)-[:REL1*2]-() RETURN n",
-        "MATCH (n) WHERE (n)-[*2]-() RETURN n",
-        "MATCH (n) WHERE (n)<-[:REL1*1..2]-() RETURN n",
-        "MATCH (n) WHERE (n)-[:REL1*2]-() AND n.id <> 'a' RETURN n",
+        (
+            "MATCH (n) WHERE (n)-[:REL1*2]->() RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-[*2]->() RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)<-[:REL1*1..2]-() RETURN n.id AS id ORDER BY id",
+            [{"id": "b"}, {"id": "c"}, {"id": "d"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-[:REL1*2]->() AND n.id <> 'a' RETURN n.id AS id ORDER BY id",
+            [{"id": "b"}, {"id": "c"}],
+        ),
     ],
 )
-def test_string_cypher_failfast_rejects_bounded_variable_length_where_pattern_predicates(query: str) -> None:
-    graph = _mk_empty_graph()
+def test_string_cypher_executes_bounded_variable_length_where_pattern_predicates(
+    query: str,
+    expected_rows: list[dict[str, object]],
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c"],
+                "d": ["b", "c", "d"],
+                "type": ["REL1", "REL1", "REL1"],
+            }
+        ),
+    )
 
-    with pytest.raises(GFQLValidationError) as exc_info:
-        graph.gfql(query)
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected_rows
 
-    assert exc_info.value.code == ErrorCode.E108
-    assert "WHERE pattern predicates" in exc_info.value.message
+
+@pytest.mark.parametrize(
+    "query,expected_rows",
+    [
+        (
+            "MATCH (n) WHERE (n)-[:REL1*2]->() OR n.id = 'd' RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}, {"id": "d"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-[:REL1*2]->() XOR n.id = 'd' RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}, {"id": "d"}],
+        ),
+        (
+            "MATCH (n) WHERE NOT (n)-[:REL1*2]->() RETURN n.id AS id ORDER BY id",
+            [{"id": "c"}, {"id": "d"}],
+        ),
+    ],
+)
+def test_string_cypher_executes_bounded_variable_length_where_pattern_boolean_wrappers(
+    query: str,
+    expected_rows: list[dict[str, object]],
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c"],
+                "d": ["b", "c", "d"],
+                "type": ["REL1", "REL1", "REL1"],
+            }
+        ),
+    )
+
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected_rows
+
+
+def test_string_cypher_executes_conjoined_bounded_varlen_where_predicates_across_edge_types() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d", "e"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c", "a", "b"],
+                "d": ["b", "c", "d", "e", "e"],
+                "type": ["REL1", "REL1", "REL1", "REL2", "REL2"],
+            }
+        ),
+    )
+
+    rows_forward = graph.gfql(
+        "MATCH (n) WHERE (n)-[:REL1*2]->() AND (n)-[:REL2*1]->() RETURN n.id AS id ORDER BY id"
+    )._nodes.to_dict(orient="records")
+    assert rows_forward == [{"id": "b"}]
+
+
+def test_string_cypher_executes_xor_between_bounded_reverse_and_forward_where_patterns() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c"],
+                "d": ["b", "c", "d"],
+                "type": ["REL1", "REL1", "REL1"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) WHERE (n)<-[:REL1*1..2]-() XOR (n)-[:REL1*2]->() RETURN n.id AS id ORDER BY id"
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": "a"},
+        {"id": "c"},
+        {"id": "d"},
+    ]
 
 
 
