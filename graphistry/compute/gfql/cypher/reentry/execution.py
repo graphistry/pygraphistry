@@ -5,7 +5,7 @@ Extracted from ``graphistry/compute/gfql_unified.py`` under #987 Step 3
 refactor — no semantic changes vs the prior in-line definitions.
 
 Together with ``cypher/reentry_plan.py`` (compile-time contract),
-``cypher/reentry/runtime.py`` (compile-time query rewrites), and the
+``cypher/reentry/compiletime.py`` (compile-time query rewrites), and the
 ``CompiledCypherQuery.start_nodes_query`` chain, this module owns the
 *data-frame side* of bounded ``MATCH ... WITH ... MATCH ...`` re-entry:
 preparing the dispatch base graph, building the seeded ``start_nodes``
