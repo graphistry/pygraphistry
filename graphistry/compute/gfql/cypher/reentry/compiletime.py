@@ -221,11 +221,12 @@ def _compile_bounded_reentry_query(
             if multi_alias_carries:
                 query = replace(query, with_stages=(rewritten_prefix,) + rewritten_tail)
                 prefix_stage = rewritten_prefix
-    query, prefix_stage, demoted_secondary_aliases = _demote_secondary_whole_row_aliases(
+    query, prefix_stage, demoted_secondary_aliases, demoted_secondary_props = _demote_secondary_whole_row_aliases(
         query,
         prefix_stage=prefix_stage,
         primary_alias=primary_alias_hint,
     )
+    non_source_carried_props_map: Dict[str, Tuple[str, ...]] = dict(demoted_secondary_props)
     projection_items = [item.expression.text for item in prefix_stage.clause.items]
     prefix_query = replace(
         query,
@@ -327,6 +328,12 @@ def _compile_bounded_reentry_query(
                     value=sorted(bare_referenced),
                     span=prefix_stage.span,
                 )
+            for alias_name, props in props_by_alias.items():
+                if not props:
+                    continue
+                merged = set(non_source_carried_props_map.get(alias_name, ()))
+                merged.update(props)
+                non_source_carried_props_map[alias_name] = tuple(sorted(merged))
             # #1275: free-form + carried-property bridge refs are admitted via
             # `multi_alias_carries` pre-rewrite and downstream hidden-column
             # expression rewrites.
@@ -335,6 +342,10 @@ def _compile_bounded_reentry_query(
             # `multi_alias_carries` (computed before the prefix compile) holds
             # the {alias: props} for the rewritten ones — used below to
             # populate ReentryPlan.aliases and rewrite trailing PropertyAccessExpr.
+        for alias_name, props in multi_alias_carries.items():
+            merged = set(non_source_carried_props_map.get(alias_name, ()))
+            merged.update(props)
+            non_source_carried_props_map[alias_name] = tuple(sorted(merged))
     if not _bounded_reentry_prefix_order_is_safe(prefix_stage=prefix_stage, query=query):
         raise _unsupported(
             "Cypher MATCH after WITH does not yet preserve prefix WITH row ordering across MATCH re-entry for multi-row result shapes",
@@ -401,6 +412,7 @@ def _compile_bounded_reentry_query(
                     output_name=name,
                     table=prefix_projection.table,
                     is_reentry_alias=False,
+                    carried_properties=non_source_carried_props_map.get(name, ()),
                 )
             )
         # Keep secondary aliases recorded on the plan even when demoted to
@@ -412,6 +424,7 @@ def _compile_bounded_reentry_query(
                         output_name=alias,
                         table=prefix_projection.table,
                         is_reentry_alias=False,
+                        carried_properties=non_source_carried_props_map.get(alias, ()),
                     )
                 )
         for alias in multi_alias_carries:
@@ -421,6 +434,7 @@ def _compile_bounded_reentry_query(
                         output_name=alias,
                         table=prefix_projection.table,
                         is_reentry_alias=False,
+                        carried_properties=non_source_carried_props_map.get(alias, ()),
                     )
                 )
         current_reentry_plan = ReentryPlan(
@@ -432,7 +446,7 @@ def _compile_bounded_reentry_query(
         )
 
     non_source_carried_props: Optional[Mapping[str, Tuple[str, ...]]] = (
-        multi_alias_carries if multi_alias_carries else None
+        non_source_carried_props_map if non_source_carried_props_map else None
     )
 
     def rewrite_expr(expr: ExpressionText, field: str) -> ExpressionText:
