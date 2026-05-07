@@ -9,7 +9,6 @@ Guide for AI assistants working with GFQL (Graph Frame Query Language) in PyGrap
 - [`predicates_checklist.md`](./predicates_checklist.md) — End-to-end checklist for predicate implementations.
 - [`conformance.md`](./conformance.md) — Cypher TCK conformance harness and CI wiring.
 - [`../prompts/GFQL_LLM_GUIDE_MAINTENANCE.md`](../prompts/GFQL_LLM_GUIDE_MAINTENANCE.md) — Guidance for keeping AI assistants aligned with GFQL changes.
-- `python bin/gfql_issue_880_triage.py --runs-dir ../pyg-bench/results/runs` — Builds benchmark-evidence markdown for splitting residual workaround-backed `#880` lanes into narrower child issues.
 
 ### Essential GFQL Operations
 ```python

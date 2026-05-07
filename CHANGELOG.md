@@ -11,8 +11,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Documentation
 - **GFQL component-labeling examples + README clarity (#1324)**: Added concise WCC/SCC labeling examples for `compute_cugraph`, `compute_igraph('clusters')`, and local Cypher `CALL graphistry.cugraph.*` write/row modes in GFQL docs, clarified that component IDs are partition labels (not stable semantic IDs), and tightened the main README GFQL intro sentence for readability.
 
-### Added
-- **GFQL benchmark residual triage tooling for `#880`**: Added `graphistry.compute.gfql.benchmark_residual_triage` plus CLI wrapper `bin/gfql_issue_880_triage.py` to parse `pyg-bench` run artifacts, filter residual `gfql`/`partial` lanes by issue ref (default `graphistry/pygraphistry#880`), select latest lane evidence, bucket likely root-cause families, and emit split-ready child-issue draft markdown with concrete repro evidence (run dir, config path, command, workaround note). Includes focused regression coverage in `graphistry/tests/compute/gfql/test_benchmark_residual_triage.py` and a GFQL docs quick-reference pointer.
 
 ## [0.55.1 - 2026-05-05]
 
