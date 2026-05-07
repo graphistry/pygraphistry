@@ -6502,6 +6502,11 @@ def _lower_general_row_projection(
     ):
         base_active_alias: Optional[str] = None
         can_force_bindings = True
+        if any(item.expression.text in alias_targets for item in non_aggregate_items):
+            # Keep whole-row grouping on the existing conservative path.
+            # This preserves the current fail-fast boundary for relationship-
+            # pattern grouped aggregates such as `RETURN a, count(*)`.
+            can_force_bindings = False
         try:
             base_active_alias = _active_match_alias(
                 query,

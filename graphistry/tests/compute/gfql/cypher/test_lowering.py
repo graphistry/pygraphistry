@@ -3109,6 +3109,27 @@ def test_string_cypher_supports_relationship_row_multiplicity_sensitive_aggregat
     assert result._nodes.to_dict(orient="records") == expected_rows
 
 
+def test_string_cypher_failfast_relationship_whole_row_grouped_count_star_boundary() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "label__L": [True, False, False],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a", "a"],
+                "d": ["b", "c"],
+                "id": ["r1", "r2"],
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError, match="repeated MATCH rows"):
+        graph.gfql("MATCH (a:L)-[rel]->(b) RETURN a, count(*)")
+
+
 def test_string_cypher_supports_optional_match_collect_alias_property() -> None:
     graph = _mk_graph(
         pd.DataFrame(
