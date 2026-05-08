@@ -6,14 +6,17 @@ than indirectly via reentry-path regressions.
 """
 from __future__ import annotations
 
+from graphistry.compute.gfql.cypher.ast import CypherQuery
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.cypher.reentry.flatten import (
     flatten_carried_endpoint_rebind,
 )
 
 
-def _parse(query: str):
-    return parse_cypher(query)
+def _parse(query: str) -> CypherQuery:
+    parsed = parse_cypher(query)
+    assert isinstance(parsed, CypherQuery)
+    return parsed
 
 
 def test_flatten_admits_ic1_shortest_path_shape() -> None:
@@ -43,6 +46,24 @@ def test_flatten_admits_simple_rebind_with_edge() -> None:
     flattened = flatten_carried_endpoint_rebind(q)
     assert flattened is not None
     assert flattened.with_stages == ()
+
+
+def test_flatten_preserves_prefix_match_where_on_merged_match() -> None:
+    """Prefix-MATCH inline WHERE survives flatten on the merged MatchClause
+    (parser also mirrors top-level WHERE between MATCH and WITH onto
+    ``match_clauses[-1].where``, so this covers both shapes)."""
+    q = _parse(
+        "MATCH (p:Person {id: 'p1'}), (friend:Person) "
+        "WHERE NOT p = friend "
+        "WITH p, friend "
+        "MATCH path = shortestPath((p)-[:KNOWS*1..3]-(friend)) "
+        "RETURN friend.id AS friendId"
+    )
+    flattened = flatten_carried_endpoint_rebind(q)
+    assert flattened is not None
+    # prefix WHERE rides on the merged single MatchClause; original prefix's
+    # WhereClause object reference must be preserved (not re-synthesized).
+    assert flattened.matches[0].where is q.matches[0].where
 
 
 def test_flatten_disqualifies_no_relationship_in_trailing_pattern() -> None:

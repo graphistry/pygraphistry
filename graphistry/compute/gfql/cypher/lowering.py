@@ -8420,6 +8420,9 @@ def compile_cypher_query(
 
         flattened = flatten_carried_endpoint_rebind(query)
         if flattened is not None:
+            # ``flatten_carried_endpoint_rebind`` returns a query with
+            # ``reentry_matches=()``, so the recursive call cannot re-enter
+            # this branch — recursion terminates after one step.
             return compile_cypher_query(flattened, params=params)
         from graphistry.compute.gfql.cypher.reentry import compiletime as _reentry_compiletime
 
