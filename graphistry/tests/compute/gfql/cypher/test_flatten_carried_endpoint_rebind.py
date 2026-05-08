@@ -149,6 +149,18 @@ def test_flatten_disqualifies_reentry_where_present() -> None:
         "WHERE b.score > 5 "
         "RETURN b.id"
     )
-    # parse may reject some shapes; fold the parse exception path into "no flatten"
-    flattened = flatten_carried_endpoint_rebind(q)
-    assert flattened is None
+    assert flatten_carried_endpoint_rebind(q) is None
+
+
+def test_flatten_disqualifies_partial_carry_drops_prefix_alias() -> None:
+    """WITH drops a prefix-bound alias; the existing reentry path emits a clean
+    scope error if RETURN references the dropped alias. Flatten must not
+    silently admit the merged form, since merging would re-introduce the
+    dropped alias into RETURN scope (#1341 wave-2 review)."""
+    q = _parse(
+        "MATCH (a:A)-[:R]->(c:C) "
+        "WITH a "
+        "MATCH (a)-[:S]->(a) "
+        "RETURN c.id"
+    )
+    assert flatten_carried_endpoint_rebind(q) is None

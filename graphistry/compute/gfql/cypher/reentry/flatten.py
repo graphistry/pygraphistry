@@ -136,14 +136,20 @@ def flatten_carried_endpoint_rebind(query: CypherQuery) -> Optional[CypherQuery]
     prefix_aliases: Set[str] = set()
     for pattern in prefix_match.patterns:
         prefix_aliases.update(_node_aliases(pattern))
-    if not carried.issubset(prefix_aliases):
+    # Require equality, not just subset: when WITH drops some prefix-bound
+    # aliases, post-WITH references to dropped aliases must surface as the
+    # existing reentry path's "Unknown Cypher alias" scope error rather than
+    # silently re-admitting them through the merged single MATCH.
+    if carried != prefix_aliases:
         return None
 
     # Per ``parser.py`` (the top-level WHERE between MATCH and WITH is
     # mirrored onto ``match_clauses[-1].where``), checking ``prefix_match.where``
     # covers both ``query.where`` and an inline MATCH WHERE for the prefix.
-    # Merging two MATCH-inline WHEREs would require building an AND of two
-    # WhereClause structures; out of scope for this narrow flatten.
+    # The trailing-MATCH branch below is defensive: post-WITH WHEREs are
+    # routed by the parser to ``reentry_wheres`` (already disqualified above),
+    # so ``trailing_match.where`` is None for parser-produced queries; the
+    # check guards AST-built inputs.
     if prefix_match.where is not None and trailing_match.where is not None:
         return None
     inline_where = prefix_match.where if prefix_match.where is not None else trailing_match.where
