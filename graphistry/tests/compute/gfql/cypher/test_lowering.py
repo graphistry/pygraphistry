@@ -9314,10 +9314,27 @@ def test_string_cypher_failfast_rejects_with_match_reentry_secondary_whole_row_r
         _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
 
 
-def test_string_cypher_failfast_rejects_with_match_reentry_secondary_alias_rebinding() -> None:
+def test_string_cypher_executes_with_match_reentry_secondary_alias_rebinding() -> None:
     """Re-binding a carried secondary alias as a node variable in the trailing
-    MATCH is unsupported in MVP — the alias would have two row identities at
-    once (#1071)."""
+    MATCH is admitted by flattening when the trailing pattern adds structure
+    (#1341). The flattener merges prefix and trailing patterns into a single
+    MATCH so the supported single-MATCH paths handle the rebind directly."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "b1", "a2", "b2"],
+            "label__A": [True, False, True, False],
+            "label__B": [False, True, False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a1", "b1", "a2"],
+            "d": ["b1", "a1", "b2"],
+            "type": ["R", "S", "R"],
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
     query = (
         "MATCH (a:A {id: $seed})-[:R]->(b:B) "
         "WITH a, b "
@@ -9325,8 +9342,202 @@ def test_string_cypher_failfast_rejects_with_match_reentry_secondary_alias_rebin
         "RETURN b.id AS bid"
     )
 
-    with pytest.raises(GFQLValidationError, match="re-binding a carried secondary alias"):
-        _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+    result = g.gfql(query, params={"seed": "a1"})
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1"}]
+
+
+def test_string_cypher_executes_with_match_reentry_secondary_alias_rebinding_empty_when_no_back_edge() -> None:
+    """Same flattened rebind shape returns empty when no back-edge exists (#1341)."""
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(a) "
+        "RETURN b.id AS bid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def _mk_ic1_shortest_path_graph() -> _CypherTestGraph:
+    """LDBC SNB IC1 fixture: 4-person social graph with KNOWS edges."""
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3", "p4"],
+                "label__Person": [True, True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p2", "p1"],
+                "d": ["p2", "p3", "p4"],
+                "type": ["KNOWS", "KNOWS", "KNOWS"],
+            }
+        ),
+    )
+
+
+def test_string_cypher_executes_ic1_shortest_path_with_carried_endpoints_rebound() -> None:
+    """LDBC SNB IC1 named-shortest-friends shape (#1341): two whole-row aliases
+    carried through WITH and rebound as both shortestPath endpoints in the
+    trailing MATCH. The flattener merges this into a single MATCH so the
+    supported two-endpoint shortestPath path executes it."""
+    query = (
+        "MATCH (p:Person {id: 'p1'}), (friend:Person) "
+        "WHERE NOT p = friend "
+        "WITH p, friend "
+        "MATCH path = shortestPath((p)-[:KNOWS*1..3]-(friend)) "
+        "RETURN friend.id AS friendId, length(path) AS dist "
+        "ORDER BY friendId"
+    )
+    result = _mk_ic1_shortest_path_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [
+        {"friendId": "p2", "dist": 1.0},
+        {"friendId": "p3", "dist": 2.0},
+        {"friendId": "p4", "dist": 1.0},
+    ]
+
+
+def test_string_cypher_executes_ic1_shortest_path_with_carried_endpoints_rebound_on_cudf() -> None:
+    """cuDF parity for the IC1 carried-endpoint rebind shape (#1341)."""
+    pytest.importorskip("cudf")
+    g = _mk_cudf_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3", "p4"],
+                "label__Person": [True, True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p2", "p1"],
+                "d": ["p2", "p3", "p4"],
+                "type": ["KNOWS", "KNOWS", "KNOWS"],
+            }
+        ),
+    )
+    query = (
+        "MATCH (p:Person {id: 'p1'}), (friend:Person) "
+        "WHERE NOT p = friend "
+        "WITH p, friend "
+        "MATCH path = shortestPath((p)-[:KNOWS*1..3]-(friend)) "
+        "RETURN friend.id AS friendId, length(path) AS dist "
+        "ORDER BY friendId"
+    )
+    result = g.gfql(query, engine="cudf")
+    assert type(result._nodes).__module__.startswith("cudf")
+    # cuDF returns ``length(path)`` as object/string rather than float (verified
+    # by manual repro on rapids 25.02 + 26.02; a separate pre-existing cuDF
+    # row-pipeline divergence — see #1354). Compare friend IDs as-is and numeric
+    # distances after ``int(float(...))`` two-step coercion so this admit-side
+    # parity test is not blocked by the dtype divergence and survives both
+    # ``'1'``/``1`` (int-string/int) and ``'1.0'``/``1.0`` (float-string/float)
+    # representations the cuDF row-pipeline may return as #1354 evolves.
+    rows = result._nodes.to_pandas().to_dict(orient="records")
+    assert len(rows) == 3, f"expected 3 friend rows, got {len(rows)}"
+    assert [r["friendId"] for r in rows] == ["p2", "p3", "p4"]
+    assert [int(float(r["dist"])) for r in rows] == [1, 2, 1]
+
+
+def test_string_cypher_flatten_admit_matches_hand_flattened_oracle_ic1() -> None:
+    """Round-001 amplification (#1341): admit-side correctness oracle.
+
+    Compares the IC1 shape (which flatten admits and lowers via the merged
+    single-MATCH path) against the manually-flattened equivalent that the
+    same path would produce. Locks in admit-side correctness as more than
+    "doesn't error" — admit must produce semantically identical results to
+    the hand-written single-MATCH form."""
+    g = _mk_ic1_shortest_path_graph()
+    with_form = (
+        "MATCH (p:Person {id: 'p1'}), (friend:Person) "
+        "WHERE NOT p = friend "
+        "WITH p, friend "
+        "MATCH path = shortestPath((p)-[:KNOWS*1..3]-(friend)) "
+        "RETURN friend.id AS friendId, length(path) AS dist "
+        "ORDER BY friendId"
+    )
+    flat_form = (
+        "MATCH (p:Person {id: 'p1'}), (friend:Person), "
+        "  path = shortestPath((p)-[:KNOWS*1..3]-(friend)) "
+        "WHERE NOT p = friend "
+        "RETURN friend.id AS friendId, length(path) AS dist "
+        "ORDER BY friendId"
+    )
+    via_flatten = g.gfql(with_form)._nodes.to_dict(orient="records")
+    via_oracle = g.gfql(flat_form)._nodes.to_dict(orient="records")
+    assert via_flatten == via_oracle
+
+
+def test_string_cypher_flatten_admit_matches_hand_flattened_oracle_simple_rebind() -> None:
+    """Same admit-side oracle for the simpler rebind shape (no shortestPath)."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "b1", "a2", "b2"],
+            "label__A": [True, False, True, False],
+            "label__B": [False, True, False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a1", "b1", "a2"],
+            "d": ["b1", "a1", "b2"],
+            "type": ["R", "S", "R"],
+        }
+    )
+    g = _mk_graph(nodes, edges)
+    with_form = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(a) "
+        "RETURN b.id AS bid"
+    )
+    flat_form = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B), (b)-[:S]->(a) "
+        "RETURN b.id AS bid"
+    )
+    via_flatten = g.gfql(with_form, params={"seed": "a1"})._nodes.to_dict(orient="records")
+    via_oracle = g.gfql(flat_form, params={"seed": "a1"})._nodes.to_dict(orient="records")
+    assert via_flatten == via_oracle
+
+
+@pytest.mark.skip(
+    reason=(
+        "Pre-existing cuDF row-pipeline segfault (#1355) for shared-alias "
+        "multi-pattern with relationship-property projection — verified on "
+        "rapids 25.02 + 26.02 with both flatten-on and hand-flattened "
+        "single-MATCH form, exit code 139. ``skip`` not ``xfail`` because "
+        "SIGSEGV kills the pytest worker; xfail only catches in-process "
+        "exceptions. The pandas equivalent is locked in by "
+        "``test_flatten_admits_when_relationship_variable_is_carried`` "
+        "(#1341 round-001)."
+    )
+)
+def test_string_cypher_executes_with_match_reentry_relationship_variable_carried_on_cudf() -> None:
+    """Round-001 amplification (#1341): cuDF parity for the rel-var-carried admit
+    case. Mirrors ``test_flatten_admits_when_relationship_variable_is_carried``
+    on cuDF so the wave-4 fix's admit branch has backend parity coverage."""
+    pytest.importorskip("cudf")
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "b1"],
+            "label__A": [True, False],
+            "label__B": [False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {"s": ["a1", "b1"], "d": ["b1", "a1"], "type": ["R", "S"], "weight": [7, 9]}
+    )
+    g = _mk_cudf_graph(nodes, edges)
+    query = (
+        "MATCH (a:A {id: 'a1'})-[r:R]->(b:B) "
+        "WITH a, b, r "
+        "MATCH (b)-[:S]->(a) "
+        "RETURN r.weight AS w"
+    )
+    result = g.gfql(query, engine="cudf")
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"w": 7}]
 
 
 def test_string_cypher_executes_with_match_reentry_multi_whole_row_alias_property_carry_on_cudf() -> None:
