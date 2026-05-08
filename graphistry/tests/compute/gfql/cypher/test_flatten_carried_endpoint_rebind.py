@@ -125,6 +125,28 @@ def test_flatten_disqualifies_with_limit() -> None:
     assert flatten_carried_endpoint_rebind(q) is None
 
 
+def test_flatten_disqualifies_with_skip() -> None:
+    """``WITH a, b SKIP 5`` — SKIP changes the row set carried into reentry."""
+    q = _parse(
+        "MATCH (a:A {id: 'a1'})-[:R]->(b:B) "
+        "WITH a, b SKIP 5 "
+        "MATCH (b)-[:S]->(a) "
+        "RETURN b.id"
+    )
+    assert flatten_carried_endpoint_rebind(q) is None
+
+
+def test_flatten_disqualifies_non_bare_with_item() -> None:
+    """``WITH a, b.id`` — non-bare-identifier WITH item is not a pure carry."""
+    q = _parse(
+        "MATCH (a:A {id: 'a1'})-[:R]->(b:B) "
+        "WITH a, b.id "
+        "MATCH (a)-[:S]->(b) "
+        "RETURN a.id"
+    )
+    assert flatten_carried_endpoint_rebind(q) is None
+
+
 def test_flatten_disqualifies_fresh_trailing_alias() -> None:
     """Trailing pattern introduces a fresh node alias (``c``); not a rebind."""
     q = _parse(

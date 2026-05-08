@@ -11,8 +11,11 @@ existing single-MATCH lowering paths (including two-endpoint
 
 The transformation is intentionally narrow: any aggregation, alias rename,
 DISTINCT, ORDER BY, SKIP, LIMIT, WHERE on the WITH stage, multiple WITH /
-trailing MATCH stages, UNWINDs, OPTIONAL on the trailing MATCH, fresh
-trailing aliases, or non-bare projection items disqualify the pattern.
+trailing MATCH stages, UNWINDs, OPTIONAL on either MATCH, a fresh node
+alias on the trailing pattern, a trailing pattern with no
+``RelationshipPattern``, or non-bare projection items disqualify the
+pattern. (Fresh relationship and path aliases on the trailing MATCH are
+admitted — they are bound after the WITH and legitimately in scope.)
 """
 
 from __future__ import annotations
