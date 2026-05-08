@@ -262,6 +262,7 @@ def test_flatten_alias_kind_enumeration_locks_in_with_ast() -> None:
     assert pattern_subtypes, "PatternElement Union must have at least one member"
     span = SourceSpan(line=1, column=1, end_line=1, end_column=1, start_pos=0, end_pos=0)
     asserted_subtype = False
+    asserted_subtype_names: set = set()
     for subtype in pattern_subtypes:
         type_hints = typing.get_type_hints(subtype)
         if "variable" not in type_hints:
@@ -298,9 +299,18 @@ def test_flatten_alias_kind_enumeration_locks_in_with_ast() -> None:
             f"(got {observed!r})"
         )
         asserted_subtype = True
+        asserted_subtype_names.add(subtype.__name__)
     assert asserted_subtype, (
         "PatternElement enumeration produced no variable-bearing subtype probe; "
         "the lock-in test must assert against at least one concrete subtype."
+    )
+    # Guard against a future refactor that moves ``variable`` off both
+    # NodePattern and RelationshipPattern (e.g. into a base mixin) — the
+    # ``"variable" not in type_hints`` skip above would let the test pass
+    # vacuously without ever probing today's subtypes.
+    assert {"NodePattern", "RelationshipPattern"}.issubset(asserted_subtype_names), (
+        f"Lock-in must probe both NodePattern and RelationshipPattern; "
+        f"got {sorted(asserted_subtype_names)}"
     )
 
     # 2) MatchClause carries variable-bearing tuple fields (today only
