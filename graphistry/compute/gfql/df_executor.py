@@ -7,6 +7,7 @@ from typing import Dict, Literal, Sequence, List, Optional, Any, Tuple, Set
 from graphistry.Engine import Engine, safe_map_series, safe_merge
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject
+from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.gfql.ref.enumerator import OracleCaps, OracleResult, enumerate_chain
 from graphistry.compute.gfql.same_path_types import INEQ_WHERE_OPS, PathState, WhereComparison
 from graphistry.compute.gfql.same_path.chain_meta import ChainMeta
@@ -415,7 +416,13 @@ def _collect_alias_bindings(chain: Sequence[ASTObject]) -> Dict[str, AliasBindin
             continue
 
         if alias in bindings:
-            raise ValueError(f"Duplicate alias '{alias}' detected in chain")
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                f"Duplicate alias '{alias}' detected in chain",
+                field="chain",
+                value=alias,
+                language="cypher",
+            )
         bindings[alias] = AliasBinding(alias, idx, kind, step)
     return bindings
 
@@ -434,7 +441,13 @@ def _validate_where_aliases(bindings: Dict[str, AliasBinding], where: Sequence[W
     referenced = {clause.left.alias for clause in where} | {clause.right.alias for clause in where}
     missing = sorted(alias for alias in referenced if alias not in bindings)
     if missing:
-        raise ValueError(f"WHERE references aliases with no node/edge bindings: {', '.join(missing)}")
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            f"WHERE references aliases with no node/edge bindings: {', '.join(missing)}",
+            field="where",
+            value=missing,
+            language="cypher",
+        )
 
 
 def _validate_where_columns(
@@ -469,9 +482,13 @@ def _validate_where_columns(
                 available = ", ".join(sorted(cols)[:10])
                 if len(cols) > 10:
                     available += ", ..."
-                raise ValueError(
+                raise GFQLValidationError(
+                    ErrorCode.E108,
                     f"WHERE references missing column '{ref.column}' on alias '{ref.alias}' "
-                    f"({binding.kind}, step={binding.step_index}). Available columns: {available}"
+                    f"({binding.kind}, step={binding.step_index}). Available columns: {available}",
+                    field="where",
+                    value=f"{ref.alias}.{ref.column}",
+                    language="cypher",
                 )
 
 

@@ -1266,6 +1266,16 @@ def test_lower_match_query_rewrites_duplicate_node_aliases_to_internal_identity_
     assert lowered.where == [compare(col("n", "id"), "==", col(repeated._name, "id"))]
 
 
+def test_string_cypher_duplicate_node_alias_identity_shape_raises_gfql_validation_error() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"]}),
+        pd.DataFrame({"s": ["a"], "d": ["a"], "type": ["LOOP"]}),
+    )
+
+    with pytest.raises(GFQLValidationError):
+        graph.gfql("MATCH (n)--(n) RETURN count(*)")
+
+
 def test_parse_where_pattern_predicate() -> None:
     parsed = _parse_query("MATCH (n) WHERE (n)-[:R]->() RETURN n")
 
@@ -3077,16 +3087,41 @@ def test_string_cypher_supports_whole_row_grouping_with_count_star() -> None:
 
 
 @pytest.mark.parametrize(
-    "query",
+    "query,expected_rows",
     [
-        "MATCH (a:L)-[r]->(b) RETURN a, count(*) AS cnt",
-        "MATCH (a:L)-[r]->(b) RETURN a.id AS aid, count(*) AS cnt",
-        "MATCH (a)-[r]->(b) RETURN count(*) AS cnt",
-        "MATCH (a)-[r]->(b) RETURN count(a) AS cnt",
-        "MATCH (a)-[r]->(b) RETURN sum(1) AS total",
+        ("MATCH (a:L)-[r]->(b) RETURN a.id AS aid, count(*) AS cnt", [{"aid": "a", "cnt": 2}]),
+        ("MATCH (a)-[r]->(b) RETURN count(*) AS cnt", [{"cnt": 2}]),
+        ("MATCH (a)-[r]->(b) RETURN count(a) AS cnt", [{"cnt": 2}]),
+        ("MATCH (a)-[r]->(b) RETURN sum(1) AS total", [{"total": 2}]),
+        ("MATCH (a)-[r]->(b) RETURN avg(r.weight) AS avg_w", [{"avg_w": 2.5}]),
     ],
 )
-def test_string_cypher_rejects_unsound_node_carrier_multiplicity_sensitive_aggregates(query: str) -> None:
+def test_string_cypher_supports_relationship_row_multiplicity_sensitive_aggregates(
+    query: str,
+    expected_rows: List[Dict[str, Any]],
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "label__L": [True, False, False],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a", "a"],
+                "d": ["b", "c"],
+                "id": ["r1", "r2"],
+                "weight": [2, 3],
+            }
+        ),
+    )
+
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected_rows
+
+
+def test_string_cypher_failfast_relationship_whole_row_grouped_count_star_boundary() -> None:
     graph = _mk_graph(
         pd.DataFrame(
             {
@@ -3104,6 +3139,138 @@ def test_string_cypher_rejects_unsound_node_carrier_multiplicity_sensitive_aggre
     )
 
     with pytest.raises(GFQLValidationError, match="repeated MATCH rows"):
+        graph.gfql("MATCH (a:L)-[rel]->(b) RETURN a, count(*)")
+
+
+def test_string_cypher_supports_optional_match_collect_alias_property() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "u1", "u2"],
+                "label__Person": [True, False, False],
+                "label__University": [False, True, True],
+                "name": ["P", "Uni1", "Uni2"],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p1"],
+                "d": ["u1", "u2"],
+                "id": ["e1", "e2"],
+                "type": ["STUDY_AT", "STUDY_AT"],
+                "classYear": [2001, 2002],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (p:Person {id: 'p1'}) "
+        "OPTIONAL MATCH (p)-[rel:STUDY_AT]->(uni:University) "
+        "WITH p, collect(uni.name) AS unis "
+        "RETURN p.id AS personId, unis"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"personId": "p1", "unis": ["Uni1", "Uni2"]}]
+
+
+def test_string_cypher_supports_optional_match_collect_case_relationship_rows() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "u1", "u2"],
+                "label__Person": [True, False, False],
+                "label__University": [False, True, True],
+                "name": ["P", "Uni1", "Uni2"],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p1"],
+                "d": ["u1", "u2"],
+                "id": ["e1", "e2"],
+                "type": ["STUDY_AT", "STUDY_AT"],
+                "classYear": [2001, 2002],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (p:Person {id: 'p1'}) "
+        "OPTIONAL MATCH (p)-[rel:STUDY_AT]->(uni:University) "
+        "WITH p, collect(CASE uni.name WHEN null THEN null ELSE [uni.name, rel.classYear] END) AS unis "
+        "RETURN p.id AS personId, unis"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"personId": "p1", "unis": [["Uni1", 2001], ["Uni2", 2002]]}
+    ]
+
+
+def test_string_cypher_supports_relationship_row_grouped_count_sum_and_avg() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "a"],
+                "d": ["b", "c"],
+                "id": ["r1", "r2"],
+                "type": ["R", "R"],
+                "weight": [2, 3],
+            }
+        ),
+    )
+
+    count_result = graph.gfql(
+        "MATCH (a)-[r:R]->(b) "
+        "WITH a, count(r) AS deg "
+        "RETURN a.id AS aid, deg"
+    )
+    sum_result = graph.gfql(
+        "MATCH (a)-[r:R]->(b) "
+        "WITH a, sum(r.weight) AS total "
+        "RETURN a.id AS aid, total"
+    )
+    avg_result = graph.gfql(
+        "MATCH (a)-[r:R]->(b) "
+        "WITH a, avg(r.weight) AS avg_w "
+        "RETURN a.id AS aid, avg_w"
+    )
+
+    assert count_result._nodes.to_dict(orient="records") == [{"aid": "a", "deg": 2}]
+    assert sum_result._nodes.to_dict(orient="records") == [{"aid": "a", "total": 5}]
+    assert avg_result._nodes.to_dict(orient="records") == [{"aid": "a", "avg_w": 2.5}]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (a:L)-[r]->(b) RETURN a.id AS aid, count(r) AS cnt",
+        "MATCH (a:L)-[r]->(b) RETURN a.id AS aid, sum(r.weight) AS total",
+        "MATCH (a:L)-[r]->(b) RETURN a.id AS aid, avg(r.weight) AS avg_w",
+    ],
+)
+def test_string_cypher_direct_return_grouped_relationship_aggregate_one_source_boundary(
+    query: str,
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "label__L": [True, False, False],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a", "a"],
+                "d": ["b", "c"],
+                "id": ["r1", "r2"],
+                "type": ["R", "R"],
+                "weight": [2, 3],
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time"):
         graph.gfql(query)
 
 

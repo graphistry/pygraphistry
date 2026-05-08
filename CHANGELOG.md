@@ -19,6 +19,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 - **GFQL / Cypher lowering — bounded/exact variable-length `WHERE` pattern predicates (#973)**: Removed the pre-normalization compiler gate that rejected bounded/exact variable-length `WHERE` pattern predicates and now lower these shapes through the existing WHERE-pattern rewrite and row-filter paths. Converted the old fail-fast test into positive execution coverage and added boolean-wrapper amplification (`OR`/`XOR`/`NOT`) for bounded variable-length `WHERE` predicates in `graphistry/tests/compute/gfql/cypher/test_lowering.py`.
+- **GFQL / Cypher relationship-row aggregates over MATCH multiplicity (#1343)**: First-stage aggregate lowering now routes multiplicity-sensitive aggregate shapes (`collect`, non-distinct `count`, `sum`/`avg`) on relationship-pattern MATCH queries through bindings-row execution so relationship-row multiplicity is preserved before aggregation. This unblocks `collect(...)` and grouped/global `count`/`sum` relationship-row shapes previously rejected by the stale "repeated MATCH rows" guard on the collapsed-alias path.
 
 ### Tests
 - **GFQL / Cypher two-MATCH reentry varlen regression hardening (#1001)**: Strengthened reentry varlen acceptance assertions from shape-only checks to exact expected rows, and added forward/reverse split-vs-connected query equivalence regressions to guard against wrong-row drift in the `match5-25/26` query family.

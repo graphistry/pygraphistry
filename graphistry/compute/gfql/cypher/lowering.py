@@ -2390,6 +2390,36 @@ def _is_multiplicity_sensitive_aggregate(agg_spec: _AggregateSpec) -> bool:
     return False
 
 
+def _collect_aggregate_specs_for_clause(
+    clause: ReturnClause,
+    *,
+    params: Optional[Mapping[str, Any]],
+    alias_targets: Mapping[str, ASTObject],
+) -> List[_AggregateSpec]:
+    aggregate_specs: List[_AggregateSpec] = []
+    for item in clause.items:
+        agg_spec = _aggregate_spec(item, params=params, alias_targets=alias_targets)
+        if agg_spec is not None:
+            aggregate_specs.append(agg_spec)
+            continue
+        post_agg_plan = _post_aggregate_expr_plan(item, params=params, alias_targets=alias_targets)
+        if post_agg_plan is not None:
+            nested_aggregate_specs, _ = post_agg_plan
+            aggregate_specs.extend(nested_aggregate_specs)
+    return aggregate_specs
+
+
+def _requires_relationship_multiplicity_bindings(
+    *,
+    aggregate_specs: Sequence[_AggregateSpec],
+    relationship_count: int,
+) -> bool:
+    return relationship_count > 0 and any(
+        _is_multiplicity_sensitive_aggregate(spec)
+        for spec in aggregate_specs
+    )
+
+
 def _match_relationship_count(clause: MatchClause) -> int:
     return sum(1 for element in _match_pattern_elements(clause) if isinstance(element, RelationshipPattern))
 
@@ -4117,15 +4147,17 @@ def _build_initial_row_scope(
 ) -> Tuple[List[ASTObject], _StageScope]:
     alias_targets = _alias_target(lowered.query) if query.match is not None else {}
     merged_match = _merged_match_clause(query)
+    relationship_count = _match_relationship_count(merged_match) if merged_match is not None else 0
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+    stage_aggregate_specs = _collect_aggregate_specs_for_clause(
+        stage_clause,
+        params=params,
+        alias_targets=alias_targets,
+    )
     # Admit first-stage multi-alias non-aggregate WITH projections (shape A, #1273)
     # by routing through the bindings-row path when multiple MATCH node aliases are
     # referenced together in scalar expressions.
-    stage_has_aggregates = any(
-        _aggregate_spec(item, params=params, alias_targets=alias_targets) is not None
-        or _post_aggregate_expr_plan(item, params=params, alias_targets=alias_targets) is not None
-        for item in stage_clause.items
-    )
+    stage_has_aggregates = bool(stage_aggregate_specs)
     if (
         not stage_has_aggregates
         and len(alias_targets) > 1
@@ -4172,6 +4204,16 @@ def _build_initial_row_scope(
             if item.expression.text in alias_targets
         }
         if len(whole_row_refs) > 1:
+            binding_row_aliases = set(alias_targets.keys())
+    if _requires_relationship_multiplicity_bindings(
+        aggregate_specs=stage_aggregate_specs,
+        relationship_count=relationship_count,
+    ):
+        return_has_whole_row_alias = any(
+            item.expression.text in alias_targets
+            for item in query.return_.items
+        )
+        if len(query.with_stages) == 1 and not return_has_whole_row_alias:
             binding_row_aliases = set(alias_targets.keys())
     binding_row_aliases.update(
         _binding_row_aliases_for_row_where(
@@ -4276,7 +4318,7 @@ def _build_initial_row_scope(
             row_columns=set(unwind_aliases),
             projected_columns={},
             seed_rows=seed_rows,
-            relationship_count=_match_relationship_count(merged_match) if merged_match is not None else 0,
+            relationship_count=relationship_count,
         )
 
 
@@ -6377,11 +6419,10 @@ def _whole_row_group_entity_expr(
     column: int,
 ) -> str:
     target = alias_targets.get(alias_name)
-    alias_args = ", ".join(dict.fromkeys([alias_name] + [str(name) for name in alias_targets.keys()]))
     if isinstance(target, ASTNode):
-        return f"__node_entity__({alias_args})"
+        return f"__node_entity__({alias_name})"
     if isinstance(target, ASTEdge):
-        return f"__edge_entity__({alias_args})"
+        return f"__edge_entity__({alias_name})"
     raise _unsupported(
         "Cypher aggregate whole-row grouping requires a node or edge alias",
         field=field,
@@ -6435,7 +6476,70 @@ def _lower_general_row_projection(
     semantic_entity_kinds: Optional[Mapping[str, Literal["node", "edge", "scalar"]]] = None,
 ) -> CompiledCypherQuery:
     alias_targets = _alias_target(lowered.query) if query.match is not None else {}
+    merged_match = _merged_match_clause(query)
+    relationship_count = _match_relationship_count(merged_match) if merged_match is not None else 0
+    aggregate_specs: List[_AggregateSpec] = []
+    non_aggregate_items: List[ReturnItem] = []
+    post_aggregate_items: List[_PostAggregateExprPlan] = []
+    empty_result_row: Optional[Dict[str, Any]] = None
+    for item in query.return_.items:
+        agg_spec = _aggregate_spec(item, params=params, alias_targets=alias_targets)
+        if agg_spec is not None:
+            aggregate_specs.append(agg_spec)
+            continue
+        post_agg_plan = _post_aggregate_expr_plan(item, params=params, alias_targets=alias_targets)
+        if post_agg_plan is not None:
+            nested_aggregate_specs, post_agg_item = post_agg_plan
+            aggregate_specs.extend(nested_aggregate_specs)
+            post_aggregate_items.append(post_agg_item)
+            continue
+        non_aggregate_items.append(item)
+
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+    if _requires_relationship_multiplicity_bindings(
+        aggregate_specs=aggregate_specs,
+        relationship_count=relationship_count,
+    ):
+        base_active_alias: Optional[str] = None
+        can_force_bindings = True
+        if any(item.expression.text in alias_targets for item in non_aggregate_items):
+            # Keep whole-row grouping on the existing conservative path.
+            # This preserves the current fail-fast boundary for relationship-
+            # pattern grouped aggregates such as `RETURN a, count(*)`.
+            can_force_bindings = False
+        try:
+            base_active_alias = _active_match_alias(
+                query,
+                alias_targets=alias_targets,
+                allowed_match_aliases=None,
+                params=params,
+            )
+        except GFQLValidationError:
+            can_force_bindings = False
+        if can_force_bindings and base_active_alias is not None:
+            if isinstance(alias_targets.get(base_active_alias), ASTEdge):
+                can_force_bindings = False
+        if can_force_bindings and base_active_alias is not None:
+            for agg_spec in aggregate_specs:
+                if agg_spec.expr_text is None:
+                    continue
+                try:
+                    refs = _expr_match_aliases(
+                        agg_spec.expr_text,
+                        alias_targets=alias_targets,
+                        params=params,
+                        field=query.return_.kind,
+                        line=agg_spec.span_line,
+                        column=agg_spec.span_column,
+                    )
+                except GFQLValidationError:
+                    can_force_bindings = False
+                    break
+                if len(refs) > 1 or (len(refs) == 1 and base_active_alias not in refs):
+                    can_force_bindings = False
+                    break
+        if can_force_bindings:
+            binding_row_aliases = set(alias_targets.keys())
     binding_row_aliases = _apply_bound_scope_membership(
         binding_row_aliases,
         alias_targets=alias_targets,
@@ -6510,23 +6614,6 @@ def _lower_general_row_projection(
         )
         unwind_aliases.add(unwind_clause.alias)
 
-    aggregate_specs: List[_AggregateSpec] = []
-    non_aggregate_items: List[ReturnItem] = []
-    post_aggregate_items: List[_PostAggregateExprPlan] = []
-    empty_result_row: Optional[Dict[str, Any]] = None
-    for item in query.return_.items:
-        agg_spec = _aggregate_spec(item, params=params, alias_targets=alias_targets)
-        if agg_spec is not None:
-            aggregate_specs.append(agg_spec)
-            continue
-        post_agg_plan = _post_aggregate_expr_plan(item, params=params, alias_targets=alias_targets)
-        if post_agg_plan is not None:
-            nested_aggregate_specs, post_agg_item = post_agg_plan
-            aggregate_specs.extend(nested_aggregate_specs)
-            post_aggregate_items.append(post_agg_item)
-            continue
-        non_aggregate_items.append(item)
-
     expr_to_output: Dict[str, str] = {}
     available_columns: Set[str] = set()
 
@@ -6558,18 +6645,14 @@ def _lower_general_row_projection(
                         column=item.span.column,
                     )
                 hidden_key_name = _fresh_temp_name(temp_names, "__cypher_group_key__")
-                pre_items.append(
-                    (
-                        hidden_key_name,
-                        _whole_row_group_key_expr(
-                            alias_name,
-                            alias_targets=alias_targets,
-                            field=query.return_.kind,
-                            line=item.span.line,
-                            column=item.span.column,
-                        ),
-                    )
+                raw_key_expr = _whole_row_group_key_expr(
+                    alias_name,
+                    alias_targets=alias_targets,
+                    field=query.return_.kind,
+                    line=item.span.line,
+                    column=item.span.column,
                 )
+                pre_items.append((hidden_key_name, raw_key_expr))
                 pre_items.append(
                     (
                         output_name,
@@ -6678,12 +6761,13 @@ def _lower_general_row_projection(
                 alias_name=agg_spec.output_name,
             )
 
-        _reject_unsound_relationship_multiplicity_aggregates(
-            query,
-            aggregate_specs=aggregate_specs,
-            alias_targets=alias_targets,
-            active_match_alias=active_match_alias,
-        )
+        if not binding_row_aliases:
+            _reject_unsound_relationship_multiplicity_aggregates(
+                query,
+                aggregate_specs=aggregate_specs,
+                alias_targets=alias_targets,
+                active_match_alias=active_match_alias,
+            )
         if key_names:
             if len(pre_items) > 0:
                 row_steps.append(with_(pre_items))
