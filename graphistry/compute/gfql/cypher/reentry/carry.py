@@ -155,6 +155,10 @@ def _bounded_reentry_prefix_order_is_safe(
         return True
     if query.order_by is not None:
         return True
-    return prefix_stage.skip is None and _literal_limit_value(prefix_stage.limit) == 1
-
+    if prefix_stage.skip is not None:
+        return False
+    limit_value = _literal_limit_value(prefix_stage.limit)
+    if limit_value is None:
+        return False
+    return limit_value >= 0
 
