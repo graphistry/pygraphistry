@@ -63,6 +63,15 @@ def _node_aliases(pattern: Tuple[PatternElement, ...]) -> Set[str]:
     return out
 
 
+def _all_pattern_aliases(pattern: Tuple[PatternElement, ...]) -> Set[str]:
+    """Return every variable bound by the pattern: node and relationship aliases."""
+    out: Set[str] = set()
+    for el in pattern:
+        if isinstance(el, (NodePattern, RelationshipPattern)) and el.variable is not None:
+            out.add(el.variable)
+    return out
+
+
 def _normalized_aliases(
     aliases: Tuple[Optional[str], ...],
     patterns: Tuple[Tuple[PatternElement, ...], ...],
@@ -135,11 +144,13 @@ def flatten_carried_endpoint_rebind(query: CypherQuery) -> Optional[CypherQuery]
 
     prefix_aliases: Set[str] = set()
     for pattern in prefix_match.patterns:
-        prefix_aliases.update(_node_aliases(pattern))
-    # Require equality, not just subset: when WITH drops some prefix-bound
-    # aliases, post-WITH references to dropped aliases must surface as the
-    # existing reentry path's "Unknown Cypher alias" scope error rather than
-    # silently re-admitting them through the merged single MATCH.
+        prefix_aliases.update(_all_pattern_aliases(pattern))
+    # Require equality across both node AND relationship aliases. When WITH
+    # drops a prefix-bound alias of either kind, post-WITH references to it
+    # must surface as the existing reentry path's scope-rejection rather than
+    # silently re-admitting it through the merged single MATCH (e.g.
+    # ``MATCH (a)-[r:R]->(b) WITH a, b MATCH (b)-[:S]->(a) RETURN r.weight``
+    # would leak ``r`` back into RETURN scope).
     if carried != prefix_aliases:
         return None
 

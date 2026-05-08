@@ -173,6 +173,32 @@ def test_flatten_disqualifies_reentry_where_present() -> None:
     assert flatten_carried_endpoint_rebind(q) is None
 
 
+def test_flatten_disqualifies_drops_relationship_variable() -> None:
+    """Prefix binds a named relationship var (``r``); WITH drops it. The merged
+    single MATCH would re-introduce ``r`` into RETURN scope, so flatten must
+    disqualify (#1341 wave-4 review)."""
+    q = _parse(
+        "MATCH (a:A)-[r:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(a) "
+        "RETURN r.weight"
+    )
+    assert flatten_carried_endpoint_rebind(q) is None
+
+
+def test_flatten_admits_when_relationship_variable_is_carried() -> None:
+    """A carried relationship var keeps the carry-set equal to prefix aliases."""
+    q = _parse(
+        "MATCH (a:A)-[r:R]->(b:B) "
+        "WITH a, b, r "
+        "MATCH (b)-[:S]->(a) "
+        "RETURN r.weight"
+    )
+    flattened = flatten_carried_endpoint_rebind(q)
+    assert flattened is not None
+    assert flattened.with_stages == ()
+
+
 def test_flatten_disqualifies_partial_carry_drops_prefix_alias() -> None:
     """WITH drops a prefix-bound alias; the existing reentry path emits a clean
     scope error if RETURN references the dropped alias. Flatten must not
