@@ -346,7 +346,7 @@ def _compile_bounded_reentry_query(
             merged = set(non_source_carried_props_map.get(alias_name, ()))
             merged.update(props)
             non_source_carried_props_map[alias_name] = tuple(sorted(merged))
-    if not _bounded_reentry_prefix_order_is_safe(prefix_stage=prefix_stage, query=query):
+    if not _bounded_reentry_prefix_order_is_safe(prefix_stage=prefix_stage, query=query, params=params):
         raise _unsupported(
             "Cypher MATCH after WITH requires bounded literal LIMIT (and no SKIP) to preserve prefix WITH row ordering across MATCH re-entry when the trailing query has no ORDER BY",
             field="with.order_by",
