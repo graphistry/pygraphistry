@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import typing
+from typing import Any, Dict, Literal
 
 import pytest
 
@@ -251,18 +252,21 @@ def test_flatten_alias_kind_enumeration_locks_in_with_ast() -> None:
     ``flatten_carried_endpoint_rebind``) to be updated. Anchors the wave-4 /
     wave-5 bug class permanently against AST evolution."""
     # 1) Every PatternElement subtype with a ``variable`` attribute must be
-    #    handled by ``_all_pattern_aliases`` (i.e., contribute its variable).
+    #    reflected by ``_all_pattern_aliases``. Build a minimal instance for
+    #    each subtype by filling required fields with type-appropriate empty
+    #    values (empty tuple, "forward" direction string). Future
+    #    PatternElement members with new required fields will fail this loop's
+    #    constructor call until the fillers are extended — which forces a
+    #    deliberate review of the helper.
     pattern_subtypes = typing.get_args(PatternElement)
     assert pattern_subtypes, "PatternElement Union must have at least one member"
     span = SourceSpan(line=1, column=1, end_line=1, end_column=1, start_pos=0, end_pos=0)
+    asserted_subtype = False
     for subtype in pattern_subtypes:
         type_hints = typing.get_type_hints(subtype)
         if "variable" not in type_hints:
             continue
-        # Construct a minimal instance with variable="probe"; if a subtype
-        # ever requires more fields, this fails loudly so the helper can be
-        # updated. Use field defaults where possible.
-        kwargs: dict = {"variable": "probe", "span": span}
+        kwargs: Dict[str, Any] = {"variable": "probe", "span": span}
         for fld in dataclasses.fields(subtype):
             if fld.name in kwargs:
                 continue
@@ -270,19 +274,34 @@ def test_flatten_alias_kind_enumeration_locks_in_with_ast() -> None:
                 continue
             if fld.default_factory is not dataclasses.MISSING:  # type: ignore[misc]
                 continue
-            # Required field with no default: skip this subtype rather than
-            # guess; a future required field on a variable-bearing pattern
-            # element should prompt explicit handling here.
-            kwargs = {}
-            break
-        if not kwargs:
-            continue
+            ftype = type_hints.get(fld.name)
+            origin = typing.get_origin(ftype)
+            if origin is tuple:
+                # Tuple[...]: empty tuple satisfies every parameterization.
+                kwargs[fld.name] = ()
+                continue
+            if origin is Literal:
+                # Pick the first allowed literal value.
+                literal_args = typing.get_args(ftype)
+                if literal_args:
+                    kwargs[fld.name] = literal_args[0]
+                    continue
+            raise AssertionError(
+                f"Lock-in test cannot synthesize required field {fld.name!r} of "
+                f"type {ftype!r} on {subtype.__name__}; extend the filler logic "
+                f"and verify ``_all_pattern_aliases`` handles the new shape."
+            )
         instance = subtype(**kwargs)
         observed = _all_pattern_aliases((instance,))
         assert "probe" in observed, (
             f"_all_pattern_aliases must collect variable from {subtype.__name__} "
             f"(got {observed!r})"
         )
+        asserted_subtype = True
+    assert asserted_subtype, (
+        "PatternElement enumeration produced no variable-bearing subtype probe; "
+        "the lock-in test must assert against at least one concrete subtype."
+    )
 
     # 2) MatchClause carries variable-bearing tuple fields (today only
     #    ``pattern_aliases``). The flatten's prefix-aliases union must observe

@@ -9429,12 +9429,15 @@ def test_string_cypher_executes_ic1_shortest_path_with_carried_endpoints_rebound
     assert type(result._nodes).__module__.startswith("cudf")
     # cuDF returns ``length(path)`` as object/string rather than float (verified
     # by manual repro on rapids 25.02 + 26.02; a separate pre-existing cuDF
-    # row-pipeline divergence). Compare friend IDs as-is and numeric distances
-    # after int-coercion so this admit-side parity test is not blocked by the
-    # dtype divergence; the divergence itself is filed as a follow-up issue.
+    # row-pipeline divergence — see #1354). Compare friend IDs as-is and numeric
+    # distances after ``int(float(...))`` two-step coercion so this admit-side
+    # parity test is not blocked by the dtype divergence and survives both
+    # ``'1'``/``1`` (int-string/int) and ``'1.0'``/``1.0`` (float-string/float)
+    # representations the cuDF row-pipeline may return as #1354 evolves.
     rows = result._nodes.to_pandas().to_dict(orient="records")
+    assert len(rows) == 3, f"expected 3 friend rows, got {len(rows)}"
     assert [r["friendId"] for r in rows] == ["p2", "p3", "p4"]
-    assert [int(r["dist"]) for r in rows] == [1, 2, 1]
+    assert [int(float(r["dist"])) for r in rows] == [1, 2, 1]
 
 
 def test_string_cypher_flatten_admit_matches_hand_flattened_oracle_ic1() -> None:
@@ -9500,12 +9503,14 @@ def test_string_cypher_flatten_admit_matches_hand_flattened_oracle_simple_rebind
 
 @pytest.mark.skip(
     reason=(
-        "Pre-existing cuDF row-pipeline segfault for shared-alias multi-pattern "
-        "with relationship-property projection (verified on rapids 25.02 + "
-        "26.02 with both flatten-on and hand-flattened single-MATCH form, "
-        "exit code 139). Filed as a separate cuDF parity issue. The pandas "
-        "equivalent is locked in by ``test_flatten_admits_when_relationship_"
-        "variable_is_carried`` (#1341 round-001)."
+        "Pre-existing cuDF row-pipeline segfault (#1355) for shared-alias "
+        "multi-pattern with relationship-property projection — verified on "
+        "rapids 25.02 + 26.02 with both flatten-on and hand-flattened "
+        "single-MATCH form, exit code 139. ``skip`` not ``xfail`` because "
+        "SIGSEGV kills the pytest worker; xfail only catches in-process "
+        "exceptions. The pandas equivalent is locked in by "
+        "``test_flatten_admits_when_relationship_variable_is_carried`` "
+        "(#1341 round-001)."
     )
 )
 def test_string_cypher_executes_with_match_reentry_relationship_variable_carried_on_cudf() -> None:
