@@ -76,6 +76,10 @@ def _normalized_kinds(
     kinds: Tuple[PathPatternKind, ...],
     patterns: Tuple[Tuple[PatternElement, ...], ...],
 ) -> Tuple[PathPatternKind, ...]:
+    # ``MatchClause.pattern_alias_kinds`` defaults to ``()`` per ``ast.py``;
+    # the parser populates it for every pattern when present. When absent we
+    # back-fill ``"pattern"`` since that is the implicit kind for unaliased
+    # comma-separated patterns.
     if kinds:
         return kinds
     default: PathPatternKind = "pattern"
@@ -109,7 +113,7 @@ def flatten_carried_endpoint_rebind(query: CypherQuery) -> Optional[CypherQuery]
 
     prefix_match = query.matches[0]
     trailing_match = query.reentry_matches[0]
-    if trailing_match.optional:
+    if prefix_match.optional or trailing_match.optional:
         return None
 
     carried = _pure_carry_aliases(query.with_stages[0])
@@ -135,6 +139,9 @@ def flatten_carried_endpoint_rebind(query: CypherQuery) -> Optional[CypherQuery]
     if not carried.issubset(prefix_aliases):
         return None
 
+    # Per ``parser.py`` (the top-level WHERE between MATCH and WITH is
+    # mirrored onto ``match_clauses[-1].where``), checking ``prefix_match.where``
+    # covers both ``query.where`` and an inline MATCH WHERE for the prefix.
     # Merging two MATCH-inline WHEREs would require building an AND of two
     # WhereClause structures; out of scope for this narrow flatten.
     if prefix_match.where is not None and trailing_match.where is not None:
