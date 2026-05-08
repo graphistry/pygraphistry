@@ -3093,6 +3093,7 @@ def test_string_cypher_supports_whole_row_grouping_with_count_star() -> None:
         ("MATCH (a)-[r]->(b) RETURN count(*) AS cnt", [{"cnt": 2}]),
         ("MATCH (a)-[r]->(b) RETURN count(a) AS cnt", [{"cnt": 2}]),
         ("MATCH (a)-[r]->(b) RETURN sum(1) AS total", [{"total": 2}]),
+        ("MATCH (a)-[r]->(b) RETURN avg(r.weight) AS avg_w", [{"avg_w": 2.5}]),
     ],
 )
 def test_string_cypher_supports_relationship_row_multiplicity_sensitive_aggregates(
@@ -3111,6 +3112,7 @@ def test_string_cypher_supports_relationship_row_multiplicity_sensitive_aggregat
                 "s": ["a", "a"],
                 "d": ["b", "c"],
                 "id": ["r1", "r2"],
+                "weight": [2, 3],
             }
         ),
     )
@@ -3204,7 +3206,7 @@ def test_string_cypher_supports_optional_match_collect_case_relationship_rows() 
     ]
 
 
-def test_string_cypher_supports_relationship_row_grouped_count_and_sum() -> None:
+def test_string_cypher_supports_relationship_row_grouped_count_sum_and_avg() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c"]}),
         pd.DataFrame(
@@ -3228,9 +3230,15 @@ def test_string_cypher_supports_relationship_row_grouped_count_and_sum() -> None
         "WITH a, sum(r.weight) AS total "
         "RETURN a.id AS aid, total"
     )
+    avg_result = graph.gfql(
+        "MATCH (a)-[r:R]->(b) "
+        "WITH a, avg(r.weight) AS avg_w "
+        "RETURN a.id AS aid, avg_w"
+    )
 
     assert count_result._nodes.to_dict(orient="records") == [{"aid": "a", "deg": 2}]
     assert sum_result._nodes.to_dict(orient="records") == [{"aid": "a", "total": 5}]
+    assert avg_result._nodes.to_dict(orient="records") == [{"aid": "a", "avg_w": 2.5}]
 
 
 def test_string_cypher_keeps_single_edge_relationship_grouped_count_star() -> None:
