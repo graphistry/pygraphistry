@@ -3241,6 +3241,39 @@ def test_string_cypher_supports_relationship_row_grouped_count_sum_and_avg() -> 
     assert avg_result._nodes.to_dict(orient="records") == [{"aid": "a", "avg_w": 2.5}]
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (a:L)-[r]->(b) RETURN a.id AS aid, count(r) AS cnt",
+        "MATCH (a:L)-[r]->(b) RETURN a.id AS aid, sum(r.weight) AS total",
+        "MATCH (a:L)-[r]->(b) RETURN a.id AS aid, avg(r.weight) AS avg_w",
+    ],
+)
+def test_string_cypher_direct_return_grouped_relationship_aggregate_one_source_boundary(
+    query: str,
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "label__L": [True, False, False],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a", "a"],
+                "d": ["b", "c"],
+                "id": ["r1", "r2"],
+                "type": ["R", "R"],
+                "weight": [2, 3],
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time"):
+        graph.gfql(query)
+
+
 def test_string_cypher_keeps_single_edge_relationship_grouped_count_star() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c"]}),
