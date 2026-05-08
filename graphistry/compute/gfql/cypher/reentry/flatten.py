@@ -145,12 +145,20 @@ def flatten_carried_endpoint_rebind(query: CypherQuery) -> Optional[CypherQuery]
     prefix_aliases: Set[str] = set()
     for pattern in prefix_match.patterns:
         prefix_aliases.update(_all_pattern_aliases(pattern))
-    # Require equality across both node AND relationship aliases. When WITH
-    # drops a prefix-bound alias of either kind, post-WITH references to it
-    # must surface as the existing reentry path's scope-rejection rather than
-    # silently re-admitting it through the merged single MATCH (e.g.
+    # Path aliases (``MATCH path = (a)-->(b)``) live on
+    # ``MatchClause.pattern_aliases`` — also a prefix-bound alias that WITH
+    # can drop, so include them too for the equality boundary.
+    if prefix_match.pattern_aliases:
+        prefix_aliases.update(
+            alias for alias in prefix_match.pattern_aliases if alias is not None
+        )
+    # Require equality across node, relationship, AND path aliases. When WITH
+    # drops a prefix-bound alias of any kind, post-WITH references must
+    # surface as the existing reentry path's scope-rejection rather than
+    # silently re-admitting through the merged single MATCH (e.g.
     # ``MATCH (a)-[r:R]->(b) WITH a, b MATCH (b)-[:S]->(a) RETURN r.weight``
-    # would leak ``r`` back into RETURN scope).
+    # would leak ``r``; ``MATCH path = (a)-->(b) WITH a, b MATCH ... RETURN
+    # length(path)`` would leak ``path``).
     if carried != prefix_aliases:
         return None
 

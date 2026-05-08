@@ -186,6 +186,21 @@ def test_flatten_disqualifies_drops_relationship_variable() -> None:
     assert flatten_carried_endpoint_rebind(q) is None
 
 
+def test_flatten_disqualifies_drops_prefix_path_alias() -> None:
+    """Prefix binds a path alias (``path``); WITH drops it. Defense-in-depth:
+    even though current row-pipeline rejects ``length(path)`` projections
+    downstream, including path aliases in the equality check prevents
+    future row-pipeline path-function support from silently re-admitting
+    a dropped path alias into post-WITH scope (#1341 wave-5 review)."""
+    q = _parse(
+        "MATCH path = (a:A)-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(a) "
+        "RETURN length(path) AS n"
+    )
+    assert flatten_carried_endpoint_rebind(q) is None
+
+
 def test_flatten_admits_when_relationship_variable_is_carried() -> None:
     """A carried relationship var keeps the carry-set equal to prefix aliases."""
     q = _parse(
