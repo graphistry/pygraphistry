@@ -170,16 +170,23 @@ def _run_binder_prepass_scaffold(
     monkeypatch: pytest.MonkeyPatch,
     bound_ir: Optional[BoundIR] = None,
 ) -> list[dict[str, object]]:
-    calls: list[tuple[object, PlanContext]] = []
+    calls: list[tuple[object, PlanContext, bool]] = []
 
-    def _fake_bind(self: FrontendBinder, ast: object, ctx: PlanContext) -> BoundIR:
+    def _fake_bind(
+        self: FrontendBinder,
+        ast: object,
+        ctx: PlanContext,
+        *,
+        strict_name_resolution: bool = False,
+    ) -> BoundIR:
         _ = self
-        calls.append((ast, ctx))
+        calls.append((ast, ctx, strict_name_resolution))
         return bound_ir if bound_ir is not None else BoundIR()
 
     monkeypatch.setattr(FrontendBinder, "bind", _fake_bind)
     rows = _run_legacy(case)
     assert len(calls) >= 1
+    assert any(strict for _, _, strict in calls)
     return rows
 
 
