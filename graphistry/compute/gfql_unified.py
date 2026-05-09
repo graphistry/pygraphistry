@@ -422,6 +422,7 @@ def _apply_connected_match_join(
     from graphistry.compute.ast import ASTCall, serialize_binding_ops
 
     requested_engine = resolve_engine(cast(Any, engine), base_graph)
+    dispatch_engine: Union[EngineAbstract, str] = EngineAbstract.PANDAS if requested_engine == Engine.CUDF else engine
     # #1355: cuDF can segfault on connected comma-pattern row joins with some
     # rel-property projection shapes. Execute this join route on pandas and
     # convert the final rows back to cuDF so engine parity is preserved.
@@ -435,7 +436,7 @@ def _apply_connected_match_join(
             list(pattern_chain.chain) + [ASTCall("rows", {"binding_ops": serialize_binding_ops(pattern_chain.chain)})],
             where=pattern_chain.where,
         )
-        pattern_result = _chain_dispatch(base_graph, with_rows, exec_engine, policy, context)
+        pattern_result = _chain_dispatch(base_graph, with_rows, dispatch_engine, policy, context)
         pattern_rows = cast(Optional[DataFrameT], getattr(pattern_result, "_nodes", None))
         if pattern_rows is None or len(pattern_rows) == 0:
             out = base_graph.bind()
@@ -475,7 +476,7 @@ def _apply_connected_match_join(
     joined_plottable = base_graph.bind()
     joined_plottable._nodes = joined_rows
     joined_plottable._edges = df_ctor()
-    result = _chain_dispatch(joined_plottable, plan.post_join_chain, exec_engine, policy, context)
+    result = _chain_dispatch(joined_plottable, plan.post_join_chain, dispatch_engine, policy, context)
     if requested_engine != Engine.CUDF:
         return result
     out = result.bind()
