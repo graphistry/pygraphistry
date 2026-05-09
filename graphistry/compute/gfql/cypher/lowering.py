@@ -1943,7 +1943,14 @@ def _row_expr_arg(
             line=expr.span.line,
             column=expr.span.column,
         )
-    return _render_expr_node(node)
+    # openCypher integer division truncates when both operands are integer-like.
+    # Runtime row expressions do not carry stable identifier type metadata here,
+    # so this pass currently rewrites literal-only integer divisions.
+    rewritten = _rewrite_cypher_integer_division_ast(
+        node,
+        integer_identifiers=frozenset(),
+    )
+    return _render_expr_node(rewritten)
 
 
 def _projected_source_replacement(binding: _StageColumnBinding) -> str:
