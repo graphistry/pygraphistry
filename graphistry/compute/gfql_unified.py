@@ -121,8 +121,9 @@ def _slice_reentry_prefix_result_row(
         if isinstance(entry, dict):
             sliced_entry = dict(entry)
             ids = sliced_entry.get("ids")
-            if hasattr(ids, "iloc"):
-                sliced_entry["ids"] = cast(Any, ids.iloc[row_index:row_index + 1]).reset_index(drop=True)
+            if ids is not None and hasattr(ids, "iloc"):
+                ids_obj = cast(Any, ids)
+                sliced_entry["ids"] = cast(Any, ids_obj.iloc[row_index:row_index + 1]).reset_index(drop=True)
             setattr(out, "_cypher_entity_projection_meta", {output_name: sliced_entry})
     return out
 
