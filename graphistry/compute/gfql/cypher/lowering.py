@@ -3236,22 +3236,37 @@ def _reject_unsupported_multi_alias_whole_row_cross_alias_where(
         or len({item.expression.text for item in query.return_.items if item.expression.text in alias_targets}) <= 1
     ):
         return
-    if any(
-        isinstance(predicate.left, PropertyRef)
-        and isinstance(predicate.right, PropertyRef)
-        and predicate.left.alias != predicate.right.alias
-        and predicate.left.alias in alias_targets
-        and predicate.right.alias in alias_targets
-        for predicate in query.where.predicates
-        if not isinstance(predicate, WherePatternPredicate)
-    ):
-        raise _unsupported(
-            "Cypher row lowering currently supports one MATCH source alias at a time; for remaining multi-source residuals see issue #1273",
-            field=query.return_.kind,
-            value=[item.expression.text for item in query.return_.items],
-            line=query.return_.span.line,
-            column=query.return_.span.column,
+    if not (
+        any(
+            isinstance(predicate.left, PropertyRef)
+            and isinstance(predicate.right, PropertyRef)
+            and predicate.left.alias != predicate.right.alias
+            and predicate.left.alias in alias_targets
+            and predicate.right.alias in alias_targets
+            for predicate in query.where.predicates
+            if not isinstance(predicate, WherePatternPredicate)
+        ) or (
+            query.where.expr_tree is not None
+            and len(
+                _expr_match_aliases(
+                    boolean_expr_to_text(query.where.expr_tree),
+                    alias_targets=alias_targets,
+                    params=None,
+                    field="where",
+                    line=query.where.span.line,
+                    column=query.where.span.column,
+                )
+            ) > 1
         )
+    ):
+        return
+    raise _unsupported(
+        "Cypher row lowering currently supports one MATCH source alias at a time; for remaining multi-source residuals see issue #1273",
+        field=query.return_.kind,
+        value=[item.expression.text for item in query.return_.items],
+        line=query.return_.span.line,
+        column=query.return_.span.column,
+    )
 def _query_has_aggregate_stage(
     query: CypherQuery,
     *,
@@ -7431,12 +7446,8 @@ def _demote_secondary_whole_row_aliases(
     When no demotion is needed, returns the inputs unchanged with empty
     ``secondary_aliases`` and ``secondary_props``.
 
-    Why: the existing MATCH-after-WITH machinery requires exactly one whole-row
-    alias in the prefix projection. Other carried aliases need only support
-    property access (``S.X``) in subsequent clauses. By rewriting ``S.X`` to a
-    bare hidden identifier and synthesizing a new prefix item ``S.X AS
-    __cypher_reentry_<S>_<X>__``, multi-alias carry reduces to the existing
-    single-alias-plus-scalars path.
+    Rewrites secondary whole-row carries into hidden scalar property carries so
+    downstream MATCH-after-WITH lowering can stay single-primary-alias.
     """
     if not query.reentry_matches:
         return query, prefix_stage, (), {}
@@ -7449,19 +7460,14 @@ def _demote_secondary_whole_row_aliases(
     if len(whole_row_items) <= 1:
         return query, prefix_stage, (), {}
     if primary_alias is None:
-        # Existing downstream check at the trailing-MATCH start raises a clearer
-        # error; bail out so it fires.
         return query, prefix_stage, (), {}
 
     primary_indices = {idx for idx, item in whole_row_items if item.expression.text == primary_alias}
     if not primary_indices:
-        # Trailing MATCH starts from an alias not carried by the prefix: existing
-        # check at line ~7779 raises "must start from the same carried node alias".
         return query, prefix_stage, (), {}
     secondary_items = [(idx, item) for idx, item in whole_row_items if idx not in primary_indices]
     secondary_aliases: Set[str] = {item.expression.text for _idx, item in secondary_items}
 
-    # Reject re-binding a secondary alias as a node variable in any trailing MATCH.
     for trailing in (*query.reentry_matches,):
         trailing_aliases: Set[str] = set()
         for pattern in trailing.patterns:
@@ -7477,7 +7483,6 @@ def _demote_secondary_whole_row_aliases(
 
     refs_collected: Set[Tuple[str, str]] = set()
     bare_collected: Set[str] = set()
-
     def rewrite_text(expr: ExpressionText, field: str) -> ExpressionText:
         rewritten, refs, bare = _collect_secondary_property_refs(
             expr,
@@ -7488,7 +7493,6 @@ def _demote_secondary_whole_row_aliases(
         bare_collected.update(bare)
         return rewritten
 
-    # Rewrite trailing MATCH/WHERE expressions.
     rewritten_reentry_matches = tuple(
         _rewrite_reentry_match_clause(clause, rewrite_expr=rewrite_text)
         for clause in query.reentry_matches
@@ -7497,7 +7501,6 @@ def _demote_secondary_whole_row_aliases(
         where_clause if where_clause is None else _rewrite_where_clause_and_resync(where_clause, rewrite_text, "where")
         for where_clause in query.reentry_wheres
     )
-    # Drop bare secondary-alias forwarding items before property-ref rewriting.
     secondary_forwarding_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
     from graphistry.compute.gfql.cypher.reentry import compiletime as _reentry_compiletime
 
@@ -7536,7 +7539,6 @@ def _demote_secondary_whole_row_aliases(
             span=query.return_.span,
         )
 
-    # Synthesize prefix WITH items: drop secondary whole-row carries, append hidden S.X.
     new_items: List[ReturnItem] = []
     secondary_drop_indices = {idx for idx, _item in secondary_items}
     for idx, item in enumerate(prefix_stage.clause.items):
@@ -7558,8 +7560,6 @@ def _demote_secondary_whole_row_aliases(
         clause=replace(prefix_stage.clause, items=tuple(new_items)),
     )
 
-    # Forward hidden carry columns through downstream WITH stages, but refuse
-    # aggregate stages to avoid wrong NULL carry behavior (#1256).
     if refs_collected and rewritten_with_stages_tail:
         for stage in rewritten_with_stages_tail:
             for item in stage.clause.items:
