@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import pytest
 
+from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.compute.gfql.cypher.api import compile_cypher
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
@@ -123,10 +124,12 @@ def test_compile_rejects_unresolved_return_alias_via_projection_planner() -> Non
     clause"). Strict binder would reject earlier with E204. The intent
     (reject unresolved alias in RETURN) is preserved either way."""
     query = "MATCH (a) RETURN ghost"
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(GFQLValidationError) as exc_info:
         compile_cypher(query)
-    msg = str(exc_info.value).lower()
-    assert "ghost" in msg or "unknown" in msg or "unresolved" in msg
+    # Pin the alias appears in the error context (stable across either
+    # rejection site). Drop loose substring matching so a future strict
+    # flip moving the rejection from E108→E204 stays observable.
+    assert exc_info.value.context.get("value") == "ghost"
 
 
 def test_compile_rejects_unresolved_where_alias_via_where_evaluator() -> None:
@@ -134,7 +137,8 @@ def test_compile_rejects_unresolved_where_alias_via_where_evaluator() -> None:
     evaluator E108 when reaching the literal-where path. Strict binder
     would reject earlier with E204."""
     query = "MATCH (a) WHERE ghost.foo = 1 RETURN a"
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(GFQLValidationError) as exc_info:
         compile_cypher(query)
-    msg = str(exc_info.value).lower()
-    assert "ghost" in msg or "unknown" in msg or "unresolved" in msg
+    # Either field is acceptable depending on rejection site.
+    err_str = str(exc_info.value)
+    assert "ghost" in err_str
