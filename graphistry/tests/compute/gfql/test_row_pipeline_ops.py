@@ -1069,7 +1069,7 @@ class TestRowPipelineExecution:
             pytest.param(
                 {"id": ["a"]},
                 [("eq_nested", "[1, {'k': [2, null]}] = [1, {'k': [2, null]}]")],
-                [{"eq_nested": True}],
+                [{"eq_nested": None}],
                 id="nested-json-like-literal",
             ),
             pytest.param(
