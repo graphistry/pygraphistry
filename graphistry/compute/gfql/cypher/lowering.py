@@ -502,8 +502,7 @@ def _merge_bound_params(
 ) -> Optional[Mapping[str, Any]]:
     if not bound_params:
         return params
-    # Binder metadata keys are not user runtime params and should not be
-    # exposed to expression/runtime parameter resolution.
+    # Binder metadata keys are not user runtime params.
     merged: Dict[str, Any] = {key: value for key, value in bound_params.items() if not key.startswith("_binder_")}
     if params:
         merged.update(params)
@@ -513,8 +512,7 @@ def _merge_bound_params(
 def _bound_visible_aliases(bound_ir: BoundIR) -> AbstractSet[str]:
     if not bound_ir.scope_stack:
         return frozenset()
-    # Scope narrowing must respect the active scope boundary. Unioning all
-    # historical frames can incorrectly re-introduce aliases dropped by WITH.
+    # Scope narrowing must respect active scope boundaries.
     return frozenset(bound_ir.scope_stack[-1].visible_vars)
 
 
@@ -554,9 +552,7 @@ def _apply_bound_scope_membership(
     if not bound_visible_aliases:
         return set(binding_row_aliases)
     visible = set(alias_targets.keys()) & set(bound_visible_aliases)
-    # Scope membership should only narrow aliases already chosen for
-    # bindings-row execution; it should not promote plain source/table
-    # projections into bindings-row mode.
+    # Scope membership narrowing must not promote plain source/table projections.
     if not binding_row_aliases:
         return set()
     narrowed = set(binding_row_aliases) & visible
@@ -6572,6 +6568,10 @@ def _lower_general_row_projection(
     alias_targets = _alias_target(lowered.query) if query.match is not None else {}
     merged_match = _merged_match_clause(query)
     relationship_count = _match_relationship_count(merged_match) if merged_match is not None else 0
+    if query.match is not None and _cartesian_node_only_patterns(query.match) is None and query.where is not None and relationship_count > 0:
+        whole_row_return_aliases = sum(1 for item in query.return_.items if item.expression.text in alias_targets)
+        if whole_row_return_aliases > 1 and any(not isinstance(predicate, WherePatternPredicate) and isinstance(predicate.right, PropertyRef) for predicate in query.where.predicates):
+            raise _unsupported("Cypher row lowering currently supports one MATCH source alias at a time; for remaining multi-source residuals see issue #1273", field=query.return_.kind, value=[item.expression.text for item in query.return_.items], line=query.return_.span.line, column=query.return_.span.column)
     aggregate_specs: List[_AggregateSpec] = []
     non_aggregate_items: List[ReturnItem] = []
     post_aggregate_items: List[_PostAggregateExprPlan] = []

@@ -11496,6 +11496,21 @@ def test_string_cypher_executes_connected_multi_pattern_multi_whole_row_joined_p
     ]
 
 
+def test_multi_alias_connected_whole_row_return_with_cross_alias_where_still_failfasts_for_1273_boundary() -> None:
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["n1", "n2", "x1", "x2"],
+                "animal": ["cat", "dog", "cat", "wolf"],
+            }
+        ),
+        pd.DataFrame({"s": ["n1", "n2"], "d": ["x1", "x2"], "type": ["R", "R"]}),
+    )
+    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time") as exc_info:
+        g.gfql("MATCH (n)-[rel]->(x) WHERE n.animal = x.animal RETURN n, x")
+    assert "#1273" in exc_info.value.message
+
+
 def test_compile_cypher_tracks_seeded_top_level_row_query() -> None:
     compiled = _compile_query("UNWIND [1, 2, 3] AS x RETURN x ORDER BY x DESC LIMIT 2")
 
