@@ -1452,6 +1452,10 @@ def _unresolved_identifiers(*, text: str, scope: Mapping[str, BoundVariable]) ->
 
         if prev_char in {"$", ".", ":"}:
             continue
+        # Scientific notation exponent markers inside numeric literals (for
+        # example `.1e-5`) are not identifiers.
+        if token in {"e", "E"} and (prev_char.isdigit() or prev_char == ".") and (next_char.isdigit() or next_char in {"+", "-"}):
+            continue
         if next_char == "(":
             continue
         if _is_namespaced_builtin_identifier_call(text=text, token=token, token_end=nxt):
