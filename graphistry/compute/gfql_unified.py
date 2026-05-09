@@ -422,11 +422,14 @@ def _apply_connected_match_join(
     from graphistry.compute.ast import ASTCall, serialize_binding_ops
 
     requested_engine = resolve_engine(cast(Any, engine), base_graph)
-    dispatch_engine: Union[EngineAbstract, str] = EngineAbstract.PANDAS if requested_engine == Engine.CUDF else engine
+    use_cudf_join_fallback = requested_engine == Engine.CUDF
+    dispatch_engine: Union[EngineAbstract, str] = (
+        EngineAbstract.PANDAS if use_cudf_join_fallback else engine
+    )
     # #1355: cuDF can segfault on connected comma-pattern row joins with some
     # rel-property projection shapes. Execute this join route on pandas and
     # convert the final rows back to cuDF so engine parity is preserved.
-    exec_engine = Engine.PANDAS if requested_engine == Engine.CUDF else requested_engine
+    exec_engine = Engine.PANDAS if use_cudf_join_fallback else requested_engine
     df_ctor = df_cons(exec_engine)
     node_col = getattr(base_graph, "_node", "id")
 
