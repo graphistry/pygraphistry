@@ -88,6 +88,8 @@ _IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _PROPERTY_RE = re.compile(r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)")
 _PARAMETER_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 _COUNT_CALL_RE = re.compile(r"(?i)^count\s*\(")
+_COLLECT_ALIAS_CALL_RE = re.compile(r"(?is)^collect\s*\(\s*(?:distinct\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\)$")
+_SINGLE_ALIAS_LIST_LITERAL_RE = re.compile(r"^\[\s*([A-Za-z_][A-Za-z0-9_]*)\s*\]$")
 _STRING_LITERAL_RE = re.compile(r"'(?:''|[^'])*'")
 _QUANTIFIER_COMPREHENSION_RE = re.compile(
     r"(?i)\b(?:all|any|none|single)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s+IN\b"
@@ -505,7 +507,7 @@ class FrontendBinder:
             logical_type=binding.logical_type,
             nullable=binding.nullable,
             null_extended_from=binding.null_extended_from,
-            entity_kind="scalar",
+            entity_kind=binding.entity_kind,
             scope_id=clause_scope_id,
         )
         next_conf[clause.alias] = binding.schema_confidence
@@ -796,16 +798,24 @@ class FrontendBinder:
         if not _strict_schema_mode(state):
             return
         spans = _string_literal_spans(expression.text)
+        comprehension_locals = _comprehension_locals(text=expression.text, string_spans=spans)
         for match in _PROPERTY_RE.finditer(expression.text):
             start = match.start()
             if any(lo <= start < hi for lo, hi in spans):
                 continue
             if _is_namespaced_builtin_property_call(expression.text, match):
                 continue
+            alias = match.group(1)
+            if _is_local_comprehension_reference(
+                token=alias,
+                token_start=match.start(1),
+                comprehension_locals=comprehension_locals,
+            ):
+                continue
             self._validate_property_ref_schema(
                 state=state,
                 property_ref=PropertyRef(
-                    alias=match.group(1),
+                    alias=alias,
                     property=match.group(2),
                     span=expression.span,
                 ),
@@ -853,6 +863,8 @@ class FrontendBinder:
             return
         source = state.scope.get(property_ref.alias)
         if source is None:
+            if _is_hidden_reentry_property(property_ref.property):
+                return
             if state.strict_name_resolution:
                 raise _unresolved_name_error(identifier=property_ref.alias, visible_scope=state.scope)
             return
@@ -863,6 +875,8 @@ class FrontendBinder:
             columns = state.catalog.edge_columns
             entity_kind = "edge"
         else:
+            return
+        if _is_hidden_reentry_property(property_ref.property):
             return
         if not columns:
             return
@@ -1043,6 +1057,28 @@ def _infer_expression_binding(
             schema_confidence="declared",
         )
 
+    collect_match = _COLLECT_ALIAS_CALL_RE.fullmatch(text)
+    if collect_match is not None:
+        source_alias = collect_match.group(1)
+        source = scope.get(source_alias)
+        if source is None:
+            if strict_name_resolution:
+                raise _unresolved_name_error(identifier=source_alias, visible_scope=scope)
+            return _ExpressionBinding(
+                logical_type=ListType(element_type=ScalarType(kind="unknown", nullable=True)),
+                entity_kind="scalar",
+                nullable=False,
+                null_extended_from=frozenset(),
+                schema_confidence="inferred",
+            )
+        return _ExpressionBinding(
+            logical_type=ListType(element_type=source.logical_type),
+            entity_kind="scalar",
+            nullable=False,
+            null_extended_from=source.null_extended_from,
+            schema_confidence=_demote_confidence(confidence.get(source_alias, "propagated")),
+        )
+
     direct = scope.get(text)
     if direct is not None:
         return _ExpressionBinding(
@@ -1056,8 +1092,9 @@ def _infer_expression_binding(
     prop_match = _PROPERTY_RE.fullmatch(text)
     if prop_match is not None:
         alias = prop_match.group(1)
+        property_name = prop_match.group(2)
         source = scope.get(alias)
-        if source is None and strict_name_resolution:
+        if source is None and strict_name_resolution and not _is_hidden_reentry_property(property_name):
             raise _unresolved_name_error(identifier=alias, visible_scope=scope)
         if source is None:
             return _ExpressionBinding(
@@ -1066,6 +1103,14 @@ def _infer_expression_binding(
                 nullable=True,
                 null_extended_from=frozenset(),
                 schema_confidence="inferred",
+            )
+        if _is_hidden_reentry_property(property_name):
+            return _ExpressionBinding(
+                logical_type=ScalarType(kind="unknown", nullable=True),
+                entity_kind="scalar",
+                nullable=True,
+                null_extended_from=source.null_extended_from,
+                schema_confidence=_demote_confidence(confidence.get(alias, "propagated")),
             )
         return _ExpressionBinding(
             logical_type=ScalarType(kind="unknown", nullable=True),
@@ -1116,6 +1161,27 @@ def _infer_expression_binding(
             schema_confidence="declared",
         )
     if _looks_like_list_literal(text):
+        alias_list_match = _SINGLE_ALIAS_LIST_LITERAL_RE.fullmatch(text)
+        if alias_list_match is not None:
+            alias = alias_list_match.group(1)
+            source = scope.get(alias)
+            if source is None:
+                if strict_name_resolution:
+                    raise _unresolved_name_error(identifier=alias, visible_scope=scope)
+                return _ExpressionBinding(
+                    logical_type=ListType(element_type=ScalarType(kind="unknown", nullable=True)),
+                    entity_kind="scalar",
+                    nullable=False,
+                    null_extended_from=frozenset(),
+                    schema_confidence="inferred",
+                )
+            return _ExpressionBinding(
+                logical_type=ListType(element_type=source.logical_type),
+                entity_kind="scalar",
+                nullable=False,
+                null_extended_from=source.null_extended_from,
+                schema_confidence=_demote_confidence(confidence.get(alias, "propagated")),
+            )
         return _ExpressionBinding(
             logical_type=ListType(element_type=ScalarType(kind="unknown", nullable=True)),
             entity_kind="scalar",
@@ -1179,9 +1245,10 @@ def _infer_unwind_binding(
     )
     expr_type = expr_binding.logical_type
     if isinstance(expr_type, ListType):
+        element_type = expr_type.element_type
         return _ExpressionBinding(
-            logical_type=expr_type.element_type,
-            entity_kind="scalar",
+            logical_type=element_type,
+            entity_kind=_entity_kind_from_logical_type(element_type),
             nullable=True,
             null_extended_from=expr_binding.null_extended_from,
             schema_confidence=expr_binding.schema_confidence,
@@ -1637,6 +1704,18 @@ def _default_call_output_alias(procedure: str) -> Optional[str]:
     if not _IDENTIFIER_RE.fullmatch(tail):
         return None
     return tail
+
+
+def _entity_kind_from_logical_type(logical_type: LogicalType) -> Literal["node", "edge", "scalar"]:
+    if isinstance(logical_type, NodeRef):
+        return "node"
+    if isinstance(logical_type, EdgeRef):
+        return "edge"
+    return "scalar"
+
+
+def _is_hidden_reentry_property(property_name: str) -> bool:
+    return property_name.startswith("__cypher_reentry_") and property_name.endswith("__")
 
 
 def _strict_schema_mode(state: _BindState) -> bool:

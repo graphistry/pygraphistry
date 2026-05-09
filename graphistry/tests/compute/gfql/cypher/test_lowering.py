@@ -5474,11 +5474,9 @@ def test_string_cypher_rejects_with_unwind_reentry_when_unwind_source_is_not_col
     with pytest.raises(GFQLValidationError) as exc_info:
         compile_cypher(query)
 
-    assert exc_info.value.code == ErrorCode.E108
-    assert (
-        "currently supports only a single WITH collect([distinct] alias) AS list "
-        "UNWIND list AS alias MATCH ... RETURN shape"
-    ) in exc_info.value.message
+    assert exc_info.value.code == ErrorCode.E204
+    assert exc_info.value.context.get("field") == "identifier"
+    assert exc_info.value.context.get("value") == "other_bees"
 
 
 def test_string_cypher_executes_exact_multihop_relationship_pattern() -> None:
