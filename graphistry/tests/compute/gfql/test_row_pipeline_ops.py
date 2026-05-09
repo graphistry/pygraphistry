@@ -2025,6 +2025,29 @@ class TestRowPipelineExecution:
         assert type(result._nodes).__module__.startswith("cudf")
         assert _safe_df_records(result._nodes) == [{"id": "c"}, {"id": "b"}, {"id": "a"}]
 
+    def test_row_pipeline_order_by_host_bridge_path_returns_to_cudf_when_available(self, monkeypatch):
+        cudf = pytest.importorskip("cudf")
+
+        monkeypatch.setattr(
+            row_pipeline_mixin,
+            "_gfql_cudf_list_sort_requires_host_bridge",
+            lambda: True,
+        )
+
+        nodes_pd = pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d", "e"],
+                "list": ["[2, -2]", "[1, 2]", "[300, 0]", "[1, -20]", "[2, -2, 100]"],
+            }
+        )
+        edges_pd = _self_loop_edges(nodes_pd)
+        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+
+        result = g.gfql([rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])])
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert _safe_df_records(result._nodes) == [{"id": "d"}, {"id": "b"}, {"id": "a"}]
+
     def test_row_pipeline_cudf_list_scalar_concat_when_available(self):
         cudf = pytest.importorskip("cudf")
 

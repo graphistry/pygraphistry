@@ -8,7 +8,15 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, 
 from typing_extensions import Literal
 
 import pandas as pd
-from graphistry.Engine import Engine, EngineAbstract, resolve_engine, safe_map_series, s_cons, s_to_numeric
+from graphistry.Engine import (
+    Engine,
+    EngineAbstract,
+    df_to_engine,
+    resolve_engine,
+    safe_map_series,
+    s_cons,
+    s_to_numeric,
+)
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.dataframe_utils import concat_frames, df_cons as template_df_cons
 from graphistry.compute.gfql.row.order_expr import (
@@ -4133,6 +4141,7 @@ class RowPipelineMixin:
 
     def order_by(self, keys: List[Any]) -> "Plottable":
         table_df = self._gfql_get_active_table()
+        input_engine = resolve_engine(EngineAbstract.AUTO, table_df)
         row_order_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_sort_row_order__")
         if keys is None:
             raise ValueError(
@@ -4142,6 +4151,7 @@ class RowPipelineMixin:
         sort_cols: List[str] = []
         ascending: List[bool] = []
         aux_drop_cols: List[str] = []
+        used_host_bridge = False
         work_df = table_df.assign(**{row_order_col: range(len(table_df))})
         tmp_idx = 0
         for key_item in keys:
@@ -4268,6 +4278,7 @@ class RowPipelineMixin:
                     )
                 ):
                     work_df = _gfql_bridge_cudf_df_to_pandas(work_df)
+                    used_host_bridge = True
                     series = work_df[sort_col]
                 key_prefix = f"__gfql_sort_list_{tmp_idx}__"
                 tmp_idx += 1
@@ -4318,6 +4329,17 @@ class RowPipelineMixin:
                 out_df = out_df.drop(columns=drop_cols)
         else:
             out_df = work_df.drop(columns=[row_order_col])
+
+        if input_engine == Engine.CUDF and used_host_bridge:
+            output_engine = resolve_engine(EngineAbstract.AUTO, out_df)
+            if output_engine != Engine.CUDF:
+                try:
+                    out_df = df_to_engine(out_df, Engine.CUDF)
+                except Exception as exc:
+                    raise ValueError(
+                        "internal engine-boundary violation: cuDF order_by host-bridge "
+                        "compatibility path must return to cuDF before returning rows"
+                    ) from exc
         return self._gfql_row_table(out_df)
 
     def skip(self, value: Any) -> "Plottable":
