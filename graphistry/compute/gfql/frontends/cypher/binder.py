@@ -1476,7 +1476,6 @@ def _is_local_comprehension_reference(
         if token == local_name and local_start <= token_start < local_end:
             return True
     return False
-
 def _is_namespaced_builtin_property_call(text: str, match: Match[str]) -> bool:
     namespace = match.group(1).lower()
     if namespace not in _NAMESPACED_BUILTIN_PREFIXES:
