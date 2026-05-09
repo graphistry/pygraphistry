@@ -134,7 +134,13 @@ def compiled_query_reentry_state(
         prefix_alias_values = cast(SeriesT, prefix_rows[output_name])
     entity_meta = cast(Optional[Dict[str, Any]], getattr(prefix_result, "_cypher_entity_projection_meta", None))
     has_projection_meta = isinstance(entity_meta, dict) and output_name in entity_meta
-    if not has_projection_meta and prefix_alias_values is not None and hasattr(prefix_alias_values, "notna"):
+    has_secondary_carried_alias = any(not alias.is_reentry_alias for alias in plan.aliases)
+    if (
+        not has_projection_meta
+        and has_secondary_carried_alias
+        and prefix_alias_values is not None
+        and hasattr(prefix_alias_values, "notna")
+    ):
         # #1356: OPTIONAL prefix + no matches can produce a single null carry row
         # without whole-row projection metadata. Treat it as an empty seed set
         # for re-entry instead of raising "could not recover carried identities".
@@ -149,8 +155,10 @@ def compiled_query_reentry_state(
                     value=id_column,
                     suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
                 )
-            concrete_engine = resolve_engine(cast(Any, engine), base_graph)
-            carried_node_ids = cast(DataFrameT, df_cons(concrete_engine)({id_column: []}))
+            carried_node_ids = cast(
+                DataFrameT,
+                cast(DataFrameT, base_nodes[[id_column]]).iloc[0:0].reset_index(drop=True),
+            )
             return base_graph, ordered_reentry_start_nodes(
                 node_rows=base_nodes,
                 carried_node_ids=carried_node_ids,
