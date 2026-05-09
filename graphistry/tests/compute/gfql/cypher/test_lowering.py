@@ -12548,6 +12548,44 @@ def test_string_cypher_multi_alias_with_non_active_whole_row_aggregation_groupin
     ]
 
 
+def test_string_cypher_multi_alias_with_non_active_grouping_then_property_projection() -> None:
+    """Post-grouping alias.property projections remain available after non-active whole-row grouping (#1392)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH post, count(tag) AS tagCount "
+        "WITH post.id AS postId, post.creationDate AS cd, tagCount "
+        "RETURN postId, cd, tagCount ORDER BY postId",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"postId": "post1", "cd": 100.0, "tagCount": 1},
+        {"postId": "post2", "cd": 200.0, "tagCount": 1},
+        {"postId": "post3", "cd": 300.0, "tagCount": 1},
+    ]
+
+
+def test_string_cypher_multi_alias_with_non_active_multi_whole_row_grouping() -> None:
+    """Aggregate grouping over two whole-row aliases preserves both alias key prefixes (#1392)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH post, tag, count(*) AS cnt "
+        "RETURN post.id AS postId, tag.name AS tagName, cnt "
+        "ORDER BY postId, tagName",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"postId": "post1", "tagName": "TagA", "cnt": 1},
+        {"postId": "post2", "tagName": "TagA", "cnt": 1},
+        {"postId": "post3", "tagName": "TagB", "cnt": 1},
+    ]
+
+
 def test_string_cypher_multi_alias_with_non_final_agg_multiple_funcs() -> None:
     """Non-final WITH aggregate with multiple agg functions, then RETURN alias property (#1054)."""
     graph = _mk_ic4_shape_graph()
