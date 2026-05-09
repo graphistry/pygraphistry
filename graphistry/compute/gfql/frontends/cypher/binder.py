@@ -89,6 +89,10 @@ _PROPERTY_RE = re.compile(r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_
 _PARAMETER_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 _COUNT_CALL_RE = re.compile(r"(?i)^count\s*\(")
 _STRING_LITERAL_RE = re.compile(r"'(?:''|[^'])*'")
+_QUANTIFIER_COMPREHENSION_RE = re.compile(
+    r"(?i)\b(?:all|any|none|single)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s+IN\b"
+)
+_LIST_COMPREHENSION_RE = re.compile(r"\[\s*([A-Za-z_][A-Za-z0-9_]*)\s+IN\b")
 
 
 @dataclass
@@ -1314,17 +1318,21 @@ def _referenced_aliases(text: str, scope: Mapping[str, BoundVariable]) -> Set[st
 def _unresolved_identifiers(*, text: str, scope: Mapping[str, BoundVariable]) -> Set[str]:
     unresolved: Set[str] = set()
     string_spans = _string_literal_spans(text)
+    comprehension_locals = _comprehension_locals(text=text, string_spans=string_spans)
 
     def in_string(index: int) -> bool:
-        for start, end in string_spans:
-            if start <= index < end:
-                return True
-        return False
+        return _in_string_literal(index=index, string_spans=string_spans)
 
     for match in _PROPERTY_RE.finditer(text):
         if in_string(match.start()):
             continue
         alias = match.group(1)
+        if _is_local_comprehension_reference(
+            token=alias,
+            token_start=match.start(1),
+            comprehension_locals=comprehension_locals,
+        ):
+            continue
         if alias not in scope:
             unresolved.add(alias)
 
@@ -1352,6 +1360,12 @@ def _unresolved_identifiers(*, text: str, scope: Mapping[str, BoundVariable]) ->
             continue
         if next_char == ":" and (prev_char == "" or prev_char in "{,"):
             continue
+        if _is_local_comprehension_reference(
+            token=token,
+            token_start=start,
+            comprehension_locals=comprehension_locals,
+        ):
+            continue
 
         if token not in scope:
             unresolved.add(token)
@@ -1361,6 +1375,88 @@ def _unresolved_identifiers(*, text: str, scope: Mapping[str, BoundVariable]) ->
 
 def _string_literal_spans(text: str) -> List[Tuple[int, int]]:
     return [(match.start(), match.end()) for match in _STRING_LITERAL_RE.finditer(text)]
+
+
+def _in_string_literal(*, index: int, string_spans: Sequence[Tuple[int, int]]) -> bool:
+    for start, end in string_spans:
+        if start <= index < end:
+            return True
+    return False
+
+
+def _find_matching_delimiter(
+    *,
+    text: str,
+    start: int,
+    open_char: str,
+    close_char: str,
+    string_spans: Sequence[Tuple[int, int]],
+) -> Optional[int]:
+    depth = 0
+    for idx in range(start, len(text)):
+        if _in_string_literal(index=idx, string_spans=string_spans):
+            continue
+        ch = text[idx]
+        if ch == open_char:
+            depth += 1
+            continue
+        if ch != close_char:
+            continue
+        depth -= 1
+        if depth == 0:
+            return idx
+    return None
+
+
+def _comprehension_locals(*, text: str, string_spans: Sequence[Tuple[int, int]]) -> List[Tuple[str, int, int]]:
+    locals_with_spans: List[Tuple[str, int, int]] = []
+
+    for match in _QUANTIFIER_COMPREHENSION_RE.finditer(text):
+        if _in_string_literal(index=match.start(), string_spans=string_spans):
+            continue
+
+        open_idx = text.find("(", match.start(), match.end())
+        if open_idx < 0:
+            continue
+        close_idx = _find_matching_delimiter(
+            text=text,
+            start=open_idx,
+            open_char="(",
+            close_char=")",
+            string_spans=string_spans,
+        )
+        if close_idx is None:
+            continue
+        locals_with_spans.append((match.group(1), open_idx + 1, close_idx))
+
+    for match in _LIST_COMPREHENSION_RE.finditer(text):
+        if _in_string_literal(index=match.start(), string_spans=string_spans):
+            continue
+
+        close_idx = _find_matching_delimiter(
+            text=text,
+            start=match.start(),
+            open_char="[",
+            close_char="]",
+            string_spans=string_spans,
+        )
+        if close_idx is None:
+            continue
+        locals_with_spans.append((match.group(1), match.start() + 1, close_idx))
+
+    return locals_with_spans
+
+
+def _is_local_comprehension_reference(
+    *,
+    token: str,
+    token_start: int,
+    comprehension_locals: Sequence[Tuple[str, int, int]],
+) -> bool:
+    for local_name, local_start, local_end in comprehension_locals:
+        if token == local_name and local_start <= token_start < local_end:
+            return True
+    return False
 
 
 def _path_hops(pattern: Sequence[PatternElement]) -> Tuple[int, int]:

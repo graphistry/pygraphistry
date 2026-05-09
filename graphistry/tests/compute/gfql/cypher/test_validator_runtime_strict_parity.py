@@ -64,27 +64,20 @@ def test_validator_and_runtime_both_reject_cross_kind_rebind(query: str) -> None
 
 
 # ---------------------------------------------------------------------------
-# Divergence: validator (strict) rejects, runtime (loose) admits.
-# These are the binder-coverage gaps documented in
-# plans/1357-binder-strict-name-resolution/research/discovery-flip-blast-radius.md
+# Parity: validator (strict) and runtime (loose) both admit.
+# These cases previously diverged due missing comprehension-local scope in
+# strict binder unresolved-identifier checks (#1371 P2).
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
     "query",
     [
-        # Quantifier predicates — strict rejects 'x' as unresolved; runtime
-        # admits because loose binder doesn't model comprehension scope.
-        "MATCH (n) WHERE all(x IN n.labels WHERE x = 'A') RETURN n",
+        "RETURN all(x IN [1, 2, 3] WHERE x > 1) AS ok",
+        "RETURN [x IN [1, 2, 3] WHERE x > 1 | x + 1] AS xs",
     ],
 )
-def test_validator_strict_rejects_runtime_loose_admits(query: str) -> None:
-    """Pinned divergence — validator catches alias-scope leak that the
-    runtime currently lets through. When the corresponding binder gap is
-    closed (see follow-up issues), this test flips into the parity
-    partition above."""
-    with pytest.raises(GFQLValidationError):
-        gfql_validate(_empty_g(), query, strict=True)
-    # Runtime should NOT raise on binder dimension (loose admit). Compile
-    # produces a CompiledCypher* result.
+def test_validator_and_runtime_both_admit_comprehension_locals(query: str) -> None:
+    """Parity pin for comprehension-local scope handling after #1371 P2."""
+    gfql_validate(_empty_g(), query, strict=True)
     compile_cypher(query)
