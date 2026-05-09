@@ -4284,6 +4284,15 @@ def test_string_cypher_supports_integer_division_in_limit_expression() -> None:
     assert result._nodes.to_dict(orient="records") == [{"count": 2}]
 
 
+def test_string_cypher_uses_integer_division_for_literal_expression() -> None:
+    graph = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = graph.gfql("RETURN 12 / 4 * 3 - 2 * 4 AS v")
+    rows = result._nodes.to_dict(orient="records")
+    assert rows == [{"v": 1}]
+    assert not isinstance(rows[0]["v"], float)
+
+
 @pytest.mark.parametrize(
     "query,params,expected",
     [
@@ -9988,44 +9997,23 @@ def _mk_ic1_shortest_path_graph() -> _CypherTestGraph:
     )
 
 
-def test_string_cypher_executes_ic1_shortest_path_with_carried_endpoints_rebound() -> None:
-    """LDBC SNB IC1 named-shortest-friends shape (#1341): two whole-row aliases
-    carried through WITH and rebound as both shortestPath endpoints in the
-    trailing MATCH. The flattener merges this into a single MATCH so the
-    supported two-endpoint shortestPath path executes it."""
-    query = (
-        "MATCH (p:Person {id: 'p1'}), (friend:Person) "
-        "WHERE NOT p = friend "
-        "WITH p, friend "
-        "MATCH path = shortestPath((p)-[:KNOWS*1..3]-(friend)) "
-        "RETURN friend.id AS friendId, length(path) AS dist "
-        "ORDER BY friendId"
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_string_cypher_executes_ic1_shortest_path_with_carried_endpoints_rebound_length_dtype_parity(
+    engine: str,
+) -> None:
+    """IC1 carried-endpoint shortestPath parity on values + numeric dtype (#1354)."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["p1", "p2", "p3", "p4"],
+            "label__Person": [True, True, True, True],
+        }
     )
-    result = _mk_ic1_shortest_path_graph().gfql(query)
-    assert result._nodes.to_dict(orient="records") == [
-        {"friendId": "p2", "dist": 1.0},
-        {"friendId": "p3", "dist": 2.0},
-        {"friendId": "p4", "dist": 1.0},
-    ]
-
-
-def test_string_cypher_executes_ic1_shortest_path_with_carried_endpoints_rebound_on_cudf() -> None:
-    """cuDF parity for the IC1 carried-endpoint rebind shape (#1341)."""
-    pytest.importorskip("cudf")
-    g = _mk_cudf_graph(
-        pd.DataFrame(
-            {
-                "id": ["p1", "p2", "p3", "p4"],
-                "label__Person": [True, True, True, True],
-            }
-        ),
-        pd.DataFrame(
-            {
-                "s": ["p1", "p2", "p1"],
-                "d": ["p2", "p3", "p4"],
-                "type": ["KNOWS", "KNOWS", "KNOWS"],
-            }
-        ),
+    edges = pd.DataFrame(
+        {
+            "s": ["p1", "p2", "p1"],
+            "d": ["p2", "p3", "p4"],
+            "type": ["KNOWS", "KNOWS", "KNOWS"],
+        }
     )
     query = (
         "MATCH (p:Person {id: 'p1'}), (friend:Person) "
@@ -10035,19 +10023,23 @@ def test_string_cypher_executes_ic1_shortest_path_with_carried_endpoints_rebound
         "RETURN friend.id AS friendId, length(path) AS dist "
         "ORDER BY friendId"
     )
-    result = g.gfql(query, engine="cudf")
-    assert type(result._nodes).__module__.startswith("cudf")
-    # cuDF returns ``length(path)`` as object/string rather than float (verified
-    # by manual repro on rapids 25.02 + 26.02; a separate pre-existing cuDF
-    # row-pipeline divergence — see #1354). Compare friend IDs as-is and numeric
-    # distances after ``int(float(...))`` two-step coercion so this admit-side
-    # parity test is not blocked by the dtype divergence and survives both
-    # ``'1'``/``1`` (int-string/int) and ``'1.0'``/``1.0`` (float-string/float)
-    # representations the cuDF row-pipeline may return as #1354 evolves.
-    rows = result._nodes.to_pandas().to_dict(orient="records")
-    assert len(rows) == 3, f"expected 3 friend rows, got {len(rows)}"
-    assert [r["friendId"] for r in rows] == ["p2", "p3", "p4"]
-    assert [int(float(r["dist"])) for r in rows] == [1, 2, 1]
+    if engine == "cudf":
+        _require_cudf_runtime()
+        result = _mk_cudf_graph(nodes, edges).gfql(query, engine="cudf")
+        assert type(result._nodes).__module__.startswith("cudf")
+        rows_df = result._nodes
+        friend_ids = rows_df["friendId"].to_arrow().to_pylist()
+        dists = rows_df["dist"].astype("float64").to_arrow().to_pylist()
+        assert rows_df["dist"].dtype.kind in ("i", "u", "f")
+    else:
+        rows_df = _mk_graph(nodes, edges).gfql(query)._nodes
+        rows = rows_df.to_dict(orient="records")
+        friend_ids = [r["friendId"] for r in rows]
+        dists = [float(r["dist"]) for r in rows]
+        assert pd.api.types.is_numeric_dtype(rows_df["dist"])
+
+    assert friend_ids == ["p2", "p3", "p4"]
+    assert dists == [1.0, 2.0, 1.0]
 
 
 def test_string_cypher_flatten_admit_matches_hand_flattened_oracle_ic1() -> None:
