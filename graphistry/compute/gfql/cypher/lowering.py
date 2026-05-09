@@ -3476,12 +3476,60 @@ def _apply_seed_node_bindings(
     )
 
 
+def _merge_non_optional_match_clauses(matches: Sequence[MatchClause]) -> MatchClause:
+    if not matches:
+        raise ValueError("Expected at least one MATCH clause to merge")
+    merged_patterns: List[Tuple[PatternElement, ...]] = []
+    merged_aliases: List[Optional[str]] = []
+    merged_alias_kinds: List[PathPatternKind] = []
+    merged_where: Optional[WhereClause] = None
+    last_idx = len(matches) - 1
+    for idx, clause in enumerate(matches):
+        if clause.optional:
+            raise _unsupported(
+                "Cypher sequential MATCH merge currently supports only non-optional MATCH clauses",
+                field="match",
+                value=None,
+                line=clause.span.line,
+                column=clause.span.column,
+            )
+        if clause.where is not None:
+            if idx != last_idx:
+                raise _unsupported(
+                    "Cypher WHERE on intermediate MATCH clauses is not yet supported for sequential MATCH merge",
+                    field="where",
+                    value=None,
+                    line=clause.where.span.line,
+                    column=clause.where.span.column,
+                )
+            merged_where = clause.where
+        merged_patterns.extend(clause.patterns)
+        if clause.pattern_aliases and len(clause.pattern_aliases) == len(clause.patterns):
+            merged_aliases.extend(clause.pattern_aliases)
+        else:
+            merged_aliases.extend([None] * len(clause.patterns))
+        merged_alias_kinds.extend(_match_pattern_alias_kinds(clause))
+    return MatchClause(
+        patterns=tuple(merged_patterns),
+        span=matches[-1].span,
+        optional=False,
+        pattern_aliases=tuple(merged_aliases),
+        where=merged_where,
+        pattern_alias_kinds=tuple(merged_alias_kinds),
+    )
+
+
 def _merged_match_clause(query: CypherQuery) -> Optional[MatchClause]:
     if not query.matches:
         return None
     if len(query.matches) == 1:
         return query.matches[0]
-    seed_bindings = _seed_node_bindings(query.matches[:-1])
+    try:
+        seed_bindings = _seed_node_bindings(query.matches[:-1])
+    except GFQLValidationError as exc:
+        if "Only node-only pre-binding MATCH clauses are supported before the final connected MATCH in this phase" not in str(exc):
+            raise
+        return _merge_non_optional_match_clauses(query.matches)
     return _apply_seed_node_bindings(query.matches[-1], seed_bindings=seed_bindings)
 
 
