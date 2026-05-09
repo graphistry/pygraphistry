@@ -3491,7 +3491,7 @@ class RowPipelineMixin:
         to_numeric = None
         try:
             to_numeric = s_to_numeric(resolve_engine(EngineAbstract.AUTO, merged))
-        except Exception:
+        except (ValueError, ImportError, ModuleNotFoundError):
             to_numeric = None
         for col in [hop_column, f"{end_alias}.{hop_column}"]:
             dup_col = f"{col}__reachable__"
@@ -3504,7 +3504,7 @@ class RowPipelineMixin:
                 if to_numeric is not None:
                     try:
                         merged[col] = to_numeric(merged[col], errors="coerce")
-                    except Exception:
+                    except (TypeError, ValueError, RuntimeError):
                         pass
                 null_mask = merged[col].isna()
                 if bool(null_mask.any()):
@@ -3672,14 +3672,19 @@ class RowPipelineMixin:
                 else:
                     value = self._gfql_eval_string_expr(table_df, expr)
                 if "__cypher_shortest_path_hops__" in expr and hasattr(value, "isna"):
+                    to_numeric = None
                     try:
                         to_numeric = s_to_numeric(resolve_engine(EngineAbstract.AUTO, table_df))
-                        value = to_numeric(value, errors="coerce")
-                        null_mask = value.isna()
-                        if bool(null_mask.any()):
-                            value = value.astype(object).where(~null_mask, None)
-                    except Exception:
-                        pass
+                    except (ValueError, ImportError, ModuleNotFoundError):
+                        to_numeric = None
+                    if to_numeric is not None:
+                        try:
+                            value = to_numeric(value, errors="coerce")
+                            null_mask = value.isna()
+                            if bool(null_mask.any()):
+                                value = value.astype(object).where(~null_mask, None)
+                        except (TypeError, ValueError, RuntimeError):
+                            pass
                 if not hasattr(value, "astype"):
                     value = _project_scalar(value)
                 projected[alias] = value
