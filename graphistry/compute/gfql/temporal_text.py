@@ -882,35 +882,74 @@ def _format_signed_day_time_duration(total_nanoseconds: int) -> str:
 
 
 def _normalize_duration_map(fields: dict[str, str]) -> str:
+    # openCypher CIP `Duration`: months, days, seconds+nanoseconds are kept as
+    # separate components (months have variable length; days vary under DST).
+    # Within a duration, fractional larger units cascade into the next group:
+    # fractional months -> days (30.436875 d/mo), fractional days -> seconds.
+    # The components are otherwise preserved through toString and equality.
     def _decimal_value(key: str) -> Decimal:
         raw = fields.get(key)
         return Decimal(raw) if raw is not None else Decimal(0)
 
-    years_total = _decimal_value("years")
-    months_total = _decimal_value("months")
-    years = int(years_total)
-    months = int(months_total)
+    months_combined = _decimal_value("years") * 12 + _decimal_value("months")
+    months_int = int(months_combined)
+    months_frac = months_combined - Decimal(months_int)
+
+    days_combined = (
+        _decimal_value("weeks") * 7
+        + _decimal_value("days")
+        + months_frac * Decimal("30.436875")
+    )
+    days_int = int(days_combined)
+    days_frac = days_combined - Decimal(days_int)
+
     total_nanoseconds = (
-        (years_total - Decimal(years)) * Decimal("365.2425") * Decimal(24 * 60 * 60 * 1_000_000_000)
-        + (months_total - Decimal(months)) * Decimal("30.436875") * Decimal(24 * 60 * 60 * 1_000_000_000)
-        + _decimal_value("weeks") * Decimal(7 * 24 * 60 * 60 * 1_000_000_000)
-        + _decimal_value("days") * Decimal(24 * 60 * 60 * 1_000_000_000)
+        days_frac * Decimal(24 * 60 * 60 * 1_000_000_000)
         + _decimal_value("hours") * Decimal(60 * 60 * 1_000_000_000)
         + _decimal_value("minutes") * Decimal(60 * 1_000_000_000)
         + _decimal_value("seconds") * Decimal(1_000_000_000)
         + Decimal(_nanos_from_fields(fields))
     )
-    day_time_text = _format_signed_day_time_duration(int(total_nanoseconds.to_integral_value()))
+    nanoseconds_int = int(total_nanoseconds.to_integral_value())
+
+    if months_int == 0 and days_int == 0 and nanoseconds_int == 0:
+        return "PT0S"
+
+    if months_int >= 0:
+        years_part = months_int // 12
+    else:
+        years_part = -((-months_int) // 12)
+    month_remainder = months_int - years_part * 12
 
     parts = ["P"]
-    if years:
-        parts.append(f"{years}Y")
-    if months:
-        parts.append(f"{months}M")
-    if day_time_text != "PT0S":
-        parts.append(day_time_text[1:])
-    if parts == ["P"]:
-        return "PT0S"
+    if years_part:
+        parts.append(f"{years_part}Y")
+    if month_remainder:
+        parts.append(f"{month_remainder}M")
+    if days_int:
+        parts.append(f"{days_int}D")
+
+    if nanoseconds_int != 0:
+        sign_str = "-" if nanoseconds_int < 0 else ""
+        rem = abs(nanoseconds_int)
+        hours_part, rem = divmod(rem, 60 * 60 * 1_000_000_000)
+        minutes_part, rem = divmod(rem, 60 * 1_000_000_000)
+        seconds_part, nanos_part = divmod(rem, 1_000_000_000)
+        time_parts: list[str] = []
+        if hours_part:
+            time_parts.append(f"{sign_str}{hours_part}H")
+        if minutes_part:
+            time_parts.append(f"{sign_str}{minutes_part}M")
+        if seconds_part or nanos_part:
+            if nanos_part:
+                frac = str(nanos_part).rjust(9, "0").rstrip("0")
+                time_parts.append(f"{sign_str}{seconds_part}.{frac}S")
+            else:
+                time_parts.append(f"{sign_str}{seconds_part}S")
+        if time_parts:
+            parts.append("T")
+            parts.extend(time_parts)
+
     return "".join(parts)
 
 
