@@ -4284,6 +4284,15 @@ def test_string_cypher_supports_integer_division_in_limit_expression() -> None:
     assert result._nodes.to_dict(orient="records") == [{"count": 2}]
 
 
+def test_string_cypher_uses_integer_division_for_literal_expression() -> None:
+    graph = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = graph.gfql("RETURN 12 / 4 * 3 - 2 * 4 AS v")
+    rows = result._nodes.to_dict(orient="records")
+    assert rows == [{"v": 1}]
+    assert not isinstance(rows[0]["v"], float)
+
+
 @pytest.mark.parametrize(
     "query,params,expected",
     [

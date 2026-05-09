@@ -733,6 +733,16 @@ class RowPipelineMixin:
             if op == "*":
                 return True, left * right
             if op == "/":
+                if (
+                    isinstance(left, int)
+                    and not isinstance(left, bool)
+                    and isinstance(right, int)
+                    and not isinstance(right, bool)
+                ):
+                    if right == 0:
+                        return False, None
+                    # Cypher integer division truncates toward zero for integer operands.
+                    return True, int(left / right)
                 try:
                     if (
                         isinstance(left, numbers.Integral)
