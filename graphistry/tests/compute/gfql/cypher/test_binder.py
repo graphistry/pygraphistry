@@ -358,6 +358,19 @@ def test_binder_strict_name_resolution_rejects_comprehension_local_outside_scope
     with pytest.raises(GFQLValidationError, match="Unresolved identifier"):
         FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
 
+@pytest.mark.parametrize(
+    ("query", "expected_alias"),
+    [
+        ("CALL graphistry.degree() YIELD nodeId RETURN nodeId", "nodeId"),
+        ("CALL graphistry.degree() YIELD nodeId AS nid RETURN nid", "nid"),
+    ],
+)
+def test_binder_strict_name_resolution_preserves_call_yield_scope(query: str, expected_alias: str) -> None:
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert [part.clause for part in bound.query_parts] == ["CALL", "RETURN"]
+    assert expected_alias in bound.semantic_table.variables
+
 
 def test_binder_unwind_extends_existing_scope() -> None:
     query = "MATCH (n:Person) UNWIND [1, 2] AS x RETURN n, x"
