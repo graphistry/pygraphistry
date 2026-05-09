@@ -2,6 +2,7 @@ import ast
 import math
 import numbers
 import re
+import warnings
 from functools import lru_cache
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, cast
@@ -4247,14 +4248,13 @@ class RowPipelineMixin:
                 tmp_idx += 1
                 sort_value = self._gfql_eval_string_expr(work_df, expr)
                 if resolve_engine(EngineAbstract.AUTO, work_df) == Engine.CUDF and isinstance(sort_value, pd.Series):
-                    if _gfql_cudf_list_sort_requires_host_bridge():
-                        work_df = _gfql_bridge_cudf_df_to_pandas(work_df)
-                        used_host_bridge = True
-                    else:
-                        raise ValueError(
-                            "internal engine-boundary violation: vectorized order_by expression in cuDF mode "
-                            "returned pandas series"
-                        )
+                    warnings.warn(
+                        "cuDF order_by expression produced pandas series; applying scoped host bridge "
+                        "and converting result rows back to cuDF",
+                        RuntimeWarning,
+                    )
+                    work_df = _gfql_bridge_cudf_df_to_pandas(work_df)
+                    used_host_bridge = True
                 work_df = work_df.assign(**{sort_col: sort_value})
             direction_is_asc = str(direction).lower() != "desc"
             series = work_df[sort_col]
