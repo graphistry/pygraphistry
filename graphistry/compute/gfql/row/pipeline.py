@@ -584,24 +584,24 @@ class RowPipelineMixin:
         if op in {"<", "<=", ">", ">="}:
             left_values = self._gfql_series_to_pylist(left_series)
             right_values = self._gfql_series_to_pylist(right_series)
-            out_values: List[Optional[bool]] = []
+            ordered_out_values: List[Optional[bool]] = []
             for left_item, right_item in zip(left_values, right_values):
                 if is_null_scalar(left_item) or is_null_scalar(right_item):
-                    out_values.append(None)
+                    ordered_out_values.append(None)
                     continue
                 try:
                     if op == "<":
-                        out_values.append(left_item < right_item)
+                        ordered_out_values.append(left_item < right_item)
                     elif op == "<=":
-                        out_values.append(left_item <= right_item)
+                        ordered_out_values.append(left_item <= right_item)
                     elif op == ">":
-                        out_values.append(left_item > right_item)
+                        ordered_out_values.append(left_item > right_item)
                     else:
-                        out_values.append(left_item >= right_item)
+                        ordered_out_values.append(left_item >= right_item)
                 except Exception:
-                    out_values.append(None)
+                    ordered_out_values.append(None)
             out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_py__")
-            return table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col]
+            return table_df.reset_index(drop=True).assign(**{out_col: ordered_out_values})[out_col]
 
         row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_row__")
         lhs_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_lhs__")
