@@ -7778,6 +7778,87 @@ def test_string_cypher_supports_order_by_stringified_list_subscript_expression()
     ]
 
 
+def test_string_cypher_order_by_python_list_column_uses_list_orderability() -> None:
+    """Issue #1359 — Cypher ORDER BY <list-col> must use openCypher list-orderability.
+
+    Pairwise lex comparison; shorter list less-than its longer prefix-equal extension.
+    With Python-list-typed input, the row pipeline's ``build_list_sort_columns``
+    handles this correctly. This test pins the behavior so future refactors
+    don't regress to a string-cast fallback (the bug we lifted for str-typed cols).
+    """
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d", "e"],
+                "list": [[2, -2], [1, 2], [300, 0], [1, -20], [2, -2, 100]],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    asc = g.gfql(
+        "MATCH (a) "
+        "WITH a, a.list AS list "
+        "WITH a, list ORDER BY list ASC LIMIT 3 "
+        "RETURN a, list"
+    )
+    asc_lists = [tuple(v) for v in asc._nodes["list"].tolist()]
+    assert sorted(asc_lists) == sorted([(1, -20), (1, 2), (2, -2)])
+
+    desc = g.gfql(
+        "MATCH (a) "
+        "WITH a, a.list AS list "
+        "WITH a, list ORDER BY list DESC LIMIT 3 "
+        "RETURN a, list"
+    )
+    desc_lists = [tuple(v) for v in desc._nodes["list"].tolist()]
+    assert sorted(desc_lists) == sorted([(300, 0), (2, -2, 100), (2, -2)])
+
+
+def test_string_cypher_order_by_stringified_list_column_uses_list_orderability() -> None:
+    """Issue #1359 — Cypher ORDER BY <stringified-list-col>.
+
+    When a list-valued property is stored as a string column (e.g. round-tripped
+    through CSV / Arrow string), pygraphistry must still apply Cypher list
+    orderability — not lex string sort, which mishandles negatives because
+    ``"-"`` < ``"2"`` in ASCII.
+
+    Pre-fix: lex string sort produced top-3 ASC = D, B, E (E in place of A).
+    Post-fix: top-3 ASC SET = {B, D, A} via ``order_detect_stringified_list_series``
+    + ``parse_stringified_list_series`` routing into ``build_list_sort_columns``.
+    """
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d", "e"],
+                "list": pd.Series(
+                    ["[2, -2]", "[1, 2]", "[300, 0]", "[1, -20]", "[2, -2, 100]"],
+                    dtype="string",
+                ),
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    asc = g.gfql(
+        "MATCH (a) "
+        "WITH a, a.list AS list "
+        "WITH a, list ORDER BY list ASC LIMIT 3 "
+        "RETURN a, list"
+    )
+    asc_values = sorted(str(v) for v in asc._nodes["list"].tolist())
+    assert asc_values == sorted(["[1, -20]", "[1, 2]", "[2, -2]"])
+
+    desc = g.gfql(
+        "MATCH (a) "
+        "WITH a, a.list AS list "
+        "WITH a, list ORDER BY list DESC LIMIT 3 "
+        "RETURN a, list"
+    )
+    desc_values = sorted(str(v) for v in desc._nodes["list"].tolist())
+    assert desc_values == sorted(["[300, 0]", "[2, -2, 100]", "[2, -2]"])
+
+
 def test_string_cypher_supports_return_star_after_with_distinct_row_projection() -> None:
     g = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c"], "name": ["A", "B", "C"]}),

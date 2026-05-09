@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import ast
 import datetime
 import math
 import re
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -153,6 +154,58 @@ def order_detect_list_series(series: Any) -> bool:
     if hasattr(valid, "where"):
         return bool(valid.where(~null_mask, True).all())
     return False
+
+
+def order_detect_stringified_list_series(series: Any) -> bool:
+    """Return True when every non-null entry is a string matching ``[...]`` syntax.
+
+    Complements ``order_detect_list_series`` (which only matches Python-list values).
+    Lets ``ORDER BY <col>`` apply Cypher list-orderability semantics when the
+    underlying dataframe stores list properties as strings (a common shape when
+    data round-trips through CSV / Arrow string columns).
+    """
+    if not hasattr(series, "isna") or not hasattr(series, "astype"):
+        return False
+    null_mask = series.isna()
+    non_null = ~null_mask
+    if hasattr(non_null, "any") and not bool(non_null.any()):
+        return False
+    text = series.astype(str)
+    if not hasattr(text, "str"):
+        return False
+    actual_string = _actual_string_mask(series, text, null_mask)
+    list_like = series_str_match(text.str.strip(), _GFQL_LIST_TEXT_RE.pattern, na=False)
+    valid = (~null_mask) & actual_string & list_like
+    if not (hasattr(valid, "where") and bool(valid.where(~null_mask, True).all())):
+        return False
+    return bool(((~null_mask) & actual_string).any())
+
+
+def parse_stringified_list_series(series: Any) -> Optional[Any]:
+    """Parse a stringified-list column into a Python-list column via ``ast.literal_eval``.
+
+    Returns a new Series with parsed values (and original Python-list values passed
+    through), or ``None`` if any non-null entry fails to parse to a list/tuple.
+    """
+    parsed: List[Any] = []
+    for value in series.tolist() if hasattr(series, "tolist") else list(series):
+        if is_null_scalar(value):
+            parsed.append(None)
+            continue
+        if isinstance(value, (list, tuple)):
+            parsed.append(list(value))
+            continue
+        if isinstance(value, str):
+            try:
+                literal = ast.literal_eval(value)
+            except Exception:
+                return None
+            if isinstance(literal, (list, tuple)):
+                parsed.append(list(literal))
+                continue
+        return None
+    index = getattr(series, "index", None)
+    return pd.Series(parsed, index=index, dtype="object")
 
 
 def order_detect_temporal_mode(series: Any) -> Optional[str]:

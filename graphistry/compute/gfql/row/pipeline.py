@@ -48,7 +48,9 @@ from graphistry.compute.gfql.row.ordering import (
     build_temporal_sort_columns,
     is_null_scalar,
     order_detect_list_series,
+    order_detect_stringified_list_series,
     order_detect_temporal_mode,
+    parse_stringified_list_series,
     validate_order_series_vector_safe,
 )
 from graphistry.compute.gfql.temporal_text import parse_temporal_sort_duration_components
@@ -3859,6 +3861,7 @@ class RowPipelineMixin:
 
         sort_cols: List[str] = []
         ascending: List[bool] = []
+        aux_drop_cols: List[str] = []
         work_df = table_df.assign(**{row_order_col: range(len(table_df))})
         tmp_idx = 0
         for key_item in keys:
@@ -3949,6 +3952,19 @@ class RowPipelineMixin:
                 top_null_mask = self._gfql_null_mask(work_df, series)
                 if hasattr(top_null_mask, "any") and bool(top_null_mask.any()):
                     list_candidate = False
+            if not list_candidate and order_detect_stringified_list_series(series):
+                top_null_mask = self._gfql_null_mask(work_df, series)
+                has_null = hasattr(top_null_mask, "any") and bool(top_null_mask.any())
+                if not has_null:
+                    parsed = parse_stringified_list_series(series)
+                    if parsed is not None:
+                        sort_col = RowPipelineMixin._gfql_fresh_col_name(
+                            work_df.columns, "__gfql_sort_listparsed_"
+                        )
+                        work_df = work_df.assign(**{sort_col: parsed})
+                        aux_drop_cols.append(sort_col)
+                        series = work_df[sort_col]
+                        list_candidate = True
             if list_candidate:
                 key_prefix = f"__gfql_sort_list_{tmp_idx}__"
                 tmp_idx += 1
@@ -3994,6 +4010,7 @@ class RowPipelineMixin:
                     f"{[k[0] for k in keys]!r}: {exc}"
                 ) from exc
             drop_cols = [c for c in effective_sort_cols if isinstance(c, str) and c.startswith("__gfql_sort_")]
+            drop_cols.extend(c for c in aux_drop_cols if c not in drop_cols)
             if drop_cols:
                 out_df = out_df.drop(columns=drop_cols)
         else:
