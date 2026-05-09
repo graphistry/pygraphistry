@@ -12530,6 +12530,24 @@ def test_string_cypher_multi_alias_with_four_stage_chain() -> None:
     ]
 
 
+def test_string_cypher_multi_alias_with_non_active_whole_row_aggregation_grouping() -> None:
+    """Joined-row aggregation can group by a non-active whole-row alias (#1392)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH post, count(tag) AS tagCount "
+        "RETURN post.id AS postId, post.creationDate AS cd, tagCount ORDER BY postId",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"postId": "post1", "cd": 100, "tagCount": 1},
+        {"postId": "post2", "cd": 200, "tagCount": 1},
+        {"postId": "post3", "cd": 300, "tagCount": 1},
+    ]
+
+
 def test_string_cypher_multi_alias_with_non_final_agg_multiple_funcs() -> None:
     """Non-final WITH aggregate with multiple agg functions, then RETURN alias property (#1054)."""
     graph = _mk_ic4_shape_graph()
