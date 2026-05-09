@@ -211,6 +211,46 @@ def _mk_connected_reentry_carried_scalar_graph_cudf() -> _CypherTestGraph:
     )
 
 
+def _mk_optional_prefix_reentry_no_match_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["x1", "y1"],
+                "label__A": [True, False],
+                "label__B": [False, True],
+                "label__C": [False, False],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["y1"],
+                "d": ["x1"],
+                "type": ["Q"],
+            }
+        ),
+    )
+
+
+def _mk_optional_prefix_reentry_match_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "b1", "c1"],
+                "label__A": [True, False, False],
+                "label__B": [False, True, False],
+                "label__C": [False, False, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a1", "b1"],
+                "d": ["b1", "c1"],
+                "type": ["R", "S"],
+            }
+        ),
+    )
+
+
 def _mk_reentry_order_limit_graph() -> _CypherTestGraph:
     return _mk_graph(
         pd.DataFrame(
@@ -14430,6 +14470,33 @@ def test_issue_1047_optional_reentry_raises_is_gfql_validation_error() -> None:
             "OPTIONAL MATCH (post:Post)-[:HAS_TAG]->(x:Tag {tagId: knownTagId}) "
             "RETURN post.id AS id"
         )
+
+
+@pytest.mark.parametrize(
+    "graph_factory, expected_rows",
+    [
+        (_mk_optional_prefix_reentry_no_match_graph, []),
+        (_mk_optional_prefix_reentry_match_graph, [{"cid": "c1"}]),
+    ],
+)
+def test_issue_1356_optional_prefix_reentry_handles_no_match_semantics(
+    graph_factory: Callable[[], _CypherTestGraph],
+    expected_rows: List[Dict[str, Any]],
+) -> None:
+    """OPTIONAL prefix reentry should not fail identity recovery on no-match.
+
+    #1356 regression guard: when the OPTIONAL prefix has no matches, the
+    prefix stage may produce a null carry row without whole-row metadata.
+    Reentry should treat it as an empty seed set (no crash), while matched
+    fixtures continue to produce expected rows.
+    """
+    result = graph_factory().gfql(
+        "OPTIONAL MATCH (a:A)-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN c.id AS cid ORDER BY cid"
+    )
+    assert result._nodes.to_dict(orient="records") == expected_rows
 
 
 def test_issue_1047_partial_hit_zero_contribution_has_no_null_rows() -> None:
