@@ -7125,6 +7125,44 @@ def _is_whole_row_with_item(item: ReturnItem, *, match_node_aliases: Set[str]) -
     return text in match_node_aliases
 
 
+def _all_match_alias_kinds(query: CypherQuery) -> Dict[str, str]:
+    """Map every alias bound by ``query.matches`` to its kind: ``"node"``,
+    ``"rel"`` (relationship variable), or ``"path"`` (named path alias from
+    ``MATCH path = (...)-(...)``).
+
+    The bounded-reentry whole-row classifier only inspects node aliases; rel
+    and path aliases are not yet supported as whole-row carries (see #1358).
+    Callers use this to detect the unsupported alias kinds and raise a clean
+    scope error instead of letting them flow into untested code paths.
+    """
+    out: Dict[str, str] = {}
+    for clause in query.matches:
+        for pattern in clause.patterns:
+            for element in pattern:
+                if isinstance(element, NodePattern) and element.variable is not None:
+                    out.setdefault(element.variable, "node")
+                elif isinstance(element, RelationshipPattern) and element.variable is not None:
+                    out.setdefault(element.variable, "rel")
+        for path_alias in clause.pattern_aliases:
+            if path_alias is not None:
+                out.setdefault(path_alias, "path")
+    return out
+
+
+def _is_bare_carry_with_item(item: ReturnItem) -> Optional[str]:
+    """If ``item`` is a bare-identifier WITH carry (no rename or self-rename),
+    return the identifier text; otherwise None.
+    Mirrors the structural part of ``_is_whole_row_with_item`` without the
+    node-alias membership check, so callers can also detect carries of rel /
+    path aliases."""
+    text = item.expression.text
+    if not _BARE_IDENT_RE.match(text):
+        return None
+    if item.alias is not None and item.alias != text:
+        return None
+    return text
+
+
 def _collect_secondary_property_refs(
     expr: ExpressionText,
     *,

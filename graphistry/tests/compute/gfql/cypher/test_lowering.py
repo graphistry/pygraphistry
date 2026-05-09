@@ -9550,6 +9550,48 @@ def test_string_cypher_failfast_rejects_with_match_reentry_secondary_whole_row_r
         _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
 
 
+def test_string_cypher_failfast_rejects_with_match_reentry_carried_relationship_alias() -> None:
+    """#1358: carrying a relationship variable across re-entry must surface as a
+    clean scope error citing the unsupported alias kind, not silently fall into
+    untested code paths in the multi-whole-row prefix rewriter.
+
+    The trailing MATCH binds a fresh node alias `c`, so the #1341 flattener
+    does not admit this query — it falls through to the existing reentry path
+    where the new classifier check fires.
+    """
+    query = (
+        "MATCH (a:A {id: $seed})-[r:R]->(b:B) "
+        "WITH a, r "
+        "MATCH (a)-[:S]->(c:C) "
+        "RETURN r.weight, c.id AS cid"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="does not yet support carrying a relationship variable",
+    ):
+        _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+
+def test_string_cypher_failfast_rejects_with_match_reentry_carried_path_alias() -> None:
+    """#1358: carrying a named path alias across re-entry must surface as a
+    clean scope error. Mirrors the relationship-variable case via the path-alias
+    branch of ``MatchClause.pattern_aliases``.
+    """
+    query = (
+        "MATCH path = (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH path, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN length(path), c.id AS cid"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="does not yet support carrying a named path alias",
+    ):
+        _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+
 def test_string_cypher_executes_with_match_reentry_secondary_alias_rebinding() -> None:
     """Re-binding a carried secondary alias as a node variable in the trailing
     MATCH is admitted by flattening when the trailing pattern adds structure

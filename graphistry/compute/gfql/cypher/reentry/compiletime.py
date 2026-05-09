@@ -199,6 +199,33 @@ def _compile_bounded_reentry_query(
             value=prefix_stage.where.text,
             span=prefix_stage.span,
         )
+    # #1358: classify carried aliases by kind (node / rel / path). The
+    # downstream reentry pipeline only handles whole-row node carries; bare
+    # carries of relationship variables or named-path aliases must surface as
+    # a clean scope error instead of falling into untested code paths in the
+    # multi-whole-row prefix rewriter.
+    match_alias_kinds = _all_match_alias_kinds(query)
+    for item in prefix_stage.clause.items:
+        carry_name = _is_bare_carry_with_item(item)
+        if carry_name is None:
+            continue
+        kind = match_alias_kinds.get(carry_name)
+        if kind == "rel":
+            raise _unsupported_at_span(
+                "Cypher MATCH after WITH does not yet support carrying a relationship "
+                "variable across re-entry; project its properties (`<rel>.<prop>`) instead",
+                field="with",
+                value=carry_name,
+                span=item.span,
+            )
+        if kind == "path":
+            raise _unsupported_at_span(
+                "Cypher MATCH after WITH does not yet support carrying a named path alias "
+                "across re-entry; project derived scalars (e.g. `length(<path>)`) instead",
+                field="with",
+                value=carry_name,
+                span=item.span,
+            )
     primary_alias_hint = _first_pattern_node_alias(query.reentry_matches[0])
     multi_alias_carries: Dict[str, Tuple[str, ...]] = {}
     if primary_alias_hint is not None:
