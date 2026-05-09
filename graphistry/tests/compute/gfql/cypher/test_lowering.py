@@ -11511,6 +11511,34 @@ def test_multi_alias_connected_whole_row_return_with_cross_alias_where_still_fai
     assert "#1273" in exc_info.value.message
 
 
+def test_multi_alias_connected_cross_alias_where_scalar_projection_remains_supported() -> None:
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["n1", "n2", "x1", "x2"],
+                "animal": ["cat", "dog", "cat", "wolf"],
+            }
+        ),
+        pd.DataFrame({"s": ["n1", "n2"], "d": ["x1", "x2"], "type": ["R", "R"]}),
+    )
+    result = g.gfql("MATCH (n)-[rel]->(x) WHERE n.animal = x.animal RETURN n.id AS n_id, x.id AS x_id")
+    assert result._nodes.to_dict(orient="records") == [{"n_id": "n1", "x_id": "x1"}]
+
+
+def test_multi_alias_connected_cross_alias_where_single_whole_row_projection_remains_supported() -> None:
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["n1", "n2", "x1", "x2"],
+                "animal": ["cat", "dog", "cat", "wolf"],
+            }
+        ),
+        pd.DataFrame({"s": ["n1", "n2"], "d": ["x1", "x2"], "type": ["R", "R"]}),
+    )
+    result = g.gfql("MATCH (n)-[rel]->(x) WHERE n.animal = x.animal RETURN n, x.id AS x_id")
+    assert result._nodes.to_dict(orient="records") == [{"n": "({animal: 'cat'})", "x_id": "x1"}]
+
+
 def test_compile_cypher_tracks_seeded_top_level_row_query() -> None:
     compiled = _compile_query("UNWIND [1, 2, 3] AS x RETURN x ORDER BY x DESC LIMIT 2")
 

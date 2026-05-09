@@ -3221,6 +3221,36 @@ def _query_requires_general_lowering_for_connected_join(
     )
 
 
+def _reject_unsupported_multi_alias_whole_row_cross_alias_where(
+    query: CypherQuery,
+    *,
+    merged_match: Optional[MatchClause],
+    alias_targets: Mapping[str, ASTObject],
+) -> None:
+    if (
+        merged_match is None
+        or query.where is None
+        or _cartesian_node_only_patterns(merged_match) is not None
+        or _match_relationship_count(merged_match) == 0
+        or len({item.expression.text for item in query.return_.items if item.expression.text in alias_targets}) <= 1
+    ):
+        return
+    if any(
+        isinstance(predicate.left, PropertyRef)
+        and isinstance(predicate.right, PropertyRef)
+        and predicate.left.alias != predicate.right.alias
+        and predicate.left.alias in alias_targets
+        and predicate.right.alias in alias_targets
+        for predicate in query.where.predicates
+        if not isinstance(predicate, WherePatternPredicate)
+    ):
+        raise _unsupported(
+            "Cypher row lowering currently supports one MATCH source alias at a time; for remaining multi-source residuals see issue #1273",
+            field=query.return_.kind,
+            value=[item.expression.text for item in query.return_.items],
+            line=query.return_.span.line,
+            column=query.return_.span.column,
+        )
 def _query_has_aggregate_stage(
     query: CypherQuery,
     *,
@@ -3234,8 +3264,6 @@ def _query_has_aggregate_stage(
             if _post_aggregate_expr_plan(item, params=params, alias_targets={}) is not None:
                 return True
     return False
-
-
 def _binding_row_aliases_for_match(
     clause: Optional[MatchClause],
     *,
@@ -6568,10 +6596,6 @@ def _lower_general_row_projection(
     alias_targets = _alias_target(lowered.query) if query.match is not None else {}
     merged_match = _merged_match_clause(query)
     relationship_count = _match_relationship_count(merged_match) if merged_match is not None else 0
-    if query.match is not None and _cartesian_node_only_patterns(query.match) is None and query.where is not None and relationship_count > 0:
-        whole_row_return_aliases = sum(1 for item in query.return_.items if item.expression.text in alias_targets)
-        if whole_row_return_aliases > 1 and any(not isinstance(predicate, WherePatternPredicate) and isinstance(predicate.right, PropertyRef) for predicate in query.where.predicates):
-            raise _unsupported("Cypher row lowering currently supports one MATCH source alias at a time; for remaining multi-source residuals see issue #1273", field=query.return_.kind, value=[item.expression.text for item in query.return_.items], line=query.return_.span.line, column=query.return_.span.column)
     aggregate_specs: List[_AggregateSpec] = []
     non_aggregate_items: List[ReturnItem] = []
     post_aggregate_items: List[_PostAggregateExprPlan] = []
@@ -7464,8 +7488,7 @@ def _demote_secondary_whole_row_aliases(
         bare_collected.update(bare)
         return rewritten
 
-    # Rewrite trailing MATCH expressions (node/edge property maps via WHERE
-    # comes through reentry_wheres / clause.where).
+    # Rewrite trailing MATCH/WHERE expressions.
     rewritten_reentry_matches = tuple(
         _rewrite_reentry_match_clause(clause, rewrite_expr=rewrite_text)
         for clause in query.reentry_matches
@@ -7474,13 +7497,7 @@ def _demote_secondary_whole_row_aliases(
         where_clause if where_clause is None else _rewrite_where_clause_and_resync(where_clause, rewrite_text, "where")
         for where_clause in query.reentry_wheres
     )
-    # Slice 4.3d.1 (#1256): Drop bare-identifier projection items that simply
-    # forward a secondary alias (`WITH a, x, y, collect(...)` pattern in IC3
-    # multi-stage chains). Their property carries already live as hidden columns
-    # on the reentry-source's row table; the bare items are pure forwarding
-    # noise. Without this pre-clean the bare-ref scanner inside
-    # `_collect_secondary_property_refs` would fail-fast on what is in fact a
-    # forwarding pattern, blocking IC3 even after #1248 admits the prefix WITH.
+    # Drop bare secondary-alias forwarding items before property-ref rewriting.
     secondary_forwarding_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
     from graphistry.compute.gfql.cypher.reentry import compiletime as _reentry_compiletime
 
@@ -7519,8 +7536,7 @@ def _demote_secondary_whole_row_aliases(
             span=query.return_.span,
         )
 
-    # Synthesize prefix WITH items: drop the secondaries, append S.X AS hidden
-    # for each unique referenced (S, X) pair.
+    # Synthesize prefix WITH items: drop secondary whole-row carries, append hidden S.X.
     new_items: List[ReturnItem] = []
     secondary_drop_indices = {idx for idx, _item in secondary_items}
     for idx, item in enumerate(prefix_stage.clause.items):
@@ -7542,28 +7558,8 @@ def _demote_secondary_whole_row_aliases(
         clause=replace(prefix_stage.clause, items=tuple(new_items)),
     )
 
-    # Slice 4.3d.2 (#1256): forward hidden carry columns through every downstream
-    # WITH stage so each recursive bounded-reentry compile sees them as scalar
-    # carries. Without this, the hidden column survives the first boundary (it
-    # is in the prefix) but the subsequent WITH/RETURN scope-narrowing drops it,
-    # and references like `RETURN x.id AS xid` (rewritten to a bare hidden
-    # identifier) fail at the inner compile's alias resolution.
-    #
-    # Interaction with DISTINCT in downstream stages: appending the carry as a
-    # bare item makes it a participant in DISTINCT key sets. For multi-alias
-    # carry semantics this is what callers want — DISTINCT over `(friend, x.id)`
-    # is the desired behavior when `x.id` is referenced downstream. Multi-row
-    # `x` cases that could observably mutate row count are blocked upstream by
-    # the pre-existing `unique carried node rows` failfast in `gfql_unified.py`.
-    #
-    # Aggregate guard (W2-IMPORTANT-1): if any downstream WITH stage contains
-    # an aggregate function call, refuse to forward the carry through it. The
-    # alternative — silently appending the hidden alias next to `count(*)` — can
-    # produce a wrong NULL value in the projected column when the trailing MATCH
-    # has no relationship to trigger the existing aggregate failfast. Better to
-    # raise a scoped #1256 error pointing at the gap than to risk silent wrong
-    # results. The relationship-pattern aggregate path is also covered by an
-    # earlier failfast; this guard is a single tighter rule that subsumes both.
+    # Forward hidden carry columns through downstream WITH stages, but refuse
+    # aggregate stages to avoid wrong NULL carry behavior (#1256).
     if refs_collected and rewritten_with_stages_tail:
         for stage in rewritten_with_stages_tail:
             for item in stage.clause.items:
@@ -8622,6 +8618,12 @@ def compile_cypher_query(
         if merged_match is not None
         else LoweredCypherMatch(query=[], where=[])
     )
+    alias_targets = _alias_target(lowered.query) if query.match is not None else {}
+    _reject_unsupported_multi_alias_whole_row_cross_alias_where(
+        query,
+        merged_match=merged_match,
+        alias_targets=alias_targets,
+    )
 
     def _lower_general() -> CompiledCypherQuery:
         return _lower_general_row_projection(
@@ -8634,7 +8636,6 @@ def compile_cypher_query(
         )
 
     if query.with_stages:
-        alias_targets = _alias_target(lowered.query)
         binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
         binding_row_aliases = _apply_bound_scope_membership(
             binding_row_aliases,
@@ -8712,7 +8713,6 @@ def compile_cypher_query(
         ))
 
     if merged_match is not None and not query.unwinds:
-        alias_targets = _alias_target(lowered.query)
         binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
         binding_row_aliases = _apply_bound_scope_membership(
             binding_row_aliases,
