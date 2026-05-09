@@ -14302,8 +14302,7 @@ def test_issue_996_case_r_when_null_searched_form_still_works() -> None:
 # Issue #1395: sequential MATCH reply-author row-shaping joins (IC8 / IS7)
 # ---------------------------------------------------------------------------
 
-def test_issue_1395_sequential_match_recent_replies_row_shaping_ic8() -> None:
-    """IC8 shape: two non-optional MATCH clauses preserve reply-author projection fields."""
+def _mk_issue_1395_reply_author_ic8_graph(*, cudf_mode: bool = False) -> _CypherTestGraph:
     nodes = pd.DataFrame({
         "id": [
             "viewer",
@@ -14337,7 +14336,17 @@ def test_issue_1395_sequential_match_recent_replies_row_shaping_ic8() -> None:
             "HAS_CREATOR",
         ],
     })
-    g = _mk_graph(nodes, edges)
+    if cudf_mode:
+        pytest.importorskip("cudf")
+        import cudf  # type: ignore
+        nodes = cudf.DataFrame.from_pandas(nodes)
+        edges = cudf.DataFrame.from_pandas(edges)
+    return _mk_graph(nodes, edges)
+
+
+def test_issue_1395_sequential_match_recent_replies_row_shaping_ic8() -> None:
+    """IC8 shape: two non-optional MATCH clauses preserve reply-author projection fields."""
+    g = _mk_issue_1395_reply_author_ic8_graph()
 
     query = (
         "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message) "
@@ -14372,6 +14381,86 @@ def test_issue_1395_sequential_match_recent_replies_row_shaping_ic8() -> None:
             "commentContent": "reply-2",
         },
     ]
+
+
+def test_issue_1395_sequential_match_recent_replies_row_shaping_ic8_on_cudf() -> None:
+    """cuDF parity: IC8 sequential MATCH row-shaping stays aligned on GPU engine."""
+    g = _mk_issue_1395_reply_author_ic8_graph(cudf_mode=True)
+
+    query = (
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message) "
+        "MATCH (message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(commentAuthor:Person) "
+        "RETURN "
+        "commentAuthor.id AS commentAuthorId, "
+        "commentAuthor.firstName AS commentAuthorFirstName, "
+        "commentAuthor.lastName AS commentAuthorLastName, "
+        "comment.creationDate AS commentCreationDate, "
+        "comment.id AS commentId, "
+        "comment.content AS commentContent "
+        "ORDER BY commentCreationDate DESC, commentId ASC "
+        "LIMIT 20"
+    )
+    result = g.gfql(query, params={"personId": "viewer"}, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {
+            "commentAuthorId": "author1",
+            "commentAuthorFirstName": "Ann",
+            "commentAuthorLastName": "One",
+            "commentCreationDate": 110.0,
+            "commentId": "c1",
+            "commentContent": "reply-1",
+        },
+        {
+            "commentAuthorId": "author2",
+            "commentAuthorFirstName": "Bob",
+            "commentAuthorLastName": "Two",
+            "commentCreationDate": 105.0,
+            "commentId": "c2",
+            "commentContent": "reply-2",
+        },
+    ]
+
+
+def test_issue_1395_sequential_match_where_boundary_lock_ic8() -> None:
+    """Boundary lock: intermediate WHERE stays explicitly unsupported for sequential MATCH merge."""
+    g = _mk_issue_1395_reply_author_ic8_graph()
+
+    query = (
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message) "
+        "WHERE message.creationDate >= 95 "
+        "MATCH (message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(commentAuthor:Person) "
+        "RETURN comment.id AS commentId, commentAuthor.id AS commentAuthorId "
+        "ORDER BY commentId"
+    )
+    with pytest.raises(
+        GFQLValidationError,
+        match="WHERE on intermediate MATCH clauses is not yet supported for sequential MATCH merge",
+    ):
+        _ = g.gfql(query, params={"personId": "viewer"})
+
+
+def test_issue_1395_sequential_match_equivalent_to_single_match_comma_pattern() -> None:
+    """Shape equivalence: sequential MATCH and single-MATCH comma pattern return identical rows."""
+    g = _mk_issue_1395_reply_author_ic8_graph()
+
+    query_sequential = (
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message) "
+        "MATCH (message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(commentAuthor:Person) "
+        "RETURN comment.id AS commentId, commentAuthor.id AS commentAuthorId "
+        "ORDER BY commentId"
+    )
+    query_single_match = (
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message), "
+        "(message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(commentAuthor:Person) "
+        "RETURN comment.id AS commentId, commentAuthor.id AS commentAuthorId "
+        "ORDER BY commentId"
+    )
+
+    seq_rows = g.gfql(query_sequential, params={"personId": "viewer"})._nodes.to_dict(orient="records")
+    comma_rows = g.gfql(query_single_match, params={"personId": "viewer"})._nodes.to_dict(orient="records")
+    assert seq_rows == comma_rows
 
 
 def test_issue_1395_sequential_match_message_replies_row_shaping_is7() -> None:
