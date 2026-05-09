@@ -836,6 +836,14 @@ class FrontendBinder:
             state.scope_confidence[alias] = "declared"
             return alias
 
+        if existing.entity_kind != "node":
+            raise _cross_kind_rebind_error(
+                alias=alias,
+                existing_kind=existing.entity_kind,
+                new_kind="node",
+                new_role="node pattern",
+            )
+
         merged = BoundVariable(
             name=alias,
             logical_type=_merge_logical_types(existing.logical_type, logical_type),
@@ -878,6 +886,14 @@ class FrontendBinder:
             state.scope_confidence[alias] = "declared"
             return alias
 
+        if existing.entity_kind != "edge":
+            raise _cross_kind_rebind_error(
+                alias=alias,
+                existing_kind=existing.entity_kind,
+                new_kind="edge",
+                new_role="relationship pattern",
+            )
+
         merged = BoundVariable(
             name=alias,
             logical_type=_merge_logical_types(existing.logical_type, logical_type),
@@ -917,6 +933,14 @@ class FrontendBinder:
             )
             state.scope_confidence[alias] = "declared"
             return alias
+
+        if existing.entity_kind != "scalar":
+            raise _cross_kind_rebind_error(
+                alias=alias,
+                existing_kind=existing.entity_kind,
+                new_kind="scalar",
+                new_role="path alias",
+            )
 
         state.scope[alias] = BoundVariable(
             name=alias,
@@ -1484,5 +1508,35 @@ def _unresolved_name_error(identifier: str, visible_scope: Mapping[str, BoundVar
         value=identifier,
         suggestion="Introduce the alias in MATCH/WITH before referencing it.",
         visible_scope=sorted(visible_scope.keys()),
+        language="cypher",
+    )
+
+
+def _cross_kind_rebind_error(
+    *,
+    alias: str,
+    existing_kind: Literal["node", "edge", "scalar"],
+    new_kind: Literal["node", "edge", "scalar"],
+    new_role: str,
+) -> GFQLValidationError:
+    """Raised when a MATCH pattern rebinds an alias as a different entity kind.
+
+    `existing_kind` and `new_kind` are the binder's `entity_kind` slots
+    ("node" / "edge" / "scalar"); `new_role` is a human-readable label
+    describing the rebinding pattern element ("node pattern",
+    "relationship pattern", "path alias").
+    """
+    return GFQLValidationError(
+        ErrorCode.E204,
+        "Cypher alias rebound as a different entity kind",
+        field="identifier",
+        value=alias,
+        suggestion=(
+            f"Alias '{alias}' is already bound as a {existing_kind}; "
+            f"rename the {new_role} or reuse the original alias kind."
+        ),
+        existing_kind=existing_kind,
+        new_kind=new_kind,
+        new_role=new_role,
         language="cypher",
     )

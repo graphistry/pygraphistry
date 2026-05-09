@@ -10569,13 +10569,19 @@ def test_string_cypher_failfast_rejects_scalar_only_prefix_with_match_reentry_pr
         _mk_prefix_scalar_reentry_graph().gfql(query)
 
 def test_string_cypher_failfast_rejects_scalar_only_prefix_alias_reused_as_node_variable() -> None:
+    # #1357: cross-kind rebind is now caught at the binder via the
+    # _bind_node_pattern entity_kind guard rather than in the re-entry
+    # compiletime path. The intent (reject scalar→node rebind across WITH)
+    # is preserved; the error message and surface moved earlier.
     with pytest.raises(
         GFQLValidationError,
-        match="Cypher MATCH after WITH scalar-only prefix aliases cannot be reused as node variables",
-    ):
+        match="Cypher alias rebound as a different entity kind",
+    ) as exc_info:
         _mk_reentry_carried_scalar_graph().gfql(
             "MATCH (a:A) WITH [a] AS users MATCH (users)-->(messages) RETURN messages.id AS mid"
         )
+    assert exc_info.value.context["existing_kind"] == "scalar"
+    assert exc_info.value.context["new_kind"] == "node"
 
 
 def test_string_cypher_executes_scalar_prefix_reentry_connected_star_comma_fanout() -> None:
