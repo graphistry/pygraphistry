@@ -27,6 +27,17 @@ _OPS = {
 }
 
 
+def _row_notna_all(frame: DataFrameT, cols: Sequence[str]) -> Any:
+    if len(cols) == 0:
+        return True
+    # cuDF 25.02 can segfault on DataFrame.notna().all(axis=1); reduce masks
+    # column-by-column instead of using row-wise DataFrame reductions.
+    mask = frame[cols[0]].notna()
+    for col in cols[1:]:
+        mask = mask & frame[col].notna()
+    return mask
+
+
 def project_node_attrs(frame: DataFrameT, node_col: str, cols: Sequence[str], *, id_label: str, prefix: str = "", labels: Optional[Sequence[str]] = None, node_domain: Optional[DomainT] = None, dedupe: bool = False, drop_nulls: bool = False) -> DataFrameT:
     df = frame[frame[node_col].isin(node_domain)] if node_domain is not None else frame
     data_cols = [node_col] + [col for col in cols if col != node_col]
@@ -39,7 +50,9 @@ def project_node_attrs(frame: DataFrameT, node_col: str, cols: Sequence[str], *,
     if labels is not None and node_col in cols:
         df[labels[cols.index(node_col)]] = df[id_label]
     if drop_nulls and labels is not None:
-        df = df[df[list(labels)].notna().all(axis=1)]
+        label_cols = [label for label in labels if label in df.columns]
+        if label_cols:
+            df = df[_row_notna_all(df, label_cols)]
     return df.drop_duplicates() if dedupe else df
 
 

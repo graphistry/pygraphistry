@@ -4,7 +4,7 @@
 from dataclasses import replace
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple, Union, cast
 from graphistry.Plottable import Plottable
-from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, df_to_engine, resolve_engine
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
 from .chain import Chain, chain as chain_impl
@@ -411,6 +411,49 @@ def _joined_alias_columns(frame: DataFrameT) -> DataFrameT:
     return out
 
 
+def _connected_inner_join_rows(
+    joined_rows: DataFrameT,
+    pattern_rows: DataFrameT,
+    *,
+    join_cols: List[str],
+    keep_cols: List[str],
+    engine: Engine,
+) -> DataFrameT:
+    """Inner-join connected MATCH row payloads.
+
+    cuDF path: avoid full-row merge on dotted payload columns by joining only
+    compact key/index frames, then gathering payload rows by position.
+    """
+    rhs = cast(DataFrameT, pattern_rows[keep_cols])
+    if engine != Engine.CUDF:
+        return cast(DataFrameT, joined_rows.merge(rhs, on=join_cols, how="inner"))
+
+    lhs_row_id = "__gfql_connected_lhs_row_id__"
+    rhs_row_id = "__gfql_connected_rhs_row_id__"
+    lhs = cast(DataFrameT, joined_rows.reset_index(drop=True))
+    rhs = cast(DataFrameT, rhs.reset_index(drop=True))
+    lhs_with_idx = cast(DataFrameT, lhs.reset_index().rename(columns={"index": lhs_row_id}))
+    rhs_with_idx = cast(DataFrameT, rhs.reset_index().rename(columns={"index": rhs_row_id}))
+    lhs_keys = cast(DataFrameT, lhs_with_idx[[lhs_row_id] + join_cols])
+    rhs_keys = cast(DataFrameT, rhs_with_idx[[rhs_row_id] + join_cols])
+    row_pairs = cast(DataFrameT, lhs_keys.merge(rhs_keys, on=join_cols, how="inner"))
+    rhs_payload_cols = [column for column in keep_cols if column not in join_cols]
+    if len(row_pairs) == 0:
+        out = cast(DataFrameT, lhs.head(0))
+        for column in rhs_payload_cols:
+            out = out.assign(**{column: rhs[column].head(0)})
+        return out
+
+    lhs_taken = cast(DataFrameT, lhs.take(row_pairs[lhs_row_id]))
+    if not rhs_payload_cols:
+        return cast(DataFrameT, lhs_taken.reset_index(drop=True))
+    rhs_payload = cast(DataFrameT, rhs[rhs_payload_cols].take(row_pairs[rhs_row_id]).reset_index(drop=True))
+    lhs_taken = cast(DataFrameT, lhs_taken.reset_index(drop=True))
+    for column in rhs_payload_cols:
+        lhs_taken = lhs_taken.assign(**{column: rhs_payload[column]})
+    return lhs_taken
+
+
 def _apply_connected_match_join(
     base_graph: Plottable,
     plan: ConnectedMatchJoinPlan,
@@ -421,8 +464,9 @@ def _apply_connected_match_join(
 ) -> Plottable:
     from graphistry.compute.ast import ASTCall, serialize_binding_ops
 
-    concrete_engine = resolve_engine(cast(Any, engine), base_graph)
-    df_ctor = df_cons(concrete_engine)
+    requested_engine = resolve_engine(cast(Any, engine), base_graph)
+    dispatch_engine: Union[EngineAbstract, str] = engine
+    df_ctor = df_cons(requested_engine)
     node_col = getattr(base_graph, "_node", "id")
 
     joined_rows: Optional[DataFrameT] = None
@@ -431,7 +475,7 @@ def _apply_connected_match_join(
             list(pattern_chain.chain) + [ASTCall("rows", {"binding_ops": serialize_binding_ops(pattern_chain.chain)})],
             where=pattern_chain.where,
         )
-        pattern_result = _chain_dispatch(base_graph, with_rows, engine, policy, context)
+        pattern_result = _chain_dispatch(base_graph, with_rows, dispatch_engine, policy, context)
         pattern_rows = cast(Optional[DataFrameT], getattr(pattern_result, "_nodes", None))
         if pattern_rows is None or len(pattern_rows) == 0:
             out = base_graph.bind()
@@ -458,7 +502,13 @@ def _apply_connected_match_join(
                 language="cypher",
             )
         keep_cols = [column for column in pattern_rows.columns if column in join_cols or column not in joined_rows.columns]
-        joined_rows = cast(DataFrameT, joined_rows.merge(pattern_rows[keep_cols], on=join_cols, how="inner"))
+        joined_rows = _connected_inner_join_rows(
+            cast(DataFrameT, joined_rows),
+            cast(DataFrameT, pattern_rows),
+            join_cols=join_cols,
+            keep_cols=keep_cols,
+            engine=requested_engine,
+        )
 
     if joined_rows is None or len(joined_rows) == 0:
         out = base_graph.bind()
@@ -471,7 +521,7 @@ def _apply_connected_match_join(
     joined_plottable = base_graph.bind()
     joined_plottable._nodes = joined_rows
     joined_plottable._edges = df_ctor()
-    return _chain_dispatch(joined_plottable, plan.post_join_chain, engine, policy, context)
+    return _chain_dispatch(joined_plottable, plan.post_join_chain, dispatch_engine, policy, context)
 
 
 def _execute_graph_constructor_compiled(
