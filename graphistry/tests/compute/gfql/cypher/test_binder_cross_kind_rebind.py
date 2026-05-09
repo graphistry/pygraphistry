@@ -156,6 +156,46 @@ def test_compile_cypher_query_propagates_cross_kind_rebind_error() -> None:
     assert exc_info.value.context["new_kind"] == "edge"
 
 
+def test_compile_graph_constructor_query_propagates_cross_kind_rebind_error() -> None:
+    """The compile entrypoint should reject the same cross-kind shape when
+    expressed as a GRAPH constructor query."""
+    query = "GRAPH { MATCH (a) MATCH ()-[a]->() }"
+    with pytest.raises(GFQLValidationError) as exc_info:
+        compile_cypher(query)
+    assert exc_info.value.code == ErrorCode.E204
+    assert "Cypher alias rebound as a different entity kind" in str(exc_info.value)
+    assert exc_info.value.context["existing_kind"] == "node"
+    assert exc_info.value.context["new_kind"] == "edge"
+    assert exc_info.value.context["value"] == "a"
+
+
+# ---------------------------------------------------------------------------
+# CypherGraphQuery coverage — graph constructor / graph binding paths route
+# through _bind_graph_query/_bind_graph_constructor and must reject the same
+# cross-kind rebind shapes.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "GRAPH { MATCH (a) MATCH ()-[a]->() }",
+        (
+            "GRAPH g1 = GRAPH { MATCH (a) MATCH ()-[a]->() } "
+            "GRAPH { USE g1 MATCH (x)-[r]->(y) }"
+        ),
+    ],
+)
+def test_graph_query_paths_reject_cross_kind_rebind(query: str) -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(parse_cypher(query), PlanContext())
+    assert exc_info.value.code == ErrorCode.E204
+    ctx = exc_info.value.context
+    assert ctx["existing_kind"] == "node"
+    assert ctx["new_kind"] == "edge"
+    assert ctx["value"] == "a"
+
+
 # ---------------------------------------------------------------------------
 # Negative cases — same-kind rebinds across multiple shapes must still admit
 # ---------------------------------------------------------------------------

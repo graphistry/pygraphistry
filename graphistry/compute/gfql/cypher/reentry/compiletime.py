@@ -270,6 +270,8 @@ def _compile_bounded_reentry_query(
             & set().union(*(_pattern_node_aliases(pattern) for pattern in reentry_match.patterns))
         )
         if reused_scalar_aliases:
+            # Binder cross-kind guards catch this for standard compile paths;
+            # keep as a defensive backstop for any path that bypasses binder.
             raise _unsupported_at_span(
                 "Cypher MATCH after WITH scalar-only prefix aliases cannot be reused as node variables in the trailing MATCH",
                 field="match",
