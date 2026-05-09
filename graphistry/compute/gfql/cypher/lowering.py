@@ -6318,6 +6318,9 @@ def lower_match_query(
     row_where: Optional[ExpressionText] = None
     row_where_predicates: List[str] = list(dynamic_row_where_predicates)
     if query.where is not None:
+        where_expr_upper = boolean_expr_to_text(query.where.expr_tree).upper() if query.where.expr_tree is not None else ""
+        if _cartesian_node_only_patterns(merged_match) is not None and query.where.expr_tree is not None and _where_expr_tree_pattern_predicates(query.where.expr_tree) and (" OR " in where_expr_upper or " XOR " in where_expr_upper):
+            raise _unsupported_at_span("Cypher WHERE pattern predicates mixed with OR/XOR are not yet supported for cartesian MATCH patterns", field="where", value=where_expr_upper, span=query.where.span)
         where_expr, where_pattern_row_filters = _rewrite_where_expr_patterns_to_markers(
             where=query.where,
             alias_targets=alias_targets,

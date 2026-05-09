@@ -1603,6 +1603,25 @@ def test_string_cypher_supports_cartesian_node_only_row_filter_between_aliases()
     ]
 
 
+def test_string_cypher_rejects_cartesian_where_pattern_predicates_mixed_with_or() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": [0, 1, 2],
+                "label__TheLabel": [False, True, False],
+                "label__MissingLabel": [False, False, False],
+            }
+        ),
+        pd.DataFrame({"s": [0, 0, 1], "d": [1, 2, 2], "type": ["T", "X", "T"]}),
+    )
+    with pytest.raises(GFQLValidationError, match="OR/XOR"):
+        graph.gfql(
+            "MATCH (a), (b) "
+            "WHERE a.id = 0 AND (a)-[:T]->(b:TheLabel) OR (a)-[:T*]->(b:MissingLabel) "
+            "RETURN DISTINCT b"
+        )
+
+
 def test_string_cypher_supports_cartesian_dynamic_pattern_property_projection() -> None:
     graph = _mk_cartesian_dynamic_pattern_graph()
 
