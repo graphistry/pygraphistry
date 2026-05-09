@@ -85,7 +85,7 @@ def order_value_family(value: Any) -> Optional[str]:
 
 def validate_order_series_vector_safe(series: Any, expr: str) -> None:
     dtype_txt = str(getattr(series, "dtype", "")).lower()
-    if dtype_txt != "object":
+    if dtype_txt != "object" and dtype_txt != "string":
         return
     if not hasattr(series, "isna") or not hasattr(series, "astype"):
         return
@@ -97,6 +97,7 @@ def validate_order_series_vector_safe(series: Any, expr: str) -> None:
     if not hasattr(text, "str"):
         return
     actual_string = _actual_string_mask(series, text, null_mask)
+    list_shape_string_match = series_str_match(text.str.strip(), _GFQL_LIST_TEXT_RE.pattern, na=False)
     bool_mask = (~null_mask) & (~actual_string) & text.isin(["True", "False"])
     number_mask = (~null_mask) & (~actual_string) & series_str_fullmatch(text, _GFQL_LIST_NUMERIC_TEXT_RE.pattern, na=False)
     datetime_mask = (~null_mask) & (~actual_string) & (
@@ -104,8 +105,9 @@ def validate_order_series_vector_safe(series: Any, expr: str) -> None:
         | series_str_fullmatch(text, _GFQL_DATETIME_TEXT_RE.pattern, na=False)
         | series_str_fullmatch(text, _GFQL_TIME_TEXT_RE.pattern, na=False)
     )
-    string_mask = (~null_mask) & actual_string
-    classified_mask = null_mask | bool_mask | number_mask | datetime_mask | string_mask
+    list_shape_string_mask = (~null_mask) & actual_string & list_shape_string_match
+    plain_string_mask = (~null_mask) & actual_string & ~list_shape_string_match
+    classified_mask = null_mask | bool_mask | number_mask | datetime_mask | list_shape_string_mask | plain_string_mask
     families = set()
     if hasattr(bool_mask, "any") and bool(bool_mask.any()):
         families.add("bool")
@@ -113,8 +115,10 @@ def validate_order_series_vector_safe(series: Any, expr: str) -> None:
         families.add("number")
     if hasattr(datetime_mask, "any") and bool(datetime_mask.any()):
         families.add("datetime")
-    if hasattr(string_mask, "any") and bool(string_mask.any()):
+    if hasattr(plain_string_mask, "any") and bool(plain_string_mask.any()):
         families.add("str")
+    if hasattr(list_shape_string_mask, "any") and bool(list_shape_string_mask.any()):
+        families.add("list_string")
     unsupported_mask = ~classified_mask
     if hasattr(unsupported_mask, "any") and bool(unsupported_mask.any()):
         families.add("unsupported")
@@ -184,8 +188,10 @@ def order_detect_stringified_list_series(series: Any) -> bool:
 def parse_stringified_list_series(series: Any) -> Optional[Any]:
     """Parse a stringified-list column into a Python-list column via ``ast.literal_eval``.
 
-    Returns a new Series with parsed values (and original Python-list values passed
-    through), or ``None`` if any non-null entry fails to parse to a list/tuple.
+    Returns a pandas Series with parsed values (and original Python-list values
+    passed through), or ``None`` if any non-null entry fails to parse to a
+    list/tuple. cuDF input is bridged via ``host_index.to_pandas()`` mirroring
+    the pattern at ``pipeline.py`` ``_gfql_eval_dynamic_list_subscript``.
     """
     parsed: List[Any] = []
     for value in series.tolist() if hasattr(series, "tolist") else list(series):
@@ -204,8 +210,13 @@ def parse_stringified_list_series(series: Any) -> Optional[Any]:
                 parsed.append(list(literal))
                 continue
         return None
-    index = getattr(series, "index", None)
-    return pd.Series(parsed, index=index, dtype="object")
+    host_index = getattr(series, "index", None)
+    if host_index is not None and hasattr(host_index, "to_pandas"):
+        try:
+            host_index = host_index.to_pandas()
+        except Exception:
+            host_index = None
+    return pd.Series(parsed, index=host_index, dtype="object")
 
 
 def order_detect_temporal_mode(series: Any) -> Optional[str]:

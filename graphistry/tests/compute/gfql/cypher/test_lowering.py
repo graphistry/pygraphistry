@@ -7859,6 +7859,118 @@ def test_string_cypher_order_by_stringified_list_column_uses_list_orderability()
     assert desc_values == sorted(["[300, 0]", "[2, -2, 100]", "[2, -2]"])
 
 
+def test_string_cypher_order_by_partial_stringified_list_raises_mixed_family() -> None:
+    """Issue #1359 W2-A1 — partial-list-shape columns must raise, not silently lex-sort.
+
+    Mixing list-shaped strings (`'[1, -20]'`) with plain strings (`'hello'`) was
+    classified as a single ``str`` family by ``validate_order_series_vector_safe``,
+    silently routing to lex sort and reproducing the wrong-row bug #1359 fixed.
+    Now the validator splits ``str`` into ``list_string`` vs plain ``str`` families
+    and raises mixed-family on the boundary.
+    """
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "list": pd.Series(["[1, -20]", "hello", "[2, 0]"], dtype="string"),
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    with pytest.raises((GFQLTypeError, ValueError)) as exc:
+        g.gfql(
+            "MATCH (a) WITH a, a.list AS list WITH a, list "
+            "ORDER BY list ASC RETURN a, list"
+        )
+    assert "list_string" in str(exc.value) and "str" in str(exc.value)
+
+
+def test_string_cypher_order_by_stringified_list_with_nulls_falls_back_safely() -> None:
+    """Issue #1359 W1-I4 — stringified-list with nulls falls back to plain sort.
+
+    Document the current behavior: ``order_detect_stringified_list_series`` requires
+    every non-null entry to be list-shaped; when nulls are present, the detector
+    still admits the column (nulls are counted in ``null_mask`` not the validity
+    check), so the parsed-list path still runs and tolerates the null via
+    ``build_list_sort_columns``' per-row null masking. Verifies no exception
+    and SET-correct top-K.
+    """
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d"],
+                "list": pd.Series(["[1, 2]", None, "[3, 4]", "[1, 1]"], dtype="object"),
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    res = g.gfql(
+        "MATCH (a) WITH a, a.list AS list WITH a, list "
+        "ORDER BY list ASC LIMIT 3 RETURN a, list"
+    )
+    values = sorted(str(v) for v in res._nodes["list"].tolist())
+    # Top-3 SET excludes the larger [3, 4]; nulls sort high under pandas default.
+    assert "[1, 1]" in values and "[1, 2]" in values
+
+
+def test_string_cypher_order_by_malformed_stringified_list_falls_back_to_lex_sort() -> None:
+    """Issue #1359 W1-I6 — `'[1, 2'` (missing closing bracket) falls back gracefully.
+
+    The detector accepts the row (regex `^[.*]$` requires a closing bracket so this
+    actually FAILS the detector and routes to plain string lex sort). Pin the
+    fallback path so future detector tightening doesn't accidentally break it.
+    """
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "list": pd.Series(["[1, 2", "abc"], dtype="string"),
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    res = g.gfql(
+        "MATCH (a) WITH a, a.list AS list WITH a, list "
+        "ORDER BY list ASC RETURN a, list"
+    )
+    # Malformed-string column treated as plain strings; lex sort: '[1, 2' < 'abc'.
+    values = [str(v) for v in res._nodes["list"].tolist()]
+    assert values == ["[1, 2", "abc"]
+
+
+def test_string_cypher_order_by_multi_key_stringified_list_with_scalar() -> None:
+    """Issue #1359 W1-I5 — multi-key ORDER BY mixing stringified-list with scalar.
+
+    Exercises ``aux_drop_cols`` accumulation across multiple ORDER BY iterations.
+    Sort by ``list ASC, num DESC`` over a stringified-list + numeric column.
+    Pins that the parsed aux column doesn't leak into the result.
+    """
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d"],
+                "list": pd.Series(["[1, 2]", "[1, 2]", "[3, 4]", "[3, 4]"], dtype="string"),
+                "num": [10, 20, 5, 15],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    res = g.gfql(
+        "MATCH (a) WITH a, a.list AS list, a.num AS num WITH a, list, num "
+        "ORDER BY list ASC, num DESC RETURN a, list, num"
+    )
+    # Within list=[1,2] group, num DESC: 20, 10. Within list=[3,4] group: 15, 5.
+    nums = res._nodes["num"].tolist()
+    assert nums == [20, 10, 15, 5]
+    # Aux col must not leak.
+    leaked = [c for c in res._nodes.columns if "__gfql_sort_listparsed" in str(c)]
+    assert leaked == [], f"aux columns leaked: {leaked}"
+
+
 def test_string_cypher_supports_return_star_after_with_distinct_row_projection() -> None:
     g = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c"], "name": ["A", "B", "C"]}),
