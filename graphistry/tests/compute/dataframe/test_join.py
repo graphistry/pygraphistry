@@ -5,8 +5,11 @@ from graphistry.Engine import Engine
 from graphistry.compute.dataframe.join import (
     binding_join_columns,
     connected_inner_join_rows,
+    ineq_eval_pairs,
     joined_alias_columns,
     joined_hidden_scalar_columns,
+    project_node_attrs,
+    semijoin_eval_pairs,
 )
 
 
@@ -106,4 +109,98 @@ def test_connected_inner_join_rows_cudf_path() -> None:
     assert _records(out[["a.id", "b.id"]]) == [
         {"a.id": "a1", "b.id": "b1"},
         {"a.id": "a1", "b.id": "b2"},
+    ]
+
+
+def test_project_node_attrs_filters_renames_dedupes_and_drops_nulls() -> None:
+    frame = pd.DataFrame(
+        {
+            "id": ["n1", "n1", "n2", "n3"],
+            "color": ["blue", "blue", None, "green"],
+        }
+    )
+    out = project_node_attrs(
+        frame,
+        "id",
+        ["id", "color"],
+        id_label="__node_id__",
+        labels=["node", "color_label"],
+        node_domain=["n1", "n2"],
+        dedupe=True,
+        drop_nulls=True,
+    )
+    assert _records(out[["__node_id__", "node", "color_label"]]) == [
+        {"__node_id__": "n1", "node": "n1", "color_label": "blue"}
+    ]
+
+
+def test_ineq_eval_pairs_filters_bounds_per_mid_group() -> None:
+    left_pairs = pd.DataFrame(
+        {"__mid__": ["m1", "m1", "m2"], "__left_val__": [1, 5, 2], "__left__": ["l1", "l2", "l3"]}
+    )
+    right_pairs = pd.DataFrame(
+        {"__mid__": ["m1", "m2"], "__right_val__": [3, 1], "__right__": ["r1", "r2"]}
+    )
+    left_eval, right_eval = ineq_eval_pairs(
+        left_pairs,
+        right_pairs,
+        "<",
+        left_value="__left_val__",
+        right_value="__right_val__",
+    )
+    assert _records(left_eval[["__mid__", "__left_val__", "__left__"]]) == [
+        {"__mid__": "m1", "__left_val__": 1, "__left__": "l1"}
+    ]
+    assert _records(right_eval[["__mid__", "__right_val__", "__right__"]]) == [
+        {"__mid__": "m1", "__right_val__": 3, "__right__": "r1"}
+    ]
+
+
+def test_semijoin_eval_pairs_eq_filters_to_shared_mid_values() -> None:
+    left_pairs = pd.DataFrame(
+        {"__mid__": ["m1", "m1", "m2"], "__left_val__": ["a", "b", "c"], "__left__": [1, 2, 3]}
+    )
+    right_pairs = pd.DataFrame(
+        {"__mid__": ["m1", "m2"], "__right_val__": ["b", "d"], "__right__": [9, 10]}
+    )
+    left_eval, right_eval, mid_values = semijoin_eval_pairs(
+        left_pairs,
+        right_pairs,
+        "==",
+        left_value="__left_val__",
+        right_value="__right_val__",
+    )
+    assert mid_values is not None
+    assert _records(mid_values[["__mid__", "__value__"]]) == [{"__mid__": "m1", "__value__": "b"}]
+    assert left_eval is not None
+    assert right_eval is not None
+    assert _records(left_eval[["__mid__", "__left_val__", "__left__"]]) == [
+        {"__mid__": "m1", "__left_val__": "b", "__left__": 2}
+    ]
+    assert _records(right_eval[["__mid__", "__right_val__", "__right__"]]) == [
+        {"__mid__": "m1", "__right_val__": "b", "__right__": 9}
+    ]
+
+
+def test_semijoin_eval_pairs_neq_prunes_singleton_equal_values() -> None:
+    left_pairs = pd.DataFrame(
+        {"__mid__": ["m1", "m1", "m2"], "__left_val__": ["x", "y", "z"], "__left__": [1, 2, 3]}
+    )
+    right_pairs = pd.DataFrame(
+        {"__mid__": ["m1", "m2"], "__right_val__": ["y", "z"], "__right__": [9, 10]}
+    )
+    left_eval, right_eval, _ = semijoin_eval_pairs(
+        left_pairs,
+        right_pairs,
+        "!=",
+        left_value="__left_val__",
+        right_value="__right_val__",
+    )
+    assert left_eval is not None
+    assert right_eval is not None
+    assert _records(left_eval[["__mid__", "__left_val__", "__left__"]]) == [
+        {"__mid__": "m1", "__left_val__": "x", "__left__": 1}
+    ]
+    assert _records(right_eval[["__mid__", "__right_val__", "__right__"]]) == [
+        {"__mid__": "m1", "__right_val__": "y", "__right__": 9}
     ]

@@ -1,6 +1,7 @@
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
 from graphistry.compute.ast import ASTEdge
+from graphistry.compute.dataframe import project_node_attrs, semijoin_eval_pairs
 from graphistry.compute.typing import DataFrameT, DomainT
 from graphistry.compute.gfql.same_path_types import (
     EQ_NEQ_WHERE_OPS,
@@ -18,8 +19,6 @@ from .df_utils import (
     domain_intersect,
     domain_is_empty,
     evaluate_clause,
-    project_node_attrs,
-    semijoin_eval_pairs,
     series_values,
 )
 from .env_utils import env_flag, env_lower, env_optional_int, normalize_limit
