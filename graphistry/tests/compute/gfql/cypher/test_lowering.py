@@ -11231,8 +11231,8 @@ def test_multi_alias_with_stage_scalar_projection_with_where_executes() -> None:
     assert result._nodes.to_dict(orient="records") == [{"a_id": "a", "b_id": "b2"}]
 
 
-def test_multi_alias_with_stage_whole_row_projection_still_failfasts_for_1273_boundary() -> None:
-    """Lock known TCK xfail boundary: whole-row WITH n, x remains outside admitted #1273 slice."""
+def test_multi_alias_with_stage_whole_row_projection_executes_for_joined_row_projection_1393() -> None:
+    """#1393: multi-alias whole-row WITH projection executes on bindings-row path."""
     g = _mk_graph(
         pd.DataFrame(
             {
@@ -11242,9 +11242,23 @@ def test_multi_alias_with_stage_whole_row_projection_still_failfasts_for_1273_bo
         ),
         pd.DataFrame({"s": ["n1", "n2"], "d": ["x1", "x2"], "type": ["R", "R"]}),
     )
-    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time") as exc_info:
-        g.gfql("MATCH (n)-[rel]->(x) WITH n, x WHERE n.animal = x.animal RETURN n, x")
-    assert "#1273" in exc_info.value.message
+    result = g.gfql("MATCH (n)-[rel]->(x) WITH n, x WHERE n.animal = x.animal RETURN n, x")
+    records = result._nodes.to_dict(orient="records")
+    assert len(records) == 1
+    assert "cat" in records[0]["n"]
+    assert "cat" in records[0]["x"]
+
+
+def test_string_cypher_executes_connected_multi_pattern_multi_whole_row_joined_projection_1393() -> None:
+    result = _mk_connected_multi_pattern_reentry_graph().gfql(
+        "MATCH (b:B)-[:S]->(c:C), (c)-[:T]->(d:D) RETURN b, c, d.id AS did ORDER BY did"
+    )
+
+    records = result._nodes.to_dict(orient="records")
+    assert records == [
+        {"b": "(:B)", "c": "(:C)", "did": "d1"},
+        {"b": "(:B)", "c": "(:C)", "did": "d2"},
+    ]
 
 
 def test_compile_cypher_tracks_seeded_top_level_row_query() -> None:

@@ -4245,14 +4245,30 @@ def _build_initial_row_scope(
         alias_targets=alias_targets,
         bound_visible_aliases=bound_visible_aliases,
     )
-    active_match_alias = _active_match_alias_for_stage(
-        unwinds=query.unwinds,
-        clause=stage_clause,
-        order_by_clause=stage_order_by,
-        alias_targets=alias_targets,
-        allowed_match_aliases=binding_row_aliases or None,
-        params=params,
-    )
+    try:
+        active_match_alias = _active_match_alias_for_stage(
+            unwinds=query.unwinds,
+            clause=stage_clause,
+            order_by_clause=stage_order_by,
+            alias_targets=alias_targets,
+            allowed_match_aliases=binding_row_aliases or None,
+            params=params,
+        )
+    except GFQLValidationError as exc:
+        fallback_alias = next(iter(alias_targets)) if alias_targets else None
+        try:
+            fallback_plan = _build_projection_plan(
+                stage_clause,
+                alias_targets=alias_targets,
+                active_alias=fallback_alias,
+                params=params,
+                semantic_entity_kinds=semantic_entity_kinds,
+            )
+        except GFQLValidationError:
+            raise exc
+        if not _can_lower_multi_alias_projection_bindings(fallback_plan, alias_targets=alias_targets):
+            raise exc
+        active_match_alias = fallback_plan.source_alias
     seed_rows = query.match is None
 
     if active_match_alias is None:
