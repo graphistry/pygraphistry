@@ -202,12 +202,67 @@ class RowPipelineMixin:
             return "edges"
         return "nodes"
 
+    @staticmethod
+    def _gfql_value_is_structural(value: Any) -> bool:
+        return isinstance(value, (list, tuple, Mapping))
+
+    @staticmethod
+    def _gfql_nullable_structural_equal(left: Any, right: Any) -> Optional[bool]:
+        if is_null_scalar(left) or is_null_scalar(right):
+            return None
+
+        left_is_list = isinstance(left, (list, tuple))
+        right_is_list = isinstance(right, (list, tuple))
+        if left_is_list or right_is_list:
+            if not (left_is_list and right_is_list):
+                return False
+            if len(left) != len(right):
+                return False
+            saw_unknown = False
+            for left_item, right_item in zip(left, right):
+                item_equal = RowPipelineMixin._gfql_nullable_structural_equal(left_item, right_item)
+                if item_equal is False:
+                    return False
+                if item_equal is None:
+                    saw_unknown = True
+            return None if saw_unknown else True
+
+        left_is_map = isinstance(left, Mapping)
+        right_is_map = isinstance(right, Mapping)
+        if left_is_map or right_is_map:
+            if not (left_is_map and right_is_map):
+                return False
+            left_keys = set(left.keys())
+            right_keys = set(right.keys())
+            if left_keys != right_keys:
+                return False
+            saw_unknown = False
+            for key in left.keys():
+                item_equal = RowPipelineMixin._gfql_nullable_structural_equal(left[key], right[key])
+                if item_equal is False:
+                    return False
+                if item_equal is None:
+                    saw_unknown = True
+            return None if saw_unknown else True
+
+        try:
+            equals = left == right
+        except Exception:
+            return False
+        if is_null_scalar(equals):
+            return None
+        return bool(equals)
+
     def _gfql_eval_comparison_op(
         self, table_df: Any, left: Any, right: Any, op: str
     ) -> Optional[Any]:
         cmp_fn = GFQL_COMPARISON_BINARY_OPS.get(op)
         if cmp_fn is None:
             return None
+
+        structural_cmp = self._gfql_eval_structural_comparison_op(table_df, left, right, op)
+        if structural_cmp is not None:
+            return structural_cmp
 
         left_is_list = (
             isinstance(left, (list, tuple))
@@ -287,6 +342,69 @@ class RowPipelineMixin:
         if isinstance(fallback, pd.Series):
             return pd.Series(out_values, index=fallback.index, dtype="object")
         return fallback
+
+    def _gfql_eval_structural_comparison_op(
+        self,
+        table_df: Any,
+        left_value: Any,
+        right_value: Any,
+        op: str,
+    ) -> Optional[Any]:
+        if op not in {"=", "!=", "<>"}:
+            return None
+
+        left_structural = (
+            RowPipelineMixin._gfql_value_is_structural(left_value)
+            or (
+                hasattr(left_value, "astype")
+                and (
+                    RowPipelineMixin._gfql_series_is_list_like(left_value)
+                    or RowPipelineMixin._gfql_series_is_mapping_like(left_value)
+                )
+            )
+        )
+        right_structural = (
+            RowPipelineMixin._gfql_value_is_structural(right_value)
+            or (
+                hasattr(right_value, "astype")
+                and (
+                    RowPipelineMixin._gfql_series_is_list_like(right_value)
+                    or RowPipelineMixin._gfql_series_is_mapping_like(right_value)
+                )
+            )
+        )
+
+        if not (left_structural or right_structural):
+            return None
+
+        left_series = left_value if hasattr(left_value, "astype") else self._gfql_broadcast_scalar(table_df, left_value)
+        right_series = right_value if hasattr(right_value, "astype") else self._gfql_broadcast_scalar(table_df, right_value)
+
+        left_values = self._gfql_series_to_pylist(left_series)
+        right_values = self._gfql_series_to_pylist(right_series)
+        out_values: List[Any] = []
+        for left_item, right_item in zip(left_values, right_values):
+            eq_out = RowPipelineMixin._gfql_nullable_structural_equal(left_item, right_item)
+            if eq_out is None:
+                out_values.append(pd.NA)
+            elif op == "=":
+                out_values.append(bool(eq_out))
+            else:
+                out_values.append(not bool(eq_out))
+
+        left_index = getattr(left_series, "index", None)
+        right_index = getattr(right_series, "index", None)
+        out_index = left_index if left_index is not None else right_index
+        if out_index is not None and hasattr(out_index, "to_pandas"):
+            try:
+                out_index = out_index.to_pandas()
+            except Exception:
+                out_index = None
+
+        if resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF:
+            cudf_values = [None if is_null_scalar(v) else bool(v) for v in out_values]
+            return s_cons(Engine.CUDF)(cudf_values, index=out_index)
+        return s_cons(Engine.PANDAS)(out_values, index=out_index, dtype="object")
 
     def _gfql_eval_temporal_comparison_op(
         self,

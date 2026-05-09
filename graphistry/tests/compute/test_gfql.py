@@ -417,6 +417,12 @@ class TestGFQL:
             ("RETURN -0.0 AS literal", [{"literal": 0.0}]),
             ("RETURN keys({k: 1, l: null}) AS ks", [{"ks": ["k", "l"]}]),
             ("WITH null AS m RETURN keys(m) AS ks, keys(null) AS null_keys", [{"ks": None, "null_keys": None}]),
+            ("RETURN [[1], [2]] = [[1], [null]] AS result", [{"result": None}]),
+            ("RETURN {k: null} = {k: null} AS result", [{"result": None}]),
+            ("RETURN {k: 1} = {k: null} AS result", [{"result": None}]),
+            ("RETURN {k: 1, l: null} = {k: null, l: null} AS result", [{"result": None}]),
+            ("RETURN {k: 1, l: null} = {k: null, l: 1} AS result", [{"result": None}]),
+            ("RETURN {k: 1, l: null} = {k: 1, l: 1} AS result", [{"result": None}]),
         ],
     )
     def test_gfql_executes_cypher_literal_list_and_map_scalar_queries(self, query, expected):
@@ -425,6 +431,22 @@ class TestGFQL:
         result = g.gfql(query)
 
         assert result._nodes.to_dict(orient="records") == expected
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "RETURN [[1], [2]] = [[1], [null]] AS result",
+            "RETURN {k: null} = {k: null} AS result",
+            "RETURN {k: 1} = {k: null} AS result",
+            "RETURN {k: 1, l: null} = {k: null, l: null} AS result",
+            "RETURN {k: 1, l: null} = {k: null, l: 1} AS result",
+            "RETURN {k: 1, l: null} = {k: 1, l: 1} AS result",
+        ],
+    )
+    def test_gfql_executes_cypher_structural_null_equality_queries_on_cudf(self, query):
+        g = _mk_cudf_graph(ids=["a"], types=["person"], src=[], dst=[])
+        result = g.gfql(query, engine="cudf")
+        assert result._nodes.to_pandas().to_dict(orient="records") == [{"result": None}]
     
     def test_gfql_deprecation_and_migration(self):
         """Test deprecation warnings and migration path"""
