@@ -3236,30 +3236,6 @@ def _reject_unsupported_multi_alias_whole_row_cross_alias_where(
         or len({item.expression.text for item in query.return_.items if item.expression.text in alias_targets}) <= 1
     ):
         return
-    if not (
-        any(
-            isinstance(predicate.left, PropertyRef)
-            and isinstance(predicate.right, PropertyRef)
-            and predicate.left.alias != predicate.right.alias
-            and predicate.left.alias in alias_targets
-            and predicate.right.alias in alias_targets
-            for predicate in query.where.predicates
-            if not isinstance(predicate, WherePatternPredicate)
-        ) or (
-            query.where.expr_tree is not None
-            and len(
-                _expr_match_aliases(
-                    boolean_expr_to_text(query.where.expr_tree),
-                    alias_targets=alias_targets,
-                    params=None,
-                    field="where",
-                    line=query.where.span.line,
-                    column=query.where.span.column,
-                )
-            ) > 1
-        )
-    ):
-        return
     raise _unsupported(
         "Cypher row lowering currently supports one MATCH source alias at a time; for remaining multi-source residuals see issue #1273",
         field=query.return_.kind,
