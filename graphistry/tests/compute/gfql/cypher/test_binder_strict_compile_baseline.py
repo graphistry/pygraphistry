@@ -9,8 +9,9 @@ failures across multiple binder-coverage gaps:
 - namespaced function calls — ``duration.inSeconds(...)``, ``time()``,
   ``localtime()``, ``date()``, ``datetime()`` parsed as
   ``alias.property``.
-- CALL/YIELD scope — YIELD aliases must survive the
-  prepass→normalize→bind cycle.
+- quantifier predicates — ``all(x IN list WHERE …)``, ``any``, ``none``,
+  ``single``: comprehension-scoped ``x`` not modeled.
+- list comprehensions — same scope-modeling gap.
 
 This module pins the **current loose-mode behavior** at the
 ``compile_cypher_query`` boundary for representative shapes from each
@@ -59,14 +60,23 @@ def test_loose_mode_admits_namespaced_builtin_calls(query: str) -> None:
     assert bound.semantic_table.variables
 
 
-def test_loose_mode_admits_call_yield_then_return_yield_alias() -> None:
-    """``CALL graphistry.degree() YIELD nodeId RETURN nodeId`` — loose
-    binder admits; strict rejects because the prepass→normalize cycle does
-    not propagate YIELD aliases into the post-normalize bind scope. Future
-    fix: ensure YIELD aliases survive the cycle."""
-    query = "CALL graphistry.degree() YIELD nodeId RETURN nodeId"
+@pytest.mark.parametrize(
+    "query",
+    [
+        # Quantifier predicates — binder doesn't model x as a
+        # comprehension-local; in strict mode it raises on unresolved 'x'.
+        "MATCH (n) WHERE all(x IN n.labels WHERE x = 'A') RETURN n",
+        "MATCH (n) WHERE any(x IN n.labels WHERE x = 'B') RETURN n",
+        "MATCH (n) WHERE none(x IN n.labels WHERE x = 'C') RETURN n",
+        "MATCH (n) WHERE single(x IN n.labels WHERE x = 'D') RETURN n",
+    ],
+)
+def test_loose_mode_admits_quantifier_predicates(query: str) -> None:
+    """Loose binder admits quantifier predicates; strict rejects 'x'.
+    Future fix: bind comprehension-scoped locals before evaluating the
+    predicate body."""
     bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
-    assert "nodeId" in bound.semantic_table.variables
+    assert "n" in bound.semantic_table.variables
 
 
 # ---------------------------------------------------------------------------

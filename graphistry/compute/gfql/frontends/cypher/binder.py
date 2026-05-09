@@ -131,6 +131,8 @@ class FrontendBinder:
         _collect_parameter_names(ast, out=state.parameter_names)
 
         if ast.row_sequence and not ast.matches and not ast.reentry_matches:
+            if ast.call is not None:
+                self._bind_call_clause(state=state, clause=ast.call)
             self._bind_row_sequence(state=state, row_sequence=ast.row_sequence)
         else:
             self._bind_graph_sequence(state=state, ast=ast)
