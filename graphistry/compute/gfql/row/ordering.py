@@ -190,8 +190,8 @@ def parse_stringified_list_series(series: Any) -> Optional[Any]:
 
     Returns a pandas Series with parsed values (and original Python-list values
     passed through), or ``None`` if any non-null entry fails to parse to a
-    list/tuple. cuDF input is bridged via ``host_index.to_pandas()`` mirroring
-    the pattern at ``pipeline.py`` ``_gfql_eval_dynamic_list_subscript``.
+    list/tuple. This helper always returns pandas-backed output; callers on cuDF
+    paths must host-bridge the consumer frame before assignment.
     """
     parsed: List[Any] = []
     for value in series.tolist() if hasattr(series, "tolist") else list(series):
@@ -204,7 +204,7 @@ def parse_stringified_list_series(series: Any) -> Optional[Any]:
         if isinstance(value, str):
             try:
                 literal = ast.literal_eval(value)
-            except Exception:
+            except (SyntaxError, ValueError):
                 return None
             if isinstance(literal, (list, tuple)):
                 parsed.append(list(literal))
