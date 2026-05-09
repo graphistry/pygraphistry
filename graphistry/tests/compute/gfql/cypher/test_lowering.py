@@ -211,6 +211,46 @@ def _mk_connected_reentry_carried_scalar_graph_cudf() -> _CypherTestGraph:
     )
 
 
+def _mk_optional_prefix_reentry_no_match_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["x1", "y1"],
+                "label__A": [True, False],
+                "label__B": [False, True],
+                "label__C": [False, False],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["y1"],
+                "d": ["x1"],
+                "type": ["Q"],
+            }
+        ),
+    )
+
+
+def _mk_optional_prefix_reentry_match_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a1", "b1", "c1"],
+                "label__A": [True, False, False],
+                "label__B": [False, True, False],
+                "label__C": [False, False, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a1", "b1"],
+                "d": ["b1", "c1"],
+                "type": ["R", "S"],
+            }
+        ),
+    )
+
+
 def _mk_reentry_order_limit_graph() -> _CypherTestGraph:
     return _mk_graph(
         pd.DataFrame(
@@ -4538,6 +4578,48 @@ def test_string_cypher_executes_temporal_duration_string_canonicalization(
     _assert_query_rows(query, [{"result": expected_result}])
 
 
+@pytest.mark.parametrize(
+    ("query", "expected_ts", "expected_b"),
+    [
+        # openCypher TCK Temporal6 [6] examples 2 and 8 (pygraphistry #1361 / #1353 item #2):
+        # toString preserves the months/days/seconds-nanos components separately.
+        # Negative days alongside positive hours stay distinct ('-14D + 16H', not collapsed).
+        (
+            "WITH duration({years: 12, months: 5, days: -14, hours: 16}) AS d "
+            "RETURN toString(d) AS ts, duration(toString(d)) = d AS b",
+            "P12Y5M-14DT16H",
+            True,
+        ),
+        # 1 day plus a negative millisecond stays as 'P1DT-0.001S', not 'PT23H59M59.999S'.
+        (
+            "WITH duration({days: 1, milliseconds: -1}) AS d "
+            "RETURN toString(d) AS ts, duration(toString(d)) = d AS b",
+            "P1DT-0.001S",
+            True,
+        ),
+    ],
+)
+def test_string_cypher_duration_tostring_preserves_components(
+    query: str,
+    expected_ts: str,
+    expected_b: bool,
+) -> None:
+    _assert_query_rows(query, [{"ts": expected_ts, "b": expected_b}])
+
+
+def test_string_cypher_duration_equality_is_component_wise() -> None:
+    # openCypher TCK Temporal7 [6] example 8 (pygraphistry #1361 / #1353 item #2):
+    # Two durations with equal total seconds but different (days, seconds) component
+    # shapes are NOT equal. Equality compares months/days/seconds-nanos components,
+    # not just totals.
+    _assert_query_rows(
+        "WITH duration({years: 12, months: 5, days: 14, hours: 16, minutes: 12, seconds: 70}) AS x, "
+        "duration({years: 12, months: 5, days: 13, hours: 40, minutes: 13, seconds: 10}) AS d "
+        "RETURN x = d AS eq",
+        [{"eq": False}],
+    )
+
+
 def test_string_cypher_executes_temporal_localdatetime_weekyear_truncate_day_override() -> None:
     _assert_query_rows(
         "RETURN localdatetime.truncate("
@@ -7778,6 +7860,200 @@ def test_string_cypher_supports_order_by_stringified_list_subscript_expression()
     ]
 
 
+def test_string_cypher_order_by_python_list_column_uses_list_orderability() -> None:
+    """Issue #1359 — Cypher ORDER BY <list-col> must use openCypher list-orderability.
+
+    Pairwise lex comparison; shorter list less-than its longer prefix-equal extension.
+    With Python-list-typed input, the row pipeline's ``build_list_sort_columns``
+    handles this correctly. This test pins the behavior so future refactors
+    don't regress to a string-cast fallback (the bug we lifted for str-typed cols).
+    """
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d", "e"],
+                "list": [[2, -2], [1, 2], [300, 0], [1, -20], [2, -2, 100]],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    asc = g.gfql(
+        "MATCH (a) "
+        "WITH a, a.list AS list "
+        "WITH a, list ORDER BY list ASC LIMIT 3 "
+        "RETURN a, list"
+    )
+    asc_lists = [tuple(v) for v in asc._nodes["list"].tolist()]
+    assert sorted(asc_lists) == sorted([(1, -20), (1, 2), (2, -2)])
+
+    desc = g.gfql(
+        "MATCH (a) "
+        "WITH a, a.list AS list "
+        "WITH a, list ORDER BY list DESC LIMIT 3 "
+        "RETURN a, list"
+    )
+    desc_lists = [tuple(v) for v in desc._nodes["list"].tolist()]
+    assert sorted(desc_lists) == sorted([(300, 0), (2, -2, 100), (2, -2)])
+
+
+def test_string_cypher_order_by_stringified_list_column_uses_list_orderability() -> None:
+    """Issue #1359 — Cypher ORDER BY <stringified-list-col>.
+
+    When a list-valued property is stored as a string column (e.g. round-tripped
+    through CSV / Arrow string), pygraphistry must still apply Cypher list
+    orderability — not lex string sort, which mishandles negatives because
+    ``"-"`` < ``"2"`` in ASCII.
+
+    Pre-fix: lex string sort produced top-3 ASC = D, B, E (E in place of A).
+    Post-fix: top-3 ASC SET = {B, D, A} via ``order_detect_stringified_list_series``
+    + ``parse_stringified_list_series`` routing into ``build_list_sort_columns``.
+    """
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d", "e"],
+                "list": pd.Series(
+                    ["[2, -2]", "[1, 2]", "[300, 0]", "[1, -20]", "[2, -2, 100]"],
+                    dtype="string",
+                ),
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    asc = g.gfql(
+        "MATCH (a) "
+        "WITH a, a.list AS list "
+        "WITH a, list ORDER BY list ASC LIMIT 3 "
+        "RETURN a, list"
+    )
+    asc_values = sorted(str(v) for v in asc._nodes["list"].tolist())
+    assert asc_values == sorted(["[1, -20]", "[1, 2]", "[2, -2]"])
+
+    desc = g.gfql(
+        "MATCH (a) "
+        "WITH a, a.list AS list "
+        "WITH a, list ORDER BY list DESC LIMIT 3 "
+        "RETURN a, list"
+    )
+    desc_values = sorted(str(v) for v in desc._nodes["list"].tolist())
+    assert desc_values == sorted(["[300, 0]", "[2, -2, 100]", "[2, -2]"])
+
+
+def test_string_cypher_order_by_partial_stringified_list_raises_mixed_family() -> None:
+    """Issue #1359 W2-A1 — partial-list-shape columns must raise, not silently lex-sort.
+
+    Mixing list-shaped strings (`'[1, -20]'`) with plain strings (`'hello'`) was
+    classified as a single ``str`` family by ``validate_order_series_vector_safe``,
+    silently routing to lex sort and reproducing the wrong-row bug #1359 fixed.
+    Now the validator splits ``str`` into ``list_string`` vs plain ``str`` families
+    and raises mixed-family on the boundary.
+    """
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "list": pd.Series(["[1, -20]", "hello", "[2, 0]"], dtype="string"),
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    with pytest.raises((GFQLTypeError, ValueError)) as exc:
+        g.gfql(
+            "MATCH (a) WITH a, a.list AS list WITH a, list "
+            "ORDER BY list ASC RETURN a, list"
+        )
+    assert "list_string" in str(exc.value) and "str" in str(exc.value)
+
+
+def test_string_cypher_order_by_stringified_list_with_nulls_returns_top_k_without_error() -> None:
+    """Issue #1359 W1-I4 — stringified-list with nulls completes without error.
+
+    Documents the current behavior on null-bearing list columns:
+    ``pipeline.py:3955-3967`` explicitly skips the parsed-list path when any null
+    is present (``has_null=True`` carve-out, mirroring the Python-list path).
+    Falls through to ``validate_order_series_vector_safe``, which classifies
+    non-null cells as ``list_string`` family (singleton, no raise), then
+    ``sort_values`` runs default lex over the string representation. Pin: no
+    exception and top-K contains the smaller list-shaped values.
+    """
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d"],
+                "list": pd.Series(["[1, 2]", None, "[3, 4]", "[1, 1]"], dtype="object"),
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    res = g.gfql(
+        "MATCH (a) WITH a, a.list AS list WITH a, list "
+        "ORDER BY list ASC LIMIT 3 RETURN a, list"
+    )
+    values = sorted(str(v) for v in res._nodes["list"].tolist())
+    # Top-3 SET excludes the larger [3, 4]; nulls sort high under pandas default.
+    assert "[1, 1]" in values and "[1, 2]" in values
+
+
+def test_string_cypher_order_by_malformed_stringified_list_falls_back_to_lex_sort() -> None:
+    """Issue #1359 W1-I6 — `'[1, 2'` (missing closing bracket) falls back gracefully.
+
+    The detector accepts the row (regex `^[.*]$` requires a closing bracket so this
+    actually FAILS the detector and routes to plain string lex sort). Pin the
+    fallback path so future detector tightening doesn't accidentally break it.
+    """
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "list": pd.Series(["[1, 2", "abc"], dtype="string"),
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    res = g.gfql(
+        "MATCH (a) WITH a, a.list AS list WITH a, list "
+        "ORDER BY list ASC RETURN a, list"
+    )
+    # Malformed-string column treated as plain strings; lex sort: '[1, 2' < 'abc'.
+    values = [str(v) for v in res._nodes["list"].tolist()]
+    assert values == ["[1, 2", "abc"]
+
+
+def test_string_cypher_order_by_multi_key_stringified_list_with_scalar() -> None:
+    """Issue #1359 W1-I5 — multi-key ORDER BY mixing stringified-list with scalar.
+
+    Exercises ``aux_drop_cols`` accumulation across multiple ORDER BY iterations.
+    Sort by ``list ASC, num DESC`` over a stringified-list + numeric column.
+    Pins that the parsed aux column doesn't leak into the result.
+    """
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d"],
+                "list": pd.Series(["[1, 2]", "[1, 2]", "[3, 4]", "[3, 4]"], dtype="string"),
+                "num": [10, 20, 5, 15],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    res = g.gfql(
+        "MATCH (a) WITH a, a.list AS list, a.num AS num WITH a, list, num "
+        "ORDER BY list ASC, num DESC RETURN a, list, num"
+    )
+    # Within list=[1,2] group, num DESC: 20, 10. Within list=[3,4] group: 15, 5.
+    nums = res._nodes["num"].tolist()
+    assert nums == [20, 10, 15, 5]
+    # Aux col must not leak.
+    leaked = [c for c in res._nodes.columns if "__gfql_sort_listparsed" in str(c)]
+    assert leaked == [], f"aux columns leaked: {leaked}"
+
+
 def test_string_cypher_supports_return_star_after_with_distinct_row_projection() -> None:
     g = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c"], "name": ["A", "B", "C"]}),
@@ -9506,6 +9782,76 @@ def test_string_cypher_failfast_rejects_with_match_reentry_secondary_whole_row_r
 
     with pytest.raises(GFQLValidationError, match="secondary whole-row aliases as whole-row outputs"):
         _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+
+def test_string_cypher_failfast_rejects_with_match_reentry_carried_relationship_alias() -> None:
+    """#1358: carrying a relationship variable across re-entry must surface as a
+    clean scope error citing the unsupported alias kind, not silently fall into
+    untested code paths in the multi-whole-row prefix rewriter.
+
+    The trailing MATCH binds a fresh node alias `c`, so the #1341 flattener
+    does not admit this query — it falls through to the existing reentry path
+    where the new classifier check fires.
+    """
+    query = (
+        "MATCH (a:A {id: $seed})-[r:R]->(b:B) "
+        "WITH a, r "
+        "MATCH (a)-[:S]->(c:C) "
+        "RETURN r.weight, c.id AS cid"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="does not yet support carrying a relationship variable",
+    ):
+        _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+
+def test_string_cypher_failfast_rejects_with_match_reentry_carried_path_alias() -> None:
+    """#1358: carrying a named path alias across re-entry must surface as a
+    clean scope error. Mirrors the relationship-variable case via the path-alias
+    branch of ``MatchClause.pattern_aliases``.
+    """
+    query = (
+        "MATCH path = (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH path, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN length(path), c.id AS cid"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="does not yet support carrying a named path alias",
+    ):
+        _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+
+def test_unit_all_match_alias_kinds_lets_rel_kind_win_over_node() -> None:
+    """#1358: when a name is bound as both a node and a relationship variable
+    across patterns (parser-permitted), the alias-kinds classifier must record
+    the relationship kind so the pre-flight still flags the unsupported carry
+    rather than silently admitting via the node fallback.
+
+    Bypasses lowering (which rejects the multi-pattern shape under a different
+    rule) and exercises the classifier helper directly on the parsed AST.
+    """
+    from graphistry.compute.gfql.cypher.lowering import _all_match_alias_kinds
+
+    parsed = parse_cypher(
+        "MATCH (x:X) "
+        "MATCH (a:A)-[x:R]->(b:B) "
+        "WITH a, x "
+        "MATCH (a)-[:S]->(c:C) "
+        "RETURN x.weight, c.id"
+    )
+    assert isinstance(parsed, CypherQuery)
+    kinds = _all_match_alias_kinds(parsed)
+    assert kinds.get("x") == "rel", (
+        "rel binding must override the prior node binding so the pre-flight still "
+        "flags the unsupported carry"
+    )
+    assert kinds.get("a") == "node"
+    assert kinds.get("b") == "node"
 
 
 def test_string_cypher_executes_with_match_reentry_secondary_alias_rebinding() -> None:
@@ -14394,6 +14740,33 @@ def test_issue_1047_optional_reentry_raises_is_gfql_validation_error() -> None:
             "OPTIONAL MATCH (post:Post)-[:HAS_TAG]->(x:Tag {tagId: knownTagId}) "
             "RETURN post.id AS id"
         )
+
+
+@pytest.mark.parametrize(
+    "graph_factory, expected_rows",
+    [
+        (_mk_optional_prefix_reentry_no_match_graph, []),
+        (_mk_optional_prefix_reentry_match_graph, [{"cid": "c1"}]),
+    ],
+)
+def test_issue_1356_optional_prefix_reentry_handles_no_match_semantics(
+    graph_factory: Callable[[], _CypherTestGraph],
+    expected_rows: List[Dict[str, Any]],
+) -> None:
+    """OPTIONAL prefix reentry should not fail identity recovery on no-match.
+
+    #1356 regression guard: when the OPTIONAL prefix has no matches, the
+    prefix stage may produce a null carry row without whole-row metadata.
+    Reentry should treat it as an empty seed set (no crash), while matched
+    fixtures continue to produce expected rows.
+    """
+    result = graph_factory().gfql(
+        "OPTIONAL MATCH (a:A)-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN c.id AS cid ORDER BY cid"
+    )
+    assert result._nodes.to_dict(orient="records") == expected_rows
 
 
 def test_issue_1047_partial_hit_zero_contribution_has_no_null_rows() -> None:

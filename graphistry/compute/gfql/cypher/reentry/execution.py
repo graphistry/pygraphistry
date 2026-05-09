@@ -128,6 +128,42 @@ def compiled_query_reentry_state(
         )
     output_name = plan.reentry_alias_name
     carried_columns = tuple(plan.scalar_columns)
+    prefix_rows = cast(Optional[DataFrameT], getattr(prefix_result, "_nodes", None))
+    prefix_alias_values: Optional[SeriesT] = None
+    if prefix_rows is not None and output_name in prefix_rows.columns:
+        prefix_alias_values = cast(SeriesT, prefix_rows[output_name])
+    entity_meta = cast(Optional[Dict[str, Any]], getattr(prefix_result, "_cypher_entity_projection_meta", None))
+    has_projection_meta = isinstance(entity_meta, dict) and output_name in entity_meta
+    has_secondary_carried_alias = any(not alias.is_reentry_alias for alias in plan.aliases)
+    if (
+        not has_projection_meta
+        and has_secondary_carried_alias
+        and prefix_alias_values is not None
+        and hasattr(prefix_alias_values, "notna")
+    ):
+        # #1356: OPTIONAL prefix + no matches can produce a single null carry row
+        # without whole-row projection metadata. Treat it as an empty seed set
+        # for re-entry instead of raising "could not recover carried identities".
+        non_null_mask = cast(SeriesT, prefix_alias_values.notna())
+        has_non_null_ids = bool(non_null_mask.any()) if hasattr(non_null_mask, "any") else True
+        if not has_non_null_ids:
+            base_nodes = cast(Optional[DataFrameT], getattr(base_graph, "_nodes", None))
+            id_column = cast(Optional[str], getattr(base_graph, "_node", None))
+            if base_nodes is None or id_column is None or id_column not in base_nodes.columns:
+                raise reentry_validation_error(
+                    "Cypher MATCH after WITH could not recover the base node table for re-entry",
+                    value=id_column,
+                    suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
+                )
+            carried_node_ids = cast(
+                DataFrameT,
+                cast(DataFrameT, base_nodes[[id_column]]).iloc[0:0].reset_index(drop=True),
+            )
+            return base_graph, ordered_reentry_start_nodes(
+                node_rows=base_nodes,
+                carried_node_ids=carried_node_ids,
+                id_column=id_column,
+            )
     meta = entity_projection_meta_entry(
         prefix_result,
         output_name=output_name,
