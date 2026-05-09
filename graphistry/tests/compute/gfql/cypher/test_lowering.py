@@ -9135,6 +9135,54 @@ def test_string_cypher_chained_reentry_with_repeated_primary_preserves_prefix_ro
     ]
 
 
+def test_string_cypher_chained_reentry_with_repeated_primary_preserves_duplicate_output_rows() -> None:
+    """#1394 amplification: duplicate carried-id fallback preserves per-prefix-row multiplicity.
+
+    The second reentry runs once per prefix row. Here prefix produces two rows
+    over the same carried `a`; suffix yields two rows each time, so output must
+    contain four `(friend, other)` pairs (cartesian per prefix row).
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(friend) "
+        "WITH a, x, friend "
+        "MATCH (a)-[:R]->(other) "
+        "RETURN other.id AS oid, friend.id AS fid"
+    )
+    records = _mk_multi_stage_reentry_graph().gfql(query)._nodes.to_dict(orient="records")
+    assert len(records) == 4
+    assert {(row["fid"], row["oid"]) for row in records} == {
+        ("b", "b"),
+        ("b", "e"),
+        ("e", "b"),
+        ("e", "e"),
+    }
+
+
+def test_string_cypher_chained_reentry_with_repeated_primary_preserves_duplicate_output_rows_on_cudf() -> None:
+    """#1394 amplification cuDF parity for per-prefix-row multiplicity lock."""
+    pytest.importorskip("cudf")
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(friend) "
+        "WITH a, x, friend "
+        "MATCH (a)-[:R]->(other) "
+        "RETURN other.id AS oid, friend.id AS fid"
+    )
+    result = _mk_multi_stage_reentry_graph_cudf().gfql(query, engine="cudf")
+    nodes_pd = result._nodes.to_pandas() if hasattr(result._nodes, "to_pandas") else result._nodes
+    records = nodes_pd.to_dict(orient="records")
+    assert len(records) == 4
+    assert {(row["fid"], row["oid"]) for row in records} == {
+        ("b", "b"),
+        ("b", "e"),
+        ("e", "b"),
+        ("e", "e"),
+    }
+
+
 def test_string_cypher_admits_secondary_alias_carry_across_reentry_source_rebinding() -> None:
     """#1256 slice 4.3d.2: secondary alias carry survives a reentry-source rebinding.
 
