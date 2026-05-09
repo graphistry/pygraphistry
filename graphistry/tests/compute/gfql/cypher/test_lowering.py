@@ -3148,6 +3148,63 @@ def test_string_cypher_uses_integer_division_for_literal_arithmetic_expression()
     result = graph.gfql("RETURN 12 / 4 * 3 - 2 * 4")
 
     assert result._nodes.to_dict(orient="records") == [{"12 / 4 * 3 - 2 * 4": 1}]
+@pytest.mark.parametrize(
+    "query,expected_rows",
+    [
+        (
+            "RETURN 4 * 2 + 3 / 2 AS a, 4 * 2 + (3 / 2) AS b, 4 * (2 + 3) / 2 AS c",
+            [{"a": 9, "b": 9, "c": 10}],
+        ),
+        (
+            "RETURN 4 * 2 - 3 / 2 AS a, 4 * 2 - (3 / 2) AS b, 4 * (2 - 3) / 2 AS c",
+            [{"a": 7, "b": 7, "c": -2}],
+        ),
+        (
+            "RETURN 4 / 2 + 3 * 2 AS a, 4 / 2 + (3 * 2) AS b, 4 / (2 + 3) * 2 AS c",
+            [{"a": 8, "b": 8, "c": 0}],
+        ),
+        (
+            "RETURN 4 / 2 + 3 / 2 AS a, 4 / 2 + (3 / 2) AS b, 4 / (2 + 3) / 2 AS c",
+            [{"a": 3, "b": 3, "c": 0}],
+        ),
+        (
+            "RETURN 4 / 2 + 3 % 2 AS a, 4 / 2 + (3 % 2) AS b, 4 / (2 + 3) % 2 AS c",
+            [{"a": 3, "b": 3, "c": 0}],
+        ),
+        (
+            "RETURN 4 / 2 - 3 * 2 AS a, 4 / 2 - (3 * 2) AS b, 4 / (2 - 3) * 2 AS c",
+            [{"a": -4, "b": -4, "c": -8}],
+        ),
+        (
+            "RETURN 4 / 2 - 3 / 2 AS a, 4 / 2 - (3 / 2) AS b, 4 / (2 - 3) / 2 AS c",
+            [{"a": 1, "b": 1, "c": -2}],
+        ),
+        (
+            "RETURN 4 / 2 - 3 % 2 AS a, 4 / 2 - (3 % 2) AS b, 4 / (2 - 3) % 2 AS c",
+            [{"a": 1, "b": 1, "c": 0}],
+        ),
+        (
+            "RETURN 4 % 2 + 3 / 2 AS a, 4 % 2 + (3 / 2) AS b, 4 % (2 + 3) / 2 AS c",
+            [{"a": 1, "b": 1, "c": 2}],
+        ),
+        (
+            "RETURN 4 % 2 - 3 / 2 AS a, 4 % 2 - (3 / 2) AS b, 4 % (2 - 3) / 2 AS c",
+            [{"a": -1, "b": -1, "c": 0}],
+        ),
+    ],
+)
+def test_string_cypher_precedence_examples_use_integer_division(
+    query: str,
+    expected_rows: List[Dict[str, Any]],
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["n1"]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == expected_rows
 
 
 @pytest.mark.parametrize(
