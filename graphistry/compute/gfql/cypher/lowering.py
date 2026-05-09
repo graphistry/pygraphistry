@@ -4585,6 +4585,7 @@ def _lower_match_alias_aggregate_stage(
     projected_property_outputs: Dict[str, str] = {}
     output_to_source_property: Dict[str, str] = {}
     hidden_group_key_names: Set[str] = set()
+    whole_row_group_aliases: List[str] = []
 
     for item in non_aggregate_items:
         output_name = item.alias or item.expression.text
@@ -4599,13 +4600,22 @@ def _lower_match_alias_aggregate_stage(
         if item.expression.text in scope.alias_targets:
             alias_name = item.expression.text
             if alias_name != active_alias:
-                raise _unsupported(
-                    "Cypher aggregate whole-row grouping currently supports the active MATCH alias only",
-                    field=stage.clause.kind,
-                    value=item.expression.text,
-                    line=item.span.line,
-                    column=item.span.column,
-                )
+                if not scope.allowed_match_aliases:
+                    raise _unsupported(
+                        "Cypher aggregate whole-row grouping currently supports the active MATCH alias only",
+                        field=stage.clause.kind,
+                        value=item.expression.text,
+                        line=item.span.line,
+                        column=item.span.column,
+                    )
+                if alias_name not in scope.allowed_match_aliases:
+                    raise _unsupported(
+                        "Cypher aggregate whole-row grouping alias is not available in the active bindings-row scope",
+                        field=stage.clause.kind,
+                        value=item.expression.text,
+                        line=item.span.line,
+                        column=item.span.column,
+                    )
             hidden_key_name = _fresh_temp_name(temp_names, "__cypher_group_key__")
             raw_key_expr = _whole_row_group_key_expr(
                 alias_name,
@@ -4615,15 +4625,12 @@ def _lower_match_alias_aggregate_stage(
                 column=item.span.column,
             )
             if scope.allowed_match_aliases:
-                # Bindings-row path: node/edge property columns are prefixed (e.g. "tag.id").
-                # Use the prefixed id column as the group key.  Skip building the entity blob
-                # column — on this path we keep individual alias.* columns instead.
                 key_expr = f"{alias_name}.{raw_key_expr}"
                 pre_items.append((hidden_key_name, key_expr))
                 key_names.append(hidden_key_name)
                 hidden_group_key_names.add(hidden_key_name)
-                # output_name ("tag") is NOT added to available_columns or key_names here;
-                # alias.* columns will survive via key_prefixes on group_by.
+                if alias_name not in whole_row_group_aliases:
+                    whole_row_group_aliases.append(alias_name)
             else:
                 key_expr = raw_key_expr
                 pre_items.append((hidden_key_name, key_expr))
@@ -4751,22 +4758,12 @@ def _lower_match_alias_aggregate_stage(
             alias_name=agg_spec.output_name,
         )
 
-    # On the bindings-row path (allowed_match_aliases non-empty), the row table carries
-    # alias-prefixed property columns (e.g. "tag.id", "tag.name").  When a non-aggregate item
-    # is a whole-row alias reference (e.g. "tag"), we use key_prefixes on group_by so the
-    # active alias's property columns are added as group keys at runtime, surviving into the
-    # output for subsequent RETURN/WITH stages to resolve alias.property references.
     bindings_row_path = bool(scope.allowed_match_aliases)
-    has_whole_row_alias = bindings_row_path and any(
-        item.expression.text in scope.alias_targets for item in non_aggregate_items
-    )
-    alias_key_prefixes = [f"{active_alias}."] if has_whole_row_alias else None
+    alias_key_prefixes = [f"{alias_name}." for alias_name in whole_row_group_aliases] if whole_row_group_aliases else None
 
     row_steps: List[ASTObject] = []
     if key_names:
         if pre_items:
-            # On the bindings-row path use extend=True so alias-prefixed property columns
-            # (e.g. "tag.name") remain in the table for group_by key_prefixes to pick up.
             row_steps.append(with_(pre_items, extend=bindings_row_path))
         row_steps.append(group_by(key_names, aggregations, key_prefixes=alias_key_prefixes))
     else:
