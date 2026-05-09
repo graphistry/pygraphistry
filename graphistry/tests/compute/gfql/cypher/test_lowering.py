@@ -10103,22 +10103,13 @@ def test_string_cypher_flatten_admit_matches_hand_flattened_oracle_simple_rebind
     assert via_flatten == via_oracle
 
 
-@pytest.mark.skip(
-    reason=(
-        "Pre-existing cuDF row-pipeline segfault (#1355) for shared-alias "
-        "multi-pattern with relationship-property projection — verified on "
-        "rapids 25.02 + 26.02 with both flatten-on and hand-flattened "
-        "single-MATCH form, exit code 139. ``skip`` not ``xfail`` because "
-        "SIGSEGV kills the pytest worker; xfail only catches in-process "
-        "exceptions. The pandas equivalent is locked in by "
-        "``test_flatten_admits_when_relationship_variable_is_carried`` "
-        "(#1341 round-001)."
-    )
-)
 def test_string_cypher_executes_with_match_reentry_relationship_variable_carried_on_cudf() -> None:
-    """Round-001 amplification (#1341): cuDF parity for the rel-var-carried admit
-    case. Mirrors ``test_flatten_admits_when_relationship_variable_is_carried``
-    on cuDF so the wave-4 fix's admit branch has backend parity coverage."""
+    """cuDF parity + no-crash regression for #1355.
+
+    Covers both:
+    - WITH-form that can flatten to connected comma-pattern
+    - Hand-flattened single-MATCH connected comma-pattern
+    """
     pytest.importorskip("cudf")
     nodes = pd.DataFrame(
         {
@@ -10131,15 +10122,21 @@ def test_string_cypher_executes_with_match_reentry_relationship_variable_carried
         {"s": ["a1", "b1"], "d": ["b1", "a1"], "type": ["R", "S"], "weight": [7, 9]}
     )
     g = _mk_cudf_graph(nodes, edges)
-    query = (
+    with_form = (
         "MATCH (a:A {id: 'a1'})-[r:R]->(b:B) "
         "WITH a, b, r "
         "MATCH (b)-[:S]->(a) "
         "RETURN r.weight AS w"
     )
-    result = g.gfql(query, engine="cudf")
-    assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"w": 7}]
+    hand_flattened = (
+        "MATCH (a:A {id: 'a1'})-[r:R]->(b:B), (b)-[:S]->(a) "
+        "RETURN r.weight AS w"
+    )
+
+    for query in (with_form, hand_flattened):
+        result = g.gfql(query, engine="cudf")
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"w": 7}]
 
 
 def test_string_cypher_executes_with_match_reentry_multi_whole_row_alias_property_carry_on_cudf() -> None:

@@ -4,7 +4,7 @@
 from dataclasses import replace
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple, Union, cast
 from graphistry.Plottable import Plottable
-from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, df_to_engine, resolve_engine
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
 from .chain import Chain, chain as chain_impl
@@ -421,8 +421,12 @@ def _apply_connected_match_join(
 ) -> Plottable:
     from graphistry.compute.ast import ASTCall, serialize_binding_ops
 
-    concrete_engine = resolve_engine(cast(Any, engine), base_graph)
-    df_ctor = df_cons(concrete_engine)
+    requested_engine = resolve_engine(cast(Any, engine), base_graph)
+    # #1355: cuDF can segfault on connected comma-pattern row joins with some
+    # rel-property projection shapes. Execute this join route on pandas and
+    # convert the final rows back to cuDF so engine parity is preserved.
+    exec_engine = Engine.PANDAS if requested_engine == Engine.CUDF else requested_engine
+    df_ctor = df_cons(exec_engine)
     node_col = getattr(base_graph, "_node", "id")
 
     joined_rows: Optional[DataFrameT] = None
@@ -431,7 +435,7 @@ def _apply_connected_match_join(
             list(pattern_chain.chain) + [ASTCall("rows", {"binding_ops": serialize_binding_ops(pattern_chain.chain)})],
             where=pattern_chain.where,
         )
-        pattern_result = _chain_dispatch(base_graph, with_rows, engine, policy, context)
+        pattern_result = _chain_dispatch(base_graph, with_rows, exec_engine, policy, context)
         pattern_rows = cast(Optional[DataFrameT], getattr(pattern_result, "_nodes", None))
         if pattern_rows is None or len(pattern_rows) == 0:
             out = base_graph.bind()
@@ -471,7 +475,15 @@ def _apply_connected_match_join(
     joined_plottable = base_graph.bind()
     joined_plottable._nodes = joined_rows
     joined_plottable._edges = df_ctor()
-    return _chain_dispatch(joined_plottable, plan.post_join_chain, engine, policy, context)
+    result = _chain_dispatch(joined_plottable, plan.post_join_chain, exec_engine, policy, context)
+    if requested_engine != Engine.CUDF:
+        return result
+    out = result.bind()
+    if getattr(out, "_nodes", None) is not None:
+        out._nodes = cast(DataFrameT, df_to_engine(cast(Any, out._nodes), Engine.CUDF))
+    if getattr(out, "_edges", None) is not None:
+        out._edges = cast(DataFrameT, df_to_engine(cast(Any, out._edges), Engine.CUDF))
+    return out
 
 
 def _execute_graph_constructor_compiled(
