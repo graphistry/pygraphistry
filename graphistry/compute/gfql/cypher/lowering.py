@@ -3253,6 +3253,27 @@ def _binding_row_aliases_for_match(
         return set()
     return set(alias_targets.keys())
 
+
+def _binding_row_aliases_for_multi_alias_whole_row_node_projection(
+    query: CypherQuery,
+    *,
+    clause: ReturnClause,
+    alias_targets: Mapping[str, ASTObject],
+) -> Set[str]:
+    if query.match is None or len(query.matches) > 1 or len(alias_targets) <= 1:
+        return set()
+    whole_row_refs = {
+        item.expression.text
+        for item in clause.items
+        if item.expression.text in alias_targets
+    }
+    if len(whole_row_refs) <= 1:
+        return set()
+    if not all(isinstance(alias_targets.get(alias), ASTNode) for alias in whole_row_refs):
+        return set()
+    return set(whole_row_refs)
+
+
 def _binding_row_aliases_for_row_where(
     row_where: Optional[ExpressionText],
     *,
@@ -4247,23 +4268,14 @@ def _build_initial_row_scope(
             binding_row_aliases.update(stage_non_aggregate_refs)
     # For connected non-cartesian MATCH, allow first-stage multi-whole-row node
     # projections to use bindings rows (#880 / #1393).
-    if (
-        not binding_row_aliases
-        and query.match is not None
-        and len(query.matches) <= 1
-        and len(alias_targets) > 1
-    ):
-        # Check if the stage clause references 2+ whole-row node aliases.
-        whole_row_refs = {
-            item.expression.text
-            for item in stage_clause.items
-            if item.expression.text in alias_targets
-        }
-        if len(whole_row_refs) > 1 and all(
-            isinstance(alias_targets.get(alias), ASTNode)
-            for alias in whole_row_refs
-        ):
-            binding_row_aliases = set(whole_row_refs)
+    if not binding_row_aliases:
+        binding_row_aliases.update(
+            _binding_row_aliases_for_multi_alias_whole_row_node_projection(
+                query,
+                clause=stage_clause,
+                alias_targets=alias_targets,
+            )
+        )
     if _requires_relationship_multiplicity_bindings(
         aggregate_specs=stage_aggregate_specs,
         relationship_count=relationship_count,
@@ -8663,6 +8675,14 @@ def compile_cypher_query(
 
     if merged_match is not None and not query.unwinds:
         binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+        if not binding_row_aliases:
+            binding_row_aliases.update(
+                _binding_row_aliases_for_multi_alias_whole_row_node_projection(
+                    query,
+                    clause=query.return_,
+                    alias_targets=alias_targets,
+                )
+            )
         binding_row_aliases = _apply_bound_scope_membership(
             binding_row_aliases,
             alias_targets=alias_targets,
