@@ -3139,6 +3139,17 @@ def test_string_cypher_uses_integer_division_for_post_aggregate_expression() -> 
     assert result._nodes.to_dict(orient="records") == [{"count": 1}]
 
 
+def test_string_cypher_uses_integer_division_for_literal_arithmetic_expression() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("RETURN 12 / 4 * 3 - 2 * 4")
+
+    assert result._nodes.to_dict(orient="records") == [{"12 / 4 * 3 - 2 * 4": 1}]
+
+
 def test_string_cypher_supports_whole_row_grouping_with_post_aggregate_expression() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["n1"]}),
