@@ -3221,28 +3221,6 @@ def _query_requires_general_lowering_for_connected_join(
     )
 
 
-def _reject_unsupported_multi_alias_whole_row_cross_alias_where(
-    query: CypherQuery,
-    *,
-    merged_match: Optional[MatchClause],
-    alias_targets: Mapping[str, ASTObject],
-) -> None:
-    if (
-        merged_match is None
-        or query.where is None
-        or bool(query.with_stages)
-        or _cartesian_node_only_patterns(merged_match) is not None
-        or _match_relationship_count(merged_match) == 0
-        or len({item.expression.text for item in query.return_.items if item.expression.text in alias_targets}) <= 1
-    ):
-        return
-    raise _unsupported(
-        "Cypher row lowering currently supports one MATCH source alias at a time; for remaining multi-source residuals see issue #1273",
-        field=query.return_.kind,
-        value=[item.expression.text for item in query.return_.items],
-        line=query.return_.span.line,
-        column=query.return_.span.column,
-    )
 def _query_has_aggregate_stage(
     query: CypherQuery,
     *,
@@ -8595,11 +8573,6 @@ def compile_cypher_query(
         else LoweredCypherMatch(query=[], where=[])
     )
     alias_targets = _alias_target(lowered.query) if query.match is not None else {}
-    _reject_unsupported_multi_alias_whole_row_cross_alias_where(
-        query,
-        merged_match=merged_match,
-        alias_targets=alias_targets,
-    )
 
     def _lower_general() -> CompiledCypherQuery:
         return _lower_general_row_projection(

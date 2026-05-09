@@ -11496,7 +11496,7 @@ def test_string_cypher_executes_connected_multi_pattern_multi_whole_row_joined_p
     ]
 
 
-def test_multi_alias_connected_whole_row_return_with_cross_alias_where_still_failfasts_for_1273_boundary() -> None:
+def test_multi_alias_connected_whole_row_return_with_cross_alias_where_executes_for_joined_row_projection_1393() -> None:
     g = _mk_graph(
         pd.DataFrame(
             {
@@ -11506,9 +11506,8 @@ def test_multi_alias_connected_whole_row_return_with_cross_alias_where_still_fai
         ),
         pd.DataFrame({"s": ["n1", "n2"], "d": ["x1", "x2"], "type": ["R", "R"]}),
     )
-    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time") as exc_info:
-        g.gfql("MATCH (n)-[rel]->(x) WHERE n.animal = x.animal RETURN n, x")
-    assert "#1273" in exc_info.value.message
+    result = g.gfql("MATCH (n)-[rel]->(x) WHERE n.animal = x.animal RETURN n, x")
+    assert result._nodes.to_dict(orient="records") == [{"n": "({animal: 'cat'})", "x": "({animal: 'cat'})"}]
 
 
 def test_multi_alias_connected_cross_alias_where_scalar_projection_remains_supported() -> None:
