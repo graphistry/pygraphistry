@@ -1,15 +1,9 @@
 """Validator/runtime strict-mode parity baselines (#1357).
 
 ``gfql_validate(..., strict=True)`` runs the FrontendBinder with
-``strict_name_resolution=True``; the runtime ``compile_cypher_query``
-path runs the post-normalize binder in **loose** mode (#1357 deferred).
-This module pins where the two surfaces *diverge today* — a query that
-the strict validator rejects but the runtime compile path admits.
-
-When a follow-up PR closes a binder-coverage gap and the runtime flip is
-made for that gap, the corresponding parametrized case here should be
-moved into the "parity" partition (both reject) instead of the
-"divergence" partition (validator-only).
+``strict_name_resolution=True``; runtime ``compile_cypher_query`` now
+uses the same strict post-normalize bind. This module pins parity between
+the two surfaces across representative admit/reject cases.
 
 Cross-kind alias rebind and namespaced builtin function handling now have
 parity, and are pinned here as positive parity cases.
@@ -36,7 +30,7 @@ def _empty_g():
 
 
 # ---------------------------------------------------------------------------
-# Parity: both validator (strict) and runtime (loose) reject
+# Parity: both validator (strict) and runtime (strict) reject
 # ---------------------------------------------------------------------------
 
 
@@ -77,7 +71,7 @@ def test_validator_and_runtime_both_admit_namespaced_builtins(query: str) -> Non
 
 
 # ---------------------------------------------------------------------------
-# Parity: validator (strict) and runtime (loose) both admit.
+# Parity: validator (strict) and runtime (strict) both admit.
 # These cases previously diverged due missing comprehension-local scope in
 # strict binder unresolved-identifier checks (#1371 P2).
 # ---------------------------------------------------------------------------
