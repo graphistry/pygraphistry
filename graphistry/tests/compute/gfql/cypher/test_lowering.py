@@ -8144,8 +8144,24 @@ def test_string_cypher_executes_with_match_reentry_ordered_limit_zero_shape() ->
     assert result._nodes.to_dict(orient="records") == []
 
 
-def test_string_cypher_rejects_reentry_with_parameterized_limit_and_order() -> None:
-    """Regression for 992f2fc1: ParameterRef in LIMIT must not crash _literal_limit_value."""
+def test_string_cypher_executes_with_match_reentry_parameterized_limit_shape() -> None:
+    """Parameterized LIMIT should be treated as bounded when params resolve to int."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "a2", "b1"],
+            "label__A": [True, True, False],
+            "name": ["alpha", "beta", None],
+        }
+    )
+    edges = pd.DataFrame({"s": ["a1", "a2"], "d": ["b1", "b1"]})
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A) WITH a ORDER BY a.name LIMIT $n MATCH (a)-->(b) RETURN a",
+        params={"n": 1},
+    )
+    assert result._nodes.to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
+
+
+def test_string_cypher_rejects_reentry_with_parameterized_non_int_limit_and_order() -> None:
     nodes = pd.DataFrame(
         {
             "id": ["a1", "a2", "b1"],
@@ -8157,13 +8173,13 @@ def test_string_cypher_rejects_reentry_with_parameterized_limit_and_order() -> N
     with pytest.raises(GFQLValidationError) as exc_info:
         _mk_graph(nodes, edges).gfql(
             "MATCH (a:A) WITH a ORDER BY a.name LIMIT $n MATCH (a)-->(b) RETURN a",
-            params={"n": 1},
+            params={"n": "1"},
         )
-    assert "order" in exc_info.value.message.lower()
+    assert "integer" in exc_info.value.message.lower()
 
 
 def test_string_cypher_executes_with_match_reentry_limit_shape_on_cudf() -> None:
-    cudf = pytest.importorskip("cudf")
+    cudf = _require_cudf_runtime()
 
     nodes = cudf.from_pandas(
         pd.DataFrame(
@@ -8193,7 +8209,7 @@ def test_string_cypher_executes_with_match_reentry_limit_shape_on_cudf() -> None
 
 
 def test_string_cypher_executes_with_match_reentry_ordered_topk_multi_row_shape_on_cudf() -> None:
-    cudf = pytest.importorskip("cudf")
+    cudf = _require_cudf_runtime()
 
     nodes = cudf.from_pandas(
         pd.DataFrame(
@@ -8230,6 +8246,37 @@ def test_string_cypher_executes_with_match_reentry_ordered_topk_multi_row_shape_
         {"aid": "a1", "bid": "b1"},
         {"aid": "a2", "bid": "b2"},
     ]
+
+
+def test_string_cypher_executes_with_match_reentry_parameterized_limit_shape_on_cudf() -> None:
+    cudf = _require_cudf_runtime()
+
+    nodes = cudf.from_pandas(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b1"],
+                "label__A": [True, True, False],
+                "name": ["alpha", "beta", None],
+            }
+        )
+    )
+    edges = cudf.from_pandas(
+        pd.DataFrame(
+            {
+                "s": ["a1", "a2"],
+                "d": ["b1", "b1"],
+            }
+        )
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A) WITH a ORDER BY a.name LIMIT $n MATCH (a)-->(b) RETURN a",
+        params={"n": 1},
+        engine="cudf",
+    )
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
 
 
 def test_string_cypher_failfast_rejects_with_match_reentry_ordered_skip_shape() -> None:

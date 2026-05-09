@@ -12,10 +12,11 @@ the orchestrator once #1297 has landed.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Mapping, Optional, Sequence, Tuple
 
 from graphistry.compute.gfql.cypher.ast import (
     CypherQuery,
+    ExpressionText,
     LimitClause,
     ParameterRef,
     ProjectionStage,
@@ -29,6 +30,7 @@ __all__ = [
     "_bounded_reentry_scalar_prefix_columns",
     "_bounded_reentry_prefix_order_is_safe",
     "_literal_limit_value",
+    "_resolved_limit_value",
 ]
 
 
@@ -146,18 +148,46 @@ def _literal_limit_value(limit_clause: Optional[LimitClause]) -> Optional[int]:
     return int(text)
 
 
+def _resolved_limit_value(
+    limit_clause: Optional[LimitClause],
+    *,
+    params: Optional[Mapping[str, object]] = None,
+) -> Optional[int]:
+    value = _literal_limit_value(limit_clause)
+    if value is not None:
+        return value
+    if limit_clause is None:
+        return None
+    raw = limit_clause.value
+    param_name: Optional[str]
+    if isinstance(raw, ParameterRef):
+        param_name = raw.name
+    elif isinstance(raw, ExpressionText):
+        match = re.fullmatch(r"\$([A-Za-z_][A-Za-z0-9_]*)", raw.text.strip())
+        if match is None:
+            return None
+        param_name = match.group(1)
+    else:
+        return None
+    if params is None or param_name not in params:
+        return None
+    param_value = params[param_name]
+    if isinstance(param_value, bool):
+        return None
+    if not isinstance(param_value, int):
+        return None
+    return param_value
+
+
 def _bounded_reentry_prefix_order_is_safe(
     *,
     prefix_stage: ProjectionStage,
     query: CypherQuery,
+    params: Optional[Mapping[str, object]] = None,
 ) -> bool:
     if prefix_stage.order_by is None:
         return True
     if query.order_by is not None:
         return True
-    if prefix_stage.skip is not None:
-        return False
-    limit_value = _literal_limit_value(prefix_stage.limit)
-    if limit_value is None:
-        return False
-    return limit_value >= 0
+    resolved_limit = _resolved_limit_value(prefix_stage.limit, params=params)
+    return prefix_stage.skip is None and resolved_limit is not None and resolved_limit >= 0
