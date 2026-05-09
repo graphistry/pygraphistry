@@ -9,6 +9,8 @@ import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
+from graphistry.Engine import Engine, s_cons
+from graphistry.compute.typing import SeriesT
 
 from graphistry.compute.gfql.series_str_compat import (
     series_sequence_len,
@@ -185,16 +187,29 @@ def order_detect_stringified_list_series(series: Any) -> bool:
     return bool(((~null_mask) & actual_string).any())
 
 
-def parse_stringified_list_series(series: Any) -> Optional[Any]:
+def _is_cudf_series(series: Any) -> bool:
+    return hasattr(series, "__class__") and series.__class__.__module__.startswith("cudf")
+
+
+def parse_stringified_list_series(series: Any) -> Optional[SeriesT]:
     """Parse a stringified-list column into a Python-list column via ``ast.literal_eval``.
 
-    Returns a pandas Series with parsed values (and original Python-list values
-    passed through), or ``None`` if any non-null entry fails to parse to a
-    list/tuple. cuDF input is bridged via ``host_index.to_pandas()`` mirroring
-    the pattern at ``pipeline.py`` ``_gfql_eval_dynamic_list_subscript``.
+    Returns an engine-native Series with parsed values (and original Python-list
+    values passed through), or ``None`` if any non-null entry fails to parse to
+    a list/tuple.
     """
+    source_values: List[Any]
+    if hasattr(series, "to_arrow"):
+        source_values = series.to_arrow().to_pylist()
+    elif hasattr(series, "to_pandas"):
+        source_values = series.to_pandas().tolist()
+    elif hasattr(series, "tolist"):
+        source_values = series.tolist()
+    else:
+        source_values = list(series)
+
     parsed: List[Any] = []
-    for value in series.tolist() if hasattr(series, "tolist") else list(series):
+    for value in source_values:
         if is_null_scalar(value):
             parsed.append(None)
             continue
@@ -204,19 +219,21 @@ def parse_stringified_list_series(series: Any) -> Optional[Any]:
         if isinstance(value, str):
             try:
                 literal = ast.literal_eval(value)
-            except Exception:
+            except (SyntaxError, ValueError):
                 return None
             if isinstance(literal, (list, tuple)):
                 parsed.append(list(literal))
                 continue
         return None
-    host_index = getattr(series, "index", None)
-    if host_index is not None and hasattr(host_index, "to_pandas"):
+    out_index = getattr(series, "index", None)
+    if _is_cudf_series(series):
+        return s_cons(Engine.CUDF)(parsed, index=out_index)
+    if out_index is not None and hasattr(out_index, "to_pandas"):
         try:
-            host_index = host_index.to_pandas()
-        except Exception:
-            host_index = None
-    return pd.Series(parsed, index=host_index, dtype="object")
+            out_index = out_index.to_pandas()
+        except (AttributeError, TypeError, ValueError):
+            out_index = None
+    return s_cons(Engine.PANDAS)(parsed, index=out_index, dtype="object")
 
 
 def order_detect_temporal_mode(series: Any) -> Optional[str]:
