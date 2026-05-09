@@ -6,12 +6,11 @@ mode today. The eventual goal of #1357 is to flip it to
 at the binder layer (validator parity). A discovery flip exposed 75 test
 failures across multiple binder-coverage gaps:
 
-- namespaced function calls — ``duration.inSeconds(...)``, ``time()``,
-  ``localtime()``, ``date()``, ``datetime()`` parsed as
-  ``alias.property``.
 - quantifier predicates — ``all(x IN list WHERE …)``, ``any``, ``none``,
   ``single``: comprehension-scoped ``x`` not modeled.
 - list comprehensions — same scope-modeling gap.
+- CALL/YIELD scope — YIELD aliases must survive the
+  prepass→normalize→bind cycle.
 
 This module pins the **current loose-mode behavior** at the
 ``compile_cypher_query`` boundary for representative shapes from each
@@ -42,27 +41,6 @@ from graphistry.compute.gfql.ir.compilation import PlanContext
 @pytest.mark.parametrize(
     "query",
     [
-        # Namespaced builtins — the binder's _PROPERTY_RE matches
-        # ``duration.inSeconds`` and routes through the alias-scope check;
-        # in strict mode this would raise on unresolved alias 'duration'.
-        "RETURN duration.inSeconds(localtime(), localtime()) AS duration",
-        "RETURN time() AS t",
-        "RETURN date() AS d",
-        "RETURN datetime() AS dt",
-        "RETURN localtime() AS lt",
-    ],
-)
-def test_loose_mode_admits_namespaced_builtin_calls(query: str) -> None:
-    """Loose binder admits namespaced builtins; strict would reject as
-    unresolved 'duration'/'time'/etc. Future fix: teach the binder to
-    recognize known builtin namespaces."""
-    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
-    assert bound.semantic_table.variables
-
-
-@pytest.mark.parametrize(
-    "query",
-    [
         # Quantifier predicates — binder doesn't model x as a
         # comprehension-local; in strict mode it raises on unresolved 'x'.
         "MATCH (n) WHERE all(x IN n.labels WHERE x = 'A') RETURN n",
@@ -77,6 +55,16 @@ def test_loose_mode_admits_quantifier_predicates(query: str) -> None:
     predicate body."""
     bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
     assert "n" in bound.semantic_table.variables
+
+
+def test_loose_mode_admits_call_yield_then_return_yield_alias() -> None:
+    """``CALL graphistry.degree() YIELD nodeId RETURN nodeId`` — loose
+    binder admits; strict rejects because the prepass→normalize cycle does
+    not propagate YIELD aliases into the post-normalize bind scope. Future
+    fix: ensure YIELD aliases survive the cycle."""
+    query = "CALL graphistry.degree() YIELD nodeId RETURN nodeId"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+    assert "nodeId" in bound.semantic_table.variables
 
 
 # ---------------------------------------------------------------------------

@@ -11,9 +11,8 @@ made for that gap, the corresponding parametrized case here should be
 moved into the "parity" partition (both reject) instead of the
 "divergence" partition (validator-only).
 
-Cross-kind alias rebind already has parity (binder-layer guard at #1357
-ships with this PR — both validator and runtime reject), and is pinned
-here as a positive parity case.
+Cross-kind alias rebind and namespaced builtin function handling now have
+parity, and are pinned here as positive parity cases.
 """
 
 from __future__ import annotations
@@ -61,6 +60,20 @@ def test_validator_and_runtime_both_reject_cross_kind_rebind(query: str) -> None
         gfql_validate(_empty_g(), query, strict=True)
     with pytest.raises(GFQLValidationError):
         compile_cypher(query)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "RETURN duration.inSeconds(localtime(), localtime()) AS duration",
+        "RETURN duration.between(localdatetime('2018-01-01T12:00'), localdatetime('2018-01-02T10:00')) AS duration",
+        "RETURN datetime.fromepoch(416779, 999999999) AS dt",
+        "RETURN date.truncate('decade', date({year: 1984, month: 10, day: 11}), {day: 2}) AS d",
+    ],
+)
+def test_validator_and_runtime_both_admit_namespaced_builtins(query: str) -> None:
+    gfql_validate(_empty_g(), query, strict=True)
+    compile_cypher(query)
 
 
 # ---------------------------------------------------------------------------
