@@ -3794,10 +3794,23 @@ def _result_projection_plan(
     return _projection._result_projection_plan(plan, alias_targets=alias_targets)
 
 
-def _empty_optional_projection_row(plan: _ProjectionPlan) -> Dict[str, Any]:
+def _empty_optional_projection_row(
+    plan: _ProjectionPlan,
+    *,
+    query: Optional[CypherQuery] = None,
+    optional_aliases: Optional[AbstractSet[str]] = None,
+    alias_targets: Optional[Mapping[str, ASTObject]] = None,
+    params: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
     from graphistry.compute.gfql.cypher import projection_planning as _projection
 
-    return _projection._empty_optional_projection_row(plan)
+    return _projection._empty_optional_projection_row(
+        plan,
+        query=query,
+        optional_aliases=optional_aliases,
+        alias_targets=alias_targets,
+        params=params,
+    )
 
 
 def _optional_null_fill_plan(
@@ -8758,7 +8771,13 @@ def compile_cypher_query(
                     column=query.return_.span.column,
                 )
             empty_result_row = (
-                _empty_optional_projection_row(plan)
+                _empty_optional_projection_row(
+                    plan,
+                    query=query,
+                    optional_aliases=_match_clause_aliases(query.matches[0]),
+                    alias_targets=alias_targets,
+                    params=params,
+                )
                 if len(query.matches) == 1 and query.matches[0].optional
                 else None
             )

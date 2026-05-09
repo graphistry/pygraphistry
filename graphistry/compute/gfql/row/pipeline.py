@@ -281,10 +281,22 @@ class RowPipelineMixin:
             isinstance(right, (list, tuple))
             or (hasattr(right, "astype") and RowPipelineMixin._gfql_series_is_list_like(right))
         )
+        left_is_map = (
+            isinstance(left, dict)
+            or (hasattr(left, "astype") and RowPipelineMixin._gfql_series_is_mapping_like(left))
+        )
+        right_is_map = (
+            isinstance(right, dict)
+            or (hasattr(right, "astype") and RowPipelineMixin._gfql_series_is_mapping_like(right))
+        )
         if op in {"=", "!=", "<>", "<", "<=", ">", ">="} and (left_is_list or right_is_list):
             list_cmp = self._gfql_eval_list_comparison_op(table_df, left, right, op)
             if list_cmp is not None:
                 return list_cmp
+        if op in {"=", "!=", "<>"} and (left_is_map or right_is_map):
+            map_cmp = self._gfql_eval_map_comparison_op(table_df, left, right, op)
+            if map_cmp is not None:
+                return map_cmp
 
         temporal_cmp = self._gfql_eval_temporal_comparison_op(table_df, left, right, op)
         if temporal_cmp is not None:
@@ -309,6 +321,49 @@ class RowPipelineMixin:
             elif bool(null_mask):
                 out = None
         return out
+
+    @staticmethod
+    def _gfql_cypher_value_equal(left_value: Any, right_value: Any) -> Optional[bool]:
+        """Cypher equality with three-valued null propagation for list/map values."""
+        if is_null_scalar(left_value) or is_null_scalar(right_value):
+            return None
+
+        if isinstance(left_value, tuple):
+            left_value = list(left_value)
+        if isinstance(right_value, tuple):
+            right_value = list(right_value)
+
+        if isinstance(left_value, list) and isinstance(right_value, list):
+            if len(left_value) != len(right_value):
+                return False
+            saw_unknown = False
+            for lhs_item, rhs_item in zip(left_value, right_value):
+                item_equal = RowPipelineMixin._gfql_cypher_value_equal(lhs_item, rhs_item)
+                if item_equal is False:
+                    return False
+                if item_equal is None:
+                    saw_unknown = True
+            return None if saw_unknown else True
+
+        if isinstance(left_value, dict) and isinstance(right_value, dict):
+            if set(left_value.keys()) != set(right_value.keys()):
+                return False
+            saw_unknown = False
+            for key in left_value.keys():
+                item_equal = RowPipelineMixin._gfql_cypher_value_equal(left_value[key], right_value[key])
+                if item_equal is False:
+                    return False
+                if item_equal is None:
+                    saw_unknown = True
+            return None if saw_unknown else True
+
+        if isinstance(left_value, (list, dict)) or isinstance(right_value, (list, dict)):
+            return False
+
+        try:
+            return bool(left_value == right_value)
+        except Exception:
+            return False
 
     def _gfql_safe_mixed_comparison_op(
         self,
@@ -388,7 +443,6 @@ class RowPipelineMixin:
 
         left_series = left_value if hasattr(left_value, "astype") else self._gfql_broadcast_scalar(table_df, left_value)
         right_series = right_value if hasattr(right_value, "astype") else self._gfql_broadcast_scalar(table_df, right_value)
-
         left_values = self._gfql_series_to_pylist(left_series)
         right_values = self._gfql_series_to_pylist(right_series)
         out_values: List[Any] = []
@@ -510,6 +564,22 @@ class RowPipelineMixin:
             return None
         if not RowPipelineMixin._gfql_series_is_list_like(right_series):
             return None
+
+        if op in {"=", "!=", "<>"}:
+            left_values = self._gfql_series_to_pylist(left_series)
+            right_values = self._gfql_series_to_pylist(right_series)
+            out_values: List[Any] = []
+            for left_item, right_item in zip(left_values, right_values):
+                is_equal = RowPipelineMixin._gfql_cypher_value_equal(left_item, right_item)
+                if op in {"!=", "<>"}:
+                    if is_equal is None:
+                        out_values.append(None)
+                    else:
+                        out_values.append(not is_equal)
+                else:
+                    out_values.append(is_equal)
+            out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_eq__")
+            return table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col]
 
         if op in {"<", "<=", ">", ">="}:
             left_values = self._gfql_series_to_pylist(left_series)
@@ -2866,63 +2936,32 @@ class RowPipelineMixin:
         left_series = left_value if hasattr(left_value, "astype") else self._gfql_broadcast_scalar(table_df, left_value)
         right_series = right_value if hasattr(right_value, "astype") else self._gfql_broadcast_scalar(table_df, right_value)
 
-        try:
-            rhs_len = series_sequence_len(right_series).fillna(0).astype("int64")
-        except Exception as exc:
-            raise ValueError(f"unsupported row expression: IN rhs must be list-like in {expr!r}") from exc
-
-        row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_row__")
-        rhs_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_rhs__")
-        lhs_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_lhs__")
-        len_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_len__")
-        pos_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_pos__")
-
-        base = table_df.assign(**{row_col: range(len(table_df)), lhs_col: left_series, rhs_col: right_series})
-        rhs_null = self._gfql_null_mask(base, base[rhs_col])
-        base = base.assign(**{len_col: rhs_len})
-
-        non_null = base.loc[~rhs_null, [row_col, lhs_col, rhs_col, len_col]]
-        expanded = non_null[[row_col, lhs_col, rhs_col, len_col]].explode(rhs_col)
-        if len(expanded) > 0:
-            expanded = expanded.assign(
-                **{pos_col: expanded.groupby(row_col, sort=False).cumcount()}
-            )
-            expanded = expanded.loc[expanded[pos_col] < expanded[len_col]]
-
-        if len(expanded) == 0:
-            true_counts = non_null[[row_col]].iloc[0:0].copy()
-            true_counts["__gfql_in_true__"] = []
-            unknown_counts = non_null[[row_col]].iloc[0:0].copy()
-            unknown_counts["__gfql_in_unknown__"] = []
-        else:
-            lhs = expanded[lhs_col]
-            rhs = expanded[rhs_col]
-            lhs_null = self._gfql_null_mask(expanded, lhs)
-            rhs_null_elem = self._gfql_null_mask(expanded, rhs)
-            equal = lhs == rhs
-            equal = equal.where(~(lhs_null | rhs_null_elem), False)
-            unknown = lhs_null | rhs_null_elem
-
-            eval_df = expanded.assign(
-                __gfql_in_true__=equal.astype("int64"),
-                __gfql_in_unknown__=unknown.astype("int64"),
-            )
-            true_counts = eval_df.groupby(row_col, sort=False)["__gfql_in_true__"].sum().reset_index()
-            unknown_counts = eval_df.groupby(row_col, sort=False)["__gfql_in_unknown__"].sum().reset_index()
-
-        summary = base[[row_col, len_col]].merge(true_counts, on=row_col, how="left", sort=False)
-        summary = summary.merge(unknown_counts, on=row_col, how="left", sort=False)
-        summary = self._gfql_restore_row_order(summary, row_col)
-        summary = summary.assign(
-            __gfql_in_true__=summary["__gfql_in_true__"].fillna(0),
-            __gfql_in_unknown__=summary["__gfql_in_unknown__"].fillna(0),
-        )
-
-        out = summary["__gfql_in_true__"] > 0
-        unknown_mask = (summary["__gfql_in_true__"] == 0) & (summary["__gfql_in_unknown__"] > 0)
-        out = out.where(~unknown_mask, pd.NA)
-        out = out.where(~rhs_null, pd.NA)
-        return out.reset_index(drop=True)
+        lhs_values = self._gfql_series_to_pylist(left_series)
+        rhs_values = self._gfql_series_to_pylist(right_series)
+        out_values: List[Any] = []
+        for lhs_item, rhs_item in zip(lhs_values, rhs_values):
+            if is_null_scalar(rhs_item):
+                out_values.append(None)
+                continue
+            if not isinstance(rhs_item, (list, tuple)):
+                raise ValueError(f"unsupported row expression: IN rhs must be list-like in {expr!r}")
+            saw_unknown = False
+            saw_true = False
+            for rhs_elem in rhs_item:
+                is_equal = RowPipelineMixin._gfql_cypher_value_equal(lhs_item, rhs_elem)
+                if is_equal is True:
+                    saw_true = True
+                    break
+                if is_equal is None:
+                    saw_unknown = True
+            if saw_true:
+                out_values.append(True)
+            elif saw_unknown:
+                out_values.append(None)
+            else:
+                out_values.append(False)
+        out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_tri__")
+        return table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col]
 
     def _gfql_eval_string_expr(self, table_df: Any, expr: str) -> Any:
         txt = expr.strip()
