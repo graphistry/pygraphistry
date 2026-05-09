@@ -2364,6 +2364,25 @@ def _active_match_alias_for_stage(
     return next(iter(alias_targets))
 
 
+def _is_multi_source_match_alias_boundary_error(
+    exc: GFQLValidationError,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+) -> bool:
+    """Detect the #1273 one-source boundary using structured error data."""
+    if exc.code != ErrorCode.E108:
+        return False
+    if exc.context.get("field") != "return":
+        return False
+    value = exc.context.get("value")
+    if not isinstance(value, (list, tuple, set, frozenset)):
+        return False
+    alias_refs = {name for name in value if isinstance(name, str)}
+    if len(alias_refs) < 2 or len(alias_refs) != len(value):
+        return False
+    return alias_refs <= set(alias_targets.keys())
+
+
 def _validate_aggregate_expr_scope(
     agg_spec: _AggregateSpec,
     *,
@@ -4245,14 +4264,37 @@ def _build_initial_row_scope(
         alias_targets=alias_targets,
         bound_visible_aliases=bound_visible_aliases,
     )
-    active_match_alias = _active_match_alias_for_stage(
-        unwinds=query.unwinds,
-        clause=stage_clause,
-        order_by_clause=stage_order_by,
-        alias_targets=alias_targets,
-        allowed_match_aliases=binding_row_aliases or None,
-        params=params,
-    )
+    try:
+        active_match_alias = _active_match_alias_for_stage(
+            unwinds=query.unwinds,
+            clause=stage_clause,
+            order_by_clause=stage_order_by,
+            alias_targets=alias_targets,
+            allowed_match_aliases=binding_row_aliases or None,
+            params=params,
+        )
+    except GFQLValidationError as exc:
+        if not _is_multi_source_match_alias_boundary_error(exc, alias_targets=alias_targets):
+            raise
+        whole_row_alias_refs = {
+            item.expression.text for item in stage_clause.items if item.expression.text in alias_targets
+        }
+        if len(whole_row_alias_refs) < 2:
+            raise
+        fallback_alias = next(iter(alias_targets)) if alias_targets else None
+        try:
+            fallback_plan = _build_projection_plan(
+                stage_clause,
+                alias_targets=alias_targets,
+                active_alias=fallback_alias,
+                params=params,
+                semantic_entity_kinds=semantic_entity_kinds,
+            )
+        except GFQLValidationError:
+            raise exc
+        if not _can_lower_multi_alias_projection_bindings(fallback_plan, alias_targets=alias_targets):
+            raise exc
+        active_match_alias = fallback_plan.source_alias
     seed_rows = query.match is None
 
     if active_match_alias is None:

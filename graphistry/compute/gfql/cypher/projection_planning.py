@@ -464,9 +464,19 @@ def _can_lower_multi_alias_projection_bindings(
     has_non_scalar = bool(plan.whole_row_output_names) or bool(plan.output_to_expr_source)
     if not has_non_scalar:
         return not all_are_edges
-    if len(plan.whole_row_output_names) != 1:
+    if not plan.whole_row_output_names:
         return False
-    if isinstance(alias_targets.get(plan.source_alias), ASTEdge):
+    source_target = alias_targets.get(plan.source_alias)
+    if source_target is None:
+        return False
+    source_is_edge = isinstance(source_target, ASTEdge)
+    whole_row_sources = {
+        plan.whole_row_sources.get(output_name, plan.source_alias)
+        for output_name in plan.whole_row_output_names
+    }
+    if any(alias_name not in alias_targets for alias_name in whole_row_sources):
+        return False
+    if any(isinstance(alias_targets.get(alias_name), ASTEdge) != source_is_edge for alias_name in whole_row_sources):
         return False
     simple_qualified_ref = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$")
     for source_name in plan.output_to_expr_source.values():
@@ -474,7 +484,10 @@ def _can_lower_multi_alias_projection_bindings(
         if match is None:
             return False
         alias_name = source_name.split(".", 1)[0]
-        if isinstance(alias_targets.get(alias_name), ASTEdge):
+        expr_target = alias_targets.get(alias_name)
+        if expr_target is None:
+            return False
+        if isinstance(expr_target, ASTEdge) != source_is_edge:
             return False
     return True
 
