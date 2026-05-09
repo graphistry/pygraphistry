@@ -4255,6 +4255,8 @@ def _build_initial_row_scope(
             params=params,
         )
     except GFQLValidationError as exc:
+        if "one MATCH source alias at a time" not in str(getattr(exc, "message", exc)):
+            raise
         fallback_alias = next(iter(alias_targets)) if alias_targets else None
         try:
             fallback_plan = _build_projection_plan(
