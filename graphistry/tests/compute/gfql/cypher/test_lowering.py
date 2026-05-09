@@ -9550,6 +9550,76 @@ def test_string_cypher_failfast_rejects_with_match_reentry_secondary_whole_row_r
         _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
 
 
+def test_string_cypher_failfast_rejects_with_match_reentry_carried_relationship_alias() -> None:
+    """#1358: carrying a relationship variable across re-entry must surface as a
+    clean scope error citing the unsupported alias kind, not silently fall into
+    untested code paths in the multi-whole-row prefix rewriter.
+
+    The trailing MATCH binds a fresh node alias `c`, so the #1341 flattener
+    does not admit this query — it falls through to the existing reentry path
+    where the new classifier check fires.
+    """
+    query = (
+        "MATCH (a:A {id: $seed})-[r:R]->(b:B) "
+        "WITH a, r "
+        "MATCH (a)-[:S]->(c:C) "
+        "RETURN r.weight, c.id AS cid"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="does not yet support carrying a relationship variable",
+    ):
+        _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+
+def test_string_cypher_failfast_rejects_with_match_reentry_carried_path_alias() -> None:
+    """#1358: carrying a named path alias across re-entry must surface as a
+    clean scope error. Mirrors the relationship-variable case via the path-alias
+    branch of ``MatchClause.pattern_aliases``.
+    """
+    query = (
+        "MATCH path = (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH path, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN length(path), c.id AS cid"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="does not yet support carrying a named path alias",
+    ):
+        _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+
+def test_unit_all_match_alias_kinds_lets_rel_kind_win_over_node() -> None:
+    """#1358: when a name is bound as both a node and a relationship variable
+    across patterns (parser-permitted), the alias-kinds classifier must record
+    the relationship kind so the pre-flight still flags the unsupported carry
+    rather than silently admitting via the node fallback.
+
+    Bypasses lowering (which rejects the multi-pattern shape under a different
+    rule) and exercises the classifier helper directly on the parsed AST.
+    """
+    from graphistry.compute.gfql.cypher.lowering import _all_match_alias_kinds
+
+    parsed = parse_cypher(
+        "MATCH (x:X) "
+        "MATCH (a:A)-[x:R]->(b:B) "
+        "WITH a, x "
+        "MATCH (a)-[:S]->(c:C) "
+        "RETURN x.weight, c.id"
+    )
+    assert isinstance(parsed, CypherQuery)
+    kinds = _all_match_alias_kinds(parsed)
+    assert kinds.get("x") == "rel", (
+        "rel binding must override the prior node binding so the pre-flight still "
+        "flags the unsupported carry"
+    )
+    assert kinds.get("a") == "node"
+    assert kinds.get("b") == "node"
+
+
 def test_string_cypher_executes_with_match_reentry_secondary_alias_rebinding() -> None:
     """Re-binding a carried secondary alias as a node variable in the trailing
     MATCH is admitted by flattening when the trailing pattern adds structure
