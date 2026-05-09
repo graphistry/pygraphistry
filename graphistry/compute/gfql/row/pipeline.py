@@ -4211,7 +4211,12 @@ class RowPipelineMixin:
                     parsed = parse_stringified_list_series(series)
                     if parsed is not None:
                         if resolve_engine(EngineAbstract.AUTO, work_df) == Engine.CUDF and isinstance(parsed, pd.Series):
-                            work_df = _gfql_bridge_cudf_df_to_pandas(work_df)
+                            try:
+                                parsed = s_cons(Engine.CUDF)(parsed.tolist(), index=getattr(work_df, "index", None))
+                            except Exception:
+                                # Keep this as a defensive fallback: prefer GPU-native coercion
+                                # above, but avoid failing hard on constructor/index edge cases.
+                                work_df = _gfql_bridge_cudf_df_to_pandas(work_df)
                         sort_col = RowPipelineMixin._gfql_fresh_col_name(
                             work_df.columns, "__gfql_sort_listparsed_"
                         )

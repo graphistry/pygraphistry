@@ -198,9 +198,9 @@ def parse_stringified_list_series(series: Any) -> Optional[SeriesT]:
     with original list/tuple values passed through, or ``None`` if any non-null
     entry fails to parse to a list/tuple.
 
-    Caller contract: when assigning the return value into a cuDF table, guard
-    for potential host-bridge requirements before ``DataFrame.assign(...)`` if a
-    pandas Series ever reaches that path.
+    Caller contract: when assigning into a cuDF table, prefer coercing any
+    pandas-series fallback back to a cuDF series first; only host-bridge as a
+    defensive fallback if that coercion fails.
     """
     source_values: List[Any]
     if hasattr(series, "to_arrow"):
