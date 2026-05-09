@@ -1,4 +1,4 @@
-"""GFQL DataFrame operation helpers with engine-specific dispatch."""
+"""Engine-polymorphic DataFrame operation helpers for compute runtimes."""
 
 from .join import (
     binding_join_columns,

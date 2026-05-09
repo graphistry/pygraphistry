@@ -52,7 +52,7 @@ from graphistry.compute.gfql.df_executor import (
     build_same_path_inputs,
     execute_same_path_chain,
 )
-from graphistry.compute.gfql.dfops import (
+from graphistry.compute.dataframe import (
     binding_join_columns as _binding_join_columns,
     connected_inner_join_rows as _connected_inner_join_rows,
     joined_alias_columns as _joined_alias_columns,

@@ -1,4 +1,4 @@
-"""Join-related DataFrame operations for GFQL runtime execution paths."""
+"""Join-related engine-polymorphic DataFrame operations."""
 
 from typing import Dict, List, Sequence, cast
 

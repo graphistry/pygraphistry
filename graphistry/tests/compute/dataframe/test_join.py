@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 
 from graphistry.Engine import Engine
-from graphistry.compute.gfql.dfops.join import (
+from graphistry.compute.dataframe.join import (
     binding_join_columns,
     connected_inner_join_rows,
     joined_alias_columns,
