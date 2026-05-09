@@ -9592,6 +9592,34 @@ def test_string_cypher_failfast_rejects_with_match_reentry_carried_path_alias() 
         _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
 
 
+def test_unit_all_match_alias_kinds_lets_rel_kind_win_over_node() -> None:
+    """#1358: when a name is bound as both a node and a relationship variable
+    across patterns (parser-permitted), the alias-kinds classifier must record
+    the relationship kind so the pre-flight still flags the unsupported carry
+    rather than silently admitting via the node fallback.
+
+    Bypasses lowering (which rejects the multi-pattern shape under a different
+    rule) and exercises the classifier helper directly on the parsed AST.
+    """
+    from graphistry.compute.gfql.cypher.lowering import _all_match_alias_kinds
+
+    parsed = parse_cypher(
+        "MATCH (x:X) "
+        "MATCH (a:A)-[x:R]->(b:B) "
+        "WITH a, x "
+        "MATCH (a)-[:S]->(c:C) "
+        "RETURN x.weight, c.id"
+    )
+    assert isinstance(parsed, CypherQuery)
+    kinds = _all_match_alias_kinds(parsed)
+    assert kinds.get("x") == "rel", (
+        "rel binding must override the prior node binding so the pre-flight still "
+        "flags the unsupported carry"
+    )
+    assert kinds.get("a") == "node"
+    assert kinds.get("b") == "node"
+
+
 def test_string_cypher_executes_with_match_reentry_secondary_alias_rebinding() -> None:
     """Re-binding a carried secondary alias as a node variable in the trailing
     MATCH is admitted by flattening when the trailing pattern adds structure

@@ -7134,18 +7134,39 @@ def _all_match_alias_kinds(query: CypherQuery) -> Dict[str, str]:
     and path aliases are not yet supported as whole-row carries (see #1358).
     Callers use this to detect the unsupported alias kinds and raise a clean
     scope error instead of letting them flow into untested code paths.
+
+    When the same name is bound as both a node and a rel/path across patterns
+    (parser-permitted but Cypher-disallowed), rel/path takes precedence so the
+    pre-flight still flags the unsupported kind instead of silently admitting
+    via the node fallback.
     """
-    out: Dict[str, str] = {}
+    node_aliases: Set[str] = set()
+    rel_aliases: Set[str] = set()
+    path_aliases: Set[str] = set()
     for clause in query.matches:
+        # Walk both ``clause.patterns`` (raw parsed tuples) and
+        # ``_match_pattern_elements`` (normalized form used by the rest of the
+        # lowering pipeline) so we never miss aliases that only appear in the
+        # normalized view — mirrors ``_all_match_node_aliases``.
         for pattern in clause.patterns:
             for element in pattern:
                 if isinstance(element, NodePattern) and element.variable is not None:
-                    out.setdefault(element.variable, "node")
+                    node_aliases.add(element.variable)
                 elif isinstance(element, RelationshipPattern) and element.variable is not None:
-                    out.setdefault(element.variable, "rel")
+                    rel_aliases.add(element.variable)
+        for element in _match_pattern_elements(clause):
+            if isinstance(element, NodePattern) and element.variable is not None:
+                node_aliases.add(element.variable)
+            elif isinstance(element, RelationshipPattern) and element.variable is not None:
+                rel_aliases.add(element.variable)
         for path_alias in clause.pattern_aliases:
             if path_alias is not None:
-                out.setdefault(path_alias, "path")
+                path_aliases.add(path_alias)
+    out: Dict[str, str] = {name: "node" for name in node_aliases}
+    for name in rel_aliases:
+        out[name] = "rel"
+    for name in path_aliases:
+        out[name] = "path"
     return out
 
 
@@ -7154,7 +7175,13 @@ def _is_bare_carry_with_item(item: ReturnItem) -> Optional[str]:
     return the identifier text; otherwise None.
     Mirrors the structural part of ``_is_whole_row_with_item`` without the
     node-alias membership check, so callers can also detect carries of rel /
-    path aliases."""
+    path aliases.
+
+    Note: like ``_is_whole_row_with_item``, this only matches bare or
+    self-renamed identifiers. Renamed carries (``WITH r AS r2``) are out of
+    scope — they don't pass through the whole-row classifier path that #1358
+    targets, and the existing scalar-aliased projection path validates them
+    separately."""
     text = item.expression.text
     if not _BARE_IDENT_RE.match(text):
         return None
