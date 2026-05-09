@@ -2651,14 +2651,11 @@ class RowPipelineMixin:
                         normalized_values,
                         index=getattr(base_value, "index", None),
                     )
-                except Exception:
-                    host_index = getattr(base_value, "index", None)
-                    if host_index is not None and hasattr(host_index, "to_pandas"):
-                        try:
-                            host_index = host_index.to_pandas()
-                        except Exception:
-                            host_index = None
-                    base_value = pd.Series(normalized_values, index=host_index, dtype="object")
+                except Exception as exc:
+                    raise ValueError(
+                        "internal engine-boundary violation: dynamic list subscript string parsing "
+                        "in cuDF mode must materialize as cuDF series"
+                    ) from exc
             else:
                 host_index = getattr(base_value, "index", None)
                 if host_index is not None and hasattr(host_index, "to_pandas"):
@@ -2696,16 +2693,20 @@ class RowPipelineMixin:
                         base_value.tolist(),
                         index=getattr(table_df, "index", None),
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    raise ValueError(
+                        "internal engine-boundary violation: base series in cuDF mode remained pandas"
+                    ) from exc
             if isinstance(key_value, pd.Series):
                 try:
                     key_value = s_cons(Engine.CUDF)(
                         key_value.tolist(),
                         index=getattr(table_df, "index", None),
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    raise ValueError(
+                        "internal engine-boundary violation: key series in cuDF mode remained pandas"
+                    ) from exc
 
         if isinstance(base_value, pd.Series) or isinstance(key_value, pd.Series):
             base_assign = base_value.to_pandas() if hasattr(base_value, "to_pandas") else base_value
@@ -4246,10 +4247,11 @@ class RowPipelineMixin:
                         if resolve_engine(EngineAbstract.AUTO, work_df) == Engine.CUDF and isinstance(parsed, pd.Series):
                             try:
                                 parsed = s_cons(Engine.CUDF)(parsed.tolist(), index=getattr(work_df, "index", None))
-                            except Exception:
-                                # Keep this as a defensive fallback: prefer GPU-native coercion
-                                # above, but avoid failing hard on constructor/index edge cases.
-                                work_df = _gfql_bridge_cudf_df_to_pandas(work_df)
+                            except Exception as exc:
+                                raise ValueError(
+                                    "internal engine-boundary violation: parsed stringified-list sort key "
+                                    "in cuDF mode must materialize as cuDF series"
+                                ) from exc
                         sort_col = RowPipelineMixin._gfql_fresh_col_name(
                             work_df.columns, "__gfql_sort_listparsed_"
                         )
