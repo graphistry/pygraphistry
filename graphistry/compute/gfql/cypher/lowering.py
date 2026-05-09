@@ -6313,14 +6313,14 @@ def lower_match_query(
             stack: List[BooleanExpr] = [query.where.expr_tree]
             while stack:
                 cur = stack.pop()
-                left = cast(Optional[BooleanExpr], cur.left)
-                right = cast(Optional[BooleanExpr], cur.right)
-                if cur.op in {"or", "xor"} and ((left is not None and _where_expr_tree_pattern_predicates(left)) or (right is not None and _where_expr_tree_pattern_predicates(right))):
+                expr_left = cast(Optional[BooleanExpr], cur.left)
+                expr_right = cast(Optional[BooleanExpr], cur.right)
+                if cur.op in {"or", "xor"} and ((expr_left is not None and _where_expr_tree_pattern_predicates(expr_left)) or (expr_right is not None and _where_expr_tree_pattern_predicates(expr_right))):
                     raise _unsupported_at_span("Cypher WHERE pattern predicates mixed with OR/XOR are not yet supported for cartesian MATCH patterns", field="where", value=where_expr_upper, span=query.where.span)
-                if left is not None:
-                    stack.append(left)
-                if right is not None:
-                    stack.append(right)
+                if expr_left is not None:
+                    stack.append(expr_left)
+                if expr_right is not None:
+                    stack.append(expr_right)
         where_expr, where_pattern_row_filters = _rewrite_where_expr_patterns_to_markers(
             where=query.where,
             alias_targets=alias_targets,
