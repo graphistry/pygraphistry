@@ -4504,6 +4504,22 @@ def test_string_cypher_parses_datetime_named_zone_literals() -> None:
     )
 
 
+def test_string_cypher_parses_datetime_historical_named_zone_literals() -> None:
+    _assert_query_rows(
+        "RETURN datetime('1818-07-21T21:40:32.142[Europe/Stockholm]') AS result",
+        [{"result": "1818-07-21T21:40:32.142+00:53:28[Europe/Stockholm]"}],
+    )
+
+
+def test_string_cypher_compares_historical_named_zone_and_explicit_offset_datetime() -> None:
+    _assert_query_rows(
+        "RETURN "
+        "datetime('1818-07-21T21:40:32.142[Europe/Stockholm]') = "
+        "datetime('1818-07-21T21:40:32.142+00:53:28[Europe/Stockholm]') AS b",
+        [{"b": True}],
+    )
+
+
 def test_string_cypher_normalizes_time_offset_seconds() -> None:
     _assert_query_rows(
         "RETURN time({hour: 12, minute: 34, second: 56, timezone: '+02:05:00'}) AS result",
