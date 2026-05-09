@@ -4722,10 +4722,10 @@ def _lower_match_alias_aggregate_stage(
         )
 
     # On the bindings-row path (allowed_match_aliases non-empty), the row table carries
-    # alias-prefixed property columns (e.g. "tag.id", "tag.name").  When a non-aggregate item
-    # is a whole-row alias reference (e.g. "tag"), we use key_prefixes on group_by so the
-    # active alias's property columns are added as group keys at runtime, surviving into the
-    # output for subsequent RETURN/WITH stages to resolve alias.property references.
+    # alias-prefixed property columns (e.g. "tag.id", "tag.name").  For whole-row
+    # non-aggregate grouping aliases (e.g. "WITH post, count(tag)"), use key_prefixes so
+    # grouped aliases' property columns survive through group_by for downstream alias.property
+    # references.
     bindings_row_path = bool(scope.allowed_match_aliases)
     alias_key_prefixes = [f"{alias_name}." for alias_name in whole_row_group_aliases] if whole_row_group_aliases else None
 
