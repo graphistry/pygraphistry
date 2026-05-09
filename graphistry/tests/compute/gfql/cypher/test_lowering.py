@@ -14298,6 +14298,227 @@ def test_issue_996_case_r_when_null_searched_form_still_works() -> None:
     assert rows[0]["knows"] is False
 
 
+# ---------------------------------------------------------------------------
+# Issue #1395: sequential MATCH reply-author row-shaping joins (IC8 / IS7)
+# ---------------------------------------------------------------------------
+
+def _mk_issue_1395_reply_author_ic8_graph(*, cudf_mode: bool = False) -> _CypherTestGraph:
+    nodes = pd.DataFrame({
+        "id": [
+            "viewer",
+            "m1",
+            "m2",
+            "c1",
+            "c2",
+            "c3",
+            "author1",
+            "author2",
+        ],
+        "label__Person": [True, False, False, False, False, False, True, True],
+        "label__Message": [False, True, True, False, False, False, False, False],
+        "label__Comment": [False, False, False, True, True, True, False, False],
+        "firstName": [None, None, None, None, None, None, "Ann", "Bob"],
+        "lastName": [None, None, None, None, None, None, "One", "Two"],
+        "creationDate": [None, 100, 90, 110, 105, 80, None, None],
+        "content": [None, "post-1", "post-2", "reply-1", "reply-2", "nested-reply", None, None],
+    })
+    edges = pd.DataFrame({
+        "s": ["m1", "m2", "c1", "c1", "c2", "c2", "c3", "c3"],
+        "d": ["viewer", "viewer", "m1", "author1", "m2", "author2", "c1", "author2"],
+        "type": [
+            "HAS_CREATOR",
+            "HAS_CREATOR",
+            "REPLY_OF",
+            "HAS_CREATOR",
+            "REPLY_OF",
+            "HAS_CREATOR",
+            "REPLY_OF",
+            "HAS_CREATOR",
+        ],
+    })
+    if cudf_mode:
+        pytest.importorskip("cudf")
+        import cudf  # type: ignore
+        nodes = cudf.DataFrame.from_pandas(nodes)
+        edges = cudf.DataFrame.from_pandas(edges)
+    return _mk_graph(nodes, edges)
+
+
+def test_issue_1395_sequential_match_recent_replies_row_shaping_ic8() -> None:
+    """IC8 shape: two non-optional MATCH clauses preserve reply-author projection fields."""
+    g = _mk_issue_1395_reply_author_ic8_graph()
+
+    query = (
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message) "
+        "MATCH (message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(commentAuthor:Person) "
+        "RETURN "
+        "commentAuthor.id AS commentAuthorId, "
+        "commentAuthor.firstName AS commentAuthorFirstName, "
+        "commentAuthor.lastName AS commentAuthorLastName, "
+        "comment.creationDate AS commentCreationDate, "
+        "comment.id AS commentId, "
+        "comment.content AS commentContent "
+        "ORDER BY commentCreationDate DESC, commentId ASC "
+        "LIMIT 20"
+    )
+    result = g.gfql(query, params={"personId": "viewer"})
+
+    assert result._nodes.to_dict(orient="records") == [
+        {
+            "commentAuthorId": "author1",
+            "commentAuthorFirstName": "Ann",
+            "commentAuthorLastName": "One",
+            "commentCreationDate": 110.0,
+            "commentId": "c1",
+            "commentContent": "reply-1",
+        },
+        {
+            "commentAuthorId": "author2",
+            "commentAuthorFirstName": "Bob",
+            "commentAuthorLastName": "Two",
+            "commentCreationDate": 105.0,
+            "commentId": "c2",
+            "commentContent": "reply-2",
+        },
+    ]
+
+
+def test_issue_1395_sequential_match_recent_replies_row_shaping_ic8_on_cudf() -> None:
+    """cuDF parity: IC8 sequential MATCH row-shaping stays aligned on GPU engine."""
+    g = _mk_issue_1395_reply_author_ic8_graph(cudf_mode=True)
+
+    query = (
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message) "
+        "MATCH (message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(commentAuthor:Person) "
+        "RETURN "
+        "commentAuthor.id AS commentAuthorId, "
+        "commentAuthor.firstName AS commentAuthorFirstName, "
+        "commentAuthor.lastName AS commentAuthorLastName, "
+        "comment.creationDate AS commentCreationDate, "
+        "comment.id AS commentId, "
+        "comment.content AS commentContent "
+        "ORDER BY commentCreationDate DESC, commentId ASC "
+        "LIMIT 20"
+    )
+    result = g.gfql(query, params={"personId": "viewer"}, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {
+            "commentAuthorId": "author1",
+            "commentAuthorFirstName": "Ann",
+            "commentAuthorLastName": "One",
+            "commentCreationDate": 110.0,
+            "commentId": "c1",
+            "commentContent": "reply-1",
+        },
+        {
+            "commentAuthorId": "author2",
+            "commentAuthorFirstName": "Bob",
+            "commentAuthorLastName": "Two",
+            "commentCreationDate": 105.0,
+            "commentId": "c2",
+            "commentContent": "reply-2",
+        },
+    ]
+
+
+def test_issue_1395_sequential_match_where_boundary_lock_ic8() -> None:
+    """Boundary lock: intermediate WHERE stays explicitly unsupported for sequential MATCH merge."""
+    g = _mk_issue_1395_reply_author_ic8_graph()
+
+    query = (
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message) "
+        "WHERE message.creationDate >= 95 "
+        "MATCH (message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(commentAuthor:Person) "
+        "RETURN comment.id AS commentId, commentAuthor.id AS commentAuthorId "
+        "ORDER BY commentId"
+    )
+    with pytest.raises(
+        GFQLValidationError,
+        match="WHERE on intermediate MATCH clauses is not yet supported for sequential MATCH merge",
+    ):
+        _ = g.gfql(query, params={"personId": "viewer"})
+
+
+def test_issue_1395_sequential_match_equivalent_to_single_match_comma_pattern() -> None:
+    """Shape equivalence: sequential MATCH and single-MATCH comma pattern return identical rows."""
+    g = _mk_issue_1395_reply_author_ic8_graph()
+
+    query_sequential = (
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message) "
+        "MATCH (message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(commentAuthor:Person) "
+        "RETURN comment.id AS commentId, commentAuthor.id AS commentAuthorId "
+        "ORDER BY commentId"
+    )
+    query_single_match = (
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message), "
+        "(message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(commentAuthor:Person) "
+        "RETURN comment.id AS commentId, commentAuthor.id AS commentAuthorId "
+        "ORDER BY commentId"
+    )
+
+    seq_rows = g.gfql(query_sequential, params={"personId": "viewer"})._nodes.to_dict(orient="records")
+    comma_rows = g.gfql(query_single_match, params={"personId": "viewer"})._nodes.to_dict(orient="records")
+    assert seq_rows == comma_rows
+
+
+def test_issue_1395_sequential_match_message_replies_row_shaping_is7() -> None:
+    """IS7 shape: sequential MATCH keeps comment + replyAuthor + messageAuthor rows aligned."""
+    nodes = pd.DataFrame({
+        "id": ["m1", "message_author", "reply_author", "c1", "c2"],
+        "label__Message": [True, False, False, False, False],
+        "label__Person": [False, True, True, False, False],
+        "label__Comment": [False, False, False, True, True],
+        "firstName": [None, "Main", "Peer", None, None],
+        "lastName": [None, "Author", "One", None, None],
+        "creationDate": [None, None, None, 20, 10],
+        "content": [None, None, None, "reply-from-peer", "reply-from-main"],
+    })
+    edges = pd.DataFrame({
+        "s": ["m1", "c1", "c1", "c2", "c2"],
+        "d": ["message_author", "m1", "reply_author", "m1", "message_author"],
+        "type": ["HAS_CREATOR", "REPLY_OF", "HAS_CREATOR", "REPLY_OF", "HAS_CREATOR"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    query = (
+        "MATCH (message:Message {id: $messageId})<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(replyAuthor:Person) "
+        "MATCH (message)-[:HAS_CREATOR]->(messageAuthor:Person) "
+        "RETURN "
+        "comment.id AS commentId, "
+        "comment.content AS commentContent, "
+        "comment.creationDate AS commentCreationDate, "
+        "replyAuthor.id AS replyAuthorId, "
+        "replyAuthor.firstName AS replyAuthorFirstName, "
+        "replyAuthor.lastName AS replyAuthorLastName, "
+        "messageAuthor.id AS messageAuthorId "
+        "ORDER BY commentCreationDate DESC, replyAuthorId ASC"
+    )
+    result = g.gfql(query, params={"messageId": "m1"})
+
+    assert result._nodes.to_dict(orient="records") == [
+        {
+            "commentId": "c1",
+            "commentContent": "reply-from-peer",
+            "commentCreationDate": 20.0,
+            "replyAuthorId": "reply_author",
+            "replyAuthorFirstName": "Peer",
+            "replyAuthorLastName": "One",
+            "messageAuthorId": "message_author",
+        },
+        {
+            "commentId": "c2",
+            "commentContent": "reply-from-main",
+            "commentCreationDate": 10.0,
+            "replyAuthorId": "message_author",
+            "replyAuthorFirstName": "Main",
+            "replyAuthorLastName": "Author",
+            "messageAuthorId": "message_author",
+        },
+    ]
+
+
 # ── Issue #1052: OPTIONAL MATCH semi-join — opt arm must be pre-filtered ──────
 
 
