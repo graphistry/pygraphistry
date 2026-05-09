@@ -373,13 +373,7 @@ jobs:
         echo "### tck-gfql conformance report" >> "$GITHUB_STEP_SUMMARY"
         echo "- tck-gfql ref: \`${{ steps.tck_gfql.outputs.ref }}\`" >> "$GITHUB_STEP_SUMMARY"
         echo "- tck-gfql sha: \`${{ steps.tck_gfql.outputs.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
-        # Temporary cross-repo lag: pygraphistry now executes match-where3-3,
-        # but tck-gfql main still expects a GFQLValidationError for that xfail key.
-        export PYTHONPATH="$(pwd):${PYTHONPATH:+:${PYTHONPATH}}"
-        export PYTHONPATH="${{ github.workspace }}:${PYTHONPATH}"
-        pytest tests/cypher_tck -xvs \
-          --deselect tests/cypher_tck/test_tck_runner.py::test_direct_cypher_xfail_contract[match-where3-3]
-        python -m tests.cypher_tck.report
+        PYGRAPHISTRY_PATH="${{ github.workspace }}" PYGRAPHISTRY_INSTALL=1 ./bin/ci.sh
 
   gfql-benchmarks:
     needs: [changes, generate-lockfiles]
