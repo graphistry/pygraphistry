@@ -46,6 +46,21 @@ def test_joined_hidden_scalar_columns_coalesces_suffix_variants() -> None:
     ]
 
 
+def test_joined_hidden_scalar_columns_preserves_existing_suffix_column() -> None:
+    frame = pd.DataFrame(
+        {
+            "__cypher_reentry_property__": [7, 8],
+            "a.__cypher_reentry_property__": [1, 2],
+            "b.__cypher_reentry_property__": [3, 4],
+        }
+    )
+    out = joined_hidden_scalar_columns(frame)
+    assert _records(out[["__cypher_reentry_property__"]]) == [
+        {"__cypher_reentry_property__": 7},
+        {"__cypher_reentry_property__": 8},
+    ]
+
+
 def test_joined_alias_columns_recovers_alias_identity_columns() -> None:
     frame = pd.DataFrame(
         {
@@ -56,6 +71,18 @@ def test_joined_alias_columns_recovers_alias_identity_columns() -> None:
     )
     out = joined_alias_columns(frame)
     assert _records(out[["a", "b"]]) == [{"a": "a1", "b": "b1"}]
+
+
+def test_joined_alias_columns_does_not_overwrite_existing_alias_column() -> None:
+    frame = pd.DataFrame(
+        {
+            "a": ["already-present"],
+            "a.id": ["fallback-id"],
+            "a.a": ["alias-shape"],
+        }
+    )
+    out = joined_alias_columns(frame)
+    assert _records(out[["a"]]) == [{"a": "already-present"}]
 
 
 def test_connected_inner_join_rows_pandas_path() -> None:
@@ -112,6 +139,30 @@ def test_connected_inner_join_rows_cudf_path() -> None:
     ]
 
 
+def test_connected_inner_join_rows_empty_match_keeps_payload_schema() -> None:
+    joined_rows = pd.DataFrame(
+        {
+            "a.id": ["a1", "a2"],
+            "a.num": [1, 2],
+        }
+    )
+    pattern_rows = pd.DataFrame(
+        {
+            "a.id": ["x1"],
+            "b.id": ["b1"],
+        }
+    )
+    out = connected_inner_join_rows(
+        joined_rows,
+        pattern_rows,
+        join_cols=["a.id"],
+        keep_cols=["a.id", "b.id"],
+        engine=Engine.PANDAS,
+    )
+    assert list(out.columns) == ["a.id", "a.num", "b.id"]
+    assert len(out) == 0
+
+
 def test_project_node_attrs_filters_renames_dedupes_and_drops_nulls() -> None:
     frame = pd.DataFrame(
         {
@@ -134,6 +185,18 @@ def test_project_node_attrs_filters_renames_dedupes_and_drops_nulls() -> None:
     ]
 
 
+def test_project_node_attrs_prefix_mode_without_labels() -> None:
+    frame = pd.DataFrame({"id": ["n1"], "color": ["blue"]})
+    out = project_node_attrs(
+        frame,
+        "id",
+        ["id", "color"],
+        id_label="node_id",
+        prefix="L_",
+    )
+    assert _records(out[["node_id", "L_color"]]) == [{"node_id": "n1", "L_color": "blue"}]
+
+
 def test_ineq_eval_pairs_filters_bounds_per_mid_group() -> None:
     left_pairs = pd.DataFrame(
         {"__mid__": ["m1", "m1", "m2"], "__left_val__": [1, 5, 2], "__left__": ["l1", "l2", "l3"]}
@@ -154,6 +217,24 @@ def test_ineq_eval_pairs_filters_bounds_per_mid_group() -> None:
     assert _records(right_eval[["__mid__", "__right_val__", "__right__"]]) == [
         {"__mid__": "m1", "__right_val__": 3, "__right__": "r1"}
     ]
+
+
+def test_ineq_eval_pairs_greater_than_branch() -> None:
+    left_pairs = pd.DataFrame(
+        {"__mid__": ["m1", "m1"], "__left_val__": [1, 5], "__left__": ["l1", "l2"]}
+    )
+    right_pairs = pd.DataFrame(
+        {"__mid__": ["m1", "m1"], "__right_val__": [2, 4], "__right__": ["r1", "r2"]}
+    )
+    left_eval, right_eval = ineq_eval_pairs(
+        left_pairs,
+        right_pairs,
+        ">",
+        left_value="__left_val__",
+        right_value="__right_val__",
+    )
+    assert _records(left_eval[["__left__"]]) == [{"__left__": "l2"}]
+    assert _records(right_eval[["__right__"]]) == [{"__right__": "r1"}, {"__right__": "r2"}]
 
 
 def test_semijoin_eval_pairs_eq_filters_to_shared_mid_values() -> None:
@@ -182,6 +263,22 @@ def test_semijoin_eval_pairs_eq_filters_to_shared_mid_values() -> None:
     ]
 
 
+def test_semijoin_eval_pairs_eq_returns_none_when_no_shared_values() -> None:
+    left_pairs = pd.DataFrame({"__mid__": ["m1"], "__left_val__": ["a"]})
+    right_pairs = pd.DataFrame({"__mid__": ["m1"], "__right_val__": ["b"]})
+    left_eval, right_eval, mid_values = semijoin_eval_pairs(
+        left_pairs,
+        right_pairs,
+        "==",
+        left_value="__left_val__",
+        right_value="__right_val__",
+    )
+    assert left_eval is None
+    assert right_eval is None
+    assert mid_values is not None
+    assert len(mid_values) == 0
+
+
 def test_semijoin_eval_pairs_neq_prunes_singleton_equal_values() -> None:
     left_pairs = pd.DataFrame(
         {"__mid__": ["m1", "m1", "m2"], "__left_val__": ["x", "y", "z"], "__left__": [1, 2, 3]}
@@ -204,3 +301,20 @@ def test_semijoin_eval_pairs_neq_prunes_singleton_equal_values() -> None:
     assert _records(right_eval[["__mid__", "__right_val__", "__right__"]]) == [
         {"__mid__": "m1", "__right_val__": "y", "__right__": 9}
     ]
+
+
+def test_semijoin_eval_pairs_delegates_inequality_ops() -> None:
+    left_pairs = pd.DataFrame({"__mid__": ["m1", "m1"], "__left_val__": [1, 3], "__left__": ["l1", "l2"]})
+    right_pairs = pd.DataFrame({"__mid__": ["m1"], "__right_val__": [2], "__right__": ["r1"]})
+    left_eval, right_eval, mid_values = semijoin_eval_pairs(
+        left_pairs,
+        right_pairs,
+        "<",
+        left_value="__left_val__",
+        right_value="__right_val__",
+    )
+    assert mid_values is None
+    assert left_eval is not None
+    assert right_eval is not None
+    assert _records(left_eval[["__left__"]]) == [{"__left__": "l1"}]
+    assert _records(right_eval[["__right__"]]) == [{"__right__": "r1"}]
