@@ -373,21 +373,7 @@ jobs:
         # #1357 strict-default binder flip: pygraphistry now returns expected
         # rows for expr-temporal2-6-5. Until that promotion lands on the
         # selected tck-gfql ref, patch the contract locally in CI.
-        python - <<'PY'
-from pathlib import Path
-
-contract = Path("tests/cypher_tck/direct_cypher_xfail_contract.py")
-text = contract.read_text()
-wrong_row_line = '    "expr-temporal2-6-5",\n'
-if wrong_row_line in text:
-    text = text.replace(wrong_row_line, "", 1)
-anchor = '    "expr-pattern1-17",\n'
-promoted_line = '    "expr-temporal2-6-5",\n'
-if promoted_line not in text and anchor in text:
-    text = text.replace(anchor, anchor + promoted_line, 1)
-contract.write_text(text)
-print("Applied local tck contract overlay for expr-temporal2-6-5")
-PY
+        python -c 'from pathlib import Path; contract=Path("tests/cypher_tck/direct_cypher_xfail_contract.py"); text=contract.read_text(); wrong_row_line="    \"expr-temporal2-6-5\",\\n"; anchor="    \"expr-pattern1-17\",\\n"; promoted_line=wrong_row_line; text=text.replace(wrong_row_line, "", 1) if wrong_row_line in text else text; text=text.replace(anchor, anchor + promoted_line, 1) if promoted_line not in text and anchor in text else text; contract.write_text(text); print("Applied local tck contract overlay for expr-temporal2-6-5")'
         echo "### tck-gfql conformance report" >> "$GITHUB_STEP_SUMMARY"
         echo "- tck-gfql ref: \`${{ steps.tck_gfql.outputs.ref }}\`" >> "$GITHUB_STEP_SUMMARY"
         echo "- tck-gfql sha: \`${{ steps.tck_gfql.outputs.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
