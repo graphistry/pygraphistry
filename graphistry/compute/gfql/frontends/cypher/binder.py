@@ -287,27 +287,59 @@ class FrontendBinder:
                 self._bind_return_clause(state=state, clause=item.clause, stage=item)
 
     def _bind_graph_sequence(self, state: _BindState, ast: CypherQuery) -> None:
-        for match_clause in ast.matches:
-            self._bind_match_clause(state=state, clause=match_clause)
+        if not state.strict_name_resolution:
+            for match_clause in ast.matches:
+                self._bind_match_clause(state=state, clause=match_clause)
 
-        for unwind_clause in ast.unwinds:
-            self._bind_unwind_clause(state=state, clause=unwind_clause)
+            for unwind_clause in ast.unwinds:
+                self._bind_unwind_clause(state=state, clause=unwind_clause)
 
-        if ast.reentry_matches:
-            for idx, reentry_match in enumerate(ast.reentry_matches):
-                if idx < len(ast.with_stages):
-                    self._bind_projection_stage(state=state, stage=ast.with_stages[idx], origin="WITH")
-                self._bind_match_clause(state=state, clause=reentry_match)
-                if idx < len(ast.reentry_wheres) and ast.reentry_wheres[idx] is not None:
-                    self._append_where_part(state=state, clause_name="WHERE", where=cast(WhereClause, ast.reentry_wheres[idx]))
-                if idx < len(ast.reentry_unwinds):
-                    self._bind_unwind_clause(state=state, clause=ast.reentry_unwinds[idx])
-            for stage in ast.with_stages[len(ast.reentry_matches) :]:
+            if ast.reentry_matches:
+                for idx, reentry_match in enumerate(ast.reentry_matches):
+                    if idx < len(ast.with_stages):
+                        self._bind_projection_stage(state=state, stage=ast.with_stages[idx], origin="WITH")
+                    self._bind_match_clause(state=state, clause=reentry_match)
+                    if idx < len(ast.reentry_wheres) and ast.reentry_wheres[idx] is not None:
+                        self._append_where_part(state=state, clause_name="WHERE", where=cast(WhereClause, ast.reentry_wheres[idx]))
+                    if idx < len(ast.reentry_unwinds):
+                        self._bind_unwind_clause(state=state, clause=ast.reentry_unwinds[idx])
+                for stage in ast.with_stages[len(ast.reentry_matches) :]:
+                    self._bind_projection_stage(state=state, stage=stage, origin="WITH")
+                return
+
+            for stage in ast.with_stages:
                 self._bind_projection_stage(state=state, stage=stage, origin="WITH")
             return
 
-        for stage in ast.with_stages:
-            self._bind_projection_stage(state=state, stage=stage, origin="WITH")
+        # Preserve traversal order exactly as written so strict name
+        # resolution sees WITH-projected aliases before later UNWIND/MATCH
+        # clauses that depend on them.
+        clause_items: List[Tuple[int, int, str, object]] = []
+        clause_items.extend((clause.span.start_pos, idx, "match", clause) for idx, clause in enumerate(ast.matches))
+        clause_items.extend((clause.span.start_pos, idx, "with", clause) for idx, clause in enumerate(ast.with_stages))
+        clause_items.extend((clause.span.start_pos, idx, "unwind", clause) for idx, clause in enumerate(ast.unwinds))
+        clause_items.extend((clause.span.start_pos, idx, "reentry_match", clause) for idx, clause in enumerate(ast.reentry_matches))
+        clause_items.extend((clause.span.start_pos, idx, "reentry_unwind", clause) for idx, clause in enumerate(ast.reentry_unwinds))
+        clause_items.extend(
+            (clause.span.start_pos, idx, "reentry_where", clause)
+            for idx, clause in enumerate(ast.reentry_wheres)
+            if clause is not None
+        )
+        clause_items.sort(key=lambda item: (item[0], item[1]))
+
+        for _, _, clause_kind, clause in clause_items:
+            if clause_kind == "match":
+                self._bind_match_clause(state=state, clause=cast(MatchClause, clause))
+            elif clause_kind == "with":
+                self._bind_projection_stage(state=state, stage=cast(ProjectionStage, clause), origin="WITH")
+            elif clause_kind == "unwind":
+                self._bind_unwind_clause(state=state, clause=cast(UnwindClause, clause))
+            elif clause_kind == "reentry_match":
+                self._bind_match_clause(state=state, clause=cast(MatchClause, clause))
+            elif clause_kind == "reentry_unwind":
+                self._bind_unwind_clause(state=state, clause=cast(UnwindClause, clause))
+            elif clause_kind == "reentry_where":
+                self._append_where_part(state=state, clause_name="WHERE", where=cast(WhereClause, clause))
 
     def _bind_match_clause(self, state: _BindState, clause: MatchClause) -> None:
         inputs = frozenset(state.scope.keys())

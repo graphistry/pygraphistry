@@ -357,6 +357,20 @@ def test_binder_unwind_extends_existing_scope() -> None:
     assert unwind_part.outputs == frozenset({"n", "x"})
 
 
+def test_binder_strict_name_resolution_allows_post_with_unwind_alias_resolution() -> None:
+    query = (
+        "MATCH (root:S)-[:X]->(b1:B) "
+        "WITH root, collect(b1.id) AS bee_ids "
+        "UNWIND bee_ids AS bid "
+        "MATCH (root)-[:Y]->(c:C {id: bid}) "
+        "RETURN c.id AS id"
+    )
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert [part.clause for part in bound.query_parts] == ["MATCH", "WITH", "UNWIND", "MATCH", "RETURN"]
+    assert "id" in bound.semantic_table.variables
+
+
 def test_binder_label_narrowing_from_match_labels_and_where_conjunction() -> None:
     query = "MATCH (n:Person) WHERE n:Admin AND n:Active RETURN n"
     bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
