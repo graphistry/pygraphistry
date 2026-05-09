@@ -10307,6 +10307,124 @@ def test_string_cypher_executes_seeded_multihop_then_with_match_reentry_shape() 
     assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
 
 
+def test_string_cypher_executes_job_referral_employment_company_row_join_shape() -> None:
+    nodes = pd.DataFrame(
+        [
+            {"id": 1, "label__Person": True},
+            {"id": 2, "label__Person": True, "firstName": "Bob", "lastName": "Baker"},
+            {"id": 3, "label__Person": True, "firstName": "Carol", "lastName": "Clark"},
+            {"id": 4, "label__Company": True, "name": "Zoo"},
+            {"id": 5, "label__Company": True, "name": "Alpha"},
+            {"id": 6, "label__Country": True, "name": "Hungary"},
+        ]
+    )
+    edges = pd.DataFrame(
+        [
+            {"s": 1, "d": 2, "type": "KNOWS"},
+            {"s": 2, "d": 3, "type": "KNOWS"},
+            {"s": 2, "d": 4, "type": "WORK_AT", "workFrom": 2010},
+            {"s": 3, "d": 5, "type": "WORK_AT", "workFrom": 2009},
+            {"s": 4, "d": 6, "type": "IS_LOCATED_IN"},
+            {"s": 5, "d": 6, "type": "IS_LOCATED_IN"},
+        ]
+    )
+
+    query = (
+        "MATCH (person:Person {id: 1})-[:KNOWS*1..2]-(friend:Person) "
+        "WHERE NOT(person=friend) "
+        "WITH DISTINCT friend "
+        "MATCH (friend)-[workAt:WORK_AT]->(company:Company)-[:IS_LOCATED_IN]->(:Country {name: 'Hungary'}) "
+        "WHERE workAt.workFrom < 2011 "
+        "RETURN "
+        "friend.id AS personId, "
+        "friend.firstName AS personFirstName, "
+        "friend.lastName AS personLastName, "
+        "company.name AS organizationName, "
+        "workAt.workFrom AS organizationWorkFromYear "
+        "ORDER BY organizationWorkFromYear ASC, toInteger(personId) ASC, organizationName DESC "
+        "LIMIT 10"
+    )
+
+    result = _mk_graph(nodes, edges).gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [
+        {
+            "personId": 3,
+            "personFirstName": "Carol",
+            "personLastName": "Clark",
+            "organizationName": "Alpha",
+            "organizationWorkFromYear": 2009.0,
+        },
+        {
+            "personId": 2,
+            "personFirstName": "Bob",
+            "personLastName": "Baker",
+            "organizationName": "Zoo",
+            "organizationWorkFromYear": 2010.0,
+        },
+    ]
+
+
+def test_string_cypher_executes_job_referral_employment_company_row_join_shape_on_cudf() -> None:
+    _require_cudf_runtime()
+    nodes = pd.DataFrame(
+        [
+            {"id": 1, "label__Person": True},
+            {"id": 2, "label__Person": True, "firstName": "Bob", "lastName": "Baker"},
+            {"id": 3, "label__Person": True, "firstName": "Carol", "lastName": "Clark"},
+            {"id": 4, "label__Company": True, "name": "Zoo"},
+            {"id": 5, "label__Company": True, "name": "Alpha"},
+            {"id": 6, "label__Country": True, "name": "Hungary"},
+        ]
+    )
+    edges = pd.DataFrame(
+        [
+            {"s": 1, "d": 2, "type": "KNOWS"},
+            {"s": 2, "d": 3, "type": "KNOWS"},
+            {"s": 2, "d": 4, "type": "WORK_AT", "workFrom": 2010},
+            {"s": 3, "d": 5, "type": "WORK_AT", "workFrom": 2009},
+            {"s": 4, "d": 6, "type": "IS_LOCATED_IN"},
+            {"s": 5, "d": 6, "type": "IS_LOCATED_IN"},
+        ]
+    )
+
+    query = (
+        "MATCH (person:Person {id: 1})-[:KNOWS*1..2]-(friend:Person) "
+        "WHERE NOT(person=friend) "
+        "WITH DISTINCT friend "
+        "MATCH (friend)-[workAt:WORK_AT]->(company:Company)-[:IS_LOCATED_IN]->(:Country {name: 'Hungary'}) "
+        "WHERE workAt.workFrom < 2011 "
+        "RETURN "
+        "friend.id AS personId, "
+        "friend.firstName AS personFirstName, "
+        "friend.lastName AS personLastName, "
+        "company.name AS organizationName, "
+        "workAt.workFrom AS organizationWorkFromYear "
+        "ORDER BY organizationWorkFromYear ASC, toInteger(personId) ASC, organizationName DESC "
+        "LIMIT 10"
+    )
+
+    result = _mk_cudf_graph(nodes, edges).gfql(query, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {
+            "personId": 3,
+            "personFirstName": "Carol",
+            "personLastName": "Clark",
+            "organizationName": "Alpha",
+            "organizationWorkFromYear": 2009.0,
+        },
+        {
+            "personId": 2,
+            "personFirstName": "Bob",
+            "personLastName": "Baker",
+            "organizationName": "Zoo",
+            "organizationWorkFromYear": 2010.0,
+        },
+    ]
+
+
 def test_string_cypher_executes_seeded_multihop_then_with_optional_match_reentry_shape() -> None:
     nodes = pd.DataFrame(
         {
