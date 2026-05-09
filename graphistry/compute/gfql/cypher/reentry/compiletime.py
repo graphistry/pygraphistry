@@ -70,6 +70,68 @@ def _drop_bare_alias_items_from_stage(
     return replace(stage, clause=replace(stage.clause, items=new_items))
 
 
+def _rewrite_terminal_singleton_reentry_unwind(
+    *,
+    reentry_unwinds: Tuple[UnwindClause, ...],
+    reentry_return: ReturnClause,
+    reentry_order_by: Optional[OrderByClause],
+) -> Optional[Tuple[Tuple[UnwindClause, ...], ReturnClause, Optional[OrderByClause]]]:
+    """Rewrite `UNWIND [x] AS y` (terminal reentry tail) into an identifier rename.
+
+    For the bounded-reentry suffix shape `... WITH ... UNWIND [x] AS y RETURN ...`,
+    the current query model cannot encode WITH-before-UNWIND ordering. When the
+    unwind is a singleton list literal over an identifier, the operation is an
+    identity row mapping (`y := x`) and can be removed by rewriting downstream
+    references from `y` to `x`.
+    """
+    if len(reentry_unwinds) != 1:
+        return None
+    unwind_clause = reentry_unwinds[0]
+    try:
+        unwind_node = parse_expr(unwind_clause.expression.text.strip())
+    except (GFQLExprParseError, ImportError):
+        return None
+    if not isinstance(unwind_node, ListLiteral) or len(unwind_node.items) != 1:
+        return None
+    source_node = unwind_node.items[0]
+    if not isinstance(source_node, Identifier):
+        return None
+    source_name = source_node.name
+    unwind_alias = unwind_clause.alias
+    if source_name == unwind_alias:
+        return (), reentry_return, reentry_order_by
+    replacements = {unwind_alias: source_name}
+
+    def _rewrite_expr(expr: ExpressionText) -> Optional[ExpressionText]:
+        try:
+            node = parse_expr(expr.text)
+        except (GFQLExprParseError, ImportError):
+            return None
+        rewritten = _rewrite_expr_identifiers(node, replacements)
+        return ExpressionText(text=_render_expr_node(rewritten), span=expr.span)
+
+    rewritten_return_items: List[ReturnItem] = []
+    for item in reentry_return.items:
+        rewritten_expr = _rewrite_expr(item.expression)
+        if rewritten_expr is None:
+            return None
+        rewritten_return_items.append(replace(item, expression=rewritten_expr))
+    rewritten_return = replace(reentry_return, items=tuple(rewritten_return_items))
+    rewritten_order_by = None
+    if reentry_order_by is not None:
+        rewritten_order_items: List[OrderByItem] = []
+        for item in reentry_order_by.items:
+            rewritten_expr = _rewrite_expr(item.expression)
+            if rewritten_expr is None:
+                return None
+            rewritten_order_items.append(replace(item, expression=rewritten_expr))
+        rewritten_order_by = replace(
+            reentry_order_by,
+            items=tuple(rewritten_order_items),
+        )
+    return (), rewritten_return, rewritten_order_by
+
+
 def _rewrite_multi_whole_row_prefix(
     prefix_stage: ProjectionStage,
     *,
@@ -535,13 +597,21 @@ def _compile_bounded_reentry_query(
                     ),
                 )
     if rewritten_reentry_unwinds and rewritten_with_stages and not rewritten_remaining_reentry_matches:
-        first_unwind = rewritten_reentry_unwinds[0]
-        raise _unsupported_at_span(
-            "Cypher UNWIND after WITH/RETURN is not yet supported once MATCH has introduced graph aliases",
-            field="unwind",
-            value=first_unwind.expression.text,
-            span=first_unwind.span,
+        singleton_rewrite = _rewrite_terminal_singleton_reentry_unwind(
+            reentry_unwinds=rewritten_reentry_unwinds,
+            reentry_return=reentry_return,
+            reentry_order_by=reentry_order_by,
         )
+        if singleton_rewrite is not None:
+            rewritten_reentry_unwinds, reentry_return, reentry_order_by = singleton_rewrite
+        else:
+            first_unwind = rewritten_reentry_unwinds[0]
+            raise _unsupported_at_span(
+                "Cypher UNWIND after WITH/RETURN is not yet supported once MATCH has introduced graph aliases",
+                field="unwind",
+                value=first_unwind.expression.text,
+                span=first_unwind.span,
+            )
     suffix_query = replace(
         query,
         call=None,
