@@ -33,12 +33,17 @@ type_to_predicate: Dict[str, Type[ASTPredicate]] = {
 }
 
 def from_json(d: Dict[str, JSONVal]) -> ASTPredicate:
-    assert isinstance(d, dict)
-    assert 'type' in d
-    assert d['type'] in type_to_predicate
-    assert isinstance(d['type'], str)
+    if not isinstance(d, dict):
+        raise ValueError('d must be a dict')
+    if 'type' not in d:
+        raise ValueError("d must have a 'type' key")
+    if not isinstance(d['type'], str):
+        raise ValueError("d['type'] must be a string")
+    if d['type'] not in type_to_predicate:
+        raise ValueError(f"Unknown predicate type: {d['type']}")
     pred = type_to_predicate[d['type']]
     out = pred.from_json(d)
-    assert isinstance(out, ASTPredicate)
+    if not isinstance(out, ASTPredicate):
+        raise ValueError(f'pred.from_json must return an ASTPredicate, got {type(out)}')
     out.validate()
     return out
