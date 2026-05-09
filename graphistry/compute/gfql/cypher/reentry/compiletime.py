@@ -102,29 +102,32 @@ def _rewrite_terminal_singleton_reentry_unwind(
         return (), reentry_return, reentry_order_by
     replacements = {unwind_alias: source_name}
 
-    def _rewrite_expr(expr: ExpressionText) -> ExpressionText:
+    def _rewrite_expr(expr: ExpressionText) -> Optional[ExpressionText]:
         try:
             node = parse_expr(expr.text)
         except (GFQLExprParseError, ImportError):
-            return expr
+            return None
         rewritten = _rewrite_expr_identifiers(node, replacements)
         return ExpressionText(text=_render_expr_node(rewritten), span=expr.span)
 
-    rewritten_return = replace(
-        reentry_return,
-        items=tuple(
-            replace(item, expression=_rewrite_expr(item.expression))
-            for item in reentry_return.items
-        ),
-    )
+    rewritten_return_items: List[ReturnItem] = []
+    for item in reentry_return.items:
+        rewritten_expr = _rewrite_expr(item.expression)
+        if rewritten_expr is None:
+            return None
+        rewritten_return_items.append(replace(item, expression=rewritten_expr))
+    rewritten_return = replace(reentry_return, items=tuple(rewritten_return_items))
     rewritten_order_by = None
     if reentry_order_by is not None:
+        rewritten_order_items: List[OrderByItem] = []
+        for item in reentry_order_by.items:
+            rewritten_expr = _rewrite_expr(item.expression)
+            if rewritten_expr is None:
+                return None
+            rewritten_order_items.append(replace(item, expression=rewritten_expr))
         rewritten_order_by = replace(
             reentry_order_by,
-            items=tuple(
-                replace(item, expression=_rewrite_expr(item.expression))
-                for item in reentry_order_by.items
-            ),
+            items=tuple(rewritten_order_items),
         )
     return (), rewritten_return, rewritten_order_by
 
