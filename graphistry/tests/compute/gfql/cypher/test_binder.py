@@ -372,6 +372,22 @@ def test_binder_strict_name_resolution_preserves_call_yield_scope(query: str, ex
     assert expected_alias in bound.semantic_table.variables
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "RETURN duration.inSeconds(localtime(), localtime()) AS x",
+        "RETURN duration.between(localdatetime('2018-01-01T12:00'), localdatetime('2018-01-02T10:00')) AS x",
+        "RETURN datetime.fromepoch(416779, 999999999) AS x",
+        "RETURN date.truncate('decade', date({year: 1984, month: 10, day: 11}), {day: 2}) AS x",
+        "RETURN localdatetime.truncate('weekYear', localdatetime({year: 1984, month: 1, day: 1, hour: 12}), {day: 5}) AS x",
+        "RETURN time.truncate('hour', time({hour: 12, minute: 31, timezone: '+01:00'}), {nanosecond: 2}) AS x",
+    ],
+)
+def test_binder_strict_name_resolution_allows_namespaced_builtin_calls(query: str) -> None:
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+    assert "x" in bound.semantic_table.variables
+
+
 def test_binder_unwind_extends_existing_scope() -> None:
     query = "MATCH (n:Person) UNWIND [1, 2] AS x RETURN n, x"
     bound = FrontendBinder().bind(parse_cypher(query), PlanContext())

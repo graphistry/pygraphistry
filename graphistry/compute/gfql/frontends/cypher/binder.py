@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, FrozenSet, Iterable, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union, cast
+from typing import Dict, FrozenSet, Iterable, List, Literal, Mapping, Match, Optional, Sequence, Set, Tuple, Union, cast
 
 from graphistry.compute.gfql.cypher.ast import (
     CallClause,
@@ -93,6 +93,17 @@ _QUANTIFIER_COMPREHENSION_RE = re.compile(
     r"(?i)\b(?:all|any|none|single)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s+IN\b"
 )
 _LIST_COMPREHENSION_RE = re.compile(r"\[\s*([A-Za-z_][A-Za-z0-9_]*)\s+IN\b")
+_NAMESPACED_BUILTIN_PREFIXES: FrozenSet[str] = frozenset(
+    {
+        "date",
+        "datetime",
+        "duration",
+        "localdatetime",
+        "localtime",
+        "point",
+        "time",
+    }
+)
 
 
 @dataclass
@@ -777,6 +788,8 @@ class FrontendBinder:
             start = match.start()
             if any(lo <= start < hi for lo, hi in spans):
                 continue
+            if _is_namespaced_builtin_property_call(expression.text, match):
+                continue
             self._validate_property_ref_schema(
                 state=state,
                 property_ref=PropertyRef(
@@ -1328,6 +1341,8 @@ def _unresolved_identifiers(*, text: str, scope: Mapping[str, BoundVariable]) ->
     for match in _PROPERTY_RE.finditer(text):
         if in_string(match.start()):
             continue
+        if _is_namespaced_builtin_property_call(text, match):
+            continue
         alias = match.group(1)
         if _is_local_comprehension_reference(
             token=alias,
@@ -1359,6 +1374,8 @@ def _unresolved_identifiers(*, text: str, scope: Mapping[str, BoundVariable]) ->
         if prev_char in {"$", ".", ":"}:
             continue
         if next_char == "(":
+            continue
+        if _is_namespaced_builtin_identifier_call(text=text, token=token, token_end=nxt):
             continue
         if next_char == ":" and (prev_char == "" or prev_char in "{,"):
             continue
@@ -1459,6 +1476,34 @@ def _is_local_comprehension_reference(
         if token == local_name and local_start <= token_start < local_end:
             return True
     return False
+
+def _is_namespaced_builtin_property_call(text: str, match: Match[str]) -> bool:
+    namespace = match.group(1).lower()
+    if namespace not in _NAMESPACED_BUILTIN_PREFIXES:
+        return False
+    idx = match.end()
+    while idx < len(text) and text[idx].isspace():
+        idx += 1
+    return idx < len(text) and text[idx] == "("
+
+
+def _is_namespaced_builtin_identifier_call(*, text: str, token: str, token_end: int) -> bool:
+    if token.lower() not in _NAMESPACED_BUILTIN_PREFIXES:
+        return False
+    idx = token_end
+    if idx >= len(text) or text[idx] != ".":
+        return False
+    idx += 1
+    while idx < len(text) and text[idx].isspace():
+        idx += 1
+    fn_start = idx
+    while idx < len(text) and (text[idx].isalnum() or text[idx] == "_"):
+        idx += 1
+    if idx == fn_start:
+        return False
+    while idx < len(text) and text[idx].isspace():
+        idx += 1
+    return idx < len(text) and text[idx] == "("
 
 
 def _path_hops(pattern: Sequence[PatternElement]) -> Tuple[int, int]:
