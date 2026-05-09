@@ -625,6 +625,18 @@ class FrontendBinder:
                     scope_id=clause_scope_id,
                 )
                 next_conf[output_name] = "inferred"
+        else:
+            default_output = _default_call_output_alias(clause.procedure)
+            if default_output is not None:
+                next_scope[default_output] = BoundVariable(
+                    name=default_output,
+                    logical_type=ScalarType(kind="unknown", nullable=True),
+                    nullable=True,
+                    null_extended_from=frozenset(),
+                    entity_kind="scalar",
+                    scope_id=clause_scope_id,
+                )
+                next_conf[default_output] = "inferred"
         for arg in clause.args:
             self._validate_expression_property_refs(state=state, expression=arg, stage="CALL")
 
@@ -1063,11 +1075,6 @@ def _infer_expression_binding(
             schema_confidence=_demote_confidence(confidence.get(alias, "propagated")),
         )
 
-    if strict_name_resolution:
-        unresolved = _unresolved_identifiers(text=text, scope=scope)
-        if unresolved:
-            raise _unresolved_name_error(identifier=sorted(unresolved)[0], visible_scope=scope)
-
     if _is_bool_literal(text):
         return _ExpressionBinding(
             logical_type=ScalarType(kind="bool", nullable=False),
@@ -1129,6 +1136,11 @@ def _infer_expression_binding(
             null_extended_from=frozenset(),
             schema_confidence="inferred",
         )
+
+    if strict_name_resolution:
+        unresolved = _unresolved_identifiers(text=text, scope=scope)
+        if unresolved:
+            raise _unresolved_name_error(identifier=sorted(unresolved)[0], visible_scope=scope)
 
     refs = _referenced_aliases(text=text, scope=scope)
     null_extended_from: FrozenSet[str] = frozenset()
@@ -1586,11 +1598,11 @@ def _next_scope_id(state: _BindState) -> int:
 
 
 def _is_int_literal(text: str) -> bool:
-    return bool(re.fullmatch(r"[-+]?\d+", text))
+    return bool(re.fullmatch(r"[-+]?(?:\d+|0[xX][0-9A-Fa-f]+|0[oO][0-7]+|0[bB][01]+)", text))
 
 
 def _is_float_literal(text: str) -> bool:
-    return bool(re.fullmatch(r"[-+]?\d+\.\d+", text))
+    return bool(re.fullmatch(r"[-+]?(?:(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?)", text))
 
 
 def _is_bool_literal(text: str) -> bool:
@@ -1607,6 +1619,24 @@ def _is_string_literal(text: str) -> bool:
 
 def _looks_like_list_literal(text: str) -> bool:
     return len(text) >= 2 and text[0] == "[" and text[-1] == "]"
+
+
+def _default_call_output_alias(procedure: str) -> Optional[str]:
+    """Best-effort default output alias when CALL omits YIELD.
+
+    Many graphistry procedures expose a primary metric alias matching the
+    procedure leaf (for example, ``graphistry.degree() -> degree``). Keep this
+    conservative and fallback-only for binder strict-name-resolution support.
+    """
+    parts = [part for part in procedure.split(".") if part]
+    if not parts:
+        return None
+    tail = parts[-1]
+    if tail == "write" and len(parts) >= 2:
+        tail = parts[-2]
+    if not _IDENTIFIER_RE.fullmatch(tail):
+        return None
+    return tail
 
 
 def _strict_schema_mode(state: _BindState) -> bool:
