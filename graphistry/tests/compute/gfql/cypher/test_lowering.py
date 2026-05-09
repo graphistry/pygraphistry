@@ -4538,6 +4538,48 @@ def test_string_cypher_executes_temporal_duration_string_canonicalization(
     _assert_query_rows(query, [{"result": expected_result}])
 
 
+@pytest.mark.parametrize(
+    ("query", "expected_ts", "expected_b"),
+    [
+        # openCypher TCK Temporal6 [6] examples 2 and 8 (pygraphistry #1361 / #1353 item #2):
+        # toString preserves the months/days/seconds-nanos components separately.
+        # Negative days alongside positive hours stay distinct ('-14D + 16H', not collapsed).
+        (
+            "WITH duration({years: 12, months: 5, days: -14, hours: 16}) AS d "
+            "RETURN toString(d) AS ts, duration(toString(d)) = d AS b",
+            "P12Y5M-14DT16H",
+            True,
+        ),
+        # 1 day plus a negative millisecond stays as 'P1DT-0.001S', not 'PT23H59M59.999S'.
+        (
+            "WITH duration({days: 1, milliseconds: -1}) AS d "
+            "RETURN toString(d) AS ts, duration(toString(d)) = d AS b",
+            "P1DT-0.001S",
+            True,
+        ),
+    ],
+)
+def test_string_cypher_duration_tostring_preserves_components(
+    query: str,
+    expected_ts: str,
+    expected_b: bool,
+) -> None:
+    _assert_query_rows(query, [{"ts": expected_ts, "b": expected_b}])
+
+
+def test_string_cypher_duration_equality_is_component_wise() -> None:
+    # openCypher TCK Temporal7 [6] example 8 (pygraphistry #1361 / #1353 item #2):
+    # Two durations with equal total seconds but different (days, seconds) component
+    # shapes are NOT equal. Equality compares months/days/seconds-nanos components,
+    # not just totals.
+    _assert_query_rows(
+        "WITH duration({years: 12, months: 5, days: 14, hours: 16, minutes: 12, seconds: 70}) AS x, "
+        "duration({years: 12, months: 5, days: 13, hours: 40, minutes: 13, seconds: 10}) AS d "
+        "RETURN x = d AS eq",
+        [{"eq": False}],
+    )
+
+
 def test_string_cypher_executes_temporal_localdatetime_weekyear_truncate_day_override() -> None:
     _assert_query_rows(
         "RETURN localdatetime.truncate("
