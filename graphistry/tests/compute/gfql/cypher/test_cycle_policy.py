@@ -124,19 +124,29 @@ class TestDisconnectedCommaPolicy:
 
 class TestCrossWithAliasReusePolicy:
     def test_scalar_alias_reused_as_node_variable_rejected(self) -> None:
-        """WITH [a] AS users MATCH (users)...: stable compiler error."""
+        """WITH [a] AS users MATCH (users)...: rejected at the binder via the
+        cross-kind rebind guard (#1357). Previously caught downstream in the
+        re-entry compiletime path with a different message string."""
         with pytest.raises(
             GFQLValidationError,
-            match="Cypher MATCH after WITH scalar-only prefix aliases cannot be reused as node variables",
-        ):
+            match="Cypher alias rebound as a different entity kind",
+        ) as exc_info:
             _scalar_reentry_graph().gfql(
                 "MATCH (a:A) WITH [a] AS users MATCH (users)-->(b) RETURN b.id AS bid"
             )
+        ctx = exc_info.value.context
+        assert ctx["existing_kind"] == "scalar"
+        assert ctx["new_kind"] == "node"
+        assert ctx["new_role"] == "node pattern"
+        assert ctx["value"] == "users"
 
     def test_cross_with_error_message_stable(self) -> None:
-        """The error message substring must remain stable across M2 refactors."""
+        """The cross-kind rebind error must carry stable structured context
+        (existing_kind / new_kind / new_role) across refactors."""
         with pytest.raises(GFQLValidationError) as exc_info:
             _scalar_reentry_graph().gfql(
                 "MATCH (a:A) WITH [a] AS users MATCH (users)-->(b) RETURN b.id AS bid"
             )
-        assert "scalar-only prefix aliases cannot be reused as node variables" in str(exc_info.value)
+        assert "Cypher alias rebound as a different entity kind" in str(exc_info.value)
+        assert exc_info.value.context["existing_kind"] == "scalar"
+        assert exc_info.value.context["new_kind"] == "node"

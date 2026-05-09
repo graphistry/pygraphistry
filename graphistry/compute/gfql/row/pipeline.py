@@ -1,5 +1,6 @@
 import ast
 import math
+import numbers
 import re
 from functools import lru_cache
 from types import ModuleType
@@ -733,6 +734,15 @@ class RowPipelineMixin:
                 return True, left * right
             if op == "/":
                 try:
+                    if (
+                        isinstance(left, numbers.Integral)
+                        and not isinstance(left, bool)
+                        and isinstance(right, numbers.Integral)
+                        and not isinstance(right, bool)
+                    ):
+                        left_int = int(left)
+                        right_int = int(right)
+                        return True, int(left_int / right_int)
                     return True, left / right
                 except ZeroDivisionError:
                     if isinstance(left, bool) or isinstance(right, bool):
