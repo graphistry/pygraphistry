@@ -4141,8 +4141,6 @@ def _lower_projection_chain(
             params=params,
         )
     )
-    # Row-WHERE is evaluated before WITH/RETURN projection scope trimming, so keep a
-    # pre-membership alias set for WHERE validation (e.g. NOT(person=friend) in IC11).
     pre_scope_binding_row_aliases = set(binding_row_aliases)
     binding_row_aliases = _apply_bound_scope_membership(
         binding_row_aliases,
@@ -4173,12 +4171,7 @@ def _lower_projection_chain(
             if not _can_lower_multi_alias_projection_bindings(plan, alias_targets=alias_targets):
                 raise _multi_alias_exc
 
-    allowed_match_aliases = (
-        ({plan.source_alias} | plan.all_source_aliases | binding_row_aliases)
-        if plan.all_source_aliases is not None
-        else binding_row_aliases
-    )
-    where_allowed_match_aliases = allowed_match_aliases | pre_scope_binding_row_aliases
+    allowed_match_aliases = ({plan.source_alias} | plan.all_source_aliases | binding_row_aliases) if plan.all_source_aliases is not None else binding_row_aliases
     if plan.all_source_aliases is not None or pre_scope_binding_row_aliases or lowered.row_pre_filters:
         row_steps: List[ASTObject] = [rows(binding_ops=serialize_binding_ops(lowered.query))]
     else:
@@ -4188,7 +4181,7 @@ def _lower_projection_chain(
         lowered=lowered,
         alias_targets=alias_targets,
         active_alias=plan.source_alias,
-        allowed_match_aliases=where_allowed_match_aliases or None,
+        allowed_match_aliases=(allowed_match_aliases | pre_scope_binding_row_aliases) or None,
         params=params,
     )
 
