@@ -371,6 +371,32 @@ def test_binder_strict_name_resolution_allows_post_with_unwind_alias_resolution(
     assert "id" in bound.semantic_table.variables
 
 
+def test_binder_strict_name_resolution_allows_post_with_unwind_after_multiple_with_stages() -> None:
+    query = (
+        "MATCH (root:S)-[:X]->(b1:B) "
+        "WITH root, collect(b1.id) AS bee_ids "
+        "WITH root, bee_ids "
+        "UNWIND bee_ids AS bid "
+        "MATCH (root)-[:Y]->(c:C {id: bid}) "
+        "RETURN c.id AS id"
+    )
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert [part.clause for part in bound.query_parts] == ["MATCH", "WITH", "WITH", "UNWIND", "MATCH", "RETURN"]
+    assert "id" in bound.semantic_table.variables
+
+
+def test_binder_strict_name_resolution_rejects_scalar_unwind_alias_rebound_as_node() -> None:
+    query = "UNWIND [1, 2] AS x MATCH (x) RETURN x"
+    with pytest.raises(GFQLValidationError, match="different entity kind") as exc_info:
+        FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert exc_info.value.code == ErrorCode.E204
+    assert exc_info.value.context["existing_kind"] == "scalar"
+    assert exc_info.value.context["new_kind"] == "node"
+    assert exc_info.value.context["value"] == "x"
+
+
 def test_binder_label_narrowing_from_match_labels_and_where_conjunction() -> None:
     query = "MATCH (n:Person) WHERE n:Admin AND n:Active RETURN n"
     bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
