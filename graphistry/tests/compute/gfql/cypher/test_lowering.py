@@ -10617,7 +10617,7 @@ def test_string_cypher_failfast_rejects_post_with_match_non_collect_unwind_match
         _mk_multi_stage_reentry_graph().gfql(query)
 
 
-def test_string_cypher_failfast_rejects_post_with_match_unwind_after_reentry_with() -> None:
+def test_string_cypher_executes_post_with_match_unwind_after_reentry_passthrough_with() -> None:
     query = (
         "MATCH (a:A)-[:R]->(b:B) "
         "WITH b, b.id AS bid "
@@ -10627,11 +10627,27 @@ def test_string_cypher_failfast_rejects_post_with_match_unwind_after_reentry_wit
         "RETURN bid, c2.id AS id"
     )
 
-    with pytest.raises(
-        GFQLValidationError,
-        match="Cypher UNWIND after WITH/RETURN is not yet supported once MATCH has introduced graph aliases",
-    ):
-        _mk_multi_stage_reentry_graph().gfql(query)
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "c"}]
+
+
+def test_string_cypher_executes_post_with_match_unwind_after_reentry_passthrough_with_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH c, bid "
+        "UNWIND [c] AS c2 "
+        "RETURN bid, c2.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph_cudf().gfql(query, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [{"bid": "b", "id": "c"}]
 
 
 def test_string_cypher_failfast_rejects_multiple_post_with_match_unwinds() -> None:
