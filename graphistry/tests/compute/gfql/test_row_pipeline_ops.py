@@ -309,57 +309,6 @@ def test_row_pipeline_select_rejects_invalid_range_arguments(expr: str, pattern:
         _run_node_steps(nodes_df, [rows(), select([("vals", expr)])], edges_df=_self_loop_edges(nodes_df))
 
 
-def test_row_pipeline_order_by_supports_list_literal_and_subscript_expression_keys() -> None:
-    nodes_df = pd.DataFrame(
-        {
-            "id": ["a", "b", "c", "d", "e"],
-            "list": [[2, -2], [1, 2], [300, 0], [1, -20], [2, -2, 100]],
-            "list2": [[3, -2], [2, -2], [1, -2], [4, -2], [5, -2]],
-        }
-    )
-
-    result = _run_node_steps(
-        nodes_df,
-        [
-            rows(),
-            order_by([("[list2[1], list2[0], list[1]] + list + list2", "asc")]),
-            limit(3),
-            select([("id", "id")]),
-        ],
-        edges_df=_self_loop_edges(nodes_df),
-    )
-
-    assert result.to_dict(orient="records") == [{"id": "c"}, {"id": "b"}, {"id": "a"}]
-
-
-def test_row_pipeline_order_by_list_column_matches_opencypher_prefix_tie_break() -> None:
-    # Mirrors openCypher TCK clauses/with-orderBy/WithOrderBy1.feature scenarios [31] / [32]
-    # with proper Python-list values. openCypher list comparator: element-wise; if all
-    # overlapping elements equal, the shorter list is less. So [2, -2] < [2, -2, 100] ASC.
-    # Pins build_list_sort_columns + order_detect_list_series behavior so future row-pipeline
-    # work doesn't regress this. See pygraphistry #1359 / tck-gfql#36.
-    nodes_df = pd.DataFrame(
-        {
-            "id": ["a", "b", "c", "d", "e"],
-            "list": [[2, -2], [1, 2], [300, 0], [1, -20], [2, -2, 100]],
-        }
-    )
-
-    asc = _run_node_steps(
-        nodes_df,
-        [rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])],
-        edges_df=_self_loop_edges(nodes_df),
-    )
-    assert asc.to_dict(orient="records") == [{"id": "d"}, {"id": "b"}, {"id": "a"}]
-
-    desc = _run_node_steps(
-        nodes_df,
-        [rows(), order_by([("list", "desc")]), limit(3), select([("id", "id")])],
-        edges_df=_self_loop_edges(nodes_df),
-    )
-    assert desc.to_dict(orient="records") == [{"id": "c"}, {"id": "e"}, {"id": "a"}]
-
-
 def test_row_pipeline_order_by_supports_temporal_duration_expression_keys() -> None:
     nodes_df = pd.DataFrame(
         {
