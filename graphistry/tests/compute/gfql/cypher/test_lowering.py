@@ -619,6 +619,54 @@ def _mk_issue_1000_ic6_minimal_graph_cudf() -> _CypherTestGraph:
     return _mk_cudf_graph(graph._nodes, graph._edges)
 
 
+def _mk_issue_1396_tag_cooccurrence_join_aggregation_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": [501, 502, 503, 4398046511333, 2, 3, 9001, 9002, 9003],
+                "label__Tag": [True, True, True, False, False, False, False, False, False],
+                "label__Person": [False, False, False, True, True, True, False, False, False],
+                "label__Post": [False, False, False, False, False, False, True, True, True],
+                "name": [
+                    "Carl_Gustaf_Emil_Mannerheim",
+                    "Alpha",
+                    "Beta",
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                ],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": [4398046511333, 4398046511333, 9001, 9002, 9003, 9001, 9002, 9003, 9001, 9002, 9003],
+                "d": [2, 3, 2, 2, 3, 501, 501, 501, 502, 502, 503],
+                "type": [
+                    "KNOWS",
+                    "KNOWS",
+                    "HAS_CREATOR",
+                    "HAS_CREATOR",
+                    "HAS_CREATOR",
+                    "HAS_TAG",
+                    "HAS_TAG",
+                    "HAS_TAG",
+                    "HAS_TAG",
+                    "HAS_TAG",
+                    "HAS_TAG",
+                ],
+            }
+        ),
+    )
+
+
+def _mk_issue_1396_tag_cooccurrence_join_aggregation_graph_cudf() -> _CypherTestGraph:
+    graph = _mk_issue_1396_tag_cooccurrence_join_aggregation_graph()
+    return _mk_cudf_graph(graph._nodes, graph._edges)
+
+
 def _prefix_scalar_reentry_query(
     *,
     tag_name: str = "topic",
@@ -10730,6 +10778,35 @@ def test_string_cypher_executes_issue_1000_ic6_exact_runtime_minimal_on_cudf() -
     assert type(result._nodes).__module__.startswith("cudf")
     assert result._nodes.to_pandas().to_dict(orient="records") == [
         {"tagName": "Alpha", "postCount": 1},
+        {"tagName": "Beta", "postCount": 1},
+    ]
+
+
+def test_issue_1396_tag_cooccurrence_join_aggregation_counts() -> None:
+    """IC6 tag-cooccurrence join+aggregation shape keeps grouped post cardinality."""
+    result = _mk_issue_1396_tag_cooccurrence_join_aggregation_graph().gfql(
+        _issue_1000_ic6_query(),
+        params=_issue_1000_ic6_params(),
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"tagName": "Alpha", "postCount": 2},
+        {"tagName": "Beta", "postCount": 1},
+    ]
+
+
+def test_issue_1396_tag_cooccurrence_join_aggregation_counts_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    result = _mk_issue_1396_tag_cooccurrence_join_aggregation_graph_cudf().gfql(
+        _issue_1000_ic6_query(),
+        params=_issue_1000_ic6_params(),
+        engine="cudf",
+    )
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"tagName": "Alpha", "postCount": 2},
         {"tagName": "Beta", "postCount": 1},
     ]
 
