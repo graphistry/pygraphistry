@@ -7886,15 +7886,16 @@ def test_string_cypher_order_by_partial_stringified_list_raises_mixed_family() -
     assert "list_string" in str(exc.value) and "str" in str(exc.value)
 
 
-def test_string_cypher_order_by_stringified_list_with_nulls_falls_back_safely() -> None:
-    """Issue #1359 W1-I4 — stringified-list with nulls falls back to plain sort.
+def test_string_cypher_order_by_stringified_list_with_nulls_returns_top_k_without_error() -> None:
+    """Issue #1359 W1-I4 — stringified-list with nulls completes without error.
 
-    Document the current behavior: ``order_detect_stringified_list_series`` requires
-    every non-null entry to be list-shaped; when nulls are present, the detector
-    still admits the column (nulls are counted in ``null_mask`` not the validity
-    check), so the parsed-list path still runs and tolerates the null via
-    ``build_list_sort_columns``' per-row null masking. Verifies no exception
-    and SET-correct top-K.
+    Documents the current behavior on null-bearing list columns:
+    ``pipeline.py:3955-3967`` explicitly skips the parsed-list path when any null
+    is present (``has_null=True`` carve-out, mirroring the Python-list path).
+    Falls through to ``validate_order_series_vector_safe``, which classifies
+    non-null cells as ``list_string`` family (singleton, no raise), then
+    ``sort_values`` runs default lex over the string representation. Pin: no
+    exception and top-K contains the smaller list-shaped values.
     """
     g = _mk_graph(
         pd.DataFrame(
