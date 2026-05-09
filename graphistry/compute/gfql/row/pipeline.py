@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, 
 from typing_extensions import Literal
 
 import pandas as pd
-from graphistry.Engine import Engine, EngineAbstract, resolve_engine, safe_map_series, s_cons
+from graphistry.Engine import Engine, EngineAbstract, resolve_engine, safe_map_series, s_cons, s_to_numeric
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.dataframe_utils import concat_frames, df_cons as template_df_cons
 from graphistry.compute.gfql.row.order_expr import (
@@ -3478,6 +3478,11 @@ class RowPipelineMixin:
             sort=False,
             suffixes=("", "__reachable__"),
         )
+        to_numeric = None
+        try:
+            to_numeric = s_to_numeric(resolve_engine(EngineAbstract.AUTO, merged))
+        except Exception:
+            to_numeric = None
         for col in [hop_column, f"{end_alias}.{hop_column}"]:
             dup_col = f"{col}__reachable__"
             if dup_col in merged.columns:
@@ -3486,6 +3491,11 @@ class RowPipelineMixin:
             elif col not in merged.columns:
                 merged[col] = self._gfql_broadcast_scalar(merged, None)
             if col in merged.columns:
+                if to_numeric is not None:
+                    try:
+                        merged[col] = to_numeric(merged[col], errors="coerce")
+                    except Exception:
+                        pass
                 null_mask = merged[col].isna()
                 if bool(null_mask.any()):
                     merged[col] = merged[col].astype(object).where(~null_mask, None)
@@ -3651,6 +3661,15 @@ class RowPipelineMixin:
                     value = table_df[expr]
                 else:
                     value = self._gfql_eval_string_expr(table_df, expr)
+                if "__cypher_shortest_path_hops__" in expr and hasattr(value, "isna"):
+                    try:
+                        to_numeric = s_to_numeric(resolve_engine(EngineAbstract.AUTO, table_df))
+                        value = to_numeric(value, errors="coerce")
+                        null_mask = value.isna()
+                        if bool(null_mask.any()):
+                            value = value.astype(object).where(~null_mask, None)
+                    except Exception:
+                        pass
                 if not hasattr(value, "astype"):
                     value = _project_scalar(value)
                 projected[alias] = value
