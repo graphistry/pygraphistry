@@ -1,19 +1,34 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from pathlib import Path
+import sys
+from typing import Any, cast
 
-from graphistry.compute.gfql.benchmark_residual_triage import (
-    ResidualLane,
-    bucket_residuals,
-    filter_issue_residuals,
-    generate_issue_residual_report,
-    latest_per_lane_key,
-    load_residual_lanes,
-    render_markdown_report,
-    resolve_runs_dir,
-)
+
+def _load_triage_module() -> Any:
+    repo_root = Path(__file__).resolve().parents[4]
+    module_path = repo_root / "benchmarks" / "gfql" / "benchmark_residual_triage.py"
+    spec = importlib.util.spec_from_file_location("benchmark_residual_triage", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Failed loading module at {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_TRIAGE = _load_triage_module()
+ResidualLane = _TRIAGE.ResidualLane
+bucket_residuals = _TRIAGE.bucket_residuals
+filter_issue_residuals = _TRIAGE.filter_issue_residuals
+generate_issue_residual_report = _TRIAGE.generate_issue_residual_report
+latest_per_lane_key = _TRIAGE.latest_per_lane_key
+load_residual_lanes = _TRIAGE.load_residual_lanes
+render_markdown_report = _TRIAGE.render_markdown_report
+resolve_runs_dir = _TRIAGE.resolve_runs_dir
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -96,7 +111,7 @@ def test_load_filter_and_latest_selection(tmp_path: Path) -> None:
 
 
 def test_bucket_classification() -> None:
-    lane_join = ResidualLane(
+    lane_join = cast(Any, ResidualLane)(
         run_dir=Path("/tmp/run1"),
         run_dir_name="run1",
         probe_path=Path("/tmp/run1/probe-results.json"),
@@ -114,7 +129,7 @@ def test_bucket_classification() -> None:
         adapter_overhead_latency_ms=1.0,
         rows_returned=10,
     )
-    lane_ancestor = ResidualLane(
+    lane_ancestor = cast(Any, ResidualLane)(
         run_dir=Path("/tmp/run2"),
         run_dir_name="run2",
         probe_path=Path("/tmp/run2/probe-results.json"),
@@ -141,7 +156,7 @@ def test_bucket_classification() -> None:
 
 
 def test_render_markdown_report_contains_evidence_blocks() -> None:
-    lane = ResidualLane(
+    lane = cast(Any, ResidualLane)(
         run_dir=Path("/tmp/runx"),
         run_dir_name="runx",
         probe_path=Path("/tmp/runx/probe-results.json"),
