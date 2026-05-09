@@ -161,4 +161,3 @@ def _bounded_reentry_prefix_order_is_safe(
     if limit_value is None:
         return False
     return limit_value >= 0
-

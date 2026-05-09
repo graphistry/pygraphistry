@@ -8050,6 +8050,100 @@ def test_string_cypher_executes_with_match_reentry_limit_shape() -> None:
     assert result._nodes.to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
 
 
+def test_string_cypher_executes_with_match_reentry_ordered_topk_multi_row_shape() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "a2", "a3", "b1", "b2", "b3"],
+            "label__A": [True, True, True, False, False, False],
+            "num": [30, 20, 10, 1, 1, 1],
+            "name": ["gamma", "beta", "alpha", None, None, None],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a1", "a2", "a3"],
+            "d": ["b1", "b2", "b3"],
+            "type": ["R", "R", "R"],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A) "
+        "WITH a "
+        "ORDER BY a.num DESC "
+        "LIMIT 2 "
+        "MATCH (a)-->(b) "
+        "RETURN a.id AS aid, b.id AS bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"aid": "a1", "bid": "b1"},
+        {"aid": "a2", "bid": "b2"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_ordered_topk_multicolumn_shape() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "a2", "a3", "b1", "b2", "b3"],
+            "label__A": [True, True, True, False, False, False],
+            "name": ["alpha", "alpha", "beta", None, None, None],
+            "num": [2, 1, 99, 0, 0, 0],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a1", "a2", "a3"],
+            "d": ["b1", "b2", "b3"],
+            "type": ["R", "R", "R"],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A) "
+        "WITH a, a.name AS aname "
+        "ORDER BY aname ASC, a.num DESC "
+        "LIMIT 2 "
+        "MATCH (a)-->(b) "
+        "RETURN a.id AS aid, aname, b.id AS bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"aid": "a1", "aname": "alpha", "bid": "b1"},
+        {"aid": "a2", "aname": "alpha", "bid": "b2"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_ordered_topk_with_carried_scalar_shape() -> None:
+    result = _mk_reentry_carried_scalar_graph().gfql(
+        "MATCH (a:A) "
+        "WITH a, a.num AS property "
+        "ORDER BY property DESC "
+        "LIMIT 2 "
+        "MATCH (a)-->(b) "
+        "RETURN property, b.id AS bid "
+        "ORDER BY bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"property": 1, "bid": "b1"},
+        {"property": 2, "bid": "b2"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_ordered_limit_zero_shape() -> None:
+    result = _mk_reentry_carried_scalar_graph().gfql(
+        "MATCH (a:A) "
+        "WITH a "
+        "ORDER BY a.num DESC "
+        "LIMIT 0 "
+        "MATCH (a)-->(b) "
+        "RETURN b.id AS bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
 def test_string_cypher_rejects_reentry_with_parameterized_limit_and_order() -> None:
     """Regression for 992f2fc1: ParameterRef in LIMIT must not crash _literal_limit_value."""
     nodes = pd.DataFrame(
@@ -8096,6 +8190,59 @@ def test_string_cypher_executes_with_match_reentry_limit_shape_on_cudf() -> None
 
     assert type(result._nodes).__module__.startswith("cudf")
     assert result._nodes.to_pandas().to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
+
+
+def test_string_cypher_executes_with_match_reentry_ordered_topk_multi_row_shape_on_cudf() -> None:
+    cudf = pytest.importorskip("cudf")
+
+    nodes = cudf.from_pandas(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "a3", "b1", "b2", "b3"],
+                "label__A": [True, True, True, False, False, False],
+                "num": [30, 20, 10, 1, 1, 1],
+                "name": ["gamma", "beta", "alpha", None, None, None],
+            }
+        )
+    )
+    edges = cudf.from_pandas(
+        pd.DataFrame(
+            {
+                "s": ["a1", "a2", "a3"],
+                "d": ["b1", "b2", "b3"],
+                "type": ["R", "R", "R"],
+            }
+        )
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A) "
+        "WITH a "
+        "ORDER BY a.num DESC "
+        "LIMIT 2 "
+        "MATCH (a)-->(b) "
+        "RETURN a.id AS aid, b.id AS bid",
+        engine="cudf",
+    )
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"aid": "a1", "bid": "b1"},
+        {"aid": "a2", "bid": "b2"},
+    ]
+
+
+def test_string_cypher_failfast_rejects_with_match_reentry_ordered_skip_shape() -> None:
+    with pytest.raises(GFQLValidationError, match="preserve prefix WITH row ordering"):
+        _mk_reentry_carried_scalar_graph().gfql(
+            "MATCH (a:A) "
+            "WITH a "
+            "ORDER BY a.num DESC "
+            "SKIP 1 "
+            "LIMIT 1 "
+            "MATCH (a)-->(b) "
+            "RETURN b.id AS bid"
+        )
 
 
 def test_string_cypher_executes_with_match_reentry_multihop_shape() -> None:
