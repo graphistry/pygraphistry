@@ -740,7 +740,9 @@ class RowPipelineMixin:
                         and isinstance(right, numbers.Integral)
                         and not isinstance(right, bool)
                     ):
-                        return True, int(left / right)
+                        left_int = int(left)
+                        right_int = int(right)
+                        return True, int(left_int / right_int)
                     return True, left / right
                 except ZeroDivisionError:
                     if isinstance(left, bool) or isinstance(right, bool):
