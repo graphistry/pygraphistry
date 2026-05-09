@@ -3491,7 +3491,7 @@ class RowPipelineMixin:
         to_numeric = None
         try:
             to_numeric = s_to_numeric(resolve_engine(EngineAbstract.AUTO, merged))
-        except (ValueError, ImportError, ModuleNotFoundError):
+        except ValueError:
             to_numeric = None
         for col in [hop_column, f"{end_alias}.{hop_column}"]:
             dup_col = f"{col}__reachable__"
@@ -3675,7 +3675,7 @@ class RowPipelineMixin:
                     to_numeric = None
                     try:
                         to_numeric = s_to_numeric(resolve_engine(EngineAbstract.AUTO, table_df))
-                    except (ValueError, ImportError, ModuleNotFoundError):
+                    except ValueError:
                         to_numeric = None
                     if to_numeric is not None:
                         try:
