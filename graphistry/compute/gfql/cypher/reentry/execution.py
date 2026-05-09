@@ -42,6 +42,7 @@ from graphistry.compute.typing import DataFrameT, SeriesT
 
 REENTRY_WHOLE_ROW_SUGGESTION = "Carry a whole-row node alias through WITH before MATCH re-entry."
 REENTRY_SCALAR_SUGGESTION = "Carry scalar columns through WITH before MATCH re-entry."
+REENTRY_DUPLICATE_CARRIED_ROWS_REASON = "duplicate_carried_node_rows"
 
 
 def reentry_validation_error(
@@ -50,6 +51,7 @@ def reentry_validation_error(
     value: Any,
     suggestion: str,
     field: str = "with",
+    **extra_context: Any,
 ) -> GFQLValidationError:
     return GFQLValidationError(
         ErrorCode.E108,
@@ -58,6 +60,7 @@ def reentry_validation_error(
         value=value,
         suggestion=suggestion,
         language="cypher",
+        **extra_context,
     )
 
 
@@ -217,6 +220,9 @@ def compiled_query_reentry_state(
             "Cypher MATCH after WITH carried scalar columns currently require unique carried node rows",
             value=output_name,
             suggestion="Use a single-node seed WITH shape, or avoid carrying scalar columns into MATCH re-entry.",
+            reason=REENTRY_DUPLICATE_CARRIED_ROWS_REASON,
+            carried_row_count=len(carried_ids),
+            carried_scalar_columns=tuple(carried_columns),
         )
 
     carry_payload = reentry_carry_payload(
