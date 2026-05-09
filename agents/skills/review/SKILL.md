@@ -161,7 +161,7 @@ git show origin/<base>:<file>
 
 - Test coverage should mirror changed areas in `graphistry/tests/**`.
 - Prefer behavioral tests over implementation-detail assertions.
-- Exception-control checks must use structured error fields (`code`, context keys like `field`/`value`) and never message-substring matching for control flow.
+- Control-flow checks (runtime code, tests, and prompt-routing logic) must use structured signals (for example `code` and context keys like `field`/`value`) and never message-substring matching.
 - Run focused validation before escalating severity when feasible:
 
 ```bash
