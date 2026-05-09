@@ -76,17 +76,6 @@ def test_validator_and_runtime_both_reject_cross_kind_rebind(query: str) -> None
         # Quantifier predicates — strict rejects 'x' as unresolved; runtime
         # admits because loose binder doesn't model comprehension scope.
         "MATCH (n) WHERE all(x IN n.labels WHERE x = 'A') RETURN n",
-        # Post-WITH UNWIND — strict rejects 'bees' at the binder layer
-        # (alias-resolution against pre-WITH scope); runtime admits and
-        # downstream lowering executes the query. Trailing MATCH is
-        # required for the parser to admit the post-WITH UNWIND form.
-        (
-            "MATCH (root:S)-[:X]->(b1:B) "
-            "WITH collect(b1) AS bees "
-            "UNWIND bees AS b2 "
-            "MATCH (b2)-[:Y]->(c:C) "
-            "RETURN c.id AS id"
-        ),
     ],
 )
 def test_validator_strict_rejects_runtime_loose_admits(query: str) -> None:

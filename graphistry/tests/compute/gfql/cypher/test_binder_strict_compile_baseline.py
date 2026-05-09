@@ -14,9 +14,6 @@ failures across multiple binder-coverage gaps:
 - list comprehensions — same scope-modeling gap.
 - CALL/YIELD scope — YIELD aliases must survive the
   prepass→normalize→bind cycle.
-- post-WITH UNWIND traversal — ``_bind_graph_sequence`` iterates
-  ``ast.unwinds`` *before* WITH stages, so ``UNWIND`` references against
-  WITH-projected aliases fail strict mode.
 
 This module pins the **current loose-mode behavior** at the
 ``compile_cypher_query`` boundary for representative shapes from each
@@ -82,23 +79,6 @@ def test_loose_mode_admits_quantifier_predicates(query: str) -> None:
     predicate body."""
     bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
     assert "n" in bound.semantic_table.variables
-
-
-def test_loose_mode_admits_post_with_unwind_against_carried_alias() -> None:
-    """``WITH collect(b1) AS bees UNWIND bees AS b2`` — loose binder
-    iterates ast.unwinds before WITH stages so ``bees`` looks unresolved
-    at the UNWIND. Strict rejects. Future fix: interleave UNWIND/WITH/MATCH
-    by AST text position in ``_bind_graph_sequence``."""
-    query = (
-        "MATCH (root:S)-[:X]->(b1:B) "
-        "WITH collect(b1) AS bees "
-        "UNWIND bees AS b2 "
-        "MATCH (b2)-[:Y]->(c:C) "
-        "RETURN c.id AS id"
-    )
-    # Loose admit — no exception; downstream lowering may still reject for
-    # other reasons but the binder does not.
-    FrontendBinder().bind(parse_cypher(query), PlanContext())
 
 
 def test_loose_mode_admits_call_yield_then_return_yield_alias() -> None:
