@@ -122,12 +122,7 @@ from graphistry.compute.gfql.temporal_text import (
     rewrite_temporal_constructors_in_expr,
 )
 from graphistry.compute.gfql.same_path_types import WhereComparison, col, compare
-# #1295 / #1260 S2 — bounded reentry helpers extracted to focused subpackage.
-# These are re-exported here to keep existing imports
-# (``from graphistry.compute.gfql.cypher.lowering import _reentry_hidden_column_name``)
-# working unchanged across the codebase. The moved modules import this module
-# lazily inside function bodies for the few helpers (``_unsupported``,
-# ``_render_expr_node``, etc.) they still need from lowering.py.
+# Reentry helpers moved to focused subpackages and are re-exported here for compatibility.
 from graphistry.compute.gfql.cypher.reentry.naming import (
     _is_hidden_reentry_property,
     _reentry_hidden_column_name,
@@ -5724,12 +5719,7 @@ def _is_variable_length_relationship_pattern(relationship: RelationshipPattern) 
 
 
 def _reject_nonterminal_variable_length_relationship_patterns(query: CypherQuery) -> None:  # noqa: ARG001
-    """No-op: variable-length rels in connected patterns are now supported.
-
-    The lowering sets ``prune_to_endpoints=True`` on non-terminal
-    variable-length edges so the next hop starts from the correct
-    wavefront endpoints only.  See #1001 for reentry-match follow-up.
-    """
+    """No-op: variable-length relationships in connected patterns are supported."""
 
 
 def _variable_length_relationship_aliases(
@@ -6318,9 +6308,19 @@ def lower_match_query(
     row_where: Optional[ExpressionText] = None
     row_where_predicates: List[str] = list(dynamic_row_where_predicates)
     if query.where is not None:
-        where_expr_upper = boolean_expr_to_text(query.where.expr_tree).upper() if query.where.expr_tree is not None else ""
-        if _cartesian_node_only_patterns(merged_match) is not None and query.where.expr_tree is not None and _where_expr_tree_pattern_predicates(query.where.expr_tree) and (" OR " in where_expr_upper or " XOR " in where_expr_upper):
-            raise _unsupported_at_span("Cypher WHERE pattern predicates mixed with OR/XOR are not yet supported for cartesian MATCH patterns", field="where", value=where_expr_upper, span=query.where.span)
+        if _cartesian_node_only_patterns(merged_match) is not None and query.where.expr_tree is not None:
+            where_expr_upper = boolean_expr_to_text(query.where.expr_tree).upper()
+            stack: List[BooleanExpr] = [query.where.expr_tree]
+            while stack:
+                cur = stack.pop()
+                left = cast(Optional[BooleanExpr], cur.left)
+                right = cast(Optional[BooleanExpr], cur.right)
+                if cur.op in {"or", "xor"} and ((left is not None and _where_expr_tree_pattern_predicates(left)) or (right is not None and _where_expr_tree_pattern_predicates(right))):
+                    raise _unsupported_at_span("Cypher WHERE pattern predicates mixed with OR/XOR are not yet supported for cartesian MATCH patterns", field="where", value=where_expr_upper, span=query.where.span)
+                if left is not None:
+                    stack.append(left)
+                if right is not None:
+                    stack.append(right)
         where_expr, where_pattern_row_filters = _rewrite_where_expr_patterns_to_markers(
             where=query.where,
             alias_targets=alias_targets,

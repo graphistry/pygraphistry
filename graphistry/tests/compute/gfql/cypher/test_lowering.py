@@ -1622,6 +1622,33 @@ def test_string_cypher_rejects_cartesian_where_pattern_predicates_mixed_with_or(
         )
 
 
+def test_string_cypher_rejects_cartesian_where_pattern_predicates_mixed_with_xor() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": [0, 1], "label__TheLabel": [False, True]}),
+        pd.DataFrame({"s": [0], "d": [1], "type": ["T"]}),
+    )
+    with pytest.raises(GFQLValidationError, match="OR/XOR"):
+        graph.gfql(
+            "MATCH (a), (b) "
+            "WHERE (a)-[:T]->(b:TheLabel) XOR a.id = 0 "
+            "RETURN DISTINCT b"
+        )
+
+
+def test_string_cypher_supports_cartesian_scalar_or_without_pattern_predicates() -> None:
+    result = _mk_cartesian_node_graph().gfql(
+        "MATCH (a), (b) "
+        "WHERE a.num = 1 OR b.num = 1 "
+        "RETURN a.num AS a_num, b.num AS b_num "
+        "ORDER BY a_num, b_num"
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"a_num": 1, "b_num": 1},
+        {"a_num": 1, "b_num": 2},
+        {"a_num": 2, "b_num": 1},
+    ]
+
+
 def test_string_cypher_supports_cartesian_dynamic_pattern_property_projection() -> None:
     graph = _mk_cartesian_dynamic_pattern_graph()
 
