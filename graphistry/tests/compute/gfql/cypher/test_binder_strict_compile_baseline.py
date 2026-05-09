@@ -9,9 +9,6 @@ failures across multiple binder-coverage gaps:
 - namespaced function calls — ``duration.inSeconds(...)``, ``time()``,
   ``localtime()``, ``date()``, ``datetime()`` parsed as
   ``alias.property``.
-- quantifier predicates — ``all(x IN list WHERE …)``, ``any``, ``none``,
-  ``single``: comprehension-scoped ``x`` not modeled.
-- list comprehensions — same scope-modeling gap.
 - CALL/YIELD scope — YIELD aliases must survive the
   prepass→normalize→bind cycle.
 
@@ -60,25 +57,6 @@ def test_loose_mode_admits_namespaced_builtin_calls(query: str) -> None:
     recognize known builtin namespaces."""
     bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
     assert bound.semantic_table.variables
-
-
-@pytest.mark.parametrize(
-    "query",
-    [
-        # Quantifier predicates — binder doesn't model x as a
-        # comprehension-local; in strict mode it raises on unresolved 'x'.
-        "MATCH (n) WHERE all(x IN n.labels WHERE x = 'A') RETURN n",
-        "MATCH (n) WHERE any(x IN n.labels WHERE x = 'B') RETURN n",
-        "MATCH (n) WHERE none(x IN n.labels WHERE x = 'C') RETURN n",
-        "MATCH (n) WHERE single(x IN n.labels WHERE x = 'D') RETURN n",
-    ],
-)
-def test_loose_mode_admits_quantifier_predicates(query: str) -> None:
-    """Loose binder admits quantifier predicates; strict rejects 'x'.
-    Future fix: bind comprehension-scoped locals before evaluating the
-    predicate body."""
-    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
-    assert "n" in bound.semantic_table.variables
 
 
 def test_loose_mode_admits_call_yield_then_return_yield_alias() -> None:

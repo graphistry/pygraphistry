@@ -341,11 +341,22 @@ def test_binder_unresolved_name_failure_in_compound_expression(query: str) -> No
         "MATCH (n:Person) RETURN coalesce(n.id, 1) AS x",
         "MATCH (n:Person) RETURN coalesce('ghost', n.id) AS x",
         "RETURN 'ghost' AS x",
+        "RETURN all(x IN [1, 2, 3] WHERE x > 1) AS x",
+        "RETURN any(x IN [1, 2, 3] WHERE x = 2) AS x",
+        "RETURN none(x IN [1, 2, 3] WHERE x = 2) AS x",
+        "RETURN single(x IN [1, 2, 3] WHERE x = 2) AS x",
+        "RETURN [x IN [1, 2, 3] WHERE x > 1 | x + 1] AS x",
     ],
 )
 def test_binder_strict_name_resolution_allows_valid_expressions(query: str) -> None:
     bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
     assert "x" in bound.semantic_table.variables
+
+
+def test_binder_strict_name_resolution_rejects_comprehension_local_outside_scope() -> None:
+    query = "RETURN all(x IN [1, 2, 3] WHERE x > 1) AS ok, x AS leaked"
+    with pytest.raises(GFQLValidationError, match="Unresolved identifier"):
+        FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
 
 
 def test_binder_unwind_extends_existing_scope() -> None:
