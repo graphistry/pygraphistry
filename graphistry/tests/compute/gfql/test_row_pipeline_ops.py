@@ -1798,6 +1798,7 @@ class TestRowPipelineExecution:
 
         result = g.gfql([rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])])
 
+        assert type(result._nodes).__module__.startswith("cudf")
         assert _safe_df_records(result._nodes) == [{"id": "d"}, {"id": "b"}, {"id": "a"}]
 
     def test_row_pipeline_cudf_list_scalar_concat_when_available(self):

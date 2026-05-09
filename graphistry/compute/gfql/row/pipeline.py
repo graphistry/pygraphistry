@@ -90,6 +90,32 @@ def _gfql_expr_runtime_parser_bundle() -> Optional[GFQLRuntimeParserBundle]:
         return None
 
 
+@lru_cache(maxsize=1)
+def _gfql_cudf_list_sort_requires_host_bridge() -> bool:
+    """cuDF 25.02 can segfault in list-sort pivot internals; bridge to pandas there."""
+    try:
+        import cudf  # type: ignore
+    except (ModuleNotFoundError, ImportError):
+        return False
+    version = str(getattr(cudf, "__version__", ""))
+    match = re.match(r"^(\d+)\.(\d+)", version)
+    if match is None:
+        return False
+    major = int(match.group(1))
+    minor = int(match.group(2))
+    return (major, minor) <= (25, 2)
+
+
+def _gfql_bridge_cudf_df_to_pandas(work_df: Any) -> Any:
+    """Prefer Arrow bridge for cuDF host conversion on older RAPIDS releases."""
+    if hasattr(work_df, "to_arrow"):
+        arrow_table = work_df.to_arrow()
+        if hasattr(arrow_table, "to_pylist"):
+            return pd.DataFrame(arrow_table.to_pylist(), columns=list(work_df.columns))
+        return arrow_table.to_pandas()
+    return work_df.to_pandas()
+
+
 ROW_PIPELINE_CALLS = frozenset(
     {
         "rows",
@@ -4002,8 +4028,6 @@ class RowPipelineMixin:
                 if not has_null:
                     parsed = parse_stringified_list_series(series)
                     if parsed is not None:
-                        if resolve_engine(EngineAbstract.AUTO, work_df) == Engine.CUDF and isinstance(parsed, pd.Series):
-                            work_df = work_df.to_pandas()
                         sort_col = RowPipelineMixin._gfql_fresh_col_name(
                             work_df.columns, "__gfql_sort_listparsed_"
                         )
@@ -4012,6 +4036,12 @@ class RowPipelineMixin:
                         series = work_df[sort_col]
                         list_candidate = True
             if list_candidate:
+                if (
+                    resolve_engine(EngineAbstract.AUTO, work_df) == Engine.CUDF
+                    and _gfql_cudf_list_sort_requires_host_bridge()
+                ):
+                    work_df = _gfql_bridge_cudf_df_to_pandas(work_df)
+                    series = work_df[sort_col]
                 key_prefix = f"__gfql_sort_list_{tmp_idx}__"
                 tmp_idx += 1
                 work_df, list_key_cols = build_list_sort_columns(
