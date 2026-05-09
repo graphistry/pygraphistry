@@ -194,9 +194,13 @@ def _is_cudf_series(series: Any) -> bool:
 def parse_stringified_list_series(series: Any) -> Optional[SeriesT]:
     """Parse a stringified-list column into a Python-list column via ``ast.literal_eval``.
 
-    Returns an engine-native Series with parsed values (and original Python-list
-    values passed through), or ``None`` if any non-null entry fails to parse to
-    a list/tuple.
+    Returns a parsed list-typed series (cudf when input is cudf, otherwise pandas)
+    with original list/tuple values passed through, or ``None`` if any non-null
+    entry fails to parse to a list/tuple.
+
+    Caller contract: when assigning the return value into a cuDF table, guard
+    for potential host-bridge requirements before ``DataFrame.assign(...)`` if a
+    pandas Series ever reaches that path.
     """
     source_values: List[Any]
     if hasattr(series, "to_arrow"):

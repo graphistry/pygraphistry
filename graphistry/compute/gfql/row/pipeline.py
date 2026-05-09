@@ -4210,6 +4210,8 @@ class RowPipelineMixin:
                 if not has_null:
                     parsed = parse_stringified_list_series(series)
                     if parsed is not None:
+                        if resolve_engine(EngineAbstract.AUTO, work_df) == Engine.CUDF and isinstance(parsed, pd.Series):
+                            work_df = _gfql_bridge_cudf_df_to_pandas(work_df)
                         sort_col = RowPipelineMixin._gfql_fresh_col_name(
                             work_df.columns, "__gfql_sort_listparsed_"
                         )
