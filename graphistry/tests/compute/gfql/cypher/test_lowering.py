@@ -10027,14 +10027,19 @@ def test_string_cypher_executes_ic1_shortest_path_with_carried_endpoints_rebound
         _require_cudf_runtime()
         result = _mk_cudf_graph(nodes, edges).gfql(query, engine="cudf")
         assert type(result._nodes).__module__.startswith("cudf")
-        rows_df = result._nodes.to_pandas()
+        rows_df = result._nodes
+        friend_ids = rows_df["friendId"].to_arrow().to_pylist()
+        dists = rows_df["dist"].astype("float64").to_arrow().to_pylist()
+        assert rows_df["dist"].dtype.kind in ("i", "u", "f")
     else:
         rows_df = _mk_graph(nodes, edges).gfql(query)._nodes
+        rows = rows_df.to_dict(orient="records")
+        friend_ids = [r["friendId"] for r in rows]
+        dists = [float(r["dist"]) for r in rows]
+        assert pd.api.types.is_numeric_dtype(rows_df["dist"])
 
-    rows = rows_df.to_dict(orient="records")
-    assert [r["friendId"] for r in rows] == ["p2", "p3", "p4"]
-    assert [float(r["dist"]) for r in rows] == [1.0, 2.0, 1.0]
-    assert pd.api.types.is_numeric_dtype(rows_df["dist"])
+    assert friend_ids == ["p2", "p3", "p4"]
+    assert dists == [1.0, 2.0, 1.0]
 
 
 def test_string_cypher_flatten_admit_matches_hand_flattened_oracle_ic1() -> None:
