@@ -2645,13 +2645,28 @@ class RowPipelineMixin:
                 f"unsupported row expression: dynamic subscript requires list-like base in {expr!r}"
             )
         if saw_string_parse:
-            host_index = getattr(base_value, "index", None)
-            if host_index is not None and hasattr(host_index, "to_pandas"):
+            if resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF:
                 try:
-                    host_index = host_index.to_pandas()
+                    base_value = s_cons(Engine.CUDF)(
+                        normalized_values,
+                        index=getattr(base_value, "index", None),
+                    )
                 except Exception:
-                    host_index = None
-            base_value = pd.Series(normalized_values, index=host_index, dtype="object")
+                    host_index = getattr(base_value, "index", None)
+                    if host_index is not None and hasattr(host_index, "to_pandas"):
+                        try:
+                            host_index = host_index.to_pandas()
+                        except Exception:
+                            host_index = None
+                    base_value = pd.Series(normalized_values, index=host_index, dtype="object")
+            else:
+                host_index = getattr(base_value, "index", None)
+                if host_index is not None and hasattr(host_index, "to_pandas"):
+                    try:
+                        host_index = host_index.to_pandas()
+                    except Exception:
+                        host_index = None
+                base_value = pd.Series(normalized_values, index=host_index, dtype="object")
         if not RowPipelineMixin._gfql_series_is_list_like(base_value):
             raise ValueError(
                 f"unsupported row expression: dynamic subscript requires list-like base in {expr!r}"
@@ -2673,6 +2688,24 @@ class RowPipelineMixin:
         base_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_dynsub_base__")
         key_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_dynsub_key__")
         pos_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_dynsub_pos__")
+
+        if resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF:
+            if isinstance(base_value, pd.Series):
+                try:
+                    base_value = s_cons(Engine.CUDF)(
+                        base_value.tolist(),
+                        index=getattr(table_df, "index", None),
+                    )
+                except Exception:
+                    pass
+            if isinstance(key_value, pd.Series):
+                try:
+                    key_value = s_cons(Engine.CUDF)(
+                        key_value.tolist(),
+                        index=getattr(table_df, "index", None),
+                    )
+                except Exception:
+                    pass
 
         if isinstance(base_value, pd.Series) or isinstance(key_value, pd.Series):
             base_assign = base_value.to_pandas() if hasattr(base_value, "to_pandas") else base_value

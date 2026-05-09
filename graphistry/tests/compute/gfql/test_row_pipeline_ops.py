@@ -2000,6 +2000,31 @@ class TestRowPipelineExecution:
 
         assert cudf_ids == pandas_ids
 
+    def test_row_pipeline_order_by_stringified_list_subscript_expression_on_cudf_when_available(self):
+        cudf = pytest.importorskip("cudf")
+
+        nodes_pd = pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d", "e"],
+                "list": ["[2, -2]", "[1, 2]", "[300, 0]", "[1, -20]", "[2, -2, 100]"],
+                "list2": ["[3, -2]", "[2, -2]", "[1, -2]", "[4, -2]", "[5, -2]"],
+            }
+        )
+        edges_pd = _self_loop_edges(nodes_pd)
+        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+
+        result = g.gfql(
+            [
+                rows(),
+                order_by([("[list2[1], list2[0], list[1]] + list + list2", "asc")]),
+                limit(3),
+                select([("id", "id")]),
+            ]
+        )
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert _safe_df_records(result._nodes) == [{"id": "c"}, {"id": "b"}, {"id": "a"}]
+
     def test_row_pipeline_cudf_list_scalar_concat_when_available(self):
         cudf = pytest.importorskip("cudf")
 
