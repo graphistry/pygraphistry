@@ -33,6 +33,7 @@ from graphistry.compute.gfql.cypher.lowering import (
     ConnectedOptionalMatchPlan,
 )
 from graphistry.compute.gfql.cypher.reentry.execution import (
+    REENTRY_DUPLICATE_CARRIED_ROWS_REASON as _REENTRY_DUPLICATE_CARRIED_ROWS_REASON,
     REENTRY_WHOLE_ROW_SUGGESTION as _REENTRY_WHOLE_ROW_SUGGESTION,
     apply_optional_reentry_null_fill as _apply_optional_reentry_null_fill,
     compiled_query_freeform_reentry_state as _compiled_query_freeform_reentry_state,
@@ -94,6 +95,36 @@ def _series_to_pylist(values: Any) -> List[Any]:
         except Exception:
             pass
     return list(values)
+
+
+def _is_duplicate_carried_rows_reentry_error(exc: GFQLValidationError) -> bool:
+    context = getattr(exc, "context", None)
+    if exc.code != ErrorCode.E108 or not isinstance(context, dict):
+        return False
+    return context.get("reason") == _REENTRY_DUPLICATE_CARRIED_ROWS_REASON
+
+
+def _slice_reentry_prefix_result_row(
+    prefix_result: Plottable,
+    *,
+    output_name: str,
+    row_index: int,
+) -> Plottable:
+    rows_df = cast(Optional[DataFrameT], getattr(prefix_result, "_nodes", None))
+    if rows_df is None:
+        return prefix_result
+    out = prefix_result.bind()
+    out._nodes = cast(DataFrameT, rows_df.iloc[row_index:row_index + 1].reset_index(drop=True))
+    entity_meta = getattr(prefix_result, "_cypher_entity_projection_meta", None)
+    if isinstance(entity_meta, dict):
+        entry = entity_meta.get(output_name)
+        if isinstance(entry, dict):
+            sliced_entry = dict(entry)
+            ids = sliced_entry.get("ids")
+            if hasattr(ids, "iloc"):
+                sliced_entry["ids"] = cast(Any, ids.iloc[row_index:row_index + 1]).reset_index(drop=True)
+            setattr(out, "_cypher_entity_projection_meta", {output_name: sliced_entry})
+    return out
 
 
 def _apply_empty_result_row(
@@ -953,12 +984,57 @@ def _execute_compiled_query_with_reentry(
                 engine=engine,
             )
         else:
-            compiled_base_graph, start_nodes = _compiled_query_reentry_state(
-                base_graph,
-                plan,
-                prefix_result,
-                engine=engine,
+            prefix_rows_for_whole_row = cast(Optional[DataFrameT], getattr(prefix_result, "_nodes", None))
+            prefix_row_count_for_whole_row = (
+                len(prefix_rows_for_whole_row) if prefix_rows_for_whole_row is not None else 0
             )
+            try:
+                compiled_base_graph, start_nodes = _compiled_query_reentry_state(
+                    base_graph,
+                    plan,
+                    prefix_result,
+                    engine=engine,
+                )
+            except GFQLValidationError as exc:
+                if not (
+                    plan.scalar_columns
+                    and prefix_row_count_for_whole_row > 1
+                    and _is_duplicate_carried_rows_reentry_error(exc)
+                ):
+                    raise
+                if compiled_query.optional_reentry:
+                    raise _reentry_validation_error(
+                        "Cypher OPTIONAL MATCH after a multi-row whole-row WITH prefix is not yet supported"
+                        " — null-fill for unmatched prefix rows is not implemented for N>1 prefix rows",
+                        value=prefix_row_count_for_whole_row,
+                        suggestion="Use MATCH instead of OPTIONAL MATCH, or reduce the WITH prefix to a single row",
+                        field="optional_reentry",
+                    ) from exc
+                row_results = []
+                for i in range(prefix_row_count_for_whole_row):
+                    row_prefix_result = _slice_reentry_prefix_result_row(
+                        prefix_result,
+                        output_name=plan.reentry_alias_name,
+                        row_index=i,
+                    )
+                    row_graph, row_start = _compiled_query_reentry_state(
+                        base_graph,
+                        plan,
+                        row_prefix_result,
+                        engine=engine,
+                    )
+                    row_result = _execute_compiled_query(
+                        row_graph,
+                        compiled_query=compiled_query,
+                        engine=engine,
+                        policy=policy,
+                        context=context,
+                        start_nodes=row_start,
+                    )
+                    row_results.append(row_result)
+                return _union_scalar_reentry_results(
+                    row_results, base_graph=base_graph, engine=engine
+                )
     result = _execute_compiled_query(
         compiled_base_graph,
         compiled_query=compiled_query,

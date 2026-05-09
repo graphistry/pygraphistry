@@ -9112,21 +9112,12 @@ def test_string_cypher_failfast_rejects_multi_whole_row_prefix_when_non_source_a
         _mk_multi_stage_reentry_graph().gfql(query)
 
 
-def test_string_cypher_chained_reentry_with_repeated_primary_hits_unique_carried_rows_failfast() -> None:
-    """#1256 known limitation: when the trailing MATCH re-uses the SAME primary
-    alias across multiple reentry boundaries (``WITH a, x MATCH (a)-[:R]->(friend)
-    WITH a, x, friend MATCH (a)-[:R]->(other) ...``), the second reentry's
-    recursive compile receives multiple rows that share the same carried ``a``
-    value (one per friend), tripping the pre-existing
-    ``unique carried node rows`` runtime check at ``gfql_unified.py:~1091``.
+def test_string_cypher_chained_reentry_with_repeated_primary_preserves_prefix_row_bag_semantics() -> None:
+    """#1394: repeated-primary chained reentry with duplicate carried ids executes.
 
-    This is not a regression introduced by slice 4.3d.2 — the carry-uniqueness
-    constraint is fundamental to the current scalar-carry runtime model. The
-    rebinding shape (Q2-style ``(a)-[:R]->(friend) ... (friend)-[:S]->(c)``)
-    avoids this because the primary alias rebinds each boundary so each
-    recursive prefix has unique carried-node identity. Lock this here so a
-    future slice that lifts the unique-rows constraint must update this test
-    alongside the runtime change.
+    Prefix rows can carry the same reentry alias id multiple times (one per
+    prior match row). Runtime should execute suffix semantics per prefix row
+    and preserve bag semantics instead of failfasting on duplicate carried ids.
     """
     query = (
         "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
@@ -9135,13 +9126,13 @@ def test_string_cypher_chained_reentry_with_repeated_primary_hits_unique_carried
         "WITH a, x, friend "
         "MATCH (a)-[:R]->(other) "
         "WHERE other.id <> friend.id "
-        "RETURN other.id AS oid, x.id AS xid ORDER BY oid"
+        "RETURN other.id AS oid, x.id AS xid"
     )
-    with pytest.raises(
-        GFQLValidationError,
-        match=r"unique carried node rows",
-    ):
-        _mk_multi_stage_reentry_graph().gfql(query)
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert sorted(result._nodes.to_dict(orient="records"), key=lambda row: row["oid"]) == [
+        {"oid": "b", "xid": "b"},
+        {"oid": "e", "xid": "b"},
+    ]
 
 
 def test_string_cypher_admits_secondary_alias_carry_across_reentry_source_rebinding() -> None:
