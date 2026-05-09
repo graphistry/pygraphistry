@@ -122,12 +122,7 @@ from graphistry.compute.gfql.temporal_text import (
     rewrite_temporal_constructors_in_expr,
 )
 from graphistry.compute.gfql.same_path_types import WhereComparison, col, compare
-# #1295 / #1260 S2 — bounded reentry helpers extracted to focused subpackage.
-# These are re-exported here to keep existing imports
-# (``from graphistry.compute.gfql.cypher.lowering import _reentry_hidden_column_name``)
-# working unchanged across the codebase. The moved modules import this module
-# lazily inside function bodies for the few helpers (``_unsupported``,
-# ``_render_expr_node``, etc.) they still need from lowering.py.
+# Reentry helpers moved to focused subpackages and are re-exported here for compatibility.
 from graphistry.compute.gfql.cypher.reentry.naming import (
     _is_hidden_reentry_property,
     _reentry_hidden_column_name,
@@ -507,8 +502,7 @@ def _merge_bound_params(
 ) -> Optional[Mapping[str, Any]]:
     if not bound_params:
         return params
-    # Binder metadata keys are not user runtime params and should not be
-    # exposed to expression/runtime parameter resolution.
+    # Binder metadata keys are not user runtime params.
     merged: Dict[str, Any] = {key: value for key, value in bound_params.items() if not key.startswith("_binder_")}
     if params:
         merged.update(params)
@@ -518,8 +512,7 @@ def _merge_bound_params(
 def _bound_visible_aliases(bound_ir: BoundIR) -> AbstractSet[str]:
     if not bound_ir.scope_stack:
         return frozenset()
-    # Scope narrowing must respect the active scope boundary. Unioning all
-    # historical frames can incorrectly re-introduce aliases dropped by WITH.
+    # Scope narrowing must respect active scope boundaries.
     return frozenset(bound_ir.scope_stack[-1].visible_vars)
 
 
@@ -559,9 +552,7 @@ def _apply_bound_scope_membership(
     if not bound_visible_aliases:
         return set(binding_row_aliases)
     visible = set(alias_targets.keys()) & set(bound_visible_aliases)
-    # Scope membership should only narrow aliases already chosen for
-    # bindings-row execution; it should not promote plain source/table
-    # projections into bindings-row mode.
+    # Scope membership narrowing must not promote plain source/table projections.
     if not binding_row_aliases:
         return set()
     narrowed = set(binding_row_aliases) & visible
@@ -3243,8 +3234,6 @@ def _query_has_aggregate_stage(
             if _post_aggregate_expr_plan(item, params=params, alias_targets={}) is not None:
                 return True
     return False
-
-
 def _binding_row_aliases_for_match(
     clause: Optional[MatchClause],
     *,
@@ -3263,6 +3252,26 @@ def _binding_row_aliases_for_match(
     if not all(isinstance(target, ASTNode) for target in alias_targets.values()):
         return set()
     return set(alias_targets.keys())
+
+
+def _binding_row_aliases_for_multi_alias_whole_row_node_projection(
+    query: CypherQuery,
+    *,
+    clause: ReturnClause,
+    alias_targets: Mapping[str, ASTObject],
+) -> Set[str]:
+    if query.match is None or len(query.matches) > 1 or len(alias_targets) <= 1:
+        return set()
+    whole_row_refs = {
+        item.expression.text
+        for item in clause.items
+        if item.expression.text in alias_targets
+    }
+    if len(whole_row_refs) <= 1:
+        return set()
+    if not all(isinstance(alias_targets.get(alias), ASTNode) for alias in whole_row_refs):
+        return set()
+    return set(whole_row_refs)
 
 
 def _binding_row_aliases_for_row_where(
@@ -4141,6 +4150,7 @@ def _lower_projection_chain(
             params=params,
         )
     )
+    pre_scope_binding_row_aliases = set(binding_row_aliases)
     binding_row_aliases = _apply_bound_scope_membership(
         binding_row_aliases,
         alias_targets=alias_targets,
@@ -4170,12 +4180,8 @@ def _lower_projection_chain(
             if not _can_lower_multi_alias_projection_bindings(plan, alias_targets=alias_targets):
                 raise _multi_alias_exc
 
-    allowed_match_aliases = (
-        ({plan.source_alias} | plan.all_source_aliases | binding_row_aliases)
-        if plan.all_source_aliases is not None
-        else binding_row_aliases
-    )
-    if plan.all_source_aliases is not None or binding_row_aliases or lowered.row_pre_filters:
+    allowed_match_aliases = ({plan.source_alias} | plan.all_source_aliases | binding_row_aliases) if plan.all_source_aliases is not None else binding_row_aliases
+    if plan.all_source_aliases is not None or pre_scope_binding_row_aliases or lowered.row_pre_filters:
         row_steps: List[ASTObject] = [rows(binding_ops=serialize_binding_ops(lowered.query))]
     else:
         row_steps = [rows(table=plan.table, source=plan.source_alias)]
@@ -4184,7 +4190,7 @@ def _lower_projection_chain(
         lowered=lowered,
         alias_targets=alias_targets,
         active_alias=plan.source_alias,
-        allowed_match_aliases=allowed_match_aliases or None,
+        allowed_match_aliases=(allowed_match_aliases | pre_scope_binding_row_aliases) or None,
         params=params,
     )
 
@@ -4204,7 +4210,7 @@ def _lower_projection_chain(
             )
         )
     _append_page_ops(row_steps, query=query, params=params)
-    if binding_row_aliases or lowered.row_pre_filters:
+    if pre_scope_binding_row_aliases or lowered.row_pre_filters:
         return row_steps
     return lowered.query + row_steps
 
@@ -4260,25 +4266,16 @@ def _build_initial_row_scope(
             for alias in stage_non_aggregate_refs
         ):
             binding_row_aliases.update(stage_non_aggregate_refs)
-    # For connected multi-pattern MATCH (not cartesian), enable binding-row
-    # aliases when the first WITH/RETURN stage projects multiple whole-row
-    # match aliases and all targets are nodes.  This allows multi-alias WITH
-    # projections to flow through the bindings-row path (#880).
-    if (
-        not binding_row_aliases
-        and query.match is not None
-        and len(query.matches) <= 1
-        and len(alias_targets) > 1
-        and all(isinstance(t, ASTNode) for t in alias_targets.values())
-    ):
-        # Check if the stage clause references 2+ whole-row match aliases
-        whole_row_refs = {
-            item.expression.text
-            for item in stage_clause.items
-            if item.expression.text in alias_targets
-        }
-        if len(whole_row_refs) > 1:
-            binding_row_aliases = set(alias_targets.keys())
+    # For connected non-cartesian MATCH, allow first-stage multi-whole-row node
+    # projections to use bindings rows (#880 / #1393).
+    if not binding_row_aliases:
+        binding_row_aliases.update(
+            _binding_row_aliases_for_multi_alias_whole_row_node_projection(
+                query,
+                clause=stage_clause,
+                alias_targets=alias_targets,
+            )
+        )
     if _requires_relationship_multiplicity_bindings(
         aggregate_specs=stage_aggregate_specs,
         relationship_count=relationship_count,
@@ -5727,12 +5724,7 @@ def _is_variable_length_relationship_pattern(relationship: RelationshipPattern) 
 
 
 def _reject_nonterminal_variable_length_relationship_patterns(query: CypherQuery) -> None:  # noqa: ARG001
-    """No-op: variable-length rels in connected patterns are now supported.
-
-    The lowering sets ``prune_to_endpoints=True`` on non-terminal
-    variable-length edges so the next hop starts from the correct
-    wavefront endpoints only.  See #1001 for reentry-match follow-up.
-    """
+    """No-op: variable-length relationships in connected patterns are supported."""
 
 
 def _variable_length_relationship_aliases(
@@ -6321,6 +6313,19 @@ def lower_match_query(
     row_where: Optional[ExpressionText] = None
     row_where_predicates: List[str] = list(dynamic_row_where_predicates)
     if query.where is not None:
+        if _cartesian_node_only_patterns(merged_match) is not None and query.where.expr_tree is not None:
+            where_expr_upper = boolean_expr_to_text(query.where.expr_tree).upper()
+            stack: List[BooleanExpr] = [query.where.expr_tree]
+            while stack:
+                cur = stack.pop()
+                expr_left = cast(Optional[BooleanExpr], cur.left)
+                expr_right = cast(Optional[BooleanExpr], cur.right)
+                if cur.op in {"or", "xor"} and ((expr_left is not None and _where_expr_tree_pattern_predicates(expr_left)) or (expr_right is not None and _where_expr_tree_pattern_predicates(expr_right))):
+                    raise _unsupported_at_span("Cypher WHERE pattern predicates mixed with OR/XOR are not yet supported for cartesian MATCH patterns", field="where", value=where_expr_upper, span=query.where.span)
+                if expr_left is not None:
+                    stack.append(expr_left)
+                if expr_right is not None:
+                    stack.append(expr_right)
         where_expr, where_pattern_row_filters = _rewrite_where_expr_patterns_to_markers(
             where=query.where,
             alias_targets=alias_targets,
@@ -7407,12 +7412,8 @@ def _demote_secondary_whole_row_aliases(
     When no demotion is needed, returns the inputs unchanged with empty
     ``secondary_aliases`` and ``secondary_props``.
 
-    Why: the existing MATCH-after-WITH machinery requires exactly one whole-row
-    alias in the prefix projection. Other carried aliases need only support
-    property access (``S.X``) in subsequent clauses. By rewriting ``S.X`` to a
-    bare hidden identifier and synthesizing a new prefix item ``S.X AS
-    __cypher_reentry_<S>_<X>__``, multi-alias carry reduces to the existing
-    single-alias-plus-scalars path.
+    Rewrites secondary whole-row carries into hidden scalar property carries so
+    downstream MATCH-after-WITH lowering can stay single-primary-alias.
     """
     if not query.reentry_matches:
         return query, prefix_stage, (), {}
@@ -7425,19 +7426,14 @@ def _demote_secondary_whole_row_aliases(
     if len(whole_row_items) <= 1:
         return query, prefix_stage, (), {}
     if primary_alias is None:
-        # Existing downstream check at the trailing-MATCH start raises a clearer
-        # error; bail out so it fires.
         return query, prefix_stage, (), {}
 
     primary_indices = {idx for idx, item in whole_row_items if item.expression.text == primary_alias}
     if not primary_indices:
-        # Trailing MATCH starts from an alias not carried by the prefix: existing
-        # check at line ~7779 raises "must start from the same carried node alias".
         return query, prefix_stage, (), {}
     secondary_items = [(idx, item) for idx, item in whole_row_items if idx not in primary_indices]
     secondary_aliases: Set[str] = {item.expression.text for _idx, item in secondary_items}
 
-    # Reject re-binding a secondary alias as a node variable in any trailing MATCH.
     for trailing in (*query.reentry_matches,):
         trailing_aliases: Set[str] = set()
         for pattern in trailing.patterns:
@@ -7453,7 +7449,6 @@ def _demote_secondary_whole_row_aliases(
 
     refs_collected: Set[Tuple[str, str]] = set()
     bare_collected: Set[str] = set()
-
     def rewrite_text(expr: ExpressionText, field: str) -> ExpressionText:
         rewritten, refs, bare = _collect_secondary_property_refs(
             expr,
@@ -7464,8 +7459,6 @@ def _demote_secondary_whole_row_aliases(
         bare_collected.update(bare)
         return rewritten
 
-    # Rewrite trailing MATCH expressions (node/edge property maps via WHERE
-    # comes through reentry_wheres / clause.where).
     rewritten_reentry_matches = tuple(
         _rewrite_reentry_match_clause(clause, rewrite_expr=rewrite_text)
         for clause in query.reentry_matches
@@ -7474,13 +7467,6 @@ def _demote_secondary_whole_row_aliases(
         where_clause if where_clause is None else _rewrite_where_clause_and_resync(where_clause, rewrite_text, "where")
         for where_clause in query.reentry_wheres
     )
-    # Slice 4.3d.1 (#1256): Drop bare-identifier projection items that simply
-    # forward a secondary alias (`WITH a, x, y, collect(...)` pattern in IC3
-    # multi-stage chains). Their property carries already live as hidden columns
-    # on the reentry-source's row table; the bare items are pure forwarding
-    # noise. Without this pre-clean the bare-ref scanner inside
-    # `_collect_secondary_property_refs` would fail-fast on what is in fact a
-    # forwarding pattern, blocking IC3 even after #1248 admits the prefix WITH.
     secondary_forwarding_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
     from graphistry.compute.gfql.cypher.reentry import compiletime as _reentry_compiletime
 
@@ -7519,8 +7505,6 @@ def _demote_secondary_whole_row_aliases(
             span=query.return_.span,
         )
 
-    # Synthesize prefix WITH items: drop the secondaries, append S.X AS hidden
-    # for each unique referenced (S, X) pair.
     new_items: List[ReturnItem] = []
     secondary_drop_indices = {idx for idx, _item in secondary_items}
     for idx, item in enumerate(prefix_stage.clause.items):
@@ -7542,28 +7526,6 @@ def _demote_secondary_whole_row_aliases(
         clause=replace(prefix_stage.clause, items=tuple(new_items)),
     )
 
-    # Slice 4.3d.2 (#1256): forward hidden carry columns through every downstream
-    # WITH stage so each recursive bounded-reentry compile sees them as scalar
-    # carries. Without this, the hidden column survives the first boundary (it
-    # is in the prefix) but the subsequent WITH/RETURN scope-narrowing drops it,
-    # and references like `RETURN x.id AS xid` (rewritten to a bare hidden
-    # identifier) fail at the inner compile's alias resolution.
-    #
-    # Interaction with DISTINCT in downstream stages: appending the carry as a
-    # bare item makes it a participant in DISTINCT key sets. For multi-alias
-    # carry semantics this is what callers want — DISTINCT over `(friend, x.id)`
-    # is the desired behavior when `x.id` is referenced downstream. Multi-row
-    # `x` cases that could observably mutate row count are blocked upstream by
-    # the pre-existing `unique carried node rows` failfast in `gfql_unified.py`.
-    #
-    # Aggregate guard (W2-IMPORTANT-1): if any downstream WITH stage contains
-    # an aggregate function call, refuse to forward the carry through it. The
-    # alternative — silently appending the hidden alias next to `count(*)` — can
-    # produce a wrong NULL value in the projected column when the trailing MATCH
-    # has no relationship to trigger the existing aggregate failfast. Better to
-    # raise a scoped #1256 error pointing at the gap than to risk silent wrong
-    # results. The relationship-pattern aggregate path is also covered by an
-    # earlier failfast; this guard is a single tighter rule that subsumes both.
     if refs_collected and rewritten_with_stages_tail:
         for stage in rewritten_with_stages_tail:
             for item in stage.clause.items:
@@ -8622,6 +8584,7 @@ def compile_cypher_query(
         if merged_match is not None
         else LoweredCypherMatch(query=[], where=[])
     )
+    alias_targets = _alias_target(lowered.query) if query.match is not None else {}
 
     def _lower_general() -> CompiledCypherQuery:
         return _lower_general_row_projection(
@@ -8634,7 +8597,6 @@ def compile_cypher_query(
         )
 
     if query.with_stages:
-        alias_targets = _alias_target(lowered.query)
         binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
         binding_row_aliases = _apply_bound_scope_membership(
             binding_row_aliases,
@@ -8712,8 +8674,15 @@ def compile_cypher_query(
         ))
 
     if merged_match is not None and not query.unwinds:
-        alias_targets = _alias_target(lowered.query)
         binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+        if not binding_row_aliases:
+            binding_row_aliases.update(
+                _binding_row_aliases_for_multi_alias_whole_row_node_projection(
+                    query,
+                    clause=query.return_,
+                    alias_targets=alias_targets,
+                )
+            )
         binding_row_aliases = _apply_bound_scope_membership(
             binding_row_aliases,
             alias_targets=alias_targets,

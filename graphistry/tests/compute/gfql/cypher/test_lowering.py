@@ -1603,6 +1603,52 @@ def test_string_cypher_supports_cartesian_node_only_row_filter_between_aliases()
     ]
 
 
+def test_string_cypher_rejects_cartesian_where_pattern_predicates_mixed_with_or() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": [0, 1, 2],
+                "label__TheLabel": [False, True, False],
+                "label__MissingLabel": [False, False, False],
+            }
+        ),
+        pd.DataFrame({"s": [0, 0, 1], "d": [1, 2, 2], "type": ["T", "X", "T"]}),
+    )
+    with pytest.raises(GFQLValidationError, match="OR/XOR"):
+        graph.gfql(
+            "MATCH (a), (b) "
+            "WHERE a.id = 0 AND (a)-[:T]->(b:TheLabel) OR (a)-[:T*]->(b:MissingLabel) "
+            "RETURN DISTINCT b"
+        )
+
+
+def test_string_cypher_rejects_cartesian_where_pattern_predicates_mixed_with_xor() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": [0, 1], "label__TheLabel": [False, True]}),
+        pd.DataFrame({"s": [0], "d": [1], "type": ["T"]}),
+    )
+    with pytest.raises(GFQLValidationError, match="OR/XOR"):
+        graph.gfql(
+            "MATCH (a), (b) "
+            "WHERE (a)-[:T]->(b:TheLabel) XOR a.id = 0 "
+            "RETURN DISTINCT b"
+        )
+
+
+def test_string_cypher_supports_cartesian_scalar_or_without_pattern_predicates() -> None:
+    result = _mk_cartesian_node_graph().gfql(
+        "MATCH (a), (b) "
+        "WHERE a.num = 1 OR b.num = 1 "
+        "RETURN a.num AS a_num, b.num AS b_num "
+        "ORDER BY a_num, b_num"
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"a_num": 1, "b_num": 1},
+        {"a_num": 1, "b_num": 2},
+        {"a_num": 2, "b_num": 1},
+    ]
+
+
 def test_string_cypher_supports_cartesian_dynamic_pattern_property_projection() -> None:
     graph = _mk_cartesian_dynamic_pattern_graph()
 
@@ -10307,6 +10353,79 @@ def test_string_cypher_executes_seeded_multihop_then_with_match_reentry_shape() 
     assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
 
 
+def _job_referral_employment_company_shape() -> Tuple[pd.DataFrame, pd.DataFrame, str, List[Dict[str, Any]]]:
+    nodes = pd.DataFrame(
+        [
+            {"id": 1, "label__Person": True},
+            {"id": 2, "label__Person": True, "firstName": "Bob", "lastName": "Baker"},
+            {"id": 3, "label__Person": True, "firstName": "Carol", "lastName": "Clark"},
+            {"id": 4, "label__Company": True, "name": "Zoo"},
+            {"id": 5, "label__Company": True, "name": "Alpha"},
+            {"id": 6, "label__Country": True, "name": "Hungary"},
+        ]
+    )
+    edges = pd.DataFrame(
+        [
+            {"s": 1, "d": 2, "type": "KNOWS"},
+            {"s": 2, "d": 3, "type": "KNOWS"},
+            {"s": 2, "d": 4, "type": "WORK_AT", "workFrom": 2010},
+            {"s": 3, "d": 5, "type": "WORK_AT", "workFrom": 2009},
+            {"s": 4, "d": 6, "type": "IS_LOCATED_IN"},
+            {"s": 5, "d": 6, "type": "IS_LOCATED_IN"},
+        ]
+    )
+    query = (
+        "MATCH (person:Person {id: 1})-[:KNOWS*1..2]-(friend:Person) "
+        "WHERE NOT(person=friend) "
+        "WITH DISTINCT friend "
+        "MATCH (friend)-[workAt:WORK_AT]->(company:Company)-[:IS_LOCATED_IN]->(:Country {name: 'Hungary'}) "
+        "WHERE workAt.workFrom < 2011 "
+        "RETURN "
+        "friend.id AS personId, "
+        "friend.firstName AS personFirstName, "
+        "friend.lastName AS personLastName, "
+        "company.name AS organizationName, "
+        "workAt.workFrom AS organizationWorkFromYear "
+        "ORDER BY organizationWorkFromYear ASC, toInteger(personId) ASC, organizationName DESC "
+        "LIMIT 10"
+    )
+    expected = [
+        {
+            "personId": 3,
+            "personFirstName": "Carol",
+            "personLastName": "Clark",
+            "organizationName": "Alpha",
+            "organizationWorkFromYear": 2009.0,
+        },
+        {
+            "personId": 2,
+            "personFirstName": "Bob",
+            "personLastName": "Baker",
+            "organizationName": "Zoo",
+            "organizationWorkFromYear": 2010.0,
+        },
+    ]
+    return nodes, edges, query, expected
+
+
+def test_string_cypher_executes_job_referral_employment_company_row_join_shape() -> None:
+    nodes, edges, query, expected = _job_referral_employment_company_shape()
+
+    result = _mk_graph(nodes, edges).gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == expected
+
+
+def test_string_cypher_executes_job_referral_employment_company_row_join_shape_on_cudf() -> None:
+    _require_cudf_runtime()
+    nodes, edges, query, expected = _job_referral_employment_company_shape()
+
+    result = _mk_cudf_graph(nodes, edges).gfql(query, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert result._nodes.to_pandas().to_dict(orient="records") == expected
+
+
 def test_string_cypher_executes_seeded_multihop_then_with_optional_match_reentry_shape() -> None:
     nodes = pd.DataFrame(
         {
@@ -11375,6 +11494,48 @@ def test_string_cypher_executes_connected_multi_pattern_multi_whole_row_joined_p
         {"b": "(:B)", "c": "(:C)", "did": "d1"},
         {"b": "(:B)", "c": "(:C)", "did": "d2"},
     ]
+
+
+def test_multi_alias_connected_whole_row_return_with_cross_alias_where_executes_for_joined_row_projection_1393() -> None:
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["n1", "n2", "x1", "x2"],
+                "animal": ["cat", "dog", "cat", "wolf"],
+            }
+        ),
+        pd.DataFrame({"s": ["n1", "n2"], "d": ["x1", "x2"], "type": ["R", "R"]}),
+    )
+    result = g.gfql("MATCH (n)-[rel]->(x) WHERE n.animal = x.animal RETURN n, x")
+    assert result._nodes.to_dict(orient="records") == [{"n": "({animal: 'cat'})", "x": "({animal: 'cat'})"}]
+
+
+def test_multi_alias_connected_cross_alias_where_scalar_projection_remains_supported() -> None:
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["n1", "n2", "x1", "x2"],
+                "animal": ["cat", "dog", "cat", "wolf"],
+            }
+        ),
+        pd.DataFrame({"s": ["n1", "n2"], "d": ["x1", "x2"], "type": ["R", "R"]}),
+    )
+    result = g.gfql("MATCH (n)-[rel]->(x) WHERE n.animal = x.animal RETURN n.id AS n_id, x.id AS x_id")
+    assert result._nodes.to_dict(orient="records") == [{"n_id": "n1", "x_id": "x1"}]
+
+
+def test_multi_alias_connected_cross_alias_where_single_whole_row_projection_remains_supported() -> None:
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["n1", "n2", "x1", "x2"],
+                "animal": ["cat", "dog", "cat", "wolf"],
+            }
+        ),
+        pd.DataFrame({"s": ["n1", "n2"], "d": ["x1", "x2"], "type": ["R", "R"]}),
+    )
+    result = g.gfql("MATCH (n)-[rel]->(x) WHERE n.animal = x.animal RETURN n, x.id AS x_id")
+    assert result._nodes.to_dict(orient="records") == [{"n": "({animal: 'cat'})", "x_id": "x1"}]
 
 
 def test_compile_cypher_tracks_seeded_top_level_row_query() -> None:
