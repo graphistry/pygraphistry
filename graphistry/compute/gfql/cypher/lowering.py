@@ -3230,6 +3230,7 @@ def _reject_unsupported_multi_alias_whole_row_cross_alias_where(
     if (
         merged_match is None
         or query.where is None
+        or bool(query.with_stages)
         or _cartesian_node_only_patterns(merged_match) is not None
         or _match_relationship_count(merged_match) == 0
         or len({item.expression.text for item in query.return_.items if item.expression.text in alias_targets}) <= 1
@@ -3282,7 +3283,6 @@ def _binding_row_aliases_for_match(
     if not all(isinstance(target, ASTNode) for target in alias_targets.values()):
         return set()
     return set(alias_targets.keys())
-
 
 def _binding_row_aliases_for_row_where(
     row_where: Optional[ExpressionText],
@@ -4276,25 +4276,25 @@ def _build_initial_row_scope(
             for alias in stage_non_aggregate_refs
         ):
             binding_row_aliases.update(stage_non_aggregate_refs)
-    # For connected multi-pattern MATCH (not cartesian), enable binding-row
-    # aliases when the first WITH/RETURN stage projects multiple whole-row
-    # match aliases and all targets are nodes.  This allows multi-alias WITH
-    # projections to flow through the bindings-row path (#880).
+    # For connected non-cartesian MATCH, allow first-stage multi-whole-row node
+    # projections to use bindings rows (#880 / #1393).
     if (
         not binding_row_aliases
         and query.match is not None
         and len(query.matches) <= 1
         and len(alias_targets) > 1
-        and all(isinstance(t, ASTNode) for t in alias_targets.values())
     ):
-        # Check if the stage clause references 2+ whole-row match aliases
+        # Check if the stage clause references 2+ whole-row node aliases.
         whole_row_refs = {
             item.expression.text
             for item in stage_clause.items
             if item.expression.text in alias_targets
         }
-        if len(whole_row_refs) > 1:
-            binding_row_aliases = set(alias_targets.keys())
+        if len(whole_row_refs) > 1 and all(
+            isinstance(alias_targets.get(alias), ASTNode)
+            for alias in whole_row_refs
+        ):
+            binding_row_aliases = set(whole_row_refs)
     if _requires_relationship_multiplicity_bindings(
         aggregate_specs=stage_aggregate_specs,
         relationship_count=relationship_count,
