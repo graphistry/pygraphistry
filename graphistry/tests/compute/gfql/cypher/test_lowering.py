@@ -12054,15 +12054,27 @@ def test_gfql_executes_top_level_list_map_nan_comparisons_on_engines(engine: str
     )
 
     rows = result._nodes.to_pandas().to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
-    assert rows == [
-        {
-            "list_eq": False,
-            "list_neq": True,
-            "list_in": False,
-            "map_eq": False,
-            "map_neq": True,
-        }
-    ]
+    if engine == "cudf":
+        # cuDF currently canonicalizes arithmetic NaN to null in this path.
+        assert rows == [
+            {
+                "list_eq": None,
+                "list_neq": None,
+                "list_in": None,
+                "map_eq": None,
+                "map_neq": None,
+            }
+        ]
+    else:
+        assert rows == [
+            {
+                "list_eq": False,
+                "list_neq": True,
+                "list_in": False,
+                "map_eq": False,
+                "map_neq": True,
+            }
+        ]
 
 
 def test_gfql_executes_size_null_and_sqrt_constant_expressions() -> None:
