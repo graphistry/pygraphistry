@@ -2048,6 +2048,35 @@ class TestRowPipelineExecution:
         assert type(result._nodes).__module__.startswith("cudf")
         assert _safe_df_records(result._nodes) == [{"id": "d"}, {"id": "b"}, {"id": "a"}]
 
+    def test_row_pipeline_order_by_cudf_recoerces_pandas_series_before_host_bridge(self, monkeypatch):
+        cudf = pytest.importorskip("cudf")
+
+        original_eval = row_pipeline_mixin.RowPipelineMixin._gfql_eval_string_expr
+
+        def _forced_pandas_series(self, table_df, expr):  # type: ignore[no-untyped-def]
+            out = original_eval(self, table_df, expr)
+            if expr == "score + 0":
+                return pd.Series(_safe_series_to_list(out), index=_safe_series_to_list(table_df.index))
+            return out
+
+        monkeypatch.setattr(
+            row_pipeline_mixin.RowPipelineMixin,
+            "_gfql_eval_string_expr",
+            _forced_pandas_series,
+        )
+
+        nodes_pd = pd.DataFrame({"id": ["a", "b", "c"], "score": [3, 1, 2]})
+        edges_pd = _self_loop_edges(nodes_pd)
+        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = g.gfql([rows(), order_by([("score + 0", "asc")]), select([("id", "id")])])
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert _safe_df_records(result._nodes) == [{"id": "b"}, {"id": "c"}, {"id": "a"}]
+        assert not any("applying scoped host bridge" in str(w.message) for w in caught)
+
     def test_row_pipeline_cudf_list_scalar_concat_when_available(self):
         cudf = pytest.importorskip("cudf")
 

@@ -4248,13 +4248,25 @@ class RowPipelineMixin:
                 tmp_idx += 1
                 sort_value = self._gfql_eval_string_expr(work_df, expr)
                 if resolve_engine(EngineAbstract.AUTO, work_df) == Engine.CUDF and isinstance(sort_value, pd.Series):
-                    warnings.warn(
-                        "cuDF order_by expression produced pandas series; applying scoped host bridge "
-                        "and converting result rows back to cuDF",
-                        RuntimeWarning,
-                    )
-                    work_df = _gfql_bridge_cudf_df_to_pandas(work_df)
-                    used_host_bridge = True
+                    try:
+                        sort_value = s_cons(Engine.CUDF)(
+                            sort_value.tolist(),
+                            index=getattr(work_df, "index", None),
+                        )
+                    except (
+                        TypeError,
+                        ValueError,
+                        RuntimeError,
+                        AttributeError,
+                        NotImplementedError,
+                    ):
+                        warnings.warn(
+                            "cuDF order_by expression produced pandas series; applying scoped host bridge "
+                            "and converting result rows back to cuDF",
+                            RuntimeWarning,
+                        )
+                        work_df = _gfql_bridge_cudf_df_to_pandas(work_df)
+                        used_host_bridge = True
                 work_df = work_df.assign(**{sort_col: sort_value})
             direction_is_asc = str(direction).lower() != "desc"
             series = work_df[sort_col]
@@ -4278,7 +4290,13 @@ class RowPipelineMixin:
                         if resolve_engine(EngineAbstract.AUTO, work_df) == Engine.CUDF and isinstance(parsed, pd.Series):
                             try:
                                 parsed = s_cons(Engine.CUDF)(parsed.tolist(), index=getattr(work_df, "index", None))
-                            except Exception as exc:
+                            except (
+                                TypeError,
+                                ValueError,
+                                RuntimeError,
+                                AttributeError,
+                                NotImplementedError,
+                            ) as exc:
                                 if _gfql_cudf_list_sort_requires_host_bridge():
                                     work_df = _gfql_bridge_cudf_df_to_pandas(work_df)
                                     used_host_bridge = True
@@ -4360,7 +4378,15 @@ class RowPipelineMixin:
             if output_engine != Engine.CUDF:
                 try:
                     out_df = df_to_engine(out_df, Engine.CUDF)
-                except Exception as exc:
+                except (
+                    TypeError,
+                    ValueError,
+                    RuntimeError,
+                    AttributeError,
+                    NotImplementedError,
+                    ImportError,
+                    ModuleNotFoundError,
+                ) as exc:
                     raise ValueError(
                         "internal engine-boundary violation: cuDF order_by host-bridge "
                         "compatibility path must return to cuDF before returning rows"
