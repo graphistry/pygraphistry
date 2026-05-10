@@ -2286,6 +2286,20 @@ class RowPipelineMixin:
         while tmp_col in table_df.columns:
             tmp_col = f"{tmp_col}_x"
 
+        engine = resolve_engine(EngineAbstract.AUTO, table_df)
+
+        # cuDF treats NaN as null by default; preserve NaN for Cypher parity.
+        try:
+            is_nan_number = isinstance(value, numbers.Number) and math.isnan(float(value))
+        except Exception:
+            is_nan_number = False
+        if engine == Engine.CUDF and is_nan_number:
+            repeated = [float("nan") for _ in range(len(table_df))]
+            out = s_cons(Engine.CUDF)(repeated, nan_as_null=False)
+            if hasattr(out, "name"):
+                out.name = tmp_col
+            return out
+
         # Treat list/map literals as scalar row values by explicit broadcasting.
         # Plain `assign(col=[...])` interprets list values as column vectors.
         if isinstance(value, (list, tuple, dict)):
@@ -2293,7 +2307,7 @@ class RowPipelineMixin:
             try:
                 return table_df.assign(**{tmp_col: repeated})[tmp_col]
             except Exception:
-                if resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF:
+                if engine == Engine.CUDF:
                     out = s_cons(Engine.CUDF)(repeated)
                     if hasattr(out, "name"):
                         out.name = tmp_col
