@@ -221,7 +221,7 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_nullable_structural_equal(left: Any, right: Any) -> Optional[bool]:
-        if is_null_scalar(left) or is_null_scalar(right):
+        if RowPipelineMixin._gfql_is_cypher_null_scalar(left) or RowPipelineMixin._gfql_is_cypher_null_scalar(right):
             return None
 
         left_is_list = isinstance(left, (list, tuple))
@@ -285,22 +285,10 @@ class RowPipelineMixin:
             isinstance(right, (list, tuple))
             or (hasattr(right, "astype") and RowPipelineMixin._gfql_series_is_list_like(right))
         )
-        left_is_map = (
-            isinstance(left, dict)
-            or (hasattr(left, "astype") and RowPipelineMixin._gfql_series_is_mapping_like(left))
-        )
-        right_is_map = (
-            isinstance(right, dict)
-            or (hasattr(right, "astype") and RowPipelineMixin._gfql_series_is_mapping_like(right))
-        )
         if op in GFQL_COMPARISON_BINARY_OP_NAMES and (left_is_list or right_is_list):
             list_cmp = self._gfql_eval_list_comparison_op(table_df, left, right, op)
             if list_cmp is not None:
                 return list_cmp
-        if op in GFQL_EQUALITY_COMPARISON_BINARY_OPS and (left_is_map or right_is_map):
-            map_cmp = self._gfql_eval_map_comparison_op(table_df, left, right, op)
-            if map_cmp is not None:
-                return map_cmp
 
         temporal_cmp = self._gfql_eval_temporal_comparison_op(table_df, left, right, op)
         if temporal_cmp is not None:
@@ -461,7 +449,7 @@ class RowPipelineMixin:
             eq_out = RowPipelineMixin._gfql_nullable_structural_equal(left_item, right_item)
             if eq_out is None:
                 out_values.append(pd.NA)
-            if op in GFQL_INEQUALITY_EQUALITY_COMPARISON_BINARY_OPS:
+            elif op in GFQL_INEQUALITY_EQUALITY_COMPARISON_BINARY_OPS:
                 out_values.append(not bool(eq_out))
             else:
                 out_values.append(bool(eq_out))
