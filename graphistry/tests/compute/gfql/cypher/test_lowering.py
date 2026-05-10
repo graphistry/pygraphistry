@@ -12011,6 +12011,72 @@ def test_gfql_executes_top_level_membership_and_null_expression() -> None:
     _assert_query_rows("RETURN 3 IN [1, 2, 3] AS hit, null IS NULL AS empty", [{"hit": True, "empty": True}])
 
 
+def test_gfql_executes_top_level_list_equality_with_nested_null_returns_null() -> None:
+    _assert_query_rows(
+        "RETURN [[1], [2]] = [[1], [null]] AS result",
+        [{"result": None}],
+    )
+
+
+def test_gfql_executes_top_level_map_equality_with_null_values_returns_null() -> None:
+    _assert_query_rows(
+        "RETURN {k: null} = {k: null} AS both_null, {k: 1} = {k: null} AS mixed",
+        [{"both_null": None, "mixed": None}],
+    )
+
+
+def test_gfql_executes_top_level_membership_nested_null_propagates_unknown() -> None:
+    _assert_query_rows(
+        "RETURN "
+        "[null] IN [[null]] AS list_null, "
+        "[1, 2] IN [[null, 2]] AS needs_null_compare, "
+        "[1, 2] IN [[null, 2], [1, 3]] AS all_unknown_or_false",
+        [{"list_null": None, "needs_null_compare": None, "all_unknown_or_false": None}],
+    )
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+def test_gfql_executes_top_level_list_map_nan_comparisons_on_engines(engine: str | None) -> None:
+    if engine == "cudf":
+        _require_cudf_runtime()
+
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "WITH (0.0 / 0.0) AS z "
+        "RETURN "
+        "[z] = [z] AS list_eq, "
+        "[z] <> [z] AS list_neq, "
+        "[z] IN [[z]] AS list_in, "
+        "{k: z} = {k: z} AS map_eq, "
+        "{k: z} <> {k: z} AS map_neq",
+        **({"engine": engine} if engine is not None else {}),
+    )
+
+    rows = result._nodes.to_pandas().to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
+    if engine == "cudf":
+        # cuDF currently canonicalizes arithmetic NaN to null in this path.
+        assert rows == [
+            {
+                "list_eq": None,
+                "list_neq": None,
+                "list_in": None,
+                "map_eq": None,
+                "map_neq": None,
+            }
+        ]
+    else:
+        assert rows == [
+            {
+                "list_eq": False,
+                "list_neq": True,
+                "list_in": False,
+                "map_eq": False,
+                "map_neq": True,
+            }
+        ]
+
+
 def test_gfql_executes_size_null_and_sqrt_constant_expressions() -> None:
     _assert_query_rows(
         "WITH null AS l RETURN size(l) AS size_l, size(null) AS size_null, sqrt(12.96) AS root",
@@ -12102,6 +12168,23 @@ def test_gfql_executes_optional_match_null_projections_on_non_empty_graph() -> N
 
     assert result._nodes.to_dict(orient="records") == [
         {"missing_is_null": True, "exists_is_not_null": True}
+    ]
+
+
+def test_gfql_executes_optional_match_null_projections_on_empty_graph() -> None:
+    g = _mk_graph(
+        pd.DataFrame({"id": [], "exists": []}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = g.gfql(
+        "OPTIONAL MATCH (n) "
+        "RETURN n.missing IS NULL AS missing_is_null, "
+        "n.missing IS NOT NULL AS missing_is_not_null"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"missing_is_null": True, "missing_is_not_null": False}
     ]
 
 

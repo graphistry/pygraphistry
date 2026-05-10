@@ -517,10 +517,79 @@ def _result_projection_plan(
     )
 
 
-def _empty_optional_projection_row(plan: _ProjectionPlan) -> Dict[str, Any]:
+def _optional_null_fill_projection_value(
+    *,
+    expression_text: str,
+    optional_aliases: AbstractSet[str],
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+    field: str,
+    line: int,
+    column: int,
+) -> Optional[Any]:
+    node = _parse_row_expr(
+        expression_text,
+        params=params,
+        field=field,
+        line=line,
+        column=column,
+    )
+    if not isinstance(node, IsNullOp):
+        return None
+
+    operand_text = _render_expr_node(node.value)
+    operand_refs = _expr_match_aliases(
+        operand_text,
+        alias_targets=alias_targets,
+        params=params,
+        field=field,
+        line=line,
+        column=column,
+    )
+    if operand_refs and operand_refs <= optional_aliases:
+        return False if node.negated else True
+    if not operand_refs and isinstance(node.value, Literal):
+        try:
+            is_null = bool(pd.isna(node.value.value))
+        except Exception:
+            is_null = node.value.value is None
+        return (not is_null) if node.negated else is_null
+    return None
+
+
+def _empty_optional_projection_row(
+    plan: _ProjectionPlan,
+    *,
+    query: Optional[CypherQuery] = None,
+    optional_aliases: Optional[AbstractSet[str]] = None,
+    alias_targets: Optional[Mapping[str, ASTObject]] = None,
+    params: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
     out: Dict[str, Any] = {name: None for name in plan.whole_row_output_names}
+    if query is None or optional_aliases is None or alias_targets is None:
+        for column in plan.projection_columns:
+            out[column.output_name] = None
+        return out
+    item_expr_by_alias: Dict[str, str] = {
+        (item.alias or item.expression.text): item.expression.text
+        for item in query.return_.items
+    }
     for column in plan.projection_columns:
-        out[column.output_name] = None
+        default_value: Any = None
+        expr_text = item_expr_by_alias.get(column.output_name)
+        if expr_text is not None:
+            inferred = _optional_null_fill_projection_value(
+                expression_text=expr_text,
+                optional_aliases=optional_aliases,
+                alias_targets=alias_targets,
+                params=params,
+                field=query.return_.kind,
+                line=query.return_.span.line,
+                column=query.return_.span.column,
+            )
+            if inferred is not None:
+                default_value = inferred
+        out[column.output_name] = default_value
     return out
 
 
@@ -606,7 +675,13 @@ def _optional_null_fill_plan(
 
     return OptionalNullFillPlan(
         base_chain=Chain(lower_match_clause(query.matches[0], params=params)),
-        null_row=_empty_optional_projection_row(plan),
+        null_row=_empty_optional_projection_row(
+            plan,
+            query=query,
+            optional_aliases=optional_aliases,
+            alias_targets=alias_targets,
+            params=params,
+        ),
         alignment_chain=Chain(
             _lower_projection_chain(
                 query,

@@ -17,8 +17,12 @@ from graphistry.compute.gfql.row.order_expr import (
     order_expr_ast_static_supported,
 )
 from graphistry.compute.gfql.language_defs import (
+    GFQL_COMPARISON_BINARY_OP_NAMES,
     GFQL_COMPARISON_BINARY_OPS,
     GFQL_GROUPBY_AGG_METHODS,
+    GFQL_EQUALITY_COMPARISON_BINARY_OPS,
+    GFQL_INEQUALITY_EQUALITY_COMPARISON_BINARY_OPS,
+    GFQL_ORDERED_COMPARISON_BINARY_OPS,
 )
 from graphistry.compute.gfql.row.dispatch import (
     apply_string_predicate_scalar,
@@ -217,7 +221,7 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_nullable_structural_equal(left: Any, right: Any) -> Optional[bool]:
-        if is_null_scalar(left) or is_null_scalar(right):
+        if RowPipelineMixin._gfql_is_cypher_null_scalar(left) or RowPipelineMixin._gfql_is_cypher_null_scalar(right):
             return None
 
         left_is_list = isinstance(left, (list, tuple))
@@ -281,7 +285,7 @@ class RowPipelineMixin:
             isinstance(right, (list, tuple))
             or (hasattr(right, "astype") and RowPipelineMixin._gfql_series_is_list_like(right))
         )
-        if op in {"=", "!=", "<>", "<", "<=", ">", ">="} and (left_is_list or right_is_list):
+        if op in GFQL_COMPARISON_BINARY_OP_NAMES and (left_is_list or right_is_list):
             list_cmp = self._gfql_eval_list_comparison_op(table_df, left, right, op)
             if list_cmp is not None:
                 return list_cmp
@@ -309,6 +313,56 @@ class RowPipelineMixin:
             elif bool(null_mask):
                 out = None
         return out
+
+    @staticmethod
+    def _gfql_is_cypher_null_scalar(value: Any) -> bool:
+        """Cypher null semantics treat NaN as a value, not null."""
+        if not is_null_scalar(value):
+            return False
+        return not (isinstance(value, float) and math.isnan(value))
+
+    @staticmethod
+    def _gfql_cypher_value_equal(left_value: Any, right_value: Any) -> Optional[bool]:
+        """Cypher equality with three-valued null propagation for list/map values."""
+        if RowPipelineMixin._gfql_is_cypher_null_scalar(left_value) or RowPipelineMixin._gfql_is_cypher_null_scalar(right_value):
+            return None
+
+        if isinstance(left_value, tuple):
+            left_value = list(left_value)
+        if isinstance(right_value, tuple):
+            right_value = list(right_value)
+
+        if isinstance(left_value, list) and isinstance(right_value, list):
+            if len(left_value) != len(right_value):
+                return False
+            saw_unknown = False
+            for lhs_item, rhs_item in zip(left_value, right_value):
+                item_equal = RowPipelineMixin._gfql_cypher_value_equal(lhs_item, rhs_item)
+                if item_equal is False:
+                    return False
+                if item_equal is None:
+                    saw_unknown = True
+            return None if saw_unknown else True
+
+        if isinstance(left_value, dict) and isinstance(right_value, dict):
+            if set(left_value.keys()) != set(right_value.keys()):
+                return False
+            saw_unknown = False
+            for key in left_value.keys():
+                item_equal = RowPipelineMixin._gfql_cypher_value_equal(left_value[key], right_value[key])
+                if item_equal is False:
+                    return False
+                if item_equal is None:
+                    saw_unknown = True
+            return None if saw_unknown else True
+
+        if isinstance(left_value, (list, dict)) or isinstance(right_value, (list, dict)):
+            return False
+
+        try:
+            return bool(left_value == right_value)
+        except Exception:
+            return False
 
     def _gfql_safe_mixed_comparison_op(
         self,
@@ -359,7 +413,7 @@ class RowPipelineMixin:
         right_value: Any,
         op: str,
     ) -> Optional[Any]:
-        if op not in {"=", "!=", "<>"}:
+        if op not in GFQL_EQUALITY_COMPARISON_BINARY_OPS:
             return None
 
         left_structural = (
@@ -388,7 +442,6 @@ class RowPipelineMixin:
 
         left_series = left_value if hasattr(left_value, "astype") else self._gfql_broadcast_scalar(table_df, left_value)
         right_series = right_value if hasattr(right_value, "astype") else self._gfql_broadcast_scalar(table_df, right_value)
-
         left_values = self._gfql_series_to_pylist(left_series)
         right_values = self._gfql_series_to_pylist(right_series)
         out_values: List[Any] = []
@@ -396,10 +449,10 @@ class RowPipelineMixin:
             eq_out = RowPipelineMixin._gfql_nullable_structural_equal(left_item, right_item)
             if eq_out is None:
                 out_values.append(pd.NA)
-            elif op == "=":
-                out_values.append(bool(eq_out))
-            else:
+            elif op in GFQL_INEQUALITY_EQUALITY_COMPARISON_BINARY_OPS:
                 out_values.append(not bool(eq_out))
+            else:
+                out_values.append(bool(eq_out))
 
         left_index = getattr(left_series, "index", None)
         right_index = getattr(right_series, "index", None)
@@ -422,7 +475,7 @@ class RowPipelineMixin:
         right_value: Any,
         op: str,
     ) -> Optional[Any]:
-        if op not in {"=", "!=", "<>", "<", "<=", ">", ">="}:
+        if op not in GFQL_COMPARISON_BINARY_OP_NAMES:
             return None
 
         left_series = left_value if hasattr(left_value, "astype") else self._gfql_broadcast_scalar(table_df, left_value)
@@ -481,7 +534,7 @@ class RowPipelineMixin:
 
         if op == "=":
             out = eq_out
-        elif op in {"!=", "<>"}:
+        elif op in GFQL_INEQUALITY_EQUALITY_COMPARISON_BINARY_OPS:
             out = ~eq_out
         elif op == "<":
             out = lt_out
@@ -511,27 +564,43 @@ class RowPipelineMixin:
         if not RowPipelineMixin._gfql_series_is_list_like(right_series):
             return None
 
-        if op in {"<", "<=", ">", ">="}:
+        if op in GFQL_EQUALITY_COMPARISON_BINARY_OPS:
             left_values = self._gfql_series_to_pylist(left_series)
             right_values = self._gfql_series_to_pylist(right_series)
-            out_values: List[Optional[bool]] = []
+            out_values: List[Any] = []
+            for left_item, right_item in zip(left_values, right_values):
+                is_equal = RowPipelineMixin._gfql_cypher_value_equal(left_item, right_item)
+                if op in GFQL_INEQUALITY_EQUALITY_COMPARISON_BINARY_OPS:
+                    if is_equal is None:
+                        out_values.append(None)
+                    else:
+                        out_values.append(not is_equal)
+                else:
+                    out_values.append(is_equal)
+            out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_eq__")
+            return table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col]
+
+        if op in GFQL_ORDERED_COMPARISON_BINARY_OPS:
+            left_values = self._gfql_series_to_pylist(left_series)
+            right_values = self._gfql_series_to_pylist(right_series)
+            ordered_out_values: List[Optional[bool]] = []
             for left_item, right_item in zip(left_values, right_values):
                 if is_null_scalar(left_item) or is_null_scalar(right_item):
-                    out_values.append(None)
+                    ordered_out_values.append(None)
                     continue
                 try:
                     if op == "<":
-                        out_values.append(left_item < right_item)
+                        ordered_out_values.append(left_item < right_item)
                     elif op == "<=":
-                        out_values.append(left_item <= right_item)
+                        ordered_out_values.append(left_item <= right_item)
                     elif op == ">":
-                        out_values.append(left_item > right_item)
+                        ordered_out_values.append(left_item > right_item)
                     else:
-                        out_values.append(left_item >= right_item)
+                        ordered_out_values.append(left_item >= right_item)
                 except Exception:
-                    out_values.append(None)
+                    ordered_out_values.append(None)
             out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_py__")
-            return table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col]
+            return table_df.reset_index(drop=True).assign(**{out_col: ordered_out_values})[out_col]
 
         row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_row__")
         lhs_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_lhs__")
@@ -615,7 +684,7 @@ class RowPipelineMixin:
         out = out.where(~unknown_equal, pd.NA)
         out = out.where(~known_equal, True)
         out = out.where(~null_mask, pd.NA)
-        if op in {"!=", "<>"}:
+        if op in GFQL_INEQUALITY_EQUALITY_COMPARISON_BINARY_OPS:
             out = (~out.astype("boolean")).where(~out.isna(), pd.NA)
         return out.reset_index(drop=True)
 
@@ -2202,15 +2271,26 @@ class RowPipelineMixin:
         while tmp_col in table_df.columns:
             tmp_col = f"{tmp_col}_x"
 
+        engine = resolve_engine(EngineAbstract.AUTO, table_df)
+
+        # cuDF treats NaN as null by default; preserve NaN for Cypher parity.
+        is_nan_number = isinstance(value, float) and math.isnan(value)
+        if engine == Engine.CUDF and is_nan_number:
+            repeated_nan = [float("nan") for _ in range(len(table_df))]
+            out = s_cons(Engine.CUDF)(repeated_nan, nan_as_null=False)
+            if hasattr(out, "name"):
+                out.name = tmp_col
+            return out
+
         # Treat list/map literals as scalar row values by explicit broadcasting.
         # Plain `assign(col=[...])` interprets list values as column vectors.
         if isinstance(value, (list, tuple, dict)):
-            repeated = [value for _ in range(len(table_df))]
+            repeated_obj = [value for _ in range(len(table_df))]
             try:
-                return table_df.assign(**{tmp_col: repeated})[tmp_col]
+                return table_df.assign(**{tmp_col: repeated_obj})[tmp_col]
             except Exception:
-                if resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF:
-                    out = s_cons(Engine.CUDF)(repeated)
+                if engine == Engine.CUDF:
+                    out = s_cons(Engine.CUDF)(repeated_obj)
                     if hasattr(out, "name"):
                         out.name = tmp_col
                     return out
@@ -2866,63 +2946,32 @@ class RowPipelineMixin:
         left_series = left_value if hasattr(left_value, "astype") else self._gfql_broadcast_scalar(table_df, left_value)
         right_series = right_value if hasattr(right_value, "astype") else self._gfql_broadcast_scalar(table_df, right_value)
 
-        try:
-            rhs_len = series_sequence_len(right_series).fillna(0).astype("int64")
-        except Exception as exc:
-            raise ValueError(f"unsupported row expression: IN rhs must be list-like in {expr!r}") from exc
-
-        row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_row__")
-        rhs_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_rhs__")
-        lhs_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_lhs__")
-        len_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_len__")
-        pos_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_pos__")
-
-        base = table_df.assign(**{row_col: range(len(table_df)), lhs_col: left_series, rhs_col: right_series})
-        rhs_null = self._gfql_null_mask(base, base[rhs_col])
-        base = base.assign(**{len_col: rhs_len})
-
-        non_null = base.loc[~rhs_null, [row_col, lhs_col, rhs_col, len_col]]
-        expanded = non_null[[row_col, lhs_col, rhs_col, len_col]].explode(rhs_col)
-        if len(expanded) > 0:
-            expanded = expanded.assign(
-                **{pos_col: expanded.groupby(row_col, sort=False).cumcount()}
-            )
-            expanded = expanded.loc[expanded[pos_col] < expanded[len_col]]
-
-        if len(expanded) == 0:
-            true_counts = non_null[[row_col]].iloc[0:0].copy()
-            true_counts["__gfql_in_true__"] = []
-            unknown_counts = non_null[[row_col]].iloc[0:0].copy()
-            unknown_counts["__gfql_in_unknown__"] = []
-        else:
-            lhs = expanded[lhs_col]
-            rhs = expanded[rhs_col]
-            lhs_null = self._gfql_null_mask(expanded, lhs)
-            rhs_null_elem = self._gfql_null_mask(expanded, rhs)
-            equal = lhs == rhs
-            equal = equal.where(~(lhs_null | rhs_null_elem), False)
-            unknown = lhs_null | rhs_null_elem
-
-            eval_df = expanded.assign(
-                __gfql_in_true__=equal.astype("int64"),
-                __gfql_in_unknown__=unknown.astype("int64"),
-            )
-            true_counts = eval_df.groupby(row_col, sort=False)["__gfql_in_true__"].sum().reset_index()
-            unknown_counts = eval_df.groupby(row_col, sort=False)["__gfql_in_unknown__"].sum().reset_index()
-
-        summary = base[[row_col, len_col]].merge(true_counts, on=row_col, how="left", sort=False)
-        summary = summary.merge(unknown_counts, on=row_col, how="left", sort=False)
-        summary = self._gfql_restore_row_order(summary, row_col)
-        summary = summary.assign(
-            __gfql_in_true__=summary["__gfql_in_true__"].fillna(0),
-            __gfql_in_unknown__=summary["__gfql_in_unknown__"].fillna(0),
-        )
-
-        out = summary["__gfql_in_true__"] > 0
-        unknown_mask = (summary["__gfql_in_true__"] == 0) & (summary["__gfql_in_unknown__"] > 0)
-        out = out.where(~unknown_mask, pd.NA)
-        out = out.where(~rhs_null, pd.NA)
-        return out.reset_index(drop=True)
+        lhs_values = self._gfql_series_to_pylist(left_series)
+        rhs_values = self._gfql_series_to_pylist(right_series)
+        out_values: List[Any] = []
+        for lhs_item, rhs_item in zip(lhs_values, rhs_values):
+            if is_null_scalar(rhs_item):
+                out_values.append(None)
+                continue
+            if not isinstance(rhs_item, (list, tuple)):
+                raise ValueError(f"unsupported row expression: IN rhs must be list-like in {expr!r}")
+            saw_unknown = False
+            saw_true = False
+            for rhs_elem in rhs_item:
+                is_equal = RowPipelineMixin._gfql_cypher_value_equal(lhs_item, rhs_elem)
+                if is_equal is True:
+                    saw_true = True
+                    break
+                if is_equal is None:
+                    saw_unknown = True
+            if saw_true:
+                out_values.append(True)
+            elif saw_unknown:
+                out_values.append(None)
+            else:
+                out_values.append(False)
+        out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_tri__")
+        return table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col]
 
     def _gfql_eval_string_expr(self, table_df: Any, expr: str) -> Any:
         txt = expr.strip()
