@@ -974,6 +974,48 @@ class TestChainBindingsTable(NoAuthTestCase):
             ),
         )
 
+    def _mk_issue_1412_reply_author_graph(self):
+        return self._mk_graph(
+            pd.DataFrame(
+                {
+                    "id": [
+                        "viewer",
+                        "m1",
+                        "m2",
+                        "c1",
+                        "c2",
+                        "c3",
+                        "message_author",
+                        "reply_author",
+                        "author2",
+                    ],
+                    "label__Person": [True, False, False, False, False, False, True, True, True],
+                    "label__Message": [False, True, True, True, True, True, False, False, False],
+                    "label__Comment": [False, False, False, True, True, True, False, False, False],
+                    "firstName": ["View", None, None, None, None, None, "Main", "Peer", "Bob"],
+                    "lastName": ["Er", None, None, None, None, None, "Author", "One", "Two"],
+                    "creationDate": [None, 100, 90, 20, 10, 80, None, None, None],
+                    "content": [None, "post-1", "post-2", "reply-from-peer", "reply-from-main", "old-reply", None, None, None],
+                }
+            ),
+            pd.DataFrame(
+                {
+                    "s": ["m1", "m2", "c1", "c1", "c2", "c2", "c3", "c3"],
+                    "d": ["viewer", "viewer", "m1", "reply_author", "m1", "message_author", "m2", "author2"],
+                    "type": [
+                        "HAS_CREATOR",
+                        "HAS_CREATOR",
+                        "REPLY_OF",
+                        "HAS_CREATOR",
+                        "REPLY_OF",
+                        "HAS_CREATOR",
+                        "REPLY_OF",
+                        "HAS_CREATOR",
+                    ],
+                }
+            ),
+        )
+
     def _recent_message_zero_hop_match_ops(self):
         return [
             n({"id": is_in(["post2", "comment1"]), "label__Message": True}, name="message"),
@@ -1029,6 +1071,93 @@ class TestChainBindingsTable(NoAuthTestCase):
         assert len(records) == 1
         assert records[0]["x_val"] == 1
         assert records[0]["y_val"] == 2
+
+    def test_issue_1412_native_chain_recent_replies_row_shaping_ic8(self):
+        """IC8: direct native GFQL rows() replaces the adapter reply-author join."""
+        g = self._mk_issue_1412_reply_author_graph()
+        match_ops = [
+            n({"id": "viewer", "label__Person": True}, name="start"),
+            e_reverse({"type": "HAS_CREATOR"}),
+            n({"label__Message": True}, name="message"),
+            e_reverse({"type": "REPLY_OF"}),
+            n({"label__Comment": True}, name="comment"),
+            e_forward({"type": "HAS_CREATOR"}),
+            n({"label__Person": True}, name="commentAuthor"),
+        ]
+        items = [
+            ("personId", "commentAuthor.id"),
+            ("personFirstName", "commentAuthor.firstName"),
+            ("personLastName", "commentAuthor.lastName"),
+            ("commentCreationDate", "comment.creationDate"),
+            ("commentId", "comment.id"),
+            ("commentContent", "comment.content"),
+        ]
+        expected = [
+            {
+                "personId": "reply_author",
+                "personFirstName": "Peer",
+                "personLastName": "One",
+                "commentCreationDate": 20.0,
+                "commentId": "c1",
+                "commentContent": "reply-from-peer",
+            },
+            {
+                "personId": "message_author",
+                "personFirstName": "Main",
+                "personLastName": "Author",
+                "commentCreationDate": 10.0,
+                "commentId": "c2",
+                "commentContent": "reply-from-main",
+            },
+            {
+                "personId": "author2",
+                "personFirstName": "Bob",
+                "personLastName": "Two",
+                "commentCreationDate": 80.0,
+                "commentId": "c3",
+                "commentContent": "old-reply",
+            },
+        ]
+        sort_by = ["commentCreationDate", "commentId"]
+        expected_by_sort = sorted(expected, key=lambda row: (row["commentCreationDate"], row["commentId"]))
+        assert self._rows_records(g, match_ops, items=items, sort_by=sort_by) == expected_by_sort
+        assert self._binding_rows_records(g, self._to_binding_ops(match_ops), items, sort_by=sort_by) == expected_by_sort
+
+    def test_issue_1412_native_chain_message_replies_row_shaping_is7(self):
+        """IS7: direct native GFQL rows() keeps reply and message authors aligned."""
+        g = self._mk_issue_1412_reply_author_graph()
+        match_ops = [
+            n({"id": "reply_author", "label__Person": True}, name="replyAuthor"),
+            e_reverse({"type": "HAS_CREATOR"}),
+            n({"label__Comment": True}, name="comment"),
+            e_forward({"type": "REPLY_OF"}),
+            n({"id": "m1", "label__Message": True}, name="message"),
+            e_forward({"type": "HAS_CREATOR"}),
+            n({"label__Person": True}, name="messageAuthor"),
+        ]
+        items = [
+            ("commentId", "comment.id"),
+            ("commentContent", "comment.content"),
+            ("commentCreationDate", "comment.creationDate"),
+            ("replyAuthorId", "replyAuthor.id"),
+            ("replyAuthorFirstName", "replyAuthor.firstName"),
+            ("replyAuthorLastName", "replyAuthor.lastName"),
+            ("messageAuthorId", "messageAuthor.id"),
+        ]
+        expected = [
+            {
+                "commentId": "c1",
+                "commentContent": "reply-from-peer",
+                "commentCreationDate": 20.0,
+                "replyAuthorId": "reply_author",
+                "replyAuthorFirstName": "Peer",
+                "replyAuthorLastName": "One",
+                "messageAuthorId": "viewer",
+            }
+        ]
+        sort_by = ["commentCreationDate", "replyAuthorId"]
+        assert self._rows_records(g, match_ops, items=items, sort_by=sort_by) == expected
+        assert self._binding_rows_records(g, self._to_binding_ops(match_ops), items, sort_by=sort_by) == expected
 
     def test_native_chain_rows_bindings_star_graph(self):
         """Star graph: 1 hub -> 3 leaves produces 3 binding rows."""
