@@ -5,7 +5,7 @@ import pandas as pd
 
 from common import NoAuthTestCase
 import pytest
-from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, is_in, rows, select
+from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, is_in, join_apply, rows, select
 from graphistry.compute.chain import _inject_binding_ops_if_needed
 from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.tests.test_compute import CGFull
@@ -854,8 +854,16 @@ class TestChainBindingsTable(NoAuthTestCase):
     def _mk_graph(self, nodes_df, edges_df):
         return CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
 
-    def _mk_cudf_graph(self, nodes_df, edges_df):
+    def _require_cudf_runtime(self):
         cudf = pytest.importorskip("cudf")
+        try:
+            cudf.Series([1])
+        except Exception as exc:
+            pytest.skip(f"cudf installed but runtime unavailable: {exc}")
+        return cudf
+
+    def _mk_cudf_graph(self, nodes_df, edges_df):
+        cudf = self._require_cudf_runtime()
         return CGFull().nodes(cudf.from_pandas(nodes_df), "id").edges(cudf.from_pandas(edges_df), "s", "d")
 
     def _to_binding_ops(self, match_ops):
@@ -1232,6 +1240,247 @@ class TestChainBindingsTable(NoAuthTestCase):
                 "friendshipCreationDate": 123,
             }
         ]
+
+    def test_issue_1411_join_apply_projects_joined_message_rows(self):
+        """#1411: direct GFQL should join active friend rows to message rows."""
+        g = self._mk_graph(
+            pd.DataFrame(
+                [
+                    {
+                        "id": "seed",
+                        "label__Person": True,
+                        "label__Message": False,
+                        "firstName": "Seed",
+                        "creationDate": None,
+                    },
+                    {
+                        "id": "friend1",
+                        "label__Person": True,
+                        "label__Message": False,
+                        "firstName": "Ada",
+                        "creationDate": None,
+                    },
+                    {
+                        "id": "friend2",
+                        "label__Person": True,
+                        "label__Message": False,
+                        "firstName": "Bea",
+                        "creationDate": None,
+                    },
+                    {
+                        "id": "m1",
+                        "label__Person": False,
+                        "label__Message": True,
+                        "firstName": None,
+                        "creationDate": 20,
+                    },
+                    {
+                        "id": "m2",
+                        "label__Person": False,
+                        "label__Message": True,
+                        "firstName": None,
+                        "creationDate": 10,
+                    },
+                ]
+            ),
+            pd.DataFrame(
+                [
+                    {"s": "seed", "d": "friend1", "type": "KNOWS"},
+                    {"s": "seed", "d": "friend2", "type": "KNOWS"},
+                    {"s": "m1", "d": "friend1", "type": "HAS_CREATOR"},
+                    {"s": "m2", "d": "friend2", "type": "HAS_CREATOR"},
+                ]
+            ),
+        )
+        friend_ops = [
+            n({"id": "seed", "label__Person": True}, name="seed"),
+            e_undirected({"type": "KNOWS"}),
+            n({"label__Person": True}, name="friend"),
+        ]
+        message_ops = [
+            n({"label__Message": True}, name="message"),
+            e_forward({"type": "HAS_CREATOR"}),
+            n({"label__Person": True}, name="friend"),
+        ]
+
+        result = g.gfql([
+            *friend_ops,
+            rows(),
+            join_apply(binding_ops=self._to_binding_ops(message_ops), join_aliases=["friend"]),
+            select([
+                ("friendId", "friend.id"),
+                ("friendFirstName", "friend.firstName"),
+                ("messageId", "message.id"),
+                ("messageCreationDate", "message.creationDate"),
+            ]),
+        ])
+        rows_out = (
+            result._nodes
+            .sort_values("messageCreationDate", ascending=False)
+            .to_dict(orient="records")
+        )
+
+        assert rows_out == [
+            {
+                "friendId": "friend1",
+                "friendFirstName": "Ada",
+                "messageId": "m1",
+                "messageCreationDate": 20.0,
+            },
+            {
+                "friendId": "friend2",
+                "friendFirstName": "Bea",
+                "messageId": "m2",
+                "messageCreationDate": 10.0,
+            },
+        ]
+
+    def test_issue_1411_join_apply_projects_joined_message_rows_on_cudf(self):
+        """#1411: row joins should keep direct GFQL projection engine-polymorphic."""
+        cudf = self._require_cudf_runtime()
+        from cudf.testing import assert_frame_equal
+
+        g = self._mk_cudf_graph(
+            pd.DataFrame(
+                [
+                    {
+                        "id": "seed",
+                        "label__Person": True,
+                        "label__Message": False,
+                        "firstName": "Seed",
+                        "creationDate": None,
+                    },
+                    {
+                        "id": "friend1",
+                        "label__Person": True,
+                        "label__Message": False,
+                        "firstName": "Ada",
+                        "creationDate": None,
+                    },
+                    {
+                        "id": "friend2",
+                        "label__Person": True,
+                        "label__Message": False,
+                        "firstName": "Bea",
+                        "creationDate": None,
+                    },
+                    {
+                        "id": "m1",
+                        "label__Person": False,
+                        "label__Message": True,
+                        "firstName": None,
+                        "creationDate": 20,
+                    },
+                    {
+                        "id": "m2",
+                        "label__Person": False,
+                        "label__Message": True,
+                        "firstName": None,
+                        "creationDate": 10,
+                    },
+                ]
+            ),
+            pd.DataFrame(
+                [
+                    {"s": "seed", "d": "friend1", "type": "KNOWS"},
+                    {"s": "seed", "d": "friend2", "type": "KNOWS"},
+                    {"s": "m1", "d": "friend1", "type": "HAS_CREATOR"},
+                    {"s": "m2", "d": "friend2", "type": "HAS_CREATOR"},
+                ]
+            ),
+        )
+        friend_ops = [
+            n({"id": "seed", "label__Person": True}, name="seed"),
+            e_undirected({"type": "KNOWS"}),
+            n({"label__Person": True}, name="friend"),
+        ]
+        message_ops = [
+            n({"label__Message": True}, name="message"),
+            e_forward({"type": "HAS_CREATOR"}),
+            n({"label__Person": True}, name="friend"),
+        ]
+
+        result = g.gfql([
+            *friend_ops,
+            rows(),
+            join_apply(binding_ops=self._to_binding_ops(message_ops), join_aliases=["friend"]),
+            select([
+                ("friendId", "friend.id"),
+                ("friendFirstName", "friend.firstName"),
+                ("messageId", "message.id"),
+                ("messageCreationDate", "message.creationDate"),
+            ]),
+        ])
+        rows_out = (
+            result._nodes
+            .sort_values("messageCreationDate", ascending=False)
+            .reset_index(drop=True)
+        )
+
+        expected = cudf.DataFrame([
+            {
+                "friendId": "friend1",
+                "friendFirstName": "Ada",
+                "messageId": "m1",
+                "messageCreationDate": 20.0,
+            },
+            {
+                "friendId": "friend2",
+                "friendFirstName": "Bea",
+                "messageId": "m2",
+                "messageCreationDate": 10.0,
+            },
+        ])
+        assert_frame_equal(rows_out, expected, check_dtype=False)
+
+    def test_issue_1411_join_apply_left_preserves_unmatched_rows(self):
+        """Left row joins should keep active rows without a correlated match."""
+        g = self._mk_graph(
+            pd.DataFrame(
+                [
+                    {"id": "seed", "label__Person": True, "label__Message": False, "firstName": "Seed"},
+                    {"id": "friend1", "label__Person": True, "label__Message": False, "firstName": "Ada"},
+                    {"id": "friend2", "label__Person": True, "label__Message": False, "firstName": "Bea"},
+                    {"id": "m1", "label__Person": False, "label__Message": True, "firstName": None},
+                ]
+            ),
+            pd.DataFrame(
+                [
+                    {"s": "seed", "d": "friend1", "type": "KNOWS"},
+                    {"s": "seed", "d": "friend2", "type": "KNOWS"},
+                    {"s": "m1", "d": "friend1", "type": "HAS_CREATOR"},
+                ]
+            ),
+        )
+        friend_ops = [
+            n({"id": "seed", "label__Person": True}, name="seed"),
+            e_undirected({"type": "KNOWS"}),
+            n({"label__Person": True}, name="friend"),
+        ]
+        message_ops = [
+            n({"label__Message": True}, name="message"),
+            e_forward({"type": "HAS_CREATOR"}),
+            n({"label__Person": True}, name="friend"),
+        ]
+
+        result = g.gfql([
+            *friend_ops,
+            rows(),
+            join_apply(
+                binding_ops=self._to_binding_ops(message_ops),
+                join_aliases=["friend"],
+                how="left",
+            ),
+            select([
+                ("friendId", "friend.id"),
+                ("messageId", "message.id"),
+            ]),
+        ])
+        rows_out = result._nodes.sort_values("friendId").to_dict(orient="records")
+
+        assert rows_out[0] == {"friendId": "friend1", "messageId": "m1"}
+        assert rows_out[1]["friendId"] == "friend2"
+        assert pd.isna(rows_out[1]["messageId"])
 
     def test_native_chain_rows_bindings_edge_alias(self):
         """#982: edge alias properties should be accessible."""

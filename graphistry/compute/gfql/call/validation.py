@@ -294,6 +294,18 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         schema_effects=_schema_effects(adds_node_cols=_semi_apply_mark_added_node_cols),
     ),
 
+    'join_apply': _method_entry(
+        allowed_params={'binding_ops', 'join_aliases', 'how'},
+        required_params={'binding_ops', 'join_aliases'},
+        param_validators={
+            'binding_ops': is_list_of_dicts,
+            'join_aliases': is_non_empty_list_of_strings,
+            'how': lambda v: v in {'inner', 'left'},
+        },
+        description='Join active rows with correlated binding rows',
+        schema_effects=NO_SCHEMA_EFFECTS,
+    ),
+
     'order_by': _method_entry(
         allowed_params={'keys'},
         required_params={'keys'},

@@ -143,6 +143,7 @@ ROW_PIPELINE_CALLS = frozenset(
         "rows",
         "semi_apply_mark",
         "anti_semi_apply",
+        "join_apply",
         "where_rows",
         "select",
         "with_",
@@ -4169,6 +4170,94 @@ class RowPipelineMixin:
         out_df = merged.drop(columns=[marker_col])
         out_df[out_col] = ~merged[marker_col].isna()
         return self._gfql_row_table(out_df)
+
+    def join_apply(
+        self,
+        binding_ops: List[Dict[str, Any]],
+        join_aliases: List[str],
+        how: str = "inner",
+    ) -> "Plottable":
+        """Join active rows with rows produced by ``binding_ops``."""
+        if not isinstance(binding_ops, list) or len(binding_ops) == 0:
+            raise ValueError("join_apply(binding_ops=...) requires a non-empty list")
+        if not isinstance(join_aliases, list) or len(join_aliases) == 0:
+            raise ValueError("join_apply(join_aliases=...) requires a non-empty list")
+        if not all(isinstance(alias, str) and alias.strip() for alias in join_aliases):
+            raise ValueError("join_apply(join_aliases=...) must be a list of non-empty strings")
+        if how not in {"inner", "left"}:
+            raise ValueError("join_apply(how=...) must be 'inner' or 'left'")
+
+        left_df = self._gfql_get_active_table()
+        if left_df is None:
+            return self._gfql_row_table(self._gfql_empty_frame())
+        if len(left_df) == 0:
+            return self._gfql_row_table(left_df.copy())
+
+        base_graph = getattr(self, "_gfql_rows_base_graph", None)
+        if base_graph is None:
+            base_graph = getattr(self, "_g", None)
+        if base_graph is None:
+            base_graph = self
+
+        right_rows = _RowPipelineAdapter(cast("Plottable", base_graph))._gfql_binding_ops_row_table(binding_ops)
+        right_df = getattr(right_rows, "_nodes", None)
+
+        node_id_col = getattr(base_graph, "_node", None)
+        if not isinstance(node_id_col, str) or node_id_col == "":
+            node_id_col = "id"
+
+        join_cols: List[str] = []
+        missing_aliases: List[str] = []
+        right_cols: List[str] = [] if right_df is None else list(right_df.columns)
+        for alias in join_aliases:
+            candidates = (f"{alias}.{node_id_col}", alias)
+            chosen = next(
+                (
+                    col
+                    for col in candidates
+                    if col in left_df.columns
+                    and right_df is not None
+                    and col in right_df.columns
+                ),
+                None,
+            )
+            if chosen is None:
+                missing_aliases.append(alias)
+                continue
+            if chosen not in join_cols:
+                join_cols.append(chosen)
+
+        if not join_cols:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "GFQL row join could not recover shared alias join columns",
+                field="join_apply",
+                value={"join_aliases": join_aliases, "missing_aliases": missing_aliases},
+                suggestion="Join on aliases present in both the active row table and binding_ops rows.",
+                language="gfql",
+            )
+
+        right_payload_cols = [
+            col
+            for col in right_cols
+            if col in join_cols or col not in left_df.columns
+        ]
+        if right_df is None or len(right_df) == 0:
+            if how == "inner":
+                return self._gfql_row_table(left_df.iloc[0:0].copy())
+            out_df = left_df.copy()
+            for col in right_payload_cols:
+                if col not in out_df.columns:
+                    out_df = out_df.assign(**{col: self._gfql_broadcast_scalar(out_df, None)})
+            return self._gfql_row_table(out_df)
+
+        joined = left_df.merge(
+            right_df[right_payload_cols],
+            on=join_cols,
+            how=how,
+            sort=False,
+        )
+        return self._gfql_row_table(joined)
 
     def return_(self, items: List[Any]) -> "Plottable":
         return self.select(items)

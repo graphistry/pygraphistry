@@ -1786,6 +1786,28 @@ def semi_apply_mark(
     )
 
 
+def join_apply(
+    *,
+    binding_ops: List[Dict[str, Any]],
+    join_aliases: Sequence[str],
+    how: str = "inner",
+) -> ASTCall:
+    """Join active rows with rows produced by a correlated binding pattern.
+
+    ``binding_ops`` encodes the right-hand pattern to evaluate as bindings rows.
+    ``join_aliases`` names shared aliases used as join keys.
+    ``how`` is ``"inner"`` or ``"left"``.
+    """
+    return ASTCall(
+        "join_apply",
+        {
+            "binding_ops": binding_ops,
+            "join_aliases": list(join_aliases),
+            "how": how,
+        },
+    )
+
+
 def order_by(keys: Iterable[Tuple[Any, str]]) -> ASTCall:
     """Create an ORDER BY operation for GFQL row pipelines."""
     return ASTCall("order_by", {"keys": list(keys)})

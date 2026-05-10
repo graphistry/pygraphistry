@@ -2535,6 +2535,103 @@ def test_string_cypher_supports_is1_seed_city_projection_shape() -> None:
     ]
 
 
+def test_issue_1411_connected_join_property_projection_shape() -> None:
+    nodes = pd.DataFrame(
+        [
+            {
+                "id": "p1",
+                "labels": ["Person"],
+                "label__Person": True,
+                "firstName": "Seed",
+                "name": None,
+            },
+            {
+                "id": "p2",
+                "labels": ["Person"],
+                "label__Person": True,
+                "firstName": "Friend",
+                "name": None,
+            },
+            {
+                "id": "c1",
+                "labels": ["Place"],
+                "label__Place": True,
+                "firstName": None,
+                "name": "City",
+            },
+        ]
+    )
+    edges = pd.DataFrame(
+        [
+            {"s": "p1", "d": "c1", "type": "IS_LOCATED_IN"},
+            {"s": "p2", "d": "c1", "type": "IS_LOCATED_IN"},
+        ]
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH "
+        "(person:Person {id: 'p1'})-[:IS_LOCATED_IN]->(city:Place), "
+        "(friend:Person)-[:IS_LOCATED_IN]->(city) "
+        "RETURN friend.id AS friendId, friend.firstName AS friendFirstName, city.name AS cityName "
+        "ORDER BY friendId"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"friendId": "p1", "friendFirstName": "Seed", "cityName": "City"},
+        {"friendId": "p2", "friendFirstName": "Friend", "cityName": "City"},
+    ]
+
+
+def test_issue_1411_connected_join_whole_row_projection_shape() -> None:
+    nodes = pd.DataFrame(
+        [
+            {
+                "id": "p1",
+                "labels": ["Person"],
+                "label__Person": True,
+                "firstName": "Seed",
+                "name": None,
+            },
+            {
+                "id": "p2",
+                "labels": ["Person"],
+                "label__Person": True,
+                "firstName": "Friend",
+                "name": None,
+            },
+            {
+                "id": "c1",
+                "labels": ["Place"],
+                "label__Place": True,
+                "firstName": None,
+                "name": "City",
+            },
+        ]
+    )
+    edges = pd.DataFrame(
+        [
+            {"s": "p1", "d": "c1", "type": "IS_LOCATED_IN"},
+            {"s": "p2", "d": "c1", "type": "IS_LOCATED_IN"},
+        ]
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH "
+        "(person:Person {id: 'p1'})-[:IS_LOCATED_IN]->(city:Place), "
+        "(friend:Person {id: 'p2'})-[:IS_LOCATED_IN]->(city) "
+        "RETURN city"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"city": "(:Place {name: 'City'})"}
+    ]
+    entity_meta = getattr(result, "_cypher_entity_projection_meta")
+    assert entity_meta["city"]["table"] == "nodes"
+    assert entity_meta["city"]["alias"] == "city"
+    assert entity_meta["city"]["id_column"] == "id"
+    assert entity_meta["city"]["ids"].tolist() == ["c1"]
+
+
 def test_string_cypher_supports_is3_seed_expand_projection_shape() -> None:
     nodes = pd.DataFrame(
         [
