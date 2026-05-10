@@ -2,13 +2,22 @@ import ast
 import math
 import numbers
 import re
+import warnings
 from functools import lru_cache
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, cast
 from typing_extensions import Literal
 
 import pandas as pd
-from graphistry.Engine import Engine, EngineAbstract, resolve_engine, safe_map_series, s_cons, s_to_numeric
+from graphistry.Engine import (
+    Engine,
+    EngineAbstract,
+    df_to_engine,
+    resolve_engine,
+    safe_map_series,
+    s_cons,
+    s_to_numeric,
+)
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.dataframe_utils import concat_frames, df_cons as template_df_cons
 from graphistry.compute.gfql.row.order_expr import (
@@ -2645,13 +2654,40 @@ class RowPipelineMixin:
                 f"unsupported row expression: dynamic subscript requires list-like base in {expr!r}"
             )
         if saw_string_parse:
-            host_index = getattr(base_value, "index", None)
-            if host_index is not None and hasattr(host_index, "to_pandas"):
+            if resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF:
                 try:
-                    host_index = host_index.to_pandas()
-                except Exception:
-                    host_index = None
-            base_value = pd.Series(normalized_values, index=host_index, dtype="object")
+                    base_value = s_cons(Engine.CUDF)(
+                        normalized_values,
+                        index=getattr(base_value, "index", None),
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                    RuntimeError,
+                    AttributeError,
+                    NotImplementedError,
+                ) as exc:
+                    if _gfql_cudf_list_sort_requires_host_bridge():
+                        host_index = getattr(base_value, "index", None)
+                        if host_index is not None and hasattr(host_index, "to_pandas"):
+                            try:
+                                host_index = host_index.to_pandas()
+                            except Exception:
+                                host_index = None
+                        base_value = pd.Series(normalized_values, index=host_index, dtype="object")
+                    else:
+                        raise ValueError(
+                            "internal engine-boundary violation: dynamic list subscript string parsing "
+                            "in cuDF mode must materialize as cuDF series"
+                        ) from exc
+            else:
+                host_index = getattr(base_value, "index", None)
+                if host_index is not None and hasattr(host_index, "to_pandas"):
+                    try:
+                        host_index = host_index.to_pandas()
+                    except Exception:
+                        host_index = None
+                base_value = pd.Series(normalized_values, index=host_index, dtype="object")
         if not RowPipelineMixin._gfql_series_is_list_like(base_value):
             raise ValueError(
                 f"unsupported row expression: dynamic subscript requires list-like base in {expr!r}"
@@ -2673,6 +2709,46 @@ class RowPipelineMixin:
         base_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_dynsub_base__")
         key_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_dynsub_key__")
         pos_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_dynsub_pos__")
+
+        if resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF:
+            if isinstance(base_value, pd.Series):
+                try:
+                    base_value = s_cons(Engine.CUDF)(
+                        base_value.tolist(),
+                        index=getattr(table_df, "index", None),
+                    )
+                except Exception as exc:
+                    if not _gfql_cudf_list_sort_requires_host_bridge():
+                        raise ValueError(
+                            "internal engine-boundary violation: base series in cuDF mode remained pandas"
+                        ) from exc
+            if isinstance(key_value, pd.Series):
+                try:
+                    key_value = s_cons(Engine.CUDF)(
+                        key_value.tolist(),
+                        index=getattr(table_df, "index", None),
+                    )
+                except Exception as exc:
+                    if not _gfql_cudf_list_sort_requires_host_bridge():
+                        raise ValueError(
+                            "internal engine-boundary violation: key series in cuDF mode remained pandas"
+                        ) from exc
+            if not isinstance(base_value, pd.Series) and not isinstance(key_value, pd.Series):
+                try:
+                    out = base_value.list.get(key_value)
+                    return out.reset_index(drop=True) if hasattr(out, "reset_index") else out
+                except (
+                    TypeError,
+                    ValueError,
+                    RuntimeError,
+                    AttributeError,
+                    NotImplementedError,
+                ) as exc:
+                    if not _gfql_cudf_list_sort_requires_host_bridge():
+                        raise ValueError(
+                            "internal engine-boundary violation: cuDF dynamic list subscript "
+                            "must execute via list.get in cuDF mode"
+                        ) from exc
 
         if isinstance(base_value, pd.Series) or isinstance(key_value, pd.Series):
             base_assign = base_value.to_pandas() if hasattr(base_value, "to_pandas") else base_value
@@ -4099,6 +4175,7 @@ class RowPipelineMixin:
 
     def order_by(self, keys: List[Any]) -> "Plottable":
         table_df = self._gfql_get_active_table()
+        input_engine = resolve_engine(EngineAbstract.AUTO, table_df)
         row_order_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_sort_row_order__")
         if keys is None:
             raise ValueError(
@@ -4108,6 +4185,7 @@ class RowPipelineMixin:
         sort_cols: List[str] = []
         ascending: List[bool] = []
         aux_drop_cols: List[str] = []
+        used_host_bridge = False
         work_df = table_df.assign(**{row_order_col: range(len(table_df))})
         tmp_idx = 0
         for key_item in keys:
@@ -4190,7 +4268,28 @@ class RowPipelineMixin:
                     continue
                 sort_col = f"__gfql_sort_{tmp_idx}__"
                 tmp_idx += 1
-                work_df = work_df.assign(**{sort_col: self._gfql_eval_string_expr(work_df, expr)})
+                sort_value = self._gfql_eval_string_expr(work_df, expr)
+                if resolve_engine(EngineAbstract.AUTO, work_df) == Engine.CUDF and isinstance(sort_value, pd.Series):
+                    try:
+                        sort_value = s_cons(Engine.CUDF)(
+                            sort_value.tolist(),
+                            index=getattr(work_df, "index", None),
+                        )
+                    except (
+                        TypeError,
+                        ValueError,
+                        RuntimeError,
+                        AttributeError,
+                        NotImplementedError,
+                    ):
+                        warnings.warn(
+                            "cuDF order_by expression produced pandas series; applying scoped host bridge "
+                            "and converting result rows back to cuDF",
+                            RuntimeWarning,
+                        )
+                        work_df = _gfql_bridge_cudf_df_to_pandas(work_df)
+                        used_host_bridge = True
+                work_df = work_df.assign(**{sort_col: sort_value})
             direction_is_asc = str(direction).lower() != "desc"
             series = work_df[sort_col]
             if (
@@ -4210,6 +4309,24 @@ class RowPipelineMixin:
                 if not has_null:
                     parsed = parse_stringified_list_series(series)
                     if parsed is not None:
+                        if resolve_engine(EngineAbstract.AUTO, work_df) == Engine.CUDF and isinstance(parsed, pd.Series):
+                            try:
+                                parsed = s_cons(Engine.CUDF)(parsed.tolist(), index=getattr(work_df, "index", None))
+                            except (
+                                TypeError,
+                                ValueError,
+                                RuntimeError,
+                                AttributeError,
+                                NotImplementedError,
+                            ) as exc:
+                                if _gfql_cudf_list_sort_requires_host_bridge():
+                                    work_df = _gfql_bridge_cudf_df_to_pandas(work_df)
+                                    used_host_bridge = True
+                                else:
+                                    raise ValueError(
+                                        "internal engine-boundary violation: parsed stringified-list sort key "
+                                        "in cuDF mode must materialize as cuDF series"
+                                    ) from exc
                         sort_col = RowPipelineMixin._gfql_fresh_col_name(
                             work_df.columns, "__gfql_sort_listparsed_"
                         )
@@ -4226,6 +4343,7 @@ class RowPipelineMixin:
                     )
                 ):
                     work_df = _gfql_bridge_cudf_df_to_pandas(work_df)
+                    used_host_bridge = True
                     series = work_df[sort_col]
                 key_prefix = f"__gfql_sort_list_{tmp_idx}__"
                 tmp_idx += 1
@@ -4276,6 +4394,25 @@ class RowPipelineMixin:
                 out_df = out_df.drop(columns=drop_cols)
         else:
             out_df = work_df.drop(columns=[row_order_col])
+
+        if input_engine == Engine.CUDF and used_host_bridge:
+            output_engine = resolve_engine(EngineAbstract.AUTO, out_df)
+            if output_engine != Engine.CUDF:
+                try:
+                    out_df = df_to_engine(out_df, Engine.CUDF)
+                except (
+                    TypeError,
+                    ValueError,
+                    RuntimeError,
+                    AttributeError,
+                    NotImplementedError,
+                    ImportError,
+                    ModuleNotFoundError,
+                ) as exc:
+                    raise ValueError(
+                        "internal engine-boundary violation: cuDF order_by host-bridge "
+                        "compatibility path must return to cuDF before returning rows"
+                    ) from exc
         return self._gfql_row_table(out_df)
 
     def skip(self, value: Any) -> "Plottable":

@@ -48,6 +48,35 @@ def test_row_pipeline_order_by_supports_list_literal_and_subscript_expression_ke
     assert result.to_dict(orient="records") == [{"id": "c"}, {"id": "b"}, {"id": "a"}]
 
 
+def test_row_pipeline_order_by_supports_stringified_list_subscript_expression_keys() -> None:
+    nodes_df = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e"],
+            "list": pd.Series(
+                ["[2, -2]", "[1, 2]", "[300, 0]", "[1, -20]", "[2, -2, 100]"],
+                dtype="string",
+            ),
+            "list2": pd.Series(
+                ["[3, -2]", "[2, -2]", "[1, -2]", "[4, -2]", "[5, -2]"],
+                dtype="string",
+            ),
+        }
+    )
+
+    result = _run_node_steps(
+        nodes_df,
+        [
+            rows(),
+            order_by([("[list2[1], list2[0], list[1]] + list + list2", "asc")]),
+            limit(3),
+            select([("id", "id")]),
+        ],
+        edges_df=_self_loop_edges(nodes_df),
+    )
+
+    assert result.to_dict(orient="records") == [{"id": "c"}, {"id": "b"}, {"id": "a"}]
+
+
 def test_row_pipeline_order_by_list_column_matches_opencypher_prefix_tie_break() -> None:
     nodes_df = pd.DataFrame(
         {

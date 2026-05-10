@@ -2000,6 +2000,110 @@ class TestRowPipelineExecution:
 
         assert cudf_ids == pandas_ids
 
+    def test_row_pipeline_order_by_stringified_list_subscript_expression_on_cudf_when_available(self):
+        cudf = pytest.importorskip("cudf")
+
+        nodes_pd = pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d", "e"],
+                "list": ["[2, -2]", "[1, 2]", "[300, 0]", "[1, -20]", "[2, -2, 100]"],
+                "list2": ["[3, -2]", "[2, -2]", "[1, -2]", "[4, -2]", "[5, -2]"],
+            }
+        )
+        edges_pd = _self_loop_edges(nodes_pd)
+        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+
+        result = g.gfql(
+            [
+                rows(),
+                order_by([("[list2[1], list2[0], list[1]] + list + list2", "asc")]),
+                limit(3),
+                select([("id", "id")]),
+            ]
+        )
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert _safe_df_records(result._nodes) == [{"id": "c"}, {"id": "b"}, {"id": "a"}]
+
+    def test_row_pipeline_dynamic_subscript_uses_cudf_list_get_when_available(self, monkeypatch):
+        cudf = pytest.importorskip("cudf")
+        monkeypatch.setattr(
+            row_pipeline_mixin,
+            "_gfql_bridge_cudf_df_to_pandas",
+            lambda _df: (_ for _ in ()).throw(AssertionError("unexpected cudf->pandas host bridge")),
+        )
+
+        nodes_pd = pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "list": ["[2, -2]", "[1, 2]", "[300, 0]"],
+                "idx": [1, 0, 1],
+            }
+        )
+        edges_pd = _self_loop_edges(nodes_pd)
+        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+
+        result = g.gfql([rows(), select([("id", "id"), ("x", "list[idx]")]), order_by([("id", "asc")])])
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert _safe_df_records(result._nodes) == [
+            {"id": "a", "x": -2},
+            {"id": "b", "x": 1},
+            {"id": "c", "x": 0},
+        ]
+
+    def test_row_pipeline_order_by_host_bridge_path_returns_to_cudf_when_available(self, monkeypatch):
+        cudf = pytest.importorskip("cudf")
+
+        monkeypatch.setattr(
+            row_pipeline_mixin,
+            "_gfql_cudf_list_sort_requires_host_bridge",
+            lambda: True,
+        )
+
+        nodes_pd = pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d", "e"],
+                "list": ["[2, -2]", "[1, 2]", "[300, 0]", "[1, -20]", "[2, -2, 100]"],
+            }
+        )
+        edges_pd = _self_loop_edges(nodes_pd)
+        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+
+        result = g.gfql([rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])])
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert _safe_df_records(result._nodes) == [{"id": "d"}, {"id": "b"}, {"id": "a"}]
+
+    def test_row_pipeline_order_by_cudf_recoerces_pandas_series_before_host_bridge(self, monkeypatch):
+        cudf = pytest.importorskip("cudf")
+
+        original_eval = row_pipeline_mixin.RowPipelineMixin._gfql_eval_string_expr
+
+        def _forced_pandas_series(self, table_df, expr):  # type: ignore[no-untyped-def]
+            out = original_eval(self, table_df, expr)
+            if expr == "score + 0":
+                return pd.Series(_safe_series_to_list(out), index=_safe_series_to_list(table_df.index))
+            return out
+
+        monkeypatch.setattr(
+            row_pipeline_mixin.RowPipelineMixin,
+            "_gfql_eval_string_expr",
+            _forced_pandas_series,
+        )
+
+        nodes_pd = pd.DataFrame({"id": ["a", "b", "c"], "score": [3, 1, 2]})
+        edges_pd = _self_loop_edges(nodes_pd)
+        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = g.gfql([rows(), order_by([("score + 0", "asc")]), select([("id", "id")])])
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert _safe_df_records(result._nodes) == [{"id": "b"}, {"id": "c"}, {"id": "a"}]
+        assert not any("applying scoped host bridge" in str(w.message) for w in caught)
+
     def test_row_pipeline_cudf_list_scalar_concat_when_available(self):
         cudf = pytest.importorskip("cudf")
 

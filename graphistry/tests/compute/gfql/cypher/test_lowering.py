@@ -7985,66 +7985,6 @@ def test_string_cypher_supports_date_comparison_consistent_with_sort_order() -> 
     )
 
 
-def test_string_cypher_supports_order_by_list_literal_and_subscript_expression() -> None:
-    g = _mk_graph(
-        pd.DataFrame(
-            {
-                "id": ["a", "b", "c", "d", "e"],
-                "list": [[2, -2], [1, 2], [300, 0], [1, -20], [2, -2, 100]],
-                "list2": [[3, -2], [2, -2], [1, -2], [4, -2], [5, -2]],
-            }
-        ),
-        pd.DataFrame({"s": [], "d": []}),
-    )
-
-    result = g.gfql(
-        "MATCH (a) "
-        "WITH a "
-        "ORDER BY [a.list2[1], a.list2[0], a.list[1]] + a.list + a.list2 "
-        "LIMIT 3 "
-        "RETURN a"
-    )
-
-    assert result._nodes.to_dict(orient="records") == [
-        {"a": "({list: [300, 0], list2: [1, -2]})"},
-        {"a": "({list: [1, 2], list2: [2, -2]})"},
-        {"a": "({list: [2, -2], list2: [3, -2]})"},
-    ]
-
-
-def test_string_cypher_supports_order_by_stringified_list_subscript_expression() -> None:
-    g = _mk_graph(
-        pd.DataFrame(
-            {
-                "id": ["a", "b", "c", "d", "e"],
-                "list": pd.Series(
-                    ["[2, -2]", "[1, 2]", "[300, 0]", "[1, -20]", "[2, -2, 100]"],
-                    dtype="string",
-                ),
-                "list2": pd.Series(
-                    ["[3, -2]", "[2, -2]", "[1, -2]", "[4, -2]", "[5, -2]"],
-                    dtype="string",
-                ),
-            }
-        ),
-        pd.DataFrame({"s": [], "d": []}),
-    )
-
-    result = g.gfql(
-        "MATCH (a) "
-        "WITH a "
-        "ORDER BY [a.list2[1], a.list2[0], a.list[1]] + a.list + a.list2 "
-        "LIMIT 3 "
-        "RETURN a"
-    )
-
-    assert result._nodes.to_dict(orient="records") == [
-        {"a": "({list: [300, 0], list2: [1, -2]})"},
-        {"a": "({list: [1, 2], list2: [2, -2]})"},
-        {"a": "({list: [2, -2], list2: [3, -2]})"},
-    ]
-
-
 def test_string_cypher_order_by_stringified_list_column_uses_list_orderability() -> None:
     """Thin cypher integration smoke for stringified-list ORDER BY semantics.
 
