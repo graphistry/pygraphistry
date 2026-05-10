@@ -4144,6 +4144,12 @@ class RowPipelineMixin:
                 work_df = work_df.assign(**{sort_col: self._gfql_eval_string_expr(work_df, expr)})
             direction_is_asc = str(direction).lower() != "desc"
             series = work_df[sort_col]
+            if (
+                resolve_engine(EngineAbstract.AUTO, work_df) == Engine.CUDF
+                and _gfql_cudf_list_sort_series_requires_host_bridge(series)
+            ):
+                work_df = _gfql_bridge_cudf_df_to_pandas(work_df)
+                series = work_df[sort_col]
             list_candidate = order_detect_list_series(series)
             if list_candidate:
                 top_null_mask = self._gfql_null_mask(work_df, series)
