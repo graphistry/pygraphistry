@@ -2660,7 +2660,13 @@ class RowPipelineMixin:
                         normalized_values,
                         index=getattr(base_value, "index", None),
                     )
-                except Exception as exc:
+                except (
+                    TypeError,
+                    ValueError,
+                    RuntimeError,
+                    AttributeError,
+                    NotImplementedError,
+                ) as exc:
                     if _gfql_cudf_list_sort_requires_host_bridge():
                         host_index = getattr(base_value, "index", None)
                         if host_index is not None and hasattr(host_index, "to_pandas"):
@@ -2726,6 +2732,22 @@ class RowPipelineMixin:
                     if not _gfql_cudf_list_sort_requires_host_bridge():
                         raise ValueError(
                             "internal engine-boundary violation: key series in cuDF mode remained pandas"
+                        ) from exc
+            if not isinstance(base_value, pd.Series) and not isinstance(key_value, pd.Series):
+                try:
+                    out = base_value.list.get(key_value)
+                    return out.reset_index(drop=True) if hasattr(out, "reset_index") else out
+                except (
+                    TypeError,
+                    ValueError,
+                    RuntimeError,
+                    AttributeError,
+                    NotImplementedError,
+                ) as exc:
+                    if not _gfql_cudf_list_sort_requires_host_bridge():
+                        raise ValueError(
+                            "internal engine-boundary violation: cuDF dynamic list subscript "
+                            "must execute via list.get in cuDF mode"
                         ) from exc
 
         if isinstance(base_value, pd.Series) or isinstance(key_value, pd.Series):

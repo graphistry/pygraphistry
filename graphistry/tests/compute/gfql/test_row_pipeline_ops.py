@@ -2025,6 +2025,33 @@ class TestRowPipelineExecution:
         assert type(result._nodes).__module__.startswith("cudf")
         assert _safe_df_records(result._nodes) == [{"id": "c"}, {"id": "b"}, {"id": "a"}]
 
+    def test_row_pipeline_dynamic_subscript_uses_cudf_list_get_when_available(self, monkeypatch):
+        cudf = pytest.importorskip("cudf")
+        monkeypatch.setattr(
+            row_pipeline_mixin,
+            "_gfql_bridge_cudf_df_to_pandas",
+            lambda _df: (_ for _ in ()).throw(AssertionError("unexpected cudf->pandas host bridge")),
+        )
+
+        nodes_pd = pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "list": ["[2, -2]", "[1, 2]", "[300, 0]"],
+                "idx": [1, 0, 1],
+            }
+        )
+        edges_pd = _self_loop_edges(nodes_pd)
+        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+
+        result = g.gfql([rows(), select([("id", "id"), ("x", "list[idx]")]), order_by([("id", "asc")])])
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert _safe_df_records(result._nodes) == [
+            {"id": "a", "x": -2},
+            {"id": "b", "x": 1},
+            {"id": "c", "x": 0},
+        ]
+
     def test_row_pipeline_order_by_host_bridge_path_returns_to_cudf_when_available(self, monkeypatch):
         cudf = pytest.importorskip("cudf")
 
