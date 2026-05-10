@@ -8518,7 +8518,10 @@ def compile_cypher_query(
 
     # Re-bind after normalization so scope and semantic metadata reflect the
     # lowered query shape consumed by downstream lowering decisions.
-    bound_ir = FrontendBinder().bind(query, PlanContext())
+    # #1357: strict alias/name-resolution is now the runtime default for the
+    # post-normalize bind pass so alias-scope enforcement is centralized at
+    # binder time (validator/runtime parity).
+    bound_ir = FrontendBinder().bind(query, PlanContext(), strict_name_resolution=True)
     _bound_scope_stack = tuple(bound_ir.scope_stack)
     bound_context = _build_bound_lowering_context(bound_ir=bound_ir, params=params)
     params = bound_context.params

@@ -31,11 +31,18 @@ def test_cypher_frontend_binder_returns_bound_ir_placeholder() -> None:
     assert isinstance(bound, BoundIR)
 
 
-def _capture_binder_calls(monkeypatch: pytest.MonkeyPatch) -> List[Tuple[object, PlanContext]]:
-    calls: List[Tuple[object, PlanContext]] = []
+def _capture_binder_calls(monkeypatch: pytest.MonkeyPatch) -> List[Tuple[object, PlanContext, bool]]:
+    calls: List[Tuple[object, PlanContext, bool]] = []
 
-    def _fake_bind(self: FrontendBinder, ast: object, ctx: PlanContext) -> BoundIR:
-        calls.append((ast, ctx))
+    def _fake_bind(
+        self: FrontendBinder,
+        ast: object,
+        ctx: PlanContext,
+        *,
+        strict_name_resolution: bool = False,
+    ) -> BoundIR:
+        _ = self
+        calls.append((ast, ctx, strict_name_resolution))
         return BoundIR()
 
     monkeypatch.setattr(FrontendBinder, "bind", _fake_bind)
@@ -43,8 +50,14 @@ def _capture_binder_calls(monkeypatch: pytest.MonkeyPatch) -> List[Tuple[object,
 
 
 def _stub_bound_ir(monkeypatch: pytest.MonkeyPatch, bound_ir: BoundIR) -> None:
-    def _fake_bind(self: FrontendBinder, ast: object, ctx: PlanContext) -> BoundIR:
-        _ = (self, ast, ctx)
+    def _fake_bind(
+        self: FrontendBinder,
+        ast: object,
+        ctx: PlanContext,
+        *,
+        strict_name_resolution: bool = False,
+    ) -> BoundIR:
+        _ = (self, ast, ctx, strict_name_resolution)
         return bound_ir
 
     monkeypatch.setattr(FrontendBinder, "bind", _fake_bind)

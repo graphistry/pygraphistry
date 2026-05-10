@@ -1,40 +1,24 @@
-"""Regression-pin baselines for the future strict_name_resolution rollout (#1357).
+"""Runtime strict-name-resolution baselines for #1357.
 
-The post-normalize binder pass at ``lowering.py:8400`` runs in **loose**
-mode today. The eventual goal of #1357 is to flip it to
-``strict_name_resolution=True`` so alias-scope enforcement is centralized
-at the binder layer (validator parity). A discovery flip exposed 75 test
-failures across multiple binder-coverage gaps:
+``compile_cypher_query`` now binds the post-normalize AST with
+``strict_name_resolution=True``. This module pins representative behaviors
+that previously depended on loose-mode fallbacks:
 
-- quantifier predicates — ``all(x IN list WHERE …)``, ``any``, ``none``,
-  ``single``: comprehension-scoped ``x`` not modeled.
-- list comprehensions — same scope-modeling gap.
-- CALL/YIELD scope — YIELD aliases must survive the
-  prepass→normalize→bind cycle.
-
-This module pins the **current loose-mode behavior** at the
-``compile_cypher_query`` boundary for representative shapes from each
-gap. When a follow-up PR closes one of those gaps and is ready to flip
-strict mode, the corresponding test here should be updated to assert
-*rejection* instead of admit. The test names + docstrings act as
-regression detectors so the flip-readiness state is observable.
-
-See ``plans/1357-binder-strict-name-resolution/research/discovery-flip-blast-radius.md``.
+- comprehension-local aliases remain admitted after #1371 scope fixes
+- CALL/YIELD aliases survive prepass -> normalize -> bind
+- unresolved aliases fail at binder-time with structured E204 metadata
 """
 
 from __future__ import annotations
 
 import pytest
 
-from graphistry.compute.exceptions import GFQLValidationError
+from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.api import compile_cypher
-from graphistry.compute.gfql.cypher.parser import parse_cypher
-from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
-from graphistry.compute.gfql.ir.compilation import PlanContext
 
 
 # ---------------------------------------------------------------------------
-# Loose-mode admits (will flip to strict-rejection in a follow-up PR)
+# Strict runtime admits
 # ---------------------------------------------------------------------------
 
 
@@ -49,52 +33,40 @@ from graphistry.compute.gfql.ir.compilation import PlanContext
         "MATCH (n) WHERE single(x IN n.labels WHERE x = 'D') RETURN n",
     ],
 )
-def test_loose_mode_admits_quantifier_predicates(query: str) -> None:
-    """Loose binder admits quantifier predicates; strict rejects 'x'.
-    Future fix: bind comprehension-scoped locals before evaluating the
-    predicate body."""
-    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
-    assert "n" in bound.semantic_table.variables
+def test_runtime_strict_admits_quantifier_predicates(query: str) -> None:
+    compile_cypher(query)
 
 
-def test_loose_mode_admits_call_yield_then_return_yield_alias() -> None:
-    """``CALL graphistry.degree() YIELD nodeId RETURN nodeId`` — loose
-    binder admits; strict rejects because the prepass→normalize cycle does
-    not propagate YIELD aliases into the post-normalize bind scope. Future
-    fix: ensure YIELD aliases survive the cycle."""
+def test_runtime_strict_admits_call_yield_then_return_yield_alias() -> None:
     query = "CALL graphistry.degree() YIELD nodeId RETURN nodeId"
-    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
-    assert "nodeId" in bound.semantic_table.variables
+    compile_cypher(query)
+
+
+def test_runtime_strict_admits_map_literal_with_negative_hex_value() -> None:
+    # Strict unresolved-name checks should not treat `x...` in `0x...` literals
+    # as identifier references.
+    query = "RETURN {F: -0x162CD4F6} AS literal"
+    compile_cypher(query)
 
 
 # ---------------------------------------------------------------------------
-# Loose-mode admits caught by downstream guards (already rejected, but not
-# by the binder). These are the "what strict would catch but downstream
-# already does" baselines — strict flip would *move* the rejection site.
+# Strict runtime rejects unresolved aliases at binder time
 # ---------------------------------------------------------------------------
 
 
-def test_compile_rejects_unresolved_return_alias_via_projection_planner() -> None:
-    """``MATCH (a) RETURN ghost`` — currently rejected by
-    projection_planning E108 ("Unknown Cypher alias 'ghost' in RETURN
-    clause"). Strict binder would reject earlier with E204. The intent
-    (reject unresolved alias in RETURN) is preserved either way."""
+def test_compile_rejects_unresolved_return_alias_via_strict_binder() -> None:
     query = "MATCH (a) RETURN ghost"
     with pytest.raises(GFQLValidationError) as exc_info:
         compile_cypher(query)
-    # Pin the alias appears in the error context (stable across either
-    # rejection site). Drop loose substring matching so a future strict
-    # flip moving the rejection from E108→E204 stays observable.
+    assert exc_info.value.code == ErrorCode.E204
+    assert exc_info.value.context.get("field") == "identifier"
     assert exc_info.value.context.get("value") == "ghost"
 
 
-def test_compile_rejects_unresolved_where_alias_via_where_evaluator() -> None:
-    """``MATCH (a) WHERE ghost.foo = 1 RETURN a`` — rejected by the WHERE
-    evaluator E108 when reaching the literal-where path. Strict binder
-    would reject earlier with E204."""
+def test_compile_rejects_unresolved_where_alias_via_strict_binder() -> None:
     query = "MATCH (a) WHERE ghost.foo = 1 RETURN a"
     with pytest.raises(GFQLValidationError) as exc_info:
         compile_cypher(query)
-    # Either field is acceptable depending on rejection site.
-    err_str = str(exc_info.value)
-    assert "ghost" in err_str
+    assert exc_info.value.code == ErrorCode.E204
+    assert exc_info.value.context.get("field") == "identifier"
+    assert exc_info.value.context.get("value") == "ghost"
