@@ -1069,7 +1069,7 @@ class TestRowPipelineExecution:
             pytest.param(
                 {"id": ["a"]},
                 [("eq_nested", "[1, {'k': [2, null]}] = [1, {'k': [2, null]}]")],
-                [{"eq_nested": True}],
+                [{"eq_nested": None}],
                 id="nested-json-like-literal",
             ),
             pytest.param(
@@ -1749,6 +1749,256 @@ class TestRowPipelineExecution:
 
         assert type(result._nodes).__module__.startswith("cudf")
         assert _safe_df_records(result._nodes) == [{"id": "d"}, {"id": "b"}, {"id": "a"}]
+
+    def test_row_pipeline_order_by_stringified_nested_map_list_column_on_cudf_when_available(self):
+        cudf = pytest.importorskip("cudf")
+
+        nodes_pd = pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d"],
+                "list": [
+                    "[{'k': [2]}]",
+                    "[{'k': [1]}]",
+                    "[{'k': [1]}, {'k': [0]}]",
+                    "[{'k': [1]}, {'k': [2]}]",
+                ],
+            }
+        )
+        edges_pd = _self_loop_edges(nodes_pd)
+        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+
+        result = g.gfql([rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])])
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert _safe_df_records(result._nodes) == [{"id": "b"}, {"id": "c"}, {"id": "d"}]
+
+    def test_row_pipeline_order_by_stringified_nested_map_list_column_on_pandas(self):
+        nodes_pd = pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d"],
+                "list": [
+                    "[{'k': [2]}]",
+                    "[{'k': [1]}]",
+                    "[{'k': [1]}, {'k': [0]}]",
+                    "[{'k': [1]}, {'k': [2]}]",
+                ],
+            }
+        )
+        result = _run_node_steps(
+            nodes_pd,
+            [rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])],
+            edges_df=_self_loop_edges(nodes_pd),
+        )
+        assert result.to_dict(orient="records") == [{"id": "b"}, {"id": "c"}, {"id": "d"}]
+
+    def test_row_pipeline_order_by_raw_nested_map_list_column_on_pandas(self):
+        nodes_pd = pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d"],
+                "list": [
+                    [{"k": [2]}],
+                    [{"k": [1]}],
+                    [{"k": [1]}, {"k": [0]}],
+                    [{"k": [1]}, {"k": [2]}],
+                ],
+            }
+        )
+        result = _run_node_steps(
+            nodes_pd,
+            [rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])],
+            edges_df=_self_loop_edges(nodes_pd),
+        )
+        assert result.to_dict(orient="records") == [{"id": "b"}, {"id": "c"}, {"id": "d"}]
+
+    @pytest.mark.parametrize(
+        ("list_values", "expected_ids"),
+        [
+            pytest.param(
+                [
+                    [{"k": [None]}],
+                    [{"k": [False]}],
+                    [{"k": [True]}],
+                    [{"k": [True, None]}],
+                    [{"k": [True, True]}],
+                ],
+                ["b", "a", "d"],
+                id="raw-nullable-bool-nested",
+            ),
+            pytest.param(
+                [
+                    [{"k": [[]]}],
+                    [{"k": [[0]]}],
+                    [{"k": [[1]]}],
+                    [{"k": [[1, 0]]}],
+                    [{"k": [[1, 1]]}],
+                ],
+                ["b", "d", "e"],
+                id="raw-empty-and-nested-list",
+            ),
+        ],
+    )
+    def test_row_pipeline_order_by_raw_nested_map_list_non_primitive_variants_on_pandas(
+        self, list_values, expected_ids
+    ):
+        ids = [chr(ord("a") + i) for i in range(len(list_values))]
+        nodes_pd = pd.DataFrame({"id": ids, "list": list_values})
+        result = _run_node_steps(
+            nodes_pd,
+            [rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])],
+            edges_df=_self_loop_edges(nodes_pd),
+        )
+        assert result["id"].tolist() == expected_ids
+
+    @pytest.mark.parametrize(
+        ("list_values", "expected_ids"),
+        [
+            pytest.param(
+                [
+                    "[{'k': [None]}]",
+                    "[{'k': [False]}]",
+                    "[{'k': [True]}]",
+                    "[{'k': [True, None]}]",
+                    "[{'k': [True, True]}]",
+                ],
+                ["b", "a", "d"],
+                id="stringified-nullable-bool-nested",
+            ),
+            pytest.param(
+                [
+                    "[{'k': [[]]}]",
+                    "[{'k': [[0]]}]",
+                    "[{'k': [[1]]}]",
+                    "[{'k': [[1, 0]]}]",
+                    "[{'k': [[1, 1]]}]",
+                ],
+                ["b", "d", "e"],
+                id="stringified-empty-and-nested-list",
+            ),
+        ],
+    )
+    def test_row_pipeline_order_by_stringified_nested_map_list_non_primitive_variants_on_pandas(
+        self, list_values, expected_ids
+    ):
+        ids = [chr(ord("a") + i) for i in range(len(list_values))]
+        nodes_pd = pd.DataFrame({"id": ids, "list": list_values})
+        result = _run_node_steps(
+            nodes_pd,
+            [rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])],
+            edges_df=_self_loop_edges(nodes_pd),
+        )
+        assert result["id"].tolist() == expected_ids
+
+    def test_row_pipeline_order_by_raw_nested_map_list_column_on_cudf_when_available(self):
+        cudf = pytest.importorskip("cudf")
+
+        nodes_pd = pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d"],
+                "list": [
+                    [{"k": [2]}],
+                    [{"k": [1]}],
+                    [{"k": [1]}, {"k": [0]}],
+                    [{"k": [1]}, {"k": [2]}],
+                ],
+            }
+        )
+        edges_pd = _self_loop_edges(nodes_pd)
+        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+
+        result = g.gfql([rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])])
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert _safe_df_records(result._nodes) == [{"id": "b"}, {"id": "c"}, {"id": "d"}]
+
+    @pytest.mark.parametrize(
+        "list_values",
+        [
+            pytest.param(
+                [
+                    [{"k": [None]}],
+                    [{"k": [False]}],
+                    [{"k": [True]}],
+                    [{"k": [True, None]}],
+                    [{"k": [True, True]}],
+                ],
+                id="nullable-bool-nested",
+            ),
+            pytest.param(
+                [
+                    [{"k": [[]]}],
+                    [{"k": [[0]]}],
+                    [{"k": [[1]]}],
+                    [{"k": [[1, 0]]}],
+                    [{"k": [[1, 1]]}],
+                ],
+                id="empty-and-nested-list",
+            ),
+        ],
+    )
+    def test_row_pipeline_order_by_raw_nested_map_list_parity_pandas_vs_cudf_when_available(self, list_values):
+        cudf = pytest.importorskip("cudf")
+
+        ids = [chr(ord("a") + i) for i in range(len(list_values))]
+        nodes_pd = pd.DataFrame({"id": ids, "list": list_values})
+        edges_pd = _self_loop_edges(nodes_pd)
+
+        pandas_result = _run_node_steps(
+            nodes_pd,
+            [rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])],
+            edges_df=edges_pd,
+        )
+        pandas_ids = pandas_result["id"].tolist()
+
+        g_cudf = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+        cudf_result = g_cudf.gfql([rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])])
+        cudf_ids = _safe_series_to_list(cudf_result._nodes["id"])
+
+        assert cudf_ids == pandas_ids
+
+    @pytest.mark.parametrize(
+        "list_values",
+        [
+            pytest.param(
+                [
+                    "[{'k': [None]}]",
+                    "[{'k': [False]}]",
+                    "[{'k': [True]}]",
+                    "[{'k': [True, None]}]",
+                    "[{'k': [True, True]}]",
+                ],
+                id="stringified-nullable-bool-nested",
+            ),
+            pytest.param(
+                [
+                    "[{'k': [[]]}]",
+                    "[{'k': [[0]]}]",
+                    "[{'k': [[1]]}]",
+                    "[{'k': [[1, 0]]}]",
+                    "[{'k': [[1, 1]]}]",
+                ],
+                id="stringified-empty-and-nested-list",
+            ),
+        ],
+    )
+    def test_row_pipeline_order_by_stringified_nested_map_list_parity_pandas_vs_cudf_when_available(self, list_values):
+        cudf = pytest.importorskip("cudf")
+
+        ids = [chr(ord("a") + i) for i in range(len(list_values))]
+        nodes_pd = pd.DataFrame({"id": ids, "list": list_values})
+        edges_pd = _self_loop_edges(nodes_pd)
+
+        pandas_result = _run_node_steps(
+            nodes_pd,
+            [rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])],
+            edges_df=edges_pd,
+        )
+        pandas_ids = pandas_result["id"].tolist()
+
+        g_cudf = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+        cudf_result = g_cudf.gfql([rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])])
+        cudf_ids = _safe_series_to_list(cudf_result._nodes["id"])
+
+        assert cudf_ids == pandas_ids
 
     def test_row_pipeline_cudf_list_scalar_concat_when_available(self):
         cudf = pytest.importorskip("cudf")
