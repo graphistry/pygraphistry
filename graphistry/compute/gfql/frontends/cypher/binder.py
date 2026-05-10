@@ -1452,6 +1452,8 @@ def _unresolved_identifiers(*, text: str, scope: Mapping[str, BoundVariable]) ->
 
         if prev_char in {"$", ".", ":"}:
             continue
+        if _is_numeric_base_literal_fragment(text=text, token=token, token_start=start):
+            continue
         # Scientific notation exponent markers inside numeric literals (for
         # example `.1e-5`) are not identifiers.
         if token in {"e", "E"} and (prev_char.isdigit() or prev_char == ".") and (next_char.isdigit() or next_char in {"+", "-"}):
@@ -1473,6 +1475,26 @@ def _unresolved_identifiers(*, text: str, scope: Mapping[str, BoundVariable]) ->
             unresolved.add(token)
 
     return unresolved
+
+
+def _is_numeric_base_literal_fragment(*, text: str, token: str, token_start: int) -> bool:
+    """Return True when token belongs to a `0x`/`0o`/`0b` literal fragment."""
+    if not token:
+        return False
+    if token_start <= 0 or text[token_start - 1] != "0":
+        return False
+
+    marker = token[0].lower()
+    if marker == "x":
+        body = token[1:]
+        return bool(body) and all(ch.isdigit() or "a" <= ch.lower() <= "f" for ch in body)
+    if marker == "o":
+        body = token[1:]
+        return bool(body) and all(ch in "01234567" for ch in body)
+    if marker == "b":
+        body = token[1:]
+        return bool(body) and all(ch in "01" for ch in body)
+    return False
 
 
 def _string_literal_spans(text: str) -> List[Tuple[int, int]]:

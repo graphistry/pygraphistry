@@ -42,6 +42,13 @@ def test_runtime_strict_admits_call_yield_then_return_yield_alias() -> None:
     compile_cypher(query)
 
 
+def test_runtime_strict_admits_map_literal_with_negative_hex_value() -> None:
+    # Strict unresolved-name checks should not treat `x...` in `0x...` literals
+    # as identifier references.
+    query = "RETURN {F: -0x162CD4F6} AS literal"
+    compile_cypher(query)
+
+
 # ---------------------------------------------------------------------------
 # Strict runtime rejects unresolved aliases at binder time
 # ---------------------------------------------------------------------------
