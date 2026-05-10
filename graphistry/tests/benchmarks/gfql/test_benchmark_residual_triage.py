@@ -147,12 +147,32 @@ def test_bucket_classification() -> None:
         adapter_overhead_latency_ms=2.0,
         rows_returned=20,
     )
+    lane_employment = cast(Any, ResidualLane)(
+        run_dir=Path("/tmp/run3"),
+        run_dir_name="run3",
+        probe_path=Path("/tmp/run3/probe-results.json"),
+        config_path=None,
+        remote_command=None,
+        backend="gfql",
+        status="partial",
+        issue_refs=("graphistry/pygraphistry#880",),
+        suite="snb-interactive",
+        upstream_query="interactive-complex-11",
+        query_id="job-referral",
+        semantic_scope="adapter_join_workaround",
+        notes=("Adapter workaround resolves employment company row joins locally.",),
+        latency_ms=3.0,
+        adapter_overhead_latency_ms=3.0,
+        rows_returned=30,
+    )
 
-    buckets = bucket_residuals([lane_join, lane_ancestor])
+    buckets = bucket_residuals([lane_join, lane_ancestor, lane_employment])
     assert "joined_row_aggregation" in buckets
     assert "recursive_ancestor_row_join" in buckets
+    assert "employment_company_row_join" in buckets
     assert buckets["joined_row_aggregation"][0].query_id == "new-topics"
     assert buckets["recursive_ancestor_row_join"][0].query_id == "message-forum"
+    assert buckets["employment_company_row_join"][0].query_id == "job-referral"
 
 
 def test_render_markdown_report_contains_evidence_blocks() -> None:
