@@ -17,8 +17,12 @@ from graphistry.compute.gfql.row.order_expr import (
     order_expr_ast_static_supported,
 )
 from graphistry.compute.gfql.language_defs import (
+    GFQL_COMPARISON_BINARY_OP_NAMES,
     GFQL_COMPARISON_BINARY_OPS,
     GFQL_GROUPBY_AGG_METHODS,
+    GFQL_EQUALITY_COMPARISON_BINARY_OPS,
+    GFQL_INEQUALITY_EQUALITY_COMPARISON_BINARY_OPS,
+    GFQL_ORDERED_COMPARISON_BINARY_OPS,
 )
 from graphistry.compute.gfql.row.dispatch import (
     apply_string_predicate_scalar,
@@ -289,11 +293,11 @@ class RowPipelineMixin:
             isinstance(right, dict)
             or (hasattr(right, "astype") and RowPipelineMixin._gfql_series_is_mapping_like(right))
         )
-        if op in {"=", "!=", "<>", "<", "<=", ">", ">="} and (left_is_list or right_is_list):
+        if op in GFQL_COMPARISON_BINARY_OP_NAMES and (left_is_list or right_is_list):
             list_cmp = self._gfql_eval_list_comparison_op(table_df, left, right, op)
             if list_cmp is not None:
                 return list_cmp
-        if op in {"=", "!=", "<>"} and (left_is_map or right_is_map):
+        if op in GFQL_EQUALITY_COMPARISON_BINARY_OPS and (left_is_map or right_is_map):
             map_cmp = self._gfql_eval_map_comparison_op(table_df, left, right, op)
             if map_cmp is not None:
                 return map_cmp
@@ -414,7 +418,7 @@ class RowPipelineMixin:
         right_value: Any,
         op: str,
     ) -> Optional[Any]:
-        if op not in {"=", "!=", "<>"}:
+        if op not in GFQL_EQUALITY_COMPARISON_BINARY_OPS:
             return None
 
         left_structural = (
@@ -450,10 +454,10 @@ class RowPipelineMixin:
             eq_out = RowPipelineMixin._gfql_nullable_structural_equal(left_item, right_item)
             if eq_out is None:
                 out_values.append(pd.NA)
-            elif op == "=":
-                out_values.append(bool(eq_out))
-            else:
+            if op in GFQL_INEQUALITY_EQUALITY_COMPARISON_BINARY_OPS:
                 out_values.append(not bool(eq_out))
+            else:
+                out_values.append(bool(eq_out))
 
         left_index = getattr(left_series, "index", None)
         right_index = getattr(right_series, "index", None)
@@ -476,7 +480,7 @@ class RowPipelineMixin:
         right_value: Any,
         op: str,
     ) -> Optional[Any]:
-        if op not in {"=", "!=", "<>", "<", "<=", ">", ">="}:
+        if op not in GFQL_COMPARISON_BINARY_OP_NAMES:
             return None
 
         left_series = left_value if hasattr(left_value, "astype") else self._gfql_broadcast_scalar(table_df, left_value)
@@ -535,7 +539,7 @@ class RowPipelineMixin:
 
         if op == "=":
             out = eq_out
-        elif op in {"!=", "<>"}:
+        elif op in GFQL_INEQUALITY_EQUALITY_COMPARISON_BINARY_OPS:
             out = ~eq_out
         elif op == "<":
             out = lt_out
@@ -565,13 +569,13 @@ class RowPipelineMixin:
         if not RowPipelineMixin._gfql_series_is_list_like(right_series):
             return None
 
-        if op in {"=", "!=", "<>"}:
+        if op in GFQL_EQUALITY_COMPARISON_BINARY_OPS:
             left_values = self._gfql_series_to_pylist(left_series)
             right_values = self._gfql_series_to_pylist(right_series)
             out_values: List[Any] = []
             for left_item, right_item in zip(left_values, right_values):
                 is_equal = RowPipelineMixin._gfql_cypher_value_equal(left_item, right_item)
-                if op in {"!=", "<>"}:
+                if op in GFQL_INEQUALITY_EQUALITY_COMPARISON_BINARY_OPS:
                     if is_equal is None:
                         out_values.append(None)
                     else:
@@ -581,7 +585,7 @@ class RowPipelineMixin:
             out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_list_cmp_eq__")
             return table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col]
 
-        if op in {"<", "<=", ">", ">="}:
+        if op in GFQL_ORDERED_COMPARISON_BINARY_OPS:
             left_values = self._gfql_series_to_pylist(left_series)
             right_values = self._gfql_series_to_pylist(right_series)
             ordered_out_values: List[Optional[bool]] = []
@@ -685,7 +689,7 @@ class RowPipelineMixin:
         out = out.where(~unknown_equal, pd.NA)
         out = out.where(~known_equal, True)
         out = out.where(~null_mask, pd.NA)
-        if op in {"!=", "<>"}:
+        if op in GFQL_INEQUALITY_EQUALITY_COMPARISON_BINARY_OPS:
             out = (~out.astype("boolean")).where(~out.isna(), pd.NA)
         return out.reset_index(drop=True)
 
