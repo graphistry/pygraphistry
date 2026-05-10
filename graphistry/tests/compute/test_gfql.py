@@ -433,20 +433,48 @@ class TestGFQL:
         assert result._nodes.to_dict(orient="records") == expected
 
     @pytest.mark.parametrize(
-        "query",
+        ("query", "expected"),
         [
-            "RETURN [[1], [2]] = [[1], [null]] AS result",
-            "RETURN {k: null} = {k: null} AS result",
-            "RETURN {k: 1} = {k: null} AS result",
-            "RETURN {k: 1, l: null} = {k: null, l: null} AS result",
-            "RETURN {k: 1, l: null} = {k: null, l: 1} AS result",
-            "RETURN {k: 1, l: null} = {k: 1, l: 1} AS result",
+            ("RETURN [[1], [2]] = [[1], [null]] AS result", None),
+            ("RETURN {k: null} = {k: null} AS result", None),
+            ("RETURN {k: 1} = {k: null} AS result", None),
+            ("RETURN {k: 1, l: null} = {k: null, l: null} AS result", None),
+            ("RETURN {k: 1, l: null} = {k: null, l: 1} AS result", None),
+            ("RETURN {k: 1, l: null} = {k: 1, l: 1} AS result", None),
+            ("RETURN [{k: [1, 2]}, {k: [2]}] = [{k: [1, 2]}, {k: [2]}] AS result", True),
+            ("RETURN [{k: [1, 2]}, {k: [2]}] = [{k: [1, 3]}, {k: [2]}] AS result", False),
+            ("RETURN [{k: [1, null]}] = [{k: [1, null]}] AS result", None),
+            ("RETURN [{k: [true, false]}] = [{k: [true, false]}] AS result", True),
+            ("RETURN [{k: [true, false]}] = [{k: [true, true]}] AS result", False),
+            ("RETURN [{k: [1, null]}] <> [{k: [1, null]}] AS result", None),
         ],
     )
-    def test_gfql_executes_cypher_structural_null_equality_queries_on_cudf(self, query):
+    def test_gfql_executes_cypher_structural_equality_queries_on_pandas(self, query, expected):
+        g = _mk_graph(ids=["a"], types=["person"], src=[], dst=[])
+        result = g.gfql(query)
+        assert result._nodes.to_dict(orient="records") == [{"result": expected}]
+
+    @pytest.mark.parametrize(
+        ("query", "expected"),
+        [
+            ("RETURN [[1], [2]] = [[1], [null]] AS result", None),
+            ("RETURN {k: null} = {k: null} AS result", None),
+            ("RETURN {k: 1} = {k: null} AS result", None),
+            ("RETURN {k: 1, l: null} = {k: null, l: null} AS result", None),
+            ("RETURN {k: 1, l: null} = {k: null, l: 1} AS result", None),
+            ("RETURN {k: 1, l: null} = {k: 1, l: 1} AS result", None),
+            ("RETURN [{k: [1, 2]}, {k: [2]}] = [{k: [1, 2]}, {k: [2]}] AS result", True),
+            ("RETURN [{k: [1, 2]}, {k: [2]}] = [{k: [1, 3]}, {k: [2]}] AS result", False),
+            ("RETURN [{k: [1, null]}] = [{k: [1, null]}] AS result", None),
+            ("RETURN [{k: [true, false]}] = [{k: [true, false]}] AS result", True),
+            ("RETURN [{k: [true, false]}] = [{k: [true, true]}] AS result", False),
+            ("RETURN [{k: [1, null]}] <> [{k: [1, null]}] AS result", None),
+        ],
+    )
+    def test_gfql_executes_cypher_structural_equality_queries_on_cudf(self, query, expected):
         g = _mk_cudf_graph(ids=["a"], types=["person"], src=[], dst=[])
         result = g.gfql(query, engine="cudf")
-        assert result._nodes.to_pandas().to_dict(orient="records") == [{"result": None}]
+        assert result._nodes.to_pandas().to_dict(orient="records") == [{"result": expected}]
     
     def test_gfql_deprecation_and_migration(self):
         """Test deprecation warnings and migration path"""

@@ -116,6 +116,15 @@ def _gfql_bridge_cudf_df_to_pandas(work_df: Any) -> Any:
     return work_df.to_pandas()
 
 
+def _gfql_cudf_list_sort_series_requires_host_bridge(series: Any) -> bool:
+    """Detect cuDF list-series shapes that cannot participate in tokenization on GPU."""
+    try:
+        series.astype(str)
+        return False
+    except Exception:
+        return True
+
+
 ROW_PIPELINE_CALLS = frozenset(
     {
         "rows",
@@ -4156,7 +4165,10 @@ class RowPipelineMixin:
             if list_candidate:
                 if (
                     resolve_engine(EngineAbstract.AUTO, work_df) == Engine.CUDF
-                    and _gfql_cudf_list_sort_requires_host_bridge()
+                    and (
+                        _gfql_cudf_list_sort_requires_host_bridge()
+                        or _gfql_cudf_list_sort_series_requires_host_bridge(series)
+                    )
                 ):
                     work_df = _gfql_bridge_cudf_df_to_pandas(work_df)
                     series = work_df[sort_col]

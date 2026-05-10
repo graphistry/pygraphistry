@@ -1750,6 +1750,47 @@ class TestRowPipelineExecution:
         assert type(result._nodes).__module__.startswith("cudf")
         assert _safe_df_records(result._nodes) == [{"id": "d"}, {"id": "b"}, {"id": "a"}]
 
+    def test_row_pipeline_order_by_stringified_nested_map_list_column_on_cudf_when_available(self):
+        cudf = pytest.importorskip("cudf")
+
+        nodes_pd = pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d"],
+                "list": [
+                    "[{'k': [2]}]",
+                    "[{'k': [1]}]",
+                    "[{'k': [1]}, {'k': [0]}]",
+                    "[{'k': [1]}, {'k': [2]}]",
+                ],
+            }
+        )
+        edges_pd = _self_loop_edges(nodes_pd)
+        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+
+        result = g.gfql([rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])])
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert _safe_df_records(result._nodes) == [{"id": "b"}, {"id": "c"}, {"id": "d"}]
+
+    def test_row_pipeline_order_by_stringified_nested_map_list_column_on_pandas(self):
+        nodes_pd = pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d"],
+                "list": [
+                    "[{'k': [2]}]",
+                    "[{'k': [1]}]",
+                    "[{'k': [1]}, {'k': [0]}]",
+                    "[{'k': [1]}, {'k': [2]}]",
+                ],
+            }
+        )
+        result = _run_node_steps(
+            nodes_pd,
+            [rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])],
+            edges_df=_self_loop_edges(nodes_pd),
+        )
+        assert result.to_dict(orient="records") == [{"id": "b"}, {"id": "c"}, {"id": "d"}]
+
     def test_row_pipeline_cudf_list_scalar_concat_when_available(self):
         cudf = pytest.importorskip("cudf")
 
