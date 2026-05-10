@@ -331,10 +331,7 @@ class RowPipelineMixin:
         """Cypher null semantics treat NaN as a value, not null."""
         if not is_null_scalar(value):
             return False
-        try:
-            return not (isinstance(value, numbers.Number) and math.isnan(float(value)))
-        except Exception:
-            return True
+        return not (isinstance(value, float) and math.isnan(value))
 
     @staticmethod
     def _gfql_cypher_value_equal(left_value: Any, right_value: Any) -> Optional[bool]:
@@ -2289,13 +2286,10 @@ class RowPipelineMixin:
         engine = resolve_engine(EngineAbstract.AUTO, table_df)
 
         # cuDF treats NaN as null by default; preserve NaN for Cypher parity.
-        try:
-            is_nan_number = isinstance(value, numbers.Number) and math.isnan(float(value))
-        except Exception:
-            is_nan_number = False
+        is_nan_number = isinstance(value, float) and math.isnan(value)
         if engine == Engine.CUDF and is_nan_number:
-            repeated = [float("nan") for _ in range(len(table_df))]
-            out = s_cons(Engine.CUDF)(repeated, nan_as_null=False)
+            repeated_nan = [float("nan") for _ in range(len(table_df))]
+            out = s_cons(Engine.CUDF)(repeated_nan, nan_as_null=False)
             if hasattr(out, "name"):
                 out.name = tmp_col
             return out
@@ -2303,12 +2297,12 @@ class RowPipelineMixin:
         # Treat list/map literals as scalar row values by explicit broadcasting.
         # Plain `assign(col=[...])` interprets list values as column vectors.
         if isinstance(value, (list, tuple, dict)):
-            repeated = [value for _ in range(len(table_df))]
+            repeated_obj = [value for _ in range(len(table_df))]
             try:
-                return table_df.assign(**{tmp_col: repeated})[tmp_col]
+                return table_df.assign(**{tmp_col: repeated_obj})[tmp_col]
             except Exception:
                 if engine == Engine.CUDF:
-                    out = s_cons(Engine.CUDF)(repeated)
+                    out = s_cons(Engine.CUDF)(repeated_obj)
                     if hasattr(out, "name"):
                         out.name = tmp_col
                     return out
