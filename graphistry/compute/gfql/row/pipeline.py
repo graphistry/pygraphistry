@@ -327,9 +327,19 @@ class RowPipelineMixin:
         return out
 
     @staticmethod
+    def _gfql_is_cypher_null_scalar(value: Any) -> bool:
+        """Cypher null semantics treat NaN as a value, not null."""
+        if not is_null_scalar(value):
+            return False
+        try:
+            return not (isinstance(value, numbers.Number) and math.isnan(float(value)))
+        except Exception:
+            return True
+
+    @staticmethod
     def _gfql_cypher_value_equal(left_value: Any, right_value: Any) -> Optional[bool]:
         """Cypher equality with three-valued null propagation for list/map values."""
-        if is_null_scalar(left_value) or is_null_scalar(right_value):
+        if RowPipelineMixin._gfql_is_cypher_null_scalar(left_value) or RowPipelineMixin._gfql_is_cypher_null_scalar(right_value):
             return None
 
         if isinstance(left_value, tuple):

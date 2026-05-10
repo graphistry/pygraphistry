@@ -12035,6 +12035,36 @@ def test_gfql_executes_top_level_membership_nested_null_propagates_unknown() -> 
     )
 
 
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+def test_gfql_executes_top_level_list_map_nan_comparisons_on_engines(engine: str | None) -> None:
+    if engine == "cudf":
+        _require_cudf_runtime()
+
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "WITH (0.0 / 0.0) AS z "
+        "RETURN "
+        "[z] = [z] AS list_eq, "
+        "[z] <> [z] AS list_neq, "
+        "[z] IN [[z]] AS list_in, "
+        "{k: z} = {k: z} AS map_eq, "
+        "{k: z} <> {k: z} AS map_neq",
+        **({"engine": engine} if engine is not None else {}),
+    )
+
+    rows = result._nodes.to_pandas().to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
+    assert rows == [
+        {
+            "list_eq": False,
+            "list_neq": True,
+            "list_in": False,
+            "map_eq": False,
+            "map_neq": True,
+        }
+    ]
+
+
 def test_gfql_executes_size_null_and_sqrt_constant_expressions() -> None:
     _assert_query_rows(
         "WITH null AS l RETURN size(l) AS size_l, size(null) AS size_null, sqrt(12.96) AS root",
