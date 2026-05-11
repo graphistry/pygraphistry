@@ -889,7 +889,12 @@ class TestChainBindingsTable(NoAuthTestCase):
                 [
                     {"id": "c1", "labels": ["Comment"], "label__Comment": True},
                     {"id": "m1", "labels": ["Message"], "label__Message": True},
-                    {"id": "p1", "labels": ["Post"], "label__Post": True},
+                    {
+                        "id": "p1",
+                        "labels": ["Message", "Post"],
+                        "label__Message": True,
+                        "label__Post": True,
+                    },
                     {"id": "f1", "labels": ["Forum"], "label__Forum": True, "title": "Forum"},
                     {
                         "id": "u1",
@@ -922,9 +927,11 @@ class TestChainBindingsTable(NoAuthTestCase):
             pd.DataFrame({"s": [], "d": []}),
         )
 
-    def _forum_moderator_match_ops(self, reply_edge):
+    def _forum_moderator_match_ops(self, reply_edge, message_predicate=None):
+        if message_predicate is None:
+            message_predicate = {"id": "c1", "label__Comment": True}
         return [
-            n({"id": "c1", "label__Comment": True}, name="message"),
+            n(message_predicate, name="message"),
             reply_edge,
             n({"label__Post": True}, name="post"),
             e_reverse({"type": "CONTAINER_OF"}),
@@ -1604,6 +1611,31 @@ class TestChainBindingsTable(NoAuthTestCase):
             ),
             items=[("forumId", "forum.id"), ("moderatorId", "moderator.id")],
             expected=[{"forumId": "f1", "moderatorId": "u1"}],
+        )
+
+    def test_direct_rows_binding_ops_supports_zero_hop_post_ancestor_join(self):
+        """IS6 post inputs should bind the post ancestor via the zero-hop arm."""
+        g = self._mk_forum_moderator_graph()
+        self._assert_rows_binding_parity(
+            g,
+            self._forum_moderator_match_ops(
+                e_forward({"type": "REPLY_OF"}, min_hops=0, to_fixed_point=True),
+                message_predicate={"id": "p1", "label__Message": True},
+            ),
+            items=[
+                ("messageId", "message.id"),
+                ("postId", "post.id"),
+                ("forumId", "forum.id"),
+                ("moderatorId", "moderator.id"),
+            ],
+            expected=[
+                {
+                    "messageId": "p1",
+                    "postId": "p1",
+                    "forumId": "f1",
+                    "moderatorId": "u1",
+                }
+            ],
         )
 
     def test_direct_rows_binding_ops_supports_open_range_multihop_continuation_on_cudf(self):
