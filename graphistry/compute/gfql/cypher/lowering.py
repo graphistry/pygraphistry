@@ -592,16 +592,23 @@ def _rewrite_label_predicate_expr(
 
 
 def _rewrite_chained_comparison_expr(expr_text: str) -> str:
-    match = _CYPHER_CHAINED_COMPARISON_RE.fullmatch(expr_text)
-    if match is None:
-        return expr_text
-    left = match.group("left").strip()
-    middle = match.group("middle").strip()
-    right = match.group("right").strip()
-    if any(token in segment.upper() for token in {" AND", " OR", " XOR"} for segment in (left, middle, right)):
-        return expr_text
-    return f"({left} {match.group('op1')} {middle}) AND ({middle} {match.group('op2')} {right})"
+    def _rewrite_match_text(text: str) -> str:
+        match = _CYPHER_CHAINED_COMPARISON_RE.fullmatch(text)
+        if match is None:
+            return text
+        left = match.group("left").strip()
+        middle = match.group("middle").strip()
+        right = match.group("right").strip()
+        if any(token in segment.upper() for token in {" AND", " OR", " XOR"} for segment in (left, middle, right)):
+            return text
+        return f"({left} {match.group('op1')} {middle}) AND ({middle} {match.group('op2')} {right})"
 
+    def _replace_case_condition(match: re.Match[str]) -> str:
+        condition = match.group("condition")
+        return match.group(0) if (rewritten_condition := _rewrite_match_text(condition)) == condition else f"{match.group('prefix')}{rewritten_condition}{match.group('suffix')}"
+
+    case_rewritten = _rewrite_unquoted_expr_segments(expr_text, rewrite=lambda segment: re.sub(r"(?P<prefix>\bWHEN\s+)(?P<condition>.*?)(?P<suffix>\s+THEN\b)", _replace_case_condition, segment, flags=re.IGNORECASE | re.DOTALL))
+    return case_rewritten if case_rewritten != expr_text or expr_text.lstrip().upper().startswith("CASE ") else _rewrite_match_text(expr_text)
 
 def _unsupported(message: str, *, field: str, value: Any, line: int, column: int) -> GFQLValidationError:
     return GFQLValidationError(

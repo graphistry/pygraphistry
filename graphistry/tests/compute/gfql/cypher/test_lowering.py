@@ -3273,6 +3273,45 @@ def test_string_cypher_supports_generic_match_where_chained_comparison() -> None
     assert result._nodes.to_dict(orient="records") == []
 
 
+def test_issue_1413_searched_case_rewrites_multiple_chained_when_arms() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"], "score": [5, 15, 25]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) RETURN n.id AS id, "
+        "CASE WHEN 0 <= n.score < 10 THEN 'low' "
+        "WHEN 10 <= n.score < 20 THEN 'mid' "
+        "ELSE 'high' END AS bucket ORDER BY id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": "a", "bucket": "low"},
+        {"id": "b", "bucket": "mid"},
+        {"id": "c", "bucket": "high"},
+    ]
+
+
+def test_issue_1413_searched_case_preserves_unrelated_comparisons() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"], "score": [-1, 5, 15]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) RETURN n.id AS id, "
+        "CASE WHEN n.score > 0 THEN n.score < 10 ELSE false END AS inRange "
+        "ORDER BY id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": "a", "inRange": False},
+        {"id": "b", "inRange": True},
+        {"id": "c", "inRange": False},
+    ]
+
+
 def test_string_cypher_supports_distinct_with_aggregate_grouping() -> None:
     graph = _mk_graph(
         pd.DataFrame(
@@ -13201,6 +13240,49 @@ def test_string_cypher_multi_alias_with_three_stage_case_aggregation() -> None:
     # TagB: post3(valid=1, inValid=0) → postCount=1, inValidPostCount=0 → kept
     assert len(records) >= 1
     assert all(r["postCount"] > 0 for r in records)
+
+
+def test_issue_1413_ic4_new_topics_exact_ldbc_reference_query() -> None:
+    """IC-4 new-topics exact LDBC reference shape: joined rows + CASE aggregation (#1413, #880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $personId})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, "
+        "CASE WHEN $startDate <= post.creationDate < $endDate THEN 1 ELSE 0 END AS valid, "
+        "CASE WHEN post.creationDate < $startDate THEN 1 ELSE 0 END AS inValid "
+        "WITH tag, sum(valid) AS postCount, sum(inValid) AS inValidPostCount "
+        "WHERE postCount>0 AND inValidPostCount=0 "
+        "RETURN tag.name AS tagName, postCount "
+        "ORDER BY postCount DESC, tagName ASC "
+        "LIMIT 10",
+        params={"personId": "p1", "startDate": 150, "endDate": 350},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tagName": "TagB", "postCount": 1},
+    ]
+
+
+def test_issue_1413_ic4_new_topics_multiple_chained_case_flags() -> None:
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $personId})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, "
+        "CASE WHEN $startDate <= post.creationDate < $endDate THEN 1 ELSE 0 END AS valid, "
+        "CASE WHEN $invalidStart <= post.creationDate < $startDate THEN 1 ELSE 0 END AS inValid "
+        "WITH tag, sum(valid) AS postCount, sum(inValid) AS inValidPostCount "
+        "WHERE postCount > 0 AND inValidPostCount = 0 "
+        "RETURN tag.name AS tagName, postCount "
+        "ORDER BY postCount DESC, tagName ASC "
+        "LIMIT 10",
+        params={"personId": "p1", "invalidStart": 0, "startDate": 150, "endDate": 350},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tagName": "TagB", "postCount": 1},
+    ]
 
 
 def test_issue_1038_ic4_return_side_case_expression_regression_lock() -> None:
