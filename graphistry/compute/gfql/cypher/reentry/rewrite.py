@@ -61,6 +61,23 @@ def _rewrite_reentry_expr_to_hidden_properties(
     has_non_source = bool(non_source_carried_props)
     if not carried_columns and not has_non_source:
         return expr
+    needs_scalar_rewrite = any(
+        re.search(rf"(?<![A-Za-z0-9_]){re.escape(output_name)}(?![A-Za-z0-9_])", expr.text)
+        or _reentry_hidden_column_name(output_name) in expr.text
+        for output_name in carried_columns
+    )
+    needs_non_source_rewrite = False
+    if non_source_carried_props:
+        needs_non_source_rewrite = any(
+            re.search(
+                rf"(?<![A-Za-z0-9_]){re.escape(alias_name)}\.{re.escape(prop)}(?![A-Za-z0-9_])",
+                expr.text,
+            )
+            for alias_name, props in non_source_carried_props.items()
+            for prop in props
+        )
+    if not needs_scalar_rewrite and not needs_non_source_rewrite:
+        return expr
     normalized_text = expr.text
     for output_name in carried_columns:
         hidden_name = _reentry_hidden_column_name(output_name)

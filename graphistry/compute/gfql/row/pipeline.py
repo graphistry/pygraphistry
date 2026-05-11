@@ -1020,16 +1020,30 @@ class RowPipelineMixin:
                         alias_names.append(extra_arg.value)
                     else:
                         return False, None
-                source_alias = alias_names[0]
-                if source_alias not in table_df.columns:
+                source_alias_name = alias_names[0]
+                source_alias = source_alias_name
+                source_table_df = table_df
+                entity_id = getattr(self, "_node" if fn == "__node_keys__" else "_edge", None)
+                prefixed_id_col = f"{source_alias_name}.{entity_id}" if entity_id else None
+                if prefixed_id_col is not None and prefixed_id_col in table_df.columns:
+                    prefix = f"{source_alias_name}."
+                    alias_cols = [
+                        col for col in table_df.columns
+                        if isinstance(col, str) and col.startswith(prefix)
+                    ]
+                    source_table_df = table_df[alias_cols].copy().rename(
+                        columns={col: col[len(prefix):] for col in alias_cols}
+                    )
+                    source_alias = str(entity_id)
+                elif source_alias not in table_df.columns:
                     return False, None
                 out = entity_keys_series(
-                    table_df,
+                    source_table_df,
                     alias_col=source_alias,
                     table=("nodes" if fn == "__node_keys__" else "edges"),
                     excluded=tuple(alias_names),
                 )
-                null_mask = self._gfql_null_mask(table_df, table_df[source_alias])
+                null_mask = self._gfql_null_mask(source_table_df, source_table_df[source_alias])
                 if hasattr(out, "where"):
                     out = self._gfql_mask_fill(out, null_mask, None)
                 return True, out
@@ -1044,22 +1058,32 @@ class RowPipelineMixin:
                         entity_alias_names.append(extra_arg.value)
                     else:
                         return False, None
-                source_alias = entity_alias_names[0]
-                if source_alias not in table_df.columns:
-                    # On bindings-row tables, resolve alias to alias.{node_id} (#880)
-                    node_id = getattr(self, "_node", None)
-                    id_col = f"{source_alias}.{node_id}" if node_id else None
-                    if id_col is not None and id_col in table_df.columns:
-                        source_alias = id_col
-                    else:
-                        return False, None
+                source_alias_name = entity_alias_names[0]
+                source_alias = source_alias_name
+                source_table_df = table_df
+                # On bindings-row tables, prefer alias.{id} even when a same-name
+                # marker column exists for the alias.
+                entity_id = getattr(self, "_node" if fn == "__node_entity__" else "_edge", None)
+                id_col = f"{source_alias_name}.{entity_id}" if entity_id else None
+                if id_col is not None and id_col in table_df.columns:
+                    prefix = f"{source_alias_name}."
+                    alias_cols = [
+                        col for col in table_df.columns
+                        if isinstance(col, str) and col.startswith(prefix)
+                    ]
+                    source_table_df = table_df[alias_cols].copy().rename(
+                        columns={col: col[len(prefix):] for col in alias_cols}
+                    )
+                    source_alias = str(entity_id)
+                elif source_alias not in table_df.columns:
+                    return False, None
                 out = self._gfql_format_entity_series(
-                    table_df,
+                    source_table_df,
                     alias_col=source_alias,
                     table=("nodes" if fn == "__node_entity__" else "edges"),
                     excluded=tuple(entity_alias_names),
                 )
-                null_mask = self._gfql_null_mask(table_df, table_df[source_alias])
+                null_mask = self._gfql_null_mask(source_table_df, source_table_df[source_alias])
                 if hasattr(out, "where"):
                     out = self._gfql_mask_fill(out, null_mask, None)
                 return True, out

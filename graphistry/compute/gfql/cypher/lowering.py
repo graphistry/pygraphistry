@@ -1645,6 +1645,16 @@ def _rewrite_collection_alias_entities(
     if isinstance(node, UnaryOp):
         return UnaryOp(node.op, _rewrite_collection_alias_entities(node.operand, alias_targets=alias_targets))
     if isinstance(node, BinaryOp):
+        if (
+            node.op == "in"
+            and isinstance(node.left, Identifier)
+            and node.left.name in alias_targets
+        ):
+            return BinaryOp(
+                node.op,
+                _entity_wrapper_call(node.left.name, alias_targets=alias_targets),
+                _rewrite_collection_alias_entities(node.right, alias_targets=alias_targets),
+            )
         return BinaryOp(
             node.op,
             _rewrite_collection_alias_entities(node.left, alias_targets=alias_targets),
@@ -2409,7 +2419,9 @@ def _validate_aggregate_expr_scope(
 def _is_multiplicity_sensitive_aggregate(agg_spec: _AggregateSpec) -> bool:
     if agg_spec.func in {"sum", "avg"}:
         return True
-    if agg_spec.func in {"count", "collect"}:
+    if agg_spec.func == "collect":
+        return True
+    if agg_spec.func == "count":
         return not agg_spec.distinct
     return False
 
@@ -6615,26 +6627,60 @@ def _lower_general_row_projection(
         non_aggregate_items.append(item)
 
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
+    forced_binding_row_aliases = False
     if _requires_relationship_multiplicity_bindings(
         aggregate_specs=aggregate_specs,
         relationship_count=relationship_count,
     ):
         base_active_alias: Optional[str] = None
         can_force_bindings = True
-        if any(item.expression.text in alias_targets for item in non_aggregate_items):
+        whole_row_group_alias_refs = {
+            item.expression.text
+            for item in non_aggregate_items
+            if item.expression.text in alias_targets
+        }
+        aggregate_alias_refs: Set[str] = set()
+        for agg_spec in aggregate_specs:
+            if agg_spec.expr_text is None:
+                continue
+            try:
+                aggregate_alias_refs.update(
+                    _expr_match_aliases(
+                        agg_spec.expr_text,
+                        alias_targets=alias_targets,
+                        params=params,
+                        field=query.return_.kind,
+                        line=agg_spec.span_line,
+                        column=agg_spec.span_column,
+                    )
+                )
+            except GFQLValidationError:
+                can_force_bindings = False
+                break
+        allow_whole_row_binding_grouping = (
+            bool(whole_row_group_alias_refs)
+            and can_force_bindings
+            and bool(aggregate_alias_refs)
+            and aggregate_alias_refs <= set(alias_targets.keys())
+            and all(isinstance(alias_targets.get(alias_name), ASTNode) for alias_name in whole_row_group_alias_refs)
+        )
+        if whole_row_group_alias_refs and not allow_whole_row_binding_grouping:
             # Keep whole-row grouping on the existing conservative path.
             # This preserves the current fail-fast boundary for relationship-
             # pattern grouped aggregates such as `RETURN a, count(*)`.
             can_force_bindings = False
-        try:
-            base_active_alias = _active_match_alias(
-                query,
-                alias_targets=alias_targets,
-                allowed_match_aliases=None,
-                params=params,
-            )
-        except GFQLValidationError:
-            can_force_bindings = False
+        if allow_whole_row_binding_grouping:
+            base_active_alias = next(iter(whole_row_group_alias_refs))
+        else:
+            try:
+                base_active_alias = _active_match_alias(
+                    query,
+                    alias_targets=alias_targets,
+                    allowed_match_aliases=None,
+                    params=params,
+                )
+            except GFQLValidationError:
+                can_force_bindings = False
         if can_force_bindings and base_active_alias is not None:
             if isinstance(alias_targets.get(base_active_alias), ASTEdge):
                 can_force_bindings = False
@@ -6654,16 +6700,23 @@ def _lower_general_row_projection(
                 except GFQLValidationError:
                     can_force_bindings = False
                     break
+                if allow_whole_row_binding_grouping:
+                    if not refs <= set(alias_targets.keys()):
+                        can_force_bindings = False
+                        break
+                    continue
                 if len(refs) > 1 or (len(refs) == 1 and base_active_alias not in refs):
                     can_force_bindings = False
                     break
         if can_force_bindings:
             binding_row_aliases = set(alias_targets.keys())
-    binding_row_aliases = _apply_bound_scope_membership(
-        binding_row_aliases,
-        alias_targets=alias_targets,
-        bound_visible_aliases=bound_visible_aliases,
-    )
+            forced_binding_row_aliases = True
+    if not forced_binding_row_aliases:
+        binding_row_aliases = _apply_bound_scope_membership(
+            binding_row_aliases,
+            alias_targets=alias_targets,
+            bound_visible_aliases=bound_visible_aliases,
+        )
     active_match_alias = _active_match_alias(
         query,
         alias_targets=alias_targets,
@@ -6735,6 +6788,7 @@ def _lower_general_row_projection(
 
     expr_to_output: Dict[str, str] = {}
     available_columns: Set[str] = set()
+    result_projection: Optional[ResultProjectionPlan] = None
 
     if aggregate_specs:
         projection_fn = with_ if query.return_.kind == "with" else return_
@@ -6742,6 +6796,7 @@ def _lower_general_row_projection(
         key_names: List[str] = []
         temp_names: Set[str] = set()
         hidden_group_key_names: Set[str] = set()
+        whole_row_group_aliases: List[str] = []
 
         for item in non_aggregate_items:
             output_name = item.alias or item.expression.text
@@ -6756,13 +6811,22 @@ def _lower_general_row_projection(
             if item.expression.text in alias_targets:
                 alias_name = item.expression.text
                 if alias_name != active_match_alias:
-                    raise _unsupported(
-                        "Cypher aggregate whole-row grouping currently supports the active MATCH alias only",
-                        field=query.return_.kind,
-                        value=item.expression.text,
-                        line=item.span.line,
-                        column=item.span.column,
-                    )
+                    if not binding_row_aliases:
+                        raise _unsupported(
+                            "Cypher aggregate whole-row grouping currently supports the active MATCH alias only",
+                            field=query.return_.kind,
+                            value=item.expression.text,
+                            line=item.span.line,
+                            column=item.span.column,
+                        )
+                    if alias_name not in binding_row_aliases:
+                        raise _unsupported(
+                            "Cypher aggregate whole-row grouping alias is not available in the active bindings-row scope",
+                            field=query.return_.kind,
+                            value=item.expression.text,
+                            line=item.span.line,
+                            column=item.span.column,
+                        )
                 hidden_key_name = _fresh_temp_name(temp_names, "__cypher_group_key__")
                 raw_key_expr = _whole_row_group_key_expr(
                     alias_name,
@@ -6771,20 +6835,26 @@ def _lower_general_row_projection(
                     line=item.span.line,
                     column=item.span.column,
                 )
-                pre_items.append((hidden_key_name, raw_key_expr))
-                pre_items.append(
-                    (
-                        output_name,
-                        _whole_row_group_entity_expr(
-                            alias_name,
-                            alias_targets=alias_targets,
-                            field=query.return_.kind,
-                            line=item.span.line,
-                            column=item.span.column,
-                        ),
+                if binding_row_aliases:
+                    pre_items.append((hidden_key_name, f"{alias_name}.{raw_key_expr}"))
+                    key_names.append(hidden_key_name)
+                    if alias_name not in whole_row_group_aliases:
+                        whole_row_group_aliases.append(alias_name)
+                else:
+                    pre_items.append((hidden_key_name, raw_key_expr))
+                    pre_items.append(
+                        (
+                            output_name,
+                            _whole_row_group_entity_expr(
+                                alias_name,
+                                alias_targets=alias_targets,
+                                field=query.return_.kind,
+                                line=item.span.line,
+                                column=item.span.column,
+                            ),
+                        )
                     )
-                )
-                key_names.extend([hidden_key_name, output_name])
+                    key_names.extend([hidden_key_name, output_name])
                 hidden_group_key_names.add(hidden_key_name)
                 available_columns.add(output_name)
                 _add_output_mapping(
@@ -6887,10 +6957,12 @@ def _lower_general_row_projection(
                 alias_targets=alias_targets,
                 active_match_alias=active_match_alias,
             )
+        bindings_row_path = bool(binding_row_aliases)
+        alias_key_prefixes = [f"{alias_name}." for alias_name in whole_row_group_aliases] if whole_row_group_aliases else None
         if key_names:
             if len(pre_items) > 0:
-                row_steps.append(with_(pre_items))
-            row_steps.append(group_by(key_names, aggregations))
+                row_steps.append(with_(pre_items, extend=bindings_row_path))
+            row_steps.append(group_by(key_names, aggregations, key_prefixes=alias_key_prefixes))
         else:
             global_key = _fresh_temp_name(temp_names, "__cypher_group__")
             row_steps.append(with_([(global_key, 1)] + pre_items))
@@ -6898,49 +6970,87 @@ def _lower_general_row_projection(
             available_columns = {agg.output_name for agg in aggregate_specs}
             empty_result_row = _empty_aggregate_row(aggregate_specs)
 
-        if post_aggregate_items or hidden_group_key_names:
-            post_projection_items: List[Tuple[str, Any]] = []
-            projected_columns: Set[str] = set()
-            for item in non_aggregate_items:
-                output_name = item.alias or item.expression.text
-                post_projection_items.append((output_name, output_name))
-                projected_columns.add(output_name)
-            for agg_spec in aggregate_specs:
-                if agg_spec.output_name in projected_columns:
-                    raise _unsupported(
-                        "Duplicate Cypher projection names are not yet supported in local lowering",
-                        field=query.return_.kind,
-                        value=agg_spec.output_name,
-                        line=agg_spec.span_line,
-                        column=agg_spec.span_column,
+        if bindings_row_path and whole_row_group_aliases:
+            projection_alias = whole_row_group_aliases[0]
+            result_projection = ResultProjectionPlan(
+                alias=projection_alias,
+                table=cast(
+                    Literal["nodes", "edges"],
+                    _alias_table(
+                        alias_targets[projection_alias],
+                        alias=projection_alias,
+                        line=query.return_.span.line,
+                        column=query.return_.span.column,
+                        semantic_entity_kinds=semantic_entity_kinds,
+                    ),
+                ),
+                columns=tuple(
+                    ResultProjectionColumn(
+                        output_name=item.alias or item.expression.text,
+                        kind="whole_row",
+                        source_name=item.expression.text,
                     )
-                if agg_spec.output_name.startswith("__cypher_postagg__"):
-                    continue
-                post_projection_items.append((agg_spec.output_name, agg_spec.output_name))
-                projected_columns.add(agg_spec.output_name)
-            for plan in post_aggregate_items:
-                if plan.output_name in projected_columns:
-                    raise _unsupported(
-                        "Duplicate Cypher projection names are not yet supported in local lowering",
-                        field=query.return_.kind,
-                        value=plan.output_name,
-                        line=plan.span_line,
-                        column=plan.span_column,
-                    )
-                post_projection_items.append(
-                    (
-                        plan.output_name,
-                        _row_expr_arg(
-                            plan.expr,
-                            params=params,
-                            alias_targets={},
-                            field=query.return_.kind,
-                        ),
-                    )
+                    for item in non_aggregate_items
+                    if item.expression.text in alias_targets
                 )
-                projected_columns.add(plan.output_name)
-            row_steps.append(projection_fn(post_projection_items))
-            available_columns = projected_columns
+                + tuple(
+                    ResultProjectionColumn(
+                        output_name=agg.output_name,
+                        kind="expr",
+                        source_name=agg.output_name,
+                    )
+                    for agg in aggregate_specs
+                    if not agg.output_name.startswith("__cypher_postagg__")
+                ),
+            )
+
+        if post_aggregate_items or hidden_group_key_names:
+            if bindings_row_path and whole_row_group_aliases:
+                row_steps.append(drop_cols(list(hidden_group_key_names)))
+                available_columns = set(aggregate.output_name for aggregate in aggregate_specs)
+            else:
+                post_projection_items: List[Tuple[str, Any]] = []
+                projected_columns: Set[str] = set()
+                for item in non_aggregate_items:
+                    output_name = item.alias or item.expression.text
+                    post_projection_items.append((output_name, output_name))
+                    projected_columns.add(output_name)
+                for agg_spec in aggregate_specs:
+                    if agg_spec.output_name in projected_columns:
+                        raise _unsupported(
+                            "Duplicate Cypher projection names are not yet supported in local lowering",
+                            field=query.return_.kind,
+                            value=agg_spec.output_name,
+                            line=agg_spec.span_line,
+                            column=agg_spec.span_column,
+                        )
+                    if agg_spec.output_name.startswith("__cypher_postagg__"):
+                        continue
+                    post_projection_items.append((agg_spec.output_name, agg_spec.output_name))
+                    projected_columns.add(agg_spec.output_name)
+                for plan in post_aggregate_items:
+                    if plan.output_name in projected_columns:
+                        raise _unsupported(
+                            "Duplicate Cypher projection names are not yet supported in local lowering",
+                            field=query.return_.kind,
+                            value=plan.output_name,
+                            line=plan.span_line,
+                            column=plan.span_column,
+                        )
+                    post_projection_items.append(
+                        (
+                            plan.output_name,
+                            _row_expr_arg(
+                                plan.expr,
+                                params=params,
+                                alias_targets={},
+                                field=query.return_.kind,
+                            ),
+                        )
+                    )
+                    projected_columns.add(plan.output_name)
+                row_steps.append(projection_fn(post_projection_items))
+                available_columns = projected_columns
         elif not key_names:
             row_steps.append(projection_fn([(agg.output_name, agg.output_name) for agg in aggregate_specs]))
     else:
@@ -7058,7 +7168,10 @@ def _lower_general_row_projection(
         Chain(exec_steps, where=lowered.where),
         seed_rows=seed_rows,
         post_processing=_normalize_post_processing(
-            CompiledCypherPostProcessing(empty_result_row=empty_result_row)
+            CompiledCypherPostProcessing(
+                result_projection=result_projection,
+                empty_result_row=empty_result_row,
+            )
         ),
     )
 
