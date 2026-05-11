@@ -3520,6 +3520,13 @@ def test_string_cypher_failfast_relationship_whole_row_grouped_count_star_bounda
         graph.gfql("MATCH (a:L)-[rel]->(b) RETURN a, count(*)")
 
 
+def test_string_cypher_failfast_optional_match_collect_null_whole_row_return_boundary() -> None:
+    graph = _mk_graph(pd.DataFrame({"id": ["n1"]}), pd.DataFrame({"s": [], "d": []}))
+
+    with pytest.raises(GFQLValidationError, match="one MATCH source alias"):
+        graph.gfql("MATCH (n) OPTIONAL MATCH (n)-[:NOT_EXIST]->(x) RETURN n, collect(x)")
+
+
 def test_string_cypher_supports_optional_match_collect_alias_property() -> None:
     graph = _mk_graph(
         pd.DataFrame(

@@ -6659,7 +6659,7 @@ def _lower_general_row_projection(
                 break
         allow_whole_row_binding_grouping = (
             bool(whole_row_group_alias_refs)
-            and can_force_bindings
+            and can_force_bindings and not any(clause.optional for clause in query.matches)
             and bool(aggregate_alias_refs)
             and aggregate_alias_refs <= set(alias_targets.keys())
             and all(isinstance(alias_targets.get(alias_name), ASTNode) for alias_name in whole_row_group_alias_refs)
