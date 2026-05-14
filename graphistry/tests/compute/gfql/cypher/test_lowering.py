@@ -11055,7 +11055,7 @@ def test_string_cypher_executes_issue_1000_ic6_exact_runtime_minimal_on_cudf() -
     ]
 
 
-def test_issue_1396_tag_cooccurrence_join_aggregation_counts() -> None:
+def test_issue_1396_issue_1415_tag_cooccurrence_join_aggregation_counts() -> None:
     """IC6 tag-cooccurrence join+aggregation shape keeps grouped post cardinality."""
     result = _mk_issue_1396_tag_cooccurrence_join_aggregation_graph().gfql(
         _issue_1000_ic6_query(),
@@ -11068,7 +11068,7 @@ def test_issue_1396_tag_cooccurrence_join_aggregation_counts() -> None:
     ]
 
 
-def test_issue_1396_tag_cooccurrence_join_aggregation_counts_on_cudf() -> None:
+def test_issue_1396_issue_1415_tag_cooccurrence_join_aggregation_counts_on_cudf() -> None:
     pytest.importorskip("cudf")
 
     result = _mk_issue_1396_tag_cooccurrence_join_aggregation_graph_cudf().gfql(
