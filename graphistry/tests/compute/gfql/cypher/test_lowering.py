@@ -3523,8 +3523,11 @@ def test_string_cypher_failfast_relationship_whole_row_grouped_count_star_bounda
 def test_string_cypher_failfast_optional_match_collect_null_whole_row_return_boundary() -> None:
     graph = _mk_graph(pd.DataFrame({"id": ["n1"]}), pd.DataFrame({"s": [], "d": []}))
 
-    with pytest.raises(GFQLValidationError, match="one MATCH source alias"):
+    with pytest.raises(GFQLValidationError) as exc_info:
         graph.gfql("MATCH (n) OPTIONAL MATCH (n)-[:NOT_EXIST]->(x) RETURN n, collect(x)")
+    assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "return"
+    assert exc_info.value.context["value"] == "x"
 
 
 def test_string_cypher_failfast_optional_match_collect_null_whole_row_with_boundary() -> None:
