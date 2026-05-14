@@ -987,6 +987,10 @@ def _list_item_invalid_for_tostring(
     *,
     alias_targets: Optional[Mapping[str, ASTObject]],
 ) -> bool:
+    if isinstance(item, ExprLiteral):
+        return isinstance(item.value, (list, dict))
+    if isinstance(item, (ListLiteral, MapLiteral)):
+        return True
     if isinstance(item, Identifier):
         return alias_targets is not None and item.name in alias_targets
     if isinstance(item, FunctionCall):

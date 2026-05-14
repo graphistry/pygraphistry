@@ -5159,6 +5159,16 @@ def test_string_cypher_executes_extreme_year_duration_functions() -> None:
             pd.DataFrame({"id": ["n1", "n2"]}),
             pd.DataFrame({"s": ["n1"], "d": ["n2"], "type": ["T"]}),
         ),
+        (
+            "MATCH p = (n)-[r:T]->() RETURN [x IN [1, '', []] | toString(x) ] AS list",
+            pd.DataFrame({"id": ["n1", "n2"]}),
+            pd.DataFrame({"s": ["n1"], "d": ["n2"], "type": ["T"]}),
+        ),
+        (
+            "MATCH p = (n)-[r:T]->() RETURN [x IN [1, '', {}] | toString(x) ] AS list",
+            pd.DataFrame({"id": ["n1", "n2"]}),
+            pd.DataFrame({"s": ["n1"], "d": ["n2"], "type": ["T"]}),
+        ),
     ],
 )
 def test_string_cypher_failfast_rejects_invalid_supported_overlap_queries(
