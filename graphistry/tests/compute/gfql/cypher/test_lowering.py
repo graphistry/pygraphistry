@@ -9403,13 +9403,9 @@ def test_string_cypher_admits_multi_alias_distinct_forwarding_through_reentry() 
     ]
 
 
-def test_string_cypher_chained_reentry_carry_with_aggregate_relationship_match_failfast() -> None:
-    """#1256 wave-1 review W1-I1 regression-lock: chained-reentry secondary-alias
-    carry combined with an aggregating downstream WITH stage following a
-    relationship-pattern MATCH is rejected with the scoped #1256 failfast.
-    The aggregate guard added in slice 4.3d.2 fires before the existing
-    relationship-multiplicity aggregate check would; the scoped error is
-    clearer about the actual gap.
+def test_string_cypher_chained_reentry_carry_with_aggregate_relationship_match() -> None:
+    """Closed #1256 aggregate lane: hidden secondary carry survives an
+    aggregating downstream WITH stage after a relationship-pattern MATCH.
     """
     query = (
         "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
@@ -9418,24 +9414,13 @@ def test_string_cypher_chained_reentry_carry_with_aggregate_relationship_match_f
         "WITH a, x, count(*) AS n "
         "RETURN x.id AS xid, n"
     )
-    with pytest.raises(
-        GFQLValidationError,
-        match=r"chained-reentry secondary-alias carry does not yet survive",
-    ):
-        _mk_multi_stage_reentry_graph().gfql(query)
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"xid": "b", "n": 2}]
 
 
-def test_string_cypher_chained_reentry_carry_with_aggregate_node_only_match_failfast() -> None:
-    """#1256 wave-2 review W2-IMPORTANT-1 regression-lock: chained-reentry
-    secondary-alias carry combined with an aggregating downstream WITH stage
-    following a node-only MATCH (no relationship) is rejected with the scoped
-    #1256 failfast.
-
-    Without the aggregate guard, this shape returned a silent NULL because the
-    pre-existing relationship-pattern aggregate failfast did NOT fire (no
-    relationship in the trailing MATCH) and the appended hidden carry column
-    interacted poorly with the count grouping path. The guard ensures the user
-    gets a clear, scoped error pointing at #1256 instead of silent wrong data.
+def test_string_cypher_chained_reentry_carry_with_aggregate_node_only_match() -> None:
+    """Closed #1256 aggregate lane: hidden secondary carry survives an
+    aggregating downstream WITH stage after a node-only MATCH.
     """
     query = (
         "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
@@ -9444,11 +9429,8 @@ def test_string_cypher_chained_reentry_carry_with_aggregate_node_only_match_fail
         "WITH a, x, count(*) AS n "
         "RETURN x.id AS xid, n"
     )
-    with pytest.raises(
-        GFQLValidationError,
-        match=r"chained-reentry secondary-alias carry does not yet survive",
-    ):
-        _mk_multi_stage_reentry_graph().gfql(query)
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"xid": "b", "n": 1}]
 
 
 def test_string_cypher_executes_intermediate_reentry_match_with_carried_property_bridge_where() -> None:

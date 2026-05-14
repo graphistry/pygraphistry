@@ -455,8 +455,8 @@ class TestPropagationContinuity:
 
 
 # ---------------------------------------------------------------------------
-# Seam amplification — T3 ↔ #1303 (lowering split into projection_planning /
-# cypher/reentry/compiletime).  Both #1303 and T3 are children of #1262/#1260; the
+# Seam amplification — T3 ↔ #1303/#1333 (lowering split into projection_planning /
+# cypher/reentry/compiletime).  Both #1303/#1333 and T3 are children of #1262/#1260; the
 # diff overlap was zero (T3 in `ir/`, #1303 in `cypher/`), but they share the
 # conceptual surface "lowering produces LogicalPlan-shaped output that the IR
 # layer verifies".  These tests pin that the helper contract and invariant 6
@@ -469,8 +469,9 @@ class TestPropagationContinuity:
 
 class TestSeamWith1303LoweringSplit:
     def test_post_1303_modules_and_t3_helpers_coimport(self) -> None:
-        # #1303 split lowering.py into `projection_planning.py` and
-        # `cypher/reentry/compiletime.py`.  These modules pull lowering helpers
+        # #1303 split lowering.py into `projection_planning.py`; #1333 moved
+        # reentry compile-time helpers into `cypher/reentry/compiletime.py`.
+        # These modules pull lowering helpers
         # lazily inside function bodies (per #1295's pattern); confirm none
         # of that interferes with eagerly importing T3's metadata module
         # alongside (no circular-import surprise at module load).
@@ -491,13 +492,11 @@ class TestSeamWith1303LoweringSplit:
         from graphistry.compute.gfql.cypher import lowering  # noqa: F401
         from graphistry.compute.gfql.cypher import projection_planning  # noqa: F401
         from graphistry.compute.gfql.cypher.reentry import compiletime  # noqa: F401
-        from graphistry.compute.gfql.cypher.reentry import runtime  # noqa: F401
         from graphistry.compute.gfql.ir import metadata
 
         assert "graphistry.compute.gfql.cypher.lowering" in sys.modules
         assert "graphistry.compute.gfql.cypher.projection_planning" in sys.modules
         assert "graphistry.compute.gfql.cypher.reentry.compiletime" in sys.modules
-        assert "graphistry.compute.gfql.cypher.reentry.runtime" in sys.modules
         # T3's own contract surface stays asserted.
         assert callable(metadata.is_nullable)
         assert callable(metadata.bound_variable_is_nullable)
