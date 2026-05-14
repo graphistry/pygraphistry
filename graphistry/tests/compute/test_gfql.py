@@ -7,7 +7,7 @@ from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.cypher import compile_cypher
 from graphistry.compute.gfql.cypher.lowering import _reentry_hidden_column_name
-from graphistry.compute.gfql_unified import _compiled_query_reentry_state
+from graphistry.compute.gfql.cypher.reentry.execution import compiled_query_reentry_state
 from graphistry.tests.test_compute import CGFull
 
 # Suppress deprecation warnings for chain() method in this test file
@@ -684,7 +684,7 @@ class TestGFQLCypherReentryCarrier:
     def _run_reentry_state(g, compiled, prefix_result, *, engine: str = "pandas"):
         plan = compiled.reentry_plan
         assert plan is not None
-        return _compiled_query_reentry_state(
+        return compiled_query_reentry_state(
             g,
             plan,
             prefix_result,

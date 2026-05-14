@@ -7660,21 +7660,6 @@ def _demote_secondary_whole_row_aliases(
     )
 
     if refs_collected and rewritten_with_stages_tail:
-        for stage in rewritten_with_stages_tail:
-            for item in stage.clause.items:
-                try:
-                    item_node = parse_expr(item.expression.text)
-                except (GFQLExprParseError, ImportError):
-                    continue
-                if _contains_aggregate_call(item_node):
-                    raise _unsupported_at_span(
-                        "Cypher MATCH after WITH chained-reentry secondary-alias carry "
-                        "does not yet survive a downstream aggregating WITH stage; "
-                        "tracked under #1256",
-                        field="with",
-                        value=item.expression.text,
-                        span=stage.span,
-                    )
         forwarded_items: List[ReturnItem] = []
         for alias_name, prop in sorted(refs_collected):
             hidden_alias = _secondary_reentry_hidden_column_name(alias_name, prop)
