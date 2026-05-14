@@ -12,8 +12,8 @@ different entity kind in a later MATCH pattern. The four transitions are:
 
 This module exercises both the direct ``FrontendBinder().bind()`` surface and
 the ``compile_cypher_query`` path so the guard's reach is pinned at both
-layers. The guard is the binder-layer half of #1357; full strict_name_resolution
-rollout at the post-normalize site is deferred (see plan).
+layers. #1357 made strict runtime binding canonical, and #1420 retired the
+remaining loose binder compatibility branch.
 """
 
 from __future__ import annotations

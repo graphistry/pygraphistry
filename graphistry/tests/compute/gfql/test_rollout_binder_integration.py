@@ -1,8 +1,8 @@
-"""Binder-integration tests for T5 #1311 strict-schema env gate.
+"""Binder-integration tests for T5 #1311 / #1420 strict-schema behavior.
 
-Pins the wiring between ``graphistry.compute.gfql.rollout`` and
-``binder._strict_schema_mode`` so renames or rewrites at either end
-break loudly.
+The env resolver remains as a stable helper, but #1420 retired the
+pre-strict binder compatibility path: binder execution is strict by
+construction even when the legacy env/keyword inputs are false.
 """
 
 from __future__ import annotations
@@ -33,27 +33,31 @@ def _query_with_unknown_label() -> str:
 
 
 class TestBinderEnvGateOff:
-    """Default behavior: env unset / false → loose mode (no behavior change)."""
+    """#1420: env unset / false no longer restores loose binder behavior."""
 
-    def test_env_unset_loose_accepts_unknown_label(
+    def test_env_unset_rejects_unknown_label(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv(STRICT_SCHEMA_ENV, raising=False)
         ctx = _ctx_with_catalog()
         ast = parse_cypher(_query_with_unknown_label())
-        FrontendBinder().bind(ast, ctx)  # no exception in loose mode
+        with pytest.raises(GFQLValidationError) as excinfo:
+            FrontendBinder().bind(ast, ctx)
+        assert excinfo.value.code == ErrorCode.E301
 
-    def test_env_false_loose_accepts_unknown_label(
+    def test_env_false_rejects_unknown_label(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv(STRICT_SCHEMA_ENV, "false")
         ctx = _ctx_with_catalog()
         ast = parse_cypher(_query_with_unknown_label())
-        FrontendBinder().bind(ast, ctx)
+        with pytest.raises(GFQLValidationError) as excinfo:
+            FrontendBinder().bind(ast, ctx)
+        assert excinfo.value.code == ErrorCode.E301
 
 
 class TestBinderEnvGateOn:
-    """Env=true elevates default to strict when caller did not opt in explicitly."""
+    """Env=true remains strict; it is now redundant with binder defaults."""
 
     def test_env_true_rejects_unknown_label(
         self, monkeypatch: pytest.MonkeyPatch
@@ -82,7 +86,7 @@ class TestBinderEnvGateOn:
 
 
 class TestBinderPrecedence:
-    """Explicit param + catalog flag still win regardless of env state."""
+    """Legacy explicit/catalog strict inputs remain accepted and strict."""
 
     def test_explicit_true_with_env_unset_strict(
         self, monkeypatch: pytest.MonkeyPatch
