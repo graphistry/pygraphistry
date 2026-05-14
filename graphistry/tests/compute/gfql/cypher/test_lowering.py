@@ -3520,6 +3520,31 @@ def test_string_cypher_failfast_relationship_whole_row_grouped_count_star_bounda
         graph.gfql("MATCH (a:L)-[rel]->(b) RETURN a, count(*)")
 
 
+def test_string_cypher_failfast_optional_match_collect_null_whole_row_return_boundary() -> None:
+    graph = _mk_graph(pd.DataFrame({"id": ["n1"]}), pd.DataFrame({"s": [], "d": []}))
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql("MATCH (n) OPTIONAL MATCH (n)-[:NOT_EXIST]->(x) RETURN n, collect(x)")
+    assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "return"
+    assert exc_info.value.context["value"] == "x"
+
+
+def test_string_cypher_failfast_optional_match_collect_null_whole_row_with_boundary() -> None:
+    graph = _mk_graph(pd.DataFrame({"id": ["n1"]}), pd.DataFrame({"s": [], "d": []}))
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(
+            "MATCH (n) "
+            "OPTIONAL MATCH (n)-[:NOT_EXIST]->(x) "
+            "WITH n, collect(x) AS xs "
+            "RETURN n, xs"
+        )
+    assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "with"
+    assert exc_info.value.context["value"] == ["n", "collect(x)"]
+
+
 def test_string_cypher_supports_optional_match_collect_alias_property() -> None:
     graph = _mk_graph(
         pd.DataFrame(
@@ -12674,6 +12699,35 @@ def test_string_cypher_rejects_obviously_non_boolean_operands_in_boolean_ops(que
 # ── Multi-alias WITH projection from connected MATCH (#880 / IC-4 shape) ──
 
 
+def _mk_ic3_cross_country_shape_graph() -> _CypherTestGraph:
+    """Graph for IC-3-style carried row + collected city list reentry tests."""
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "cityA", "friend1", "friend2", "friend3", "cityB", "cityC"],
+                "label__Person": [True, False, True, True, True, False, False],
+                "label__City": [False, True, False, False, False, True, True],
+                "name": ["", "CityA", "", "", "", "CityB", "CityC"],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p1", "p1", "p1", "friend1", "friend2", "friend3"],
+                "d": ["cityA", "friend1", "friend2", "friend3", "cityB", "cityA", "cityC"],
+                "type": [
+                    "IS_LOCATED_IN",
+                    "KNOWS",
+                    "KNOWS",
+                    "KNOWS",
+                    "IS_LOCATED_IN",
+                    "IS_LOCATED_IN",
+                    "IS_LOCATED_IN",
+                ],
+            }
+        ),
+    )
+
+
 def _mk_ic4_shape_graph() -> _CypherTestGraph:
     """Graph for IC-4 multi-alias WITH tests: person-KNOWS-friend, post-HAS_CREATOR->friend, post-HAS_TAG->tag."""
     return _mk_graph(
@@ -13282,6 +13336,82 @@ def test_issue_1413_ic4_new_topics_multiple_chained_case_flags() -> None:
     )
     assert result._nodes.to_dict(orient="records") == [
         {"tagName": "TagB", "postCount": 1},
+    ]
+
+
+def test_issue_1413_ic3_cross_country_carried_row_collect_list_reentry_case_sum() -> None:
+    graph = _mk_ic3_cross_country_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $personId})-[:IS_LOCATED_IN]->(city:City) "
+        "WITH person, collect(city) AS cities "
+        "MATCH (person)-[:KNOWS]-(friend:Person)-[:IS_LOCATED_IN]->(friendCity:City) "
+        "WHERE NOT person = friend AND NOT friendCity IN cities "
+        "WITH friend, "
+        "CASE WHEN friendCity.name = $countryXName THEN 1 ELSE 0 END AS messageX, "
+        "CASE WHEN friendCity.name = $countryYName THEN 1 ELSE 0 END AS messageY "
+        "WITH friend, sum(messageX) AS xCount, sum(messageY) AS yCount "
+        "RETURN friend.id AS friendId, xCount, yCount "
+        "ORDER BY friendId ASC",
+        params={"personId": "p1", "countryXName": "CityB", "countryYName": "CityC"},
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"friendId": "friend1", "xCount": 1, "yCount": 0},
+        {"friendId": "friend3", "xCount": 0, "yCount": 1},
+    ]
+
+
+def test_issue_1413_ic3_collect_distinct_entity_membership_with_post_aggregate_where() -> None:
+    graph = _mk_ic3_cross_country_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $personId})-[:IS_LOCATED_IN]->(city:City) "
+        "WITH person, collect(DISTINCT city) AS cities "
+        "MATCH (person)-[:KNOWS]-(friend:Person)-[:IS_LOCATED_IN]->(friendCity:City) "
+        "WHERE NOT (friendCity IN cities) "
+        "WITH friend, "
+        "CASE WHEN friendCity.name = $countryXName THEN 1 ELSE 0 END AS messageX, "
+        "CASE WHEN friendCity.name = $countryYName THEN 1 ELSE 0 END AS messageY "
+        "WITH friend, sum(messageX) AS xCount, sum(messageY) AS yCount "
+        "WHERE xCount > 0 OR yCount > 0 "
+        "RETURN friend.id AS friendId, xCount, yCount "
+        "ORDER BY yCount DESC, friendId ASC",
+        params={"personId": "p1", "countryXName": "CityB", "countryYName": "CityC"},
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"friendId": "friend3", "xCount": 0, "yCount": 1},
+        {"friendId": "friend1", "xCount": 1, "yCount": 0},
+    ]
+
+
+def test_issue_1413_ic3_entity_membership_positive_same_city_friend_only() -> None:
+    graph = _mk_ic3_cross_country_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $personId})-[:IS_LOCATED_IN]->(city:City) "
+        "WITH person, collect(city) AS cities "
+        "MATCH (person)-[:KNOWS]-(friend:Person)-[:IS_LOCATED_IN]->(friendCity:City) "
+        "WHERE friendCity IN cities "
+        "RETURN friend.id AS friendId "
+        "ORDER BY friendId ASC",
+        params={"personId": "p1"},
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"friendId": "friend2"},
+    ]
+
+
+def test_issue_1413_ic3_collect_whole_row_entities_render_after_binding_grouping() -> None:
+    graph = _mk_ic3_cross_country_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $personId})-[:IS_LOCATED_IN]->(city:City) "
+        "WITH person, collect(city) AS cities "
+        "RETURN person.id AS personId, cities",
+        params={"personId": "p1"},
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"personId": "p1", "cities": ["(:City {name: 'CityA'})"]},
     ]
 
 

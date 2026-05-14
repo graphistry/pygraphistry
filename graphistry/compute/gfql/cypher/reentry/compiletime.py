@@ -243,10 +243,12 @@ def _compile_bounded_reentry_query(
                 span=first_unwind.span,
             )
         query = rewritten_query
-    if not query.reentry_matches or len(query.with_stages) not in {
-        len(query.reentry_matches),
-        len(query.reentry_matches) + 1,
-    }:
+    too_few_withs = len(query.with_stages) < len(query.reentry_matches)
+    too_many_suffix_withs = (
+        len(query.reentry_matches) > 1
+        and len(query.with_stages) > len(query.reentry_matches) + 1
+    )
+    if not query.reentry_matches or too_few_withs or too_many_suffix_withs:
         raise _unsupported_at_span(
             "Cypher MATCH after WITH is only supported for alternating MATCH ... WITH ... MATCH ... [WITH ... MATCH ...] ... [WITH] RETURN read shapes in the local compiler",
             field="match",

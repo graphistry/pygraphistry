@@ -1610,12 +1610,16 @@ def _build_transformer(source: str) -> _TransformerLike:
                 elif idx != len(stages) - 1:
                     with_stages.append(stage)
             if reentry_match_clauses:
+                too_many_suffix_withs = (
+                    len(reentry_match_clauses) > 1
+                    and len(with_stages) > len(reentry_match_clauses) + 1
+                )
                 if (
                     stages[0].clause.kind != "with"
                     or stages[-1].clause.kind != "return"
                     or any(stage.clause.kind != "with" for stage in stages[:-1])
                     or len(with_stages) < len(reentry_match_clauses)
-                    or len(with_stages) > len(reentry_match_clauses) + 1
+                    or too_many_suffix_withs
                 ):
                     first_match = reentry_match_clauses[0]
                     raise _to_syntax_error(
