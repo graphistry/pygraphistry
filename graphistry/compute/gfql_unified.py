@@ -708,6 +708,15 @@ def _execute_compiled_query_via_physical_plan(
         )
 
     operator = physical_plan.operators[0]
+    if connected_match_join is not None:
+        return _apply_connected_match_join(
+            base_graph,
+            connected_match_join,
+            engine=engine,
+            policy=policy,
+            context=context,
+        )
+
     if isinstance(operator, (SamePathExecutorWrapper, RowPipelineExecutorWrapper)):
         return _execute_compiled_query_compat_non_union(
             base_graph,
@@ -719,14 +728,6 @@ def _execute_compiled_query_via_physical_plan(
         )
 
     if isinstance(operator, WavefrontExecutorWrapper):
-        if connected_match_join is not None:
-            return _apply_connected_match_join(
-                base_graph,
-                connected_match_join,
-                engine=engine,
-                policy=policy,
-                context=context,
-            )
         if connected_optional_match is not None:
             # Compatibility shim while optional-wavefront lowering converges.
             return _apply_connected_optional_match(
@@ -765,17 +766,7 @@ def _execute_compiled_query_compat_non_union(
     start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
     compiled_extras = compiled_query.execution_extras
-    connected_match_join = None if compiled_extras is None else compiled_extras.connected_match_join
     connected_optional_match = None if compiled_extras is None else compiled_extras.connected_optional_match
-
-    if connected_match_join is not None:
-        return _apply_connected_match_join(
-            base_graph,
-            connected_match_join,
-            engine=engine,
-            policy=policy,
-            context=context,
-        )
 
     dispatch_graph = base_graph
     if compiled_query.procedure_call is not None:
