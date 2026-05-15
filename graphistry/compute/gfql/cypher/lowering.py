@@ -2942,6 +2942,11 @@ def _lower_relationship(
     # endpoints are the same node, unlike generic carrier-style varlen refs.
     if hop_column is not None and relationship.to_fixed_point and min_hops is None and max_hops is None:
         min_hops = 0
+    include_zero_hop_seed = (
+        not relationship.to_fixed_point
+        and min_hops == 0
+        and max_hops == 0
+    )
     hops = (
         None
         if (
@@ -2963,6 +2968,7 @@ def _lower_relationship(
                 label_node_hops=hop_column,
                 name=relationship.variable,
                 prune_to_endpoints=prune_to_endpoints,
+                include_zero_hop_seed=include_zero_hop_seed,
             ),
         )
     if relationship.direction == "reverse":
@@ -2977,6 +2983,7 @@ def _lower_relationship(
                 label_node_hops=hop_column,
                 name=relationship.variable,
                 prune_to_endpoints=prune_to_endpoints,
+                include_zero_hop_seed=include_zero_hop_seed,
             ),
         )
     return cast(
@@ -2990,6 +2997,7 @@ def _lower_relationship(
             label_node_hops=hop_column,
             name=relationship.variable,
             prune_to_endpoints=prune_to_endpoints,
+            include_zero_hop_seed=include_zero_hop_seed,
         ),
     )
 

@@ -288,6 +288,7 @@ class ASTEdge(ASTObject):
         edge_query: Optional[str] = None,
         name: Optional[str] = None,
         prune_to_endpoints: bool = False,
+        include_zero_hop_seed: bool = False,
     ):
 
         super().__init__(name)
@@ -318,9 +319,10 @@ class ASTEdge(ASTObject):
         self.destination_node_query = destination_node_query
         self.edge_query = edge_query
         self.prune_to_endpoints = prune_to_endpoints
+        self.include_zero_hop_seed = include_zero_hop_seed
 
     def __repr__(self) -> str:
-        return f'ASTEdge(direction={self.direction}, edge_match={self.edge_match}, hops={self.hops}, min_hops={self.min_hops}, max_hops={self.max_hops}, output_min_hops={self.output_min_hops}, output_max_hops={self.output_max_hops}, label_node_hops={self.label_node_hops}, label_edge_hops={self.label_edge_hops}, label_seeds={self.label_seeds}, to_fixed_point={self.to_fixed_point}, source_node_match={self.source_node_match}, destination_node_match={self.destination_node_match}, name={self._name}, source_node_query={self.source_node_query}, destination_node_query={self.destination_node_query}, edge_query={self.edge_query})'
+        return f'ASTEdge(direction={self.direction}, edge_match={self.edge_match}, hops={self.hops}, min_hops={self.min_hops}, max_hops={self.max_hops}, output_min_hops={self.output_min_hops}, output_max_hops={self.output_max_hops}, label_node_hops={self.label_node_hops}, label_edge_hops={self.label_edge_hops}, label_seeds={self.label_seeds}, to_fixed_point={self.to_fixed_point}, source_node_match={self.source_node_match}, destination_node_match={self.destination_node_match}, name={self._name}, source_node_query={self.source_node_query}, destination_node_query={self.destination_node_query}, edge_query={self.edge_query}, include_zero_hop_seed={self.include_zero_hop_seed})'
 
     def is_simple_single_hop(self) -> bool:
         """Check if edge is single-hop without hop labels (safe to skip backward hop call)."""
@@ -425,6 +427,14 @@ class ASTEdge(ASTObject):
                 "label_seeds must be a boolean",
                 field="label_seeds",
                 value=type(self.label_seeds).__name__,
+            )
+
+        if not isinstance(self.include_zero_hop_seed, bool):
+            raise GFQLTypeError(
+                ErrorCode.E201,
+                "include_zero_hop_seed must be a boolean",
+                field="include_zero_hop_seed",
+                value=type(self.include_zero_hop_seed).__name__,
             )
 
         # Validate to_fixed_point
@@ -553,7 +563,8 @@ class ASTEdge(ASTObject):
             **({'name': self._name} if self._name is not None else {}),
             **({'source_node_query': self.source_node_query} if self.source_node_query is not None else {}),
             **({'destination_node_query': self.destination_node_query} if self.destination_node_query is not None else {}),
-            **({'edge_query': self.edge_query} if self.edge_query is not None else {})
+            **({'edge_query': self.edge_query} if self.edge_query is not None else {}),
+            **({'include_zero_hop_seed': self.include_zero_hop_seed} if self.include_zero_hop_seed else {})
         }
     
     @classmethod
@@ -575,7 +586,8 @@ class ASTEdge(ASTObject):
             source_node_query=d['source_node_query'] if 'source_node_query' in d else None,
             destination_node_query=d['destination_node_query'] if 'destination_node_query' in d else None,
             edge_query=d['edge_query'] if 'edge_query' in d else None,
-            name=d['name'] if 'name' in d else None
+            name=d['name'] if 'name' in d else None,
+            include_zero_hop_seed=d.get('include_zero_hop_seed', False),
         )
         if validate:
             out.validate()
@@ -636,6 +648,7 @@ class ASTEdge(ASTObject):
             destination_node_query=self.destination_node_query,
             edge_query=self.edge_query,
             engine=engine.value,
+            include_zero_hop_seed=self.include_zero_hop_seed,
         )
 
         if self.prune_to_endpoints and out_g._nodes is not None and out_g._edges is not None and len(out_g._edges) > 0:
@@ -714,7 +727,8 @@ class ASTEdge(ASTObject):
             destination_node_match=self.source_node_match,
             source_node_query=self.destination_node_query,
             destination_node_query=self.source_node_query,
-            edge_query=self.edge_query
+            edge_query=self.edge_query,
+            include_zero_hop_seed=self.include_zero_hop_seed,
         )
 
 class ASTEdgeForward(ASTEdge):
@@ -741,6 +755,7 @@ class ASTEdgeForward(ASTEdge):
         destination_node_query: Optional[str] = None,
         edge_query: Optional[str] = None,
         prune_to_endpoints: bool = False,
+        include_zero_hop_seed: bool = False,
     ):
         super().__init__(
             direction='forward',
@@ -761,6 +776,7 @@ class ASTEdgeForward(ASTEdge):
             destination_node_query=destination_node_query,
             edge_query=edge_query,
             prune_to_endpoints=prune_to_endpoints,
+            include_zero_hop_seed=include_zero_hop_seed,
         )
 
     @classmethod
@@ -781,7 +797,8 @@ class ASTEdgeForward(ASTEdge):
             source_node_query=d['source_node_query'] if 'source_node_query' in d else None,
             destination_node_query=d['destination_node_query'] if 'destination_node_query' in d else None,
             edge_query=d['edge_query'] if 'edge_query' in d else None,
-            name=d['name'] if 'name' in d else None
+            name=d['name'] if 'name' in d else None,
+            include_zero_hop_seed=d.get('include_zero_hop_seed', False),
         )
         if validate:
             out.validate()
@@ -814,6 +831,7 @@ class ASTEdgeReverse(ASTEdge):
         destination_node_query: Optional[str] = None,
         edge_query: Optional[str] = None,
         prune_to_endpoints: bool = False,
+        include_zero_hop_seed: bool = False,
     ):
         super().__init__(
             direction='reverse',
@@ -834,6 +852,7 @@ class ASTEdgeReverse(ASTEdge):
             destination_node_query=destination_node_query,
             edge_query=edge_query,
             prune_to_endpoints=prune_to_endpoints,
+            include_zero_hop_seed=include_zero_hop_seed,
         )
 
     @classmethod
@@ -854,7 +873,8 @@ class ASTEdgeReverse(ASTEdge):
             source_node_query=d['source_node_query'] if 'source_node_query' in d else None,
             destination_node_query=d['destination_node_query'] if 'destination_node_query' in d else None,
             edge_query=d['edge_query'] if 'edge_query' in d else None,
-            name=d['name'] if 'name' in d else None
+            name=d['name'] if 'name' in d else None,
+            include_zero_hop_seed=d.get('include_zero_hop_seed', False),
         )
         if validate:
             out.validate()
@@ -887,6 +907,7 @@ class ASTEdgeUndirected(ASTEdge):
         destination_node_query: Optional[str] = None,
         edge_query: Optional[str] = None,
         prune_to_endpoints: bool = False,
+        include_zero_hop_seed: bool = False,
     ):
         super().__init__(
             direction='undirected',
@@ -907,6 +928,7 @@ class ASTEdgeUndirected(ASTEdge):
             destination_node_query=destination_node_query,
             edge_query=edge_query,
             prune_to_endpoints=prune_to_endpoints,
+            include_zero_hop_seed=include_zero_hop_seed,
         )
 
     @classmethod
@@ -927,7 +949,8 @@ class ASTEdgeUndirected(ASTEdge):
             source_node_query=d['source_node_query'] if 'source_node_query' in d else None,
             destination_node_query=d['destination_node_query'] if 'destination_node_query' in d else None,
             edge_query=d['edge_query'] if 'edge_query' in d else None,
-            name=d['name'] if 'name' in d else None
+            name=d['name'] if 'name' in d else None,
+            include_zero_hop_seed=d.get('include_zero_hop_seed', False),
         )
         if validate:
             out.validate()

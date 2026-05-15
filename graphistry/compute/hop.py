@@ -71,6 +71,7 @@ def hop(self: Plottable,
     destination_node_query: Optional[str] = None,
     edge_query: Optional[str] = None,
     return_as_wave_front: bool = False,
+    include_zero_hop_seed: bool = False,
     target_wave_front: Optional[DataFrameT] = None,  # chain: limit hits to these for reverse pass
     engine: Union[EngineAbstract, str] = EngineAbstract.AUTO
 ) -> Plottable:
@@ -97,6 +98,7 @@ def hop(self: Plottable,
     destination_node_query: dataframe query to match nodes after hopping (including intermediate)
     edge_query: dataframe query to match edges before hopping (including intermediate)
     return_as_wave_front: Exclude starting node(s) in return, returning only encountered nodes
+    include_zero_hop_seed: internal Cypher opt-in for exact zero-hop path semantics
     Note: chain() reverse passes set return_as_wave_front=True and use target_wave_front to constrain reachability.
     target_wave_front: Only consider these nodes + self._nodes for reachability
     engine: 'auto', 'pandas', 'cudf' (GPU)
@@ -378,7 +380,7 @@ def hop(self: Plottable,
     FROM_COL = generate_safe_column_name('__gfql_from__', edges_indexed, prefix='__gfql_', suffix='__')
     TO_COL = generate_safe_column_name('__gfql_to__', edges_indexed, prefix='__gfql_', suffix='__')
 
-    if not to_fixed_point and resolved_min_hops == 0 and resolved_max_hops == 0:
+    if include_zero_hop_seed and not to_fixed_point and resolved_min_hops == 0 and resolved_max_hops == 0:
         zero_hop_nodes = starting_nodes[[node_col]].drop_duplicates()
         if allowed_source_series is not None:
             zero_hop_nodes = zero_hop_nodes[zero_hop_nodes[node_col].isin(allowed_source_series)]
