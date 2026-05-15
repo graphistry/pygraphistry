@@ -477,6 +477,7 @@ class ASTNormalizer:
         return _rewrite_shortest_path_query(query)
 
     def normalize(self, query: CypherQuery) -> CypherQuery:
+        # Keep normalization as a single composition point for frontend AST rewrites.
         return self.rewrite_shortest_path(query)
 
 
