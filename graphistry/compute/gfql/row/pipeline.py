@@ -129,6 +129,33 @@ def _gfql_bridge_cudf_df_to_pandas(work_df: Any) -> Any:
     return work_df.to_pandas()
 
 
+def _gfql_bridge_cudf_series_to_pandas(values: Any, index: Any) -> Any:
+    """Prefer Arrow bridge for cuDF Series host conversion on older RAPIDS releases."""
+    if hasattr(values, "to_arrow"):
+        return pd.Series(values.to_arrow().to_pylist(), index=index)
+    if hasattr(values, "to_pandas"):
+        out = values.to_pandas()
+        if hasattr(out, "index") and len(out) == len(index):
+            out.index = index
+        return out
+    return values
+
+
+def _gfql_projected_values_to_pandas_frame(projected: Dict[str, Any], row_count: int) -> pd.DataFrame:
+    index = pd.RangeIndex(row_count)
+    data: Dict[str, Any] = {}
+    for alias, value in projected.items():
+        if isinstance(value, pd.Series):
+            if len(value) != row_count:
+                raise ValueError(f"projected column {alias!r} has {len(value)} rows, expected {row_count}")
+            data[alias] = pd.Series(value.tolist(), index=index, dtype=value.dtype)
+        elif hasattr(value, "to_pandas") or hasattr(value, "to_arrow"):
+            data[alias] = _gfql_bridge_cudf_series_to_pandas(value, index)
+        else:
+            data[alias] = value
+    return pd.DataFrame(data, index=index)[list(projected.keys())]
+
+
 def _gfql_cudf_list_sort_series_requires_host_bridge(series: Any) -> bool:
     """Detect cuDF list-series shapes that cannot participate in tokenization on GPU."""
     try:
@@ -2333,10 +2360,13 @@ class RowPipelineMixin:
                 return table_df.assign(**{tmp_col: repeated_obj})[tmp_col]
             except Exception:
                 if engine == Engine.CUDF:
-                    out = s_cons(Engine.CUDF)(repeated_obj)
-                    if hasattr(out, "name"):
-                        out.name = tmp_col
-                    return out
+                    try:
+                        out = s_cons(Engine.CUDF)(repeated_obj)
+                        if hasattr(out, "name"):
+                            out.name = tmp_col
+                        return out
+                    except Exception:
+                        return pd.Series(repeated_obj, dtype="object")
                 raise
 
         return table_df.assign(**{tmp_col: value})[tmp_col]
@@ -3961,8 +3991,6 @@ class RowPipelineMixin:
         cudf_row_table = resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF
 
         def _project_scalar(value: Any) -> Any:
-            if cudf_row_table and isinstance(value, (list, tuple, dict)):
-                return pd.Series([value for _ in range(len(table_df))], dtype="object")
             return self._gfql_broadcast_scalar(table_df, value)
 
         for item in items:
@@ -4003,17 +4031,10 @@ class RowPipelineMixin:
             else:
                 projected[alias] = _project_scalar(expr)
 
-        out_table_df = table_df
-        if resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF and any(
-            isinstance(value, pd.Series) for value in projected.values()
-        ):
-            out_table_df = table_df.to_pandas()
-            projected = {
-                alias: (value.to_pandas() if hasattr(value, "to_pandas") else value)
-                for alias, value in projected.items()
-            }
-
-        out_df = out_table_df.assign(**projected)[list(projected.keys())]
+        if cudf_row_table and any(isinstance(value, pd.Series) for value in projected.values()):
+            out_df = _gfql_projected_values_to_pandas_frame(projected, len(table_df))
+        else:
+            out_df = table_df.assign(**projected)[list(projected.keys())]
         return self._gfql_row_table(out_df)
 
     def with_(self, items: List[Any], extend: bool = False) -> "Plottable":

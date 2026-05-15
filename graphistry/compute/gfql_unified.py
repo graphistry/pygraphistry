@@ -727,7 +727,7 @@ def _execute_compiled_query_via_physical_plan(
         )
 
     if isinstance(operator, (SamePathExecutorWrapper, RowPipelineExecutorWrapper)):
-        return _execute_compiled_query_compat_non_union(
+        return _execute_compiled_query_chain_non_union(
             base_graph,
             compiled_query=compiled_query,
             engine=engine,
@@ -756,24 +756,40 @@ def _execute_compiled_query_via_physical_plan(
     )
 
 
-def _execute_compiled_query_compat_non_union(
+def _seeded_dispatch_graph(
     base_graph: Plottable,
     *,
     compiled_query: CompiledCypherQuery,
+    engine: Union[EngineAbstract, str],
+) -> Plottable:
+    if not compiled_query.seed_rows:
+        return base_graph
+
+    concrete_engine = resolve_engine(cast(Any, engine), base_graph)
+    df_ctor = df_cons(concrete_engine)
+    dispatch_graph = base_graph.bind()
+    dispatch_graph._nodes = df_ctor({"__cypher_seed_row__": [True]})
+    dispatch_graph._edges = df_ctor()
+    return dispatch_graph
+
+
+def _execute_compiled_query_chain_non_union(
+    base_graph: Plottable,
+    *,
+    compiled_query: CompiledCypherQuery,
+    dispatch_graph: Optional[Plottable] = None,
     engine: Union[EngineAbstract, str],
     policy: Optional[PolicyDict],
     context: ExecutionContext,
     start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
-    dispatch_graph = base_graph
-    if compiled_query.procedure_call is not None:
-        dispatch_graph = execute_cypher_call(base_graph, compiled_query.procedure_call)
-    elif compiled_query.seed_rows:
-        concrete_engine = resolve_engine(cast(Any, engine), base_graph)
-        df_ctor = df_cons(concrete_engine)
-        dispatch_graph = base_graph.bind()
-        dispatch_graph._nodes = df_ctor({"__cypher_seed_row__": [True]})
-        dispatch_graph._edges = df_ctor()
+    if dispatch_graph is None:
+        dispatch_graph = _seeded_dispatch_graph(
+            base_graph,
+            compiled_query=compiled_query,
+            engine=engine,
+        )
+
     result = _chain_dispatch(dispatch_graph, compiled_query.chain, engine, policy, context, start_nodes=start_nodes)
     if compiled_query.empty_result_row is not None:
         result = _apply_empty_result_row(
@@ -828,6 +844,35 @@ def _execute_compiled_query_compat_non_union(
             null_row=compiled_query.optional_null_fill.null_row,
         )
     return result
+
+
+def _execute_compiled_query_compat_non_union(
+    base_graph: Plottable,
+    *,
+    compiled_query: CompiledCypherQuery,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+    start_nodes: Optional[DataFrameT] = None,
+) -> Plottable:
+    if compiled_query.procedure_call is not None:
+        dispatch_graph = execute_cypher_call(base_graph, compiled_query.procedure_call)
+    else:
+        dispatch_graph = _seeded_dispatch_graph(
+            base_graph,
+            compiled_query=compiled_query,
+            engine=engine,
+        )
+
+    return _execute_compiled_query_chain_non_union(
+        base_graph,
+        compiled_query=compiled_query,
+        dispatch_graph=dispatch_graph,
+        engine=engine,
+        policy=policy,
+        context=context,
+        start_nodes=start_nodes,
+    )
 
 
 def _execute_compiled_query_with_reentry(
