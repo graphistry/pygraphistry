@@ -25,6 +25,7 @@ from graphistry.compute.gfql.expr_parser import (
     Wildcard,
     parse_expr,
 )
+from graphistry.compute.gfql.string_literals import render_cypher_string_literal
 
 from .ast import (
     BooleanExpr,
@@ -129,7 +130,7 @@ def _cypher_literal_expr_text(value: Any) -> str:
             return "null"
         return repr(value)
     if isinstance(value, str):
-        return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+        return render_cypher_string_literal(value)
     if isinstance(value, (list, tuple)):
         return "[" + ", ".join(_cypher_literal_expr_text(item) for item in value) + "]"
     if isinstance(value, dict):
@@ -139,7 +140,7 @@ def _cypher_literal_expr_text(value: Any) -> str:
             if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key_txt):
                 rendered_key = key_txt
             else:
-                rendered_key = "'" + key_txt.replace("\\", "\\\\").replace("'", "\\'") + "'"
+                rendered_key = render_cypher_string_literal(key_txt)
             parts.append(f"{rendered_key}: {_cypher_literal_expr_text(item)}")
         return "{" + ", ".join(parts) + "}"
     raise GFQLValidationError(

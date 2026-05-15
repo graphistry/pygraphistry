@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import ast as pyast
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Protocol, Sequence, Set, Tuple, Type, Union, cast
 
+from graphistry.compute.gfql.string_literals import parse_cypher_string_token
 from graphistry.compute.gfql.language_defs import (
     GFQL_ALLOWED_BINARY_OPS,
     GFQL_ALLOWED_FUNCTIONS,
@@ -308,14 +308,10 @@ def _parser() -> _ParserLike:
 
 
 def _parse_string_token(token: str) -> str:
-    if len(token) < 2 or token[0] != token[-1] or token[0] not in {"'", '"'}:
-        raise GFQLExprParseError("Invalid string literal")
     try:
-        value = pyast.literal_eval(token)
+        value = parse_cypher_string_token(token)
     except Exception as exc:
         raise GFQLExprParseError("Invalid string literal") from exc
-    if not isinstance(value, str):
-        raise GFQLExprParseError("Invalid string literal")
     return value
 
 

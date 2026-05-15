@@ -3378,6 +3378,56 @@ def test_string_cypher_uses_integer_division_for_literal_arithmetic_expression()
     result = graph.gfql("RETURN 12 / 4 * 3 - 2 * 4")
 
     assert result._nodes.to_dict(orient="records") == [{"12 / 4 * 3 - 2 * 4": 1}]
+
+
+def test_string_cypher_preserves_escaped_literal_backslash_pairs() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(r"""RETURN 'a\\bcn5t\'"\\//\\"\'' AS literal""")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"literal": "a\\\\bcn5t'\"\\\\//\\\\\"'"}
+    ]
+
+
+def test_string_cypher_preserves_unicode_string_literal() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(r"RETURN '\u01FF' AS literal")
+
+    assert result._nodes.to_dict(orient="records") == [{"literal": "\u01ff"}]
+
+
+def test_string_cypher_handles_standard_string_literal_escapes() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(r"""RETURN '\n\t\r\b\f\\\'\"' AS literal""")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"literal": "\n\t\r\b\f\\\\'\""}
+    ]
+
+
+@pytest.mark.parametrize("query", [r"RETURN '\uH' AS literal", "RETURN 'unterminated AS literal"])
+def test_string_cypher_rejects_invalid_string_literals(query: str) -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    with pytest.raises(GFQLSyntaxError):
+        graph.gfql(query)
+
+
 @pytest.mark.parametrize(
     "query,expected_rows",
     [

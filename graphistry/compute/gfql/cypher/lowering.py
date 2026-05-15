@@ -116,6 +116,7 @@ from graphistry.compute.gfql.cypher.call_procedures import (
     compile_cypher_call,
 )
 from graphistry.compute.gfql.cypher.ast_normalizer import ASTNormalizer
+from graphistry.compute.gfql.string_literals import render_cypher_string_literal
 from graphistry.compute.gfql.temporal_text import (
     fold_temporal_constructor_ast,
     resolve_duration_text_property,
@@ -1102,7 +1103,7 @@ def _cypher_literal_expr_text(value: Any) -> str:
             return "null"
         return repr(value)
     if isinstance(value, str):
-        return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+        return render_cypher_string_literal(value)
     if isinstance(value, (list, tuple)):
         return "[" + ", ".join(_cypher_literal_expr_text(item) for item in value) + "]"
     if isinstance(value, dict):
@@ -1112,7 +1113,7 @@ def _cypher_literal_expr_text(value: Any) -> str:
             if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key_txt):
                 rendered_key = key_txt
             else:
-                rendered_key = "'" + key_txt.replace("\\", "\\\\").replace("'", "\\'") + "'"
+                rendered_key = render_cypher_string_literal(key_txt)
             parts.append(f"{rendered_key}: {_cypher_literal_expr_text(item)}")
         return "{" + ", ".join(parts) + "}"
     raise GFQLValidationError(
@@ -6474,8 +6475,7 @@ def _render_row_where_operand_text(value: Union[PropertyRef, CypherLiteral]) -> 
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, str):
-        escaped = value.replace("\\", "\\\\").replace("'", "\\'")
-        return f"'{escaped}'"
+        return render_cypher_string_literal(value)
     return str(value)
 
 
