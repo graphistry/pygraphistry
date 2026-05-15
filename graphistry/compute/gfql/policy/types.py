@@ -1,21 +1,65 @@
 """Type definitions for GFQL policy system."""
 
-from typing import TypedDict, Optional, Dict, Any, Literal, Callable, TYPE_CHECKING
+from typing import List, TypedDict, Optional, Dict, Any, Literal, Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
     from graphistry.compute.gfql.policy.stats import GraphStats
 
-# Phase literal type (the 10 specific hook names)
-Phase = Literal["preload", "postload", "prelet", "postlet", "prechain", "postchain", "precall", "postcall", "preletbinding", "postletbinding"]
+# Phase literal type (runtime hooks plus opt-in compiler hooks)
+Phase = Literal["preload", "postload", "prelet", "postlet", "prechain", "postchain", "precall", "postcall", "preletbinding", "postletbinding", "postcompile"]
 
 # Shortcut key literal type (includes general, scope, and specific keys)
 GeneralShortcut = Literal["pre", "post"]
 ScopeShortcut = Literal["load", "let", "chain", "binding", "call"]
-ShortcutKey = Literal["pre", "post", "load", "let", "chain", "binding", "call", "preload", "postload", "prelet", "postlet", "prechain", "postchain", "precall", "postcall", "preletbinding", "postletbinding"]
+ShortcutKey = Literal["pre", "post", "load", "let", "chain", "binding", "call", "preload", "postload", "prelet", "postlet", "prechain", "postchain", "precall", "postcall", "preletbinding", "postletbinding", "postcompile"]
 
 # Query type literal
 QueryType = Literal["chain", "dag", "single"]
+
+
+class CompilerAliasSummary(TypedDict, total=False):
+    """Stable alias-binding summary emitted by compiler policy hooks."""
+
+    name: str
+    kind: Literal["node", "edge", "scalar"]
+    nullable: bool
+
+
+class CompilerProjectionSummary(TypedDict, total=False):
+    """Stable projection item summary emitted by compiler policy hooks."""
+
+    clause: Literal["with", "return"]
+    output: str
+    expr: str
+    expr_kind: Literal["alias", "property", "aggregate", "expr", "wildcard"]
+    source: Optional[str]
+    property: Optional[str]
+    entity_kind: Optional[Literal["node", "edge", "scalar"]]
+
+
+class CompilerAggregateSummary(TypedDict, total=False):
+    """Stable aggregate summary emitted by compiler policy hooks."""
+
+    clause: Literal["with", "return"]
+    output: str
+    fn: str
+    input: str
+    distinct: bool
+
+
+class CompilerPolicySummary(TypedDict, total=False):
+    """Stable Cypher compiler metadata for opt-in policy hooks."""
+
+    phase: Literal["postcompile"]
+    language: Literal["cypher"]
+    query_type: QueryType
+    query_hash: str
+    aliases: List[CompilerAliasSummary]
+    projections: List[CompilerProjectionSummary]
+    group_keys: List[str]
+    aggregates: List[CompilerAggregateSummary]
+    param_keys: List[str]
 
 
 class PolicyContext(TypedDict, total=False):
@@ -55,6 +99,10 @@ class PolicyContext(TypedDict, total=False):
         binding_ast: The AST object being bound (the value in let({name: ast}))
 
         _policy_depth: Internal recursion prevention counter
+
+        # Compiler-specific fields (postcompile phase only)
+        language: Query language name
+        compiler_summary: Stable semantic compiler summary
     """
 
     phase: Phase
@@ -84,6 +132,10 @@ class PolicyContext(TypedDict, total=False):
     total_bindings: Optional[int]        # Total bindings in let expression
     binding_dependencies: Optional[list]  # List of binding names this depends on
     binding_ast: Optional[Any]           # The AST object being bound
+
+    # Compiler-specific fields (postcompile phase only)
+    language: Optional[str]
+    compiler_summary: Optional[CompilerPolicySummary]
 
     _policy_depth: int
 

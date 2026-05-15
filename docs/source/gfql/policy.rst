@@ -25,7 +25,7 @@ Quick Start
 Policy Phases
 -------------
 
-Policies are invoked at ten distinct phases:
+Policies are invoked at ten runtime phases, plus opt-in compiler metadata hooks:
 
 **preload**
     Before data is loaded (local or remote). Can prevent data access.
@@ -57,6 +57,9 @@ Policies are invoked at ten distinct phases:
 **postcall**
     After method execution. Can validate result size, track execution time, and log performance.
 
+**postcompile**
+    After a Cypher string query successfully compiles and before execution starts. This hook is opt-in by exact key only, and receives a stable ``compiler_summary`` with alias, projection, group-key, and aggregate metadata. It does not run for native GFQL chain/list queries.
+
 
 Context Fields
 --------------
@@ -65,7 +68,7 @@ The context dictionary passed to policy functions contains:
 
 **Always present:**
 
-- ``phase``: Current phase ('preload', 'postload', 'prelet', 'postlet', 'prechain', 'postchain', 'precall', 'postcall', 'preletbinding', 'postletbinding')
+- ``phase``: Current phase ('preload', 'postload', 'prelet', 'postlet', 'prechain', 'postchain', 'precall', 'postcall', 'preletbinding', 'postletbinding', 'postcompile')
 - ``hook``: Hook name (same as phase, useful for shared handlers)
 - ``_policy_depth``: Internal recursion counter
 
@@ -85,6 +88,8 @@ The context dictionary passed to policy functions contains:
 - ``success``: Execution success flag (postcall/postlet/postchain/postletbinding phases)
 - ``error``: Error message string (post* phases when success=False)
 - ``error_type``: Error type name (post* phases when success=False)
+- ``language``: Query language for compiler hooks (``'cypher'`` for ``postcompile``)
+- ``compiler_summary``: Stable compiler metadata for ``postcompile`` with ``query_hash``, ``aliases``, ``projections``, ``group_keys``, ``aggregates``, and optional ``param_keys``
 
 **Binding-specific** (preletbinding/postletbinding phases only):
 
@@ -345,6 +350,8 @@ To reduce boilerplate in common patterns, GFQL policies support shortcuts that e
    * - ``'call'``
      - precall + postcall
      - Operation-level hooks for method call control
+
+``'postcompile'`` is a direct-only compiler hook. It is not included in the broad ``'post'`` shortcut because runtime post handlers often expect graph execution fields such as ``graph_stats``.
 
 **Before/After Comparison**
 

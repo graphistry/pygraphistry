@@ -101,6 +101,14 @@ class TestExpandPolicyBasics:
         assert expand_policy({}) == {}
         assert expand_policy(None) == {}  # type: ignore
 
+    def test_postcompile_is_direct_only(self):
+        """Compiler policy hooks opt in by exact key, not broad post shortcut."""
+        def handler(ctx):
+            pass
+
+        assert expand_policy({'postcompile': handler}) == {'postcompile': handler}
+        assert 'postcompile' not in expand_policy({'post': handler})
+
     def test_full_hook_names_work_as_specific_overrides(self):
         """Test that full hook names work and override shortcuts."""
         def handler(ctx):

@@ -24,14 +24,16 @@ from graphistry.compute.gfql.same_path_types import (
     parse_where_json,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
-from graphistry.compute.gfql.cypher.api import compile_cypher
 from graphistry.compute.gfql.cypher.lowering import (
     ConnectedMatchJoinPlan,
     CompiledCypherGraphQuery,
     CompiledCypherQuery,
     CompiledCypherUnionQuery,
     ConnectedOptionalMatchPlan,
+    compile_cypher_query,
 )
+from graphistry.compute.gfql.cypher.parser import parse_cypher
+from graphistry.compute.gfql.policy.compiler import build_cypher_postcompile_summary
 from graphistry.compute.gfql.cypher.reentry.execution import (
     REENTRY_DUPLICATE_CARRIED_ROWS_REASON as _REENTRY_DUPLICATE_CARRIED_ROWS_REASON,
     REENTRY_WHOLE_ROW_SUGGESTION as _REENTRY_WHOLE_ROW_SUGGESTION,
@@ -1182,6 +1184,8 @@ def _compile_string_query(
     *,
     language: Optional[Literal["cypher", "gremlin"]],
     params: Optional[Mapping[str, Any]],
+    policy: Optional[PolicyDict] = None,
+    policy_depth: int = 0,
 ) -> Any:
     query_language = language or "cypher"
     if query_language != "cypher":
@@ -1193,7 +1197,29 @@ def _compile_string_query(
             suggestion="Use language='cypher' for now; Gremlin string compilation is not implemented yet.",
             language="gfql",
         )
-    return compile_cypher(query, params=params, _warn_deprecated=False)
+    parsed_query = parse_cypher(query)
+    compiled_query = compile_cypher_query(parsed_query, params=params)
+    if policy and 'postcompile' in policy:
+        policy_context: PolicyContext = {
+            'phase': 'postcompile',
+            'hook': 'postcompile',
+            'query': query,
+            'query_type': 'chain',
+            'language': 'cypher',
+            'compiler_summary': build_cypher_postcompile_summary(
+                query_text=query,
+                parsed_query=parsed_query,
+                params=params,
+            ),
+            '_policy_depth': policy_depth,
+        }
+        try:
+            policy['postcompile'](policy_context)
+        except PolicyException as e:
+            if e.query_type is None:
+                e.query_type = policy_context.get('query_type')
+            raise
+    return compiled_query
 
 
 @otel_traced("gfql.run", attrs_fn=_gfql_otel_attrs)
@@ -1216,7 +1242,7 @@ def gfql(self: Plottable,
     :param query: GFQL query - ASTObject, List[ASTObject], Chain, ASTLet, dict, or supported query string
     :param engine: Execution engine (auto, pandas, cudf)
     :param output: For DAGs, name of binding to return (default: last executed)
-    :param policy: Optional policy hooks for external control (preload, postload, precall, postcall phases)
+    :param policy: Optional policy hooks for external control (runtime phases plus direct-only postcompile for Cypher string compiler metadata)
     :param where: Optional same-path constraints for list/Chain queries
     :param language: Optional string-query language selector. Defaults to ``"cypher"`` when ``query`` is a string.
     :param params: Optional parameter dictionary for string-query compilation
@@ -1237,6 +1263,7 @@ def gfql(self: Plottable,
     - **postload**: After data is loaded (can inspect data size)
     - **precall**: Before each method call (can deny based on parameters)
     - **postcall**: After each method call (can validate results, timing)
+    - **postcompile**: After Cypher string compilation, with stable compiler_summary metadata
 
     Policies can accept/deny/modify operations. Modifications are validated
     against a schema and applied immediately. Recursion is prevented at depth 1.
@@ -1440,7 +1467,13 @@ def gfql(self: Plottable,
             )
 
         if isinstance(query, str):
-            compiled_query = _compile_string_query(query, language=language, params=params)
+            compiled_query = _compile_string_query(
+                query,
+                language=language,
+                params=params,
+                policy=expanded_policy,
+                policy_depth=policy_depth,
+            )
             if isinstance(compiled_query, CompiledCypherGraphQuery):
                 return _execute_graph_query(self, compiled_query, engine=engine, policy=expanded_policy, context=context)
             if isinstance(compiled_query, CompiledCypherQuery):

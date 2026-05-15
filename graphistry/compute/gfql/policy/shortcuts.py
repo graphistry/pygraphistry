@@ -55,6 +55,8 @@ _EXPANSION_MAP: Dict[Phase, Tuple[GeneralShortcut, ScopeShortcut, Phase]] = {
     'postcall': ('post', 'call', 'postcall')
 }
 
+_DIRECT_ONLY_HOOKS: Tuple[Phase, ...] = ('postcompile',)
+
 
 def expand_policy(policy: Dict[str, PolicyFunction]) -> PolicyDict:
     """Expand shorthand policy keys to full hook names with composition.
@@ -116,6 +118,13 @@ def expand_policy(policy: Dict[str, PolicyFunction]) -> PolicyDict:
 
         # Single handler or compose multiple
         expanded[hook_name] = handlers[0] if len(handlers) == 1 else _compose(*handlers)
+
+    # Compiler hooks are opt-in by exact key only. Do not include them in the
+    # broad "pre"/"post" shortcuts, which existing runtime policies may use
+    # with graph-execution-specific context assumptions.
+    for hook_name in _DIRECT_ONLY_HOOKS:
+        if hook_name in policy:
+            expanded[hook_name] = policy[hook_name]
 
     return expanded
 
@@ -191,6 +200,10 @@ def debug_policy(policy: Dict[str, PolicyFunction]) -> HookExpansionMap:
 
         # Store handler name and source key - both are properly typed now
         debug_info[hook_name] = [(fn.__name__, key) for key, fn in sources]
+
+    for hook_name in _DIRECT_ONLY_HOOKS:
+        if hook_name in policy:
+            debug_info[hook_name] = [(policy[hook_name].__name__, cast(ShortcutKey, hook_name))]
 
     return debug_info
 
