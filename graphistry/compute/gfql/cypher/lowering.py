@@ -6359,7 +6359,6 @@ def lower_match_query(
 ) -> LoweredCypherMatch:
     normalizer = ASTNormalizer()
     query = normalizer.rewrite_shortest_path(query)
-    query = normalizer.rewrite_where_pattern_predicates(query)
     _reject_unsupported_where_expr_forms(query)
     _reject_variable_length_path_alias_references(query, params=params)
     merged_match = _merged_match_clause(query)
@@ -8669,7 +8668,6 @@ def compile_cypher_query(
     normalizer = ASTNormalizer()
     query = normalizer.rewrite_shortest_path(query)
     _reject_variable_length_path_alias_references(query, params=params)
-    query = normalizer.rewrite_where_pattern_predicates(query)
 
     # Re-bind after normalization so scope and semantic metadata reflect the
     # lowered query shape consumed by downstream lowering decisions.

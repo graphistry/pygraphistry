@@ -1221,12 +1221,11 @@ def _build_transformer(source: str) -> _TransformerLike:
             # Pattern-leaf lift (slice 1 of #1031).  Pattern leaves
             # produced by the new ``pattern_atom`` grammar rule sit at
             # top-level AND positions; extract them as
-            # ``WherePatternPredicate`` entries so the existing AST-
-            # normalizer step (``_rewrite_where_pattern_predicates_to_matches``)
-            # can lift them.  Slice 2 (#1031): top-level ``NOT (pattern)``
-            # leaves are also lifted, marked ``negated=True`` for anti-semi-
-            # join lowering.  Patterns nested deeper (under OR/XOR or
-            # double-NOT) trip the legacy E108 reject.
+            # ``WherePatternPredicate`` entries so lowering can evaluate them
+            # as existence checks. Top-level ``NOT (pattern)`` leaves are also
+            # lifted, marked ``negated=True`` for anti-semi-join lowering.
+            # Patterns nested deeper (under OR/XOR or double-NOT) trip the
+            # legacy E108 reject.
             pos_leaves, neg_leaves, other_conjuncts, nested_pattern = _split_top_level_and_pattern_leaves(expr_tree)
             if pos_leaves or neg_leaves or nested_pattern:
                 return _build_where_with_pattern_lift(
