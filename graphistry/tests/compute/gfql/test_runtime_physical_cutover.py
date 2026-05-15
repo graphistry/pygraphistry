@@ -15,7 +15,7 @@ from graphistry.compute.gfql.physical_planner import (
 
 
 def _mk_graph():
-    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    nodes = pd.DataFrame({"id": ["a", "b", "c"], "label__Missing": [False, False, False]})
     edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
     return graphistry.bind(source="s", destination="d", node="id").nodes(nodes).edges(edges)
 
@@ -95,24 +95,54 @@ def test_call_route_bypasses_compat_executor(monkeypatch):
     assert result._nodes["degree"].tolist() == [1, 1, 2]
 
 
-def test_deferred_logical_plan_shape_uses_documented_compat_fallback(monkeypatch):
+def test_top_level_optional_match_matched_case_bypasses_compat_executor(monkeypatch):
     g = _mk_graph()
-    fallback_reasons = []
-    original_compat_executor = gfql_unified._execute_compiled_query_compat_non_union
+    planner_routes = []
+    original_plan = PhysicalPlanner.plan
 
-    def _spy_compat_executor(*args, **kwargs):
-        compiled_query = kwargs["compiled_query"]
-        assert compiled_query.logical_plan is None
-        fallback_reasons.append(compiled_query.logical_plan_defer_reason)
-        return original_compat_executor(*args, **kwargs)
+    def _spy_plan(self, logical_plan, ctx):
+        physical_plan = original_plan(self, logical_plan, ctx)
+        planner_routes.append(physical_plan.route)
+        assert isinstance(physical_plan.operators[0], SamePathExecutorWrapper)
+        return physical_plan
 
-    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _spy_compat_executor)
+    def _fail_compat_executor(*args, **kwargs):
+        raise AssertionError("top-level OPTIONAL MATCH physical route should not use the legacy compat executor")
 
-    result = g.gfql("OPTIONAL MATCH (n) RETURN n")
+    monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
+    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _fail_compat_executor)
 
-    assert fallback_reasons
-    assert "OPTIONAL MATCH" in fallback_reasons[0]
-    assert result._nodes is not None
+    result = g.gfql("OPTIONAL MATCH (n) RETURN n.id AS id ORDER BY id")
+
+    assert planner_routes == ["same_path"]
+    assert result._nodes["id"].tolist() == ["a", "b", "c"]
+
+
+def test_top_level_optional_match_unmatched_case_null_extends_without_compat_executor(monkeypatch):
+    nodes = pd.DataFrame({"id": ["a", "b", "c"], "label__Missing": [False, False, False]})
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+    g = graphistry.bind(source="s", destination="d", node="id").nodes(nodes).edges(edges)
+    planner_routes = []
+    original_plan = PhysicalPlanner.plan
+
+    def _spy_plan(self, logical_plan, ctx):
+        physical_plan = original_plan(self, logical_plan, ctx)
+        planner_routes.append(physical_plan.route)
+        assert isinstance(physical_plan.operators[0], SamePathExecutorWrapper)
+        return physical_plan
+
+    def _fail_compat_executor(*args, **kwargs):
+        raise AssertionError("top-level OPTIONAL MATCH null-extension route should not use the legacy compat executor")
+
+    monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
+    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _fail_compat_executor)
+
+    result = g.gfql("OPTIONAL MATCH (n:Missing) RETURN n.id AS id")
+    rows = result._nodes.reset_index(drop=True)
+
+    assert planner_routes == ["same_path"]
+    assert len(rows) == 1
+    assert pd.isna(rows["id"].iloc[0])
 
 
 def test_deferred_optional_reentry_shape_uses_documented_compat_fallback(monkeypatch):

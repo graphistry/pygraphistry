@@ -51,12 +51,32 @@ class LogicalPlanner:
         for part_index, part in enumerate(bound_ir.query_parts):
             clause = part.clause.upper()
             if clause == "OPTIONAL MATCH":
+                if current is None and not seen_match and part_index == 0 and not part.inputs:
+                    scope_visible_aliases = (
+                        bound_ir.scope_stack[part_index].visible_vars
+                        if part_index < len(bound_ir.scope_stack)
+                        else frozenset()
+                    )
+                    self._reject_unsupported_match_shape(
+                        part=part,
+                        vars_by_name=vars_by_name,
+                        scope_visible_aliases=scope_visible_aliases,
+                    )
+                    current = self._plan_match(
+                        part=part,
+                        vars_by_name=vars_by_name,
+                        id_gen=id_gen,
+                        optional=True,
+                    )
+                    current = self._apply_predicates(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
+                    seen_match = True
+                    continue
                 raise GFQLValidationError(
                     ErrorCode.E108,
-                    "LogicalPlanner skeleton does not yet support OPTIONAL MATCH planning",
+                    "LogicalPlanner skeleton does not yet support non-top-level OPTIONAL MATCH planning",
                     field="clause",
                     value=part.clause,
-                    suggestion="Use non-optional MATCH shapes until optional planning is implemented.",
+                    suggestion="Use a single top-level OPTIONAL MATCH or a non-optional MATCH shape until chained optional planning is implemented.",
                 )
             if clause == "MATCH":
                 if seen_match:
@@ -112,10 +132,11 @@ class LogicalPlanner:
         part: BoundQueryPart,
         vars_by_name: Mapping[str, BoundVariable],
         id_gen: IdGen,
+        optional: bool = False,
     ) -> LogicalPlan:
         aliases = sorted(self._aliases_for_part(part))
         schema = self._schema_for_aliases(alias_names=aliases, vars_by_name=vars_by_name)
-        if len(aliases) == 1:
+        if not optional and len(aliases) == 1:
             variable = vars_by_name.get(aliases[0])
             if variable is not None and variable.entity_kind == "node":
                 return NodeScan(
@@ -126,8 +147,8 @@ class LogicalPlanner:
         return PatternMatch(
             op_id=id_gen.next(),
             pattern={"aliases": tuple(aliases)},
-            optional=False,
-            arm_id=None,
+            optional=optional,
+            arm_id="top_level_optional_0" if optional else None,
             output_schema=schema,
         )
 
