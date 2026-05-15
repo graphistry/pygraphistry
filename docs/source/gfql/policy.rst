@@ -25,7 +25,7 @@ Quick Start
 Policy Phases
 -------------
 
-Policies are invoked at ten distinct phases:
+Policies are invoked at these phases:
 
 **preload**
     Before data is loaded (local or remote). Can prevent data access.
@@ -57,6 +57,11 @@ Policies are invoked at ten distinct phases:
 **postcall**
     After method execution. Can validate result size, track execution time, and log performance.
 
+**compile_error**
+    Experimental exact-key hook for local Cypher string queries that fail before
+    execution. It receives a stable ``CompileErrorSummary`` object and is not
+    included in ``pre`` or ``post`` shortcut expansion.
+
 
 Context Fields
 --------------
@@ -65,7 +70,7 @@ The context dictionary passed to policy functions contains:
 
 **Always present:**
 
-- ``phase``: Current phase ('preload', 'postload', 'prelet', 'postlet', 'prechain', 'postchain', 'precall', 'postcall', 'preletbinding', 'postletbinding')
+- ``phase``: Current phase ('preload', 'postload', 'prelet', 'postlet', 'prechain', 'postchain', 'precall', 'postcall', 'preletbinding', 'postletbinding', 'compile_error')
 - ``hook``: Hook name (same as phase, useful for shared handlers)
 - ``_policy_depth``: Internal recursion counter
 
@@ -85,6 +90,15 @@ The context dictionary passed to policy functions contains:
 - ``success``: Execution success flag (postcall/postlet/postchain/postletbinding phases)
 - ``error``: Error message string (post* phases when success=False)
 - ``error_type``: Error type name (post* phases when success=False)
+
+**Compiler-specific** (``compile_error`` phase only):
+
+- ``compile_language``: Source language for string-query compilation.
+- ``compile_error``: ``CompileErrorSummary`` with stable scalar fields:
+  ``language``, ``error_type``, ``message``, ``compiler_phase``, ``code``,
+  ``context``, ``field``, ``suggestion``, ``line``, ``column``,
+  ``value_repr``, and ``param_keys``. Private parser/binder/lowering objects
+  and DataFrames are not exposed.
 
 **Binding-specific** (preletbinding/postletbinding phases only):
 

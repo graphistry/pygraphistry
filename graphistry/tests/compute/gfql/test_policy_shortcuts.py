@@ -101,6 +101,27 @@ class TestExpandPolicyBasics:
         assert expand_policy({}) == {}
         assert expand_policy(None) == {}  # type: ignore
 
+    def test_compile_error_hook_is_direct_only(self):
+        """Compiler hooks are opt-in direct keys, not runtime shortcut expansions."""
+        def handler(ctx):
+            pass
+
+        expanded = expand_policy({'pre': handler, 'compile_error': handler})
+
+        assert 'compile_error' in expanded
+        assert expanded['compile_error'] is handler
+        assert 'preload' in expanded
+        assert expanded['preload'] is handler
+
+    def test_compile_error_hook_appears_in_debug_policy(self):
+        """Direct compiler hook is visible to policy expansion debugging."""
+        def handler(ctx):
+            pass
+
+        debug_info = debug_policy({'compile_error': handler})
+
+        assert debug_info['compile_error'] == [('handler', 'compile_error')]
+
     def test_full_hook_names_work_as_specific_overrides(self):
         """Test that full hook names work and override shortcuts."""
         def handler(ctx):

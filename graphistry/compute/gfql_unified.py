@@ -2,6 +2,7 @@
 # ruff: noqa: E501
 
 from dataclasses import replace
+from types import MappingProxyType
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple, Union, cast
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, df_to_engine, resolve_engine
@@ -11,6 +12,7 @@ from .chain import Chain, chain as chain_impl
 from .chain_let import chain_let as chain_let_impl
 from .execution_context import ExecutionContext
 from .gfql.policy import (
+    CompileErrorSummary,
     PolicyContext,
     PolicyException,
     PolicyFunction,
@@ -1196,6 +1198,112 @@ def _compile_string_query(
     return compile_cypher(query, params=params, _warn_deprecated=False)
 
 
+def _compile_error_value_repr(value: Any) -> str:
+    try:
+        rendered = repr(value)
+    except Exception:
+        rendered = f"<unrepresentable {type(value).__name__}>"
+    if len(rendered) > 200:
+        return f"{rendered[:197]}..."
+    return rendered
+
+
+def _compile_error_context_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Mapping):
+        return MappingProxyType({str(k): _compile_error_context_value(v) for k, v in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_compile_error_context_value(v) for v in value)
+    return _compile_error_value_repr(value)
+
+
+def _compiler_phase_for_error(exc: GFQLValidationError) -> str:
+    if exc.code == ErrorCode.E107:
+        return "parse"
+    context = getattr(exc, "context", {})
+    if isinstance(context, dict) and (
+        "visible_scope" in context
+        or "existing_kind" in context
+        or "new_kind" in context
+    ):
+        return "bind"
+    if exc.code == ErrorCode.E108:
+        return "lower"
+    return "compile"
+
+
+def _compile_error_summary(
+    *,
+    query_language: str,
+    params: Optional[Mapping[str, Any]],
+    exc: GFQLValidationError,
+) -> CompileErrorSummary:
+    context = getattr(exc, "context", {})
+    error_context = context if isinstance(context, dict) else {}
+    public_context = MappingProxyType({str(k): _compile_error_context_value(v) for k, v in error_context.items()})
+    return CompileErrorSummary(
+        language=query_language,
+        error_type=type(exc).__name__,
+        message=exc.message,
+        compiler_phase=_compiler_phase_for_error(exc),
+        code=exc.code,
+        context=public_context,
+        field=error_context.get("field"),
+        suggestion=error_context.get("suggestion"),
+        line=error_context.get("line"),
+        column=error_context.get("column"),
+        value_repr=(
+            _compile_error_value_repr(error_context["value"])
+            if "value" in error_context
+            else None
+        ),
+        param_keys=tuple(sorted(str(key) for key in params.keys())) if params else (),
+    )
+
+
+def _fire_compile_error_policy(
+    policy: Optional[PolicyDict],
+    *,
+    query: str,
+    query_language: str,
+    exc: GFQLValidationError,
+    policy_depth: int,
+    execution_depth: int,
+    operation_path: str,
+    params: Optional[Mapping[str, Any]],
+) -> None:
+    if not policy or "compile_error" not in policy:
+        return
+    summary = _compile_error_summary(
+        query_language=query_language,
+        params=params,
+        exc=exc,
+    )
+    policy_context: PolicyContext = {
+        "phase": "compile_error",
+        "hook": "compile_error",
+        "query": query,
+        "current_ast": None,
+        "query_type": "chain",
+        "compile_language": query_language,
+        "compile_error": summary,
+        "error": str(exc),
+        "error_type": type(exc).__name__,
+        "success": False,
+        "execution_depth": execution_depth,
+        "operation_path": operation_path,
+        "parent_operation": "query" if execution_depth == 0 else operation_path.rsplit(".", 1)[0],
+        "_policy_depth": policy_depth,
+    }
+    try:
+        policy["compile_error"](policy_context)
+    except PolicyException as policy_exc:
+        if policy_exc.query_type is None:
+            policy_exc.query_type = policy_context.get("query_type")
+        raise policy_exc from exc
+
+
 @otel_traced("gfql.run", attrs_fn=_gfql_otel_attrs)
 def gfql(self: Plottable,
          query: Union[ASTObject, List[ASTObject], ASTLet, Chain, dict, str],
@@ -1428,19 +1536,47 @@ def gfql(self: Plottable,
                 raise ValueError("where cannot be combined with string queries; embed Cypher predicates in the query itself")
 
         if validate:
-            gfql_preflight_validate(
-                dispatch_self,
-                query,
-                where=where_param,
-                language=language,
-                params=params,
-                strict=True,
-                schema=True,
-                collect_all=False,
-            )
+            try:
+                gfql_preflight_validate(
+                    dispatch_self,
+                    query,
+                    where=where_param,
+                    language=language,
+                    params=params,
+                    strict=True,
+                    schema=True,
+                    collect_all=False,
+                )
+            except GFQLValidationError as exc:
+                if isinstance(query, str):
+                    _fire_compile_error_policy(
+                        expanded_policy,
+                        query=query,
+                        query_language=language or "cypher",
+                        exc=exc,
+                        policy_depth=policy_depth,
+                        execution_depth=current_depth,
+                        operation_path=current_path,
+                        params=params,
+                    )
+                raise
 
         if isinstance(query, str):
-            compiled_query = _compile_string_query(query, language=language, params=params)
+            query_language = language or "cypher"
+            try:
+                compiled_query = _compile_string_query(query, language=language, params=params)
+            except GFQLValidationError as exc:
+                _fire_compile_error_policy(
+                    expanded_policy,
+                    query=query,
+                    query_language=query_language,
+                    exc=exc,
+                    policy_depth=policy_depth,
+                    execution_depth=current_depth,
+                    operation_path=current_path,
+                    params=params,
+                )
+                raise
             if isinstance(compiled_query, CompiledCypherGraphQuery):
                 return _execute_graph_query(self, compiled_query, engine=engine, policy=expanded_policy, context=context)
             if isinstance(compiled_query, CompiledCypherQuery):
