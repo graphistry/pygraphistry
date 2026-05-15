@@ -11070,7 +11070,7 @@ def test_issue_1396_issue_1415_tag_cooccurrence_join_aggregation_counts_on_cudf(
     )
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"tagName": "Alpha", "postCount": 2},
         {"tagName": "Beta", "postCount": 1},
     ]
