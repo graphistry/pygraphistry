@@ -7089,8 +7089,15 @@ def test_string_cypher_supports_graph_functions_on_list_wrapped_entities() -> No
     assert type_result._nodes.to_dict(orient="records") == [{"t": "T"}]
 
 
-def test_string_cypher_supports_graph_functions_on_list_wrapped_entities_on_cudf() -> None:
+def test_string_cypher_supports_graph_functions_on_list_wrapped_entities_on_cudf(monkeypatch) -> None:
     cudf = pytest.importorskip("cudf")
+    import graphistry.compute.gfql.row.pipeline as row_pipeline
+
+    monkeypatch.setattr(
+        row_pipeline,
+        "_gfql_bridge_cudf_df_to_pandas",
+        lambda _df: (_ for _ in ()).throw(AssertionError("projection should not bridge the full cuDF row table")),
+    )
 
     nodes = cudf.from_pandas(
         pd.DataFrame(
@@ -7113,7 +7120,7 @@ def test_string_cypher_supports_graph_functions_on_list_wrapped_entities_on_cudf
     graph = _mk_graph(nodes, edges)
 
     labels_result = graph.gfql(
-        "MATCH (a) WITH [a, 1] AS list RETURN labels(list[0]) AS l ORDER BY l",
+        "MATCH (a) WITH [a, 1] AS list RETURN labels(list[0]) AS l",
         engine="cudf",
     )
     assert sorted(
@@ -7410,8 +7417,15 @@ def test_string_cypher_supports_property_access_on_list_wrapped_map_values() -> 
     ]
 
 
-def test_string_cypher_supports_property_access_on_list_wrapped_map_values_on_cudf() -> None:
+def test_string_cypher_supports_property_access_on_list_wrapped_map_values_on_cudf(monkeypatch) -> None:
     cudf = pytest.importorskip("cudf")
+    import graphistry.compute.gfql.row.pipeline as row_pipeline
+
+    monkeypatch.setattr(
+        row_pipeline,
+        "_gfql_bridge_cudf_df_to_pandas",
+        lambda _df: (_ for _ in ()).throw(AssertionError("projection should not bridge the full cuDF row table")),
+    )
 
     graph = _mk_graph(
         cudf.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
