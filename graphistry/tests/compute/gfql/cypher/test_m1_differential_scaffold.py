@@ -177,7 +177,7 @@ def _run_binder_prepass_scaffold(
         ast: object,
         ctx: PlanContext,
         *,
-        strict_name_resolution: bool = False,
+        strict_name_resolution: bool = True,
     ) -> BoundIR:
         _ = self
         calls.append((ast, ctx, strict_name_resolution))

@@ -39,7 +39,6 @@ from graphistry.compute.gfql.ir.compilation import GraphSchemaCatalog, PlanConte
 from graphistry.compute.gfql.ir.metadata import bound_variable_is_nullable
 from graphistry.compute.gfql.ir.logical_plan import RowSchema
 from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, ListType, LogicalType, NodeRef, PathType, ScalarType
-from graphistry.compute.gfql.rollout import resolve_strict_schema
 
 CypherAST = Union[CypherQuery, CypherUnionQuery, CypherGraphQuery]
 SchemaConfidence = Literal["declared", "propagated", "inferred"]
@@ -119,28 +118,30 @@ class _BindState:
     parameter_names: Set[str] = field(default_factory=set)
     next_scope_id: int = 1
     optional_arm_count: int = 0
-    strict_name_resolution: bool = False
     catalog: GraphSchemaCatalog = field(default_factory=GraphSchemaCatalog)
 
 
 class FrontendBinder:
     """Typed binder interface for Cypher frontend ASTs."""
 
-    def bind(self, ast: CypherAST, ctx: PlanContext, *, strict_name_resolution: bool = False) -> BoundIR:
+    def bind(self, ast: CypherAST, ctx: PlanContext, *, strict_name_resolution: bool = True) -> BoundIR:
         """Bind frontend AST into frontend-neutral IR.
 
         Binder semantics are intentionally conservative in this stage: when a
         type or nullability cannot be derived exactly, binder keeps "unknown"
         scalar types and nullable=True.
         """
+        # #1420: keep the legacy keyword source-compatible, but strict binder
+        # semantics are now canonical.
+        _ = strict_name_resolution
         if isinstance(ast, CypherUnionQuery):
-            return self._bind_union_query(ast=ast, ctx=ctx, strict_name_resolution=strict_name_resolution)
+            return self._bind_union_query(ast=ast, ctx=ctx)
         if isinstance(ast, CypherGraphQuery):
-            return self._bind_graph_query(ast=ast, ctx=ctx, strict_name_resolution=strict_name_resolution)
-        return self._bind_query(ast=ast, ctx=ctx, strict_name_resolution=strict_name_resolution)
+            return self._bind_graph_query(ast=ast, ctx=ctx)
+        return self._bind_query(ast=ast, ctx=ctx)
 
-    def _bind_query(self, ast: CypherQuery, ctx: PlanContext, *, strict_name_resolution: bool) -> BoundIR:
-        state = _BindState(strict_name_resolution=strict_name_resolution, catalog=ctx.catalog)
+    def _bind_query(self, ast: CypherQuery, ctx: PlanContext) -> BoundIR:
+        state = _BindState(catalog=ctx.catalog)
         _collect_parameter_names(ast, out=state.parameter_names)
 
         if ast.row_sequence and not ast.matches and not ast.reentry_matches:
@@ -156,8 +157,8 @@ class FrontendBinder:
 
         return _finalize_bound_ir(state=state, ctx=ctx)
 
-    def _bind_union_query(self, ast: CypherUnionQuery, ctx: PlanContext, *, strict_name_resolution: bool) -> BoundIR:
-        branch_irs = [self._bind_query(branch, ctx=ctx, strict_name_resolution=strict_name_resolution) for branch in ast.branches]
+    def _bind_union_query(self, ast: CypherUnionQuery, ctx: PlanContext) -> BoundIR:
+        branch_irs = [self._bind_query(branch, ctx=ctx) for branch in ast.branches]
         union_scope: Dict[str, BoundVariable] = {}
         union_conf: Dict[str, SchemaConfidence] = {}
 
@@ -234,7 +235,7 @@ class FrontendBinder:
             params=merged_params,
         )
 
-    def _bind_graph_query(self, ast: CypherGraphQuery, ctx: PlanContext, *, strict_name_resolution: bool) -> BoundIR:
+    def _bind_graph_query(self, ast: CypherGraphQuery, ctx: PlanContext) -> BoundIR:
         graph_binding_parts: List[BoundQueryPart] = []
         graph_binding_params: Set[str] = set()
 
@@ -242,7 +243,6 @@ class FrontendBinder:
             bound = self._bind_graph_constructor(
                 binding.constructor,
                 ctx=ctx,
-                strict_name_resolution=strict_name_resolution,
             )
             graph_binding_parts.extend(bound.query_parts)
             graph_binding_parts.append(
@@ -262,7 +262,6 @@ class FrontendBinder:
         constructor_bound = self._bind_graph_constructor(
             ast.constructor,
             ctx=ctx,
-            strict_name_resolution=strict_name_resolution,
         )
         final_params = dict(constructor_bound.params)
         param_names = set(_parameter_name_set(constructor_bound))
@@ -280,10 +279,8 @@ class FrontendBinder:
         self,
         constructor: GraphConstructor,
         ctx: PlanContext,
-        *,
-        strict_name_resolution: bool,
     ) -> BoundIR:
-        state = _BindState(strict_name_resolution=strict_name_resolution, catalog=ctx.catalog)
+        state = _BindState(catalog=ctx.catalog)
         _collect_parameter_names(constructor, out=state.parameter_names)
 
         for clause in constructor.matches:
@@ -306,30 +303,6 @@ class FrontendBinder:
                 self._bind_return_clause(state=state, clause=item.clause, stage=item)
 
     def _bind_graph_sequence(self, state: _BindState, ast: CypherQuery) -> None:
-        if not state.strict_name_resolution:
-            for match_clause in ast.matches:
-                self._bind_match_clause(state=state, clause=match_clause)
-
-            for unwind_clause in ast.unwinds:
-                self._bind_unwind_clause(state=state, clause=unwind_clause)
-
-            if ast.reentry_matches:
-                for idx, reentry_match in enumerate(ast.reentry_matches):
-                    if idx < len(ast.with_stages):
-                        self._bind_projection_stage(state=state, stage=ast.with_stages[idx], origin="WITH")
-                    self._bind_match_clause(state=state, clause=reentry_match)
-                    if idx < len(ast.reentry_wheres) and ast.reentry_wheres[idx] is not None:
-                        self._append_where_part(state=state, clause_name="WHERE", where=cast(WhereClause, ast.reentry_wheres[idx]))
-                    if idx < len(ast.reentry_unwinds):
-                        self._bind_unwind_clause(state=state, clause=ast.reentry_unwinds[idx])
-                for stage in ast.with_stages[len(ast.reentry_matches) :]:
-                    self._bind_projection_stage(state=state, stage=stage, origin="WITH")
-                return
-
-            for stage in ast.with_stages:
-                self._bind_projection_stage(state=state, stage=stage, origin="WITH")
-            return
-
         # Preserve traversal order exactly as written so strict name
         # resolution sees WITH-projected aliases before later UNWIND/MATCH
         # clauses that depend on them.
@@ -468,7 +441,12 @@ class FrontendBinder:
 
         predicates: List[BoundPredicate] = []
         if stage.where is not None:
-            self._validate_expression_property_refs(state=state, expression=stage.where, stage=f"{origin} WHERE")
+            where_state = self._projection_where_state(
+                state=state,
+                next_scope=next_scope,
+                next_confidence=next_confidence,
+            )
+            self._validate_expression_property_refs(state=where_state, expression=stage.where, stage=f"{origin} WHERE")
             predicates.append(BoundPredicate(expression=stage.where.text))
             _collect_parameter_names(stage.where, out=state.parameter_names)
 
@@ -495,7 +473,6 @@ class FrontendBinder:
             expression=clause.expression,
             scope=state.scope,
             confidence=state.scope_confidence,
-            strict_name_resolution=state.strict_name_resolution,
         )
         self._validate_expression_property_refs(state=state, expression=clause.expression, stage="UNWIND")
         _collect_parameter_names(clause.expression, out=state.parameter_names)
@@ -540,7 +517,12 @@ class FrontendBinder:
 
         predicates: List[BoundPredicate] = []
         if stage is not None and stage.where is not None:
-            self._validate_expression_property_refs(state=state, expression=stage.where, stage="RETURN WHERE")
+            where_state = self._projection_where_state(
+                state=state,
+                next_scope=next_scope,
+                next_confidence=next_confidence,
+            )
+            self._validate_expression_property_refs(state=where_state, expression=stage.where, stage="RETURN WHERE")
             predicates.append(BoundPredicate(expression=stage.where.text))
             _collect_parameter_names(stage.where, out=state.parameter_names)
 
@@ -581,7 +563,6 @@ class FrontendBinder:
                 expression=item.expression,
                 scope=state.scope,
                 confidence=state.scope_confidence,
-                strict_name_resolution=state.strict_name_resolution,
             )
             _collect_parameter_names(item.expression, out=state.parameter_names)
             next_scope[out_name] = BoundVariable(
@@ -594,6 +575,24 @@ class FrontendBinder:
             )
             next_confidence[out_name] = binding.schema_confidence
         return next_scope, next_confidence
+
+
+    def _projection_where_state(
+        self,
+        *,
+        state: _BindState,
+        next_scope: Dict[str, BoundVariable],
+        next_confidence: Dict[str, SchemaConfidence],
+    ) -> _BindState:
+        where_scope = dict(state.scope)
+        where_scope.update(next_scope)
+        where_confidence = dict(state.scope_confidence)
+        where_confidence.update(next_confidence)
+        return _BindState(
+            scope=where_scope,
+            scope_confidence=where_confidence,
+            catalog=state.catalog,
+        )
 
     def _append_where_part(self, state: _BindState, clause_name: str, where: WhereClause) -> None:
         self._validate_where_clause_schema(state=state, where=where, stage=clause_name)
@@ -837,9 +836,7 @@ class FrontendBinder:
         if not node_columns:
             return
         if label_ref.alias not in state.scope:
-            if state.strict_name_resolution:
-                raise _unresolved_name_error(identifier=label_ref.alias, visible_scope=state.scope)
-            return
+            raise _unresolved_name_error(identifier=label_ref.alias, visible_scope=state.scope)
         for label in label_ref.labels:
             label_col = f"label__{label}"
             if label_col not in node_columns:
@@ -865,9 +862,7 @@ class FrontendBinder:
         if source is None:
             if _is_hidden_reentry_property(property_ref.property):
                 return
-            if state.strict_name_resolution:
-                raise _unresolved_name_error(identifier=property_ref.alias, visible_scope=state.scope)
-            return
+            raise _unresolved_name_error(identifier=property_ref.alias, visible_scope=state.scope)
         if source.entity_kind == "node":
             columns = state.catalog.node_columns
             entity_kind: Literal["node", "edge"] = "node"
@@ -1045,7 +1040,6 @@ def _infer_expression_binding(
     expression: ExpressionText,
     scope: Mapping[str, BoundVariable],
     confidence: Mapping[str, SchemaConfidence],
-    strict_name_resolution: bool,
 ) -> _ExpressionBinding:
     text = expression.text.strip()
     if _COUNT_CALL_RE.match(text):
@@ -1062,15 +1056,7 @@ def _infer_expression_binding(
         source_alias = collect_match.group(1)
         source = scope.get(source_alias)
         if source is None:
-            if strict_name_resolution:
-                raise _unresolved_name_error(identifier=source_alias, visible_scope=scope)
-            return _ExpressionBinding(
-                logical_type=ListType(element_type=ScalarType(kind="unknown", nullable=True)),
-                entity_kind="scalar",
-                nullable=False,
-                null_extended_from=frozenset(),
-                schema_confidence="inferred",
-            )
+            raise _unresolved_name_error(identifier=source_alias, visible_scope=scope)
         return _ExpressionBinding(
             logical_type=ListType(element_type=source.logical_type),
             entity_kind="scalar",
@@ -1094,9 +1080,9 @@ def _infer_expression_binding(
         alias = prop_match.group(1)
         property_name = prop_match.group(2)
         source = scope.get(alias)
-        if source is None and strict_name_resolution and not _is_hidden_reentry_property(property_name):
-            raise _unresolved_name_error(identifier=alias, visible_scope=scope)
         if source is None:
+            if not _is_hidden_reentry_property(property_name):
+                raise _unresolved_name_error(identifier=alias, visible_scope=scope)
             return _ExpressionBinding(
                 logical_type=ScalarType(kind="unknown", nullable=True),
                 entity_kind="scalar",
@@ -1166,15 +1152,7 @@ def _infer_expression_binding(
             alias = alias_list_match.group(1)
             source = scope.get(alias)
             if source is None:
-                if strict_name_resolution:
-                    raise _unresolved_name_error(identifier=alias, visible_scope=scope)
-                return _ExpressionBinding(
-                    logical_type=ListType(element_type=ScalarType(kind="unknown", nullable=True)),
-                    entity_kind="scalar",
-                    nullable=False,
-                    null_extended_from=frozenset(),
-                    schema_confidence="inferred",
-                )
+                raise _unresolved_name_error(identifier=alias, visible_scope=scope)
             return _ExpressionBinding(
                 logical_type=ListType(element_type=source.logical_type),
                 entity_kind="scalar",
@@ -1203,10 +1181,9 @@ def _infer_expression_binding(
             schema_confidence="inferred",
         )
 
-    if strict_name_resolution:
-        unresolved = _unresolved_identifiers(text=text, scope=scope)
-        if unresolved:
-            raise _unresolved_name_error(identifier=sorted(unresolved)[0], visible_scope=scope)
+    unresolved = _unresolved_identifiers(text=text, scope=scope)
+    if unresolved:
+        raise _unresolved_name_error(identifier=sorted(unresolved)[0], visible_scope=scope)
 
     refs = _referenced_aliases(text=text, scope=scope)
     null_extended_from: FrozenSet[str] = frozenset()
@@ -1235,13 +1212,11 @@ def _infer_unwind_binding(
     expression: ExpressionText,
     scope: Mapping[str, BoundVariable],
     confidence: Mapping[str, SchemaConfidence],
-    strict_name_resolution: bool,
 ) -> _ExpressionBinding:
     expr_binding = _infer_expression_binding(
         expression=expression,
         scope=scope,
         confidence=confidence,
-        strict_name_resolution=strict_name_resolution,
     )
     expr_type = expr_binding.logical_type
     if isinstance(expr_type, ListType):
@@ -1745,13 +1720,8 @@ def _is_hidden_reentry_property(property_name: str) -> bool:
 
 
 def _strict_schema_mode(state: _BindState) -> bool:
-    catalog_strict = state.catalog.metadata.get("strict")
-    return bool(
-        resolve_strict_schema(
-            explicit=state.strict_name_resolution,
-            catalog_strict=bool(catalog_strict) if catalog_strict is not None else None,
-        )
-    )
+    _ = state
+    return True
 
 
 def _catalog_node_labels(catalog: GraphSchemaCatalog) -> Tuple[str, ...]:
@@ -1776,7 +1746,7 @@ def _missing_label_in_schema_error(
         "Cypher label is missing from strict binder schema catalog",
         field=field,
         value=f"{alias}:{label}",
-        suggestion="Use labels that exist in the node schema or disable strict mode.",
+        suggestion="Use labels that exist in the node schema or extend the schema catalog.",
         alias=alias,
         label=label,
         stage=stage,
@@ -1799,7 +1769,7 @@ def _missing_property_in_schema_error(
         "Cypher property is missing from strict binder schema catalog",
         field=field,
         value=f"{alias}.{property_name}",
-        suggestion=f"Use properties that exist in {entity_kind} schema columns or disable strict mode.",
+        suggestion=f"Use properties that exist in {entity_kind} schema columns or extend the schema catalog.",
         alias=alias,
         property=property_name,
         stage=stage,

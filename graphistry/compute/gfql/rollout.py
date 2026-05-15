@@ -2,21 +2,21 @@
 
 Stable contract surface for T5 (#1311) under #1262 / #1046.
 
-Today this module gates one knob — strict schema validation in the Cypher
-binder (T2 #1302). Helpers and the resolver are written so additional
-rollout gates can be added without re-shaping callers.
+This module retains the historical strict-schema resolver surface. As of
+#1420, the Cypher binder is strict by construction, so false resolver outputs
+are compatibility values for callers that still inspect the helper and do not
+restore loose binder behavior.
 
 Precedence (most specific wins):
     1. Explicit caller parameter (e.g. ``FrontendBinder.bind(strict_name_resolution=True)``)
     2. Catalog-level metadata flag (e.g. ``GraphSchemaCatalog.metadata['strict']``)
     3. Process-wide env default (e.g. ``GRAPHISTRY_GFQL_STRICT_SCHEMA``)
-    4. Loose default
+    4. Historical loose default for helper-only consumers
 
-The env tier is for canary / gradual rollout; default-off so existing
-loose-mode callers see no behavior change.
+The env tier remains default-off at the helper layer; binder execution no
+longer treats that default as permission for loose compatibility paths.
 
-Production callers:
-    ``graphistry/compute/gfql/frontends/cypher/binder.py:_strict_schema_mode``
+Production binder callers no longer use this helper as a loose/strict gate.
 """
 
 from __future__ import annotations
@@ -61,11 +61,10 @@ def resolve_strict_schema(
     explicit: bool,
     catalog_strict: Optional[bool],
 ) -> bool:
-    """Apply strict-schema precedence: explicit > catalog > env > loose.
+    """Apply strict-schema precedence for helper consumers.
 
     A monotonic widening: any tier that asks for strict wins. Explicit
-    ``False`` does not force loose mode (callers passing the default cannot
-    override a catalog/env opt-in).
+    ``False`` does not force loose binder behavior.
     """
     if explicit:
         return True

@@ -7830,7 +7830,7 @@ def _compile_graph_constructor(
         reentry_unwinds=(),
     )
     lowered = lower_match_query(synthetic, params=params)
-    constructor_bound_ir = FrontendBinder().bind(synthetic, PlanContext())
+    constructor_bound_ir = FrontendBinder().bind(synthetic, PlanContext(), strict_name_resolution=True)
     constructor_logical_plan, constructor_logical_plan_defer_reason = _logical_plan_route_for_query(
         synthetic,
         bound_ir=constructor_bound_ir,
@@ -8548,7 +8548,7 @@ def compile_cypher_query(
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
-    prepass_bound_ir = FrontendBinder().bind(query, PlanContext())
+    prepass_bound_ir = FrontendBinder().bind(query, PlanContext(), strict_name_resolution=True)
     prepass_context = _build_bound_lowering_context(bound_ir=prepass_bound_ir, params=params)
     params = prepass_context.params
 
