@@ -1886,12 +1886,28 @@ def test_lower_match_query_rejects_bare_where_pattern_predicate_without_relation
 
 
 def test_lower_match_query_supports_multiple_where_pattern_predicates() -> None:
-    # Slice 3 of #1031: AND-joined positive WHERE pattern predicates lift into a
-    # single appended MatchClause whose ``patterns`` carries one tuple per
-    # predicate (multi-positive cartesian within MATCH).  Verifies that the
-    # legacy rejection has been removed and the lift produces a compileable IR.
+    # AND-joined positive WHERE pattern predicates compile through independent
+    # semi-apply markers so each pattern remains an existence check.
     compiled = lower_cypher_query(_parse_query("MATCH (n) WHERE (n)-[:R]->() AND (n)-[:S]->() RETURN n"))
     assert compiled is not None
+
+
+def test_lower_match_query_emits_row_marker_for_single_positive_where_pattern() -> None:
+    lowered = lower_match_query(_parse_query("MATCH (n) WHERE (n)-[:R]->() RETURN n"))
+
+    assert [type(op).__name__ for op in lowered.query] == ["ASTNode"]
+    assert len(lowered.row_pre_filters) == 1
+    marker = lowered.row_pre_filters[0]
+    assert isinstance(marker, ASTCall)
+    assert marker.function == "semi_apply_mark"
+    assert marker.params.get("join_aliases") == ["n"]
+    out_col = marker.params.get("out_col")
+    assert isinstance(out_col, str) and out_col.startswith("__gfql_where_pattern_")
+    assert lowered.row_where is not None
+    assert lowered.row_where.text == out_col
+    binding_ops = marker.params.get("binding_ops")
+    assert isinstance(binding_ops, list)
+    assert [op.get("type") for op in binding_ops] == ["Node", "Edge", "Node"]
 
 
 def test_lower_match_query_emits_row_anti_semi_filter_for_negated_where_pattern() -> None:
@@ -6177,16 +6193,82 @@ def test_connected_variable_length_typed_mixed() -> None:
     assert ids == ["d"]
 
 
+def _mk_tck_pattern_predicate_graph(engine: str | None = None) -> _CypherTestGraph:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d"],
+            "label__A": [True, False, False, False],
+            "label__B": [False, True, False, False],
+            "label__C": [False, False, True, False],
+            "label__D": [False, False, False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "b", "a", "a"],
+            "d": ["b", "a", "c", "d"],
+            "type": ["REL1", "REL2", "REL3", "REL1"],
+        }
+    )
+    if engine == "cudf":
+        _require_cudf_runtime()
+        return _mk_cudf_graph(nodes, edges)
+    return _mk_graph(nodes, edges)
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+@pytest.mark.parametrize(
+    "query,expected_rows",
+    [
+        (
+            "MATCH (n) WHERE (n)-[:REL1*2]-() RETURN n ORDER BY n.id",
+            [{"n": "(:B)"}, {"n": "(:D)"}],
+        ),
+        (
+            "MATCH (n), (m) WHERE (n)-[:REL1|REL2|REL3|REL4]-(m) RETURN n, m ORDER BY n.id, m.id",
+            [
+                {"n": "(:A)", "m": "(:B)"},
+                {"n": "(:A)", "m": "(:C)"},
+                {"n": "(:A)", "m": "(:D)"},
+                {"n": "(:B)", "m": "(:A)"},
+                {"n": "(:C)", "m": "(:A)"},
+                {"n": "(:D)", "m": "(:A)"},
+            ],
+        ),
+        (
+            "MATCH (n), (m) WHERE (n)-[:REL1*2]-(m) RETURN n, m ORDER BY n.id, m.id",
+            [
+                {"n": "(:B)", "m": "(:D)"},
+                {"n": "(:D)", "m": "(:B)"},
+            ],
+        ),
+    ],
+)
+def test_string_cypher_pattern_predicates_are_existence_checks_not_row_expansions(
+    engine: str | None,
+    query: str,
+    expected_rows: list[dict[str, object]],
+) -> None:
+    graph = _mk_tck_pattern_predicate_graph(engine)
+    kwargs = {"engine": "cudf"} if engine == "cudf" else {}
+
+    result = graph.gfql(query, **kwargs)
+
+    if engine == "cudf":
+        assert type(result._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == expected_rows
+
+
 @pytest.mark.parametrize(
     "query,expected_rows",
     [
         (
             "MATCH (n) WHERE (n)-[:REL1*2]->() RETURN n.id AS id ORDER BY id",
-            [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+            [{"id": "a"}, {"id": "b"}],
         ),
         (
             "MATCH (n) WHERE (n)-[*2]->() RETURN n.id AS id ORDER BY id",
-            [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+            [{"id": "a"}, {"id": "b"}],
         ),
         (
             "MATCH (n) WHERE (n)<-[:REL1*1..2]-() RETURN n.id AS id ORDER BY id",
@@ -6194,7 +6276,7 @@ def test_connected_variable_length_typed_mixed() -> None:
         ),
         (
             "MATCH (n) WHERE (n)-[:REL1*2]->() AND n.id <> 'a' RETURN n.id AS id ORDER BY id",
-            [{"id": "b"}, {"id": "c"}],
+            [{"id": "b"}],
         ),
     ],
 )

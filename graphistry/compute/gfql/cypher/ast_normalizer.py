@@ -39,7 +39,6 @@ from .ast import (
     RelationshipPattern,
     ReturnClause,
     WhereClause,
-    WherePatternPredicate,
 )
 from ._boolean_expr_text import boolean_expr_to_text
 
@@ -471,100 +470,15 @@ def _rewrite_shortest_path_query(query: CypherQuery) -> CypherQuery:
     )
 
 
-def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQuery:
-    if query.where is None or not query.where.predicates:
-        return query
-    pattern_preds = [predicate for predicate in query.where.predicates if isinstance(predicate, WherePatternPredicate)]
-    if not pattern_preds:
-        return query
-    # Slice 2 of #1031: WherePatternPredicate.negated stays in place — the
-    # ast_normalizer rewriter only handles positive predicates (which compile
-    # to MatchClause append).  Negated predicates are passed through to
-    # lowering, which emits an anti-semi-join row-pipeline step.
-    positive_preds = [p for p in pattern_preds if not p.negated]
-    if not positive_preds:
-        return query
-    # Keep multi-positive pattern predicate conjunctions in WHERE so lowering
-    # can evaluate each predicate independently via semi-apply markers.
-    #
-    # Rewriting multiple positive predicates into one appended MatchClause
-    # can incorrectly couple otherwise independent existence checks and make
-    # `AND` operand order observable (#1332).
-    if len(positive_preds) > 1:
-        return query
-
-    # Single positive pattern predicate still rewrites to an appended MATCH.
-    # Each predicate is independently validated (must include a relationship;
-    # cannot introduce new aliases).
-    bound_aliases = {
-        cast(str, element.variable)
-        for clause in query.matches
-        for pattern in clause.patterns
-        for element in pattern
-        if getattr(element, "variable", None) is not None
-    }
-    # Validate the positive pattern; emit as a single appended MatchClause.
-    for pred in positive_preds:
-        if len(pred.pattern) < 3:
-            raise _unsupported(
-                "Cypher WHERE pattern predicates must include a relationship",
-                field="where",
-                value=None,
-                line=pred.span.line,
-                column=pred.span.column,
-            )
-        introduced_aliases = sorted(
-            cast(str, element.variable)
-            for element in pred.pattern
-            if getattr(element, "variable", None) is not None and cast(str, element.variable) not in bound_aliases
-        )
-        if introduced_aliases:
-            raise _unsupported(
-                "Cypher WHERE pattern predicates cannot introduce new aliases in this phase",
-                field="where",
-                value=introduced_aliases,
-                line=pred.span.line,
-                column=pred.span.column,
-            )
-
-    first = positive_preds[0]
-    extra_match = MatchClause(
-        patterns=tuple(pred.pattern for pred in positive_preds),
-        span=first.span,
-        optional=False,
-        pattern_aliases=tuple(None for _ in positive_preds),
-        pattern_alias_kinds=tuple("pattern" for _ in positive_preds),
-    )
-
-    # Keep negated WherePatternPredicates in `remaining` so lowering sees them
-    # for anti-semi-join emission (#1031 slice 2).
-    remaining = tuple(
-        predicate for predicate in query.where.predicates
-        if (not isinstance(predicate, WherePatternPredicate)) or predicate.negated
-    )
-    remaining_where = None
-    if remaining or query.where.expr_tree is not None:
-        remaining_where = WhereClause(
-            predicates=cast(Any, remaining),
-            expr_tree=query.where.expr_tree,
-            span=query.where.span,
-        )
-    return replace(query, matches=query.matches + (extra_match,), where=remaining_where)
-
-
 class ASTNormalizer:
     """Owns frontend-AST rewrites that must remain behavior-preserving."""
 
     def rewrite_shortest_path(self, query: CypherQuery) -> CypherQuery:
         return _rewrite_shortest_path_query(query)
 
-    def rewrite_where_pattern_predicates(self, query: CypherQuery) -> CypherQuery:
-        return _rewrite_where_pattern_predicates_to_matches(query)
-
     def normalize(self, query: CypherQuery) -> CypherQuery:
-        query = self.rewrite_shortest_path(query)
-        query = self.rewrite_where_pattern_predicates(query)
-        return query
+        # Keep normalization as a single composition point for frontend AST rewrites.
+        return self.rewrite_shortest_path(query)
 
 
 __all__ = ["ASTNormalizer"]
