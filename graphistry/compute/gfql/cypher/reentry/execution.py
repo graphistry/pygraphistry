@@ -70,6 +70,7 @@ def apply_optional_reentry_null_fill(
     prefix_result: Plottable,
     engine: Union[EngineAbstract, str],
     empty_result_row: Optional[Dict[str, Any]] = None,
+    reentry_plan: Optional[ReentryPlan] = None,
 ) -> Plottable:
     """Null-fill result rows for prefix rows that the optional reentry didn't match."""
     prefix_df = getattr(prefix_result, "_nodes", None)
@@ -80,9 +81,6 @@ def apply_optional_reentry_null_fill(
 
     prefix_rows = len(prefix_df)
     result_rows = 0 if result_df is None else len(result_df)
-
-    if result_rows >= prefix_rows:
-        return result
 
     concrete_engine = resolve_engine(cast(Any, engine), result)
     df_ctor = df_cons(concrete_engine)
@@ -97,15 +95,26 @@ def apply_optional_reentry_null_fill(
     else:
         null_row = {}
 
-    if result_df is None or len(result_df) == 0:
-        if null_row:
-            out = result.bind()
-            out._nodes = df_ctor([dict(null_row) for _ in range(prefix_rows)])
-            return out
+    fill_rows = _optional_reentry_carried_null_rows(
+        prefix_df=prefix_df,
+        result_df=result_df,
+        null_row=null_row,
+        reentry_plan=reentry_plan,
+    )
+    if fill_rows is None:
+        if result_rows >= prefix_rows:
+            return result
+        missing_count = prefix_rows - result_rows
+        fill_rows = [dict(null_row) for _ in range(missing_count)]
+    elif not fill_rows:
         return result
 
-    missing_count = prefix_rows - result_rows
-    fill_rows = [dict(null_row) for _ in range(missing_count)]
+    if result_df is None or len(result_df) == 0:
+        if fill_rows:
+            out = result.bind()
+            out._nodes = df_ctor(fill_rows)
+            return out
+        return result
 
     fill_df = df_ctor(fill_rows)
     out = result.bind()
@@ -114,6 +123,93 @@ def apply_optional_reentry_null_fill(
     if edges_df is not None:
         out._edges = edges_df[:0]
     return out
+
+
+def _optional_reentry_carried_null_rows(
+    *,
+    prefix_df: DataFrameT,
+    result_df: Optional[DataFrameT],
+    null_row: Dict[str, Any],
+    reentry_plan: Optional[ReentryPlan],
+) -> Optional[List[Dict[str, Any]]]:
+    if reentry_plan is None or not reentry_plan.scalar_columns:
+        return None
+
+    prefix_columns = set(prefix_df.columns)
+    result_columns = set(result_df.columns) if result_df is not None else set(null_row)
+    carried_columns = tuple(
+        col
+        for col in reentry_plan.scalar_columns
+        if col in prefix_columns and col in result_columns
+    )
+    if not carried_columns:
+        return None
+
+    prefix_records = _records_for_columns(prefix_df, carried_columns)
+    if _has_duplicate_optional_reentry_keys(prefix_records, carried_columns):
+        return None
+    if result_df is None or len(result_df) == 0:
+        missing_records = prefix_records
+    else:
+        if not all(col in result_df.columns for col in carried_columns):
+            return None
+        matched_keys = {
+            tuple(_optional_reentry_key_value(record[col]) for col in carried_columns)
+            for record in _records_for_columns(result_df, carried_columns)
+        }
+        missing_records = [
+            record
+            for record in prefix_records
+            if tuple(_optional_reentry_key_value(record[col]) for col in carried_columns)
+            not in matched_keys
+        ]
+
+    fill_rows: List[Dict[str, Any]] = []
+    for record in missing_records:
+        row = dict(null_row)
+        for col in carried_columns:
+            row[col] = record[col]
+        fill_rows.append(row)
+    return fill_rows
+
+
+def _has_duplicate_optional_reentry_keys(
+    records: Sequence[Dict[str, Any]],
+    columns: Tuple[str, ...],
+) -> bool:
+    seen = set()
+    for record in records:
+        key = tuple(_optional_reentry_key_value(record[col]) for col in columns)
+        if key in seen:
+            return True
+        seen.add(key)
+    return False
+
+
+def _records_for_columns(df: DataFrameT, columns: Tuple[str, ...]) -> List[Dict[str, Any]]:
+    values_by_column = {column: _series_to_pylist(cast(SeriesT, df[column])) for column in columns}
+    row_count = len(df)
+    return [
+        {column: values_by_column[column][row_index] for column in columns}
+        for row_index in range(row_count)
+    ]
+
+
+def _series_to_pylist(values: SeriesT) -> List[Any]:
+    if hasattr(values, "to_arrow"):
+        return cast(List[Any], values.to_arrow().to_pylist())
+    if hasattr(values, "tolist"):
+        return cast(List[Any], values.tolist())
+    return list(values)
+
+
+def _optional_reentry_key_value(value: Any) -> Any:
+    try:
+        if value != value:
+            return None
+    except Exception:
+        return value
+    return value
 
 
 def compiled_query_reentry_state(

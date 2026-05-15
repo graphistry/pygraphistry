@@ -1093,6 +1093,7 @@ def _execute_compiled_query_with_reentry(
             prefix_result=prefix_result,  # type: ignore[possibly-undefined]
             engine=engine,
             empty_result_row=compiled_query.empty_result_row,
+            reentry_plan=compiled_query.reentry_plan,
         )
 
     return result
