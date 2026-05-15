@@ -8227,70 +8227,84 @@ def test_string_cypher_rejects_invalid_range_arguments(query: str, pattern: str)
         g.gfql(query)
 
 
+_TEMPORAL7_COMPARISON_CASES: Tuple[Tuple[str, str, Dict[str, bool]], ...] = (
+    (
+        "date-before",
+        "WITH date({year: 1980, month: 12, day: 24}) AS x, "
+        "date({year: 1984, month: 10, day: 11}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": True, "x >= d": False, "x <= d": True, "x = d": False},
+    ),
+    (
+        "date-equal",
+        "WITH date({year: 1984, month: 10, day: 11}) AS x, "
+        "date({year: 1984, month: 10, day: 11}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": False, "x >= d": True, "x <= d": True, "x = d": True},
+    ),
+    (
+        "localtime-before",
+        "WITH localtime({hour: 10, minute: 35}) AS x, "
+        "localtime({hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": True, "x >= d": False, "x <= d": True, "x = d": False},
+    ),
+    (
+        "localtime-equal",
+        "WITH localtime({hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS x, "
+        "localtime({hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": False, "x >= d": True, "x <= d": True, "x = d": True},
+    ),
+    (
+        "time-before-offset",
+        "WITH time({hour: 10, minute: 0, timezone: '+01:00'}) AS x, "
+        "time({hour: 9, minute: 35, second: 14, nanosecond: 645876123, timezone: '+00:00'}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": True, "x >= d": False, "x <= d": True, "x = d": False},
+    ),
+    (
+        "time-equal-offset",
+        "WITH time({hour: 9, minute: 35, second: 14, nanosecond: 645876123, timezone: '+00:00'}) AS x, "
+        "time({hour: 9, minute: 35, second: 14, nanosecond: 645876123, timezone: '+00:00'}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": False, "x >= d": True, "x <= d": True, "x = d": True},
+    ),
+    (
+        "localdatetime-before",
+        "WITH localdatetime({year: 1980, month: 12, day: 11, hour: 12, minute: 31, second: 14}) AS x, "
+        "localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": True, "x >= d": False, "x <= d": True, "x = d": False},
+    ),
+    (
+        "localdatetime-equal",
+        "WITH localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS x, "
+        "localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": False, "x >= d": True, "x <= d": True, "x = d": True},
+    ),
+    (
+        "datetime-before-offset",
+        "WITH datetime({year: 1980, month: 12, day: 11, hour: 12, minute: 31, second: 14, timezone: '+00:00'}) AS x, "
+        "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, timezone: '+05:00'}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": True, "x >= d": False, "x <= d": True, "x = d": False},
+    ),
+    (
+        "datetime-equal-offset",
+        "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, timezone: '+05:00'}) AS x, "
+        "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, timezone: '+05:00'}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": False, "x >= d": True, "x <= d": True, "x = d": True},
+    ),
+)
+
+
 @pytest.mark.parametrize(
     ("query", "expected"),
-    [
-        (
-            "WITH date({year: 1980, month: 12, day: 24}) AS x, "
-            "date({year: 1984, month: 10, day: 11}) AS d "
-            "RETURN x > d, x < d, x >= d, x <= d, x = d",
-            {"x > d": False, "x < d": True, "x >= d": False, "x <= d": True, "x = d": False},
-        ),
-        (
-            "WITH date({year: 1984, month: 10, day: 11}) AS x, "
-            "date({year: 1984, month: 10, day: 11}) AS d "
-            "RETURN x > d, x < d, x >= d, x <= d, x = d",
-            {"x > d": False, "x < d": False, "x >= d": True, "x <= d": True, "x = d": True},
-        ),
-        (
-            "WITH localtime({hour: 10, minute: 35}) AS x, "
-            "localtime({hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS d "
-            "RETURN x > d, x < d, x >= d, x <= d, x = d",
-            {"x > d": False, "x < d": True, "x >= d": False, "x <= d": True, "x = d": False},
-        ),
-        (
-            "WITH localtime({hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS x, "
-            "localtime({hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS d "
-            "RETURN x > d, x < d, x >= d, x <= d, x = d",
-            {"x > d": False, "x < d": False, "x >= d": True, "x <= d": True, "x = d": True},
-        ),
-        (
-            "WITH time({hour: 10, minute: 0, timezone: '+01:00'}) AS x, "
-            "time({hour: 9, minute: 35, second: 14, nanosecond: 645876123, timezone: '+00:00'}) AS d "
-            "RETURN x > d, x < d, x >= d, x <= d, x = d",
-            {"x > d": False, "x < d": True, "x >= d": False, "x <= d": True, "x = d": False},
-        ),
-        (
-            "WITH time({hour: 9, minute: 35, second: 14, nanosecond: 645876123, timezone: '+00:00'}) AS x, "
-            "time({hour: 9, minute: 35, second: 14, nanosecond: 645876123, timezone: '+00:00'}) AS d "
-            "RETURN x > d, x < d, x >= d, x <= d, x = d",
-            {"x > d": False, "x < d": False, "x >= d": True, "x <= d": True, "x = d": True},
-        ),
-        (
-            "WITH localdatetime({year: 1980, month: 12, day: 11, hour: 12, minute: 31, second: 14}) AS x, "
-            "localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS d "
-            "RETURN x > d, x < d, x >= d, x <= d, x = d",
-            {"x > d": False, "x < d": True, "x >= d": False, "x <= d": True, "x = d": False},
-        ),
-        (
-            "WITH localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS x, "
-            "localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS d "
-            "RETURN x > d, x < d, x >= d, x <= d, x = d",
-            {"x > d": False, "x < d": False, "x >= d": True, "x <= d": True, "x = d": True},
-        ),
-        (
-            "WITH datetime({year: 1980, month: 12, day: 11, hour: 12, minute: 31, second: 14, timezone: '+00:00'}) AS x, "
-            "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, timezone: '+05:00'}) AS d "
-            "RETURN x > d, x < d, x >= d, x <= d, x = d",
-            {"x > d": False, "x < d": True, "x >= d": False, "x <= d": True, "x = d": False},
-        ),
-        (
-            "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, timezone: '+05:00'}) AS x, "
-            "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, timezone: '+05:00'}) AS d "
-            "RETURN x > d, x < d, x >= d, x <= d, x = d",
-            {"x > d": False, "x < d": False, "x >= d": True, "x <= d": True, "x = d": True},
-        ),
-    ],
+    [(query, expected) for _, query, expected in _TEMPORAL7_COMPARISON_CASES],
+    ids=[case_id for case_id, _, _ in _TEMPORAL7_COMPARISON_CASES],
 )
 def test_string_cypher_temporal7_comparison_truth_table(
     query: str,
@@ -8299,28 +8313,35 @@ def test_string_cypher_temporal7_comparison_truth_table(
     _assert_query_rows(query, [expected])
 
 
+_TEMPORAL_LITERAL_CONSTRUCTOR_COMPARISON_CASES: Tuple[Tuple[str, str, Dict[str, bool]], ...] = (
+    (
+        "date-literal-constructor-equal",
+        "WITH date('1984-10-11') AS x, "
+        "date({year: 1984, month: 10, day: 11}) AS d "
+        "RETURN x = d AS eq, x <= d AS le, x >= d AS ge",
+        {"eq": True, "le": True, "ge": True},
+    ),
+    (
+        "time-literal-constructor-equal-offset",
+        "WITH time('10:00:00+01:00') AS x, "
+        "time({hour: 9, minute: 0, timezone: '+00:00'}) AS d "
+        "RETURN x = d AS eq, x <= d AS le, x >= d AS ge",
+        {"eq": True, "le": True, "ge": True},
+    ),
+    (
+        "datetime-literal-constructor-equal-offset",
+        "WITH datetime('1984-10-11T12:31:14+05:00') AS x, "
+        "datetime({year: 1984, month: 10, day: 11, hour: 7, minute: 31, second: 14, timezone: '+00:00'}) AS d "
+        "RETURN x = d AS eq, x <= d AS le, x >= d AS ge",
+        {"eq": True, "le": True, "ge": True},
+    ),
+)
+
+
 @pytest.mark.parametrize(
     ("query", "expected"),
-    [
-        (
-            "WITH date('1984-10-11') AS x, "
-            "date({year: 1984, month: 10, day: 11}) AS d "
-            "RETURN x = d AS eq, x <= d AS le, x >= d AS ge",
-            {"eq": True, "le": True, "ge": True},
-        ),
-        (
-            "WITH time('10:00:00+01:00') AS x, "
-            "time({hour: 9, minute: 0, timezone: '+00:00'}) AS d "
-            "RETURN x = d AS eq, x <= d AS le, x >= d AS ge",
-            {"eq": True, "le": True, "ge": True},
-        ),
-        (
-            "WITH datetime('1984-10-11T12:31:14+05:00') AS x, "
-            "datetime({year: 1984, month: 10, day: 11, hour: 7, minute: 31, second: 14, timezone: '+00:00'}) AS d "
-            "RETURN x = d AS eq, x <= d AS le, x >= d AS ge",
-            {"eq": True, "le": True, "ge": True},
-        ),
-    ],
+    [(query, expected) for _, query, expected in _TEMPORAL_LITERAL_CONSTRUCTOR_COMPARISON_CASES],
+    ids=[case_id for case_id, _, _ in _TEMPORAL_LITERAL_CONSTRUCTOR_COMPARISON_CASES],
 )
 def test_string_cypher_temporal_comparison_mixes_literal_and_constructor_forms(
     query: str,
@@ -8329,22 +8350,105 @@ def test_string_cypher_temporal_comparison_mixes_literal_and_constructor_forms(
     _assert_query_rows(query, [expected])
 
 
-def test_string_cypher_temporal_comparison_truth_table_cudf() -> None:
+_CUDF_TEMPORAL_COMPARISON_CASES = (
+    _TEMPORAL7_COMPARISON_CASES
+    + _TEMPORAL_LITERAL_CONSTRUCTOR_COMPARISON_CASES
+)
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [(query, expected) for _, query, expected in _CUDF_TEMPORAL_COMPARISON_CASES],
+    ids=[case_id for case_id, _, _ in _CUDF_TEMPORAL_COMPARISON_CASES],
+)
+def test_string_cypher_temporal_comparison_cases_cudf(
+    query: str,
+    expected: dict[str, bool],
+) -> None:
     _require_cudf_runtime()
     graph = _mk_cudf_graph(
         pd.DataFrame({"id": []}),
         pd.DataFrame({"s": [], "d": []}),
     )
 
-    result = graph.gfql(
-        "WITH time({hour: 10, minute: 0, timezone: '+01:00'}) AS x, "
-        "time({hour: 9, minute: 35, second: 14, nanosecond: 645876123, timezone: '+00:00'}) AS d "
-        "RETURN x > d, x < d, x >= d, x <= d, x = d"
-    )
+    assert type(graph._nodes).__module__.startswith("cudf")
+    assert type(graph._edges).__module__.startswith("cudf")
+    result = graph.gfql(query, engine="cudf")
+    assert type(result._nodes).__module__.startswith("cudf")
 
-    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
-        {"x > d": False, "x < d": True, "x >= d": False, "x <= d": True, "x = d": False}
-    ]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [expected]
+
+
+_TEMPORAL_PROPERTY_ORDER_BY_CASES: Tuple[Tuple[str, pd.DataFrame, List[str]], ...] = (
+    (
+        "date-property-order",
+        pd.DataFrame(
+            {
+                "id": ["early", "same", "late"],
+                "v": [
+                    "date({year: 1980, month: 12, day: 24})",
+                    "date({year: 1984, month: 10, day: 11})",
+                    "date({year: 1985, month: 5, day: 6})",
+                ],
+            }
+        ),
+        ["early", "same", "late"],
+    ),
+    (
+        "time-property-order-offset",
+        pd.DataFrame(
+            {
+                "id": ["offset", "later", "earliest"],
+                "v": [
+                    "time({hour: 10, minute: 0, timezone: '+01:00'})",
+                    "time({hour: 9, minute: 35, second: 14, nanosecond: 645876123, timezone: '+00:00'})",
+                    "time({hour: 8, minute: 0, timezone: '+00:00'})",
+                ],
+            }
+        ),
+        ["earliest", "offset", "later"],
+    ),
+    (
+        "datetime-property-order-offset",
+        pd.DataFrame(
+            {
+                "id": ["offset", "after", "earliest"],
+                "v": [
+                    "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, timezone: '+05:00'})",
+                    "datetime({year: 1984, month: 10, day: 11, hour: 8, minute: 31, second: 14, timezone: '+00:00'})",
+                    "datetime({year: 1980, month: 12, day: 11, hour: 12, minute: 31, second: 14, timezone: '+00:00'})",
+                ],
+            }
+        ),
+        ["earliest", "offset", "after"],
+    ),
+)
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+@pytest.mark.parametrize(
+    ("nodes_df", "expected"),
+    [(nodes_df, expected) for _, nodes_df, expected in _TEMPORAL_PROPERTY_ORDER_BY_CASES],
+    ids=[case_id for case_id, _, _ in _TEMPORAL_PROPERTY_ORDER_BY_CASES],
+)
+def test_string_cypher_temporal_property_order_by_cases_on_engine(
+    nodes_df: pd.DataFrame,
+    expected: list[str],
+    engine: Optional[str],
+) -> None:
+    edges_df = pd.DataFrame({"s": [], "d": []})
+    query = "MATCH (n) RETURN n.id AS id, n.v AS v ORDER BY v ASC"
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes_df, edges_df)
+        assert type(graph._nodes).__module__.startswith("cudf")
+        assert type(graph._edges).__module__.startswith("cudf")
+        result = graph.gfql(query, engine="cudf")
+        assert type(result._nodes).__module__.startswith("cudf")
+    else:
+        result = _mk_graph(nodes_df, edges_df).gfql(query)
+
+    assert _to_pandas_df(result._nodes)["id"].tolist() == expected
 
 
 def test_string_cypher_supports_time_comparison_consistent_with_sort_order() -> None:
