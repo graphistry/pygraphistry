@@ -2433,7 +2433,7 @@ def test_string_cypher_formats_filtered_edge_entity_projection_on_cudf() -> None
         engine="cudf",
     )
 
-    pdf = result._nodes.to_pandas().sort_values("r").reset_index(drop=True)
+    pdf = _to_pandas_df(result._nodes).sort_values("r").reset_index(drop=True)
     assert pdf.to_dict(orient="records") == [
         {"r": "[:HATES]"},
         {"r": "[:KNOWS]"},
@@ -2476,7 +2476,7 @@ def test_string_cypher_formats_optional_match_projection_on_cudf() -> None:
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"m": "(:A {num: 42})"}
     ]
 
@@ -2499,7 +2499,7 @@ def test_string_cypher_formats_small_float_node_entity_projection_on_cudf() -> N
 
     result = _mk_graph(nodes, edges).gfql("MATCH (a) RETURN a", engine="cudf")
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"a": "(:B {num: 30.94857, num2: 0.00002})"}
     ]
 
@@ -3789,7 +3789,7 @@ def test_string_cypher_supports_post_aggregate_size_collect_projection_on_cudf()
 
     result = _mk_graph(nodes, edges).gfql("MATCH (a) RETURN size(collect(a)) AS n", engine="cudf")
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"n": 11}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"n": 11}]
 
 
 def test_string_cypher_supports_grouped_post_aggregate_size_collect_projection() -> None:
@@ -4132,7 +4132,7 @@ def _three_valued_logic_fixture_graph() -> _CypherTestGraph:
 
 
 def _rows_for_issue_1219_engine(result: Any, engine: str | None) -> List[Dict[str, Any]]:
-    frame = result._nodes.to_pandas() if engine == "cudf" else result._nodes
+    frame = _to_pandas_df(result._nodes) if engine == "cudf" else result._nodes
     return cast(List[Dict[str, Any]], frame.to_dict(orient="records"))
 
 
@@ -4634,7 +4634,7 @@ def test_string_cypher_supports_static_row_expr_null_propagation_on_cudf() -> No
 
     result = graph.gfql("RETURN 4 IN [1, null, 3] AS result", engine="cudf")
 
-    assert pd.isna(result._nodes.to_pandas().iloc[0]["result"])
+    assert pd.isna(_to_pandas_df(result._nodes).iloc[0]["result"])
 
 
 def test_string_cypher_supports_list_append_precedence_on_cudf() -> None:
@@ -4650,7 +4650,7 @@ def test_string_cypher_supports_list_append_precedence_on_cudf() -> None:
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"a": False, "b": False, "c": [1, False, 4]}
     ]
 
@@ -4668,7 +4668,7 @@ def test_string_cypher_supports_list_membership_append_precedence_on_cudf() -> N
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"a": False, "b": False, "c": [False, 4], "d": [1, False, 4]}
     ]
 
@@ -5659,7 +5659,7 @@ def test_string_cypher_executes_graph_backed_unwind_after_with_into_post_with_ma
     )
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"id": "c1"},
         {"id": "c2"},
     ]
@@ -6838,7 +6838,7 @@ def test_string_cypher_supports_unwind_keys_on_cudf() -> None:
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"theProps": "active"},
         {"theProps": "name"},
         {"theProps": "score"},
@@ -6988,7 +6988,7 @@ def test_string_cypher_supports_graph_functions_on_list_wrapped_entities_on_cudf
         engine="cudf",
     )
     assert sorted(
-        labels_result._nodes.to_pandas().to_dict(orient="records"),
+        _to_pandas_df(labels_result._nodes).to_dict(orient="records"),
         key=lambda row: (len(row["l"]), row["l"]),
     ) == [
         {"l": "['Foo']"},
@@ -6999,7 +6999,7 @@ def test_string_cypher_supports_graph_functions_on_list_wrapped_entities_on_cudf
         "MATCH ()-[r]->() WITH [r, 1] AS list RETURN type(list[0]) AS t",
         engine="cudf",
     )
-    assert type_result._nodes.to_pandas().to_dict(orient="records") == [{"t": "T"}]
+    assert _to_pandas_df(type_result._nodes).to_dict(orient="records") == [{"t": "T"}]
 
 
 def test_string_cypher_supports_null_graph_functions_in_multi_alias_projection() -> None:
@@ -7049,7 +7049,7 @@ def test_string_cypher_supports_top_level_optional_match_null_rows_for_labels_on
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"ln": None, "nn": None}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"ln": None, "nn": None}]
 
 
 def test_string_cypher_supports_optional_match_inline_missing_label_on_cudf() -> None:
@@ -7073,7 +7073,7 @@ def test_string_cypher_supports_optional_match_inline_missing_label_on_cudf() ->
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"r": None}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"r": None}]
 
 
 def test_string_cypher_supports_top_level_optional_match_null_rows_for_property_access() -> None:
@@ -7179,7 +7179,7 @@ def test_string_cypher_supports_dynamic_graph_property_lookup_on_cudf() -> None:
 
     result = graph.gfql("MATCH (n {name: 'Apa'}) RETURN n['nam' + 'e'] AS value", engine="cudf")
 
-    nodes_df = result._nodes.to_pandas() if hasattr(result._nodes, "to_pandas") else result._nodes
+    nodes_df = _to_pandas_df(result._nodes)
     assert nodes_df.to_dict(orient="records") == [{"value": "Apa"}]
 
 
@@ -7255,7 +7255,7 @@ def test_string_cypher_supports_property_access_on_list_wrapped_node_and_relatio
         "MATCH (n) WITH [123, n] AS list RETURN (list[1]).missing, (list[1]).missingToo, (list[1]).existing",
         engine="cudf",
     )
-    assert node_result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(node_result._nodes).to_dict(orient="records") == [
         {"(list[1]).missing": None, "(list[1]).missingToo": None, "(list[1]).existing": 42},
         {"(list[1]).missing": None, "(list[1]).missingToo": None, "(list[1]).existing": None},
     ]
@@ -7264,7 +7264,7 @@ def test_string_cypher_supports_property_access_on_list_wrapped_node_and_relatio
         "MATCH ()-[r]->() WITH [123, r] AS list RETURN (list[1]).missing, (list[1]).missingToo, (list[1]).existing",
         engine="cudf",
     )
-    assert rel_result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(rel_result._nodes).to_dict(orient="records") == [
         {"(list[1]).missing": None, "(list[1]).missingToo": None, "(list[1]).existing": 42},
     ]
 
@@ -7294,7 +7294,7 @@ def test_string_cypher_supports_property_access_on_list_wrapped_map_values_on_cu
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"(list[1]).missing": None, "(list[1]).notMissing": None, "(list[1]).existing": 42}
     ]
 
@@ -8671,7 +8671,7 @@ def test_string_cypher_executes_with_match_reentry_limit_shape_on_cudf() -> None
     )
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
 
 
 def test_string_cypher_executes_with_match_reentry_ordered_topk_multi_row_shape_on_cudf() -> None:
@@ -8708,7 +8708,7 @@ def test_string_cypher_executes_with_match_reentry_ordered_topk_multi_row_shape_
     )
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"aid": "a1", "bid": "b1"},
         {"aid": "a2", "bid": "b2"},
     ]
@@ -8742,7 +8742,7 @@ def test_string_cypher_executes_with_match_reentry_parameterized_limit_shape_on_
     )
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
 
 
 def test_string_cypher_failfast_rejects_with_match_reentry_ordered_skip_shape() -> None:
@@ -8891,7 +8891,7 @@ def test_string_cypher_executes_with_match_reentry_carried_scalar_shapes_on_cudf
     result = _mk_reentry_carried_scalar_graph_cudf().gfql(query, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == expected
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == expected
 
 
 def test_string_cypher_executes_with_match_reentry_carried_scalars_from_connected_prefix_shape() -> None:
@@ -8933,7 +8933,7 @@ def test_string_cypher_executes_with_match_reentry_carried_scalars_from_connecte
     result = _mk_connected_reentry_carried_scalar_graph_cudf().gfql(query, params={"seed": "a1"}, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"bid": "b1", "cid": "c1"}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"bid": "b1", "cid": "c1"}]
 
 
 def test_string_cypher_executes_plain_connected_multi_pattern_scalar_projection() -> None:
@@ -9023,7 +9023,7 @@ def test_string_cypher_executes_with_match_reentry_carried_scalar_into_connected
     )
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"bid": "b1", "did": "d1"},
         {"bid": "b1", "did": "d2"},
     ]
@@ -9062,7 +9062,7 @@ def test_string_cypher_executes_recent_message_reentry_multihop_scalar_projectio
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"messageId": "post2", "messageCreationDate": 20, "postId": "post2", "personId": "viewer"},
         {"messageId": "comment1", "messageCreationDate": 10, "postId": "post1", "personId": "author1"},
     ]
@@ -9125,7 +9125,7 @@ def test_string_cypher_executes_undirected_multihop_row_bindings_on_cudf() -> No
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"aid": "a", "bid": "b"},
         {"aid": "a", "bid": "c"},
     ]
@@ -9393,7 +9393,7 @@ def test_string_cypher_chained_reentry_with_repeated_primary_preserves_duplicate
         "RETURN other.id AS oid, friend.id AS fid"
     )
     result = _mk_multi_stage_reentry_graph_cudf().gfql(query, engine="cudf")
-    nodes_pd = result._nodes.to_pandas() if hasattr(result._nodes, "to_pandas") else result._nodes
+    nodes_pd = _to_pandas_df(result._nodes)
     records = nodes_pd.to_dict(orient="records")
     assert len(records) == 4
     assert {(row["fid"], row["oid"]) for row in records} == {
@@ -9703,9 +9703,7 @@ def test_string_cypher_executes_freeform_intermediate_reentry_match_on_multi_row
         "RETURN d.id AS did"
     )
     result = graph.gfql(query)
-    nodes_pd_out = (
-        result._nodes.to_pandas() if hasattr(result._nodes, "to_pandas") else result._nodes
-    )
+    nodes_pd_out = _to_pandas_df(result._nodes)
     assert nodes_pd_out.to_dict(orient="records") == [{"did": "d"}, {"did": "d"}]
 
 
@@ -9728,9 +9726,7 @@ def test_string_cypher_executes_simple_freeform_intermediate_reentry_match_on_cu
         "RETURN d.id AS did, c.id AS cid"
     )
     result = cudf_graph.gfql(query)
-    nodes_pd = (
-        result._nodes.to_pandas() if hasattr(result._nodes, "to_pandas") else result._nodes
-    )
+    nodes_pd = _to_pandas_df(result._nodes)
     assert nodes_pd.to_dict(orient="records") == [{"did": "d", "cid": "c"}]
 
 
@@ -10284,7 +10280,7 @@ def test_string_cypher_executes_with_match_reentry_multi_whole_row_alias_propert
     result = _mk_connected_reentry_carried_scalar_graph_cudf().gfql(query, params={"seed": "a1"}, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"aid": "a1", "bid": "b1", "cid": "c1"}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"aid": "a1", "bid": "b1", "cid": "c1"}]
 
 
 def test_string_cypher_executes_with_match_reentry_cross_alias_carried_scalars_from_connected_prefix_shape() -> None:
@@ -10321,7 +10317,7 @@ def test_string_cypher_reentry_carried_scalars_ignore_internal_hidden_column_col
     )
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"property": 2}, {"property": 1}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"property": 2}, {"property": 1}]
 
 
 def test_string_cypher_executes_with_match_reentry_carried_scalar_where() -> None:
@@ -10350,7 +10346,7 @@ def test_string_cypher_executes_with_match_reentry_carried_scalar_where_on_cudf(
     result = _mk_reentry_carried_scalar_graph_cudf().gfql(query, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"property": 1, "id": "b1"}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"property": 1, "id": "b1"}]
 
 
 def test_string_cypher_executes_with_match_reentry_secondary_alias_property_where() -> None:
@@ -10456,7 +10452,7 @@ def test_string_cypher_executes_with_match_reentry_preserves_orderby_limit_prefi
     )
     result = _mk_reentry_order_limit_graph_cudf().gfql(query, engine="cudf")
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"friendId": "f1", "uniId": "u1"},
         {"friendId": "f2", "uniId": "u2"},
         {"friendId": "f2", "uniId": "u3"},
@@ -10580,7 +10576,7 @@ def test_string_cypher_executes_job_referral_employment_company_row_join_shape_o
     result = _mk_cudf_graph(nodes, edges).gfql(query, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == expected
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == expected
 
 
 def test_string_cypher_executes_seeded_multihop_then_with_optional_match_reentry_shape() -> None:
@@ -10654,7 +10650,7 @@ def test_string_cypher_executes_multi_stage_with_match_reentry_connected_shape_o
     )
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"id": "d"}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"id": "d"}]
 
 
 def test_string_cypher_executes_multi_stage_with_match_reentry_empty_result_shape() -> None:
@@ -10855,7 +10851,7 @@ def test_string_cypher_executes_multiple_post_with_where_clauses_on_cudf() -> No
     result = _mk_multi_stage_reentry_graph_cudf().gfql(query, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"id": "d"}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"id": "d"}]
 
 
 def test_string_cypher_failfast_rejects_direct_match_after_second_post_with_where_without_intervening_with() -> None:
@@ -11010,7 +11006,7 @@ def test_string_cypher_executes_post_with_match_unwind_after_reentry_passthrough
     result = _mk_multi_stage_reentry_graph_cudf().gfql(query, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"bid": "b", "id": "c"}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"bid": "b", "id": "c"}]
 
 
 def test_string_cypher_failfast_rejects_multiple_post_with_match_unwinds() -> None:
@@ -11091,7 +11087,7 @@ def test_string_cypher_executes_issue_1000_ic6_exact_runtime_minimal_on_cudf() -
     )
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"tagName": "Alpha", "postCount": 1},
         {"tagName": "Beta", "postCount": 1},
     ]
@@ -11179,7 +11175,7 @@ def test_string_cypher_executes_scalar_only_prefix_with_match_reentry_on_cudf() 
     result = _mk_prefix_scalar_reentry_graph_cudf().gfql(query, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"id": "post1"}, {"id": "post2"}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"id": "post1"}, {"id": "post2"}]
 
 
 def test_string_cypher_executes_scalar_only_prefix_with_match_reentry_multi_row_prefix() -> None:
@@ -11304,7 +11300,7 @@ def test_string_cypher_executes_scalar_prefix_reentry_connected_star_comma_fanou
     result = _mk_connected_post_tag_fanout_graph_cudf().gfql(query, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"postId": "post1", "tagName": "other"}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"postId": "post1", "tagName": "other"}]
 
 
 def test_string_cypher_executes_connected_multi_pattern_grouped_aggregate_overlap() -> None:
@@ -11357,7 +11353,7 @@ def test_string_cypher_executes_connected_multi_pattern_grouped_aggregate_overla
     result = _mk_connected_multi_pattern_fanout_graph_cudf().gfql(query, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"cid": "c1", "cnt": 2}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"cid": "c1", "cnt": 2}]
 def test_cypher_to_gfql_supports_multi_alias_scalar_projection() -> None:
     """Multi-alias scalar projections are supported via bindings table."""
     chain = cypher_to_gfql("MATCH (p)-[r]->(q) RETURN p.id, q.id")
@@ -11923,7 +11919,7 @@ def test_gfql_executes_aggregate_order_by_on_cudf() -> None:
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"n.division": "A", "max(n.age)": 22},
         {"n.division": "B", "max(n.age)": 44},
         {"n.division": "C", "max(n.age)": 55},
@@ -11951,7 +11947,7 @@ def test_gfql_preserves_group_order_for_aggregate_order_ties_on_cudf() -> None:
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"a": "(:L1)", "count(*)": 1},
         {"a": "(:L2)", "count(*)": 1},
         {"a": "(:L3)", "count(*)": 1},
@@ -11975,7 +11971,7 @@ def test_gfql_executes_boolean_list_comprehension_order_check_on_cudf() -> None:
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"equal": True}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"equal": True}]
 
 
 def test_gfql_executes_integer_list_comprehension_order_check_on_cudf() -> None:
@@ -11995,7 +11991,7 @@ def test_gfql_executes_integer_list_comprehension_order_check_on_cudf() -> None:
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"equal": True}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"equal": True}]
 
 
 def test_gfql_executes_nested_list_comprehension_order_check_on_cudf() -> None:
@@ -12015,7 +12011,7 @@ def test_gfql_executes_nested_list_comprehension_order_check_on_cudf() -> None:
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"equal": True}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"equal": True}]
 
 
 def test_gfql_executes_loop_edge_count_queries() -> None:
@@ -12196,7 +12192,7 @@ def test_gfql_executes_top_level_list_map_nan_comparisons_on_engines(engine: str
         **({"engine": engine} if engine is not None else {}),
     )
 
-    rows = result._nodes.to_pandas().to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
+    rows = _to_pandas_df(result._nodes).to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
     if engine == "cudf":
         # cuDF currently canonicalizes arithmetic NaN to null in this path.
         assert rows == [
@@ -12510,7 +12506,7 @@ def test_gfql_executes_with_where_null_filter_over_mixed_type_compare_on_cudf() 
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"id": "child_text"},
         {"id": "child_zz"},
     ]
@@ -12558,7 +12554,7 @@ def test_gfql_executes_with_where_is_null_over_mixed_null_sentinels_on_engines(
         "ORDER BY id",
         **({"engine": engine} if engine is not None else {}),
     )
-    rows = result._nodes.to_pandas().to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
+    rows = _to_pandas_df(result._nodes).to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
     assert rows == [
         {"id": "child_nan"},
         {"id": "child_nat"},
@@ -12657,7 +12653,7 @@ def test_gfql_executes_with_where_cross_type_comparison_conformance_on_engines(
         **({"engine": engine} if engine is not None else {}),
     )
 
-    rows = result._nodes.to_pandas().to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
+    rows = _to_pandas_df(result._nodes).to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
     assert rows == [{"id": node_id} for node_id in expected_ids]
 
 
@@ -12717,7 +12713,7 @@ def test_string_cypher_supports_map_quantifier_predicates_on_cudf() -> None:
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"result": False}
     ]
 
@@ -14991,7 +14987,7 @@ def test_issue_1395_sequential_match_recent_replies_row_shaping_ic8_on_cudf() ->
     result = g.gfql(query, params={"personId": "viewer"}, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {
             "commentAuthorId": "author1",
             "commentAuthorFirstName": "Ann",
@@ -15512,7 +15508,7 @@ def test_issue_1047_multi_row_scalar_prefix_on_cudf() -> None:
         engine="cudf",
     )
     assert type(result._nodes).__module__.startswith("cudf")
-    ids = [r["id"] for r in result._nodes.to_pandas().to_dict(orient="records")]
+    ids = [r["id"] for r in _to_pandas_df(result._nodes).to_dict(orient="records")]
     assert ids == ["post1", "post2", "post3"]
 
 
@@ -15738,7 +15734,7 @@ def test_issue_977_cudf_label_filter_no_sigsegv() -> None:
     edges = cudf.DataFrame(pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["T"]}))
     g_cu = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
     result = g_cu.gfql("MATCH (p:Person) RETURN p.id AS pid ORDER BY pid", engine=EngineAbstract.CUDF)
-    ids = sorted(result._nodes["pid"].to_pandas().tolist())
+    ids = sorted(_to_pandas_df(result._nodes)["pid"].tolist())
     assert ids == ["a", "b"]
 
 
@@ -15750,7 +15746,7 @@ def test_issue_977_cudf_single_hop_no_sigsegv() -> None:
     edges = cudf.DataFrame(pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "type": ["T", "T"]}))
     g_cu = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
     result = g_cu.gfql("MATCH (a)-[:T]->(b) RETURN a.id AS aid ORDER BY aid", engine=EngineAbstract.CUDF)
-    assert sorted(result._nodes["aid"].to_pandas().tolist()) == ["a", "b"]
+    assert sorted(_to_pandas_df(result._nodes)["aid"].tolist()) == ["a", "b"]
 
 
 def test_issue_977_pandas_label_filter_regression() -> None:
