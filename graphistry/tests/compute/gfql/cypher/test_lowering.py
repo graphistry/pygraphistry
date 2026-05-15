@@ -3792,6 +3792,21 @@ def test_string_cypher_supports_post_aggregate_size_collect_projection_on_cudf()
     assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"n": 11}]
 
 
+def test_issue_1367_empty_optional_match_post_aggregate_list_comprehension_size() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": [], "type": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) "
+        "OPTIONAL MATCH (n)-[r]->(m) "
+        "RETURN size([x IN collect(r) WHERE x <> null]) AS cn"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"cn": 0}]
+
+
 def test_string_cypher_supports_grouped_post_aggregate_size_collect_projection() -> None:
     graph = _mk_graph(
         pd.DataFrame(
