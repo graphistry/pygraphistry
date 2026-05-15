@@ -129,6 +129,18 @@ def _gfql_bridge_cudf_df_to_pandas(work_df: Any) -> Any:
     return work_df.to_pandas()
 
 
+def _gfql_bridge_cudf_series_to_pandas(values: Any, index: Any) -> Any:
+    """Prefer Arrow bridge for cuDF Series host conversion on older RAPIDS releases."""
+    if hasattr(values, "to_arrow"):
+        return pd.Series(values.to_arrow().to_pylist(), index=index)
+    if hasattr(values, "to_pandas"):
+        out = values.to_pandas()
+        if hasattr(out, "index") and len(out) == len(index):
+            out.index = index
+        return out
+    return values
+
+
 def _gfql_cudf_list_sort_series_requires_host_bridge(series: Any) -> bool:
     """Detect cuDF list-series shapes that cannot participate in tokenization on GPU."""
     try:
@@ -4007,9 +4019,13 @@ class RowPipelineMixin:
         if resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF and any(
             isinstance(value, pd.Series) for value in projected.values()
         ):
-            out_table_df = table_df.to_pandas()
+            out_table_df = _gfql_bridge_cudf_df_to_pandas(table_df)
             projected = {
-                alias: (value.to_pandas() if hasattr(value, "to_pandas") else value)
+                alias: (
+                    _gfql_bridge_cudf_series_to_pandas(value, out_table_df.index)
+                    if hasattr(value, "to_pandas") or hasattr(value, "to_arrow")
+                    else value
+                )
                 for alias, value in projected.items()
             }
 
