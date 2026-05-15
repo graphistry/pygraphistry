@@ -5,7 +5,12 @@ import graphistry
 from graphistry.compute.exceptions import GFQLValidationError
 import graphistry.compute.gfql_unified as gfql_unified
 from graphistry.compute.gfql.ir.compilation import PhysicalPlan
-from graphistry.compute.gfql.physical_planner import PhysicalPlanner, RowPipelineExecutorWrapper, WavefrontExecutorWrapper
+from graphistry.compute.gfql.physical_planner import (
+    PhysicalPlanner,
+    RowPipelineExecutorWrapper,
+    SamePathExecutorWrapper,
+    WavefrontExecutorWrapper,
+)
 
 
 def _mk_graph():
@@ -72,6 +77,52 @@ def test_gfql_call_compatibility_shim_when_physical_planner_not_covered():
     result = g.gfql("CALL graphistry.degree() RETURN degree ORDER BY degree")
 
     assert result._nodes["degree"].tolist() == [1, 1, 2]
+
+
+def test_same_path_route_bypasses_compat_executor(monkeypatch):
+    g = _mk_graph()
+    planner_routes = []
+    original_plan = PhysicalPlanner.plan
+
+    def _spy_plan(self, logical_plan, ctx):
+        physical_plan = original_plan(self, logical_plan, ctx)
+        planner_routes.append(physical_plan.route)
+        assert isinstance(physical_plan.operators[0], SamePathExecutorWrapper)
+        return physical_plan
+
+    def _fail_compat_executor(*args, **kwargs):
+        raise AssertionError("same_path physical route should not use the legacy compat executor")
+
+    monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
+    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _fail_compat_executor)
+
+    result = g.gfql("MATCH (n) RETURN n.id AS id ORDER BY id")
+
+    assert planner_routes == ["same_path"]
+    assert result._nodes["id"].tolist() == ["a", "b", "c"]
+
+
+def test_row_pipeline_route_bypasses_compat_executor(monkeypatch):
+    g = _mk_graph()
+    planner_routes = []
+    original_plan = PhysicalPlanner.plan
+
+    def _spy_plan(self, logical_plan, ctx):
+        physical_plan = original_plan(self, logical_plan, ctx)
+        planner_routes.append(physical_plan.route)
+        assert isinstance(physical_plan.operators[0], RowPipelineExecutorWrapper)
+        return physical_plan
+
+    def _fail_compat_executor(*args, **kwargs):
+        raise AssertionError("row_pipeline physical route should not use the legacy compat executor")
+
+    monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
+    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _fail_compat_executor)
+
+    result = g.gfql("RETURN 1 AS x")
+
+    assert planner_routes == ["row_pipeline"]
+    assert result._nodes["x"].tolist() == [1]
 
 
 def test_wavefront_route_without_join_payload_raises(monkeypatch):
