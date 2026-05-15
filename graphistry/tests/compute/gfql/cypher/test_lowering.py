@@ -15943,16 +15943,20 @@ def test_issue_983_large_upper_bound_stops_at_graph_depth() -> None:
     assert ids == ["a", "b", "c"]
 
 
-def test_issue_983_zero_zero_hop_executes_returns_empty() -> None:
-    """`*0..0` (zero min, zero max) currently parses and returns empty.
-
-    min_hops=max_hops=0 is accepted by rel_range_bounded (the `*0` exact guard
-    is only on rel_range_exact).  The execution returns 0 rows — no traversal
-    is possible within a zero-hop window — rather than the seed node itself.
-    This documents the current boundary behavior for future reference.
-    """
+def test_issue_1369_zero_zero_hop_returns_seed() -> None:
+    """`*0..0` is a valid zero-length path and returns the seed node."""
     result = _mk_simple_path_graph().gfql("MATCH (a {id: 'a'})-[*0..0]->(b) RETURN b.id AS id")
-    assert result._nodes.to_dict(orient="records") == []
+    assert result._nodes.to_dict(orient="records") == [{"id": "a"}]
+
+
+def test_issue_1369_empty_graph_post_aggregate_boolean_projection() -> None:
+    """Empty global aggregates must still project post-aggregate expressions."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": pd.Series(dtype="object")}),
+        pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")}),
+    )
+    result = graph.gfql("MATCH (a) RETURN count(a) > 0")
+    assert result._nodes.to_dict(orient="records") == [{"count(a) > 0": False}]
 
 
 # ── Issue #977: cudf SIGSEGV — safe_map_series regression guards ──────────────

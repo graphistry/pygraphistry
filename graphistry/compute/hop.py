@@ -378,7 +378,22 @@ def hop(self: Plottable,
     FROM_COL = generate_safe_column_name('__gfql_from__', edges_indexed, prefix='__gfql_', suffix='__')
     TO_COL = generate_safe_column_name('__gfql_to__', edges_indexed, prefix='__gfql_', suffix='__')
 
-    if simple_single_hop_undirected_fast_path:
+    if not to_fixed_point and resolved_min_hops == 0 and resolved_max_hops == 0:
+        zero_hop_nodes = starting_nodes[[node_col]].drop_duplicates()
+        if allowed_source_series is not None:
+            zero_hop_nodes = zero_hop_nodes[zero_hop_nodes[node_col].isin(allowed_source_series)]
+        if allowed_dest_series is not None:
+            zero_hop_nodes = zero_hop_nodes[zero_hop_nodes[node_col].isin(allowed_dest_series)]
+        if allowed_target_final is not None:
+            zero_hop_nodes = zero_hop_nodes[zero_hop_nodes[node_col].isin(allowed_target_final)]
+        matches_nodes = zero_hop_nodes
+        matches_edges = edges_indexed[[EDGE_ID]][:0]
+        if track_node_hops and node_hop_col is not None:
+            node_hop_records = zero_hop_nodes.assign(**{node_hop_col: 0})
+        skip_full_loop = True
+        pairs = edges_indexed[[EDGE_ID]][:0]
+        max_reached_hop = 0
+    elif simple_single_hop_undirected_fast_path:
         seed_ids = _domain_unique(starting_nodes[node_col])
         if _domain_is_empty(seed_ids):
             matches_nodes = starting_nodes[[node_col]][:0]

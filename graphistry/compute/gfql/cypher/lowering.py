@@ -6632,6 +6632,7 @@ def _lower_general_row_projection(
     non_aggregate_items: List[ReturnItem] = []
     post_aggregate_items: List[_PostAggregateExprPlan] = []
     empty_result_row: Optional[Dict[str, Any]] = None
+    empty_aggregate_row: Optional[Dict[str, Any]] = None
     for item in query.return_.items:
         agg_spec = _aggregate_spec(item, params=params, alias_targets=alias_targets)
         if agg_spec is not None:
@@ -6987,7 +6988,8 @@ def _lower_general_row_projection(
             row_steps.append(with_([(global_key, 1)] + pre_items))
             row_steps.append(group_by([global_key], aggregations))
             available_columns = {agg.output_name for agg in aggregate_specs}
-            empty_result_row = _empty_aggregate_row(aggregate_specs)
+            empty_aggregate_row = _empty_aggregate_row(aggregate_specs)
+            empty_result_row = empty_aggregate_row
 
         if bindings_row_path and whole_row_group_aliases:
             projection_alias = whole_row_group_aliases[0]
