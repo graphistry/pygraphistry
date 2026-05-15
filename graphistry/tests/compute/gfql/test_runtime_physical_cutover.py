@@ -5,7 +5,7 @@ import graphistry
 from graphistry.compute.exceptions import GFQLValidationError
 import graphistry.compute.gfql_unified as gfql_unified
 from graphistry.compute.gfql.ir.compilation import PhysicalPlan
-from graphistry.compute.gfql.physical_planner import PhysicalPlanner, WavefrontExecutorWrapper
+from graphistry.compute.gfql.physical_planner import PhysicalPlanner, RowPipelineExecutorWrapper, WavefrontExecutorWrapper
 
 
 def _mk_graph():
@@ -89,3 +89,41 @@ def test_wavefront_route_without_join_payload_raises(monkeypatch):
 
     with pytest.raises(GFQLValidationError, match="wavefront physical route selected"):
         g.gfql("MATCH (n) RETURN n.id AS id")
+
+
+def test_connected_match_join_bypasses_compat_executor(monkeypatch):
+    nodes = pd.DataFrame({
+        "id": ["p1", "p2", "c1"],
+        "label__Person": [True, True, False],
+        "label__Place": [False, False, True],
+    })
+    edges = pd.DataFrame({
+        "s": ["p1", "p2"],
+        "d": ["c1", "c1"],
+        "type": ["IS_LOCATED_IN", "IS_LOCATED_IN"],
+    })
+    g = graphistry.bind(source="s", destination="d", node="id").nodes(nodes).edges(edges)
+
+    def _force_row_pipeline_plan(self, logical_plan, ctx):
+        return PhysicalPlan(
+            route="row_pipeline",
+            operators=(RowPipelineExecutorWrapper(),),
+            logical_op_ids=(),
+            metadata={},
+        )
+
+    monkeypatch.setattr(PhysicalPlanner, "plan", _force_row_pipeline_plan)
+
+    def _fail_compat_executor(*args, **kwargs):
+        raise AssertionError("connected_match_join should not use the legacy compat executor")
+
+    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _fail_compat_executor)
+
+    result = g.gfql(
+        "MATCH "
+        "(person:Person {id: 'p1'})-[:IS_LOCATED_IN]->(city:Place), "
+        "(friend:Person)-[:IS_LOCATED_IN]->(city) "
+        "RETURN city.id AS cityId, count(friend) AS friendCount"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"cityId": "c1", "friendCount": 2}]
