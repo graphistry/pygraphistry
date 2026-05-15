@@ -2,7 +2,7 @@
 
 from .exceptions import PolicyException
 from .types import (
-    CompileErrorSummary,
+    CompileSummary,
     PolicyContext,
     PolicyFunction,
     PolicyDict,
@@ -17,7 +17,7 @@ from .shortcuts import expand_policy, debug_policy, format_policy_expansion, Han
 
 __all__ = [
     'PolicyException',
-    'CompileErrorSummary',
+    'CompileSummary',
     'PolicyContext',
     'PolicyFunction',
     'PolicyDict',

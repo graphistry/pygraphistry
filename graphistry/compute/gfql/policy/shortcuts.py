@@ -55,7 +55,7 @@ _EXPANSION_MAP: Dict[Phase, Tuple[GeneralShortcut, ScopeShortcut, Phase]] = {
     'postcall': ('post', 'call', 'postcall')
 }
 
-_DIRECT_HOOKS: Tuple[Phase, ...] = ('compile_error',)
+_DIRECT_HOOKS: Tuple[Phase, ...] = ('precompile', 'postcompile')
 
 
 def expand_policy(policy: Dict[str, PolicyFunction]) -> PolicyDict:

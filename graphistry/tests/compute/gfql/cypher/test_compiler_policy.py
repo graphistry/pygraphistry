@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
-from graphistry.compute.gfql.policy import CompileErrorSummary, PolicyContext
+from graphistry.compute.gfql.policy import CompileSummary, PolicyContext, PolicyException
 from graphistry.tests.test_compute import CGFull
 
 
@@ -32,7 +32,7 @@ def _mk_graph() -> _CypherPolicyGraph:
     )
 
 
-def test_compile_error_policy_fires_once_with_structured_binder_payload() -> None:
+def test_postcompile_policy_fires_once_with_structured_binder_payload() -> None:
     calls: List[PolicyContext] = []
 
     def observe(ctx: PolicyContext) -> None:
@@ -41,18 +41,22 @@ def test_compile_error_policy_fires_once_with_structured_binder_payload() -> Non
     with pytest.raises(GFQLValidationError) as exc_info:
         _mk_graph().gfql(
             "MATCH (a) MATCH ()-[a]->() RETURN a",
-            policy={"compile_error": observe},
+            policy={"postcompile": observe},
         )
 
     assert exc_info.value.code == ErrorCode.E204
     assert len(calls) == 1
     ctx = calls[0]
-    assert ctx["phase"] == "compile_error"
-    assert ctx["hook"] == "compile_error"
+    assert ctx["phase"] == "postcompile"
+    assert ctx["hook"] == "postcompile"
     assert ctx["compile_language"] == "cypher"
-    summary = ctx["compile_error"]
-    assert isinstance(summary, CompileErrorSummary)
+    assert ctx["success"] is False
+    assert ctx["error_type"] == "GFQLValidationError"
+    assert "Cypher alias rebound" in ctx["error"]
+    summary = ctx["compile"]
+    assert isinstance(summary, CompileSummary)
     assert summary.language == "cypher"
+    assert summary.success is False
     assert summary.error_type == "GFQLValidationError"
     assert summary.compiler_phase == "bind"
     assert summary.code == ErrorCode.E204
@@ -71,7 +75,7 @@ def test_compile_error_policy_fires_once_with_structured_binder_payload() -> Non
     assert summary.param_keys == ()
 
 
-def test_compile_error_policy_absent_preserves_existing_error_surface() -> None:
+def test_postcompile_policy_absent_preserves_existing_error_surface() -> None:
     with pytest.raises(GFQLValidationError) as exc_info:
         _mk_graph().gfql("MATCH (a) MATCH ()-[a]->() RETURN a")
 
@@ -81,7 +85,7 @@ def test_compile_error_policy_absent_preserves_existing_error_surface() -> None:
     assert exc_info.value.context["new_role"] == "relationship pattern"
 
 
-def test_compile_error_policy_fires_for_validate_true_preflight() -> None:
+def test_postcompile_policy_fires_for_validate_true_preflight() -> None:
     calls: List[PolicyContext] = []
 
     def observe(ctx: PolicyContext) -> None:
@@ -91,19 +95,21 @@ def test_compile_error_policy_fires_for_validate_true_preflight() -> None:
         _mk_graph().gfql(
             "MATCH (a) MATCH ()-[a]->() RETURN a",
             validate=True,
-            policy={"compile_error": observe},
+            policy={"postcompile": observe},
         )
 
     assert exc_info.value.code == ErrorCode.E204
     assert len(calls) == 1
-    summary = calls[0]["compile_error"]
-    assert isinstance(summary, CompileErrorSummary)
+    assert calls[0]["phase"] == "postcompile"
+    assert calls[0]["success"] is False
+    summary = calls[0]["compile"]
+    assert isinstance(summary, CompileSummary)
     assert summary.compiler_phase == "bind"
     assert summary.context["existing_kind"] == "node"
     assert summary.context["new_kind"] == "edge"
 
 
-def test_compile_error_policy_does_not_fire_for_successful_row_hot_loop_query() -> None:
+def test_postcompile_policy_fires_once_for_successful_row_query() -> None:
     calls: List[PolicyContext] = []
 
     def observe(ctx: PolicyContext) -> None:
@@ -111,18 +117,30 @@ def test_compile_error_policy_does_not_fire_for_successful_row_hot_loop_query() 
 
     result = _mk_graph().gfql(
         "UNWIND [1, 2, 3] AS x RETURN x ORDER BY x",
-        policy={"compile_error": observe},
+        policy={"postcompile": observe},
     )
 
-    assert calls == []
+    assert len(calls) == 1
+    ctx = calls[0]
+    assert ctx["phase"] == "postcompile"
+    assert ctx["success"] is True
+    assert "error" not in ctx
+    summary = ctx["compile"]
+    assert isinstance(summary, CompileSummary)
+    assert summary.language == "cypher"
+    assert summary.success is True
+    assert summary.error_type is None
+    assert summary.message is None
+    assert summary.code is None
+    assert summary.context == {}
     assert result._nodes is not None
     assert result._nodes[["x"]].to_dict(orient="records") == [{"x": 1}, {"x": 2}, {"x": 3}]
 
 
-def test_compile_error_policy_fires_before_runtime_hooks() -> None:
+def test_postcompile_policy_fires_before_runtime_hooks() -> None:
     calls: List[str] = []
 
-    def observe_compile_error(ctx: PolicyContext) -> None:
+    def observe_postcompile(ctx: PolicyContext) -> None:
         calls.append(cast(str, ctx["phase"]))
 
     def observe_runtime(ctx: PolicyContext) -> None:
@@ -132,11 +150,47 @@ def test_compile_error_policy_fires_before_runtime_hooks() -> None:
         _mk_graph().gfql(
             "MATCH (a) MATCH ()-[a]->() RETURN a",
             policy={
-                "compile_error": observe_compile_error,
+                "postcompile": observe_postcompile,
                 "prechain": observe_runtime,
                 "precall": observe_runtime,
                 "postcall": observe_runtime,
             },
         )
 
-    assert calls == ["compile_error"]
+    assert calls == ["postcompile"]
+
+
+def test_precompile_policy_fires_once_before_compile() -> None:
+    calls: List[PolicyContext] = []
+
+    def observe(ctx: PolicyContext) -> None:
+        calls.append(ctx)
+
+    result = _mk_graph().gfql(
+        "UNWIND [1, 2, 3] AS x RETURN x ORDER BY x",
+        policy={"precompile": observe},
+    )
+
+    assert len(calls) == 1
+    ctx = calls[0]
+    assert ctx["phase"] == "precompile"
+    assert ctx["hook"] == "precompile"
+    assert ctx["compile_language"] == "cypher"
+    assert "compile" not in ctx
+    assert "success" not in ctx
+    assert result._nodes is not None
+
+
+def test_precompile_policy_can_deny_before_invalid_query_compiles() -> None:
+    calls: List[str] = []
+
+    def deny(ctx: PolicyContext) -> None:
+        calls.append(cast(str, ctx["phase"]))
+        raise PolicyException("precompile", "compiler disabled")
+
+    with pytest.raises(PolicyException) as exc_info:
+        _mk_graph().gfql("THIS IS NOT CYPHER", policy={"precompile": deny})
+
+    assert calls == ["precompile"]
+    assert exc_info.value.phase == "precompile"
+    assert exc_info.value.query_type == "chain"

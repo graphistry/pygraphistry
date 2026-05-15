@@ -57,10 +57,13 @@ Policies are invoked at these phases:
 **postcall**
     After method execution. Can validate result size, track execution time, and log performance.
 
-**compile_error**
-    Experimental exact-key hook for local Cypher string queries that fail before
-    execution. It receives a stable ``CompileErrorSummary`` object and is not
-    included in ``pre`` or ``post`` shortcut expansion.
+**precompile**
+    Experimental exact-key hook before local Cypher string queries are compiled.
+    It is not included in ``pre`` shortcut expansion.
+
+**postcompile**
+    Experimental exact-key hook after local Cypher string-query compilation
+    succeeds or fails. It is not included in ``post`` shortcut expansion.
 
 
 Context Fields
@@ -70,7 +73,7 @@ The context dictionary passed to policy functions contains:
 
 **Always present:**
 
-- ``phase``: Current phase ('preload', 'postload', 'prelet', 'postlet', 'prechain', 'postchain', 'precall', 'postcall', 'preletbinding', 'postletbinding', 'compile_error')
+- ``phase``: Current phase ('preload', 'postload', 'prelet', 'postlet', 'prechain', 'postchain', 'precall', 'postcall', 'preletbinding', 'postletbinding', 'precompile', 'postcompile')
 - ``hook``: Hook name (same as phase, useful for shared handlers)
 - ``_policy_depth``: Internal recursion counter
 
@@ -87,18 +90,17 @@ The context dictionary passed to policy functions contains:
 - ``call_op``: Operation name (precall/postcall phases only)
 - ``call_params``: Operation parameters (precall/postcall phases only)
 - ``execution_time``: Method execution duration in seconds (postcall phase only)
-- ``success``: Execution success flag (postcall/postlet/postchain/postletbinding phases)
+- ``success``: Execution success flag (postcall/postlet/postchain/postletbinding/postcompile phases)
 - ``error``: Error message string (post* phases when success=False)
 - ``error_type``: Error type name (post* phases when success=False)
 
-**Compiler-specific** (``compile_error`` phase only):
+**Compiler-specific** (``precompile``/``postcompile`` phases only):
 
 - ``compile_language``: Source language for string-query compilation.
-- ``compile_error``: ``CompileErrorSummary`` with stable scalar fields:
-  ``language``, ``error_type``, ``message``, ``compiler_phase``, ``code``,
-  ``context``, ``field``, ``suggestion``, ``line``, ``column``,
-  ``value_repr``, and ``param_keys``. Private parser/binder/lowering objects
-  and DataFrames are not exposed.
+- ``compile``: ``CompileSummary`` for ``postcompile`` with stable scalar
+  fields such as ``language``, ``success``, ``compiler_phase``, ``code``,
+  ``context``, and optional error details. Private parser, binder, lowering,
+  and DataFrame objects are not exposed.
 
 **Binding-specific** (preletbinding/postletbinding phases only):
 

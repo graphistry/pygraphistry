@@ -19,30 +19,32 @@ Phase = Literal[
     "postcall",
     "preletbinding",
     "postletbinding",
-    "compile_error",
+    "precompile",
+    "postcompile",
 ]
 
 # Shortcut key literal type (includes general, scope, and specific keys)
 GeneralShortcut = Literal["pre", "post"]
 ScopeShortcut = Literal["load", "let", "chain", "binding", "call"]
-ShortcutKey = Literal["pre", "post", "load", "let", "chain", "binding", "call", "preload", "postload", "prelet", "postlet", "prechain", "postchain", "precall", "postcall", "preletbinding", "postletbinding", "compile_error"]
+ShortcutKey = Literal["pre", "post", "load", "let", "chain", "binding", "call", "preload", "postload", "prelet", "postlet", "prechain", "postchain", "precall", "postcall", "preletbinding", "postletbinding", "precompile", "postcompile"]
 
 # Query type literal
 QueryType = Literal["chain", "dag", "single"]
 
 
 @dataclass(frozen=True)
-class CompileErrorSummary:
-    """Stable, public compiler rejection summary for policy hooks.
+class CompileSummary:
+    """Stable, public compiler summary for policy hooks.
 
     This object intentionally carries scalar metadata only. It does not expose
     parser, binder, AST, lowering, or DataFrame objects.
     """
 
     language: str
-    error_type: str
-    message: str
+    success: bool
     compiler_phase: str = "compile"
+    error_type: Optional[str] = None
+    message: Optional[str] = None
     code: Optional[str] = None
     context: Mapping[str, Any] = field(default_factory=dict)
     field: Optional[str] = None
@@ -57,7 +59,7 @@ class PolicyContext(TypedDict, total=False):
     """Strongly typed context passed to policy functions.
 
     Attributes:
-        phase: Current execution phase (preload, postload, prelet, postlet, prechain, postchain, precall, postcall, preletbinding, postletbinding, compile_error)
+        phase: Current execution phase (preload, postload, prelet, postlet, prechain, postchain, precall, postcall, preletbinding, postletbinding, precompile, postcompile)
         hook: Hook name (same as phase, useful for shared handlers)
         query: Original/global query object
         current_ast: Current AST object being executed (if applicable)
@@ -77,9 +79,9 @@ class PolicyContext(TypedDict, total=False):
         error: Error message string (post* phases, when success=False)
         error_type: Error type name (post* phases, when success=False)
 
-        # Compiler-specific fields (compile_error phase only; experimental)
+        # Compiler-specific fields (precompile/postcompile phases only; experimental)
         compile_language: Source language for string-query compilation
-        compile_error: Stable compiler rejection summary
+        compile: Stable compiler summary (postcompile only)
 
         # Hierarchy/tracing fields (for OpenTelemetry and telemetry systems)
         execution_depth: Nesting depth (0=query, 1=let/chain, 2=binding/op, ...)
@@ -112,9 +114,9 @@ class PolicyContext(TypedDict, total=False):
     error: Optional[str]             # Error message (post* phases, when success=False)
     error_type: Optional[str]        # Error type name (post* phases, when success=False)
 
-    # Compiler-specific fields (compile_error phase only; experimental)
+    # Compiler-specific fields (precompile/postcompile phases only; experimental)
     compile_language: Optional[str]
-    compile_error: Optional[CompileErrorSummary]
+    compile: Optional[CompileSummary]
 
     # Hierarchy/tracing fields (for OpenTelemetry and telemetry systems)
     execution_depth: Optional[int]       # Nesting depth (0=query, 1=let/chain, 2=binding, ...)
