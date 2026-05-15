@@ -2286,6 +2286,37 @@ def _empty_aggregate_row(aggregate_specs: Sequence[_AggregateSpec]) -> Dict[str,
     return out
 
 
+class _SyntheticRowGraph:
+    def __init__(self, table_df: Any) -> None:
+        self._nodes = table_df
+        self._edges = table_df.iloc[0:0].copy()
+        self._node = None
+        self._source = None
+        self._destination = None
+        self._edge = None
+        self._g = self
+        self._gfql_start_nodes = None
+        self._gfql_rows_base_graph = None
+        self._gfql_shortest_path_backend = "auto"
+
+    def bind(self) -> "_SyntheticRowGraph":
+        return _SyntheticRowGraph(self._nodes.copy())
+
+
+def _evaluate_empty_projection_row(
+    row: Mapping[str, Any],
+    *,
+    projection_items: Sequence[Tuple[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter
+
+    adapter = _RowPipelineAdapter(cast(Any, _SyntheticRowGraph(pd.DataFrame([dict(row)]))))
+    projection = adapter.select(items=list(projection_items))
+    if projection._nodes is None or len(projection._nodes) == 0:
+        return None
+    return projection._nodes.iloc[0].to_dict()
+
+
 def _active_match_alias_for_stage(
     *,
     unwinds: Sequence[UnwindClause],
@@ -5861,27 +5892,11 @@ def _shortest_path_empty_result_row_for_row_steps(
 ) -> Optional[Dict[str, Any]]:
     from graphistry.compute.gfql.row.pipeline import execute_row_pipeline_call
 
-    class _EmptyRowGraph:
-        def __init__(self, table_df: Any) -> None:
-            self._nodes = table_df
-            self._edges = table_df.iloc[0:0].copy()
-            self._node = None
-            self._source = None
-            self._destination = None
-            self._edge = None
-            self._g = self
-            self._gfql_start_nodes = None
-            self._gfql_rows_base_graph = None
-            self._gfql_shortest_path_backend = "auto"
-
-        def bind(self) -> "_EmptyRowGraph":
-            return _EmptyRowGraph(self._nodes.copy())
-
     seed_df = _shortest_path_empty_result_seed_df(
         specs=specs,
         alias_targets=alias_targets,
     )
-    graph: Any = _EmptyRowGraph(seed_df)
+    graph: Any = _SyntheticRowGraph(seed_df)
     start_idx = 0
     if (
         row_steps
@@ -7055,6 +7070,11 @@ def _lower_general_row_projection(
                     projected_columns.add(plan.output_name)
                 row_steps.append(projection_fn(post_projection_items))
                 available_columns = projected_columns
+                if empty_result_row is not None:
+                    empty_result_row = _evaluate_empty_projection_row(
+                        empty_result_row,
+                        projection_items=post_projection_items,
+                    )
         elif not key_names:
             row_steps.append(projection_fn([(agg.output_name, agg.output_name) for agg in aggregate_specs]))
     else:
@@ -7128,28 +7148,12 @@ def _lower_general_row_projection(
     if empty_result_row is None and binding_row_aliases and _query_has_shortest_path_patterns(query):
         from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter
 
-        class _EmptyRowGraph:
-            def __init__(self, table_df: Any) -> None:
-                self._nodes = table_df
-                self._edges = table_df.iloc[0:0].copy()
-                self._node = None
-                self._source = None
-                self._destination = None
-                self._edge = None
-                self._g = self
-                self._gfql_start_nodes = None
-                self._gfql_rows_base_graph = None
-                self._gfql_shortest_path_backend = "auto"
-
-            def bind(self) -> "_EmptyRowGraph":
-                return _EmptyRowGraph(self._nodes.copy())
-
         shortest_specs = _shortest_path_alias_specs(query)
         seed_df = _shortest_path_empty_result_seed_df(
             specs=shortest_specs,
             alias_targets=alias_targets,
         )
-        adapter = _RowPipelineAdapter(cast(Any, _EmptyRowGraph(seed_df)))
+        adapter = _RowPipelineAdapter(cast(Any, _SyntheticRowGraph(seed_df)))
         empty_projection = adapter.select(items=projection_items)
         empty_result_row = (
             empty_projection._nodes.iloc[0].to_dict()

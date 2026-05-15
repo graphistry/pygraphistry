@@ -3792,6 +3792,121 @@ def test_string_cypher_supports_post_aggregate_size_collect_projection_on_cudf()
     assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"n": 11}]
 
 
+def test_issue_1367_empty_optional_match_post_aggregate_list_comprehension_size() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": [], "type": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) "
+        "OPTIONAL MATCH (n)-[r]->(m) "
+        "RETURN size([x IN collect(r) WHERE x <> null]) AS cn"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"cn": 0}]
+
+
+def test_issue_1367_empty_optional_match_multiple_post_aggregate_projections() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": [], "type": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) "
+        "OPTIONAL MATCH (n)-[r]->(m) "
+        "RETURN count(r) AS total, "
+        "size([x IN collect(r) WHERE x <> null]) AS nonnull"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"total": 0, "nonnull": 0}]
+
+
+def test_issue_1367_grouped_aggregate_does_not_synthesize_empty_row() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": [], "type": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) "
+        "RETURN n.id AS id, size([x IN collect(n) WHERE x <> null]) AS cn"
+    )
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_issue_1367_optional_match_existing_node_missing_relationship_counts_zero() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["n1"]}),
+        pd.DataFrame({"s": [], "d": [], "type": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) "
+        "OPTIONAL MATCH (n)-[r]->(m) "
+        "RETURN size([x IN collect(r) WHERE x <> null]) AS cn"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"cn": 0}]
+
+
+def test_issue_1367_post_aggregate_list_projection_counts_existing_relationships() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["n1", "n2"]}),
+        pd.DataFrame({"s": ["n1"], "d": ["n2"], "type": ["REL"]}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n)-[r]->(m) "
+        "RETURN size([x IN collect(r) WHERE x = x]) AS cn"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"cn": 1}]
+
+
+def test_issue_1367_empty_optional_match_post_aggregate_list_comprehension_size_on_cudf() -> None:
+    pytest.importorskip("cudf")
+    graph = _mk_cudf_graph(
+        pd.DataFrame({"id": pd.Series(dtype="object")}),
+        pd.DataFrame(
+            {
+                "s": pd.Series(dtype="object"),
+                "d": pd.Series(dtype="object"),
+                "type": pd.Series(dtype="object"),
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) "
+        "OPTIONAL MATCH (n)-[r]->(m) "
+        "RETURN size([x IN collect(r) WHERE x <> null]) AS cn",
+        engine="cudf",
+    )
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"cn": 0}]
+
+
+def test_issue_1367_post_aggregate_list_projection_counts_existing_relationships_on_cudf() -> None:
+    pytest.importorskip("cudf")
+    graph = _mk_cudf_graph(
+        pd.DataFrame({"id": ["n1", "n2"]}),
+        pd.DataFrame({"s": ["n1"], "d": ["n2"], "type": ["REL"]}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n)-[r]->(m) "
+        "RETURN size([x IN collect(r) WHERE x = x]) AS cn",
+        engine="cudf",
+    )
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"cn": 1}]
+
+
 def test_string_cypher_supports_grouped_post_aggregate_size_collect_projection() -> None:
     graph = _mk_graph(
         pd.DataFrame(
