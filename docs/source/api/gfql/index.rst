@@ -13,3 +13,4 @@ GFQL API Reference
    hop
    node
    predicates
+   schema

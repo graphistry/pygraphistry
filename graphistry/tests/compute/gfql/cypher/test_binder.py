@@ -779,20 +779,19 @@ def test_binder_strict_schema_accepts_admitted_label_and_property_shapes() -> No
     assert "nid" in bound.semantic_table.variables
 
 
-def test_binder_retired_loose_mode_rejects_missing_schema_fields() -> None:
+def test_binder_schema_metadata_can_disable_schema_field_checks() -> None:
     ctx = _strict_catalog_ctx(
         node_columns=["id"],
         edge_columns=["src", "dst"],
         strict=False,
     )
-    with pytest.raises(GFQLValidationError) as exc_info:
-        FrontendBinder().bind(
-            parse_cypher("MATCH (n:Person) RETURN n.unknown AS u"),
-            ctx,
-            strict_name_resolution=False,
-        )
-    assert exc_info.value.code == ErrorCode.E301
-    assert exc_info.value.context["field"] == "MATCH.patterns[0].elements[0].labels"
+    bound = FrontendBinder().bind(
+        parse_cypher("MATCH (n:Person) RETURN n.unknown AS u"),
+        ctx,
+        strict_name_resolution=False,
+    )
+
+    assert "u" in bound.semantic_table.variables
 
 
 def test_binder_schema_enforced_even_when_legacy_strict_name_flag_false() -> None:

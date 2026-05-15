@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Mapping, NoReturn, Optional, Sequence, Tuple, Union, cast
+from dataclasses import replace
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTLet, ASTObject, ASTNode, ASTEdge, ASTCall, ASTRef, from_json
@@ -78,7 +79,32 @@ def _raise_diagnostics(
     )
 
 
-def _build_schema_catalog(g: Plottable, *, strict: bool) -> GraphSchemaCatalog:
+def _build_schema_catalog(g: Plottable, *, strict: Optional[bool]) -> GraphSchemaCatalog:
+    bound_schema = getattr(g, "_gfql_schema", None)
+    if bound_schema is not None:
+        node_id_column = getattr(g, "_node", None)
+        edge_source_column = getattr(g, "_source", None)
+        edge_destination_column = getattr(g, "_destination", None)
+        if hasattr(bound_schema, "to_catalog") and callable(getattr(bound_schema, "to_catalog")):
+            return cast(Any, bound_schema).to_catalog(
+                node_id_column=node_id_column,
+                edge_source_column=edge_source_column,
+                edge_destination_column=edge_destination_column,
+                strict=strict,
+            )
+        if isinstance(bound_schema, GraphSchemaCatalog):
+            metadata = dict(bound_schema.metadata)
+            if strict is not None:
+                metadata["strict"] = bool(strict)
+            return replace(
+                bound_schema,
+                node_id_column=node_id_column or bound_schema.node_id_column,
+                edge_source_column=edge_source_column or bound_schema.edge_source_column,
+                edge_destination_column=edge_destination_column or bound_schema.edge_destination_column,
+                metadata=metadata,
+            )
+
+    strict_value = True if strict is None else bool(strict)
     node_columns: Tuple[str, ...] = tuple()
     edge_columns: Tuple[str, ...] = tuple()
     if getattr(g, "_nodes", None) is not None:
@@ -91,8 +117,22 @@ def _build_schema_catalog(g: Plottable, *, strict: bool) -> GraphSchemaCatalog:
         node_id_column=getattr(g, "_node", None),
         edge_source_column=getattr(g, "_source", None),
         edge_destination_column=getattr(g, "_destination", None),
-        metadata={"strict": strict},
+        metadata={"strict": strict_value},
     )
+
+
+def _resolve_strict_mode(g: Plottable, *, strict: Optional[bool]) -> bool:
+    if strict is not None:
+        return bool(strict)
+    bound_schema = getattr(g, "_gfql_schema", None)
+    if bound_schema is not None:
+        schema_strict = getattr(bound_schema, "strict", None)
+        if schema_strict is not None:
+            return bool(schema_strict)
+        metadata = getattr(bound_schema, "metadata", None)
+        if isinstance(metadata, Mapping) and "strict" in metadata:
+            return bool(metadata["strict"])
+    return True
 
 
 def _validate_cypher(
@@ -100,11 +140,12 @@ def _validate_cypher(
     query: str,
     *,
     params: Optional[Mapping[str, Any]],
-    strict: bool,
+    strict: Optional[bool],
 ) -> Dict[str, Any]:
     parsed = parse_cypher(query)
-    if strict:
-        strict_ctx = PlanContext(catalog=_build_schema_catalog(g, strict=True))
+    strict_mode = _resolve_strict_mode(g, strict=strict)
+    if strict_mode:
+        strict_ctx = PlanContext(catalog=_build_schema_catalog(g, strict=strict))
         FrontendBinder().bind(parsed, strict_ctx, strict_name_resolution=True)
     compiled = compile_cypher_query(parsed, params=params)
     compiled_kind: Literal["query", "union", "graph"] = "query"
@@ -336,7 +377,7 @@ def gfql_validate(
     where: Optional[Sequence[WhereComparison]] = None,
     language: Optional[Literal["cypher", "gremlin"]] = None,
     params: Optional[Mapping[str, Any]] = None,
-    strict: bool = True,
+    strict: Optional[bool] = None,
     collect_all: bool = False,
     schema: bool = True,
 ) -> Dict[str, Any]:

@@ -363,6 +363,7 @@ class Plottable(Protocol):
         url: Optional[str] = None,
         nodes_file_id: Optional[str] = None,
         edges_file_id: Optional[str] = None,
+        schema: Optional[Any] = None,
     ) -> 'Plottable':
         ...
 

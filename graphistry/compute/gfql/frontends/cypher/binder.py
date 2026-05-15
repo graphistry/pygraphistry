@@ -368,16 +368,18 @@ class FrontendBinder:
                         )
                     continue
 
+                src_labels = _node_labels_at(pattern=pattern, idx=element_idx - 1)
+                dst_labels = _node_labels_at(pattern=pattern, idx=element_idx + 1)
                 self._validate_relationship_pattern_schema(
                     state=state,
                     alias=element.variable,
                     relationship_pattern=element,
                     stage=clause_kind,
                     location=f"{clause_kind}.patterns[{pattern_idx}].elements[{element_idx}]",
+                    source_labels=src_labels,
+                    destination_labels=dst_labels,
                 )
                 if element.variable is not None:
-                    src_labels = _node_labels_at(pattern=pattern, idx=element_idx - 1)
-                    dst_labels = _node_labels_at(pattern=pattern, idx=element_idx + 1)
                     changed_aliases.add(
                         self._bind_relationship_pattern(
                             state=state,
@@ -655,9 +657,12 @@ class FrontendBinder:
         stage: str,
         location: str,
     ) -> None:
+        if not _strict_schema_mode(state):
+            return
         node_columns = state.catalog.node_columns
         if not node_columns:
             return
+        columns = _catalog_node_columns_for_labels(state.catalog, frozenset(node_pattern.labels)) or node_columns
         alias_label = alias or "<anonymous-node>"
         for label in node_pattern.labels:
             label_col = f"label__{label}"
@@ -670,14 +675,14 @@ class FrontendBinder:
                     available_labels=_catalog_node_labels(state.catalog),
                 )
         for entry in node_pattern.properties:
-            if entry.key not in node_columns:
+            if entry.key not in columns:
                 raise _missing_property_in_schema_error(
                     alias=alias_label,
                     property_name=entry.key,
                     stage=stage,
                     field=f"{location}.properties",
                     entity_kind="node",
-                    available_columns=tuple(sorted(node_columns)),
+                    available_columns=tuple(sorted(columns)),
                 )
 
     def _validate_relationship_pattern_schema(
@@ -688,23 +693,90 @@ class FrontendBinder:
         relationship_pattern: RelationshipPattern,
         stage: str,
         location: str,
+        source_labels: FrozenSet[str] = frozenset(),
+        destination_labels: FrozenSet[str] = frozenset(),
     ) -> None:
+        if not _strict_schema_mode(state):
+            return
         edge_columns = state.catalog.edge_columns
         if not edge_columns:
             return
         alias_label = alias or "<anonymous-edge>"
+        scoped_columns = _catalog_edge_columns_for_types(state.catalog, relationship_pattern.types)
+        columns = scoped_columns if scoped_columns is not None else edge_columns
+        available_types = _catalog_edge_types(state.catalog)
+        if available_types:
+            for rel_type in relationship_pattern.types:
+                if rel_type not in available_types:
+                    raise _missing_relationship_type_in_schema_error(
+                        alias=alias_label,
+                        relationship_type=rel_type,
+                        stage=stage,
+                        field=f"{location}.types",
+                        available_relationship_types=available_types,
+                    )
+        self._validate_relationship_topology_schema(
+            state=state,
+            alias=alias_label,
+            relationship_pattern=relationship_pattern,
+            stage=stage,
+            field=f"{location}.topology",
+            source_labels=source_labels,
+            destination_labels=destination_labels,
+        )
         for entry in relationship_pattern.properties:
-            if entry.key not in edge_columns:
+            if entry.key not in columns:
                 raise _missing_property_in_schema_error(
                     alias=alias_label,
                     property_name=entry.key,
                     stage=stage,
                     field=f"{location}.properties",
                     entity_kind="edge",
-                    available_columns=tuple(sorted(edge_columns)),
+                    available_columns=tuple(sorted(columns)),
                 )
 
+    def _validate_relationship_topology_schema(
+        self,
+        *,
+        state: _BindState,
+        alias: str,
+        relationship_pattern: RelationshipPattern,
+        stage: str,
+        field: str,
+        source_labels: FrozenSet[str],
+        destination_labels: FrozenSet[str],
+    ) -> None:
+        if not relationship_pattern.types:
+            return
+        topologies = _catalog_edge_topologies(state.catalog)
+        if not topologies:
+            return
+        if not source_labels and not destination_labels:
+            return
+        for rel_type in relationship_pattern.types:
+            candidates = tuple(t for t in topologies if t["relationship_type"] == rel_type)
+            if not candidates:
+                continue
+            if _relationship_topology_matches(
+                candidates=candidates,
+                direction=relationship_pattern.direction,
+                source_labels=source_labels,
+                destination_labels=destination_labels,
+            ):
+                return
+        raise _relationship_topology_error(
+            alias=alias,
+            relationship_types=relationship_pattern.types,
+            stage=stage,
+            field=field,
+            source_labels=tuple(sorted(source_labels)),
+            destination_labels=tuple(sorted(destination_labels)),
+            available_topologies=topologies,
+        )
+
     def _validate_where_clause_schema(self, *, state: _BindState, where: WhereClause, stage: str) -> None:
+        if not _strict_schema_mode(state):
+            return
         for idx, term in enumerate(where.predicates):
             if isinstance(term, WherePredicate):
                 self._validate_where_predicate_schema(
@@ -724,12 +796,16 @@ class FrontendBinder:
                             location=f"{stage}.where.pattern[{idx}].elements[{pattern_idx}]",
                         )
                     else:
+                        source_labels = _node_labels_at(pattern=term.pattern, idx=pattern_idx - 1)
+                        destination_labels = _node_labels_at(pattern=term.pattern, idx=pattern_idx + 1)
                         self._validate_relationship_pattern_schema(
                             state=state,
                             alias=pattern_element.variable,
                             relationship_pattern=pattern_element,
                             stage=stage,
                             location=f"{stage}.where.pattern[{idx}].elements[{pattern_idx}]",
+                            source_labels=source_labels,
+                            destination_labels=destination_labels,
                         )
         if where.expr_tree is not None:
             self._validate_expression_property_refs(
@@ -777,6 +853,8 @@ class FrontendBinder:
         expression: ExpressionText,
         stage: str,
     ) -> None:
+        if not _strict_schema_mode(state):
+            return
         spans = _string_literal_spans(expression.text)
         comprehension_locals = _comprehension_locals(text=expression.text, string_spans=spans)
         for match in _PROPERTY_RE.finditer(expression.text):
@@ -811,6 +889,8 @@ class FrontendBinder:
         stage: str,
         field: str,
     ) -> None:
+        if not _strict_schema_mode(state):
+            return
         node_columns = state.catalog.node_columns
         if not node_columns:
             return
@@ -835,16 +915,26 @@ class FrontendBinder:
         stage: str,
         field: str,
     ) -> None:
+        if not _strict_schema_mode(state):
+            return
         source = state.scope.get(property_ref.alias)
         if source is None:
             if _is_hidden_reentry_property(property_ref.property):
                 return
             raise _unresolved_name_error(identifier=property_ref.alias, visible_scope=state.scope)
         if source.entity_kind == "node":
-            columns = state.catalog.node_columns
+            node_labels: FrozenSet[str] = frozenset()
+            if isinstance(source.logical_type, NodeRef):
+                node_labels = source.logical_type.labels
+            scoped_columns = _catalog_node_columns_for_labels(state.catalog, node_labels)
+            columns = scoped_columns if scoped_columns is not None else state.catalog.node_columns
             entity_kind: Literal["node", "edge"] = "node"
         elif source.entity_kind == "edge":
-            columns = state.catalog.edge_columns
+            edge_types: Tuple[str, ...] = tuple()
+            if isinstance(source.logical_type, EdgeRef) and source.logical_type.type is not None:
+                edge_types = (source.logical_type.type,)
+            scoped_columns = _catalog_edge_columns_for_types(state.catalog, edge_types)
+            columns = scoped_columns if scoped_columns is not None else state.catalog.edge_columns
             entity_kind = "edge"
         else:
             return
@@ -1653,6 +1743,10 @@ def _is_hidden_reentry_property(property_name: str) -> bool:
     return property_name.startswith("__cypher_reentry_") and property_name.endswith("__")
 
 
+def _strict_schema_mode(state: _BindState) -> bool:
+    return bool(state.catalog.metadata.get("strict", True))
+
+
 def _catalog_node_labels(catalog: GraphSchemaCatalog) -> Tuple[str, ...]:
     labels = sorted(
         str(column).split("label__", 1)[1]
@@ -1660,6 +1754,106 @@ def _catalog_node_labels(catalog: GraphSchemaCatalog) -> Tuple[str, ...]:
         if str(column).startswith("label__")
     )
     return tuple(labels)
+
+
+def _catalog_edge_types(catalog: GraphSchemaCatalog) -> Tuple[str, ...]:
+    metadata_types = catalog.metadata.get("edge_types")
+    if isinstance(metadata_types, (list, tuple, set, frozenset)):
+        return tuple(sorted(str(value) for value in metadata_types))
+    types = sorted(
+        str(column).split("label__", 1)[1]
+        for column in catalog.edge_columns
+        if str(column).startswith("label__")
+    )
+    return tuple(types)
+
+
+def _catalog_edge_topologies(catalog: GraphSchemaCatalog) -> Tuple[Dict[str, object], ...]:
+    raw = catalog.metadata.get("edge_topologies")
+    if not isinstance(raw, (list, tuple)):
+        return tuple()
+    out: List[Dict[str, object]] = []
+    for item in raw:
+        if not isinstance(item, Mapping):
+            continue
+        relationship_type = item.get("relationship_type")
+        if relationship_type is None:
+            continue
+        source_labels = item.get("source_labels", ())
+        destination_labels = item.get("destination_labels", ())
+        out.append(
+            {
+                "relationship_type": str(relationship_type),
+                "source_labels": tuple(str(label) for label in source_labels),
+                "destination_labels": tuple(str(label) for label in destination_labels),
+            }
+        )
+    return tuple(out)
+
+
+def _catalog_node_columns_for_labels(catalog: GraphSchemaCatalog, labels: FrozenSet[str]) -> Optional[FrozenSet[str]]:
+    if not labels:
+        return None
+    raw = catalog.metadata.get("node_columns_by_label")
+    if not isinstance(raw, Mapping):
+        return None
+    matched: FrozenSet[str] = frozenset()
+    found = False
+    for label in labels:
+        columns = raw.get(label)
+        if isinstance(columns, (list, tuple, set, frozenset)):
+            matched = matched | frozenset(str(column) for column in columns)
+            found = True
+    if not found:
+        return None
+    return matched
+
+
+def _catalog_edge_columns_for_types(catalog: GraphSchemaCatalog, relationship_types: Tuple[str, ...]) -> Optional[FrozenSet[str]]:
+    if not relationship_types:
+        return None
+    raw = catalog.metadata.get("edge_columns_by_type")
+    if not isinstance(raw, Mapping):
+        return None
+    matched: FrozenSet[str] = frozenset()
+    found = False
+    for relationship_type in relationship_types:
+        columns = raw.get(relationship_type)
+        if isinstance(columns, (list, tuple, set, frozenset)):
+            matched = matched | frozenset(str(column) for column in columns)
+            found = True
+    if not found:
+        return None
+    return matched
+
+
+def _labels_match(required: Tuple[str, ...], actual: FrozenSet[str]) -> bool:
+    if not actual or not required:
+        return True
+    return not actual.isdisjoint(set(required))
+
+
+def _relationship_topology_matches(
+    *,
+    candidates: Tuple[Dict[str, object], ...],
+    direction: Literal["forward", "reverse", "undirected"],
+    source_labels: FrozenSet[str],
+    destination_labels: FrozenSet[str],
+) -> bool:
+    for candidate in candidates:
+        required_source = cast(Tuple[str, ...], candidate["source_labels"])
+        required_destination = cast(Tuple[str, ...], candidate["destination_labels"])
+        if direction == "reverse":
+            if _labels_match(required_source, destination_labels) and _labels_match(required_destination, source_labels):
+                return True
+        elif direction == "undirected":
+            forward_ok = _labels_match(required_source, source_labels) and _labels_match(required_destination, destination_labels)
+            reverse_ok = _labels_match(required_source, destination_labels) and _labels_match(required_destination, source_labels)
+            if forward_ok or reverse_ok:
+                return True
+        elif _labels_match(required_source, source_labels) and _labels_match(required_destination, destination_labels):
+            return True
+    return False
 
 
 def _missing_label_in_schema_error(
@@ -1680,6 +1874,54 @@ def _missing_label_in_schema_error(
         label=label,
         stage=stage,
         available_labels=available_labels,
+        language="cypher",
+    )
+
+
+def _missing_relationship_type_in_schema_error(
+    *,
+    alias: str,
+    relationship_type: str,
+    stage: str,
+    field: str,
+    available_relationship_types: Tuple[str, ...],
+) -> GFQLValidationError:
+    return GFQLValidationError(
+        ErrorCode.E301,
+        "Cypher relationship type is missing from strict binder schema catalog",
+        field=field,
+        value=f"{alias}:{relationship_type}",
+        suggestion="Use relationship types that exist in the edge schema or extend the schema catalog.",
+        alias=alias,
+        relationship_type=relationship_type,
+        stage=stage,
+        available_relationship_types=available_relationship_types,
+        language="cypher",
+    )
+
+
+def _relationship_topology_error(
+    *,
+    alias: str,
+    relationship_types: Tuple[str, ...],
+    stage: str,
+    field: str,
+    source_labels: Tuple[str, ...],
+    destination_labels: Tuple[str, ...],
+    available_topologies: Tuple[Dict[str, object], ...],
+) -> GFQLValidationError:
+    return GFQLValidationError(
+        ErrorCode.E301,
+        "Cypher relationship topology is incompatible with strict binder schema catalog",
+        field=field,
+        value=f"{source_labels}-[{relationship_types}]->{destination_labels}",
+        suggestion="Use source/destination labels allowed by the edge schema topology or extend the schema catalog.",
+        alias=alias,
+        relationship_types=relationship_types,
+        source_labels=source_labels,
+        destination_labels=destination_labels,
+        stage=stage,
+        available_topologies=available_topologies,
         language="cypher",
     )
 

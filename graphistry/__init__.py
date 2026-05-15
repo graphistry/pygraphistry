@@ -133,6 +133,13 @@ from graphistry.compute import (
 
 from graphistry.Engine import Engine
 
+from graphistry.schema import (
+    EdgeTopology,
+    EdgeType,
+    GraphSchema,
+    NodeType,
+)
+
 from graphistry.privacy import (
     Mode, Privacy
 )

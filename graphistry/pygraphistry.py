@@ -1924,10 +1924,13 @@ class GraphistryClient(AuthManagerProtocol):
         url: Optional[str] = None,
         nodes_file_id: Optional[str] = None,
         edges_file_id: Optional[str] = None,
+        schema: Optional[Any] = None,
     ) -> Plotter:
         """Create a base plotter.
 
         Typically called at start of a program. For parameters, see ``plotter.bind()`` .
+        The ``schema`` parameter accepts the experimental public GFQL schema
+        declarations from ``graphistry.schema``.
 
         :returns: Plotter
         :rtype: Plotter
@@ -1945,6 +1948,7 @@ class GraphistryClient(AuthManagerProtocol):
             source=source,
             destination=destination,
             node=node,
+            edge=edge,
             edge_title=edge_title,
             edge_label=edge_label,
             edge_color=edge_color,
@@ -1965,7 +1969,11 @@ class GraphistryClient(AuthManagerProtocol):
             point_y=point_y,
             point_longitude=point_longitude,
             point_latitude=point_latitude,
-            dataset_id=dataset_id
+            dataset_id=dataset_id,
+            url=url,
+            nodes_file_id=nodes_file_id,
+            edges_file_id=edges_file_id,
+            schema=schema,
         ))
 
     def from_dataset_id(self, dataset_id: str, api_token: Optional[str] = None) -> Plotter:
