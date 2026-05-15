@@ -4807,6 +4807,20 @@ def test_string_cypher_supports_dynamic_map_subscripts(query: str, expected: lis
     assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == expected
 
 
+def test_string_cypher_supports_list_subscript_with_integer_index() -> None:
+    _assert_query_rows(
+        "WITH [10, 20, 30] AS list, 1 AS idx RETURN list[idx] AS value",
+        [{"value": 20}],
+    )
+
+
+def test_string_cypher_rejects_string_subscript_with_integer_index() -> None:
+    g = _mk_empty_graph()
+
+    with pytest.raises(Exception, match="dynamic subscript requires list-like base"):
+        g.gfql("WITH '1' AS list, 0 AS idx RETURN list[idx] AS value")
+
+
 def test_string_cypher_executes_unwind_temporal_date_literals() -> None:
     _assert_query_rows(
         "UNWIND [date({year: 1910, month: 5, day: 6}), date({year: 1980, month: 10, day: 24})] AS dates "
