@@ -1623,6 +1623,15 @@ class RowPipelineMixin:
                 return True, self._gfql_eval_dynamic_list_subscript(
                     table_df, base_value, key_value, "ast subscript"
                 )
+            if (
+                isinstance(key_value, int)
+                and not isinstance(key_value, bool)
+                and isinstance(base_value, str)
+            ):
+                raise ValueError(
+                    "unsupported row expression: dynamic subscript requires list-like base "
+                    "in 'ast subscript'"
+                )
             if hasattr(base_value, "str"):
                 return True, base_value.str.get(key_value)
             try:
