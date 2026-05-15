@@ -144,7 +144,7 @@ class CompilerError:
 class PhysicalPlan:
     """Physical plan wrapper contract for M3 planner routing."""
 
-    route: Literal["same_path", "wavefront", "row_pipeline"] = "row_pipeline"
+    route: Literal["same_path", "wavefront", "row_pipeline", "procedure_call"] = "row_pipeline"
     operators: Tuple[PhysicalOperator, ...] = field(default_factory=tuple)
     logical_op_ids: Tuple[int, ...] = field(default_factory=tuple)
     metadata: Dict[str, Any] = field(default_factory=dict)
