@@ -1,28 +1,65 @@
 """Type definitions for GFQL policy system."""
 
-from typing import TypedDict, Optional, Dict, Any, Literal, Callable, TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import TypedDict, Optional, Dict, Any, Literal, Callable, Mapping, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
     from graphistry.compute.gfql.policy.stats import GraphStats
 
-# Phase literal type (the 10 specific hook names)
-Phase = Literal["preload", "postload", "prelet", "postlet", "prechain", "postchain", "precall", "postcall", "preletbinding", "postletbinding"]
+# Phase literal type (the concrete hook names)
+Phase = Literal[
+    "preload",
+    "postload",
+    "prelet",
+    "postlet",
+    "prechain",
+    "postchain",
+    "precall",
+    "postcall",
+    "preletbinding",
+    "postletbinding",
+    "precompile",
+    "postcompile",
+]
 
 # Shortcut key literal type (includes general, scope, and specific keys)
 GeneralShortcut = Literal["pre", "post"]
 ScopeShortcut = Literal["load", "let", "chain", "binding", "call"]
-ShortcutKey = Literal["pre", "post", "load", "let", "chain", "binding", "call", "preload", "postload", "prelet", "postlet", "prechain", "postchain", "precall", "postcall", "preletbinding", "postletbinding"]
+ShortcutKey = Literal["pre", "post", "load", "let", "chain", "binding", "call", "preload", "postload", "prelet", "postlet", "prechain", "postchain", "precall", "postcall", "preletbinding", "postletbinding", "precompile", "postcompile"]
 
 # Query type literal
 QueryType = Literal["chain", "dag", "single"]
+
+
+@dataclass(frozen=True)
+class CompileSummary:
+    """Stable, public compiler summary for policy hooks.
+
+    This object intentionally carries scalar metadata only. It does not expose
+    parser, binder, AST, lowering, or DataFrame objects.
+    """
+
+    language: str
+    success: bool
+    compiler_phase: str = "compile"
+    error_type: Optional[str] = None
+    message: Optional[str] = None
+    code: Optional[str] = None
+    context: Mapping[str, Any] = field(default_factory=dict)
+    field: Optional[str] = None
+    suggestion: Optional[str] = None
+    line: Optional[int] = None
+    column: Optional[int] = None
+    value_repr: Optional[str] = None
+    param_keys: Tuple[str, ...] = ()
 
 
 class PolicyContext(TypedDict, total=False):
     """Strongly typed context passed to policy functions.
 
     Attributes:
-        phase: Current execution phase (preload, postload, prelet, postlet, prechain, postchain, precall, postcall, preletbinding, postletbinding)
+        phase: Current execution phase (preload, postload, prelet, postlet, prechain, postchain, precall, postcall, preletbinding, postletbinding, precompile, postcompile)
         hook: Hook name (same as phase, useful for shared handlers)
         query: Original/global query object
         current_ast: Current AST object being executed (if applicable)
@@ -41,6 +78,10 @@ class PolicyContext(TypedDict, total=False):
         success: Execution success flag (postcall/postload/postletbinding phases)
         error: Error message string (post* phases, when success=False)
         error_type: Error type name (post* phases, when success=False)
+
+        # Compiler-specific fields (precompile/postcompile phases only; experimental)
+        compile_language: Source language for string-query compilation
+        compile: Stable compiler summary (postcompile only)
 
         # Hierarchy/tracing fields (for OpenTelemetry and telemetry systems)
         execution_depth: Nesting depth (0=query, 1=let/chain, 2=binding/op, ...)
@@ -72,6 +113,10 @@ class PolicyContext(TypedDict, total=False):
     success: Optional[bool]          # Execution success flag (post* phases)
     error: Optional[str]             # Error message (post* phases, when success=False)
     error_type: Optional[str]        # Error type name (post* phases, when success=False)
+
+    # Compiler-specific fields (precompile/postcompile phases only; experimental)
+    compile_language: Optional[str]
+    compile: Optional[CompileSummary]
 
     # Hierarchy/tracing fields (for OpenTelemetry and telemetry systems)
     execution_depth: Optional[int]       # Nesting depth (0=query, 1=let/chain, 2=binding, ...)

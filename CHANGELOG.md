@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **GFQL policy / Cypher compiler hooks (#1454)**: Added experimental exact-key `precompile` and `postcompile` policy hooks for local Cypher string-query compilation. `postcompile` reports success or failure using the existing policy `success`, `error`, and `error_type` fields plus a stable `CompileSummary` with scalar compiler metadata.
+
 ### Changed
 - **GFQL / Cypher pattern predicate existence semantics (#1449)**: Direct-Cypher `WHERE (pattern)` predicates now lower through correlated semi-apply markers instead of rewriting single positive predicates into appended `MATCH` clauses, preventing existence checks from multiplying result rows. Added pandas/cuDF coverage for the residual `expr-pattern1-10`, `expr-pattern1-13`, and `expr-pattern1-18` undirected pattern-predicate wrong-row cases.
 - **GFQL / Cypher reentry failfast scaffolding cleanup (#1421)**: Removed the obsolete `graphistry.compute.gfql.cypher.reentry.runtime` compatibility re-export shim after compile-time reentry ownership moved to `reentry.compiletime`, moved tests off the old private `gfql_unified._compiled_query_reentry_state` access path, and lifted the stale closed-#1256 aggregate failfast so chained reentry secondary-property carries now flow through downstream aggregating `WITH` stages with positive row assertions.
