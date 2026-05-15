@@ -7,6 +7,7 @@ import graphistry.compute.gfql_unified as gfql_unified
 from graphistry.compute.gfql.ir.compilation import PhysicalPlan
 from graphistry.compute.gfql.physical_planner import (
     PhysicalPlanner,
+    ProcedureCallExecutorWrapper,
     RowPipelineExecutorWrapper,
     SamePathExecutorWrapper,
     WavefrontExecutorWrapper,
@@ -71,12 +72,67 @@ def test_gfql_wavefront_optional_match_parity():
     assert pd.isna(rows["cid"].iloc[1])
 
 
-def test_gfql_call_compatibility_shim_when_physical_planner_not_covered():
+def test_call_route_bypasses_compat_executor(monkeypatch):
     g = _mk_graph()
+    planner_routes = []
+    original_plan = PhysicalPlanner.plan
+
+    def _spy_plan(self, logical_plan, ctx):
+        physical_plan = original_plan(self, logical_plan, ctx)
+        planner_routes.append(physical_plan.route)
+        assert isinstance(physical_plan.operators[0], ProcedureCallExecutorWrapper)
+        return physical_plan
+
+    def _fail_compat_executor(*args, **kwargs):
+        raise AssertionError("CALL physical route should not use the legacy compat executor")
+
+    monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
+    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _fail_compat_executor)
 
     result = g.gfql("CALL graphistry.degree() RETURN degree ORDER BY degree")
 
+    assert planner_routes == ["procedure_call"]
     assert result._nodes["degree"].tolist() == [1, 1, 2]
+
+
+def test_deferred_logical_plan_shape_uses_documented_compat_fallback(monkeypatch):
+    g = _mk_graph()
+    fallback_reasons = []
+    original_compat_executor = gfql_unified._execute_compiled_query_compat_non_union
+
+    def _spy_compat_executor(*args, **kwargs):
+        compiled_query = kwargs["compiled_query"]
+        assert compiled_query.logical_plan is None
+        fallback_reasons.append(compiled_query.logical_plan_defer_reason)
+        return original_compat_executor(*args, **kwargs)
+
+    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _spy_compat_executor)
+
+    result = g.gfql("OPTIONAL MATCH (n) RETURN n")
+
+    assert fallback_reasons
+    assert "OPTIONAL MATCH" in fallback_reasons[0]
+    assert result._nodes is not None
+
+
+def test_deferred_optional_reentry_shape_uses_documented_compat_fallback(monkeypatch):
+    g = _mk_graph()
+    fallback_reasons = []
+    original_compat_executor = gfql_unified._execute_compiled_query_compat_non_union
+
+    def _spy_compat_executor(*args, **kwargs):
+        compiled_query = kwargs["compiled_query"]
+        assert compiled_query.logical_plan is None
+        fallback_reasons.append(compiled_query.logical_plan_defer_reason)
+        return original_compat_executor(*args, **kwargs)
+
+    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _spy_compat_executor)
+
+    result = g.gfql("MATCH (a) WITH a OPTIONAL MATCH (a)-->(b) RETURN b")
+
+    assert fallback_reasons
+    assert "OPTIONAL MATCH" in fallback_reasons[0]
+    assert result._nodes is not None
 
 
 def test_same_path_route_bypasses_compat_executor(monkeypatch):
