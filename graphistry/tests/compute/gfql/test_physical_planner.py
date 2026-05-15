@@ -8,6 +8,7 @@ from graphistry.compute.gfql.ir.logical_plan import (
     Filter,
     Join,
     Limit,
+    LogicalPlan,
     OrderBy,
     PatternMatch,
     ProcedureCall,
@@ -17,6 +18,7 @@ from graphistry.compute.gfql.ir.logical_plan import (
 from graphistry.compute.gfql.ir.types import ScalarType
 from graphistry.compute.gfql.physical_planner import (
     PhysicalPlanner,
+    ProcedureCallExecutorWrapper,
     RowPipelineExecutorWrapper,
     SamePathExecutorWrapper,
     WavefrontExecutorWrapper,
@@ -100,12 +102,26 @@ def test_physical_planner_classifies_row_pipeline_wrapper_for_row_only_shape() -
     assert set(physical_plan.operators[0].row_stage_ops) == {"filter", "limit", "orderby", "project"}
 
 
-def test_physical_planner_rejects_unsupported_operator_shapes_with_explicit_error() -> None:
+def test_physical_planner_classifies_procedure_call_wrapper_for_call_shape() -> None:
     logical_plan = ProcedureCall(
         op_id=1,
         procedure="graphistry.degree",
+        result_kind="rows",
         output_schema=_schema("node_id"),
     )
+
+    physical_plan = PhysicalPlanner().plan(logical_plan, PlanContext())
+
+    assert physical_plan.route == "procedure_call"
+    assert len(physical_plan.operators) == 1
+    assert isinstance(physical_plan.operators[0], ProcedureCallExecutorWrapper)
+    assert physical_plan.operators[0].executor == "execute_cypher_call"
+    assert physical_plan.operators[0].procedures == ("graphistry.degree",)
+    assert physical_plan.operators[0].result_kinds == ("rows",)
+
+
+def test_physical_planner_rejects_unsupported_operator_shapes_with_explicit_error() -> None:
+    logical_plan = LogicalPlan(op_id=1, output_schema=_schema("node_id"))
 
     with pytest.raises(GFQLValidationError, match="does not yet support"):
         PhysicalPlanner().plan(logical_plan, PlanContext())

@@ -63,6 +63,7 @@ from graphistry.compute.gfql.ir.compilation import PhysicalPlan, PlanContext
 from graphistry.compute.gfql.ir.logical_plan import LogicalPlan
 from graphistry.compute.gfql.physical_planner import (
     PhysicalPlanner,
+    ProcedureCallExecutorWrapper,
     RowPipelineExecutorWrapper,
     SamePathExecutorWrapper,
     WavefrontExecutorWrapper,
@@ -643,21 +644,6 @@ def _execute_compiled_query_non_union(
     try:
         physical_plan = PhysicalPlanner().plan(logical_plan, ctx)
     except GFQLValidationError as exc:
-        # Temporary compatibility shim: CALL-backed compiled queries still run via
-        # the legacy path while planner coverage catches up.
-        if compiled_query.procedure_call is not None:
-            logger.debug(
-                "PhysicalPlanner unsupported for CALL-backed query; using compatibility shim: %s",
-                exc.message,
-            )
-            return _execute_compiled_query_compat_non_union(
-                base_graph,
-                compiled_query=compiled_query,
-                engine=engine,
-                policy=policy,
-                context=context,
-                start_nodes=start_nodes,
-            )
         raise GFQLValidationError(
             ErrorCode.E108,
             "Cypher planned route could not be lowered to a supported physical execution path",
@@ -730,6 +716,27 @@ def _execute_compiled_query_via_physical_plan(
         return _execute_compiled_query_chain_non_union(
             base_graph,
             compiled_query=compiled_query,
+            engine=engine,
+            policy=policy,
+            context=context,
+            start_nodes=start_nodes,
+        )
+
+    if isinstance(operator, ProcedureCallExecutorWrapper):
+        if compiled_query.procedure_call is None:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Cypher procedure physical route selected without a compiled procedure call",
+                field="procedure_call",
+                value=None,
+                suggestion="Compile CALL queries with procedure metadata before physical dispatch.",
+                language="cypher",
+            )
+        dispatch_graph = execute_cypher_call(base_graph, compiled_query.procedure_call)
+        return _execute_compiled_query_chain_non_union(
+            base_graph,
+            compiled_query=compiled_query,
+            dispatch_graph=dispatch_graph,
             engine=engine,
             policy=policy,
             context=context,
@@ -856,13 +863,19 @@ def _execute_compiled_query_compat_non_union(
     start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
     if compiled_query.procedure_call is not None:
-        dispatch_graph = execute_cypher_call(base_graph, compiled_query.procedure_call)
-    else:
-        dispatch_graph = _seeded_dispatch_graph(
-            base_graph,
-            compiled_query=compiled_query,
-            engine=engine,
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher CALL queries must use the procedure physical route",
+            field="procedure_call",
+            value=compiled_query.procedure_call.procedure,
+            suggestion="Compile CALL queries with a LogicalPlan before runtime dispatch.",
+            language="cypher",
         )
+    dispatch_graph = _seeded_dispatch_graph(
+        base_graph,
+        compiled_query=compiled_query,
+        engine=engine,
+    )
 
     return _execute_compiled_query_chain_non_union(
         base_graph,

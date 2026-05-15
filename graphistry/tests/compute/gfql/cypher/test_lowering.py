@@ -7701,6 +7701,8 @@ def test_compile_cypher_call_returns_procedure_program(query: str, procedure: st
     assert compiled.procedure_call is not None
     assert compiled.procedure_call.procedure == procedure
     assert compiled.procedure_call.result_kind == result_kind
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
 
 
 def test_cypher_to_gfql_rejects_call_programs() -> None:
