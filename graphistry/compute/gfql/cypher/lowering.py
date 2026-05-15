@@ -2217,6 +2217,7 @@ def _post_aggregate_expr_plan(
     *,
     params: Optional[Mapping[str, Any]] = None,
     alias_targets: Optional[Mapping[str, ASTObject]] = None,
+    reserved_temp_names: Optional[Set[str]] = None,
 ) -> Optional[Tuple[List[_AggregateSpec], _PostAggregateExprPlan]]:
     if item.expression.text == "*":
         return None
@@ -2230,7 +2231,7 @@ def _post_aggregate_expr_plan(
         column=item.span.column,
     )
 
-    temp_names: Set[str] = set()
+    temp_names: Set[str] = reserved_temp_names if reserved_temp_names is not None else set()
     aggregate_specs: List[_AggregateSpec] = []
     aggregate_temp_by_source: Dict[str, str] = {}
 
@@ -2469,12 +2470,18 @@ def _collect_aggregate_specs_for_clause(
     alias_targets: Mapping[str, ASTObject],
 ) -> List[_AggregateSpec]:
     aggregate_specs: List[_AggregateSpec] = []
+    post_aggregate_temp_names: Set[str] = set()
     for item in clause.items:
         agg_spec = _aggregate_spec(item, params=params, alias_targets=alias_targets)
         if agg_spec is not None:
             aggregate_specs.append(agg_spec)
             continue
-        post_agg_plan = _post_aggregate_expr_plan(item, params=params, alias_targets=alias_targets)
+        post_agg_plan = _post_aggregate_expr_plan(
+            item,
+            params=params,
+            alias_targets=alias_targets,
+            reserved_temp_names=post_aggregate_temp_names,
+        )
         if post_agg_plan is not None:
             nested_aggregate_specs, _ = post_agg_plan
             aggregate_specs.extend(nested_aggregate_specs)
@@ -5038,6 +5045,7 @@ def _lower_row_column_stage(
     aggregate_specs: List[_AggregateSpec] = []
     non_aggregate_items: List[ReturnItem] = []
     post_aggregate_items: List[_PostAggregateExprPlan] = []
+    post_aggregate_temp_names: Set[str] = set()
     clause_items = _expand_row_column_star_items(
         stage.clause.items,
         available_columns=scope.row_columns,
@@ -5046,7 +5054,12 @@ def _lower_row_column_stage(
     for item in clause_items:
         agg_spec = _aggregate_spec(item, params=params, alias_targets={})
         if agg_spec is None:
-            post_agg_plan = _post_aggregate_expr_plan(item, params=params, alias_targets={})
+            post_agg_plan = _post_aggregate_expr_plan(
+                item,
+                params=params,
+                alias_targets={},
+                reserved_temp_names=post_aggregate_temp_names,
+            )
             if post_agg_plan is not None:
                 nested_aggregate_specs, post_agg_item = post_agg_plan
                 aggregate_specs.extend(nested_aggregate_specs)
@@ -6639,6 +6652,7 @@ def _lower_general_row_projection(
     aggregate_specs: List[_AggregateSpec] = []
     non_aggregate_items: List[ReturnItem] = []
     post_aggregate_items: List[_PostAggregateExprPlan] = []
+    post_aggregate_temp_names: Set[str] = set()
     empty_result_row: Optional[Dict[str, Any]] = None
     empty_aggregate_row: Optional[Dict[str, Any]] = None
     for item in query.return_.items:
@@ -6646,7 +6660,12 @@ def _lower_general_row_projection(
         if agg_spec is not None:
             aggregate_specs.append(agg_spec)
             continue
-        post_agg_plan = _post_aggregate_expr_plan(item, params=params, alias_targets=alias_targets)
+        post_agg_plan = _post_aggregate_expr_plan(
+            item,
+            params=params,
+            alias_targets=alias_targets,
+            reserved_temp_names=post_aggregate_temp_names,
+        )
         if post_agg_plan is not None:
             nested_aggregate_specs, post_agg_item = post_agg_plan
             aggregate_specs.extend(nested_aggregate_specs)

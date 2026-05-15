@@ -15943,10 +15943,27 @@ def test_issue_983_large_upper_bound_stops_at_graph_depth() -> None:
     assert ids == ["a", "b", "c"]
 
 
-def test_issue_1369_zero_zero_hop_returns_seed() -> None:
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+def test_issue_1369_zero_zero_hop_returns_seed_engine_parity(engine: Optional[str]) -> None:
     """`*0..0` is a valid zero-length path and returns the seed node."""
-    result = _mk_simple_path_graph().gfql("MATCH (a {id: 'a'})-[*0..0]->(b) RETURN b.id AS id")
-    assert result._nodes.to_dict(orient="records") == [{"id": "a"}]
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_simple_path_graph_cudf()
+    else:
+        graph = _mk_simple_path_graph()
+
+    query = "MATCH (a {id: 'a'})-[*0..0]->(b) RETURN b.id AS id"
+    result = graph.gfql(query, engine=engine) if engine == "cudf" else graph.gfql(query)
+    rows = _to_pandas_df(result._nodes).to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
+    if engine == "cudf":
+        assert type(result._nodes).__module__.startswith("cudf")
+    assert rows == [{"id": "a"}]
+
+
+def test_issue_1369_one_one_hop_does_not_include_seed() -> None:
+    """The Cypher zero-hop seed opt-in must not leak into positive-hop traversals."""
+    result = _mk_simple_path_graph().gfql("MATCH (a {id: 'a'})-[*1..1]->(b) RETURN b.id AS id")
+    assert result._nodes.to_dict(orient="records") == [{"id": "b"}]
 
 
 def test_issue_1369_empty_graph_post_aggregate_boolean_projection() -> None:
@@ -15957,6 +15974,28 @@ def test_issue_1369_empty_graph_post_aggregate_boolean_projection() -> None:
     )
     result = graph.gfql("MATCH (a) RETURN count(a) > 0")
     assert result._nodes.to_dict(orient="records") == [{"count(a) > 0": False}]
+
+
+def test_issue_1369_empty_graph_post_aggregate_multiple_expressions() -> None:
+    """Empty global aggregates project each final expression name and value."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": pd.Series(dtype="object")}),
+        pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")}),
+    )
+    result = graph.gfql("MATCH (a) RETURN count(a) = 0 AS is_empty, count(a) + 1 AS plus_one")
+    assert result._nodes.to_dict(orient="records") == [{"is_empty": True, "plus_one": 1}]
+
+
+def test_issue_1369_empty_graph_post_aggregate_boolean_projection_on_cudf() -> None:
+    """cuDF empty global aggregates match pandas post-aggregate projection semantics."""
+    _require_cudf_runtime()
+    graph = _mk_cudf_graph(
+        pd.DataFrame({"id": pd.Series(dtype="object")}),
+        pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")}),
+    )
+    result = graph.gfql("MATCH (a) RETURN count(a) > 0 AS any_nodes", engine="cudf")
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"any_nodes": False}]
 
 
 # ── Issue #977: cudf SIGSEGV — safe_map_series regression guards ──────────────
