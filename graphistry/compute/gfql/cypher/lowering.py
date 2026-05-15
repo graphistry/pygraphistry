@@ -2217,6 +2217,7 @@ def _post_aggregate_expr_plan(
     *,
     params: Optional[Mapping[str, Any]] = None,
     alias_targets: Optional[Mapping[str, ASTObject]] = None,
+    reserved_temp_names: Optional[Set[str]] = None,
 ) -> Optional[Tuple[List[_AggregateSpec], _PostAggregateExprPlan]]:
     if item.expression.text == "*":
         return None
@@ -2230,7 +2231,7 @@ def _post_aggregate_expr_plan(
         column=item.span.column,
     )
 
-    temp_names: Set[str] = set()
+    temp_names: Set[str] = reserved_temp_names if reserved_temp_names is not None else set()
     aggregate_specs: List[_AggregateSpec] = []
     aggregate_temp_by_source: Dict[str, str] = {}
 
@@ -2469,12 +2470,18 @@ def _collect_aggregate_specs_for_clause(
     alias_targets: Mapping[str, ASTObject],
 ) -> List[_AggregateSpec]:
     aggregate_specs: List[_AggregateSpec] = []
+    post_aggregate_temp_names: Set[str] = set()
     for item in clause.items:
         agg_spec = _aggregate_spec(item, params=params, alias_targets=alias_targets)
         if agg_spec is not None:
             aggregate_specs.append(agg_spec)
             continue
-        post_agg_plan = _post_aggregate_expr_plan(item, params=params, alias_targets=alias_targets)
+        post_agg_plan = _post_aggregate_expr_plan(
+            item,
+            params=params,
+            alias_targets=alias_targets,
+            reserved_temp_names=post_aggregate_temp_names,
+        )
         if post_agg_plan is not None:
             nested_aggregate_specs, _ = post_agg_plan
             aggregate_specs.extend(nested_aggregate_specs)
@@ -2942,6 +2949,11 @@ def _lower_relationship(
     # endpoints are the same node, unlike generic carrier-style varlen refs.
     if hop_column is not None and relationship.to_fixed_point and min_hops is None and max_hops is None:
         min_hops = 0
+    include_zero_hop_seed = (
+        not relationship.to_fixed_point
+        and min_hops == 0
+        and max_hops == 0
+    )
     hops = (
         None
         if (
@@ -2963,6 +2975,7 @@ def _lower_relationship(
                 label_node_hops=hop_column,
                 name=relationship.variable,
                 prune_to_endpoints=prune_to_endpoints,
+                include_zero_hop_seed=include_zero_hop_seed,
             ),
         )
     if relationship.direction == "reverse":
@@ -2977,6 +2990,7 @@ def _lower_relationship(
                 label_node_hops=hop_column,
                 name=relationship.variable,
                 prune_to_endpoints=prune_to_endpoints,
+                include_zero_hop_seed=include_zero_hop_seed,
             ),
         )
     return cast(
@@ -2990,6 +3004,7 @@ def _lower_relationship(
             label_node_hops=hop_column,
             name=relationship.variable,
             prune_to_endpoints=prune_to_endpoints,
+            include_zero_hop_seed=include_zero_hop_seed,
         ),
     )
 
@@ -5030,6 +5045,7 @@ def _lower_row_column_stage(
     aggregate_specs: List[_AggregateSpec] = []
     non_aggregate_items: List[ReturnItem] = []
     post_aggregate_items: List[_PostAggregateExprPlan] = []
+    post_aggregate_temp_names: Set[str] = set()
     clause_items = _expand_row_column_star_items(
         stage.clause.items,
         available_columns=scope.row_columns,
@@ -5038,7 +5054,12 @@ def _lower_row_column_stage(
     for item in clause_items:
         agg_spec = _aggregate_spec(item, params=params, alias_targets={})
         if agg_spec is None:
-            post_agg_plan = _post_aggregate_expr_plan(item, params=params, alias_targets={})
+            post_agg_plan = _post_aggregate_expr_plan(
+                item,
+                params=params,
+                alias_targets={},
+                reserved_temp_names=post_aggregate_temp_names,
+            )
             if post_agg_plan is not None:
                 nested_aggregate_specs, post_agg_item = post_agg_plan
                 aggregate_specs.extend(nested_aggregate_specs)
@@ -6631,13 +6652,20 @@ def _lower_general_row_projection(
     aggregate_specs: List[_AggregateSpec] = []
     non_aggregate_items: List[ReturnItem] = []
     post_aggregate_items: List[_PostAggregateExprPlan] = []
+    post_aggregate_temp_names: Set[str] = set()
     empty_result_row: Optional[Dict[str, Any]] = None
+    empty_aggregate_row: Optional[Dict[str, Any]] = None
     for item in query.return_.items:
         agg_spec = _aggregate_spec(item, params=params, alias_targets=alias_targets)
         if agg_spec is not None:
             aggregate_specs.append(agg_spec)
             continue
-        post_agg_plan = _post_aggregate_expr_plan(item, params=params, alias_targets=alias_targets)
+        post_agg_plan = _post_aggregate_expr_plan(
+            item,
+            params=params,
+            alias_targets=alias_targets,
+            reserved_temp_names=post_aggregate_temp_names,
+        )
         if post_agg_plan is not None:
             nested_aggregate_specs, post_agg_item = post_agg_plan
             aggregate_specs.extend(nested_aggregate_specs)
@@ -6987,7 +7015,8 @@ def _lower_general_row_projection(
             row_steps.append(with_([(global_key, 1)] + pre_items))
             row_steps.append(group_by([global_key], aggregations))
             available_columns = {agg.output_name for agg in aggregate_specs}
-            empty_result_row = _empty_aggregate_row(aggregate_specs)
+            empty_aggregate_row = _empty_aggregate_row(aggregate_specs)
+            empty_result_row = empty_aggregate_row
 
         if bindings_row_path and whole_row_group_aliases:
             projection_alias = whole_row_group_aliases[0]
