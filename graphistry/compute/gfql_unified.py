@@ -717,6 +717,15 @@ def _execute_compiled_query_via_physical_plan(
             context=context,
         )
 
+    if connected_optional_match is not None:
+        return _apply_connected_optional_match(
+            base_graph,
+            connected_optional_match,
+            engine=engine,
+            policy=policy,
+            context=context,
+        )
+
     if isinstance(operator, (SamePathExecutorWrapper, RowPipelineExecutorWrapper)):
         return _execute_compiled_query_compat_non_union(
             base_graph,
@@ -728,15 +737,6 @@ def _execute_compiled_query_via_physical_plan(
         )
 
     if isinstance(operator, WavefrontExecutorWrapper):
-        if connected_optional_match is not None:
-            # Compatibility shim while optional-wavefront lowering converges.
-            return _apply_connected_optional_match(
-                base_graph,
-                connected_optional_match,
-                engine=engine,
-                policy=policy,
-                context=context,
-            )
         raise GFQLValidationError(
             ErrorCode.E108,
             "Cypher wavefront physical route selected but compiled query has no connected join payload to execute",
@@ -765,9 +765,6 @@ def _execute_compiled_query_compat_non_union(
     context: ExecutionContext,
     start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
-    compiled_extras = compiled_query.execution_extras
-    connected_optional_match = None if compiled_extras is None else compiled_extras.connected_optional_match
-
     dispatch_graph = base_graph
     if compiled_query.procedure_call is not None:
         dispatch_graph = execute_cypher_call(base_graph, compiled_query.procedure_call)
@@ -829,14 +826,6 @@ def _execute_compiled_query_compat_non_union(
             alignment_output_name=compiled_query.optional_null_fill.alignment_output_name,
             engine=engine,
             null_row=compiled_query.optional_null_fill.null_row,
-        )
-    if connected_optional_match is not None:
-        result = _apply_connected_optional_match(
-            base_graph,
-            connected_optional_match,
-            engine=engine,
-            policy=policy,
-            context=context,
         )
     return result
 

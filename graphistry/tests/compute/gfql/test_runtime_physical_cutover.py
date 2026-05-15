@@ -127,3 +127,34 @@ def test_connected_match_join_bypasses_compat_executor(monkeypatch):
     )
 
     assert result._nodes.to_dict(orient="records") == [{"cityId": "c1", "friendCount": 2}]
+
+
+def test_connected_optional_match_bypasses_compat_executor(monkeypatch):
+    g = _mk_graph()
+
+    def _force_row_pipeline_plan(self, logical_plan, ctx):
+        return PhysicalPlan(
+            route="row_pipeline",
+            operators=(RowPipelineExecutorWrapper(),),
+            logical_op_ids=(),
+            metadata={},
+        )
+
+    monkeypatch.setattr(PhysicalPlanner, "plan", _force_row_pipeline_plan)
+
+    def _fail_compat_executor(*args, **kwargs):
+        raise AssertionError("connected_optional_match should not use the legacy compat executor")
+
+    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _fail_compat_executor)
+
+    result = g.gfql(
+        "MATCH (a)-->(b) "
+        "OPTIONAL MATCH (b)-->(c) "
+        "RETURN b.id AS bid, c.id AS cid "
+        "ORDER BY bid, cid"
+    )
+    rows = result._nodes.reset_index(drop=True)
+
+    assert rows["bid"].tolist() == ["b", "c"]
+    assert rows["cid"].iloc[0] == "c"
+    assert pd.isna(rows["cid"].iloc[1])
