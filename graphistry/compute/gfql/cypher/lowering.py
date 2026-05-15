@@ -8551,13 +8551,21 @@ def _attach_logical_plan_route(
     logical_plan_defer_reason: Optional[str],
 ) -> CompiledCypherQuery:
     result_extras = result.execution_extras or CompiledCypherExecutionExtras()
-    effective_logical_plan = logical_plan if logical_plan is not None else result.logical_plan
-    if effective_logical_plan is not None:
-        effective_defer_reason = None
-    elif logical_plan_defer_reason is not None:
-        effective_defer_reason = logical_plan_defer_reason
+    if result.optional_reentry:
+        effective_logical_plan = None
+        effective_defer_reason = (
+            logical_plan_defer_reason
+            or result.logical_plan_defer_reason
+            or "LogicalPlanner skeleton does not yet support OPTIONAL MATCH planning for reentry"
+        )
     else:
-        effective_defer_reason = result.logical_plan_defer_reason
+        effective_logical_plan = logical_plan if logical_plan is not None else result.logical_plan
+        if effective_logical_plan is not None:
+            effective_defer_reason = None
+        elif logical_plan_defer_reason is not None:
+            effective_defer_reason = logical_plan_defer_reason
+        else:
+            effective_defer_reason = result.logical_plan_defer_reason
     return replace(
         result,
         execution_extras=_execution_extras_with(

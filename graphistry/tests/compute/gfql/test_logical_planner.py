@@ -220,7 +220,19 @@ def test_logical_planner_unwind_uses_binder_predicate_expression() -> None:
     assert unwind_node.variable == "x"
 
 
-def test_logical_planner_rejects_optional_match_shapes() -> None:
+def test_logical_planner_plans_top_level_optional_match_shape() -> None:
+    query = "OPTIONAL MATCH (n:Person) RETURN n"
+    bound = _bind_query(query)
+
+    root = LogicalPlanner().plan(bound, PlanContext())
+    optional_match = _find_first(root, PatternMatch)
+
+    assert optional_match is not None
+    assert optional_match.optional is True
+    assert optional_match.arm_id == "top_level_optional_0"
+
+
+def test_logical_planner_rejects_non_top_level_optional_match_shapes() -> None:
     query = "MATCH (n:Person) OPTIONAL MATCH (n)-[:KNOWS]->(m:Person) RETURN n, m"
     bound = _bind_query(query)
 

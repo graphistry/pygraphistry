@@ -917,12 +917,15 @@ def test_compiled_query_sets_logical_plan_route_for_match_scalar_return_shape() 
     assert compiled.logical_plan_defer_reason is None
 
 
-def test_compiled_query_sets_logical_plan_defer_reason_for_optional_shape() -> None:
+def test_compiled_query_sets_logical_plan_route_for_top_level_optional_shape() -> None:
     compiled = _compile_query("OPTIONAL MATCH (n:Person) RETURN n")
-    assert _logical_plan_route(compiled) == "deferred"
-    assert compiled.logical_plan is None
-    assert compiled.logical_plan_defer_reason is not None
-    assert "OPTIONAL MATCH" in compiled.logical_plan_defer_reason
+    assert _logical_plan_route(compiled) == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
+    optional_match = compiled.logical_plan.input if hasattr(compiled.logical_plan, "input") else compiled.logical_plan
+    assert isinstance(optional_match, PatternMatch)
+    assert optional_match.optional is True
+    assert optional_match.arm_id == "top_level_optional_0"
 
 
 def test_logical_plan_route_for_query_defers_unknown_alias_match_shape_by_default() -> None:
