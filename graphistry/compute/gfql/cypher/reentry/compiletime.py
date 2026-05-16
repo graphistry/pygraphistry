@@ -227,6 +227,31 @@ def _rewrite_multi_whole_row_prefix(
     return replace(prefix_stage, clause=new_clause), cleaned_tail, carried_props
 
 
+def _optional_reentry_logical_route_marker(reentry_match: MatchClause) -> LogicalPlan:
+    component = _connected_component_from_pattern(
+        _match_pattern_elements(reentry_match),
+        entry_points=(),
+    )
+    logical_plan = LogicalProject(
+        op_id=2,
+        input=PatternMatch(
+            op_id=1,
+            pattern={
+                "node_aliases": tuple(component.node_aliases),
+                "edge_aliases": tuple(component.edge_aliases),
+                "entry_points": tuple(component.entry_points),
+            },
+            optional=True,
+            arm_id="optional_reentry_arm",
+            output_schema=LogicalRowSchema(columns={}),
+        ),
+        expressions=["optional_reentry"],
+        output_schema=LogicalRowSchema(columns={}),
+    )
+    _verify_selected_logical_plan(logical_plan)
+    return logical_plan
+
+
 def _compile_bounded_reentry_query(
     query: CypherQuery,
     *,
@@ -667,8 +692,16 @@ def _compile_bounded_reentry_query(
                 start_nodes_query=prefix_compiled,
                 optional_reentry=is_optional,
                 reentry_plan=current_reentry_plan,
-                logical_plan=target.logical_plan,
-                logical_plan_defer_reason=target.logical_plan_defer_reason,
+                logical_plan=(
+                    target.logical_plan
+                    if target.logical_plan is not None or not is_optional
+                    else _optional_reentry_logical_route_marker(reentry_match)
+                ),
+                logical_plan_defer_reason=(
+                    None
+                    if is_optional and target.logical_plan is None
+                    else target.logical_plan_defer_reason
+                ),
             ),
         )
 

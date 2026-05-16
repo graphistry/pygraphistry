@@ -1038,12 +1038,11 @@ def test_compiled_query_sets_logical_plan_route_for_with_only_row_sequence_shape
     assert compiled.logical_plan_defer_reason is None
 
 
-def test_compiled_query_sets_logical_plan_defer_reason_for_optional_reentry_shape() -> None:
+def test_compiled_query_sets_logical_plan_route_for_optional_reentry_shape() -> None:
     compiled = _compile_query("MATCH (a:A) WITH a OPTIONAL MATCH (a)-->(b) RETURN b")
-    assert _logical_plan_route(compiled) == "deferred"
-    assert compiled.logical_plan is None
-    assert compiled.logical_plan_defer_reason is not None
-    assert "OPTIONAL MATCH" in compiled.logical_plan_defer_reason
+    assert _logical_plan_route(compiled) == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
 
 
 def test_connected_optional_query_sets_query_graph_and_logical_plan() -> None:
@@ -16052,6 +16051,122 @@ def test_issue_1047_single_row_prefix_with_optional_match_still_works() -> None:
     )
     ids = [r["id"] for r in result._nodes.to_dict(orient="records")]
     assert ids == ["post1", "post2"]
+
+
+def test_issue_1461_optional_reentry_null_extension_preserves_carried_scalar() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"], "label__Seed": [True, True]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+    )
+
+    result = graph.gfql(
+        "MATCH (a:Seed {id: 'b'}) "
+        "WITH a, a.id AS aid "
+        "OPTIONAL MATCH (a)-[:R]->(b) "
+        "RETURN aid, b.id AS bid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert rows == [{"aid": "b", "bid": None}]
+
+
+def test_issue_1461_optional_reentry_null_extension_does_not_leak_unprojected_scalar() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"], "label__Seed": [True, True]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+    )
+
+    result = graph.gfql(
+        "MATCH (a:Seed {id: 'b'}) "
+        "WITH a, a.id AS aid "
+        "OPTIONAL MATCH (a)-[:R]->(b) "
+        "RETURN b.id AS bid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert rows == [{"bid": None}]
+
+
+def test_issue_1461_optional_reentry_mixed_carried_rows_preserve_null_extended_prefixes() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d"],
+                "label__Seed": [True, True, True, False],
+            }
+        ),
+        pd.DataFrame({"s": ["a", "c"], "d": ["b", "d"], "type": ["R", "R"]}),
+    )
+
+    result = graph.gfql(
+        "MATCH (a:Seed) "
+        "WITH a, a.id AS aid "
+        "OPTIONAL MATCH (a)-[:R]->(b) "
+        "RETURN aid, b.id AS bid"
+    )
+
+    rows = sorted(result._nodes.to_dict(orient="records"), key=lambda row: row["aid"])
+    assert rows == [
+        {"aid": "a", "bid": "b"},
+        {"aid": "b", "bid": None},
+        {"aid": "c", "bid": "d"},
+    ]
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+def test_issue_1461_optional_reentry_preserves_multiple_carried_scalars_on_null_rows(
+    engine: Optional[str],
+) -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d"],
+            "label__Seed": [True, True, True, False],
+            "bucket": ["alpha", "beta", "gamma", "sink"],
+        }
+    )
+    edges = pd.DataFrame({"s": ["a", "c"], "d": ["d", "b"], "type": ["R", "R"]})
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes, edges)
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    query = (
+        "MATCH (a:Seed) "
+        "WITH a, a.id AS aid, a.bucket AS bucket "
+        "OPTIONAL MATCH (a)-[:R]->(b) "
+        "RETURN aid, bucket, b.id AS bid"
+    )
+    result = graph.gfql(query, engine=engine) if engine == "cudf" else graph.gfql(query)
+
+    if engine == "cudf":
+        assert type(result._nodes).__module__.startswith("cudf")
+    frame = _to_pandas_df(result._nodes)
+    rows = sorted(
+        frame.where(pd.notna(frame), None).to_dict(orient="records"),
+        key=lambda row: row["aid"],
+    )
+    assert rows == [
+        {"aid": "a", "bucket": "alpha", "bid": "d"},
+        {"aid": "b", "bucket": "beta", "bid": None},
+        {"aid": "c", "bucket": "gamma", "bid": "b"},
+    ]
+
+
+def test_issue_1461_optional_reentry_matched_single_prefix_remains_native_semantics() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"], "label__Seed": [True, False]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+    )
+
+    result = graph.gfql(
+        "MATCH (a:Seed {id: 'a'}) "
+        "WITH a, a.id AS aid "
+        "OPTIONAL MATCH (a)-[:R]->(b) "
+        "RETURN aid, b.id AS bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a", "bid": "b"}]
 
 
 def test_issue_1047_optional_reentry_raises_is_gfql_validation_error() -> None:
