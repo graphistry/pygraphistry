@@ -244,13 +244,14 @@ def test_literal_null_atom_text_uses_source_slice() -> None:
 
 
 def test_numeric_literal_atom_text_uses_source_slice() -> None:
-    query = "MATCH (n) WHERE 1.0e+2 XOR n.x > 1 RETURN n"
-    parsed = _parsed_where(query)
-    assert parsed.where is not None and parsed.where.expr_tree is not None
-    tree = parsed.where.expr_tree
-    assert tree.op == "xor"
-    assert tree.left is not None and tree.left.op == "atom"
-    _assert_atom_source(query, tree.left, "1.0e+2")
+    for literal_text in ("1.0e+2", "+1", "-1", "0x10", "0o10"):
+        query = f"MATCH (n) WHERE {literal_text} XOR n.x > 1 RETURN n"
+        parsed = _parsed_where(query)
+        assert parsed.where is not None and parsed.where.expr_tree is not None
+        tree = parsed.where.expr_tree
+        assert tree.op == "xor"
+        assert tree.left is not None and tree.left.op == "atom"
+        _assert_atom_source(query, tree.left, literal_text)
 
 
 def test_structured_literal_predicates_keep_raw_values() -> None:
