@@ -76,7 +76,6 @@ from graphistry.compute.gfql.expr_parser import (
     Wildcard,
     collect_identifiers,
     parse_expr,
-    iter_expr_children,
     walk_expr_nodes,
 )
 from graphistry.compute.gfql.cypher.reentry_plan import CarriedAlias, ReentryPlan
@@ -1010,7 +1009,6 @@ def _list_item_invalid_for_tostring(
 
 def _contains_aggregate_call(node: ExprNode) -> bool:
     found = False
-
     def _enter(current: ExprNode) -> None:
         nonlocal found
         if isinstance(current, FunctionCall) and current.name in GFQL_AGGREGATION_FUNCTIONS:
@@ -1018,7 +1016,6 @@ def _contains_aggregate_call(node: ExprNode) -> bool:
 
     walk_expr_nodes(node, enter=_enter)
     return found
-
 
 def _validate_cypher_expr_constraints(
     node: ExprNode,
@@ -1055,6 +1052,8 @@ def _validate_cypher_expr_constraints(
             key_value = current.key.value
             if isinstance(key_value, bool) or isinstance(key_value, float):
                 _raise("Cypher list indexing requires integer keys in the local compiler")
+        if isinstance(current, MapLiteral) and _contains_aggregate_call(current):
+            _raise("Cypher aggregate expressions inside map literals are not supported in the local compiler yet")
         if isinstance(current, ListComprehension):
             if current.predicate is not None and _contains_aggregate_call(current.predicate):
                 _raise("Cypher list comprehensions cannot contain aggregate functions in the local compiler")
@@ -2221,12 +2220,6 @@ def _aggregate_spec_from_function_call(
     )
 
 
-def _expr_contains_aggregate(node: ExprNode) -> bool:
-    return (isinstance(node, FunctionCall) and node.name in _CYPHER_AGGREGATES) or any(
-        _expr_contains_aggregate(child) for child in iter_expr_children(node)
-    )
-
-
 def _post_aggregate_expr_plan(
     item: ReturnItem,
     *,
@@ -2245,15 +2238,6 @@ def _post_aggregate_expr_plan(
         line=item.span.line,
         column=item.span.column,
     )
-    aggregate_in_map = False
-
-    def _enter(current: ExprNode) -> None:
-        nonlocal aggregate_in_map
-        aggregate_in_map = aggregate_in_map or (isinstance(current, MapLiteral) and _expr_contains_aggregate(current))
-
-    walk_expr_nodes(node, enter=_enter)
-    if aggregate_in_map:
-        raise _unsupported("Cypher aggregate expressions inside map literals are not supported in the local compiler yet", field="return.item", value=item.expression.text, line=item.span.line, column=item.span.column)
 
     temp_names: Set[str] = reserved_temp_names if reserved_temp_names is not None else set()
     aggregate_specs: List[_AggregateSpec] = []
