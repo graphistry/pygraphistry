@@ -65,11 +65,15 @@ def _require_cudf_runtime() -> Any:
     return cudf
 
 
-def _mk_simple_path_graph() -> _CypherTestGraph:
-    return _mk_graph(
+def _mk_simple_path_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return (
         pd.DataFrame({"id": ["a", "b", "c"]}),
         pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]}),
     )
+
+
+def _mk_simple_path_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_simple_path_data())
 
 
 def _mk_triangle_graph() -> _CypherTestGraph:
@@ -106,33 +110,31 @@ def _mk_cartesian_dynamic_pattern_graph() -> _CypherTestGraph:
     )
 
 
-def _mk_path_with_isolate_graph() -> _CypherTestGraph:
-    return _mk_graph(
+def _mk_path_with_isolate_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return (
         pd.DataFrame({"id": ["a", "b", "c", "z"]}),
         pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]}),
     )
+
+
+def _mk_path_with_isolate_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_path_with_isolate_data())
 
 
 def _mk_simple_path_graph_cudf() -> _CypherTestGraph:
-    return _mk_cudf_graph(
-        pd.DataFrame({"id": ["a", "b", "c"]}),
-        pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]}),
-    )
+    return _mk_cudf_graph(*_mk_simple_path_data())
 
 
 def _mk_path_with_isolate_graph_cudf() -> _CypherTestGraph:
-    return _mk_cudf_graph(
-        pd.DataFrame({"id": ["a", "b", "c", "z"]}),
-        pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]}),
-    )
+    return _mk_cudf_graph(*_mk_path_with_isolate_data())
 
 
 def _mk_empty_graph() -> _CypherTestGraph:
     return _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 
 
-def _mk_reentry_carried_scalar_graph() -> _CypherTestGraph:
-    return _mk_graph(
+def _mk_reentry_carried_scalar_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return (
         pd.DataFrame(
             {
                 "id": ["a1", "a2", "b1", "b2"],
@@ -150,65 +152,41 @@ def _mk_reentry_carried_scalar_graph() -> _CypherTestGraph:
     )
 
 
+def _mk_reentry_carried_scalar_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_reentry_carried_scalar_data())
+
+
 def _mk_reentry_carried_scalar_graph_cudf() -> _CypherTestGraph:
-    return _mk_cudf_graph(
+    return _mk_cudf_graph(*_mk_reentry_carried_scalar_data())
+
+
+def _mk_connected_reentry_carried_scalar_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return (
         pd.DataFrame(
             {
-                "id": ["a1", "a2", "b1", "b2"],
-                "label__A": [True, True, False, False],
-                "num": [1, 2, 1, 3],
+                "id": ["a1", "a2", "b1", "b2", "c1", "c2"],
+                "label__A": [True, True, False, False, False, False],
+                "label__B": [False, False, True, True, False, False],
+                "label__C": [False, False, False, False, True, True],
+                "score": [None, None, 10, 20, None, None],
             }
         ),
         pd.DataFrame(
             {
-                "s": ["a1", "a2"],
-                "d": ["b1", "b2"],
-                "type": ["R", "R"],
+                "s": ["a1", "a2", "b1", "b2"],
+                "d": ["b1", "b2", "c1", "c2"],
+                "type": ["R", "R", "S", "S"],
             }
         ),
     )
 
 
 def _mk_connected_reentry_carried_scalar_graph() -> _CypherTestGraph:
-    return _mk_graph(
-        pd.DataFrame(
-            {
-                "id": ["a1", "a2", "b1", "b2", "c1", "c2"],
-                "label__A": [True, True, False, False, False, False],
-                "label__B": [False, False, True, True, False, False],
-                "label__C": [False, False, False, False, True, True],
-                "score": [None, None, 10, 20, None, None],
-            }
-        ),
-        pd.DataFrame(
-            {
-                "s": ["a1", "a2", "b1", "b2"],
-                "d": ["b1", "b2", "c1", "c2"],
-                "type": ["R", "R", "S", "S"],
-            }
-        ),
-    )
+    return _mk_graph(*_mk_connected_reentry_carried_scalar_data())
 
 
 def _mk_connected_reentry_carried_scalar_graph_cudf() -> _CypherTestGraph:
-    return _mk_cudf_graph(
-        pd.DataFrame(
-            {
-                "id": ["a1", "a2", "b1", "b2", "c1", "c2"],
-                "label__A": [True, True, False, False, False, False],
-                "label__B": [False, False, True, True, False, False],
-                "label__C": [False, False, False, False, True, True],
-                "score": [None, None, 10, 20, None, None],
-            }
-        ),
-        pd.DataFrame(
-            {
-                "s": ["a1", "a2", "b1", "b2"],
-                "d": ["b1", "b2", "c1", "c2"],
-                "type": ["R", "R", "S", "S"],
-            }
-        ),
-    )
+    return _mk_cudf_graph(*_mk_connected_reentry_carried_scalar_data())
 
 
 def _mk_optional_prefix_reentry_no_match_graph() -> _CypherTestGraph:
@@ -334,8 +312,8 @@ def _mk_collect_unwind_reentry_graph() -> _CypherTestGraph:
     )
 
 
-def _mk_connected_multi_pattern_fanout_graph() -> _CypherTestGraph:
-    return _mk_graph(
+def _mk_connected_multi_pattern_fanout_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return (
         pd.DataFrame(
             {
                 "id": ["a1", "b1", "c1", "d1", "d2"],
@@ -355,69 +333,42 @@ def _mk_connected_multi_pattern_fanout_graph() -> _CypherTestGraph:
     )
 
 
+def _mk_connected_multi_pattern_fanout_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_connected_multi_pattern_fanout_data())
+
+
 def _mk_connected_multi_pattern_fanout_graph_cudf() -> _CypherTestGraph:
-    return _mk_cudf_graph(
+    return _mk_cudf_graph(*_mk_connected_multi_pattern_fanout_data())
+
+
+def _mk_multi_stage_reentry_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return (
         pd.DataFrame(
             {
-                "id": ["a1", "b1", "c1", "d1", "d2"],
+                "id": ["a", "b", "c", "d", "e"],
                 "label__A": [True, False, False, False, False],
                 "label__B": [False, True, False, False, False],
                 "label__C": [False, False, True, False, False],
-                "label__D": [False, False, False, True, True],
+                "label__D": [False, False, False, True, False],
+                "label__E": [False, False, False, False, True],
             }
         ),
         pd.DataFrame(
             {
-                "s": ["a1", "b1", "c1", "c1"],
-                "d": ["b1", "c1", "d1", "d2"],
-                "type": ["R", "S", "T", "T"],
+                "s": ["a", "b", "c", "a", "b"],
+                "d": ["b", "c", "d", "e", "e"],
+                "type": ["R", "S", "T", "R", "S"],
             }
         ),
     )
 
 
 def _mk_multi_stage_reentry_graph() -> _CypherTestGraph:
-    return _mk_graph(
-        pd.DataFrame(
-            {
-                "id": ["a", "b", "c", "d", "e"],
-                "label__A": [True, False, False, False, False],
-                "label__B": [False, True, False, False, False],
-                "label__C": [False, False, True, False, False],
-                "label__D": [False, False, False, True, False],
-                "label__E": [False, False, False, False, True],
-            }
-        ),
-        pd.DataFrame(
-            {
-                "s": ["a", "b", "c", "a", "b"],
-                "d": ["b", "c", "d", "e", "e"],
-                "type": ["R", "S", "T", "R", "S"],
-            }
-        ),
-    )
+    return _mk_graph(*_mk_multi_stage_reentry_data())
 
 
 def _mk_multi_stage_reentry_graph_cudf() -> _CypherTestGraph:
-    return _mk_cudf_graph(
-        pd.DataFrame(
-            {
-                "id": ["a", "b", "c", "d", "e"],
-                "label__A": [True, False, False, False, False],
-                "label__B": [False, True, False, False, False],
-                "label__C": [False, False, True, False, False],
-                "label__D": [False, False, False, True, False],
-                "label__E": [False, False, False, False, True],
-            }
-        ),
-        pd.DataFrame(
-            {
-                "s": ["a", "b", "c", "a", "b"],
-                "d": ["b", "c", "d", "e", "e"],
-                "type": ["R", "S", "T", "R", "S"],
-            }
-        ),
-    )
+    return _mk_cudf_graph(*_mk_multi_stage_reentry_data())
 
 
 def _mk_multi_stage_reentry_graph_with_terminal_u() -> _CypherTestGraph:
@@ -492,8 +443,8 @@ def _mk_prefix_scalar_reentry_duplicate_seed_graph() -> _CypherTestGraph:
     )
 
 
-def _mk_connected_post_tag_fanout_graph() -> _CypherTestGraph:
-    return _mk_graph(
+def _mk_connected_post_tag_fanout_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return (
         pd.DataFrame(
             {
                 "id": ["tag_known", "tag_other", "person1", "post1"],
@@ -512,28 +463,14 @@ def _mk_connected_post_tag_fanout_graph() -> _CypherTestGraph:
             }
         ),
     )
+
+
+def _mk_connected_post_tag_fanout_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_connected_post_tag_fanout_data())
 
 
 def _mk_connected_post_tag_fanout_graph_cudf() -> _CypherTestGraph:
-    return _mk_cudf_graph(
-        pd.DataFrame(
-            {
-                "id": ["tag_known", "tag_other", "person1", "post1"],
-                "label__Tag": [True, True, False, False],
-                "label__Person": [False, False, True, False],
-                "label__Post": [False, False, False, True],
-                "name": ["topic", "other", None, None],
-                "tagId": [101, 202, None, None],
-            }
-        ),
-        pd.DataFrame(
-            {
-                "s": ["post1", "post1", "post1"],
-                "d": ["person1", "tag_known", "tag_other"],
-                "type": ["HAS_CREATOR", "HAS_TAG", "HAS_TAG"],
-            }
-        ),
-    )
+    return _mk_cudf_graph(*_mk_connected_post_tag_fanout_data())
 
 
 def _issue_1000_ic6_query() -> str:
@@ -705,8 +642,8 @@ def _mk_multi_alias_edge_projection_graph() -> _CypherTestGraph:
     )
 
 
-def _mk_recent_message_reentry_graph() -> _CypherTestGraph:
-    return _mk_graph(
+def _mk_recent_message_reentry_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return (
         pd.DataFrame(
             {
                 "id": ["viewer", "author1", "post1", "post2", "comment1"],
@@ -729,32 +666,14 @@ def _mk_recent_message_reentry_graph() -> _CypherTestGraph:
             }
         ),
     )
+
+
+def _mk_recent_message_reentry_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_recent_message_reentry_data())
 
 
 def _mk_recent_message_reentry_graph_cudf() -> _CypherTestGraph:
-    return _mk_cudf_graph(
-        pd.DataFrame(
-            {
-                "id": ["viewer", "author1", "post1", "post2", "comment1"],
-                "label__Person": [True, True, False, False, False],
-                "label__Message": [False, False, True, True, True],
-                "label__Post": [False, False, True, True, False],
-                "label__Comment": [False, False, False, False, True],
-                "creationDate": [None, None, 5, 20, 10],
-                "imageFile": [None, None, None, None, None],
-                "content": [None, None, "post1", "post2", "comment1"],
-                "firstName": ["View", "Ada", None, None, None],
-                "lastName": ["Er", "Lovelace", None, None, None],
-            }
-        ),
-        pd.DataFrame(
-            {
-                "s": ["comment1", "post2", "post1", "comment1"],
-                "d": ["viewer", "viewer", "author1", "post1"],
-                "type": ["HAS_CREATOR", "HAS_CREATOR", "HAS_CREATOR", "REPLY_OF"],
-            }
-        ),
-    )
+    return _mk_cudf_graph(*_mk_recent_message_reentry_data())
 
 
 def _mk_recent_message_reentry_graph_branching() -> _CypherTestGraph:
