@@ -12711,6 +12711,23 @@ def test_gfql_executes_top_level_xor_expression_and_precedence() -> None:
     )
 
 
+def test_gfql_executes_top_level_xor_literal_expression_on_cudf() -> None:
+    cudf = _require_cudf_runtime()
+    graph = _mk_graph(
+        cudf.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
+        cudf.from_pandas(pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")})),
+    )
+
+    result = graph.gfql(
+        "RETURN true XOR false AS tf, true XOR null AS tn",
+        engine="cudf",
+    )
+
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+        {"tf": True, "tn": None}
+    ]
+
+
 def test_gfql_executes_with_where_xor_null_pipeline() -> None:
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 

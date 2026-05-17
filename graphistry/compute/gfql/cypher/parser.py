@@ -506,19 +506,23 @@ def _parse_number_token(token: str) -> Union[int, float]:
     return int(token)
 
 
-def _cypher_literal_fallback_text(value: object) -> str:
-    """Render primitive Python literals in Cypher surface form."""
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    return str(value)
-
-
 @dataclass(frozen=True)
 class _ExpressionSlice:
     text: str
     span: SourceSpan
+
+
+@dataclass(frozen=True)
+class _PrimitiveLiteral:
+    value: Union[None, bool, int, float, str]
+    text: str
+    span: SourceSpan
+
+
+def _unwrap_primitive_literal(value: object) -> object:
+    if isinstance(value, _PrimitiveLiteral):
+        return value.value
+    return value
 
 
 @dataclass(frozen=True)
@@ -621,33 +625,39 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("Invalid parameter reference", line=meta.line, column=meta.column)
             return ParameterRef(name=str(items[0]), span=_span_from_meta(meta))
 
-        def null_lit(self, _meta: Any, _items: Sequence[Any]) -> None:
-            return None
+        def null_lit(self, meta: Any, _items: Sequence[Any]) -> _PrimitiveLiteral:
+            span = _span_from_meta(meta)
+            return _PrimitiveLiteral(value=None, text=self._slice(span), span=span)
 
-        def true_lit(self, _meta: Any, _items: Sequence[Any]) -> bool:
-            return True
+        def true_lit(self, meta: Any, _items: Sequence[Any]) -> _PrimitiveLiteral:
+            span = _span_from_meta(meta)
+            return _PrimitiveLiteral(value=True, text=self._slice(span), span=span)
 
-        def false_lit(self, _meta: Any, _items: Sequence[Any]) -> bool:
-            return False
+        def false_lit(self, meta: Any, _items: Sequence[Any]) -> _PrimitiveLiteral:
+            span = _span_from_meta(meta)
+            return _PrimitiveLiteral(value=False, text=self._slice(span), span=span)
 
-        def number_lit(self, meta: Any, items: Sequence[Any]) -> Union[int, float]:
+        def number_lit(self, meta: Any, items: Sequence[Any]) -> _PrimitiveLiteral:
             if len(items) != 1:
                 raise _to_syntax_error("Invalid numeric literal", line=meta.line, column=meta.column)
-            return _parse_number_token(str(items[0]))
+            span = _span_from_meta(meta)
+            return _PrimitiveLiteral(value=_parse_number_token(str(items[0])), text=self._slice(span), span=span)
 
-        def string_lit(self, meta: Any, items: Sequence[Any]) -> str:
+        def string_lit(self, meta: Any, items: Sequence[Any]) -> _PrimitiveLiteral:
             if len(items) != 1:
                 raise _to_syntax_error("Invalid string literal", line=meta.line, column=meta.column)
             try:
-                return _parse_string_token(str(items[0]))
+                value = _parse_string_token(str(items[0]))
             except ValueError as exc:
                 raise _to_syntax_error(str(exc), line=meta.line, column=meta.column) from exc
+            span = _span_from_meta(meta)
+            return _PrimitiveLiteral(value=value, text=self._slice(span), span=span)
 
         def property_entry(self, meta: Any, items: Sequence[Any]) -> PropertyEntry:
             if len(items) != 2:
                 raise _to_syntax_error("Invalid property entry", line=meta.line, column=meta.column)
             key = str(items[0])
-            raw_value = items[1]
+            raw_value = _unwrap_primitive_literal(items[1])
             if isinstance(raw_value, (ParameterRef, type(None), bool, int, float, str)):
                 value = cast(CypherPropertyValue, raw_value)
             elif isinstance(raw_value, PropertyRef):
@@ -915,7 +925,7 @@ def _build_transformer(source: str) -> _TransformerLike:
         def where_rhs(self, _meta: Any, items: Sequence[Any]) -> object:
             if len(items) != 1:
                 raise _to_syntax_error("Invalid WHERE right-hand side")
-            return items[0]
+            return _unwrap_primitive_literal(items[0])
 
         def cmp_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
             if len(items) != 3:
@@ -1082,28 +1092,24 @@ def _build_transformer(source: str) -> _TransformerLike:
             ``_ExpressionSlice`` operands carry their own span, so we use
             it to extract the source slice precisely.
 
-            **Primitive literal fallback path.**  Literal
-            transformers (``true_lit`` / ``false_lit`` / ``null_lit`` /
-            ``number_lit``) return raw Python values without span info.
-            When such a value reaches us as a boolean-operator operand
-            (``WHERE true AND false``), we cannot recover the original
-            source text for that specific operand; we approximate with
-            the enclosing operator's span and a Cypher-literal render
-            (``true`` / ``false`` / ``null`` for primitive values).
-            If/when literal transformers gain span-carrying wrappers,
-            this fallback can be removed.
+            Primitive literal transformers preserve raw semantic values
+            inside ``_PrimitiveLiteral`` so boolean operators can keep the
+            operand's exact source text/span while structured predicates and
+            properties still receive ordinary Python literal values.
             """
             if isinstance(operand, BooleanExpr):
                 return operand
             if isinstance(operand, _ExpressionSlice):
                 span = operand.span
                 text = operand.text
+            elif isinstance(operand, _PrimitiveLiteral):
+                span = operand.span
+                text = operand.text
             else:
                 operand_meta = getattr(operand, "meta", None)
                 if operand_meta is None:
-                    # Primitive literal — see docstring caveat.
                     span = _span_from_meta(enclosing_meta)
-                    text = _cypher_literal_fallback_text(operand)
+                    text = self._slice(span)
                 else:
                     span = _span_from_meta(operand_meta)
                     text = self._slice(span)
