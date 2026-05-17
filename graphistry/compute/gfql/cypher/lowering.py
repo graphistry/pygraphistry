@@ -3748,27 +3748,6 @@ def _projection_ref_from_expr(
     )
 
 
-def _raise_if_invalid_graph_projection_expr(
-    expr: str,
-    *,
-    alias_targets: Mapping[str, ASTObject],
-    params: Optional[Mapping[str, Any]] = None,
-    field: str,
-    line: int,
-    column: int,
-) -> None:
-    from graphistry.compute.gfql.cypher import projection_planning as _projection
-
-    _projection._raise_if_invalid_graph_projection_expr(
-        expr,
-        alias_targets=alias_targets,
-        params=params,
-        field=field,
-        line=line,
-        column=column,
-    )
-
-
 def _reject_duplicate_alias_row_refs(
     query: CypherQuery,
     *,
