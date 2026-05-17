@@ -1009,7 +1009,6 @@ def _list_item_invalid_for_tostring(
 
 def _contains_aggregate_call(node: ExprNode) -> bool:
     found = False
-
     def _enter(current: ExprNode) -> None:
         nonlocal found
         if isinstance(current, FunctionCall) and current.name in GFQL_AGGREGATION_FUNCTIONS:
@@ -1017,7 +1016,6 @@ def _contains_aggregate_call(node: ExprNode) -> bool:
 
     walk_expr_nodes(node, enter=_enter)
     return found
-
 
 def _validate_cypher_expr_constraints(
     node: ExprNode,
@@ -1054,6 +1052,8 @@ def _validate_cypher_expr_constraints(
             key_value = current.key.value
             if isinstance(key_value, bool) or isinstance(key_value, float):
                 _raise("Cypher list indexing requires integer keys in the local compiler")
+        if isinstance(current, MapLiteral) and _contains_aggregate_call(current):
+            _raise("Cypher aggregate expressions inside map literals are not supported in the local compiler yet")
         if isinstance(current, ListComprehension):
             if current.predicate is not None and _contains_aggregate_call(current.predicate):
                 _raise("Cypher list comprehensions cannot contain aggregate functions in the local compiler")

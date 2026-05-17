@@ -5525,8 +5525,8 @@ def test_string_cypher_rejects_placeholder_quantifier_overlap_query_as_syntax() 
     [
         (
             "MATCH (a {name: 'Andres'})<-[:FATHER]-(child)\nRETURN a.name, {foo: a.name='Andres', kids: collect(child.name)}",
-            "one MATCH source alias at a time",
-            True,
+            "aggregate expressions inside map literals",
+            False,
         ),
         (
             "MATCH (me: Person)--(you: Person)\nWITH me.age AS age, you\nRETURN age, age + count(you.age)",
@@ -14006,6 +14006,43 @@ def test_issue_1038_rejects_aggregate_inside_row_case_expression() -> None:
         )
 
     assert exc_info.value.code == ErrorCode.E108
+
+
+def test_issue_1469_rejects_aggregate_inside_literal_map_projection() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "label__A": [True, False],
+                "label__B": [False, True],
+                "num": [None, 42],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(
+            "MATCH (a:A), (b:B) "
+            "RETURN coalesce(a.num, b.num) AS foo, "
+            "b.num AS bar, "
+            "{name: count(b)} AS baz"
+        )
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert "aggregate expressions inside map literals" in str(exc_info.value)
+
+    with pytest.raises(GFQLValidationError) as with_exc_info:
+        graph.gfql(
+            "MATCH (a:A), (b:B) "
+            "WITH coalesce(a.num, b.num) AS foo, "
+            "b.num AS bar, "
+            "{name: count(b)} AS baz "
+            "RETURN foo, bar, baz"
+        )
+
+    assert with_exc_info.value.code == ErrorCode.E108
+    assert "aggregate expressions inside map literals" in str(with_exc_info.value)
 
 
 # ---------------------------------------------------------------------------
