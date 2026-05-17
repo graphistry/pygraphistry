@@ -1,17 +1,74 @@
-"""Bounded reentry compile-time orchestration extracted from ``cypher.lowering``.
-
-S3 under #1260 moves reentry orchestration helpers into a reentry-focused
-module while preserving behavior and compatibility via lowering-level shims.
-"""
-# mypy: ignore-errors
-# ruff: noqa: F821
+"""Bounded reentry compile-time orchestration extracted from ``cypher.lowering``."""
 from __future__ import annotations
 
-# Rebind the lowering symbol table (including private helpers) so extracted
-# functions stay behavior-identical without re-plumbing deep dependencies.
-from graphistry.compute.gfql.cypher import lowering as _lowering
+from dataclasses import replace
+import re
+from typing import AbstractSet, Any, Callable, Dict, List, Mapping, Optional, Tuple, cast
+from typing_extensions import Literal
 
-globals().update(vars(_lowering))
+from graphistry.compute.gfql.cypher.ast import (
+    CypherQuery,
+    ExpressionText,
+    MatchClause,
+    OrderByClause,
+    OrderItem,
+    ProjectionStage,
+    ReturnClause,
+    ReturnItem,
+    UnwindClause,
+)
+from graphistry.compute.gfql.cypher.lowering import (
+    CompiledCypherExecutionExtras,
+    CompiledCypherQuery,
+    _all_match_alias_kinds,
+    _all_match_node_aliases,
+    _collect_non_source_alias_property_refs,
+    _connected_component_from_pattern,
+    _demote_secondary_whole_row_aliases,
+    _execution_extras_with,
+    _first_pattern_node_alias,
+    _is_bare_carry_with_item,
+    _is_whole_row_with_item,
+    _match_pattern_elements,
+    _pattern_node_aliases,
+    _post_processing_with,
+    _render_expr_node,
+    _rewrite_expr_identifiers,
+    _rewrite_where_clause_and_resync,
+    _unsupported,
+    _unsupported_at_span,
+    _verify_selected_logical_plan,
+    compile_cypher_query,
+)
+from graphistry.compute.gfql.cypher.reentry.carry import (
+    _bounded_reentry_carry_columns,
+    _bounded_reentry_prefix_order_is_safe,
+    _bounded_reentry_scalar_prefix_columns,
+)
+from graphistry.compute.gfql.cypher.reentry.naming import (
+    _reentry_hidden_column_name,
+    _reentry_property_carry_name,
+)
+from graphistry.compute.gfql.cypher.reentry.rewrite import (
+    _rewrite_collect_unwind_reentry_query,
+    _rewrite_reentry_expr_to_hidden_properties,
+    _rewrite_reentry_match_clause,
+    _rewrite_reentry_projection_clause,
+    _rewrite_reentry_projection_stage,
+)
+from graphistry.compute.gfql.cypher.reentry_plan import CarriedAlias, ReentryPlan
+from graphistry.compute.gfql.expr_parser import (
+    GFQLExprParseError,
+    Identifier,
+    ListLiteral,
+    parse_expr,
+)
+from graphistry.compute.gfql.ir.logical_plan import (
+    LogicalPlan,
+    PatternMatch,
+    Project as LogicalProject,
+    RowSchema as LogicalRowSchema,
+)
 
 def _map_terminal_reentry_query(
     compiled_query: CompiledCypherQuery,
@@ -120,12 +177,12 @@ def _rewrite_terminal_singleton_reentry_unwind(
     rewritten_return = replace(reentry_return, items=tuple(rewritten_return_items))
     rewritten_order_by = None
     if reentry_order_by is not None:
-        rewritten_order_items: List[OrderByItem] = []
-        for item in reentry_order_by.items:
-            rewritten_expr = _rewrite_expr(item.expression)
+        rewritten_order_items: List[OrderItem] = []
+        for order_item in reentry_order_by.items:
+            rewritten_expr = _rewrite_expr(order_item.expression)
             if rewritten_expr is None:
                 return None
-            rewritten_order_items.append(replace(item, expression=rewritten_expr))
+            rewritten_order_items.append(replace(order_item, expression=rewritten_expr))
         rewritten_order_by = replace(
             reentry_order_by,
             items=tuple(rewritten_order_items),
@@ -461,9 +518,9 @@ def _compile_bounded_reentry_query(
             # `multi_alias_carries` (computed before the prefix compile) holds
             # the {alias: props} for the rewritten ones — used below to
             # populate ReentryPlan.aliases and rewrite trailing PropertyAccessExpr.
-        for alias_name, props in multi_alias_carries.items():
+        for alias_name, carried_props in multi_alias_carries.items():
             merged = set(non_source_carried_props_map.get(alias_name, ()))
-            merged.update(props)
+            merged.update(carried_props)
             non_source_carried_props_map[alias_name] = tuple(sorted(merged))
     if not _bounded_reentry_prefix_order_is_safe(prefix_stage=prefix_stage, query=query, params=params):
         raise _unsupported(
