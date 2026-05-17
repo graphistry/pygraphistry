@@ -125,7 +125,7 @@ from graphistry.compute.gfql.temporal_text import (
     resolve_duration_text_property,
     rewrite_temporal_constructors_in_expr,
 )
-from graphistry.compute.gfql.same_path_types import WhereComparison, col, compare
+from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN, WhereComparison, col, compare, where_to_row_expr
 # Reentry helpers moved to focused subpackages and are re-exported here for compatibility.
 from graphistry.compute.gfql.cypher.reentry.naming import (
     _is_hidden_reentry_property,
@@ -1427,7 +1427,7 @@ def _connected_join_alias_identity_expr(
             return PropertyAccessExpr(cast(ExprNode, _rewrite(node_in.value)), node_in.property)
         if isinstance(node_in, Identifier) and "." not in node_in.name and node_in.name in alias_targets:
             target = alias_targets[node_in.name]
-            prop = "id" if isinstance(target, ASTNode) else "__gfql_edge_index_0__"
+            prop = NODE_IDENTITY_COLUMN if isinstance(target, ASTNode) else "__gfql_edge_index_0__"
             return PropertyAccessExpr(Identifier(node_in.name), prop)
         return _rebuild_expr_node(node_in, rewrite=_rewrite, error_context="connected join identity rewrite")
 
@@ -3456,7 +3456,7 @@ def _lower_match_clause_with_alias_equalities(
             seen_alias_ops[alias] = lowered
             out.append(lowered)
             where_out.append(
-                compare(col(alias, "id"), "==", col(rewritten_alias, "id"))
+                compare(col(alias, NODE_IDENTITY_COLUMN), "==", col(rewritten_alias, NODE_IDENTITY_COLUMN))
             )
             continue
 
@@ -4178,7 +4178,6 @@ def _append_page_ops(
         params=params,
     )
 
-
 def _append_match_row_where(
     row_steps: List[ASTObject],
     *,
@@ -4190,7 +4189,8 @@ def _append_match_row_where(
 ) -> None:
     if lowered.row_pre_filters:
         row_steps.extend(lowered.row_pre_filters)
-
+    if allowed_match_aliases is not None:
+        row_steps.extend(where_rows(expr=where_to_row_expr(clause)) for clause in lowered.where)
     expr = lowered.row_where
     if expr is None:
         return
@@ -6551,7 +6551,7 @@ def _distinct_aggregate_expr_text(
         return None
     target = alias_targets.get(expr_text)
     if isinstance(target, ASTNode):
-        return "id"
+        return NODE_IDENTITY_COLUMN
     if isinstance(target, ASTEdge):
         if agg_spec.func == "collect":
             raise _unsupported(
@@ -6625,7 +6625,7 @@ def _whole_row_group_key_expr(
 ) -> str:
     target = alias_targets.get(alias_name)
     if isinstance(target, ASTNode):
-        return "id"
+        return NODE_IDENTITY_COLUMN
     if isinstance(target, ASTEdge):
         return "__gfql_edge_index_0__"
     raise _unsupported(
@@ -7214,7 +7214,7 @@ def _lower_general_row_projection(
     _append_page_ops(row_steps, query=query, params=params)
     exec_steps = row_steps if binding_row_aliases else lowered.query + row_steps
     return CompiledCypherQuery(
-        Chain(exec_steps, where=lowered.where),
+        Chain(exec_steps, where=[] if binding_row_aliases else lowered.where),
         seed_rows=seed_rows,
         post_processing=_normalize_post_processing(
             CompiledCypherPostProcessing(

@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 from graphistry.compute.ast import ASTCall, ASTNode, ASTEdge, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLValidationError
 from graphistry.compute.predicates.is_in import IsIn
-from graphistry.compute.gfql.same_path_types import col, compare
+from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN, col, compare
 from graphistry.compute.gfql.cypher import (
     CypherQuery,
     compile_cypher,
@@ -1322,17 +1322,127 @@ def test_lower_match_query_rewrites_duplicate_node_aliases_to_internal_identity_
     assert isinstance(repeated, ASTNode)
     assert repeated._name is not None
     assert repeated._name.startswith("__cypher_aliasdup_n")
-    assert lowered.where == [compare(col("n", "id"), "==", col(repeated._name, "id"))]
+    assert lowered.where == [
+        compare(
+            col("n", NODE_IDENTITY_COLUMN),
+            "==",
+            col(repeated._name, NODE_IDENTITY_COLUMN),
+        )
+    ]
 
 
-def test_string_cypher_duplicate_node_alias_identity_shape_raises_gfql_validation_error() -> None:
+def test_string_cypher_duplicate_node_alias_identity_shape_uses_bound_node_column() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["a"]}),
         pd.DataFrame({"s": ["a"], "d": ["a"], "type": ["LOOP"]}),
     )
 
-    with pytest.raises(GFQLValidationError):
-        graph.gfql("MATCH (n)--(n) RETURN count(*)")
+    result = graph.gfql("MATCH (n)-[:LOOP]->(n) RETURN count(*) AS loops")
+
+    assert result._nodes.to_dict(orient="records") == [{"loops": 1}]
+
+
+def test_issue_1490_repeated_node_alias_uses_bound_node_identity() -> None:
+    nodes = pd.DataFrame(
+        {
+            "__node_id__": ["node-a", "node-b"],
+            "id": [0, 0],
+            "name": ["A", "B"],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["node-a", "node-b", "node-a"],
+            "d": ["node-a", "node-b", "node-b"],
+            "type": ["LOOP", "LOOP", "R"],
+        }
+    )
+    graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes, "__node_id__").edges(edges, "s", "d"))
+
+    result = graph.gfql("MATCH (n)-[:LOOP]->(n) RETURN count(*) AS loops")
+
+    assert result._nodes.to_dict(orient="records") == [{"loops": 2}]
+
+
+def test_issue_1490_user_id_property_remains_projectable_with_custom_identity() -> None:
+    nodes = pd.DataFrame(
+        {
+            "__node_id__": ["node-a", "node-b"],
+            "id": [0, 0],
+            "name": ["A", "B"],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": [], "type": []})
+    graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes, "__node_id__").edges(edges, "s", "d"))
+
+    result = graph.gfql(
+        "MATCH (n) "
+        "RETURN n.id AS user_id, n.__node_id__ AS identity "
+        "ORDER BY identity"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"user_id": 0, "identity": "node-a"},
+        {"user_id": 0, "identity": "node-b"},
+    ]
+
+
+def test_issue_1490_distinct_and_grouping_use_bound_identity_not_user_id() -> None:
+    nodes = pd.DataFrame(
+        {
+            "__node_id__": ["node-a", "node-b"],
+            "id": [0, 0],
+            "name": ["A", "B"],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": [], "type": []})
+    graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes, "__node_id__").edges(edges, "s", "d"))
+
+    distinct_result = graph.gfql("MATCH (n) RETURN count(DISTINCT n) AS c")
+    grouped_result = graph.gfql("MATCH (n) RETURN n AS node, count(*) AS c ORDER BY node")
+
+    assert distinct_result._nodes.to_dict(orient="records") == [{"c": 2}]
+    assert [row["c"] for row in grouped_result._nodes.to_dict(orient="records")] == [1, 1]
+
+
+def test_issue_1490_custom_identity_user_id_property_cudf() -> None:
+    cudf = _require_cudf_runtime()
+    nodes = pd.DataFrame(
+        {
+            "__node_id__": ["node-a", "node-b"],
+            "id": [0, 0],
+            "name": ["A", "B"],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["node-a", "node-b", "node-a"],
+            "d": ["node-a", "node-b", "node-b"],
+            "type": ["LOOP", "LOOP", "R"],
+        }
+    )
+    graph = cast(
+        _CypherTestGraph,
+        _CypherTestGraph()
+        .nodes(cudf.from_pandas(nodes), "__node_id__")
+        .edges(cudf.from_pandas(edges), "s", "d"),
+    )
+
+    loops = graph.gfql("MATCH (n)-[:LOOP]->(n) RETURN count(*) AS loops", engine="cudf")
+    projected = graph.gfql(
+        "MATCH (n) "
+        "RETURN n.id AS user_id, n.__node_id__ AS identity "
+        "ORDER BY identity",
+        engine="cudf",
+    )
+    distinct_result = graph.gfql("MATCH (n) RETURN count(DISTINCT n) AS c", engine="cudf")
+
+    assert _to_pandas_df(loops._nodes).to_dict(orient="records") == [{"loops": 2}]
+    assert _to_pandas_df(projected._nodes).to_dict(orient="records") == [
+        {"user_id": 0, "identity": "node-a"},
+        {"user_id": 0, "identity": "node-b"},
+    ]
+    assert _to_pandas_df(distinct_result._nodes).to_dict(orient="records") == [{"c": 2}]
 
 
 def test_parse_where_pattern_predicate() -> None:

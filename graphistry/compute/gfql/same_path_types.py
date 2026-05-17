@@ -7,6 +7,7 @@ from typing import Any, Dict, FrozenSet, List, Literal, Mapping, Optional, Seque
 from graphistry.compute.typing import DataFrameT, DomainT
 
 ComparisonOp = Literal["==", "!=", "<", "<=", ">", ">="]
+NODE_IDENTITY_COLUMN = "__gfql_node_id__"
 _WHERE_OP_MAP: Dict[str, ComparisonOp] = {
     "eq": "==",
     "neq": "!=",
@@ -127,6 +128,11 @@ def where_to_json(where: Sequence[WhereComparison]) -> List[Dict[str, Dict[str, 
             }
         )
     return result
+
+
+def where_to_row_expr(clause: WhereComparison) -> str:
+    op = "=" if clause.op == "==" else "<>" if clause.op == "!=" else clause.op
+    return f"{clause.left.alias}.{clause.left.column} {op} {clause.right.alias}.{clause.right.column}"
 
 
 @dataclass(frozen=True)
