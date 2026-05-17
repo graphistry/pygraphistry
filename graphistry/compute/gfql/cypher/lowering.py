@@ -1868,26 +1868,6 @@ def _expr_non_aggregate_match_aliases(
     return non_aggregate_aliases
 
 
-def _expr_aggregate_match_aliases(
-    expr_text: str,
-    *,
-    alias_targets: Mapping[str, ASTObject],
-    params: Optional[Mapping[str, Any]] = None,
-    field: str,
-    line: int,
-    column: int,
-) -> Set[str]:
-    _non_aggregate_aliases, aggregate_aliases = _expr_match_alias_usage(
-        expr_text,
-        alias_targets=alias_targets,
-        params=params,
-        field=field,
-        line=line,
-        column=column,
-    )
-    return aggregate_aliases
-
-
 def _validate_row_expr_scope(
     expr_text: str,
     *,
