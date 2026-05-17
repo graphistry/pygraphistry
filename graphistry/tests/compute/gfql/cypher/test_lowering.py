@@ -943,6 +943,13 @@ def test_logical_plan_route_for_query_defers_unknown_alias_match_shape_by_defaul
     assert "present in semantic scope" in defer_reason
 
 
+def test_compiled_query_sets_logical_plan_route_for_distinct_projection_shape() -> None:
+    compiled = _compile_query("MATCH (n) RETURN DISTINCT n.id AS id")
+    assert _logical_plan_route(compiled) == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
+
+
 def test_logical_plan_route_for_query_allows_unknown_alias_match_shape_when_opted_in() -> None:
     query = _parse_query("MATCH (n:Person) RETURN n")
     bound_ir = BoundIR(

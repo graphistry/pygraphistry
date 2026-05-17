@@ -83,7 +83,7 @@ def test_gfql_wavefront_optional_match_parity():
     assert pd.isna(rows["cid"].iloc[1])
 
 
-def test_call_route_bypasses_compat_executor(monkeypatch):
+def test_call_route_uses_procedure_physical_route(monkeypatch):
     g = _mk_graph()
     planner_routes = []
     original_plan = PhysicalPlanner.plan
@@ -94,11 +94,7 @@ def test_call_route_bypasses_compat_executor(monkeypatch):
         assert isinstance(physical_plan.operators[0], ProcedureCallExecutorWrapper)
         return physical_plan
 
-    def _fail_compat_executor(*args, **kwargs):
-        raise AssertionError("CALL physical route should not use the legacy compat executor")
-
     monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
-    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _fail_compat_executor)
 
     result = g.gfql("CALL graphistry.degree() RETURN degree ORDER BY degree")
 
@@ -106,7 +102,7 @@ def test_call_route_bypasses_compat_executor(monkeypatch):
     assert result._nodes["degree"].tolist() == [1, 1, 2]
 
 
-def test_top_level_optional_match_matched_case_bypasses_compat_executor(monkeypatch):
+def test_top_level_optional_match_matched_case_uses_same_path_physical_route(monkeypatch):
     g = _mk_graph()
     planner_routes = []
     original_plan = PhysicalPlanner.plan
@@ -117,11 +113,7 @@ def test_top_level_optional_match_matched_case_bypasses_compat_executor(monkeypa
         assert isinstance(physical_plan.operators[0], SamePathExecutorWrapper)
         return physical_plan
 
-    def _fail_compat_executor(*args, **kwargs):
-        raise AssertionError("top-level OPTIONAL MATCH physical route should not use the legacy compat executor")
-
     monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
-    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _fail_compat_executor)
 
     result = g.gfql("OPTIONAL MATCH (n) RETURN n.id AS id ORDER BY id")
 
@@ -129,7 +121,7 @@ def test_top_level_optional_match_matched_case_bypasses_compat_executor(monkeypa
     assert result._nodes["id"].tolist() == ["a", "b", "c"]
 
 
-def test_top_level_optional_match_unmatched_case_null_extends_without_compat_executor(monkeypatch):
+def test_top_level_optional_match_unmatched_case_null_extends_via_same_path_route(monkeypatch):
     nodes = pd.DataFrame({"id": ["a", "b", "c"], "label__Missing": [False, False, False]})
     edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
     g = graphistry.bind(source="s", destination="d", node="id").nodes(nodes).edges(edges)
@@ -142,11 +134,7 @@ def test_top_level_optional_match_unmatched_case_null_extends_without_compat_exe
         assert isinstance(physical_plan.operators[0], SamePathExecutorWrapper)
         return physical_plan
 
-    def _fail_compat_executor(*args, **kwargs):
-        raise AssertionError("top-level OPTIONAL MATCH null-extension route should not use the legacy compat executor")
-
     monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
-    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _fail_compat_executor)
 
     result = g.gfql("OPTIONAL MATCH (n:Missing) RETURN n.id AS id")
     rows = result._nodes.reset_index(drop=True)
@@ -156,7 +144,7 @@ def test_top_level_optional_match_unmatched_case_null_extends_without_compat_exe
     assert pd.isna(rows["id"].iloc[0])
 
 
-def test_optional_reentry_route_bypasses_compat_executor_and_null_fills(monkeypatch):
+def test_optional_reentry_route_uses_same_path_and_null_fills(monkeypatch):
     g = _mk_graph()
     optional_routes = []
     original_plan = PhysicalPlanner.plan
@@ -168,11 +156,7 @@ def test_optional_reentry_route_bypasses_compat_executor_and_null_fills(monkeypa
             assert isinstance(physical_plan.operators[0], SamePathExecutorWrapper)
         return physical_plan
 
-    def _fail_compat_executor(*args, **kwargs):
-        raise AssertionError("optional reentry should not use the legacy compat executor")
-
     monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
-    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _fail_compat_executor)
 
     result = g.gfql(
         "MATCH (a) WITH a, a.id AS aid "
@@ -189,7 +173,7 @@ def test_optional_reentry_route_bypasses_compat_executor_and_null_fills(monkeypa
     assert pd.isna(rows[2]["bid"])
 
 
-def test_optional_reentry_route_bypasses_compat_executor_when_all_rows_match(monkeypatch):
+def test_optional_reentry_route_uses_same_path_when_all_rows_match(monkeypatch):
     nodes = pd.DataFrame({"id": ["a", "b"]})
     edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "a"]})
     g = graphistry.bind(source="s", destination="d", node="id").nodes(nodes).edges(edges)
@@ -203,11 +187,7 @@ def test_optional_reentry_route_bypasses_compat_executor_when_all_rows_match(mon
             assert isinstance(physical_plan.operators[0], SamePathExecutorWrapper)
         return physical_plan
 
-    def _fail_compat_executor(*args, **kwargs):
-        raise AssertionError("optional reentry should not use the legacy compat executor")
-
     monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
-    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _fail_compat_executor)
 
     result = g.gfql(
         "MATCH (a) WITH a "
@@ -223,7 +203,7 @@ def test_optional_reentry_route_bypasses_compat_executor_when_all_rows_match(mon
     ]
 
 
-def test_same_path_route_bypasses_compat_executor(monkeypatch):
+def test_same_path_route_uses_same_path_physical_route(monkeypatch):
     g = _mk_graph()
     planner_routes = []
     original_plan = PhysicalPlanner.plan
@@ -234,11 +214,7 @@ def test_same_path_route_bypasses_compat_executor(monkeypatch):
         assert isinstance(physical_plan.operators[0], SamePathExecutorWrapper)
         return physical_plan
 
-    def _fail_compat_executor(*args, **kwargs):
-        raise AssertionError("same_path physical route should not use the legacy compat executor")
-
     monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
-    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _fail_compat_executor)
 
     result = g.gfql("MATCH (n) RETURN n.id AS id ORDER BY id")
 
@@ -246,7 +222,7 @@ def test_same_path_route_bypasses_compat_executor(monkeypatch):
     assert result._nodes["id"].tolist() == ["a", "b", "c"]
 
 
-def test_row_pipeline_route_bypasses_compat_executor(monkeypatch):
+def test_row_pipeline_route_uses_row_pipeline_physical_route(monkeypatch):
     g = _mk_graph()
     planner_routes = []
     original_plan = PhysicalPlanner.plan
@@ -257,16 +233,32 @@ def test_row_pipeline_route_bypasses_compat_executor(monkeypatch):
         assert isinstance(physical_plan.operators[0], RowPipelineExecutorWrapper)
         return physical_plan
 
-    def _fail_compat_executor(*args, **kwargs):
-        raise AssertionError("row_pipeline physical route should not use the legacy compat executor")
-
     monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
-    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _fail_compat_executor)
 
     result = g.gfql("RETURN 1 AS x")
 
     assert planner_routes == ["row_pipeline"]
     assert result._nodes["x"].tolist() == [1]
+
+
+def test_distinct_projection_route_uses_physical_route(monkeypatch):
+    nodes = pd.DataFrame({"id": ["a", "b", "c"], "group": ["x", "x", "y"]})
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+    g = graphistry.bind(source="s", destination="d", node="id").nodes(nodes).edges(edges)
+    planner_routes = []
+    original_plan = PhysicalPlanner.plan
+
+    def _spy_plan(self, logical_plan, ctx):
+        physical_plan = original_plan(self, logical_plan, ctx)
+        planner_routes.append(physical_plan.route)
+        return physical_plan
+
+    monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
+
+    result = g.gfql("MATCH (n) RETURN DISTINCT n.group AS group ORDER BY group")
+
+    assert planner_routes == ["same_path"]
+    assert result._nodes["group"].tolist() == ["x", "y"]
 
 
 def test_wavefront_route_without_join_payload_raises(monkeypatch):
@@ -286,7 +278,7 @@ def test_wavefront_route_without_join_payload_raises(monkeypatch):
         g.gfql("MATCH (n) RETURN n.id AS id")
 
 
-def test_connected_match_join_bypasses_compat_executor(monkeypatch):
+def test_connected_match_join_uses_physical_route(monkeypatch):
     nodes = pd.DataFrame({
         "id": ["p1", "p2", "c1"],
         "label__Person": [True, True, False],
@@ -299,7 +291,10 @@ def test_connected_match_join_bypasses_compat_executor(monkeypatch):
     })
     g = graphistry.bind(source="s", destination="d", node="id").nodes(nodes).edges(edges)
 
+    planner_calls = []
+
     def _force_row_pipeline_plan(self, logical_plan, ctx):
+        planner_calls.append(type(logical_plan).__name__)
         return PhysicalPlan(
             route="row_pipeline",
             operators=(RowPipelineExecutorWrapper(),),
@@ -308,11 +303,6 @@ def test_connected_match_join_bypasses_compat_executor(monkeypatch):
         )
 
     monkeypatch.setattr(PhysicalPlanner, "plan", _force_row_pipeline_plan)
-
-    def _fail_compat_executor(*args, **kwargs):
-        raise AssertionError("connected_match_join should not use the legacy compat executor")
-
-    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _fail_compat_executor)
 
     result = g.gfql(
         "MATCH "
@@ -321,13 +311,16 @@ def test_connected_match_join_bypasses_compat_executor(monkeypatch):
         "RETURN city.id AS cityId, count(friend) AS friendCount"
     )
 
+    assert planner_calls
     assert result._nodes.to_dict(orient="records") == [{"cityId": "c1", "friendCount": 2}]
 
 
-def test_connected_optional_match_bypasses_compat_executor(monkeypatch):
+def test_connected_optional_match_uses_physical_route(monkeypatch):
     g = _mk_graph()
+    planner_calls = []
 
     def _force_row_pipeline_plan(self, logical_plan, ctx):
+        planner_calls.append(type(logical_plan).__name__)
         return PhysicalPlan(
             route="row_pipeline",
             operators=(RowPipelineExecutorWrapper(),),
@@ -336,11 +329,6 @@ def test_connected_optional_match_bypasses_compat_executor(monkeypatch):
         )
 
     monkeypatch.setattr(PhysicalPlanner, "plan", _force_row_pipeline_plan)
-
-    def _fail_compat_executor(*args, **kwargs):
-        raise AssertionError("connected_optional_match should not use the legacy compat executor")
-
-    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_compat_non_union", _fail_compat_executor)
 
     result = g.gfql(
         "MATCH (a)-->(b) "
@@ -350,6 +338,7 @@ def test_connected_optional_match_bypasses_compat_executor(monkeypatch):
     )
     rows = result._nodes.reset_index(drop=True)
 
+    assert planner_calls
     assert rows["bid"].tolist() == ["b", "c"]
     assert rows["cid"].iloc[0] == "c"
     assert pd.isna(rows["cid"].iloc[1])

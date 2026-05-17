@@ -11,6 +11,7 @@ from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, BoundVariable
 from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.logical_plan import (
+    Distinct,
     Filter,
     LogicalPlan,
     NodeScan,
@@ -105,8 +106,13 @@ class LogicalPlanner:
                 current = self._plan_where(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
                 continue
             if clause in {"WITH", "RETURN"}:
-                self._reject_distinct_projection(part=part)
                 current = self._plan_projection(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
+                if part.metadata.get("distinct", False):
+                    current = Distinct(
+                        op_id=id_gen.next(),
+                        input=current,
+                        output_schema=current.output_schema,
+                    )
                 current = self._apply_predicates(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
                 continue
             if clause == "UNWIND":
@@ -247,16 +253,6 @@ class LogicalPlanner:
             expressions=expressions,
             output_schema=self._schema_for_aliases(alias_names=part.outputs, vars_by_name=vars_by_name),
         )
-
-    def _reject_distinct_projection(self, *, part: BoundQueryPart) -> None:
-        if part.metadata.get("distinct", False):
-            raise GFQLValidationError(
-                ErrorCode.E108,
-                "LogicalPlanner skeleton does not yet support DISTINCT projections",
-                field="clause",
-                value=part.clause,
-                suggestion="Use non-DISTINCT WITH/RETURN shapes until DISTINCT planning is implemented.",
-            )
 
     def _plan_unwind(
         self,

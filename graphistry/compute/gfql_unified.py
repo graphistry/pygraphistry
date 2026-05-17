@@ -631,9 +631,24 @@ def _execute_compiled_query_non_union(
     compiled_extras = compiled_query.execution_extras
     logical_plan = compiled_query.logical_plan
     if logical_plan is None:
-        return _execute_compiled_query_compat_non_union(
+        if compiled_query.procedure_call is not None:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Cypher CALL queries must use the procedure physical route",
+                field="procedure_call",
+                value=compiled_query.procedure_call.procedure,
+                suggestion="Compile CALL queries with a LogicalPlan before runtime dispatch.",
+                language="cypher",
+            )
+        dispatch_graph = _seeded_dispatch_graph(
             base_graph,
             compiled_query=compiled_query,
+            engine=engine,
+        )
+        return _execute_compiled_query_chain_non_union(
+            base_graph,
+            compiled_query=compiled_query,
+            dispatch_graph=dispatch_graph,
             engine=engine,
             policy=policy,
             context=context,
@@ -853,41 +868,6 @@ def _execute_compiled_query_chain_non_union(
             null_row=compiled_query.optional_null_fill.null_row,
         )
     return result
-
-
-def _execute_compiled_query_compat_non_union(
-    base_graph: Plottable,
-    *,
-    compiled_query: CompiledCypherQuery,
-    engine: Union[EngineAbstract, str],
-    policy: Optional[PolicyDict],
-    context: ExecutionContext,
-    start_nodes: Optional[DataFrameT] = None,
-) -> Plottable:
-    if compiled_query.procedure_call is not None:
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            "Cypher CALL queries must use the procedure physical route",
-            field="procedure_call",
-            value=compiled_query.procedure_call.procedure,
-            suggestion="Compile CALL queries with a LogicalPlan before runtime dispatch.",
-            language="cypher",
-        )
-    dispatch_graph = _seeded_dispatch_graph(
-        base_graph,
-        compiled_query=compiled_query,
-        engine=engine,
-    )
-
-    return _execute_compiled_query_chain_non_union(
-        base_graph,
-        compiled_query=compiled_query,
-        dispatch_graph=dispatch_graph,
-        engine=engine,
-        policy=policy,
-        context=context,
-        start_nodes=start_nodes,
-    )
 
 
 def _execute_compiled_query_with_reentry(
