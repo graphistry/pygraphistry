@@ -5,8 +5,8 @@ and ``CypherQuery`` shapes to substitute references to carried prefix outputs
 with property accesses on the reentry-alias's row table (or, in the
 ``collect/UNWIND`` corridor, normalize the prefix into a whole-row carry).
 
-Extracted from ``cypher.lowering`` (#1295, #1260 S2). Lowering helpers
-referenced lazily via ``cypher.lowering`` to avoid circular import at module
+Extracted from ``cypher.lowering`` (#1295, #1260 S2). Generic lowering helpers
+are referenced lazily via ``cypher.lowering`` to avoid circular import at module
 load time.
 """
 from __future__ import annotations
@@ -36,6 +36,7 @@ from graphistry.compute.gfql.cypher.reentry.naming import (
     _reentry_hidden_column_name,
     _reentry_property_carry_name,
 )
+from graphistry.compute.gfql.cypher.reentry.lowering_support import _first_pattern_node_alias
 
 __all__ = [
     "_rewrite_reentry_expr_to_hidden_properties",
@@ -268,7 +269,7 @@ def _rewrite_collect_unwind_reentry_query(query: CypherQuery) -> Optional[Cypher
             break
     if collected_idx is None or collected_match_result is None:
         return None
-    reentry_alias = _lowering._first_pattern_node_alias(query.reentry_matches[0])
+    reentry_alias = _first_pattern_node_alias(query.reentry_matches[0])
     if reentry_alias is None or reentry_alias != unwind_clause.alias:
         return None
     collected_item = prefix_stage.clause.items[collected_idx]
