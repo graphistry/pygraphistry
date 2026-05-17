@@ -1,0 +1,179 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, cast
+
+import pandas as pd
+
+from graphistry.compute.dataframe_utils import df_cons as template_df_cons
+
+if TYPE_CHECKING:
+    from graphistry.Plottable import Plottable
+
+
+def row_table(ctx: Any, table_df: Any) -> "Plottable":
+    """Return a plottable that treats ``table_df`` as the active row table."""
+    out = ctx.bind()
+    table_df = table_df.reset_index(drop=True)
+    out._nodes = table_df
+    if ctx._edges is not None:
+        out._edges = ctx._edges.iloc[0:0].copy()
+    else:
+        out._edges = table_df.iloc[0:0].copy()
+    out._source = None
+    out._destination = None
+    out._edge = ctx._edge if ctx._edge is not None and ctx._edge in table_df.columns else None
+    if out._node is not None and out._node not in table_df.columns:
+        out._node = None
+    base_graph = getattr(ctx, "_gfql_rows_base_graph", None)
+    if base_graph is None:
+        base_graph = getattr(ctx, "_g", None)
+    if base_graph is not None:
+        setattr(out, "_gfql_rows_base_graph", base_graph)
+    start_nodes = getattr(ctx, "_gfql_start_nodes", None)
+    if start_nodes is not None:
+        setattr(out, "_gfql_start_nodes", start_nodes)
+    edge_aliases = getattr(ctx, "_gfql_rows_edge_aliases", None)
+    if edge_aliases is not None:
+        setattr(out, "_gfql_rows_edge_aliases", edge_aliases)
+    return cast("Plottable", out)
+
+
+def empty_frame(
+    ctx: Any,
+    template_df: Optional[Any] = None,
+    columns: Optional[Sequence[str]] = None,
+) -> Any:
+    if template_df is None:
+        if ctx._nodes is not None:
+            template_df = ctx._nodes
+        elif ctx._edges is not None:
+            template_df = ctx._edges
+        else:
+            base_graph = getattr(ctx, "_gfql_rows_base_graph", None)
+            if base_graph is None:
+                base_graph = getattr(ctx, "_g", None)
+            if base_graph is not None:
+                template_df = getattr(base_graph, "_nodes", None)
+                if template_df is None:
+                    template_df = getattr(base_graph, "_edges", None)
+
+    if template_df is not None:
+        if columns is None:
+            return template_df.iloc[0:0].copy()
+        return template_df_cons(template_df, {str(col): [] for col in columns})
+
+    if columns is None:
+        return pd.DataFrame()
+    return pd.DataFrame({str(col): pd.Series(dtype="object") for col in columns})
+
+
+def get_active_table(ctx: Any) -> Any:
+    if ctx._nodes is not None:
+        return ctx._nodes
+    if ctx._edges is not None:
+        return ctx._edges
+    return empty_frame(ctx)
+
+
+def coerce_non_negative_int(value: Any, op_name: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{op_name} expects a non-negative integer, got bool")
+    if isinstance(value, int):
+        out = value
+    elif isinstance(value, float):
+        if not value.is_integer():
+            raise ValueError(f"{op_name} expects an integer, got {value!r}")
+        out = int(value)
+    elif isinstance(value, str):
+        txt = value.strip()
+        if txt.startswith("-"):
+            out = int(txt)
+        elif txt.isdigit():
+            out = int(txt)
+        else:
+            raise ValueError(f"{op_name} expects an integer, got {value!r}")
+    else:
+        raise ValueError(f"{op_name} expects an integer, got {type(value).__name__}")
+    if out < 0:
+        raise ValueError(f"{op_name} must be non-negative, got {out}")
+    return out
+
+
+def rows(
+    ctx: Any,
+    table: str = "nodes",
+    source: Optional[str] = None,
+    alias_endpoints: Optional[Dict[str, str]] = None,
+    binding_ops: Optional[List[Dict[str, Any]]] = None,
+) -> "Plottable":
+    if binding_ops is not None:
+        return cast("Plottable", ctx._gfql_binding_ops_row_table(binding_ops))
+    if alias_endpoints is not None:
+        return cast("Plottable", ctx._gfql_bindings_row_table(alias_endpoints))
+
+    if table not in {"nodes", "edges"}:
+        raise ValueError(
+            f"rows(table=...) must be one of 'nodes' or 'edges', got {table!r}"
+        )
+
+    table_df = ctx._nodes if table == "nodes" else ctx._edges
+    if table_df is None:
+        if ctx._nodes is not None:
+            table_df = ctx._nodes.iloc[0:0].copy()
+        elif ctx._edges is not None:
+            table_df = ctx._edges.iloc[0:0].copy()
+        else:
+            table_df = empty_frame(ctx)
+    else:
+        table_df = table_df.copy()
+
+    if source is not None:
+        if source not in table_df.columns:
+            raise ValueError(f"rows(source=...) alias column not found: {source!r}")
+        mask = table_df[source]
+        if hasattr(mask, "isna") and hasattr(mask, "where"):
+            mask = mask.where(~mask.isna(), False)
+        elif hasattr(mask, "fillna"):
+            mask = mask.fillna(False)
+        table_df = table_df.loc[mask.astype(bool)]
+
+    return row_table(ctx, table_df)
+
+
+def drop_cols(ctx: Any, cols: Sequence[str]) -> "Plottable":
+    """Drop named columns from the active row table, ignoring any that don't exist."""
+    table_df = get_active_table(ctx)
+    to_drop = [c for c in cols if c in table_df.columns]
+    if to_drop:
+        table_df = table_df.drop(columns=to_drop)
+    return row_table(ctx, table_df)
+
+
+def skip(ctx: Any, value: Any) -> "Plottable":
+    table_df = get_active_table(ctx)
+    skip_count = coerce_non_negative_int(value, "skip")
+    return row_table(ctx, table_df.iloc[skip_count:])
+
+
+def limit(ctx: Any, value: Any) -> "Plottable":
+    table_df = get_active_table(ctx)
+    limit_count = coerce_non_negative_int(value, "limit")
+    return row_table(ctx, table_df.iloc[:limit_count])
+
+
+def distinct(ctx: Any) -> "Plottable":
+    table_df = get_active_table(ctx)
+    try:
+        out_df = table_df.drop_duplicates()
+    except Exception:
+        # Fallback for unhashable list/map cells: dedupe by string-normalized
+        # object-like columns while preserving original row payload.
+        work_df = table_df
+        object_cols = [col for col in table_df.columns if str(table_df[col].dtype) == "object"]
+        if object_cols:
+            work_df = table_df.assign(
+                **{col: table_df[col].astype(str) for col in object_cols}
+            )
+        mask = ~work_df.duplicated(keep="first")
+        out_df = table_df.loc[mask]
+    return row_table(ctx, out_df)
