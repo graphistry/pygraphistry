@@ -72,7 +72,7 @@ from graphistry.compute.gfql.physical_planner import (
 )
 from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager
 from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
-from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
@@ -341,6 +341,40 @@ def _apply_connected_optional_match(
     df_ctor = df_cons(concrete_engine)
     node_col = str(getattr(base_graph, "_node", "id"))
 
+    def _optional_arm_start_nodes(
+        binding_ops: Sequence[ASTObject],
+        shared_node_aliases: Sequence[str],
+        joined_rows: DataFrameT,
+    ) -> Optional[DataFrameT]:
+        """Seed optional-arm materialization when the first node is already bound."""
+        if not binding_ops:
+            return None
+        first_op = binding_ops[0]
+        if not isinstance(first_op, ASTNode):
+            return None
+        first_alias = getattr(first_op, "_name", None)
+        if not isinstance(first_alias, str) or first_alias not in shared_node_aliases:
+            return None
+
+        base_nodes = cast(Optional[DataFrameT], getattr(base_graph, "_nodes", None))
+        if base_nodes is None or node_col not in base_nodes.columns:
+            return None
+
+        joined_col = next(
+            (
+                col
+                for col in (f"{first_alias}.{node_col}", first_alias)
+                if col in joined_rows.columns
+            ),
+            None,
+        )
+        if joined_col is None:
+            return None
+
+        seed_ids = cast(SeriesT, joined_rows[joined_col]).dropna().drop_duplicates()
+        node_ids = cast(SeriesT, base_nodes[node_col])
+        return cast(DataFrameT, base_nodes[node_ids.isin(seed_ids)].copy())
+
     # Run base chain to get binding rows.
     base_binding_chain, base_post_ops = _split_binding_and_post_ops(plan.base_chain.chain)
     base_binding_ops = serialize_binding_ops(base_binding_chain)
@@ -365,7 +399,19 @@ def _apply_connected_optional_match(
             list(opt_binding_chain) + [ASTCall("rows", {"binding_ops": opt_binding_ops})] + opt_post_ops,
             where=arm.chain.where,
         )
-        opt_rows_result = _chain_dispatch(base_graph, opt_with_rows, engine, policy, context)
+        opt_start_nodes = None if arm.chain.where else _optional_arm_start_nodes(
+            opt_binding_chain,
+            arm.shared_node_aliases,
+            joined,
+        )
+        opt_rows_result = _chain_dispatch(
+            base_graph,
+            opt_with_rows,
+            engine,
+            policy,
+            context,
+            start_nodes=opt_start_nodes,
+        )
         opt_rows_df = getattr(opt_rows_result, "_nodes", None)
 
         # Determine join columns from shared node aliases.
