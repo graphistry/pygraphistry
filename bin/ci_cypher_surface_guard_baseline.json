@@ -6,12 +6,12 @@
     },
     "CompiledCypherQuery": {
       "max_fields": 7,
-      "max_properties": 9
+      "max_properties": 10
     },
     "CompiledGraphBinding": {
       "max_fields": 6,
       "max_properties": 0
     }
   },
-  "lowering_py_max_lines": 9022
+  "lowering_py_max_lines": 9038
 }

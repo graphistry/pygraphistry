@@ -937,9 +937,10 @@ def test_logical_plan_route_for_query_defers_unknown_alias_match_shape_by_defaul
         ],
         semantic_table=SemanticTable(variables={}),
     )
-    logical_plan, defer_reason = _logical_plan_route_for_query(query, bound_ir=bound_ir)
+    logical_plan, defer_reason, defer_code = _logical_plan_route_for_query(query, bound_ir=bound_ir)
     assert logical_plan is None
     assert defer_reason is not None
+    assert defer_code is None
     assert "present in semantic scope" in defer_reason
 
 
@@ -959,11 +960,12 @@ def test_logical_plan_route_for_query_allows_unknown_alias_match_shape_when_opte
         ],
         semantic_table=SemanticTable(variables={}),
     )
-    logical_plan, defer_reason = _logical_plan_route_for_query(
+    logical_plan, defer_reason, defer_code = _logical_plan_route_for_query(
         query, bound_ir=bound_ir, allow_unknown_match_aliases=True
     )
     assert logical_plan is not None
     assert defer_reason is None
+    assert defer_code is None
 
 
 def test_logical_plan_route_for_query_emits_filter_for_where_predicate() -> None:
@@ -972,10 +974,11 @@ def test_logical_plan_route_for_query_emits_filter_for_where_predicate() -> None
     query = _parse_query("MATCH (a)-[r]->(b) WHERE r.weight > 5 RETURN b")
     bound_ir = FrontendBinder().bind(query, PlanContext())
 
-    logical_plan, defer_reason = _logical_plan_route_for_query(query, bound_ir=bound_ir)
+    logical_plan, defer_reason, defer_code = _logical_plan_route_for_query(query, bound_ir=bound_ir)
 
     assert logical_plan is not None
     assert defer_reason is None
+    assert defer_code is None
 
     def _walk(node):  # noqa: ANN001, ANN202
         yield node

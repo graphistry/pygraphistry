@@ -181,6 +181,7 @@ class CompiledCypherExecutionExtras:
     scope_stack: Tuple[ScopeFrame, ...] = ()
     logical_plan: Optional[LogicalPlan] = None
     logical_plan_defer_reason: Optional[str] = None
+    logical_plan_defer_code: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -228,6 +229,10 @@ class CompiledCypherQuery:
     @property
     def logical_plan_defer_reason(self) -> Optional[str]:
         return None if self.execution_extras is None else self.execution_extras.logical_plan_defer_reason
+
+    @property
+    def logical_plan_defer_code(self) -> Optional[str]:
+        return None if self.execution_extras is None else self.execution_extras.logical_plan_defer_code
 
 
 @dataclass(frozen=True)
@@ -296,6 +301,7 @@ def _normalize_execution_extras(
         and execution_extras.scope_stack == ()
         and execution_extras.logical_plan is None
         and execution_extras.logical_plan_defer_reason is None
+        and execution_extras.logical_plan_defer_code is None
     ):
         return None
     return execution_extras
@@ -330,6 +336,7 @@ def _execution_extras_with(
     scope_stack: Tuple[ScopeFrame, ...] = (),
     logical_plan: Optional[LogicalPlan] = None,
     logical_plan_defer_reason: Optional[str] = None,
+    logical_plan_defer_code: Optional[str] = None,
 ) -> Optional[CompiledCypherExecutionExtras]:
     base = compiled_query.execution_extras or CompiledCypherExecutionExtras()
     return _normalize_execution_extras(
@@ -344,6 +351,7 @@ def _execution_extras_with(
             scope_stack=scope_stack,
             logical_plan=logical_plan,
             logical_plan_defer_reason=logical_plan_defer_reason,
+            logical_plan_defer_code=logical_plan_defer_code,
         )
     )
 
@@ -7863,7 +7871,11 @@ def _compile_graph_constructor(
     )
     lowered = lower_match_query(synthetic, params=params)
     constructor_bound_ir = FrontendBinder().bind(synthetic, PlanContext(), strict_name_resolution=True)
-    constructor_logical_plan, constructor_logical_plan_defer_reason = _logical_plan_route_for_query(
+    (
+        constructor_logical_plan,
+        constructor_logical_plan_defer_reason,
+        constructor_logical_plan_defer_code,
+    ) = _logical_plan_route_for_query(
         synthetic,
         bound_ir=constructor_bound_ir,
         params=params,
@@ -7876,6 +7888,7 @@ def _compile_graph_constructor(
             CompiledCypherExecutionExtras(
                 logical_plan=constructor_logical_plan,
                 logical_plan_defer_reason=constructor_logical_plan_defer_reason,
+                logical_plan_defer_code=constructor_logical_plan_defer_code,
             )
         ),
     )
@@ -8527,21 +8540,27 @@ def _logical_plan_route_for_query(
     bound_ir: BoundIR,
     params: Optional[Mapping[str, Any]] = None,
     allow_unknown_match_aliases: bool = False,
-) -> Tuple[Optional[LogicalPlan], Optional[str]]:
+) -> Tuple[Optional[LogicalPlan], Optional[str], Optional[str]]:
     ctx = PlanContext()
     if query.call is not None:
         compiled_call = compile_cypher_call(query.call, params=params)
         logical_plan = _logical_plan_from_compiled_call(compiled_call)
         _verify_selected_logical_plan(logical_plan)
-        return logical_plan, None
+        return logical_plan, None, None
     try:
         logical_plan = LogicalPlanner(
             allow_unknown_match_aliases=allow_unknown_match_aliases
         ).plan(bound_ir, ctx)
     except GFQLValidationError as exc:
-        return None, str(exc.message)
+        context = getattr(exc, "context", None)
+        defer_code = (
+            context.get("logical_plan_defer_code")
+            if isinstance(context, dict)
+            else None
+        )
+        return None, str(exc.message), cast(Optional[str], defer_code)
     _verify_selected_logical_plan(logical_plan)
-    return logical_plan, None
+    return logical_plan, None, None
 
 
 def _attach_logical_plan_route(
@@ -8549,12 +8568,14 @@ def _attach_logical_plan_route(
     *,
     logical_plan: Optional[LogicalPlan],
     logical_plan_defer_reason: Optional[str],
+    logical_plan_defer_code: Optional[str],
 ) -> CompiledCypherQuery:
     result_extras = result.execution_extras or CompiledCypherExecutionExtras()
     if result.optional_reentry:
         if result.logical_plan is not None:
             effective_logical_plan = result.logical_plan
             effective_defer_reason = None
+            effective_defer_code = None
         else:
             effective_logical_plan = None
             effective_defer_reason = (
@@ -8562,14 +8583,22 @@ def _attach_logical_plan_route(
                 or result.logical_plan_defer_reason
                 or "LogicalPlanner skeleton does not yet support OPTIONAL MATCH planning for reentry"
             )
+            effective_defer_code = (
+                logical_plan_defer_code
+                or result.logical_plan_defer_code
+                or "optional_match_reentry"
+            )
     else:
         effective_logical_plan = logical_plan if logical_plan is not None else result.logical_plan
         if effective_logical_plan is not None:
             effective_defer_reason = None
+            effective_defer_code = None
         elif logical_plan_defer_reason is not None:
             effective_defer_reason = logical_plan_defer_reason
+            effective_defer_code = logical_plan_defer_code
         else:
             effective_defer_reason = result.logical_plan_defer_reason
+            effective_defer_code = result.logical_plan_defer_code
     return replace(
         result,
         execution_extras=_execution_extras_with(
@@ -8583,6 +8612,7 @@ def _attach_logical_plan_route(
             scope_stack=result_extras.scope_stack,
             logical_plan=effective_logical_plan,
             logical_plan_defer_reason=effective_defer_reason,
+            logical_plan_defer_code=effective_defer_code,
         ),
     )
 
@@ -8647,6 +8677,7 @@ def compile_cypher_query(
         compiled_bindings = ()
     logical_plan: Optional[LogicalPlan] = None
     logical_plan_defer_reason: Optional[str] = None
+    logical_plan_defer_code: Optional[str] = None
     _bound_scope_stack: Tuple[ScopeFrame, ...] = ()
 
     def _attach_graph_context(result: CompiledCypherQuery) -> CompiledCypherQuery:
@@ -8669,12 +8700,14 @@ def compile_cypher_query(
                 scope_stack=_bound_scope_stack,
                 logical_plan=out.logical_plan,
                 logical_plan_defer_reason=out.logical_plan_defer_reason,
+                logical_plan_defer_code=out.logical_plan_defer_code,
             ),
         )
         return _attach_logical_plan_route(
             out,
             logical_plan=logical_plan,
             logical_plan_defer_reason=logical_plan_defer_reason,
+            logical_plan_defer_code=logical_plan_defer_code,
         )
 
     normalizer = ASTNormalizer()
@@ -8692,7 +8725,7 @@ def compile_cypher_query(
     params = bound_context.params
     _reject_unsupported_where_expr_forms(query)
     _reject_nonterminal_variable_length_relationship_patterns(query)
-    logical_plan, logical_plan_defer_reason = _logical_plan_route_for_query(
+    logical_plan, logical_plan_defer_reason, logical_plan_defer_code = _logical_plan_route_for_query(
         query,
         bound_ir=bound_ir,
         params=params,
