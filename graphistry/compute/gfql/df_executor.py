@@ -9,7 +9,13 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.gfql.ref.enumerator import OracleCaps, OracleResult, enumerate_chain
-from graphistry.compute.gfql.same_path_types import INEQ_WHERE_OPS, PathState, WhereComparison
+from graphistry.compute.gfql.same_path_types import (
+    INEQ_WHERE_OPS,
+    NODE_IDENTITY_COLUMN,
+    PathState,
+    StepColumnRef,
+    WhereComparison,
+)
 from graphistry.compute.gfql.same_path.chain_meta import ChainMeta
 from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
 from graphistry.compute.gfql.same_path.df_utils import (
@@ -392,6 +398,7 @@ class DFSamePathExecutor:
 
 def build_same_path_inputs(g: Plottable, chain: Sequence[ASTObject], where: Sequence[WhereComparison], engine: Engine, include_paths: bool = False) -> SamePathExecutorInputs:
     bindings = _collect_alias_bindings(chain)
+    where = _resolve_internal_node_identity_where(g, bindings, where)
     _validate_where_aliases(bindings, where)
     schema_trace = trace_chain_schema(g, list(chain))
     _validate_where_columns(bindings, where, schema_trace, chain)
@@ -425,6 +432,31 @@ def _collect_alias_bindings(chain: Sequence[ASTObject]) -> Dict[str, AliasBindin
             )
         bindings[alias] = AliasBinding(alias, idx, kind, step)
     return bindings
+
+
+def _resolve_internal_node_identity_where(
+    g: Plottable,
+    bindings: Dict[str, AliasBinding],
+    where: Sequence[WhereComparison],
+) -> Sequence[WhereComparison]:
+    node_col = getattr(g, "_node", None)
+    if not node_col:
+        return where
+
+    def _resolve(ref: StepColumnRef) -> StepColumnRef:
+        binding = bindings.get(ref.alias)
+        if (
+            ref.column == NODE_IDENTITY_COLUMN
+            and binding is not None
+            and binding.kind == "node"
+        ):
+            return StepColumnRef(ref.alias, str(node_col))
+        return ref
+
+    return tuple(
+        WhereComparison(_resolve(clause.left), clause.op, _resolve(clause.right))
+        for clause in where
+    )
 
 
 def _collect_required_columns(where: Sequence[WhereComparison]) -> Dict[str, Sequence[str]]:

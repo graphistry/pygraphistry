@@ -56,6 +56,7 @@ from graphistry.compute.gfql.row.entity_text import (
     entity_type_series,
     is_entity_text_scalar,
 )
+from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN
 from graphistry.compute.gfql.series_str_compat import series_sequence_len, series_str_match
 from graphistry.compute.gfql.row.ordering import (
     build_list_sort_columns,
@@ -207,6 +208,16 @@ class RowPipelineMixin:
     def _gfql_has_bindings_alias_prefix(table_df: Any, alias: str) -> bool:
         prefix = f"{alias}."
         return any(isinstance(col, str) and col.startswith(prefix) for col in table_df.columns)
+
+    def _gfql_node_id_column(self) -> Optional[str]:
+        node_id = getattr(self, "_node", None)
+        if node_id is not None:
+            return cast(str, node_id)
+        base_graph = getattr(self, "_gfql_rows_base_graph", None)
+        if base_graph is None:
+            base_graph = getattr(self, "_g", None)
+        node_id = getattr(base_graph, "_node", None) if base_graph is not None else None
+        return cast(Optional[str], node_id)
 
     @staticmethod
     def _gfql_fresh_col_name(columns: Any, prefix: str) -> str:
@@ -846,6 +857,12 @@ class RowPipelineMixin:
             if isinstance(node.value, Identifier):
                 alias_name = node.value.name
                 if "." not in alias_name and RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, alias_name):
+                    if node.property == NODE_IDENTITY_COLUMN:
+                        node_id = self._gfql_node_id_column()
+                        identity_col = f"{alias_name}.{node_id}" if node_id else None
+                        if identity_col is not None and identity_col in table_df.columns:
+                            return True, table_df[identity_col]
+                        return True, self._gfql_broadcast_scalar(table_df, pd.NA)
                     binding_col = f"{alias_name}.{node.property}"
                     if binding_col in table_df.columns:
                         return True, table_df[binding_col]
@@ -862,6 +879,16 @@ class RowPipelineMixin:
                     and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
                 ):
                     alias_mask = table_df[alias_name]
+                    if node.property == NODE_IDENTITY_COLUMN:
+                        node_id = self._gfql_node_id_column()
+                        prop_value = (
+                            table_df[node_id]
+                            if node_id is not None and node_id in table_df.columns
+                            else self._gfql_broadcast_scalar(table_df, None)
+                        )
+                        if hasattr(prop_value, "where"):
+                            prop_value = self._gfql_mask_fill(prop_value, alias_mask != True, None)  # noqa: E712
+                        return True, prop_value
                     prop_value = (
                         table_df[node.property]
                         if node.property in table_df.columns
@@ -1136,10 +1163,12 @@ class RowPipelineMixin:
                 return True, out
             if fn == "labels" and len(node.args) == 1 and isinstance(node.args[0], Identifier):
                 alias_name = node.args[0].name
+                node_id = self._gfql_node_id_column()
                 if (
                     "." not in alias_name
                     and alias_name in table_df.columns
-                    and "id" in table_df.columns
+                    and node_id is not None
+                    and node_id in table_df.columns
                     and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
                 ):
                     out = self._gfql_format_labels_series(table_df, alias_col=alias_name)
@@ -2644,6 +2673,9 @@ class RowPipelineMixin:
         txt = token.strip()
         if txt in table_df.columns:
             return table_df[txt]
+        node_id = self._gfql_node_id_column()
+        if txt == NODE_IDENTITY_COLUMN and node_id is not None and node_id in table_df.columns:
+            return table_df[node_id]
         if txt == "__gfql_edge_index_0__" and self._edge is not None and self._edge in table_df.columns:
             return table_df[self._edge]
         prop_match = RowPipelineMixin._GFQL_ALIAS_PROP_RE.fullmatch(txt)
@@ -2651,6 +2683,12 @@ class RowPipelineMixin:
             alias = prop_match.group("alias")
             prop = prop_match.group("prop")
             if RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, alias):
+                if prop == NODE_IDENTITY_COLUMN:
+                    node_id = self._gfql_node_id_column()
+                    identity_col = f"{alias}.{node_id}" if node_id else None
+                    if identity_col is not None and identity_col in table_df.columns:
+                        return table_df[identity_col]
+                    return self._gfql_broadcast_scalar(table_df, pd.NA)
                 qualified = f"{alias}.{prop}"
                 if qualified in table_df.columns:
                     return table_df[qualified]
@@ -2671,6 +2709,10 @@ class RowPipelineMixin:
                     raise ValueError(
                         f"unsupported row expression: property access requires a graph element alias in {token!r}"
                     )
+                if prop == NODE_IDENTITY_COLUMN:
+                    node_id = self._gfql_node_id_column()
+                    if node_id is not None and node_id in table_df.columns:
+                        return table_df[node_id]
                 return self._gfql_broadcast_scalar(table_df, pd.NA)
         # Bare alias name on a bindings-row table: resolve to the alias's
         # identity column (alias.{node_id_col}).  This lets expressions like
@@ -2682,7 +2724,7 @@ class RowPipelineMixin:
                 # Cypher RETURN <relAlias>) instead of collapsing to id-like
                 # scalar columns such as `<rel>.id`.
                 return self._gfql_render_relationship_alias(table_df, txt)
-            node_id = getattr(self, "_node", None)
+            node_id = self._gfql_node_id_column()
             id_col = f"{txt}.{node_id}" if node_id else None
             if id_col is not None and id_col in table_df.columns:
                 return table_df[id_col]
