@@ -82,26 +82,36 @@ class LogicalPlanner:
                     logical_plan_defer_code="non_top_level_optional_match",
                 )
             if clause == "MATCH":
-                if seen_match:
-                    raise GFQLValidationError(
-                        ErrorCode.E108,
-                        "LogicalPlanner skeleton does not yet support multiple MATCH stages",
-                        field="clause",
-                        value=part.clause,
-                        suggestion="Use a single MATCH stage until chained pattern planning is implemented.",
-                        logical_plan_defer_code="multiple_match_stages",
-                    )
                 scope_visible_aliases = (
                     bound_ir.scope_stack[part_index].visible_vars
                     if part_index < len(bound_ir.scope_stack)
                     else frozenset()
                 )
+                scope_schema = (
+                    bound_ir.scope_stack[part_index].schema
+                    if part_index < len(bound_ir.scope_stack)
+                    else RowSchema()
+                )
+                if seen_match and self._match_part_has_path_alias(part=part, scope_schema=scope_schema):
+                    raise GFQLValidationError(
+                        ErrorCode.E108,
+                        "LogicalPlanner skeleton does not yet support multiple MATCH stages containing path aliases",
+                        field="clause",
+                        value=part.clause,
+                        suggestion="Split shortestPath/path-alias multi-MATCH shapes until chained path planning is implemented.",
+                        logical_plan_defer_code="multiple_match_stages",
+                    )
                 self._reject_unsupported_match_shape(
                     part=part,
                     vars_by_name=part_vars,
                     scope_visible_aliases=scope_visible_aliases,
                 )
-                current = self._plan_match(part=part, vars_by_name=part_vars, id_gen=id_gen)
+                current = self._plan_match(
+                    part=part,
+                    vars_by_name=part_vars,
+                    id_gen=id_gen,
+                    input=current if seen_match else None,
+                )
                 current = self._apply_predicates(part=part, current=current, vars_by_name=part_vars, id_gen=id_gen)
                 seen_match = True
                 continue
@@ -142,10 +152,11 @@ class LogicalPlanner:
         vars_by_name: Mapping[str, BoundVariable],
         id_gen: IdGen,
         optional: bool = False,
+        input: Optional[LogicalPlan] = None,
     ) -> LogicalPlan:
         aliases = sorted(self._match_aliases_for_part(part, vars_by_name=vars_by_name))
         schema = self._schema_for_aliases(alias_names=aliases, vars_by_name=vars_by_name)
-        if not optional and len(aliases) == 1:
+        if input is None and not optional and len(aliases) == 1:
             variable = vars_by_name.get(aliases[0])
             if variable is not None and variable.entity_kind == "node":
                 return NodeScan(
@@ -156,6 +167,7 @@ class LogicalPlanner:
         return PatternMatch(
             op_id=id_gen.next(),
             pattern={"aliases": tuple(aliases)},
+            input=input,
             optional=optional,
             arm_id="top_level_optional_0" if optional else None,
             output_schema=schema,
@@ -402,3 +414,8 @@ class LogicalPlanner:
                 scope_id=fallback_var.scope_id if fallback_var is not None else part_index + 1,
             )
         return scoped
+
+    @staticmethod
+    def _match_part_has_path_alias(*, part: BoundQueryPart, scope_schema: RowSchema) -> bool:
+        aliases = part.outputs or part.inputs
+        return any(isinstance(scope_schema.columns.get(alias), PathType) for alias in aliases)

@@ -240,27 +240,16 @@ def test_logical_planner_rejects_non_top_level_optional_match_shapes() -> None:
         LogicalPlanner().plan(bound, PlanContext())
 
 
-def test_logical_planner_rejects_multiple_match_stages() -> None:
-    bound_ir = BoundIR(
-        query_parts=[
-            BoundQueryPart(clause="MATCH", outputs=frozenset({"a"})),
-            BoundQueryPart(clause="MATCH", outputs=frozenset({"a"})),
-        ],
-        semantic_table=SemanticTable(
-            variables={
-                "a": BoundVariable(
-                    name="a",
-                    logical_type=NodeRef(labels=frozenset({"Person"})),
-                    nullable=False,
-                    null_extended_from=frozenset(),
-                    entity_kind="node",
-                )
-            }
-        ),
-    )
+def test_logical_planner_plans_multiple_match_stages_as_chained_pattern_match() -> None:
+    bound = _bind_query("MATCH (a:A) MATCH (a)-[:KNOWS]->(b:B) RETURN b")
 
-    with pytest.raises(GFQLValidationError, match="multiple MATCH"):
-        LogicalPlanner().plan(bound_ir, PlanContext())
+    plan = LogicalPlanner().plan(bound, PlanContext())
+    pattern = _find_first(plan, PatternMatch)
+
+    assert pattern is not None
+    assert isinstance(pattern.input, NodeScan)
+    assert pattern.pattern == {"aliases": ("a", "b")}
+    assert pattern.input.output_schema.columns.keys() == {"a"}
 
 
 def test_logical_planner_applies_predicates_attached_to_match_part() -> None:
