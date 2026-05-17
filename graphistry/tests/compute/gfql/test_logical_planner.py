@@ -312,6 +312,30 @@ def test_logical_planner_plans_distinct_projection_shapes() -> None:
     assert root.output_schema == root.input.output_schema
 
 
+def test_logical_planner_uses_clause_scope_for_projection_alias_shadowing() -> None:
+    query = "MATCH (a) RETURN a.id IS NOT NULL AS a, a IS NOT NULL AS b"
+    bound = _bind_query(query)
+
+    root = LogicalPlanner().plan(bound, PlanContext())
+    scan = _find_first(root, NodeScan)
+
+    assert isinstance(root, Project)
+    assert scan is not None
+    assert isinstance(scan.output_schema.columns["a"], NodeRef)
+    assert root.output_schema.columns == {"b": ScalarType(kind="unknown", nullable=False)}
+
+
+def test_logical_planner_ignores_named_path_alias_in_match_schema() -> None:
+    query = "MATCH p = (n)-[r]->(b) RETURN count(r) AS cnt"
+    bound = _bind_query(query)
+
+    root = LogicalPlanner().plan(bound, PlanContext())
+    pattern = _find_first(root, PatternMatch)
+
+    assert pattern is not None
+    assert set(pattern.output_schema.columns) == {"b", "n", "r"}
+
+
 def test_logical_planner_plans_single_alias_edge_match_shapes() -> None:
     bound_ir = BoundIR(
         query_parts=[BoundQueryPart(clause="MATCH", outputs=frozenset({"r"}))],
