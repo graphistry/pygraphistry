@@ -484,11 +484,10 @@ class TestSeamWith1303LoweringSplit:
         import sys
 
         # The import-coexistence smoke: each module must land in sys.modules
-        # without raising. We can't check __name__/__file__ on the #1303
-        # extracted modules because they `globals().update(vars(lowering))`
-        # to inherit the shared symbol table, which clobbers those dunders.
-        # sys.modules registration happens independently of that update, so
-        # it is the right load-success witness.
+        # without raising. #1471 removed the reentry compiletime broad
+        # lowering-symbol shim; `projection_planning.py` still owns its
+        # separate compatibility shim under #1301, so sys.modules remains the
+        # stable load-success witness for this cross-module seam.
         from graphistry.compute.gfql.cypher import lowering  # noqa: F401
         from graphistry.compute.gfql.cypher import projection_planning  # noqa: F401
         from graphistry.compute.gfql.cypher.reentry import compiletime  # noqa: F401
