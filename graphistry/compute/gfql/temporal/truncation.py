@@ -5,7 +5,7 @@ from datetime import timedelta
 import re
 from typing import Optional, cast
 
-from graphistry.compute.gfql import temporal_text as _tt
+from graphistry.compute.gfql.temporal import constructors as _tt
 from graphistry.compute.gfql.expr_parser import ExprNode, Literal, MapLiteral
 from graphistry.compute.gfql.temporal.rendering import _render_temporal_arg
 from graphistry.compute.gfql.temporal.values import (

@@ -8,7 +8,7 @@ from datetime import timezone as py_timezone
 import re
 from typing import Optional, cast
 
-from graphistry.compute.gfql import temporal_text as _tt
+from graphistry.compute.gfql.temporal import constructors as _tt
 
 @dataclass(frozen=True)
 class _TemporalValue:

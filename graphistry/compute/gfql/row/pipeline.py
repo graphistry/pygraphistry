@@ -69,13 +69,15 @@ from graphistry.compute.gfql.row.ordering import (
     parse_stringified_list_series,
     validate_order_series_vector_safe,
 )
-from graphistry.compute.gfql.temporal_text import parse_temporal_sort_duration_components
-from graphistry.compute.gfql.temporal_text import (
+from graphistry.compute.gfql.temporal.constructors import (
     DATETIME_CALL_TEXT_RE,
     DATE_CALL_TEXT_RE,
     LOCALDATETIME_CALL_TEXT_RE,
     LOCALTIME_CALL_TEXT_RE,
     TIME_CALL_TEXT_RE,
+)
+from graphistry.compute.gfql.temporal.durations import (
+    parse_temporal_sort_duration_components,
     resolve_duration_text_property,
 )
 

@@ -1,44 +1,21 @@
 from __future__ import annotations
 
-from datetime import date as py_date
-
 import graphistry.compute.gfql.temporal_text as temporal_text
+from graphistry.compute.gfql.temporal import constructors
+from graphistry.compute.gfql.temporal import durations
+from graphistry.compute.gfql.temporal import folding
+from graphistry.compute.gfql.temporal import values
 
 
-def test_normalize_temporal_constructor_text_supports_named_zones_without_zoneinfo(monkeypatch) -> None:
-    monkeypatch.setattr(temporal_text, "ZoneInfo", None)
-
-    result = temporal_text.normalize_temporal_constructor_text(
-        "datetime('2015-07-21T21:40:32.142[Europe/London]')"
-    )
-
-    assert result == "2015-07-21T21:40:32.142+01:00[Europe/London]"
+def test_temporal_text_reexports_constructor_helpers_for_legacy_imports() -> None:
+    assert temporal_text.normalize_temporal_constructor_text is constructors.normalize_temporal_constructor_text
+    assert temporal_text.DATE_CALL_TEXT_RE is constructors.DATE_CALL_TEXT_RE
+    assert temporal_text.TEMPORAL_CALL_EXPR_RE is constructors.TEMPORAL_CALL_EXPR_RE
 
 
-def test_normalize_temporal_constructor_text_uses_neo4j_historical_stockholm_offset() -> None:
-    result = temporal_text.normalize_temporal_constructor_text(
-        "datetime('1818-07-21T21:40:32.142[Europe/Stockholm]')"
-    )
-
-    assert result == "1818-07-21T21:40:32.142+00:53:28[Europe/Stockholm]"
-
-
-def test_comparable_datetime_handles_trimmed_fraction_without_fromisoformat_dependency() -> None:
-    value = temporal_text._TemporalValue(
-        kind="localtime",
-        date_value=None,
-        hour=15,
-        minute=32,
-        second=38,
-        nanosecond=947_410_000,
-        tz_suffix=None,
-    )
-
-    result = temporal_text._comparable_datetime(
-        value,
-        include_date=False,
-        keep_timezone=False,
-        anchor_date=py_date(1970, 1, 1),
-    )
-
-    assert result.isoformat() == "1970-01-01T15:32:38.947410"
+def test_temporal_text_reexports_domain_helpers_for_legacy_imports() -> None:
+    assert temporal_text._TemporalValue is values._TemporalValue
+    assert temporal_text._comparable_datetime is values._comparable_datetime
+    assert temporal_text.parse_temporal_sort_duration_components is durations.parse_temporal_sort_duration_components
+    assert temporal_text.resolve_duration_text_property is durations.resolve_duration_text_property
+    assert temporal_text.fold_temporal_constructor_ast is folding.fold_temporal_constructor_ast

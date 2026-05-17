@@ -9,7 +9,7 @@ from graphistry.compute.gfql.series_str_compat import series_str_contains, serie
 from graphistry.compute.typing import DataFrameT, SeriesT
 
 from .lowering import ResultProjectionColumn, ResultProjectionPlan
-from graphistry.compute.gfql.temporal_text import (
+from graphistry.compute.gfql.temporal.constructors import (
     DATETIME_CALL_TEXT_RE,
     DATE_CALL_TEXT_RE,
     LOCALDATETIME_CALL_TEXT_RE,
