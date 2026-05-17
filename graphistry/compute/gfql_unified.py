@@ -81,6 +81,15 @@ from graphistry.otel import otel_traced, otel_detail_enabled
 logger = setup_logger(__name__)
 
 
+_APPROVED_UNPLANNED_CHAIN_FALLBACK_CODES = frozenset({
+    "anonymous_match",
+    "non_top_level_optional_match",
+    "multiple_match_stages",
+    "scalar_projection_alias_match",
+    "optional_match_reentry",
+})
+
+
 def _series_to_pylist(values: Any) -> List[Any]:
     if hasattr(values, "to_arrow"):
         try:
@@ -105,6 +114,12 @@ def _is_duplicate_carried_rows_reentry_error(exc: GFQLValidationError) -> bool:
     if exc.code != ErrorCode.E108 or not isinstance(context, dict):
         return False
     return context.get("reason") == _REENTRY_DUPLICATE_CARRIED_ROWS_REASON
+
+
+def _is_approved_unplanned_chain_fallback(code: Optional[str]) -> bool:
+    if code is None:
+        return False
+    return code in _APPROVED_UNPLANNED_CHAIN_FALLBACK_CODES
 
 
 def _slice_reentry_prefix_result_row(
@@ -631,6 +646,8 @@ def _execute_compiled_query_non_union(
     compiled_extras = compiled_query.execution_extras
     logical_plan = compiled_query.logical_plan
     if logical_plan is None:
+        defer_reason = compiled_query.logical_plan_defer_reason
+        defer_code = compiled_query.logical_plan_defer_code
         if compiled_query.procedure_call is not None:
             raise GFQLValidationError(
                 ErrorCode.E108,
@@ -638,6 +655,15 @@ def _execute_compiled_query_non_union(
                 field="procedure_call",
                 value=compiled_query.procedure_call.procedure,
                 suggestion="Compile CALL queries with a LogicalPlan before runtime dispatch.",
+                language="cypher",
+            )
+        if not _is_approved_unplanned_chain_fallback(defer_code):
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Cypher query reached runtime without a logical plan or an approved deferred chain route",
+                field="logical_plan",
+                value={"defer_code": defer_code, "defer_reason": defer_reason},
+                suggestion="Compile this Cypher shape through a LogicalPlan route or add an explicit reviewed defer classification before chain execution.",
                 language="cypher",
             )
         dispatch_graph = _seeded_dispatch_graph(

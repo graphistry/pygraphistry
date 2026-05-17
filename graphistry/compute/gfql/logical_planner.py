@@ -78,6 +78,7 @@ class LogicalPlanner:
                     field="clause",
                     value=part.clause,
                     suggestion="Use a single top-level OPTIONAL MATCH or a non-optional MATCH shape until chained optional planning is implemented.",
+                    logical_plan_defer_code="non_top_level_optional_match",
                 )
             if clause == "MATCH":
                 if seen_match:
@@ -87,6 +88,7 @@ class LogicalPlanner:
                         field="clause",
                         value=part.clause,
                         suggestion="Use a single MATCH stage until chained pattern planning is implemented.",
+                        logical_plan_defer_code="multiple_match_stages",
                     )
                 scope_visible_aliases = (
                     bound_ir.scope_stack[part_index].visible_vars
@@ -173,6 +175,7 @@ class LogicalPlanner:
                 field="clause",
                 value=part.clause,
                 suggestion="Use MATCH with at least one alias in scope.",
+                logical_plan_defer_code="anonymous_match",
             )
         has_known_alias = False
         for alias in alias_names:
@@ -186,6 +189,7 @@ class LogicalPlanner:
                         field="clause",
                         value=part.clause,
                         suggestion="Use MATCH with node/edge aliases only until richer pattern planning is implemented.",
+                        logical_plan_defer_code="scalar_projection_alias_match",
                     )
                 continue
             if alias in scope_visible_aliases:

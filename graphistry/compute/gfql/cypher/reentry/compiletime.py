@@ -37,6 +37,7 @@ def _map_terminal_reentry_query(
             reentry_plan=compiled_query.reentry_plan,
             logical_plan=compiled_query.logical_plan,
             logical_plan_defer_reason=compiled_query.logical_plan_defer_reason,
+            logical_plan_defer_code=compiled_query.logical_plan_defer_code,
         ),
     )
 
@@ -701,6 +702,11 @@ def _compile_bounded_reentry_query(
                     None
                     if is_optional and target.logical_plan is None
                     else target.logical_plan_defer_reason
+                ),
+                logical_plan_defer_code=(
+                    None
+                    if is_optional and target.logical_plan is None
+                    else target.logical_plan_defer_code
                 ),
             ),
         )

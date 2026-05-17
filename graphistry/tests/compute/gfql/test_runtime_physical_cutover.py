@@ -1,9 +1,15 @@
+from dataclasses import replace
+from typing import cast
+
 import pandas as pd
 import pytest
 
 import graphistry
 from graphistry.compute.exceptions import GFQLValidationError
+from graphistry.compute.execution_context import ExecutionContext
 import graphistry.compute.gfql_unified as gfql_unified
+from graphistry.compute.gfql.cypher.api import compile_cypher
+from graphistry.compute.gfql.cypher.lowering import CompiledCypherExecutionExtras, CompiledCypherQuery
 from graphistry.compute.gfql.ir.compilation import PhysicalPlan
 from graphistry.compute.gfql.ir.logical_plan import PatternMatch, iter_children
 from graphistry.compute.gfql.physical_planner import (
@@ -259,6 +265,104 @@ def test_distinct_projection_route_uses_physical_route(monkeypatch):
 
     assert planner_routes == ["same_path"]
     assert result._nodes["group"].tolist() == ["x", "y"]
+
+
+@pytest.mark.parametrize(
+    ("query", "defer_code", "expected_rows"),
+    [
+        (
+            "MATCH () RETURN count(*) * 10 AS c",
+            "anonymous_match",
+            [{"c": 30}],
+        ),
+        (
+            "MATCH (a) OPTIONAL MATCH (a)-->(b) RETURN count(b) AS c",
+            "non_top_level_optional_match",
+            [{"c": 2}],
+        ),
+        (
+            "MATCH (a) MATCH (a)-->(b) RETURN count(b) AS c",
+            "multiple_match_stages",
+            [{"c": 2}],
+        ),
+        (
+            "MATCH (a) RETURN a.id IS NOT NULL AS a, a IS NOT NULL AS b",
+            "scalar_projection_alias_match",
+            [{"a": True, "b": True}, {"a": True, "b": True}, {"a": True, "b": True}],
+        ),
+    ],
+)
+def test_classified_unplanned_chain_fallback_uses_chain_route(
+    monkeypatch,
+    query,
+    defer_code,
+    expected_rows,
+):
+    g = _mk_graph()
+    planner_calls = []
+    compiled = cast(CompiledCypherQuery, compile_cypher(query, _warn_deprecated=False))
+    assert compiled.logical_plan is None
+    assert compiled.logical_plan_defer_code == defer_code
+    assert compiled.logical_plan_defer_reason is not None
+
+    def _spy_plan(self, logical_plan, ctx):
+        planner_calls.append(type(logical_plan).__name__)
+        return PhysicalPlan(route="unexpected", operators=(), logical_op_ids=(), metadata={})
+
+    monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
+
+    result = g.gfql(query)
+
+    assert planner_calls == []
+    assert result._nodes.to_dict(orient="records") == expected_rows
+
+
+def test_unplanned_chain_fallback_requires_compile_defer_reason():
+    g = _mk_graph()
+    compiled = cast(
+        CompiledCypherQuery,
+        compile_cypher("MATCH () RETURN count(*) * 10 AS c", _warn_deprecated=False),
+    )
+    assert compiled.logical_plan is None
+    assert compiled.logical_plan_defer_code == "anonymous_match"
+    assert compiled.logical_plan_defer_reason is not None
+
+    unclassified = replace(compiled, execution_extras=None)
+
+    with pytest.raises(GFQLValidationError, match="approved deferred chain route"):
+        gfql_unified._execute_compiled_query_non_union(
+            g,
+            compiled_query=unclassified,
+            engine="pandas",
+            policy=None,
+            context=ExecutionContext(),
+        )
+
+
+def test_unknown_deferred_logical_plan_reason_rejected_before_chain_fallback():
+    g = _mk_graph()
+    compiled = cast(
+        CompiledCypherQuery,
+        compile_cypher("MATCH () RETURN count(*) * 10 AS c", _warn_deprecated=False),
+    )
+    unknown_defer = replace(
+        compiled,
+        execution_extras=CompiledCypherExecutionExtras(
+            logical_plan_defer_reason=(
+                "LogicalPlanner skeleton requires MATCH aliases to be present in semantic scope"
+            ),
+            logical_plan_defer_code=None,
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError, match="approved deferred chain route"):
+        gfql_unified._execute_compiled_query_non_union(
+            g,
+            compiled_query=unknown_defer,
+            engine="pandas",
+            policy=None,
+            context=ExecutionContext(),
+        )
 
 
 def test_wavefront_route_without_join_payload_raises(monkeypatch):
