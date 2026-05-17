@@ -418,5 +418,9 @@ class LogicalPlanner:
 
     @staticmethod
     def _match_part_has_path_alias(*, part: BoundQueryPart, scope_schema: RowSchema) -> bool:
-        aliases = part.inputs
+        metadata_aliases = part.metadata.get("schema_confidence")
+        if isinstance(metadata_aliases, Mapping):
+            aliases = part.inputs & frozenset(metadata_aliases)
+        else:
+            aliases = part.inputs
         return any(isinstance(scope_schema.columns.get(alias), PathType) for alias in aliases)

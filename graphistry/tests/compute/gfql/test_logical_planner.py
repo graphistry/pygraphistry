@@ -329,6 +329,17 @@ def test_logical_planner_ignores_named_path_alias_in_match_schema() -> None:
     assert set(pattern.output_schema.columns) == {"b", "n", "r"}
 
 
+def test_logical_planner_ignores_unused_carried_path_alias_in_follow_on_match() -> None:
+    query = "MATCH path = shortestPath((a)-[*]-(b)) MATCH (b)-->(c) RETURN c"
+    bound = _bind_query(query)
+
+    root = LogicalPlanner().plan(bound, PlanContext())
+    pattern = _find_first(root, PatternMatch)
+
+    assert pattern is not None
+    assert set(pattern.output_schema.columns) == {"a", "b", "c"}
+
+
 def test_logical_planner_plans_single_alias_edge_match_shapes() -> None:
     bound_ir = BoundIR(
         query_parts=[BoundQueryPart(clause="MATCH", outputs=frozenset({"r"}))],

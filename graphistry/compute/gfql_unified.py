@@ -355,7 +355,8 @@ def _apply_connected_optional_match(
         if not isinstance(first_alias, str) or first_alias not in shared_node_aliases:
             return None
 
-        base_nodes = cast(Optional[DataFrameT], getattr(base_graph, "_nodes", None))
+        base_nodes_raw = cast(Optional[DataFrameT], getattr(base_graph, "_nodes", None))
+        base_nodes = None if base_nodes_raw is None else cast(DataFrameT, df_to_engine(base_nodes_raw, concrete_engine))
         if base_nodes is None or node_col not in base_nodes.columns:
             return None
 
@@ -370,7 +371,14 @@ def _apply_connected_optional_match(
         if joined_col is None:
             return None
 
-        seed_ids = cast(SeriesT, joined_rows[joined_col]).dropna().drop_duplicates()
+        seed_frame = cast(
+            DataFrameT,
+            df_to_engine(
+                joined_rows[[joined_col]].dropna().drop_duplicates().rename(columns={joined_col: node_col}),
+                concrete_engine,
+            ),
+        )
+        seed_ids = cast(SeriesT, seed_frame[node_col])
         node_ids = cast(SeriesT, base_nodes[node_col])
         return cast(DataFrameT, base_nodes[node_ids.isin(seed_ids)].copy())
 
