@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import re
-from typing import AbstractSet, Any, Callable, Dict, List, Mapping, Optional, Tuple, cast
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, cast
 from typing_extensions import Literal
 
 from graphistry.compute.gfql.cypher.ast import (
@@ -20,18 +20,10 @@ from graphistry.compute.gfql.cypher.ast import (
 from graphistry.compute.gfql.cypher.lowering import (
     CompiledCypherExecutionExtras,
     CompiledCypherQuery,
-    _all_match_alias_kinds,
-    _all_match_node_aliases,
-    _collect_non_source_alias_property_refs,
     _connected_component_from_pattern,
-    _demote_secondary_whole_row_aliases,
     _execution_extras_with,
-    _first_pattern_node_alias,
-    _is_bare_carry_with_item,
-    _is_whole_row_with_item,
     _match_pattern_elements,
     _pattern_node_aliases,
-    _post_processing_with,
     _render_expr_node,
     _rewrite_expr_identifiers,
     _rewrite_where_clause_and_resync,
@@ -44,6 +36,17 @@ from graphistry.compute.gfql.cypher.reentry.carry import (
     _bounded_reentry_carry_columns,
     _bounded_reentry_prefix_order_is_safe,
     _bounded_reentry_scalar_prefix_columns,
+)
+from graphistry.compute.gfql.cypher.reentry.lowering_support import (
+    _all_match_alias_kinds,
+    _all_match_node_aliases,
+    _collect_non_source_alias_property_refs,
+    _demote_secondary_whole_row_aliases,
+    _drop_bare_alias_items_from_stage,
+    _first_pattern_node_alias,
+    _is_bare_carry_with_item,
+    _is_whole_row_with_item,
+    _post_processing_with,
 )
 from graphistry.compute.gfql.cypher.reentry.naming import (
     _reentry_hidden_column_name,
@@ -97,35 +100,6 @@ def _map_terminal_reentry_query(
             logical_plan_defer_code=compiled_query.logical_plan_defer_code,
         ),
     )
-
-
-def _drop_bare_alias_items_from_stage(
-    stage: ProjectionStage,
-    aliases: AbstractSet[str],
-    *,
-    identifier_re: "re.Pattern[str]",
-) -> ProjectionStage:
-    """Drop bare-identifier projection items whose name is in ``aliases``.
-
-    Used by the multi-stage carry chain (slice 4.3c): downstream
-    ``WITH a, x, y, collect(...)`` re-projects carried whole-row aliases as
-    forwarding items. Once their properties are carried as hidden columns on
-    the reentry-alias's row table, the bare forwarding items are noise — the
-    carry continues through the chain regardless. Drop them so the bare-ref
-    scanner doesn't fail-fast on what is in fact a forwarding pattern.
-    """
-    new_items = tuple(
-        item
-        for item in stage.clause.items
-        if not (
-            item.alias is None
-            and identifier_re.fullmatch(item.expression.text.strip())
-            and item.expression.text.strip() in aliases
-        )
-    )
-    if len(new_items) == len(stage.clause.items):
-        return stage
-    return replace(stage, clause=replace(stage.clause, items=new_items))
 
 
 def _rewrite_terminal_singleton_reentry_unwind(

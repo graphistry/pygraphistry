@@ -10534,7 +10534,7 @@ def test_unit_all_match_alias_kinds_lets_rel_kind_win_over_node() -> None:
     Bypasses lowering (which rejects the multi-pattern shape under a different
     rule) and exercises the classifier helper directly on the parsed AST.
     """
-    from graphistry.compute.gfql.cypher.lowering import _all_match_alias_kinds
+    from graphistry.compute.gfql.cypher.reentry.lowering_support import _all_match_alias_kinds
 
     parsed = parse_cypher(
         "MATCH (x:X) "

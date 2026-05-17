@@ -4,6 +4,7 @@ import inspect
 
 from graphistry.compute.gfql.cypher import lowering, projection_planning
 from graphistry.compute.gfql.cypher.reentry import compiletime
+from graphistry.compute.gfql.cypher.reentry import lowering_support
 
 
 def test_issue_1301_projection_split_delegator_round_trip() -> None:
@@ -45,9 +46,5 @@ def test_issue_1471_reentry_compiletime_has_no_lowering_symbol_table_shim() -> N
 
 
 def test_issue_1471_reentry_compiletime_keeps_lowering_entrypoints() -> None:
-    for name in (
-        "_compile_bounded_reentry_query",
-        "_drop_bare_alias_items_from_stage",
-    ):
-        helper = getattr(compiletime, name, None)
-        assert callable(helper), name
+    assert callable(getattr(compiletime, "_compile_bounded_reentry_query", None))
+    assert callable(getattr(lowering_support, "_drop_bare_alias_items_from_stage", None))
