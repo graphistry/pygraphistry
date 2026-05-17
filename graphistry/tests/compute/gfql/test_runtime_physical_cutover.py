@@ -365,6 +365,30 @@ def test_unknown_deferred_logical_plan_reason_rejected_before_chain_fallback():
         )
 
 
+def test_unapproved_deferred_logical_plan_code_rejected_before_chain_fallback():
+    g = _mk_graph()
+    compiled = cast(
+        CompiledCypherQuery,
+        compile_cypher("MATCH () RETURN count(*) * 10 AS c", _warn_deprecated=False),
+    )
+    unknown_defer = replace(
+        compiled,
+        execution_extras=CompiledCypherExecutionExtras(
+            logical_plan_defer_reason="Synthetic unplanned route for regression coverage",
+            logical_plan_defer_code="bogus_code",
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError, match="approved deferred chain route"):
+        gfql_unified._execute_compiled_query_non_union(
+            g,
+            compiled_query=unknown_defer,
+            engine="pandas",
+            policy=None,
+            context=ExecutionContext(),
+        )
+
+
 def test_wavefront_route_without_join_payload_raises(monkeypatch):
     g = _mk_graph()
 
