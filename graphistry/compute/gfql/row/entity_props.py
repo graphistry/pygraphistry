@@ -6,7 +6,7 @@ import pandas as pd
 
 from graphistry.compute.dataframe_utils import df_cons as template_df_cons
 from graphistry.compute.gfql.series_str_compat import series_str_contains, series_str_extract, series_str_match
-from graphistry.compute.gfql.temporal_text import (
+from graphistry.compute.gfql.temporal.constructors import (
     DATETIME_CALL_TEXT_RE,
     DATE_CALL_TEXT_RE,
     LOCALDATETIME_CALL_TEXT_RE,

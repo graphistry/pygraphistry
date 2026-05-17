@@ -120,9 +120,9 @@ from graphistry.compute.gfql.cypher.shortest_path_guards import (
     reject_shortest_path_alias_references_after_follow_on_match,
 )
 from graphistry.compute.gfql.string_literals import render_cypher_string_literal
-from graphistry.compute.gfql.temporal_text import (
+from graphistry.compute.gfql.temporal.durations import resolve_duration_text_property
+from graphistry.compute.gfql.temporal.folding import (
     fold_temporal_constructor_ast,
-    resolve_duration_text_property,
     rewrite_temporal_constructors_in_expr,
 )
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN, WhereComparison, col, compare, where_to_row_expr
