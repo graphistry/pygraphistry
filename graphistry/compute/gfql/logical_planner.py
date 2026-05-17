@@ -53,34 +53,34 @@ class LogicalPlanner:
             clause = part.clause.upper()
             part_vars = self._vars_for_part(bound_ir, part_index=part_index, fallback=vars_by_name)
             if clause == "OPTIONAL MATCH":
-                if current is None and not seen_match and part_index == 0 and not part.inputs:
-                    scope_visible_aliases = (
-                        bound_ir.scope_stack[part_index].visible_vars
-                        if part_index < len(bound_ir.scope_stack)
-                        else frozenset()
-                    )
-                    self._reject_unsupported_match_shape(
-                        part=part,
-                        vars_by_name=part_vars,
-                        scope_visible_aliases=scope_visible_aliases,
-                    )
-                    current = self._plan_match(
-                        part=part,
-                        vars_by_name=part_vars,
-                        id_gen=id_gen,
-                        optional=True,
-                    )
-                    current = self._apply_predicates(part=part, current=current, vars_by_name=part_vars, id_gen=id_gen)
-                    seen_match = True
-                    continue
-                raise GFQLValidationError(
-                    ErrorCode.E108,
-                    "LogicalPlanner skeleton does not yet support non-top-level OPTIONAL MATCH planning",
-                    field="clause",
-                    value=part.clause,
-                    suggestion="Use a single top-level OPTIONAL MATCH or a non-optional MATCH shape until chained optional planning is implemented.",
-                    logical_plan_defer_code="non_top_level_optional_match",
+                scope_visible_aliases = (
+                    bound_ir.scope_stack[part_index].visible_vars
+                    if part_index < len(bound_ir.scope_stack)
+                    else frozenset()
                 )
+                self._reject_unsupported_match_shape(
+                    part=part,
+                    vars_by_name=part_vars,
+                    scope_visible_aliases=scope_visible_aliases,
+                )
+                metadata_arm_id = part.metadata.get("arm_id")
+                is_top_level_optional = current is None and not seen_match and part_index == 0
+                arm_id = (
+                    "top_level_optional_0"
+                    if is_top_level_optional
+                    else metadata_arm_id if isinstance(metadata_arm_id, str) and metadata_arm_id else f"optional_arm_{part_index}"
+                )
+                current = self._plan_match(
+                    part=part,
+                    vars_by_name=part_vars,
+                    id_gen=id_gen,
+                    optional=True,
+                    input=None if is_top_level_optional else current,
+                    arm_id=arm_id,
+                )
+                current = self._apply_predicates(part=part, current=current, vars_by_name=part_vars, id_gen=id_gen)
+                seen_match = True
+                continue
             if clause == "MATCH":
                 scope_visible_aliases = (
                     bound_ir.scope_stack[part_index].visible_vars
@@ -153,6 +153,7 @@ class LogicalPlanner:
         id_gen: IdGen,
         optional: bool = False,
         input: Optional[LogicalPlan] = None,
+        arm_id: Optional[str] = None,
     ) -> LogicalPlan:
         aliases = sorted(self._match_aliases_for_part(part, vars_by_name=vars_by_name))
         schema = self._schema_for_aliases(alias_names=aliases, vars_by_name=vars_by_name)
@@ -169,7 +170,7 @@ class LogicalPlanner:
             pattern={"aliases": tuple(aliases)},
             input=input,
             optional=optional,
-            arm_id="top_level_optional_0" if optional else None,
+            arm_id=arm_id,
             output_schema=schema,
         )
 

@@ -8589,7 +8589,7 @@ def _attach_logical_plan_route(
                 or "optional_match_reentry"
             )
     else:
-        effective_logical_plan = logical_plan if logical_plan is not None else result.logical_plan
+        effective_logical_plan = result.logical_plan if result.logical_plan is not None else logical_plan
         if effective_logical_plan is not None:
             effective_defer_reason = None
             effective_defer_code = None
