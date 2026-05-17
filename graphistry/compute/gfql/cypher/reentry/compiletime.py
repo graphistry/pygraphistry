@@ -177,11 +177,11 @@ def _rewrite_terminal_singleton_reentry_unwind(
     rewritten_order_by = None
     if reentry_order_by is not None:
         rewritten_order_items: List[OrderItem] = []
-        for item in reentry_order_by.items:
-            rewritten_expr = _rewrite_expr(item.expression)
+        for order_item in reentry_order_by.items:
+            rewritten_expr = _rewrite_expr(order_item.expression)
             if rewritten_expr is None:
                 return None
-            rewritten_order_items.append(replace(item, expression=rewritten_expr))
+            rewritten_order_items.append(replace(order_item, expression=rewritten_expr))
         rewritten_order_by = replace(
             reentry_order_by,
             items=tuple(rewritten_order_items),
@@ -517,9 +517,9 @@ def _compile_bounded_reentry_query(
             # `multi_alias_carries` (computed before the prefix compile) holds
             # the {alias: props} for the rewritten ones — used below to
             # populate ReentryPlan.aliases and rewrite trailing PropertyAccessExpr.
-        for alias_name, props in multi_alias_carries.items():
+        for alias_name, carried_props in multi_alias_carries.items():
             merged = set(non_source_carried_props_map.get(alias_name, ()))
-            merged.update(props)
+            merged.update(carried_props)
             non_source_carried_props_map[alias_name] = tuple(sorted(merged))
     if not _bounded_reentry_prefix_order_is_safe(prefix_stage=prefix_stage, query=query, params=params):
         raise _unsupported(
