@@ -290,11 +290,6 @@ def test_distinct_projection_route_uses_physical_route(monkeypatch):
             "non_top_level_optional_match",
             [{"c": 2}],
         ),
-        (
-            "MATCH (a) MATCH (a)-->(b) RETURN count(b) AS c",
-            "multiple_match_stages",
-            [{"c": 2}],
-        ),
     ],
 )
 def test_classified_unplanned_chain_fallback_uses_chain_route(
@@ -320,6 +315,57 @@ def test_classified_unplanned_chain_fallback_uses_chain_route(
 
     assert planner_calls == []
     assert result._nodes.to_dict(orient="records") == expected_rows
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_rows"),
+    [
+        (
+            "MATCH (a) MATCH (a)-->(b) RETURN count(b) AS c",
+            [{"c": 2}],
+        ),
+        (
+            "MATCH (a) MATCH (a)-->(b) RETURN b.id AS bid ORDER BY bid",
+            [{"bid": "b"}, {"bid": "c"}],
+        ),
+    ],
+)
+def test_ordinary_multiple_match_stages_use_physical_route(monkeypatch, query, expected_rows):
+    g = _mk_graph()
+    planner_routes = []
+    compiled = cast(CompiledCypherQuery, compile_cypher(query, _warn_deprecated=False))
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_code is None
+    assert compiled.logical_plan_defer_reason is None
+    original_plan = PhysicalPlanner.plan
+
+    def _spy_plan(self, logical_plan, ctx):
+        physical_plan = original_plan(self, logical_plan, ctx)
+        planner_routes.append(physical_plan.route)
+        assert isinstance(physical_plan.operators[0], SamePathExecutorWrapper)
+        return physical_plan
+
+    monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
+
+    result = g.gfql(query)
+
+    assert planner_routes == ["same_path"]
+    assert result._nodes.to_dict(orient="records") == expected_rows
+
+
+def test_shortest_path_multiple_match_stages_remain_classified_residual():
+    compiled = cast(
+        CompiledCypherQuery,
+        compile_cypher(
+            "MATCH path = shortestPath((a)-[*]-(b)) MATCH (b)-->(c) RETURN c",
+            _warn_deprecated=False,
+        ),
+    )
+
+    assert compiled.logical_plan is None
+    assert compiled.logical_plan_defer_code == "multiple_match_stages"
+    assert compiled.logical_plan_defer_reason is not None
+
 
 def test_anonymous_match_count_projection_uses_planned_route(monkeypatch):
     g = _mk_graph()
