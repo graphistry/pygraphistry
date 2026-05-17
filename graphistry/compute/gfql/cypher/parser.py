@@ -848,30 +848,15 @@ def _build_transformer(source: str) -> _TransformerLike:
             return cast(Union[Tuple[PatternElement, ...], _BoundPattern], items[0])
 
         def match_clause(self, meta: Any, items: Sequence[Any]) -> MatchClause:
-            if len(items) < 1:
-                raise _to_syntax_error("Cypher MATCH clause cannot be empty", line=meta.line, column=meta.column)
-            patterns: List[Tuple[PatternElement, ...]] = []
-            pattern_aliases: List[Optional[str]] = []
-            pattern_alias_kinds: List[Literal["pattern", "shortestPath", "allShortestPaths"]] = []
-            for item in items:
-                if isinstance(item, _BoundPattern):
-                    patterns.append(item.pattern)
-                    pattern_aliases.append(item.alias)
-                    pattern_alias_kinds.append(item.kind)
-                else:
-                    patterns.append(cast(Tuple[PatternElement, ...], item))
-                    pattern_aliases.append(None)
-                    pattern_alias_kinds.append("pattern")
-            return MatchClause(
-                patterns=tuple(patterns),
-                span=_span_from_meta(meta),
-                pattern_aliases=tuple(pattern_aliases),
-                pattern_alias_kinds=tuple(pattern_alias_kinds),
-            )
+            return self._match_clause(meta, items, optional=False)
 
         def optional_match_clause(self, meta: Any, items: Sequence[Any]) -> MatchClause:
+            return self._match_clause(meta, items, optional=True)
+
+        def _match_clause(self, meta: Any, items: Sequence[Any], *, optional: bool) -> MatchClause:
             if len(items) < 1:
-                raise _to_syntax_error("Cypher OPTIONAL MATCH clause cannot be empty", line=meta.line, column=meta.column)
+                clause_name = "OPTIONAL MATCH" if optional else "MATCH"
+                raise _to_syntax_error(f"Cypher {clause_name} clause cannot be empty", line=meta.line, column=meta.column)
             patterns: List[Tuple[PatternElement, ...]] = []
             pattern_aliases: List[Optional[str]] = []
             pattern_alias_kinds: List[Literal["pattern", "shortestPath", "allShortestPaths"]] = []
@@ -887,19 +872,13 @@ def _build_transformer(source: str) -> _TransformerLike:
             return MatchClause(
                 patterns=tuple(patterns),
                 span=_span_from_meta(meta),
-                optional=True,
+                optional=optional,
                 pattern_aliases=tuple(pattern_aliases),
                 pattern_alias_kinds=tuple(pattern_alias_kinds),
             )
 
         def distinct(self, _meta: Any, _items: Sequence[Any]) -> bool:
             return True
-
-        def return_kw(self, _meta: Any, _items: Sequence[Any]) -> str:
-            return "return"
-
-        def with_kw(self, _meta: Any, _items: Sequence[Any]) -> str:
-            return "with"
 
         def qualified_name(self, meta: Any, _items: Sequence[Any]) -> _ExpressionSlice:
             span = _span_from_meta(meta)
