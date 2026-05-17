@@ -13305,6 +13305,77 @@ def _mk_ic4_shape_graph() -> _CypherTestGraph:
     )
 
 
+def _mk_ic4_id_collision_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """IC4-shaped graph with LDBC-style cross-label numeric id collisions (#1496)."""
+    return (
+        pd.DataFrame(
+            {
+                "id": [1, 2, 10, 20, 30, 10, 20],
+                "label__Person": [True, True, False, False, False, False, False],
+                "label__Post": [False, False, True, True, True, False, False],
+                "label__Tag": [False, False, False, False, False, True, True],
+                "name": ["", "", "", "", "", "TagA", "TagB"],
+                "creationDate": [0, 0, 100, 200, 300, 0, 0],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": [1, 10, 20, 30, 10, 20, 30],
+                "d": [2, 2, 2, 2, 10, 10, 20],
+                "type": [
+                    "KNOWS",
+                    "HAS_CREATOR",
+                    "HAS_CREATOR",
+                    "HAS_CREATOR",
+                    "HAS_TAG",
+                    "HAS_TAG",
+                    "HAS_TAG",
+                ],
+            }
+        ),
+    )
+
+
+_ISSUE_1496_IC4_QUERY = """
+MATCH (person:Person {id: $personId })-[:KNOWS]-(friend:Person),
+      (friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag)
+WITH DISTINCT tag, post
+WITH tag,
+     CASE
+       WHEN $startDate <= post.creationDate < $endDate THEN 1
+       ELSE 0
+     END AS valid,
+     CASE
+       WHEN post.creationDate < $startDate THEN 1
+       ELSE 0
+     END AS inValid
+WITH tag, sum(valid) AS postCount, sum(inValid) AS inValidPostCount
+WHERE postCount>0 AND inValidPostCount=0
+RETURN tag.name AS tagName, postCount
+ORDER BY postCount DESC, tagName ASC
+LIMIT 10
+"""
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+def test_issue_1496_ic4_unlabeled_has_tag_destination_disambiguates_colliding_ids(engine: Optional[str]) -> None:
+    """Official IC4 shape: HAS_TAG should bind the tag row when ids collide across labels."""
+    nodes, edges = _mk_ic4_id_collision_data()
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes, edges)
+    else:
+        graph = _mk_graph(nodes, edges)
+    params = {"personId": 1, "startDate": 150, "endDate": 350}
+    result = (
+        graph.gfql(_ISSUE_1496_IC4_QUERY, params=params, engine=engine)
+        if engine is not None
+        else graph.gfql(_ISSUE_1496_IC4_QUERY, params=params)
+    )
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert records == [{"tagName": "TagB", "postCount": 1}]
+
+
 def test_string_cypher_multi_alias_with_distinct_scalar_projection() -> None:
     """IC-4 shape: MATCH multi-pattern, WITH DISTINCT two aliases, RETURN scalars (#880)."""
     graph = _mk_ic4_shape_graph()
