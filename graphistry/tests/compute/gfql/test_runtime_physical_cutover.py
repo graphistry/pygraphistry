@@ -367,6 +367,45 @@ def test_shortest_path_multiple_match_stages_remain_classified_residual():
     assert compiled.logical_plan_defer_reason is not None
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        (
+            "MATCH (a {id: 'a'}), (c {id: 'c'}), "
+            "path = shortestPath((a)-[*]-(c)) "
+            "RETURN length(path) AS hops"
+        ),
+        (
+            "MATCH (a {id: 'a'}), (c {id: 'c'}) "
+            "WITH a, c "
+            "MATCH path = shortestPath((a)-[*]-(c)) "
+            "RETURN length(path) AS hops"
+        ),
+    ],
+)
+def test_shortest_path_endpoint_binding_multiple_match_uses_physical_route(monkeypatch, query):
+    g = _mk_graph()
+    planner_routes = []
+    compiled = cast(CompiledCypherQuery, compile_cypher(query, _warn_deprecated=False))
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_code is None
+    assert compiled.logical_plan_defer_reason is None
+    original_plan = PhysicalPlanner.plan
+
+    def _spy_plan(self, logical_plan, ctx):
+        physical_plan = original_plan(self, logical_plan, ctx)
+        planner_routes.append(physical_plan.route)
+        assert isinstance(physical_plan.operators[0], SamePathExecutorWrapper)
+        return physical_plan
+
+    monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
+
+    result = g.gfql(query)
+
+    assert planner_routes == ["same_path"]
+    assert result._nodes.to_dict(orient="records") == [{"hops": 2}]
+
+
 def test_anonymous_match_count_projection_uses_planned_route(monkeypatch):
     g = _mk_graph()
     planner_routes = []

@@ -417,5 +417,5 @@ class LogicalPlanner:
 
     @staticmethod
     def _match_part_has_path_alias(*, part: BoundQueryPart, scope_schema: RowSchema) -> bool:
-        aliases = part.outputs or part.inputs
+        aliases = part.inputs
         return any(isinstance(scope_schema.columns.get(alias), PathType) for alias in aliases)
