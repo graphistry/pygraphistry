@@ -42,3 +42,12 @@ def test_issue_1471_reentry_compiletime_has_no_lowering_symbol_table_shim() -> N
     assert not hasattr(compiletime, "_lowering")
     assert compiletime.__name__ == "graphistry.compute.gfql.cypher.reentry.compiletime"
     assert compiletime.__package__ == "graphistry.compute.gfql.cypher.reentry"
+
+
+def test_issue_1471_reentry_compiletime_keeps_lowering_entrypoints() -> None:
+    for name in (
+        "_compile_bounded_reentry_query",
+        "_drop_bare_alias_items_from_stage",
+    ):
+        helper = getattr(compiletime, name, None)
+        assert callable(helper), name
