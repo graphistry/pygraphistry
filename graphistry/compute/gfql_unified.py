@@ -84,7 +84,6 @@ logger = setup_logger(__name__)
 _APPROVED_UNPLANNED_CHAIN_FALLBACK_CODES = frozenset({
     "non_top_level_optional_match",
     "multiple_match_stages",
-    "scalar_projection_alias_match",
     "optional_match_reentry",
 })
 

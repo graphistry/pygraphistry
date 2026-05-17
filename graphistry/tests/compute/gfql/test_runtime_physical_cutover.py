@@ -27,6 +27,21 @@ def _mk_graph():
     return graphistry.bind(source="s", destination="d", node="id").nodes(nodes).edges(edges)
 
 
+def _mk_cudf_graph():
+    cudf = pytest.importorskip("cudf")
+    nodes = cudf.DataFrame({"id": ["a", "b", "c"], "label__Missing": [False, False, False]})
+    edges = cudf.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
+    return graphistry.bind(source="s", destination="d", node="id").nodes(nodes).edges(edges)
+
+
+def _to_pandas_df(df):
+    if hasattr(df, "to_arrow"):
+        return df.to_arrow().to_pandas()
+    if hasattr(df, "to_pandas"):
+        return df.to_pandas()
+    return df
+
+
 def _has_optional_pattern_match(logical_plan):
     stack = [logical_plan]
     while stack:
@@ -280,11 +295,6 @@ def test_distinct_projection_route_uses_physical_route(monkeypatch):
             "multiple_match_stages",
             [{"c": 2}],
         ),
-        (
-            "MATCH (a) RETURN a.id IS NOT NULL AS a, a IS NOT NULL AS b",
-            "scalar_projection_alias_match",
-            [{"a": True, "b": True}, {"a": True, "b": True}, {"a": True, "b": True}],
-        ),
     ],
 )
 def test_classified_unplanned_chain_fallback_uses_chain_route(
@@ -311,7 +321,6 @@ def test_classified_unplanned_chain_fallback_uses_chain_route(
     assert planner_calls == []
     assert result._nodes.to_dict(orient="records") == expected_rows
 
-
 def test_anonymous_match_count_projection_uses_planned_route(monkeypatch):
     g = _mk_graph()
     planner_routes = []
@@ -334,6 +343,51 @@ def test_anonymous_match_count_projection_uses_planned_route(monkeypatch):
 
     assert planner_routes == ["same_path"]
     assert result._nodes.to_dict(orient="records") == [{"c": 30}]
+
+
+def test_scalar_projection_alias_match_uses_planned_route(monkeypatch):
+    query = "MATCH (a) RETURN a.id IS NOT NULL AS a, a IS NOT NULL AS b"
+    g = _mk_graph()
+    planner_routes = []
+    compiled = cast(CompiledCypherQuery, compile_cypher(query, _warn_deprecated=False))
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_code is None
+    assert compiled.logical_plan_defer_reason is None
+
+    original_plan = PhysicalPlanner.plan
+
+    def _spy_plan(self, logical_plan, ctx):
+        physical_plan = original_plan(self, logical_plan, ctx)
+        planner_routes.append(physical_plan.route)
+        return physical_plan
+
+    monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
+
+    result = g.gfql(query)
+
+    assert planner_routes == ["same_path"]
+    assert result._nodes.to_dict(orient="records") == [
+        {"a": True, "b": True},
+        {"a": True, "b": True},
+        {"a": True, "b": True},
+    ]
+
+
+def test_scalar_projection_alias_match_uses_planned_route_on_cudf():
+    query = "MATCH (a) RETURN a.id IS NOT NULL AS a, a IS NOT NULL AS b"
+    compiled = cast(CompiledCypherQuery, compile_cypher(query, _warn_deprecated=False))
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_code is None
+    assert compiled.logical_plan_defer_reason is None
+
+    result = _mk_cudf_graph().gfql(query, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+        {"a": True, "b": True},
+        {"a": True, "b": True},
+        {"a": True, "b": True},
+    ]
 
 
 def test_unplanned_chain_fallback_requires_compile_defer_reason():

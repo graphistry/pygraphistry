@@ -5,7 +5,7 @@ LogicalPlan while assigning stable operator IDs.
 """
 from __future__ import annotations
 
-from typing import FrozenSet, Iterable, Mapping, Optional
+from typing import Dict, FrozenSet, Iterable, Literal, Mapping, Optional
 
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, BoundVariable
@@ -20,7 +20,7 @@ from graphistry.compute.gfql.ir.logical_plan import (
     RowSchema,
     Unwind,
 )
-from graphistry.compute.gfql.ir.types import NodeRef
+from graphistry.compute.gfql.ir.types import EdgeRef, LogicalType, NodeRef, PathType, ScalarType
 
 
 class IdGen:
@@ -51,6 +51,7 @@ class LogicalPlanner:
 
         for part_index, part in enumerate(bound_ir.query_parts):
             clause = part.clause.upper()
+            part_vars = self._vars_for_part(bound_ir, part_index=part_index, fallback=vars_by_name)
             if clause == "OPTIONAL MATCH":
                 if current is None and not seen_match and part_index == 0 and not part.inputs:
                     scope_visible_aliases = (
@@ -60,16 +61,16 @@ class LogicalPlanner:
                     )
                     self._reject_unsupported_match_shape(
                         part=part,
-                        vars_by_name=vars_by_name,
+                        vars_by_name=part_vars,
                         scope_visible_aliases=scope_visible_aliases,
                     )
                     current = self._plan_match(
                         part=part,
-                        vars_by_name=vars_by_name,
+                        vars_by_name=part_vars,
                         id_gen=id_gen,
                         optional=True,
                     )
-                    current = self._apply_predicates(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
+                    current = self._apply_predicates(part=part, current=current, vars_by_name=part_vars, id_gen=id_gen)
                     seen_match = True
                     continue
                 raise GFQLValidationError(
@@ -97,28 +98,28 @@ class LogicalPlanner:
                 )
                 self._reject_unsupported_match_shape(
                     part=part,
-                    vars_by_name=vars_by_name,
+                    vars_by_name=part_vars,
                     scope_visible_aliases=scope_visible_aliases,
                 )
-                current = self._plan_match(part=part, vars_by_name=vars_by_name, id_gen=id_gen)
-                current = self._apply_predicates(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
+                current = self._plan_match(part=part, vars_by_name=part_vars, id_gen=id_gen)
+                current = self._apply_predicates(part=part, current=current, vars_by_name=part_vars, id_gen=id_gen)
                 seen_match = True
                 continue
             if clause == "WHERE":
-                current = self._plan_where(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
+                current = self._plan_where(part=part, current=current, vars_by_name=part_vars, id_gen=id_gen)
                 continue
             if clause in {"WITH", "RETURN"}:
-                current = self._plan_projection(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
+                current = self._plan_projection(part=part, current=current, vars_by_name=part_vars, id_gen=id_gen)
                 if part.metadata.get("distinct", False):
                     current = Distinct(
                         op_id=id_gen.next(),
                         input=current,
                         output_schema=current.output_schema,
                     )
-                current = self._apply_predicates(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
+                current = self._apply_predicates(part=part, current=current, vars_by_name=part_vars, id_gen=id_gen)
                 continue
             if clause == "UNWIND":
-                current = self._plan_unwind(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
+                current = self._plan_unwind(part=part, current=current, vars_by_name=part_vars, id_gen=id_gen)
                 continue
             raise GFQLValidationError(
                 ErrorCode.E108,
@@ -142,7 +143,7 @@ class LogicalPlanner:
         id_gen: IdGen,
         optional: bool = False,
     ) -> LogicalPlan:
-        aliases = sorted(self._aliases_for_part(part))
+        aliases = sorted(self._match_aliases_for_part(part, vars_by_name=vars_by_name))
         schema = self._schema_for_aliases(alias_names=aliases, vars_by_name=vars_by_name)
         if not optional and len(aliases) == 1:
             variable = vars_by_name.get(aliases[0])
@@ -174,8 +175,9 @@ class LogicalPlanner:
         for alias in alias_names:
             variable = vars_by_name.get(alias)
             if variable is not None:
-                has_known_alias = True
                 if variable.entity_kind not in {"node", "edge"}:
+                    if isinstance(variable.logical_type, PathType):
+                        continue
                     raise GFQLValidationError(
                         ErrorCode.E108,
                         "LogicalPlanner skeleton only supports MATCH outputs bound to node/edge aliases",
@@ -184,6 +186,7 @@ class LogicalPlanner:
                         suggestion="Use MATCH with node/edge aliases only until richer pattern planning is implemented.",
                         logical_plan_defer_code="scalar_projection_alias_match",
                     )
+                has_known_alias = True
                 continue
             if alias in scope_visible_aliases:
                 has_known_alias = True
@@ -220,7 +223,11 @@ class LogicalPlanner:
         vars_by_name: Mapping[str, BoundVariable],
         id_gen: IdGen,
     ) -> LogicalPlan:
-        aliases = self._aliases_for_part(part)
+        aliases = (
+            self._match_aliases_for_part(part, vars_by_name=vars_by_name)
+            if part.clause.upper() in {"MATCH", "OPTIONAL MATCH"}
+            else self._aliases_for_part(part)
+        )
         node = (
             current
             if current is not None
@@ -248,7 +255,7 @@ class LogicalPlanner:
             op_id=id_gen.next(),
             input=current,
             expressions=expressions,
-            output_schema=self._schema_for_aliases(alias_names=part.outputs, vars_by_name=vars_by_name),
+            output_schema=self._projection_output_schema(part=part, current=current, vars_by_name=vars_by_name),
         )
 
     def _plan_unwind(
@@ -303,6 +310,28 @@ class LogicalPlanner:
             }
         )
 
+    @classmethod
+    def _projection_output_schema(
+        cls,
+        *,
+        part: BoundQueryPart,
+        current: Optional[LogicalPlan],
+        vars_by_name: Mapping[str, BoundVariable],
+    ) -> RowSchema:
+        schema = cls._schema_for_aliases(alias_names=part.outputs, vars_by_name=vars_by_name)
+        if current is None:
+            return schema
+        input_columns = current.output_schema.columns
+        if not input_columns:
+            return schema
+        return RowSchema(
+            columns={
+                alias: logical_type
+                for alias, logical_type in schema.columns.items()
+                if alias not in input_columns or type(input_columns[alias]) is type(logical_type)
+            }
+        )
+
     @staticmethod
     def _first_node_label(*, var_names: Iterable[str], vars_by_name: Mapping[str, BoundVariable]) -> str:
         for name in sorted(var_names):
@@ -319,3 +348,57 @@ class LogicalPlanner:
     def _aliases_for_part(part: BoundQueryPart) -> frozenset[str]:
         # Binder guarantees one of these sets captures the active alias scope.
         return part.outputs or part.inputs
+
+    @staticmethod
+    def _match_aliases_for_part(
+        part: BoundQueryPart,
+        *,
+        vars_by_name: Mapping[str, BoundVariable],
+    ) -> frozenset[str]:
+        aliases = part.outputs or part.inputs
+        return frozenset(
+            alias
+            for alias in aliases
+            if (
+                vars_by_name.get(alias) is None
+                or vars_by_name[alias].entity_kind in {"node", "edge"}
+            )
+        )
+
+    @staticmethod
+    def _entity_kind_for_type(logical_type: LogicalType) -> Literal["node", "edge", "scalar"]:
+        if isinstance(logical_type, NodeRef):
+            return "node"
+        if isinstance(logical_type, EdgeRef):
+            return "edge"
+        return "scalar"
+
+    @classmethod
+    def _vars_for_part(
+        cls,
+        bound_ir: BoundIR,
+        *,
+        part_index: int,
+        fallback: Mapping[str, BoundVariable],
+    ) -> Mapping[str, BoundVariable]:
+        if part_index >= len(bound_ir.scope_stack):
+            return fallback
+        frame = bound_ir.scope_stack[part_index]
+        if not frame.schema.columns:
+            return fallback
+        scoped: Dict[str, BoundVariable] = dict(fallback)
+        for alias, logical_type in frame.schema.columns.items():
+            fallback_var = fallback.get(alias)
+            scoped[alias] = BoundVariable(
+                name=alias,
+                logical_type=logical_type,
+                nullable=(
+                    logical_type.nullable
+                    if isinstance(logical_type, ScalarType)
+                    else (fallback_var.nullable if fallback_var is not None else False)
+                ),
+                null_extended_from=fallback_var.null_extended_from if fallback_var is not None else frozenset(),
+                entity_kind=cls._entity_kind_for_type(logical_type),
+                scope_id=fallback_var.scope_id if fallback_var is not None else part_index + 1,
+            )
+        return scoped
