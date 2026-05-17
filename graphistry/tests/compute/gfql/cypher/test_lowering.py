@@ -6,7 +6,7 @@ import pytest
 import graphistry
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
-from graphistry.compute.ast import ASTCall, ASTNode, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
+from graphistry.compute.ast import ASTCall, ASTNode, ASTEdge, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLValidationError
 from graphistry.compute.predicates.is_in import IsIn
 from graphistry.compute.gfql.same_path_types import col, compare
@@ -15621,6 +15621,67 @@ def test_issue_1395_sequential_match_message_replies_row_shaping_is7() -> None:
 
 
 # ── Issue #1052: OPTIONAL MATCH semi-join — opt arm must be pre-filtered ──────
+
+
+def test_issue_1488_optional_match_seeds_shared_first_alias_before_materialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """IS7 OOM guard: bound OPTIONAL arm traversal before rows(binding_ops)."""
+    n = 20
+    msg_ids = [f"m{i}" for i in range(1, n + 1)]
+    nodes = pd.DataFrame({
+        "id": msg_ids + ["c1", "p1"] + [f"a{i}" for i in range(1, n + 1)] + [f"p{i}" for i in range(2, n + 1)],
+        "label__M": [True] * n + [False] * (2 * n + 1),
+        "label__C": [False] * n + [True] + [False] * (2 * n),
+        "label__P": [False] * (n + 1) + [True] + [False] * n + [True] * (n - 1),
+        "label__A": [False] * (n + 2) + [True] * n + [False] * (n - 1),
+    })
+    edge_rows = [
+        {"s": "c1", "d": "m1", "type": "REPLY_OF"},
+        {"s": "c1", "d": "p1", "type": "HAS_CREATOR"},
+        {"s": "m1", "d": "a1", "type": "HAS_CREATOR"},
+        {"s": "a1", "d": "p1", "type": "KNOWS"},
+    ]
+    for i in range(2, n + 1):
+        edge_rows.extend([
+            {"s": f"m{i}", "d": f"a{i}", "type": "HAS_CREATOR"},
+            {"s": f"a{i}", "d": f"p{i}", "type": "KNOWS"},
+        ])
+    edges = pd.DataFrame(edge_rows)
+    g = _mk_graph(nodes, edges)
+
+    original_execute = ASTEdge.execute
+    optional_start_sizes: List[int] = []
+
+    def spy_execute(
+        self: ASTEdge,
+        g: Any,
+        prev_node_wavefront: Any,
+        target_wave_front: Any,
+        engine: Any,
+    ) -> Any:
+        if (
+            self.edge_match == {"type": "HAS_CREATOR"}
+            and prev_node_wavefront is not None
+            and "id" in prev_node_wavefront.columns
+        ):
+            prev_ids = [str(value) for value in prev_node_wavefront["id"].tolist()]
+            if prev_ids and all(value.startswith("m") for value in prev_ids):
+                optional_start_sizes.append(len(prev_ids))
+        return original_execute(self, g, prev_node_wavefront, target_wave_front, engine)
+
+    monkeypatch.setattr(ASTEdge, "execute", spy_execute)
+
+    result = g.gfql(
+        "MATCH (m:M {id: $mid})<-[:REPLY_OF]-(c:C)-[:HAS_CREATOR]->(p:P) "
+        "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:A)-[r:KNOWS]-(p) "
+        "RETURN c.id AS cid, CASE r WHEN null THEN false ELSE true END AS knows",
+        params={"mid": "m1"},
+    )
+
+    assert result._nodes[["cid", "knows"]].to_dict(orient="records") == [{"cid": "c1", "knows": True}]
+    assert optional_start_sizes
+    assert max(optional_start_sizes) == 1
 
 
 def test_issue_1052_optional_match_semijoin_filters_opt_arm() -> None:
