@@ -14032,6 +14032,18 @@ def test_issue_1469_rejects_aggregate_inside_literal_map_projection() -> None:
     assert exc_info.value.code == ErrorCode.E108
     assert "aggregate expressions inside map literals" in str(exc_info.value)
 
+    with pytest.raises(GFQLValidationError) as with_exc_info:
+        graph.gfql(
+            "MATCH (a:A), (b:B) "
+            "WITH coalesce(a.num, b.num) AS foo, "
+            "b.num AS bar, "
+            "{name: count(b)} AS baz "
+            "RETURN foo, bar, baz"
+        )
+
+    assert with_exc_info.value.code == ErrorCode.E108
+    assert "aggregate expressions inside map literals" in str(with_exc_info.value)
+
 
 # ---------------------------------------------------------------------------
 # Issue #996: MATCH (connected) OPTIONAL MATCH ... RETURN mixed + CASE
