@@ -116,6 +116,9 @@ from graphistry.compute.gfql.cypher.call_procedures import (
     compile_cypher_call,
 )
 from graphistry.compute.gfql.cypher.ast_normalizer import ASTNormalizer
+from graphistry.compute.gfql.cypher.shortest_path_guards import (
+    reject_shortest_path_alias_references_after_follow_on_match,
+)
 from graphistry.compute.gfql.string_literals import render_cypher_string_literal
 from graphistry.compute.gfql.temporal_text import (
     fold_temporal_constructor_ast,
@@ -6365,6 +6368,8 @@ def lower_match_query(
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> LoweredCypherMatch:
+    reject_shortest_path_alias_references_after_follow_on_match(query, params=params)
+
     normalizer = ASTNormalizer()
     query = normalizer.rewrite_shortest_path(query)
     _reject_unsupported_where_expr_forms(query)
@@ -8709,6 +8714,8 @@ def compile_cypher_query(
             logical_plan_defer_reason=logical_plan_defer_reason,
             logical_plan_defer_code=logical_plan_defer_code,
         )
+
+    reject_shortest_path_alias_references_after_follow_on_match(query, params=params)
 
     normalizer = ASTNormalizer()
     query = normalizer.rewrite_shortest_path(query)

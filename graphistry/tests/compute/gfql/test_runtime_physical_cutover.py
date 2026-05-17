@@ -282,24 +282,27 @@ def test_distinct_projection_route_uses_physical_route(monkeypatch):
     assert result._nodes["group"].tolist() == ["x", "y"]
 
 
-def test_classified_unplanned_chain_fallback_uses_chain_route(monkeypatch):
+def test_shortest_path_path_alias_carry_count_multiple_match_uses_physical_route(monkeypatch):
     g = _mk_graph()
     query = "MATCH path = shortestPath((a)-[*]-(b)) MATCH (b)-->(c) RETURN count(c) AS c"
-    planner_calls = []
+    planner_routes = []
     compiled = cast(CompiledCypherQuery, compile_cypher(query, _warn_deprecated=False))
-    assert compiled.logical_plan is None
-    assert compiled.logical_plan_defer_code == "multiple_match_stages"
-    assert compiled.logical_plan_defer_reason is not None
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_code is None
+    assert compiled.logical_plan_defer_reason is None
+    original_plan = PhysicalPlanner.plan
 
     def _spy_plan(self, logical_plan, ctx):
-        planner_calls.append(type(logical_plan).__name__)
-        return PhysicalPlan(route="unexpected", operators=(), logical_op_ids=(), metadata={})
+        physical_plan = original_plan(self, logical_plan, ctx)
+        planner_routes.append(physical_plan.route)
+        assert isinstance(physical_plan.operators[0], SamePathExecutorWrapper)
+        return physical_plan
 
     monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
 
     result = g.gfql(query)
 
-    assert planner_calls == []
+    assert planner_routes == ["same_path"]
     assert result._nodes.to_dict(orient="records") == [{"c": 6}]
 
 
@@ -339,18 +342,44 @@ def test_ordinary_multiple_match_stages_use_physical_route(monkeypatch, query, e
     assert result._nodes.to_dict(orient="records") == expected_rows
 
 
-def test_shortest_path_multiple_match_stages_remain_classified_residual():
+def test_shortest_path_path_alias_carry_multiple_match_uses_physical_route(monkeypatch):
+    g = _mk_graph()
+    query = "MATCH path = shortestPath((a)-[*]-(b)) MATCH (b)-->(c) RETURN c.id AS cid ORDER BY cid"
+    planner_routes = []
     compiled = cast(
         CompiledCypherQuery,
-        compile_cypher(
-            "MATCH path = shortestPath((a)-[*]-(b)) MATCH (b)-->(c) RETURN c",
-            _warn_deprecated=False,
-        ),
+        compile_cypher(query, _warn_deprecated=False),
     )
 
-    assert compiled.logical_plan is None
-    assert compiled.logical_plan_defer_code == "multiple_match_stages"
-    assert compiled.logical_plan_defer_reason is not None
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_code is None
+    assert compiled.logical_plan_defer_reason is None
+    original_plan = PhysicalPlanner.plan
+
+    def _spy_plan(self, logical_plan, ctx):
+        physical_plan = original_plan(self, logical_plan, ctx)
+        planner_routes.append(physical_plan.route)
+        assert isinstance(physical_plan.operators[0], SamePathExecutorWrapper)
+        return physical_plan
+
+    monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
+
+    result = g.gfql(query)
+
+    assert planner_routes == ["same_path"]
+    assert result._nodes.to_dict(orient="records") == [{"cid": "c"}]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH path = shortestPath((a)-[*]-(b)) MATCH (b)-->(c) RETURN length(path) AS n",
+        "MATCH path = shortestPath((a)-[*]-(b)) MATCH (b)-->(c) RETURN path IS NULL AS no_path",
+    ],
+)
+def test_shortest_path_path_alias_value_after_follow_on_match_fails_fast(query):
+    with pytest.raises(GFQLValidationError, match="after a follow-on MATCH"):
+        compile_cypher(query, _warn_deprecated=False)
 
 
 @pytest.mark.parametrize(
@@ -485,16 +514,8 @@ def test_non_top_level_optional_match_count_projection_uses_planned_route(monkey
 
 def test_unplanned_chain_fallback_requires_compile_defer_reason():
     g = _mk_graph()
-    compiled = cast(
-        CompiledCypherQuery,
-        compile_cypher(
-            "MATCH path = shortestPath((a)-[*]-(b)) MATCH (b)-->(c) RETURN c",
-            _warn_deprecated=False,
-        ),
-    )
-    assert compiled.logical_plan is None
-    assert compiled.logical_plan_defer_code == "multiple_match_stages"
-    assert compiled.logical_plan_defer_reason is not None
+    compiled = cast(CompiledCypherQuery, compile_cypher("RETURN 1 AS x", _warn_deprecated=False))
+    assert compiled.logical_plan is not None
 
     unclassified = replace(compiled, execution_extras=None)
 
@@ -510,13 +531,7 @@ def test_unplanned_chain_fallback_requires_compile_defer_reason():
 
 def test_unknown_deferred_logical_plan_reason_rejected_before_chain_fallback():
     g = _mk_graph()
-    compiled = cast(
-        CompiledCypherQuery,
-        compile_cypher(
-            "MATCH path = shortestPath((a)-[*]-(b)) MATCH (b)-->(c) RETURN c",
-            _warn_deprecated=False,
-        ),
-    )
+    compiled = cast(CompiledCypherQuery, compile_cypher("RETURN 1 AS x", _warn_deprecated=False))
     unknown_defer = replace(
         compiled,
         execution_extras=CompiledCypherExecutionExtras(
@@ -539,13 +554,7 @@ def test_unknown_deferred_logical_plan_reason_rejected_before_chain_fallback():
 
 def test_unapproved_deferred_logical_plan_code_rejected_before_chain_fallback():
     g = _mk_graph()
-    compiled = cast(
-        CompiledCypherQuery,
-        compile_cypher(
-            "MATCH path = shortestPath((a)-[*]-(b)) MATCH (b)-->(c) RETURN c",
-            _warn_deprecated=False,
-        ),
-    )
+    compiled = cast(CompiledCypherQuery, compile_cypher("RETURN 1 AS x", _warn_deprecated=False))
     unknown_defer = replace(
         compiled,
         execution_extras=CompiledCypherExecutionExtras(
