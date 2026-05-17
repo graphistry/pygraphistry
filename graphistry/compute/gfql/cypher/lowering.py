@@ -33,6 +33,7 @@ from graphistry.compute.ast import (
 )
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.gfql.defer_codes import LOGICAL_PLAN_DEFER_OPTIONAL_MATCH_REENTRY
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, ScopeFrame
 from graphistry.compute.gfql.ir.compilation import PlanContext
@@ -8032,7 +8033,7 @@ def _attach_logical_plan_route(
             effective_defer_code = (
                 logical_plan_defer_code
                 or result.logical_plan_defer_code
-                or "optional_match_reentry"
+                or LOGICAL_PLAN_DEFER_OPTIONAL_MATCH_REENTRY
             )
     else:
         effective_logical_plan = result.logical_plan if result.logical_plan is not None else logical_plan

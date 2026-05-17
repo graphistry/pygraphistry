@@ -8,6 +8,10 @@ from __future__ import annotations
 from typing import Dict, FrozenSet, Iterable, Literal, Mapping, Optional
 
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.gfql.defer_codes import (
+    LOGICAL_PLAN_DEFER_MULTIPLE_MATCH_STAGES,
+    LOGICAL_PLAN_DEFER_SCALAR_PROJECTION_ALIAS_MATCH,
+)
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, BoundVariable
 from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.logical_plan import (
@@ -99,7 +103,7 @@ class LogicalPlanner:
                         field="clause",
                         value=part.clause,
                         suggestion="Split shortestPath/path-alias multi-MATCH shapes until chained path planning is implemented.",
-                        logical_plan_defer_code="multiple_match_stages",
+                        logical_plan_defer_code=LOGICAL_PLAN_DEFER_MULTIPLE_MATCH_STAGES,
                     )
                 self._reject_unsupported_match_shape(
                     part=part,
@@ -197,7 +201,7 @@ class LogicalPlanner:
                         field="clause",
                         value=part.clause,
                         suggestion="Use MATCH with node/edge aliases only until richer pattern planning is implemented.",
-                        logical_plan_defer_code="scalar_projection_alias_match",
+                        logical_plan_defer_code=LOGICAL_PLAN_DEFER_SCALAR_PROJECTION_ALIAS_MATCH,
                     )
                 has_known_alias = True
                 continue

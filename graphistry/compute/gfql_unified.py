@@ -81,12 +81,6 @@ from graphistry.otel import otel_traced, otel_detail_enabled
 logger = setup_logger(__name__)
 
 
-_APPROVED_UNPLANNED_CHAIN_FALLBACK_CODES = frozenset({
-    "multiple_match_stages",
-    "optional_match_reentry",
-})
-
-
 def _series_to_pylist(values: Any) -> List[Any]:
     if hasattr(values, "to_arrow"):
         try:
@@ -111,12 +105,6 @@ def _is_duplicate_carried_rows_reentry_error(exc: GFQLValidationError) -> bool:
     if exc.code != ErrorCode.E108 or not isinstance(context, dict):
         return False
     return context.get("reason") == _REENTRY_DUPLICATE_CARRIED_ROWS_REASON
-
-
-def _is_approved_unplanned_chain_fallback(code: Optional[str]) -> bool:
-    if code is None:
-        return False
-    return code in _APPROVED_UNPLANNED_CHAIN_FALLBACK_CODES
 
 
 def _slice_reentry_prefix_result_row(
@@ -708,28 +696,14 @@ def _execute_compiled_query_non_union(
                 suggestion="Compile CALL queries with a LogicalPlan before runtime dispatch.",
                 language="cypher",
             )
-        if not _is_approved_unplanned_chain_fallback(defer_code):
-            raise GFQLValidationError(
-                ErrorCode.E108,
-                "Cypher query reached runtime without a logical plan or an approved deferred chain route",
-                field="logical_plan",
-                value={"defer_code": defer_code, "defer_reason": defer_reason},
-                suggestion="Compile this Cypher shape through a LogicalPlan route or add an explicit reviewed defer classification before chain execution.",
-                language="cypher",
-            )
-        dispatch_graph = _seeded_dispatch_graph(
-            base_graph,
-            compiled_query=compiled_query,
-            engine=engine,
-        )
-        return _execute_compiled_query_chain_non_union(
-            base_graph,
-            compiled_query=compiled_query,
-            dispatch_graph=dispatch_graph,
-            engine=engine,
-            policy=policy,
-            context=context,
-            start_nodes=start_nodes,
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher query reached runtime without a logical plan",
+            field="logical_plan",
+            logical_plan_defer_code=defer_code,
+            logical_plan_defer_reason=defer_reason,
+            suggestion="Compile this Cypher shape through a LogicalPlan route before chain execution.",
+            language="cypher",
         )
 
     ctx = PlanContext(scope_stack=() if compiled_extras is None else compiled_extras.scope_stack)

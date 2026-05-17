@@ -5,11 +5,15 @@ import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.compute.exceptions import GFQLValidationError
+from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.execution_context import ExecutionContext
 import graphistry.compute.gfql_unified as gfql_unified
 from graphistry.compute.gfql.cypher.api import compile_cypher
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherExecutionExtras, CompiledCypherQuery
+from graphistry.compute.gfql.defer_codes import (
+    LOGICAL_PLAN_DEFER_MULTIPLE_MATCH_STAGES,
+    LOGICAL_PLAN_DEFER_OPTIONAL_MATCH_REENTRY,
+)
 from graphistry.compute.gfql.ir.compilation import PhysicalPlan
 from graphistry.compute.gfql.ir.logical_plan import PatternMatch, iter_children
 from graphistry.compute.gfql.physical_planner import (
@@ -50,6 +54,23 @@ def _has_optional_pattern_match(logical_plan):
             return True
         stack.extend(child for _slot, child in iter_children(node))
     return False
+
+
+def _assert_runtime_missing_logical_plan_context(
+    exc: GFQLValidationError,
+    *,
+    defer_code,
+    has_defer_reason,
+):
+    assert exc.code == ErrorCode.E108
+    assert exc.context["field"] == "logical_plan"
+    assert "value" not in exc.context
+    assert exc.context.get("logical_plan_defer_code") == defer_code
+    if has_defer_reason:
+        assert isinstance(exc.context["logical_plan_defer_reason"], str)
+        assert exc.context["logical_plan_defer_reason"]
+    else:
+        assert "logical_plan_defer_reason" not in exc.context
 
 
 def test_gfql_invokes_physical_planner_for_planned_route(monkeypatch):
@@ -512,14 +533,14 @@ def test_non_top_level_optional_match_count_projection_uses_planned_route(monkey
     assert result._nodes.to_dict(orient="records") == [{"c": 2}]
 
 
-def test_unplanned_chain_fallback_requires_compile_defer_reason():
+def test_non_union_execution_requires_logical_plan():
     g = _mk_graph()
     compiled = cast(CompiledCypherQuery, compile_cypher("RETURN 1 AS x", _warn_deprecated=False))
     assert compiled.logical_plan is not None
 
     unclassified = replace(compiled, execution_extras=None)
 
-    with pytest.raises(GFQLValidationError, match="approved deferred chain route"):
+    with pytest.raises(GFQLValidationError) as exc_info:
         gfql_unified._execute_compiled_query_non_union(
             g,
             compiled_query=unclassified,
@@ -527,9 +548,15 @@ def test_unplanned_chain_fallback_requires_compile_defer_reason():
             policy=None,
             context=ExecutionContext(),
         )
+    exc = exc_info.value
+    _assert_runtime_missing_logical_plan_context(
+        exc,
+        defer_code=None,
+        has_defer_reason=False,
+    )
 
 
-def test_unknown_deferred_logical_plan_reason_rejected_before_chain_fallback():
+def test_deferred_logical_plan_reason_rejected_before_chain_execution():
     g = _mk_graph()
     compiled = cast(CompiledCypherQuery, compile_cypher("RETURN 1 AS x", _warn_deprecated=False))
     unknown_defer = replace(
@@ -542,7 +569,7 @@ def test_unknown_deferred_logical_plan_reason_rejected_before_chain_fallback():
         ),
     )
 
-    with pytest.raises(GFQLValidationError, match="approved deferred chain route"):
+    with pytest.raises(GFQLValidationError) as exc_info:
         gfql_unified._execute_compiled_query_non_union(
             g,
             compiled_query=unknown_defer,
@@ -550,20 +577,34 @@ def test_unknown_deferred_logical_plan_reason_rejected_before_chain_fallback():
             policy=None,
             context=ExecutionContext(),
         )
+    exc = exc_info.value
+    _assert_runtime_missing_logical_plan_context(
+        exc,
+        defer_code=None,
+        has_defer_reason=True,
+    )
 
 
-def test_unapproved_deferred_logical_plan_code_rejected_before_chain_fallback():
+@pytest.mark.parametrize(
+    "defer_code",
+    [
+        "bogus_code",
+        LOGICAL_PLAN_DEFER_MULTIPLE_MATCH_STAGES,
+        LOGICAL_PLAN_DEFER_OPTIONAL_MATCH_REENTRY,
+    ],
+)
+def test_deferred_logical_plan_code_rejected_before_chain_execution(defer_code):
     g = _mk_graph()
     compiled = cast(CompiledCypherQuery, compile_cypher("RETURN 1 AS x", _warn_deprecated=False))
     unknown_defer = replace(
         compiled,
         execution_extras=CompiledCypherExecutionExtras(
             logical_plan_defer_reason="Synthetic unplanned route for regression coverage",
-            logical_plan_defer_code="bogus_code",
+            logical_plan_defer_code=defer_code,
         ),
     )
 
-    with pytest.raises(GFQLValidationError, match="approved deferred chain route"):
+    with pytest.raises(GFQLValidationError) as exc_info:
         gfql_unified._execute_compiled_query_non_union(
             g,
             compiled_query=unknown_defer,
@@ -571,6 +612,12 @@ def test_unapproved_deferred_logical_plan_code_rejected_before_chain_fallback():
             policy=None,
             context=ExecutionContext(),
         )
+    exc = exc_info.value
+    _assert_runtime_missing_logical_plan_context(
+        exc,
+        defer_code=defer_code,
+        has_defer_reason=True,
+    )
 
 
 def test_wavefront_route_without_join_payload_raises(monkeypatch):
