@@ -3412,6 +3412,60 @@ class RowPipelineMixin:
             lookup[f"{alias}.{col}"] = lookup_source[col]
         return lookup
 
+    @staticmethod
+    def _gfql_node_filter_has_label(filter_dict: Any) -> bool:
+        if not isinstance(filter_dict, Mapping):
+            return False
+        return any(str(key).startswith("label__") and value is True for key, value in filter_dict.items())
+
+    @staticmethod
+    def _gfql_edge_match_type(edge_match: Any) -> Optional[str]:
+        if not isinstance(edge_match, Mapping):
+            return None
+        edge_type = edge_match.get("type")
+        return edge_type if isinstance(edge_type, str) else None
+
+    @staticmethod
+    def _gfql_has_edge_destination_label(edge_type: str) -> Optional[str]:
+        prefix = "HAS_"
+        if not edge_type.startswith(prefix):
+            return None
+        suffix = edge_type[len(prefix):]
+        if suffix == "":
+            return None
+        return "".join(part.capitalize() for part in suffix.split("_") if part)
+
+    @staticmethod
+    def _gfql_has_edge_destination_label_col(edge_op: Any, columns: Any) -> Optional[str]:
+        edge_type = RowPipelineMixin._gfql_edge_match_type(getattr(edge_op, "edge_match", None))
+        if edge_type is None:
+            return None
+        label = RowPipelineMixin._gfql_has_edge_destination_label(edge_type)
+        if label is None:
+            return None
+        label_col = f"label__{label}"
+        return label_col if label_col in columns else None
+
+    @staticmethod
+    def _gfql_disambiguate_has_edge_destination_nodes(
+        candidate_nodes: Any,
+        *,
+        node_id_col: str,
+        edge_op: Any,
+        next_node_op: Any,
+    ) -> Any:
+        """Narrow unlabeled ``HAS_<Label>`` destinations when node ids collide across labels."""
+        if RowPipelineMixin._gfql_node_filter_has_label(getattr(next_node_op, "filter_dict", None)):
+            return candidate_nodes
+        if node_id_col not in candidate_nodes.columns:
+            return candidate_nodes
+        if not bool(candidate_nodes[node_id_col].duplicated(keep=False).any()):
+            return candidate_nodes
+        label_col = RowPipelineMixin._gfql_has_edge_destination_label_col(edge_op, candidate_nodes.columns)
+        if label_col is None:
+            return candidate_nodes
+        return candidate_nodes[candidate_nodes[label_col].fillna(False).astype(bool)].copy()
+
     def _gfql_multihop_binding_rows(
         self,
         state_df: Any,
@@ -3630,12 +3684,19 @@ class RowPipelineMixin:
                 self._gfql_bindings_error(
                     "Cypher multi-alias row bindings currently require node steps in even positions"
                 )
-            # Multihop edge expansion can legitimately preserve zero-hop rows that
-            # never appear in edge_result._nodes, so continue node filtering from
-            # the base node table in that case.
+            # Continue from base nodes when edge_result._nodes cannot fully
+            # represent the next alias row domain: multihop zero-hop rows, and
+            # duplicate-id graphs needing HAS_<Label> endpoint disambiguation.
             candidate_source = (
                 base_nodes
-                if sem.is_multihop
+                if (
+                    sem.is_multihop
+                    or (
+                        edge_op.direction == "forward"
+                        and RowPipelineMixin._gfql_has_edge_destination_label_col(edge_op, base_nodes.columns) is not None
+                        and bool(base_nodes[node_id_col].duplicated(keep=False).any())
+                    )
+                )
                 else (
                     step_nodes
                     if step_nodes is not None and node_id_col in step_nodes.columns and len(step_nodes) > 0
@@ -3643,6 +3704,13 @@ class RowPipelineMixin:
                 )
             )
             candidate_nodes = candidate_source[candidate_source[node_id_col].isin(state_df["__current__"])].copy()
+            if not sem.is_multihop and edge_op.direction == "forward":
+                candidate_nodes = self._gfql_disambiguate_has_edge_destination_nodes(
+                    candidate_nodes,
+                    node_id_col=str(node_id_col),
+                    edge_op=edge_op,
+                    next_node_op=next_node_op,
+                )
             next_nodes = next_node_op.execute(
                 g=base_graph,
                 prev_node_wavefront=candidate_nodes,
