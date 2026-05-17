@@ -808,18 +808,38 @@ class RowPipelineMixin:
                     [materialized_items[col_idx][row_idx] for col_idx in range(len(materialized_items))]
                     for row_idx in range(row_count)
                 ]
-                return True, pd.Series(out_values, dtype="object")
+                return True, self._gfql_series_from_row_values(table_df, out_values, "__gfql_ast_list__")
 
         if isinstance(node, MapLiteral):
             out_map: Dict[str, Any] = {}
+            saw_vector = False
             for key, value_node in node.items:
                 ok, value = self._gfql_eval_expr_ast(table_df, value_node)
                 if not ok:
                     return False, None
                 if hasattr(value, "astype"):
-                    # Vector map values are deferred to legacy evaluator for now.
-                    return False, None
+                    saw_vector = True
                 out_map[str(key)] = value
+            if saw_vector:
+                row_count = len(table_df)
+                keys = list(out_map.keys())
+                columns: Dict[str, List[Any]] = {}
+                for key in keys:
+                    value = out_map[key]
+                    if hasattr(value, "astype"):
+                        column_values = RowPipelineMixin._gfql_series_to_pylist(value)
+                        if len(column_values) != row_count:
+                            raise ValueError(
+                                "unsupported row expression: map literal value length mismatch"
+                            )
+                        columns[key] = column_values
+                    else:
+                        columns[key] = [value] * row_count
+                out_maps = [
+                    {key: columns[key][row_idx] for key in keys}
+                    for row_idx in range(row_count)
+                ]
+                return True, self._gfql_series_from_row_values(table_df, out_maps, "__gfql_ast_map__")
             return True, out_map
 
         if isinstance(node, PropertyAccessExpr):
@@ -2370,6 +2390,30 @@ class RowPipelineMixin:
                 raise
 
         return table_df.assign(**{tmp_col: value})[tmp_col]
+
+    def _gfql_series_from_row_values(self, table_df: Any, values: List[Any], prefix: str) -> Any:
+        tmp_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, prefix)
+        engine = resolve_engine(EngineAbstract.AUTO, table_df)
+
+        try:
+            out = table_df.reset_index(drop=True).assign(**{tmp_col: values})[tmp_col]
+        except Exception:
+            if engine == Engine.CUDF:
+                try:
+                    out = s_cons(Engine.CUDF)(values)
+                    if hasattr(out, "name"):
+                        out.name = tmp_col
+                    return out
+                except Exception:
+                    pass
+            return pd.Series(values, dtype="object")
+
+        if hasattr(out, "reset_index"):
+            try:
+                out = out.reset_index(drop=True)
+            except Exception:
+                pass
+        return out
 
     def _gfql_truth_masks(self, table_df: Any, value: Any) -> Optional[Tuple[Any, Any, Any]]:
         if not hasattr(value, "astype"):

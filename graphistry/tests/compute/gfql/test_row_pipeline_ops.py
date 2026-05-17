@@ -1717,6 +1717,73 @@ class TestRowPipelineExecution:
             {"right_splat": None, "left_splat": None},
         ]
 
+    def test_row_pipeline_ast_map_literal_supports_vector_values_on_pandas(self):
+        nodes_pd = pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "score": [1, None, 3],
+                "vals": [[1, 2], [], None],
+            }
+        )
+        g = _mk_graph(nodes_pd)
+        ctx = row_pipeline_mixin._RowPipelineAdapter(g)
+        table_df = g._nodes
+
+        ast_node = expr_parser.parse_expr(
+            "{id: id, score: score, nested: [score, vals], vals: vals}"
+        )
+        ok, ast_out = ctx._gfql_eval_expr_ast(table_df, ast_node)
+        assert ok
+        assert [_normalize_record_value(item) for item in _safe_series_to_list(ast_out)] == [
+            {"id": "a", "score": 1, "nested": [1, [1, 2]], "vals": [1, 2]},
+            {"id": "b", "score": None, "nested": [None, []], "vals": []},
+            {"id": "c", "score": 3, "nested": [3, None], "vals": None},
+        ]
+
+        result = g.gfql(
+            [
+                rows(),
+                select(
+                    [
+                        ("id", "id"),
+                        ("m", "{id: id, score: score, vals: vals}"),
+                        ("maps", "[{id: id, score: score, vals: vals}, {id: id, score: score + 10, vals: vals}]"),
+                        ("picked", "{score: score, vals: vals}.score"),
+                    ]
+                ),
+                order_by([("id", "asc")]),
+            ]
+        )
+        assert _normalize_records(result._nodes.to_dict(orient="records")) == [
+            {
+                "id": "a",
+                "m": {"id": "a", "score": 1, "vals": [1, 2]},
+                "maps": [
+                    {"id": "a", "score": 1, "vals": [1, 2]},
+                    {"id": "a", "score": 11, "vals": [1, 2]},
+                ],
+                "picked": 1,
+            },
+            {
+                "id": "b",
+                "m": {"id": "b", "score": None, "vals": []},
+                "maps": [
+                    {"id": "b", "score": None, "vals": []},
+                    {"id": "b", "score": None, "vals": []},
+                ],
+                "picked": None,
+            },
+            {
+                "id": "c",
+                "m": {"id": "c", "score": 3, "vals": None},
+                "maps": [
+                    {"id": "c", "score": 3, "vals": None},
+                    {"id": "c", "score": 13, "vals": None},
+                ],
+                "picked": 3,
+            },
+        ]
+
     def test_row_pipeline_vectorized_cudf_when_available(self):
         cudf = pytest.importorskip("cudf")
 
@@ -2103,6 +2170,77 @@ class TestRowPipelineExecution:
         assert type(result._nodes).__module__.startswith("cudf")
         assert _safe_df_records(result._nodes) == [{"id": "b"}, {"id": "c"}, {"id": "a"}]
         assert not any("applying scoped host bridge" in str(w.message) for w in caught)
+
+    def test_row_pipeline_cudf_ast_map_literal_vector_values_when_available(self):
+        cudf = pytest.importorskip("cudf")
+
+        nodes_pd = pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "score": [1, None, 3],
+                "vals": [[1, 2], [], None],
+            }
+        )
+        edges_pd = pd.DataFrame({"s": ["a"], "d": ["b"]})
+        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+        ctx = row_pipeline_mixin._RowPipelineAdapter(g)
+
+        ok, ast_out = ctx._gfql_eval_expr_ast(
+            g._nodes,
+            expr_parser.parse_expr("{id: id, score: score, nested: [score, vals], vals: vals}"),
+        )
+        assert ok
+        assert [_normalize_record_value(item) for item in _safe_series_to_list(ast_out)] == [
+            {"id": "a", "score": 1, "nested": [1, [1, 2]], "vals": [1, 2]},
+            {"id": "b", "score": None, "nested": [None, []], "vals": []},
+            {"id": "c", "score": 3, "nested": [3, None], "vals": None},
+        ]
+
+        result = g.gfql(
+            [
+                rows(),
+                select(
+                    [
+                        ("id", "id"),
+                        ("m", "{id: id, score: score, vals: vals}"),
+                        ("maps", "[{id: id, score: score, vals: vals}, {id: id, score: score + 10, vals: vals}]"),
+                        ("picked", "{score: score, vals: vals}.score"),
+                    ]
+                ),
+                order_by([("id", "asc")]),
+            ]
+        )
+
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert _normalize_records(_safe_df_records(result._nodes)) == [
+            {
+                "id": "a",
+                "m": {"id": "a", "score": 1, "vals": [1, 2]},
+                "maps": [
+                    {"id": "a", "score": 1, "vals": [1, 2]},
+                    {"id": "a", "score": 11, "vals": [1, 2]},
+                ],
+                "picked": 1,
+            },
+            {
+                "id": "b",
+                "m": {"id": "b", "score": None, "vals": []},
+                "maps": [
+                    {"id": "b", "score": None, "vals": []},
+                    {"id": "b", "score": None, "vals": []},
+                ],
+                "picked": None,
+            },
+            {
+                "id": "c",
+                "m": {"id": "c", "score": 3, "vals": None},
+                "maps": [
+                    {"id": "c", "score": 3, "vals": None},
+                    {"id": "c", "score": 13, "vals": None},
+                ],
+                "picked": 3,
+            },
+        ]
 
     def test_row_pipeline_cudf_list_scalar_concat_when_available(self):
         cudf = pytest.importorskip("cudf")

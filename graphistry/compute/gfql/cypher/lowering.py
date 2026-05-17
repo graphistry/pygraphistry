@@ -76,6 +76,7 @@ from graphistry.compute.gfql.expr_parser import (
     Wildcard,
     collect_identifiers,
     parse_expr,
+    iter_expr_children,
     walk_expr_nodes,
 )
 from graphistry.compute.gfql.cypher.reentry_plan import CarriedAlias, ReentryPlan
@@ -2220,6 +2221,12 @@ def _aggregate_spec_from_function_call(
     )
 
 
+def _expr_contains_aggregate(node: ExprNode) -> bool:
+    return (isinstance(node, FunctionCall) and node.name in _CYPHER_AGGREGATES) or any(
+        _expr_contains_aggregate(child) for child in iter_expr_children(node)
+    )
+
+
 def _post_aggregate_expr_plan(
     item: ReturnItem,
     *,
@@ -2238,6 +2245,15 @@ def _post_aggregate_expr_plan(
         line=item.span.line,
         column=item.span.column,
     )
+    aggregate_in_map = False
+
+    def _enter(current: ExprNode) -> None:
+        nonlocal aggregate_in_map
+        aggregate_in_map = aggregate_in_map or (isinstance(current, MapLiteral) and _expr_contains_aggregate(current))
+
+    walk_expr_nodes(node, enter=_enter)
+    if aggregate_in_map:
+        raise _unsupported("Cypher aggregate expressions inside map literals are not supported in the local compiler yet", field="return.item", value=item.expression.text, line=item.span.line, column=item.span.column)
 
     temp_names: Set[str] = reserved_temp_names if reserved_temp_names is not None else set()
     aggregate_specs: List[_AggregateSpec] = []
