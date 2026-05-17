@@ -169,14 +169,7 @@ class LogicalPlanner:
     ) -> None:
         alias_names = part.outputs or part.inputs
         if not alias_names:
-            raise GFQLValidationError(
-                ErrorCode.E108,
-                "LogicalPlanner skeleton requires at least one MATCH alias",
-                field="clause",
-                value=part.clause,
-                suggestion="Use MATCH with at least one alias in scope.",
-                logical_plan_defer_code="anonymous_match",
-            )
+            return
         has_known_alias = False
         for alias in alias_names:
             variable = vars_by_name.get(alias)

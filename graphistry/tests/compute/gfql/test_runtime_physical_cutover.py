@@ -271,11 +271,6 @@ def test_distinct_projection_route_uses_physical_route(monkeypatch):
     ("query", "defer_code", "expected_rows"),
     [
         (
-            "MATCH () RETURN count(*) * 10 AS c",
-            "anonymous_match",
-            [{"c": 30}],
-        ),
-        (
             "MATCH (a) OPTIONAL MATCH (a)-->(b) RETURN count(b) AS c",
             "non_top_level_optional_match",
             [{"c": 2}],
@@ -317,14 +312,38 @@ def test_classified_unplanned_chain_fallback_uses_chain_route(
     assert result._nodes.to_dict(orient="records") == expected_rows
 
 
-def test_unplanned_chain_fallback_requires_compile_defer_reason():
+def test_anonymous_match_count_projection_uses_planned_route(monkeypatch):
     g = _mk_graph()
+    planner_routes = []
+    original_plan = PhysicalPlanner.plan
     compiled = cast(
         CompiledCypherQuery,
         compile_cypher("MATCH () RETURN count(*) * 10 AS c", _warn_deprecated=False),
     )
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_code is None
+
+    def _spy_plan(self, logical_plan, ctx):
+        physical_plan = original_plan(self, logical_plan, ctx)
+        planner_routes.append(physical_plan.route)
+        return physical_plan
+
+    monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
+
+    result = g.gfql("MATCH () RETURN count(*) * 10 AS c")
+
+    assert planner_routes == ["same_path"]
+    assert result._nodes.to_dict(orient="records") == [{"c": 30}]
+
+
+def test_unplanned_chain_fallback_requires_compile_defer_reason():
+    g = _mk_graph()
+    compiled = cast(
+        CompiledCypherQuery,
+        compile_cypher("MATCH (a) OPTIONAL MATCH (a)-->(b) RETURN count(b) AS c", _warn_deprecated=False),
+    )
     assert compiled.logical_plan is None
-    assert compiled.logical_plan_defer_code == "anonymous_match"
+    assert compiled.logical_plan_defer_code == "non_top_level_optional_match"
     assert compiled.logical_plan_defer_reason is not None
 
     unclassified = replace(compiled, execution_extras=None)
@@ -343,7 +362,7 @@ def test_unknown_deferred_logical_plan_reason_rejected_before_chain_fallback():
     g = _mk_graph()
     compiled = cast(
         CompiledCypherQuery,
-        compile_cypher("MATCH () RETURN count(*) * 10 AS c", _warn_deprecated=False),
+        compile_cypher("MATCH (a) OPTIONAL MATCH (a)-->(b) RETURN count(b) AS c", _warn_deprecated=False),
     )
     unknown_defer = replace(
         compiled,
@@ -369,7 +388,7 @@ def test_unapproved_deferred_logical_plan_code_rejected_before_chain_fallback():
     g = _mk_graph()
     compiled = cast(
         CompiledCypherQuery,
-        compile_cypher("MATCH () RETURN count(*) * 10 AS c", _warn_deprecated=False),
+        compile_cypher("MATCH (a) OPTIONAL MATCH (a)-->(b) RETURN count(b) AS c", _warn_deprecated=False),
     )
     unknown_defer = replace(
         compiled,
