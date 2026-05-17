@@ -3620,6 +3620,42 @@ def _merged_match_clause(query: CypherQuery) -> Optional[MatchClause]:
     return _apply_seed_node_bindings(query.matches[-1], seed_bindings=seed_bindings)
 
 
+def _sequential_connected_match_join_query(
+    query: CypherQuery,
+    *,
+    params: Optional[Mapping[str, Any]],
+) -> Optional[CypherQuery]:
+    if len(query.matches) < 2:
+        return None
+    if query.where is not None or _query_has_shortest_path_patterns(query):
+        return None
+    if any(clause.optional for clause in query.matches):
+        return None
+    try:
+        merged = _merge_non_optional_match_clauses(query.matches)
+    except GFQLValidationError:
+        return None
+    if not _is_node_connected_multi_pattern_clause(merged):
+        return None
+    accumulated_node_aliases: Set[str] = set()
+    for idx, pattern in enumerate(merged.patterns):
+        if any(
+            isinstance(element, RelationshipPattern) and _is_variable_length_relationship_pattern(element)
+            for element in pattern
+        ):
+            return None
+        node_aliases = _pattern_node_aliases(pattern)
+        if not node_aliases:
+            return None
+        if idx > 0 and not (accumulated_node_aliases & node_aliases):
+            return None
+        accumulated_node_aliases.update(node_aliases)
+    joined_query = replace(query, matches=(merged,), where=None)
+    if _query_requires_general_lowering_for_connected_join(joined_query, params=params):
+        return None
+    return joined_query
+
+
 def _match_clause_aliases(clause: MatchClause) -> Set[str]:
     return {
         cast(str, element.variable)
@@ -8753,6 +8789,15 @@ def compile_cypher_query(
         return _attach_graph_context(_compile_call_query(query, params=params))
     if query.row_sequence:
         return _attach_graph_context(_lower_row_only_sequence(query, params=params))
+    sequential_connected_query = _sequential_connected_match_join_query(query, params=params)
+    if sequential_connected_query is not None:
+        return _attach_graph_context(
+            _compile_connected_match_join(
+                sequential_connected_query,
+                params=params,
+                semantic_entity_kinds=bound_context.entity_kinds,
+            )
+        )
     if (
         len(query.matches) == 1
         and _is_node_connected_multi_pattern_clause(query.matches[0])

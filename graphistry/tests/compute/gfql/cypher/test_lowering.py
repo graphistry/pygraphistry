@@ -15366,6 +15366,31 @@ def test_issue_996_case_r_when_null_searched_form_still_works() -> None:
 # Issue #1395: sequential MATCH reply-author row-shaping joins (IC8 / IS7)
 # ---------------------------------------------------------------------------
 
+def test_issue_1477_sequential_match_has_connected_join_logical_route() -> None:
+    """Ordinary sequential MATCH now bypasses the residual multiple_match_stages fallback."""
+    compiled = _compile_query("MATCH (a) MATCH (a)-->(b) RETURN b.id AS id ORDER BY id")
+    extras = _compiled_execution_extras(compiled)
+
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_code is None
+    assert compiled.logical_plan_defer_reason is None
+    assert extras.connected_match_join is not None
+    assert _logical_plan_route(compiled) == "planned"
+
+
+def test_issue_1477_shortest_path_multi_match_stays_deferred() -> None:
+    """shortestPath/exotic multi-MATCH stays out of the ordinary sequential lane."""
+    compiled = _compile_query(
+        "MATCH (a) MATCH path = shortestPath((a)-[*]-(b)) RETURN length(path) AS hops"
+    )
+    extras = _compiled_execution_extras(compiled)
+
+    assert compiled.logical_plan is None
+    assert compiled.logical_plan_defer_code == "multiple_match_stages"
+    assert compiled.logical_plan_defer_reason is not None
+    assert extras.connected_match_join is None
+
+
 def _mk_issue_1395_reply_author_ic8_graph(*, cudf_mode: bool = False) -> _CypherTestGraph:
     nodes = pd.DataFrame({
         "id": [
@@ -15401,10 +15426,7 @@ def _mk_issue_1395_reply_author_ic8_graph(*, cudf_mode: bool = False) -> _Cypher
         ],
     })
     if cudf_mode:
-        pytest.importorskip("cudf")
-        import cudf  # type: ignore
-        nodes = cudf.DataFrame.from_pandas(nodes)
-        edges = cudf.DataFrame.from_pandas(edges)
+        return _mk_cudf_graph(nodes, edges)
     return _mk_graph(nodes, edges)
 
 

@@ -276,7 +276,7 @@ def test_distinct_projection_route_uses_physical_route(monkeypatch):
             [{"c": 2}],
         ),
         (
-            "MATCH (a) MATCH (a)-->(b) RETURN count(b) AS c",
+            "MATCH (a {id: 'a'}) MATCH path = shortestPath((a)-[*]-(b {id: 'c'})) RETURN length(path) AS c",
             "multiple_match_stages",
             [{"c": 2}],
         ),
@@ -334,6 +334,35 @@ def test_anonymous_match_count_projection_uses_planned_route(monkeypatch):
 
     assert planner_routes == ["same_path"]
     assert result._nodes.to_dict(orient="records") == [{"c": 30}]
+
+
+def test_sequential_multiple_match_uses_connected_join_without_residual_chain(monkeypatch):
+    g = _mk_graph()
+    query = "MATCH (a) MATCH (a)-->(b) RETURN b.id AS id ORDER BY id"
+    planner_routes = []
+    original_plan = PhysicalPlanner.plan
+
+    compiled = cast(CompiledCypherQuery, compile_cypher(query, _warn_deprecated=False))
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_code is None
+    assert compiled.execution_extras is not None
+    assert compiled.execution_extras.connected_match_join is not None
+
+    def _spy_plan(self, logical_plan, ctx):
+        physical_plan = original_plan(self, logical_plan, ctx)
+        planner_routes.append(physical_plan.route)
+        return physical_plan
+
+    def _fail_residual_chain(*args, **kwargs):
+        raise AssertionError("sequential multiple MATCH should not use residual chain fallback")
+
+    monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
+    monkeypatch.setattr(gfql_unified, "_execute_compiled_query_chain_non_union", _fail_residual_chain)
+
+    result = g.gfql(query)
+
+    assert planner_routes == ["wavefront"]
+    assert result._nodes.to_dict(orient="records") == [{"id": "b"}, {"id": "c"}]
 
 
 def test_unplanned_chain_fallback_requires_compile_defer_reason():
