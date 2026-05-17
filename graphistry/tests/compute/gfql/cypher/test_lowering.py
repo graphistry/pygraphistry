@@ -14800,6 +14800,47 @@ def test_issue_1025_two_optional_match_one_misses() -> None:
     assert rows[0]["did"] is None or (isinstance(rows[0]["did"], float) and rows[0]["did"] != rows[0]["did"])
 
 
+@pytest.mark.parametrize(
+    "optional_clauses",
+    [
+        "OPTIONAL MATCH (m)-[:T1]->(a:A) OPTIONAL MATCH (m)-[:T2]->(b:B)",
+        "OPTIONAL MATCH (m)-[:T2]->(b:B) OPTIONAL MATCH (m)-[:T1]->(a:A)",
+    ],
+)
+def test_issue_1472_independent_optional_arms_preserve_per_row_nulls(optional_clauses: str) -> None:
+    """Two independent OPTIONAL arms must not bleed matches across base rows."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["m1", "m2", "a1", "b2"],
+            "label__M": [True, True, False, False],
+            "label__A": [False, False, True, False],
+            "label__B": [False, False, False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["m1", "m2"],
+            "d": ["a1", "b2"],
+            "type": ["T1", "T2"],
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (m:M) "
+        f"{optional_clauses} "
+        "RETURN m.id AS mid, "
+        "CASE a WHEN null THEN 'no-a' ELSE a.id END AS aid, "
+        "CASE b WHEN null THEN 'no-b' ELSE b.id END AS bid "
+        "ORDER BY mid, aid, bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"mid": "m1", "aid": "a1", "bid": "no-b"},
+        {"mid": "m2", "aid": "no-a", "bid": "b2"},
+    ]
+
+
 def test_issue_1025_single_node_base_two_optionals() -> None:
     """Single-node base MATCH + two OPTIONAL MATCH clauses."""
     nodes = pd.DataFrame({"id": ["a", "b", "c"]})
