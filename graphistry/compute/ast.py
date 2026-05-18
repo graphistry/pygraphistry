@@ -102,12 +102,6 @@ class ASTObject(ASTSerializable):
 ##############################################################################
 
 
-def assert_record_match(d: Dict) -> None:
-    assert isinstance(d, dict)
-    for k, v in d.items():
-        assert isinstance(k, str)
-        assert isinstance(v, ASTPredicate) or is_json_serializable(v)
-
 def maybe_filter_dict_from_json(d: Dict, key: str) -> Optional[Dict]:
     if key not in d:
         return None
