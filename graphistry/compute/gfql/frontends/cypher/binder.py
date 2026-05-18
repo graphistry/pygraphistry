@@ -20,6 +20,7 @@ from graphistry.compute.gfql.cypher.ast import (
     LabelRef,
     MatchClause,
     NodePattern,
+    OrderByClause,
     ParameterRef,
     PathPatternKind,
     PatternElement,
@@ -153,7 +154,7 @@ class FrontendBinder:
 
         if not any(part.clause == "RETURN" for part in state.query_parts):
             # Query shape can still carry a final RETURN clause outside row_sequence.
-            self._bind_return_clause(state=state, clause=ast.return_)
+            self._bind_return_clause(state=state, clause=ast.return_, order_by=ast.order_by)
 
         return _finalize_bound_ir(state=state, ctx=ctx)
 
@@ -441,7 +442,7 @@ class FrontendBinder:
 
         predicates: List[BoundPredicate] = []
         if stage.where is not None:
-            where_state = self._projection_where_state(
+            where_state = self._projection_subclause_state(
                 state=state,
                 next_scope=next_scope,
                 next_confidence=next_confidence,
@@ -449,6 +450,14 @@ class FrontendBinder:
             self._validate_expression_property_refs(state=where_state, expression=stage.where, stage=f"{origin} WHERE")
             predicates.append(BoundPredicate(expression=stage.where.text))
             _collect_parameter_names(stage.where, out=state.parameter_names)
+
+        if stage.order_by is not None:
+            order_state = self._projection_subclause_state(
+                state=state,
+                next_scope=next_scope,
+                next_confidence=next_confidence,
+            )
+            self._validate_order_by_clause(state=order_state, clause=stage.order_by, stage=f"{origin} ORDER BY")
 
         state.scope = next_scope
         state.scope_confidence = next_confidence
@@ -505,7 +514,13 @@ class FrontendBinder:
         )
         _append_scope_frame(state=state, origin_clause="UNWIND")
 
-    def _bind_return_clause(self, state: _BindState, clause: ReturnClause, stage: Optional[ProjectionStage] = None) -> None:
+    def _bind_return_clause(
+        self,
+        state: _BindState,
+        clause: ReturnClause,
+        stage: Optional[ProjectionStage] = None,
+        order_by: Optional[OrderByClause] = None,
+    ) -> None:
         inputs = frozenset(state.scope.keys())
         clause_scope_id = _next_scope_id(state)
         next_scope, next_confidence = self._project_items(
@@ -517,7 +532,7 @@ class FrontendBinder:
 
         predicates: List[BoundPredicate] = []
         if stage is not None and stage.where is not None:
-            where_state = self._projection_where_state(
+            where_state = self._projection_subclause_state(
                 state=state,
                 next_scope=next_scope,
                 next_confidence=next_confidence,
@@ -525,6 +540,15 @@ class FrontendBinder:
             self._validate_expression_property_refs(state=where_state, expression=stage.where, stage="RETURN WHERE")
             predicates.append(BoundPredicate(expression=stage.where.text))
             _collect_parameter_names(stage.where, out=state.parameter_names)
+
+        order_by_clause = stage.order_by if stage is not None else order_by
+        if order_by_clause is not None:
+            order_state = self._projection_subclause_state(
+                state=state,
+                next_scope=next_scope,
+                next_confidence=next_confidence,
+            )
+            self._validate_order_by_clause(state=order_state, clause=order_by_clause, stage="RETURN ORDER BY")
 
         state.scope = next_scope
         state.scope_confidence = next_confidence
@@ -577,22 +601,31 @@ class FrontendBinder:
         return next_scope, next_confidence
 
 
-    def _projection_where_state(
+    def _projection_subclause_state(
         self,
         *,
         state: _BindState,
         next_scope: Dict[str, BoundVariable],
         next_confidence: Dict[str, SchemaConfidence],
     ) -> _BindState:
-        where_scope = dict(state.scope)
-        where_scope.update(next_scope)
-        where_confidence = dict(state.scope_confidence)
-        where_confidence.update(next_confidence)
+        subclause_scope = dict(state.scope)
+        subclause_scope.update(next_scope)
+        subclause_confidence = dict(state.scope_confidence)
+        subclause_confidence.update(next_confidence)
         return _BindState(
-            scope=where_scope,
-            scope_confidence=where_confidence,
+            scope=subclause_scope,
+            scope_confidence=subclause_confidence,
             catalog=state.catalog,
         )
+
+    def _validate_order_by_clause(self, *, state: _BindState, clause: OrderByClause, stage: str) -> None:
+        for item in clause.items:
+            self._validate_expression_property_refs(state=state, expression=item.expression, stage=stage)
+            _infer_expression_binding(
+                expression=item.expression,
+                scope=state.scope,
+                confidence=state.scope_confidence,
+            )
 
     def _append_where_part(self, state: _BindState, clause_name: str, where: WhereClause) -> None:
         self._validate_where_clause_schema(state=state, where=where, stage=clause_name)

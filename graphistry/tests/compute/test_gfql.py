@@ -340,6 +340,29 @@ class TestGFQL:
 
         assert result._nodes.to_dict(orient="records") == expected
 
+    @pytest.mark.parametrize("stale_alias", ["c", "d"])
+    @pytest.mark.parametrize("direction", ["", " ASC", " ASCENDING", " DESC", " DESCENDING"])
+    def test_gfql_rejects_cypher_with_order_by_alias_not_visible_after_with(self, stale_alias, direction):
+        g = _mk_people_company_graph3()
+
+        with pytest.raises(GFQLValidationError) as exc_info:
+            g.gfql(f"MATCH (a), (b), (c) WITH a, b WITH a ORDER BY {stale_alias}{direction} RETURN a")
+
+        assert exc_info.value.code == ErrorCode.E204
+        assert exc_info.value.context["field"] == "identifier"
+        assert exc_info.value.context["value"] == stale_alias
+
+    def test_gfql_executes_cypher_with_order_by_projected_alias_after_with(self):
+        g = _mk_people_company_graph3()
+
+        result = g.gfql("MATCH (a) WITH a.id AS aid ORDER BY aid RETURN aid")
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"aid": "a"},
+            {"aid": "b"},
+            {"aid": "c"},
+        ]
+
     @pytest.mark.parametrize(
         ("query", "expected"),
         [
