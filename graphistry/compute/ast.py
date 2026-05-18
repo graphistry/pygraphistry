@@ -102,12 +102,6 @@ class ASTObject(ASTSerializable):
 ##############################################################################
 
 
-def assert_record_match(d: Dict) -> None:
-    assert isinstance(d, dict)
-    for k, v in d.items():
-        assert isinstance(k, str)
-        assert isinstance(v, ASTPredicate) or is_json_serializable(v)
-
 def maybe_filter_dict_from_json(d: Dict, key: str) -> Optional[Dict]:
     if key not in d:
         return None
@@ -120,6 +114,34 @@ def maybe_filter_dict_from_json(d: Dict, key: str) -> Optional[Dict]:
         raise ValueError('filter_dict must be a dict or None')
     else:
         return None
+
+
+def _edge_from_json_kwargs(d: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        'edge_match': maybe_filter_dict_from_json(d, 'edge_match'),
+        'hops': d['hops'] if 'hops' in d else None,
+        'min_hops': d.get('min_hops'),
+        'max_hops': d.get('max_hops'),
+        'output_min_hops': d.get('output_min_hops'),
+        'output_max_hops': d.get('output_max_hops'),
+        'label_node_hops': d.get('label_node_hops'),
+        'label_edge_hops': d.get('label_edge_hops'),
+        'label_seeds': d.get('label_seeds', False),
+        'to_fixed_point': d['to_fixed_point'] if 'to_fixed_point' in d else DEFAULT_FIXED_POINT,
+        'source_node_match': maybe_filter_dict_from_json(d, 'source_node_match'),
+        'destination_node_match': maybe_filter_dict_from_json(d, 'destination_node_match'),
+        'source_node_query': d['source_node_query'] if 'source_node_query' in d else None,
+        'destination_node_query': d['destination_node_query'] if 'destination_node_query' in d else None,
+        'edge_query': d['edge_query'] if 'edge_query' in d else None,
+        'name': d['name'] if 'name' in d else None,
+        'include_zero_hop_seed': d.get('include_zero_hop_seed', False),
+    }
+
+
+def _validate_edge_from_json(out: 'ASTEdge', validate: bool) -> 'ASTEdge':
+    if validate:
+        out.validate()
+    return out
 
 ##############################################################################
 
@@ -571,27 +593,9 @@ class ASTEdge(ASTObject):
     def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTEdge':
         out = ASTEdge(
             direction=d['direction'] if 'direction' in d else None,
-            edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
-            hops=d['hops'] if 'hops' in d else None,
-            min_hops=d.get('min_hops'),
-            max_hops=d.get('max_hops'),
-            output_min_hops=d.get('output_min_hops'),
-            output_max_hops=d.get('output_max_hops'),
-            label_node_hops=d.get('label_node_hops'),
-            label_edge_hops=d.get('label_edge_hops'),
-            label_seeds=d.get('label_seeds', False),
-            to_fixed_point=d['to_fixed_point'] if 'to_fixed_point' in d else DEFAULT_FIXED_POINT,
-            source_node_match=maybe_filter_dict_from_json(d, 'source_node_match'),
-            destination_node_match=maybe_filter_dict_from_json(d, 'destination_node_match'),
-            source_node_query=d['source_node_query'] if 'source_node_query' in d else None,
-            destination_node_query=d['destination_node_query'] if 'destination_node_query' in d else None,
-            edge_query=d['edge_query'] if 'edge_query' in d else None,
-            name=d['name'] if 'name' in d else None,
-            include_zero_hop_seed=d.get('include_zero_hop_seed', False),
+            **_edge_from_json_kwargs(d),
         )
-        if validate:
-            out.validate()
-        return out
+        return _validate_edge_from_json(out, validate)
 
     def execute(
         self,
@@ -781,28 +785,8 @@ class ASTEdgeForward(ASTEdge):
 
     @classmethod
     def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTEdge':
-        out = ASTEdgeForward(
-            edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
-            hops=d['hops'] if 'hops' in d else None,
-            min_hops=d.get('min_hops'),
-            max_hops=d.get('max_hops'),
-            output_min_hops=d.get('output_min_hops'),
-            output_max_hops=d.get('output_max_hops'),
-            label_node_hops=d.get('label_node_hops'),
-            label_edge_hops=d.get('label_edge_hops'),
-            label_seeds=d.get('label_seeds', False),
-            to_fixed_point=d['to_fixed_point'] if 'to_fixed_point' in d else DEFAULT_FIXED_POINT,
-            source_node_match=maybe_filter_dict_from_json(d, 'source_node_match'),
-            destination_node_match=maybe_filter_dict_from_json(d, 'destination_node_match'),
-            source_node_query=d['source_node_query'] if 'source_node_query' in d else None,
-            destination_node_query=d['destination_node_query'] if 'destination_node_query' in d else None,
-            edge_query=d['edge_query'] if 'edge_query' in d else None,
-            name=d['name'] if 'name' in d else None,
-            include_zero_hop_seed=d.get('include_zero_hop_seed', False),
-        )
-        if validate:
-            out.validate()
-        return out
+        out = ASTEdgeForward(**_edge_from_json_kwargs(d))
+        return _validate_edge_from_json(out, validate)
 
 
 e_forward = ASTEdgeForward  # noqa: E305
@@ -857,28 +841,8 @@ class ASTEdgeReverse(ASTEdge):
 
     @classmethod
     def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTEdge':
-        out = ASTEdgeReverse(
-            edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
-            hops=d['hops'] if 'hops' in d else None,
-            min_hops=d.get('min_hops'),
-            max_hops=d.get('max_hops'),
-            output_min_hops=d.get('output_min_hops'),
-            output_max_hops=d.get('output_max_hops'),
-            label_node_hops=d.get('label_node_hops'),
-            label_edge_hops=d.get('label_edge_hops'),
-            label_seeds=d.get('label_seeds', False),
-            to_fixed_point=d['to_fixed_point'] if 'to_fixed_point' in d else DEFAULT_FIXED_POINT,
-            source_node_match=maybe_filter_dict_from_json(d, 'source_node_match'),
-            destination_node_match=maybe_filter_dict_from_json(d, 'destination_node_match'),
-            source_node_query=d['source_node_query'] if 'source_node_query' in d else None,
-            destination_node_query=d['destination_node_query'] if 'destination_node_query' in d else None,
-            edge_query=d['edge_query'] if 'edge_query' in d else None,
-            name=d['name'] if 'name' in d else None,
-            include_zero_hop_seed=d.get('include_zero_hop_seed', False),
-        )
-        if validate:
-            out.validate()
-        return out
+        out = ASTEdgeReverse(**_edge_from_json_kwargs(d))
+        return _validate_edge_from_json(out, validate)
 
 
 e_reverse = ASTEdgeReverse  # noqa: E305
@@ -933,28 +897,8 @@ class ASTEdgeUndirected(ASTEdge):
 
     @classmethod
     def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTEdge':
-        out = ASTEdgeUndirected(
-            edge_match=maybe_filter_dict_from_json(d, 'edge_match'),
-            hops=d['hops'] if 'hops' in d else None,
-            min_hops=d.get('min_hops'),
-            max_hops=d.get('max_hops'),
-            output_min_hops=d.get('output_min_hops'),
-            output_max_hops=d.get('output_max_hops'),
-            label_node_hops=d.get('label_node_hops'),
-            label_edge_hops=d.get('label_edge_hops'),
-            label_seeds=d.get('label_seeds', False),
-            to_fixed_point=d['to_fixed_point'] if 'to_fixed_point' in d else DEFAULT_FIXED_POINT,
-            source_node_match=maybe_filter_dict_from_json(d, 'source_node_match'),
-            destination_node_match=maybe_filter_dict_from_json(d, 'destination_node_match'),
-            source_node_query=d['source_node_query'] if 'source_node_query' in d else None,
-            destination_node_query=d['destination_node_query'] if 'destination_node_query' in d else None,
-            edge_query=d['edge_query'] if 'edge_query' in d else None,
-            name=d['name'] if 'name' in d else None,
-            include_zero_hop_seed=d.get('include_zero_hop_seed', False),
-        )
-        if validate:
-            out.validate()
-        return out
+        out = ASTEdgeUndirected(**_edge_from_json_kwargs(d))
+        return _validate_edge_from_json(out, validate)
 
 
 e_undirected = ASTEdgeUndirected  # noqa: E305
