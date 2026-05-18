@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from datetime import datetime as py_datetime
 from datetime import timedelta
-from datetime import timezone as py_timezone
 import re
 from typing import Optional, cast
 
@@ -11,11 +9,13 @@ from graphistry.compute.gfql.temporal import constructors as _tt
 from graphistry.compute.gfql.expr_parser import ExprNode, Literal
 from graphistry.compute.gfql.temporal.values import (
     _TemporalValue,
+    _absolute_temporal_delta,
     _comparable_datetime,
     _days_from_civil,
     _days_in_month,
     _parse_temporal_value,
     _parse_wide_temporal_value,
+    _timedelta_total_microseconds,
 )
 
 _DURATION_TOKEN_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)([YMWDHMS])")
@@ -87,16 +87,6 @@ def parse_temporal_sort_duration_components(text: str) -> Optional[tuple[int, in
             total += value * Decimal(1_000_000_000)
 
     return month_shift * prefix_sign, int((total * prefix_sign).to_integral_value())
-
-
-def parse_day_time_duration_nanoseconds(text: str) -> Optional[int]:
-    parsed = parse_temporal_sort_duration_components(text)
-    if parsed is None:
-        return None
-    month_shift, nanosecond_shift = parsed
-    if month_shift != 0:
-        return None
-    return nanosecond_shift
 
 
 def _format_large_time_only_duration(total_nanoseconds: int) -> str:
@@ -175,16 +165,6 @@ def _fold_large_year_duration_function_call(
         )
         return _format_large_time_only_duration(end_total - start_total)
     return None
-
-
-def _timedelta_total_microseconds(delta: timedelta) -> int:
-    return ((delta.days * 24 * 60 * 60) + delta.seconds) * 1_000_000 + delta.microseconds
-
-
-def _absolute_temporal_delta(start_dt: py_datetime, end_dt: py_datetime) -> timedelta:
-    if start_dt.tzinfo is not None and end_dt.tzinfo is not None:
-        return end_dt.astimezone(py_timezone.utc) - start_dt.astimezone(py_timezone.utc)
-    return end_dt - start_dt
 
 
 def _format_time_only_duration(delta: timedelta) -> str:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from decimal import Decimal
 from datetime import date as py_date
 from datetime import datetime as py_datetime
@@ -20,25 +19,6 @@ try:
     from dateutil.tz import gettz as _dateutil_gettz  # type: ignore[import-untyped]
 except Exception:
     _dateutil_gettz = None
-
-from graphistry.compute.gfql.expr_parser import (
-    BinaryOp,
-    CaseWhen,
-    ExprNode,
-    FunctionCall,
-    Identifier,
-    IsNullOp,
-    ListComprehension,
-    ListLiteral,
-    Literal,
-    MapLiteral,
-    QuantifierExpr,
-    SliceExpr,
-    SubscriptExpr,
-    UnaryOp,
-    Wildcard,
-)
-
 
 _TEMPORAL_FUNC_RE = re.compile(
     r"^(?P<fn>date|localtime|time|localdatetime|datetime|duration)\((?P<arg>.*)\)$"
