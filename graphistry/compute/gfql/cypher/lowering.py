@@ -1318,6 +1318,8 @@ def _rewrite_alias_properties_to_outputs(
     line: int,
     column: int,
 ) -> str:
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
     node = _parse_row_expr(
         expr_text,
         params=params,
@@ -1329,7 +1331,7 @@ def _rewrite_alias_properties_to_outputs(
 
     def _rewrite(node_in: ExprNode) -> ExprNode:
         if isinstance(node_in, PropertyAccessExpr) and isinstance(node_in.value, Identifier):
-            alias_name, prop = _qualified_ref_from_node(
+            alias_name, prop = _projection._qualified_ref_from_node(
                 node_in,
                 field=field,
                 value=expr_text,
@@ -1953,6 +1955,8 @@ def _rewrite_expr_to_projected_sources(
 ) -> ExpressionText:
     if not projected_columns:
         return expr
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
     prepared = _rewrite_param_expr(
         expr.text,
         params=params,
@@ -1981,7 +1985,7 @@ def _rewrite_expr_to_projected_sources(
         if binding is not None:
             replacements[ident] = _projected_source_replacement(binding)
             continue
-        alias_name, prop = _split_qualified_name(ident, line=expr.span.line, column=expr.span.column)
+        alias_name, prop = _projection._split_qualified_name(ident, line=expr.span.line, column=expr.span.column)
         if prop is None:
             continue
         base_binding = projected_columns.get(alias_name)
@@ -3709,171 +3713,6 @@ def _alias_table(
     )
 
 
-def _split_qualified_name(expr: str, *, line: int, column: int) -> Tuple[str, Optional[str]]:
-    from graphistry.compute.gfql.cypher import projection_planning as _projection
-
-    return _projection._split_qualified_name(expr, line=line, column=column)
-
-
-def _qualified_ref_from_node(
-    node: ExprNode,
-    *,
-    field: str,
-    value: str,
-    line: int,
-    column: int,
-) -> Tuple[str, Optional[str]]:
-    from graphistry.compute.gfql.cypher import projection_planning as _projection
-
-    return _projection._qualified_ref_from_node(node, field=field, value=value, line=line, column=column)
-
-
-def _projection_ref_from_expr(
-    expr: str,
-    *,
-    alias_targets: Mapping[str, ASTObject],
-    params: Optional[Mapping[str, Any]] = None,
-    field: str,
-    line: int,
-    column: int,
-) -> Tuple[str, Optional[str]]:
-    from graphistry.compute.gfql.cypher import projection_planning as _projection
-
-    return _projection._projection_ref_from_expr(
-        expr,
-        alias_targets=alias_targets,
-        params=params,
-        field=field,
-        line=line,
-        column=column,
-    )
-
-
-def _reject_duplicate_alias_row_refs(
-    query: CypherQuery,
-    *,
-    alias_targets: Mapping[str, ASTObject],
-    duplicated_aliases: Set[str],
-    params: Optional[Mapping[str, Any]],
-) -> None:
-    from graphistry.compute.gfql.cypher import projection_planning as _projection
-
-    _projection._reject_duplicate_alias_row_refs(
-        query,
-        alias_targets=alias_targets,
-        duplicated_aliases=duplicated_aliases,
-        params=params,
-    )
-
-
-def _build_projection_plan(
-    clause: ReturnClause,
-    *,
-    alias_targets: Dict[str, ASTObject],
-    active_alias: Optional[str] = None,
-    projected_columns: Optional[Mapping[str, _StageColumnBinding]] = None,
-    params: Optional[Mapping[str, Any]] = None,
-    semantic_entity_kinds: Optional[Mapping[str, Literal["node", "edge", "scalar"]]] = None,
-) -> _ProjectionPlan:
-    from graphistry.compute.gfql.cypher import projection_planning as _projection
-
-    return _projection._build_projection_plan(
-        clause,
-        alias_targets=alias_targets,
-        active_alias=active_alias,
-        projected_columns=projected_columns,
-        params=params,
-        semantic_entity_kinds=semantic_entity_kinds,
-    )
-
-
-def _can_lower_multi_alias_projection_bindings(
-    plan: _ProjectionPlan,
-    *,
-    alias_targets: Mapping[str, ASTObject],
-) -> bool:
-    from graphistry.compute.gfql.cypher import projection_planning as _projection
-
-    return _projection._can_lower_multi_alias_projection_bindings(plan, alias_targets=alias_targets)
-
-
-def _result_projection_plan(
-    plan: _ProjectionPlan,
-    *,
-    alias_targets: Mapping[str, ASTObject],
-) -> Optional[ResultProjectionPlan]:
-    from graphistry.compute.gfql.cypher import projection_planning as _projection
-
-    return _projection._result_projection_plan(plan, alias_targets=alias_targets)
-
-
-def _empty_optional_projection_row(
-    plan: _ProjectionPlan,
-    *,
-    query: Optional[CypherQuery] = None,
-    optional_aliases: Optional[AbstractSet[str]] = None,
-    alias_targets: Optional[Mapping[str, ASTObject]] = None,
-    params: Optional[Mapping[str, Any]] = None,
-) -> Dict[str, Any]:
-    from graphistry.compute.gfql.cypher import projection_planning as _projection
-
-    return _projection._empty_optional_projection_row(
-        plan,
-        query=query,
-        optional_aliases=optional_aliases,
-        alias_targets=alias_targets,
-        params=params,
-    )
-
-
-def _optional_null_fill_plan(
-    query: CypherQuery,
-    *,
-    lowered: LoweredCypherMatch,
-    alias_targets: Mapping[str, ASTObject],
-    plan: _ProjectionPlan,
-    params: Optional[Mapping[str, Any]],
-    bound_visible_aliases: AbstractSet[str] = frozenset(),
-    semantic_entity_kinds: Optional[Mapping[str, Literal["node", "edge", "scalar"]]] = None,
-) -> Optional[OptionalNullFillPlan]:
-    from graphistry.compute.gfql.cypher import projection_planning as _projection
-
-    return _projection._optional_null_fill_plan(
-        query,
-        lowered=lowered,
-        alias_targets=alias_targets,
-        plan=plan,
-        params=params,
-        bound_visible_aliases=bound_visible_aliases,
-        semantic_entity_kinds=semantic_entity_kinds,
-    )
-
-
-def _optional_projection_row_guard_plan(
-    query: CypherQuery,
-    *,
-    params: Optional[Mapping[str, Any]],
-) -> Optional[OptionalProjectionRowGuardPlan]:
-    from graphistry.compute.gfql.cypher import projection_planning as _projection
-
-    return _projection._optional_projection_row_guard_plan(query, params=params)
-
-
-def _plan_with_visible_projected_columns(
-    plan: _ProjectionPlan,
-    projected_columns: Mapping[str, _StageColumnBinding],
-) -> _ProjectionPlan:
-    from graphistry.compute.gfql.cypher import projection_planning as _projection
-
-    return _projection._plan_with_visible_projected_columns(plan, projected_columns=projected_columns)
-
-
-def _projection_output_names(plan: _ProjectionPlan) -> Set[str]:
-    from graphistry.compute.gfql.cypher import projection_planning as _projection
-
-    return _projection._projection_output_names(plan)
-
-
 def _lower_order_by_clause(
     clause: OrderByClause,
     *,
@@ -3881,11 +3720,13 @@ def _lower_order_by_clause(
     alias_targets: Optional[Mapping[str, ASTObject]] = None,
     params: Optional[Mapping[str, Any]] = None,
 ) -> ASTObject:
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
     keys: List[Tuple[str, str]] = []
-    projection_output_names = _projection_output_names(plan)
+    projection_output_names = _projection._projection_output_names(plan)
     for item in clause.items:
         try:
-            alias_name, prop = _projection_ref_from_expr(
+            alias_name, prop = _projection._projection_ref_from_expr(
                 item.expression.text,
                 alias_targets=alias_targets or {},
                 field="order_by",
@@ -4158,6 +3999,8 @@ def _lower_projection_chain(
     bound_visible_aliases: AbstractSet[str] = frozenset(),
     semantic_entity_kinds: Optional[Mapping[str, Literal["node", "edge", "scalar"]]] = None,
 ) -> List[ASTObject]:
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
     alias_targets = _alias_target(lowered.query)
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
     binding_row_aliases.update(
@@ -4195,7 +4038,7 @@ def _lower_projection_chain(
             _multi_alias_exc: Optional[GFQLValidationError] = exc
         else:
             _multi_alias_exc = None
-        plan = _build_projection_plan(
+        plan = _projection._build_projection_plan(
             query.return_,
             alias_targets=alias_targets,
             active_alias=active,
@@ -4203,7 +4046,7 @@ def _lower_projection_chain(
             semantic_entity_kinds=semantic_entity_kinds,
         )
         if _multi_alias_exc is not None:
-            if not _can_lower_multi_alias_projection_bindings(plan, alias_targets=alias_targets):
+            if not _projection._can_lower_multi_alias_projection_bindings(plan, alias_targets=alias_targets):
                 raise _multi_alias_exc
 
     allowed_match_aliases = ({plan.source_alias} | plan.all_source_aliases | binding_row_aliases) if plan.all_source_aliases is not None else binding_row_aliases
@@ -4251,6 +4094,8 @@ def _build_initial_row_scope(
     bound_visible_aliases: AbstractSet[str] = frozenset(),
     semantic_entity_kinds: Optional[Mapping[str, Literal["node", "edge", "scalar"]]] = None,
 ) -> Tuple[List[ASTObject], _StageScope]:
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
     alias_targets = _alias_target(lowered.query) if query.match is not None else {}
     merged_match = _merged_match_clause(query)
     relationship_count = _match_relationship_count(merged_match) if merged_match is not None else 0
@@ -4354,7 +4199,7 @@ def _build_initial_row_scope(
             raise
         fallback_alias = next(iter(alias_targets)) if alias_targets else None
         try:
-            fallback_plan = _build_projection_plan(
+            fallback_plan = _projection._build_projection_plan(
                 stage_clause,
                 alias_targets=alias_targets,
                 active_alias=fallback_alias,
@@ -4363,7 +4208,7 @@ def _build_initial_row_scope(
             )
         except GFQLValidationError:
             raise exc
-        if not _can_lower_multi_alias_projection_bindings(fallback_plan, alias_targets=alias_targets):
+        if not _projection._can_lower_multi_alias_projection_bindings(fallback_plan, alias_targets=alias_targets):
             raise exc
         active_match_alias = fallback_plan.source_alias
     seed_rows = query.match is None
@@ -4450,6 +4295,8 @@ def _lower_match_alias_stage(
     final_stage: bool,
     semantic_entity_kinds: Optional[Mapping[str, Literal["node", "edge", "scalar"]]] = None,
 ) -> Tuple[List[ASTObject], _StageScope, Optional[ResultProjectionPlan]]:
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
     _validate_with_projection_aliasing(stage)
     if scope.active_alias is None:
         raise _unsupported(
@@ -4487,7 +4334,7 @@ def _lower_match_alias_stage(
             final_stage=final_stage,
         )
 
-    plan = _build_projection_plan(
+    plan = _projection._build_projection_plan(
         stage.clause,
         alias_targets=scope.alias_targets,
         active_alias=scope.active_alias,
@@ -4555,7 +4402,7 @@ def _lower_match_alias_stage(
             )
         )
     if stage.order_by is not None:
-        order_plan = _plan_with_visible_projected_columns(plan, scope.projected_columns)
+        order_plan = _projection._plan_with_visible_projected_columns(plan, scope.projected_columns)
         row_steps.append(
             _lower_order_by_clause(
                 stage.order_by,
@@ -4610,7 +4457,7 @@ def _lower_match_alias_stage(
             relationship_count=scope.relationship_count,
         )
 
-    result_projection = _result_projection_plan(plan, alias_targets=scope.alias_targets) if final_stage else None
+    result_projection = _projection._result_projection_plan(plan, alias_targets=scope.alias_targets) if final_stage else None
     return row_steps, next_scope, result_projection
 
 
@@ -4623,6 +4470,8 @@ def _lower_match_alias_aggregate_stage(
     non_aggregate_items: Sequence[ReturnItem],
     final_stage: bool,
 ) -> Tuple[List[ASTObject], _StageScope, Optional[ResultProjectionPlan]]:
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
     active_alias = scope.active_alias
     if active_alias is None:
         raise _unsupported(
@@ -4758,7 +4607,7 @@ def _lower_match_alias_aggregate_stage(
             alias_name=item.alias,
         )
         try:
-            alias_name, prop = _projection_ref_from_expr(
+            alias_name, prop = _projection._projection_ref_from_expr(
                 item.expression.text,
                 alias_targets=scope.alias_targets,
                 field=stage.clause.kind,
@@ -5671,6 +5520,8 @@ def _extract_relationship_type_where(
     alias_targets: Mapping[str, ASTObject],
     params: Optional[Mapping[str, Any]],
 ) -> Optional[Tuple[PropertyRef, Literal["==", "!="], CypherLiteral]]:
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
     node = _parse_row_expr(
         expr.text,
         params=params,
@@ -5688,7 +5539,7 @@ def _extract_relationship_type_where(
         arg = node_in.args[0]
         if not isinstance(arg, Identifier):
             return None
-        alias_name, prop = _split_qualified_name(arg.name, line=expr.span.line, column=expr.span.column)
+        alias_name, prop = _projection._split_qualified_name(arg.name, line=expr.span.line, column=expr.span.column)
         if prop is not None:
             return None
         if not isinstance(alias_targets.get(alias_name), ASTEdge):
@@ -7384,8 +7235,8 @@ def _is_connected_optional_match_query(query: CypherQuery) -> bool:
         for el in pat
     )
     # For single-node first MATCH, only take this path when there are 3+
-    # matches (multiple optionals) — the 2-match single-node case is already
-    # handled by the existing _optional_null_fill_plan path.
+    # matches (multiple optionals) because projection_planning already handles
+    # the 2-match single-node optional-null-fill path.
     if not has_relationship and len(query.matches) == 2:
         return False
     # Reject comma-separated base MATCH patterns (e.g., (a:A), (b:B)) — the
@@ -7820,6 +7671,8 @@ def _compile_connected_optional_match(
     chained left-outer-joins at runtime, and delegates RETURN / ORDER BY /
     SKIP / LIMIT to the standard row pipeline.
     """
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
     base_clause = query.matches[0]
     base_ops = lower_match_clause(base_clause, params=params)
     base_alias_targets = _alias_target(base_ops)
@@ -7928,7 +7781,7 @@ def _compile_connected_optional_match(
     except GFQLValidationError:
         active = next(iter(combined_alias_targets)) if combined_alias_targets else None
 
-    plan = _build_projection_plan(
+    plan = _projection._build_projection_plan(
         query.return_,
         alias_targets=combined_alias_targets,
         active_alias=active,
@@ -8069,6 +7922,8 @@ def compile_cypher_query(
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
+    from graphistry.compute.gfql.cypher import projection_planning as _projection
+
     prepass_bound_ir = FrontendBinder().bind(query, PlanContext(), strict_name_resolution=True)
     prepass_context = _build_bound_lowering_context(bound_ir=prepass_bound_ir, params=params)
     params = prepass_context.params
@@ -8346,7 +8201,7 @@ def compile_cypher_query(
         if _query_has_shortest_path_patterns(query):
             return _attach_graph_context(_lower_general())
         duplicated_aliases = _duplicate_node_aliases(merged_match)
-        _reject_duplicate_alias_row_refs(
+        _projection._reject_duplicate_alias_row_refs(
             query,
             alias_targets=alias_targets,
             duplicated_aliases=duplicated_aliases,
@@ -8371,7 +8226,7 @@ def compile_cypher_query(
             else:
                 _multi_alias_exc2 = None
             try:
-                plan = _build_projection_plan(
+                plan = _projection._build_projection_plan(
                     query.return_,
                     alias_targets=alias_targets,
                     active_alias=active,
@@ -8386,7 +8241,7 @@ def compile_cypher_query(
             if plan is None:
                 return _attach_graph_context(_lower_general())
             if _multi_alias_exc2 is not None:
-                if not _can_lower_multi_alias_projection_bindings(plan, alias_targets=alias_targets):
+                if not _projection._can_lower_multi_alias_projection_bindings(plan, alias_targets=alias_targets):
                     if binding_row_aliases:
                         return _attach_graph_context(_lower_general())
                     raise _multi_alias_exc2
@@ -8405,7 +8260,7 @@ def compile_cypher_query(
                     column=query.return_.span.column,
                 )
             empty_result_row = (
-                _empty_optional_projection_row(
+                _projection._empty_optional_projection_row(
                     plan,
                     query=query,
                     optional_aliases=_match_clause_aliases(query.matches[0]),
@@ -8415,7 +8270,7 @@ def compile_cypher_query(
                 if len(query.matches) == 1 and query.matches[0].optional
                 else None
             )
-            optional_null_fill = _optional_null_fill_plan(
+            optional_null_fill = _projection._optional_null_fill_plan(
                 query,
                 lowered=lowered,
                 alias_targets=alias_targets,
@@ -8443,7 +8298,7 @@ def compile_cypher_query(
                         line=query.return_.span.line,
                         column=query.return_.span.column,
                     )
-                optional_projection_row_guard = _optional_projection_row_guard_plan(
+                optional_projection_row_guard = _projection._optional_projection_row_guard_plan(
                     query,
                     params=params,
                 )
@@ -8470,7 +8325,7 @@ def compile_cypher_query(
                 seed_rows=False,
                 post_processing=_normalize_post_processing(
                     CompiledCypherPostProcessing(
-                        result_projection=_result_projection_plan(plan, alias_targets=alias_targets),
+                        result_projection=_projection._result_projection_plan(plan, alias_targets=alias_targets),
                         empty_result_row=empty_result_row,
                         optional_null_fill=optional_null_fill,
                         optional_projection_row_guard=optional_projection_row_guard,
