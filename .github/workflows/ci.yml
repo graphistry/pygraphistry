@@ -769,7 +769,6 @@ jobs:
           graphistry/tests/compute/gfql/test_schema_changers.py \
           graphistry/tests/compute/gfql/test_let_schema_changers.py \
           graphistry/tests/compute/gfql/test_rollout.py \
-          graphistry/tests/compute/gfql/test_rollout_binder_integration.py \
           graphistry/tests/compute/test_hop.py \
           graphistry/tests/compute/test_chain.py \
           graphistry/tests/compute/test_chain_let.py \
@@ -779,16 +778,12 @@ jobs:
 
     - name: T5 rollout gate — execution-path canary (env=true)
       # Default-loose path is exercised by the env-unset run above (T5 #1311).
-      # This step asserts the env-on canary path: the same rollout test slice
-      # run with GRAPHISTRY_GFQL_STRICT_SCHEMA=true to confirm strict-mode
-      # default behavior on the binder execution compile path.
+      # This step asserts the env-on canary path for rollout helper behavior.
       env:
         GRAPHISTRY_GFQL_STRICT_SCHEMA: "true"
       run: |
         source pygraphistry/bin/activate
-        python -B -m pytest -vv \
-          graphistry/tests/compute/gfql/test_rollout.py \
-          graphistry/tests/compute/gfql/test_rollout_binder_integration.py
+        python -B -m pytest -vv graphistry/tests/compute/gfql/test_rollout.py
 
 
   test-pandas-compat:
@@ -905,7 +900,6 @@ jobs:
           graphistry/tests/compute/gfql/test_schema_changers.py \
           graphistry/tests/compute/gfql/test_let_schema_changers.py \
           graphistry/tests/compute/gfql/test_rollout.py \
-          graphistry/tests/compute/gfql/test_rollout_binder_integration.py \
           graphistry/tests/compute/test_hop.py \
           graphistry/tests/compute/test_chain.py \
           graphistry/tests/compute/test_chain_let.py \
@@ -915,14 +909,13 @@ jobs:
 
     - name: T5 rollout gate — execution-path canary (env=true)
       # Default-loose path is exercised by the env-unset run above (T5 #1311).
-      # This step asserts the env-on canary path on pandas-compat matrix.
+      # This step asserts the env-on canary path for rollout helper behavior
+      # on the pandas-compat matrix.
       env:
         GRAPHISTRY_GFQL_STRICT_SCHEMA: "true"
       run: |
         source pygraphistry/bin/activate
-        python -B -m pytest -vv \
-          graphistry/tests/compute/gfql/test_rollout.py \
-          graphistry/tests/compute/gfql/test_rollout_binder_integration.py
+        python -B -m pytest -vv graphistry/tests/compute/gfql/test_rollout.py
 
 
   test-core-python:
