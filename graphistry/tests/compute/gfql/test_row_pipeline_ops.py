@@ -221,40 +221,21 @@ class TestRowPipelineASTPrimitives:
     @pytest.mark.parametrize(
         ("step", "function", "params"),
         [
-            pytest.param(rows("nodes", source="a"), "rows", {"table": "nodes", "source": "a"}, id="rows"),
-            pytest.param(
-                select([("name", "name"), ("age", "age")]),
-                "select",
-                {"items": [("name", "name"), ("age", "age")]},
-                id="select",
-            ),
-            pytest.param(with_([("name", "name")]), "with_", {"items": [("name", "name")]}, id="with_"),
-            pytest.param(return_([("name", "name")]), "select", {"items": [("name", "name")]}, id="return_"),
-            pytest.param(
-                where_rows({"name": "alice"}),
-                "where_rows",
-                {"filter_dict": {"name": "alice"}},
-                id="where-dict",
-            ),
-            pytest.param(where_rows(expr="score > 1"), "where_rows", {"expr": "score > 1"}, id="where-expr"),
-            pytest.param(
-                order_by([("name", "asc"), ("age", "desc")]),
-                "order_by",
-                {"keys": [("name", "asc"), ("age", "desc")]},
-                id="order_by",
-            ),
-            pytest.param(skip(3), "skip", {"value": 3}, id="skip"),
-            pytest.param(limit(10), "limit", {"value": 10}, id="limit"),
-            pytest.param(distinct(), "distinct", {}, id="distinct"),
-            pytest.param(unwind("vals", as_="v"), "unwind", {"expr": "vals", "as_": "v"}, id="unwind"),
-            pytest.param(
+            (rows("nodes", source="a"), "rows", {"table": "nodes", "source": "a"}),
+            (select([("name", "name"), ("age", "age")]), "select", {"items": [("name", "name"), ("age", "age")]}),
+            (with_([("name", "name")]), "with_", {"items": [("name", "name")]}),
+            (return_([("name", "name")]), "select", {"items": [("name", "name")]}),
+            (where_rows({"name": "alice"}), "where_rows", {"filter_dict": {"name": "alice"}}),
+            (where_rows(expr="score > 1"), "where_rows", {"expr": "score > 1"}),
+            (order_by([("name", "asc"), ("age", "desc")]), "order_by", {"keys": [("name", "asc"), ("age", "desc")]}),
+            (skip(3), "skip", {"value": 3}),
+            (limit(10), "limit", {"value": 10}),
+            (distinct(), "distinct", {}),
+            (unwind("vals", as_="v"), "unwind", {"expr": "vals", "as_": "v"}),
+            (
                 group_by(["grp"], [("cnt", "count"), ("sum_score", "sum", "score")]),
                 "group_by",
-                {
-                    "keys": ["grp"],
-                    "aggregations": [("cnt", "count"), ("sum_score", "sum", "score")],
-                },
-                id="group_by",
+                {"keys": ["grp"], "aggregations": [("cnt", "count"), ("sum_score", "sum", "score")]},
             ),
         ],
     )
@@ -616,19 +597,6 @@ def test_row_pipeline_select_supports_properties_for_map_literals_and_nulls() ->
     assert _normalize_records(result.to_dict(orient="records")) == [
         {"m": "{name: 'Popeye', level: 9001}", "null_props": None}
     ]
-
-    @pytest.mark.parametrize(
-        ("step", "function", "params"),
-        [
-            pytest.param(select(["name", "age"]), "select", {"items": [("name", "name"), ("age", "age")]}, id="select"),
-            pytest.param(with_(["name"]), "with_", {"items": [("name", "name")]}, id="with_"),
-            pytest.param(return_(["name"]), "select", {"items": [("name", "name")]}, id="return_"),
-        ],
-    )
-    def test_row_pipeline_projection_shorthand_builds_identity_pairs(self, step, function, params):
-        assert isinstance(step, ASTCall)
-        assert step.function == function
-        assert step.params == params
 
 
 class TestRowPipelineExecution:
@@ -2383,30 +2351,62 @@ class TestRowPipelineSafelist:
         assert exc_info.value.code == ErrorCode.E303
         assert expected_message in exc_info.value.message
 
-    def test_row_pipeline_rows_validation(self):
-        self._assert_valid("rows", {})
-        self._assert_valid("rows", {"table": "edges", "source": "rel"})
+    @pytest.mark.parametrize(
+        ("function", "params"),
+        [
+            ("rows", {}),
+            ("rows", {"table": "edges", "source": "rel"}),
+            ("select", {"items": [("name", "name"), ("const", 1)]}),
+            ("select", {"items": ["name", ("const", 1)]}),
+            ("return_", {"items": [("name", "name")]}),
+            ("with_", {"items": ["name"]}),
+            ("order_by", {"keys": [("name", "asc"), ("score", "desc")]}),
+            ("order_by", {"keys": [("count(*)", "asc"), ("max(n.age)", "desc")]}),
+            ("order_by", {"keys": [("[score, score + 1]", "asc")]}),
+            *[(fn, {"value": value}) for fn in ["skip", "limit"] for value in [0, 2, 2.0, "3"]],
+            ("distinct", {}),
+            ("unwind", {"expr": "vals", "as_": "v"}),
+            ("unwind", {"expr": [1, 2, 3], "as_": "v"}),
+            ("group_by", {"keys": ["grp"], "aggregations": [("cnt", "count"), ("sum_v", "sum", "v")]}),
+            ("group_by", {"keys": ["grp"], "aggregations": [("vals", "collect", "v")]}),
+            ("group_by", {"keys": ["grp"], "aggregations": [("vals", "collect", "v + 1")]}),
+            ("drop_cols", {"cols": ["a", "b"]}),
+            ("drop_cols", {"cols": []}),
+            ("group_by", {"keys": ["grp"], "aggregations": [("cnt", "count")], "key_prefixes": ["tag."]}),
+            ("group_by", {"keys": ["grp"], "aggregations": [("cnt", "count")], "key_prefixes": []}),
+        ],
+    )
+    def test_row_pipeline_safelist_accepts_valid_params(self, function, params):
+        self._assert_valid(function, params)
 
-        self._assert_e201("rows", {"table": "bad"})
+    @pytest.mark.parametrize(
+        ("function", "params"),
+        [
+            ("rows", {"table": "bad"}),
+            *[
+                (function, {"items": bad_items})
+                for function in ["select", "return_"]
+                for bad_items in [None, "name", [""], [("a",)], [("a", "b", "c")], [1], [(1, "name")], [("", "name")]]
+            ],
+            *[
+                ("order_by", {"keys": bad_keys})
+                for bad_keys in [None, "name", [("a",)], [("a", "asc", "x")], [1], [(1, "asc")], [("a", "up")], [("unknown_fn(score)", "asc")]]
+            ],
+            *[(fn, {"value": value}) for fn in ["skip", "limit"] for value in [True, -1, -1.0, "-1", "1.5", "abc"]],
+            ("unwind", {"expr": 1}),
+            ("unwind", {"expr": "vals", "as_": ""}),
+            ("group_by", {"keys": ["grp"], "aggregations": ["bad"]}),
+            ("group_by", {"keys": ["grp"], "aggregations": [("x", "median", "score")]}),
+            ("group_by", {"keys": [], "aggregations": [("x", "count")]}),
+            ("drop_cols", {"cols": [1, 2]}),
+            ("group_by", {"keys": ["grp"], "aggregations": [("cnt", "count")], "key_prefixes": [1]}),
+        ],
+    )
+    def test_row_pipeline_safelist_rejects_invalid_params(self, function, params):
+        self._assert_e201(function, params)
 
-    def test_row_pipeline_select_validation(self):
-        self._assert_valid("select", {"items": [("name", "name"), ("const", 1)]})
-        self._assert_valid("select", {"items": ["name", ("const", 1)]})
-        self._assert_valid("return_", {"items": [("name", "name")]})
-        self._assert_valid("with_", {"items": ["name"]})
-
-        for bad_items in [
-            None,
-            "name",
-            [""],
-            [("a",)],
-            [("a", "b", "c")],
-            [1],
-            [(1, "name")],
-            [("", "name")],
-        ]:
-            self._assert_e201("select", {"items": bad_items})
-            self._assert_e201("return_", {"items": bad_items})
+    def test_row_pipeline_distinct_rejects_extra_param(self):
+        self._assert_e303("distinct", {"extra": True})
 
     def test_row_pipeline_with_where_rows_validation(self):
         self._assert_valid("with_", {"items": [("name", "name")]})
@@ -2694,23 +2694,6 @@ class TestRowPipelineSafelist:
             ],
         )
 
-    def test_row_pipeline_order_by_validation(self):
-        self._assert_valid("order_by", {"keys": [("name", "asc"), ("score", "desc")]})
-        self._assert_valid("order_by", {"keys": [("count(*)", "asc"), ("max(n.age)", "desc")]})
-        self._assert_valid("order_by", {"keys": [("[score, score + 1]", "asc")]})
-
-        for bad_keys in [
-            None,
-            "name",
-            [("a",)],
-            [("a", "asc", "x")],
-            [1],
-            [(1, "asc")],
-            [("a", "up")],
-            [("unknown_fn(score)", "asc")],
-        ]:
-            self._assert_e201("order_by", {"keys": bad_keys})
-
     def test_row_pipeline_semi_apply_mark_validation(self):
         params = {
             "binding_ops": [{"type": "Node", "name": "n"}],
@@ -2781,166 +2764,60 @@ class TestRowPipelineSafelist:
         assert exc_info.value.code == ErrorCode.E303
         assert "join_aliases" in exc_info.value.message
 
-    @pytest.mark.parametrize("function", ["skip", "limit"])
-    def test_row_pipeline_skip_limit_validation(self, function):
-        for value in [0, 2, 2.0, "3"]:
-            params = validate_call_params(function, {"value": value})
-            assert params == {"value": value}
 
-        for bad_value in [True, -1, -1.0, "-1", "1.5", "abc"]:
-            self._assert_e201(function, {"value": bad_value})
-
-    def test_row_pipeline_distinct_validation(self):
-        self._assert_valid("distinct", {})
-
-        self._assert_e303("distinct", {"extra": True})
-
-    def test_row_pipeline_unwind_group_by_validation(self):
-        self._assert_valid("unwind", {"expr": "vals", "as_": "v"})
-        self._assert_valid("unwind", {"expr": [1, 2, 3], "as_": "v"})
-        self._assert_valid(
-            "group_by",
-            {"keys": ["grp"], "aggregations": [("cnt", "count"), ("sum_v", "sum", "v")]},
-        )
-        self._assert_valid(
-            "group_by",
-            {"keys": ["grp"], "aggregations": [("vals", "collect", "v")]},
-        )
-        self._assert_valid(
-            "group_by",
-            {"keys": ["grp"], "aggregations": [("vals", "collect", "v + 1")]},
-        )
-
-        self._assert_e201("unwind", {"expr": 1})
-        self._assert_e201("unwind", {"expr": "vals", "as_": ""})
-        self._assert_e201("group_by", {"keys": ["grp"], "aggregations": ["bad"]})
-        self._assert_e201("group_by", {"keys": ["grp"], "aggregations": [("x", "median", "score")]})
-        self._assert_e201("group_by", {"keys": [], "aggregations": [("x", "count")]})
-
-        # drop_cols validation
-        self._assert_valid("drop_cols", {"cols": ["a", "b"]})
-        self._assert_valid("drop_cols", {"cols": []})
-        self._assert_e201("drop_cols", {"cols": [1, 2]})
-
-        # group_by with key_prefixes validation
-        self._assert_valid(
-            "group_by",
-            {"keys": ["grp"], "aggregations": [("cnt", "count")], "key_prefixes": ["tag."]},
-        )
-        self._assert_valid(
-            "group_by",
-            {"keys": ["grp"], "aggregations": [("cnt", "count")], "key_prefixes": []},
-        )
-        self._assert_e201(
-            "group_by",
-            {"keys": ["grp"], "aggregations": [("cnt", "count")], "key_prefixes": [1]},
-        )
+@pytest.mark.parametrize(
+    ("data", "cols", "expected_columns"),
+    [
+        ({"id": ["a", "b"], "x": [1, 2], "y": [3, 4]}, ["x"], ["id", "y"]),
+        ({"id": ["a"], "x": [1], "y": [2], "z": [3]}, ["x", "z"], ["id", "y"]),
+        ({"id": ["a", "b"], "x": [1, 2]}, ["x", "nonexistent"], ["id"]),
+        ({"id": ["a"], "x": [1]}, [], ["id", "x"]),
+        ({"id": ["a", "b"], "tag.name": ["X", "Y"], "tag.id": ["t1", "t2"]}, ["tag.id"], ["id", "tag.name"]),
+    ],
+)
+def test_drop_cols(data, cols, expected_columns) -> None:
+    result = CGFull().nodes(pd.DataFrame(data), "id").gfql([rows(), drop_cols(cols)])
+    assert list(result._nodes.columns) == expected_columns
 
 
-class TestDropCols:
-    """Unit tests for the drop_cols row pipeline op (#1054)."""
-
-    @staticmethod
-    def _g(df: pd.DataFrame) -> "CGFull":
-        return CGFull().nodes(df, "id")
-
-    def test_drop_cols_basic(self) -> None:
-        """Named columns are removed from the table."""
-        g = self._g(pd.DataFrame({"id": ["a", "b"], "x": [1, 2], "y": [3, 4]}))
-        result = g.gfql([rows(), drop_cols(["x"])])
-        assert list(result._nodes.columns) == ["id", "y"]
-
-    def test_drop_cols_multiple(self) -> None:
-        """Multiple columns can be dropped at once."""
-        g = self._g(pd.DataFrame({"id": ["a"], "x": [1], "y": [2], "z": [3]}))
-        result = g.gfql([rows(), drop_cols(["x", "z"])])
-        assert list(result._nodes.columns) == ["id", "y"]
-
-    def test_drop_cols_ignores_missing(self) -> None:
-        """Columns not present in the table are silently ignored."""
-        g = self._g(pd.DataFrame({"id": ["a", "b"], "x": [1, 2]}))
-        result = g.gfql([rows(), drop_cols(["x", "nonexistent"])])
-        assert list(result._nodes.columns) == ["id"]
-
-    def test_drop_cols_empty_list(self) -> None:
-        """Empty drop list leaves the table unchanged."""
-        g = self._g(pd.DataFrame({"id": ["a"], "x": [1]}))
-        result = g.gfql([rows(), drop_cols([])])
-        assert list(result._nodes.columns) == ["id", "x"]
-
-    def test_drop_cols_dotted_names(self) -> None:
-        """Columns with dot-separated names (bindings-row style) are dropped correctly."""
-        g = self._g(pd.DataFrame({"id": ["a", "b"], "tag.name": ["X", "Y"], "tag.id": ["t1", "t2"]}))
-        result = g.gfql([rows(), drop_cols(["tag.id"])])
-        assert "tag.id" not in result._nodes.columns
-        assert "tag.name" in result._nodes.columns
+def test_key_prefixes_expands_matching_columns() -> None:
+    result = CGFull().nodes(pd.DataFrame({
+        "id": ["r1", "r2", "r3"],
+        "tag.id": ["tag1", "tag1", "tag2"],
+        "tag.name": ["TagA", "TagA", "TagB"],
+        "cd": [100, 200, 300],
+    }), "id").gfql([rows(), group_by(["tag.id"], [("total", "sum", "cd")], key_prefixes=["tag."])])
+    out = result._nodes.sort_values("tag.id").reset_index(drop=True)
+    assert "tag.name" in out.columns
+    assert list(out["tag.name"]) == ["TagA", "TagB"]
+    assert list(out["total"]) == [300, 300]
 
 
-class TestGroupByKeyPrefixes:
-    """Unit tests for the key_prefixes parameter on group_by (#1054)."""
+def test_key_prefixes_multiple_prefixes() -> None:
+    result = CGFull().nodes(pd.DataFrame({
+        "id": ["r1", "r2"],
+        "tag.id": ["t1", "t1"],
+        "tag.name": ["TagA", "TagA"],
+        "post.id": ["p1", "p2"],
+        "cd": [10, 20],
+    }), "id").gfql([rows(), group_by(["tag.id"], [("total", "sum", "cd")], key_prefixes=["tag.", "post."])])
+    assert len(result._nodes) == 2
+    assert "tag.name" in result._nodes.columns
+    assert "post.id" in result._nodes.columns
 
-    @staticmethod
-    def _g(df: pd.DataFrame) -> "CGFull":
-        return CGFull().nodes(df, "id")
 
-    def test_key_prefixes_expands_matching_columns(self) -> None:
-        """key_prefixes adds all columns with matching prefix as additional group keys."""
-        df = pd.DataFrame({
-            "id": ["r1", "r2", "r3"],
-            "tag.id": ["tag1", "tag1", "tag2"],
-            "tag.name": ["TagA", "TagA", "TagB"],
-            "cd": [100, 200, 300],
-        })
-        g = self._g(df)
-        result = g.gfql([
-            rows(),
-            group_by(["tag.id"], [("total", "sum", "cd")], key_prefixes=["tag."]),
-        ])
-        out = result._nodes.sort_values("tag.id").reset_index(drop=True)
-        # Both tag.id and tag.name should survive as group keys
-        assert "tag.name" in out.columns
-        assert list(out["tag.name"]) == ["TagA", "TagB"]
-        assert list(out["total"]) == [300, 300]
-
-    def test_key_prefixes_multiple_prefixes(self) -> None:
-        """Multiple prefixes each contribute their matching columns."""
-        df = pd.DataFrame({
-            "id": ["r1", "r2"],
-            "tag.id": ["t1", "t1"],
-            "tag.name": ["TagA", "TagA"],
-            "post.id": ["p1", "p2"],
-            "cd": [10, 20],
-        })
-        g = self._g(df)
-        result = g.gfql([
-            rows(),
-            group_by(["tag.id"], [("total", "sum", "cd")], key_prefixes=["tag.", "post."]),
-        ])
-        # With post.id as an additional key, grouping is per (tag.id, post.id) → 2 rows
-        assert len(result._nodes) == 2
-        assert "tag.name" in result._nodes.columns
-        assert "post.id" in result._nodes.columns
-
-    def test_key_prefixes_none_unchanged(self) -> None:
-        """key_prefixes=None (default) behaves identically to not passing it."""
-        df = pd.DataFrame({
-            "id": ["r1", "r2", "r3"],
-            "grp": ["a", "a", "b"],
-            "val": [1, 2, 3],
-        })
-        g = self._g(df)
-        result = g.gfql([
-            rows(),
-            group_by(["grp"], [("total", "sum", "val")]),
-        ])
-        out = result._nodes.sort_values("grp").reset_index(drop=True)
-        assert list(out["grp"]) == ["a", "b"]
-        assert list(out["total"]) == [3, 3]
+def test_key_prefixes_none_unchanged() -> None:
+    result = CGFull().nodes(pd.DataFrame({
+        "id": ["r1", "r2", "r3"],
+        "grp": ["a", "a", "b"],
+        "val": [1, 2, 3],
+    }), "id").gfql([rows(), group_by(["grp"], [("total", "sum", "val")])])
+    out = result._nodes.sort_values("grp").reset_index(drop=True)
+    assert list(out["grp"]) == ["a", "b"]
+    assert list(out["total"]) == [3, 3]
 
 
 class TestRelationshipAliasInRowExpression:
-    """Bare relationship alias must resolve in select/where row expressions (#1072)."""
-
     def _binding_graph(self, *, nodes=None, edges=None):
         if nodes is None:
             nodes = pd.DataFrame([
@@ -2966,11 +2843,6 @@ class TestRelationshipAliasInRowExpression:
             ]),
         ]
 
-    def test_select_bare_relationship_alias_renders_cypher_string(self):
-        g = self._binding_graph()
-        result = g.gfql(self._binding_ops() + [select(items=[("rel", "workAt")])])
-        assert result._nodes["rel"].tolist() == ["[:WORKS_AT {workFrom: 2010}]"]
-
     def test_select_relationship_alias_property_still_works(self):
         g = self._binding_graph()
         result = g.gfql(self._binding_ops() + [select(items=[("yr", "workAt.workFrom")])])
@@ -2984,37 +2856,26 @@ class TestRelationshipAliasInRowExpression:
         )
         assert result._nodes["f"].tolist() == ["p3"]
 
-    def test_select_bare_relationship_alias_matches_return_projection(self):
-        g = self._binding_graph()
-        select_result = g.gfql(self._binding_ops() + [select(items=[("rel", "workAt")])])
-        return_result = g.gfql(self._binding_ops() + [return_([("rel", "workAt")])])
+    @pytest.mark.parametrize(
+        ("edge", "edge_match", "expected"),
+        [
+            ({"s": "p3", "d": "c1", "type": "WORKS_AT", "workFrom": 2010}, None, "[:WORKS_AT {workFrom: 2010}]"),
+            ({"s": "p3", "d": "c1", "type": "WORKS_AT", "role": "O'Brien\\HQ"}, None, "[:WORKS_AT {role: 'O\\'Brien\\\\HQ'}]"),
+            ({"s": "p3", "d": "c1", "type": "WORKS_AT", "workFrom": 2010.0}, None, "[:WORKS_AT {workFrom: 2010}]"),
+            ({"s": "p3", "d": "c1", "type": "WORKS_AT", "workFrom": None}, None, "[:WORKS_AT]"),
+            ({"s": "p3", "d": "c1", "workFrom": 2010}, {}, "[{workFrom: 2010}]"),
+            ({"s": "p3", "d": "c1", "type": "WORKS_AT", "id": "edge-1", "workFrom": 2010}, None, "[:WORKS_AT {id: 'edge-1', workFrom: 2010}]"),
+            ({"s": "p3", "d": "c1", "type": "WORKS_AT", "id": "edge-1"}, None, "[:WORKS_AT {id: 'edge-1'}]"),
+            ({"s": "p3", "d": "c1", "type": "", "workFrom": 2010}, {}, "[{workFrom: 2010}]"),
+        ],
+    )
+    def test_select_bare_relationship_alias_rendering_variants(self, edge, edge_match, expected):
+        g = self._binding_graph(edges=pd.DataFrame([edge]))
+        ops = self._binding_ops(edge_match=edge_match)
+        select_result = g.gfql(ops + [select(items=[("rel", "workAt")])])
+        return_result = g.gfql(ops + [return_([("rel", "workAt")])])
+        assert select_result._nodes["rel"].tolist() == [expected]
         assert select_result._nodes["rel"].tolist() == return_result._nodes["rel"].tolist()
-
-    def test_select_bare_relationship_alias_escapes_text_and_backslashes(self):
-        edges = pd.DataFrame([{"s": "p3", "d": "c1", "type": "WORKS_AT", "role": "O'Brien\\HQ"}])
-        g = self._binding_graph(edges=edges)
-        result = g.gfql(self._binding_ops() + [select(items=[("rel", "workAt")])])
-        assert result._nodes["rel"].tolist() == ["[:WORKS_AT {role: 'O\\'Brien\\\\HQ'}]"]
-
-    def test_select_bare_relationship_alias_formats_float_like_int_without_trailing_decimal(self):
-        edges = pd.DataFrame([{"s": "p3", "d": "c1", "type": "WORKS_AT", "workFrom": 2010.0}])
-        g = self._binding_graph(edges=edges)
-        select_result = g.gfql(self._binding_ops() + [select(items=[("rel", "workAt")])])
-        return_result = g.gfql(self._binding_ops() + [return_([("rel", "workAt")])])
-        assert select_result._nodes["rel"].tolist() == ["[:WORKS_AT {workFrom: 2010}]"]
-        assert select_result._nodes["rel"].tolist() == return_result._nodes["rel"].tolist()
-
-    def test_select_bare_relationship_alias_null_property_only_row(self):
-        edges = pd.DataFrame([{"s": "p3", "d": "c1", "type": "WORKS_AT", "workFrom": None}])
-        g = self._binding_graph(edges=edges)
-        result = g.gfql(self._binding_ops() + [select(items=[("rel", "workAt")])])
-        assert result._nodes["rel"].tolist() == ["[:WORKS_AT]"]
-
-    def test_select_bare_relationship_alias_missing_type_row(self):
-        edges = pd.DataFrame([{"s": "p3", "d": "c1", "workFrom": 2010}])
-        g = self._binding_graph(edges=edges)
-        result = g.gfql(self._binding_ops(edge_match={}) + [select(items=[("rel", "workAt")])])
-        assert result._nodes["rel"].tolist() == ["[{workFrom: 2010}]"]
 
     def test_select_bare_relationship_alias_multiple_rows(self):
         nodes = pd.DataFrame([
@@ -3033,40 +2894,14 @@ class TestRelationshipAliasInRowExpression:
             "[:WORKS_AT {workFrom: 2015}]",
         ]
 
-    def test_select_bare_relationship_alias_with_edge_id_property_renders_entity_not_scalar_id(self):
-        edges = pd.DataFrame([{"s": "p3", "d": "c1", "type": "WORKS_AT", "id": "edge-1", "workFrom": 2010}])
-        g = self._binding_graph(edges=edges)
-        select_result = g.gfql(self._binding_ops() + [select(items=[("rel", "workAt")])])
-        return_result = g.gfql(self._binding_ops() + [return_([("rel", "workAt")])])
-        assert select_result._nodes["rel"].tolist() == ["[:WORKS_AT {id: 'edge-1', workFrom: 2010}]"]
-        assert select_result._nodes["rel"].tolist() == return_result._nodes["rel"].tolist()
-
-    def test_select_bare_relationship_alias_with_only_id_property_parity(self):
-        edges = pd.DataFrame([{"s": "p3", "d": "c1", "type": "WORKS_AT", "id": "edge-1"}])
-        g = self._binding_graph(edges=edges)
-        select_result = g.gfql(self._binding_ops() + [select(items=[("rel", "workAt")])])
-        return_result = g.gfql(self._binding_ops() + [return_([("rel", "workAt")])])
-        assert select_result._nodes["rel"].tolist() == ["[:WORKS_AT {id: 'edge-1'}]"]
-        assert select_result._nodes["rel"].tolist() == return_result._nodes["rel"].tolist()
-
-    def test_select_bare_relationship_alias_with_empty_type_treated_as_missing_type(self):
-        edges = pd.DataFrame([{"s": "p3", "d": "c1", "type": "", "workFrom": 2010}])
-        g = self._binding_graph(edges=edges)
-        select_result = g.gfql(self._binding_ops(edge_match={}) + [select(items=[("rel", "workAt")])])
-        return_result = g.gfql(self._binding_ops(edge_match={}) + [return_([("rel", "workAt")])])
-        assert select_result._nodes["rel"].tolist() == ["[{workFrom: 2010}]"]
-        assert select_result._nodes["rel"].tolist() == return_result._nodes["rel"].tolist()
-
-    def test_select_node_alias_without_node_id_does_not_render_as_relationship(self):
-        g = self._binding_graph()
-        with pytest.raises((ValueError, GFQLTypeError), match="unsupported token in row expression"):
-            g.gfql(self._binding_ops() + [drop_cols(["friend", "friend.id"]), select(items=[("x", "friend")])])
-
-    def test_select_node_alias_with_type_property_without_node_id_does_not_render_as_relationship(self):
-        nodes = pd.DataFrame([
-            {"id": "p3", "label__Person": True, "label__Company": False, "name": "", "type": "PERSON"},
-            {"id": "c1", "label__Person": False, "label__Company": True, "name": "Acme", "type": "COMPANY"},
-        ])
+    @pytest.mark.parametrize("include_type", [False, True])
+    def test_select_node_alias_without_node_id_does_not_render_as_relationship(self, include_type):
+        nodes = None
+        if include_type:
+            nodes = pd.DataFrame([
+                {"id": "p3", "label__Person": True, "label__Company": False, "name": "", "type": "PERSON"},
+                {"id": "c1", "label__Person": False, "label__Company": True, "name": "Acme", "type": "COMPANY"},
+            ])
         g = self._binding_graph(nodes=nodes)
         with pytest.raises((ValueError, GFQLTypeError), match="unsupported token in row expression"):
             g.gfql(self._binding_ops() + [drop_cols(["friend", "friend.id"]), select(items=[("x", "friend")])])

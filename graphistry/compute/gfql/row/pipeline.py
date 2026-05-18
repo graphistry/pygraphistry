@@ -3234,31 +3234,10 @@ class RowPipelineMixin:
 
         raise ValueError(f"unsupported row expression: AST evaluator unsupported in {expr!r}")
 
-    def _gfql_row_table(self, table_df: Any) -> "Plottable":
-        return row_frame_ops.row_table(self, table_df)
-
-    def _gfql_empty_frame(
-        self,
-        template_df: Optional[Any] = None,
-        columns: Optional[Sequence[str]] = None,
-    ) -> Any:
-        return row_frame_ops.empty_frame(self, template_df, columns)
-
-    def _gfql_get_active_table(self) -> Any:
-        return row_frame_ops.get_active_table(self)
-
-    @staticmethod
-    def _gfql_coerce_non_negative_int(value: Any, op_name: str) -> int:
-        return row_frame_ops.coerce_non_negative_int(value, op_name)
-
-    def rows(
-        self,
-        table: str = "nodes",
-        source: Optional[str] = None,
-        alias_endpoints: Optional[Dict[str, str]] = None,
-        binding_ops: Optional[List[Dict[str, Any]]] = None,
-    ) -> "Plottable":
-        return row_frame_ops.rows(self, table, source, alias_endpoints, binding_ops)
+    _gfql_row_table = row_frame_ops.row_table
+    _gfql_empty_frame = row_frame_ops.empty_frame
+    _gfql_get_active_table = row_frame_ops.get_active_table
+    rows = row_frame_ops.rows
 
     @staticmethod
     def _gfql_bindings_error(message: str) -> None:
@@ -4029,8 +4008,7 @@ class RowPipelineMixin:
 
         return self._gfql_row_table(bindings)
 
-    def drop_cols(self, cols: Sequence[str]) -> "Plottable":
-        return row_frame_ops.drop_cols(self, cols)
+    drop_cols = row_frame_ops.drop_cols
 
     def select(self, items: List[Any]) -> "Plottable":
         table_df = self._gfql_get_active_table()
@@ -4610,14 +4588,9 @@ class RowPipelineMixin:
                     ) from exc
         return self._gfql_row_table(out_df)
 
-    def skip(self, value: Any) -> "Plottable":
-        return row_frame_ops.skip(self, value)
-
-    def limit(self, value: Any) -> "Plottable":
-        return row_frame_ops.limit(self, value)
-
-    def distinct(self) -> "Plottable":
-        return row_frame_ops.distinct(self)
+    skip = row_frame_ops.skip
+    limit = row_frame_ops.limit
+    distinct = row_frame_ops.distinct
 
     def unwind(self, expr: Any, as_: str = "value") -> "Plottable":
         """Vectorized UNWIND for column or literal list expressions."""

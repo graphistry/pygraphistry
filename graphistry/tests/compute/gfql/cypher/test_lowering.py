@@ -12196,199 +12196,123 @@ def test_compile_cypher_tracks_seeded_top_level_row_query() -> None:
     assert second.params == {"expr": "[1, 2, 3]", "as_": "x"}
 
 
-def test_lower_cypher_query_builds_group_by_pipeline() -> None:
-    parsed = _parse_query(
-        "MATCH (n) RETURN n.division AS division, count(*) AS cnt, max(n.age) AS max_age ORDER BY division ASC, cnt DESC"
-    )
-
-    chain = lower_cypher_query(parsed)
-
-    row_call = cast(ASTCall, chain.chain[1])
-    with_call = cast(ASTCall, chain.chain[2])
-    group_call = cast(ASTCall, chain.chain[3])
-    order_call = cast(ASTCall, chain.chain[4])
-    assert [row_call.function, with_call.function, group_call.function, order_call.function] == [
-        "rows",
-        "with_",
-        "group_by",
-        "order_by",
-    ]
-    assert with_call.params["items"] == [
-        ("division", "n.division"),
-        ("__cypher_agg__", "n.age"),
-    ]
-    assert group_call.params == {
-        "keys": ["division"],
-        "aggregations": [("cnt", "count"), ("max_age", "max", "__cypher_agg__")],
-    }
-    assert order_call.params["keys"] == [("division", "asc"), ("cnt", "desc")]
+def _assert_lowered_calls(query: str, expected_calls: List[Tuple[int, str, Dict[str, Any]]]) -> None:
+    chain = lower_cypher_query(_parse_query(query))
+    for idx, function, expected_params in expected_calls:
+        call = cast(ASTCall, chain.chain[idx])
+        assert call.function == function
+        for key, value in expected_params.items():
+            assert call.params[key] == value
 
 
-def test_lower_cypher_query_builds_distinct_aggregate_pipeline() -> None:
-    parsed = _parse_query(
-        "UNWIND [null, 1, null, 2, 1] AS x RETURN count(DISTINCT x) AS cnt, collect(DISTINCT x) AS vals"
-    )
-
-    chain = lower_cypher_query(parsed)
-
-    with_call = cast(ASTCall, chain.chain[2])
-    group_call = cast(ASTCall, chain.chain[3])
-    return_call = cast(ASTCall, chain.chain[4])
-    assert [with_call.function, group_call.function, return_call.function] == [
-        "with_",
-        "group_by",
-        "select",
-    ]
-    assert with_call.params["items"] == [("__cypher_group__", 1), ("__cypher_agg__", "x"), ("__cypher_agg__1", "x")]
-    assert group_call.params == {
-        "keys": ["__cypher_group__"],
-        "aggregations": [("cnt", "count_distinct", "__cypher_agg__"), ("vals", "collect_distinct", "__cypher_agg__1")],
-    }
-
-
-def test_lower_cypher_query_builds_with_aggregate_pipeline() -> None:
-    parsed = _parse_query(
-        "UNWIND [1, 2, 2] AS x WITH collect(DISTINCT x) AS xs RETURN size(xs) AS n"
-    )
-
-    chain = lower_cypher_query(parsed)
-
-    with_call = cast(ASTCall, chain.chain[2])
-    group_call = cast(ASTCall, chain.chain[3])
-    with_output_call = cast(ASTCall, chain.chain[4])
-    final_call = cast(ASTCall, chain.chain[5])
-
-    assert [with_call.function, group_call.function, with_output_call.function, final_call.function] == [
-        "with_",
-        "group_by",
-        "with_",
-        "select",
-    ]
-    assert with_call.params["items"] == [("__cypher_group__", 1), ("__cypher_agg__", "x")]
-    assert group_call.params == {
-        "keys": ["__cypher_group__"],
-        "aggregations": [("xs", "collect_distinct", "__cypher_agg__")],
-    }
-    assert with_output_call.params["items"] == [("xs", "xs")]
-    assert final_call.params["items"] == [("n", "size(xs)")]
-
-
-def test_lower_cypher_query_builds_match_alias_with_expression_order_pipeline() -> None:
-    parsed = _parse_query(
-        "MATCH (a) WITH a.name AS name ORDER BY a.name + 'C' ASC LIMIT 2 RETURN name"
-    )
-
-    chain = lower_cypher_query(parsed)
-
-    row_call = cast(ASTCall, chain.chain[1])
-    with_call = cast(ASTCall, chain.chain[2])
-    order_call = cast(ASTCall, chain.chain[3])
-    limit_call = cast(ASTCall, chain.chain[4])
-    final_call = cast(ASTCall, chain.chain[5])
-
-    assert [row_call.function, with_call.function, order_call.function, limit_call.function, final_call.function] == [
-        "rows",
-        "with_",
-        "order_by",
-        "limit",
-        "select",
-    ]
-    assert with_call.params["items"] == [("name", "a.name")]
-    assert order_call.params["keys"] == [("(name + 'C')", "asc")]
-    assert limit_call.params["value"] == 2
-    assert final_call.params["items"] == [("name", "name")]
-
-
-def test_lower_cypher_query_builds_match_alias_with_aggregate_group_by_pipeline() -> None:
-    parsed = _parse_query(
-        "MATCH (a) WITH a.name AS name, count(*) AS cnt ORDER BY a.name + 'C' DESC LIMIT 1 RETURN name, cnt"
-    )
-
-    chain = lower_cypher_query(parsed)
-
-    row_call = cast(ASTCall, chain.chain[1])
-    with_call = cast(ASTCall, chain.chain[2])
-    group_call = cast(ASTCall, chain.chain[3])
-    order_call = cast(ASTCall, chain.chain[4])
-    limit_call = cast(ASTCall, chain.chain[5])
-    final_call = cast(ASTCall, chain.chain[6])
-
-    assert [row_call.function, with_call.function, group_call.function, order_call.function, limit_call.function, final_call.function] == [
-        "rows",
-        "with_",
-        "group_by",
-        "order_by",
-        "limit",
-        "select",
-    ]
-    assert with_call.params["items"] == [("name", "a.name")]
-    assert group_call.params == {
-        "keys": ["name"],
-        "aggregations": [("cnt", "count")],
-    }
-    assert order_call.params["keys"] == [("(name + 'C')", "desc")]
-    assert limit_call.params["value"] == 1
-    assert final_call.params["items"] == [("name", "name"), ("cnt", "cnt")]
-
-
-def test_lower_cypher_query_maps_count_distinct_edge_alias_to_identity() -> None:
-    parsed = _parse_query("MATCH (a)-[r]->(b) RETURN count(DISTINCT r)")
-
-    chain = lower_cypher_query(parsed)
-
-    row_call = cast(ASTCall, chain.chain[3])
-    with_call = cast(ASTCall, chain.chain[4])
-    group_call = cast(ASTCall, chain.chain[5])
-    assert row_call.params == {"table": "edges", "source": "r"}
-    assert with_call.params["items"] == [("__cypher_group__", 1), ("__cypher_agg__", "__gfql_edge_index_0__")]
-    assert group_call.params == {
-        "keys": ["__cypher_group__"],
-        "aggregations": [("count(DISTINCT r)", "count_distinct", "__cypher_agg__")],
-    }
+@pytest.mark.parametrize(
+    ("query", "expected_calls"),
+    [
+        (
+            "MATCH (n) RETURN n.division AS division, count(*) AS cnt, max(n.age) AS max_age "
+            "ORDER BY division ASC, cnt DESC",
+            [
+                (1, "rows", {}),
+                (2, "with_", {"items": [("division", "n.division"), ("__cypher_agg__", "n.age")]}),
+                (
+                    3,
+                    "group_by",
+                    {"keys": ["division"], "aggregations": [("cnt", "count"), ("max_age", "max", "__cypher_agg__")]},
+                ),
+                (4, "order_by", {"keys": [("division", "asc"), ("cnt", "desc")]}),
+            ],
+        ),
+        (
+            "UNWIND [null, 1, null, 2, 1] AS x RETURN count(DISTINCT x) AS cnt, collect(DISTINCT x) AS vals",
+            [
+                (2, "with_", {"items": [("__cypher_group__", 1), ("__cypher_agg__", "x"), ("__cypher_agg__1", "x")]}),
+                (
+                    3,
+                    "group_by",
+                    {
+                        "keys": ["__cypher_group__"],
+                        "aggregations": [
+                            ("cnt", "count_distinct", "__cypher_agg__"),
+                            ("vals", "collect_distinct", "__cypher_agg__1"),
+                        ],
+                    },
+                ),
+                (4, "select", {}),
+            ],
+        ),
+        (
+            "UNWIND [1, 2, 2] AS x WITH collect(DISTINCT x) AS xs RETURN size(xs) AS n",
+            [
+                (2, "with_", {"items": [("__cypher_group__", 1), ("__cypher_agg__", "x")]}),
+                (
+                    3,
+                    "group_by",
+                    {"keys": ["__cypher_group__"], "aggregations": [("xs", "collect_distinct", "__cypher_agg__")]},
+                ),
+                (4, "with_", {"items": [("xs", "xs")]}),
+                (5, "select", {"items": [("n", "size(xs)")]}),
+            ],
+        ),
+        (
+            "MATCH (a) WITH a.name AS name ORDER BY a.name + 'C' ASC LIMIT 2 RETURN name",
+            [
+                (1, "rows", {}),
+                (2, "with_", {"items": [("name", "a.name")]}),
+                (3, "order_by", {"keys": [("(name + 'C')", "asc")]}),
+                (4, "limit", {"value": 2}),
+                (5, "select", {"items": [("name", "name")]}),
+            ],
+        ),
+        (
+            "MATCH (a) WITH a.name AS name, count(*) AS cnt ORDER BY a.name + 'C' DESC LIMIT 1 RETURN name, cnt",
+            [
+                (1, "rows", {}),
+                (2, "with_", {"items": [("name", "a.name")]}),
+                (3, "group_by", {"keys": ["name"], "aggregations": [("cnt", "count")]}),
+                (4, "order_by", {"keys": [("(name + 'C')", "desc")]}),
+                (5, "limit", {"value": 1}),
+                (6, "select", {"items": [("name", "name"), ("cnt", "cnt")]}),
+            ],
+        ),
+        (
+            "MATCH (a)-[r]->(b) RETURN count(DISTINCT r)",
+            [
+                (3, "rows", {"table": "edges", "source": "r"}),
+                (4, "with_", {"items": [("__cypher_group__", 1), ("__cypher_agg__", "__gfql_edge_index_0__")]}),
+                (
+                    5,
+                    "group_by",
+                    {
+                        "keys": ["__cypher_group__"],
+                        "aggregations": [("count(DISTINCT r)", "count_distinct", "__cypher_agg__")],
+                    },
+                ),
+            ],
+        ),
+    ],
+)
+def test_lower_cypher_query_builds_row_pipeline_shapes(query, expected_calls) -> None:
+    _assert_lowered_calls(query, expected_calls)
 
 
 def test_gfql_executes_top_level_unwind_query() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql("UNWIND [3, 1, 2] AS x RETURN x ORDER BY x ASC LIMIT 2")
-
-    assert result._nodes.to_dict(orient="records") == [{"x": 1}, {"x": 2}]
+    _assert_query_rows("UNWIND [3, 1, 2] AS x RETURN x ORDER BY x ASC LIMIT 2", [{"x": 1}, {"x": 2}])
 
 
 def test_gfql_executes_match_then_unwind_query() -> None:
-    nodes = pd.DataFrame(
-        {
-            "id": ["a", "b"],
-            "vals": [[2, 1], [3]],
-        }
+    _assert_query_rows(
+        "MATCH (n) UNWIND n.vals AS v RETURN v ORDER BY v ASC",
+        [{"v": 1}, {"v": 2}, {"v": 3}],
+        nodes_df=pd.DataFrame({"id": ["a", "b"], "vals": [[2, 1], [3]]}),
     )
-    edges = pd.DataFrame({"s": [], "d": []})
-
-    result = _mk_graph(nodes, edges).gfql(
-        "MATCH (n) UNWIND n.vals AS v RETURN v ORDER BY v ASC"
-    )
-
-    assert result._nodes.to_dict(orient="records") == [{"v": 1}, {"v": 2}, {"v": 3}]
 
 
 def test_gfql_executes_aggregate_return_query() -> None:
-    nodes = pd.DataFrame(
-        {
-            "id": ["a", "b", "c"],
-            "division": ["x", "x", "y"],
-            "age": [3, 7, 4],
-        }
+    _assert_query_rows(
+        "MATCH (n) RETURN n.division AS division, count(*) AS cnt, max(n.age) AS max_age ORDER BY division ASC",
+        [{"division": "x", "cnt": 2, "max_age": 7}, {"division": "y", "cnt": 1, "max_age": 4}],
+        nodes_df=pd.DataFrame({"id": ["a", "b", "c"], "division": ["x", "x", "y"], "age": [3, 7, 4]}),
     )
-    edges = pd.DataFrame({"s": [], "d": []})
-
-    result = _mk_graph(nodes, edges).gfql(
-        "MATCH (n) RETURN n.division AS division, count(*) AS cnt, max(n.age) AS max_age ORDER BY division ASC"
-    )
-
-    assert result._nodes.to_dict(orient="records") == [
-        {"division": "x", "cnt": 2, "max_age": 7},
-        {"division": "y", "cnt": 1, "max_age": 4},
-    ]
 
 
 def test_gfql_executes_aggregate_order_by_on_cudf() -> None:
@@ -12446,54 +12370,22 @@ def test_gfql_preserves_group_order_for_aggregate_order_ties_on_cudf() -> None:
     ]
 
 
-def test_gfql_executes_boolean_list_comprehension_order_check_on_cudf() -> None:
+@pytest.mark.parametrize(
+    "values",
+    [
+        "[true, false]",
+        "[351, -3974856, 93, -3, 123, 0, 3, -2, 20934587, 1, 20934585, 20934586, -10]",
+        "[[2, 2], [2, -2], [1, 2], [], [1], [300, 0], [1, -20], [2, -2, 100]]",
+    ],
+)
+def test_gfql_executes_list_comprehension_order_check_on_cudf(values: str) -> None:
     cudf = pytest.importorskip("cudf")
 
     nodes = cudf.from_pandas(pd.DataFrame({"id": []}))
     edges = cudf.from_pandas(pd.DataFrame({"s": [], "d": []}))
 
     result = _mk_graph(nodes, edges).gfql(
-        "WITH [true, false] AS values\n"
-        "WITH values, size(values) AS numOfValues\n"
-        "UNWIND values AS value\n"
-        "WITH size([ x IN values WHERE x < value ]) AS x, value, numOfValues\n"
-        "  ORDER BY value\n"
-        "WITH numOfValues, collect(x) AS orderedX\n"
-        "RETURN orderedX = range(0, numOfValues-1) AS equal",
-        engine="cudf",
-    )
-
-    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"equal": True}]
-
-
-def test_gfql_executes_integer_list_comprehension_order_check_on_cudf() -> None:
-    cudf = pytest.importorskip("cudf")
-
-    nodes = cudf.from_pandas(pd.DataFrame({"id": []}))
-    edges = cudf.from_pandas(pd.DataFrame({"s": [], "d": []}))
-
-    result = _mk_graph(nodes, edges).gfql(
-        "WITH [351, -3974856, 93, -3, 123, 0, 3, -2, 20934587, 1, 20934585, 20934586, -10] AS values\n"
-        "WITH values, size(values) AS numOfValues\n"
-        "UNWIND values AS value\n"
-        "WITH size([ x IN values WHERE x < value ]) AS x, value, numOfValues\n"
-        "  ORDER BY value\n"
-        "WITH numOfValues, collect(x) AS orderedX\n"
-        "RETURN orderedX = range(0, numOfValues-1) AS equal",
-        engine="cudf",
-    )
-
-    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"equal": True}]
-
-
-def test_gfql_executes_nested_list_comprehension_order_check_on_cudf() -> None:
-    cudf = pytest.importorskip("cudf")
-
-    nodes = cudf.from_pandas(pd.DataFrame({"id": []}))
-    edges = cudf.from_pandas(pd.DataFrame({"s": [], "d": []}))
-
-    result = _mk_graph(nodes, edges).gfql(
-        "WITH [[2, 2], [2, -2], [1, 2], [], [1], [300, 0], [1, -20], [2, -2, 100]] AS values\n"
+        f"WITH {values} AS values\n"
         "WITH values, size(values) AS numOfValues\n"
         "UNWIND values AS value\n"
         "WITH size([ x IN values WHERE x < value ]) AS x, value, numOfValues\n"
@@ -12603,12 +12495,11 @@ def test_gfql_executes_collect_distinct_all_null_return_query() -> None:
 
 
 def test_gfql_executes_count_distinct_missing_property_as_zero() -> None:
-    nodes = pd.DataFrame({"id": ["a", "b"]})
-    edges = pd.DataFrame({"s": [], "d": []})
-
-    result = _mk_graph(nodes, edges).gfql("MATCH (a) RETURN count(DISTINCT a.name) AS cnt")
-
-    assert result._nodes.to_dict(orient="records") == [{"cnt": 0}]
+    _assert_query_rows(
+        "MATCH (a) RETURN count(DISTINCT a.name) AS cnt",
+        [{"cnt": 0}],
+        nodes_df=pd.DataFrame({"id": ["a", "b"]}),
+    )
 
 
 def test_cypher_to_gfql_rejects_multi_source_aggregate_expr() -> None:
