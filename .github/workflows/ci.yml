@@ -726,11 +726,11 @@ jobs:
     needs: [changes, python-lint-types, generate-lockfiles]
     if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 25
 
     strategy:
       matrix:
-        python-version: [3.12, '3.14']
+        python-version: ['3.12', '3.14']
 
     steps:
 
@@ -759,22 +759,52 @@ jobs:
         uv pip install --require-hashes -r requirements/test-py${{ matrix.python-version }}.lock
         uv pip install -e . --no-deps
 
-    - name: GFQL core tests
+    - name: GFQL core tests with coverage audit
+      if: ${{ matrix.python-version == '3.12' }}
       run: |
         source pygraphistry/bin/activate
-        python -B -m pytest -vv -n auto \
-          graphistry/tests/compute/gfql/cypher/test_lowering.py \
-          graphistry/tests/compute/gfql/cypher/test_parser.py \
-          graphistry/tests/compute/gfql/test_row_pipeline_ops.py \
-          graphistry/tests/compute/gfql/test_schema_changers.py \
-          graphistry/tests/compute/gfql/test_let_schema_changers.py \
-          graphistry/tests/compute/gfql/test_rollout.py \
-          graphistry/tests/compute/test_hop.py \
+        mkdir -p build/gfql-coverage-audit
+        COVERAGE_FILE=build/gfql-coverage-audit/.coverage python -B -m pytest -vv -n auto \
+          --cov=graphistry/compute \
+          --cov-report= \
+          graphistry/tests/compute/test_ast.py \
           graphistry/tests/compute/test_chain.py \
           graphistry/tests/compute/test_chain_let.py \
           graphistry/tests/compute/test_chain_concat.py \
           graphistry/tests/compute/test_dataframe_primitives.py \
-          tests/gfql/ref/
+          graphistry/tests/compute/test_hop.py \
+          graphistry/tests/compute/gfql \
+          tests/gfql/ref
+        python bin/coverage_audit.py \
+          --profile gfql \
+          --skip-tests \
+          --engine-label ci-pandas-py3.12 \
+          --output-dir build/gfql-coverage-audit \
+          --data-file build/gfql-coverage-audit/.coverage \
+          --baseline-file graphistry/tests/compute/gfql/coverage_baselines/ci-pandas-py3.12.json
+        cat build/gfql-coverage-audit/gfql-coverage-audit.md >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload GFQL coverage audit
+      if: ${{ matrix.python-version == '3.12' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: gfql-coverage-audit-py3.12
+        path: build/gfql-coverage-audit/
+        retention-days: 14
+
+    - name: GFQL core tests
+      if: ${{ matrix.python-version != '3.12' }}
+      run: |
+        source pygraphistry/bin/activate
+        python -B -m pytest -vv -n auto \
+          graphistry/tests/compute/test_ast.py \
+          graphistry/tests/compute/test_chain.py \
+          graphistry/tests/compute/test_chain_let.py \
+          graphistry/tests/compute/test_chain_concat.py \
+          graphistry/tests/compute/test_dataframe_primitives.py \
+          graphistry/tests/compute/test_hop.py \
+          graphistry/tests/compute/gfql \
+          tests/gfql/ref
 
     - name: T5 rollout gate — execution-path canary (env=true)
       # Default-loose path is exercised by the env-unset run above (T5 #1311).
@@ -784,7 +814,6 @@ jobs:
       run: |
         source pygraphistry/bin/activate
         python -B -m pytest -vv graphistry/tests/compute/gfql/test_rollout.py
-
 
   test-pandas-compat:
     name: test-pandas-compat (${{ matrix.label }}, py${{ matrix.python-version }})

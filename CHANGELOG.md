@@ -9,6 +9,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Added
+- **Coverage audit profiles (#1517)**: Added a coverage.py-backed audit helper with an initial GFQL dead-code triage profile that emits markdown/JSON zero-hit and low-hit reports for parser, lowering, row-pipeline, temporal, AST, unified, and chain files. CI now collects coverage inside the existing `test-gfql-core (3.12)` run via `pytest-cov`, uploads the pandas CPU audit artifact with per-file coverage lock-ins, and the RAPIDS Docker wrapper can run the same profile against periodic DGX RAPIDS 25.02 and 26.02 cuDF lock-ins.
 - **GFQL policy / Cypher compiler hooks (#1454)**: Added experimental exact-key `precompile` and `postcompile` policy hooks for local Cypher string-query compilation. `postcompile` reports success or failure using the existing policy `success`, `error`, and `error_type` fields plus a stable `CompileSummary` with scalar compiler metadata.
 
 ### Changed
