@@ -673,10 +673,12 @@ def hop(self: Plottable,
         and max_reached_hop >= resolved_min_hops
     ):
         valid_endpoint_edges = edge_hop_records[edge_hop_records[edge_hop_col] >= resolved_min_hops]
-        valid_endpoint_edges_with_nodes = valid_endpoint_edges.merge(
+        valid_endpoint_edges_with_nodes = safe_merge(
+            valid_endpoint_edges,
             edges_indexed[[EDGE_ID, g2._source, g2._destination]],
             on=EDGE_ID,
-            how='inner'
+            how='inner',
+            engine=engine_concrete,
         )
         if direction == 'forward':
             goal_node_series = valid_endpoint_edges_with_nodes[g2._destination].drop_duplicates()
@@ -689,10 +691,12 @@ def hop(self: Plottable,
             ], ignore_index=True, sort=False).drop_duplicates()
 
         if len(goal_node_series) > 0:
-            edge_records_with_endpoints = edge_hop_records.merge(
+            edge_records_with_endpoints = safe_merge(
+                edge_hop_records,
                 edges_indexed[[EDGE_ID, g2._source, g2._destination]],
                 on=EDGE_ID,
-                how='inner'
+                how='inner',
+                engine=engine_concrete,
             )
 
             valid_node_series = goal_node_series
@@ -748,13 +752,25 @@ def hop(self: Plottable,
         if edge_mask is not None:
             edge_labels_source = edge_labels_source[edge_mask]
 
-        final_edges = edges_indexed.merge(edge_labels_source, on=EDGE_ID, how='inner')
+        final_edges = safe_merge(
+            edges_indexed,
+            edge_labels_source,
+            on=EDGE_ID,
+            how='inner',
+            engine=engine_concrete,
+        )
         if label_edge_hops is None and edge_hop_col in final_edges:
             # Preserve hop labels when output slicing is requested so callers can filter.
             if output_min_hops is None and output_max_hops is None:
                 final_edges = final_edges.drop(columns=[edge_hop_col])
     else:
-        final_edges = edges_indexed.merge(matches_edges, on=EDGE_ID, how='inner')
+        final_edges = safe_merge(
+            edges_indexed,
+            matches_edges,
+            on=EDGE_ID,
+            how='inner',
+            engine=engine_concrete,
+        )
 
     if EDGE_ID not in self._edges:
         final_edges = final_edges.drop(columns=[EDGE_ID])
