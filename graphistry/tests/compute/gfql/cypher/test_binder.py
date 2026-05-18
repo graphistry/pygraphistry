@@ -311,6 +311,40 @@ def test_binder_unresolved_name_failure_after_with_scope_reset() -> None:
         FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
 
 
+@pytest.mark.parametrize("stale_alias", ["c", "d"])
+@pytest.mark.parametrize("direction", ["", " ASC", " ASCENDING", " DESC", " DESCENDING"])
+def test_binder_with_order_by_rejects_alias_not_visible_after_with(stale_alias: str, direction: str) -> None:
+    query = f"MATCH (a)-->(b)-->(c) WITH a, b WITH a ORDER BY {stale_alias}{direction} RETURN a"
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert exc_info.value.code == ErrorCode.E204
+    assert exc_info.value.context["field"] == "identifier"
+    assert exc_info.value.context["value"] == stale_alias
+    assert exc_info.value.context["visible_scope"] == ["a", "b"]
+
+
+def test_binder_with_order_by_accepts_current_or_projected_aliases() -> None:
+    query = "MATCH (a)-->(b) WITH a, b WITH a.id AS aid ORDER BY b.id, aid RETURN aid"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert [part.clause for part in bound.query_parts] == ["MATCH", "WITH", "WITH", "RETURN"]
+    assert set(bound.semantic_table.variables) == {"aid"}
+
+
+def test_binder_return_order_by_rejects_alias_not_visible_after_with() -> None:
+    query = "MATCH (a)-->(b)-->(c) WITH a, b WITH a RETURN a ORDER BY c"
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert exc_info.value.code == ErrorCode.E204
+    assert exc_info.value.context["field"] == "identifier"
+    assert exc_info.value.context["value"] == "c"
+    assert exc_info.value.context["visible_scope"] == ["a"]
+
+
 def test_binder_ic4_return_case_across_with_distinct_scope() -> None:
     query = (
         "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "

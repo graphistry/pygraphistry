@@ -8699,8 +8699,13 @@ def test_string_cypher_supports_with_where_using_projected_source_properties(
 def test_string_cypher_rejects_out_of_scope_order_by_after_multiple_with_stages() -> None:
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 
-    with pytest.raises(GFQLValidationError, match="ORDER BY column must exist after RETURN/WITH projection"):
+    with pytest.raises(GFQLValidationError) as exc_info:
         g.gfql("WITH 1 AS a, 'b' AS b, 3 AS c WITH a, b WITH a ORDER BY a, c RETURN a")
+
+    assert exc_info.value.code == ErrorCode.E204
+    assert exc_info.value.context["field"] == "identifier"
+    assert exc_info.value.context["value"] == "c"
+    assert exc_info.value.context["visible_scope"] == ["a", "b"]
 
 
 def test_string_cypher_executes_row_column_expression_order_after_with() -> None:
