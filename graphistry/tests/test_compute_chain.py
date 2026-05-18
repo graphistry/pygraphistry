@@ -5,7 +5,7 @@ import pandas as pd
 
 from common import NoAuthTestCase
 import pytest
-from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, is_in, rows, select
+from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, is_in, join_apply, rows, select
 from graphistry.compute.chain import _inject_binding_ops_if_needed
 from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.tests.test_compute import CGFull
@@ -854,8 +854,16 @@ class TestChainBindingsTable(NoAuthTestCase):
     def _mk_graph(self, nodes_df, edges_df):
         return CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
 
-    def _mk_cudf_graph(self, nodes_df, edges_df):
+    def _require_cudf_runtime(self):
         cudf = pytest.importorskip("cudf")
+        try:
+            cudf.Series([1])
+        except Exception as exc:
+            pytest.skip(f"cudf installed but runtime unavailable: {exc}")
+        return cudf
+
+    def _mk_cudf_graph(self, nodes_df, edges_df):
+        cudf = self._require_cudf_runtime()
         return CGFull().nodes(cudf.from_pandas(nodes_df), "id").edges(cudf.from_pandas(edges_df), "s", "d")
 
     def _to_binding_ops(self, match_ops):
@@ -889,7 +897,12 @@ class TestChainBindingsTable(NoAuthTestCase):
                 [
                     {"id": "c1", "labels": ["Comment"], "label__Comment": True},
                     {"id": "m1", "labels": ["Message"], "label__Message": True},
-                    {"id": "p1", "labels": ["Post"], "label__Post": True},
+                    {
+                        "id": "p1",
+                        "labels": ["Message", "Post"],
+                        "label__Message": True,
+                        "label__Post": True,
+                    },
                     {"id": "f1", "labels": ["Forum"], "label__Forum": True, "title": "Forum"},
                     {
                         "id": "u1",
@@ -922,9 +935,11 @@ class TestChainBindingsTable(NoAuthTestCase):
             pd.DataFrame({"s": [], "d": []}),
         )
 
-    def _forum_moderator_match_ops(self, reply_edge):
+    def _forum_moderator_match_ops(self, reply_edge, message_predicate=None):
+        if message_predicate is None:
+            message_predicate = {"id": "c1", "label__Comment": True}
         return [
-            n({"id": "c1", "label__Comment": True}, name="message"),
+            n(message_predicate, name="message"),
             reply_edge,
             n({"label__Post": True}, name="post"),
             e_reverse({"type": "CONTAINER_OF"}),
@@ -970,6 +985,48 @@ class TestChainBindingsTable(NoAuthTestCase):
                     "s": ["comment1", "post2", "post1", "comment1"],
                     "d": ["viewer", "viewer", "author1", "post1"],
                     "type": ["HAS_CREATOR", "HAS_CREATOR", "HAS_CREATOR", "REPLY_OF"],
+                }
+            ),
+        )
+
+    def _mk_issue_1412_reply_author_graph(self):
+        return self._mk_graph(
+            pd.DataFrame(
+                {
+                    "id": [
+                        "viewer",
+                        "m1",
+                        "m2",
+                        "c1",
+                        "c2",
+                        "c3",
+                        "message_author",
+                        "reply_author",
+                        "author2",
+                    ],
+                    "label__Person": [True, False, False, False, False, False, True, True, True],
+                    "label__Message": [False, True, True, True, True, True, False, False, False],
+                    "label__Comment": [False, False, False, True, True, True, False, False, False],
+                    "firstName": ["View", None, None, None, None, None, "Main", "Peer", "Bob"],
+                    "lastName": ["Er", None, None, None, None, None, "Author", "One", "Two"],
+                    "creationDate": [None, 100, 90, 20, 10, 80, None, None, None],
+                    "content": [None, "post-1", "post-2", "reply-from-peer", "reply-from-main", "old-reply", None, None, None],
+                }
+            ),
+            pd.DataFrame(
+                {
+                    "s": ["m1", "m2", "c1", "c1", "c2", "c2", "c3", "c3"],
+                    "d": ["viewer", "viewer", "m1", "reply_author", "m1", "message_author", "m2", "author2"],
+                    "type": [
+                        "HAS_CREATOR",
+                        "HAS_CREATOR",
+                        "REPLY_OF",
+                        "HAS_CREATOR",
+                        "REPLY_OF",
+                        "HAS_CREATOR",
+                        "REPLY_OF",
+                        "HAS_CREATOR",
+                    ],
                 }
             ),
         )
@@ -1029,6 +1086,93 @@ class TestChainBindingsTable(NoAuthTestCase):
         assert len(records) == 1
         assert records[0]["x_val"] == 1
         assert records[0]["y_val"] == 2
+
+    def test_issue_1412_native_chain_recent_replies_row_shaping_ic8(self):
+        """IC8: direct native GFQL rows() replaces the adapter reply-author join."""
+        g = self._mk_issue_1412_reply_author_graph()
+        match_ops = [
+            n({"id": "viewer", "label__Person": True}, name="start"),
+            e_reverse({"type": "HAS_CREATOR"}),
+            n({"label__Message": True}, name="message"),
+            e_reverse({"type": "REPLY_OF"}),
+            n({"label__Comment": True}, name="comment"),
+            e_forward({"type": "HAS_CREATOR"}),
+            n({"label__Person": True}, name="commentAuthor"),
+        ]
+        items = [
+            ("personId", "commentAuthor.id"),
+            ("personFirstName", "commentAuthor.firstName"),
+            ("personLastName", "commentAuthor.lastName"),
+            ("commentCreationDate", "comment.creationDate"),
+            ("commentId", "comment.id"),
+            ("commentContent", "comment.content"),
+        ]
+        expected = [
+            {
+                "personId": "reply_author",
+                "personFirstName": "Peer",
+                "personLastName": "One",
+                "commentCreationDate": 20.0,
+                "commentId": "c1",
+                "commentContent": "reply-from-peer",
+            },
+            {
+                "personId": "message_author",
+                "personFirstName": "Main",
+                "personLastName": "Author",
+                "commentCreationDate": 10.0,
+                "commentId": "c2",
+                "commentContent": "reply-from-main",
+            },
+            {
+                "personId": "author2",
+                "personFirstName": "Bob",
+                "personLastName": "Two",
+                "commentCreationDate": 80.0,
+                "commentId": "c3",
+                "commentContent": "old-reply",
+            },
+        ]
+        sort_by = ["commentCreationDate", "commentId"]
+        expected_by_sort = sorted(expected, key=lambda row: (row["commentCreationDate"], row["commentId"]))
+        assert self._rows_records(g, match_ops, items=items, sort_by=sort_by) == expected_by_sort
+        assert self._binding_rows_records(g, self._to_binding_ops(match_ops), items, sort_by=sort_by) == expected_by_sort
+
+    def test_issue_1412_native_chain_message_replies_row_shaping_is7(self):
+        """IS7: direct native GFQL rows() keeps reply and message authors aligned."""
+        g = self._mk_issue_1412_reply_author_graph()
+        match_ops = [
+            n({"id": "reply_author", "label__Person": True}, name="replyAuthor"),
+            e_reverse({"type": "HAS_CREATOR"}),
+            n({"label__Comment": True}, name="comment"),
+            e_forward({"type": "REPLY_OF"}),
+            n({"id": "m1", "label__Message": True}, name="message"),
+            e_forward({"type": "HAS_CREATOR"}),
+            n({"label__Person": True}, name="messageAuthor"),
+        ]
+        items = [
+            ("commentId", "comment.id"),
+            ("commentContent", "comment.content"),
+            ("commentCreationDate", "comment.creationDate"),
+            ("replyAuthorId", "replyAuthor.id"),
+            ("replyAuthorFirstName", "replyAuthor.firstName"),
+            ("replyAuthorLastName", "replyAuthor.lastName"),
+            ("messageAuthorId", "messageAuthor.id"),
+        ]
+        expected = [
+            {
+                "commentId": "c1",
+                "commentContent": "reply-from-peer",
+                "commentCreationDate": 20.0,
+                "replyAuthorId": "reply_author",
+                "replyAuthorFirstName": "Peer",
+                "replyAuthorLastName": "One",
+                "messageAuthorId": "viewer",
+            }
+        ]
+        sort_by = ["commentCreationDate", "replyAuthorId"]
+        assert self._rows_records(g, match_ops, items=items, sort_by=sort_by) == expected
+        assert self._binding_rows_records(g, self._to_binding_ops(match_ops), items, sort_by=sort_by) == expected
 
     def test_native_chain_rows_bindings_star_graph(self):
         """Star graph: 1 hub -> 3 leaves produces 3 binding rows."""
@@ -1096,6 +1240,247 @@ class TestChainBindingsTable(NoAuthTestCase):
                 "friendshipCreationDate": 123,
             }
         ]
+
+    def test_issue_1411_join_apply_projects_joined_message_rows(self):
+        """#1411: direct GFQL should join active friend rows to message rows."""
+        g = self._mk_graph(
+            pd.DataFrame(
+                [
+                    {
+                        "id": "seed",
+                        "label__Person": True,
+                        "label__Message": False,
+                        "firstName": "Seed",
+                        "creationDate": None,
+                    },
+                    {
+                        "id": "friend1",
+                        "label__Person": True,
+                        "label__Message": False,
+                        "firstName": "Ada",
+                        "creationDate": None,
+                    },
+                    {
+                        "id": "friend2",
+                        "label__Person": True,
+                        "label__Message": False,
+                        "firstName": "Bea",
+                        "creationDate": None,
+                    },
+                    {
+                        "id": "m1",
+                        "label__Person": False,
+                        "label__Message": True,
+                        "firstName": None,
+                        "creationDate": 20,
+                    },
+                    {
+                        "id": "m2",
+                        "label__Person": False,
+                        "label__Message": True,
+                        "firstName": None,
+                        "creationDate": 10,
+                    },
+                ]
+            ),
+            pd.DataFrame(
+                [
+                    {"s": "seed", "d": "friend1", "type": "KNOWS"},
+                    {"s": "seed", "d": "friend2", "type": "KNOWS"},
+                    {"s": "m1", "d": "friend1", "type": "HAS_CREATOR"},
+                    {"s": "m2", "d": "friend2", "type": "HAS_CREATOR"},
+                ]
+            ),
+        )
+        friend_ops = [
+            n({"id": "seed", "label__Person": True}, name="seed"),
+            e_undirected({"type": "KNOWS"}),
+            n({"label__Person": True}, name="friend"),
+        ]
+        message_ops = [
+            n({"label__Message": True}, name="message"),
+            e_forward({"type": "HAS_CREATOR"}),
+            n({"label__Person": True}, name="friend"),
+        ]
+
+        result = g.gfql([
+            *friend_ops,
+            rows(),
+            join_apply(binding_ops=self._to_binding_ops(message_ops), join_aliases=["friend"]),
+            select([
+                ("friendId", "friend.id"),
+                ("friendFirstName", "friend.firstName"),
+                ("messageId", "message.id"),
+                ("messageCreationDate", "message.creationDate"),
+            ]),
+        ])
+        rows_out = (
+            result._nodes
+            .sort_values("messageCreationDate", ascending=False)
+            .to_dict(orient="records")
+        )
+
+        assert rows_out == [
+            {
+                "friendId": "friend1",
+                "friendFirstName": "Ada",
+                "messageId": "m1",
+                "messageCreationDate": 20.0,
+            },
+            {
+                "friendId": "friend2",
+                "friendFirstName": "Bea",
+                "messageId": "m2",
+                "messageCreationDate": 10.0,
+            },
+        ]
+
+    def test_issue_1411_join_apply_projects_joined_message_rows_on_cudf(self):
+        """#1411: row joins should keep direct GFQL projection engine-polymorphic."""
+        cudf = self._require_cudf_runtime()
+        from cudf.testing import assert_frame_equal
+
+        g = self._mk_cudf_graph(
+            pd.DataFrame(
+                [
+                    {
+                        "id": "seed",
+                        "label__Person": True,
+                        "label__Message": False,
+                        "firstName": "Seed",
+                        "creationDate": None,
+                    },
+                    {
+                        "id": "friend1",
+                        "label__Person": True,
+                        "label__Message": False,
+                        "firstName": "Ada",
+                        "creationDate": None,
+                    },
+                    {
+                        "id": "friend2",
+                        "label__Person": True,
+                        "label__Message": False,
+                        "firstName": "Bea",
+                        "creationDate": None,
+                    },
+                    {
+                        "id": "m1",
+                        "label__Person": False,
+                        "label__Message": True,
+                        "firstName": None,
+                        "creationDate": 20,
+                    },
+                    {
+                        "id": "m2",
+                        "label__Person": False,
+                        "label__Message": True,
+                        "firstName": None,
+                        "creationDate": 10,
+                    },
+                ]
+            ),
+            pd.DataFrame(
+                [
+                    {"s": "seed", "d": "friend1", "type": "KNOWS"},
+                    {"s": "seed", "d": "friend2", "type": "KNOWS"},
+                    {"s": "m1", "d": "friend1", "type": "HAS_CREATOR"},
+                    {"s": "m2", "d": "friend2", "type": "HAS_CREATOR"},
+                ]
+            ),
+        )
+        friend_ops = [
+            n({"id": "seed", "label__Person": True}, name="seed"),
+            e_undirected({"type": "KNOWS"}),
+            n({"label__Person": True}, name="friend"),
+        ]
+        message_ops = [
+            n({"label__Message": True}, name="message"),
+            e_forward({"type": "HAS_CREATOR"}),
+            n({"label__Person": True}, name="friend"),
+        ]
+
+        result = g.gfql([
+            *friend_ops,
+            rows(),
+            join_apply(binding_ops=self._to_binding_ops(message_ops), join_aliases=["friend"]),
+            select([
+                ("friendId", "friend.id"),
+                ("friendFirstName", "friend.firstName"),
+                ("messageId", "message.id"),
+                ("messageCreationDate", "message.creationDate"),
+            ]),
+        ])
+        rows_out = (
+            result._nodes
+            .sort_values("messageCreationDate", ascending=False)
+            .reset_index(drop=True)
+        )
+
+        expected = cudf.DataFrame([
+            {
+                "friendId": "friend1",
+                "friendFirstName": "Ada",
+                "messageId": "m1",
+                "messageCreationDate": 20.0,
+            },
+            {
+                "friendId": "friend2",
+                "friendFirstName": "Bea",
+                "messageId": "m2",
+                "messageCreationDate": 10.0,
+            },
+        ])
+        assert_frame_equal(rows_out, expected, check_dtype=False)
+
+    def test_issue_1411_join_apply_left_preserves_unmatched_rows(self):
+        """Left row joins should keep active rows without a correlated match."""
+        g = self._mk_graph(
+            pd.DataFrame(
+                [
+                    {"id": "seed", "label__Person": True, "label__Message": False, "firstName": "Seed"},
+                    {"id": "friend1", "label__Person": True, "label__Message": False, "firstName": "Ada"},
+                    {"id": "friend2", "label__Person": True, "label__Message": False, "firstName": "Bea"},
+                    {"id": "m1", "label__Person": False, "label__Message": True, "firstName": None},
+                ]
+            ),
+            pd.DataFrame(
+                [
+                    {"s": "seed", "d": "friend1", "type": "KNOWS"},
+                    {"s": "seed", "d": "friend2", "type": "KNOWS"},
+                    {"s": "m1", "d": "friend1", "type": "HAS_CREATOR"},
+                ]
+            ),
+        )
+        friend_ops = [
+            n({"id": "seed", "label__Person": True}, name="seed"),
+            e_undirected({"type": "KNOWS"}),
+            n({"label__Person": True}, name="friend"),
+        ]
+        message_ops = [
+            n({"label__Message": True}, name="message"),
+            e_forward({"type": "HAS_CREATOR"}),
+            n({"label__Person": True}, name="friend"),
+        ]
+
+        result = g.gfql([
+            *friend_ops,
+            rows(),
+            join_apply(
+                binding_ops=self._to_binding_ops(message_ops),
+                join_aliases=["friend"],
+                how="left",
+            ),
+            select([
+                ("friendId", "friend.id"),
+                ("messageId", "message.id"),
+            ]),
+        ])
+        rows_out = result._nodes.sort_values("friendId").to_dict(orient="records")
+
+        assert rows_out[0] == {"friendId": "friend1", "messageId": "m1"}
+        assert rows_out[1]["friendId"] == "friend2"
+        assert pd.isna(rows_out[1]["messageId"])
 
     def test_native_chain_rows_bindings_edge_alias(self):
         """#982: edge alias properties should be accessible."""
@@ -1475,6 +1860,31 @@ class TestChainBindingsTable(NoAuthTestCase):
             ),
             items=[("forumId", "forum.id"), ("moderatorId", "moderator.id")],
             expected=[{"forumId": "f1", "moderatorId": "u1"}],
+        )
+
+    def test_direct_rows_binding_ops_supports_zero_hop_post_ancestor_join(self):
+        """IS6 post inputs should bind the post ancestor via the zero-hop arm."""
+        g = self._mk_forum_moderator_graph()
+        self._assert_rows_binding_parity(
+            g,
+            self._forum_moderator_match_ops(
+                e_forward({"type": "REPLY_OF"}, min_hops=0, to_fixed_point=True),
+                message_predicate={"id": "p1", "label__Message": True},
+            ),
+            items=[
+                ("messageId", "message.id"),
+                ("postId", "post.id"),
+                ("forumId", "forum.id"),
+                ("moderatorId", "moderator.id"),
+            ],
+            expected=[
+                {
+                    "messageId": "p1",
+                    "postId": "p1",
+                    "forumId": "f1",
+                    "moderatorId": "u1",
+                }
+            ],
         )
 
     def test_direct_rows_binding_ops_supports_open_range_multihop_continuation_on_cudf(self):

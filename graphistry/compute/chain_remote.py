@@ -16,6 +16,7 @@ from graphistry.compute.ast import ASTLet, ASTObject
 from graphistry.compute.chain import Chain
 from graphistry.compute.gfql.cypher.lowering import compile_cypher_query
 from graphistry.compute.gfql.cypher.parser import parse_cypher
+from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
 from graphistry.io.metadata import deserialize_plottable_metadata
 from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType, output_types_graph
 from graphistry.utils.json import JSONVal
@@ -92,6 +93,29 @@ def _compiled_to_let_json(compiled: CompiledQueryLike) -> Dict[str, Any]:
     return {"type": "Let", "bindings": bindings}
 
 
+def _refresh_url_from_dataset_id(g: Plottable) -> None:
+    dataset_id = getattr(g, "_dataset_id", None)
+    if not isinstance(dataset_id, str) or dataset_id == "":
+        return
+    info: DatasetInfo = {
+        "name": dataset_id,
+        "type": "arrow",
+        "viztoken": str(uuid.uuid4()),
+    }
+    g._url = g._pygraphistry._viz_url(info, g._url_params)
+
+
+def _apply_persist_axis_defaults(g: Plottable) -> None:
+    from graphistry.validate import apply_axis_url_defaults
+
+    merged = apply_axis_url_defaults(
+        getattr(g, "_url_params", None),
+        getattr(g, "_complex_encodings", None),
+    )
+    if isinstance(merged, dict):
+        g._url_params = merged
+
+
 def chain_remote_generic(
     self: Plottable,
     chain: Union[Chain, Dict[str, JSONVal], List[Any], 'ASTLet', str],
@@ -113,18 +137,8 @@ def chain_remote_generic(
         self._pygraphistry.refresh()
         api_token = self.session.api_token
 
-    if not dataset_id:
-        dataset_id = self._dataset_id
-
-    if not dataset_id:
-        self = self.upload(validate=validate)
-        dataset_id = self._dataset_id
-
     if output_type not in output_types_graph:
         raise ValueError(f"Unknown output_type, expected one of {output_types_graph}, got: {output_type}")
-    
-    if not dataset_id:
-        raise ValueError("Missing dataset_id; either pass in, or call on g2=g1.plot(render='g') in api=3 mode ahead of time")
 
     # Resolve engine: auto -> pandas/cudf based on graph DataFrame type
     engine_resolved = resolve_engine(engine, self)
@@ -178,8 +192,25 @@ def chain_remote_generic(
     else:
         raise TypeError(f"gfql_remote() query must be Chain, List, ASTLet, Dict, or str. Got {type(chain)}")
 
-    if validate and not is_let:
-        Chain.from_json(chain_json)
+    if validate:
+        gfql_preflight_validate(
+            self,
+            chain,
+            params=params,
+            strict=False,
+            collect_all=False,
+            schema=False,
+        )
+
+    if not dataset_id:
+        dataset_id = self._dataset_id
+
+    if not dataset_id:
+        self = self.upload(validate=validate)
+        dataset_id = self._dataset_id
+
+    if not dataset_id:
+        raise ValueError("Missing dataset_id; either pass in, or call on g2=g1.plot(render='g') in api=3 mode ahead of time")
 
     # --- Build request body (dual-field for backward compat) ---
     if is_let:
@@ -311,13 +342,7 @@ def chain_remote_generic(
 
                                 # Generate URL using existing infrastructure
                                 if result._dataset_id:  # Type guard
-                                    info: DatasetInfo = {
-                                        'name': result._dataset_id,
-                                        'type': 'arrow',
-                                        'viztoken': str(uuid.uuid4())
-                                    }
-
-                                    result._url = result._pygraphistry._viz_url(info, result._url_params)
+                                    _refresh_url_from_dataset_id(result)
 
                             # Optionally restore privacy settings
                             if 'privacy' in metadata:
@@ -325,6 +350,9 @@ def chain_remote_generic(
 
                         if 'gfql_metadata' in metadata:
                             result = deserialize_plottable_metadata(metadata['gfql_metadata'], result)
+                            _apply_persist_axis_defaults(result)
+                            if persist:
+                                _refresh_url_from_dataset_id(result)
 
                     except Exception as e:
                         if persist:
@@ -390,13 +418,7 @@ def chain_remote_generic(
 
                 # Generate URL using existing infrastructure
                 if result._dataset_id:  # Type guard
-                    dataset_info: DatasetInfo = {
-                        'name': result._dataset_id,
-                        'type': 'arrow',
-                        'viztoken': str(uuid.uuid4())
-                    }
-
-                    result._url = result._pygraphistry._viz_url(dataset_info, result._url_params)
+                    _refresh_url_from_dataset_id(result)
             else:
                 warnings.warn("persist=True requested but server did not return dataset_id in JSON response. "
                             "URL generation will not be available. This indicates an older server version that doesn't support persistence.",
@@ -404,6 +426,9 @@ def chain_remote_generic(
 
         if 'metadata' in o:
             result = deserialize_plottable_metadata(o['metadata'], result)
+            _apply_persist_axis_defaults(result)
+            if persist:
+                _refresh_url_from_dataset_id(result)
 
         return result
     else:
@@ -487,8 +512,8 @@ def chain_remote(
     
     Uses the latest bound `_dataset_id`, and uploads current dataset if not already bound. Note that rebinding calls of `edges()` and `nodes()` reset the `_dataset_id` binding.
 
-    :param chain: GFQL chain query as a Python object or in serialized JSON format
-    :type chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]]
+    :param chain: GFQL query as a Python object, serialized GFQL JSON, or Cypher string
+    :type chain: Union[Chain, List[ASTObject], Dict[str, JSONVal], ASTLet, str]
 
     :param api_token: Optional JWT token. If not provided, refreshes JWT and uses that.
     :type api_token: Optional[str]

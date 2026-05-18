@@ -207,3 +207,105 @@ def test_switch_organization_not_permitted(mock_response, capfd):
     # PyGraphistry.org_name("not-permitted-org")
     # out, err = capfd.readouterr()
     # assert "Failed to switch organization" in out
+
+
+@patch("graphistry.pygraphistry.requests.get")
+def test_from_dataset_id_hydrates_wrapped_plottable_metadata(mock_get):
+    response = unittest.mock.MagicMock()
+    response.status_code = 200
+    response.json.return_value = {
+        "data": {
+            "dataset_id": "wrapped_ds",
+            "metadata": {
+                "bindings": {"node": "id", "source": "src", "destination": "dst"},
+                "encodings": {"point_color": "category"},
+                "url_params": {"play": 0},
+            },
+        }
+    }
+    mock_get.return_value = response
+
+    client = graphistry.client()
+    out = client.from_dataset_id("wrapped_ds", api_token="tok_1")
+
+    assert out._dataset_id == "wrapped_ds"
+    assert out._node == "id"
+    assert out._source == "src"
+    assert out._destination == "dst"
+    assert out._point_color == "category"
+    assert out._url_params.get("play") == 0
+    assert isinstance(out._url, str)
+    assert "dataset=wrapped_ds" in out._url
+
+
+@patch("graphistry.pygraphistry.requests.get")
+def test_from_dataset_id_hydrates_legacy_shape(mock_get):
+    response = unittest.mock.MagicMock()
+    response.status_code = 200
+    response.json.return_value = {
+        "dataset_id": "legacy_ds",
+        "node_encodings": {
+            "bindings": {
+                "node": "id",
+                "node_color": "group",
+            },
+            "complex": {
+                "default": {
+                    "pointColorEncoding": {
+                        "graphType": "point",
+                        "encodingType": "color",
+                        "attribute": "group",
+                        "variation": "categorical",
+                    }
+                },
+                "current": {},
+            },
+        },
+        "edge_encodings": {
+            "bindings": {"source": "s", "destination": "d", "edge_size": "weight"},
+            "complex": {"default": {}, "current": {}},
+        },
+        "metadata": {"name": "Legacy graph", "description": "legacy payload"},
+        "url_params": {"play": 0},
+    }
+    mock_get.return_value = response
+
+    client = graphistry.client()
+    out = client.from_dataset_id("legacy_ds", api_token="tok_2")
+
+    assert out._dataset_id == "legacy_ds"
+    assert out._node == "id"
+    assert out._source == "s"
+    assert out._destination == "d"
+    assert out._point_color == "group"
+    assert out._edge_size == "weight"
+    assert out._name == "Legacy graph"
+    assert out._description == "legacy payload"
+    assert out._url_params.get("play") == 0
+    assert out._complex_encodings["node_encodings"]["default"]["pointColorEncoding"]["attribute"] == "group"
+
+
+@patch("graphistry.pygraphistry.requests.get")
+def test_from_dataset_id_refreshes_when_token_missing(mock_get):
+    response = unittest.mock.MagicMock()
+    response.status_code = 200
+    response.json.return_value = {"data": {"dataset_id": "token_ds"}}
+    mock_get.return_value = response
+
+    client = graphistry.client()
+    client.session.api_token = "session_token"
+    with patch.object(client, "refresh") as mock_refresh:
+        out = client.from_dataset_id("token_ds")
+
+    assert out._dataset_id == "token_ds"
+    mock_refresh.assert_called_once()
+    kwargs = mock_get.call_args[1]
+    auth_header = kwargs["headers"]["Authorization"]
+    assert auth_header == "Bearer session_token"
+
+
+def test_from_dataset_id_rejects_empty_dataset_id():
+    client = graphistry.client()
+    with pytest.raises(ValueError) as exc_info:
+        client.from_dataset_id("", api_token="tok")
+    assert "dataset_id cannot be empty" in str(exc_info.value)

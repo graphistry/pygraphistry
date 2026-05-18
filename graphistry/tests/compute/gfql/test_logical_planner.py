@@ -10,7 +10,7 @@ from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, BoundVariable, SemanticTable
 from graphistry.compute.gfql.ir.compilation import PlanContext
-from graphistry.compute.gfql.ir.logical_plan import Filter, LogicalPlan, NodeScan, PatternMatch, Project, Unwind
+from graphistry.compute.gfql.ir.logical_plan import Distinct, Filter, LogicalPlan, NodeScan, PatternMatch, Project, Unwind
 from graphistry.compute.gfql.ir.types import BoundPredicate, NodeRef, ScalarType
 from graphistry.compute.gfql.logical_planner import IdGen, LogicalPlanner
 
@@ -220,35 +220,40 @@ def test_logical_planner_unwind_uses_binder_predicate_expression() -> None:
     assert unwind_node.variable == "x"
 
 
-def test_logical_planner_rejects_optional_match_shapes() -> None:
+def test_logical_planner_plans_top_level_optional_match_shape() -> None:
+    query = "OPTIONAL MATCH (n:Person) RETURN n"
+    bound = _bind_query(query)
+
+    root = LogicalPlanner().plan(bound, PlanContext())
+    optional_match = _find_first(root, PatternMatch)
+
+    assert optional_match is not None
+    assert optional_match.optional is True
+    assert optional_match.arm_id == "top_level_optional_0"
+
+
+def test_logical_planner_plans_non_top_level_optional_match_shapes() -> None:
     query = "MATCH (n:Person) OPTIONAL MATCH (n)-[:KNOWS]->(m:Person) RETURN n, m"
     bound = _bind_query(query)
 
-    with pytest.raises(GFQLValidationError, match="OPTIONAL MATCH"):
-        LogicalPlanner().plan(bound, PlanContext())
+    root = LogicalPlanner().plan(bound, PlanContext())
+    optional_match = _find_first(root, PatternMatch)
+
+    assert optional_match is not None
+    assert optional_match.optional is True
+    assert optional_match.arm_id == "optional_arm_1"
 
 
-def test_logical_planner_rejects_multiple_match_stages() -> None:
-    bound_ir = BoundIR(
-        query_parts=[
-            BoundQueryPart(clause="MATCH", outputs=frozenset({"a"})),
-            BoundQueryPart(clause="MATCH", outputs=frozenset({"a"})),
-        ],
-        semantic_table=SemanticTable(
-            variables={
-                "a": BoundVariable(
-                    name="a",
-                    logical_type=NodeRef(labels=frozenset({"Person"})),
-                    nullable=False,
-                    null_extended_from=frozenset(),
-                    entity_kind="node",
-                )
-            }
-        ),
-    )
+def test_logical_planner_plans_multiple_match_stages_as_chained_pattern_match() -> None:
+    bound = _bind_query("MATCH (a:A) MATCH (a)-[:KNOWS]->(b:B) RETURN b")
 
-    with pytest.raises(GFQLValidationError, match="multiple MATCH"):
-        LogicalPlanner().plan(bound_ir, PlanContext())
+    plan = LogicalPlanner().plan(bound, PlanContext())
+    pattern = _find_first(plan, PatternMatch)
+
+    assert pattern is not None
+    assert isinstance(pattern.input, NodeScan)
+    assert pattern.pattern == {"aliases": ("a", "b")}
+    assert pattern.input.output_schema.columns.keys() == {"a"}
 
 
 def test_logical_planner_applies_predicates_attached_to_match_part() -> None:
@@ -289,12 +294,50 @@ def test_logical_planner_plans_multi_alias_match_shapes() -> None:
     assert set(pattern.output_schema.columns.keys()) == {"a", "r", "b"}
 
 
-def test_logical_planner_rejects_distinct_projection_shapes() -> None:
+def test_logical_planner_plans_distinct_projection_shapes() -> None:
     query = "MATCH (n:Person) RETURN DISTINCT n"
     bound = _bind_query(query)
 
-    with pytest.raises(GFQLValidationError, match="DISTINCT"):
-        LogicalPlanner().plan(bound, PlanContext())
+    root = LogicalPlanner().plan(bound, PlanContext())
+
+    assert isinstance(root, Distinct)
+    assert isinstance(root.input, Project)
+    assert root.output_schema == root.input.output_schema
+
+
+def test_logical_planner_uses_clause_scope_for_projection_alias_shadowing() -> None:
+    query = "MATCH (a) RETURN a.id IS NOT NULL AS a, a IS NOT NULL AS b"
+    bound = _bind_query(query)
+
+    root = LogicalPlanner().plan(bound, PlanContext())
+    scan = _find_first(root, NodeScan)
+
+    assert isinstance(root, Project)
+    assert scan is not None
+    assert isinstance(scan.output_schema.columns["a"], NodeRef)
+    assert root.output_schema.columns == {"b": ScalarType(kind="unknown", nullable=False)}
+
+
+def test_logical_planner_ignores_named_path_alias_in_match_schema() -> None:
+    query = "MATCH p = (n)-[r]->(b) RETURN count(r) AS cnt"
+    bound = _bind_query(query)
+
+    root = LogicalPlanner().plan(bound, PlanContext())
+    pattern = _find_first(root, PatternMatch)
+
+    assert pattern is not None
+    assert set(pattern.output_schema.columns) == {"b", "n", "r"}
+
+
+def test_logical_planner_ignores_unused_carried_path_alias_in_follow_on_match() -> None:
+    query = "MATCH path = shortestPath((a)-[*]-(b)) MATCH (b)-->(c) RETURN c"
+    bound = _bind_query(query)
+
+    root = LogicalPlanner().plan(bound, PlanContext())
+    pattern = _find_first(root, PatternMatch)
+
+    assert pattern is not None
+    assert set(pattern.output_schema.columns) == {"a", "b", "c"}
 
 
 def test_logical_planner_plans_single_alias_edge_match_shapes() -> None:

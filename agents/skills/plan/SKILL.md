@@ -70,7 +70,7 @@ STOP → reload plan → find last ✅ step → continue from there
 
 ```markdown
 # [Task] Plan
-🔴 COLD START: reload skill first → `agents/skills/plan/SKILL.md`
+🔴 COLD START: reload skill first → `.agents/skills/plan/SKILL.md`
 File: `plans/[task]/plan.md` | Date: [DATE TZ] | Branch: [branch] | PR#[N] → [target] | Base: [branch @ SHA]
 
 ## Context (read-only)
@@ -90,8 +90,10 @@ Record ALL commands verbatim — exact flags, paths, env vars. No paraphrasing. 
 Preferred:
 ```bash
 cat plans/[task]/plan.md | head -200          # reload plan
-PYTHONPATH=. uv run --no-project --with lark --with pytest python -m pytest [test_path] -q
+python -m pytest -q [test_path]               # targeted tests
+./bin/test-minimal-lite.sh                    # fast repo sentinel tests
 ./bin/ruff.sh && ./bin/typecheck.sh           # lint + types
+./bin/test.sh [optional_test_args]            # broader test pass
 gh pr checks [PR] --watch                     # CI
 gh run view [RUN_ID] --json status,conclusion,jobs
 git log --oneline -10

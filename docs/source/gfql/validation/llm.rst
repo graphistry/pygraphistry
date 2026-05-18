@@ -128,6 +128,27 @@ Combined Validation
        
        return {"success": True, "chain": chain}
 
+Direct Preflight For Retry Loops
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For generate-validate-repair loops, you can run ``g.gfql_validate(...)`` and
+convert raised exceptions into structured payloads:
+
+.. code-block:: python
+
+   from graphistry.compute.exceptions import GFQLValidationError, GFQLSyntaxError
+
+   def preflight_payload(g, query):
+       try:
+           g.gfql_validate(query, collect_all=True)
+           return {"ok": True}
+       except (GFQLValidationError, GFQLSyntaxError) as exc:
+           payload = exc.to_dict()
+           return {
+               "ok": False,
+               "error": payload,  # includes code/message + diagnostics context
+           }
+
 Automated Fix Suggestions
 -------------------------
 

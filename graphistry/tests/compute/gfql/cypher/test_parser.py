@@ -21,7 +21,7 @@ from graphistry.compute.gfql.cypher import (
     parse_cypher,
 )
 from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
-from graphistry.compute.gfql.cypher.ast import GraphBinding, GraphConstructor, UseClause
+from graphistry.compute.gfql.cypher.ast import BooleanExpr, GraphBinding, GraphConstructor, UseClause
 
 
 def _parse_query(query: str) -> CypherQuery:
@@ -250,6 +250,24 @@ def test_parse_shortest_path_bound_pattern() -> None:
     assert len(parsed.match.patterns) == 3
     assert parsed.match.pattern_aliases == (None, None, "path")
     assert parsed.match.pattern_alias_kinds == ("pattern", "pattern", "shortestPath")
+
+
+def test_parse_optional_bound_pattern_preserves_alias_metadata() -> None:
+    parsed = _parse_query("OPTIONAL MATCH p = (a)-[:R]->(b) RETURN b")
+
+    assert parsed.match is not None
+    assert parsed.match.optional is True
+    assert parsed.match.pattern_aliases == ("p",)
+    assert parsed.match.pattern_alias_kinds == ("pattern",)
+
+
+def test_parse_optional_shortest_path_preserves_alias_metadata() -> None:
+    parsed = _parse_query("OPTIONAL MATCH path = shortestPath((a)-[:KNOWS*]-(b)) RETURN path")
+
+    assert parsed.match is not None
+    assert parsed.match.optional is True
+    assert parsed.match.pattern_aliases == ("path",)
+    assert parsed.match.pattern_alias_kinds == ("shortestPath",)
 
 
 @pytest.mark.parametrize(
@@ -535,6 +553,32 @@ def test_parse_return_simple_case_expression() -> None:
 
     assert parsed.return_.items[0].expression.text == "CASE score WHEN 1 THEN 'one' ELSE 'other' END"
     assert parsed.return_.items[0].alias == "result"
+
+
+def test_parse_ic4_style_return_side_case_expression() -> None:
+    parsed = _parse_query(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "RETURN tag.name AS tagName, "
+        "CASE WHEN 1275350400000 <= post.creationDate AND post.creationDate < 1306886400000 "
+        "THEN post.id ELSE null END AS postId"
+    )
+
+    assert len(parsed.with_stages) == 1
+    assert parsed.with_stages[0].clause.distinct is True
+    assert parsed.with_stages[0].clause.items[0].expression.text == "tag"
+    assert parsed.with_stages[0].clause.items[1].expression.text == "post"
+    assert parsed.return_.items[1].expression.text == (
+        "CASE WHEN 1275350400000 <= post.creationDate AND post.creationDate < 1306886400000 "
+        "THEN post.id ELSE null END"
+    )
+    assert parsed.return_.items[1].alias == "postId"
+
+
+def test_parse_rejects_return_case_missing_end() -> None:
+    with pytest.raises(GFQLSyntaxError):
+        _parse_query("RETURN CASE WHEN score > 1 THEN true ELSE false AS result")
 
 
 @pytest.mark.parametrize(
@@ -961,20 +1005,105 @@ def test_parse_supports_where_pattern_predicate_and_expr_mix(query: str, expr_te
 @pytest.mark.parametrize(
     "query",
     [
-        # Variable-length patterns
+        # #1236: OR-around-pattern now stays in expr_tree for lowering/runtime.
         "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'z' RETURN n",
-        "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n",
-        # Non-variable-length patterns — same lift-step rejector path,
-        # but a more common shape to hit in practice.  Locks the
-        # rejection so future slice 2/3/4 lifts can't silently regress
-        # the simple-edge variant.
         "MATCH (n) WHERE (n)-[:R]->() OR n.id = 'z' RETURN n",
+    ],
+)
+def test_parse_supports_mixed_where_pattern_predicates_in_expr_tree(query: str) -> None:
+    parsed = _parse_query(query)
+    assert parsed.where is not None
+    assert parsed.where.expr_tree is not None
+    assert "OR" in boolean_expr_to_text(parsed.where.expr_tree).upper()
+    assert parsed.where.predicates == ()
+
+    def _has_pattern_leaf(node: BooleanExpr) -> bool:
+        if node.op == "pattern":
+            return True
+        left_has = _has_pattern_leaf(node.left) if node.left is not None else False
+        right_has = _has_pattern_leaf(node.right) if node.right is not None else False
+        return left_has or right_has
+
+    assert _has_pattern_leaf(parsed.where.expr_tree)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) WHERE n.txt = 'exists { shadow }' RETURN n",
+        "MATCH (n) WHERE n.txt = 'not exists { shadow }' RETURN n",
+        "MATCH (n) WHERE n.txt = 'not((a)-[:R]->(b))' RETURN n",
+        "MATCH (n) WHERE n.txt = \"exists { shadow }\" RETURN n",
+    ],
+)
+def test_parse_does_not_treat_pattern_existence_lexemes_inside_string_literals_as_unsupported(query: str) -> None:
+    parsed = _parse_query(query)
+    assert parsed.where is not None
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) // exists { shadow }\nRETURN n",
+        "MATCH (n) /* not((a)-[:R]->(b)) */ RETURN n",
+        "MATCH (n) WHERE n.txt = 'ok' // exists { shadow }\nRETURN n",
+        "RETURN ['exists { shadow }', 'plain'] AS xs",
+        "RETURN {k: 'not((a)-[:R]->(b))', v: 1} AS m",
+        "RETURN CASE WHEN true THEN 'exists { shadow }' ELSE 'plain' END AS out",
+        "RETURN \"contains // exists { shadow }\" AS out",
+        "RETURN 'escaped \\'exists { shadow }\\'' AS out",
+    ],
+)
+def test_parse_does_not_treat_pattern_existence_lexemes_inside_comments_or_literal_contexts_as_unsupported(
+    query: str,
+) -> None:
+    parsed = parse_cypher(query)
+    assert isinstance(parsed, CypherQuery)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) WHERE exists { (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE not exists { (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE not((n)-[:R]->()) RETURN n",
+        "MATCH (n) WHERE not((n:Admin)-[:R]->()) RETURN n",
+        "MATCH (n) WHERE not((n)-[:R {w: 1}]->()) RETURN n",
+        "MATCH (n) WHERE not((n)-[:R]->(:Admin)) RETURN n",
+        "MATCH (n) WHERE not((n)<-[:R]-()) RETURN n",
+        "MATCH (n) WHERE not((n)--()) RETURN n",
+        "MATCH (n) WHERE not((n)-[:R*]->()) RETURN n",
+        "MATCH (n) WHERE not((n)-[r:R]->()) RETURN n",
+        "MATCH (n) WHERE exists/*inline*/{ (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE not/*inline*/exists/*inline*/{ (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE not/*inline*/((n)-[:R]->()) RETURN n",
+        "MATCH (n) WHERE exists { (n)-[:R]->() } /* keep rejecting */ RETURN n",
+        "// leading comment\nMATCH (n) WHERE not((n)-[:R]->()) RETURN n",
+    ],
+)
+def test_parse_still_rejects_true_pattern_existence_expressions(query: str) -> None:
+    with pytest.raises(GFQLValidationError, match="Pattern existence expressions"):
+        _parse_query(query)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        # NOT-pattern: parse succeeds (#1031 slice 2 plumbing); the inner
+        # ``WherePatternPredicate`` is lifted with ``negated=True`` and
+        # surfaces the lowering-stage gate when compiled.
+        "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n",
         "MATCH (n) WHERE NOT (n)-[:R]->() RETURN n",
     ],
 )
-def test_parse_rejects_mixed_where_pattern_predicates_as_unsupported(query: str) -> None:
-    with pytest.raises(GFQLValidationError, match="mixed with generic row expressions"):
-        parse_cypher(query)
+def test_parse_lifts_top_level_not_pattern_to_negated_predicate(query: str) -> None:
+    parsed = _parse_query(query)
+    assert parsed.where is not None
+    pattern_preds = [
+        p for p in parsed.where.predicates if isinstance(p, WherePatternPredicate)
+    ]
+    assert len(pattern_preds) == 1
+    assert pattern_preds[0].negated is True
 
 
 def test_parse_aggregate_projection_items() -> None:

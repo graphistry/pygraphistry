@@ -5,6 +5,7 @@ from functools import lru_cache
 import json
 import warnings
 
+from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 from graphistry.privacy import Privacy
 from . import util
 from .plugins_types.spanner_types import SpannerConfig
@@ -135,7 +136,7 @@ class AuthManagerProtocol(Protocol):
     def refresh(self, token: Optional[str] = None, fail_silent: bool = False) -> Optional[str]:
         ...
     
-    def _viz_url(self, info: DatasetInfo, url_params: Dict[str, Any]) -> str:
+    def _viz_url(self, info: DatasetInfo, url_params: URLParamsDict) -> str:
         ...
 
     def certificate_validation(self, value: Optional[bool] = None) -> bool:

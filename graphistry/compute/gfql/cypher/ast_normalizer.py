@@ -25,6 +25,7 @@ from graphistry.compute.gfql.expr_parser import (
     Wildcard,
     parse_expr,
 )
+from graphistry.compute.gfql.string_literals import render_cypher_string_literal
 
 from .ast import (
     BooleanExpr,
@@ -38,7 +39,6 @@ from .ast import (
     RelationshipPattern,
     ReturnClause,
     WhereClause,
-    WherePatternPredicate,
 )
 from ._boolean_expr_text import boolean_expr_to_text
 
@@ -129,7 +129,7 @@ def _cypher_literal_expr_text(value: Any) -> str:
             return "null"
         return repr(value)
     if isinstance(value, str):
-        return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+        return render_cypher_string_literal(value)
     if isinstance(value, (list, tuple)):
         return "[" + ", ".join(_cypher_literal_expr_text(item) for item in value) + "]"
     if isinstance(value, dict):
@@ -139,7 +139,7 @@ def _cypher_literal_expr_text(value: Any) -> str:
             if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key_txt):
                 rendered_key = key_txt
             else:
-                rendered_key = "'" + key_txt.replace("\\", "\\\\").replace("'", "\\'") + "'"
+                rendered_key = render_cypher_string_literal(key_txt)
             parts.append(f"{rendered_key}: {_cypher_literal_expr_text(item)}")
         return "{" + ", ".join(parts) + "}"
     raise GFQLValidationError(
@@ -470,81 +470,15 @@ def _rewrite_shortest_path_query(query: CypherQuery) -> CypherQuery:
     )
 
 
-def _rewrite_where_pattern_predicates_to_matches(query: CypherQuery) -> CypherQuery:
-    if query.where is None or not query.where.predicates:
-        return query
-    pattern_preds = [predicate for predicate in query.where.predicates if isinstance(predicate, WherePatternPredicate)]
-    if not pattern_preds:
-        return query
-    first = pattern_preds[0]
-    if len(pattern_preds) > 1:
-        raise _unsupported(
-            "Cypher WHERE currently supports one positive pattern predicate at a time",
-            field="where",
-            value=len(pattern_preds),
-            line=first.span.line,
-            column=first.span.column,
-        )
-    if len(first.pattern) < 3:
-        raise _unsupported(
-            "Cypher WHERE pattern predicates must include a relationship",
-            field="where",
-            value=None,
-            line=first.span.line,
-            column=first.span.column,
-        )
-    bound_aliases = {
-        cast(str, element.variable)
-        for clause in query.matches
-        for pattern in clause.patterns
-        for element in pattern
-        if getattr(element, "variable", None) is not None
-    }
-    introduced_aliases = sorted(
-        cast(str, element.variable)
-        for element in first.pattern
-        if getattr(element, "variable", None) is not None and cast(str, element.variable) not in bound_aliases
-    )
-    if introduced_aliases:
-        raise _unsupported(
-            "Cypher WHERE pattern predicates cannot introduce new aliases in this phase",
-            field="where",
-            value=introduced_aliases,
-            line=first.span.line,
-            column=first.span.column,
-        )
-
-    remaining = tuple(predicate for predicate in query.where.predicates if not isinstance(predicate, WherePatternPredicate))
-    remaining_where = None
-    if remaining or query.where.expr_tree is not None:
-        remaining_where = WhereClause(
-            predicates=cast(Any, remaining),
-            expr_tree=query.where.expr_tree,
-            span=query.where.span,
-        )
-    extra_match = MatchClause(
-        patterns=(first.pattern,),
-        span=first.span,
-        optional=False,
-        pattern_aliases=(None,),
-        pattern_alias_kinds=("pattern",),
-    )
-    return replace(query, matches=query.matches + (extra_match,), where=remaining_where)
-
-
 class ASTNormalizer:
     """Owns frontend-AST rewrites that must remain behavior-preserving."""
 
     def rewrite_shortest_path(self, query: CypherQuery) -> CypherQuery:
         return _rewrite_shortest_path_query(query)
 
-    def rewrite_where_pattern_predicates(self, query: CypherQuery) -> CypherQuery:
-        return _rewrite_where_pattern_predicates_to_matches(query)
-
     def normalize(self, query: CypherQuery) -> CypherQuery:
-        query = self.rewrite_shortest_path(query)
-        query = self.rewrite_where_pattern_predicates(query)
-        return query
+        # Keep normalization as a single composition point for frontend AST rewrites.
+        return self.rewrite_shortest_path(query)
 
 
 __all__ = ["ASTNormalizer"]

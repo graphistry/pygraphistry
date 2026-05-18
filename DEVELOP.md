@@ -99,6 +99,26 @@ GitHub Actions: See `.github/workflows`
 
 CI runs on every PR and updates them
 
+### Cypher Surface Growth Guard
+
+CI includes `cypher-frontend-surface-guard`, which enforces bounded growth for:
+
+- `graphistry/compute/gfql/cypher/lowering.py` total line count
+- `CompiledCypherQuery`, `CompiledGraphBinding`, `CompiledCypherGraphQuery` dataclass field/property counts
+
+Guard implementation + baseline:
+
+- Script: `bin/ci_cypher_surface_guard.py`
+- Baseline: `bin/ci_cypher_surface_guard_baseline.json`
+
+If growth is intentional, regenerate baseline in your branch and include explicit PR rationale:
+
+```bash
+python bin/ci_cypher_surface_guard.py --write-baseline
+```
+
+Then commit both code changes and baseline update together.
+
 ### GPU CI
 
 GPU CI can be manually triggered by core dev team members:
@@ -139,6 +159,8 @@ GPU tests can also be run locally via `./docker/test-gpu-local.sh` .
 
 1. Confirm the [publish](https://github.com/graphistry/pygraphistry/actions?query=workflow%3A%22Publish+Python+%F0%9F%90%8D+distributions+%F0%9F%93%A6+to+PyPI+and+TestPyPI%22) Github Action published to [pypi](https://pypi.org/project/graphistry/)
 	- Auto-triggers on tag push
+	- **Expected gate**: on tag-triggered releases, the final `Publish distribution to PyPI` job can pause in `waiting` until a maintainer approves `Review deployments` for environment `pypi-release`.
+	- If the run is waiting, open the run page and approve `Review deployments`, then wait for the PyPI job to complete.
 	- If manually triggering (`workflow_dispatch`), choose `release_mode`:
 	  - `evidence`: build + SBOM + provenance + evidence artifacts only (no publish)
 	  - `test`: includes TestPyPI publish, skips PyPI (uses synthetic runner-local version `0.0.dev<run_id>` to avoid local-version upload rejection)

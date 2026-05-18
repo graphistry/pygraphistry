@@ -206,11 +206,11 @@ Support Matrix
      - Execute directly through ``g.gfql("...")``. Helper translation to a single ``Chain`` is stricter.
    * - Variable-length relationship patterns
      - Partial
-     - Direct Cypher supports endpoint-only traversals such as ``[*2]``,
-       ``[*1..3]``, ``[*]``, and typed forms like ``[:R*2..4]``, plus bounded
-       connected multi-relationship patterns where the row shape stays in the
-       current supported subset. Path/list-carrier uses, bounded/exact
-       ``WHERE`` pattern predicates, and broader branching/path-shaping cases
+     - Direct Cypher supports endpoint traversals such as ``[*2]``,
+       ``[*1..3]``, ``[*]``, and typed forms like ``[:R*2..4]``; connected
+       multi-relationship variable-length patterns; and bounded/exact/fixed-point
+       variable-length ``WHERE`` pattern predicates in the current row-shaped
+       subset. Path/list-carrier uses and unsupported path/row-shaping cases
        still fail fast.
    * - ``CREATE`` / ``DELETE`` / ``SET``
      - Not supported
@@ -236,9 +236,10 @@ Pattern Matching Forms
 - Node labels and multi-label node patterns such as ``(p:Person:Admin)``.
 - Relationship direction forms ``->``, ``<-``, and undirected ``-[]-``.
 - Relationship type alternation such as ``[r:KNOWS|HATES]``.
-- Single variable-length relationship patterns when they are the only
-  relationship in the connected pattern, including ``[*n]``, ``[*m..n]``,
-  ``[*]``, and typed forms such as ``[:R*2..4]``.
+- Single variable-length relationship patterns, including ``[*n]``,
+  ``[*m..n]``, ``[*]``, and typed forms such as ``[:R*2..4]``.
+- Connected patterns that mix variable-length and fixed-length relationships,
+  such as ``MATCH (a)-[:R*2]->()-[:S]->(c) RETURN c``.
 - Connected comma-separated patterns such as
   ``MATCH (a)-[:A]->(b), (b)-[:B]->(c)``.
 - Repeated ``MATCH`` clauses when they stay connected through shared aliases.
@@ -255,19 +256,18 @@ WHERE Forms
 - Label predicates such as ``WHERE b:Foo:Bar``.
 - Relationship-type predicates such as ``WHERE type(r) = 'KNOWS'``.
 - Positive relationship-existence pattern predicates such as
-  ``WHERE (n)-[:R]->()`` and bare fixed-point variable-length existence checks
-  such as ``WHERE (n)-[*]-()``.
-- One positive relationship-existence pattern predicate may be combined with
-  ordinary row filters through top-level ``AND``, for example
-  ``WHERE n.kind = 'x' AND (n)-[:R*]->() AND n.id <> 'a'``.
+  ``WHERE (n)-[:R]->()`` and variable-length existence checks such as
+  ``WHERE (n)-[*]-()`` and ``WHERE (n)-[:R*2]->()``.
+- Pattern predicates can be combined with row predicates in the current
+  boolean subset, including ``AND`` / ``OR`` / ``XOR`` and ``NOT`` forms.
 
 Variable-Length Relationship Boundary
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Direct Cypher multihop support is intentionally narrow in the current landing
-slice. The supported direct forms include endpoint traversals and bounded
-connected multi-relationship patterns where the result stays in the current
-row-shaping subset, for example:
+Direct Cypher multihop support remains intentionally bounded. The supported
+direct forms include endpoint traversals, connected multi-relationship
+patterns, and variable-length ``WHERE`` pattern predicates where the result
+stays in the current row-shaping subset, for example:
 
 - ``MATCH (a)-[*2]->(b) RETURN b``
 - ``MATCH (a)-[:R*1..3]->(b) RETURN b``
@@ -275,20 +275,16 @@ row-shaping subset, for example:
 - ``MATCH (a)-[:R*1..2]-(b) RETURN b``
 - ``MATCH (a)-[:R*2]->(b)-[:S]->(c) RETURN c``
 - ``MATCH (a)-[:R]->(b), (b)-[:S*1..2]->(c) RETURN a.id AS a_id, c.id AS c_id``
+- ``MATCH (n) WHERE (n)-[:R*2]->() RETURN n``
+- ``MATCH (n) WHERE NOT (n)-[:R*2]->() RETURN n.id AS id``
 
 The current compiler explicitly rejects these remaining subfamilies with
 ``GFQLValidationError`` instead of attempting unsound execution:
 
 - path/list-carrier use of a variable-length relationship alias, such as
   ``RETURN r`` or ``count(r)``
-- exact or bounded variable-length ``WHERE`` pattern predicates such as
-  ``WHERE (n)-[:R*2]-()``
-- top-level ``OR`` / ``NOT`` around variable-length ``WHERE`` pattern
-  predicates, or more than one positive pattern predicate in the same
-  ``WHERE`` clause
-- branching connected multihop patterns, or shapes that would require
-  unsupported path/relationship-carrier row shaping around a variable-length
-  segment
+- shapes that still require unsupported path/relationship-carrier row shaping
+  around a variable-length segment
 - connected multi-pattern relationship-alias projection such as
   ``RETURN r`` / ``r.prop`` when it would require unsupported row shaping
 - multi-alias ``RETURN *`` projections that would require unsupported
@@ -371,6 +367,26 @@ Procedure And Multi-Branch Forms
   ``out_col``, ``directed``, ``kind``, ``use_vids``, and ``params``; any extra
   keys are forwarded into the nested algorithm ``params`` dictionary.
 
+Component-labeling examples:
+
+.. code-block:: python
+
+    # Graph-enrichment mode (keeps traversable _edges)
+    g.gfql(
+        "CALL graphistry.cugraph.connected_components.write({out_col: 'wcc_id', directed: false})",
+        language="cypher",
+    )
+    g.gfql(
+        "CALL graphistry.cugraph.strongly_connected_components.write({out_col: 'scc_id', directed: true})",
+        language="cypher",
+    )
+
+    # Row mode (no .write): returns nodeId + output column rows
+    g.gfql(
+        "CALL graphistry.cugraph.connected_components({out_col: 'wcc_row', directed: false})",
+        language="cypher",
+    )
+
 - Outside that smaller ``networkx`` subset, ``graphistry.nx.*`` is not part of
   the current local Cypher ``CALL`` surface.
 
@@ -411,10 +427,8 @@ Not Supported Today
 
 - Variable-length relationship aliases used as path/list carriers, such as
   ``RETURN r`` or ``count(r)``.
-- Exact or bounded variable-length ``WHERE`` pattern predicates such as
-  ``WHERE (n)-[:R*2]-()``.
-- Branching connected multihop patterns, or connected multihop shapes that
-  still require unsupported path/relationship-carrier row shaping.
+- Connected multihop shapes that still require unsupported
+  path/relationship-carrier row shaping.
 - Multiple disconnected ``MATCH`` patterns used as arbitrary joins.
 - Multi-pattern re-entry shapes beyond the bounded single
   ``MATCH ... WITH ... MATCH ... RETURN`` form.
@@ -440,7 +454,37 @@ Static Validation / Preflight Check
 -----------------------------------
 
 If you want to know whether a query fits the current Cypher-in-GFQL subset before
-execution, preflight it with the helper APIs:
+execution, start with the bound-graph inline preflight APIs:
+
+.. code-block:: python
+
+    g.gfql_validate(
+        "MATCH (p) RETURN p.name AS name ORDER BY name DESC LIMIT $top_n",
+        params={"top_n": 5},
+        # strict=True is the default for local bound-graph preflight
+    )
+
+    # On failure:
+    # - GFQLSyntaxError for invalid syntax
+    # - GFQLValidationError for unsupported/scheme-invalid shapes
+
+- Use ``g.gfql_validate(...)`` when you want a stable validate-only entrypoint
+  that never executes query operators and raises structured exceptions on invalid queries.
+- Use ``g.gfql(..., validate=True)`` when you want execution guarded by a
+  local preflight check. For Cypher strings, this uses schema-aware strict
+  preflight by default.
+- Use ``g.gfql_remote(..., validate=True)`` when you want remote execution
+  guarded by local preflight before upload/network dispatch. For Cypher strings,
+  remote preflight uses ``strict=False`` by default because remote schema is authoritative.
+- Use ``parse_cypher()`` when you only want grammar validation and access to
+  the parsed representation.
+- Use ``compile_cypher()`` when you need low-level compiler/lowering output for
+  tooling or whitebox inspection.
+- Use ``cypher_to_gfql()`` only when you specifically need a single GFQL
+  ``Chain``. It is intentionally stricter than direct execution through
+  ``g.gfql("...")``.
+
+Low-level helper example:
 
 .. code-block:: python
 
@@ -450,25 +494,19 @@ execution, preflight it with the helper APIs:
     query = "MATCH (p:Person) RETURN p.name AS name"
 
     try:
-        parse_cypher(query)      # grammar + AST checks
-        compile_cypher(query)    # GFQL Cypher compiler / lowering checks
+        parsed = parse_cypher(query)   # grammar + AST checks
+        compiled = compile_cypher(query)  # compiler/lowering checks
     except GFQLSyntaxError as exc:
         print("Invalid Cypher syntax for g.gfql(\"MATCH ...\"):", exc)
     except GFQLValidationError as exc:
         print("Valid Cypher, but outside the current GFQL Cypher surface:", exc)
 
-- Use ``parse_cypher()`` when you only want syntax and AST validation.
-- Use ``compile_cypher()`` for the strongest compiler preflight, because it also
-  catches unsupported-but-valid query shapes in lowering.
-- Use ``cypher_to_gfql()`` only when you specifically need a single GFQL
-  ``Chain``. It is intentionally stricter than direct execution through
-  ``g.gfql("...")``.
-
 Common Rewrites
 ---------------
 
 - Need remote execution on Graphistry infrastructure instead of running against
-  the current bound graph? Prefer ``g.gfql_remote([...])`` for remote GFQL.
+  the current bound graph? Prefer ``g.gfql_remote(...)`` for remote GFQL, and
+  keep ``validate=True`` (default) for local preflight before upload.
 - Need remote database Cypher against Neo4j/Bolt-style backends instead of
   remote GFQL? Use ``graphistry.cypher("...")`` or ``g.cypher("...")``.
 - Need a pure GFQL chain object? Use ``cypher_to_gfql()`` when the query fits a

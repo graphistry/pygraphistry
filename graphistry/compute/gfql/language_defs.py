@@ -18,6 +18,9 @@ GFQL_COMPARISON_BINARY_OPS: Final[dict[str, Callable[[Any, Any], Any]]] = {
 
 GFQL_BOOLEAN_BINARY_OPS: Final[frozenset[str]] = frozenset({"or", "xor", "and"})
 GFQL_COMPARISON_BINARY_OP_NAMES: Final[frozenset[str]] = frozenset(GFQL_COMPARISON_BINARY_OPS)
+GFQL_EQUALITY_COMPARISON_BINARY_OPS: Final[frozenset[str]] = frozenset({"=", "!=", "<>"})
+GFQL_INEQUALITY_EQUALITY_COMPARISON_BINARY_OPS: Final[frozenset[str]] = frozenset({"!=", "<>"})
+GFQL_ORDERED_COMPARISON_BINARY_OPS: Final[frozenset[str]] = frozenset({"<", "<=", ">", ">="})
 GFQL_STRING_PREDICATE_OPS: Final[frozenset[str]] = frozenset({"contains", "starts_with", "ends_with"})
 GFQL_ARITHMETIC_BINARY_OPS: Final[frozenset[str]] = frozenset({"+", "-", "*", "/", "%"})
 GFQL_ALLOWED_BINARY_OPS: Final[frozenset[str]] = (

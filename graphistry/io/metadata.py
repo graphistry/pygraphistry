@@ -9,6 +9,7 @@ Format mirrors the arrow uploader metadata structure:
 - encodings: simple (point_color, etc.) and complex encodings
 - metadata: name, description
 - style: visualization styles
+- url_params: viewer URL parameter defaults
 """
 from typing import Any, Dict, List, TYPE_CHECKING
 import copy
@@ -20,11 +21,16 @@ from graphistry.io.types import (
     MetadataDict,
     NodeEdgeEncodingsDict,
     PlottableMetadata,
+    PLOTTABLE_SIMPLE_ENCODING_BIND_KEYS,
 )
+from graphistry.io.contracts.graphistry_server.dataset import (
+    GRAPHISTRY_SERVER_BINDING_TO_PLOTTABLE_ENCODING_MAP,
+)
+from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
+from graphistry.validate import normalize_url_params
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
-
 
 def serialize_bindings(g: 'Plottable', field_mapping: List[List[str]]) -> Dict[str, str]:
     """Extract bindings from Plottable using field mapping.
@@ -198,28 +204,7 @@ def serialize_plottable_metadata(g: 'Plottable') -> PlottableMetadata:
     node_bindings: Dict[str, str] = serialize_node_bindings(g)
     edge_bindings: Dict[str, str] = serialize_edge_bindings(g)
 
-    # Map server format back to simple encoding names
-    simple_encoding_map: Dict[str, str] = {
-        'node_color': 'point_color',
-        'node_size': 'point_size',
-        'node_title': 'point_title',
-        'node_label': 'point_label',
-        'node_icon': 'point_icon',
-        'node_opacity': 'point_opacity',
-        'node_x': 'point_x',
-        'node_y': 'point_y',
-        'edge_color': 'edge_color',
-        'edge_size': 'edge_size',
-        'edge_title': 'edge_title',
-        'edge_label': 'edge_label',
-        'edge_icon': 'edge_icon',
-        'edge_opacity': 'edge_opacity',
-        'edge_source_color': 'edge_source_color',
-        'edge_destination_color': 'edge_destination_color',
-        'edge_weight': 'edge_weight'
-    }
-
-    for server_key, encoding_key in simple_encoding_map.items():
+    for server_key, encoding_key in GRAPHISTRY_SERVER_BINDING_TO_PLOTTABLE_ENCODING_MAP.items():
         if server_key in node_bindings:
             encodings[encoding_key] = node_bindings[server_key]  # type: ignore[literal-required]
         elif server_key in edge_bindings:
@@ -241,6 +226,10 @@ def serialize_plottable_metadata(g: 'Plottable') -> PlottableMetadata:
     style: Dict[str, Any] = {}
     if hasattr(g, '_style') and g._style:
         style = g._style
+    url_params: URLParamsDict = {}
+    if hasattr(g, "_url_params") and isinstance(g._url_params, dict):
+        # Keep serializer permissive and never raise from metadata export path.
+        url_params = normalize_url_params(g._url_params, validate="autofix", warn=False)
 
     result: PlottableMetadata = {}
     if bindings:
@@ -251,6 +240,8 @@ def serialize_plottable_metadata(g: 'Plottable') -> PlottableMetadata:
         result['metadata'] = metadata_obj
     if style:
         result['style'] = style
+    if url_params:
+        result['url_params'] = url_params
 
     return result
 
@@ -307,15 +298,7 @@ def deserialize_plottable_metadata(metadata: PlottableMetadata, g: 'Plottable') 
             if isinstance(encodings, dict):
                 encode_kwargs: Dict[str, str] = {}
 
-                simple_encoding_keys: List[str] = [
-                    'point_color', 'point_size', 'point_title', 'point_label',
-                    'point_icon', 'point_badge', 'point_opacity', 'point_x', 'point_y',
-                    'edge_color', 'edge_size', 'edge_title', 'edge_label',
-                    'edge_icon', 'edge_badge', 'edge_opacity', 'edge_source_color',
-                    'edge_destination_color', 'edge_weight'
-                ]
-
-                for key in simple_encoding_keys:
+                for key in PLOTTABLE_SIMPLE_ENCODING_BIND_KEYS:
                     if key in encodings and encodings.get(key) is not None:  # type: ignore[misc]
                         encode_kwargs[key] = encodings[key]  # type: ignore[literal-required, typeddict-item]
 
@@ -349,5 +332,14 @@ def deserialize_plottable_metadata(metadata: PlottableMetadata, g: 'Plottable') 
                 res = res.style(**style)
         except Exception as e:
             warnings.warn(f"Failed to hydrate style from metadata: {e}", UserWarning, stacklevel=2)
+
+    if 'url_params' in metadata:
+        try:
+            url_params = metadata['url_params']
+            if isinstance(url_params, dict):
+                res = copy.copy(res)
+                res._url_params = normalize_url_params(url_params, validate="autofix", warn=False)
+        except Exception as e:
+            warnings.warn(f"Failed to hydrate url_params from metadata: {e}", UserWarning, stacklevel=2)
 
     return res

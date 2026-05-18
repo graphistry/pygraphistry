@@ -4,6 +4,9 @@ from typing_extensions import Literal
 from graphistry.io.types import ComplexEncodingsDict
 from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationMode, ValidationParam
+from graphistry.models.surfaces.graphistry_frontend.react_settings import ApplyEncodingsReactSettingsDict
+from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
+from graphistry.validate.validate_react_encodings import parse_apply_encodings_ops
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
 from graphistry.Engine import EngineAbstractType
@@ -227,7 +230,7 @@ class PlotterBase(Plottable):
         # Settings
         self._height : int = 500
         self._render : RenderModesConcrete = resolve_render_mode(self, True)
-        self._url_params : dict = {'info': 'true'}
+        self._url_params : URLParamsDict = {'info': 'true'}
         self._privacy : Optional[Privacy] = None
         # Metadata
         self._name : Optional[str] = None
@@ -513,6 +516,66 @@ class PlotterBase(Plottable):
         out = self.bind()
         out._complex_encodings = complex_encodings
         out._dataset_id = None
+        return out
+
+    def apply_encodings(
+        self,
+        react_encodings: Optional[ApplyEncodingsReactSettingsDict],
+        validate: ValidationParam = "strict",
+        warn: bool = True,
+    ) -> Plottable:
+        """Apply React-style declarative encoding payloads.
+
+        Supported keys:
+        - ``encodePointColor`` / ``encodeEdgeColor``: ``[column, variation?, mapping_or_palette?]``
+        - ``encodePointSize``: ``[column, categorical_mapping?, default_mapping?]``
+        - ``encodePointIcons`` / ``encodeEdgeIcons``: ``[column, categorical_mapping_or_bins?, default_mapping?]``
+        - ``encodeAxis``: ``rows`` list accepted by :meth:`encode_axis`
+        """
+        out: Plottable = self
+        ops = parse_apply_encodings_ops(
+            react_encodings=react_encodings,
+            validate=validate,
+            warn=warn,
+        )
+        for op in ops:
+            if op["kind"] == "color":
+                column = op["column"]
+                method = out.encode_point_color if op["key"] == "encodePointColor" else out.encode_edge_color
+                color_kwargs: Dict[str, Any] = {}
+                if "categorical_mapping" in op:
+                    color_kwargs["categorical_mapping"] = op["categorical_mapping"]
+                if "palette" in op:
+                    color_kwargs["palette"] = op["palette"]
+                    if op.get("variation") == "continuous":
+                        color_kwargs["as_continuous"] = True
+                    else:
+                        color_kwargs["as_categorical"] = True
+                out = method(column, **color_kwargs)
+                continue
+
+            if op["kind"] == "size":
+                size_kwargs: Dict[str, Any] = {}
+                if "categorical_mapping" in op:
+                    size_kwargs["categorical_mapping"] = op["categorical_mapping"]
+                if "default_mapping" in op:
+                    size_kwargs["default_mapping"] = op["default_mapping"]
+                out = out.encode_point_size(op["column"], **size_kwargs)
+                continue
+
+            if op["kind"] == "icon":
+                icon_method = out.encode_point_icon if op["key"] == "encodePointIcons" else out.encode_edge_icon
+                icon_kwargs: Dict[str, Any] = {}
+                if "categorical_mapping" in op:
+                    icon_kwargs["categorical_mapping"] = op["categorical_mapping"]
+                if "continuous_binning" in op:
+                    icon_kwargs["continuous_binning"] = op["continuous_binning"]
+                if "default_mapping" in op:
+                    icon_kwargs["default_mapping"] = op["default_mapping"]
+                out = icon_method(op["column"], **icon_kwargs)
+                continue
+
+            out = out.encode_axis(cast(List[Dict[Any, Any]], op["rows"]))
         return out
 
 
@@ -1883,7 +1946,14 @@ class PlotterBase(Plottable):
         return res
 
 
-    def settings(self, height=None, url_params={}, render=None):
+    def settings(
+        self,
+        height=None,
+        url_params: Optional[URLParamsDict] = None,
+        render=None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
+    ):
         """Specify iframe height and add URL parameter dictionary.
 
         Collections URL params are normalized and URL-encoded at plot time; other
@@ -1898,11 +1968,19 @@ class PlotterBase(Plottable):
         :param render: Whether to render the visualization using the native notebook environment (default True), or return the visualization URL
         :type render: bool
 
+        :param validate: Validation mode for url_params. 'autofix' (default) drops invalid keys/types with warnings; 'strict' raises.
+        :type validate: ValidationParam
+
+        :param warn: Whether to emit warnings in autofix mode.
+        :type warn: bool
+
         """
+        from graphistry.validate import normalize_url_params
 
         res = copy.copy(self)
         res._height = height or self._height
-        res._url_params = dict(self._url_params, **url_params)
+        normalized = normalize_url_params(url_params, validate=validate, warn=warn)
+        res._url_params = dict(self._url_params, **normalized)
         res._render = self._render if render is None else resolve_render_mode(self, render)
         return res
 
