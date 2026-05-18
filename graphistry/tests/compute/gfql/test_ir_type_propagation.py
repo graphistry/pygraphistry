@@ -475,12 +475,6 @@ class TestSeamWith1303LoweringSplit:
         # lazily inside function bodies (per #1295's pattern); confirm none
         # of that interferes with eagerly importing T3's metadata module
         # alongside (no circular-import surprise at module load).
-        #
-        # Behavioral only — we deliberately do NOT assert presence of #1303's
-        # private split-guard symbols here.  Those are #1303's contract and
-        # have a dedicated guard test in `test_lowering_s3_split_guard.py`;
-        # duplicating them here would couple T3's tests to an internal
-        # symbol surface we don't own and don't need to pin.
         import sys
 
         # The import-coexistence smoke: each module must land in sys.modules
