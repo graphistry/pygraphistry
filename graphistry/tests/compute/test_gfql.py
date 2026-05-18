@@ -6,7 +6,7 @@ from graphistry.compute.ast import ASTLet, ASTRef, n, e
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.cypher import compile_cypher
-from graphistry.compute.gfql.cypher.lowering import _reentry_hidden_column_name
+from graphistry.compute.gfql.cypher.reentry.naming import _reentry_hidden_column_name
 from graphistry.compute.gfql.cypher.reentry.execution import compiled_query_reentry_state
 from graphistry.tests.test_compute import CGFull
 

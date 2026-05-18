@@ -127,22 +127,10 @@ from graphistry.compute.gfql.temporal.folding import (
     rewrite_temporal_constructors_in_expr,
 )
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN, WhereComparison, col, compare, where_to_row_expr
-# Reentry helpers moved to focused subpackages and are re-exported here for compatibility.
-from graphistry.compute.gfql.cypher.reentry.naming import (
-    _is_hidden_reentry_property,
-    _reentry_hidden_column_name,
-    _reentry_property_carry_name,
-    _secondary_reentry_hidden_column_name,
-)
-from graphistry.compute.gfql.cypher.reentry.scope import (
-    _binding_row_aliases_for_hidden_reentry_refs,
-    _expr_hidden_reentry_aliases,
-)
-from graphistry.compute.gfql.cypher.reentry.carry import (
-    _bounded_reentry_carry_columns,
-    _bounded_reentry_prefix_order_is_safe,
-    _bounded_reentry_scalar_prefix_columns,
-)
+from graphistry.compute.gfql.cypher.reentry import naming as _reentry_naming
+from graphistry.compute.gfql.cypher.reentry import scope as _reentry_scope
+
+
 @dataclass(frozen=True)
 class LoweredCypherMatch:
     query: List[ASTObject]
@@ -1794,7 +1782,7 @@ def _expr_match_alias_usage(
                 _visit(node_in.stop, inside_aggregate=inside_aggregate)
             return
         if isinstance(node_in, PropertyAccessExpr):
-            if _is_hidden_reentry_property(node_in.property):
+            if _reentry_naming._is_hidden_reentry_property(node_in.property):
                 return
             _visit(node_in.value, inside_aggregate=inside_aggregate)
             return
@@ -2867,7 +2855,7 @@ def _dynamic_property_entry_constraints(
                 source_alias = node.value.name
                 if (
                     source_alias in alias_targets
-                    and not _is_hidden_reentry_property(node.property)
+                    and not _reentry_naming._is_hidden_reentry_property(node.property)
                     and not force_row_predicates
                 ):
                     where_out.append(compare(col(alias, entry.key), "==", col(source_alias, node.property)))
@@ -3320,7 +3308,7 @@ def _binding_row_aliases_for_row_where(
 ) -> Set[str]:
     if row_where is None:
         return set()
-    hidden_refs = _expr_hidden_reentry_aliases(
+    hidden_refs = _reentry_scope._expr_hidden_reentry_aliases(
         row_where.text,
         alias_targets=alias_targets,
         params=params,
@@ -4011,7 +3999,7 @@ def _lower_projection_chain(
         )
     )
     binding_row_aliases.update(
-        _binding_row_aliases_for_hidden_reentry_refs(
+        _reentry_scope._binding_row_aliases_for_hidden_reentry_refs(
             unwinds=query.unwinds,
             clause=query.return_,
             order_by_clause=query.order_by,
@@ -4167,7 +4155,7 @@ def _build_initial_row_scope(
     # Hidden reentry property references (for example `c2.__cypher_reentry_bid__`)
     # must run on bindings rows so carry columns survive trailing WITH narrowing.
     binding_row_aliases.update(
-        _binding_row_aliases_for_hidden_reentry_refs(
+        _reentry_scope._binding_row_aliases_for_hidden_reentry_refs(
             unwinds=query.unwinds,
             clause=stage_clause,
             order_by_clause=stage_order_by,
@@ -5604,10 +5592,6 @@ def _is_variable_length_relationship_pattern(relationship: RelationshipPattern) 
         or relationship.max_hops is not None
         or relationship.to_fixed_point
     )
-
-
-def _reject_nonterminal_variable_length_relationship_patterns(query: CypherQuery) -> None:  # noqa: ARG001
-    """No-op: variable-length relationships in connected patterns are supported."""
 
 
 def _variable_length_relationship_aliases(
@@ -8028,7 +8012,6 @@ def compile_cypher_query(
     bound_context = _build_bound_lowering_context(bound_ir=bound_ir, params=params)
     params = bound_context.params
     _reject_unsupported_where_expr_forms(query)
-    _reject_nonterminal_variable_length_relationship_patterns(query)
     logical_plan, logical_plan_defer_reason, logical_plan_defer_code = _logical_plan_route_for_query(
         query,
         bound_ir=bound_ir,

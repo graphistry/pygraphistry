@@ -29,10 +29,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union, cast
 from graphistry.Engine import EngineAbstract, df_concat, df_cons, resolve_engine, safe_merge
 from graphistry.Plottable import Plottable
 from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
-from graphistry.compute.gfql.cypher.lowering import (
-    CompiledCypherQuery,
-    _reentry_hidden_column_name,
-)
+from graphistry.compute.gfql.cypher.lowering import CompiledCypherQuery
+from graphistry.compute.gfql.cypher.reentry.naming import _reentry_hidden_column_name
 from graphistry.compute.gfql.cypher.reentry_plan import ReentryPlan
 from graphistry.compute.gfql.cypher.result_postprocess import (
     entity_projection_meta_entry,
