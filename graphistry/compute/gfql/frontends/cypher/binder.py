@@ -89,7 +89,7 @@ _PARAMETER_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 _COUNT_CALL_RE = re.compile(r"(?i)^count\s*\(")
 _COLLECT_ALIAS_CALL_RE = re.compile(r"(?is)^collect\s*\(\s*(?:distinct\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\)$")
 _SINGLE_ALIAS_LIST_LITERAL_RE = re.compile(r"^\[\s*([A-Za-z_][A-Za-z0-9_]*)\s*\]$")
-_STRING_LITERAL_RE = re.compile(r"'(?:''|[^'])*'")
+_STRING_LITERAL_RE = re.compile(r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"")
 _QUANTIFIER_COMPREHENSION_RE = re.compile(
     r"(?i)\b(?:all|any|none|single)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s+IN\b"
 )
@@ -1150,16 +1150,17 @@ def _infer_expression_binding(
         alias_list_match = _SINGLE_ALIAS_LIST_LITERAL_RE.fullmatch(text)
         if alias_list_match is not None:
             alias = alias_list_match.group(1)
-            source = scope.get(alias)
-            if source is None:
-                raise _unresolved_name_error(identifier=alias, visible_scope=scope)
-            return _ExpressionBinding(
-                logical_type=ListType(element_type=source.logical_type),
-                entity_kind="scalar",
-                nullable=False,
-                null_extended_from=source.null_extended_from,
-                schema_confidence=_demote_confidence(confidence.get(alias, "propagated")),
-            )
+            if alias.upper() not in _KEYWORDS:
+                source = scope.get(alias)
+                if source is None:
+                    raise _unresolved_name_error(identifier=alias, visible_scope=scope)
+                return _ExpressionBinding(
+                    logical_type=ListType(element_type=source.logical_type),
+                    entity_kind="scalar",
+                    nullable=False,
+                    null_extended_from=source.null_extended_from,
+                    schema_confidence=_demote_confidence(confidence.get(alias, "propagated")),
+                )
         return _ExpressionBinding(
             logical_type=ListType(element_type=ScalarType(kind="unknown", nullable=True)),
             entity_kind="scalar",
@@ -1682,7 +1683,7 @@ def _is_null_literal(text: str) -> bool:
 
 
 def _is_string_literal(text: str) -> bool:
-    return len(text) >= 2 and text[0] == "'" and text[-1] == "'"
+    return len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}
 
 
 def _looks_like_list_literal(text: str) -> bool:

@@ -12606,6 +12606,32 @@ def test_gfql_executes_size_null_and_sqrt_constant_expressions() -> None:
     )
 
 
+def test_gfql_executes_double_quoted_string_literal_projection() -> None:
+    _assert_query_rows('RETURN "a" AS literal', [{"literal": "a"}])
+
+
+def test_gfql_executes_bool_and_null_list_literal_projections() -> None:
+    _assert_query_rows(
+        "RETURN [true] AS trues, [false] AS falses, [null] AS nulls",
+        [{"trues": [True], "falses": [False], "nulls": [None]}],
+    )
+
+
+def test_gfql_preserves_single_alias_list_projection() -> None:
+    _assert_query_rows(
+        "MATCH (n) WITH [n] AS ns RETURN size(ns) AS size",
+        [{"size": 1}, {"size": 1}],
+        nodes_df=pd.DataFrame({"id": ["a", "b"]}),
+    )
+
+
+def test_gfql_rejects_unresolved_single_alias_list_projection() -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _mk_empty_graph().gfql("RETURN [missingAlias] AS xs")
+
+    assert "missingAlias" in str(exc_info.value)
+
+
 def test_gfql_executes_substring_and_tointeger_expressions() -> None:
     _assert_query_rows(
         "WITH 82.9 AS weight "
