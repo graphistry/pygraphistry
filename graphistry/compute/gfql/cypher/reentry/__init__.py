@@ -8,9 +8,5 @@ Subpackage owns:
   (``rewrite``)
 - compile-time bounded-reentry query rewrites (``compiletime``)
 - data-frame execution stitching for bounded reentry (``execution``; #987 Step 3)
-
-Public symbols are re-exported from ``cypher.lowering`` so existing imports
-(``from graphistry.compute.gfql.cypher.lowering import _reentry_hidden_column_name``)
-continue to work.
 """
 from __future__ import annotations

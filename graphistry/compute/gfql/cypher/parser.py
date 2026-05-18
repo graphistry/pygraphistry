@@ -1150,20 +1150,6 @@ def _build_transformer(source: str) -> _TransformerLike:
         def where_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
             if len(items) != 1:
                 raise _to_syntax_error("WHERE clause cannot be empty", line=meta.line, column=meta.column)
-            if isinstance(items[0], _ExpressionSlice):
-                expr = cast(_ExpressionSlice, items[0])
-                where_span = _span_from_meta(meta)
-                # Wrap the raw slice as a single-atom ``BooleanExpr`` so the
-                # ``(expr is None) == (expr_tree is None)`` invariant holds
-                # (#1213 sub-PR A); ``where_clause`` reaches this branch only
-                # for atom-shaped WHERE bodies that bypassed Lark's
-                # ``and_op`` / ``or_op`` rules.
-                atom_tree = BooleanExpr(op="atom", span=expr.span, atom_text=expr.text, atom_span=expr.span)
-                return WhereClause(
-                    predicates=(),
-                    expr_tree=atom_tree,
-                    span=where_span,
-                )
             predicates = cast(Tuple[WherePredicate, ...], items[0])
             if len(predicates) == 0:
                 raise _to_syntax_error("WHERE clause cannot be empty", line=meta.line, column=meta.column)

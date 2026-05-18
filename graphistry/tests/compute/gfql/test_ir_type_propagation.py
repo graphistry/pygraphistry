@@ -455,33 +455,20 @@ class TestPropagationContinuity:
 
 
 # ---------------------------------------------------------------------------
-# Seam amplification — T3 ↔ #1303/#1333 (lowering split into projection_planning /
-# cypher/reentry/compiletime).  Both #1303/#1333 and T3 are children of #1262/#1260; the
-# diff overlap was zero (T3 in `ir/`, #1303 in `cypher/`), but they share the
-# conceptual surface "lowering produces LogicalPlan-shaped output that the IR
-# layer verifies".  These tests pin that the helper contract and invariant 6
-# stay consistent across plan shapes the post-#1303 split modules emit
-# (Project chains, optional-arm PatternMatch, Filter narrowing) and that
-# importing both surfaces together does not introduce a circular-import
-# surprise.
+# Seam amplification: Cypher lowering modules emit LogicalPlan-shaped output
+# that the IR verifier consumes.  These tests pin that import coexistence and
+# invariant-6 behavior stay stable across projection/reentry helper modules.
 # ---------------------------------------------------------------------------
 
 
 class TestSeamWith1303LoweringSplit:
     def test_post_1303_modules_and_t3_helpers_coimport(self) -> None:
-        # #1303 split lowering.py into `projection_planning.py`; #1333 moved
-        # reentry compile-time helpers into `cypher/reentry/compiletime.py`.
-        # These modules pull lowering helpers
-        # lazily inside function bodies (per #1295's pattern); confirm none
-        # of that interferes with eagerly importing T3's metadata module
-        # alongside (no circular-import surprise at module load).
+        # Behavioral only: import the split Cypher helper modules beside IR
+        # metadata without asserting private helper ownership.
         import sys
 
         # The import-coexistence smoke: each module must land in sys.modules
-        # without raising. #1471 removed the reentry compiletime broad
-        # lowering-symbol shim; `projection_planning.py` still owns its
-        # separate compatibility shim under #1301, so sys.modules remains the
-        # stable load-success witness for this cross-module seam.
+        # without raising.
         from graphistry.compute.gfql.cypher import lowering  # noqa: F401
         from graphistry.compute.gfql.cypher import projection_planning  # noqa: F401
         from graphistry.compute.gfql.cypher.reentry import compiletime  # noqa: F401

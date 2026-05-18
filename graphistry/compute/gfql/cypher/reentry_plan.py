@@ -1,7 +1,7 @@
 """Explicit `ReentryPlan` contract for bounded MATCH-after-WITH compilation.
 
 Replaces the implicit handshake previously spread across:
-- tuple returns from `_bounded_reentry_carry_columns` (lowering.py)
+- tuple returns from `cypher.reentry.carry._bounded_reentry_carry_columns`
 - runtime contract re-extraction in `_compiled_query_reentry_contract`
   (gfql_unified.py)
 
