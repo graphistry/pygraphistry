@@ -764,7 +764,7 @@ jobs:
       run: |
         source pygraphistry/bin/activate
         mkdir -p build/gfql-coverage-audit
-        COVERAGE_FILE=build/gfql-coverage-audit/.coverage python -B -m pytest -vv -n auto \
+        COVERAGE_FILE=build/gfql-coverage-audit/coverage.gfql-py3.12 python -B -m pytest -vv -n auto \
           --cov=graphistry/compute \
           --cov-report= \
           graphistry/tests/compute/test_ast.py \
@@ -780,7 +780,7 @@ jobs:
           --skip-tests \
           --engine-label ci-pandas-py3.12 \
           --output-dir build/gfql-coverage-audit \
-          --data-file build/gfql-coverage-audit/.coverage \
+          --data-file build/gfql-coverage-audit/coverage.gfql-py3.12 \
           --baseline-file graphistry/tests/compute/gfql/coverage_baselines/ci-pandas-py3.12.json
         cat build/gfql-coverage-audit/gfql-coverage-audit.md >> "$GITHUB_STEP_SUMMARY"
 
@@ -814,6 +814,81 @@ jobs:
       run: |
         source pygraphistry/bin/activate
         python -B -m pytest -vv graphistry/tests/compute/gfql/test_rollout.py
+
+  changed-line-coverage:
+    # PR hygiene only: combine coverage collected by existing CPU test jobs and
+    # gate executable package lines touched by this PR. Historical uncovered
+    # lines outside the diff are intentionally ignored.
+    needs: [changes, test-core-python, test-gfql-core, generate-lockfiles]
+    if: ${{ github.event_name == 'pull_request' && (needs.changes.outputs.python == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true') && !(needs.changes.outputs.docs_only_latest == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+        fetch-depth: 0
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install coverage tooling
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-py3.12.lock
+
+    - name: Download core coverage data
+      uses: actions/download-artifact@v4
+      with:
+        name: python-coverage-core-py3.14
+        path: build/changed-line-coverage/artifacts/core
+
+    - name: Download GFQL coverage data
+      uses: actions/download-artifact@v4
+      with:
+        name: gfql-coverage-audit-py3.12
+        path: build/changed-line-coverage/artifacts/gfql
+
+    - name: Changed-line coverage gate
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        source pygraphistry/bin/activate
+        mkdir -p build/changed-line-coverage
+        python -m coverage combine \
+          --data-file=build/changed-line-coverage/combined.coverage \
+          build/changed-line-coverage/artifacts/core/coverage.core-py3.14 \
+          build/changed-line-coverage/artifacts/gfql/coverage.gfql-py3.12
+        python bin/changed_line_coverage.py \
+          --data-file build/changed-line-coverage/combined.coverage \
+          --base-ref "$BASE_SHA" \
+          --head-ref "$HEAD_SHA" \
+          --min-percent 80 \
+          --output-dir build/changed-line-coverage
+        cat build/changed-line-coverage/changed-line-coverage.md >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload changed-line coverage report
+      uses: actions/upload-artifact@v4
+      with:
+        name: changed-line-coverage-pr
+        path: |
+          build/changed-line-coverage/changed-line-coverage.md
+          build/changed-line-coverage/changed-line-coverage.json
+        retention-days: 14
 
   test-pandas-compat:
     name: test-pandas-compat (${{ matrix.label }}, py${{ matrix.python-version }})
@@ -987,9 +1062,26 @@ jobs:
         uv pip install -e . --no-deps
 
     - name: Core tests
+      if: ${{ matrix.python-version != '3.14' }}
       run: |
         source pygraphistry/bin/activate
         ./bin/test.sh
+
+    - name: Core tests with changed-line coverage
+      if: ${{ matrix.python-version == '3.14' }}
+      run: |
+        source pygraphistry/bin/activate
+        mkdir -p "$RUNNER_TEMP/changed-line-coverage"
+        COVERAGE_FILE="$RUNNER_TEMP/changed-line-coverage/coverage.core-py3.14" \
+          ./bin/test.sh -n auto --cov=graphistry --cov-report=
+
+    - name: Upload core coverage data
+      if: ${{ matrix.python-version == '3.14' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: python-coverage-core-py3.14
+        path: ${{ runner.temp }}/changed-line-coverage/coverage.core-py3.14
+        retention-days: 14
 
   test-graphviz:
     needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
