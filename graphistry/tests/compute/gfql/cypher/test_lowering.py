@@ -4878,270 +4878,183 @@ def test_string_cypher_rejects_string_subscript_with_integer_index() -> None:
         g.gfql("WITH '1' AS list, 0 AS idx RETURN list[idx] AS value")
 
 
-def test_string_cypher_executes_unwind_temporal_date_literals() -> None:
-    _assert_query_rows(
-        "UNWIND [date({year: 1910, month: 5, day: 6}), date({year: 1980, month: 10, day: 24})] AS dates "
-        "WITH dates ORDER BY dates ASC LIMIT 2 RETURN dates",
-        [{"dates": "1910-05-06"}, {"dates": "1980-10-24"}],
-    )
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "UNWIND [date({year: 1910, month: 5, day: 6}), date({year: 1980, month: 10, day: 24})] AS dates "
+            "WITH dates ORDER BY dates ASC LIMIT 2 RETURN dates",
+            [{"dates": "1910-05-06"}, {"dates": "1980-10-24"}],
+        ),
+        ("RETURN date({year: 1817, week: 1, dayOfWeek: 2}) AS d", [{"d": "1816-12-31"}]),
+        ("RETURN localtime('214032.142') AS result", [{"result": "21:40:32.142"}]),
+        (
+            "RETURN datetime('2015-07-21T21:40:32.142[Europe/London]') AS result",
+            [{"result": "2015-07-21T21:40:32.142+01:00[Europe/London]"}],
+        ),
+        (
+            "RETURN datetime('1818-07-21T21:40:32.142[Europe/Stockholm]') AS result",
+            [{"result": "1818-07-21T21:40:32.142+00:53:28[Europe/Stockholm]"}],
+        ),
+        (
+            "RETURN "
+            "datetime('1818-07-21T21:40:32.142[Europe/Stockholm]') = "
+            "datetime('1818-07-21T21:40:32.142+00:53:28[Europe/Stockholm]') AS b",
+            [{"b": True}],
+        ),
+        (
+            "RETURN time({hour: 12, minute: 34, second: 56, timezone: '+02:05:00'}) AS result",
+            [{"result": "12:34:56+02:05"}],
+        ),
+        (
+            "RETURN datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31}) AS result",
+            [{"result": "1984-10-11T12:31Z"}],
+        ),
+        (
+            "RETURN datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: '+01:00'}) AS result",
+            [{"result": "1984-10-11T12:00+01:00"}],
+        ),
+        (
+            "RETURN "
+            "localtime({hour: 12, minute: 31, second: 14, millisecond: 645, microsecond: 876, nanosecond: 123}) AS t, "
+            "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, millisecond: 645, microsecond: 876, nanosecond: 123, timezone: '+01:00'}) AS dt",
+            [{"t": "12:31:14.645876123", "dt": "1984-10-11T12:31:14.645876123+01:00"}],
+        ),
+        (
+            "RETURN datetime.fromepoch(416779, 999999999) AS d1, "
+            "datetime.fromepochmillis(237821673987) AS d2",
+            [{"d1": "1970-01-05T19:46:19.999999999Z", "d2": "1977-07-15T13:34:33.987Z"}],
+        ),
+        ("RETURN time({hour: 12, minute: 31, second: 14}) AS result", [{"result": "12:31:14Z"}]),
+        (
+            "RETURN date({date: date('1816-12-31'), year: 1817, week: 2}) AS d",
+            [{"d": "1817-01-07"}],
+        ),
+        (
+            "RETURN "
+            "date({date: date('1816-12-30'), week: 2, dayOfWeek: 3}) AS d1, "
+            "localdatetime({date: date('1816-12-31'), week: 2}) AS d2, "
+            "datetime({date: date('1816-12-30'), week: 2, dayOfWeek: 3}) AS d3",
+            [{"d1": "1817-01-08", "d2": "1817-01-07T00:00", "d3": "1817-01-08T00:00Z"}],
+        ),
+        (
+            "WITH date({year: 1984, month: 11, day: 11}) AS other "
+            "RETURN date({date: other, year: 28}) AS result",
+            [{"result": "0028-11-11"}],
+        ),
+        (
+            "WITH date({year: 1984, month: 10, day: 11}) AS other "
+            "RETURN datetime({date: other, hour: 10, minute: 10, second: 10}) AS result",
+            [{"result": "1984-10-11T10:10:10Z"}],
+        ),
+        (
+            "WITH datetime({year: 1984, month: 11, day: 11, hour: 12, timezone: '+01:00'}) AS other "
+            "RETURN date(other) AS result",
+            [{"result": "1984-11-11"}],
+        ),
+        (
+            "WITH time({hour: 12, minute: 31, second: 14, nanosecond: 645876, timezone: '+01:00'}) AS other "
+            "RETURN localtime(other) AS result",
+            [{"result": "12:31:14.000645876"}],
+        ),
+        (
+            "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: '+01:00'}) AS other "
+            "RETURN localdatetime({datetime: other}) AS result",
+            [{"result": "1984-10-11T12:00"}],
+        ),
+        (
+            "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS other "
+            "RETURN "
+            "time(other) AS cast_result, "
+            "time({time: other}) AS ctor_result, "
+            "time({time: other, timezone: '+05:00'}) AS converted_result, "
+            "time({time: other, second: 42, timezone: '+05:00'}) AS converted_second_result",
+            [{
+                "cast_result": "12:00+01:00",
+                "ctor_result": "12:00+01:00",
+                "converted_result": "16:00+05:00",
+                "converted_second_result": "16:00:42+05:00",
+            }],
+        ),
+        (
+            "WITH time({hour: 12, minute: 31, second: 14, microsecond: 645876, timezone: '+01:00'}) AS other "
+            "RETURN "
+            "time({time: other, timezone: '+05:00'}) AS converted_result, "
+            "time({time: other, second: 42, timezone: '+05:00'}) AS converted_second_result",
+            [{"converted_result": "16:31:14.645876+05:00", "converted_second_result": "16:31:42.645876+05:00"}],
+        ),
+        (
+            "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS other "
+            "RETURN "
+            "datetime({year: 1984, month: 10, day: 11, time: other}) AS preserved_result, "
+            "datetime({year: 1984, month: 10, day: 11, time: other, second: 42}) AS preserved_second_result, "
+            "datetime({year: 1984, month: 10, day: 11, time: other, timezone: '+05:00'}) AS converted_result, "
+            "datetime({year: 1984, month: 10, day: 11, time: other, second: 42, timezone: 'Pacific/Honolulu'}) AS converted_named_result",
+            [{
+                "preserved_result": "1984-10-11T12:00+01:00[Europe/Stockholm]",
+                "preserved_second_result": "1984-10-11T12:00:42+01:00[Europe/Stockholm]",
+                "converted_result": "1984-10-11T16:00+05:00",
+                "converted_named_result": "1984-10-11T01:00:42-10:00[Pacific/Honolulu]",
+            }],
+        ),
+        (
+            "WITH "
+            "localdatetime({year: 1984, week: 10, dayOfWeek: 3, hour: 12, minute: 31, second: 14, millisecond: 645}) AS otherDate, "
+            "datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS otherTime "
+            "RETURN datetime({date: otherDate, time: otherTime, day: 28, second: 42}) AS result",
+            [{"result": "1984-03-28T12:00:42+02:00[Europe/Stockholm]"}],
+        ),
+        (
+            "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS other "
+            "RETURN "
+            "datetime({datetime: other}) AS preserved_result, "
+            "datetime({datetime: other, timezone: '+05:00'}) AS converted_result, "
+            "datetime({datetime: other, day: 28, second: 42}) AS recomputed_result",
+            [{
+                "preserved_result": "1984-10-11T12:00+01:00[Europe/Stockholm]",
+                "converted_result": "1984-10-11T16:00+05:00",
+                "recomputed_result": "1984-10-28T12:00:42+01:00[Europe/Stockholm]",
+            }],
+        ),
+    ],
+)
+def test_string_cypher_temporal_constructor_and_cast_cases(
+    query: str,
+    expected: list[dict[str, object]],
+) -> None:
+    _assert_query_rows(query, expected)
 
 
-def test_string_cypher_parses_week_date_literals() -> None:
-    _assert_query_rows("RETURN date({year: 1817, week: 1, dayOfWeek: 2}) AS d", [{"d": "1816-12-31"}])
-
-
-def test_string_cypher_parses_localtime_compact_literals() -> None:
-    _assert_query_rows("RETURN localtime('214032.142') AS result", [{"result": "21:40:32.142"}])
-
-
-def test_string_cypher_parses_datetime_named_zone_literals() -> None:
-    _assert_query_rows(
-        "RETURN datetime('2015-07-21T21:40:32.142[Europe/London]') AS result",
-        [{"result": "2015-07-21T21:40:32.142+01:00[Europe/London]"}],
-    )
-
-
-def test_string_cypher_parses_datetime_historical_named_zone_literals() -> None:
-    _assert_query_rows(
-        "RETURN datetime('1818-07-21T21:40:32.142[Europe/Stockholm]') AS result",
-        [{"result": "1818-07-21T21:40:32.142+00:53:28[Europe/Stockholm]"}],
-    )
-
-
-def test_string_cypher_compares_historical_named_zone_and_explicit_offset_datetime() -> None:
-    _assert_query_rows(
-        "RETURN "
-        "datetime('1818-07-21T21:40:32.142[Europe/Stockholm]') = "
-        "datetime('1818-07-21T21:40:32.142+00:53:28[Europe/Stockholm]') AS b",
-        [{"b": True}],
-    )
-
-
-def test_string_cypher_normalizes_time_offset_seconds() -> None:
-    _assert_query_rows(
-        "RETURN time({hour: 12, minute: 34, second: 56, timezone: '+02:05:00'}) AS result",
-        [{"result": "12:34:56+02:05"}],
-    )
-
-
-def test_string_cypher_defaults_datetime_map_to_utc() -> None:
-    _assert_query_rows(
-        "RETURN datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31}) AS result",
-        [{"result": "1984-10-11T12:31Z"}],
-    )
-
-
-def test_string_cypher_parses_datetime_map_with_quoted_offset_timezone() -> None:
-    _assert_query_rows(
-        "RETURN datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: '+01:00'}) AS result",
-        [{"result": "1984-10-11T12:00+01:00"}],
-    )
-
-
-def test_string_cypher_combines_fractional_temporal_fields() -> None:
-    _assert_query_rows(
-        "RETURN "
-        "localtime({hour: 12, minute: 31, second: 14, millisecond: 645, microsecond: 876, nanosecond: 123}) AS t, "
-        "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, millisecond: 645, microsecond: 876, nanosecond: 123, timezone: '+01:00'}) AS dt",
-        [
-        {
-            "t": "12:31:14.645876123",
-            "dt": "1984-10-11T12:31:14.645876123+01:00",
-        }
-        ],
-    )
-
-
-def test_string_cypher_supports_datetime_fromepoch_functions() -> None:
-    _assert_query_rows(
-        "RETURN datetime.fromepoch(416779, 999999999) AS d1, "
-        "datetime.fromepochmillis(237821673987) AS d2",
-        [
-        {
-            "d1": "1970-01-05T19:46:19.999999999Z",
-            "d2": "1977-07-15T13:34:33.987Z",
-        }
-        ],
-    )
-
-
-def test_string_cypher_defaults_time_map_to_utc() -> None:
-    _assert_query_rows(
-        "RETURN time({hour: 12, minute: 31, second: 14}) AS result",
-        [{"result": "12:31:14Z"}],
-    )
-
-
-def test_string_cypher_supports_nested_temporal_base_date_overrides() -> None:
-    _assert_query_rows(
-        "RETURN date({date: date('1816-12-31'), year: 1817, week: 2}) AS d",
-        [{"d": "1817-01-07"}],
-    )
-
-
-def test_string_cypher_inherits_iso_week_year_from_base_date() -> None:
-    _assert_query_rows(
-        "RETURN "
-        "date({date: date('1816-12-30'), week: 2, dayOfWeek: 3}) AS d1, "
-        "localdatetime({date: date('1816-12-31'), week: 2}) AS d2, "
-        "datetime({date: date('1816-12-30'), week: 2, dayOfWeek: 3}) AS d3",
-        [
-        {
-            "d1": "1817-01-08",
-            "d2": "1817-01-07T00:00",
-            "d3": "1817-01-08T00:00Z",
-        }
-        ],
-    )
-
-
-def test_string_cypher_executes_temporal_date_casts_from_with_alias() -> None:
-    _assert_query_rows(
-        "WITH date({year: 1984, month: 11, day: 11}) AS other "
-        "RETURN date({date: other, year: 28}) AS result",
-        [{"result": "0028-11-11"}],
-    )
-
-
-def test_string_cypher_executes_temporal_datetime_casts_from_with_alias() -> None:
-    _assert_query_rows(
-        "WITH date({year: 1984, month: 10, day: 11}) AS other "
-        "RETURN datetime({date: other, hour: 10, minute: 10, second: 10}) AS result",
-        [{"result": "1984-10-11T10:10:10Z"}],
-    )
-
-
-def test_string_cypher_executes_temporal_date_cast_from_aware_datetime_alias() -> None:
-    _assert_query_rows(
-        "WITH datetime({year: 1984, month: 11, day: 11, hour: 12, timezone: '+01:00'}) AS other "
-        "RETURN date(other) AS result",
-        [{"result": "1984-11-11"}],
-    )
-
-
-def test_string_cypher_executes_temporal_localtime_cast_from_aware_time_alias() -> None:
-    _assert_query_rows(
-        "WITH time({hour: 12, minute: 31, second: 14, nanosecond: 645876, timezone: '+01:00'}) AS other "
-        "RETURN localtime(other) AS result",
-        [{"result": "12:31:14.000645876"}],
-    )
-
-
-def test_string_cypher_executes_temporal_localdatetime_cast_from_aware_datetime_alias() -> None:
-    _assert_query_rows(
-        "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: '+01:00'}) AS other "
-        "RETURN localdatetime({datetime: other}) AS result",
-        [{"result": "1984-10-11T12:00"}],
-    )
-
-
-def test_string_cypher_executes_temporal_time_cast_and_constructor_from_named_zone_datetime_alias() -> None:
-    _assert_query_rows(
-        "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS other "
-        "RETURN "
-        "time(other) AS cast_result, "
-        "time({time: other}) AS ctor_result, "
-        "time({time: other, timezone: '+05:00'}) AS converted_result, "
-        "time({time: other, second: 42, timezone: '+05:00'}) AS converted_second_result",
-        [
-        {
-            "cast_result": "12:00+01:00",
-            "ctor_result": "12:00+01:00",
-            "converted_result": "16:00+05:00",
-            "converted_second_result": "16:00:42+05:00",
-        }
-        ],
-    )
-
-
-def test_string_cypher_executes_temporal_time_constructor_converts_aware_time_alias_timezone() -> None:
-    _assert_query_rows(
-        "WITH time({hour: 12, minute: 31, second: 14, microsecond: 645876, timezone: '+01:00'}) AS other "
-        "RETURN "
-        "time({time: other, timezone: '+05:00'}) AS converted_result, "
-        "time({time: other, second: 42, timezone: '+05:00'}) AS converted_second_result",
-        [
-        {
-            "converted_result": "16:31:14.645876+05:00",
-            "converted_second_result": "16:31:42.645876+05:00",
-        }
-        ],
-    )
-
-
-def test_string_cypher_executes_temporal_datetime_constructor_preserves_and_converts_named_zone_time_alias() -> None:
-    _assert_query_rows(
-        "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS other "
-        "RETURN "
-        "datetime({year: 1984, month: 10, day: 11, time: other}) AS preserved_result, "
-        "datetime({year: 1984, month: 10, day: 11, time: other, second: 42}) AS preserved_second_result, "
-        "datetime({year: 1984, month: 10, day: 11, time: other, timezone: '+05:00'}) AS converted_result, "
-        "datetime({year: 1984, month: 10, day: 11, time: other, second: 42, timezone: 'Pacific/Honolulu'}) AS converted_named_result",
-        [
-        {
-            "preserved_result": "1984-10-11T12:00+01:00[Europe/Stockholm]",
-            "preserved_second_result": "1984-10-11T12:00:42+01:00[Europe/Stockholm]",
-            "converted_result": "1984-10-11T16:00+05:00",
-            "converted_named_result": "1984-10-11T01:00:42-10:00[Pacific/Honolulu]",
-        }
-        ],
-    )
-
-
-def test_string_cypher_executes_temporal_datetime_constructor_recomputes_named_zone_offset_for_new_date() -> None:
-    _assert_query_rows(
-        "WITH "
-        "localdatetime({year: 1984, week: 10, dayOfWeek: 3, hour: 12, minute: 31, second: 14, millisecond: 645}) AS otherDate, "
-        "datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS otherTime "
-        "RETURN datetime({date: otherDate, time: otherTime, day: 28, second: 42}) AS result",
-        [{"result": "1984-03-28T12:00:42+02:00[Europe/Stockholm]"}],
-    )
-
-
-def test_string_cypher_executes_temporal_datetime_constructor_from_named_zone_datetime_alias() -> None:
-    _assert_query_rows(
-        "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS other "
-        "RETURN "
-        "datetime({datetime: other}) AS preserved_result, "
-        "datetime({datetime: other, timezone: '+05:00'}) AS converted_result, "
-        "datetime({datetime: other, day: 28, second: 42}) AS recomputed_result",
-        [
-        {
-            "preserved_result": "1984-10-11T12:00+01:00[Europe/Stockholm]",
-            "converted_result": "1984-10-11T16:00+05:00",
-            "recomputed_result": "1984-10-28T12:00:42+01:00[Europe/Stockholm]",
-        }
-        ],
-    )
-
-
-def test_string_cypher_executes_temporal_date_truncate() -> None:
-    _assert_query_rows(
-        "RETURN date.truncate('decade', date({year: 1984, month: 10, day: 11}), {day: 2}) AS result",
-        [{"result": "1980-01-02"}],
-    )
-
-
-def test_string_cypher_executes_temporal_date_truncate_from_aware_datetime_constructor() -> None:
-    _assert_query_rows(
-        "RETURN date.truncate("
-        "'decade', "
-        "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}), "
-        "{day: 2}"
-        ") AS result",
-        [{"result": "1980-01-02"}],
-    )
-
-
-def test_string_cypher_executes_temporal_datetime_truncate_with_named_zone() -> None:
-    _assert_query_rows(
-        "RETURN datetime.truncate("
-        "'weekYear', "
-        "localdatetime({year: 1984, month: 1, day: 1, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), "
-        "{timezone: 'Europe/Stockholm'}"
-        ") AS result",
-        [{"result": "1983-01-03T00:00+01:00[Europe/Stockholm]"}],
-    )
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "RETURN date.truncate('decade', date({year: 1984, month: 10, day: 11}), {day: 2}) AS result",
+            [{"result": "1980-01-02"}],
+        ),
+        (
+            "RETURN date.truncate("
+            "'decade', "
+            "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}), "
+            "{day: 2}"
+            ") AS result",
+            [{"result": "1980-01-02"}],
+        ),
+        (
+            "RETURN datetime.truncate("
+            "'weekYear', "
+            "localdatetime({year: 1984, month: 1, day: 1, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), "
+            "{timezone: 'Europe/Stockholm'}"
+            ") AS result",
+            [{"result": "1983-01-03T00:00+01:00[Europe/Stockholm]"}],
+        ),
+    ],
+)
+def test_string_cypher_executes_temporal_truncation_cases(
+    query: str,
+    expected: list[dict[str, object]],
+) -> None:
+    _assert_query_rows(query, expected)
 
 
 @pytest.mark.parametrize(
@@ -5204,53 +5117,51 @@ def test_string_cypher_duration_equality_is_component_wise() -> None:
     )
 
 
-def test_string_cypher_executes_temporal_localdatetime_weekyear_truncate_day_override() -> None:
-    _assert_query_rows(
-        "RETURN localdatetime.truncate("
-        "'weekYear', "
-        "localdatetime({year: 1984, month: 1, day: 1, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), "
-        "{day: 5}"
-        ") AS result",
-        [{"result": "1983-01-05T00:00"}],
-    )
-
-
-def test_string_cypher_executes_temporal_time_truncate_with_timezone_override() -> None:
-    _assert_query_rows(
-        "RETURN time.truncate("
-        "'hour', "
-        "localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), "
-        "{timezone: '+01:00'}"
-        ") AS result",
-        [{"result": "12:00+01:00"}],
-    )
-
-
-def test_string_cypher_executes_temporal_datetime_hour_truncate_from_localdatetime() -> None:
-    _assert_query_rows(
-        "RETURN datetime.truncate("
-        "'hour', "
-        "localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), "
-        "{nanosecond: 2}"
-        ") AS result",
-        [{"result": "1984-10-11T12:00:00.000000002Z"}],
-    )
-
-
-def test_string_cypher_preserves_truncated_fraction_when_overriding_lower_precision_fields() -> None:
-    _assert_query_rows(
-        "RETURN "
-        "datetime.truncate('millisecond', datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}), {nanosecond: 2}) AS dt_ms, "
-        "datetime.truncate('microsecond', localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), {nanosecond: 2}) AS dt_us, "
-        "time.truncate('microsecond', time({hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}), {nanosecond: 2}) AS t_us",
-        [
-        {
-            "dt_ms": "1984-10-11T12:31:14.645000002+01:00",
-            "dt_us": "1984-10-11T12:31:14.645876002Z",
-            "t_us": "12:31:14.645876002+01:00",
-        }
-        ],
-    )
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "RETURN localdatetime.truncate("
+            "'weekYear', "
+            "localdatetime({year: 1984, month: 1, day: 1, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), "
+            "{day: 5}"
+            ") AS result",
+            [{"result": "1983-01-05T00:00"}],
+        ),
+        (
+            "RETURN time.truncate("
+            "'hour', "
+            "localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), "
+            "{timezone: '+01:00'}"
+            ") AS result",
+            [{"result": "12:00+01:00"}],
+        ),
+        (
+            "RETURN datetime.truncate("
+            "'hour', "
+            "localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), "
+            "{nanosecond: 2}"
+            ") AS result",
+            [{"result": "1984-10-11T12:00:00.000000002Z"}],
+        ),
+        (
+            "RETURN "
+            "datetime.truncate('millisecond', datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}), {nanosecond: 2}) AS dt_ms, "
+            "datetime.truncate('microsecond', localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), {nanosecond: 2}) AS dt_us, "
+            "time.truncate('microsecond', time({hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}), {nanosecond: 2}) AS t_us",
+            [{
+                "dt_ms": "1984-10-11T12:31:14.645000002+01:00",
+                "dt_us": "1984-10-11T12:31:14.645876002Z",
+                "t_us": "12:31:14.645876002+01:00",
+            }],
+        ),
+    ],
+)
+def test_string_cypher_executes_temporal_truncation_override_cases(
+    query: str,
+    expected: list[dict[str, object]],
+) -> None:
+    _assert_query_rows(query, expected)
 
 
 def test_string_cypher_executes_duration_between_with_alias_properties() -> None:
