@@ -1,0 +1,11 @@
+"""Stable logical-plan defer-code symbols for GFQL/Cypher planning."""
+
+LOGICAL_PLAN_DEFER_MULTIPLE_MATCH_STAGES = "multiple_match_stages"
+LOGICAL_PLAN_DEFER_OPTIONAL_MATCH_REENTRY = "optional_match_reentry"
+LOGICAL_PLAN_DEFER_SCALAR_PROJECTION_ALIAS_MATCH = "scalar_projection_alias_match"
+
+__all__ = [
+    "LOGICAL_PLAN_DEFER_MULTIPLE_MATCH_STAGES",
+    "LOGICAL_PLAN_DEFER_OPTIONAL_MATCH_REENTRY",
+    "LOGICAL_PLAN_DEFER_SCALAR_PROJECTION_ALIAS_MATCH",
+]

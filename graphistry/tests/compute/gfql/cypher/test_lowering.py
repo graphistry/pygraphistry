@@ -6,10 +6,10 @@ import pytest
 import graphistry
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
-from graphistry.compute.ast import ASTCall, ASTNode, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
+from graphistry.compute.ast import ASTCall, ASTNode, ASTEdge, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLValidationError
 from graphistry.compute.predicates.is_in import IsIn
-from graphistry.compute.gfql.same_path_types import col, compare
+from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN, col, compare
 from graphistry.compute.gfql.cypher import (
     CypherQuery,
     compile_cypher,
@@ -22,7 +22,7 @@ from graphistry.compute.gfql.cypher import (
     parse_cypher,
     WherePatternPredicate,
 )
-from graphistry.compute.gfql.cypher.lowering import CompiledCypherGraphQuery
+from graphistry.compute.gfql.cypher.lowering import CompiledCypherExecutionExtras, CompiledCypherGraphQuery
 from graphistry.compute.gfql.cypher.lowering import _logical_plan_route_for_query
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, SemanticTable
@@ -65,11 +65,15 @@ def _require_cudf_runtime() -> Any:
     return cudf
 
 
-def _mk_simple_path_graph() -> _CypherTestGraph:
-    return _mk_graph(
+def _mk_simple_path_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return (
         pd.DataFrame({"id": ["a", "b", "c"]}),
         pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]}),
     )
+
+
+def _mk_simple_path_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_simple_path_data())
 
 
 def _mk_triangle_graph() -> _CypherTestGraph:
@@ -106,33 +110,31 @@ def _mk_cartesian_dynamic_pattern_graph() -> _CypherTestGraph:
     )
 
 
-def _mk_path_with_isolate_graph() -> _CypherTestGraph:
-    return _mk_graph(
+def _mk_path_with_isolate_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return (
         pd.DataFrame({"id": ["a", "b", "c", "z"]}),
         pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]}),
     )
+
+
+def _mk_path_with_isolate_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_path_with_isolate_data())
 
 
 def _mk_simple_path_graph_cudf() -> _CypherTestGraph:
-    return _mk_cudf_graph(
-        pd.DataFrame({"id": ["a", "b", "c"]}),
-        pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]}),
-    )
+    return _mk_cudf_graph(*_mk_simple_path_data())
 
 
 def _mk_path_with_isolate_graph_cudf() -> _CypherTestGraph:
-    return _mk_cudf_graph(
-        pd.DataFrame({"id": ["a", "b", "c", "z"]}),
-        pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]}),
-    )
+    return _mk_cudf_graph(*_mk_path_with_isolate_data())
 
 
 def _mk_empty_graph() -> _CypherTestGraph:
     return _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 
 
-def _mk_reentry_carried_scalar_graph() -> _CypherTestGraph:
-    return _mk_graph(
+def _mk_reentry_carried_scalar_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return (
         pd.DataFrame(
             {
                 "id": ["a1", "a2", "b1", "b2"],
@@ -150,62 +152,118 @@ def _mk_reentry_carried_scalar_graph() -> _CypherTestGraph:
     )
 
 
+def _mk_reentry_carried_scalar_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_reentry_carried_scalar_data())
+
+
 def _mk_reentry_carried_scalar_graph_cudf() -> _CypherTestGraph:
-    return _mk_cudf_graph(
+    return _mk_cudf_graph(*_mk_reentry_carried_scalar_data())
+
+
+def _mk_connected_reentry_carried_scalar_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return (
         pd.DataFrame(
             {
-                "id": ["a1", "a2", "b1", "b2"],
-                "label__A": [True, True, False, False],
-                "num": [1, 2, 1, 3],
+                "id": ["a1", "a2", "b1", "b2", "c1", "c2"],
+                "label__A": [True, True, False, False, False, False],
+                "label__B": [False, False, True, True, False, False],
+                "label__C": [False, False, False, False, True, True],
+                "score": [None, None, 10, 20, None, None],
             }
         ),
         pd.DataFrame(
             {
-                "s": ["a1", "a2"],
-                "d": ["b1", "b2"],
-                "type": ["R", "R"],
+                "s": ["a1", "a2", "b1", "b2"],
+                "d": ["b1", "b2", "c1", "c2"],
+                "type": ["R", "R", "S", "S"],
             }
         ),
     )
 
 
 def _mk_connected_reentry_carried_scalar_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_connected_reentry_carried_scalar_data())
+
+
+def _mk_connected_reentry_carried_scalar_graph_cudf() -> _CypherTestGraph:
+    return _mk_cudf_graph(*_mk_connected_reentry_carried_scalar_data())
+
+
+def _mk_optional_prefix_reentry_no_match_graph() -> _CypherTestGraph:
     return _mk_graph(
         pd.DataFrame(
             {
-                "id": ["a1", "a2", "b1", "b2", "c1", "c2"],
-                "label__A": [True, True, False, False, False, False],
-                "label__B": [False, False, True, True, False, False],
-                "label__C": [False, False, False, False, True, True],
-                "score": [None, None, 10, 20, None, None],
+                "id": ["x1", "y1"],
+                "label__A": [True, False],
+                "label__B": [False, True],
+                "label__C": [False, False],
             }
         ),
         pd.DataFrame(
             {
-                "s": ["a1", "a2", "b1", "b2"],
-                "d": ["b1", "b2", "c1", "c2"],
-                "type": ["R", "R", "S", "S"],
+                "s": ["y1"],
+                "d": ["x1"],
+                "type": ["Q"],
             }
         ),
     )
 
 
-def _mk_connected_reentry_carried_scalar_graph_cudf() -> _CypherTestGraph:
-    return _mk_cudf_graph(
+def _mk_optional_prefix_reentry_match_graph() -> _CypherTestGraph:
+    return _mk_graph(
         pd.DataFrame(
             {
-                "id": ["a1", "a2", "b1", "b2", "c1", "c2"],
-                "label__A": [True, True, False, False, False, False],
-                "label__B": [False, False, True, True, False, False],
-                "label__C": [False, False, False, False, True, True],
-                "score": [None, None, 10, 20, None, None],
+                "id": ["a1", "b1", "c1"],
+                "label__A": [True, False, False],
+                "label__B": [False, True, False],
+                "label__C": [False, False, True],
             }
         ),
         pd.DataFrame(
             {
-                "s": ["a1", "a2", "b1", "b2"],
-                "d": ["b1", "b2", "c1", "c2"],
-                "type": ["R", "R", "S", "S"],
+                "s": ["a1", "b1"],
+                "d": ["b1", "c1"],
+                "type": ["R", "S"],
+            }
+        ),
+    )
+
+
+def _mk_reentry_order_limit_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p0", "f1", "f2", "f3", "f4", "u1", "u2", "u3", "u4", "u5"],
+                "label__Person": [True, True, True, True, True, False, False, False, False, False],
+                "label__University": [False, False, False, False, False, True, True, True, True, True],
+                "firstName": ["Seed", "Amy", "Bea", "Cara", "Dan", None, None, None, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p0", "p0", "p0", "p0", "f1", "f2", "f2", "f3", "f4"],
+                "d": ["f1", "f2", "f3", "f4", "u1", "u2", "u3", "u4", "u5"],
+                "type": ["KNOWS", "KNOWS", "KNOWS", "KNOWS", "STUDY_AT", "STUDY_AT", "STUDY_AT", "STUDY_AT", "STUDY_AT"],
+            }
+        ),
+    )
+
+
+def _mk_reentry_order_limit_graph_cudf() -> _CypherTestGraph:
+    return _mk_cudf_graph(
+        pd.DataFrame(
+            {
+                "id": ["p0", "f1", "f2", "f3", "f4", "u1", "u2", "u3", "u4", "u5"],
+                "label__Person": [True, True, True, True, True, False, False, False, False, False],
+                "label__University": [False, False, False, False, False, True, True, True, True, True],
+                "firstName": ["Seed", "Amy", "Bea", "Cara", "Dan", None, None, None, None, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p0", "p0", "p0", "p0", "f1", "f2", "f2", "f3", "f4"],
+                "d": ["f1", "f2", "f3", "f4", "u1", "u2", "u3", "u4", "u5"],
+                "type": ["KNOWS", "KNOWS", "KNOWS", "KNOWS", "STUDY_AT", "STUDY_AT", "STUDY_AT", "STUDY_AT", "STUDY_AT"],
             }
         ),
     )
@@ -254,8 +312,8 @@ def _mk_collect_unwind_reentry_graph() -> _CypherTestGraph:
     )
 
 
-def _mk_connected_multi_pattern_fanout_graph() -> _CypherTestGraph:
-    return _mk_graph(
+def _mk_connected_multi_pattern_fanout_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return (
         pd.DataFrame(
             {
                 "id": ["a1", "b1", "c1", "d1", "d2"],
@@ -275,69 +333,42 @@ def _mk_connected_multi_pattern_fanout_graph() -> _CypherTestGraph:
     )
 
 
+def _mk_connected_multi_pattern_fanout_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_connected_multi_pattern_fanout_data())
+
+
 def _mk_connected_multi_pattern_fanout_graph_cudf() -> _CypherTestGraph:
-    return _mk_cudf_graph(
+    return _mk_cudf_graph(*_mk_connected_multi_pattern_fanout_data())
+
+
+def _mk_multi_stage_reentry_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return (
         pd.DataFrame(
             {
-                "id": ["a1", "b1", "c1", "d1", "d2"],
+                "id": ["a", "b", "c", "d", "e"],
                 "label__A": [True, False, False, False, False],
                 "label__B": [False, True, False, False, False],
                 "label__C": [False, False, True, False, False],
-                "label__D": [False, False, False, True, True],
+                "label__D": [False, False, False, True, False],
+                "label__E": [False, False, False, False, True],
             }
         ),
         pd.DataFrame(
             {
-                "s": ["a1", "b1", "c1", "c1"],
-                "d": ["b1", "c1", "d1", "d2"],
-                "type": ["R", "S", "T", "T"],
+                "s": ["a", "b", "c", "a", "b"],
+                "d": ["b", "c", "d", "e", "e"],
+                "type": ["R", "S", "T", "R", "S"],
             }
         ),
     )
 
 
 def _mk_multi_stage_reentry_graph() -> _CypherTestGraph:
-    return _mk_graph(
-        pd.DataFrame(
-            {
-                "id": ["a", "b", "c", "d", "e"],
-                "label__A": [True, False, False, False, False],
-                "label__B": [False, True, False, False, False],
-                "label__C": [False, False, True, False, False],
-                "label__D": [False, False, False, True, False],
-                "label__E": [False, False, False, False, True],
-            }
-        ),
-        pd.DataFrame(
-            {
-                "s": ["a", "b", "c", "a", "b"],
-                "d": ["b", "c", "d", "e", "e"],
-                "type": ["R", "S", "T", "R", "S"],
-            }
-        ),
-    )
+    return _mk_graph(*_mk_multi_stage_reentry_data())
 
 
 def _mk_multi_stage_reentry_graph_cudf() -> _CypherTestGraph:
-    return _mk_cudf_graph(
-        pd.DataFrame(
-            {
-                "id": ["a", "b", "c", "d", "e"],
-                "label__A": [True, False, False, False, False],
-                "label__B": [False, True, False, False, False],
-                "label__C": [False, False, True, False, False],
-                "label__D": [False, False, False, True, False],
-                "label__E": [False, False, False, False, True],
-            }
-        ),
-        pd.DataFrame(
-            {
-                "s": ["a", "b", "c", "a", "b"],
-                "d": ["b", "c", "d", "e", "e"],
-                "type": ["R", "S", "T", "R", "S"],
-            }
-        ),
-    )
+    return _mk_cudf_graph(*_mk_multi_stage_reentry_data())
 
 
 def _mk_multi_stage_reentry_graph_with_terminal_u() -> _CypherTestGraph:
@@ -412,8 +443,8 @@ def _mk_prefix_scalar_reentry_duplicate_seed_graph() -> _CypherTestGraph:
     )
 
 
-def _mk_connected_post_tag_fanout_graph() -> _CypherTestGraph:
-    return _mk_graph(
+def _mk_connected_post_tag_fanout_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return (
         pd.DataFrame(
             {
                 "id": ["tag_known", "tag_other", "person1", "post1"],
@@ -432,28 +463,14 @@ def _mk_connected_post_tag_fanout_graph() -> _CypherTestGraph:
             }
         ),
     )
+
+
+def _mk_connected_post_tag_fanout_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_connected_post_tag_fanout_data())
 
 
 def _mk_connected_post_tag_fanout_graph_cudf() -> _CypherTestGraph:
-    return _mk_cudf_graph(
-        pd.DataFrame(
-            {
-                "id": ["tag_known", "tag_other", "person1", "post1"],
-                "label__Tag": [True, True, False, False],
-                "label__Person": [False, False, True, False],
-                "label__Post": [False, False, False, True],
-                "name": ["topic", "other", None, None],
-                "tagId": [101, 202, None, None],
-            }
-        ),
-        pd.DataFrame(
-            {
-                "s": ["post1", "post1", "post1"],
-                "d": ["person1", "tag_known", "tag_other"],
-                "type": ["HAS_CREATOR", "HAS_TAG", "HAS_TAG"],
-            }
-        ),
-    )
+    return _mk_cudf_graph(*_mk_connected_post_tag_fanout_data())
 
 
 def _issue_1000_ic6_query() -> str:
@@ -539,6 +556,54 @@ def _mk_issue_1000_ic6_minimal_graph_cudf() -> _CypherTestGraph:
     return _mk_cudf_graph(graph._nodes, graph._edges)
 
 
+def _mk_issue_1396_tag_cooccurrence_join_aggregation_graph() -> _CypherTestGraph:
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": [501, 502, 503, 4398046511333, 2, 3, 9001, 9002, 9003],
+                "label__Tag": [True, True, True, False, False, False, False, False, False],
+                "label__Person": [False, False, False, True, True, True, False, False, False],
+                "label__Post": [False, False, False, False, False, False, True, True, True],
+                "name": [
+                    "Carl_Gustaf_Emil_Mannerheim",
+                    "Alpha",
+                    "Beta",
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                ],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": [4398046511333, 4398046511333, 9001, 9002, 9003, 9001, 9002, 9003, 9001, 9002, 9003],
+                "d": [2, 3, 2, 2, 3, 501, 501, 501, 502, 502, 503],
+                "type": [
+                    "KNOWS",
+                    "KNOWS",
+                    "HAS_CREATOR",
+                    "HAS_CREATOR",
+                    "HAS_CREATOR",
+                    "HAS_TAG",
+                    "HAS_TAG",
+                    "HAS_TAG",
+                    "HAS_TAG",
+                    "HAS_TAG",
+                    "HAS_TAG",
+                ],
+            }
+        ),
+    )
+
+
+def _mk_issue_1396_tag_cooccurrence_join_aggregation_graph_cudf() -> _CypherTestGraph:
+    graph = _mk_issue_1396_tag_cooccurrence_join_aggregation_graph()
+    return _mk_cudf_graph(graph._nodes, graph._edges)
+
+
 def _prefix_scalar_reentry_query(
     *,
     tag_name: str = "topic",
@@ -577,8 +642,8 @@ def _mk_multi_alias_edge_projection_graph() -> _CypherTestGraph:
     )
 
 
-def _mk_recent_message_reentry_graph() -> _CypherTestGraph:
-    return _mk_graph(
+def _mk_recent_message_reentry_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return (
         pd.DataFrame(
             {
                 "id": ["viewer", "author1", "post1", "post2", "comment1"],
@@ -601,32 +666,14 @@ def _mk_recent_message_reentry_graph() -> _CypherTestGraph:
             }
         ),
     )
+
+
+def _mk_recent_message_reentry_graph() -> _CypherTestGraph:
+    return _mk_graph(*_mk_recent_message_reentry_data())
 
 
 def _mk_recent_message_reentry_graph_cudf() -> _CypherTestGraph:
-    return _mk_cudf_graph(
-        pd.DataFrame(
-            {
-                "id": ["viewer", "author1", "post1", "post2", "comment1"],
-                "label__Person": [True, True, False, False, False],
-                "label__Message": [False, False, True, True, True],
-                "label__Post": [False, False, True, True, False],
-                "label__Comment": [False, False, False, False, True],
-                "creationDate": [None, None, 5, 20, 10],
-                "imageFile": [None, None, None, None, None],
-                "content": [None, None, "post1", "post2", "comment1"],
-                "firstName": ["View", "Ada", None, None, None],
-                "lastName": ["Er", "Lovelace", None, None, None],
-            }
-        ),
-        pd.DataFrame(
-            {
-                "s": ["comment1", "post2", "post1", "comment1"],
-                "d": ["viewer", "viewer", "author1", "post1"],
-                "type": ["HAS_CREATOR", "HAS_CREATOR", "HAS_CREATOR", "REPLY_OF"],
-            }
-        ),
-    )
+    return _mk_cudf_graph(*_mk_recent_message_reentry_data())
 
 
 def _mk_recent_message_reentry_graph_branching() -> _CypherTestGraph:
@@ -721,6 +768,11 @@ def _assert_query_rows(
 
 
 def _to_pandas_df(df: Any) -> pd.DataFrame:
+    if isinstance(df, pd.DataFrame):
+        return df
+    # RAPIDS 25.02 can segfault on some direct to_pandas() paths; prefer Arrow.
+    if hasattr(df, "to_arrow"):
+        return cast(pd.DataFrame, df.to_arrow().to_pandas())
     return cast(pd.DataFrame, df.to_pandas() if hasattr(df, "to_pandas") else df)
 
 
@@ -730,6 +782,18 @@ def _parse_query(query: str) -> CypherQuery:
 
 def _compile_query(query: str) -> CompiledCypherQuery:
     return cast(CompiledCypherQuery, compile_cypher(query))
+
+
+def _compiled_execution_extras(compiled: CompiledCypherQuery) -> CompiledCypherExecutionExtras:
+    return compiled.execution_extras or CompiledCypherExecutionExtras()
+
+
+def _logical_plan_route(compiled: CompiledCypherQuery) -> str:
+    if compiled.logical_plan is not None:
+        return "planned"
+    if compiled.logical_plan_defer_reason is not None:
+        return "deferred"
+    return "none"
 
 
 def test_compiled_query_escape_hatches_are_grouped() -> None:
@@ -742,34 +806,45 @@ def test_compiled_query_escape_hatches_are_grouped() -> None:
     assert "connected_optional_match" not in field_names
 
 
+def test_compiled_query_execution_extras_retire_legacy_scalar_reentry_fields() -> None:
+    field_names = {f.name for f in dataclass_fields(CompiledCypherExecutionExtras)}
+    assert "reentry_plan" in field_names
+    assert "scalar_reentry_alias" not in field_names
+    assert "scalar_reentry_columns" not in field_names
+
+
 def test_compiled_query_sets_logical_plan_route_for_covered_shape() -> None:
     compiled = _compile_query("MATCH (n:Person) RETURN n")
-    assert compiled.logical_plan_route == "planned"
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 
 
 def test_compiled_query_threads_bound_scope_stack_for_runtime_passes() -> None:
     compiled = _compile_query("MATCH (n:Person) RETURN n")
-    assert compiled.scope_stack
-    assert compiled.scope_stack[0].origin_clause.upper() == "MATCH"
-    assert compiled.scope_stack[-1].origin_clause.upper() == "RETURN"
-    assert "n" in compiled.scope_stack[-1].visible_vars
+    scope_stack = _compiled_execution_extras(compiled).scope_stack
+    assert scope_stack
+    assert scope_stack[0].origin_clause.upper() == "MATCH"
+    assert scope_stack[-1].origin_clause.upper() == "RETURN"
+    assert "n" in scope_stack[-1].visible_vars
 
 
 def test_compiled_query_sets_logical_plan_route_for_match_scalar_return_shape() -> None:
     compiled = _compile_query("MATCH (n:Person) RETURN 1 AS x")
-    assert compiled.logical_plan_route == "planned"
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 
 
-def test_compiled_query_sets_logical_plan_defer_reason_for_optional_shape() -> None:
+def test_compiled_query_sets_logical_plan_route_for_top_level_optional_shape() -> None:
     compiled = _compile_query("OPTIONAL MATCH (n:Person) RETURN n")
-    assert compiled.logical_plan_route == "deferred"
-    assert compiled.logical_plan is None
-    assert compiled.logical_plan_defer_reason is not None
-    assert "OPTIONAL MATCH" in compiled.logical_plan_defer_reason
+    assert _logical_plan_route(compiled) == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
+    optional_match = compiled.logical_plan.input if hasattr(compiled.logical_plan, "input") else compiled.logical_plan
+    assert isinstance(optional_match, PatternMatch)
+    assert optional_match.optional is True
+    assert optional_match.arm_id == "top_level_optional_0"
 
 
 def test_logical_plan_route_for_query_defers_unknown_alias_match_shape_by_default() -> None:
@@ -781,10 +856,18 @@ def test_logical_plan_route_for_query_defers_unknown_alias_match_shape_by_defaul
         ],
         semantic_table=SemanticTable(variables={}),
     )
-    logical_plan, defer_reason = _logical_plan_route_for_query(query, bound_ir=bound_ir)
+    logical_plan, defer_reason, defer_code = _logical_plan_route_for_query(query, bound_ir=bound_ir)
     assert logical_plan is None
     assert defer_reason is not None
+    assert defer_code is None
     assert "present in semantic scope" in defer_reason
+
+
+def test_compiled_query_sets_logical_plan_route_for_distinct_projection_shape() -> None:
+    compiled = _compile_query("MATCH (n) RETURN DISTINCT n.id AS id")
+    assert _logical_plan_route(compiled) == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
 
 
 def test_logical_plan_route_for_query_allows_unknown_alias_match_shape_when_opted_in() -> None:
@@ -796,11 +879,12 @@ def test_logical_plan_route_for_query_allows_unknown_alias_match_shape_when_opte
         ],
         semantic_table=SemanticTable(variables={}),
     )
-    logical_plan, defer_reason = _logical_plan_route_for_query(
+    logical_plan, defer_reason, defer_code = _logical_plan_route_for_query(
         query, bound_ir=bound_ir, allow_unknown_match_aliases=True
     )
     assert logical_plan is not None
     assert defer_reason is None
+    assert defer_code is None
 
 
 def test_logical_plan_route_for_query_emits_filter_for_where_predicate() -> None:
@@ -809,10 +893,11 @@ def test_logical_plan_route_for_query_emits_filter_for_where_predicate() -> None
     query = _parse_query("MATCH (a)-[r]->(b) WHERE r.weight > 5 RETURN b")
     bound_ir = FrontendBinder().bind(query, PlanContext())
 
-    logical_plan, defer_reason = _logical_plan_route_for_query(query, bound_ir=bound_ir)
+    logical_plan, defer_reason, defer_code = _logical_plan_route_for_query(query, bound_ir=bound_ir)
 
     assert logical_plan is not None
     assert defer_reason is None
+    assert defer_code is None
 
     def _walk(node):  # noqa: ANN001, ANN202
         yield node
@@ -832,7 +917,7 @@ def test_logical_plan_route_for_query_emits_filter_for_where_predicate() -> None
 def test_compiled_query_sets_logical_plan_route_for_call_shape() -> None:
     compiled = _compile_query("CALL graphistry.degree()")
     assert compiled.procedure_call is not None
-    assert compiled.logical_plan_route == "planned"
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert isinstance(compiled.logical_plan, LogicalProcedureCall)
     assert compiled.logical_plan.procedure == "graphistry.degree"
@@ -842,69 +927,70 @@ def test_compiled_query_sets_logical_plan_route_for_call_shape() -> None:
 
 def test_compiled_query_sets_logical_plan_route_for_reentry_shape() -> None:
     compiled = _compile_query("MATCH (a:A) WITH a MATCH (a) RETURN a")
-    assert compiled.logical_plan_route == "planned"
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 
 
 def test_compiled_query_sets_logical_plan_route_for_reentry_multihop_shape() -> None:
     compiled = _compile_query("MATCH (a:A) WITH a MATCH (a)-->(b) RETURN b")
-    assert compiled.logical_plan_route == "planned"
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 
 
 def test_compiled_query_sets_logical_plan_route_for_edge_projection_shape() -> None:
     compiled = _compile_query("MATCH (a)-[r]->(b) RETURN r")
-    assert compiled.logical_plan_route == "planned"
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 
 
 def test_compiled_query_sets_logical_plan_route_for_reentry_edge_projection_shape() -> None:
     compiled = _compile_query("MATCH (a:A) WITH a MATCH (a)-[r]->(b) RETURN r")
-    assert compiled.logical_plan_route == "planned"
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 
 
 def test_compiled_query_sets_logical_plan_route_for_row_sequence_shape() -> None:
     compiled = _compile_query("UNWIND [1,2] AS n RETURN n")
-    assert compiled.logical_plan_route == "planned"
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 
 
 def test_compiled_query_sets_logical_plan_route_for_with_only_row_sequence_shape() -> None:
     compiled = _compile_query("WITH 1 AS n RETURN n")
-    assert compiled.logical_plan_route == "planned"
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 
 
-def test_compiled_query_sets_logical_plan_defer_reason_for_optional_reentry_shape() -> None:
+def test_compiled_query_sets_logical_plan_route_for_optional_reentry_shape() -> None:
     compiled = _compile_query("MATCH (a:A) WITH a OPTIONAL MATCH (a)-->(b) RETURN b")
-    assert compiled.logical_plan_route == "deferred"
-    assert compiled.logical_plan is None
-    assert compiled.logical_plan_defer_reason is not None
-    assert "OPTIONAL MATCH" in compiled.logical_plan_defer_reason
+    assert _logical_plan_route(compiled) == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
 
 
 def test_connected_optional_query_sets_query_graph_and_logical_plan() -> None:
     compiled = _compile_query("MATCH (a)-[:A]->(b) OPTIONAL MATCH (b)-[:B]->(c) RETURN c")
-    assert compiled.connected_optional_match is not None
-    assert compiled.logical_plan_route == "planned"
+    compiled_extras = _compiled_execution_extras(compiled)
+    assert compiled_extras.connected_optional_match is not None
+    assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
-    assert compiled.query_graph is not None
-    assert len(compiled.query_graph.components) == 2
-    assert len(compiled.query_graph.optional_arms) == 1
+    assert compiled_extras.query_graph is not None
+    assert len(compiled_extras.query_graph.components) == 2
+    assert len(compiled_extras.query_graph.optional_arms) == 1
 
 
 def test_compile_graph_query_sets_logical_plan_route_for_call_constructor() -> None:
     compiled = compile_cypher("GRAPH { CALL graphistry.degree.write() }")
     assert isinstance(compiled, CompiledCypherGraphQuery)
     assert compiled.procedure_call is not None
-    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
     assert compiled.logical_plan is not None
     assert isinstance(compiled.logical_plan, LogicalProcedureCall)
     assert compiled.logical_plan.procedure == "graphistry.degree.write"
@@ -920,7 +1006,8 @@ def test_compile_query_sets_logical_plan_route_for_graph_binding_call_constructo
     assert len(compiled.graph_bindings) == 1
     binding = compiled.graph_bindings[0]
     assert binding.procedure_call is not None
-    assert binding.logical_plan_route == "planned"
+    assert binding.logical_plan is not None
+    assert binding.logical_plan_defer_reason is None
     assert binding.logical_plan is not None
     assert isinstance(binding.logical_plan, LogicalProcedureCall)
     assert binding.logical_plan.procedure == "graphistry.degree.write"
@@ -930,7 +1017,8 @@ def test_compile_query_sets_logical_plan_route_for_graph_binding_call_constructo
 def test_compile_graph_query_sets_logical_plan_route_for_match_constructor_shape() -> None:
     compiled = compile_cypher("GRAPH { MATCH (a)-[r]->(b) WHERE a.id = 'a' }")
     assert isinstance(compiled, CompiledCypherGraphQuery)
-    assert compiled.logical_plan_route == "planned"
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 
@@ -1234,7 +1322,127 @@ def test_lower_match_query_rewrites_duplicate_node_aliases_to_internal_identity_
     assert isinstance(repeated, ASTNode)
     assert repeated._name is not None
     assert repeated._name.startswith("__cypher_aliasdup_n")
-    assert lowered.where == [compare(col("n", "id"), "==", col(repeated._name, "id"))]
+    assert lowered.where == [
+        compare(
+            col("n", NODE_IDENTITY_COLUMN),
+            "==",
+            col(repeated._name, NODE_IDENTITY_COLUMN),
+        )
+    ]
+
+
+def test_string_cypher_duplicate_node_alias_identity_shape_uses_bound_node_column() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"]}),
+        pd.DataFrame({"s": ["a"], "d": ["a"], "type": ["LOOP"]}),
+    )
+
+    result = graph.gfql("MATCH (n)-[:LOOP]->(n) RETURN count(*) AS loops")
+
+    assert result._nodes.to_dict(orient="records") == [{"loops": 1}]
+
+
+def test_issue_1490_repeated_node_alias_uses_bound_node_identity() -> None:
+    nodes = pd.DataFrame(
+        {
+            "__node_id__": ["node-a", "node-b"],
+            "id": [0, 0],
+            "name": ["A", "B"],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["node-a", "node-b", "node-a"],
+            "d": ["node-a", "node-b", "node-b"],
+            "type": ["LOOP", "LOOP", "R"],
+        }
+    )
+    graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes, "__node_id__").edges(edges, "s", "d"))
+
+    result = graph.gfql("MATCH (n)-[:LOOP]->(n) RETURN count(*) AS loops")
+
+    assert result._nodes.to_dict(orient="records") == [{"loops": 2}]
+
+
+def test_issue_1490_user_id_property_remains_projectable_with_custom_identity() -> None:
+    nodes = pd.DataFrame(
+        {
+            "__node_id__": ["node-a", "node-b"],
+            "id": [0, 0],
+            "name": ["A", "B"],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": [], "type": []})
+    graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes, "__node_id__").edges(edges, "s", "d"))
+
+    result = graph.gfql(
+        "MATCH (n) "
+        "RETURN n.id AS user_id, n.__node_id__ AS identity "
+        "ORDER BY identity"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"user_id": 0, "identity": "node-a"},
+        {"user_id": 0, "identity": "node-b"},
+    ]
+
+
+def test_issue_1490_distinct_and_grouping_use_bound_identity_not_user_id() -> None:
+    nodes = pd.DataFrame(
+        {
+            "__node_id__": ["node-a", "node-b"],
+            "id": [0, 0],
+            "name": ["A", "B"],
+        }
+    )
+    edges = pd.DataFrame({"s": [], "d": [], "type": []})
+    graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes, "__node_id__").edges(edges, "s", "d"))
+
+    distinct_result = graph.gfql("MATCH (n) RETURN count(DISTINCT n) AS c")
+    grouped_result = graph.gfql("MATCH (n) RETURN n AS node, count(*) AS c ORDER BY node")
+
+    assert distinct_result._nodes.to_dict(orient="records") == [{"c": 2}]
+    assert [row["c"] for row in grouped_result._nodes.to_dict(orient="records")] == [1, 1]
+
+
+def test_issue_1490_custom_identity_user_id_property_cudf() -> None:
+    cudf = _require_cudf_runtime()
+    nodes = pd.DataFrame(
+        {
+            "__node_id__": ["node-a", "node-b"],
+            "id": [0, 0],
+            "name": ["A", "B"],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["node-a", "node-b", "node-a"],
+            "d": ["node-a", "node-b", "node-b"],
+            "type": ["LOOP", "LOOP", "R"],
+        }
+    )
+    graph = cast(
+        _CypherTestGraph,
+        _CypherTestGraph()
+        .nodes(cudf.from_pandas(nodes), "__node_id__")
+        .edges(cudf.from_pandas(edges), "s", "d"),
+    )
+
+    loops = graph.gfql("MATCH (n)-[:LOOP]->(n) RETURN count(*) AS loops", engine="cudf")
+    projected = graph.gfql(
+        "MATCH (n) "
+        "RETURN n.id AS user_id, n.__node_id__ AS identity "
+        "ORDER BY identity",
+        engine="cudf",
+    )
+    distinct_result = graph.gfql("MATCH (n) RETURN count(DISTINCT n) AS c", engine="cudf")
+
+    assert _to_pandas_df(loops._nodes).to_dict(orient="records") == [{"loops": 2}]
+    assert _to_pandas_df(projected._nodes).to_dict(orient="records") == [
+        {"user_id": 0, "identity": "node-a"},
+        {"user_id": 0, "identity": "node-b"},
+    ]
+    assert _to_pandas_df(distinct_result._nodes).to_dict(orient="records") == [{"c": 2}]
 
 
 def test_parse_where_pattern_predicate() -> None:
@@ -1334,6 +1542,28 @@ def test_gfql_executes_positive_where_pattern_predicate_between_bound_aliases_fo
     assert result._nodes.to_dict(orient="records") == [{"n_id": "a"}]
 
 
+def test_gfql_executes_multi_positive_where_pattern_predicates_as_intersected_seed() -> None:
+    # Slice 3 of #1031: AND-joined positive WHERE pattern predicates against a
+    # single bound seed alias execute as the intersection (rows where ALL
+    # patterns exist).  Fixture: ``a`` has both R and T outgoing; ``b`` has
+    # both; ``c`` has only T; ``d`` has neither.  Expected result: only
+    # rows where both relationships exist.
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "a", "b", "b", "c"],
+            "d": ["b", "c", "c", "d", "d"],
+            "type": ["R", "T", "R", "T", "T"],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (n) WHERE (n)-[:R]->() AND (n)-[:T]->() RETURN n.id AS id ORDER BY id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "a"}, {"id": "b"}]
+
+
 def test_compile_cypher_supports_cartesian_node_only_bindings_rows() -> None:
     compiled = _compile_query(
         "MATCH (n), (m) RETURN n.num AS n_num, m.num AS m_num ORDER BY n_num, m_num"
@@ -1411,6 +1641,52 @@ def test_string_cypher_supports_cartesian_node_only_row_filter_between_aliases()
 
     assert result._nodes.to_dict(orient="records") == [
         {"n_num": 1, "m_num": 2},
+    ]
+
+
+def test_string_cypher_rejects_cartesian_where_pattern_predicates_mixed_with_or() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": [0, 1, 2],
+                "label__TheLabel": [False, True, False],
+                "label__MissingLabel": [False, False, False],
+            }
+        ),
+        pd.DataFrame({"s": [0, 0, 1], "d": [1, 2, 2], "type": ["T", "X", "T"]}),
+    )
+    with pytest.raises(GFQLValidationError, match="OR/XOR"):
+        graph.gfql(
+            "MATCH (a), (b) "
+            "WHERE a.id = 0 AND (a)-[:T]->(b:TheLabel) OR (a)-[:T*]->(b:MissingLabel) "
+            "RETURN DISTINCT b"
+        )
+
+
+def test_string_cypher_rejects_cartesian_where_pattern_predicates_mixed_with_xor() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": [0, 1], "label__TheLabel": [False, True]}),
+        pd.DataFrame({"s": [0], "d": [1], "type": ["T"]}),
+    )
+    with pytest.raises(GFQLValidationError, match="OR/XOR"):
+        graph.gfql(
+            "MATCH (a), (b) "
+            "WHERE (a)-[:T]->(b:TheLabel) XOR a.id = 0 "
+            "RETURN DISTINCT b"
+        )
+
+
+def test_string_cypher_supports_cartesian_scalar_or_without_pattern_predicates() -> None:
+    result = _mk_cartesian_node_graph().gfql(
+        "MATCH (a), (b) "
+        "WHERE a.num = 1 OR b.num = 1 "
+        "RETURN a.num AS a_num, b.num AS b_num "
+        "ORDER BY a_num, b_num"
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"a_num": 1, "b_num": 1},
+        {"a_num": 1, "b_num": 2},
+        {"a_num": 2, "b_num": 1},
     ]
 
 
@@ -1650,9 +1926,99 @@ def test_lower_match_query_rejects_bare_where_pattern_predicate_without_relation
         lower_cypher_query(_parse_query("MATCH (n) WHERE (n) RETURN n"))
 
 
-def test_lower_match_query_rejects_multiple_where_pattern_predicates() -> None:
-    with pytest.raises(GFQLValidationError, match="one positive pattern predicate at a time"):
-        lower_cypher_query(_parse_query("MATCH (n) WHERE (n)-[:R]->() AND (n)-[:S]->() RETURN n"))
+def test_lower_match_query_supports_multiple_where_pattern_predicates() -> None:
+    # AND-joined positive WHERE pattern predicates compile through independent
+    # semi-apply markers so each pattern remains an existence check.
+    compiled = lower_cypher_query(_parse_query("MATCH (n) WHERE (n)-[:R]->() AND (n)-[:S]->() RETURN n"))
+    assert compiled is not None
+
+
+def test_lower_match_query_emits_row_marker_for_single_positive_where_pattern() -> None:
+    lowered = lower_match_query(_parse_query("MATCH (n) WHERE (n)-[:R]->() RETURN n"))
+
+    assert [type(op).__name__ for op in lowered.query] == ["ASTNode"]
+    assert len(lowered.row_pre_filters) == 1
+    marker = lowered.row_pre_filters[0]
+    assert isinstance(marker, ASTCall)
+    assert marker.function == "semi_apply_mark"
+    assert marker.params.get("join_aliases") == ["n"]
+    out_col = marker.params.get("out_col")
+    assert isinstance(out_col, str) and out_col.startswith("__gfql_where_pattern_")
+    assert lowered.row_where is not None
+    assert lowered.row_where.text == out_col
+    binding_ops = marker.params.get("binding_ops")
+    assert isinstance(binding_ops, list)
+    assert [op.get("type") for op in binding_ops] == ["Node", "Edge", "Node"]
+
+
+def test_lower_match_query_emits_row_anti_semi_filter_for_negated_where_pattern() -> None:
+    lowered = lower_match_query(_parse_query("MATCH (n) WHERE NOT (n)-[:R]->() RETURN n.id AS id"))
+
+    assert len(lowered.row_pre_filters) == 1
+    anti = lowered.row_pre_filters[0]
+    assert isinstance(anti, ASTCall)
+    assert anti.function == "anti_semi_apply"
+    assert anti.params.get("join_aliases") == ["n"]
+    binding_ops = anti.params.get("binding_ops")
+    assert isinstance(binding_ops, list)
+    assert [op.get("type") for op in binding_ops] == ["Node", "Edge", "Node"]
+
+
+def test_lower_match_query_emits_row_anti_semi_filter_for_bound_alias_negated_where_pattern() -> None:
+    lowered = lower_match_query(
+        _parse_query("MATCH (a)-[:R]->(b) WHERE NOT (b)-[:R]->(a) RETURN a.id AS a_id, b.id AS b_id")
+    )
+
+    assert len(lowered.row_pre_filters) == 1
+    anti = lowered.row_pre_filters[0]
+    assert isinstance(anti, ASTCall)
+    assert anti.function == "anti_semi_apply"
+    assert anti.params.get("join_aliases") == ["b", "a"]
+    binding_ops = anti.params.get("binding_ops")
+    assert isinstance(binding_ops, list)
+    assert [op.get("type") for op in binding_ops] == ["Node", "Edge", "Node"]
+
+
+def test_lower_match_query_emits_row_anti_semi_filter_for_bound_alias_negated_bounded_varlen_where_pattern() -> None:
+    lowered = lower_match_query(
+        _parse_query("MATCH (a)-[:R]->(b) WHERE NOT (b)-[:R*1..2]->(a) RETURN a.id AS a_id, b.id AS b_id")
+    )
+
+    assert len(lowered.row_pre_filters) == 1
+    anti = lowered.row_pre_filters[0]
+    assert isinstance(anti, ASTCall)
+    assert anti.function == "anti_semi_apply"
+    assert anti.params.get("join_aliases") == ["b", "a"]
+    binding_ops = anti.params.get("binding_ops")
+    assert isinstance(binding_ops, list)
+    assert [op.get("type") for op in binding_ops] == ["Node", "Edge", "Node"]
+    edge = binding_ops[1]
+    assert edge.get("min_hops") == 1
+    assert edge.get("max_hops") == 2
+    assert edge.get("to_fixed_point") is False
+
+
+def test_lower_match_query_emits_row_marker_for_xor_wrapped_bounded_varlen_where_pattern() -> None:
+    lowered = lower_match_query(
+        _parse_query("MATCH (n) WHERE (n)-[:R*2]->() XOR n.id = 'd' RETURN n.id AS id")
+    )
+
+    assert len(lowered.row_pre_filters) == 1
+    marker = lowered.row_pre_filters[0]
+    assert isinstance(marker, ASTCall)
+    assert marker.function == "semi_apply_mark"
+    assert marker.params.get("join_aliases") == ["n"]
+    out_col = marker.params.get("out_col")
+    assert isinstance(out_col, str) and out_col.startswith("__gfql_where_pattern_")
+    assert lowered.row_where is not None
+    assert " XOR " in lowered.row_where.text
+    assert out_col in lowered.row_where.text
+    binding_ops = marker.params.get("binding_ops")
+    assert isinstance(binding_ops, list)
+    edge = binding_ops[1]
+    assert edge.get("min_hops") == 2
+    assert edge.get("max_hops") == 2
+    assert edge.get("to_fixed_point") is False
 
 
 def test_lower_match_query_rejects_where_pattern_predicate_introducing_new_aliases() -> None:
@@ -2124,7 +2490,7 @@ def test_string_cypher_formats_filtered_edge_entity_projection_on_cudf() -> None
         engine="cudf",
     )
 
-    pdf = result._nodes.to_pandas().sort_values("r").reset_index(drop=True)
+    pdf = _to_pandas_df(result._nodes).sort_values("r").reset_index(drop=True)
     assert pdf.to_dict(orient="records") == [
         {"r": "[:HATES]"},
         {"r": "[:KNOWS]"},
@@ -2167,7 +2533,7 @@ def test_string_cypher_formats_optional_match_projection_on_cudf() -> None:
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"m": "(:A {num: 42})"}
     ]
 
@@ -2190,7 +2556,7 @@ def test_string_cypher_formats_small_float_node_entity_projection_on_cudf() -> N
 
     result = _mk_graph(nodes, edges).gfql("MATCH (a) RETURN a", engine="cudf")
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"a": "(:B {num: 30.94857, num2: 0.00002})"}
     ]
 
@@ -2224,6 +2590,103 @@ def test_string_cypher_supports_is1_seed_city_projection_shape() -> None:
     assert result._nodes.to_dict(orient="records") == [
         {"personId": "p1", "cityId": "c1", "firstName": "A"}
     ]
+
+
+def test_issue_1411_connected_join_property_projection_shape() -> None:
+    nodes = pd.DataFrame(
+        [
+            {
+                "id": "p1",
+                "labels": ["Person"],
+                "label__Person": True,
+                "firstName": "Seed",
+                "name": None,
+            },
+            {
+                "id": "p2",
+                "labels": ["Person"],
+                "label__Person": True,
+                "firstName": "Friend",
+                "name": None,
+            },
+            {
+                "id": "c1",
+                "labels": ["Place"],
+                "label__Place": True,
+                "firstName": None,
+                "name": "City",
+            },
+        ]
+    )
+    edges = pd.DataFrame(
+        [
+            {"s": "p1", "d": "c1", "type": "IS_LOCATED_IN"},
+            {"s": "p2", "d": "c1", "type": "IS_LOCATED_IN"},
+        ]
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH "
+        "(person:Person {id: 'p1'})-[:IS_LOCATED_IN]->(city:Place), "
+        "(friend:Person)-[:IS_LOCATED_IN]->(city) "
+        "RETURN friend.id AS friendId, friend.firstName AS friendFirstName, city.name AS cityName "
+        "ORDER BY friendId"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"friendId": "p1", "friendFirstName": "Seed", "cityName": "City"},
+        {"friendId": "p2", "friendFirstName": "Friend", "cityName": "City"},
+    ]
+
+
+def test_issue_1411_connected_join_whole_row_projection_shape() -> None:
+    nodes = pd.DataFrame(
+        [
+            {
+                "id": "p1",
+                "labels": ["Person"],
+                "label__Person": True,
+                "firstName": "Seed",
+                "name": None,
+            },
+            {
+                "id": "p2",
+                "labels": ["Person"],
+                "label__Person": True,
+                "firstName": "Friend",
+                "name": None,
+            },
+            {
+                "id": "c1",
+                "labels": ["Place"],
+                "label__Place": True,
+                "firstName": None,
+                "name": "City",
+            },
+        ]
+    )
+    edges = pd.DataFrame(
+        [
+            {"s": "p1", "d": "c1", "type": "IS_LOCATED_IN"},
+            {"s": "p2", "d": "c1", "type": "IS_LOCATED_IN"},
+        ]
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH "
+        "(person:Person {id: 'p1'})-[:IS_LOCATED_IN]->(city:Place), "
+        "(friend:Person {id: 'p2'})-[:IS_LOCATED_IN]->(city) "
+        "RETURN city"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"city": "(:Place {name: 'City'})"}
+    ]
+    entity_meta = getattr(result, "_cypher_entity_projection_meta")
+    assert entity_meta["city"]["table"] == "nodes"
+    assert entity_meta["city"]["alias"] == "city"
+    assert entity_meta["city"]["id_column"] == "id"
+    assert entity_meta["city"]["ids"].tolist() == ["c1"]
 
 
 def test_string_cypher_supports_is3_seed_expand_projection_shape() -> None:
@@ -2867,6 +3330,45 @@ def test_string_cypher_supports_generic_match_where_chained_comparison() -> None
     assert result._nodes.to_dict(orient="records") == []
 
 
+def test_issue_1413_searched_case_rewrites_multiple_chained_when_arms() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"], "score": [5, 15, 25]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) RETURN n.id AS id, "
+        "CASE WHEN 0 <= n.score < 10 THEN 'low' "
+        "WHEN 10 <= n.score < 20 THEN 'mid' "
+        "ELSE 'high' END AS bucket ORDER BY id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": "a", "bucket": "low"},
+        {"id": "b", "bucket": "mid"},
+        {"id": "c", "bucket": "high"},
+    ]
+
+
+def test_issue_1413_searched_case_preserves_unrelated_comparisons() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"], "score": [-1, 5, 15]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) RETURN n.id AS id, "
+        "CASE WHEN n.score > 0 THEN n.score < 10 ELSE false END AS inRange "
+        "ORDER BY id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": "a", "inRange": False},
+        {"id": "b", "inRange": True},
+        {"id": "c", "inRange": False},
+    ]
+
+
 def test_string_cypher_supports_distinct_with_aggregate_grouping() -> None:
     graph = _mk_graph(
         pd.DataFrame(
@@ -2924,6 +3426,124 @@ def test_string_cypher_uses_integer_division_for_post_aggregate_expression() -> 
     assert result._nodes.to_dict(orient="records") == [{"count": 1}]
 
 
+def test_string_cypher_uses_integer_division_for_literal_arithmetic_expression() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql("RETURN 12 / 4 * 3 - 2 * 4")
+
+    assert result._nodes.to_dict(orient="records") == [{"12 / 4 * 3 - 2 * 4": 1}]
+
+
+def test_string_cypher_preserves_escaped_literal_backslash_pairs() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(r"""RETURN 'a\\bcn5t\'"\\//\\"\'' AS literal""")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"literal": "a\\\\bcn5t'\"\\\\//\\\\\"'"}
+    ]
+
+
+def test_string_cypher_preserves_unicode_string_literal() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(r"RETURN '\u01FF' AS literal")
+
+    assert result._nodes.to_dict(orient="records") == [{"literal": "\u01ff"}]
+
+
+def test_string_cypher_handles_standard_string_literal_escapes() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(r"""RETURN '\n\t\r\b\f\\\'\"' AS literal""")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"literal": "\n\t\r\b\f\\\\'\""}
+    ]
+
+
+@pytest.mark.parametrize("query", [r"RETURN '\uH' AS literal", "RETURN 'unterminated AS literal"])
+def test_string_cypher_rejects_invalid_string_literals(query: str) -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    with pytest.raises(GFQLSyntaxError):
+        graph.gfql(query)
+
+
+@pytest.mark.parametrize(
+    "query,expected_rows",
+    [
+        (
+            "RETURN 4 * 2 + 3 / 2 AS a, 4 * 2 + (3 / 2) AS b, 4 * (2 + 3) / 2 AS c",
+            [{"a": 9, "b": 9, "c": 10}],
+        ),
+        (
+            "RETURN 4 * 2 - 3 / 2 AS a, 4 * 2 - (3 / 2) AS b, 4 * (2 - 3) / 2 AS c",
+            [{"a": 7, "b": 7, "c": -2}],
+        ),
+        (
+            "RETURN 4 / 2 + 3 * 2 AS a, 4 / 2 + (3 * 2) AS b, 4 / (2 + 3) * 2 AS c",
+            [{"a": 8, "b": 8, "c": 0}],
+        ),
+        (
+            "RETURN 4 / 2 + 3 / 2 AS a, 4 / 2 + (3 / 2) AS b, 4 / (2 + 3) / 2 AS c",
+            [{"a": 3, "b": 3, "c": 0}],
+        ),
+        (
+            "RETURN 4 / 2 + 3 % 2 AS a, 4 / 2 + (3 % 2) AS b, 4 / (2 + 3) % 2 AS c",
+            [{"a": 3, "b": 3, "c": 0}],
+        ),
+        (
+            "RETURN 4 / 2 - 3 * 2 AS a, 4 / 2 - (3 * 2) AS b, 4 / (2 - 3) * 2 AS c",
+            [{"a": -4, "b": -4, "c": -8}],
+        ),
+        (
+            "RETURN 4 / 2 - 3 / 2 AS a, 4 / 2 - (3 / 2) AS b, 4 / (2 - 3) / 2 AS c",
+            [{"a": 1, "b": 1, "c": -2}],
+        ),
+        (
+            "RETURN 4 / 2 - 3 % 2 AS a, 4 / 2 - (3 % 2) AS b, 4 / (2 - 3) % 2 AS c",
+            [{"a": 1, "b": 1, "c": 0}],
+        ),
+        (
+            "RETURN 4 % 2 + 3 / 2 AS a, 4 % 2 + (3 / 2) AS b, 4 % (2 + 3) / 2 AS c",
+            [{"a": 1, "b": 1, "c": 2}],
+        ),
+        (
+            "RETURN 4 % 2 - 3 / 2 AS a, 4 % 2 - (3 / 2) AS b, 4 % (2 - 3) / 2 AS c",
+            [{"a": -1, "b": -1, "c": 0}],
+        ),
+    ],
+)
+def test_string_cypher_precedence_examples_use_integer_division(
+    query: str,
+    expected_rows: List[Dict[str, Any]],
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["n1"]}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == expected_rows
+
+
 def test_string_cypher_supports_whole_row_grouping_with_post_aggregate_expression() -> None:
     graph = _mk_graph(
         pd.DataFrame({"id": ["n1"]}),
@@ -2952,16 +3572,41 @@ def test_string_cypher_supports_whole_row_grouping_with_count_star() -> None:
 
 
 @pytest.mark.parametrize(
-    "query",
+    "query,expected_rows",
     [
-        "MATCH (a:L)-[r]->(b) RETURN a, count(*) AS cnt",
-        "MATCH (a:L)-[r]->(b) RETURN a.id AS aid, count(*) AS cnt",
-        "MATCH (a)-[r]->(b) RETURN count(*) AS cnt",
-        "MATCH (a)-[r]->(b) RETURN count(a) AS cnt",
-        "MATCH (a)-[r]->(b) RETURN sum(1) AS total",
+        ("MATCH (a:L)-[r]->(b) RETURN a.id AS aid, count(*) AS cnt", [{"aid": "a", "cnt": 2}]),
+        ("MATCH (a)-[r]->(b) RETURN count(*) AS cnt", [{"cnt": 2}]),
+        ("MATCH (a)-[r]->(b) RETURN count(a) AS cnt", [{"cnt": 2}]),
+        ("MATCH (a)-[r]->(b) RETURN sum(1) AS total", [{"total": 2}]),
+        ("MATCH (a)-[r]->(b) RETURN avg(r.weight) AS avg_w", [{"avg_w": 2.5}]),
     ],
 )
-def test_string_cypher_rejects_unsound_node_carrier_multiplicity_sensitive_aggregates(query: str) -> None:
+def test_string_cypher_supports_relationship_row_multiplicity_sensitive_aggregates(
+    query: str,
+    expected_rows: List[Dict[str, Any]],
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "label__L": [True, False, False],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a", "a"],
+                "d": ["b", "c"],
+                "id": ["r1", "r2"],
+                "weight": [2, 3],
+            }
+        ),
+    )
+
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected_rows
+
+
+def test_string_cypher_failfast_relationship_whole_row_grouped_count_star_boundary() -> None:
     graph = _mk_graph(
         pd.DataFrame(
             {
@@ -2979,6 +3624,163 @@ def test_string_cypher_rejects_unsound_node_carrier_multiplicity_sensitive_aggre
     )
 
     with pytest.raises(GFQLValidationError, match="repeated MATCH rows"):
+        graph.gfql("MATCH (a:L)-[rel]->(b) RETURN a, count(*)")
+
+
+def test_string_cypher_failfast_optional_match_collect_null_whole_row_return_boundary() -> None:
+    graph = _mk_graph(pd.DataFrame({"id": ["n1"]}), pd.DataFrame({"s": [], "d": []}))
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql("MATCH (n) OPTIONAL MATCH (n)-[:NOT_EXIST]->(x) RETURN n, collect(x)")
+    assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "return"
+    assert exc_info.value.context["value"] == "x"
+
+
+def test_string_cypher_failfast_optional_match_collect_null_whole_row_with_boundary() -> None:
+    graph = _mk_graph(pd.DataFrame({"id": ["n1"]}), pd.DataFrame({"s": [], "d": []}))
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(
+            "MATCH (n) "
+            "OPTIONAL MATCH (n)-[:NOT_EXIST]->(x) "
+            "WITH n, collect(x) AS xs "
+            "RETURN n, xs"
+        )
+    assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "with"
+    assert exc_info.value.context["value"] == ["n", "collect(x)"]
+
+
+def test_string_cypher_supports_optional_match_collect_alias_property() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "u1", "u2"],
+                "label__Person": [True, False, False],
+                "label__University": [False, True, True],
+                "name": ["P", "Uni1", "Uni2"],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p1"],
+                "d": ["u1", "u2"],
+                "id": ["e1", "e2"],
+                "type": ["STUDY_AT", "STUDY_AT"],
+                "classYear": [2001, 2002],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (p:Person {id: 'p1'}) "
+        "OPTIONAL MATCH (p)-[rel:STUDY_AT]->(uni:University) "
+        "WITH p, collect(uni.name) AS unis "
+        "RETURN p.id AS personId, unis"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"personId": "p1", "unis": ["Uni1", "Uni2"]}]
+
+
+def test_string_cypher_supports_optional_match_collect_case_relationship_rows() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "u1", "u2"],
+                "label__Person": [True, False, False],
+                "label__University": [False, True, True],
+                "name": ["P", "Uni1", "Uni2"],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p1"],
+                "d": ["u1", "u2"],
+                "id": ["e1", "e2"],
+                "type": ["STUDY_AT", "STUDY_AT"],
+                "classYear": [2001, 2002],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (p:Person {id: 'p1'}) "
+        "OPTIONAL MATCH (p)-[rel:STUDY_AT]->(uni:University) "
+        "WITH p, collect(CASE uni.name WHEN null THEN null ELSE [uni.name, rel.classYear] END) AS unis "
+        "RETURN p.id AS personId, unis"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"personId": "p1", "unis": [["Uni1", 2001], ["Uni2", 2002]]}
+    ]
+
+
+def test_string_cypher_supports_relationship_row_grouped_count_sum_and_avg() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "a"],
+                "d": ["b", "c"],
+                "id": ["r1", "r2"],
+                "type": ["R", "R"],
+                "weight": [2, 3],
+            }
+        ),
+    )
+
+    count_result = graph.gfql(
+        "MATCH (a)-[r:R]->(b) "
+        "WITH a, count(r) AS deg "
+        "RETURN a.id AS aid, deg"
+    )
+    sum_result = graph.gfql(
+        "MATCH (a)-[r:R]->(b) "
+        "WITH a, sum(r.weight) AS total "
+        "RETURN a.id AS aid, total"
+    )
+    avg_result = graph.gfql(
+        "MATCH (a)-[r:R]->(b) "
+        "WITH a, avg(r.weight) AS avg_w "
+        "RETURN a.id AS aid, avg_w"
+    )
+
+    assert count_result._nodes.to_dict(orient="records") == [{"aid": "a", "deg": 2}]
+    assert sum_result._nodes.to_dict(orient="records") == [{"aid": "a", "total": 5}]
+    assert avg_result._nodes.to_dict(orient="records") == [{"aid": "a", "avg_w": 2.5}]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (a:L)-[r]->(b) RETURN a.id AS aid, count(r) AS cnt",
+        "MATCH (a:L)-[r]->(b) RETURN a.id AS aid, sum(r.weight) AS total",
+        "MATCH (a:L)-[r]->(b) RETURN a.id AS aid, avg(r.weight) AS avg_w",
+    ],
+)
+def test_string_cypher_direct_return_grouped_relationship_aggregate_one_source_boundary(
+    query: str,
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c"],
+                "label__L": [True, False, False],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["a", "a"],
+                "d": ["b", "c"],
+                "id": ["r1", "r2"],
+                "type": ["R", "R"],
+                "weight": [2, 3],
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time"):
         graph.gfql(query)
 
 
@@ -3044,7 +3846,122 @@ def test_string_cypher_supports_post_aggregate_size_collect_projection_on_cudf()
 
     result = _mk_graph(nodes, edges).gfql("MATCH (a) RETURN size(collect(a)) AS n", engine="cudf")
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"n": 11}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"n": 11}]
+
+
+def test_issue_1367_empty_optional_match_post_aggregate_list_comprehension_size() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": [], "type": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) "
+        "OPTIONAL MATCH (n)-[r]->(m) "
+        "RETURN size([x IN collect(r) WHERE x <> null]) AS cn"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"cn": 0}]
+
+
+def test_issue_1367_empty_optional_match_multiple_post_aggregate_projections() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": [], "type": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) "
+        "OPTIONAL MATCH (n)-[r]->(m) "
+        "RETURN count(r) AS total, "
+        "size([x IN collect(r) WHERE x <> null]) AS nonnull"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"total": 0, "nonnull": 0}]
+
+
+def test_issue_1367_grouped_aggregate_does_not_synthesize_empty_row() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": [], "type": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) "
+        "RETURN n.id AS id, size([x IN collect(n) WHERE x <> null]) AS cn"
+    )
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_issue_1367_optional_match_existing_node_missing_relationship_counts_zero() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["n1"]}),
+        pd.DataFrame({"s": [], "d": [], "type": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) "
+        "OPTIONAL MATCH (n)-[r]->(m) "
+        "RETURN size([x IN collect(r) WHERE x <> null]) AS cn"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"cn": 0}]
+
+
+def test_issue_1367_post_aggregate_list_projection_counts_existing_relationships() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["n1", "n2"]}),
+        pd.DataFrame({"s": ["n1"], "d": ["n2"], "type": ["REL"]}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n)-[r]->(m) "
+        "RETURN size([x IN collect(r) WHERE x = x]) AS cn"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"cn": 1}]
+
+
+def test_issue_1367_empty_optional_match_post_aggregate_list_comprehension_size_on_cudf() -> None:
+    pytest.importorskip("cudf")
+    graph = _mk_cudf_graph(
+        pd.DataFrame({"id": pd.Series(dtype="object")}),
+        pd.DataFrame(
+            {
+                "s": pd.Series(dtype="object"),
+                "d": pd.Series(dtype="object"),
+                "type": pd.Series(dtype="object"),
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) "
+        "OPTIONAL MATCH (n)-[r]->(m) "
+        "RETURN size([x IN collect(r) WHERE x <> null]) AS cn",
+        engine="cudf",
+    )
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"cn": 0}]
+
+
+def test_issue_1367_post_aggregate_list_projection_counts_existing_relationships_on_cudf() -> None:
+    pytest.importorskip("cudf")
+    graph = _mk_cudf_graph(
+        pd.DataFrame({"id": ["n1", "n2"]}),
+        pd.DataFrame({"s": ["n1"], "d": ["n2"], "type": ["REL"]}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n)-[r]->(m) "
+        "RETURN size([x IN collect(r) WHERE x = x]) AS cn",
+        engine="cudf",
+    )
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"cn": 1}]
 
 
 def test_string_cypher_supports_grouped_post_aggregate_size_collect_projection() -> None:
@@ -3233,6 +4150,76 @@ def test_string_cypher_executes_cross_alias_or_returns_correct_union() -> None:
     assert rows == [("a1", "b1"), ("a1", "b2"), ("a2", "b2")]
 
 
+def test_string_cypher_executes_cross_alias_or_on_cartesian_product_topology() -> None:
+    # Residual #1219 frontier: explicit cartesian-product topology stress.
+    # Ensure row-wise OR semantics stay correct when A/B are disconnected in
+    # MATCH and joined only by cartesian expansion.
+    nodes = pd.DataFrame({
+        "id":       ["a1", "a2", "a3", "b1", "b2", "b3"],
+        "label__A": [True, True, True, False, False, False],
+        "label__B": [False, False, False, True, True, True],
+        "x":        [1.0, 99.0, 99.0, float("nan"), float("nan"), float("nan")],
+        "y":        [float("nan"), float("nan"), float("nan"), 2.0, 99.0, 2.0],
+    })
+    graph = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []}))
+
+    result = graph.gfql(
+        "MATCH (a:A), (b:B) WHERE a.x = 1 OR b.y = 2 RETURN a.id AS a_id, b.id AS b_id"
+    )
+
+    rows = sorted(
+        (row["a_id"], row["b_id"])
+        for row in result._nodes.to_dict(orient="records")
+    )
+    assert rows == [
+        ("a1", "b1"),
+        ("a1", "b2"),
+        ("a1", "b3"),
+        ("a2", "b1"),
+        ("a2", "b3"),
+        ("a3", "b1"),
+        ("a3", "b3"),
+    ]
+
+
+def test_string_cypher_executes_cross_alias_or_on_two_hop_fanout_topology() -> None:
+    # Residual #1219 frontier: broader fan-out topology than the 2x2 lock.
+    # Stress a two-hop many-to-many path where both disjunct branches should
+    # independently retain rows across different path instances.
+    nodes = pd.DataFrame({
+        "id":       ["a1", "a2", "m1", "m2", "b1", "b2", "b3"],
+        "label__A": [True, True, False, False, False, False, False],
+        "label__M": [False, False, True, True, False, False, False],
+        "label__B": [False, False, False, False, True, True, True],
+        "x":        [1.0, 99.0, float("nan"), float("nan"), float("nan"), float("nan"), float("nan")],
+        "y":        [float("nan"), float("nan"), float("nan"), float("nan"), 99.0, 2.0, 99.0],
+    })
+    edges = pd.DataFrame({
+        "s": ["a1", "a1", "a2", "a2", "m1", "m1", "m2", "m2"],
+        "d": ["m1", "m2", "m1", "m2", "b1", "b2", "b2", "b3"],
+    })
+    graph = _mk_graph(nodes, edges)
+
+    result = graph.gfql(
+        "MATCH (a:A)-->(m:M)-->(b:B) "
+        "WHERE a.x = 1 OR b.y = 2 "
+        "RETURN a.id AS a_id, m.id AS m_id, b.id AS b_id"
+    )
+
+    rows = sorted(
+        (row["a_id"], row["m_id"], row["b_id"])
+        for row in result._nodes.to_dict(orient="records")
+    )
+    assert rows == [
+        ("a1", "m1", "b1"),
+        ("a1", "m1", "b2"),
+        ("a1", "m2", "b2"),
+        ("a1", "m2", "b3"),
+        ("a2", "m1", "b2"),
+        ("a2", "m2", "b2"),
+    ]
+
+
 @pytest.mark.parametrize("where_clause", [
     "",  # no WHERE at all
     "WHERE b.x = 1",  # simple WHERE
@@ -3298,6 +4285,245 @@ def test_string_cypher_executes_homogeneous_or_returns_correct_union() -> None:
     assert ids == ["n1", "n3"]
 
 
+# Compositional row-boolean shapes (#1219 residual matrix).  Each shape locks
+# Cypher 3VL semantics + boolean-tree composition correctness against
+# fixtures designed to discriminate against subtle bugs.
+
+
+def _three_valued_logic_fixture_graph() -> _CypherTestGraph:
+    # 4-row fixture mixing actual and projected NaN over (x, y) for 3VL tests.
+    return _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3", "n4"],
+            "label__N": [True, True, True, True],
+            "x":        [1.0, 2.0, float("nan"), float("nan")],
+            "y":        [10.0, float("nan"), 20.0, float("nan")],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+
+def _rows_for_issue_1219_engine(result: Any, engine: str | None) -> List[Dict[str, Any]]:
+    frame = _to_pandas_df(result._nodes) if engine == "cudf" else result._nodes
+    return cast(List[Dict[str, Any]], frame.to_dict(orient="records"))
+
+
+def _engine_kwargs_for_issue_1219(engine: str | None) -> Dict[str, Any]:
+    if engine == "cudf":
+        _require_cudf_runtime()
+        return {"engine": "cudf"}
+    return {}
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+def test_string_cypher_executes_nullable_not_or_uses_three_valued_logic(engine: str | None) -> None:
+    # `WHERE NOT n.x = 1 OR n.y IS NULL` against a fixture mixing actual
+    # and projected nulls.  Cypher 3VL truth table:
+    #   n1{x=1, y=10}:   NOT(1=1)=F,    y IS NULL=F → F OR F = F → drop
+    #   n2{x=2, y=NaN}:  NOT(2=1)=T,    y IS NULL=T → T OR T = T → keep
+    #   n3{x=NaN,y=20}:  NOT(NaN=1)=NULL, y IS NULL=F → NULL OR F = NULL → drop
+    #   n4{x=NaN,y=NaN}: NOT(NaN=1)=NULL, y IS NULL=T → NULL OR T = T → keep
+    # Locks that the pandas-backed row-evaluator preserves NULL OR T = T.
+    graph = _three_valued_logic_fixture_graph()
+
+    result = graph.gfql(
+        "MATCH (n:N) WHERE NOT n.x = 1 OR n.y IS NULL RETURN n.id AS id",
+        **_engine_kwargs_for_issue_1219(engine),
+    )
+
+    ids = sorted(row["id"] for row in _rows_for_issue_1219_engine(result, engine))
+    assert ids == ["n2", "n4"]
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+def test_string_cypher_executes_nary_or_returns_full_union(engine: str | None) -> None:
+    # `WHERE n.x = 1 OR n.x = 2 OR n.x = 3` — three OR branches against a
+    # 5-row fixture where each value matches a unique row.  Locks that the
+    # binder's parse evaluates ALL branches; silently dropping any one
+    # branch yields a 2-row result and fails the assertion.
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3", "n4", "n5"],
+            "label__N": [True, True, True, True, True],
+            "x":        [1, 2, 3, 4, 5],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n:N) WHERE n.x = 1 OR n.x = 2 OR n.x = 3 RETURN n.id AS id",
+        **_engine_kwargs_for_issue_1219(engine),
+    )
+
+    ids = sorted(row["id"] for row in _rows_for_issue_1219_engine(result, engine))
+    assert ids == ["n1", "n2", "n3"]
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+def test_string_cypher_executes_nary_or_with_duplicate_branch_locks_specific_associativity(engine: str | None) -> None:
+    # Companion to test_string_cypher_executes_nary_or_returns_full_union:
+    # `WHERE n.x = 1 OR n.x = 1 OR n.x = 3` has a duplicated leftmost
+    # branch.  If the binder silently dropped the rightmost branch under
+    # an associativity bug, the result would be `[n1]` only.  If it
+    # silently dropped one of the duplicates, the result is still `[n1, n3]`
+    # (correct) — so this isolates the rightmost-drop case from the
+    # any-branch-drop case the previous test covers.
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3"],
+            "label__N": [True, True, True],
+            "x":        [1, 2, 3],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n:N) WHERE n.x = 1 OR n.x = 1 OR n.x = 3 RETURN n.id AS id",
+        **_engine_kwargs_for_issue_1219(engine),
+    )
+
+    ids = sorted(row["id"] for row in _rows_for_issue_1219_engine(result, engine))
+    assert ids == ["n1", "n3"]
+
+
+def _de_morgan_fixture_graph() -> _CypherTestGraph:
+    # 4-row fixture covering all (x∈{1,2}, y∈{2,3}) combos.
+    return _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3", "n4"],
+            "label__N": [True, True, True, True],
+            "x":        [1, 1, 2, 2],
+            "y":        [2, 3, 2, 3],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+@pytest.mark.parametrize("compound,distributed,expected", [
+    # NOT(A OR B) ≡ NOT(A) AND NOT(B) — both forms must return {n4}
+    (
+        "MATCH (n:N) WHERE NOT (n.x = 1 OR n.y = 2) RETURN n.id AS id",
+        "MATCH (n:N) WHERE NOT n.x = 1 AND NOT n.y = 2 RETURN n.id AS id",
+        ["n4"],
+    ),
+    # NOT(A AND B) ≡ NOT(A) OR NOT(B) — both forms must return {n2,n3,n4}
+    (
+        "MATCH (n:N) WHERE NOT (n.x = 1 AND n.y = 2) RETURN n.id AS id",
+        "MATCH (n:N) WHERE NOT n.x = 1 OR NOT n.y = 2 RETURN n.id AS id",
+        ["n2", "n3", "n4"],
+    ),
+])
+def test_string_cypher_executes_de_morgan_compositions(
+    compound: str, distributed: str, expected: List[str], engine: str | None,
+) -> None:
+    # Each NOT-of-compound and its De-Morganed equivalent must return the
+    # same row set AND that row set must equal the hardcoded expected.
+    graph = _de_morgan_fixture_graph()
+
+    compound_result = graph.gfql(compound, **_engine_kwargs_for_issue_1219(engine))
+    distributed_result = graph.gfql(distributed, **_engine_kwargs_for_issue_1219(engine))
+    compound_ids = sorted(row["id"] for row in _rows_for_issue_1219_engine(compound_result, engine))
+    distributed_ids = sorted(row["id"] for row in _rows_for_issue_1219_engine(distributed_result, engine))
+
+    assert compound_ids == expected
+    assert distributed_ids == expected
+    assert compound_ids == distributed_ids  # De Morgan equivalence
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+def test_string_cypher_executes_xor_with_null_uses_three_valued_logic(engine: str | None) -> None:
+    # XOR + IS NULL on the 3VL fixture.  IS NULL is deterministic
+    # (NaN → TRUE, non-null → FALSE; no NULL output), so XOR's NULL
+    # comes only from the comparison branch.
+    #
+    #   n1{x=1, y=10}:   x=1=T,    y IS NULL=F → T XOR F = T → keep
+    #   n2{x=2, y=NaN}:  x=1=F,    y IS NULL=T → F XOR T = T → keep
+    #   n3{x=NaN,y=20}:  x=1=NULL, y IS NULL=F → NULL XOR F = NULL → drop
+    #   n4{x=NaN,y=NaN}: x=1=NULL, y IS NULL=T → NULL XOR T = NULL → drop
+    graph = _three_valued_logic_fixture_graph()
+
+    result = graph.gfql(
+        "MATCH (n:N) WHERE n.x = 1 XOR n.y IS NULL RETURN n.id AS id",
+        **_engine_kwargs_for_issue_1219(engine),
+    )
+
+    ids = sorted(row["id"] for row in _rows_for_issue_1219_engine(result, engine))
+    assert ids == ["n1", "n2"]
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+def test_string_cypher_executes_xor_returns_symmetric_difference(engine: str | None) -> None:
+    # Sibling to the OR/AND/NOT runtime locks: XOR(A, B) ≡ (A AND NOT B) OR (NOT A AND B).
+    # Locks pandas-backed evaluator returns the symmetric-difference row set
+    # rather than treating XOR as OR (the boolean_expr_to_text and parse-tree
+    # tests already cover structure; this is the runtime sibling).
+    #
+    #   n1{x=1, y=2}: x=1=T, y=2=T → T XOR T = F → drop
+    #   n2{x=1, y=3}: x=1=T, y=2=F → T XOR F = T → keep
+    #   n3{x=2, y=2}: x=1=F, y=2=T → F XOR T = T → keep
+    #   n4{x=2, y=3}: x=1=F, y=2=F → F XOR F = F → drop
+    graph = _de_morgan_fixture_graph()
+
+    result = graph.gfql(
+        "MATCH (n:N) WHERE n.x = 1 XOR n.y = 2 RETURN n.id AS id",
+        **_engine_kwargs_for_issue_1219(engine),
+    )
+
+    ids = sorted(row["id"] for row in _rows_for_issue_1219_engine(result, engine))
+    assert ids == ["n2", "n3"]
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+def test_string_cypher_executes_double_negation_returns_original(engine: str | None) -> None:
+    # NOT(NOT A) ≡ A.  Locks compound-NOT lowering doesn't drop one negation.
+    graph = _de_morgan_fixture_graph()
+
+    plain_result = graph.gfql("MATCH (n:N) WHERE n.x = 1 RETURN n.id AS id", **_engine_kwargs_for_issue_1219(engine))
+    double_neg_result = graph.gfql(
+        "MATCH (n:N) WHERE NOT NOT n.x = 1 RETURN n.id AS id",
+        **_engine_kwargs_for_issue_1219(engine),
+    )
+    plain_ids = sorted(row["id"] for row in _rows_for_issue_1219_engine(plain_result, engine))
+    double_neg_ids = sorted(row["id"] for row in _rows_for_issue_1219_engine(double_neg_result, engine))
+
+    assert plain_ids == ["n1", "n2"]
+    assert double_neg_ids == plain_ids
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+def test_string_cypher_executes_mixed_string_numeric_and_inside_or(engine: str | None) -> None:
+    # `WHERE (n.s > 'a' AND n.x > 0) OR n.x < -1` — exercises the
+    # `_StringAllowingComparisonMixin` (#1217: extended GT/LT/GE/LE/NE
+    # to strings) paired with OR composition.  The string GT branch
+    # `n.s > 'a'` is the mixin-specific path; plain EQ on strings was
+    # already supported pre-#1217 and would not exercise the mixin.
+    # Truth table over the 5-row fixture:
+    #   n1{s='b', x=5}:  ('b'>'a' AND 5>0)=T;  T OR (5<-1)=T → keep
+    #   n2{s='b', x=-5}: ('b'>'a' AND -5>0)=F; F OR (-5<-1)=T → keep
+    #   n3{s='a', x=5}:  ('a'>'a' AND 5>0)=F;  F OR (5<-1)=F → drop
+    #   n4{s='a', x=-5}: ('a'>'a' AND -5>0)=F; F OR (-5<-1)=T → keep
+    #   n5{s='a', x=0}:  ('a'>'a' AND 0>0)=F;  F OR (0<-1)=F → drop
+    graph = _mk_graph(
+        pd.DataFrame({
+            "id":       ["n1", "n2", "n3", "n4", "n5"],
+            "label__N": [True, True, True, True, True],
+            "s":        ["b", "b", "a", "a", "a"],
+            "x":        [5, -5, 5, -5, 0],
+        }),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = graph.gfql(
+        "MATCH (n:N) WHERE (n.s > 'a' AND n.x > 0) OR n.x < -1 RETURN n.id AS id",
+        **_engine_kwargs_for_issue_1219(engine),
+    )
+
+    ids = sorted(row["id"] for row in _rows_for_issue_1219_engine(result, engine))
+    assert ids == ["n1", "n2", "n4"]
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
 @pytest.mark.parametrize(
     "query,expected_rows",
     [
@@ -3323,7 +4549,11 @@ def test_string_cypher_executes_homogeneous_or_returns_correct_union() -> None:
         "audit-negated-disjunction",
     ],
 )
-def test_issue_1219_row_boolean_audit_base_match_matrix(query: str, expected_rows: List[Dict[str, Any]]) -> None:
+def test_issue_1219_row_boolean_audit_base_match_matrix(
+    query: str,
+    expected_rows: List[Dict[str, Any]],
+    engine: str | None,
+) -> None:
     graph = _mk_graph(
         pd.DataFrame(
             {
@@ -3335,8 +4565,8 @@ def test_issue_1219_row_boolean_audit_base_match_matrix(query: str, expected_row
         pd.DataFrame({"s": [], "d": []}),
     )
 
-    result = graph.gfql(query)
-    assert result._nodes.to_dict(orient="records") == expected_rows
+    result = graph.gfql(query, **_engine_kwargs_for_issue_1219(engine))
+    assert _rows_for_issue_1219_engine(result, engine) == expected_rows
 
 
 def _normalize_nullable_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -3354,6 +4584,7 @@ def _normalize_nullable_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return normalized
 
 
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
 @pytest.mark.parametrize(
     "query,expected_rows",
     [
@@ -3391,6 +4622,7 @@ def _normalize_nullable_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]
 def test_issue_1219_row_boolean_audit_connected_optional_structured_matrix(
     query: str,
     expected_rows: List[Dict[str, Any]],
+    engine: str | None,
 ) -> None:
     graph = _mk_graph(
         pd.DataFrame(
@@ -3408,10 +4640,14 @@ def test_issue_1219_row_boolean_audit_connected_optional_structured_matrix(
         ),
     )
 
-    rows = graph.gfql(query)._nodes.to_dict(orient="records")
+    rows = _rows_for_issue_1219_engine(
+        graph.gfql(query, **_engine_kwargs_for_issue_1219(engine)),
+        engine,
+    )
     assert _normalize_nullable_rows(rows) == expected_rows
 
 
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
 @pytest.mark.parametrize(
     "query,expected_rows",
     [
@@ -3458,6 +4694,7 @@ def test_issue_1219_row_boolean_audit_connected_optional_structured_matrix(
 def test_issue_1219_row_boolean_audit_connected_optional_row_expr_matrix(
     query: str,
     expected_rows: List[Dict[str, Any]],
+    engine: str | None,
 ) -> None:
     graph = _mk_graph(
         pd.DataFrame(
@@ -3475,7 +4712,10 @@ def test_issue_1219_row_boolean_audit_connected_optional_row_expr_matrix(
         ),
     )
 
-    rows = graph.gfql(query)._nodes.to_dict(orient="records")
+    rows = _rows_for_issue_1219_engine(
+        graph.gfql(query, **_engine_kwargs_for_issue_1219(engine)),
+        engine,
+    )
     assert _normalize_nullable_rows(rows) == expected_rows
 
 
@@ -3519,6 +4759,15 @@ def test_string_cypher_supports_integer_division_in_limit_expression() -> None:
     assert result._nodes.to_dict(orient="records") == [{"count": 2}]
 
 
+def test_string_cypher_uses_integer_division_for_literal_expression() -> None:
+    graph = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = graph.gfql("RETURN 12 / 4 * 3 - 2 * 4 AS v")
+    rows = result._nodes.to_dict(orient="records")
+    assert rows == [{"v": 1}]
+    assert not isinstance(rows[0]["v"], float)
+
+
 @pytest.mark.parametrize(
     "query,params,expected",
     [
@@ -3557,7 +4806,7 @@ def test_string_cypher_supports_static_row_expr_null_propagation_on_cudf() -> No
 
     result = graph.gfql("RETURN 4 IN [1, null, 3] AS result", engine="cudf")
 
-    assert pd.isna(result._nodes.to_pandas().iloc[0]["result"])
+    assert pd.isna(_to_pandas_df(result._nodes).iloc[0]["result"])
 
 
 def test_string_cypher_supports_list_append_precedence_on_cudf() -> None:
@@ -3573,7 +4822,7 @@ def test_string_cypher_supports_list_append_precedence_on_cudf() -> None:
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"a": False, "b": False, "c": [1, False, 4]}
     ]
 
@@ -3591,7 +4840,7 @@ def test_string_cypher_supports_list_membership_append_precedence_on_cudf() -> N
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"a": False, "b": False, "c": [False, 4], "d": [1, False, 4]}
     ]
 
@@ -3615,254 +4864,197 @@ def test_string_cypher_supports_dynamic_map_subscripts(query: str, expected: lis
     assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == expected
 
 
-def test_string_cypher_executes_unwind_temporal_date_literals() -> None:
+def test_string_cypher_supports_list_subscript_with_integer_index() -> None:
     _assert_query_rows(
-        "UNWIND [date({year: 1910, month: 5, day: 6}), date({year: 1980, month: 10, day: 24})] AS dates "
-        "WITH dates ORDER BY dates ASC LIMIT 2 RETURN dates",
-        [{"dates": "1910-05-06"}, {"dates": "1980-10-24"}],
+        "WITH [10, 20, 30] AS list, 1 AS idx RETURN list[idx] AS value",
+        [{"value": 20}],
     )
 
 
-def test_string_cypher_parses_week_date_literals() -> None:
-    _assert_query_rows("RETURN date({year: 1817, week: 1, dayOfWeek: 2}) AS d", [{"d": "1816-12-31"}])
+def test_string_cypher_rejects_string_subscript_with_integer_index() -> None:
+    g = _mk_empty_graph()
+
+    with pytest.raises(Exception, match="dynamic subscript requires list-like base"):
+        g.gfql("WITH '1' AS list, 0 AS idx RETURN list[idx] AS value")
 
 
-def test_string_cypher_parses_localtime_compact_literals() -> None:
-    _assert_query_rows("RETURN localtime('214032.142') AS result", [{"result": "21:40:32.142"}])
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "UNWIND [date({year: 1910, month: 5, day: 6}), date({year: 1980, month: 10, day: 24})] AS dates "
+            "WITH dates ORDER BY dates ASC LIMIT 2 RETURN dates",
+            [{"dates": "1910-05-06"}, {"dates": "1980-10-24"}],
+        ),
+        ("RETURN date({year: 1817, week: 1, dayOfWeek: 2}) AS d", [{"d": "1816-12-31"}]),
+        ("RETURN localtime('214032.142') AS result", [{"result": "21:40:32.142"}]),
+        (
+            "RETURN datetime('2015-07-21T21:40:32.142[Europe/London]') AS result",
+            [{"result": "2015-07-21T21:40:32.142+01:00[Europe/London]"}],
+        ),
+        (
+            "RETURN datetime('1818-07-21T21:40:32.142[Europe/Stockholm]') AS result",
+            [{"result": "1818-07-21T21:40:32.142+00:53:28[Europe/Stockholm]"}],
+        ),
+        (
+            "RETURN "
+            "datetime('1818-07-21T21:40:32.142[Europe/Stockholm]') = "
+            "datetime('1818-07-21T21:40:32.142+00:53:28[Europe/Stockholm]') AS b",
+            [{"b": True}],
+        ),
+        (
+            "RETURN time({hour: 12, minute: 34, second: 56, timezone: '+02:05:00'}) AS result",
+            [{"result": "12:34:56+02:05"}],
+        ),
+        (
+            "RETURN datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31}) AS result",
+            [{"result": "1984-10-11T12:31Z"}],
+        ),
+        (
+            "RETURN datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: '+01:00'}) AS result",
+            [{"result": "1984-10-11T12:00+01:00"}],
+        ),
+        (
+            "RETURN "
+            "localtime({hour: 12, minute: 31, second: 14, millisecond: 645, microsecond: 876, nanosecond: 123}) AS t, "
+            "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, millisecond: 645, microsecond: 876, nanosecond: 123, timezone: '+01:00'}) AS dt",
+            [{"t": "12:31:14.645876123", "dt": "1984-10-11T12:31:14.645876123+01:00"}],
+        ),
+        (
+            "RETURN datetime.fromepoch(416779, 999999999) AS d1, "
+            "datetime.fromepochmillis(237821673987) AS d2",
+            [{"d1": "1970-01-05T19:46:19.999999999Z", "d2": "1977-07-15T13:34:33.987Z"}],
+        ),
+        ("RETURN time({hour: 12, minute: 31, second: 14}) AS result", [{"result": "12:31:14Z"}]),
+        (
+            "RETURN date({date: date('1816-12-31'), year: 1817, week: 2}) AS d",
+            [{"d": "1817-01-07"}],
+        ),
+        (
+            "RETURN "
+            "date({date: date('1816-12-30'), week: 2, dayOfWeek: 3}) AS d1, "
+            "localdatetime({date: date('1816-12-31'), week: 2}) AS d2, "
+            "datetime({date: date('1816-12-30'), week: 2, dayOfWeek: 3}) AS d3",
+            [{"d1": "1817-01-08", "d2": "1817-01-07T00:00", "d3": "1817-01-08T00:00Z"}],
+        ),
+        (
+            "WITH date({year: 1984, month: 11, day: 11}) AS other "
+            "RETURN date({date: other, year: 28}) AS result",
+            [{"result": "0028-11-11"}],
+        ),
+        (
+            "WITH date({year: 1984, month: 10, day: 11}) AS other "
+            "RETURN datetime({date: other, hour: 10, minute: 10, second: 10}) AS result",
+            [{"result": "1984-10-11T10:10:10Z"}],
+        ),
+        (
+            "WITH datetime({year: 1984, month: 11, day: 11, hour: 12, timezone: '+01:00'}) AS other "
+            "RETURN date(other) AS result",
+            [{"result": "1984-11-11"}],
+        ),
+        (
+            "WITH time({hour: 12, minute: 31, second: 14, nanosecond: 645876, timezone: '+01:00'}) AS other "
+            "RETURN localtime(other) AS result",
+            [{"result": "12:31:14.000645876"}],
+        ),
+        (
+            "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: '+01:00'}) AS other "
+            "RETURN localdatetime({datetime: other}) AS result",
+            [{"result": "1984-10-11T12:00"}],
+        ),
+        (
+            "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS other "
+            "RETURN "
+            "time(other) AS cast_result, "
+            "time({time: other}) AS ctor_result, "
+            "time({time: other, timezone: '+05:00'}) AS converted_result, "
+            "time({time: other, second: 42, timezone: '+05:00'}) AS converted_second_result",
+            [{
+                "cast_result": "12:00+01:00",
+                "ctor_result": "12:00+01:00",
+                "converted_result": "16:00+05:00",
+                "converted_second_result": "16:00:42+05:00",
+            }],
+        ),
+        (
+            "WITH time({hour: 12, minute: 31, second: 14, microsecond: 645876, timezone: '+01:00'}) AS other "
+            "RETURN "
+            "time({time: other, timezone: '+05:00'}) AS converted_result, "
+            "time({time: other, second: 42, timezone: '+05:00'}) AS converted_second_result",
+            [{"converted_result": "16:31:14.645876+05:00", "converted_second_result": "16:31:42.645876+05:00"}],
+        ),
+        (
+            "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS other "
+            "RETURN "
+            "datetime({year: 1984, month: 10, day: 11, time: other}) AS preserved_result, "
+            "datetime({year: 1984, month: 10, day: 11, time: other, second: 42}) AS preserved_second_result, "
+            "datetime({year: 1984, month: 10, day: 11, time: other, timezone: '+05:00'}) AS converted_result, "
+            "datetime({year: 1984, month: 10, day: 11, time: other, second: 42, timezone: 'Pacific/Honolulu'}) AS converted_named_result",
+            [{
+                "preserved_result": "1984-10-11T12:00+01:00[Europe/Stockholm]",
+                "preserved_second_result": "1984-10-11T12:00:42+01:00[Europe/Stockholm]",
+                "converted_result": "1984-10-11T16:00+05:00",
+                "converted_named_result": "1984-10-11T01:00:42-10:00[Pacific/Honolulu]",
+            }],
+        ),
+        (
+            "WITH "
+            "localdatetime({year: 1984, week: 10, dayOfWeek: 3, hour: 12, minute: 31, second: 14, millisecond: 645}) AS otherDate, "
+            "datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS otherTime "
+            "RETURN datetime({date: otherDate, time: otherTime, day: 28, second: 42}) AS result",
+            [{"result": "1984-03-28T12:00:42+02:00[Europe/Stockholm]"}],
+        ),
+        (
+            "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS other "
+            "RETURN "
+            "datetime({datetime: other}) AS preserved_result, "
+            "datetime({datetime: other, timezone: '+05:00'}) AS converted_result, "
+            "datetime({datetime: other, day: 28, second: 42}) AS recomputed_result",
+            [{
+                "preserved_result": "1984-10-11T12:00+01:00[Europe/Stockholm]",
+                "converted_result": "1984-10-11T16:00+05:00",
+                "recomputed_result": "1984-10-28T12:00:42+01:00[Europe/Stockholm]",
+            }],
+        ),
+    ],
+)
+def test_string_cypher_temporal_constructor_and_cast_cases(
+    query: str,
+    expected: list[dict[str, object]],
+) -> None:
+    _assert_query_rows(query, expected)
 
 
-def test_string_cypher_parses_datetime_named_zone_literals() -> None:
-    _assert_query_rows(
-        "RETURN datetime('2015-07-21T21:40:32.142[Europe/London]') AS result",
-        [{"result": "2015-07-21T21:40:32.142+01:00[Europe/London]"}],
-    )
-
-
-def test_string_cypher_normalizes_time_offset_seconds() -> None:
-    _assert_query_rows(
-        "RETURN time({hour: 12, minute: 34, second: 56, timezone: '+02:05:00'}) AS result",
-        [{"result": "12:34:56+02:05"}],
-    )
-
-
-def test_string_cypher_defaults_datetime_map_to_utc() -> None:
-    _assert_query_rows(
-        "RETURN datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31}) AS result",
-        [{"result": "1984-10-11T12:31Z"}],
-    )
-
-
-def test_string_cypher_parses_datetime_map_with_quoted_offset_timezone() -> None:
-    _assert_query_rows(
-        "RETURN datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: '+01:00'}) AS result",
-        [{"result": "1984-10-11T12:00+01:00"}],
-    )
-
-
-def test_string_cypher_combines_fractional_temporal_fields() -> None:
-    _assert_query_rows(
-        "RETURN "
-        "localtime({hour: 12, minute: 31, second: 14, millisecond: 645, microsecond: 876, nanosecond: 123}) AS t, "
-        "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, millisecond: 645, microsecond: 876, nanosecond: 123, timezone: '+01:00'}) AS dt",
-        [
-        {
-            "t": "12:31:14.645876123",
-            "dt": "1984-10-11T12:31:14.645876123+01:00",
-        }
-        ],
-    )
-
-
-def test_string_cypher_supports_datetime_fromepoch_functions() -> None:
-    _assert_query_rows(
-        "RETURN datetime.fromepoch(416779, 999999999) AS d1, "
-        "datetime.fromepochmillis(237821673987) AS d2",
-        [
-        {
-            "d1": "1970-01-05T19:46:19.999999999Z",
-            "d2": "1977-07-15T13:34:33.987Z",
-        }
-        ],
-    )
-
-
-def test_string_cypher_defaults_time_map_to_utc() -> None:
-    _assert_query_rows(
-        "RETURN time({hour: 12, minute: 31, second: 14}) AS result",
-        [{"result": "12:31:14Z"}],
-    )
-
-
-def test_string_cypher_supports_nested_temporal_base_date_overrides() -> None:
-    _assert_query_rows(
-        "RETURN date({date: date('1816-12-31'), year: 1817, week: 2}) AS d",
-        [{"d": "1817-01-07"}],
-    )
-
-
-def test_string_cypher_inherits_iso_week_year_from_base_date() -> None:
-    _assert_query_rows(
-        "RETURN "
-        "date({date: date('1816-12-30'), week: 2, dayOfWeek: 3}) AS d1, "
-        "localdatetime({date: date('1816-12-31'), week: 2}) AS d2, "
-        "datetime({date: date('1816-12-30'), week: 2, dayOfWeek: 3}) AS d3",
-        [
-        {
-            "d1": "1817-01-08",
-            "d2": "1817-01-07T00:00",
-            "d3": "1817-01-08T00:00Z",
-        }
-        ],
-    )
-
-
-def test_string_cypher_executes_temporal_date_casts_from_with_alias() -> None:
-    _assert_query_rows(
-        "WITH date({year: 1984, month: 11, day: 11}) AS other "
-        "RETURN date({date: other, year: 28}) AS result",
-        [{"result": "0028-11-11"}],
-    )
-
-
-def test_string_cypher_executes_temporal_datetime_casts_from_with_alias() -> None:
-    _assert_query_rows(
-        "WITH date({year: 1984, month: 10, day: 11}) AS other "
-        "RETURN datetime({date: other, hour: 10, minute: 10, second: 10}) AS result",
-        [{"result": "1984-10-11T10:10:10Z"}],
-    )
-
-
-def test_string_cypher_executes_temporal_date_cast_from_aware_datetime_alias() -> None:
-    _assert_query_rows(
-        "WITH datetime({year: 1984, month: 11, day: 11, hour: 12, timezone: '+01:00'}) AS other "
-        "RETURN date(other) AS result",
-        [{"result": "1984-11-11"}],
-    )
-
-
-def test_string_cypher_executes_temporal_localtime_cast_from_aware_time_alias() -> None:
-    _assert_query_rows(
-        "WITH time({hour: 12, minute: 31, second: 14, nanosecond: 645876, timezone: '+01:00'}) AS other "
-        "RETURN localtime(other) AS result",
-        [{"result": "12:31:14.000645876"}],
-    )
-
-
-def test_string_cypher_executes_temporal_localdatetime_cast_from_aware_datetime_alias() -> None:
-    _assert_query_rows(
-        "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: '+01:00'}) AS other "
-        "RETURN localdatetime({datetime: other}) AS result",
-        [{"result": "1984-10-11T12:00"}],
-    )
-
-
-def test_string_cypher_executes_temporal_time_cast_and_constructor_from_named_zone_datetime_alias() -> None:
-    _assert_query_rows(
-        "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS other "
-        "RETURN "
-        "time(other) AS cast_result, "
-        "time({time: other}) AS ctor_result, "
-        "time({time: other, timezone: '+05:00'}) AS converted_result, "
-        "time({time: other, second: 42, timezone: '+05:00'}) AS converted_second_result",
-        [
-        {
-            "cast_result": "12:00+01:00",
-            "ctor_result": "12:00+01:00",
-            "converted_result": "16:00+05:00",
-            "converted_second_result": "16:00:42+05:00",
-        }
-        ],
-    )
-
-
-def test_string_cypher_executes_temporal_time_constructor_converts_aware_time_alias_timezone() -> None:
-    _assert_query_rows(
-        "WITH time({hour: 12, minute: 31, second: 14, microsecond: 645876, timezone: '+01:00'}) AS other "
-        "RETURN "
-        "time({time: other, timezone: '+05:00'}) AS converted_result, "
-        "time({time: other, second: 42, timezone: '+05:00'}) AS converted_second_result",
-        [
-        {
-            "converted_result": "16:31:14.645876+05:00",
-            "converted_second_result": "16:31:42.645876+05:00",
-        }
-        ],
-    )
-
-
-def test_string_cypher_executes_temporal_datetime_constructor_preserves_and_converts_named_zone_time_alias() -> None:
-    _assert_query_rows(
-        "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS other "
-        "RETURN "
-        "datetime({year: 1984, month: 10, day: 11, time: other}) AS preserved_result, "
-        "datetime({year: 1984, month: 10, day: 11, time: other, second: 42}) AS preserved_second_result, "
-        "datetime({year: 1984, month: 10, day: 11, time: other, timezone: '+05:00'}) AS converted_result, "
-        "datetime({year: 1984, month: 10, day: 11, time: other, second: 42, timezone: 'Pacific/Honolulu'}) AS converted_named_result",
-        [
-        {
-            "preserved_result": "1984-10-11T12:00+01:00[Europe/Stockholm]",
-            "preserved_second_result": "1984-10-11T12:00:42+01:00[Europe/Stockholm]",
-            "converted_result": "1984-10-11T16:00+05:00",
-            "converted_named_result": "1984-10-11T01:00:42-10:00[Pacific/Honolulu]",
-        }
-        ],
-    )
-
-
-def test_string_cypher_executes_temporal_datetime_constructor_recomputes_named_zone_offset_for_new_date() -> None:
-    _assert_query_rows(
-        "WITH "
-        "localdatetime({year: 1984, week: 10, dayOfWeek: 3, hour: 12, minute: 31, second: 14, millisecond: 645}) AS otherDate, "
-        "datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS otherTime "
-        "RETURN datetime({date: otherDate, time: otherTime, day: 28, second: 42}) AS result",
-        [{"result": "1984-03-28T12:00:42+02:00[Europe/Stockholm]"}],
-    )
-
-
-def test_string_cypher_executes_temporal_datetime_constructor_from_named_zone_datetime_alias() -> None:
-    _assert_query_rows(
-        "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, timezone: 'Europe/Stockholm'}) AS other "
-        "RETURN "
-        "datetime({datetime: other}) AS preserved_result, "
-        "datetime({datetime: other, timezone: '+05:00'}) AS converted_result, "
-        "datetime({datetime: other, day: 28, second: 42}) AS recomputed_result",
-        [
-        {
-            "preserved_result": "1984-10-11T12:00+01:00[Europe/Stockholm]",
-            "converted_result": "1984-10-11T16:00+05:00",
-            "recomputed_result": "1984-10-28T12:00:42+01:00[Europe/Stockholm]",
-        }
-        ],
-    )
-
-
-def test_string_cypher_executes_temporal_date_truncate() -> None:
-    _assert_query_rows(
-        "RETURN date.truncate('decade', date({year: 1984, month: 10, day: 11}), {day: 2}) AS result",
-        [{"result": "1980-01-02"}],
-    )
-
-
-def test_string_cypher_executes_temporal_date_truncate_from_aware_datetime_constructor() -> None:
-    _assert_query_rows(
-        "RETURN date.truncate("
-        "'decade', "
-        "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}), "
-        "{day: 2}"
-        ") AS result",
-        [{"result": "1980-01-02"}],
-    )
-
-
-def test_string_cypher_executes_temporal_datetime_truncate_with_named_zone() -> None:
-    _assert_query_rows(
-        "RETURN datetime.truncate("
-        "'weekYear', "
-        "localdatetime({year: 1984, month: 1, day: 1, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), "
-        "{timezone: 'Europe/Stockholm'}"
-        ") AS result",
-        [{"result": "1983-01-03T00:00+01:00[Europe/Stockholm]"}],
-    )
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "RETURN date.truncate('decade', date({year: 1984, month: 10, day: 11}), {day: 2}) AS result",
+            [{"result": "1980-01-02"}],
+        ),
+        (
+            "RETURN date.truncate("
+            "'decade', "
+            "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}), "
+            "{day: 2}"
+            ") AS result",
+            [{"result": "1980-01-02"}],
+        ),
+        (
+            "RETURN datetime.truncate("
+            "'weekYear', "
+            "localdatetime({year: 1984, month: 1, day: 1, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), "
+            "{timezone: 'Europe/Stockholm'}"
+            ") AS result",
+            [{"result": "1983-01-03T00:00+01:00[Europe/Stockholm]"}],
+        ),
+    ],
+)
+def test_string_cypher_executes_temporal_truncation_cases(
+    query: str,
+    expected: list[dict[str, object]],
+) -> None:
+    _assert_query_rows(query, expected)
 
 
 @pytest.mark.parametrize(
@@ -3883,53 +5075,93 @@ def test_string_cypher_executes_temporal_duration_string_canonicalization(
     _assert_query_rows(query, [{"result": expected_result}])
 
 
-def test_string_cypher_executes_temporal_localdatetime_weekyear_truncate_day_override() -> None:
+@pytest.mark.parametrize(
+    ("query", "expected_ts", "expected_b"),
+    [
+        # openCypher TCK Temporal6 [6] examples 2 and 8 (pygraphistry #1361 / #1353 item #2):
+        # toString preserves the months/days/seconds-nanos components separately.
+        # Negative days alongside positive hours stay distinct ('-14D + 16H', not collapsed).
+        (
+            "WITH duration({years: 12, months: 5, days: -14, hours: 16}) AS d "
+            "RETURN toString(d) AS ts, duration(toString(d)) = d AS b",
+            "P12Y5M-14DT16H",
+            True,
+        ),
+        # 1 day plus a negative millisecond stays as 'P1DT-0.001S', not 'PT23H59M59.999S'.
+        (
+            "WITH duration({days: 1, milliseconds: -1}) AS d "
+            "RETURN toString(d) AS ts, duration(toString(d)) = d AS b",
+            "P1DT-0.001S",
+            True,
+        ),
+    ],
+)
+def test_string_cypher_duration_tostring_preserves_components(
+    query: str,
+    expected_ts: str,
+    expected_b: bool,
+) -> None:
+    _assert_query_rows(query, [{"ts": expected_ts, "b": expected_b}])
+
+
+def test_string_cypher_duration_equality_is_component_wise() -> None:
+    # openCypher TCK Temporal7 [6] example 8 (pygraphistry #1361 / #1353 item #2):
+    # Two durations with equal total seconds but different (days, seconds) component
+    # shapes are NOT equal. Equality compares months/days/seconds-nanos components,
+    # not just totals.
     _assert_query_rows(
-        "RETURN localdatetime.truncate("
-        "'weekYear', "
-        "localdatetime({year: 1984, month: 1, day: 1, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), "
-        "{day: 5}"
-        ") AS result",
-        [{"result": "1983-01-05T00:00"}],
+        "WITH duration({years: 12, months: 5, days: 14, hours: 16, minutes: 12, seconds: 70}) AS x, "
+        "duration({years: 12, months: 5, days: 13, hours: 40, minutes: 13, seconds: 10}) AS d "
+        "RETURN x = d AS eq",
+        [{"eq": False}],
     )
 
 
-def test_string_cypher_executes_temporal_time_truncate_with_timezone_override() -> None:
-    _assert_query_rows(
-        "RETURN time.truncate("
-        "'hour', "
-        "localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), "
-        "{timezone: '+01:00'}"
-        ") AS result",
-        [{"result": "12:00+01:00"}],
-    )
-
-
-def test_string_cypher_executes_temporal_datetime_hour_truncate_from_localdatetime() -> None:
-    _assert_query_rows(
-        "RETURN datetime.truncate("
-        "'hour', "
-        "localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), "
-        "{nanosecond: 2}"
-        ") AS result",
-        [{"result": "1984-10-11T12:00:00.000000002Z"}],
-    )
-
-
-def test_string_cypher_preserves_truncated_fraction_when_overriding_lower_precision_fields() -> None:
-    _assert_query_rows(
-        "RETURN "
-        "datetime.truncate('millisecond', datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}), {nanosecond: 2}) AS dt_ms, "
-        "datetime.truncate('microsecond', localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), {nanosecond: 2}) AS dt_us, "
-        "time.truncate('microsecond', time({hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}), {nanosecond: 2}) AS t_us",
-        [
-        {
-            "dt_ms": "1984-10-11T12:31:14.645000002+01:00",
-            "dt_us": "1984-10-11T12:31:14.645876002Z",
-            "t_us": "12:31:14.645876002+01:00",
-        }
-        ],
-    )
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "RETURN localdatetime.truncate("
+            "'weekYear', "
+            "localdatetime({year: 1984, month: 1, day: 1, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), "
+            "{day: 5}"
+            ") AS result",
+            [{"result": "1983-01-05T00:00"}],
+        ),
+        (
+            "RETURN time.truncate("
+            "'hour', "
+            "localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), "
+            "{timezone: '+01:00'}"
+            ") AS result",
+            [{"result": "12:00+01:00"}],
+        ),
+        (
+            "RETURN datetime.truncate("
+            "'hour', "
+            "localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), "
+            "{nanosecond: 2}"
+            ") AS result",
+            [{"result": "1984-10-11T12:00:00.000000002Z"}],
+        ),
+        (
+            "RETURN "
+            "datetime.truncate('millisecond', datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}), {nanosecond: 2}) AS dt_ms, "
+            "datetime.truncate('microsecond', localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}), {nanosecond: 2}) AS dt_us, "
+            "time.truncate('microsecond', time({hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}), {nanosecond: 2}) AS t_us",
+            [{
+                "dt_ms": "1984-10-11T12:31:14.645000002+01:00",
+                "dt_us": "1984-10-11T12:31:14.645876002Z",
+                "t_us": "12:31:14.645876002+01:00",
+            }],
+        ),
+    ],
+)
+def test_string_cypher_executes_temporal_truncation_override_cases(
+    query: str,
+    expected: list[dict[str, object]],
+) -> None:
+    _assert_query_rows(query, expected)
 
 
 def test_string_cypher_executes_duration_between_with_alias_properties() -> None:
@@ -4071,6 +5303,16 @@ def test_string_cypher_executes_extreme_year_duration_functions() -> None:
         ),
         (
             "MATCH p = (n)-[r:T]->() RETURN [x IN [1, '', r] | toString(x) ] AS list",
+            pd.DataFrame({"id": ["n1", "n2"]}),
+            pd.DataFrame({"s": ["n1"], "d": ["n2"], "type": ["T"]}),
+        ),
+        (
+            "MATCH p = (n)-[r:T]->() RETURN [x IN [1, '', []] | toString(x) ] AS list",
+            pd.DataFrame({"id": ["n1", "n2"]}),
+            pd.DataFrame({"s": ["n1"], "d": ["n2"], "type": ["T"]}),
+        ),
+        (
+            "MATCH p = (n)-[r:T]->() RETURN [x IN [1, '', {}] | toString(x) ] AS list",
             pd.DataFrame({"id": ["n1", "n2"]}),
             pd.DataFrame({"s": ["n1"], "d": ["n2"], "type": ["T"]}),
         ),
@@ -4219,19 +5461,43 @@ def test_string_cypher_rejects_placeholder_quantifier_overlap_query_as_syntax() 
 
 
 @pytest.mark.parametrize(
-    "query",
+    "query, expected_message, expect_issue_ref",
     [
-        "MATCH (a {name: 'Andres'})<-[:FATHER]-(child)\nRETURN a.name, {foo: a.name='Andres', kids: collect(child.name)}",
-        "MATCH (me: Person)--(you: Person)\nWITH me.age AS age, you\nRETURN age, age + count(you.age)",
-        "MATCH (me: Person)--(you: Person)\nRETURN me.age, me.age + count(you.age)",
-        "MATCH (me: Person)--(you: Person)\nRETURN me.age AS age, count(you.age) AS cnt\nORDER BY age, age + count(you.age)",
+        (
+            "MATCH (a {name: 'Andres'})<-[:FATHER]-(child)\nRETURN a.name, {foo: a.name='Andres', kids: collect(child.name)}",
+            "aggregate expressions inside map literals",
+            False,
+        ),
+        (
+            "MATCH (me: Person)--(you: Person)\nWITH me.age AS age, you\nRETURN age, age + count(you.age)",
+            "one MATCH source alias at a time",
+            True,
+        ),
+        (
+            "MATCH (me: Person)--(you: Person)\nRETURN me.age, me.age + count(you.age)",
+            "one MATCH source alias at a time",
+            True,
+        ),
+        (
+            "MATCH (me: Person)--(you: Person)\nRETURN me.age AS age, count(you.age) AS cnt\nORDER BY age, age + count(you.age)",
+            "one MATCH source alias at a time",
+            True,
+        ),
     ],
 )
-def test_string_cypher_rejects_unsound_multi_source_aggregate_overlap_queries(query: str) -> None:
+def test_string_cypher_rejects_unsound_multi_source_aggregate_overlap_queries(
+    query: str,
+    expected_message: str,
+    expect_issue_ref: bool,
+) -> None:
     g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
 
-    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time"):
+    with pytest.raises(GFQLValidationError, match=expected_message) as exc_info:
         g.gfql(query)
+    if expect_issue_ref:
+        assert "#1273" in exc_info.value.message
+    else:
+        assert "#1273" not in exc_info.value.message
 
 
 @pytest.mark.parametrize(
@@ -4490,7 +5756,7 @@ def test_string_cypher_executes_graph_backed_unwind_after_with_into_post_with_ma
     )
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"id": "c1"},
         {"id": "c2"},
     ]
@@ -4511,6 +5777,7 @@ def test_string_cypher_with_unwind_reentry_progresses_past_parser_to_row_scope_b
 
     assert exc_info.value.code == ErrorCode.E108
     assert "one MATCH source alias at a time" in exc_info.value.message
+    assert "#1273" in exc_info.value.message
 
 
 def test_string_cypher_rejects_with_unwind_reentry_when_unwind_source_is_not_collected_alias() -> None:
@@ -4525,11 +5792,9 @@ def test_string_cypher_rejects_with_unwind_reentry_when_unwind_source_is_not_col
     with pytest.raises(GFQLValidationError) as exc_info:
         compile_cypher(query)
 
-    assert exc_info.value.code == ErrorCode.E108
-    assert (
-        "currently supports only a single WITH collect([distinct] alias) AS list "
-        "UNWIND list AS alias MATCH ... RETURN shape"
-    ) in exc_info.value.message
+    assert exc_info.value.code == ErrorCode.E204
+    assert exc_info.value.context.get("field") == "identifier"
+    assert exc_info.value.context.get("value") == "other_bees"
 
 
 def test_string_cypher_executes_exact_multihop_relationship_pattern() -> None:
@@ -4737,24 +6002,78 @@ def test_string_cypher_supports_unused_named_path_alias_for_endpoint_projection(
 
 
 @pytest.mark.parametrize(
-    "query",
+    "query,expected_names",
     [
-        "MATCH (a:A) MATCH (a)-[:LIKES*1]->()-[:LIKES]->(c) RETURN c.name",
-        "MATCH (a:A) MATCH (a)-[:LIKES*2]->()-[:LIKES]->(c) RETURN c.name",
-        "MATCH (a:A) MATCH (a)-[:LIKES]->()-[:LIKES*3]->(c) RETURN c.name",
-        "MATCH (a:A) MATCH (a)<-[:LIKES]-()-[:LIKES*3]->(c) RETURN c.name",
+        ("MATCH (a:A) MATCH (a)-[:LIKES*1]->()-[:LIKES]->(c) RETURN c.name AS name", ["C"]),
+        ("MATCH (a:A) MATCH (a)-[:LIKES*2]->()-[:LIKES]->(c) RETURN c.name AS name", ["D"]),
+        ("MATCH (a:A) MATCH (a)-[:LIKES]->()-[:LIKES*3]->(c) RETURN c.name AS name", []),
+        ("MATCH (a:A) MATCH (a)<-[:LIKES]-()-[:LIKES*3]->(c) RETURN c.name AS name", []),
     ],
 )
 def test_string_cypher_accepts_nonterminal_variable_length_relationship_patterns(
     query: str,
+    expected_names: List[str],
 ) -> None:
-    """Connected patterns with non-terminal variable-length relationships are now supported."""
+    """Connected reentry forms with varlen rels return expected rows."""
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c", "d"], "label__A": [True, False, False, False], "name": ["A", "B", "C", "D"]}),
         pd.DataFrame({"s": ["a", "b", "c"], "d": ["b", "c", "d"], "type": ["LIKES", "LIKES", "LIKES"]}),
     )
     result = graph.gfql(query)
-    assert result._nodes is not None
+    got_names = _to_pandas_df(result._nodes)["name"].tolist()
+    assert got_names == expected_names
+
+
+def test_string_cypher_two_match_reentry_varlen_forward_matches_connected_shape() -> None:
+    """Regression for #1001: split MATCH form should match connected form rows."""
+    nodes = []
+    edges = []
+    for level in range(5):
+        for idx in range(2 ** level):
+            node_id = f"n{level}_{idx}"
+            nodes.append({"id": node_id, "label__A": level == 0, "name": node_id})
+            if level > 0:
+                parent = f"n{level - 1}_{idx // 2}"
+                edges.append({"s": parent, "d": node_id, "type": "LIKES"})
+
+    graph = _mk_graph(pd.DataFrame(nodes), pd.DataFrame(edges))
+    split_query = "MATCH (a:A) MATCH (a)-[:LIKES]->()-[:LIKES*3]->(c) RETURN c.name AS name ORDER BY name"
+    connected_query = "MATCH (a:A)-[:LIKES]->()-[:LIKES*3]->(c) RETURN c.name AS name ORDER BY name"
+
+    split_rows = graph.gfql(split_query)._nodes.to_dict(orient="records")
+    connected_rows = graph.gfql(connected_query)._nodes.to_dict(orient="records")
+
+    assert split_rows == connected_rows
+    assert split_rows == [{"name": name} for name in sorted(f"n4_{i}" for i in range(16))]
+
+
+def test_string_cypher_two_match_reentry_varlen_reverse_matches_connected_shape() -> None:
+    """Regression for #1001 reverse direction shape from TCK-style query."""
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "x", "y1", "y2", "c1", "c2"],
+                "label__A": [True, False, False, False, False, False],
+                "name": ["a", "x", "y1", "y2", "c1", "c2"],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["x", "x", "y1", "y2", "y2"],
+                "d": ["a", "y1", "y2", "c1", "c2"],
+                "type": ["LIKES", "LIKES", "LIKES", "LIKES", "LIKES"],
+            }
+        ),
+    )
+
+    split_query = "MATCH (a:A) MATCH (a)<-[:LIKES]-()-[:LIKES*3]->(c) RETURN c.name AS name ORDER BY name"
+    connected_query = "MATCH (a:A)<-[:LIKES]-()-[:LIKES*3]->(c) RETURN c.name AS name ORDER BY name"
+
+    split_rows = graph.gfql(split_query)._nodes.to_dict(orient="records")
+    connected_rows = graph.gfql(connected_query)._nodes.to_dict(orient="records")
+
+    assert split_rows == connected_rows
+    assert split_rows == [{"name": "c1"}, {"name": "c2"}]
 
 
 def _mk_chain_graph():
@@ -4826,23 +6145,192 @@ def test_connected_variable_length_typed_mixed() -> None:
     assert ids == ["d"]
 
 
+def _mk_tck_pattern_predicate_graph(engine: str | None = None) -> _CypherTestGraph:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d"],
+            "label__A": [True, False, False, False],
+            "label__B": [False, True, False, False],
+            "label__C": [False, False, True, False],
+            "label__D": [False, False, False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "b", "a", "a"],
+            "d": ["b", "a", "c", "d"],
+            "type": ["REL1", "REL2", "REL3", "REL1"],
+        }
+    )
+    if engine == "cudf":
+        _require_cudf_runtime()
+        return _mk_cudf_graph(nodes, edges)
+    return _mk_graph(nodes, edges)
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
 @pytest.mark.parametrize(
-    "query",
+    "query,expected_rows",
     [
-        "MATCH (n) WHERE (n)-[:REL1*2]-() RETURN n",
-        "MATCH (n) WHERE (n)-[*2]-() RETURN n",
-        "MATCH (n) WHERE (n)<-[:REL1*1..2]-() RETURN n",
-        "MATCH (n) WHERE (n)-[:REL1*2]-() AND n.id <> 'a' RETURN n",
+        (
+            "MATCH (n) WHERE (n)-[:REL1*2]-() RETURN n ORDER BY n.id",
+            [{"n": "(:B)"}, {"n": "(:D)"}],
+        ),
+        (
+            "MATCH (n), (m) WHERE (n)-[:REL1|REL2|REL3|REL4]-(m) RETURN n, m ORDER BY n.id, m.id",
+            [
+                {"n": "(:A)", "m": "(:B)"},
+                {"n": "(:A)", "m": "(:C)"},
+                {"n": "(:A)", "m": "(:D)"},
+                {"n": "(:B)", "m": "(:A)"},
+                {"n": "(:C)", "m": "(:A)"},
+                {"n": "(:D)", "m": "(:A)"},
+            ],
+        ),
+        (
+            "MATCH (n), (m) WHERE (n)-[:REL1*2]-(m) RETURN n, m ORDER BY n.id, m.id",
+            [
+                {"n": "(:B)", "m": "(:D)"},
+                {"n": "(:D)", "m": "(:B)"},
+            ],
+        ),
     ],
 )
-def test_string_cypher_failfast_rejects_bounded_variable_length_where_pattern_predicates(query: str) -> None:
-    graph = _mk_empty_graph()
+def test_string_cypher_pattern_predicates_are_existence_checks_not_row_expansions(
+    engine: str | None,
+    query: str,
+    expected_rows: list[dict[str, object]],
+) -> None:
+    graph = _mk_tck_pattern_predicate_graph(engine)
+    kwargs = {"engine": "cudf"} if engine == "cudf" else {}
 
-    with pytest.raises(GFQLValidationError) as exc_info:
-        graph.gfql(query)
+    result = graph.gfql(query, **kwargs)
 
-    assert exc_info.value.code == ErrorCode.E108
-    assert "WHERE pattern predicates" in exc_info.value.message
+    if engine == "cudf":
+        assert type(result._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == expected_rows
+
+
+@pytest.mark.parametrize(
+    "query,expected_rows",
+    [
+        (
+            "MATCH (n) WHERE (n)-[:REL1*2]->() RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-[*2]->() RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)<-[:REL1*1..2]-() RETURN n.id AS id ORDER BY id",
+            [{"id": "b"}, {"id": "c"}, {"id": "d"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-[:REL1*2]->() AND n.id <> 'a' RETURN n.id AS id ORDER BY id",
+            [{"id": "b"}],
+        ),
+    ],
+)
+def test_string_cypher_executes_bounded_variable_length_where_pattern_predicates(
+    query: str,
+    expected_rows: list[dict[str, object]],
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c"],
+                "d": ["b", "c", "d"],
+                "type": ["REL1", "REL1", "REL1"],
+            }
+        ),
+    )
+
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected_rows
+
+
+@pytest.mark.parametrize(
+    "query,expected_rows",
+    [
+        (
+            "MATCH (n) WHERE (n)-[:REL1*2]->() OR n.id = 'd' RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}, {"id": "d"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-[:REL1*2]->() XOR n.id = 'd' RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}, {"id": "d"}],
+        ),
+        (
+            "MATCH (n) WHERE NOT (n)-[:REL1*2]->() RETURN n.id AS id ORDER BY id",
+            [{"id": "c"}, {"id": "d"}],
+        ),
+    ],
+)
+def test_string_cypher_executes_bounded_variable_length_where_pattern_boolean_wrappers(
+    query: str,
+    expected_rows: list[dict[str, object]],
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c"],
+                "d": ["b", "c", "d"],
+                "type": ["REL1", "REL1", "REL1"],
+            }
+        ),
+    )
+
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected_rows
+
+
+def test_string_cypher_executes_conjoined_bounded_varlen_where_predicates_across_edge_types() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d", "e"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c", "a", "b"],
+                "d": ["b", "c", "d", "e", "e"],
+                "type": ["REL1", "REL1", "REL1", "REL2", "REL2"],
+            }
+        ),
+    )
+
+    rows_forward = graph.gfql(
+        "MATCH (n) WHERE (n)-[:REL1*2]->() AND (n)-[:REL2*1]->() RETURN n.id AS id ORDER BY id"
+    )._nodes.to_dict(orient="records")
+    rows_reverse = graph.gfql(
+        "MATCH (n) WHERE (n)-[:REL2*1]->() AND (n)-[:REL1*2]->() RETURN n.id AS id ORDER BY id"
+    )._nodes.to_dict(orient="records")
+
+    assert rows_forward == [{"id": "a"}, {"id": "b"}]
+    assert rows_reverse == [{"id": "a"}, {"id": "b"}]
+    assert rows_forward == rows_reverse
+
+
+def test_string_cypher_executes_xor_between_bounded_reverse_and_forward_where_patterns() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c"],
+                "d": ["b", "c", "d"],
+                "type": ["REL1", "REL1", "REL1"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) WHERE (n)<-[:REL1*1..2]-() XOR (n)-[:REL1*2]->() RETURN n.id AS id ORDER BY id"
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": "a"},
+        {"id": "c"},
+        {"id": "d"},
+    ]
 
 
 
@@ -4850,9 +6338,20 @@ def test_string_cypher_failfast_rejects_bounded_variable_length_where_pattern_pr
     "query",
     [
         "MATCH (a)-[:KNOWS]-(b) RETURN not((a)-[:KNOWS]-(b)) AS isNew",
+        "MATCH (a)-[:KNOWS]-(b) RETURN not((a:Person)-[:KNOWS]-(b)) AS isNew",
+        "MATCH (a)-[:KNOWS]-(b) RETURN not((a)-[:KNOWS {w: 1}]-(b)) AS isNew",
+        "MATCH (a)-[:KNOWS]-(b) RETURN not((a)-[:KNOWS]-(:Person)) AS isNew",
+        "MATCH (a)-[:KNOWS]-(b) RETURN not((a)<-[:KNOWS]-(b)) AS isNew",
+        "MATCH (a)-[:KNOWS]-(b) RETURN not((a)--(b)) AS isNew",
+        "MATCH (a)-[:KNOWS]-(b) RETURN not((a)-[:KNOWS*]->(b)) AS isNew",
+        "MATCH (a)-[:KNOWS]-(b) RETURN not((a)-[k:KNOWS]->(b)) AS isNew",
+        "MATCH (a)-[:KNOWS]-(b) RETURN not/*inline*/((a)-[:KNOWS]-(b)) AS isNew",
         "MATCH (a) RETURN exists { (a)-[:KNOWS]-() } AS has",
+        "MATCH (a) RETURN exists/*inline*/{ (a)-[:KNOWS]-() } AS has",
         "MATCH (a) RETURN not exists { (a)-[:KNOWS]-() } AS no",
+        "MATCH (a) RETURN not/*inline*/exists/*inline*/{ (a)-[:KNOWS]-() } AS no",
         "MATCH (a) WHERE exists { (a)-[:KNOWS]-() } RETURN a.id",
+        "MATCH (a) WHERE exists/*inline*/{ (a)-[:KNOWS]-() } RETURN a.id",
     ],
 )
 def test_string_cypher_failfast_rejects_pattern_existence(query: str) -> None:
@@ -4917,20 +6416,162 @@ def test_string_cypher_executes_where_pattern_predicate_and_expr_mix(
 
 
 @pytest.mark.parametrize(
-    "query",
+    "query,expected_rows",
     [
-        "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'z' RETURN n",
-        "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n",
+        (
+            "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'd' RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}, {"id": "d"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-[:R]->() XOR n.id = 'd' RETURN n.id AS id ORDER BY id",
+            [{"id": "a"}, {"id": "b"}, {"id": "d"}],
+        ),
+        (
+            "MATCH (n) WHERE (n)-[:R]->() XOR n.id = 'a' RETURN n.id AS id ORDER BY id",
+            [{"id": "b"}],
+        ),
     ],
 )
-def test_string_cypher_failfast_rejects_unsupported_mixed_variable_length_where_pattern_predicates(query: str) -> None:
-    graph = _mk_empty_graph()
+def test_string_cypher_executes_or_xor_around_pattern_predicates(
+    query: str,
+    expected_rows: list[dict[str, object]],
+) -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "a", "b"],
+                "d": ["b", "c", "c"],
+                "type": ["R", "R", "R"],
+            }
+        ),
+    )
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected_rows
 
-    with pytest.raises(GFQLValidationError) as exc_info:
-        graph.gfql(query)
 
-    assert exc_info.value.code == ErrorCode.E108
-    assert "mixed with generic row expressions" in exc_info.value.message
+def test_string_cypher_failfast_rejects_not_over_pattern_or_expr_compound() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "a", "b"],
+                "d": ["b", "c", "c"],
+                "type": ["R", "R", "R"],
+            }
+        ),
+    )
+
+    with pytest.raises(GFQLValidationError, match="Pattern existence expressions"):
+        graph.gfql("MATCH (n) WHERE NOT ((n)-[:R]->() OR n.id = 'd') RETURN n.id AS id")
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n.id AS id ORDER BY id",
+        "MATCH (n) WHERE NOT (n)-[:R]->() RETURN n.id AS id ORDER BY id",
+    ],
+)
+def test_string_cypher_executes_negated_pattern_where_predicate(query: str) -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "a", "b"],
+                "d": ["b", "c", "c"],
+                "type": ["R", "R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": "c"},
+        {"id": "d"},
+    ]
+
+
+def test_string_cypher_executes_mixed_row_and_negated_pattern_where_predicate() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "a", "b"],
+                "d": ["b", "c", "c"],
+                "type": ["R", "R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (n) WHERE n.id <> 'd' AND NOT (n)-[:R]->() RETURN n.id AS id ORDER BY id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"id": "c"}]
+
+
+def test_string_cypher_executes_bound_alias_negated_pattern_where_predicate() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c"],
+                "d": ["b", "a", "d"],
+                "type": ["R", "R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (a)-[:R]->(b) "
+        "WHERE NOT (b)-[:R]->(a) "
+        "RETURN a.id AS a_id, b.id AS b_id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"a_id": "c", "b_id": "d"}]
+
+
+def test_string_cypher_executes_mixed_row_and_bound_alias_negated_pattern_where_predicate() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d", "e"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "c", "d"],
+                "d": ["b", "a", "d", "e"],
+                "type": ["R", "R", "R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (a)-[:R]->(b) "
+        "WHERE a.id <> 'd' AND NOT (b)-[:R]->(a) "
+        "RETURN a.id AS a_id, b.id AS b_id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"a_id": "c", "b_id": "d"}]
+
+
+def test_string_cypher_executes_ic10_shaped_bound_alias_negated_pattern_where_predicate() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d", "e"]}),
+        pd.DataFrame(
+            {
+                "s": ["a", "b", "b", "a", "c"],
+                "d": ["b", "c", "d", "d", "e"],
+                "type": ["R", "R", "R", "R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (root {id: 'a'})-[:R]->(mid)-[:R]->(cand) "
+        "WHERE NOT (root)-[:R]->(cand) "
+        "RETURN cand.id AS cand_id ORDER BY cand_id"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"cand_id": "c"}]
 
 
 def test_string_cypher_failfast_rejects_multi_alias_return_star_projection() -> None:
@@ -5360,7 +7001,7 @@ def test_string_cypher_supports_unwind_keys_on_cudf() -> None:
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"theProps": "active"},
         {"theProps": "name"},
         {"theProps": "score"},
@@ -5482,8 +7123,15 @@ def test_string_cypher_supports_graph_functions_on_list_wrapped_entities() -> No
     assert type_result._nodes.to_dict(orient="records") == [{"t": "T"}]
 
 
-def test_string_cypher_supports_graph_functions_on_list_wrapped_entities_on_cudf() -> None:
+def test_string_cypher_supports_graph_functions_on_list_wrapped_entities_on_cudf(monkeypatch) -> None:
     cudf = pytest.importorskip("cudf")
+    import graphistry.compute.gfql.row.pipeline as row_pipeline
+
+    monkeypatch.setattr(
+        row_pipeline,
+        "_gfql_bridge_cudf_df_to_pandas",
+        lambda _df: (_ for _ in ()).throw(AssertionError("projection should not bridge the full cuDF row table")),
+    )
 
     nodes = cudf.from_pandas(
         pd.DataFrame(
@@ -5506,11 +7154,11 @@ def test_string_cypher_supports_graph_functions_on_list_wrapped_entities_on_cudf
     graph = _mk_graph(nodes, edges)
 
     labels_result = graph.gfql(
-        "MATCH (a) WITH [a, 1] AS list RETURN labels(list[0]) AS l ORDER BY l",
+        "MATCH (a) WITH [a, 1] AS list RETURN labels(list[0]) AS l",
         engine="cudf",
     )
     assert sorted(
-        labels_result._nodes.to_pandas().to_dict(orient="records"),
+        _to_pandas_df(labels_result._nodes).to_dict(orient="records"),
         key=lambda row: (len(row["l"]), row["l"]),
     ) == [
         {"l": "['Foo']"},
@@ -5521,7 +7169,7 @@ def test_string_cypher_supports_graph_functions_on_list_wrapped_entities_on_cudf
         "MATCH ()-[r]->() WITH [r, 1] AS list RETURN type(list[0]) AS t",
         engine="cudf",
     )
-    assert type_result._nodes.to_pandas().to_dict(orient="records") == [{"t": "T"}]
+    assert _to_pandas_df(type_result._nodes).to_dict(orient="records") == [{"t": "T"}]
 
 
 def test_string_cypher_supports_null_graph_functions_in_multi_alias_projection() -> None:
@@ -5571,7 +7219,7 @@ def test_string_cypher_supports_top_level_optional_match_null_rows_for_labels_on
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"ln": None, "nn": None}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"ln": None, "nn": None}]
 
 
 def test_string_cypher_supports_optional_match_inline_missing_label_on_cudf() -> None:
@@ -5595,7 +7243,7 @@ def test_string_cypher_supports_optional_match_inline_missing_label_on_cudf() ->
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"r": None}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"r": None}]
 
 
 def test_string_cypher_supports_top_level_optional_match_null_rows_for_property_access() -> None:
@@ -5701,7 +7349,7 @@ def test_string_cypher_supports_dynamic_graph_property_lookup_on_cudf() -> None:
 
     result = graph.gfql("MATCH (n {name: 'Apa'}) RETURN n['nam' + 'e'] AS value", engine="cudf")
 
-    nodes_df = result._nodes.to_pandas() if hasattr(result._nodes, "to_pandas") else result._nodes
+    nodes_df = _to_pandas_df(result._nodes)
     assert nodes_df.to_dict(orient="records") == [{"value": "Apa"}]
 
 
@@ -5777,7 +7425,7 @@ def test_string_cypher_supports_property_access_on_list_wrapped_node_and_relatio
         "MATCH (n) WITH [123, n] AS list RETURN (list[1]).missing, (list[1]).missingToo, (list[1]).existing",
         engine="cudf",
     )
-    assert node_result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(node_result._nodes).to_dict(orient="records") == [
         {"(list[1]).missing": None, "(list[1]).missingToo": None, "(list[1]).existing": 42},
         {"(list[1]).missing": None, "(list[1]).missingToo": None, "(list[1]).existing": None},
     ]
@@ -5786,7 +7434,7 @@ def test_string_cypher_supports_property_access_on_list_wrapped_node_and_relatio
         "MATCH ()-[r]->() WITH [123, r] AS list RETURN (list[1]).missing, (list[1]).missingToo, (list[1]).existing",
         engine="cudf",
     )
-    assert rel_result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(rel_result._nodes).to_dict(orient="records") == [
         {"(list[1]).missing": None, "(list[1]).missingToo": None, "(list[1]).existing": 42},
     ]
 
@@ -5803,8 +7451,15 @@ def test_string_cypher_supports_property_access_on_list_wrapped_map_values() -> 
     ]
 
 
-def test_string_cypher_supports_property_access_on_list_wrapped_map_values_on_cudf() -> None:
+def test_string_cypher_supports_property_access_on_list_wrapped_map_values_on_cudf(monkeypatch) -> None:
     cudf = pytest.importorskip("cudf")
+    import graphistry.compute.gfql.row.pipeline as row_pipeline
+
+    monkeypatch.setattr(
+        row_pipeline,
+        "_gfql_bridge_cudf_df_to_pandas",
+        lambda _df: (_ for _ in ()).throw(AssertionError("projection should not bridge the full cuDF row table")),
+    )
 
     graph = _mk_graph(
         cudf.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
@@ -5816,7 +7471,7 @@ def test_string_cypher_supports_property_access_on_list_wrapped_map_values_on_cu
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"(list[1]).missing": None, "(list[1]).notMissing": None, "(list[1]).existing": 42}
     ]
 
@@ -5998,6 +7653,8 @@ def test_compile_cypher_call_returns_procedure_program(query: str, procedure: st
     assert compiled.procedure_call is not None
     assert compiled.procedure_call.procedure == procedure
     assert compiled.procedure_call.result_kind == result_kind
+    assert compiled.logical_plan is not None
+    assert compiled.logical_plan_defer_reason is None
 
 
 def test_cypher_to_gfql_rejects_call_programs() -> None:
@@ -6634,6 +8291,230 @@ def test_string_cypher_rejects_invalid_range_arguments(query: str, pattern: str)
         g.gfql(query)
 
 
+_TEMPORAL7_COMPARISON_CASES: Tuple[Tuple[str, str, Dict[str, bool]], ...] = (
+    (
+        "date-before",
+        "WITH date({year: 1980, month: 12, day: 24}) AS x, "
+        "date({year: 1984, month: 10, day: 11}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": True, "x >= d": False, "x <= d": True, "x = d": False},
+    ),
+    (
+        "date-equal",
+        "WITH date({year: 1984, month: 10, day: 11}) AS x, "
+        "date({year: 1984, month: 10, day: 11}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": False, "x >= d": True, "x <= d": True, "x = d": True},
+    ),
+    (
+        "localtime-before",
+        "WITH localtime({hour: 10, minute: 35}) AS x, "
+        "localtime({hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": True, "x >= d": False, "x <= d": True, "x = d": False},
+    ),
+    (
+        "localtime-equal",
+        "WITH localtime({hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS x, "
+        "localtime({hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": False, "x >= d": True, "x <= d": True, "x = d": True},
+    ),
+    (
+        "time-before-offset",
+        "WITH time({hour: 10, minute: 0, timezone: '+01:00'}) AS x, "
+        "time({hour: 9, minute: 35, second: 14, nanosecond: 645876123, timezone: '+00:00'}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": True, "x >= d": False, "x <= d": True, "x = d": False},
+    ),
+    (
+        "time-equal-offset",
+        "WITH time({hour: 9, minute: 35, second: 14, nanosecond: 645876123, timezone: '+00:00'}) AS x, "
+        "time({hour: 9, minute: 35, second: 14, nanosecond: 645876123, timezone: '+00:00'}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": False, "x >= d": True, "x <= d": True, "x = d": True},
+    ),
+    (
+        "localdatetime-before",
+        "WITH localdatetime({year: 1980, month: 12, day: 11, hour: 12, minute: 31, second: 14}) AS x, "
+        "localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": True, "x >= d": False, "x <= d": True, "x = d": False},
+    ),
+    (
+        "localdatetime-equal",
+        "WITH localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS x, "
+        "localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": False, "x >= d": True, "x <= d": True, "x = d": True},
+    ),
+    (
+        "datetime-before-offset",
+        "WITH datetime({year: 1980, month: 12, day: 11, hour: 12, minute: 31, second: 14, timezone: '+00:00'}) AS x, "
+        "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, timezone: '+05:00'}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": True, "x >= d": False, "x <= d": True, "x = d": False},
+    ),
+    (
+        "datetime-equal-offset",
+        "WITH datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, timezone: '+05:00'}) AS x, "
+        "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, timezone: '+05:00'}) AS d "
+        "RETURN x > d, x < d, x >= d, x <= d, x = d",
+        {"x > d": False, "x < d": False, "x >= d": True, "x <= d": True, "x = d": True},
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [(query, expected) for _, query, expected in _TEMPORAL7_COMPARISON_CASES],
+    ids=[case_id for case_id, _, _ in _TEMPORAL7_COMPARISON_CASES],
+)
+def test_string_cypher_temporal7_comparison_truth_table(
+    query: str,
+    expected: dict[str, bool],
+) -> None:
+    _assert_query_rows(query, [expected])
+
+
+_TEMPORAL_LITERAL_CONSTRUCTOR_COMPARISON_CASES: Tuple[Tuple[str, str, Dict[str, bool]], ...] = (
+    (
+        "date-literal-constructor-equal",
+        "WITH date('1984-10-11') AS x, "
+        "date({year: 1984, month: 10, day: 11}) AS d "
+        "RETURN x = d AS eq, x <= d AS le, x >= d AS ge",
+        {"eq": True, "le": True, "ge": True},
+    ),
+    (
+        "time-literal-constructor-equal-offset",
+        "WITH time('10:00:00+01:00') AS x, "
+        "time({hour: 9, minute: 0, timezone: '+00:00'}) AS d "
+        "RETURN x = d AS eq, x <= d AS le, x >= d AS ge",
+        {"eq": True, "le": True, "ge": True},
+    ),
+    (
+        "datetime-literal-constructor-equal-offset",
+        "WITH datetime('1984-10-11T12:31:14+05:00') AS x, "
+        "datetime({year: 1984, month: 10, day: 11, hour: 7, minute: 31, second: 14, timezone: '+00:00'}) AS d "
+        "RETURN x = d AS eq, x <= d AS le, x >= d AS ge",
+        {"eq": True, "le": True, "ge": True},
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [(query, expected) for _, query, expected in _TEMPORAL_LITERAL_CONSTRUCTOR_COMPARISON_CASES],
+    ids=[case_id for case_id, _, _ in _TEMPORAL_LITERAL_CONSTRUCTOR_COMPARISON_CASES],
+)
+def test_string_cypher_temporal_comparison_mixes_literal_and_constructor_forms(
+    query: str,
+    expected: dict[str, bool],
+) -> None:
+    _assert_query_rows(query, [expected])
+
+
+_CUDF_TEMPORAL_COMPARISON_CASES = (
+    _TEMPORAL7_COMPARISON_CASES
+    + _TEMPORAL_LITERAL_CONSTRUCTOR_COMPARISON_CASES
+)
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [(query, expected) for _, query, expected in _CUDF_TEMPORAL_COMPARISON_CASES],
+    ids=[case_id for case_id, _, _ in _CUDF_TEMPORAL_COMPARISON_CASES],
+)
+def test_string_cypher_temporal_comparison_cases_cudf(
+    query: str,
+    expected: dict[str, bool],
+) -> None:
+    _require_cudf_runtime()
+    graph = _mk_cudf_graph(
+        pd.DataFrame({"id": []}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    assert type(graph._nodes).__module__.startswith("cudf")
+    assert type(graph._edges).__module__.startswith("cudf")
+    result = graph.gfql(query, engine="cudf")
+    assert type(result._nodes).__module__.startswith("cudf")
+
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [expected]
+
+
+_TEMPORAL_PROPERTY_ORDER_BY_CASES: Tuple[Tuple[str, pd.DataFrame, List[str]], ...] = (
+    (
+        "date-property-order",
+        pd.DataFrame(
+            {
+                "id": ["early", "same", "late"],
+                "v": [
+                    "date({year: 1980, month: 12, day: 24})",
+                    "date({year: 1984, month: 10, day: 11})",
+                    "date({year: 1985, month: 5, day: 6})",
+                ],
+            }
+        ),
+        ["early", "same", "late"],
+    ),
+    (
+        "time-property-order-offset",
+        pd.DataFrame(
+            {
+                "id": ["offset", "later", "earliest"],
+                "v": [
+                    "time({hour: 10, minute: 0, timezone: '+01:00'})",
+                    "time({hour: 9, minute: 35, second: 14, nanosecond: 645876123, timezone: '+00:00'})",
+                    "time({hour: 8, minute: 0, timezone: '+00:00'})",
+                ],
+            }
+        ),
+        ["earliest", "offset", "later"],
+    ),
+    (
+        "datetime-property-order-offset",
+        pd.DataFrame(
+            {
+                "id": ["offset", "after", "earliest"],
+                "v": [
+                    "datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, timezone: '+05:00'})",
+                    "datetime({year: 1984, month: 10, day: 11, hour: 8, minute: 31, second: 14, timezone: '+00:00'})",
+                    "datetime({year: 1980, month: 12, day: 11, hour: 12, minute: 31, second: 14, timezone: '+00:00'})",
+                ],
+            }
+        ),
+        ["earliest", "offset", "after"],
+    ),
+)
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+@pytest.mark.parametrize(
+    ("nodes_df", "expected"),
+    [(nodes_df, expected) for _, nodes_df, expected in _TEMPORAL_PROPERTY_ORDER_BY_CASES],
+    ids=[case_id for case_id, _, _ in _TEMPORAL_PROPERTY_ORDER_BY_CASES],
+)
+def test_string_cypher_temporal_property_order_by_cases_on_engine(
+    nodes_df: pd.DataFrame,
+    expected: list[str],
+    engine: Optional[str],
+) -> None:
+    edges_df = pd.DataFrame({"s": [], "d": []})
+    query = "MATCH (n) RETURN n.id AS id, n.v AS v ORDER BY v ASC"
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes_df, edges_df)
+        assert type(graph._nodes).__module__.startswith("cudf")
+        assert type(graph._edges).__module__.startswith("cudf")
+        result = graph.gfql(query, engine="cudf")
+        assert type(result._nodes).__module__.startswith("cudf")
+    else:
+        result = _mk_graph(nodes_df, edges_df).gfql(query)
+
+    assert _to_pandas_df(result._nodes)["id"].tolist() == expected
+
+
 def test_string_cypher_supports_time_comparison_consistent_with_sort_order() -> None:
     _assert_query_rows(
         "WITH ["
@@ -6728,34 +8609,12 @@ def test_string_cypher_supports_date_comparison_consistent_with_sort_order() -> 
     )
 
 
-def test_string_cypher_supports_order_by_list_literal_and_subscript_expression() -> None:
-    g = _mk_graph(
-        pd.DataFrame(
-            {
-                "id": ["a", "b", "c", "d", "e"],
-                "list": [[2, -2], [1, 2], [300, 0], [1, -20], [2, -2, 100]],
-                "list2": [[3, -2], [2, -2], [1, -2], [4, -2], [5, -2]],
-            }
-        ),
-        pd.DataFrame({"s": [], "d": []}),
-    )
+def test_string_cypher_order_by_stringified_list_column_uses_list_orderability() -> None:
+    """Thin cypher integration smoke for stringified-list ORDER BY semantics.
 
-    result = g.gfql(
-        "MATCH (a) "
-        "WITH a "
-        "ORDER BY [a.list2[1], a.list2[0], a.list[1]] + a.list + a.list2 "
-        "LIMIT 3 "
-        "RETURN a"
-    )
-
-    assert result._nodes.to_dict(orient="records") == [
-        {"a": "({list: [300, 0], list2: [1, -2]})"},
-        {"a": "({list: [1, 2], list2: [2, -2]})"},
-        {"a": "({list: [2, -2], list2: [3, -2]})"},
-    ]
-
-
-def test_string_cypher_supports_order_by_stringified_list_subscript_expression() -> None:
+    Row-orderability specifics are covered in row-pipeline tests under
+    `graphistry/tests/compute/gfql/row/test_ordering.py`.
+    """
     g = _mk_graph(
         pd.DataFrame(
             {
@@ -6764,28 +8623,28 @@ def test_string_cypher_supports_order_by_stringified_list_subscript_expression()
                     ["[2, -2]", "[1, 2]", "[300, 0]", "[1, -20]", "[2, -2, 100]"],
                     dtype="string",
                 ),
-                "list2": pd.Series(
-                    ["[3, -2]", "[2, -2]", "[1, -2]", "[4, -2]", "[5, -2]"],
-                    dtype="string",
-                ),
             }
         ),
         pd.DataFrame({"s": [], "d": []}),
     )
 
-    result = g.gfql(
+    asc = g.gfql(
         "MATCH (a) "
-        "WITH a "
-        "ORDER BY [a.list2[1], a.list2[0], a.list[1]] + a.list + a.list2 "
-        "LIMIT 3 "
-        "RETURN a"
+        "WITH a, a.list AS list "
+        "WITH a, list ORDER BY list ASC LIMIT 3 "
+        "RETURN a, list"
     )
+    asc_values = sorted(str(v) for v in asc._nodes["list"].tolist())
+    assert asc_values == sorted(["[1, -20]", "[1, 2]", "[2, -2]"])
 
-    assert result._nodes.to_dict(orient="records") == [
-        {"a": "({list: [300, 0], list2: [1, -2]})"},
-        {"a": "({list: [1, 2], list2: [2, -2]})"},
-        {"a": "({list: [2, -2], list2: [3, -2]})"},
-    ]
+    desc = g.gfql(
+        "MATCH (a) "
+        "WITH a, a.list AS list "
+        "WITH a, list ORDER BY list DESC LIMIT 3 "
+        "RETURN a, list"
+    )
+    desc_values = sorted(str(v) for v in desc._nodes["list"].tolist())
+    assert desc_values == sorted(["[300, 0]", "[2, -2, 100]", "[2, -2]"])
 
 
 def test_string_cypher_supports_return_star_after_with_distinct_row_projection() -> None:
@@ -7060,8 +8919,118 @@ def test_string_cypher_executes_with_match_reentry_limit_shape() -> None:
     assert result._nodes.to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
 
 
-def test_string_cypher_rejects_reentry_with_parameterized_limit_and_order() -> None:
-    """Regression for 992f2fc1: ParameterRef in LIMIT must not crash _literal_limit_value."""
+def test_string_cypher_executes_with_match_reentry_ordered_topk_multi_row_shape() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "a2", "a3", "b1", "b2", "b3"],
+            "label__A": [True, True, True, False, False, False],
+            "num": [30, 20, 10, 1, 1, 1],
+            "name": ["gamma", "beta", "alpha", None, None, None],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a1", "a2", "a3"],
+            "d": ["b1", "b2", "b3"],
+            "type": ["R", "R", "R"],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A) "
+        "WITH a "
+        "ORDER BY a.num DESC "
+        "LIMIT 2 "
+        "MATCH (a)-->(b) "
+        "RETURN a.id AS aid, b.id AS bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"aid": "a1", "bid": "b1"},
+        {"aid": "a2", "bid": "b2"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_ordered_topk_multicolumn_shape() -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "a2", "a3", "b1", "b2", "b3"],
+            "label__A": [True, True, True, False, False, False],
+            "name": ["alpha", "alpha", "beta", None, None, None],
+            "num": [2, 1, 99, 0, 0, 0],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a1", "a2", "a3"],
+            "d": ["b1", "b2", "b3"],
+            "type": ["R", "R", "R"],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A) "
+        "WITH a, a.name AS aname "
+        "ORDER BY aname ASC, a.num DESC "
+        "LIMIT 2 "
+        "MATCH (a)-->(b) "
+        "RETURN a.id AS aid, aname, b.id AS bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"aid": "a1", "aname": "alpha", "bid": "b1"},
+        {"aid": "a2", "aname": "alpha", "bid": "b2"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_ordered_topk_with_carried_scalar_shape() -> None:
+    result = _mk_reentry_carried_scalar_graph().gfql(
+        "MATCH (a:A) "
+        "WITH a, a.num AS property "
+        "ORDER BY property DESC "
+        "LIMIT 2 "
+        "MATCH (a)-->(b) "
+        "RETURN property, b.id AS bid "
+        "ORDER BY bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"property": 1, "bid": "b1"},
+        {"property": 2, "bid": "b2"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_ordered_limit_zero_shape() -> None:
+    result = _mk_reentry_carried_scalar_graph().gfql(
+        "MATCH (a:A) "
+        "WITH a "
+        "ORDER BY a.num DESC "
+        "LIMIT 0 "
+        "MATCH (a)-->(b) "
+        "RETURN b.id AS bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_string_cypher_executes_with_match_reentry_parameterized_limit_shape() -> None:
+    """Parameterized LIMIT should be treated as bounded when params resolve to int."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "a2", "b1"],
+            "label__A": [True, True, False],
+            "name": ["alpha", "beta", None],
+        }
+    )
+    edges = pd.DataFrame({"s": ["a1", "a2"], "d": ["b1", "b1"]})
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A) WITH a ORDER BY a.name LIMIT $n MATCH (a)-->(b) RETURN a",
+        params={"n": 1},
+    )
+    assert result._nodes.to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
+
+
+def test_string_cypher_rejects_reentry_with_parameterized_non_int_limit_and_order() -> None:
     nodes = pd.DataFrame(
         {
             "id": ["a1", "a2", "b1"],
@@ -7073,13 +9042,13 @@ def test_string_cypher_rejects_reentry_with_parameterized_limit_and_order() -> N
     with pytest.raises(GFQLValidationError) as exc_info:
         _mk_graph(nodes, edges).gfql(
             "MATCH (a:A) WITH a ORDER BY a.name LIMIT $n MATCH (a)-->(b) RETURN a",
-            params={"n": 1},
+            params={"n": "1"},
         )
-    assert "order" in exc_info.value.message.lower()
+    assert "integer" in exc_info.value.message.lower()
 
 
 def test_string_cypher_executes_with_match_reentry_limit_shape_on_cudf() -> None:
-    cudf = pytest.importorskip("cudf")
+    cudf = _require_cudf_runtime()
 
     nodes = cudf.from_pandas(
         pd.DataFrame(
@@ -7105,7 +9074,91 @@ def test_string_cypher_executes_with_match_reentry_limit_shape_on_cudf() -> None
     )
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
+
+
+def test_string_cypher_executes_with_match_reentry_ordered_topk_multi_row_shape_on_cudf() -> None:
+    cudf = _require_cudf_runtime()
+
+    nodes = cudf.from_pandas(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "a3", "b1", "b2", "b3"],
+                "label__A": [True, True, True, False, False, False],
+                "num": [30, 20, 10, 1, 1, 1],
+                "name": ["gamma", "beta", "alpha", None, None, None],
+            }
+        )
+    )
+    edges = cudf.from_pandas(
+        pd.DataFrame(
+            {
+                "s": ["a1", "a2", "a3"],
+                "d": ["b1", "b2", "b3"],
+                "type": ["R", "R", "R"],
+            }
+        )
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A) "
+        "WITH a "
+        "ORDER BY a.num DESC "
+        "LIMIT 2 "
+        "MATCH (a)-->(b) "
+        "RETURN a.id AS aid, b.id AS bid",
+        engine="cudf",
+    )
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+        {"aid": "a1", "bid": "b1"},
+        {"aid": "a2", "bid": "b2"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_parameterized_limit_shape_on_cudf() -> None:
+    cudf = _require_cudf_runtime()
+
+    nodes = cudf.from_pandas(
+        pd.DataFrame(
+            {
+                "id": ["a1", "a2", "b1"],
+                "label__A": [True, True, False],
+                "name": ["alpha", "beta", None],
+            }
+        )
+    )
+    edges = cudf.from_pandas(
+        pd.DataFrame(
+            {
+                "s": ["a1", "a2"],
+                "d": ["b1", "b1"],
+            }
+        )
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A) WITH a ORDER BY a.name LIMIT $n MATCH (a)-->(b) RETURN a",
+        params={"n": 1},
+        engine="cudf",
+    )
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
+
+
+def test_string_cypher_failfast_rejects_with_match_reentry_ordered_skip_shape() -> None:
+    with pytest.raises(GFQLValidationError, match="preserve prefix WITH row ordering"):
+        _mk_reentry_carried_scalar_graph().gfql(
+            "MATCH (a:A) "
+            "WITH a "
+            "ORDER BY a.num DESC "
+            "SKIP 1 "
+            "LIMIT 1 "
+            "MATCH (a)-->(b) "
+            "RETURN b.id AS bid"
+        )
 
 
 def test_string_cypher_executes_with_match_reentry_multihop_shape() -> None:
@@ -7166,9 +9219,13 @@ def test_compile_cypher_tracks_reentry_carried_scalar_columns(
 ) -> None:
     compiled = _compile_query(query)
     whole_row_output, carried_columns = _compiled_reentry_projection_outputs(compiled)
+    plan = compiled.reentry_plan
 
     assert whole_row_output == expected_whole_row_output
     assert carried_columns == expected_columns
+    assert plan is not None
+    assert plan.reentry_alias_name == expected_whole_row_output
+    assert tuple(plan.scalar_columns) == expected_columns
 
 
 @pytest.mark.parametrize(
@@ -7237,7 +9294,7 @@ def test_string_cypher_executes_with_match_reentry_carried_scalar_shapes_on_cudf
     result = _mk_reentry_carried_scalar_graph_cudf().gfql(query, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == expected
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == expected
 
 
 def test_string_cypher_executes_with_match_reentry_carried_scalars_from_connected_prefix_shape() -> None:
@@ -7279,7 +9336,7 @@ def test_string_cypher_executes_with_match_reentry_carried_scalars_from_connecte
     result = _mk_connected_reentry_carried_scalar_graph_cudf().gfql(query, params={"seed": "a1"}, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"bid": "b1", "cid": "c1"}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"bid": "b1", "cid": "c1"}]
 
 
 def test_string_cypher_executes_plain_connected_multi_pattern_scalar_projection() -> None:
@@ -7369,7 +9426,7 @@ def test_string_cypher_executes_with_match_reentry_carried_scalar_into_connected
     )
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"bid": "b1", "did": "d1"},
         {"bid": "b1", "did": "d2"},
     ]
@@ -7408,7 +9465,7 @@ def test_string_cypher_executes_recent_message_reentry_multihop_scalar_projectio
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"messageId": "post2", "messageCreationDate": 20, "postId": "post2", "personId": "viewer"},
         {"messageId": "comment1", "messageCreationDate": 10, "postId": "post1", "personId": "author1"},
     ]
@@ -7471,7 +9528,7 @@ def test_string_cypher_executes_undirected_multihop_row_bindings_on_cudf() -> No
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"aid": "a", "bid": "b"},
         {"aid": "a", "bid": "c"},
     ]
@@ -7502,6 +9559,578 @@ def test_string_cypher_failfast_rejects_remaining_unsupported_multihop_row_bindi
 ) -> None:
     with pytest.raises(GFQLValidationError, match=match):
         graph_factory().gfql(query, params=params)
+
+
+def test_compile_cypher_records_reentry_plan_for_multi_whole_row_prefix() -> None:
+    """#989 slice 4.1: ``compiled_query.reentry_plan`` is populated with one
+    CarriedAlias per prefix whole-row, exactly one marked as the reentry source.
+
+    Without this assertion, a future slice could regress the plan structure
+    while user-facing behavior keeps working through incidental fallback paths.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "RETURN b.id AS bid"
+    )
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    plan = compiled.reentry_plan
+    assert plan is not None
+    assert plan.reentry_alias_name == "a"
+    assert plan.scalar_only is False
+    assert tuple(alias.output_name for alias in plan.aliases) == ("a", "x")
+    source = plan.reentry_alias
+    assert source is not None and source.output_name == "a"
+    non_source = plan.non_source_aliases
+    assert len(non_source) == 1 and non_source[0].output_name == "x"
+
+
+def test_compile_cypher_records_freeform_reentry_plan_contract() -> None:
+    """#989 follow-through: free-form intermediate MATCH must not degrade to
+    scalar-only reentry plan routing.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}) "
+        "WITH a "
+        "MATCH (n:B) "
+        "RETURN n.id AS nid"
+    )
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    plan = compiled.reentry_plan
+    assert plan is not None
+    assert plan.reentry_alias_name == "n"
+    assert plan.scalar_only is False
+    assert plan.free_form is True
+    assert tuple(alias.output_name for alias in plan.aliases) == ("a",)
+    assert plan.reentry_alias is None
+
+
+def test_compile_cypher_records_non_source_carried_properties_on_reentry_plan() -> None:
+    """#989 row-carrier contract: non-source aliases record property-level carry deps."""
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "RETURN b.id AS bid, x.id AS xid"
+    )
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    plan = compiled.reentry_plan
+    assert plan is not None
+    non_source = {alias.output_name: alias for alias in plan.non_source_aliases}
+    assert "x" in non_source
+    assert non_source["x"].carried_properties == ("id",)
+
+
+def test_compile_cypher_records_freeform_non_source_carried_properties_on_reentry_plan() -> None:
+    """#989 free-form lane: plan metadata keeps property carries for non-source aliases."""
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (n:B) "
+        "RETURN n.id AS nid, x.id AS xid"
+    )
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    plan = compiled.reentry_plan
+    assert plan is not None
+    assert plan.free_form is True
+    aliases = {alias.output_name: alias for alias in plan.aliases}
+    assert "x" in aliases
+    assert aliases["x"].carried_properties == ("id",)
+
+
+def test_string_cypher_admits_multi_whole_row_prefix_when_non_source_aliases_are_unused() -> None:
+    """#989 slice 4.3: admit `WITH a, x` prefix when only `a` is referenced downstream."""
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "RETURN b.id AS bid ORDER BY bid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    records = result._nodes.to_dict(orient="records")
+    assert records == [{"bid": "b"}, {"bid": "e"}]
+
+
+def test_string_cypher_admits_multi_whole_row_prefix_with_downstream_stage_where() -> None:
+    """#989 slice 4.3: regression for ProjectionStage.where vs WhereClause type mismatch.
+
+    The non-source-alias scanner walks `query.with_stages[1:]`, each of which has a
+    `where: Optional[ExpressionText]` (a raw text node, NOT a `WhereClause`). An
+    earlier draft passed it to a `WhereClause`-shaped helper and would have raised
+    `AttributeError: 'ExpressionText' object has no attribute 'expr_tree'` on any
+    multi-whole-row prefix WITH followed by a downstream stage that carries a WHERE.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "WITH b "
+        "WHERE b.id = 'b' "
+        "RETURN b.id AS bid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b"}]
+
+
+def test_string_cypher_admits_non_source_alias_property_carry_through_reentry() -> None:
+    """#989 slice 4.3b: property references on non-source aliases (`x.id`) are
+    admitted. The prefix WITH is rewritten to project ``x.id AS <carry_name>``;
+    trailing ``x.id`` references rewrite to a property access on the
+    reentry-alias's hidden column. Carries the value end-to-end.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "RETURN b.id AS bid, x.id AS xid ORDER BY bid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    # x.id == 'b' for every row; R-neighbors of 'a' are 'b' and 'e'.
+    assert result._nodes.to_dict(orient="records") == [
+        {"bid": "b", "xid": "b"},
+        {"bid": "e", "xid": "b"},
+    ]
+
+
+def test_string_cypher_failfast_rejects_multi_whole_row_prefix_when_non_source_alias_is_bare_referenced_in_order_by() -> None:
+    """#989 slice 4.3b failfast scope: ORDER BY referencing a non-source alias bare.
+
+    Slice 4.3b admits property access (`x.id`); a bare ORDER BY on the alias
+    itself still requires the full row-carrier rewrite.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "RETURN b.id AS bid ORDER BY x"
+    )
+    with pytest.raises(
+        GFQLValidationError,
+        match=r"(bare references like|whole-row outputs; reference them by property only)",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
+def test_string_cypher_failfast_rejects_multi_whole_row_prefix_when_non_source_alias_is_bare_referenced() -> None:
+    """#989 slice 4.3b: bare references to non-source whole-row aliases (no
+    property access) still failfast — that requires the full row-carrier IR
+    rewrite, not just per-property hidden-column carry.
+
+    Note: pure forwarding patterns like ``WITH b, x`` (where ``x`` is just being
+    re-projected for downstream stages) are NOT bare uses — slice 4.3c drops
+    those at compile time. This test uses ``WITH a, x AS xref`` which renames
+    the bare alias — that's a use, not a forward, and still fails.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(b) "
+        "WHERE x = b "
+        "RETURN b.id AS bid"
+    )
+    with pytest.raises(
+        GFQLValidationError,
+        match=r"(bare references like|whole-row outputs; reference them by property only)",
+    ):
+        _mk_multi_stage_reentry_graph().gfql(query)
+
+
+def test_string_cypher_chained_reentry_with_repeated_primary_preserves_prefix_row_bag_semantics() -> None:
+    """#1394: repeated-primary chained reentry with duplicate carried ids executes.
+
+    Prefix rows can carry the same reentry alias id multiple times (one per
+    prior match row). Runtime should execute suffix semantics per prefix row
+    and preserve bag semantics instead of failfasting on duplicate carried ids.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(friend) "
+        "WITH a, x, friend "
+        "MATCH (a)-[:R]->(other) "
+        "WHERE other.id <> friend.id "
+        "RETURN other.id AS oid, x.id AS xid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert sorted(result._nodes.to_dict(orient="records"), key=lambda row: row["oid"]) == [
+        {"oid": "b", "xid": "b"},
+        {"oid": "e", "xid": "b"},
+    ]
+
+
+def test_string_cypher_chained_reentry_with_repeated_primary_preserves_duplicate_output_rows() -> None:
+    """#1394 amplification: duplicate carried-id fallback preserves per-prefix-row multiplicity.
+
+    The second reentry runs once per prefix row. Here prefix produces two rows
+    over the same carried `a`; suffix yields two rows each time, so output must
+    contain four `(friend, other)` pairs (cartesian per prefix row).
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(friend) "
+        "WITH a, x, friend "
+        "MATCH (a)-[:R]->(other) "
+        "RETURN other.id AS oid, friend.id AS fid"
+    )
+    records = _mk_multi_stage_reentry_graph().gfql(query)._nodes.to_dict(orient="records")
+    assert len(records) == 4
+    assert {(row["fid"], row["oid"]) for row in records} == {
+        ("b", "b"),
+        ("b", "e"),
+        ("e", "b"),
+        ("e", "e"),
+    }
+
+
+def test_string_cypher_chained_reentry_with_repeated_primary_preserves_duplicate_output_rows_on_cudf() -> None:
+    """#1394 amplification cuDF parity for per-prefix-row multiplicity lock."""
+    pytest.importorskip("cudf")
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(friend) "
+        "WITH a, x, friend "
+        "MATCH (a)-[:R]->(other) "
+        "RETURN other.id AS oid, friend.id AS fid"
+    )
+    result = _mk_multi_stage_reentry_graph_cudf().gfql(query, engine="cudf")
+    nodes_pd = _to_pandas_df(result._nodes)
+    records = nodes_pd.to_dict(orient="records")
+    assert len(records) == 4
+    assert {(row["fid"], row["oid"]) for row in records} == {
+        ("b", "b"),
+        ("b", "e"),
+        ("e", "b"),
+        ("e", "e"),
+    }
+
+
+def test_string_cypher_admits_secondary_alias_carry_across_reentry_source_rebinding() -> None:
+    """#1256 slice 4.3d.2: secondary alias carry survives a reentry-source rebinding.
+
+    `WITH a, x MATCH (a)-[:R]->(friend) WITH friend, x MATCH (friend)-[:S]->(c)
+    RETURN c.id, x.id` rebinds the trailing-MATCH source from `a` to `friend`
+    between the two reentry boundaries. The carry `x.id` lives as a hidden
+    column on `a`'s row table; after the join with friend, on friend's table;
+    the second boundary's prefix WITH must continue to forward it as a scalar
+    so the inner compile can resolve it.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(friend) "
+        "WITH friend, x "
+        "MATCH (friend)-[:S]->(c) "
+        "RETURN c.id AS cid, x.id AS xid ORDER BY cid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [
+        {"cid": "c", "xid": "b"},
+        {"cid": "e", "xid": "b"},
+    ]
+
+
+def test_string_cypher_admits_multi_alias_distinct_forwarding_through_reentry() -> None:
+    """#1256 slice 4.3d.1: bare-identifier projection items in downstream
+    ``WITH a, x, friend`` (pure forwarding through a reentry boundary) are
+    dropped at compile time so the bare-ref scanner does not false-positive.
+
+    Before slice 4.3d.1, the active rewrite path
+    (``_demote_secondary_whole_row_aliases``) failed at line ~7900
+    ("does not yet support carrying secondary whole-row aliases as whole-row
+    outputs") because the bare ``x`` in stage[1] was treated as a true USE.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(friend) "
+        "WITH DISTINCT a, x, friend "
+        "RETURN friend.id AS fid, x.id AS xid ORDER BY fid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [
+        {"fid": "b", "xid": "b"},
+        {"fid": "e", "xid": "b"},
+    ]
+
+
+def test_string_cypher_chained_reentry_carry_with_aggregate_relationship_match() -> None:
+    """Closed #1256 aggregate lane: hidden secondary carry survives an
+    aggregating downstream WITH stage after a relationship-pattern MATCH.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a)-[:R]->(friend) "
+        "WITH a, x, count(*) AS n "
+        "RETURN x.id AS xid, n"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"xid": "b", "n": 2}]
+
+
+def test_string_cypher_chained_reentry_carry_with_aggregate_node_only_match() -> None:
+    """Closed #1256 aggregate lane: hidden secondary carry survives an
+    aggregating downstream WITH stage after a node-only MATCH.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (a) "
+        "WITH a, x, count(*) AS n "
+        "RETURN x.id AS xid, n"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"xid": "b", "n": 1}]
+
+
+def test_string_cypher_executes_intermediate_reentry_match_with_carried_property_bridge_where() -> None:
+    """#1275: free-form intermediate MATCH admits bridge WHERE predicates that
+    reference both trailing aliases and carried-alias properties."""
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "WHERE c.id = x.id OR c.id = 'c' "
+        "RETURN d.id AS did"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"did": "d"}]
+
+
+def test_string_cypher_executes_intermediate_reentry_match_with_carried_property_bridge_where_on_cudf() -> None:
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:B {id: 'b'}) "
+        "WITH a, x "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "WHERE c.id = x.id OR c.id = 'c' "
+        "RETURN d.id AS did"
+    )
+    _require_cudf_runtime()
+    result = _mk_multi_stage_reentry_graph_cudf().gfql(query, engine="cudf")
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert records == [{"did": "d"}]
+
+
+def test_string_cypher_executes_intermediate_reentry_match_with_carried_property_bridge_where_and_return() -> None:
+    """#1275 issue-shape: bridge predicate + trailing RETURN include carried alias property."""
+    query = (
+        "MATCH (a:A {id: 'a'}), (x:C {id: 'c'}) "
+        "WITH a, x "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "WHERE c.id = x.id "
+        "RETURN c.id AS cid, d.id AS did, x.id AS xid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"cid": "c", "did": "d", "xid": "c"}]
+
+
+def test_string_cypher_executes_simple_freeform_intermediate_reentry_match() -> None:
+    """#1263 conservative admit: trailing MATCH whose first alias is NOT in
+    the prefix's carried whole-row set executes correctly when no
+    carried-alias property is referenced in the trailing scope.
+
+    Single-alias prefix WITH (no demote interaction); the runtime broadcasts
+    carried hidden columns onto every base node and the trailing MATCH binds
+    fresh aliases (``c``, ``d``).
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}) "
+        "WITH a "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did, c.id AS cid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"did": "d", "cid": "c"}]
+
+
+def test_string_cypher_executes_freeform_intermediate_reentry_match_with_multi_carried_aliases() -> None:
+    """#1263 Wave 2 amplification: free-form admit composes with multi-alias
+    prefix `WITH a, b` when no carried-alias property is referenced in the
+    trailing scope. The demote (#1071) bails out (free-form path doesn't anchor
+    on a carried alias) and the runtime broadcasts both carried whole-row rows
+    onto every base node uniformly.
+    """
+    query = (
+        "MATCH (a:A {id: 'a'}), (b:B {id: 'b'}) "
+        "WITH a, b "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did, c.id AS cid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"did": "d", "cid": "c"}]
+
+
+def test_string_cypher_executes_freeform_intermediate_reentry_match_with_empty_prefix() -> None:
+    """#1263 Wave 2 amplification: when the prefix MATCH yields zero rows the
+    runtime helper short-circuits to an empty graph dispatch and the trailing
+    MATCH produces zero rows. Locks `_compiled_query_freeform_reentry_state`'s
+    early-return path at gfql_unified.py.
+    """
+    query = (
+        "MATCH (a:A {id: 'NONEXISTENT'}) "
+        "WITH a "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did, c.id AS cid"
+    )
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_string_cypher_freeform_intermediate_reentry_preserves_bag_semantics_multi_row_prefix() -> None:
+    """#1263/#1285 multi-prefix-row free-form intermediate MATCH executes via
+    per-row union (mirror of the scalar-only multi-row pattern from #1047).
+
+    Prefix yields 2 ``A`` rows; trailing MATCH ``(c:C)-[:T]->(d:D)`` yields 1
+    pair globally → cartesian product = 2 result rows (one per prefix row,
+    bag semantics preserved). Originally landed in #1287 as the bag-semantics
+    lock; #1285 reuses the same fixture/shape for the multi-row admit.
+    """
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "a2", "b", "c", "d"],
+            "label__A": [True, True, False, False, False],
+            "label__B": [False, False, True, False, False],
+            "label__C": [False, False, False, True, False],
+            "label__D": [False, False, False, False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "a2", "b", "c"],
+            "d": ["b", "b", "c", "d"],
+            "type": ["R", "R", "S", "T"],
+        }
+    )
+    graph = _mk_graph(nodes, edges)
+    query = (
+        "MATCH (a:A) "
+        "WITH a "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did"
+    )
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"did": "d"}, {"did": "d"}]
+
+
+
+def test_string_cypher_executes_freeform_intermediate_reentry_match_on_multi_row_prefix_cartesian() -> None:
+    """#1285: confirm cartesian semantics — 2 prefix rows × 2 trailing-MATCH
+    pairs = 4 result rows. Locks per-row union behaves like a Cartesian
+    product over (prefix_row, trailing_row)."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "a2", "c1", "d1", "c2", "d2"],
+            "label__A": [True, True, False, False, False, False],
+            "label__C": [False, False, True, False, True, False],
+            "label__D": [False, False, False, True, False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["c1", "c2"],
+            "d": ["d1", "d2"],
+            "type": ["T", "T"],
+        }
+    )
+    graph = _mk_graph(nodes, edges)
+    query = (
+        "MATCH (a:A) "
+        "WITH a "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did, c.id AS cid"
+    )
+    result = graph.gfql(query)
+    records = result._nodes.to_dict(orient="records")
+    # 2 prefix rows × 2 trailing pairs = 4 rows; per-row union runs the
+    # trailing MATCH once per prefix row, so each (cid, did) pair appears twice.
+    assert len(records) == 4
+    counts = {(r["cid"], r["did"]) for r in records}
+    assert counts == {("c1", "d1"), ("c2", "d2")}
+    assert sum(1 for r in records if (r["cid"], r["did"]) == ("c1", "d1")) == 2
+    assert sum(1 for r in records if (r["cid"], r["did"]) == ("c2", "d2")) == 2
+
+
+def test_string_cypher_failfast_rejects_freeform_multi_row_prefix_with_optional_reentry() -> None:
+    """#1285: multi-prefix-row free-form combined with OPTIONAL MATCH is not
+    yet supported — the per-row union path returns early before any
+    null-fill branch, which would silently produce wrong results for prefix
+    rows that match nothing. Mirrors the scalar-only guard locked by
+    ``test_issue_1047_multi_row_scalar_prefix_with_optional_reentry_raises``.
+    """
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "a2", "c", "d"],
+            "label__A": [True, True, False, False],
+            "label__C": [False, False, True, False],
+            "label__D": [False, False, False, True],
+        }
+    )
+    edges = pd.DataFrame({"s": ["c"], "d": ["d"], "type": ["T"]})
+    graph = _mk_graph(nodes, edges)
+    query = (
+        "MATCH (a:A) "
+        "WITH a "
+        "OPTIONAL MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did"
+    )
+    with pytest.raises(Exception, match="optional"):
+        graph.gfql(query)
+
+
+def test_string_cypher_executes_freeform_intermediate_reentry_match_on_multi_row_prefix_on_cudf_when_available() -> None:
+    """#1285 cuDF parity for the multi-prefix-row free-form admit."""
+    cudf = pytest.importorskip("cudf")
+    nodes_pd = pd.DataFrame(
+        {
+            "id": ["a", "a2", "c", "d"],
+            "label__A": [True, True, False, False],
+            "label__C": [False, False, True, False],
+            "label__D": [False, False, False, True],
+        }
+    )
+    edges_pd = pd.DataFrame(
+        {
+            "s": ["c"],
+            "d": ["d"],
+            "type": ["T"],
+        }
+    )
+    graph = _mk_graph(cudf.from_pandas(nodes_pd), cudf.from_pandas(edges_pd))
+    query = (
+        "MATCH (a:A) "
+        "WITH a "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did"
+    )
+    result = graph.gfql(query)
+    nodes_pd_out = _to_pandas_df(result._nodes)
+    assert nodes_pd_out.to_dict(orient="records") == [{"did": "d"}, {"did": "d"}]
+
+
+def test_string_cypher_executes_simple_freeform_intermediate_reentry_match_on_cudf_when_available() -> None:
+    """#1263 cuDF parity for the simple free-form admit (paired with the
+    pandas case above)."""
+    cudf = pytest.importorskip("cudf")
+    base_graph = _mk_multi_stage_reentry_graph()
+    cudf_graph = base_graph.nodes(
+        cudf.from_pandas(base_graph._nodes), base_graph._node
+    ).edges(
+        cudf.from_pandas(base_graph._edges),
+        base_graph._source,
+        base_graph._destination,
+    )
+    query = (
+        "MATCH (a:A {id: 'a'}) "
+        "WITH a "
+        "MATCH (c:C)-[:T]->(d:D) "
+        "RETURN d.id AS did, c.id AS cid"
+    )
+    result = cudf_graph.gfql(query)
+    nodes_pd = _to_pandas_df(result._nodes)
+    assert nodes_pd.to_dict(orient="records") == [{"did": "d", "cid": "c"}]
 
 
 def test_string_cypher_failfast_rejects_with_match_reentry_multiple_trailing_match_clauses() -> None:
@@ -7569,7 +10198,8 @@ def test_string_cypher_connected_multi_pattern_mixed_node_and_edge_alias_project
     assert records[0]["did"] == "d1"
 
 
-def test_string_cypher_failfast_rejects_with_match_reentry_multiple_whole_row_aliases_with_carried_scalars() -> None:
+def test_string_cypher_with_match_reentry_multi_whole_row_alias_unreferenced_secondary() -> None:
+    """An unreferenced secondary whole-row alias in the prefix WITH is dropped (#1071)."""
     query = (
         "MATCH (a:A {id: $seed})-[:R]->(b:B) "
         "WITH a, b, b.id AS bid "
@@ -7577,8 +10207,483 @@ def test_string_cypher_failfast_rejects_with_match_reentry_multiple_whole_row_al
         "RETURN bid, c.id AS cid"
     )
 
-    with pytest.raises(GFQLValidationError, match="one MATCH source alias at a time"):
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1", "cid": "c1"}]
+
+
+def test_string_cypher_with_match_reentry_multi_whole_row_alias_property_carry() -> None:
+    """Secondary whole-row alias is referenced by property in the trailing
+    RETURN; rewritten to a hidden carry column (#1071)."""
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN a.id AS aid, b.id AS bid, c.id AS cid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a1", "bid": "b1", "cid": "c1"}]
+
+
+def test_string_cypher_executes_ic1_shaped_multi_alias_with_match_reentry() -> None:
+    """LDBC SNB IC1-shape: variable-length ``KNOWS*1..3`` followed by
+    ``WITH p, friend MATCH (friend)-...`` with property references to the
+    secondary alias ``p`` in RETURN (#1071)."""
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["seed", "alice", "bob", "city1", "city2"],
+                "label__Person": [True, True, True, False, False],
+                "label__Place": [False, False, False, True, True],
+                "firstName": ["Seed", "Alice", "Bob", None, None],
+                "name": [None, None, None, "Springfield", "Shelbyville"],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["seed", "alice", "bob", "alice", "bob"],
+                "d": ["alice", "bob", "city1", "city1", "city2"],
+                "type": ["KNOWS", "KNOWS", "KNOWS", "IS_LOCATED_IN", "IS_LOCATED_IN"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (p:Person {id: $pid})-[:KNOWS*1..3]->(friend:Person) "
+        "WITH p, friend "
+        "MATCH (friend)-[:IS_LOCATED_IN]->(city:Place) "
+        "RETURN friend.id AS fid, p.firstName AS pfn, city.name AS cname "
+        "ORDER BY fid",
+        params={"pid": "seed"},
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"fid": "alice", "pfn": "Seed", "cname": "Springfield"},
+        {"fid": "bob", "pfn": "Seed", "cname": "Shelbyville"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_secondary_alias_user_scalar_collision() -> None:
+    """Defense-in-depth: a user-named carried scalar (``b.id AS a_id``) and a
+    demoted secondary property ref (``a.id`` on secondary alias ``a``) BOTH
+    feed an output named ``a_id`` in the prefix WITH. The double-prefix
+    wrapping in ``_reentry_hidden_column_name`` keeps the in-table columns
+    distinct, so values flow correctly to RETURN (#1071, Wave 3 regression)."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "b1", "c1"],
+            "label__A": [True, False, False],
+            "label__B": [False, True, False],
+            "label__C": [False, False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {"s": ["a1", "b1"], "d": ["b1", "c1"], "type": ["R", "S"]}
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH a, b, b.id AS a_id "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN a.id AS aid_demoted, a_id AS a_id_user, c.id AS cid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"aid_demoted": "a1", "a_id_user": "b1", "cid": "c1"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_secondary_alias_inline_pattern_property() -> None:
+    """Inline node-pattern property map referencing a secondary alias property
+    (``MATCH (c {tag: a.tag})``) is rewritten via the pattern-element walk in
+    ``_rewrite_reentry_match_clause`` (#1071, Wave 3 regression)."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "b1", "c1"],
+            "label__A": [True, False, False],
+            "label__B": [False, True, False],
+            "label__C": [False, False, True],
+            "tag": ["t1", "t1", "t1"],
+        }
+    )
+    edges = pd.DataFrame(
+        {"s": ["a1", "b1"], "d": ["b1", "c1"], "type": ["R", "S"]}
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C {tag: a.tag}) "
+        "RETURN c.id AS cid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"cid": "c1"}]
+
+
+def test_string_cypher_executes_with_match_reentry_secondary_alias_property_in_or_where() -> None:
+    """Secondary alias property used in a tree-shape (OR) trailing WHERE: the
+    demoter must rewrite ``a.score`` inside the OR atom so the trailing row
+    pre-filter sees the carried hidden column (#1071, Wave 2 regression)."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "b1", "c1", "c2"],
+            "label__A": [True, False, False, False],
+            "label__B": [False, True, False, False],
+            "label__C": [False, False, True, True],
+            "score": [5, None, None, None],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a1", "b1", "b1"],
+            "d": ["b1", "c1", "c2"],
+            "type": ["R", "S", "S"],
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
+    # a.score = 5; first arm `a.score > 10` is false, so only c1 passes via second arm.
+    result = g.gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE a.score > 10 OR c.id = 'c1' "
+        "RETURN c.id AS cid ORDER BY cid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"cid": "c1"}]
+def test_string_cypher_executes_three_alias_with_match_reentry() -> None:
+    """Three-alias carry through WITH; secondaries referenced by property in RETURN (#1071)."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["x1", "y1", "z1"], "label": ["X", "Y", "Z"]}),
+        pd.DataFrame(
+            {
+                "s": ["x1", "y1"],
+                "d": ["y1", "z1"],
+                "type": ["R", "R"],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (x)-[:R]->(y)-[:R]->(z) "
+        "WITH x, y, z "
+        "MATCH (z) "
+        "RETURN x.label AS xl, y.label AS yl, z.label AS zl"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"xl": "X", "yl": "Y", "zl": "Z"},
+    ]
+
+
+def test_string_cypher_failfast_rejects_with_match_reentry_secondary_whole_row_return() -> None:
+    """Returning a secondary whole-row alias is unsupported in MVP (#1071)."""
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN a, c.id AS cid"
+    )
+
+    with pytest.raises(GFQLValidationError, match="secondary whole-row aliases as whole-row outputs"):
         _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+
+def test_string_cypher_failfast_rejects_with_match_reentry_carried_relationship_alias() -> None:
+    """#1358: carrying a relationship variable across re-entry must surface as a
+    clean scope error citing the unsupported alias kind, not silently fall into
+    untested code paths in the multi-whole-row prefix rewriter.
+
+    The trailing MATCH binds a fresh node alias `c`, so the #1341 flattener
+    does not admit this query — it falls through to the existing reentry path
+    where the new classifier check fires.
+    """
+    query = (
+        "MATCH (a:A {id: $seed})-[r:R]->(b:B) "
+        "WITH a, r "
+        "MATCH (a)-[:S]->(c:C) "
+        "RETURN r.weight, c.id AS cid"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="does not yet support carrying a relationship variable",
+    ):
+        _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+
+def test_string_cypher_failfast_rejects_with_match_reentry_carried_path_alias() -> None:
+    """#1358: carrying a named path alias across re-entry must surface as a
+    clean scope error. Mirrors the relationship-variable case via the path-alias
+    branch of ``MatchClause.pattern_aliases``.
+    """
+    query = (
+        "MATCH path = (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH path, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN length(path), c.id AS cid"
+    )
+
+    with pytest.raises(
+        GFQLValidationError,
+        match="does not yet support carrying a named path alias",
+    ):
+        _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+
+
+def test_unit_all_match_alias_kinds_lets_rel_kind_win_over_node() -> None:
+    """#1358: when a name is bound as both a node and a relationship variable
+    across patterns (parser-permitted), the alias-kinds classifier must record
+    the relationship kind so the pre-flight still flags the unsupported carry
+    rather than silently admitting via the node fallback.
+
+    Bypasses lowering (which rejects the multi-pattern shape under a different
+    rule) and exercises the classifier helper directly on the parsed AST.
+    """
+    from graphistry.compute.gfql.cypher.reentry.lowering_support import _all_match_alias_kinds
+
+    parsed = parse_cypher(
+        "MATCH (x:X) "
+        "MATCH (a:A)-[x:R]->(b:B) "
+        "WITH a, x "
+        "MATCH (a)-[:S]->(c:C) "
+        "RETURN x.weight, c.id"
+    )
+    assert isinstance(parsed, CypherQuery)
+    kinds = _all_match_alias_kinds(parsed)
+    assert kinds.get("x") == "rel", (
+        "rel binding must override the prior node binding so the pre-flight still "
+        "flags the unsupported carry"
+    )
+    assert kinds.get("a") == "node"
+    assert kinds.get("b") == "node"
+
+
+def test_string_cypher_executes_with_match_reentry_secondary_alias_rebinding() -> None:
+    """Re-binding a carried secondary alias as a node variable in the trailing
+    MATCH is admitted by flattening when the trailing pattern adds structure
+    (#1341). The flattener merges prefix and trailing patterns into a single
+    MATCH so the supported single-MATCH paths handle the rebind directly."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "b1", "a2", "b2"],
+            "label__A": [True, False, True, False],
+            "label__B": [False, True, False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a1", "b1", "a2"],
+            "d": ["b1", "a1", "b2"],
+            "type": ["R", "S", "R"],
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(a) "
+        "RETURN b.id AS bid"
+    )
+
+    result = g.gfql(query, params={"seed": "a1"})
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1"}]
+
+
+def test_string_cypher_executes_with_match_reentry_secondary_alias_rebinding_empty_when_no_back_edge() -> None:
+    """Same flattened rebind shape returns empty when no back-edge exists (#1341)."""
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(a) "
+        "RETURN b.id AS bid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query, params={"seed": "a1"})
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def _mk_ic1_shortest_path_graph() -> _CypherTestGraph:
+    """LDBC SNB IC1 fixture: 4-person social graph with KNOWS edges."""
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "p2", "p3", "p4"],
+                "label__Person": [True, True, True, True],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p2", "p1"],
+                "d": ["p2", "p3", "p4"],
+                "type": ["KNOWS", "KNOWS", "KNOWS"],
+            }
+        ),
+    )
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_string_cypher_executes_ic1_shortest_path_with_carried_endpoints_rebound_length_dtype_parity(
+    engine: str,
+) -> None:
+    """IC1 carried-endpoint shortestPath parity on values + numeric dtype (#1354)."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["p1", "p2", "p3", "p4"],
+            "label__Person": [True, True, True, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["p1", "p2", "p1"],
+            "d": ["p2", "p3", "p4"],
+            "type": ["KNOWS", "KNOWS", "KNOWS"],
+        }
+    )
+    query = (
+        "MATCH (p:Person {id: 'p1'}), (friend:Person) "
+        "WHERE NOT p = friend "
+        "WITH p, friend "
+        "MATCH path = shortestPath((p)-[:KNOWS*1..3]-(friend)) "
+        "RETURN friend.id AS friendId, length(path) AS dist "
+        "ORDER BY friendId"
+    )
+    if engine == "cudf":
+        _require_cudf_runtime()
+        result = _mk_cudf_graph(nodes, edges).gfql(query, engine="cudf")
+        assert type(result._nodes).__module__.startswith("cudf")
+        rows_df = result._nodes
+        friend_ids = rows_df["friendId"].to_arrow().to_pylist()
+        dists = rows_df["dist"].astype("float64").to_arrow().to_pylist()
+        assert rows_df["dist"].dtype.kind in ("i", "u", "f")
+    else:
+        rows_df = _mk_graph(nodes, edges).gfql(query)._nodes
+        rows = rows_df.to_dict(orient="records")
+        friend_ids = [r["friendId"] for r in rows]
+        dists = [float(r["dist"]) for r in rows]
+        assert pd.api.types.is_numeric_dtype(rows_df["dist"])
+
+    assert friend_ids == ["p2", "p3", "p4"]
+    assert dists == [1.0, 2.0, 1.0]
+
+
+def test_string_cypher_flatten_admit_matches_hand_flattened_oracle_ic1() -> None:
+    """Round-001 amplification (#1341): admit-side correctness oracle.
+
+    Compares the IC1 shape (which flatten admits and lowers via the merged
+    single-MATCH path) against the manually-flattened equivalent that the
+    same path would produce. Locks in admit-side correctness as more than
+    "doesn't error" — admit must produce semantically identical results to
+    the hand-written single-MATCH form."""
+    g = _mk_ic1_shortest_path_graph()
+    with_form = (
+        "MATCH (p:Person {id: 'p1'}), (friend:Person) "
+        "WHERE NOT p = friend "
+        "WITH p, friend "
+        "MATCH path = shortestPath((p)-[:KNOWS*1..3]-(friend)) "
+        "RETURN friend.id AS friendId, length(path) AS dist "
+        "ORDER BY friendId"
+    )
+    flat_form = (
+        "MATCH (p:Person {id: 'p1'}), (friend:Person), "
+        "  path = shortestPath((p)-[:KNOWS*1..3]-(friend)) "
+        "WHERE NOT p = friend "
+        "RETURN friend.id AS friendId, length(path) AS dist "
+        "ORDER BY friendId"
+    )
+    via_flatten = g.gfql(with_form)._nodes.to_dict(orient="records")
+    via_oracle = g.gfql(flat_form)._nodes.to_dict(orient="records")
+    assert via_flatten == via_oracle
+
+
+def test_string_cypher_flatten_admit_matches_hand_flattened_oracle_simple_rebind() -> None:
+    """Same admit-side oracle for the simpler rebind shape (no shortestPath)."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "b1", "a2", "b2"],
+            "label__A": [True, False, True, False],
+            "label__B": [False, True, False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a1", "b1", "a2"],
+            "d": ["b1", "a1", "b2"],
+            "type": ["R", "S", "R"],
+        }
+    )
+    g = _mk_graph(nodes, edges)
+    with_form = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(a) "
+        "RETURN b.id AS bid"
+    )
+    flat_form = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B), (b)-[:S]->(a) "
+        "RETURN b.id AS bid"
+    )
+    via_flatten = g.gfql(with_form, params={"seed": "a1"})._nodes.to_dict(orient="records")
+    via_oracle = g.gfql(flat_form, params={"seed": "a1"})._nodes.to_dict(orient="records")
+    assert via_flatten == via_oracle
+
+
+def test_string_cypher_executes_with_match_reentry_relationship_variable_carried_on_cudf() -> None:
+    """cuDF parity + no-crash regression for #1355.
+
+    Covers both:
+    - WITH-form that can flatten to connected comma-pattern
+    - Hand-flattened single-MATCH connected comma-pattern
+    """
+    pytest.importorskip("cudf")
+    nodes = pd.DataFrame(
+        {
+            "id": ["a1", "b1"],
+            "label__A": [True, False],
+            "label__B": [False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {"s": ["a1", "b1"], "d": ["b1", "a1"], "type": ["R", "S"], "weight": [7, 9]}
+    )
+    g = _mk_cudf_graph(nodes, edges)
+    with_form = (
+        "MATCH (a:A {id: 'a1'})-[r:R]->(b:B) "
+        "WITH a, b, r "
+        "MATCH (b)-[:S]->(a) "
+        "RETURN r.weight AS w"
+    )
+    hand_flattened = (
+        "MATCH (a:A {id: 'a1'})-[r:R]->(b:B), (b)-[:S]->(a) "
+        "RETURN r.weight AS w"
+    )
+
+    for query in (with_form, hand_flattened):
+        result = g.gfql(query, engine="cudf")
+        assert type(result._nodes).__module__.startswith("cudf")
+        assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"w": 7}]
+
+
+def test_string_cypher_executes_with_match_reentry_multi_whole_row_alias_property_carry_on_cudf() -> None:
+    """cuDF parity for the property-carry path (#1071)."""
+    pytest.importorskip("cudf")
+    query = (
+        "MATCH (a:A {id: $seed})-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN a.id AS aid, b.id AS bid, c.id AS cid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph_cudf().gfql(query, params={"seed": "a1"}, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"aid": "a1", "bid": "b1", "cid": "c1"}]
 
 
 def test_string_cypher_executes_with_match_reentry_cross_alias_carried_scalars_from_connected_prefix_shape() -> None:
@@ -7615,7 +10720,7 @@ def test_string_cypher_reentry_carried_scalars_ignore_internal_hidden_column_col
     )
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"property": 2}, {"property": 1}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"property": 2}, {"property": 1}]
 
 
 def test_string_cypher_executes_with_match_reentry_carried_scalar_where() -> None:
@@ -7644,33 +10749,142 @@ def test_string_cypher_executes_with_match_reentry_carried_scalar_where_on_cudf(
     result = _mk_reentry_carried_scalar_graph_cudf().gfql(query, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"property": 1, "id": "b1"}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"property": 1, "id": "b1"}]
+
+
+def test_string_cypher_executes_with_match_reentry_secondary_alias_property_where() -> None:
+    query = (
+        "MATCH (a:A {id: 'a1'})-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE a.id = 'a1' "
+        "RETURN a.id AS aid, c.id AS cid "
+        "ORDER BY cid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a1", "cid": "c1"}]
+
+
+def test_string_cypher_executes_with_match_reentry_where_or_on_carried_and_trailing_alias_props() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE a.id = 'a1' OR c.id = 'missing' "
+        "RETURN a.id AS aid, c.id AS cid "
+        "ORDER BY cid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a1", "cid": "c1"}]
+
+
+def test_string_cypher_executes_with_match_reentry_where_xor_on_carried_and_trailing_alias_props() -> None:
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "WHERE a.id = 'a1' XOR c.id = 'c1' "
+        "RETURN a.id AS aid, c.id AS cid"
+    )
+
+    result = _mk_connected_reentry_carried_scalar_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == []
+
+
+def test_string_cypher_executes_with_match_reentry_preserves_orderby_single_column_limit_prefix() -> None:
+    query = (
+        "MATCH (p:Person {id: 'p0'})-[:KNOWS]->(friend:Person) "
+        "WITH friend "
+        "ORDER BY friend.firstName ASC "
+        "LIMIT 2 "
+        "MATCH (friend)-[:STUDY_AT]->(uni:University) "
+        "RETURN friend.id AS friendId, uni.id AS uniId "
+        "ORDER BY friendId, uniId"
+    )
+    result = _mk_reentry_order_limit_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [
+        {"friendId": "f1", "uniId": "u1"},
+        {"friendId": "f2", "uniId": "u2"},
+        {"friendId": "f2", "uniId": "u3"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_preserves_orderby_multi_column_limit_prefix() -> None:
+    query = (
+        "MATCH (p:Person {id: 'p0'})-[:KNOWS]->(friend:Person) "
+        "WITH friend "
+        "ORDER BY friend.firstName DESC, friend.id ASC "
+        "LIMIT 2 "
+        "MATCH (friend)-[:STUDY_AT]->(uni:University) "
+        "RETURN friend.id AS friendId, uni.id AS uniId "
+        "ORDER BY friendId, uniId"
+    )
+    result = _mk_reentry_order_limit_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [
+        {"friendId": "f3", "uniId": "u4"},
+        {"friendId": "f4", "uniId": "u5"},
+    ]
+
+
+def test_string_cypher_executes_with_match_reentry_preserves_orderby_desc_limit_prefix() -> None:
+    query = (
+        "MATCH (p:Person {id: 'p0'})-[:KNOWS]->(friend:Person) "
+        "WITH friend "
+        "ORDER BY friend.firstName DESC "
+        "LIMIT 1 "
+        "MATCH (friend)-[:STUDY_AT]->(uni:University) "
+        "RETURN friend.id AS friendId, uni.id AS uniId "
+        "ORDER BY friendId, uniId"
+    )
+    result = _mk_reentry_order_limit_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"friendId": "f4", "uniId": "u5"}]
+
+
+def test_string_cypher_executes_with_match_reentry_preserves_orderby_limit_prefix_on_cudf() -> None:
+    pytest.importorskip("cudf")
+    query = (
+        "MATCH (p:Person {id: 'p0'})-[:KNOWS]->(friend:Person) "
+        "WITH friend "
+        "ORDER BY friend.firstName ASC "
+        "LIMIT 2 "
+        "MATCH (friend)-[:STUDY_AT]->(uni:University) "
+        "RETURN friend.id AS friendId, uni.id AS uniId "
+        "ORDER BY friendId, uniId"
+    )
+    result = _mk_reentry_order_limit_graph_cudf().gfql(query, engine="cudf")
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+        {"friendId": "f1", "uniId": "u1"},
+        {"friendId": "f2", "uniId": "u2"},
+        {"friendId": "f2", "uniId": "u3"},
+    ]
 
 
 @pytest.mark.parametrize(
-    ("query", "match"),
+    "query",
     [
         (
-            "MATCH (a:A) "
-            "WITH a "
-            "ORDER BY a.num DESC "
-            "MATCH (a)-->(b) "
-            "RETURN b.id AS bid",
-            "does not yet preserve prefix WITH row ordering",
+            "MATCH (p:Person {id: 'p0'})-[:KNOWS]->(friend:Person) "
+            "WITH friend "
+            "ORDER BY friend.firstName ASC "
+            "MATCH (friend)-[:STUDY_AT]->(uni:University) "
+            "RETURN friend.id AS friendId"
         ),
         (
-            "MATCH (a:A) "
-            "WITH a, a.num AS property "
-            "ORDER BY property DESC "
-            "MATCH (a)-->(b) "
-            "RETURN b.id AS bid",
-            "does not yet preserve prefix WITH row ordering",
+            "MATCH (p:Person {id: 'p0'})-[:KNOWS]->(friend:Person) "
+            "WITH friend "
+            "ORDER BY friend.firstName ASC "
+            "SKIP 1 LIMIT 2 "
+            "MATCH (friend)-[:STUDY_AT]->(uni:University) "
+            "RETURN friend.id AS friendId"
         ),
     ],
 )
-def test_string_cypher_failfast_rejects_with_match_reentry_unsupported_shapes(query: str, match: str) -> None:
-    with pytest.raises(GFQLValidationError, match=match):
-        _mk_reentry_carried_scalar_graph().gfql(query)
+def test_string_cypher_failfast_rejects_with_match_reentry_unbounded_or_skip_order_shapes(query: str) -> None:
+    with pytest.raises(GFQLValidationError, match="requires bounded literal LIMIT"):
+        _mk_reentry_order_limit_graph().gfql(query)
 
 
 def test_string_cypher_executes_seeded_multihop_then_with_match_reentry_shape() -> None:
@@ -7693,6 +10907,79 @@ def test_string_cypher_executes_seeded_multihop_then_with_match_reentry_shape() 
     )
 
     assert result._nodes.to_dict(orient="records") == [{"id": "d"}]
+
+
+def _job_referral_employment_company_shape() -> Tuple[pd.DataFrame, pd.DataFrame, str, List[Dict[str, Any]]]:
+    nodes = pd.DataFrame(
+        [
+            {"id": 1, "label__Person": True},
+            {"id": 2, "label__Person": True, "firstName": "Bob", "lastName": "Baker"},
+            {"id": 3, "label__Person": True, "firstName": "Carol", "lastName": "Clark"},
+            {"id": 4, "label__Company": True, "name": "Zoo"},
+            {"id": 5, "label__Company": True, "name": "Alpha"},
+            {"id": 6, "label__Country": True, "name": "Hungary"},
+        ]
+    )
+    edges = pd.DataFrame(
+        [
+            {"s": 1, "d": 2, "type": "KNOWS"},
+            {"s": 2, "d": 3, "type": "KNOWS"},
+            {"s": 2, "d": 4, "type": "WORK_AT", "workFrom": 2010},
+            {"s": 3, "d": 5, "type": "WORK_AT", "workFrom": 2009},
+            {"s": 4, "d": 6, "type": "IS_LOCATED_IN"},
+            {"s": 5, "d": 6, "type": "IS_LOCATED_IN"},
+        ]
+    )
+    query = (
+        "MATCH (person:Person {id: 1})-[:KNOWS*1..2]-(friend:Person) "
+        "WHERE NOT(person=friend) "
+        "WITH DISTINCT friend "
+        "MATCH (friend)-[workAt:WORK_AT]->(company:Company)-[:IS_LOCATED_IN]->(:Country {name: 'Hungary'}) "
+        "WHERE workAt.workFrom < 2011 "
+        "RETURN "
+        "friend.id AS personId, "
+        "friend.firstName AS personFirstName, "
+        "friend.lastName AS personLastName, "
+        "company.name AS organizationName, "
+        "workAt.workFrom AS organizationWorkFromYear "
+        "ORDER BY organizationWorkFromYear ASC, toInteger(personId) ASC, organizationName DESC "
+        "LIMIT 10"
+    )
+    expected = [
+        {
+            "personId": 3,
+            "personFirstName": "Carol",
+            "personLastName": "Clark",
+            "organizationName": "Alpha",
+            "organizationWorkFromYear": 2009.0,
+        },
+        {
+            "personId": 2,
+            "personFirstName": "Bob",
+            "personLastName": "Baker",
+            "organizationName": "Zoo",
+            "organizationWorkFromYear": 2010.0,
+        },
+    ]
+    return nodes, edges, query, expected
+
+
+def test_string_cypher_executes_job_referral_employment_company_row_join_shape() -> None:
+    nodes, edges, query, expected = _job_referral_employment_company_shape()
+
+    result = _mk_graph(nodes, edges).gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == expected
+
+
+def test_string_cypher_executes_job_referral_employment_company_row_join_shape_on_cudf() -> None:
+    _require_cudf_runtime()
+    nodes, edges, query, expected = _job_referral_employment_company_shape()
+
+    result = _mk_cudf_graph(nodes, edges).gfql(query, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == expected
 
 
 def test_string_cypher_executes_seeded_multihop_then_with_optional_match_reentry_shape() -> None:
@@ -7766,7 +11053,7 @@ def test_string_cypher_executes_multi_stage_with_match_reentry_connected_shape_o
     )
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"id": "d"}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"id": "d"}]
 
 
 def test_string_cypher_executes_multi_stage_with_match_reentry_empty_result_shape() -> None:
@@ -7967,7 +11254,7 @@ def test_string_cypher_executes_multiple_post_with_where_clauses_on_cudf() -> No
     result = _mk_multi_stage_reentry_graph_cudf().gfql(query, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"id": "d"}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"id": "d"}]
 
 
 def test_string_cypher_failfast_rejects_direct_match_after_second_post_with_where_without_intervening_with() -> None:
@@ -8022,7 +11309,7 @@ def test_string_cypher_executes_post_with_match_collect_unwind_match_with_carrie
     assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "d"}]
 
 
-def test_string_cypher_failfast_rejects_post_with_match_collect_unwind_match_final_with_carried_scalar() -> None:
+def test_string_cypher_executes_post_with_match_collect_unwind_match_final_with_carried_scalar() -> None:
     query = (
         "MATCH (a:A)-[:R]->(b:B) "
         "WITH b, b.id AS bid "
@@ -8034,14 +11321,12 @@ def test_string_cypher_failfast_rejects_post_with_match_collect_unwind_match_fin
         "RETURN bid, d.id AS id"
     )
 
-    with pytest.raises(
-        GFQLValidationError,
-        match="Cypher row lowering currently supports one MATCH source alias at a time",
-    ):
-        _mk_multi_stage_reentry_graph().gfql(query)
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "d"}]
 
 
-def test_string_cypher_failfast_rejects_post_with_match_collect_unwind_match_final_with_order_by_limit() -> None:
+def test_string_cypher_executes_post_with_match_collect_unwind_match_final_with_order_by_limit() -> None:
     query = (
         "MATCH (a:A)-[:R]->(b:B) "
         "WITH b, b.id AS bid "
@@ -8055,11 +11340,9 @@ def test_string_cypher_failfast_rejects_post_with_match_collect_unwind_match_fin
         "RETURN bid, d.id AS id"
     )
 
-    with pytest.raises(
-        GFQLValidationError,
-        match="Cypher row lowering currently supports one MATCH source alias at a time",
-    ):
-        _mk_connected_multi_pattern_fanout_graph().gfql(query)
+    result = _mk_connected_multi_pattern_fanout_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b1", "id": "d2"}]
 
 
 def test_string_cypher_executes_post_with_match_collect_unwind_match_empty_result() -> None:
@@ -8096,7 +11379,7 @@ def test_string_cypher_failfast_rejects_post_with_match_non_collect_unwind_match
         _mk_multi_stage_reentry_graph().gfql(query)
 
 
-def test_string_cypher_failfast_rejects_post_with_match_unwind_after_reentry_with() -> None:
+def test_string_cypher_executes_post_with_match_unwind_after_reentry_passthrough_with() -> None:
     query = (
         "MATCH (a:A)-[:R]->(b:B) "
         "WITH b, b.id AS bid "
@@ -8106,11 +11389,27 @@ def test_string_cypher_failfast_rejects_post_with_match_unwind_after_reentry_wit
         "RETURN bid, c2.id AS id"
     )
 
-    with pytest.raises(
-        GFQLValidationError,
-        match="Cypher UNWIND after WITH/RETURN is not yet supported once MATCH has introduced graph aliases",
-    ):
-        _mk_multi_stage_reentry_graph().gfql(query)
+    result = _mk_multi_stage_reentry_graph().gfql(query)
+
+    assert result._nodes.to_dict(orient="records") == [{"bid": "b", "id": "c"}]
+
+
+def test_string_cypher_executes_post_with_match_unwind_after_reentry_passthrough_with_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    query = (
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH b, b.id AS bid "
+        "MATCH (b)-[:S]->(c:C) "
+        "WITH c, bid "
+        "UNWIND [c] AS c2 "
+        "RETURN bid, c2.id AS id"
+    )
+
+    result = _mk_multi_stage_reentry_graph_cudf().gfql(query, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"bid": "b", "id": "c"}]
 
 
 def test_string_cypher_failfast_rejects_multiple_post_with_match_unwinds() -> None:
@@ -8191,8 +11490,37 @@ def test_string_cypher_executes_issue_1000_ic6_exact_runtime_minimal_on_cudf() -
     )
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"tagName": "Alpha", "postCount": 1},
+        {"tagName": "Beta", "postCount": 1},
+    ]
+
+
+def test_issue_1396_issue_1415_tag_cooccurrence_join_aggregation_counts() -> None:
+    """IC6 tag-cooccurrence join+aggregation shape keeps grouped post cardinality."""
+    result = _mk_issue_1396_tag_cooccurrence_join_aggregation_graph().gfql(
+        _issue_1000_ic6_query(),
+        params=_issue_1000_ic6_params(),
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"tagName": "Alpha", "postCount": 2},
+        {"tagName": "Beta", "postCount": 1},
+    ]
+
+
+def test_issue_1396_issue_1415_tag_cooccurrence_join_aggregation_counts_on_cudf() -> None:
+    pytest.importorskip("cudf")
+
+    result = _mk_issue_1396_tag_cooccurrence_join_aggregation_graph_cudf().gfql(
+        _issue_1000_ic6_query(),
+        params=_issue_1000_ic6_params(),
+        engine="cudf",
+    )
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+        {"tagName": "Alpha", "postCount": 2},
         {"tagName": "Beta", "postCount": 1},
     ]
 
@@ -8250,7 +11578,7 @@ def test_string_cypher_executes_scalar_only_prefix_with_match_reentry_on_cudf() 
     result = _mk_prefix_scalar_reentry_graph_cudf().gfql(query, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"id": "post1"}, {"id": "post2"}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"id": "post1"}, {"id": "post2"}]
 
 
 def test_string_cypher_executes_scalar_only_prefix_with_match_reentry_multi_row_prefix() -> None:
@@ -8295,13 +11623,19 @@ def test_string_cypher_failfast_rejects_scalar_only_prefix_with_match_reentry_pr
         _mk_prefix_scalar_reentry_graph().gfql(query)
 
 def test_string_cypher_failfast_rejects_scalar_only_prefix_alias_reused_as_node_variable() -> None:
+    # #1357: cross-kind rebind is now caught at the binder via the
+    # _bind_node_pattern entity_kind guard rather than in the re-entry
+    # compiletime path. The intent (reject scalar→node rebind across WITH)
+    # is preserved; the error message and surface moved earlier.
     with pytest.raises(
         GFQLValidationError,
-        match="Cypher MATCH after WITH scalar-only prefix aliases cannot be reused as node variables",
-    ):
+        match="Cypher alias rebound as a different entity kind",
+    ) as exc_info:
         _mk_reentry_carried_scalar_graph().gfql(
             "MATCH (a:A) WITH [a] AS users MATCH (users)-->(messages) RETURN messages.id AS mid"
         )
+    assert exc_info.value.context["existing_kind"] == "scalar"
+    assert exc_info.value.context["new_kind"] == "node"
 
 
 def test_string_cypher_executes_scalar_prefix_reentry_connected_star_comma_fanout() -> None:
@@ -8369,7 +11703,7 @@ def test_string_cypher_executes_scalar_prefix_reentry_connected_star_comma_fanou
     result = _mk_connected_post_tag_fanout_graph_cudf().gfql(query, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"postId": "post1", "tagName": "other"}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"postId": "post1", "tagName": "other"}]
 
 
 def test_string_cypher_executes_connected_multi_pattern_grouped_aggregate_overlap() -> None:
@@ -8422,7 +11756,7 @@ def test_string_cypher_executes_connected_multi_pattern_grouped_aggregate_overla
     result = _mk_connected_multi_pattern_fanout_graph_cudf().gfql(query, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"cid": "c1", "cnt": 2}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"cid": "c1", "cnt": 2}]
 def test_cypher_to_gfql_supports_multi_alias_scalar_projection() -> None:
     """Multi-alias scalar projections are supported via bindings table."""
     chain = cypher_to_gfql("MATCH (p)-[r]->(q) RETURN p.id, q.id")
@@ -8657,14 +11991,107 @@ def test_multi_alias_return_duplicate_edges() -> None:
     assert len(result._nodes) == 2
 
 
-def test_multi_alias_with_stage_still_rejected() -> None:
-    """WITH multi-alias scalar projections are not yet supported (separate code path)."""
+def test_multi_alias_with_stage_scalar_projection_executes() -> None:
+    """#1273 shape A: WITH multi-alias scalar projections execute on bindings-row path."""
     g = _mk_graph(
         pd.DataFrame({"id": ["a", "b"], "label__A": [True, False], "label__B": [False, True]}),
         pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
     )
-    with pytest.raises(GFQLValidationError, match="one MATCH source alias"):
-        g.gfql("MATCH (a:A)-[:R]->(b:B) WITH a.id AS a_id, b.id AS b_id RETURN a_id, b_id")
+    result = g.gfql("MATCH (a:A)-[:R]->(b:B) WITH a.id AS a_id, b.id AS b_id RETURN a_id, b_id")
+    assert result._nodes.to_dict(orient="records") == [{"a_id": "a", "b_id": "b"}]
+
+
+def test_multi_alias_with_stage_scalar_projection_with_where_executes() -> None:
+    """#1273 shape A: scalar aliases from WITH can drive same-stage WHERE filtering."""
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b1", "b2"],
+                "label__A": [True, False, False],
+                "label__B": [False, True, True],
+            }
+        ),
+        pd.DataFrame({"s": ["a", "a"], "d": ["b1", "b2"], "type": ["R", "R"]}),
+    )
+    result = g.gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH a.id AS a_id, b.id AS b_id "
+        "WHERE b_id = 'b2' "
+        "RETURN a_id, b_id"
+    )
+    assert result._nodes.to_dict(orient="records") == [{"a_id": "a", "b_id": "b2"}]
+
+
+def test_multi_alias_with_stage_whole_row_projection_executes_for_joined_row_projection_1393() -> None:
+    """#1393: multi-alias whole-row WITH projection executes on bindings-row path."""
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["n1", "n2", "x1", "x2"],
+                "animal": ["cat", "dog", "cat", "wolf"],
+            }
+        ),
+        pd.DataFrame({"s": ["n1", "n2"], "d": ["x1", "x2"], "type": ["R", "R"]}),
+    )
+    result = g.gfql("MATCH (n)-[rel]->(x) WITH n, x WHERE n.animal = x.animal RETURN n, x")
+    records = result._nodes.to_dict(orient="records")
+    assert len(records) == 1
+    assert "cat" in records[0]["n"]
+    assert "cat" in records[0]["x"]
+
+
+def test_string_cypher_executes_connected_multi_pattern_multi_whole_row_joined_projection_1393() -> None:
+    result = _mk_connected_multi_pattern_reentry_graph().gfql(
+        "MATCH (b:B)-[:S]->(c:C), (c)-[:T]->(d:D) RETURN b, c, d.id AS did ORDER BY did"
+    )
+
+    records = result._nodes.to_dict(orient="records")
+    assert records == [
+        {"b": "(:B)", "c": "(:C)", "did": "d1"},
+        {"b": "(:B)", "c": "(:C)", "did": "d2"},
+    ]
+
+
+def test_multi_alias_connected_whole_row_return_with_cross_alias_where_executes_for_joined_row_projection_1393() -> None:
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["n1", "n2", "x1", "x2"],
+                "animal": ["cat", "dog", "cat", "wolf"],
+            }
+        ),
+        pd.DataFrame({"s": ["n1", "n2"], "d": ["x1", "x2"], "type": ["R", "R"]}),
+    )
+    result = g.gfql("MATCH (n)-[rel]->(x) WHERE n.animal = x.animal RETURN n, x")
+    assert result._nodes.to_dict(orient="records") == [{"n": "({animal: 'cat'})", "x": "({animal: 'cat'})"}]
+
+
+def test_multi_alias_connected_cross_alias_where_scalar_projection_remains_supported() -> None:
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["n1", "n2", "x1", "x2"],
+                "animal": ["cat", "dog", "cat", "wolf"],
+            }
+        ),
+        pd.DataFrame({"s": ["n1", "n2"], "d": ["x1", "x2"], "type": ["R", "R"]}),
+    )
+    result = g.gfql("MATCH (n)-[rel]->(x) WHERE n.animal = x.animal RETURN n.id AS n_id, x.id AS x_id")
+    assert result._nodes.to_dict(orient="records") == [{"n_id": "n1", "x_id": "x1"}]
+
+
+def test_multi_alias_connected_cross_alias_where_single_whole_row_projection_remains_supported() -> None:
+    g = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["n1", "n2", "x1", "x2"],
+                "animal": ["cat", "dog", "cat", "wolf"],
+            }
+        ),
+        pd.DataFrame({"s": ["n1", "n2"], "d": ["x1", "x2"], "type": ["R", "R"]}),
+    )
+    result = g.gfql("MATCH (n)-[rel]->(x) WHERE n.animal = x.animal RETURN n, x.id AS x_id")
+    assert result._nodes.to_dict(orient="records") == [{"n": "({animal: 'cat'})", "x_id": "x1"}]
 
 
 def test_compile_cypher_tracks_seeded_top_level_row_query() -> None:
@@ -8680,199 +12107,123 @@ def test_compile_cypher_tracks_seeded_top_level_row_query() -> None:
     assert second.params == {"expr": "[1, 2, 3]", "as_": "x"}
 
 
-def test_lower_cypher_query_builds_group_by_pipeline() -> None:
-    parsed = _parse_query(
-        "MATCH (n) RETURN n.division AS division, count(*) AS cnt, max(n.age) AS max_age ORDER BY division ASC, cnt DESC"
-    )
-
-    chain = lower_cypher_query(parsed)
-
-    row_call = cast(ASTCall, chain.chain[1])
-    with_call = cast(ASTCall, chain.chain[2])
-    group_call = cast(ASTCall, chain.chain[3])
-    order_call = cast(ASTCall, chain.chain[4])
-    assert [row_call.function, with_call.function, group_call.function, order_call.function] == [
-        "rows",
-        "with_",
-        "group_by",
-        "order_by",
-    ]
-    assert with_call.params["items"] == [
-        ("division", "n.division"),
-        ("__cypher_agg__", "n.age"),
-    ]
-    assert group_call.params == {
-        "keys": ["division"],
-        "aggregations": [("cnt", "count"), ("max_age", "max", "__cypher_agg__")],
-    }
-    assert order_call.params["keys"] == [("division", "asc"), ("cnt", "desc")]
+def _assert_lowered_calls(query: str, expected_calls: List[Tuple[int, str, Dict[str, Any]]]) -> None:
+    chain = lower_cypher_query(_parse_query(query))
+    for idx, function, expected_params in expected_calls:
+        call = cast(ASTCall, chain.chain[idx])
+        assert call.function == function
+        for key, value in expected_params.items():
+            assert call.params[key] == value
 
 
-def test_lower_cypher_query_builds_distinct_aggregate_pipeline() -> None:
-    parsed = _parse_query(
-        "UNWIND [null, 1, null, 2, 1] AS x RETURN count(DISTINCT x) AS cnt, collect(DISTINCT x) AS vals"
-    )
-
-    chain = lower_cypher_query(parsed)
-
-    with_call = cast(ASTCall, chain.chain[2])
-    group_call = cast(ASTCall, chain.chain[3])
-    return_call = cast(ASTCall, chain.chain[4])
-    assert [with_call.function, group_call.function, return_call.function] == [
-        "with_",
-        "group_by",
-        "select",
-    ]
-    assert with_call.params["items"] == [("__cypher_group__", 1), ("__cypher_agg__", "x"), ("__cypher_agg__1", "x")]
-    assert group_call.params == {
-        "keys": ["__cypher_group__"],
-        "aggregations": [("cnt", "count_distinct", "__cypher_agg__"), ("vals", "collect_distinct", "__cypher_agg__1")],
-    }
-
-
-def test_lower_cypher_query_builds_with_aggregate_pipeline() -> None:
-    parsed = _parse_query(
-        "UNWIND [1, 2, 2] AS x WITH collect(DISTINCT x) AS xs RETURN size(xs) AS n"
-    )
-
-    chain = lower_cypher_query(parsed)
-
-    with_call = cast(ASTCall, chain.chain[2])
-    group_call = cast(ASTCall, chain.chain[3])
-    with_output_call = cast(ASTCall, chain.chain[4])
-    final_call = cast(ASTCall, chain.chain[5])
-
-    assert [with_call.function, group_call.function, with_output_call.function, final_call.function] == [
-        "with_",
-        "group_by",
-        "with_",
-        "select",
-    ]
-    assert with_call.params["items"] == [("__cypher_group__", 1), ("__cypher_agg__", "x")]
-    assert group_call.params == {
-        "keys": ["__cypher_group__"],
-        "aggregations": [("xs", "collect_distinct", "__cypher_agg__")],
-    }
-    assert with_output_call.params["items"] == [("xs", "xs")]
-    assert final_call.params["items"] == [("n", "size(xs)")]
-
-
-def test_lower_cypher_query_builds_match_alias_with_expression_order_pipeline() -> None:
-    parsed = _parse_query(
-        "MATCH (a) WITH a.name AS name ORDER BY a.name + 'C' ASC LIMIT 2 RETURN name"
-    )
-
-    chain = lower_cypher_query(parsed)
-
-    row_call = cast(ASTCall, chain.chain[1])
-    with_call = cast(ASTCall, chain.chain[2])
-    order_call = cast(ASTCall, chain.chain[3])
-    limit_call = cast(ASTCall, chain.chain[4])
-    final_call = cast(ASTCall, chain.chain[5])
-
-    assert [row_call.function, with_call.function, order_call.function, limit_call.function, final_call.function] == [
-        "rows",
-        "with_",
-        "order_by",
-        "limit",
-        "select",
-    ]
-    assert with_call.params["items"] == [("name", "a.name")]
-    assert order_call.params["keys"] == [("(name + 'C')", "asc")]
-    assert limit_call.params["value"] == 2
-    assert final_call.params["items"] == [("name", "name")]
-
-
-def test_lower_cypher_query_builds_match_alias_with_aggregate_group_by_pipeline() -> None:
-    parsed = _parse_query(
-        "MATCH (a) WITH a.name AS name, count(*) AS cnt ORDER BY a.name + 'C' DESC LIMIT 1 RETURN name, cnt"
-    )
-
-    chain = lower_cypher_query(parsed)
-
-    row_call = cast(ASTCall, chain.chain[1])
-    with_call = cast(ASTCall, chain.chain[2])
-    group_call = cast(ASTCall, chain.chain[3])
-    order_call = cast(ASTCall, chain.chain[4])
-    limit_call = cast(ASTCall, chain.chain[5])
-    final_call = cast(ASTCall, chain.chain[6])
-
-    assert [row_call.function, with_call.function, group_call.function, order_call.function, limit_call.function, final_call.function] == [
-        "rows",
-        "with_",
-        "group_by",
-        "order_by",
-        "limit",
-        "select",
-    ]
-    assert with_call.params["items"] == [("name", "a.name")]
-    assert group_call.params == {
-        "keys": ["name"],
-        "aggregations": [("cnt", "count")],
-    }
-    assert order_call.params["keys"] == [("(name + 'C')", "desc")]
-    assert limit_call.params["value"] == 1
-    assert final_call.params["items"] == [("name", "name"), ("cnt", "cnt")]
-
-
-def test_lower_cypher_query_maps_count_distinct_edge_alias_to_identity() -> None:
-    parsed = _parse_query("MATCH (a)-[r]->(b) RETURN count(DISTINCT r)")
-
-    chain = lower_cypher_query(parsed)
-
-    row_call = cast(ASTCall, chain.chain[3])
-    with_call = cast(ASTCall, chain.chain[4])
-    group_call = cast(ASTCall, chain.chain[5])
-    assert row_call.params == {"table": "edges", "source": "r"}
-    assert with_call.params["items"] == [("__cypher_group__", 1), ("__cypher_agg__", "__gfql_edge_index_0__")]
-    assert group_call.params == {
-        "keys": ["__cypher_group__"],
-        "aggregations": [("count(DISTINCT r)", "count_distinct", "__cypher_agg__")],
-    }
+@pytest.mark.parametrize(
+    ("query", "expected_calls"),
+    [
+        (
+            "MATCH (n) RETURN n.division AS division, count(*) AS cnt, max(n.age) AS max_age "
+            "ORDER BY division ASC, cnt DESC",
+            [
+                (1, "rows", {}),
+                (2, "with_", {"items": [("division", "n.division"), ("__cypher_agg__", "n.age")]}),
+                (
+                    3,
+                    "group_by",
+                    {"keys": ["division"], "aggregations": [("cnt", "count"), ("max_age", "max", "__cypher_agg__")]},
+                ),
+                (4, "order_by", {"keys": [("division", "asc"), ("cnt", "desc")]}),
+            ],
+        ),
+        (
+            "UNWIND [null, 1, null, 2, 1] AS x RETURN count(DISTINCT x) AS cnt, collect(DISTINCT x) AS vals",
+            [
+                (2, "with_", {"items": [("__cypher_group__", 1), ("__cypher_agg__", "x"), ("__cypher_agg__1", "x")]}),
+                (
+                    3,
+                    "group_by",
+                    {
+                        "keys": ["__cypher_group__"],
+                        "aggregations": [
+                            ("cnt", "count_distinct", "__cypher_agg__"),
+                            ("vals", "collect_distinct", "__cypher_agg__1"),
+                        ],
+                    },
+                ),
+                (4, "select", {}),
+            ],
+        ),
+        (
+            "UNWIND [1, 2, 2] AS x WITH collect(DISTINCT x) AS xs RETURN size(xs) AS n",
+            [
+                (2, "with_", {"items": [("__cypher_group__", 1), ("__cypher_agg__", "x")]}),
+                (
+                    3,
+                    "group_by",
+                    {"keys": ["__cypher_group__"], "aggregations": [("xs", "collect_distinct", "__cypher_agg__")]},
+                ),
+                (4, "with_", {"items": [("xs", "xs")]}),
+                (5, "select", {"items": [("n", "size(xs)")]}),
+            ],
+        ),
+        (
+            "MATCH (a) WITH a.name AS name ORDER BY a.name + 'C' ASC LIMIT 2 RETURN name",
+            [
+                (1, "rows", {}),
+                (2, "with_", {"items": [("name", "a.name")]}),
+                (3, "order_by", {"keys": [("(name + 'C')", "asc")]}),
+                (4, "limit", {"value": 2}),
+                (5, "select", {"items": [("name", "name")]}),
+            ],
+        ),
+        (
+            "MATCH (a) WITH a.name AS name, count(*) AS cnt ORDER BY a.name + 'C' DESC LIMIT 1 RETURN name, cnt",
+            [
+                (1, "rows", {}),
+                (2, "with_", {"items": [("name", "a.name")]}),
+                (3, "group_by", {"keys": ["name"], "aggregations": [("cnt", "count")]}),
+                (4, "order_by", {"keys": [("(name + 'C')", "desc")]}),
+                (5, "limit", {"value": 1}),
+                (6, "select", {"items": [("name", "name"), ("cnt", "cnt")]}),
+            ],
+        ),
+        (
+            "MATCH (a)-[r]->(b) RETURN count(DISTINCT r)",
+            [
+                (3, "rows", {"table": "edges", "source": "r"}),
+                (4, "with_", {"items": [("__cypher_group__", 1), ("__cypher_agg__", "__gfql_edge_index_0__")]}),
+                (
+                    5,
+                    "group_by",
+                    {
+                        "keys": ["__cypher_group__"],
+                        "aggregations": [("count(DISTINCT r)", "count_distinct", "__cypher_agg__")],
+                    },
+                ),
+            ],
+        ),
+    ],
+)
+def test_lower_cypher_query_builds_row_pipeline_shapes(query, expected_calls) -> None:
+    _assert_lowered_calls(query, expected_calls)
 
 
 def test_gfql_executes_top_level_unwind_query() -> None:
-    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
-
-    result = g.gfql("UNWIND [3, 1, 2] AS x RETURN x ORDER BY x ASC LIMIT 2")
-
-    assert result._nodes.to_dict(orient="records") == [{"x": 1}, {"x": 2}]
+    _assert_query_rows("UNWIND [3, 1, 2] AS x RETURN x ORDER BY x ASC LIMIT 2", [{"x": 1}, {"x": 2}])
 
 
 def test_gfql_executes_match_then_unwind_query() -> None:
-    nodes = pd.DataFrame(
-        {
-            "id": ["a", "b"],
-            "vals": [[2, 1], [3]],
-        }
+    _assert_query_rows(
+        "MATCH (n) UNWIND n.vals AS v RETURN v ORDER BY v ASC",
+        [{"v": 1}, {"v": 2}, {"v": 3}],
+        nodes_df=pd.DataFrame({"id": ["a", "b"], "vals": [[2, 1], [3]]}),
     )
-    edges = pd.DataFrame({"s": [], "d": []})
-
-    result = _mk_graph(nodes, edges).gfql(
-        "MATCH (n) UNWIND n.vals AS v RETURN v ORDER BY v ASC"
-    )
-
-    assert result._nodes.to_dict(orient="records") == [{"v": 1}, {"v": 2}, {"v": 3}]
 
 
 def test_gfql_executes_aggregate_return_query() -> None:
-    nodes = pd.DataFrame(
-        {
-            "id": ["a", "b", "c"],
-            "division": ["x", "x", "y"],
-            "age": [3, 7, 4],
-        }
+    _assert_query_rows(
+        "MATCH (n) RETURN n.division AS division, count(*) AS cnt, max(n.age) AS max_age ORDER BY division ASC",
+        [{"division": "x", "cnt": 2, "max_age": 7}, {"division": "y", "cnt": 1, "max_age": 4}],
+        nodes_df=pd.DataFrame({"id": ["a", "b", "c"], "division": ["x", "x", "y"], "age": [3, 7, 4]}),
     )
-    edges = pd.DataFrame({"s": [], "d": []})
-
-    result = _mk_graph(nodes, edges).gfql(
-        "MATCH (n) RETURN n.division AS division, count(*) AS cnt, max(n.age) AS max_age ORDER BY division ASC"
-    )
-
-    assert result._nodes.to_dict(orient="records") == [
-        {"division": "x", "cnt": 2, "max_age": 7},
-        {"division": "y", "cnt": 1, "max_age": 4},
-    ]
 
 
 def test_gfql_executes_aggregate_order_by_on_cudf() -> None:
@@ -8895,7 +12246,7 @@ def test_gfql_executes_aggregate_order_by_on_cudf() -> None:
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"n.division": "A", "max(n.age)": 22},
         {"n.division": "B", "max(n.age)": 44},
         {"n.division": "C", "max(n.age)": 55},
@@ -8923,21 +12274,29 @@ def test_gfql_preserves_group_order_for_aggregate_order_ties_on_cudf() -> None:
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"a": "(:L1)", "count(*)": 1},
         {"a": "(:L2)", "count(*)": 1},
         {"a": "(:L3)", "count(*)": 1},
     ]
 
 
-def test_gfql_executes_boolean_list_comprehension_order_check_on_cudf() -> None:
+@pytest.mark.parametrize(
+    "values",
+    [
+        "[true, false]",
+        "[351, -3974856, 93, -3, 123, 0, 3, -2, 20934587, 1, 20934585, 20934586, -10]",
+        "[[2, 2], [2, -2], [1, 2], [], [1], [300, 0], [1, -20], [2, -2, 100]]",
+    ],
+)
+def test_gfql_executes_list_comprehension_order_check_on_cudf(values: str) -> None:
     cudf = pytest.importorskip("cudf")
 
     nodes = cudf.from_pandas(pd.DataFrame({"id": []}))
     edges = cudf.from_pandas(pd.DataFrame({"s": [], "d": []}))
 
     result = _mk_graph(nodes, edges).gfql(
-        "WITH [true, false] AS values\n"
+        f"WITH {values} AS values\n"
         "WITH values, size(values) AS numOfValues\n"
         "UNWIND values AS value\n"
         "WITH size([ x IN values WHERE x < value ]) AS x, value, numOfValues\n"
@@ -8947,47 +12306,7 @@ def test_gfql_executes_boolean_list_comprehension_order_check_on_cudf() -> None:
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"equal": True}]
-
-
-def test_gfql_executes_integer_list_comprehension_order_check_on_cudf() -> None:
-    cudf = pytest.importorskip("cudf")
-
-    nodes = cudf.from_pandas(pd.DataFrame({"id": []}))
-    edges = cudf.from_pandas(pd.DataFrame({"s": [], "d": []}))
-
-    result = _mk_graph(nodes, edges).gfql(
-        "WITH [351, -3974856, 93, -3, 123, 0, 3, -2, 20934587, 1, 20934585, 20934586, -10] AS values\n"
-        "WITH values, size(values) AS numOfValues\n"
-        "UNWIND values AS value\n"
-        "WITH size([ x IN values WHERE x < value ]) AS x, value, numOfValues\n"
-        "  ORDER BY value\n"
-        "WITH numOfValues, collect(x) AS orderedX\n"
-        "RETURN orderedX = range(0, numOfValues-1) AS equal",
-        engine="cudf",
-    )
-
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"equal": True}]
-
-
-def test_gfql_executes_nested_list_comprehension_order_check_on_cudf() -> None:
-    cudf = pytest.importorskip("cudf")
-
-    nodes = cudf.from_pandas(pd.DataFrame({"id": []}))
-    edges = cudf.from_pandas(pd.DataFrame({"s": [], "d": []}))
-
-    result = _mk_graph(nodes, edges).gfql(
-        "WITH [[2, 2], [2, -2], [1, 2], [], [1], [300, 0], [1, -20], [2, -2, 100]] AS values\n"
-        "WITH values, size(values) AS numOfValues\n"
-        "UNWIND values AS value\n"
-        "WITH size([ x IN values WHERE x < value ]) AS x, value, numOfValues\n"
-        "  ORDER BY value\n"
-        "WITH numOfValues, collect(x) AS orderedX\n"
-        "RETURN orderedX = range(0, numOfValues-1) AS equal",
-        engine="cudf",
-    )
-
-    assert result._nodes.to_pandas().to_dict(orient="records") == [{"equal": True}]
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"equal": True}]
 
 
 def test_gfql_executes_loop_edge_count_queries() -> None:
@@ -9087,12 +12406,11 @@ def test_gfql_executes_collect_distinct_all_null_return_query() -> None:
 
 
 def test_gfql_executes_count_distinct_missing_property_as_zero() -> None:
-    nodes = pd.DataFrame({"id": ["a", "b"]})
-    edges = pd.DataFrame({"s": [], "d": []})
-
-    result = _mk_graph(nodes, edges).gfql("MATCH (a) RETURN count(DISTINCT a.name) AS cnt")
-
-    assert result._nodes.to_dict(orient="records") == [{"cnt": 0}]
+    _assert_query_rows(
+        "MATCH (a) RETURN count(DISTINCT a.name) AS cnt",
+        [{"cnt": 0}],
+        nodes_df=pd.DataFrame({"id": ["a", "b"]}),
+    )
 
 
 def test_cypher_to_gfql_rejects_multi_source_aggregate_expr() -> None:
@@ -9126,11 +12444,103 @@ def test_gfql_executes_top_level_membership_and_null_expression() -> None:
     _assert_query_rows("RETURN 3 IN [1, 2, 3] AS hit, null IS NULL AS empty", [{"hit": True, "empty": True}])
 
 
+def test_gfql_executes_top_level_list_equality_with_nested_null_returns_null() -> None:
+    _assert_query_rows(
+        "RETURN [[1], [2]] = [[1], [null]] AS result",
+        [{"result": None}],
+    )
+
+
+def test_gfql_executes_top_level_map_equality_with_null_values_returns_null() -> None:
+    _assert_query_rows(
+        "RETURN {k: null} = {k: null} AS both_null, {k: 1} = {k: null} AS mixed",
+        [{"both_null": None, "mixed": None}],
+    )
+
+
+def test_gfql_executes_top_level_membership_nested_null_propagates_unknown() -> None:
+    _assert_query_rows(
+        "RETURN "
+        "[null] IN [[null]] AS list_null, "
+        "[1, 2] IN [[null, 2]] AS needs_null_compare, "
+        "[1, 2] IN [[null, 2], [1, 3]] AS all_unknown_or_false",
+        [{"list_null": None, "needs_null_compare": None, "all_unknown_or_false": None}],
+    )
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+def test_gfql_executes_top_level_list_map_nan_comparisons_on_engines(engine: str | None) -> None:
+    if engine == "cudf":
+        _require_cudf_runtime()
+
+    g = _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+    result = g.gfql(
+        "WITH (0.0 / 0.0) AS z "
+        "RETURN "
+        "[z] = [z] AS list_eq, "
+        "[z] <> [z] AS list_neq, "
+        "[z] IN [[z]] AS list_in, "
+        "{k: z} = {k: z} AS map_eq, "
+        "{k: z} <> {k: z} AS map_neq",
+        **({"engine": engine} if engine is not None else {}),
+    )
+
+    rows = _to_pandas_df(result._nodes).to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
+    if engine == "cudf":
+        # cuDF currently canonicalizes arithmetic NaN to null in this path.
+        assert rows == [
+            {
+                "list_eq": None,
+                "list_neq": None,
+                "list_in": None,
+                "map_eq": None,
+                "map_neq": None,
+            }
+        ]
+    else:
+        assert rows == [
+            {
+                "list_eq": False,
+                "list_neq": True,
+                "list_in": False,
+                "map_eq": False,
+                "map_neq": True,
+            }
+        ]
+
+
 def test_gfql_executes_size_null_and_sqrt_constant_expressions() -> None:
     _assert_query_rows(
         "WITH null AS l RETURN size(l) AS size_l, size(null) AS size_null, sqrt(12.96) AS root",
         [{"size_l": None, "size_null": None, "root": 3.6}],
     )
+
+
+def test_gfql_executes_double_quoted_string_literal_projection() -> None:
+    _assert_query_rows('RETURN "a" AS literal', [{"literal": "a"}])
+
+
+def test_gfql_executes_bool_and_null_list_literal_projections() -> None:
+    _assert_query_rows(
+        "RETURN [true] AS trues, [false] AS falses, [null] AS nulls",
+        [{"trues": [True], "falses": [False], "nulls": [None]}],
+    )
+
+
+def test_gfql_preserves_single_alias_list_projection() -> None:
+    _assert_query_rows(
+        "MATCH (n) WITH [n] AS ns RETURN size(ns) AS size",
+        [{"size": 1}, {"size": 1}],
+        nodes_df=pd.DataFrame({"id": ["a", "b"]}),
+    )
+
+
+def test_gfql_rejects_unresolved_single_alias_list_projection() -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _mk_empty_graph().gfql("RETURN [missingAlias] AS xs")
+
+    assert "missingAlias" in str(exc_info.value)
 
 
 def test_gfql_executes_substring_and_tointeger_expressions() -> None:
@@ -9159,6 +12569,23 @@ def test_gfql_executes_top_level_xor_expression_and_precedence() -> None:
         }
         ],
     )
+
+
+def test_gfql_executes_top_level_xor_literal_expression_on_cudf() -> None:
+    cudf = _require_cudf_runtime()
+    graph = _mk_graph(
+        cudf.from_pandas(pd.DataFrame({"id": pd.Series(dtype="object")})),
+        cudf.from_pandas(pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")})),
+    )
+
+    result = graph.gfql(
+        "RETURN true XOR false AS tf, true XOR null AS tn",
+        engine="cudf",
+    )
+
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+        {"tf": True, "tn": None}
+    ]
 
 
 def test_gfql_executes_with_where_xor_null_pipeline() -> None:
@@ -9217,6 +12644,23 @@ def test_gfql_executes_optional_match_null_projections_on_non_empty_graph() -> N
 
     assert result._nodes.to_dict(orient="records") == [
         {"missing_is_null": True, "exists_is_not_null": True}
+    ]
+
+
+def test_gfql_executes_optional_match_null_projections_on_empty_graph() -> None:
+    g = _mk_graph(
+        pd.DataFrame({"id": [], "exists": []}),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    result = g.gfql(
+        "OPTIONAL MATCH (n) "
+        "RETURN n.missing IS NULL AS missing_is_null, "
+        "n.missing IS NOT NULL AS missing_is_not_null"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"missing_is_null": True, "missing_is_not_null": False}
     ]
 
 
@@ -9399,7 +12843,7 @@ def test_gfql_executes_with_where_null_filter_over_mixed_type_compare_on_cudf() 
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"id": "child_text"},
         {"id": "child_zz"},
     ]
@@ -9447,7 +12891,7 @@ def test_gfql_executes_with_where_is_null_over_mixed_null_sentinels_on_engines(
         "ORDER BY id",
         **({"engine": engine} if engine is not None else {}),
     )
-    rows = result._nodes.to_pandas().to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
+    rows = _to_pandas_df(result._nodes).to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
     assert rows == [
         {"id": "child_nan"},
         {"id": "child_nat"},
@@ -9546,7 +12990,7 @@ def test_gfql_executes_with_where_cross_type_comparison_conformance_on_engines(
         **({"engine": engine} if engine is not None else {}),
     )
 
-    rows = result._nodes.to_pandas().to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
+    rows = _to_pandas_df(result._nodes).to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
     assert rows == [{"id": node_id} for node_id in expected_ids]
 
 
@@ -9606,7 +13050,7 @@ def test_string_cypher_supports_map_quantifier_predicates_on_cudf() -> None:
         engine="cudf",
     )
 
-    assert result._nodes.to_pandas().to_dict(orient="records") == [
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
         {"result": False}
     ]
 
@@ -9628,6 +13072,35 @@ def test_string_cypher_rejects_obviously_non_boolean_operands_in_boolean_ops(que
 
 
 # ── Multi-alias WITH projection from connected MATCH (#880 / IC-4 shape) ──
+
+
+def _mk_ic3_cross_country_shape_graph() -> _CypherTestGraph:
+    """Graph for IC-3-style carried row + collected city list reentry tests."""
+    return _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "cityA", "friend1", "friend2", "friend3", "cityB", "cityC"],
+                "label__Person": [True, False, True, True, True, False, False],
+                "label__City": [False, True, False, False, False, True, True],
+                "name": ["", "CityA", "", "", "", "CityB", "CityC"],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p1", "p1", "p1", "friend1", "friend2", "friend3"],
+                "d": ["cityA", "friend1", "friend2", "friend3", "cityB", "cityA", "cityC"],
+                "type": [
+                    "IS_LOCATED_IN",
+                    "KNOWS",
+                    "KNOWS",
+                    "KNOWS",
+                    "IS_LOCATED_IN",
+                    "IS_LOCATED_IN",
+                    "IS_LOCATED_IN",
+                ],
+            }
+        ),
+    )
 
 
 def _mk_ic4_shape_graph() -> _CypherTestGraph:
@@ -9658,6 +13131,77 @@ def _mk_ic4_shape_graph() -> _CypherTestGraph:
             }
         ),
     )
+
+
+def _mk_ic4_id_collision_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """IC4-shaped graph with LDBC-style cross-label numeric id collisions (#1496)."""
+    return (
+        pd.DataFrame(
+            {
+                "id": [1, 2, 10, 20, 30, 10, 20],
+                "label__Person": [True, True, False, False, False, False, False],
+                "label__Post": [False, False, True, True, True, False, False],
+                "label__Tag": [False, False, False, False, False, True, True],
+                "name": ["", "", "", "", "", "TagA", "TagB"],
+                "creationDate": [0, 0, 100, 200, 300, 0, 0],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": [1, 10, 20, 30, 10, 20, 30],
+                "d": [2, 2, 2, 2, 10, 10, 20],
+                "type": [
+                    "KNOWS",
+                    "HAS_CREATOR",
+                    "HAS_CREATOR",
+                    "HAS_CREATOR",
+                    "HAS_TAG",
+                    "HAS_TAG",
+                    "HAS_TAG",
+                ],
+            }
+        ),
+    )
+
+
+_ISSUE_1496_IC4_QUERY = """
+MATCH (person:Person {id: $personId })-[:KNOWS]-(friend:Person),
+      (friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag)
+WITH DISTINCT tag, post
+WITH tag,
+     CASE
+       WHEN $startDate <= post.creationDate < $endDate THEN 1
+       ELSE 0
+     END AS valid,
+     CASE
+       WHEN post.creationDate < $startDate THEN 1
+       ELSE 0
+     END AS inValid
+WITH tag, sum(valid) AS postCount, sum(inValid) AS inValidPostCount
+WHERE postCount>0 AND inValidPostCount=0
+RETURN tag.name AS tagName, postCount
+ORDER BY postCount DESC, tagName ASC
+LIMIT 10
+"""
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+def test_issue_1496_ic4_unlabeled_has_tag_destination_disambiguates_colliding_ids(engine: Optional[str]) -> None:
+    """Official IC4 shape: HAS_TAG should bind the tag row when ids collide across labels."""
+    nodes, edges = _mk_ic4_id_collision_data()
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes, edges)
+    else:
+        graph = _mk_graph(nodes, edges)
+    params = {"personId": 1, "startDate": 150, "endDate": 350}
+    result = (
+        graph.gfql(_ISSUE_1496_IC4_QUERY, params=params, engine=engine)
+        if engine is not None
+        else graph.gfql(_ISSUE_1496_IC4_QUERY, params=params)
+    )
+    records = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert records == [{"tagName": "TagB", "postCount": 1}]
 
 
 def test_string_cypher_multi_alias_with_distinct_scalar_projection() -> None:
@@ -9950,6 +13494,62 @@ def test_string_cypher_multi_alias_with_four_stage_chain() -> None:
     ]
 
 
+def test_string_cypher_multi_alias_with_non_active_whole_row_aggregation_grouping() -> None:
+    """Joined-row aggregation can group by a non-active whole-row alias (#1392)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH post, count(tag) AS tagCount "
+        "RETURN post.id AS postId, post.creationDate AS cd, tagCount ORDER BY postId",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"postId": "post1", "cd": 100, "tagCount": 1},
+        {"postId": "post2", "cd": 200, "tagCount": 1},
+        {"postId": "post3", "cd": 300, "tagCount": 1},
+    ]
+
+
+def test_string_cypher_multi_alias_with_non_active_grouping_then_property_projection() -> None:
+    """Post-grouping alias.property projections remain available after non-active whole-row grouping (#1392)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH post, count(tag) AS tagCount "
+        "WITH post.id AS postId, post.creationDate AS cd, tagCount "
+        "RETURN postId, cd, tagCount ORDER BY postId",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"postId": "post1", "cd": 100.0, "tagCount": 1},
+        {"postId": "post2", "cd": 200.0, "tagCount": 1},
+        {"postId": "post3", "cd": 300.0, "tagCount": 1},
+    ]
+
+
+def test_string_cypher_multi_alias_with_non_active_multi_whole_row_grouping() -> None:
+    """Aggregate grouping over two whole-row aliases preserves both alias key prefixes (#1392)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "WITH post, tag, count(*) AS cnt "
+        "RETURN post.id AS postId, tag.name AS tagName, cnt "
+        "ORDER BY postId, tagName",
+        params={"pid": "p1"},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"postId": "post1", "tagName": "TagA", "cnt": 1},
+        {"postId": "post2", "tagName": "TagA", "cnt": 1},
+        {"postId": "post3", "tagName": "TagB", "cnt": 1},
+    ]
+
+
 def test_string_cypher_multi_alias_with_non_final_agg_multiple_funcs() -> None:
     """Non-final WITH aggregate with multiple agg functions, then RETURN alias property (#1054)."""
     graph = _mk_ic4_shape_graph()
@@ -10140,6 +13740,237 @@ def test_string_cypher_multi_alias_with_three_stage_case_aggregation() -> None:
     # TagB: post3(valid=1, inValid=0) → postCount=1, inValidPostCount=0 → kept
     assert len(records) >= 1
     assert all(r["postCount"] > 0 for r in records)
+
+
+def test_issue_1413_ic4_new_topics_exact_ldbc_reference_query() -> None:
+    """IC-4 new-topics exact LDBC reference shape: joined rows + CASE aggregation (#1413, #880)."""
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $personId})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, "
+        "CASE WHEN $startDate <= post.creationDate < $endDate THEN 1 ELSE 0 END AS valid, "
+        "CASE WHEN post.creationDate < $startDate THEN 1 ELSE 0 END AS inValid "
+        "WITH tag, sum(valid) AS postCount, sum(inValid) AS inValidPostCount "
+        "WHERE postCount>0 AND inValidPostCount=0 "
+        "RETURN tag.name AS tagName, postCount "
+        "ORDER BY postCount DESC, tagName ASC "
+        "LIMIT 10",
+        params={"personId": "p1", "startDate": 150, "endDate": 350},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tagName": "TagB", "postCount": 1},
+    ]
+
+
+def test_issue_1413_ic4_new_topics_multiple_chained_case_flags() -> None:
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $personId})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag) "
+        "WITH DISTINCT tag, post "
+        "WITH tag, "
+        "CASE WHEN $startDate <= post.creationDate < $endDate THEN 1 ELSE 0 END AS valid, "
+        "CASE WHEN $invalidStart <= post.creationDate < $startDate THEN 1 ELSE 0 END AS inValid "
+        "WITH tag, sum(valid) AS postCount, sum(inValid) AS inValidPostCount "
+        "WHERE postCount > 0 AND inValidPostCount = 0 "
+        "RETURN tag.name AS tagName, postCount "
+        "ORDER BY postCount DESC, tagName ASC "
+        "LIMIT 10",
+        params={"personId": "p1", "invalidStart": 0, "startDate": 150, "endDate": 350},
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"tagName": "TagB", "postCount": 1},
+    ]
+
+
+def test_issue_1413_ic3_cross_country_carried_row_collect_list_reentry_case_sum() -> None:
+    graph = _mk_ic3_cross_country_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $personId})-[:IS_LOCATED_IN]->(city:City) "
+        "WITH person, collect(city) AS cities "
+        "MATCH (person)-[:KNOWS]-(friend:Person)-[:IS_LOCATED_IN]->(friendCity:City) "
+        "WHERE NOT person = friend AND NOT friendCity IN cities "
+        "WITH friend, "
+        "CASE WHEN friendCity.name = $countryXName THEN 1 ELSE 0 END AS messageX, "
+        "CASE WHEN friendCity.name = $countryYName THEN 1 ELSE 0 END AS messageY "
+        "WITH friend, sum(messageX) AS xCount, sum(messageY) AS yCount "
+        "RETURN friend.id AS friendId, xCount, yCount "
+        "ORDER BY friendId ASC",
+        params={"personId": "p1", "countryXName": "CityB", "countryYName": "CityC"},
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"friendId": "friend1", "xCount": 1, "yCount": 0},
+        {"friendId": "friend3", "xCount": 0, "yCount": 1},
+    ]
+
+
+def test_issue_1413_ic3_collect_distinct_entity_membership_with_post_aggregate_where() -> None:
+    graph = _mk_ic3_cross_country_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $personId})-[:IS_LOCATED_IN]->(city:City) "
+        "WITH person, collect(DISTINCT city) AS cities "
+        "MATCH (person)-[:KNOWS]-(friend:Person)-[:IS_LOCATED_IN]->(friendCity:City) "
+        "WHERE NOT (friendCity IN cities) "
+        "WITH friend, "
+        "CASE WHEN friendCity.name = $countryXName THEN 1 ELSE 0 END AS messageX, "
+        "CASE WHEN friendCity.name = $countryYName THEN 1 ELSE 0 END AS messageY "
+        "WITH friend, sum(messageX) AS xCount, sum(messageY) AS yCount "
+        "WHERE xCount > 0 OR yCount > 0 "
+        "RETURN friend.id AS friendId, xCount, yCount "
+        "ORDER BY yCount DESC, friendId ASC",
+        params={"personId": "p1", "countryXName": "CityB", "countryYName": "CityC"},
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"friendId": "friend3", "xCount": 0, "yCount": 1},
+        {"friendId": "friend1", "xCount": 1, "yCount": 0},
+    ]
+
+
+def test_issue_1413_ic3_entity_membership_positive_same_city_friend_only() -> None:
+    graph = _mk_ic3_cross_country_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $personId})-[:IS_LOCATED_IN]->(city:City) "
+        "WITH person, collect(city) AS cities "
+        "MATCH (person)-[:KNOWS]-(friend:Person)-[:IS_LOCATED_IN]->(friendCity:City) "
+        "WHERE friendCity IN cities "
+        "RETURN friend.id AS friendId "
+        "ORDER BY friendId ASC",
+        params={"personId": "p1"},
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"friendId": "friend2"},
+    ]
+
+
+def test_issue_1413_ic3_collect_whole_row_entities_render_after_binding_grouping() -> None:
+    graph = _mk_ic3_cross_country_shape_graph()
+    result = graph.gfql(
+        "MATCH (person:Person {id: $personId})-[:IS_LOCATED_IN]->(city:City) "
+        "WITH person, collect(city) AS cities "
+        "RETURN person.id AS personId, cities",
+        params={"personId": "p1"},
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"personId": "p1", "cities": ["(:City {name: 'CityA'})"]},
+    ]
+
+
+def test_issue_1038_ic4_return_side_case_expression_regression_lock() -> None:
+    """Regression lock for #1038: RETURN-side CASE over IC4-shaped post timestamp ranges."""
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["p1", "f1", "f2", "post1", "post2", "post3", "tag1", "tag2"],
+                "label__Person": [True, True, True, False, False, False, False, False],
+                "label__Post": [False, False, False, True, True, True, False, False],
+                "label__Tag": [False, False, False, False, False, False, True, True],
+                "name": ["", "", "", "", "", "", "TagA", "TagB"],
+                "creationDate": [
+                    0,
+                    0,
+                    0,
+                    1275350400000,
+                    1275264000000,
+                    1306799999999,
+                    0,
+                    0,
+                ],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["p1", "p1", "post1", "post2", "post3", "post1", "post2", "post3"],
+                "d": ["f1", "f2", "f1", "f1", "f2", "tag1", "tag1", "tag2"],
+                "type": [
+                    "KNOWS",
+                    "KNOWS",
+                    "HAS_CREATOR",
+                    "HAS_CREATOR",
+                    "HAS_CREATOR",
+                    "HAS_TAG",
+                    "HAS_TAG",
+                    "HAS_TAG",
+                ],
+            }
+        ),
+    )
+
+    result = graph.gfql(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "RETURN tag.name AS tagName, post.id AS rawPostId, "
+        "CASE WHEN 1275350400000 <= post.creationDate AND post.creationDate < 1306886400000 "
+        "THEN post.id ELSE null END AS postId "
+        "ORDER BY tagName ASC, rawPostId ASC",
+        params={"pid": "p1"},
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert len(rows) == 3
+    assert rows[0] == {"tagName": "TagA", "rawPostId": "post1", "postId": "post1"}
+    assert rows[1]["tagName"] == "TagA"
+    assert rows[1]["rawPostId"] == "post2"
+    assert pd.isna(rows[1]["postId"])
+    assert rows[2] == {"tagName": "TagB", "rawPostId": "post3", "postId": "post3"}
+
+
+def test_issue_1038_rejects_aggregate_inside_row_case_expression() -> None:
+    graph = _mk_ic4_shape_graph()
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "RETURN CASE WHEN post.creationDate > 150 THEN count(*) ELSE 0 END AS out",
+            params={"pid": "p1"},
+        )
+
+    assert exc_info.value.code == ErrorCode.E108
+
+
+def test_issue_1469_rejects_aggregate_inside_literal_map_projection() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b"],
+                "label__A": [True, False],
+                "label__B": [False, True],
+                "num": [None, 42],
+            }
+        ),
+        pd.DataFrame({"s": [], "d": []}),
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql(
+            "MATCH (a:A), (b:B) "
+            "RETURN coalesce(a.num, b.num) AS foo, "
+            "b.num AS bar, "
+            "{name: count(b)} AS baz"
+        )
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert "aggregate expressions inside map literals" in str(exc_info.value)
+
+    with pytest.raises(GFQLValidationError) as with_exc_info:
+        graph.gfql(
+            "MATCH (a:A), (b:B) "
+            "WITH coalesce(a.num, b.num) AS foo, "
+            "b.num AS bar, "
+            "{name: count(b)} AS baz "
+            "RETURN foo, bar, baz"
+        )
+
+    assert with_exc_info.value.code == ErrorCode.E108
+    assert "aggregate expressions inside map literals" in str(with_exc_info.value)
 
 
 # ---------------------------------------------------------------------------
@@ -10649,6 +14480,48 @@ def test_issue_1024_where_label_on_optional_match() -> None:
     assert rows[0]["zid"] == "c"
 
 
+def test_issue_1024_where_not_pattern_on_optional_match_filters_candidates() -> None:
+    """WHERE NOT(pattern) on OPTIONAL MATCH keeps only rows passing negated pattern."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d", "e"]})
+    edges = pd.DataFrame({
+        "s": ["a", "b", "b", "c"],
+        "d": ["b", "c", "d", "e"],
+        "type": ["R1", "T", "T", "U"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x)-[:R1]->(y) "
+        "OPTIONAL MATCH (y)-[:T]->(z) "
+        "WHERE NOT (z)-[:U]->() "
+        "RETURN y.id AS yid, z.id AS zid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert rows == [{"yid": "b", "zid": "d"}]
+
+
+def test_issue_1024_where_not_pattern_on_optional_match_null_fills_when_all_filtered() -> None:
+    """WHERE NOT(pattern) on OPTIONAL MATCH null-fills when every optional row is filtered out."""
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "e"]})
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c"],
+        "d": ["b", "c", "e"],
+        "type": ["R1", "T", "U"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (x)-[:R1]->(y) "
+        "OPTIONAL MATCH (y)-[:T]->(z) "
+        "WHERE NOT (z)-[:U]->() "
+        "RETURN y.id AS yid, z.id AS zid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert rows == [{"yid": "b", "zid": None}]
+
+
 def test_issue_1024_where_on_both_match_and_optional() -> None:
     """WHERE on both MATCH and OPTIONAL MATCH — TCK match-where6-1 shape."""
     nodes = pd.DataFrame({
@@ -10853,6 +14726,47 @@ def test_issue_1025_two_optional_match_one_misses() -> None:
     assert rows[0]["bid"] == "b"
     assert rows[0]["cid"] == "c"
     assert rows[0]["did"] is None or (isinstance(rows[0]["did"], float) and rows[0]["did"] != rows[0]["did"])
+
+
+@pytest.mark.parametrize(
+    "optional_clauses",
+    [
+        "OPTIONAL MATCH (m)-[:T1]->(a:A) OPTIONAL MATCH (m)-[:T2]->(b:B)",
+        "OPTIONAL MATCH (m)-[:T2]->(b:B) OPTIONAL MATCH (m)-[:T1]->(a:A)",
+    ],
+)
+def test_issue_1472_independent_optional_arms_preserve_per_row_nulls(optional_clauses: str) -> None:
+    """Two independent OPTIONAL arms must not bleed matches across base rows."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["m1", "m2", "a1", "b2"],
+            "label__M": [True, True, False, False],
+            "label__A": [False, False, True, False],
+            "label__B": [False, False, False, True],
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["m1", "m2"],
+            "d": ["a1", "b2"],
+            "type": ["T1", "T2"],
+        }
+    )
+    g = _mk_graph(nodes, edges)
+
+    result = g.gfql(
+        "MATCH (m:M) "
+        f"{optional_clauses} "
+        "RETURN m.id AS mid, "
+        "CASE a WHEN null THEN 'no-a' ELSE a.id END AS aid, "
+        "CASE b WHEN null THEN 'no-b' ELSE b.id END AS bid "
+        "ORDER BY mid, aid, bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"mid": "m1", "aid": "a1", "bid": "no-b"},
+        {"mid": "m2", "aid": "no-a", "bid": "b2"},
+    ]
 
 
 def test_issue_1025_single_node_base_two_optionals() -> None:
@@ -11204,12 +15118,12 @@ def test_issue_1026_with_limit_optional_match_null_fill() -> None:
     assert len(rows) == 2
 
 
-def test_issue_1026_multi_alias_with_optional_match_rejects_cleanly() -> None:
-    """Multi-alias WITH + OPTIONAL MATCH currently rejects with a validation error.
+def test_issue_1026_multi_alias_with_optional_match_carries_secondary_property() -> None:
+    """Multi-alias WITH + OPTIONAL MATCH with property carry (#1071).
 
-    The bounded reentry prefix compilation doesn't yet support multi-alias
-    whole-row projection (RETURN a, b) for connected patterns. This test
-    locks the current rejection so it doesn't silently regress to wrong answers.
+    Re-targeted from the prior rejection guardrail: multi-alias whole-row
+    projection (``WITH a, b``) is now supported when secondary aliases are
+    referenced only by property access (``a.id``).
     """
     nodes = pd.DataFrame({"id": ["a", "b", "c"], "num": [1, 2, 3]})
     edges = pd.DataFrame({
@@ -11219,13 +15133,13 @@ def test_issue_1026_multi_alias_with_optional_match_rejects_cleanly() -> None:
     })
     g = _mk_graph(nodes, edges)
 
-    with pytest.raises(GFQLValidationError):
-        g.gfql(
-            "MATCH (a)-[r:R]->(b) "
-            "WITH a, b "
-            "OPTIONAL MATCH (b)-[r2:T]->(c) "
-            "RETURN a.id AS aid, b.id AS bid, c.id AS cid"
-        )
+    result = g.gfql(
+        "MATCH (a)-[r:R]->(b) "
+        "WITH a, b "
+        "OPTIONAL MATCH (b)-[r2:T]->(c) "
+        "RETURN a.id AS aid, b.id AS bid, c.id AS cid"
+    )
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a", "bid": "b", "cid": "c"}]
 
 
 def test_issue_1026_with_limit_optional_match_all_match() -> None:
@@ -11454,7 +15368,289 @@ def test_issue_996_case_r_when_null_searched_form_still_works() -> None:
     assert rows[0]["knows"] is False
 
 
+# ---------------------------------------------------------------------------
+# Issue #1395: sequential MATCH reply-author row-shaping joins (IC8 / IS7)
+# ---------------------------------------------------------------------------
+
+def _mk_issue_1395_reply_author_ic8_graph(*, cudf_mode: bool = False) -> _CypherTestGraph:
+    nodes = pd.DataFrame({
+        "id": [
+            "viewer",
+            "m1",
+            "m2",
+            "c1",
+            "c2",
+            "c3",
+            "author1",
+            "author2",
+        ],
+        "label__Person": [True, False, False, False, False, False, True, True],
+        "label__Message": [False, True, True, False, False, False, False, False],
+        "label__Comment": [False, False, False, True, True, True, False, False],
+        "firstName": [None, None, None, None, None, None, "Ann", "Bob"],
+        "lastName": [None, None, None, None, None, None, "One", "Two"],
+        "creationDate": [None, 100, 90, 110, 105, 80, None, None],
+        "content": [None, "post-1", "post-2", "reply-1", "reply-2", "nested-reply", None, None],
+    })
+    edges = pd.DataFrame({
+        "s": ["m1", "m2", "c1", "c1", "c2", "c2", "c3", "c3"],
+        "d": ["viewer", "viewer", "m1", "author1", "m2", "author2", "c1", "author2"],
+        "type": [
+            "HAS_CREATOR",
+            "HAS_CREATOR",
+            "REPLY_OF",
+            "HAS_CREATOR",
+            "REPLY_OF",
+            "HAS_CREATOR",
+            "REPLY_OF",
+            "HAS_CREATOR",
+        ],
+    })
+    if cudf_mode:
+        pytest.importorskip("cudf")
+        import cudf  # type: ignore
+        nodes = cudf.DataFrame.from_pandas(nodes)
+        edges = cudf.DataFrame.from_pandas(edges)
+    return _mk_graph(nodes, edges)
+
+
+def test_issue_1395_sequential_match_recent_replies_row_shaping_ic8() -> None:
+    """IC8 shape: two non-optional MATCH clauses preserve reply-author projection fields."""
+    g = _mk_issue_1395_reply_author_ic8_graph()
+
+    query = (
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message) "
+        "MATCH (message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(commentAuthor:Person) "
+        "RETURN "
+        "commentAuthor.id AS commentAuthorId, "
+        "commentAuthor.firstName AS commentAuthorFirstName, "
+        "commentAuthor.lastName AS commentAuthorLastName, "
+        "comment.creationDate AS commentCreationDate, "
+        "comment.id AS commentId, "
+        "comment.content AS commentContent "
+        "ORDER BY commentCreationDate DESC, commentId ASC "
+        "LIMIT 20"
+    )
+    result = g.gfql(query, params={"personId": "viewer"})
+
+    assert result._nodes.to_dict(orient="records") == [
+        {
+            "commentAuthorId": "author1",
+            "commentAuthorFirstName": "Ann",
+            "commentAuthorLastName": "One",
+            "commentCreationDate": 110.0,
+            "commentId": "c1",
+            "commentContent": "reply-1",
+        },
+        {
+            "commentAuthorId": "author2",
+            "commentAuthorFirstName": "Bob",
+            "commentAuthorLastName": "Two",
+            "commentCreationDate": 105.0,
+            "commentId": "c2",
+            "commentContent": "reply-2",
+        },
+    ]
+
+
+def test_issue_1395_sequential_match_recent_replies_row_shaping_ic8_on_cudf() -> None:
+    """cuDF parity: IC8 sequential MATCH row-shaping stays aligned on GPU engine."""
+    g = _mk_issue_1395_reply_author_ic8_graph(cudf_mode=True)
+
+    query = (
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message) "
+        "MATCH (message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(commentAuthor:Person) "
+        "RETURN "
+        "commentAuthor.id AS commentAuthorId, "
+        "commentAuthor.firstName AS commentAuthorFirstName, "
+        "commentAuthor.lastName AS commentAuthorLastName, "
+        "comment.creationDate AS commentCreationDate, "
+        "comment.id AS commentId, "
+        "comment.content AS commentContent "
+        "ORDER BY commentCreationDate DESC, commentId ASC "
+        "LIMIT 20"
+    )
+    result = g.gfql(query, params={"personId": "viewer"}, engine="cudf")
+
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+        {
+            "commentAuthorId": "author1",
+            "commentAuthorFirstName": "Ann",
+            "commentAuthorLastName": "One",
+            "commentCreationDate": 110.0,
+            "commentId": "c1",
+            "commentContent": "reply-1",
+        },
+        {
+            "commentAuthorId": "author2",
+            "commentAuthorFirstName": "Bob",
+            "commentAuthorLastName": "Two",
+            "commentCreationDate": 105.0,
+            "commentId": "c2",
+            "commentContent": "reply-2",
+        },
+    ]
+
+
+def test_issue_1395_sequential_match_where_boundary_lock_ic8() -> None:
+    """Boundary lock: intermediate WHERE stays explicitly unsupported for sequential MATCH merge."""
+    g = _mk_issue_1395_reply_author_ic8_graph()
+
+    query = (
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message) "
+        "WHERE message.creationDate >= 95 "
+        "MATCH (message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(commentAuthor:Person) "
+        "RETURN comment.id AS commentId, commentAuthor.id AS commentAuthorId "
+        "ORDER BY commentId"
+    )
+    with pytest.raises(
+        GFQLValidationError,
+        match="WHERE on intermediate MATCH clauses is not yet supported for sequential MATCH merge",
+    ):
+        _ = g.gfql(query, params={"personId": "viewer"})
+
+
+def test_issue_1395_sequential_match_equivalent_to_single_match_comma_pattern() -> None:
+    """Shape equivalence: sequential MATCH and single-MATCH comma pattern return identical rows."""
+    g = _mk_issue_1395_reply_author_ic8_graph()
+
+    query_sequential = (
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message) "
+        "MATCH (message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(commentAuthor:Person) "
+        "RETURN comment.id AS commentId, commentAuthor.id AS commentAuthorId "
+        "ORDER BY commentId"
+    )
+    query_single_match = (
+        "MATCH (:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message), "
+        "(message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(commentAuthor:Person) "
+        "RETURN comment.id AS commentId, commentAuthor.id AS commentAuthorId "
+        "ORDER BY commentId"
+    )
+
+    seq_rows = g.gfql(query_sequential, params={"personId": "viewer"})._nodes.to_dict(orient="records")
+    comma_rows = g.gfql(query_single_match, params={"personId": "viewer"})._nodes.to_dict(orient="records")
+    assert seq_rows == comma_rows
+
+
+def test_issue_1395_sequential_match_message_replies_row_shaping_is7() -> None:
+    """IS7 shape: sequential MATCH keeps comment + replyAuthor + messageAuthor rows aligned."""
+    nodes = pd.DataFrame({
+        "id": ["m1", "message_author", "reply_author", "c1", "c2"],
+        "label__Message": [True, False, False, False, False],
+        "label__Person": [False, True, True, False, False],
+        "label__Comment": [False, False, False, True, True],
+        "firstName": [None, "Main", "Peer", None, None],
+        "lastName": [None, "Author", "One", None, None],
+        "creationDate": [None, None, None, 20, 10],
+        "content": [None, None, None, "reply-from-peer", "reply-from-main"],
+    })
+    edges = pd.DataFrame({
+        "s": ["m1", "c1", "c1", "c2", "c2"],
+        "d": ["message_author", "m1", "reply_author", "m1", "message_author"],
+        "type": ["HAS_CREATOR", "REPLY_OF", "HAS_CREATOR", "REPLY_OF", "HAS_CREATOR"],
+    })
+    g = _mk_graph(nodes, edges)
+
+    query = (
+        "MATCH (message:Message {id: $messageId})<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(replyAuthor:Person) "
+        "MATCH (message)-[:HAS_CREATOR]->(messageAuthor:Person) "
+        "RETURN "
+        "comment.id AS commentId, "
+        "comment.content AS commentContent, "
+        "comment.creationDate AS commentCreationDate, "
+        "replyAuthor.id AS replyAuthorId, "
+        "replyAuthor.firstName AS replyAuthorFirstName, "
+        "replyAuthor.lastName AS replyAuthorLastName, "
+        "messageAuthor.id AS messageAuthorId "
+        "ORDER BY commentCreationDate DESC, replyAuthorId ASC"
+    )
+    result = g.gfql(query, params={"messageId": "m1"})
+
+    assert result._nodes.to_dict(orient="records") == [
+        {
+            "commentId": "c1",
+            "commentContent": "reply-from-peer",
+            "commentCreationDate": 20.0,
+            "replyAuthorId": "reply_author",
+            "replyAuthorFirstName": "Peer",
+            "replyAuthorLastName": "One",
+            "messageAuthorId": "message_author",
+        },
+        {
+            "commentId": "c2",
+            "commentContent": "reply-from-main",
+            "commentCreationDate": 10.0,
+            "replyAuthorId": "message_author",
+            "replyAuthorFirstName": "Main",
+            "replyAuthorLastName": "Author",
+            "messageAuthorId": "message_author",
+        },
+    ]
+
+
 # ── Issue #1052: OPTIONAL MATCH semi-join — opt arm must be pre-filtered ──────
+
+
+def test_issue_1488_optional_match_seeds_shared_first_alias_before_materialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """IS7 OOM guard: bound OPTIONAL arm traversal before rows(binding_ops)."""
+    n = 20
+    msg_ids = [f"m{i}" for i in range(1, n + 1)]
+    nodes = pd.DataFrame({
+        "id": msg_ids + ["c1", "p1"] + [f"a{i}" for i in range(1, n + 1)] + [f"p{i}" for i in range(2, n + 1)],
+        "label__M": [True] * n + [False] * (2 * n + 1),
+        "label__C": [False] * n + [True] + [False] * (2 * n),
+        "label__P": [False] * (n + 1) + [True] + [False] * n + [True] * (n - 1),
+        "label__A": [False] * (n + 2) + [True] * n + [False] * (n - 1),
+    })
+    edge_rows = [
+        {"s": "c1", "d": "m1", "type": "REPLY_OF"},
+        {"s": "c1", "d": "p1", "type": "HAS_CREATOR"},
+        {"s": "m1", "d": "a1", "type": "HAS_CREATOR"},
+        {"s": "a1", "d": "p1", "type": "KNOWS"},
+    ]
+    for i in range(2, n + 1):
+        edge_rows.extend([
+            {"s": f"m{i}", "d": f"a{i}", "type": "HAS_CREATOR"},
+            {"s": f"a{i}", "d": f"p{i}", "type": "KNOWS"},
+        ])
+    edges = pd.DataFrame(edge_rows)
+    g = _mk_graph(nodes, edges)
+
+    original_execute = ASTEdge.execute
+    optional_start_sizes: List[int] = []
+
+    def spy_execute(
+        self: ASTEdge,
+        g: Any,
+        prev_node_wavefront: Any,
+        target_wave_front: Any,
+        engine: Any,
+    ) -> Any:
+        if (
+            self.edge_match == {"type": "HAS_CREATOR"}
+            and prev_node_wavefront is not None
+            and "id" in prev_node_wavefront.columns
+        ):
+            prev_ids = [str(value) for value in prev_node_wavefront["id"].tolist()]
+            if prev_ids and all(value.startswith("m") for value in prev_ids):
+                optional_start_sizes.append(len(prev_ids))
+        return original_execute(self, g, prev_node_wavefront, target_wave_front, engine)
+
+    monkeypatch.setattr(ASTEdge, "execute", spy_execute)
+
+    result = g.gfql(
+        "MATCH (m:M {id: $mid})<-[:REPLY_OF]-(c:C)-[:HAS_CREATOR]->(p:P) "
+        "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:A)-[r:KNOWS]-(p) "
+        "RETURN c.id AS cid, CASE r WHEN null THEN false ELSE true END AS knows",
+        params={"mid": "m1"},
+    )
+
+    assert result._nodes[["cid", "knows"]].to_dict(orient="records") == [{"cid": "c1", "knows": True}]
+    assert optional_start_sizes
+    assert max(optional_start_sizes) == 1
 
 
 def test_issue_1052_optional_match_semijoin_filters_opt_arm() -> None:
@@ -11859,7 +16055,7 @@ def test_issue_1047_multi_row_scalar_prefix_on_cudf() -> None:
         engine="cudf",
     )
     assert type(result._nodes).__module__.startswith("cudf")
-    ids = [r["id"] for r in result._nodes.to_pandas().to_dict(orient="records")]
+    ids = [r["id"] for r in _to_pandas_df(result._nodes).to_dict(orient="records")]
     assert ids == ["post1", "post2", "post3"]
 
 
@@ -11951,6 +16147,122 @@ def test_issue_1047_single_row_prefix_with_optional_match_still_works() -> None:
     assert ids == ["post1", "post2"]
 
 
+def test_issue_1461_optional_reentry_null_extension_preserves_carried_scalar() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"], "label__Seed": [True, True]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+    )
+
+    result = graph.gfql(
+        "MATCH (a:Seed {id: 'b'}) "
+        "WITH a, a.id AS aid "
+        "OPTIONAL MATCH (a)-[:R]->(b) "
+        "RETURN aid, b.id AS bid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert rows == [{"aid": "b", "bid": None}]
+
+
+def test_issue_1461_optional_reentry_null_extension_does_not_leak_unprojected_scalar() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"], "label__Seed": [True, True]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+    )
+
+    result = graph.gfql(
+        "MATCH (a:Seed {id: 'b'}) "
+        "WITH a, a.id AS aid "
+        "OPTIONAL MATCH (a)-[:R]->(b) "
+        "RETURN b.id AS bid"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert rows == [{"bid": None}]
+
+
+def test_issue_1461_optional_reentry_mixed_carried_rows_preserve_null_extended_prefixes() -> None:
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["a", "b", "c", "d"],
+                "label__Seed": [True, True, True, False],
+            }
+        ),
+        pd.DataFrame({"s": ["a", "c"], "d": ["b", "d"], "type": ["R", "R"]}),
+    )
+
+    result = graph.gfql(
+        "MATCH (a:Seed) "
+        "WITH a, a.id AS aid "
+        "OPTIONAL MATCH (a)-[:R]->(b) "
+        "RETURN aid, b.id AS bid"
+    )
+
+    rows = sorted(result._nodes.to_dict(orient="records"), key=lambda row: row["aid"])
+    assert rows == [
+        {"aid": "a", "bid": "b"},
+        {"aid": "b", "bid": None},
+        {"aid": "c", "bid": "d"},
+    ]
+
+
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+def test_issue_1461_optional_reentry_preserves_multiple_carried_scalars_on_null_rows(
+    engine: Optional[str],
+) -> None:
+    nodes = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d"],
+            "label__Seed": [True, True, True, False],
+            "bucket": ["alpha", "beta", "gamma", "sink"],
+        }
+    )
+    edges = pd.DataFrame({"s": ["a", "c"], "d": ["d", "b"], "type": ["R", "R"]})
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_cudf_graph(nodes, edges)
+    else:
+        graph = _mk_graph(nodes, edges)
+
+    query = (
+        "MATCH (a:Seed) "
+        "WITH a, a.id AS aid, a.bucket AS bucket "
+        "OPTIONAL MATCH (a)-[:R]->(b) "
+        "RETURN aid, bucket, b.id AS bid"
+    )
+    result = graph.gfql(query, engine=engine) if engine == "cudf" else graph.gfql(query)
+
+    if engine == "cudf":
+        assert type(result._nodes).__module__.startswith("cudf")
+    frame = _to_pandas_df(result._nodes)
+    rows = sorted(
+        frame.where(pd.notna(frame), None).to_dict(orient="records"),
+        key=lambda row: row["aid"],
+    )
+    assert rows == [
+        {"aid": "a", "bucket": "alpha", "bid": "d"},
+        {"aid": "b", "bucket": "beta", "bid": None},
+        {"aid": "c", "bucket": "gamma", "bid": "b"},
+    ]
+
+
+def test_issue_1461_optional_reentry_matched_single_prefix_remains_native_semantics() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"], "label__Seed": [True, False]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+    )
+
+    result = graph.gfql(
+        "MATCH (a:Seed {id: 'a'}) "
+        "WITH a, a.id AS aid "
+        "OPTIONAL MATCH (a)-[:R]->(b) "
+        "RETURN aid, b.id AS bid"
+    )
+
+    assert result._nodes.to_dict(orient="records") == [{"aid": "a", "bid": "b"}]
+
+
 def test_issue_1047_optional_reentry_raises_is_gfql_validation_error() -> None:
     """The optional_reentry + multi-row guard raises GFQLValidationError specifically."""
     with pytest.raises(GFQLValidationError, match="optional"):
@@ -11960,6 +16272,33 @@ def test_issue_1047_optional_reentry_raises_is_gfql_validation_error() -> None:
             "OPTIONAL MATCH (post:Post)-[:HAS_TAG]->(x:Tag {tagId: knownTagId}) "
             "RETURN post.id AS id"
         )
+
+
+@pytest.mark.parametrize(
+    "graph_factory, expected_rows",
+    [
+        (_mk_optional_prefix_reentry_no_match_graph, []),
+        (_mk_optional_prefix_reentry_match_graph, [{"cid": "c1"}]),
+    ],
+)
+def test_issue_1356_optional_prefix_reentry_handles_no_match_semantics(
+    graph_factory: Callable[[], _CypherTestGraph],
+    expected_rows: List[Dict[str, Any]],
+) -> None:
+    """OPTIONAL prefix reentry should not fail identity recovery on no-match.
+
+    #1356 regression guard: when the OPTIONAL prefix has no matches, the
+    prefix stage may produce a null carry row without whole-row metadata.
+    Reentry should treat it as an empty seed set (no crash), while matched
+    fixtures continue to produce expected rows.
+    """
+    result = graph_factory().gfql(
+        "OPTIONAL MATCH (a:A)-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        "RETURN c.id AS cid ORDER BY cid"
+    )
+    assert result._nodes.to_dict(orient="records") == expected_rows
 
 
 def test_issue_1047_partial_hit_zero_contribution_has_no_null_rows() -> None:
@@ -12032,16 +16371,59 @@ def test_issue_983_large_upper_bound_stops_at_graph_depth() -> None:
     assert ids == ["a", "b", "c"]
 
 
-def test_issue_983_zero_zero_hop_executes_returns_empty() -> None:
-    """`*0..0` (zero min, zero max) currently parses and returns empty.
+@pytest.mark.parametrize("engine", [None, "cudf"], ids=["pandas", "cudf"])
+def test_issue_1369_zero_zero_hop_returns_seed_engine_parity(engine: Optional[str]) -> None:
+    """`*0..0` is a valid zero-length path and returns the seed node."""
+    if engine == "cudf":
+        _require_cudf_runtime()
+        graph = _mk_simple_path_graph_cudf()
+    else:
+        graph = _mk_simple_path_graph()
 
-    min_hops=max_hops=0 is accepted by rel_range_bounded (the `*0` exact guard
-    is only on rel_range_exact).  The execution returns 0 rows — no traversal
-    is possible within a zero-hop window — rather than the seed node itself.
-    This documents the current boundary behavior for future reference.
-    """
-    result = _mk_simple_path_graph().gfql("MATCH (a {id: 'a'})-[*0..0]->(b) RETURN b.id AS id")
-    assert result._nodes.to_dict(orient="records") == []
+    query = "MATCH (a {id: 'a'})-[*0..0]->(b) RETURN b.id AS id"
+    result = graph.gfql(query, engine=engine) if engine == "cudf" else graph.gfql(query)
+    rows = _to_pandas_df(result._nodes).to_dict(orient="records") if engine == "cudf" else result._nodes.to_dict(orient="records")
+    if engine == "cudf":
+        assert type(result._nodes).__module__.startswith("cudf")
+    assert rows == [{"id": "a"}]
+
+
+def test_issue_1369_one_one_hop_does_not_include_seed() -> None:
+    """The Cypher zero-hop seed opt-in must not leak into positive-hop traversals."""
+    result = _mk_simple_path_graph().gfql("MATCH (a {id: 'a'})-[*1..1]->(b) RETURN b.id AS id")
+    assert result._nodes.to_dict(orient="records") == [{"id": "b"}]
+
+
+def test_issue_1369_empty_graph_post_aggregate_boolean_projection() -> None:
+    """Empty global aggregates must still project post-aggregate expressions."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": pd.Series(dtype="object")}),
+        pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")}),
+    )
+    result = graph.gfql("MATCH (a) RETURN count(a) > 0")
+    assert result._nodes.to_dict(orient="records") == [{"count(a) > 0": False}]
+
+
+def test_issue_1369_empty_graph_post_aggregate_multiple_expressions() -> None:
+    """Empty global aggregates project each final expression name and value."""
+    graph = _mk_graph(
+        pd.DataFrame({"id": pd.Series(dtype="object")}),
+        pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")}),
+    )
+    result = graph.gfql("MATCH (a) RETURN count(a) = 0 AS is_empty, count(a) + 1 AS plus_one")
+    assert result._nodes.to_dict(orient="records") == [{"is_empty": True, "plus_one": 1}]
+
+
+def test_issue_1369_empty_graph_post_aggregate_boolean_projection_on_cudf() -> None:
+    """cuDF empty global aggregates match pandas post-aggregate projection semantics."""
+    _require_cudf_runtime()
+    graph = _mk_cudf_graph(
+        pd.DataFrame({"id": pd.Series(dtype="object")}),
+        pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object")}),
+    )
+    result = graph.gfql("MATCH (a) RETURN count(a) > 0 AS any_nodes", engine="cudf")
+    assert type(result._nodes).__module__.startswith("cudf")
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"any_nodes": False}]
 
 
 # ── Issue #977: cudf SIGSEGV — safe_map_series regression guards ──────────────
@@ -12058,7 +16440,7 @@ def test_issue_977_cudf_label_filter_no_sigsegv() -> None:
     edges = cudf.DataFrame(pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["T"]}))
     g_cu = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
     result = g_cu.gfql("MATCH (p:Person) RETURN p.id AS pid ORDER BY pid", engine=EngineAbstract.CUDF)
-    ids = sorted(result._nodes["pid"].to_pandas().tolist())
+    ids = sorted(_to_pandas_df(result._nodes)["pid"].tolist())
     assert ids == ["a", "b"]
 
 
@@ -12070,7 +16452,7 @@ def test_issue_977_cudf_single_hop_no_sigsegv() -> None:
     edges = cudf.DataFrame(pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "type": ["T", "T"]}))
     g_cu = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
     result = g_cu.gfql("MATCH (a)-[:T]->(b) RETURN a.id AS aid ORDER BY aid", engine=EngineAbstract.CUDF)
-    assert sorted(result._nodes["aid"].to_pandas().tolist()) == ["a", "b"]
+    assert sorted(_to_pandas_df(result._nodes)["aid"].tolist()) == ["a", "b"]
 
 
 def test_issue_977_pandas_label_filter_regression() -> None:

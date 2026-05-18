@@ -16,6 +16,7 @@ from graphistry.compute.gfql.df_executor import (
 )
 from graphistry.compute.gfql_unified import gfql
 from graphistry.compute.chain import Chain
+from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.compute.gfql.same_path_types import col, compare
 from graphistry.gfql.ref.enumerator import OracleCaps, enumerate_chain
 from tests.gfql.ref.conftest import (
@@ -120,7 +121,7 @@ def test_missing_alias_raises():
     where = [compare(col("missing", "x"), "==", col("c", "owner_id"))]
     graph = _make_graph()
 
-    with pytest.raises(ValueError):
+    with pytest.raises(GFQLValidationError):
         _inputs(chain, where, graph=graph)
 
 
@@ -129,7 +130,7 @@ def test_missing_where_column_raises_during_input_build():
     where = [compare(col("a", "missing_col"), "==", col("c", "owner_id"))]
     graph = _make_graph()
 
-    with pytest.raises(ValueError, match=r"WHERE references missing column 'missing_col'"):
+    with pytest.raises(GFQLValidationError, match=r"WHERE references missing column 'missing_col'"):
         _inputs(chain, where, graph=graph)
 
 
@@ -143,7 +144,7 @@ def test_where_column_added_by_prior_call_is_accepted():
 def test_where_missing_column_after_prior_call_still_rejected():
     chain = _prior_call_chain("get_indegrees", {"col": "deg"})
     where = [compare(col("a", "missing_after_call"), "==", col("c", "deg"))]
-    with pytest.raises(ValueError, match=r"WHERE references missing column 'missing_after_call'"):
+    with pytest.raises(GFQLValidationError, match=r"WHERE references missing column 'missing_after_call'"):
         _inputs(chain, where)
 
 
@@ -181,7 +182,7 @@ def test_where_missing_column_after_prior_call_still_rejected():
 def test_missing_where_column_env_overrides(monkeypatch, chain, where, env_var, env_value, should_raise):
     monkeypatch.setenv(env_var, env_value)
     if should_raise:
-        with pytest.raises(ValueError, match=r"WHERE references missing column 'missing_after_call'"):
+        with pytest.raises(GFQLValidationError, match=r"WHERE references missing column 'missing_after_call'"):
             _inputs(chain, where)
         return
     assert _inputs(chain, where) is not None

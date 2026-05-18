@@ -44,6 +44,10 @@ from graphistry.compute.gfql.call.support import (
     is_unwind_expr,
     validate_hypergraph_opts,
 )
+from graphistry.validate import (
+    is_ring_categorical_axis_payload,
+    is_ring_continuous_axis_payload,
+)
 from graphistry.compute.gfql.row.order_expr import (
     is_order_aggregate_alias_ast,
     order_expr_ast_static_supported,
@@ -217,6 +221,13 @@ def _group_by_requires_node_cols(params: Dict[str, object]) -> List[str]:
     return out
 
 
+def _semi_apply_mark_added_node_cols(params: Dict[str, object]) -> Set[str]:
+    out_col = params.get("out_col")
+    if isinstance(out_col, str) and out_col != "":
+        return {out_col}
+    return set()
+
+
 # Parser-backed helpers stay local because tests monkeypatch parser availability
 # and capability behavior through this module.
 
@@ -258,6 +269,41 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         },
         description='Filter active row table by column values/predicates',
         schema_effects=_schema_effects(requires_node_cols=_where_rows_requires_node_cols),
+    ),
+
+    'anti_semi_apply': _method_entry(
+        allowed_params={'binding_ops', 'join_aliases'},
+        required_params={'binding_ops', 'join_aliases'},
+        param_validators={
+            'binding_ops': is_list_of_dicts,
+            'join_aliases': is_non_empty_list_of_strings,
+        },
+        description='Filter active rows by anti-semi joining against correlated binding rows',
+        schema_effects=NO_SCHEMA_EFFECTS,
+    ),
+
+    'semi_apply_mark': _method_entry(
+        allowed_params={'binding_ops', 'join_aliases', 'out_col'},
+        required_params={'binding_ops', 'join_aliases', 'out_col'},
+        param_validators={
+            'binding_ops': is_list_of_dicts,
+            'join_aliases': is_non_empty_list_of_strings,
+            'out_col': is_non_empty_string,
+        },
+        description='Annotate active rows with correlated pattern-existence booleans',
+        schema_effects=_schema_effects(adds_node_cols=_semi_apply_mark_added_node_cols),
+    ),
+
+    'join_apply': _method_entry(
+        allowed_params={'binding_ops', 'join_aliases', 'how'},
+        required_params={'binding_ops', 'join_aliases'},
+        param_validators={
+            'binding_ops': is_list_of_dicts,
+            'join_aliases': is_non_empty_list_of_strings,
+            'how': lambda v: v in {'inner', 'left'},
+        },
+        description='Join active rows with correlated binding rows',
+        schema_effects=NO_SCHEMA_EFFECTS,
     ),
 
     'order_by': _method_entry(
@@ -578,7 +624,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'v_start': lambda v: v is None or is_int_or_float(v),
             'v_end': lambda v: v is None or is_int_or_float(v),
             'v_step': lambda v: v is None or is_int_or_float(v),
-            'axis': lambda v: v is None or is_list_or_dict(v),
+            'axis': lambda v: v is None or is_ring_continuous_axis_payload(v),
             'normalize_ring_col': is_bool,
             'reverse': is_bool,
             'play_ms': lambda v: v is None or is_int(v),
@@ -603,7 +649,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'append_unhandled': is_bool,
             'min_r': lambda v: v is None or is_int_or_float(v),
             'max_r': lambda v: v is None or is_int_or_float(v),
-            'axis': lambda v: v is None or is_list_or_dict(v),
+            'axis': lambda v: v is None or is_ring_categorical_axis_payload(v),
             'reverse': is_bool,
             'play_ms': lambda v: v is None or is_int(v),
             'engine': lambda v: v is None or v in ('auto', 'pandas', 'cudf', 'dask', 'dask_cudf')

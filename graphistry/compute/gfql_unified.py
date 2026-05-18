@@ -2,16 +2,17 @@
 # ruff: noqa: E501
 
 from dataclasses import replace
-import re
+from types import MappingProxyType
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple, Union, cast
 from graphistry.Plottable import Plottable
-from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine, safe_merge
+from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, df_to_engine, resolve_engine
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
 from .chain import Chain, chain as chain_impl
 from .chain_let import chain_let as chain_let_impl
 from .execution_context import ExecutionContext
 from .gfql.policy import (
+    CompileSummary,
     PolicyContext,
     PolicyException,
     PolicyFunction,
@@ -32,19 +33,39 @@ from graphistry.compute.gfql.cypher.lowering import (
     CompiledCypherQuery,
     CompiledCypherUnionQuery,
     ConnectedOptionalMatchPlan,
-    _reentry_hidden_column_name,
+)
+from graphistry.compute.gfql.cypher.reentry.execution import (
+    REENTRY_DUPLICATE_CARRIED_ROWS_REASON as _REENTRY_DUPLICATE_CARRIED_ROWS_REASON,
+    REENTRY_WHOLE_ROW_SUGGESTION as _REENTRY_WHOLE_ROW_SUGGESTION,
+    apply_optional_reentry_null_fill as _apply_optional_reentry_null_fill,
+    compiled_query_freeform_reentry_state as _compiled_query_freeform_reentry_state,
+    compiled_query_reentry_state as _compiled_query_reentry_state,
+    compiled_query_scalar_reentry_state as _compiled_query_scalar_reentry_state,
+    freeform_broadcast_row_to_nodes as _freeform_broadcast_row_to_nodes,
+    reentry_validation_error as _reentry_validation_error,
+    union_scalar_reentry_results as _union_scalar_reentry_results,
 )
 from graphistry.compute.gfql.cypher.call_procedures import execute_cypher_call
-from graphistry.compute.gfql.cypher.result_postprocess import WholeRowProjectionMeta, apply_result_projection
+from graphistry.compute.gfql.cypher.result_postprocess import (
+    apply_result_projection,
+    entity_projection_meta_entry as _entity_projection_meta_entry,
+)
 from graphistry.compute.gfql.df_executor import (
     DFSamePathExecutor,
     build_same_path_inputs,
     execute_same_path_chain,
 )
+from graphistry.compute.dataframe import (
+    binding_join_columns as _binding_join_columns,
+    connected_inner_join_rows as _connected_inner_join_rows,
+    joined_alias_columns as _joined_alias_columns,
+    joined_hidden_scalar_columns as _joined_hidden_scalar_columns,
+)
 from graphistry.compute.gfql.ir.compilation import PhysicalPlan, PlanContext
 from graphistry.compute.gfql.ir.logical_plan import LogicalPlan
 from graphistry.compute.gfql.physical_planner import (
     PhysicalPlanner,
+    ProcedureCallExecutorWrapper,
     RowPipelineExecutorWrapper,
     SamePathExecutorWrapper,
     WavefrontExecutorWrapper,
@@ -54,21 +75,10 @@ from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
+from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
 from graphistry.otel import otel_traced, otel_detail_enabled
 
 logger = setup_logger(__name__)
-
-_REENTRY_WHOLE_ROW_SUGGESTION = "Carry a whole-row node alias through WITH before MATCH re-entry."
-_REENTRY_SCALAR_SUGGESTION = "Carry scalar columns through WITH before MATCH re-entry."
-
-_CYPHER_LEAD_RE = re.compile(
-    r"^\s*(?:MATCH|OPTIONAL\s+MATCH|WITH|RETURN|UNWIND|CALL|CREATE|MERGE|DELETE|DETACH\s+DELETE|SET|REMOVE|FOREACH|GRAPH|USE)\b",
-    re.IGNORECASE,
-)
-
-
-def _looks_like_cypher_query(query: str) -> bool:
-    return _CYPHER_LEAD_RE.match(query) is not None
 
 
 def _series_to_pylist(values: Any) -> List[Any]:
@@ -90,6 +100,37 @@ def _series_to_pylist(values: Any) -> List[Any]:
     return list(values)
 
 
+def _is_duplicate_carried_rows_reentry_error(exc: GFQLValidationError) -> bool:
+    context = getattr(exc, "context", None)
+    if exc.code != ErrorCode.E108 or not isinstance(context, dict):
+        return False
+    return context.get("reason") == _REENTRY_DUPLICATE_CARRIED_ROWS_REASON
+
+
+def _slice_reentry_prefix_result_row(
+    prefix_result: Plottable,
+    *,
+    output_name: str,
+    row_index: int,
+) -> Plottable:
+    rows_df = cast(Optional[DataFrameT], getattr(prefix_result, "_nodes", None))
+    if rows_df is None:
+        return prefix_result
+    out = prefix_result.bind()
+    out._nodes = cast(DataFrameT, rows_df.iloc[row_index:row_index + 1].reset_index(drop=True))
+    entity_meta = getattr(prefix_result, "_cypher_entity_projection_meta", None)
+    if isinstance(entity_meta, dict):
+        entry = entity_meta.get(output_name)
+        if isinstance(entry, dict):
+            sliced_entry = dict(entry)
+            ids = sliced_entry.get("ids")
+            if ids is not None and hasattr(ids, "iloc"):
+                ids_obj = cast(Any, ids)
+                sliced_entry["ids"] = cast(Any, ids_obj.iloc[row_index:row_index + 1]).reset_index(drop=True)
+            setattr(out, "_cypher_entity_projection_meta", {output_name: sliced_entry})
+    return out
+
+
 def _apply_empty_result_row(
     result: Plottable,
     *,
@@ -107,47 +148,6 @@ def _apply_empty_result_row(
     if edges_df is not None:
         out._edges = edges_df[:0]
     return out
-
-
-def _entity_projection_meta_entry(
-    result: Plottable,
-    *,
-    output_name: str,
-    field: str,
-    message: str,
-    suggestion: str,
-) -> WholeRowProjectionMeta:
-    entity_meta = cast(
-        Optional[Dict[str, WholeRowProjectionMeta]],
-        getattr(result, "_cypher_entity_projection_meta", None),
-    )
-    if not isinstance(entity_meta, dict) or output_name not in entity_meta:
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            message,
-            field=field,
-            value=output_name,
-            suggestion=suggestion,
-            language="cypher",
-        )
-    return entity_meta[output_name]
-
-
-def _reentry_validation_error(
-    message: str,
-    *,
-    value: Any,
-    suggestion: str,
-    field: str = "with",
-) -> GFQLValidationError:
-    return GFQLValidationError(
-        ErrorCode.E108,
-        message,
-        field=field,
-        value=value,
-        suggestion=suggestion,
-        language="cypher",
-    )
 
 
 def _apply_optional_null_fill(
@@ -328,6 +328,48 @@ def _apply_connected_optional_match(
     df_ctor = df_cons(concrete_engine)
     node_col = str(getattr(base_graph, "_node", "id"))
 
+    def _optional_arm_start_nodes(
+        binding_ops: Sequence[ASTObject],
+        shared_node_aliases: Sequence[str],
+        joined_rows: DataFrameT,
+    ) -> Optional[DataFrameT]:
+        """Seed optional-arm materialization when the first node is already bound."""
+        if not binding_ops:
+            return None
+        first_op = binding_ops[0]
+        if not isinstance(first_op, ASTNode):
+            return None
+        first_alias = getattr(first_op, "_name", None)
+        if not isinstance(first_alias, str) or first_alias not in shared_node_aliases:
+            return None
+
+        base_nodes_raw = cast(Optional[DataFrameT], getattr(base_graph, "_nodes", None))
+        base_nodes = None if base_nodes_raw is None else cast(DataFrameT, df_to_engine(base_nodes_raw, concrete_engine))
+        if base_nodes is None or node_col not in base_nodes.columns:
+            return None
+
+        joined_col = next(
+            (
+                col
+                for col in (f"{first_alias}.{node_col}", first_alias)
+                if col in joined_rows.columns
+            ),
+            None,
+        )
+        if joined_col is None:
+            return None
+
+        seed_frame = cast(
+            DataFrameT,
+            df_to_engine(
+                joined_rows[[joined_col]].dropna().drop_duplicates().rename(columns={joined_col: node_col}),
+                concrete_engine,
+            ),
+        )
+        seed_ids = cast(SeriesT, seed_frame[node_col])
+        node_ids = cast(SeriesT, base_nodes[node_col])
+        return cast(DataFrameT, base_nodes[node_ids.isin(seed_ids)].copy())
+
     # Run base chain to get binding rows.
     base_binding_chain, base_post_ops = _split_binding_and_post_ops(plan.base_chain.chain)
     base_binding_ops = serialize_binding_ops(base_binding_chain)
@@ -352,7 +394,19 @@ def _apply_connected_optional_match(
             list(opt_binding_chain) + [ASTCall("rows", {"binding_ops": opt_binding_ops})] + opt_post_ops,
             where=arm.chain.where,
         )
-        opt_rows_result = _chain_dispatch(base_graph, opt_with_rows, engine, policy, context)
+        opt_start_nodes = None if arm.chain.where else _optional_arm_start_nodes(
+            opt_binding_chain,
+            arm.shared_node_aliases,
+            joined,
+        )
+        opt_rows_result = _chain_dispatch(
+            base_graph,
+            opt_with_rows,
+            engine,
+            policy,
+            context,
+            start_nodes=opt_start_nodes,
+        )
         opt_rows_df = getattr(opt_rows_result, "_nodes", None)
 
         # Determine join columns from shared node aliases.
@@ -406,52 +460,6 @@ def _apply_connected_optional_match(
     return _chain_dispatch(joined_plottable, plan.post_join_chain, engine, policy, context)
 
 
-def _binding_join_columns(frame: DataFrameT) -> List[str]:
-    return [
-        column
-        for column in frame.columns
-        if isinstance(column, str) and "." in column
-    ]
-
-
-def _joined_hidden_scalar_columns(frame: DataFrameT) -> DataFrameT:
-    hidden_suffixes: Dict[str, List[str]] = {}
-    for column in frame.columns:
-        if not isinstance(column, str) or "." not in column:
-            continue
-        _, suffix = column.split(".", 1)
-        if suffix.startswith("__cypher_reentry_") or suffix.startswith("__gfql_hidden_"):
-            hidden_suffixes.setdefault(suffix, []).append(column)
-    out = frame
-    for suffix, columns in hidden_suffixes.items():
-        if suffix in out.columns:
-            continue
-        series = out[columns[0]]
-        for column in columns[1:]:
-            if hasattr(series, "combine_first"):
-                series = series.combine_first(out[column])
-        out = out.assign(**{suffix: series})
-    return out
-
-
-def _joined_alias_columns(frame: DataFrameT) -> DataFrameT:
-    alias_candidates: Dict[str, str] = {}
-    for column in frame.columns:
-        if not isinstance(column, str) or "." not in column:
-            continue
-        alias, suffix = column.split(".", 1)
-        if alias in frame.columns:
-            continue
-        if suffix == alias:
-            alias_candidates.setdefault(alias, column)
-        elif suffix == "id" and alias not in alias_candidates:
-            alias_candidates[alias] = column
-    out = frame
-    for alias, source_column in alias_candidates.items():
-        out = out.assign(**{alias: out[source_column]})
-    return out
-
-
 def _apply_connected_match_join(
     base_graph: Plottable,
     plan: ConnectedMatchJoinPlan,
@@ -462,8 +470,9 @@ def _apply_connected_match_join(
 ) -> Plottable:
     from graphistry.compute.ast import ASTCall, serialize_binding_ops
 
-    concrete_engine = resolve_engine(cast(Any, engine), base_graph)
-    df_ctor = df_cons(concrete_engine)
+    requested_engine = resolve_engine(cast(Any, engine), base_graph)
+    dispatch_engine: Union[EngineAbstract, str] = engine
+    df_ctor = df_cons(requested_engine)
     node_col = getattr(base_graph, "_node", "id")
 
     joined_rows: Optional[DataFrameT] = None
@@ -472,7 +481,7 @@ def _apply_connected_match_join(
             list(pattern_chain.chain) + [ASTCall("rows", {"binding_ops": serialize_binding_ops(pattern_chain.chain)})],
             where=pattern_chain.where,
         )
-        pattern_result = _chain_dispatch(base_graph, with_rows, engine, policy, context)
+        pattern_result = _chain_dispatch(base_graph, with_rows, dispatch_engine, policy, context)
         pattern_rows = cast(Optional[DataFrameT], getattr(pattern_result, "_nodes", None))
         if pattern_rows is None or len(pattern_rows) == 0:
             out = base_graph.bind()
@@ -499,7 +508,13 @@ def _apply_connected_match_join(
                 language="cypher",
             )
         keep_cols = [column for column in pattern_rows.columns if column in join_cols or column not in joined_rows.columns]
-        joined_rows = cast(DataFrameT, joined_rows.merge(pattern_rows[keep_cols], on=join_cols, how="inner"))
+        joined_rows = _connected_inner_join_rows(
+            cast(DataFrameT, joined_rows),
+            cast(DataFrameT, pattern_rows),
+            join_cols=join_cols,
+            keep_cols=keep_cols,
+            engine=requested_engine,
+        )
 
     if joined_rows is None or len(joined_rows) == 0:
         out = base_graph.bind()
@@ -512,7 +527,7 @@ def _apply_connected_match_join(
     joined_plottable = base_graph.bind()
     joined_plottable._nodes = joined_rows
     joined_plottable._edges = df_ctor()
-    return _chain_dispatch(joined_plottable, plan.post_join_chain, engine, policy, context)
+    return _chain_dispatch(joined_plottable, plan.post_join_chain, dispatch_engine, policy, context)
 
 
 def _execute_graph_constructor_compiled(
@@ -667,38 +682,36 @@ def _execute_compiled_query_non_union(
     context: ExecutionContext,
     start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
+    compiled_extras = compiled_query.execution_extras
     logical_plan = compiled_query.logical_plan
     if logical_plan is None:
-        return _execute_compiled_query_compat_non_union(
-            base_graph,
-            compiled_query=compiled_query,
-            engine=engine,
-            policy=policy,
-            context=context,
-            start_nodes=start_nodes,
+        defer_reason = compiled_query.logical_plan_defer_reason
+        defer_code = compiled_query.logical_plan_defer_code
+        if compiled_query.procedure_call is not None:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Cypher CALL queries must use the procedure physical route",
+                field="procedure_call",
+                value=compiled_query.procedure_call.procedure,
+                suggestion="Compile CALL queries with a LogicalPlan before runtime dispatch.",
+                language="cypher",
+            )
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher query reached runtime without a logical plan",
+            field="logical_plan",
+            logical_plan_defer_code=defer_code,
+            logical_plan_defer_reason=defer_reason,
+            suggestion="Compile this Cypher shape through a LogicalPlan route before chain execution.",
+            language="cypher",
         )
 
-    ctx = PlanContext(scope_stack=compiled_query.scope_stack)
+    ctx = PlanContext(scope_stack=() if compiled_extras is None else compiled_extras.scope_stack)
     logical_plan = _run_logical_pass_pipeline(logical_plan, ctx)
 
     try:
         physical_plan = PhysicalPlanner().plan(logical_plan, ctx)
     except GFQLValidationError as exc:
-        # Temporary compatibility shim: CALL-backed compiled queries still run via
-        # the legacy path while planner coverage catches up.
-        if compiled_query.procedure_call is not None:
-            logger.debug(
-                "PhysicalPlanner unsupported for CALL-backed query; using compatibility shim: %s",
-                exc.message,
-            )
-            return _execute_compiled_query_compat_non_union(
-                base_graph,
-                compiled_query=compiled_query,
-                engine=engine,
-                policy=policy,
-                context=context,
-                start_nodes=start_nodes,
-            )
         raise GFQLValidationError(
             ErrorCode.E108,
             "Cypher planned route could not be lowered to a supported physical execution path",
@@ -734,6 +747,10 @@ def _execute_compiled_query_via_physical_plan(
     context: ExecutionContext,
     start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
+    compiled_extras = compiled_query.execution_extras
+    connected_match_join = None if compiled_extras is None else compiled_extras.connected_match_join
+    connected_optional_match = None if compiled_extras is None else compiled_extras.connected_optional_match
+
     if len(physical_plan.operators) != 1:
         raise GFQLValidationError(
             ErrorCode.E108,
@@ -745,8 +762,26 @@ def _execute_compiled_query_via_physical_plan(
         )
 
     operator = physical_plan.operators[0]
+    if connected_match_join is not None:
+        return _apply_connected_match_join(
+            base_graph,
+            connected_match_join,
+            engine=engine,
+            policy=policy,
+            context=context,
+        )
+
+    if connected_optional_match is not None:
+        return _apply_connected_optional_match(
+            base_graph,
+            connected_optional_match,
+            engine=engine,
+            policy=policy,
+            context=context,
+        )
+
     if isinstance(operator, (SamePathExecutorWrapper, RowPipelineExecutorWrapper)):
-        return _execute_compiled_query_compat_non_union(
+        return _execute_compiled_query_chain_non_union(
             base_graph,
             compiled_query=compiled_query,
             engine=engine,
@@ -755,24 +790,28 @@ def _execute_compiled_query_via_physical_plan(
             start_nodes=start_nodes,
         )
 
+    if isinstance(operator, ProcedureCallExecutorWrapper):
+        if compiled_query.procedure_call is None:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Cypher procedure physical route selected without a compiled procedure call",
+                field="procedure_call",
+                value=None,
+                suggestion="Compile CALL queries with procedure metadata before physical dispatch.",
+                language="cypher",
+            )
+        dispatch_graph = execute_cypher_call(base_graph, compiled_query.procedure_call)
+        return _execute_compiled_query_chain_non_union(
+            base_graph,
+            compiled_query=compiled_query,
+            dispatch_graph=dispatch_graph,
+            engine=engine,
+            policy=policy,
+            context=context,
+            start_nodes=start_nodes,
+        )
+
     if isinstance(operator, WavefrontExecutorWrapper):
-        if compiled_query.connected_match_join is not None:
-            return _apply_connected_match_join(
-                base_graph,
-                compiled_query.connected_match_join,
-                engine=engine,
-                policy=policy,
-                context=context,
-            )
-        if compiled_query.connected_optional_match is not None:
-            # Compatibility shim while optional-wavefront lowering converges.
-            return _apply_connected_optional_match(
-                base_graph,
-                compiled_query.connected_optional_match,
-                engine=engine,
-                policy=policy,
-                context=context,
-            )
         raise GFQLValidationError(
             ErrorCode.E108,
             "Cypher wavefront physical route selected but compiled query has no connected join payload to execute",
@@ -792,33 +831,40 @@ def _execute_compiled_query_via_physical_plan(
     )
 
 
-def _execute_compiled_query_compat_non_union(
+def _seeded_dispatch_graph(
     base_graph: Plottable,
     *,
     compiled_query: CompiledCypherQuery,
+    engine: Union[EngineAbstract, str],
+) -> Plottable:
+    if not compiled_query.seed_rows:
+        return base_graph
+
+    concrete_engine = resolve_engine(cast(Any, engine), base_graph)
+    df_ctor = df_cons(concrete_engine)
+    dispatch_graph = base_graph.bind()
+    dispatch_graph._nodes = df_ctor({"__cypher_seed_row__": [True]})
+    dispatch_graph._edges = df_ctor()
+    return dispatch_graph
+
+
+def _execute_compiled_query_chain_non_union(
+    base_graph: Plottable,
+    *,
+    compiled_query: CompiledCypherQuery,
+    dispatch_graph: Optional[Plottable] = None,
     engine: Union[EngineAbstract, str],
     policy: Optional[PolicyDict],
     context: ExecutionContext,
     start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
-    if compiled_query.connected_match_join is not None:
-        return _apply_connected_match_join(
+    if dispatch_graph is None:
+        dispatch_graph = _seeded_dispatch_graph(
             base_graph,
-            compiled_query.connected_match_join,
+            compiled_query=compiled_query,
             engine=engine,
-            policy=policy,
-            context=context,
         )
 
-    dispatch_graph = base_graph
-    if compiled_query.procedure_call is not None:
-        dispatch_graph = execute_cypher_call(base_graph, compiled_query.procedure_call)
-    elif compiled_query.seed_rows:
-        concrete_engine = resolve_engine(cast(Any, engine), base_graph)
-        df_ctor = df_cons(concrete_engine)
-        dispatch_graph = base_graph.bind()
-        dispatch_graph._nodes = df_ctor({"__cypher_seed_row__": [True]})
-        dispatch_graph._edges = df_ctor()
     result = _chain_dispatch(dispatch_graph, compiled_query.chain, engine, policy, context, start_nodes=start_nodes)
     if compiled_query.empty_result_row is not None:
         result = _apply_empty_result_row(
@@ -872,14 +918,6 @@ def _execute_compiled_query_compat_non_union(
             engine=engine,
             null_row=compiled_query.optional_null_fill.null_row,
         )
-    if compiled_query.connected_optional_match is not None:
-        result = _apply_connected_optional_match(
-            base_graph,
-            compiled_query.connected_optional_match,
-            engine=engine,
-            policy=policy,
-            context=context,
-        )
     return result
 
 
@@ -910,7 +948,14 @@ def _execute_compiled_query_with_reentry(
             policy=policy,
             context=context,
         )
-        if compiled_query.scalar_reentry_alias is not None:
+        plan = compiled_query.reentry_plan
+        if plan is None:
+            raise _reentry_validation_error(
+                "Cypher MATCH after WITH reentry dispatched without a ReentryPlan",
+                value=None,
+                suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
+            )
+        if plan.scalar_only:
             prefix_rows = getattr(prefix_result, "_nodes", None)
             prefix_row_count = len(prefix_rows) if prefix_rows is not None else 0
             if prefix_row_count > 1:
@@ -927,8 +972,8 @@ def _execute_compiled_query_with_reentry(
                 for i in range(prefix_row_count):
                     row_graph, row_start = _compiled_query_scalar_reentry_state(
                         base_graph,
-                        compiled_query,
                         prefix_result,
+                        carried_columns=plan.scalar_columns,
                         engine=engine,
                         row_index=i,
                     )
@@ -946,17 +991,122 @@ def _execute_compiled_query_with_reentry(
             else:
                 compiled_base_graph, start_nodes = _compiled_query_scalar_reentry_state(
                     base_graph,
-                    compiled_query,
                     prefix_result,
+                    carried_columns=plan.scalar_columns,
                     engine=engine,
                 )
-        else:
-            compiled_base_graph, start_nodes = _compiled_query_reentry_state(
+        elif plan.free_form:
+            # #1263 (LDBC SNB IC3 endpoint): trailing MATCH binds aliases
+            # none of which is in the prefix's carried set. Broadcast the
+            # carried hidden columns onto every base node so the row
+            # pipeline carries them through whichever alias the trailing
+            # MATCH binds; the suffix runs as a global MATCH (no seed).
+            prefix_rows_for_freeform = getattr(prefix_result, "_nodes", None)
+            prefix_row_count_freeform = (
+                len(prefix_rows_for_freeform) if prefix_rows_for_freeform is not None else 0
+            )
+            if prefix_row_count_freeform > 1:
+                # #1285: multi-prefix-row free-form intermediate MATCH —
+                # run suffix once per prefix row with that row's hidden
+                # carry values broadcast, then union per-row results.
+                # Mirrors the scalar-only multi-row pattern at lines 916-945
+                # above; reuses ``_union_scalar_reentry_results`` (engine-
+                # polymorphic concat).
+                if compiled_query.optional_reentry:
+                    raise _reentry_validation_error(
+                        "Cypher OPTIONAL MATCH after a multi-row free-form WITH prefix is not yet supported"
+                        " — null-fill for unmatched prefix rows is not implemented for N>1 prefix rows",
+                        value=prefix_row_count_freeform,
+                        suggestion="Use MATCH instead of OPTIONAL MATCH, or reduce the WITH prefix to a single row",
+                        field="optional_reentry",
+                    )
+                base_nodes_for_freeform = getattr(base_graph, "_nodes", None)
+                if base_nodes_for_freeform is None:
+                    raise _reentry_validation_error(
+                        "Cypher MATCH after WITH (free-form intermediate MATCH; #1285) "
+                        "could not recover the base node table for re-entry",
+                        value=None,
+                        suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
+                    )
+                row_results = []
+                for i in range(prefix_row_count_freeform):
+                    row_graph = _freeform_broadcast_row_to_nodes(
+                        base_graph,
+                        cast(DataFrameT, base_nodes_for_freeform),
+                        cast(DataFrameT, prefix_rows_for_freeform),
+                        plan,
+                        row_index=i,
+                    )
+                    row_result = _execute_compiled_query(
+                        row_graph,
+                        compiled_query=compiled_query,
+                        engine=engine,
+                        policy=policy,
+                        context=context,
+                        start_nodes=None,
+                    )
+                    row_results.append(row_result)
+                return _union_scalar_reentry_results(
+                    row_results, base_graph=base_graph, engine=engine
+                )
+            compiled_base_graph, start_nodes = _compiled_query_freeform_reentry_state(
                 base_graph,
                 compiled_query,
                 prefix_result,
                 engine=engine,
             )
+        else:
+            prefix_rows_for_whole_row = cast(Optional[DataFrameT], getattr(prefix_result, "_nodes", None))
+            prefix_row_count_for_whole_row = (
+                len(prefix_rows_for_whole_row) if prefix_rows_for_whole_row is not None else 0
+            )
+            try:
+                compiled_base_graph, start_nodes = _compiled_query_reentry_state(
+                    base_graph,
+                    plan,
+                    prefix_result,
+                    engine=engine,
+                )
+            except GFQLValidationError as exc:
+                if not (
+                    plan.scalar_columns
+                    and prefix_row_count_for_whole_row > 1
+                    and _is_duplicate_carried_rows_reentry_error(exc)
+                ):
+                    raise
+                if compiled_query.optional_reentry:
+                    raise _reentry_validation_error(
+                        "Cypher OPTIONAL MATCH after a multi-row whole-row WITH prefix is not yet supported"
+                        " — null-fill for unmatched prefix rows is not implemented for N>1 prefix rows",
+                        value=prefix_row_count_for_whole_row,
+                        suggestion="Use MATCH instead of OPTIONAL MATCH, or reduce the WITH prefix to a single row",
+                        field="optional_reentry",
+                    ) from exc
+                row_results = []
+                for i in range(prefix_row_count_for_whole_row):
+                    row_prefix_result = _slice_reentry_prefix_result_row(
+                        prefix_result,
+                        output_name=plan.reentry_alias_name,
+                        row_index=i,
+                    )
+                    row_graph, row_start = _compiled_query_reentry_state(
+                        base_graph,
+                        plan,
+                        row_prefix_result,
+                        engine=engine,
+                    )
+                    row_result = _execute_compiled_query(
+                        row_graph,
+                        compiled_query=compiled_query,
+                        engine=engine,
+                        policy=policy,
+                        context=context,
+                        start_nodes=row_start,
+                    )
+                    row_results.append(row_result)
+                return _union_scalar_reentry_results(
+                    row_results, base_graph=base_graph, engine=engine
+                )
     result = _execute_compiled_query(
         compiled_base_graph,
         compiled_query=compiled_query,
@@ -974,319 +1124,10 @@ def _execute_compiled_query_with_reentry(
             prefix_result=prefix_result,  # type: ignore[possibly-undefined]
             engine=engine,
             empty_result_row=compiled_query.empty_result_row,
+            reentry_plan=compiled_query.reentry_plan,
         )
 
     return result
-
-
-def _apply_optional_reentry_null_fill(
-    result: Plottable,
-    *,
-    prefix_result: Plottable,
-    engine: Union[EngineAbstract, str],
-    empty_result_row: Optional[Dict[str, Any]] = None,
-) -> Plottable:
-    """Null-fill result rows for prefix rows that the optional reentry didn't match."""
-    prefix_df = getattr(prefix_result, "_nodes", None)
-    result_df = getattr(result, "_nodes", None)
-
-    if prefix_df is None or len(prefix_df) == 0:
-        return result
-
-    prefix_rows = len(prefix_df)
-    result_rows = 0 if result_df is None else len(result_df)
-
-    if result_rows >= prefix_rows:
-        return result
-
-    concrete_engine = resolve_engine(cast(Any, engine), result)
-    df_ctor = df_cons(concrete_engine)
-    concat = df_concat(concrete_engine)
-
-    # Use the compiled empty_result_row template (correct projected column names)
-    # or fall back to the result's own columns.
-    if empty_result_row is not None:
-        null_row = dict(empty_result_row)
-    elif result_df is not None and len(result_df.columns) > 0:
-        null_row = {col: None for col in result_df.columns}
-    else:
-        null_row = {}
-
-    if result_df is None or len(result_df) == 0:
-        if null_row:
-            out = result.bind()
-            out._nodes = df_ctor([dict(null_row) for _ in range(prefix_rows)])
-            return out
-        return result
-
-    missing_count = prefix_rows - result_rows
-    fill_rows = [dict(null_row) for _ in range(missing_count)]
-
-    fill_df = df_ctor(fill_rows)
-    out = result.bind()
-    out._nodes = concat([result_df, fill_df], ignore_index=True, sort=False)
-    edges_df = getattr(result, "_edges", None)
-    if edges_df is not None:
-        out._edges = edges_df[:0]
-    return out
-
-
-def _compiled_query_reentry_state(
-    base_graph: Plottable,
-    compiled_query: CompiledCypherQuery,
-    prefix_result: Plottable,
-    *,
-    engine: Union[EngineAbstract, str],
-) -> Tuple[Plottable, DataFrameT]:
-    output_name, carried_columns = _compiled_query_reentry_contract(compiled_query)
-    meta = _entity_projection_meta_entry(
-        prefix_result,
-        output_name=output_name,
-        field="with",
-        message="Cypher MATCH after WITH could not recover carried node identities from the prefix stage",
-        suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
-    )
-    if meta["table"] != "nodes":
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH currently supports node re-entry only",
-            value=output_name,
-            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
-        )
-    ids = meta["ids"]
-    id_column = meta["id_column"]
-    if not hasattr(ids, "dropna"):
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH could not recover carried node identities from the prefix stage",
-            value=output_name,
-            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
-        )
-    base_nodes = getattr(base_graph, "_nodes", None)
-    if base_nodes is None or id_column not in base_nodes.columns:
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH could not recover the base node table for re-entry",
-            value=id_column,
-            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
-        )
-    concrete_engine = resolve_engine(cast(Any, engine), base_graph)
-    carried_ids, aligned_prefix_rows = _aligned_reentry_rows(
-        ids=cast(SeriesT, ids),
-        prefix_rows=getattr(prefix_result, "_nodes", None),
-        output_name=output_name,
-    )
-    carried_node_ids = cast(DataFrameT, df_cons(concrete_engine)({id_column: carried_ids}))
-    if not carried_columns:
-        return base_graph, _ordered_reentry_start_nodes(
-            node_rows=base_nodes,
-            carried_node_ids=carried_node_ids,
-            id_column=id_column,
-        )
-    if aligned_prefix_rows is None:
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH could not recover carried row columns from the prefix stage",
-            value=output_name,
-            suggestion=_REENTRY_SCALAR_SUGGESTION,
-        )
-    duplicate_mask = carried_ids.duplicated()
-    if bool(duplicate_mask.any()) if hasattr(duplicate_mask, "any") else False:
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH carried scalar columns currently require unique carried node rows",
-            value=output_name,
-            suggestion="Use a single-node seed WITH shape, or avoid carrying scalar columns into MATCH re-entry.",
-        )
-
-    carry_payload = _reentry_carry_payload(
-        carried_node_ids=carried_node_ids,
-        prefix_rows=aligned_prefix_rows,
-        carried_columns=carried_columns,
-    )
-    hidden_columns = [name for name in map(_reentry_hidden_column_name, carried_columns) if name in base_nodes.columns]
-    merge_base = cast(DataFrameT, base_nodes.drop(columns=hidden_columns)) if hidden_columns else base_nodes
-    node_rows = cast(DataFrameT, safe_merge(merge_base, carry_payload, on=id_column, how="left"))
-
-    dispatch_graph = base_graph.bind()
-    dispatch_graph._nodes = node_rows
-    edges_df = getattr(base_graph, "_edges", None)
-    if edges_df is not None:
-        dispatch_graph._edges = edges_df
-    return dispatch_graph, _ordered_reentry_start_nodes(
-        node_rows=node_rows,
-        carried_node_ids=carried_node_ids,
-        id_column=id_column,
-    )
-
-
-def _union_scalar_reentry_results(
-    row_results: List[Plottable],
-    *,
-    base_graph: Plottable,
-    engine: Union[EngineAbstract, str],
-) -> Plottable:
-    """Union per-row suffix results from a multi-row scalar prefix (#1047)."""
-    node_frames = []
-    for r in row_results:
-        nodes = getattr(r, "_nodes", None)
-        if nodes is not None and len(cast(Any, nodes)) > 0:
-            node_frames.append(nodes)
-    result = base_graph.bind()
-    if node_frames:
-        concrete_engine = resolve_engine(cast(Any, engine), node_frames[0])
-        concat = df_concat(concrete_engine)
-        result._nodes = cast(DataFrameT, concat(node_frames, ignore_index=True))
-    else:
-        base_nodes = getattr(base_graph, "_nodes", None)
-        result._nodes = cast(DataFrameT, base_nodes.iloc[0:0]) if base_nodes is not None else None
-    result._edges = getattr(base_graph, "_edges", None)
-    return result
-
-
-def _compiled_query_scalar_reentry_state(
-    base_graph: Plottable,
-    compiled_query: CompiledCypherQuery,
-    prefix_result: Plottable,
-    *,
-    engine: Union[EngineAbstract, str],
-    row_index: int = 0,
-) -> Tuple[Plottable, Optional[DataFrameT]]:
-    carried_columns = compiled_query.scalar_reentry_columns
-    if not carried_columns:
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH scalar-only prefix stages could not recover carried scalar columns",
-            value=None,
-            suggestion="Project at least one identifier-style scalar column before MATCH re-entry.",
-        )
-    prefix_rows = getattr(prefix_result, "_nodes", None)
-    if prefix_rows is None:
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH scalar-only prefix stages could not recover prefix rows",
-            value=None,
-            suggestion="Project scalar columns directly before MATCH re-entry.",
-        )
-    prefix_row_count = len(prefix_rows)
-    base_nodes = getattr(base_graph, "_nodes", None)
-    if prefix_row_count == 0:
-        if base_nodes is None:
-            return base_graph, None
-        dispatch_graph = base_graph.bind()
-        dispatch_graph._nodes = cast(DataFrameT, base_nodes.iloc[0:0])
-        edges_df = getattr(base_graph, "_edges", None)
-        if edges_df is not None:
-            dispatch_graph._edges = cast(DataFrameT, edges_df.iloc[0:0])
-        return dispatch_graph, None
-    if base_nodes is None:
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH scalar-only prefix stages could not recover the base node table for re-entry",
-            value=None,
-            suggestion="Retry with a node-backed graph before MATCH re-entry.",
-        )
-    missing_column = next((name for name in carried_columns if name not in prefix_rows.columns), None)
-    if missing_column is not None:
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH scalar-only prefix stages could not recover a carried scalar column from the prefix stage",
-            value=missing_column,
-            suggestion="Project the scalar column explicitly before MATCH re-entry.",
-        )
-    row = prefix_rows.iloc[row_index]
-    node_rows = cast(
-        DataFrameT,
-        base_nodes.assign(
-            **{
-                _reentry_hidden_column_name(output_name): row[output_name]
-                for output_name in carried_columns
-            }
-        ),
-    )
-    dispatch_graph = base_graph.bind()
-    dispatch_graph._nodes = node_rows
-    edges_df = getattr(base_graph, "_edges", None)
-    if edges_df is not None:
-        dispatch_graph._edges = edges_df
-    return dispatch_graph, None
-
-
-def _compiled_query_reentry_contract(
-    compiled_query: CompiledCypherQuery,
-) -> Tuple[str, Tuple[str, ...]]:
-    prefix_query = compiled_query.start_nodes_query
-    prefix_projection = None if prefix_query is None else prefix_query.result_projection
-    if prefix_projection is None:
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH could not recover the prefix projection contract for re-entry",
-            value=None,
-            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
-        )
-    whole_row_columns = tuple(
-        column.output_name for column in prefix_projection.columns if column.kind == "whole_row"
-    )
-    if len(whole_row_columns) != 1:
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH could not recover exactly one whole-row alias from the prefix projection",
-            value=whole_row_columns,
-            suggestion="Carry exactly one whole-row node alias through WITH before MATCH re-entry.",
-        )
-    carried_columns = tuple(
-        column.output_name for column in prefix_projection.columns if column.kind != "whole_row"
-    )
-    return whole_row_columns[0], carried_columns
-
-
-def _aligned_reentry_rows(
-    *,
-    ids: SeriesT,
-    prefix_rows: Optional[DataFrameT],
-    output_name: Optional[str],
-) -> Tuple[SeriesT, Optional[DataFrameT]]:
-    if prefix_rows is not None and len(prefix_rows) != len(ids):
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH metadata row counts disagreed with prefix rows during re-entry",
-            value=output_name,
-            suggestion="Retry with a direct whole-row carry through WITH or inspect intermediate row-shaping before MATCH re-entry.",
-        )
-    if not hasattr(ids, "notna"):
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH could not align carried node identities from the prefix stage",
-            value=output_name,
-            suggestion=_REENTRY_WHOLE_ROW_SUGGESTION,
-        )
-
-    non_null_mask = cast(SeriesT, ids.notna())
-    carried_ids = cast(SeriesT, ids[non_null_mask].reset_index(drop=True))
-    if prefix_rows is None:
-        return carried_ids, None
-    return carried_ids, cast(DataFrameT, prefix_rows.loc[non_null_mask].reset_index(drop=True))
-
-
-def _reentry_carry_payload(
-    *,
-    carried_node_ids: DataFrameT,
-    prefix_rows: DataFrameT,
-    carried_columns: Sequence[str],
-) -> DataFrameT:
-    missing_column = next((name for name in carried_columns if name not in prefix_rows.columns), None)
-    if missing_column is not None:
-        raise _reentry_validation_error(
-            "Cypher MATCH after WITH could not recover a carried scalar column from the prefix stage",
-            value=missing_column,
-            suggestion="Project the scalar column explicitly before MATCH re-entry.",
-        )
-    return cast(
-        DataFrameT,
-        carried_node_ids.assign(
-            **{
-                _reentry_hidden_column_name(output_name): cast(SeriesT, prefix_rows[output_name]).reset_index(drop=True)
-                for output_name in carried_columns
-            }
-        ),
-    )
-
-
-def _ordered_reentry_start_nodes(
-    *,
-    node_rows: DataFrameT,
-    carried_node_ids: DataFrameT,
-    id_column: str,
-) -> DataFrameT:
-    # MATCH re-entry must preserve the WITH row order, not the base node-table order.
-    return cast(DataFrameT, safe_merge(carried_node_ids, node_rows, on=id_column, how="left"))
 
 
 def _materialize_split_alias_columns(
@@ -1402,6 +1243,169 @@ def _compile_string_query(
     return compile_cypher(query, params=params, _warn_deprecated=False)
 
 
+def _compile_value_repr(value: Any) -> str:
+    try:
+        rendered = repr(value)
+    except Exception:
+        rendered = f"<unrepresentable {type(value).__name__}>"
+    if len(rendered) > 200:
+        return f"{rendered[:197]}..."
+    return rendered
+
+
+def _compile_context_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Mapping):
+        return MappingProxyType({str(k): _compile_context_value(v) for k, v in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_compile_context_value(v) for v in value)
+    return _compile_value_repr(value)
+
+
+def _compiler_phase_for_error(exc: GFQLValidationError) -> str:
+    if exc.code == ErrorCode.E107:
+        return "parse"
+    context = getattr(exc, "context", {})
+    if isinstance(context, dict) and (
+        "visible_scope" in context
+        or "existing_kind" in context
+        or "new_kind" in context
+    ):
+        return "bind"
+    if exc.code == ErrorCode.E108:
+        return "lower"
+    return "compile"
+
+
+def _compile_summary(
+    *,
+    query_language: str,
+    params: Optional[Mapping[str, Any]],
+    exc: Optional[GFQLValidationError] = None,
+) -> CompileSummary:
+    if exc is None:
+        return CompileSummary(
+            language=query_language,
+            success=True,
+            param_keys=tuple(sorted(str(key) for key in params.keys())) if params else (),
+        )
+
+    context = getattr(exc, "context", {})
+    error_context = context if isinstance(context, dict) else {}
+    public_context = MappingProxyType({str(k): _compile_context_value(v) for k, v in error_context.items()})
+    return CompileSummary(
+        language=query_language,
+        success=False,
+        error_type=type(exc).__name__,
+        message=exc.message,
+        compiler_phase=_compiler_phase_for_error(exc),
+        code=exc.code,
+        context=public_context,
+        field=error_context.get("field"),
+        suggestion=error_context.get("suggestion"),
+        line=error_context.get("line"),
+        column=error_context.get("column"),
+        value_repr=(
+            _compile_value_repr(error_context["value"])
+            if "value" in error_context
+            else None
+        ),
+        param_keys=tuple(sorted(str(key) for key in params.keys())) if params else (),
+    )
+
+
+def _base_compile_policy_context(
+    *,
+    hook: Literal["precompile", "postcompile"],
+    query: str,
+    query_language: str,
+    policy_depth: int,
+    execution_depth: int,
+    operation_path: str,
+) -> PolicyContext:
+    return {
+        "phase": hook,
+        "hook": hook,
+        "query": query,
+        "current_ast": None,
+        "query_type": "chain",
+        "compile_language": query_language,
+        "execution_depth": execution_depth,
+        "operation_path": operation_path,
+        "parent_operation": "query" if execution_depth == 0 else operation_path.rsplit(".", 1)[0],
+        "_policy_depth": policy_depth,
+    }
+
+
+def _fire_precompile_policy(
+    policy: Optional[PolicyDict],
+    *,
+    query: str,
+    query_language: str,
+    policy_depth: int,
+    execution_depth: int,
+    operation_path: str,
+) -> None:
+    if not policy or "precompile" not in policy:
+        return
+    policy_context = _base_compile_policy_context(
+        hook="precompile",
+        query=query,
+        query_language=query_language,
+        policy_depth=policy_depth,
+        execution_depth=execution_depth,
+        operation_path=operation_path,
+    )
+    try:
+        policy["precompile"](policy_context)
+    except PolicyException as policy_exc:
+        if policy_exc.query_type is None:
+            policy_exc.query_type = policy_context.get("query_type")
+        raise
+
+
+def _fire_postcompile_policy(
+    policy: Optional[PolicyDict],
+    *,
+    query: str,
+    query_language: str,
+    exc: Optional[GFQLValidationError],
+    policy_depth: int,
+    execution_depth: int,
+    operation_path: str,
+    params: Optional[Mapping[str, Any]],
+) -> None:
+    if not policy or "postcompile" not in policy:
+        return
+    summary = _compile_summary(
+        query_language=query_language,
+        params=params,
+        exc=exc,
+    )
+    policy_context = _base_compile_policy_context(
+        hook="postcompile",
+        query=query,
+        query_language=query_language,
+        policy_depth=policy_depth,
+        execution_depth=execution_depth,
+        operation_path=operation_path,
+    )
+    policy_context["compile"] = summary
+    policy_context["success"] = exc is None
+    if exc is not None:
+        policy_context["error"] = str(exc)
+        policy_context["error_type"] = type(exc).__name__
+    try:
+        policy["postcompile"](policy_context)
+    except PolicyException as policy_exc:
+        if policy_exc.query_type is None:
+            policy_exc.query_type = policy_context.get("query_type")
+        if exc is not None:
+            raise policy_exc from exc
+        raise
+
+
 @otel_traced("gfql.run", attrs_fn=_gfql_otel_attrs)
 def gfql(self: Plottable,
          query: Union[ASTObject, List[ASTObject], ASTLet, Chain, dict, str],
@@ -1411,6 +1415,7 @@ def gfql(self: Plottable,
          where: Optional[Sequence[WhereComparison]] = None,
          language: Optional[Literal["cypher", "gremlin"]] = None,
          params: Optional[Mapping[str, Any]] = None,
+         validate: bool = False,
          shortest_path_backend: str = "auto") -> Plottable:
     """
     Execute a GFQL query - either a chain or a DAG
@@ -1425,6 +1430,7 @@ def gfql(self: Plottable,
     :param where: Optional same-path constraints for list/Chain queries
     :param language: Optional string-query language selector. Defaults to ``"cypher"`` when ``query`` is a string.
     :param params: Optional parameter dictionary for string-query compilation
+    :param validate: When ``True``, run local preflight validation before execution via ``g.gfql_validate(...)``.
     :param shortest_path_backend: Backend for shortestPath execution: ``"auto"`` (default),
         ``"igraph"`` (require igraph, raise if missing), ``"cugraph"`` (require cugraph,
         raise if missing), or ``"bfs"`` (always use DataFrame BFS). ``"auto"`` tries
@@ -1622,23 +1628,82 @@ def gfql(self: Plottable,
 
         if where_param and isinstance(query, (dict, ASTLet)):
             raise ValueError("where must be provided inside dict chain under the 'where' key")
+        if not isinstance(query, str):
+            if language is not None:
+                raise ValueError("language is only supported when query is a string")
+            if params is not None:
+                raise ValueError("params is only supported when query is a string")
         if isinstance(query, str):
             if where_param:
                 raise ValueError("where cannot be combined with string queries; embed Cypher predicates in the query itself")
-            if language is None and not _looks_like_cypher_query(query):
-                raise TypeError("Query must be ASTObject, List[ASTObject], Chain, ASTLet, or dict. Got str")
-            compiled_query = _compile_string_query(query, language=language, params=params)
+            query_language = language or "cypher"
+            _fire_precompile_policy(
+                expanded_policy,
+                query=query,
+                query_language=query_language,
+                policy_depth=policy_depth,
+                execution_depth=current_depth,
+                operation_path=current_path,
+            )
+
+        if validate:
+            try:
+                gfql_preflight_validate(
+                    dispatch_self,
+                    query,
+                    where=where_param,
+                    language=language,
+                    params=params,
+                    strict=True,
+                    schema=True,
+                    collect_all=False,
+                )
+            except GFQLValidationError as exc:
+                if isinstance(query, str):
+                    _fire_postcompile_policy(
+                        expanded_policy,
+                        query=query,
+                        query_language=language or "cypher",
+                        exc=exc,
+                        policy_depth=policy_depth,
+                        execution_depth=current_depth,
+                        operation_path=current_path,
+                        params=params,
+                    )
+                raise
+
+        if isinstance(query, str):
+            query_language = language or "cypher"
+            try:
+                compiled_query = _compile_string_query(query, language=language, params=params)
+            except GFQLValidationError as exc:
+                _fire_postcompile_policy(
+                    expanded_policy,
+                    query=query,
+                    query_language=query_language,
+                    exc=exc,
+                    policy_depth=policy_depth,
+                    execution_depth=current_depth,
+                    operation_path=current_path,
+                    params=params,
+                )
+                raise
+            _fire_postcompile_policy(
+                expanded_policy,
+                query=query,
+                query_language=query_language,
+                exc=None,
+                policy_depth=policy_depth,
+                execution_depth=current_depth,
+                operation_path=current_path,
+                params=params,
+            )
             if isinstance(compiled_query, CompiledCypherGraphQuery):
                 return _execute_graph_query(self, compiled_query, engine=engine, policy=expanded_policy, context=context)
             if isinstance(compiled_query, CompiledCypherQuery):
                 if compiled_query.graph_bindings or compiled_query.use_ref:
                     return _execute_query_with_graph_context(self, compiled_query, engine=engine, policy=expanded_policy, context=context)
                 query = compiled_query.chain
-        else:
-            if language is not None:
-                raise ValueError("language is only supported when query is a string")
-            if params is not None:
-                raise ValueError("params is only supported when query is a string")
 
         if isinstance(query, dict) and query.get("type") == "Let":
             from .ast import ASTLet as _ASTLet

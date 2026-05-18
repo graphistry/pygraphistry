@@ -51,12 +51,15 @@ def boolean_expr_to_text(expr: BooleanExpr) -> str:
     single conjunct.  ``NOT`` prefixes its operand; binary ops produce
     ``"L OP R"``.
 
-    Inherits the slice-1 known limitation for primitive literal atoms
-    (``str(True) == "True"`` rather than Cypher ``"true"``); that is a
-    follow-up under #1200 to be addressed when literal transformers
-    gain span-carrying wrappers.
+    Primitive literal atoms produced via parser fallback are normalized
+    to Cypher keyword casing (``true`` / ``false`` / ``null``).
     """
     if expr.op == "atom":
+        return expr.atom_text or ""
+    if expr.op == "pattern":
+        # Pattern leaves may remain in expr_tree for nested OR/XOR/NOT
+        # compositions. Emit raw source text for round-trippability; lowering
+        # can rewrite these leaves to marker columns before row evaluation.
         return expr.atom_text or ""
     if expr.op == "not":
         operand = boolean_expr_to_text(expr.left) if expr.left is not None else ""

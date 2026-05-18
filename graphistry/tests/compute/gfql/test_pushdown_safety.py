@@ -112,10 +112,10 @@ class TestIsNullRejecting:
 
     # --- OR expressions --- #
 
-    def test_or_with_is_null_form_is_not_rejecting(self):
-        # n IS NULL OR n.age > 5: if n=NULL → True OR NULL = True → row kept.
-        # The null-safe conjunct wins in an OR.
-        assert not is_null_rejecting(
+    def test_or_with_is_null_form_is_conservatively_rejecting(self):
+        # Conservative policy: OR compounds are always treated as
+        # null-rejecting when they reference optional aliases.
+        assert is_null_rejecting(
             _pred("n IS NULL OR n.age > 5", frozenset({"n"})),
             frozenset({"n"}),
         )
@@ -124,6 +124,18 @@ class TestIsNullRejecting:
         # n.age > 5 OR n.name = 'x': if n=NULL → NULL OR NULL = NULL → row filtered.
         assert is_null_rejecting(
             _pred("n.age > 5 OR n.name = 'x'", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
+    def test_or_with_newline_delimiter_is_rejecting(self):
+        assert is_null_rejecting(
+            _pred("n IS NULL\nOR n.age > 5", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
+    def test_or_with_tab_delimiter_is_rejecting(self):
+        assert is_null_rejecting(
+            _pred("n IS NULL\tOR\tn.age > 5", frozenset({"n"})),
             frozenset({"n"}),
         )
 
@@ -164,14 +176,36 @@ class TestIsNullRejecting:
 
     # --- string-literal AND heuristic boundary --- #
 
-    def test_coalesce_with_and_in_literal_is_conservatively_rejecting(self):
-        # Known limitation: " and " in a string literal triggers the AND guard.
-        # coalesce(n.name, 'Alice and Bob') IS NOT NULL is semantically null-safe
-        # (COALESCE always returns non-NULL here), but the substring heuristic
-        # cannot distinguish operator AND from the literal " and ".
-        # Over-conservative: prevents valid pushdown but never allows incorrect pushdown.
-        assert is_null_rejecting(
+    def test_coalesce_with_and_in_literal_is_not_rejecting(self):
+        # " and " inside the quoted literal should not trigger the top-level
+        # AND guard; this remains null-safe because the actual expression uses
+        # a COALESCE null-handling form.
+        assert not is_null_rejecting(
             _pred("coalesce(n.name, 'Alice and Bob') IS NOT NULL", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
+    def test_string_literal_is_not_null_substring_is_rejecting(self):
+        assert is_null_rejecting(
+            _pred("n.note = 'x is not null'", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
+    def test_string_literal_is_null_substring_is_rejecting(self):
+        assert is_null_rejecting(
+            _pred("n.note = 'x is null'", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
+    def test_string_literal_coalesce_substring_is_rejecting(self):
+        assert is_null_rejecting(
+            _pred("n.note = 'coalesce('", frozenset({"n"})),
+            frozenset({"n"}),
+        )
+
+    def test_string_literal_nullif_substring_is_rejecting(self):
+        assert is_null_rejecting(
+            _pred("n.note = 'nullif('", frozenset({"n"})),
             frozenset({"n"}),
         )
 

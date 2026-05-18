@@ -352,6 +352,24 @@ Current categories include:
             'out_col': 'community'
         })
     ])
+
+    # Weakly connected components (WCC) labels
+    g.gfql([
+        call('compute_cugraph', {
+            'alg': 'connected_components',
+            'out_col': 'wcc_id',
+            'directed': False
+        })
+    ])
+
+    # Strongly connected components (SCC) labels
+    g.gfql([
+        call('compute_cugraph', {
+            'alg': 'strongly_connected_components',
+            'out_col': 'scc_id',
+            'directed': True
+        })
+    ])
     
     # Betweenness centrality
     g.gfql([
@@ -446,6 +464,12 @@ Current supported names include:
         })
     ])
 
+    # Weakly connected components (WCC) labels
+    g.compute_igraph('clusters', out_col='wcc_id', params={'mode': 'weak'})
+
+    # Strongly connected components (SCC) labels
+    g.compute_igraph('clusters', out_col='scc_id', params={'mode': 'strong'})
+
 **Schema Effects:** Most algorithms add one node column. Topology-returning algorithms such as ``gomory_hu_tree`` and ``spanning_tree`` return a new graph topology instead.
 
 **Local Cypher Modes:**
@@ -463,6 +487,11 @@ Current supported names include:
   They follow the same row-vs-``.write()`` contract as the other backends: node calls use ``nodeId`` + value column rows, edge calls use ``source`` / ``destination`` + value column rows, and topology-returning calls require ``.write()``.
 
 **Parameter Discovery:** For detailed algorithm parameters, see the `Python igraph documentation <https://igraph.org/python/>`_. Parameters are passed via the ``params`` dictionary.
+
+.. note::
+   Component IDs (for example, ``wcc_id`` / ``scc_id``) are partition labels and
+   may differ numerically across backends or runs. Use them for grouping and
+   filtering by component membership, not as stable semantic IDs.
 
 .. note::
    For graphs with millions of edges, consider using ``compute_cugraph`` with a GPU for 10-50x speedup, or :ref:`gfql-remote` if no local GPU is available.

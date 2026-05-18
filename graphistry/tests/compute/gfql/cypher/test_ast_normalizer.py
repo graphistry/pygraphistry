@@ -4,7 +4,7 @@ import pytest
 
 from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
-from graphistry.compute.gfql.cypher.ast import CypherQuery
+from graphistry.compute.gfql.cypher.ast import CypherQuery, WherePatternPredicate
 from graphistry.compute.gfql.cypher.api import compile_cypher
 from graphistry.compute.gfql.cypher.ast_normalizer import ASTNormalizer
 from graphistry.compute.gfql.cypher.lowering import lower_match_query
@@ -29,16 +29,16 @@ def test_normalizer_rewrites_shortest_path_seed_and_projection() -> None:
     assert "__cypher_shortest_path_hops__path" in normalized.return_.items[0].expression.text
 
 
-def test_normalizer_rewrites_where_pattern_predicate_into_extra_match() -> None:
+def test_normalizer_keeps_where_pattern_predicate_as_existence_check() -> None:
     normalized = _normalize(
         "MATCH (a:Person), (b:Person) "
         "WHERE (a)-[:KNOWS]->(b) AND a.id = 'a' "
         "RETURN a"
     )
 
-    assert len(normalized.matches) == 2
-    assert len(normalized.matches[-1].patterns) == 1
+    assert len(normalized.matches) == 1
     assert normalized.where is not None
+    assert any(isinstance(predicate, WherePatternPredicate) for predicate in normalized.where.predicates)
     assert normalized.where.expr_tree is not None
     assert "a.id" in boolean_expr_to_text(normalized.where.expr_tree)
 
@@ -53,12 +53,12 @@ def test_normalizer_rejects_shortest_path_inside_optional_match() -> None:
         )
 
 
-def test_normalizer_rejects_where_pattern_predicate_new_alias_introduction() -> None:
+def test_lowering_rejects_where_pattern_predicate_new_alias_introduction() -> None:
     parsed = parse_cypher("MATCH (a:Person) WHERE (a)-[:KNOWS]->(b) RETURN a")
     assert isinstance(parsed, CypherQuery)
 
     with pytest.raises(GFQLValidationError, match="cannot introduce new aliases"):
-        ASTNormalizer().rewrite_where_pattern_predicates(parsed)
+        lower_match_query(parsed)
 
 
 def _capture_normalizer_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
@@ -68,38 +68,31 @@ def _capture_normalizer_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         calls.append("shortest")
         return query
 
-    def _record_where(self: ASTNormalizer, query: CypherQuery) -> CypherQuery:
-        calls.append("where")
-        return query
-
     monkeypatch.setattr(ASTNormalizer, "rewrite_shortest_path", _record_shortest)
-    monkeypatch.setattr(ASTNormalizer, "rewrite_where_pattern_predicates", _record_where)
     return calls
 
 
-def test_compile_cypher_invokes_ast_normalizer_rewrites(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_compile_cypher_invokes_ast_normalizer(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _capture_normalizer_calls(monkeypatch)
     compiled = compile_cypher("RETURN 1 AS x")
     assert compiled is not None
     assert "shortest" in calls
-    assert "where" in calls
 
 
-def test_compile_cypher_graph_constructor_invokes_ast_normalizer_rewrites(
+def test_compile_cypher_graph_constructor_invokes_ast_normalizer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls = _capture_normalizer_calls(monkeypatch)
     compiled = compile_cypher("GRAPH { MATCH (a)-[r]->(b) WHERE a.id = 'a' }")
     assert compiled is not None
     assert "shortest" in calls
-    assert "where" in calls
 
 
-def test_lower_match_query_invokes_ast_normalizer_rewrites(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lower_match_query_invokes_ast_normalizer(monkeypatch: pytest.MonkeyPatch) -> None:
     parsed = parse_cypher("MATCH (n) RETURN n")
     assert isinstance(parsed, CypherQuery)
     calls = _capture_normalizer_calls(monkeypatch)
 
     lowered = lower_match_query(parsed)
     assert lowered is not None
-    assert calls[:2] == ["shortest", "where"]
+    assert calls[:1] == ["shortest"]

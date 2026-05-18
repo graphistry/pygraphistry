@@ -1,11 +1,32 @@
 """Structural verifier for LogicalPlan (M2-PR3 / issue #1127).
 
-verify(plan) walks the operator tree and checks five invariants:
+Production callers: ``passes/manager.py`` runs ``verify(...)`` after every
+tier-1 structural pass and every tier-2 rewrite-rule fixed-point step
+(treats any returned diagnostic as fatal); ``cypher/lowering.py`` runs it
+through ``_verify_selected_logical_plan`` to gate LogicalPlan routing for
+covered Cypher shapes. So the invariants below are real safety nets on the
+paths that exercise them.
+
+Scope caveat for invariant 6 (#1300, T3): the kind/nullability check is
+short-circuited when either ``input.output_schema.columns`` or
+``op.output_schema.columns`` is empty. Most planner-emitted ``Project``
+and ``Aggregate`` nodes today initialise ``output_schema=RowSchema()``
+empty — until the schema-population slice lands, invariant 6 mainly
+catches hand-built fixtures and pass-emitted plans that explicitly
+populate schemas. This is intentional — populating projection schemas is
+T4-adjacent work, not T3.
+
+verify(plan) walks the operator tree and checks six invariants:
   1. op_id uniqueness  — non-zero op_ids are distinct across the whole tree
   2. Dangling refs     — child slots (input/left/right/subquery) hold LogicalPlan | None
   3. Predicate scope   — BoundPredicate.expression must be non-empty on all predicate-bearing ops
   4. Schema validity   — RowSchema column values must be LogicalType instances (ListType.element_type validated recursively)
   5. Optional-arm      — PatternMatch(optional=True) must carry a non-empty arm_id
+  6. Type continuity   — for unary ops, columns shared between input.output_schema and
+                         op.output_schema must agree on kind; ScalarType nullability is
+                         monotone-widening except where the operator is allowed to drop NULL
+                         rows (currently: Filter, PatternMatch, SemiApply, AntiSemiApply).
+                         Skipped when either schema is empty. (#1300, T3 under #1262.)
 """
 from __future__ import annotations
 
@@ -13,14 +34,17 @@ from typing import Iterator, List, Set, Tuple
 
 from graphistry.compute.gfql.ir.compilation import CompilerError
 from graphistry.compute.gfql.ir.logical_plan import (
+    AntiSemiApply,
     CHILD_SLOTS,
     Filter,
     IndexScan,
     LogicalPlan,
     PatternMatch,
     RowSchema,
+    SemiApply,
     iter_children,
 )
+from graphistry.compute.gfql.ir.metadata import is_nullable
 from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, ListType, NodeRef, PathType, ScalarType
 
 
@@ -153,6 +177,16 @@ def verify(plan: LogicalPlan) -> list[CompilerError]:
         errors.extend(_check_schema(op, op.output_schema))
 
         # ------------------------------------------------------------------
+        # Invariant 6: Type propagation continuity (#1300 / T3)
+        # Walk the unary `input` slot (if any) and compare shared columns'
+        # kinds + ScalarType nullability against the parent op's
+        # output_schema.  Skipped when either schema is empty so legacy
+        # planner-emitted plans that initialise `output_schema=RowSchema()`
+        # remain valid until callers populate the schema.
+        # ------------------------------------------------------------------
+        errors.extend(_check_propagation_continuity(op))
+
+        # ------------------------------------------------------------------
         # Invariant 5: Optional-arm nullability contract
         # ------------------------------------------------------------------
         if isinstance(op, PatternMatch) and op.optional:
@@ -167,7 +201,7 @@ def verify(plan: LogicalPlan) -> list[CompilerError]:
             # ScalarType columns in the output_schema must be nullable to
             # accommodate those NULL rows.
             for col, typ in op.output_schema.columns.items():
-                if isinstance(typ, ScalarType) and not typ.nullable:
+                if isinstance(typ, ScalarType) and not is_nullable(typ):
                     errors.append(CompilerError(
                         message=(
                             f"PatternMatch op_id={op.op_id}: optional=True "
@@ -211,4 +245,83 @@ def _check_schema(op: LogicalPlan, schema: RowSchema) -> list[CompilerError]:
     errors: list[CompilerError] = []
     for col, typ in schema.columns.items():
         errors.extend(_check_logical_type(typ, f"output_schema column {col!r}", op))
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# Propagation continuity (invariant 6) — #1300 T3
+# ---------------------------------------------------------------------------
+
+# Operators that may legitimately *narrow* ScalarType nullability — they can
+# drop NULL rows, so a non-nullable output is consistent with a nullable
+# input.  Other unary operators must preserve or widen nullability.
+#
+# `Filter` predicates can drop NULL rows directly. `PatternMatch` with
+# `where` and per-pattern `predicates` carries the same row-dropping
+# semantics — non-optional patterns also drop rows where the pattern fails
+# to match — so it sits in the same carve-out. `SemiApply` /
+# `AntiSemiApply` (Cypher EXISTS / NOT EXISTS subquery filters) are
+# filter-shaped row-droppers as well. The narrowing here is *not*
+# extended to `optional=True` PatternMatch arms: invariant 5 already pins
+# their outputs to nullable=True, so a narrowing output there is still a
+# correctness violation but is reported by invariant 5 rather than 6.
+_NULLABILITY_NARROWING_OPS: tuple[type, ...] = (Filter, PatternMatch, SemiApply, AntiSemiApply)
+
+
+def _check_propagation_continuity(op: LogicalPlan) -> list[CompilerError]:
+    """Validate type/nullability continuity across a unary op's input edge.
+
+    Walks the single ``input`` slot when present.  For each column name
+    appearing in BOTH ``input.output_schema.columns`` and
+    ``op.output_schema.columns``, the kinds must agree
+    (NodeRef/EdgeRef/ScalarType/PathType/ListType) and ScalarType nullability
+    must monotonically widen (input.nullable=True → op.nullable=True), with a
+    carve-out for operators in ``_NULLABILITY_NARROWING_OPS``.
+
+    Skipped entirely when either schema has no columns — most planner-emitted
+    Project/Aggregate nodes today initialise ``output_schema=RowSchema()`` and
+    we don't want to retro-break those plans before the schema-population
+    slice lands.  See ``_check_schema`` for the always-on structural check.
+    """
+    parent_input = getattr(op, "input", None)
+    if not isinstance(parent_input, LogicalPlan):
+        return []
+    parent_cols = parent_input.output_schema.columns
+    child_cols = op.output_schema.columns
+    if not parent_cols or not child_cols:
+        return []
+    errors: list[CompilerError] = []
+    allow_narrow = isinstance(op, _NULLABILITY_NARROWING_OPS)
+    for name, child_typ in child_cols.items():
+        parent_typ = parent_cols.get(name)
+        if parent_typ is None:
+            continue  # newly-introduced column — nothing to compare against
+        # Kind continuity: must agree on the LogicalType family.
+        if type(parent_typ) is not type(child_typ):
+            errors.append(CompilerError(
+                message=(
+                    f"{type(op).__name__} op_id={op.op_id}: column {name!r} "
+                    f"changed kind across input edge: "
+                    f"{type(parent_typ).__name__} → {type(child_typ).__name__}"
+                )
+            ))
+            continue
+        # Nullability monotonicity: only meaningful for ScalarType today.
+        if (
+            isinstance(parent_typ, ScalarType)
+            and isinstance(child_typ, ScalarType)
+            and not allow_narrow
+            and is_nullable(parent_typ)
+            and not is_nullable(child_typ)
+        ):
+            narrowing_op_names = ", ".join(t.__name__ for t in _NULLABILITY_NARROWING_OPS)
+            errors.append(CompilerError(
+                message=(
+                    f"{type(op).__name__} op_id={op.op_id}: column {name!r} "
+                    "narrowed nullability across input edge "
+                    "(input nullable=True, output nullable=False); only "
+                    f"row-dropping operators may narrow nullability "
+                    f"({narrowing_op_names})"
+                )
+            ))
     return errors

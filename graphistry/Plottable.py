@@ -19,6 +19,7 @@ from graphistry.utils.json import JSONVal
 from graphistry.client_session import ClientSession, AuthManagerProtocol
 from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationParam
+from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 
 if TYPE_CHECKING:
     try:
@@ -83,7 +84,7 @@ class Plottable(Protocol):
     _point_latitude : Optional[str]
     _height : int
     _render : RenderModesConcrete
-    _url_params : dict
+    _url_params : URLParamsDict
     _privacy : Optional[Privacy]
     _name : Optional[str]
     _description : Optional[str]
@@ -428,6 +429,7 @@ class Plottable(Protocol):
         destination_node_query: Optional[str] = None,
         edge_query: Optional[str] = None,
         return_as_wave_front: bool = False,
+        include_zero_hop_seed: bool = False,
         target_wave_front: Optional[pd.DataFrame] = None,
         engine: EngineAbstractType = 'auto'
     ) -> 'Plottable':
@@ -780,8 +782,10 @@ class Plottable(Protocol):
 
     def settings(self,
         height: Optional[int] = None,
-        url_params: Dict[str, Any] = {},
-        render: Optional[Union[bool, RenderModes]] = None
+        url_params: Optional[URLParamsDict] = None,
+        render: Optional[Union[bool, RenderModes]] = None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
     ) -> 'Plottable':
         ...
 

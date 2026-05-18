@@ -140,6 +140,10 @@ class WherePredicate:
 class WherePatternPredicate:
     pattern: Tuple[PatternElement, ...]
     span: SourceSpan
+    # #1031 slice 2: True when lifted from a `WHERE NOT (...)` shape, signaling
+    # anti-semi-join lowering instead of intersect-MATCH.  Default False keeps
+    # all existing single-positive / multi-positive callers unchanged.
+    negated: bool = False
 
 
 WhereTerm = Union[WherePredicate, WherePatternPredicate]

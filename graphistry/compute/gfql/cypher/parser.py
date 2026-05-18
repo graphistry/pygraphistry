@@ -347,17 +347,37 @@ def _lift_label_only_and_spine(
 
 def _split_top_level_and_pattern_leaves(
     expr: BooleanExpr,
-) -> Tuple[List[BooleanExpr], List[BooleanExpr], bool]:
-    """Split *expr* at top-level AND boundaries into (patterns, others, has_nested_pattern)."""
+) -> Tuple[List[BooleanExpr], List[BooleanExpr], List[BooleanExpr], bool]:
+    """Split *expr* at top-level AND boundaries.
+
+    Returns ``(positive_patterns, negated_patterns, others, has_nested_pattern)``.
+
+    - ``positive_patterns``: leaf ``BooleanExpr(op="pattern")`` nodes at top-level
+      AND positions.  Lifted to ``WherePatternPredicate(negated=False)``.
+    - ``negated_patterns``: leaf ``BooleanExpr(op="pattern")`` nodes wrapped in a
+      single top-level ``not`` (i.e. ``NOT (n)-[:R]->()``).  Lifted to
+      ``WherePatternPredicate(negated=True)`` for #1031 slice 2 anti-semi-join
+      lowering.  Returns the inner ``pattern`` leaf (the ``not`` is consumed).
+    - ``others``: non-pattern conjuncts that should remain in ``expr_tree``.
+    - ``has_nested_pattern``: True when a pattern atom appears in a deeper
+      non-AND/non-direct-NOT context (e.g. ``OR`` with a pattern leaf, or
+      ``NOT (and-tree-of-patterns)``).  Lowering consumes this by keeping
+      such leaves in ``expr_tree`` instead of lifting them to predicates.
+    """
     if expr.op == "and":
         if expr.left is None or expr.right is None:
-            return [], [expr], False
-        left_pat, left_other, left_bad = _split_top_level_and_pattern_leaves(expr.left)
-        right_pat, right_other, right_bad = _split_top_level_and_pattern_leaves(expr.right)
-        return left_pat + right_pat, left_other + right_other, left_bad or right_bad
+            return [], [], [expr], False
+        l_pos, l_neg, l_oth, l_bad = _split_top_level_and_pattern_leaves(expr.left)
+        r_pos, r_neg, r_oth, r_bad = _split_top_level_and_pattern_leaves(expr.right)
+        return l_pos + r_pos, l_neg + r_neg, l_oth + r_oth, l_bad or r_bad
     if expr.op == "pattern":
-        return [expr], [], False
-    return [], [expr], _has_pattern_descendant(expr)
+        return [expr], [], [], False
+    if expr.op == "not" and expr.left is not None and expr.left.op == "pattern":
+        # `WHERE NOT (pattern)` — slice 2 anti-semi-join target.  Strip the NOT
+        # and emit the inner pattern leaf as a negated pattern.  No nested
+        # pattern; rest of the tree continues structural traversal as usual.
+        return [], [expr.left], [], False
+    return [], [], [expr], _has_pattern_descendant(expr)
 
 
 def _has_pattern_descendant(expr: BooleanExpr) -> bool:
@@ -394,41 +414,32 @@ def _rebuild_and_tree(conjuncts: List[BooleanExpr]) -> Optional[BooleanExpr]:
 def _build_where_with_pattern_lift(
     *,
     pattern_leaves: List[BooleanExpr],
+    negated_pattern_leaves: List[BooleanExpr],
     other_conjuncts: List[BooleanExpr],
     nested_pattern: bool,
     expr_text: str,
     span: SourceSpan,
 ) -> WhereClause:
-    if nested_pattern:
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            "Cypher WHERE pattern predicates cannot yet be mixed with generic row expressions",
-            field="where",
-            value=expr_text,
-            suggestion="Use a single positive top-level pattern predicate joined by AND.",
-            line=span.line,
-            column=span.column,
-            language="cypher",
-        )
-    if len(pattern_leaves) > 1:
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            "Cypher WHERE pattern predicates beyond a single positive predicate are unsupported",
-            field="where",
-            value=expr_text,
-            suggestion="Use a single positive top-level pattern predicate.",
-            line=span.line,
-            column=span.column,
-            language="cypher",
-        )
-    leaf = pattern_leaves[0]
-    assert leaf.pattern is not None, "pattern_atom invariant: pattern payload always set"
-    pattern_pred = WherePatternPredicate(pattern=leaf.pattern, span=leaf.span)
+    # Slice 3 (#1031): N positive patterns each become a WherePatternPredicate
+    # (negated=False).  Slice 2 (#1031): N NOT-patterns each become a
+    # WherePatternPredicate (negated=True) for downstream anti-semi-join
+    # lowering.  Both groups travel together in WhereClause.predicates;
+    # ast_normalizer dispatches by the negated flag.
+    pattern_preds: List[WherePatternPredicate] = []
+    for leaf in pattern_leaves:
+        assert leaf.pattern is not None, "pattern_atom invariant: pattern payload always set"
+        pattern_preds.append(WherePatternPredicate(pattern=leaf.pattern, span=leaf.span, negated=False))
+    for leaf in negated_pattern_leaves:
+        assert leaf.pattern is not None, "pattern_atom invariant: pattern payload always set"
+        pattern_preds.append(WherePatternPredicate(pattern=leaf.pattern, span=leaf.span, negated=True))
     new_expr_tree = _rebuild_and_tree(other_conjuncts)
     if new_expr_tree is None:
-        return WhereClause(predicates=(pattern_pred,), expr_tree=None, span=span)
+        return WhereClause(predicates=tuple(pattern_preds), expr_tree=None, span=span)
+    # Nested pattern leaves (OR/XOR/complex NOT contexts) stay in expr_tree;
+    # lowering rewrites them to correlated semi-apply marker columns.
+    _ = nested_pattern
     return WhereClause(
-        predicates=(pattern_pred,),
+        predicates=tuple(pattern_preds),
         expr_tree=new_expr_tree,
         span=span,
     )
@@ -499,6 +510,19 @@ def _parse_number_token(token: str) -> Union[int, float]:
 class _ExpressionSlice:
     text: str
     span: SourceSpan
+
+
+@dataclass(frozen=True)
+class _PrimitiveLiteral:
+    value: Union[None, bool, int, float, str]
+    text: str
+    span: SourceSpan
+
+
+def _unwrap_primitive_literal(value: object) -> object:
+    if isinstance(value, _PrimitiveLiteral):
+        return value.value
+    return value
 
 
 @dataclass(frozen=True)
@@ -601,33 +625,39 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("Invalid parameter reference", line=meta.line, column=meta.column)
             return ParameterRef(name=str(items[0]), span=_span_from_meta(meta))
 
-        def null_lit(self, _meta: Any, _items: Sequence[Any]) -> None:
-            return None
+        def null_lit(self, meta: Any, _items: Sequence[Any]) -> _PrimitiveLiteral:
+            span = _span_from_meta(meta)
+            return _PrimitiveLiteral(value=None, text=self._slice(span), span=span)
 
-        def true_lit(self, _meta: Any, _items: Sequence[Any]) -> bool:
-            return True
+        def true_lit(self, meta: Any, _items: Sequence[Any]) -> _PrimitiveLiteral:
+            span = _span_from_meta(meta)
+            return _PrimitiveLiteral(value=True, text=self._slice(span), span=span)
 
-        def false_lit(self, _meta: Any, _items: Sequence[Any]) -> bool:
-            return False
+        def false_lit(self, meta: Any, _items: Sequence[Any]) -> _PrimitiveLiteral:
+            span = _span_from_meta(meta)
+            return _PrimitiveLiteral(value=False, text=self._slice(span), span=span)
 
-        def number_lit(self, meta: Any, items: Sequence[Any]) -> Union[int, float]:
+        def number_lit(self, meta: Any, items: Sequence[Any]) -> _PrimitiveLiteral:
             if len(items) != 1:
                 raise _to_syntax_error("Invalid numeric literal", line=meta.line, column=meta.column)
-            return _parse_number_token(str(items[0]))
+            span = _span_from_meta(meta)
+            return _PrimitiveLiteral(value=_parse_number_token(str(items[0])), text=self._slice(span), span=span)
 
-        def string_lit(self, meta: Any, items: Sequence[Any]) -> str:
+        def string_lit(self, meta: Any, items: Sequence[Any]) -> _PrimitiveLiteral:
             if len(items) != 1:
                 raise _to_syntax_error("Invalid string literal", line=meta.line, column=meta.column)
             try:
-                return _parse_string_token(str(items[0]))
+                value = _parse_string_token(str(items[0]))
             except ValueError as exc:
                 raise _to_syntax_error(str(exc), line=meta.line, column=meta.column) from exc
+            span = _span_from_meta(meta)
+            return _PrimitiveLiteral(value=value, text=self._slice(span), span=span)
 
         def property_entry(self, meta: Any, items: Sequence[Any]) -> PropertyEntry:
             if len(items) != 2:
                 raise _to_syntax_error("Invalid property entry", line=meta.line, column=meta.column)
             key = str(items[0])
-            raw_value = items[1]
+            raw_value = _unwrap_primitive_literal(items[1])
             if isinstance(raw_value, (ParameterRef, type(None), bool, int, float, str)):
                 value = cast(CypherPropertyValue, raw_value)
             elif isinstance(raw_value, PropertyRef):
@@ -818,30 +848,15 @@ def _build_transformer(source: str) -> _TransformerLike:
             return cast(Union[Tuple[PatternElement, ...], _BoundPattern], items[0])
 
         def match_clause(self, meta: Any, items: Sequence[Any]) -> MatchClause:
-            if len(items) < 1:
-                raise _to_syntax_error("Cypher MATCH clause cannot be empty", line=meta.line, column=meta.column)
-            patterns: List[Tuple[PatternElement, ...]] = []
-            pattern_aliases: List[Optional[str]] = []
-            pattern_alias_kinds: List[Literal["pattern", "shortestPath", "allShortestPaths"]] = []
-            for item in items:
-                if isinstance(item, _BoundPattern):
-                    patterns.append(item.pattern)
-                    pattern_aliases.append(item.alias)
-                    pattern_alias_kinds.append(item.kind)
-                else:
-                    patterns.append(cast(Tuple[PatternElement, ...], item))
-                    pattern_aliases.append(None)
-                    pattern_alias_kinds.append("pattern")
-            return MatchClause(
-                patterns=tuple(patterns),
-                span=_span_from_meta(meta),
-                pattern_aliases=tuple(pattern_aliases),
-                pattern_alias_kinds=tuple(pattern_alias_kinds),
-            )
+            return self._match_clause(meta, items, optional=False)
 
         def optional_match_clause(self, meta: Any, items: Sequence[Any]) -> MatchClause:
+            return self._match_clause(meta, items, optional=True)
+
+        def _match_clause(self, meta: Any, items: Sequence[Any], *, optional: bool) -> MatchClause:
             if len(items) < 1:
-                raise _to_syntax_error("Cypher OPTIONAL MATCH clause cannot be empty", line=meta.line, column=meta.column)
+                clause_name = "OPTIONAL MATCH" if optional else "MATCH"
+                raise _to_syntax_error(f"Cypher {clause_name} clause cannot be empty", line=meta.line, column=meta.column)
             patterns: List[Tuple[PatternElement, ...]] = []
             pattern_aliases: List[Optional[str]] = []
             pattern_alias_kinds: List[Literal["pattern", "shortestPath", "allShortestPaths"]] = []
@@ -857,19 +872,13 @@ def _build_transformer(source: str) -> _TransformerLike:
             return MatchClause(
                 patterns=tuple(patterns),
                 span=_span_from_meta(meta),
-                optional=True,
+                optional=optional,
                 pattern_aliases=tuple(pattern_aliases),
                 pattern_alias_kinds=tuple(pattern_alias_kinds),
             )
 
         def distinct(self, _meta: Any, _items: Sequence[Any]) -> bool:
             return True
-
-        def return_kw(self, _meta: Any, _items: Sequence[Any]) -> str:
-            return "return"
-
-        def with_kw(self, _meta: Any, _items: Sequence[Any]) -> str:
-            return "with"
 
         def qualified_name(self, meta: Any, _items: Sequence[Any]) -> _ExpressionSlice:
             span = _span_from_meta(meta)
@@ -895,7 +904,7 @@ def _build_transformer(source: str) -> _TransformerLike:
         def where_rhs(self, _meta: Any, items: Sequence[Any]) -> object:
             if len(items) != 1:
                 raise _to_syntax_error("Invalid WHERE right-hand side")
-            return items[0]
+            return _unwrap_primitive_literal(items[0])
 
         def cmp_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
             if len(items) != 3:
@@ -978,22 +987,16 @@ def _build_transformer(source: str) -> _TransformerLike:
         def where_predicates(self, _meta: Any, items: Sequence[Any]) -> Tuple[WherePredicate, ...]:
             return tuple(items)
 
-        def _parse_where_pattern_predicate_text(self, pattern_text: str, span: SourceSpan) -> WherePatternPredicate:
-            pattern_items = [match.group(0).strip() for match in _WHERE_PATTERN_ITEM_RE.finditer(pattern_text)]
-            if len(pattern_items) != 1:
-                raise GFQLValidationError(
-                    ErrorCode.E108,
-                    "Cypher WHERE currently supports one positive pattern predicate at a time",
-                    field="where",
-                    value=pattern_text,
-                    suggestion="Use a single positive relationship existence pattern in WHERE for the current GFQL Cypher subset.",
-                    line=span.line,
-                    column=span.column,
-                    language="cypher",
-                )
+        def _parse_single_where_pattern_predicate_text(self, pattern_item_text: str, span: SourceSpan) -> WherePatternPredicate:
+            """Parse one bare-pattern-item text (no AND-chain) into a WherePatternPredicate.
+
+            Caller is responsible for splitting the WHERE_PATTERN token text into individual
+            pattern-item segments via ``_WHERE_PATTERN_ITEM_RE``.  This helper handles the
+            single-item parse + Lark-error wrapping.
+            """
             try:
-                pattern_tree = _pattern_parser().parse(pattern_items[0])
-                pattern_node = _build_transformer(pattern_items[0]).transform(pattern_tree)
+                pattern_tree = _pattern_parser().parse(pattern_item_text)
+                pattern_node = _build_transformer(pattern_item_text).transform(pattern_tree)
             except Exception as exc:
                 _, _, LarkError, _ = _lark_imports()
                 if isinstance(exc, (GFQLSyntaxError, GFQLValidationError)):
@@ -1003,8 +1006,8 @@ def _build_transformer(source: str) -> _TransformerLike:
                         ErrorCode.E108,
                         "Cypher WHERE pattern predicate is outside the currently supported GFQL Cypher subset",
                         field="where",
-                        value=pattern_text,
-                        suggestion="Use a single positive fixed-length relationship existence pattern in WHERE.",
+                        value=pattern_item_text,
+                        suggestion="Use a positive fixed-length relationship existence pattern in WHERE.",
                         line=span.line,
                         column=span.column,
                         language="cypher",
@@ -1013,8 +1016,8 @@ def _build_transformer(source: str) -> _TransformerLike:
                     ErrorCode.E108,
                     "Cypher WHERE pattern predicate is outside the currently supported GFQL Cypher subset",
                     field="where",
-                    value=pattern_text,
-                    suggestion="Use a single positive fixed-length relationship existence pattern in WHERE.",
+                    value=pattern_item_text,
+                    suggestion="Use a positive fixed-length relationship existence pattern in WHERE.",
                     line=span.line,
                     column=span.column,
                     language="cypher",
@@ -1024,8 +1027,8 @@ def _build_transformer(source: str) -> _TransformerLike:
                     ErrorCode.E108,
                     "Cypher WHERE pattern predicate is outside the currently supported GFQL Cypher subset",
                     field="where",
-                    value=pattern_text,
-                    suggestion="Use a single positive fixed-length relationship existence pattern in WHERE.",
+                    value=pattern_item_text,
+                    suggestion="Use a positive fixed-length relationship existence pattern in WHERE.",
                     line=span.line,
                     column=span.column,
                     language="cypher",
@@ -1033,18 +1036,32 @@ def _build_transformer(source: str) -> _TransformerLike:
             return WherePatternPredicate(pattern=cast(Tuple[PatternElement, ...], pattern_node), span=span)
 
         def pattern_atom(self, meta: Any, items: Sequence[Any]) -> BooleanExpr:
+            # The ``WHERE_PATTERN`` lexer token is greedy and gobbles
+            # ``pattern AND pattern AND ...`` chains as a single match.  Split it
+            # back into individual pattern-item texts here and emit one
+            # ``BooleanExpr(op="pattern")`` per item; multi-item input becomes an
+            # AND-tree that ``_split_top_level_and_pattern_leaves`` upstream
+            # reassembles as N pattern leaves (#1031 slice 3).
             if len(items) != 1:
                 raise _to_syntax_error("Invalid WHERE pattern predicate", line=meta.line, column=meta.column)
             span = _span_from_meta(meta)
             pattern_text = str(items[0]).strip()
-            pattern_pred = self._parse_where_pattern_predicate_text(pattern_text, span)
-            return BooleanExpr(
-                op="pattern",
-                span=span,
-                atom_text=pattern_text,
-                atom_span=span,
-                pattern=pattern_pred.pattern,
-            )
+            pattern_item_texts = [match.group(0).strip() for match in _WHERE_PATTERN_ITEM_RE.finditer(pattern_text)]
+            if not pattern_item_texts:
+                raise _to_syntax_error("Invalid WHERE pattern predicate", line=meta.line, column=meta.column)
+            atoms: List[BooleanExpr] = []
+            for item_text in pattern_item_texts:
+                pattern_pred = self._parse_single_where_pattern_predicate_text(item_text, span)
+                atoms.append(BooleanExpr(
+                    op="pattern",
+                    span=span,
+                    atom_text=item_text,
+                    atom_span=span,
+                    pattern=pattern_pred.pattern,
+                ))
+            tree = _rebuild_and_tree(atoms)
+            assert tree is not None  # gated above by `if not pattern_item_texts`
+            return tree
 
         def _wrap_as_boolean_atom(self, operand: Any, enclosing_meta: Any) -> BooleanExpr:
             """Coerce a parsed expression operand into a ``BooleanExpr`` atom.
@@ -1054,31 +1071,24 @@ def _build_transformer(source: str) -> _TransformerLike:
             ``_ExpressionSlice`` operands carry their own span, so we use
             it to extract the source slice precisely.
 
-            **Known limitation — primitive literal atoms.**  Literal
-            transformers (``true_lit`` / ``false_lit`` / ``null_lit`` /
-            ``number_lit``) return raw Python values without span info.
-            When such a value reaches us as a boolean-operator operand
-            (``WHERE true AND false``), we cannot recover the original
-            source text for that specific operand; we approximate with
-            the enclosing operator's span and ``str(operand)`` (which
-            produces Python-style text like ``"True"`` not Cypher-style
-            ``"true"``).  No current consumer reads ``atom_text`` on
-            literal atoms — the binder is not wired to ``expr_tree`` in
-            this slice.  Accuracy for this path is a follow-up concern
-            tracked in issue #1200; if/when literal transformers gain
-            span-carrying wrappers, this fallback can be removed.
+            Primitive literal transformers preserve raw semantic values
+            inside ``_PrimitiveLiteral`` so boolean operators can keep the
+            operand's exact source text/span while structured predicates and
+            properties still receive ordinary Python literal values.
             """
             if isinstance(operand, BooleanExpr):
                 return operand
             if isinstance(operand, _ExpressionSlice):
                 span = operand.span
                 text = operand.text
+            elif isinstance(operand, _PrimitiveLiteral):
+                span = operand.span
+                text = operand.text
             else:
                 operand_meta = getattr(operand, "meta", None)
                 if operand_meta is None:
-                    # Primitive literal — see docstring caveat.
                     span = _span_from_meta(enclosing_meta)
-                    text = str(operand)
+                    text = self._slice(span)
                 else:
                     span = _span_from_meta(operand_meta)
                     text = self._slice(span)
@@ -1140,20 +1150,6 @@ def _build_transformer(source: str) -> _TransformerLike:
         def where_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
             if len(items) != 1:
                 raise _to_syntax_error("WHERE clause cannot be empty", line=meta.line, column=meta.column)
-            if isinstance(items[0], _ExpressionSlice):
-                expr = cast(_ExpressionSlice, items[0])
-                where_span = _span_from_meta(meta)
-                # Wrap the raw slice as a single-atom ``BooleanExpr`` so the
-                # ``(expr is None) == (expr_tree is None)`` invariant holds
-                # (#1213 sub-PR A); ``where_clause`` reaches this branch only
-                # for atom-shaped WHERE bodies that bypassed Lark's
-                # ``and_op`` / ``or_op`` rules.
-                atom_tree = BooleanExpr(op="atom", span=expr.span, atom_text=expr.text, atom_span=expr.span)
-                return WhereClause(
-                    predicates=(),
-                    expr_tree=atom_tree,
-                    span=where_span,
-                )
             predicates = cast(Tuple[WherePredicate, ...], items[0])
             if len(predicates) == 0:
                 raise _to_syntax_error("WHERE clause cannot be empty", line=meta.line, column=meta.column)
@@ -1196,16 +1192,16 @@ def _build_transformer(source: str) -> _TransformerLike:
             # Pattern-leaf lift (slice 1 of #1031).  Pattern leaves
             # produced by the new ``pattern_atom`` grammar rule sit at
             # top-level AND positions; extract them as
-            # ``WherePatternPredicate`` entries so the existing AST-
-            # normalizer step (``_rewrite_where_pattern_predicates_to_matches``)
-            # can lift them to a separate ``MatchClause`` later.  Pattern
-            # leaves nested under non-AND ops (NOT/OR/XOR) and multiple
-            # positive patterns are rejected here with shape-specific
-            # E108 errors — slice 2/3/4 territory.
-            pattern_leaves, other_conjuncts, nested_pattern = _split_top_level_and_pattern_leaves(expr_tree)
-            if pattern_leaves or nested_pattern:
+            # ``WherePatternPredicate`` entries so lowering can evaluate them
+            # as existence checks. Top-level ``NOT (pattern)`` leaves are also
+            # lifted, marked ``negated=True`` for anti-semi-join lowering.
+            # Patterns nested deeper (under OR/XOR or double-NOT) trip the
+            # legacy E108 reject.
+            pos_leaves, neg_leaves, other_conjuncts, nested_pattern = _split_top_level_and_pattern_leaves(expr_tree)
+            if pos_leaves or neg_leaves or nested_pattern:
                 return _build_where_with_pattern_lift(
-                    pattern_leaves=pattern_leaves,
+                    pattern_leaves=pos_leaves,
+                    negated_pattern_leaves=neg_leaves,
                     other_conjuncts=other_conjuncts,
                     nested_pattern=nested_pattern,
                     expr_text=expr_text,
@@ -1584,12 +1580,16 @@ def _build_transformer(source: str) -> _TransformerLike:
                 elif idx != len(stages) - 1:
                     with_stages.append(stage)
             if reentry_match_clauses:
+                too_many_suffix_withs = (
+                    len(reentry_match_clauses) > 1
+                    and len(with_stages) > len(reentry_match_clauses) + 1
+                )
                 if (
                     stages[0].clause.kind != "with"
                     or stages[-1].clause.kind != "return"
                     or any(stage.clause.kind != "with" for stage in stages[:-1])
                     or len(with_stages) < len(reentry_match_clauses)
-                    or len(with_stages) > len(reentry_match_clauses) + 1
+                    or too_many_suffix_withs
                 ):
                     first_match = reentry_match_clauses[0]
                     raise _to_syntax_error(
@@ -1876,7 +1876,8 @@ def _build_transformer(source: str) -> _TransformerLike:
 
 _PATTERN_EXISTENCE_RE = re.compile(
     r"""
-    (?:not\s*)\(\s*\(\s*\w+\s*\)\s*-\s*\[  # not((a)-[
+    not\s*\(\s*\(\s*[^)\n]*\)\s*          # not((<node>)
+    (?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)
     |
     not\s+exists\s*\{                        # not exists {
     |
@@ -1886,9 +1887,58 @@ _PATTERN_EXISTENCE_RE = re.compile(
 )
 
 
+def _mask_quoted_backticked_and_commented_for_scan(expr: str) -> str:
+    """Replace quoted/backticked/commented segments with spaces before regex scans."""
+    chars = list(expr)
+    quote: str | None = None
+    source = expr
+    i = 0
+    n = len(chars)
+    while i < n:
+        ch = chars[i]
+        if quote is None:
+            if i + 1 < n and source[i] == "/" and source[i + 1] == "/":
+                chars[i] = " "
+                chars[i + 1] = " "
+                i += 2
+                while i < n and source[i] != "\n":
+                    chars[i] = " "
+                    i += 1
+                continue
+            if i + 1 < n and source[i] == "/" and source[i + 1] == "*":
+                chars[i] = " "
+                chars[i + 1] = " "
+                i += 2
+                while i < n:
+                    if i + 1 < n and source[i] == "*" and source[i + 1] == "/":
+                        chars[i] = " "
+                        chars[i + 1] = " "
+                        i += 2
+                        break
+                    chars[i] = " "
+                    i += 1
+                continue
+            if ch in {"'", '"', "`"}:
+                quote = ch
+                chars[i] = " "
+            i += 1
+            continue
+
+        chars[i] = " "
+        if ch == "\\" and quote in {"'", '"'}:
+            if i + 1 < n:
+                chars[i + 1] = " "
+                i += 2
+                continue
+        if ch == quote:
+            quote = None
+        i += 1
+    return "".join(chars)
+
+
 def _check_unsupported_syntax_patterns(query: str) -> None:
     """Detect known-but-unsupported Cypher syntax and raise a clear error."""
-    if _PATTERN_EXISTENCE_RE.search(query):
+    if _PATTERN_EXISTENCE_RE.search(_mask_quoted_backticked_and_commented_for_scan(query)):
         raise _to_unsupported(
             "Pattern existence expressions (e.g., not((a)-[:R]-(b)) or exists { ... }) "
             "are not yet supported in the local Cypher compiler",

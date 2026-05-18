@@ -1,4 +1,5 @@
 from .bound_ir import BoundIR, BoundQueryPart, BoundVariable, ScopeFrame, SemanticTable
+from .arrow_bridge import CoercionMode, SchemaConfidence, from_arrow, to_arrow
 from .capabilities import Decomposable, Monotonicity, OpCapability
 from .compilation import (
     BackendCapabilities,
@@ -39,6 +40,16 @@ from .logical_plan import (
     Union,
     Unwind,
 )
+from .metadata import (
+    bound_variable_is_nullable,
+    bound_variable_type,
+    column_is_nullable,
+    column_logical_type,
+    is_nullable,
+    merge_types,
+    widen_to_nullable,
+    with_nullable,
+)
 from .pushdown_safety import is_null_rejecting, is_null_safe, with_barrier_blocks_pushdown
 from .query_graph import ConnectedComponent, OptionalArm, QueryGraph, extract_query_graph
 from .verifier import verify
@@ -61,6 +72,10 @@ __all__ = [
     "BoundVariable",
     "ScopeFrame",
     "SemanticTable",
+    "CoercionMode",
+    "SchemaConfidence",
+    "from_arrow",
+    "to_arrow",
     "Decomposable",
     "Monotonicity",
     "OpCapability",
@@ -99,6 +114,14 @@ __all__ = [
     "Skip",
     "Union",
     "Unwind",
+    "bound_variable_is_nullable",
+    "bound_variable_type",
+    "column_is_nullable",
+    "column_logical_type",
+    "is_nullable",
+    "merge_types",
+    "widen_to_nullable",
+    "with_nullable",
     "is_null_rejecting",
     "is_null_safe",
     "with_barrier_blocks_pushdown",

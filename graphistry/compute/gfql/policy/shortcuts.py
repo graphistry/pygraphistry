@@ -55,6 +55,8 @@ _EXPANSION_MAP: Dict[Phase, Tuple[GeneralShortcut, ScopeShortcut, Phase]] = {
     'postcall': ('post', 'call', 'postcall')
 }
 
+_DIRECT_HOOKS: Tuple[Phase, ...] = ('precompile', 'postcompile')
+
 
 def expand_policy(policy: Dict[str, PolicyFunction]) -> PolicyDict:
     """Expand shorthand policy keys to full hook names with composition.
@@ -116,6 +118,10 @@ def expand_policy(policy: Dict[str, PolicyFunction]) -> PolicyDict:
 
         # Single handler or compose multiple
         expanded[hook_name] = handlers[0] if len(handlers) == 1 else _compose(*handlers)
+
+    for hook_name in _DIRECT_HOOKS:
+        if hook_name in policy:
+            expanded[hook_name] = policy[hook_name]
 
     return expanded
 
@@ -191,6 +197,10 @@ def debug_policy(policy: Dict[str, PolicyFunction]) -> HookExpansionMap:
 
         # Store handler name and source key - both are properly typed now
         debug_info[hook_name] = [(fn.__name__, key) for key, fn in sources]
+
+    for hook_name in _DIRECT_HOOKS:
+        if hook_name in policy:
+            debug_info[hook_name] = [(policy[hook_name].__name__, hook_name)]
 
     return debug_info
 

@@ -36,11 +36,11 @@ When translating from Cypher, you'll encounter three scenarios:
 ### Direct Translations
 - Graph patterns: `(a)-[r]->(b)` → chain operations
 - Property filters: WHERE clauses embed into operations
-- Path traversals: direct `g.gfql("MATCH ...")` supports endpoint-only single
-  variable-length relationship forms such as `[*2]`, `[*1..3]`, and `[*]`.
-  Native GFQL still gives you the full explicit hop surface, including output
-  slicing, intermediate-hop aliasing, and rewrites for currently unsupported
-  direct-Cypher multihop shapes.
+- Path traversals: direct `g.gfql("MATCH ...")` supports single and connected
+  variable-length relationship forms such as `[*2]`, `[*1..3]`, and `[*]`,
+  including bounded/exact variable-length `WHERE` pattern predicates in the
+  current row-shaped subset. Native GFQL still gives you the full explicit hop
+  surface (output slicing, intermediate-hop aliasing, and custom rewrites).
 - Pattern composition: Multiple patterns become sequential operations
 - Same-path constraints: `WHERE` across steps → `g.gfql([...], where=[...])`
 
@@ -255,10 +255,10 @@ g.gfql([
 ### Edge Patterns
 
 Rows using `[*...]` below show the native GFQL rewrite for the same traversal
-intent. Direct `g.gfql("MATCH ...")` now accepts these endpoint-only
-single-variable-length relationship forms, while native GFQL remains the more
-explicit option when you need intermediate-hop control or unsupported mixed
-pattern shapes.
+intent. Direct `g.gfql("MATCH ...")` accepts these variable-length forms in
+the supported direct-Cypher subset, while native GFQL remains the more explicit
+option when you need intermediate-hop control or advanced path/list-carrier
+semantics.
 
 | Cypher / intent | Python | Wire Protocol (compact) |
 |-----------------|--------|-------------------------|
@@ -274,7 +274,7 @@ pattern shapes.
 | `-[r:BOUGHT {amount: gt(100)}]->` | `e_forward({"type": "BOUGHT", "amount": gt(100)}, name="r")` | `{"type": "Edge", "direction": "forward", "edge_match": {"type": "BOUGHT", "amount": {"type": "GT", "val": 100}}, "name": "r"}` |
 
 When you need constraints on intermediate hops, path/list-carrier semantics, or
-mixed connected patterns beyond the current direct-Cypher subset, use repeated
+advanced row-shaping beyond the current direct-Cypher subset, use repeated
 single-hop GFQL steps with aliases instead of collapsing the traversal into one
 multihop edge operator.
 
