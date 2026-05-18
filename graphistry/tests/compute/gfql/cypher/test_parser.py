@@ -252,6 +252,24 @@ def test_parse_shortest_path_bound_pattern() -> None:
     assert parsed.match.pattern_alias_kinds == ("pattern", "pattern", "shortestPath")
 
 
+def test_parse_optional_bound_pattern_preserves_alias_metadata() -> None:
+    parsed = _parse_query("OPTIONAL MATCH p = (a)-[:R]->(b) RETURN b")
+
+    assert parsed.match is not None
+    assert parsed.match.optional is True
+    assert parsed.match.pattern_aliases == ("p",)
+    assert parsed.match.pattern_alias_kinds == ("pattern",)
+
+
+def test_parse_optional_shortest_path_preserves_alias_metadata() -> None:
+    parsed = _parse_query("OPTIONAL MATCH path = shortestPath((a)-[:KNOWS*]-(b)) RETURN path")
+
+    assert parsed.match is not None
+    assert parsed.match.optional is True
+    assert parsed.match.pattern_aliases == ("path",)
+    assert parsed.match.pattern_alias_kinds == ("shortestPath",)
+
+
 @pytest.mark.parametrize(
     "query,direction",
     [
