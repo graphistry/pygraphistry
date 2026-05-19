@@ -813,8 +813,23 @@ def test_compiled_query_execution_extras_retire_legacy_scalar_reentry_fields() -
     assert "scalar_reentry_columns" not in field_names
 
 
-def test_compiled_query_sets_logical_plan_route_for_covered_shape() -> None:
-    compiled = _compile_query("MATCH (n:Person) RETURN n")
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n:Person) RETURN n",
+        "MATCH (n:Person) RETURN 1 AS x",
+        "MATCH (n) RETURN DISTINCT n.id AS id",
+        "MATCH (a:A) WITH a MATCH (a) RETURN a",
+        "MATCH (a:A) WITH a MATCH (a)-->(b) RETURN b",
+        "MATCH (a)-[r]->(b) RETURN r",
+        "MATCH (a:A) WITH a MATCH (a)-[r]->(b) RETURN r",
+        "UNWIND [1,2] AS n RETURN n",
+        "WITH 1 AS n RETURN n",
+        "MATCH (a:A) WITH a OPTIONAL MATCH (a)-->(b) RETURN b",
+    ],
+)
+def test_compiled_query_sets_logical_plan_route_for_planned_shapes(query: str) -> None:
+    compiled = _compile_query(query)
     assert _logical_plan_route(compiled) == "planned"
     assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
@@ -827,13 +842,6 @@ def test_compiled_query_threads_bound_scope_stack_for_runtime_passes() -> None:
     assert scope_stack[0].origin_clause.upper() == "MATCH"
     assert scope_stack[-1].origin_clause.upper() == "RETURN"
     assert "n" in scope_stack[-1].visible_vars
-
-
-def test_compiled_query_sets_logical_plan_route_for_match_scalar_return_shape() -> None:
-    compiled = _compile_query("MATCH (n:Person) RETURN 1 AS x")
-    assert _logical_plan_route(compiled) == "planned"
-    assert compiled.logical_plan is not None
-    assert compiled.logical_plan_defer_reason is None
 
 
 def test_compiled_query_sets_logical_plan_route_for_top_level_optional_shape() -> None:
@@ -861,13 +869,6 @@ def test_logical_plan_route_for_query_defers_unknown_alias_match_shape_by_defaul
     assert defer_reason is not None
     assert defer_code is None
     assert "present in semantic scope" in defer_reason
-
-
-def test_compiled_query_sets_logical_plan_route_for_distinct_projection_shape() -> None:
-    compiled = _compile_query("MATCH (n) RETURN DISTINCT n.id AS id")
-    assert _logical_plan_route(compiled) == "planned"
-    assert compiled.logical_plan is not None
-    assert compiled.logical_plan_defer_reason is None
 
 
 def test_logical_plan_route_for_query_allows_unknown_alias_match_shape_when_opted_in() -> None:
@@ -922,55 +923,6 @@ def test_compiled_query_sets_logical_plan_route_for_call_shape() -> None:
     assert isinstance(compiled.logical_plan, LogicalProcedureCall)
     assert compiled.logical_plan.procedure == "graphistry.degree"
     assert compiled.logical_plan.result_kind == "rows"
-    assert compiled.logical_plan_defer_reason is None
-
-
-def test_compiled_query_sets_logical_plan_route_for_reentry_shape() -> None:
-    compiled = _compile_query("MATCH (a:A) WITH a MATCH (a) RETURN a")
-    assert _logical_plan_route(compiled) == "planned"
-    assert compiled.logical_plan is not None
-    assert compiled.logical_plan_defer_reason is None
-
-
-def test_compiled_query_sets_logical_plan_route_for_reentry_multihop_shape() -> None:
-    compiled = _compile_query("MATCH (a:A) WITH a MATCH (a)-->(b) RETURN b")
-    assert _logical_plan_route(compiled) == "planned"
-    assert compiled.logical_plan is not None
-    assert compiled.logical_plan_defer_reason is None
-
-
-def test_compiled_query_sets_logical_plan_route_for_edge_projection_shape() -> None:
-    compiled = _compile_query("MATCH (a)-[r]->(b) RETURN r")
-    assert _logical_plan_route(compiled) == "planned"
-    assert compiled.logical_plan is not None
-    assert compiled.logical_plan_defer_reason is None
-
-
-def test_compiled_query_sets_logical_plan_route_for_reentry_edge_projection_shape() -> None:
-    compiled = _compile_query("MATCH (a:A) WITH a MATCH (a)-[r]->(b) RETURN r")
-    assert _logical_plan_route(compiled) == "planned"
-    assert compiled.logical_plan is not None
-    assert compiled.logical_plan_defer_reason is None
-
-
-def test_compiled_query_sets_logical_plan_route_for_row_sequence_shape() -> None:
-    compiled = _compile_query("UNWIND [1,2] AS n RETURN n")
-    assert _logical_plan_route(compiled) == "planned"
-    assert compiled.logical_plan is not None
-    assert compiled.logical_plan_defer_reason is None
-
-
-def test_compiled_query_sets_logical_plan_route_for_with_only_row_sequence_shape() -> None:
-    compiled = _compile_query("WITH 1 AS n RETURN n")
-    assert _logical_plan_route(compiled) == "planned"
-    assert compiled.logical_plan is not None
-    assert compiled.logical_plan_defer_reason is None
-
-
-def test_compiled_query_sets_logical_plan_route_for_optional_reentry_shape() -> None:
-    compiled = _compile_query("MATCH (a:A) WITH a OPTIONAL MATCH (a)-->(b) RETURN b")
-    assert _logical_plan_route(compiled) == "planned"
-    assert compiled.logical_plan is not None
     assert compiled.logical_plan_defer_reason is None
 
 
@@ -13138,6 +13090,17 @@ def _mk_ic4_shape_graph() -> _CypherTestGraph:
     )
 
 
+def _assert_ic4_shape_query_rows(
+    query: str,
+    expected_rows: list[dict[str, object]],
+    *,
+    params: dict[str, object] | None = None,
+) -> None:
+    graph = _mk_ic4_shape_graph()
+    result = graph.gfql(query, params={"pid": "p1"} if params is None else params)
+    assert result._nodes.to_dict(orient="records") == expected_rows
+
+
 def _mk_ic4_id_collision_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
     """IC4-shaped graph with LDBC-style cross-label numeric id collisions (#1496)."""
     return (
@@ -13209,22 +13172,245 @@ def test_issue_1496_ic4_unlabeled_has_tag_destination_disambiguates_colliding_id
     assert records == [{"tagName": "TagB", "postCount": 1}]
 
 
-def test_string_cypher_multi_alias_with_distinct_scalar_projection() -> None:
-    """IC-4 shape: MATCH multi-pattern, WITH DISTINCT two aliases, RETURN scalars (#880)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "RETURN tag.name AS tagName, post.id AS postId "
-        "ORDER BY tagName, postId",
-        params={"pid": "p1"},
-    )
-    assert result._nodes.to_dict(orient="records") == [
-        {"tagName": "TagA", "postId": "post1"},
-        {"tagName": "TagA", "postId": "post2"},
-        {"tagName": "TagB", "postId": "post3"},
-    ]
+@pytest.mark.parametrize(
+    "query,expected_rows",
+    [
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "RETURN tag.name AS tagName, post.id AS postId "
+            "ORDER BY tagName, postId",
+            [
+                {"tagName": "TagA", "postId": "post1"},
+                {"tagName": "TagA", "postId": "post2"},
+                {"tagName": "TagB", "postId": "post3"},
+            ],
+            id="distinct_scalar_projection",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            'WHERE tag.name = "TagA" '
+            "RETURN post.id AS postId ORDER BY postId",
+            [{"postId": "post1"}, {"postId": "post2"}],
+            id="distinct_property_where",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "RETURN tag.name AS tagName, count(post) AS postCount "
+            "ORDER BY postCount DESC, tagName ASC",
+            [{"tagName": "TagA", "postCount": 2}, {"tagName": "TagB", "postCount": 1}],
+            id="distinct_count_projection",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "RETURN tag.name AS tagName, sum(post.creationDate) AS totalDate "
+            "ORDER BY tagName",
+            [{"tagName": "TagA", "totalDate": 300}, {"tagName": "TagB", "totalDate": 300}],
+            id="distinct_sum_aggregation",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "RETURN tag.name AS tagName, count(*) AS cnt "
+            "ORDER BY cnt DESC, tagName ASC",
+            [{"tagName": "TagA", "cnt": 2}, {"tagName": "TagB", "cnt": 1}],
+            id="distinct_count_star",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "WITH tag, post.creationDate AS cd "
+            "RETURN tag.name AS tagName, sum(cd) AS totalDate "
+            "ORDER BY tagName",
+            [{"tagName": "TagA", "totalDate": 300}, {"tagName": "TagB", "totalDate": 300}],
+            id="three_stage_chain",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "WITH tag, post.creationDate AS cd, post.id AS pid "
+            "RETURN tag.name AS tn, cd, pid ORDER BY tn, pid",
+            [
+                {"tn": "TagA", "cd": 100, "pid": "post1"},
+                {"tn": "TagA", "cd": 200, "pid": "post2"},
+                {"tn": "TagB", "cd": 300, "pid": "post3"},
+            ],
+            id="two_scalars_extend",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "WITH tag, post.creationDate AS cd "
+            "WITH tag, cd WHERE cd > 150 "
+            "RETURN tag.name AS tn, cd ORDER BY tn, cd",
+            [{"tn": "TagA", "cd": 200}, {"tn": "TagB", "cd": 300}],
+            id="extend_scalar_where",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "WITH tag, post.creationDate AS cd "
+            "WITH tag, cd AS creationDate "
+            "RETURN tag.name AS tn, creationDate ORDER BY tn, creationDate",
+            [
+                {"tn": "TagA", "creationDate": 100},
+                {"tn": "TagA", "creationDate": 200},
+                {"tn": "TagB", "creationDate": 300},
+            ],
+            id="extend_scalar_renames",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "WITH tag, post.creationDate AS cd "
+            "RETURN tag.name AS tn, "
+            "CASE WHEN cd > 150 THEN 'recent' ELSE 'old' END AS era "
+            "ORDER BY tn, era",
+            [
+                {"tn": "TagA", "era": "old"},
+                {"tn": "TagA", "era": "recent"},
+                {"tn": "TagB", "era": "recent"},
+            ],
+            id="extend_scalar_in_case",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "WITH tag, post.creationDate AS cd "
+            "WITH tag, sum(cd) AS total "
+            "RETURN tag.name AS tn, total ORDER BY tn",
+            [{"tn": "TagA", "total": 300}, {"tn": "TagB", "total": 300}],
+            id="four_stage_chain",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "WITH post, count(tag) AS tagCount "
+            "RETURN post.id AS postId, post.creationDate AS cd, tagCount ORDER BY postId",
+            [
+                {"postId": "post1", "cd": 100, "tagCount": 1},
+                {"postId": "post2", "cd": 200, "tagCount": 1},
+                {"postId": "post3", "cd": 300, "tagCount": 1},
+            ],
+            id="non_active_whole_row_grouping",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "WITH post, count(tag) AS tagCount "
+            "WITH post.id AS postId, post.creationDate AS cd, tagCount "
+            "RETURN postId, cd, tagCount ORDER BY postId",
+            [
+                {"postId": "post1", "cd": 100.0, "tagCount": 1},
+                {"postId": "post2", "cd": 200.0, "tagCount": 1},
+                {"postId": "post3", "cd": 300.0, "tagCount": 1},
+            ],
+            id="non_active_grouping_then_property_projection",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "WITH post, tag, count(*) AS cnt "
+            "RETURN post.id AS postId, tag.name AS tagName, cnt "
+            "ORDER BY postId, tagName",
+            [
+                {"postId": "post1", "tagName": "TagA", "cnt": 1},
+                {"postId": "post2", "tagName": "TagA", "cnt": 1},
+                {"postId": "post3", "tagName": "TagB", "cnt": 1},
+            ],
+            id="non_active_multi_whole_row_grouping",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "WITH tag, post.creationDate AS cd "
+            "WITH tag, sum(cd) AS total, count(*) AS cnt "
+            "RETURN tag.name AS tn, total, cnt ORDER BY tn",
+            [{"tn": "TagA", "total": 300, "cnt": 2}, {"tn": "TagB", "total": 300, "cnt": 1}],
+            id="non_final_agg_multiple_funcs",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "WITH tag, post.creationDate AS cd "
+            "WITH tag, sum(cd) AS total "
+            "WITH tag.name AS tn, total "
+            "RETURN tn, total ORDER BY tn",
+            [{"tn": "TagA", "total": 300}, {"tn": "TagB", "total": 300}],
+            id="non_final_agg_then_scalar_stage",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "WITH tag, post.creationDate AS cd "
+            "WITH tag, sum(cd) AS total "
+            "RETURN tag.name AS tn, total ORDER BY total DESC, tn",
+            [{"tn": "TagA", "total": 300}, {"tn": "TagB", "total": 300}],
+            id="non_final_agg_order_by_alias_property",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "WITH tag, post.creationDate AS cd "
+            "RETURN tag.name AS tn, min(cd) AS earliest ORDER BY tn",
+            [{"tn": "TagA", "earliest": 100}, {"tn": "TagB", "earliest": 300}],
+            id="extend_min_aggregation",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "WITH tag, post.creationDate AS cd "
+            "RETURN tag.name AS tn, count(*) AS cnt ORDER BY tn",
+            [{"tn": "TagA", "cnt": 2}, {"tn": "TagB", "cnt": 1}],
+            id="extend_count_star",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "WITH tag, post.creationDate AS cd "
+            "RETURN tag.name AS tn, sum(cd) AS total",
+            [],
+            id="extend_empty_result",
+        ),
+        pytest.param(
+            "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+            "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+            "WITH DISTINCT tag, post "
+            "RETURN tag.name AS tagName, "
+            "sum(CASE WHEN post.creationDate > 150 THEN 1 ELSE 0 END) AS recentCount "
+            "ORDER BY recentCount DESC, tagName ASC",
+            [{"tagName": "TagA", "recentCount": 1}, {"tagName": "TagB", "recentCount": 1}],
+            id="case_in_return_aggregation",
+        ),
+    ],
+)
+def test_string_cypher_ic4_multi_alias_rows(query: str, expected_rows: list[dict[str, object]]) -> None:
+    """IC-4 multi-alias WITH DISTINCT / scalar / aggregation regression cases (#880, #1045, #1392, #1054)."""
+    params = {"pid": "nonexistent"} if expected_rows == [] else {"pid": "p1"}
+    _assert_ic4_shape_query_rows(query, expected_rows, params=params)
 
 
 def test_string_cypher_multi_alias_with_distinct_simple_two_hop() -> None:
@@ -13303,148 +13489,6 @@ def test_string_cypher_multi_alias_with_distinct_three_aliases() -> None:
     ]
 
 
-def test_string_cypher_multi_alias_with_distinct_property_where() -> None:
-    """Multi-alias WITH DISTINCT + WHERE on alias property (#880)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        'WHERE tag.name = "TagA" '
-        "RETURN post.id AS postId ORDER BY postId",
-        params={"pid": "p1"},
-    )
-    assert result._nodes.to_dict(orient="records") == [
-        {"postId": "post1"},
-        {"postId": "post2"},
-    ]
-
-
-def test_string_cypher_multi_alias_with_distinct_count_projection() -> None:
-    """IC-4 shape: WITH DISTINCT two aliases, then count aggregation (#880)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "RETURN tag.name AS tagName, count(post) AS postCount "
-        "ORDER BY postCount DESC, tagName ASC",
-        params={"pid": "p1"},
-    )
-    assert result._nodes.to_dict(orient="records") == [
-        {"tagName": "TagA", "postCount": 2},
-        {"tagName": "TagB", "postCount": 1},
-    ]
-
-
-def test_string_cypher_multi_alias_with_distinct_sum_aggregation() -> None:
-    """Multi-alias WITH DISTINCT + sum() over alias property (#880)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "RETURN tag.name AS tagName, sum(post.creationDate) AS totalDate "
-        "ORDER BY tagName",
-        params={"pid": "p1"},
-    )
-    records = result._nodes.to_dict(orient="records")
-    assert len(records) == 2
-    # TagA: post1(100) + post2(200) = 300; TagB: post3(300)
-    assert records[0] == {"tagName": "TagA", "totalDate": 300}
-    assert records[1] == {"tagName": "TagB", "totalDate": 300}
-
-
-def test_string_cypher_multi_alias_with_distinct_count_star() -> None:
-    """Multi-alias WITH DISTINCT + count(*) (#880)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "RETURN tag.name AS tagName, count(*) AS cnt "
-        "ORDER BY cnt DESC, tagName ASC",
-        params={"pid": "p1"},
-    )
-    assert result._nodes.to_dict(orient="records") == [
-        {"tagName": "TagA", "cnt": 2},
-        {"tagName": "TagB", "cnt": 1},
-    ]
-
-
-def test_string_cypher_multi_alias_with_three_stage_chain() -> None:
-    """IC-4 full shape: WITH DISTINCT → WITH scalar → RETURN aggregation (#880)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "WITH tag, post.creationDate AS cd "
-        "RETURN tag.name AS tagName, sum(cd) AS totalDate "
-        "ORDER BY tagName",
-        params={"pid": "p1"},
-    )
-    assert result._nodes.to_dict(orient="records") == [
-        {"tagName": "TagA", "totalDate": 300},
-        {"tagName": "TagB", "totalDate": 300},
-    ]
-
-
-def test_string_cypher_multi_alias_with_two_scalars_extend() -> None:
-    """WITH DISTINCT → WITH alias + two scalars → RETURN scalars (#880)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "WITH tag, post.creationDate AS cd, post.id AS pid "
-        "RETURN tag.name AS tn, cd, pid ORDER BY tn, pid",
-        params={"pid": "p1"},
-    )
-    assert result._nodes.to_dict(orient="records") == [
-        {"tn": "TagA", "cd": 100, "pid": "post1"},
-        {"tn": "TagA", "cd": 200, "pid": "post2"},
-        {"tn": "TagB", "cd": 300, "pid": "post3"},
-    ]
-
-
-def test_string_cypher_multi_alias_with_extend_scalar_where() -> None:
-    """Extended scalar visible in WHERE on the next stage (#1045)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "WITH tag, post.creationDate AS cd "
-        "WITH tag, cd WHERE cd > 150 "
-        "RETURN tag.name AS tn, cd ORDER BY tn, cd",
-        params={"pid": "p1"},
-    )
-    assert result._nodes.to_dict(orient="records") == [
-        {"tn": "TagA", "cd": 200},
-        {"tn": "TagB", "cd": 300},
-    ]
-
-
-def test_string_cypher_multi_alias_with_extend_scalar_renames() -> None:
-    """Extended scalar can be re-aliased in a subsequent WITH (#1045)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "WITH tag, post.creationDate AS cd "
-        "WITH tag, cd AS creationDate "
-        "RETURN tag.name AS tn, creationDate ORDER BY tn, creationDate",
-        params={"pid": "p1"},
-    )
-    assert result._nodes.to_dict(orient="records") == [
-        {"tn": "TagA", "creationDate": 100},
-        {"tn": "TagA", "creationDate": 200},
-        {"tn": "TagB", "creationDate": 300},
-    ]
-
-
 def test_string_cypher_multi_alias_with_extend_scalar_order_by() -> None:
     """Extended scalar visible in ORDER BY on the next WITH stage (#1045)."""
     graph = _mk_ic4_shape_graph()
@@ -13459,156 +13503,6 @@ def test_string_cypher_multi_alias_with_extend_scalar_order_by() -> None:
     )
     records = result._nodes.to_dict(orient="records")
     assert [r["cd"] for r in records] == [300, 200, 100]
-
-
-def test_string_cypher_multi_alias_with_extend_scalar_in_case() -> None:
-    """Extended scalar usable in a CASE expression in a subsequent stage (#1045)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "WITH tag, post.creationDate AS cd "
-        "RETURN tag.name AS tn, "
-        "CASE WHEN cd > 150 THEN 'recent' ELSE 'old' END AS era "
-        "ORDER BY tn, era",
-        params={"pid": "p1"},
-    )
-    assert result._nodes.to_dict(orient="records") == [
-        {"tn": "TagA", "era": "old"},
-        {"tn": "TagA", "era": "recent"},
-        {"tn": "TagB", "era": "recent"},
-    ]
-
-
-def test_string_cypher_multi_alias_with_four_stage_chain() -> None:
-    """WITH DISTINCT → WITH scalar → WITH agg → RETURN (#880)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "WITH tag, post.creationDate AS cd "
-        "WITH tag, sum(cd) AS total "
-        "RETURN tag.name AS tn, total ORDER BY tn",
-        params={"pid": "p1"},
-    )
-    assert result._nodes.to_dict(orient="records") == [
-        {"tn": "TagA", "total": 300},
-        {"tn": "TagB", "total": 300},
-    ]
-
-
-def test_string_cypher_multi_alias_with_non_active_whole_row_aggregation_grouping() -> None:
-    """Joined-row aggregation can group by a non-active whole-row alias (#1392)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "WITH post, count(tag) AS tagCount "
-        "RETURN post.id AS postId, post.creationDate AS cd, tagCount ORDER BY postId",
-        params={"pid": "p1"},
-    )
-    assert result._nodes.to_dict(orient="records") == [
-        {"postId": "post1", "cd": 100, "tagCount": 1},
-        {"postId": "post2", "cd": 200, "tagCount": 1},
-        {"postId": "post3", "cd": 300, "tagCount": 1},
-    ]
-
-
-def test_string_cypher_multi_alias_with_non_active_grouping_then_property_projection() -> None:
-    """Post-grouping alias.property projections remain available after non-active whole-row grouping (#1392)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "WITH post, count(tag) AS tagCount "
-        "WITH post.id AS postId, post.creationDate AS cd, tagCount "
-        "RETURN postId, cd, tagCount ORDER BY postId",
-        params={"pid": "p1"},
-    )
-    assert result._nodes.to_dict(orient="records") == [
-        {"postId": "post1", "cd": 100.0, "tagCount": 1},
-        {"postId": "post2", "cd": 200.0, "tagCount": 1},
-        {"postId": "post3", "cd": 300.0, "tagCount": 1},
-    ]
-
-
-def test_string_cypher_multi_alias_with_non_active_multi_whole_row_grouping() -> None:
-    """Aggregate grouping over two whole-row aliases preserves both alias key prefixes (#1392)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "WITH post, tag, count(*) AS cnt "
-        "RETURN post.id AS postId, tag.name AS tagName, cnt "
-        "ORDER BY postId, tagName",
-        params={"pid": "p1"},
-    )
-    assert result._nodes.to_dict(orient="records") == [
-        {"postId": "post1", "tagName": "TagA", "cnt": 1},
-        {"postId": "post2", "tagName": "TagA", "cnt": 1},
-        {"postId": "post3", "tagName": "TagB", "cnt": 1},
-    ]
-
-
-def test_string_cypher_multi_alias_with_non_final_agg_multiple_funcs() -> None:
-    """Non-final WITH aggregate with multiple agg functions, then RETURN alias property (#1054)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "WITH tag, post.creationDate AS cd "
-        "WITH tag, sum(cd) AS total, count(*) AS cnt "
-        "RETURN tag.name AS tn, total, cnt ORDER BY tn",
-        params={"pid": "p1"},
-    )
-    assert result._nodes.to_dict(orient="records") == [
-        {"tn": "TagA", "total": 300, "cnt": 2},
-        {"tn": "TagB", "total": 300, "cnt": 1},
-    ]
-
-
-def test_string_cypher_multi_alias_with_non_final_agg_then_scalar_stage() -> None:
-    """Non-final WITH aggregate then another scalar extend stage accessing alias property (#1054)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "WITH tag, post.creationDate AS cd "
-        "WITH tag, sum(cd) AS total "
-        "WITH tag.name AS tn, total "
-        "RETURN tn, total ORDER BY tn",
-        params={"pid": "p1"},
-    )
-    assert result._nodes.to_dict(orient="records") == [
-        {"tn": "TagA", "total": 300},
-        {"tn": "TagB", "total": 300},
-    ]
-
-
-def test_string_cypher_multi_alias_with_non_final_agg_order_by_alias_property() -> None:
-    """Non-final WITH aggregate with ORDER BY on alias.property in next stage (#1054)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "WITH tag, post.creationDate AS cd "
-        "WITH tag, sum(cd) AS total "
-        "RETURN tag.name AS tn, total ORDER BY total DESC, tn",
-        params={"pid": "p1"},
-    )
-    # Both tags have total=300; order by tn breaks the tie → TagA before TagB
-    assert result._nodes.to_dict(orient="records") == [
-        {"tn": "TagA", "total": 300},
-        {"tn": "TagB", "total": 300},
-    ]
 
 
 def test_string_cypher_multi_alias_with_non_final_agg_two_aliases_survive() -> None:
@@ -13653,72 +13547,6 @@ def test_string_cypher_multi_alias_with_non_final_agg_where_on_alias_property() 
     assert {"tn": "TagB", "total": 300} in records
 
 
-def test_string_cypher_multi_alias_with_extend_min_aggregation() -> None:
-    """Extend + min() aggregation on extended column (#880)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "WITH tag, post.creationDate AS cd "
-        "RETURN tag.name AS tn, min(cd) AS earliest ORDER BY tn",
-        params={"pid": "p1"},
-    )
-    assert result._nodes.to_dict(orient="records") == [
-        {"tn": "TagA", "earliest": 100},
-        {"tn": "TagB", "earliest": 300},
-    ]
-
-
-def test_string_cypher_multi_alias_with_extend_count_star() -> None:
-    """Extend + count(*) preserves row cardinality (#880)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "WITH tag, post.creationDate AS cd "
-        "RETURN tag.name AS tn, count(*) AS cnt ORDER BY tn",
-        params={"pid": "p1"},
-    )
-    assert result._nodes.to_dict(orient="records") == [
-        {"tn": "TagA", "cnt": 2},
-        {"tn": "TagB", "cnt": 1},
-    ]
-
-
-def test_string_cypher_multi_alias_with_extend_empty_result() -> None:
-    """Extend on empty match produces empty result (#880)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "WITH tag, post.creationDate AS cd "
-        "RETURN tag.name AS tn, sum(cd) AS total",
-        params={"pid": "nonexistent"},
-    )
-    assert result._nodes.to_dict(orient="records") == []
-
-
-def test_string_cypher_multi_alias_with_case_in_return_aggregation() -> None:
-    """IC-4 inline CASE+sum: no multi-stage WITH needed (#880)."""
-    graph = _mk_ic4_shape_graph()
-    result = graph.gfql(
-        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
-        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
-        "WITH DISTINCT tag, post "
-        "RETURN tag.name AS tagName, "
-        "sum(CASE WHEN post.creationDate > 150 THEN 1 ELSE 0 END) AS recentCount "
-        "ORDER BY recentCount DESC, tagName ASC",
-        params={"pid": "p1"},
-    )
-    assert result._nodes.to_dict(orient="records") == [
-        {"tagName": "TagA", "recentCount": 1},
-        {"tagName": "TagB", "recentCount": 1},
-    ]
-
-
 def test_string_cypher_multi_alias_with_three_stage_case_aggregation() -> None:
     """IC-4 full shape with CASE in intermediate WITH (#880)."""
     graph = _mk_ic4_shape_graph()
@@ -13737,12 +13565,6 @@ def test_string_cypher_multi_alias_with_three_stage_case_aggregation() -> None:
         params={"pid": "p1", "lo": 150, "hi": 350},
     )
     records = result._nodes.to_dict(orient="records")
-    # post2(200) and post3(300) have creationDate in [150,350)
-    # TagA has post2 (valid=1), post1 (inValid=0, valid=0 but cd=100 < 150 so inValid=1) → excluded
-    # TagB has post3 (valid=1, inValid=0) → kept
-    # Actually: post1 cd=100 < 150 → inValid=1 for TagA via post1
-    # TagA: post1(inValid=1), post2(valid=1) → postCount=1, inValidPostCount=1 → excluded by WHERE
-    # TagB: post3(valid=1, inValid=0) → postCount=1, inValidPostCount=0 → kept
     assert len(records) >= 1
     assert all(r["postCount"] > 0 for r in records)
 
@@ -14002,7 +13824,6 @@ def _mk_996_graph() -> _CypherTestGraph:
 
 
 def test_issue_996_connected_match_optional_match_simple_projection() -> None:
-    """Simplest #996 shape: connected first MATCH + OPTIONAL MATCH + mixed RETURN."""
     graph = _mk_996_graph()
 
     result = graph.gfql(
@@ -14015,8 +13836,6 @@ def test_issue_996_connected_match_optional_match_simple_projection() -> None:
         result._nodes.to_dict(orient="records"),
         key=lambda r: (str(r.get("aid", "")), str(r.get("bid", ""))),
     )
-    # a->b via R1, a->c via T exists => cid='c'
-    # a->d via R1, a->c via T exists => cid='c'
     assert len(rows) == 2
     assert rows[0]["aid"] == "a"
     assert rows[0]["bid"] == "b"
@@ -14027,9 +13846,7 @@ def test_issue_996_connected_match_optional_match_simple_projection() -> None:
 
 
 def test_issue_996_connected_match_optional_match_case_null() -> None:
-    """#996 with CASE expression over nullable optional binding."""
     nodes = pd.DataFrame({"id": ["a", "b", "c"]})
-    # b has a T-edge to c, but c does not
     edges = pd.DataFrame({
         "s": ["a", "a", "b"],
         "d": ["b", "c", "c"],
@@ -14059,17 +13876,6 @@ def test_issue_996_connected_match_optional_match_case_null() -> None:
 
 
 def _mk_996_rich_graph() -> _CypherTestGraph:
-    """Graph for #996 amplification tests.
-
-    Nodes: p1, p2, p3, p4 with ``score`` and ``label__Person``.
-    Edges:
-      p1 -[FRIEND]-> p2
-      p1 -[FRIEND]-> p3
-      p2 -[KNOWS]-> p3     (optional edge present for p2)
-      p3 has no KNOWS edge (optional will be null for p3)
-      p1 -[FRIEND]-> p4
-      p4 -[KNOWS]-> p1     (optional present, different target)
-    """
     nodes = pd.DataFrame({
         "id": ["p1", "p2", "p3", "p4"],
         "score": [10, 20, 30, 40],
@@ -14084,112 +13890,78 @@ def _mk_996_rich_graph() -> _CypherTestGraph:
     return _mk_graph(nodes, edges)
 
 
-def test_issue_996_type_function_on_optional_edge() -> None:
-    """type() on an optional relationship alias — exercises row pipeline function dispatch."""
+def _assert_996_rich_rows(query: str, expected_rows: list[dict[str, object]], *, sort_key: str | None = None) -> None:
     g = _mk_996_rich_graph()
-
     result = g.gfql(
         "MATCH (a)-[r1:FRIEND]->(b) "
         "OPTIONAL MATCH (b)-[r2:KNOWS]->(c) "
-        "RETURN a.id AS aid, b.id AS bid, type(r2) AS t"
+        f"{query}"
     )
-
-    rows = sorted(result._nodes.to_dict(orient="records"), key=lambda r: str(r["bid"]))
-    assert len(rows) == 3
-    # p2 has KNOWS->p3
-    assert rows[0]["bid"] == "p2"
-    assert rows[0]["t"] == "KNOWS"
-    # p3 has no KNOWS edge — null may surface as None or NaN after left join
-    assert rows[1]["bid"] == "p3"
-    assert rows[1]["t"] is None or (isinstance(rows[1]["t"], float) and rows[1]["t"] != rows[1]["t"])
-    # p4 has KNOWS->p1
-    assert rows[2]["bid"] == "p4"
-    assert rows[2]["t"] == "KNOWS"
+    frame = result._nodes.astype(object)
+    rows = frame.where(pd.notna(frame), None).to_dict(orient="records")
+    if sort_key is not None:
+        rows = sorted(rows, key=lambda row: str(row[sort_key]))
+    assert rows == expected_rows
 
 
-def test_issue_996_coalesce_on_optional_property() -> None:
-    """coalesce() over an optional property — null fallback via row pipeline."""
-    g = _mk_996_rich_graph()  # fresh graph — do not reuse across tests
-
-    result = g.gfql(
-        "MATCH (a)-[r1:FRIEND]->(b) "
-        "OPTIONAL MATCH (b)-[r2:KNOWS]->(c) "
-        "RETURN b.id AS bid, coalesce(c.id, 'none') AS target"
-    )
-
-    rows = sorted(result._nodes.to_dict(orient="records"), key=lambda r: str(r["bid"]))
-    assert rows[0] == {"bid": "p2", "target": "p3"}
-    assert rows[1] == {"bid": "p3", "target": "none"}
-    assert rows[2] == {"bid": "p4", "target": "p1"}
-
-
-def test_issue_996_arithmetic_in_return() -> None:
-    """Arithmetic expression over base + optional properties."""
-    g = _mk_996_rich_graph()
-
-    result = g.gfql(
-        "MATCH (a)-[r1:FRIEND]->(b) "
-        "OPTIONAL MATCH (b)-[r2:KNOWS]->(c) "
-        "RETURN b.id AS bid, b.score + 1 AS bumped"
-    )
-
-    rows = sorted(result._nodes.to_dict(orient="records"), key=lambda r: str(r["bid"]))
-    assert rows[0] == {"bid": "p2", "bumped": 21}
-    assert rows[1] == {"bid": "p3", "bumped": 31}
-    assert rows[2] == {"bid": "p4", "bumped": 41}
-
-
-def test_issue_996_order_by_desc() -> None:
-    """ORDER BY DESC on a base-alias column."""
-    g = _mk_996_rich_graph()
-
-    result = g.gfql(
-        "MATCH (a)-[r1:FRIEND]->(b) "
-        "OPTIONAL MATCH (b)-[r2:KNOWS]->(c) "
-        "RETURN b.id AS bid, c.id AS cid "
-        "ORDER BY bid DESC"
-    )
-
-    rows = result._nodes.to_dict(orient="records")
-    assert [r["bid"] for r in rows] == ["p4", "p3", "p2"]
-
-
-def test_issue_996_limit() -> None:
-    """LIMIT on connected optional match results."""
-    g = _mk_996_rich_graph()
-
-    result = g.gfql(
-        "MATCH (a)-[r1:FRIEND]->(b) "
-        "OPTIONAL MATCH (b)-[r2:KNOWS]->(c) "
-        "RETURN b.id AS bid "
-        "ORDER BY bid "
-        "LIMIT 2"
-    )
-
-    rows = result._nodes.to_dict(orient="records")
-    assert len(rows) == 2
-    assert rows[0]["bid"] == "p2"
-    assert rows[1]["bid"] == "p3"
-
-
-def test_issue_996_skip_limit() -> None:
-    """SKIP + LIMIT on connected optional match results."""
-    g = _mk_996_rich_graph()
-
-    result = g.gfql(
-        "MATCH (a)-[r1:FRIEND]->(b) "
-        "OPTIONAL MATCH (b)-[r2:KNOWS]->(c) "
-        "RETURN b.id AS bid "
-        "ORDER BY bid "
-        "SKIP 1 LIMIT 1"
-    )
-
-    rows = result._nodes.to_dict(orient="records")
-    assert rows == [{"bid": "p3"}]
+@pytest.mark.parametrize(
+    "query,expected_rows,sort_key",
+    [
+        pytest.param(
+            "RETURN a.id AS aid, b.id AS bid, type(r2) AS t",
+            [
+                {"aid": "p1", "bid": "p2", "t": "KNOWS"},
+                {"aid": "p1", "bid": "p3", "t": None},
+                {"aid": "p1", "bid": "p4", "t": "KNOWS"},
+            ],
+            "bid",
+            id="type_function_on_optional_edge",
+        ),
+        pytest.param(
+            "RETURN b.id AS bid, coalesce(c.id, 'none') AS target",
+            [{"bid": "p2", "target": "p3"}, {"bid": "p3", "target": "none"}, {"bid": "p4", "target": "p1"}],
+            "bid",
+            id="coalesce_on_optional_property",
+        ),
+        pytest.param(
+            "RETURN b.id AS bid, b.score + 1 AS bumped",
+            [{"bid": "p2", "bumped": 21}, {"bid": "p3", "bumped": 31}, {"bid": "p4", "bumped": 41}],
+            "bid",
+            id="arithmetic_in_return",
+        ),
+        pytest.param(
+            "RETURN b.id AS bid, c.id AS cid ORDER BY bid DESC",
+            [
+                {"bid": "p4", "cid": "p1"},
+                {"bid": "p3", "cid": None},
+                {"bid": "p2", "cid": "p3"},
+            ],
+            None,
+            id="order_by_desc",
+        ),
+        pytest.param(
+            "RETURN b.id AS bid ORDER BY bid LIMIT 2",
+            [{"bid": "p2"}, {"bid": "p3"}],
+            None,
+            id="limit",
+        ),
+        pytest.param(
+            "RETURN b.id AS bid ORDER BY bid SKIP 1 LIMIT 1",
+            [{"bid": "p3"}],
+            None,
+            id="skip_limit",
+        ),
+    ],
+)
+def test_issue_996_rich_optional_match_rows(
+    query: str,
+    expected_rows: list[dict[str, object]],
+    sort_key: str | None,
+) -> None:
+    _assert_996_rich_rows(query, expected_rows, sort_key=sort_key)
 
 
 def test_issue_996_distinct() -> None:
-    """DISTINCT deduplicates when multiple base rows map to the same optional."""
     nodes = pd.DataFrame({"id": ["a", "b", "c"]})
     edges = pd.DataFrame({
         "s": ["a", "a", "b"],
@@ -14205,8 +13977,6 @@ def test_issue_996_distinct() -> None:
     )
 
     rows = result._nodes.to_dict(orient="records")
-    # c appears for y=b, null for y=c — DISTINCT should collapse duplicates
-    # Null may surface as None or NaN after left join.
     non_null_zids = [r["zid"] for r in rows if r["zid"] is not None and not (isinstance(r["zid"], float) and r["zid"] != r["zid"])]
     null_count = len(rows) - len(non_null_zids)
     assert sorted(non_null_zids) == ["c"]
@@ -14214,7 +13984,6 @@ def test_issue_996_distinct() -> None:
 
 
 def test_issue_996_no_optional_matches() -> None:
-    """When OPTIONAL MATCH matches nothing, all optional aliases are null."""
     nodes = pd.DataFrame({"id": ["a", "b"]})
     edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R1"]})
     g = _mk_graph(nodes, edges)
@@ -14231,7 +14000,6 @@ def test_issue_996_no_optional_matches() -> None:
 
 
 def test_issue_996_all_rows_match_optional() -> None:
-    """When every base row has an optional match, no null-fill needed."""
     nodes = pd.DataFrame({"id": ["a", "b", "c"]})
     edges = pd.DataFrame({
         "s": ["a", "b"],
@@ -14251,7 +14019,6 @@ def test_issue_996_all_rows_match_optional() -> None:
 
 
 def test_issue_996_multi_row_optional_match_per_base() -> None:
-    """Multiple optional matches for a single base row produce multiple output rows."""
     nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
     edges = pd.DataFrame({
         "s": ["a", "b", "b"],
@@ -14274,7 +14041,6 @@ def test_issue_996_multi_row_optional_match_per_base() -> None:
 
 
 def test_issue_996_property_access_on_null_optional_node() -> None:
-    """Property access on a null optional node returns null, not an error."""
     nodes = pd.DataFrame({"id": ["a", "b"], "name": ["alice", "bob"]})
     edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R1"]})
     g = _mk_graph(nodes, edges)
@@ -14290,7 +14056,6 @@ def test_issue_996_property_access_on_null_optional_node() -> None:
 
 
 def test_issue_996_is_not_null_on_optional_edge() -> None:
-    """IS NOT NULL check on an optional edge alias."""
     nodes = pd.DataFrame({"id": ["a", "b", "c"]})
     edges = pd.DataFrame({
         "s": ["a", "a", "b"],
@@ -14312,7 +14077,6 @@ def test_issue_996_is_not_null_on_optional_edge() -> None:
 
 
 def test_issue_996_empty_base_match() -> None:
-    """When the base MATCH returns no rows, the result is empty."""
     nodes = pd.DataFrame({"id": ["a"]})
     edges = pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object"), "type": pd.Series(dtype="object")})
     g = _mk_graph(nodes, edges)
@@ -14327,7 +14091,6 @@ def test_issue_996_empty_base_match() -> None:
 
 
 def test_issue_996_two_shared_node_aliases() -> None:
-    """Two shared aliases between MATCH and OPTIONAL MATCH — composite join key."""
     nodes = pd.DataFrame({"id": ["a", "b", "c"]})
     edges = pd.DataFrame({
         "s": ["a", "b", "a"],
@@ -14336,7 +14099,6 @@ def test_issue_996_two_shared_node_aliases() -> None:
     })
     g = _mk_graph(nodes, edges)
 
-    # Both a and b are shared between base and optional.
     result = g.gfql(
         "MATCH (a)-[r1:R1]->(b) "
         "OPTIONAL MATCH (a)-[r2:T]->(b) "
@@ -14348,17 +14110,12 @@ def test_issue_996_two_shared_node_aliases() -> None:
         result._nodes.to_dict(orient="records"),
         key=lambda r: (str(r["aid"]), str(r["bid"])),
     )
-    # a->b via R1, a->b via T? No — T goes a->c. So (a,b) has no T edge.
-    # a->c via R1? No — only R1 edges are a->b and b->c. So base has (a,b) and (b,c).
-    # (a,b): optional T from a->b? No T edge a->b exists. has_t=false
-    # (b,c): optional T from b->c? No T edge b->c exists. has_t=false
     assert len(rows) == 2
     assert rows[0] == {"aid": "a", "bid": "b", "has_t": False}
     assert rows[1] == {"aid": "b", "bid": "c", "has_t": False}
 
 
 def test_issue_996_integer_node_ids() -> None:
-    """Integer node IDs — join must handle non-string keys."""
     nodes = pd.DataFrame({"id": [1, 2, 3]})
     edges = pd.DataFrame({
         "s": [1, 2],
@@ -14381,7 +14138,6 @@ def test_issue_996_integer_node_ids() -> None:
 
 
 def test_issue_996_custom_node_column_name() -> None:
-    """Non-default node ID column name (nid instead of id)."""
     nodes = pd.DataFrame({"nid": ["a", "b", "c"]})
     edges = pd.DataFrame({
         "s": ["a", "b"],
@@ -14404,7 +14160,6 @@ def test_issue_996_custom_node_column_name() -> None:
 
 
 def test_issue_996_longer_optional_chain() -> None:
-    """Optional MATCH with a longer path (two hops) — multiple optional-only aliases."""
     nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
     edges = pd.DataFrame({
         "s": ["a", "b", "c"],
@@ -14432,7 +14187,6 @@ def test_issue_996_longer_optional_chain() -> None:
 
 
 def test_issue_1024_where_label_on_base_match() -> None:
-    """WHERE label predicate on the base MATCH — filters base rows."""
     nodes = pd.DataFrame({
         "id": ["a", "b", "c"],
         "label__B": [False, True, False],
@@ -14452,14 +14206,12 @@ def test_issue_1024_where_label_on_base_match() -> None:
     )
 
     rows = result._nodes.to_dict(orient="records")
-    # Only y=b matches the label predicate; b has no R1 outgoing, so z=null
     assert len(rows) == 1
     assert rows[0]["xid"] == "a"
     assert rows[0]["yid"] == "b"
 
 
 def test_issue_1024_where_label_on_optional_match() -> None:
-    """WHERE label predicate on the OPTIONAL MATCH — filters optional rows."""
     nodes = pd.DataFrame({
         "id": ["a", "b", "c", "d"],
         "label__C": [False, False, True, False],
@@ -14479,14 +14231,12 @@ def test_issue_1024_where_label_on_optional_match() -> None:
     )
 
     rows = sorted(result._nodes.to_dict(orient="records"), key=lambda r: str(r["yid"]))
-    # y=b has T edges to both c and d, but only c has label C
     assert len(rows) == 1
     assert rows[0]["yid"] == "b"
     assert rows[0]["zid"] == "c"
 
 
 def test_issue_1024_where_not_pattern_on_optional_match_filters_candidates() -> None:
-    """WHERE NOT(pattern) on OPTIONAL MATCH keeps only rows passing negated pattern."""
     nodes = pd.DataFrame({"id": ["a", "b", "c", "d", "e"]})
     edges = pd.DataFrame({
         "s": ["a", "b", "b", "c"],
@@ -14507,7 +14257,6 @@ def test_issue_1024_where_not_pattern_on_optional_match_filters_candidates() -> 
 
 
 def test_issue_1024_where_not_pattern_on_optional_match_null_fills_when_all_filtered() -> None:
-    """WHERE NOT(pattern) on OPTIONAL MATCH null-fills when every optional row is filtered out."""
     nodes = pd.DataFrame({"id": ["a", "b", "c", "e"]})
     edges = pd.DataFrame({
         "s": ["a", "b", "c"],
@@ -14528,7 +14277,6 @@ def test_issue_1024_where_not_pattern_on_optional_match_null_fills_when_all_filt
 
 
 def test_issue_1024_where_on_both_match_and_optional() -> None:
-    """WHERE on both MATCH and OPTIONAL MATCH — TCK match-where6-1 shape."""
     nodes = pd.DataFrame({
         "id": ["a", "b", "c", "d"],
         "label__B": [False, True, False, False],
@@ -14556,7 +14304,6 @@ def test_issue_1024_where_on_both_match_and_optional() -> None:
 
 
 def test_issue_1024_where_property_on_optional_null_safe() -> None:
-    """Property WHERE on optional match that doesn't match — null-safe."""
     nodes = pd.DataFrame({
         "id": ["a", "b"],
         "name": ["Alice", "Bob"],
@@ -14576,12 +14323,10 @@ def test_issue_1024_where_property_on_optional_null_safe() -> None:
     )
 
     rows = result._nodes.to_dict(orient="records")
-    # x0=b, no outgoing edges so x1 is null, WHERE doesn't apply
     assert rows == [{"name": "Bob"}]
 
 
 def test_issue_1024_where_base_eliminates_all_rows() -> None:
-    """WHERE on base MATCH that matches nothing — empty result."""
     nodes = pd.DataFrame({
         "id": ["a", "b"],
         "label__X": [False, False],
@@ -14600,7 +14345,6 @@ def test_issue_1024_where_base_eliminates_all_rows() -> None:
 
 
 def test_issue_1024_where_optional_no_matches() -> None:
-    """WHERE on optional that filters out all optional results — null-fill."""
     nodes = pd.DataFrame({
         "id": ["a", "b", "c"],
         "label__Z": [False, False, False],
@@ -14620,13 +14364,11 @@ def test_issue_1024_where_optional_no_matches() -> None:
     )
 
     rows = result._nodes.to_dict(orient="records")
-    # y=b has T->c but c is not :Z, so optional fails, z=null
     assert len(rows) == 1
     assert rows[0]["yid"] == "b"
 
 
 def test_issue_1024_where_combined_with_case_and_order_by() -> None:
-    """WHERE + CASE + ORDER BY — full combo on connected optional match."""
     nodes = pd.DataFrame({
         "id": ["a", "b", "c", "d"],
         "label__Target": [False, True, True, False],
@@ -14654,7 +14396,6 @@ def test_issue_1024_where_combined_with_case_and_order_by() -> None:
 
 
 def test_issue_1024_where_property_comparison_on_base() -> None:
-    """WHERE property comparison on base MATCH."""
     nodes = pd.DataFrame({
         "id": ["a", "b", "c"],
         "score": [10, 20, 30],
@@ -14674,7 +14415,6 @@ def test_issue_1024_where_property_comparison_on_base() -> None:
     )
 
     rows = sorted(result._nodes.to_dict(orient="records"), key=lambda r: str(r["yid"]))
-    # y=b (score 20) and y=c (score 30) pass the filter
     assert len(rows) == 2
     assert rows[0]["yid"] == "b"
     assert rows[1]["yid"] == "c"
@@ -14686,7 +14426,6 @@ def test_issue_1024_where_property_comparison_on_base() -> None:
 
 
 def test_issue_1025_two_optional_match_clauses() -> None:
-    """Two OPTIONAL MATCH clauses from the same base."""
     nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
     edges = pd.DataFrame({
         "s": ["a", "a", "a"],
@@ -14710,7 +14449,6 @@ def test_issue_1025_two_optional_match_clauses() -> None:
 
 
 def test_issue_1025_two_optional_match_one_misses() -> None:
-    """Two OPTIONAL MATCH clauses, second one has no matches."""
     nodes = pd.DataFrame({"id": ["a", "b", "c"]})
     edges = pd.DataFrame({
         "s": ["a", "a"],
@@ -14775,7 +14513,6 @@ def test_issue_1472_independent_optional_arms_preserve_per_row_nulls(optional_cl
 
 
 def test_issue_1025_single_node_base_two_optionals() -> None:
-    """Single-node base MATCH + two OPTIONAL MATCH clauses."""
     nodes = pd.DataFrame({"id": ["a", "b", "c"]})
     edges = pd.DataFrame({
         "s": ["a", "a"],
@@ -14792,7 +14529,6 @@ def test_issue_1025_single_node_base_two_optionals() -> None:
     )
 
     rows = sorted(result._nodes.to_dict(orient="records"), key=lambda r: str(r["aid"]))
-    # a has T1->b and T2->c; b and c have no outgoing
     a_rows = [r for r in rows if r["aid"] == "a"]
     assert len(a_rows) == 1
     assert a_rows[0]["bid"] == "b"
@@ -14800,7 +14536,6 @@ def test_issue_1025_single_node_base_two_optionals() -> None:
 
 
 def test_issue_1025_chained_optionals_with_case() -> None:
-    """Two OPTIONAL MATCH + CASE expression checking both."""
     nodes = pd.DataFrame({"id": ["a", "b", "c"]})
     edges = pd.DataFrame({
         "s": ["a", "a"],
@@ -14825,13 +14560,7 @@ def test_issue_1025_chained_optionals_with_case() -> None:
     assert rows[0]["has_nope"] is False
 
 
-# ---------------------------------------------------------------------------
-# Audit-driven amplification: fragile boundary tests
-# ---------------------------------------------------------------------------
-
-
 def test_audit_chained_optionals_share_non_base_alias() -> None:
-    """opt2 shares alias 'c' with opt1 (not base) — transitive join key."""
     nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
     edges = pd.DataFrame({
         "s": ["a", "b", "c"],
@@ -14856,7 +14585,6 @@ def test_audit_chained_optionals_share_non_base_alias() -> None:
 
 
 def test_audit_chained_optionals_transitive_miss() -> None:
-    """opt1 matches but opt2 (sharing opt1 alias) doesn't — null on opt2 only."""
     nodes = pd.DataFrame({"id": ["a", "b", "c"]})
     edges = pd.DataFrame({
         "s": ["a", "b"],
@@ -14876,11 +14604,9 @@ def test_audit_chained_optionals_transitive_miss() -> None:
     assert len(rows) == 1
     assert rows[0]["bid"] == "b"
     assert rows[0]["cid"] == "c"
-    # d should be null — no NOPE edges from c
 
 
 def test_audit_where_on_three_optionals() -> None:
-    """WHERE on base + 2 optionals — all three WHERE clauses scoped correctly."""
     nodes = pd.DataFrame({
         "id": ["a", "b", "c", "d", "e"],
         "label__X": [True, False, False, False, False],
@@ -14903,7 +14629,6 @@ def test_audit_where_on_three_optionals() -> None:
     )
 
     rows = result._nodes.to_dict(orient="records")
-    # base: x=a, y=b (only b is :Y). opt1: a-T1->d. opt2: a-T2->e.
     assert len(rows) == 1
     assert rows[0]["yid"] == "b"
     assert rows[0]["z1id"] == "d"
@@ -14911,7 +14636,6 @@ def test_audit_where_on_three_optionals() -> None:
 
 
 def test_audit_single_node_base_three_optionals() -> None:
-    """Single-node base + 3 optional clauses."""
     nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
     edges = pd.DataFrame({
         "s": ["a", "a", "a"],
@@ -14936,7 +14660,6 @@ def test_audit_single_node_base_three_optionals() -> None:
 
 
 def test_audit_multi_optional_partial_null_fill() -> None:
-    """Three optionals: first matches, second doesn't, third matches."""
     nodes = pd.DataFrame({"id": ["a", "b", "c"]})
     edges = pd.DataFrame({
         "s": ["a", "a"],
@@ -14956,12 +14679,10 @@ def test_audit_multi_optional_partial_null_fill() -> None:
     a_rows = [r for r in result._nodes.to_dict(orient="records") if r["aid"] == "a"]
     assert len(a_rows) == 1
     assert a_rows[0]["x1id"] == "b"
-    # x2 should be null — no T2 edges
     assert a_rows[0]["x3id"] == "c"
 
 
 def test_audit_where_property_comparison_filters_optional_results() -> None:
-    """Property WHERE on optional filters to matching rows only."""
     nodes = pd.DataFrame({
         "id": ["a", "b", "c"],
         "score": [10, 20, 5],
@@ -14983,11 +14704,10 @@ def test_audit_where_property_comparison_filters_optional_results() -> None:
     rows = result._nodes.to_dict(orient="records")
     assert len(rows) == 1
     assert rows[0]["yid"] == "b"
-    assert rows[0]["zid"] == "c"  # c has score=5 > 3
+    assert rows[0]["zid"] == "c"
 
 
 def test_audit_multi_optional_order_by_limit() -> None:
-    """ORDER BY + LIMIT across multi-optional results."""
     nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
     edges = pd.DataFrame({
         "s": ["a", "a", "b", "c"],
@@ -15010,7 +14730,6 @@ def test_audit_multi_optional_order_by_limit() -> None:
 
 
 def test_audit_single_node_base_where_plus_three_optionals() -> None:
-    """Single-node base with WHERE label + 3 optionals — full combo."""
     nodes = pd.DataFrame({
         "id": ["a", "b", "c", "d", "e"],
         "label__X": [True, True, False, False, False],
@@ -15033,8 +14752,6 @@ def test_audit_single_node_base_where_plus_three_optionals() -> None:
     )
 
     rows = result._nodes.to_dict(orient="records")
-    # a:X has T1->c, T2->d, T3->e
-    # b:X has T1->c, T2->d, no T3
     assert len(rows) == 2
     assert rows[0]["xid"] == "a"
     assert rows[0]["y1id"] == "c"
@@ -15043,11 +14760,9 @@ def test_audit_single_node_base_where_plus_three_optionals() -> None:
     assert rows[1]["xid"] == "b"
     assert rows[1]["y1id"] == "c"
     assert rows[1]["y2id"] == "d"
-    # y3 null for b (no T3)
 
 
 def test_audit_cross_alias_property_where_on_base() -> None:
-    """Cross-alias property comparison in WHERE on connected base MATCH."""
     nodes = pd.DataFrame({
         "id": ["a", "b", "c"],
         "score": [100, 50, 200],
@@ -15067,8 +14782,6 @@ def test_audit_cross_alias_property_where_on_base() -> None:
     )
 
     rows = result._nodes.to_dict(orient="records")
-    # a.score=100 > b.score=50 → (a, b) passes
-    # a.score=100 > c.score=200 → fails
     assert len(rows) == 1
     assert rows[0] == {"xid": "a", "yid": "b"}
 
@@ -15079,14 +14792,10 @@ def test_audit_cross_alias_property_where_on_base() -> None:
 
 
 def test_issue_1026_with_optional_match_null_fill() -> None:
-    """WITH + OPTIONAL MATCH must null-fill unmatched rows (left-outer-join)."""
     nodes = pd.DataFrame({"id": ["a", "b", "c"]})
     edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["T"]})
     g = _mk_graph(nodes, edges)
 
-    # a has T->b, but b and c have no outgoing T edges.
-    # WITH x produces 3 rows, OPTIONAL MATCH should give:
-    #   a -> y=b, b -> y=null, c -> y=null
     result = g.gfql(
         "MATCH (x) WITH x "
         "OPTIONAL MATCH (x)-->(y) "
@@ -15095,10 +14804,6 @@ def test_issue_1026_with_optional_match_null_fill() -> None:
     )
 
     rows = result._nodes.to_dict(orient="records")
-    # Left-outer-join: 3 rows — one matched (a->b) plus two null-filled.
-    # Note: null-filled rows currently have xid=None because the null-fill
-    # happens after RETURN projection. Improving this to carry the prefix
-    # value through is tracked separately.
     assert len(rows) == 3
     matched = [r for r in rows if r["yid"] == "b"]
     assert len(matched) == 1
@@ -15106,12 +14811,10 @@ def test_issue_1026_with_optional_match_null_fill() -> None:
 
 
 def test_issue_1026_with_limit_optional_match_null_fill() -> None:
-    """WITH ... LIMIT + OPTIONAL MATCH must null-fill."""
     nodes = pd.DataFrame({"id": ["a", "b"]})
     edges = pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object"), "type": pd.Series(dtype="object")})
     g = _mk_graph(nodes, edges)
 
-    # No edges at all — every row should be null-filled.
     result = g.gfql(
         "MATCH (x) WITH x LIMIT 2 "
         "OPTIONAL MATCH (x)-->(y) "
@@ -15124,12 +14827,6 @@ def test_issue_1026_with_limit_optional_match_null_fill() -> None:
 
 
 def test_issue_1026_multi_alias_with_optional_match_carries_secondary_property() -> None:
-    """Multi-alias WITH + OPTIONAL MATCH with property carry (#1071).
-
-    Re-targeted from the prior rejection guardrail: multi-alias whole-row
-    projection (``WITH a, b``) is now supported when secondary aliases are
-    referenced only by property access (``a.id``).
-    """
     nodes = pd.DataFrame({"id": ["a", "b", "c"], "num": [1, 2, 3]})
     edges = pd.DataFrame({
         "s": ["a", "b"],
@@ -15148,7 +14845,6 @@ def test_issue_1026_multi_alias_with_optional_match_carries_secondary_property()
 
 
 def test_issue_1026_with_limit_optional_match_all_match() -> None:
-    """WITH LIMIT + OPTIONAL MATCH where all rows match — no null-fill needed."""
     nodes = pd.DataFrame({"id": ["a", "b"]})
     edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "a"], "type": ["T", "T"]})
     g = _mk_graph(nodes, edges)
@@ -15167,7 +14863,6 @@ def test_issue_1026_with_limit_optional_match_all_match() -> None:
 
 
 def test_issue_1026_with_optional_match_property_on_optional() -> None:
-    """WITH + OPTIONAL MATCH with property access on optional node alias."""
     nodes = pd.DataFrame({"id": ["a", "b", "c"]})
     edges = pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["T"]})
     g = _mk_graph(nodes, edges)
@@ -15179,7 +14874,6 @@ def test_issue_1026_with_optional_match_property_on_optional() -> None:
     )
 
     rows = result._nodes.to_dict(orient="records")
-    # 3 rows: a matched (yid=b), b and c null-filled (yid=null)
     assert len(rows) == 3
     non_null = [r for r in rows if r["yid"] is not None and not (isinstance(r["yid"], float) and r["yid"] != r["yid"])]
     assert len(non_null) == 1
@@ -15187,7 +14881,6 @@ def test_issue_1026_with_optional_match_property_on_optional() -> None:
 
 
 def test_issue_1026_with_optional_match_empty_graph() -> None:
-    """WITH + OPTIONAL MATCH on empty graph."""
     nodes = pd.DataFrame({"id": pd.Series(dtype="object")})
     edges = pd.DataFrame({"s": pd.Series(dtype="object"), "d": pd.Series(dtype="object"), "type": pd.Series(dtype="object")})
     g = _mk_graph(nodes, edges)
@@ -15202,7 +14895,6 @@ def test_issue_1026_with_optional_match_empty_graph() -> None:
 
 
 def test_issue_1026_with_optional_match_multi_row_optional() -> None:
-    """WITH + OPTIONAL MATCH where some nodes have multiple optional matches."""
     nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
     edges = pd.DataFrame({
         "s": ["a", "a", "b"],
@@ -15219,7 +14911,6 @@ def test_issue_1026_with_optional_match_multi_row_optional() -> None:
     )
 
     rows = result._nodes.to_dict(orient="records")
-    # a has T->b and T->c (2 rows), b has T->d (1 row), c and d have none (null-filled)
     matched = [r for r in rows if r["yid"] is not None and not (isinstance(r["yid"], float) and r["yid"] != r["yid"])]
     assert len(matched) == 3
     assert {"xid": "a", "yid": "b"} in matched
@@ -15238,11 +14929,6 @@ def test_issue_996_connected_match_optional_match_case_edge_alias() -> None:
 
     Left-join semantics: all (m,c,p) rows preserved; r=null when OPTIONAL arm misses.
     """
-    # Graph:
-    #   m <-[REPLY_OF]- c -[HAS_CREATOR]-> p
-    #   m -[HAS_CREATOR]-> a
-    #   a -[KNOWS]- p    (so r should be non-null → knows=true)
-    #   also c2 whose author p2 does NOT know a → knows=false
     nodes = pd.DataFrame({
         "id": ["m", "c", "c2", "p", "p2", "a"],
         "label__Message": [True, False, False, False, False, False],
@@ -15266,9 +14952,7 @@ def test_issue_996_connected_match_optional_match_case_edge_alias() -> None:
 
     rows = result._nodes[["commentId", "replyAuthorId", "knows"]].to_dict(orient="records")
     assert len(rows) == 2
-    # c → p: a KNOWS p → knows=true
     assert {"commentId": "c", "replyAuthorId": "p", "knows": True} in rows
-    # c2 → p2: a does not KNOW p2 → knows=false
     assert {"commentId": "c2", "replyAuthorId": "p2", "knows": False} in rows
 
 
@@ -15283,7 +14967,6 @@ def test_issue_996_connected_match_optional_match_all_rows_match() -> None:
         "RETURN x.id AS xid, y.id AS yid, z.id AS zid ORDER BY xid, yid"
     )
     rows = result._nodes[["xid", "yid", "zid"]].to_dict(orient="records")
-    # every base row has an optional match (x→y exists; z is same as y here)
     assert all(r["zid"] is not None for r in rows)
 
 
@@ -15304,7 +14987,6 @@ def test_issue_996_connected_match_optional_match_no_rows_match() -> None:
 def test_issue_996_connected_match_optional_match_node_alias_null_in_return() -> None:
     """Node alias (not edge) from OPTIONAL arm is null when arm misses."""
     nodes = pd.DataFrame({"id": ["a", "b", "c"], "label__N": [True, True, True]})
-    # a→b has outgoing T; a→c does too; but only (a)-[:T]->(b)-[:T]->(c) chain exists
     edges2 = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "type": ["T", "T"]})
     g2 = _mk_graph(nodes, edges2)
     result = g2.gfql(
@@ -15313,9 +14995,6 @@ def test_issue_996_connected_match_optional_match_node_alias_null_in_return() ->
         "RETURN x.id AS xid, y.id AS yid, z.id AS zid ORDER BY xid, yid"
     )
     rows = result._nodes[["xid", "yid", "zid"]].to_dict(orient="records")
-    # base rows: (a,b) and (b,c)
-    # (a,b): b→c exists so zid='c'
-    # (b,c): c has no outgoing T so zid=null
     assert len(rows) == 2
     by_x = {r["xid"]: r for r in rows}
     assert by_x["a"]["yid"] == "b" and by_x["a"]["zid"] == "c"
@@ -15659,19 +15338,7 @@ def test_issue_1488_optional_match_seeds_shared_first_alias_before_materializati
 
 
 def test_issue_1052_optional_match_semijoin_filters_opt_arm() -> None:
-    """OPTIONAL MATCH opt arm must only join rows whose keys appear in base result.
-
-    Graph has 1 relevant message (m1) and 1 irrelevant message (m2).
-    Base MATCH is parameterised to m1 only.
-    The OPTIONAL MATCH arm has KNOWS edges from both m1 and m2 paths.
-    Without semi-join: opt arm materialises all KNOWS rows, including m2 ones.
-    With semi-join: opt arm is pre-filtered to m1 join keys → correct result,
-    and intermediate frame is bounded to base result size.
-    """
-    # m1 <-[REPLY_OF]- c1 -[HAS_CREATOR]-> p1
-    # m1 -[HAS_CREATOR]-> a1 -[KNOWS]-> p1   (knows=True for c1)
-    # m2 <-[REPLY_OF]- c2 -[HAS_CREATOR]-> p2
-    # m2 -[HAS_CREATOR]-> a2 -[KNOWS]-> p2   (m2 is out-of-scope, must not bleed in)
+    """OPTIONAL MATCH opt arm must only join rows whose keys appear in base result."""
     nodes = pd.DataFrame({
         "id": ["m1", "m2", "c1", "c2", "p1", "p2", "a1", "a2"],
         "label__Message": [True, True, False, False, False, False, False, False],
@@ -15693,7 +15360,6 @@ def test_issue_1052_optional_match_semijoin_filters_opt_arm() -> None:
         params={"mid": "m1"},
     )
     rows = result._nodes[["cid", "knows"]].to_dict(orient="records")
-    # Only c1 is in scope (m1 only); c1's author p1 is known by a1 → knows=True
     assert rows == [{"cid": "c1", "knows": True}]
 
 
@@ -15702,8 +15368,6 @@ def test_issue_1052_semijoin_two_shared_aliases_multi_col_path() -> None:
 
     MATCH (a)-[r1:R1]->(b)-[r2:R2]->(c)
     OPTIONAL MATCH (a)-[r3:R3]->(b)-[r4:R4]->(d)
-    Both a and b are shared → multi-col join path (drop_duplicates + inner merge).
-    The optional arm has rows matching (a,b) and rows NOT in base — only matching ones survive.
     """
     nodes = pd.DataFrame({
         "id":        ["a",  "b",  "c",  "d",  "b2", "d2"],
@@ -15722,25 +15386,17 @@ def test_issue_1052_semijoin_two_shared_aliases_multi_col_path() -> None:
         "RETURN a.id AS aid, b.id AS bid, c.id AS cid, d.id AS did"
     )
     rows = result._nodes[["aid", "bid", "cid", "did"]].to_dict(orient="records")
-    # Base match: only (a, b, c) — b2 is NOT reachable via R1 from a
     assert len(rows) == 1
     assert rows[0]["aid"] == "a"
     assert rows[0]["bid"] == "b"
     assert rows[0]["cid"] == "c"
     assert rows[0]["did"] == "d"
-    # No duplicate columns in result
     cols = list(result._nodes.columns)
     assert len(cols) == len(set(cols)), f"Duplicate columns: {cols}"
 
 
 def test_issue_1052_semijoin_multi_arm_second_arm_uses_updated_joined() -> None:
-    """With 2 OPTIONAL MATCH arms, arm-2 semi-join uses joined updated by arm-1.
-
-    Base:        (m)<-[:R]-(c)                  → 1 row
-    Optional-1:  (m)-[:H]->(a)                  → adds a.id
-    Optional-2:  (a)-[:K]->(p)  (shared: m, a)  → adds p.id
-    Arm-2's join cols include a.id which only exists after arm-1 merge.
-    """
+    """With 2 OPTIONAL MATCH arms, arm-2 semi-join uses joined updated by arm-1."""
     nodes = pd.DataFrame({
         "id": ["m", "c", "a", "p"],
         "label__M": [True,  False, False, False],
@@ -15801,15 +15457,7 @@ def test_issue_1052_semijoin_multi_arm_second_arm_null_when_first_misses() -> No
 
 
 def test_issue_1052_semijoin_edge_alias_synthesis_after_filter() -> None:
-    """Edge alias bare-form synthesis works correctly after semi-join row filtering.
-
-    The semi-join removes opt rows not matching base join keys.
-    The surviving opt rows must still have their edge-alias property columns
-    intact for marker synthesis (lines 344-352 in gfql_unified.py).
-
-    Graph: m1-H->a1-K->p1, m2-H->a2-K->p2. Base scoped to m1; a2/p2 are
-    unreachable from m1 so must not appear in result (semi-join by a.id).
-    """
+    """Edge alias bare-form synthesis works correctly after semi-join row filtering."""
     nodes = pd.DataFrame({
         "id": ["m1", "m2", "a1", "a2", "p1", "p2"],
         "label__M": [True,  True,  False, False, False, False],
@@ -15823,8 +15471,6 @@ def test_issue_1052_semijoin_edge_alias_synthesis_after_filter() -> None:
     })
     g = _mk_graph(nodes, edges)
 
-    # Base scoped to m1 only; opt arm opt rows exist for both a1->p1 and a2->p2
-    # Semi-join must keep only a1->p1 rows (join key a.id=a1 matches base)
     result = g.gfql(
         "MATCH (m:M {id: $mid})-[:H]->(a:A) "
         "OPTIONAL MATCH (a)-[r:K]->(p:P) "
@@ -15840,12 +15486,7 @@ def test_issue_1052_semijoin_edge_alias_synthesis_after_filter() -> None:
 
 
 def test_issue_1052_semijoin_no_bleed_from_unscoped_opt_rows() -> None:
-    """Opt rows whose join-key values are NOT in base must not appear in result.
-
-    Regression for the core IS7 scale bug: without semi-join, opt arm materialises
-    all rows globally; with semi-join, only base-key-matched rows survive.
-    """
-    # 3 messages, only m1 is queried; m2/m3 have their own reply chains
+    """Opt rows whose join-key values are NOT in base must not appear in result."""
     n = 5
     msg_ids = [f"m{i}" for i in range(1, n + 1)]
     comment_ids = [f"c{i}" for i in range(1, n + 1)]
