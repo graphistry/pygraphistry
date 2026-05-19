@@ -21,9 +21,9 @@
       "covered_lines": 439
     },
     "graphistry/compute/ast_temporal.py": {
-      "min_coverage_percent": 44.12,
+      "min_coverage_percent": 95.09,
       "statements": 102,
-      "covered_lines": 45
+      "covered_lines": 97
     },
     "graphistry/compute/chain.py": {
       "min_coverage_percent": 76.69,
