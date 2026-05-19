@@ -179,169 +179,136 @@ def test_contains_pandas_cudf_parity():
 
 
 
-def test_startswith_pandas_basic():
-    s = pd.Series(['Mouse', 'dog', 'house', 'Home'])
-    predicate = startswith('ho')
-    result = predicate(s)
-    expected = pd.Series([False, False, True, False])
-    pd.testing.assert_series_equal(result, expected)
+BACKENDS = [
+    "pandas",
+    pytest.param("cudf", marks=requires_cudf),
+]
+
+BOUNDARY_PREDICATES = [
+    (
+        "startswith",
+        startswith,
+        "ho",
+        ['Mouse', 'dog', 'house', 'Home'],
+        [False, False, True, False],
+    ),
+    (
+        "endswith",
+        endswith,
+        "se",
+        ['Mouse', 'dog', 'house', 'Home'],
+        [True, False, True, False],
+    ),
+]
 
 
-def test_startswith_pandas_na_handling():
-    s = pd.Series(['Mouse', None, 'house'])
-    predicate = startswith('ho')
-    result = predicate(s)
-    assert result[0] is False
-    assert pd.isna(result[1])
-    assert result[2] is True
-
-    # Test with na parameter
-    predicate = startswith('ho', na=False)
-    result = predicate(s)
-    expected = pd.Series([False, False, True])
-    pd.testing.assert_series_equal(result, expected)
-
-    # Test with na=True
-    predicate = startswith('ho', na=True)
-    result = predicate(s)
-    expected = pd.Series([False, True, True])
-    pd.testing.assert_series_equal(result, expected)
+def _series_for_backend(backend, data):
+    if backend == "cudf":
+        import cudf
+        return cudf.Series(data)
+    return pd.Series(data)
 
 
-def test_startswith_pandas_case_insensitive():
-    s = pd.Series(['John', 'john', 'JOHN', 'Jane'])
-    predicate = startswith('john', case=False)
-    result = predicate(s)
-    expected = pd.Series([True, True, True, False])
-    pd.testing.assert_series_equal(result, expected)
+def _to_pandas(result):
+    return result.to_pandas() if hasattr(result, "to_pandas") else result
 
 
-@requires_cudf
-def test_startswith_cudf_basic():
-    import cudf
-    s = cudf.Series(['Mouse', 'dog', 'house', 'Home'])
-    predicate = startswith('ho')
-    result = predicate(s)
-    expected = cudf.Series([False, False, True, False])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+def _assert_result_values(result, expected):
+    result = _to_pandas(result)
+    assert len(result) == len(expected)
+    for actual, expected_value in zip(result, expected):
+        if expected_value is None:
+            assert pd.isna(actual)
+        else:
+            assert bool(actual) is expected_value
 
 
-@requires_cudf
-def test_startswith_cudf_na_handling():
-    import cudf
-    s = cudf.Series(['Mouse', None, 'house'])
-
-    # Default NA handling
-    predicate = startswith('ho')
-    result = predicate(s).to_pandas()
-    assert result[0] is False
-    assert pd.isna(result[1])
-    assert result[2] is True
-
-    # NA=False
-    predicate = startswith('ho', na=False)
-    result = predicate(s)
-    expected = cudf.Series([False, False, True])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
-
-    # NA=True
-    predicate = startswith('ho', na=True)
-    result = predicate(s)
-    expected = cudf.Series([False, True, True])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize(
+    "name,predicate_factory,pat,data,expected",
+    BOUNDARY_PREDICATES,
+)
+def test_boundary_string_basic(
+    backend,
+    name,
+    predicate_factory,
+    pat,
+    data,
+    expected,
+):
+    s = _series_for_backend(backend, data)
+    result = predicate_factory(pat)(s)
+    _assert_result_values(result, expected)
 
 
-@requires_cudf
-def test_startswith_cudf_case_insensitive():
-    import cudf
-    s = cudf.Series(['John', 'john', 'JOHN', 'Jane'])
-    predicate = startswith('john', case=False)
-    result = predicate(s)
-    expected = cudf.Series([True, True, True, False])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize(
+    "name,predicate_factory,pat,data,expected",
+    [
+        (
+            "startswith",
+            startswith,
+            "john",
+            ['John', 'john', 'JOHN', 'Jane'],
+            [True, True, True, False],
+        ),
+        (
+            "endswith",
+            endswith,
+            ".com",
+            ['test.com', 'test.COM', 'test.Com', 'test.org'],
+            [True, True, True, False],
+        ),
+    ],
+)
+def test_boundary_string_case_insensitive(
+    backend,
+    name,
+    predicate_factory,
+    pat,
+    data,
+    expected,
+):
+    s = _series_for_backend(backend, data)
+    result = predicate_factory(pat, case=False)(s)
+    _assert_result_values(result, expected)
 
 
-
-def test_endswith_pandas_basic():
-    s = pd.Series(['Mouse', 'dog', 'house', 'Home'])
-    predicate = endswith('se')
-    result = predicate(s)
-    expected = pd.Series([True, False, True, False])
-    pd.testing.assert_series_equal(result, expected)
-
-
-def test_endswith_pandas_na_handling():
-    s = pd.Series(['Mouse', None, 'house'])
-    predicate = endswith('se')
-    result = predicate(s)
-    assert result[0] is True
-    assert pd.isna(result[1])
-    assert result[2] is True
-
-    # Test with na parameter
-    predicate = endswith('se', na=False)
-    result = predicate(s)
-    expected = pd.Series([True, False, True])
-    pd.testing.assert_series_equal(result, expected)
-
-    # Test with na=True
-    predicate = endswith('se', na=True)
-    result = predicate(s)
-    expected = pd.Series([True, True, True])
-    pd.testing.assert_series_equal(result, expected)
-
-
-def test_endswith_pandas_case_insensitive():
-    s = pd.Series(['test.com', 'test.COM', 'test.Com', 'test.org'])
-    predicate = endswith('.com', case=False)
-    result = predicate(s)
-    expected = pd.Series([True, True, True, False])
-    pd.testing.assert_series_equal(result, expected)
-
-
-@requires_cudf
-def test_endswith_cudf_basic():
-    import cudf
-    s = cudf.Series(['Mouse', 'dog', 'house', 'Home'])
-    predicate = endswith('se')
-    result = predicate(s)
-    expected = cudf.Series([True, False, True, False])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
-
-
-@requires_cudf
-def test_endswith_cudf_na_handling():
-    import cudf
-    s = cudf.Series(['Mouse', None, 'house'])
-
-    # Default NA handling
-    predicate = endswith('se')
-    result = predicate(s).to_pandas()
-    assert result[0] is True
-    assert pd.isna(result[1])
-    assert result[2] is True
-
-    # NA=False
-    predicate = endswith('se', na=False)
-    result = predicate(s)
-    expected = cudf.Series([True, False, True])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
-
-    # NA=True
-    predicate = endswith('se', na=True)
-    result = predicate(s)
-    expected = cudf.Series([True, True, True])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
-
-
-@requires_cudf
-def test_endswith_cudf_case_insensitive():
-    import cudf
-    s = cudf.Series(['test.com', 'test.COM', 'test.Com', 'test.org'])
-    predicate = endswith('.com', case=False)
-    result = predicate(s)
-    expected = cudf.Series([True, True, True, False])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize(
+    "name,predicate_factory,pat,expected_default,expected_false,expected_true",
+    [
+        (
+            "startswith",
+            startswith,
+            "ho",
+            [False, None, True],
+            [False, False, True],
+            [False, True, True],
+        ),
+        (
+            "endswith",
+            endswith,
+            "se",
+            [True, None, True],
+            [True, False, True],
+            [True, True, True],
+        ),
+    ],
+)
+def test_boundary_string_na_handling(
+    backend,
+    name,
+    predicate_factory,
+    pat,
+    expected_default,
+    expected_false,
+    expected_true,
+):
+    s = _series_for_backend(backend, ['Mouse', None, 'house'])
+    _assert_result_values(predicate_factory(pat)(s), expected_default)
+    _assert_result_values(predicate_factory(pat, na=False)(s), expected_false)
+    _assert_result_values(predicate_factory(pat, na=True)(s), expected_true)
 
 
 
@@ -675,383 +642,217 @@ def test_all_predicates_pandas_cudf_parity():
 
 
 
-def test_startswith_pandas_tuple_basic():
-    s = pd.Series(['apple', 'banana', 'apricot', 'orange', None])
-    predicate = startswith(('app', 'ban'))
-    result = predicate(s)
-    expected = pd.Series([True, True, False, False, None], dtype=object)
-    pd.testing.assert_series_equal(result, expected)
+TUPLE_CASES = [
+    (
+        "startswith",
+        startswith,
+        ('app', 'ban'),
+        ['apple', 'banana', 'apricot', 'orange', None],
+        {},
+        [True, True, False, False, None],
+    ),
+    (
+        "startswith",
+        startswith,
+        ('app', 'ban'),
+        ['Apple', 'BANANA', 'apricot', 'Orange', None],
+        {"case": False},
+        [True, True, False, False, None],
+    ),
+    (
+        "startswith",
+        startswith,
+        ('app', 'ban'),
+        ['apple', None, 'banana', 'orange'],
+        {},
+        [True, None, True, False],
+    ),
+    (
+        "startswith",
+        startswith,
+        ('app', 'ban'),
+        ['apple', None, 'banana', 'orange'],
+        {"na": False},
+        [True, False, True, False],
+    ),
+    (
+        "startswith",
+        startswith,
+        ('app', 'ban'),
+        ['apple', None, 'banana', 'orange'],
+        {"na": True},
+        [True, True, True, False],
+    ),
+    (
+        "startswith",
+        startswith,
+        ('app', 'ban'),
+        ['APPLE', None, 'Banana', 'orange'],
+        {"case": False, "na": False},
+        [True, False, True, False],
+    ),
+    (
+        "startswith",
+        startswith,
+        ('app',),
+        ['apple', 'apricot', 'banana'],
+        {},
+        [True, False, False],
+    ),
+    (
+        "startswith",
+        startswith,
+        (),
+        ['apple', 'banana', 'orange'],
+        {},
+        [False, False, False],
+    ),
+    (
+        "startswith",
+        startswith,
+        (),
+        ['apple', None, 'orange'],
+        {},
+        [False, None, False],
+    ),
+    (
+        "endswith",
+        endswith,
+        ('.txt', '.csv'),
+        ['test.txt', 'data.csv', 'config.txt', 'image.png', None],
+        {},
+        [True, True, True, False, None],
+    ),
+    (
+        "endswith",
+        endswith,
+        ('.txt', '.csv'),
+        ['test.TXT', 'data.CSV', 'config.txt', 'image.PNG', None],
+        {"case": False},
+        [True, True, True, False, None],
+    ),
+    (
+        "endswith",
+        endswith,
+        ('.txt', '.csv'),
+        ['test.txt', None, 'data.csv', 'image.png'],
+        {},
+        [True, None, True, False],
+    ),
+    (
+        "endswith",
+        endswith,
+        ('.txt', '.csv'),
+        ['test.txt', None, 'data.csv', 'image.png'],
+        {"na": False},
+        [True, False, True, False],
+    ),
+    (
+        "endswith",
+        endswith,
+        ('.txt', '.csv'),
+        ['test.txt', None, 'data.csv', 'image.png'],
+        {"na": True},
+        [True, True, True, False],
+    ),
+    (
+        "endswith",
+        endswith,
+        ('.txt', '.csv'),
+        ['test.TXT', None, 'data.CSV', 'image.png'],
+        {"case": False, "na": False},
+        [True, False, True, False],
+    ),
+    (
+        "endswith",
+        endswith,
+        ('.txt',),
+        ['test.txt', 'data.csv', 'config.txt'],
+        {},
+        [True, False, True],
+    ),
+    (
+        "endswith",
+        endswith,
+        (),
+        ['test.txt', 'data.csv', 'image.png'],
+        {},
+        [False, False, False],
+    ),
+    (
+        "endswith",
+        endswith,
+        (),
+        ['test.txt', None, 'image.png'],
+        {},
+        [False, None, False],
+    ),
+]
 
 
-def test_startswith_pandas_tuple_case_insensitive():
-    s = pd.Series(['Apple', 'BANANA', 'apricot', 'Orange', None])
-    predicate = startswith(('app', 'ban'), case=False)
-    result = predicate(s)
-    expected = pd.Series([True, True, False, False, None], dtype=object)
-    pd.testing.assert_series_equal(result, expected)
-
-
-def test_startswith_pandas_tuple_na_handling():
-    s = pd.Series(['apple', None, 'banana', 'orange'])
-
-    # Default NA handling
-    predicate = startswith(('app', 'ban'))
-    result = predicate(s)
-    assert result[0] is True
-    assert pd.isna(result[1])
-    assert result[2] is True
-    assert result[3] is False
-
-    # NA=False
-    predicate = startswith(('app', 'ban'), na=False)
-    result = predicate(s)
-    expected = pd.Series([True, False, True, False])
-    pd.testing.assert_series_equal(result, expected)
-
-    # NA=True
-    predicate = startswith(('app', 'ban'), na=True)
-    result = predicate(s)
-    expected = pd.Series([True, True, True, False])
-    pd.testing.assert_series_equal(result, expected)
-
-
-def test_startswith_pandas_tuple_case_na_combined():
-    s = pd.Series(['APPLE', None, 'Banana', 'orange'])
-    predicate = startswith(('app', 'ban'), case=False, na=False)
-    result = predicate(s)
-    expected = pd.Series([True, False, True, False])
-    pd.testing.assert_series_equal(result, expected)
-
-
-def test_startswith_pandas_single_element_tuple():
-    s = pd.Series(['apple', 'apricot', 'banana'])
-    predicate = startswith(('app',))
-    result = predicate(s)
-    expected = pd.Series([True, False, False])
-    pd.testing.assert_series_equal(result, expected)
-
-
-def test_startswith_pandas_empty_tuple():
-    s = pd.Series(['apple', 'banana', 'orange'])
-    predicate = startswith(())
-    result = predicate(s)
-    expected = pd.Series([False, False, False])
-    pd.testing.assert_series_equal(result, expected)
-
-
-def test_startswith_pandas_empty_tuple_na():
-    s = pd.Series(['apple', None, 'orange'])
-    predicate = startswith(())
-    result = predicate(s)
-    assert result[0] is False
-    assert pd.isna(result[1])
-    assert result[2] is False
-
-
-def test_endswith_pandas_tuple_basic():
-    s = pd.Series(['test.txt', 'data.csv', 'config.txt', 'image.png', None])
-    predicate = endswith(('.txt', '.csv'))
-    result = predicate(s)
-    expected = pd.Series([True, True, True, False, None], dtype=object)
-    pd.testing.assert_series_equal(result, expected)
-
-
-def test_endswith_pandas_tuple_case_insensitive():
-    s = pd.Series(['test.TXT', 'data.CSV', 'config.txt', 'image.PNG', None])
-    predicate = endswith(('.txt', '.csv'), case=False)
-    result = predicate(s)
-    expected = pd.Series([True, True, True, False, None], dtype=object)
-    pd.testing.assert_series_equal(result, expected)
-
-
-def test_endswith_pandas_tuple_na_handling():
-    s = pd.Series(['test.txt', None, 'data.csv', 'image.png'])
-
-    # Default NA handling
-    predicate = endswith(('.txt', '.csv'))
-    result = predicate(s)
-    assert result[0] is True
-    assert pd.isna(result[1])
-    assert result[2] is True
-    assert result[3] is False
-
-    # NA=False
-    predicate = endswith(('.txt', '.csv'), na=False)
-    result = predicate(s)
-    expected = pd.Series([True, False, True, False])
-    pd.testing.assert_series_equal(result, expected)
-
-    # NA=True
-    predicate = endswith(('.txt', '.csv'), na=True)
-    result = predicate(s)
-    expected = pd.Series([True, True, True, False])
-    pd.testing.assert_series_equal(result, expected)
-
-
-def test_endswith_pandas_tuple_case_na_combined():
-    s = pd.Series(['test.TXT', None, 'data.CSV', 'image.png'])
-    predicate = endswith(('.txt', '.csv'), case=False, na=False)
-    result = predicate(s)
-    expected = pd.Series([True, False, True, False])
-    pd.testing.assert_series_equal(result, expected)
-
-
-def test_endswith_pandas_single_element_tuple():
-    s = pd.Series(['test.txt', 'data.csv', 'config.txt'])
-    predicate = endswith(('.txt',))
-    result = predicate(s)
-    expected = pd.Series([True, False, True])
-    pd.testing.assert_series_equal(result, expected)
-
-
-def test_endswith_pandas_empty_tuple():
-    s = pd.Series(['test.txt', 'data.csv', 'image.png'])
-    predicate = endswith(())
-    result = predicate(s)
-    expected = pd.Series([False, False, False])
-    pd.testing.assert_series_equal(result, expected)
-
-
-def test_endswith_pandas_empty_tuple_na():
-    s = pd.Series(['test.txt', None, 'image.png'])
-    predicate = endswith(())
-    result = predicate(s)
-    assert result[0] is False
-    assert pd.isna(result[1])
-    assert result[2] is False
-
-
-@requires_cudf
-def test_startswith_cudf_tuple_basic():
-    import cudf
-    s = cudf.Series(['apple', 'banana', 'apricot', 'orange', None])
-    predicate = startswith(('app', 'ban'))
-    result = predicate(s)
-    expected = cudf.Series([True, True, False, False, None])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
-
-
-@requires_cudf
-def test_startswith_cudf_tuple_case_insensitive():
-    import cudf
-    s = cudf.Series(['Apple', 'BANANA', 'apricot', 'Orange', None])
-    predicate = startswith(('app', 'ban'), case=False)
-    result = predicate(s)
-    expected = cudf.Series([True, True, False, False, None])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
-
-
-@requires_cudf
-def test_startswith_cudf_tuple_na_handling():
-    import cudf
-    s = cudf.Series(['apple', None, 'banana', 'orange'])
-
-    # Default NA handling
-    predicate = startswith(('app', 'ban'))
-    result = predicate(s).to_pandas()
-    assert result[0] is True
-    assert pd.isna(result[1])
-    assert result[2] is True
-    assert result[3] is False
-
-    # NA=False
-    predicate = startswith(('app', 'ban'), na=False)
-    result = predicate(s)
-    expected = cudf.Series([True, False, True, False])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
-
-    # NA=True
-    predicate = startswith(('app', 'ban'), na=True)
-    result = predicate(s)
-    expected = cudf.Series([True, True, True, False])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize(
+    "name,predicate_factory,pat,data,kwargs,expected",
+    TUPLE_CASES,
+)
+def test_boundary_string_tuple_cases(
+    backend,
+    name,
+    predicate_factory,
+    pat,
+    data,
+    kwargs,
+    expected,
+):
+    s = _series_for_backend(backend, data)
+    result = predicate_factory(pat, **kwargs)(s)
+    _assert_result_values(result, expected)
 
 
 @requires_cudf
-def test_startswith_cudf_tuple_case_na_combined():
-    import cudf
-    s = cudf.Series(['APPLE', None, 'Banana', 'orange'])
-    predicate = startswith(('app', 'ban'), case=False, na=False)
-    result = predicate(s)
-    expected = cudf.Series([True, False, True, False])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
-
-
-@requires_cudf
-def test_startswith_cudf_single_element_tuple():
-    import cudf
-    s = cudf.Series(['apple', 'apricot', 'banana'])
-    predicate = startswith(('app',))
-    result = predicate(s)
-    expected = cudf.Series([True, False, False])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
-
-
-@requires_cudf
-def test_startswith_cudf_empty_tuple():
-    import cudf
-    s = cudf.Series(['apple', 'banana', 'orange'])
-    predicate = startswith(())
-    result = predicate(s)
-    expected = cudf.Series([False, False, False])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
-
-
-@requires_cudf
-def test_startswith_cudf_empty_tuple_na():
-    import cudf
-    s = cudf.Series(['apple', None, 'orange'])
-    predicate = startswith(())
-    result = predicate(s).to_pandas()
-    assert result[0] is False
-    assert pd.isna(result[1])
-    assert result[2] is False
-
-
-@requires_cudf
-def test_endswith_cudf_tuple_basic():
-    import cudf
-    s = cudf.Series(['test.txt', 'data.csv', 'config.txt', 'image.png', None])
-    predicate = endswith(('.txt', '.csv'))
-    result = predicate(s)
-    expected = cudf.Series([True, True, True, False, None])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
-
-
-@requires_cudf
-def test_endswith_cudf_tuple_case_insensitive():
-    import cudf
-    s = cudf.Series(['test.TXT', 'data.CSV', 'config.txt', 'image.PNG', None])
-    predicate = endswith(('.txt', '.csv'), case=False)
-    result = predicate(s)
-    expected = cudf.Series([True, True, True, False, None])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
-
-
-@requires_cudf
-def test_endswith_cudf_tuple_na_handling():
-    import cudf
-    s = cudf.Series(['test.txt', None, 'data.csv', 'image.png'])
-
-    # Default NA handling
-    predicate = endswith(('.txt', '.csv'))
-    result = predicate(s).to_pandas()
-    assert result[0] is True
-    assert pd.isna(result[1])
-    assert result[2] is True
-    assert result[3] is False
-
-    # NA=False
-    predicate = endswith(('.txt', '.csv'), na=False)
-    result = predicate(s)
-    expected = cudf.Series([True, False, True, False])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
-
-    # NA=True
-    predicate = endswith(('.txt', '.csv'), na=True)
-    result = predicate(s)
-    expected = cudf.Series([True, True, True, False])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
-
-
-@requires_cudf
-def test_endswith_cudf_tuple_case_na_combined():
-    import cudf
-    s = cudf.Series(['test.TXT', None, 'data.CSV', 'image.png'])
-    predicate = endswith(('.txt', '.csv'), case=False, na=False)
-    result = predicate(s)
-    expected = cudf.Series([True, False, True, False])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
-
-
-@requires_cudf
-def test_endswith_cudf_single_element_tuple():
-    import cudf
-    s = cudf.Series(['test.txt', 'data.csv', 'config.txt'])
-    predicate = endswith(('.txt',))
-    result = predicate(s)
-    expected = cudf.Series([True, False, True])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
-
-
-@requires_cudf
-def test_endswith_cudf_empty_tuple():
-    import cudf
-    s = cudf.Series(['test.txt', 'data.csv', 'image.png'])
-    predicate = endswith(())
-    result = predicate(s)
-    expected = cudf.Series([False, False, False])
-    pd.testing.assert_series_equal(result.to_pandas(), expected.to_pandas())
-
-
-@requires_cudf
-def test_endswith_cudf_empty_tuple_na():
-    import cudf
-    s = cudf.Series(['test.txt', None, 'image.png'])
-    predicate = endswith(())
-    result = predicate(s).to_pandas()
-    assert result[0] is False
-    assert pd.isna(result[1])
-    assert result[2] is False
-
-
-@requires_cudf
-def test_startswith_parity_tuple_all_combinations():
+@pytest.mark.parametrize(
+    "name,predicate_factory,data,pat",
+    [
+        (
+            "startswith",
+            startswith,
+            ['Apple', 'banana', None, 'application', 'orange', 'BANANA'],
+            ('app', 'ban'),
+        ),
+        (
+            "endswith",
+            endswith,
+            ['test.TXT', 'data.csv', None, 'config.txt', 'image.png', 'doc.CSV'],
+            ('.txt', '.csv'),
+        ),
+    ],
+)
+def test_boundary_string_tuple_pandas_cudf_parity(
+    name,
+    predicate_factory,
+    data,
+    pat,
+):
     import cudf
 
-    # Test data - using patterns that match for better testing
-    data = ['Apple', 'banana', None, 'application', 'orange', 'BANANA']
     s_pandas = pd.Series(data)
     s_cudf = cudf.Series(data)
 
-    # Test all combinations
     test_cases = [
-        startswith(('app', 'ban')),
-        startswith(('app', 'ban'), case=False),
-        startswith(('app', 'ban'), na=False),
-        startswith(('app', 'ban'), na=True),
-        startswith(('app', 'ban'), case=False, na=False),
-        startswith(('app', 'ban'), case=False, na=True),
-        startswith(('app',)),  # Single element
-        startswith(()),  # Empty tuple
+        predicate_factory(pat),
+        predicate_factory(pat, case=False),
+        predicate_factory(pat, na=False),
+        predicate_factory(pat, na=True),
+        predicate_factory(pat, case=False, na=False),
+        predicate_factory(pat, case=False, na=True),
+        predicate_factory((pat[0],)),
+        predicate_factory(()),
     ]
 
     for predicate in test_cases:
         result_pandas = predicate(s_pandas)
         result_cudf = predicate(s_cudf).to_pandas()
-
         try:
             pd.testing.assert_series_equal(result_pandas, result_cudf)
         except AssertionError as e:
-            pytest.fail(f"Parity check failed for {predicate}: {e}")
-
-
-@requires_cudf
-def test_endswith_parity_tuple_all_combinations():
-    import cudf
-
-    # Test data with various edge cases
-    data = ['test.TXT', 'data.csv', None, 'config.txt', 'image.png', 'doc.CSV']
-    s_pandas = pd.Series(data)
-    s_cudf = cudf.Series(data)
-
-    # Test all combinations
-    test_cases = [
-        endswith(('.txt', '.csv')),
-        endswith(('.txt', '.csv'), case=False),
-        endswith(('.txt', '.csv'), na=False),
-        endswith(('.txt', '.csv'), na=True),
-        endswith(('.txt', '.csv'), case=False, na=False),
-        endswith(('.txt', '.csv'), case=False, na=True),
-        endswith(('.txt',)),  # Single element
-        endswith(()),  # Empty tuple
-    ]
-
-    for predicate in test_cases:
-        result_pandas = predicate(s_pandas)
-        result_cudf = predicate(s_cudf).to_pandas()
-
-        try:
-            pd.testing.assert_series_equal(result_pandas, result_cudf)
-        except AssertionError as e:
-            pytest.fail(f"Parity check failed for {predicate}: {e}")
+            pytest.fail(f"Parity check failed for {name} {predicate}: {e}")

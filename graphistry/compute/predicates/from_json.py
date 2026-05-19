@@ -22,7 +22,7 @@ predicates : List[Type[ASTPredicate]] = [
     AllOf,
     GT, LT, GE, LE, EQ, NE, Between, IsNA, NotNA,
     Contains, Startswith, Endswith, Match, Fullmatch, IsNumeric, IsAlpha, IsDecimal, IsDigit, IsLower, IsUpper,
-    IsSpace, IsAlnum, IsDecimal, IsTitle, IsNull, NotNull,
+    IsSpace, IsAlnum, IsTitle, IsNull, NotNull,
     IsMonthStart, IsMonthEnd, IsQuarterStart, IsQuarterEnd,
     IsYearStart, IsYearEnd, IsLeapYear
 ]
