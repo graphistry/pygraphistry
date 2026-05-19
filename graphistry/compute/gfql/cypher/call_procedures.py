@@ -1127,13 +1127,9 @@ def _write_only_igraph_row_error(compiled_call: CompiledCypherProcedureCall) -> 
     )
 
 
-def _execute_graph_call(base_graph: Plottable, compiled_call: CompiledCypherProcedureCall) -> Plottable:
-    return _execute_backend_call(base_graph, compiled_call)
-
-
 def execute_cypher_call(base_graph: Plottable, compiled_call: CompiledCypherProcedureCall) -> Plottable:
     if compiled_call.result_kind == "graph":
-        return _execute_graph_call(base_graph, compiled_call)
+        return _execute_backend_call(base_graph, compiled_call)
 
     if compiled_call.backend == "degree":
         default_rows = _degree_rows(base_graph)
