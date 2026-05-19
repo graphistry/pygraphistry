@@ -246,6 +246,8 @@ class DFSamePathExecutor:
         with otel_span("gfql.df_executor.materialize"):
             return materialize_filtered(self, state)
 
+    _run_gpu = _run_native
+
     def _update_alias_frames_from_oracle(self, tags: Dict[str, Any]) -> None:
         for alias, binding in self.inputs.alias_bindings.items():
             if alias not in tags or binding.step_index >= len(self.forward_steps):
