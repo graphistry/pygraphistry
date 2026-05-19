@@ -5,7 +5,8 @@ LogicalPlan while assigning stable operator IDs.
 """
 from __future__ import annotations
 
-from typing import Dict, FrozenSet, Iterable, Literal, Mapping, Optional
+from itertools import count
+from typing import Callable, Dict, FrozenSet, Iterable, Literal, Mapping, Optional
 
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.defer_codes import (
@@ -27,18 +28,6 @@ from graphistry.compute.gfql.ir.logical_plan import (
 from graphistry.compute.gfql.ir.types import EdgeRef, LogicalType, NodeRef, PathType, ScalarType
 
 
-class IdGen:
-    """Monotonic plan-local operator id generator."""
-
-    def __init__(self, start: int = 1) -> None:
-        self._next = start
-
-    def next(self) -> int:
-        value = self._next
-        self._next += 1
-        return value
-
-
 class LogicalPlanner:
     """Initial planner skeleton from BoundIR to LogicalPlan."""
 
@@ -48,7 +37,7 @@ class LogicalPlanner:
     def plan(self, bound_ir: BoundIR, ctx: PlanContext) -> LogicalPlan:
         """Build a minimal logical plan root for supported M2 skeleton shapes."""
         _ = ctx
-        id_gen = IdGen()
+        id_gen = count(1).__next__
         current: Optional[LogicalPlan] = None
         vars_by_name = bound_ir.semantic_table.variables
         seen_match = False
@@ -126,7 +115,7 @@ class LogicalPlanner:
                 current = self._plan_projection(part=part, current=current, vars_by_name=part_vars, id_gen=id_gen)
                 if part.metadata.get("distinct", False):
                     current = Distinct(
-                        op_id=id_gen.next(),
+                        op_id=id_gen(),
                         input=current,
                         output_schema=current.output_schema,
                     )
@@ -145,7 +134,7 @@ class LogicalPlanner:
 
         if current is None:
             # Keep fallback deterministic for empty / unsupported skeleton inputs.
-            current = Project(op_id=id_gen.next(), expressions=[], output_schema=RowSchema(columns={}))
+            current = Project(op_id=id_gen(), expressions=[], output_schema=RowSchema(columns={}))
 
         return current
 
@@ -154,7 +143,7 @@ class LogicalPlanner:
         *,
         part: BoundQueryPart,
         vars_by_name: Mapping[str, BoundVariable],
-        id_gen: IdGen,
+        id_gen: Callable[[], int],
         optional: bool = False,
         input: Optional[LogicalPlan] = None,
         arm_id: Optional[str] = None,
@@ -165,12 +154,12 @@ class LogicalPlanner:
             variable = vars_by_name.get(aliases[0])
             if variable is not None and variable.entity_kind == "node":
                 return NodeScan(
-                    op_id=id_gen.next(),
+                    op_id=id_gen(),
                     label=self._first_node_label(var_names=aliases, vars_by_name=vars_by_name),
                     output_schema=schema,
                 )
         return PatternMatch(
-            op_id=id_gen.next(),
+            op_id=id_gen(),
             pattern={"aliases": tuple(aliases)},
             input=input,
             optional=optional,
@@ -228,7 +217,7 @@ class LogicalPlanner:
         part: BoundQueryPart,
         current: Optional[LogicalPlan],
         vars_by_name: Mapping[str, BoundVariable],
-        id_gen: IdGen,
+        id_gen: Callable[[], int],
     ) -> LogicalPlan:
         return self._apply_predicates(part=part, current=current, vars_by_name=vars_by_name, id_gen=id_gen)
 
@@ -238,7 +227,7 @@ class LogicalPlanner:
         part: BoundQueryPart,
         current: Optional[LogicalPlan],
         vars_by_name: Mapping[str, BoundVariable],
-        id_gen: IdGen,
+        id_gen: Callable[[], int],
     ) -> LogicalPlan:
         aliases = (
             self._match_aliases_for_part(part, vars_by_name=vars_by_name)
@@ -248,11 +237,11 @@ class LogicalPlanner:
         node = (
             current
             if current is not None
-            else NodeScan(op_id=id_gen.next(), label="", output_schema=RowSchema(columns={}))
+            else NodeScan(op_id=id_gen(), label="", output_schema=RowSchema(columns={}))
         )
         for predicate in part.predicates:
             node = Filter(
-                op_id=id_gen.next(),
+                op_id=id_gen(),
                 input=node,
                 predicate=predicate,
                 output_schema=self._schema_for_aliases(alias_names=aliases, vars_by_name=vars_by_name),
@@ -265,11 +254,11 @@ class LogicalPlanner:
         part: BoundQueryPart,
         current: Optional[LogicalPlan],
         vars_by_name: Mapping[str, BoundVariable],
-        id_gen: IdGen,
+        id_gen: Callable[[], int],
     ) -> LogicalPlan:
         expressions = sorted(part.outputs)
         return Project(
-            op_id=id_gen.next(),
+            op_id=id_gen(),
             input=current,
             expressions=expressions,
             output_schema=self._projection_output_schema(part=part, current=current, vars_by_name=vars_by_name),
@@ -281,7 +270,7 @@ class LogicalPlanner:
         part: BoundQueryPart,
         current: Optional[LogicalPlan],
         vars_by_name: Mapping[str, BoundVariable],
-        id_gen: IdGen,
+        id_gen: Callable[[], int],
     ) -> LogicalPlan:
         unwind_var = self._unwind_alias(part)
         list_expr = part.metadata.get("expression", "")
@@ -296,7 +285,7 @@ class LogicalPlanner:
                 suggestion="Use binder-emitted UNWIND parts with expression metadata or list predicate expression.",
             )
         return Unwind(
-            op_id=id_gen.next(),
+            op_id=id_gen(),
             input=current,
             list_expr=list_expr,
             variable=unwind_var,
