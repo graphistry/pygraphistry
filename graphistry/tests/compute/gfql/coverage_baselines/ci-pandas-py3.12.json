@@ -15,215 +15,47 @@
   ],
   "tolerance_percent": 0.05,
   "files": {
-    "graphistry/compute/ast.py": {
-      "min_coverage_percent": 74.41,
-      "statements": 590,
-      "covered_lines": 439
-    },
-    "graphistry/compute/ast_temporal.py": {
-      "min_coverage_percent": 95.09,
-      "statements": 102,
-      "covered_lines": 97
-    },
-    "graphistry/compute/chain.py": {
-      "min_coverage_percent": 76.69,
-      "statements": 635,
-      "covered_lines": 487
-    },
-    "graphistry/compute/chain_let.py": {
-      "min_coverage_percent": 70.21,
-      "statements": 282,
-      "covered_lines": 198
-    },
-    "graphistry/compute/gfql/cypher/__init__.py": {
-      "min_coverage_percent": 100.0,
-      "statements": 21,
-      "covered_lines": 21
-    },
-    "graphistry/compute/gfql/cypher/_boolean_expr_text.py": {
-      "min_coverage_percent": 97.06,
-      "statements": 34,
-      "covered_lines": 33
-    },
-    "graphistry/compute/gfql/cypher/api.py": {
-      "min_coverage_percent": 89.29,
-      "statements": 28,
-      "covered_lines": 25
-    },
-    "graphistry/compute/gfql/cypher/ast.py": {
-      "min_coverage_percent": 99.02,
-      "statements": 204,
-      "covered_lines": 202
-    },
-    "graphistry/compute/gfql/cypher/ast_normalizer.py": {
-      "min_coverage_percent": 77.31,
-      "statements": 216,
-      "covered_lines": 167
-    },
-    "graphistry/compute/gfql/cypher/call_procedures.py": {
-      "min_coverage_percent": 56.14,
-      "statements": 529,
-      "covered_lines": 297
-    },
-    "graphistry/compute/gfql/cypher/lowering.py": {
-      "min_coverage_percent": 89.05,
-      "statements": 3269,
-      "covered_lines": 2911
-    },
-    "graphistry/compute/gfql/cypher/parser.py": {
-      "min_coverage_percent": 88.35,
-      "statements": 944,
-      "covered_lines": 834
-    },
-    "graphistry/compute/gfql/cypher/projection_planning.py": {
-      "min_coverage_percent": 80.78,
-      "statements": 281,
-      "covered_lines": 227
-    },
-    "graphistry/compute/gfql/cypher/reentry/__init__.py": {
-      "min_coverage_percent": 100.0,
-      "statements": 1,
-      "covered_lines": 1
-    },
-    "graphistry/compute/gfql/cypher/reentry/carry.py": {
-      "min_coverage_percent": 82.05,
-      "statements": 78,
-      "covered_lines": 64
-    },
-    "graphistry/compute/gfql/cypher/reentry/compiletime.py": {
-      "min_coverage_percent": 85.48,
-      "statements": 248,
-      "covered_lines": 212
-    },
-    "graphistry/compute/gfql/cypher/reentry/execution.py": {
-      "min_coverage_percent": 85.66,
-      "statements": 258,
-      "covered_lines": 221
-    },
-    "graphistry/compute/gfql/cypher/reentry/flatten.py": {
-      "min_coverage_percent": 94.05,
-      "statements": 84,
-      "covered_lines": 79
-    },
-    "graphistry/compute/gfql/cypher/reentry/lowering_support.py": {
-      "min_coverage_percent": 88.38,
-      "statements": 241,
-      "covered_lines": 213
-    },
-    "graphistry/compute/gfql/cypher/reentry/naming.py": {
-      "min_coverage_percent": 100.0,
-      "statements": 10,
-      "covered_lines": 10
-    },
-    "graphistry/compute/gfql/cypher/reentry/rewrite.py": {
-      "min_coverage_percent": 92.63,
-      "statements": 95,
-      "covered_lines": 88
-    },
-    "graphistry/compute/gfql/cypher/reentry/scope.py": {
-      "min_coverage_percent": 78.72,
-      "statements": 94,
-      "covered_lines": 74
-    },
-    "graphistry/compute/gfql/cypher/reentry_plan.py": {
-      "min_coverage_percent": 100.0,
-      "statements": 26,
-      "covered_lines": 26
-    },
-    "graphistry/compute/gfql/cypher/result_postprocess.py": {
-      "min_coverage_percent": 60.62,
-      "statements": 320,
-      "covered_lines": 194
-    },
-    "graphistry/compute/gfql/cypher/shortest_path_guards.py": {
-      "min_coverage_percent": 77.08,
-      "statements": 48,
-      "covered_lines": 37
-    },
-    "graphistry/compute/gfql/row/__init__.py": {
-      "min_coverage_percent": 100.0,
-      "statements": 2,
-      "covered_lines": 2
-    },
-    "graphistry/compute/gfql/row/dispatch.py": {
-      "min_coverage_percent": 62.5,
-      "statements": 32,
-      "covered_lines": 20
-    },
-    "graphistry/compute/gfql/row/entity_props.py": {
-      "min_coverage_percent": 79.74,
-      "statements": 306,
-      "covered_lines": 244
-    },
-    "graphistry/compute/gfql/row/entity_text.py": {
-      "min_coverage_percent": 54.47,
-      "statements": 123,
-      "covered_lines": 67
-    },
-    "graphistry/compute/gfql/row/frame_ops.py": {
-      "min_coverage_percent": 66.4,
-      "statements": 125,
-      "covered_lines": 83
-    },
-    "graphistry/compute/gfql/row/order_expr.py": {
-      "min_coverage_percent": 81.08,
-      "statements": 37,
-      "covered_lines": 30
-    },
-    "graphistry/compute/gfql/row/ordering.py": {
-      "min_coverage_percent": 83.92,
-      "statements": 367,
-      "covered_lines": 308
-    },
-    "graphistry/compute/gfql/row/pipeline.py": {
-      "min_coverage_percent": 70.3,
-      "statements": 3313,
-      "covered_lines": 2329
-    },
-    "graphistry/compute/gfql/temporal/__init__.py": {
-      "min_coverage_percent": 100.0,
-      "statements": 0,
-      "covered_lines": 0
-    },
-    "graphistry/compute/gfql/temporal/constructors.py": {
-      "min_coverage_percent": 86.06,
-      "statements": 753,
-      "covered_lines": 648
-    },
-    "graphistry/compute/gfql/temporal/durations.py": {
-      "min_coverage_percent": 75.47,
-      "statements": 265,
-      "covered_lines": 200
-    },
-    "graphistry/compute/gfql/temporal/folding.py": {
-      "min_coverage_percent": 90.0,
-      "statements": 110,
-      "covered_lines": 99
-    },
-    "graphistry/compute/gfql/temporal/rendering.py": {
-      "min_coverage_percent": 69.7,
-      "statements": 33,
-      "covered_lines": 23
-    },
-    "graphistry/compute/gfql/temporal/truncation.py": {
-      "min_coverage_percent": 76.92,
-      "statements": 156,
-      "covered_lines": 120
-    },
-    "graphistry/compute/gfql/temporal/values.py": {
-      "min_coverage_percent": 88.0,
-      "statements": 150,
-      "covered_lines": 132
-    },
-    "graphistry/compute/gfql/temporal_text.py": {
-      "min_coverage_percent": 61.11,
-      "statements": 18,
-      "covered_lines": 11
-    },
-    "graphistry/compute/gfql_unified.py": {
-      "min_coverage_percent": 79.52,
-      "statements": 708,
-      "covered_lines": 563
-    }
+    "graphistry/compute/ast.py": 74.41,
+    "graphistry/compute/ast_temporal.py": 95.09,
+    "graphistry/compute/chain.py": 76.69,
+    "graphistry/compute/chain_let.py": 70.21,
+    "graphistry/compute/gfql/cypher/__init__.py": 100.0,
+    "graphistry/compute/gfql/cypher/_boolean_expr_text.py": 97.06,
+    "graphistry/compute/gfql/cypher/api.py": 89.29,
+    "graphistry/compute/gfql/cypher/ast.py": 99.02,
+    "graphistry/compute/gfql/cypher/ast_normalizer.py": 77.31,
+    "graphistry/compute/gfql/cypher/call_procedures.py": 56.14,
+    "graphistry/compute/gfql/cypher/lowering.py": 89.05,
+    "graphistry/compute/gfql/cypher/parser.py": 88.35,
+    "graphistry/compute/gfql/cypher/projection_planning.py": 80.78,
+    "graphistry/compute/gfql/cypher/reentry/__init__.py": 100.0,
+    "graphistry/compute/gfql/cypher/reentry/carry.py": 82.05,
+    "graphistry/compute/gfql/cypher/reentry/compiletime.py": 85.48,
+    "graphistry/compute/gfql/cypher/reentry/execution.py": 85.66,
+    "graphistry/compute/gfql/cypher/reentry/flatten.py": 94.05,
+    "graphistry/compute/gfql/cypher/reentry/lowering_support.py": 88.38,
+    "graphistry/compute/gfql/cypher/reentry/naming.py": 100.0,
+    "graphistry/compute/gfql/cypher/reentry/rewrite.py": 92.63,
+    "graphistry/compute/gfql/cypher/reentry/scope.py": 78.72,
+    "graphistry/compute/gfql/cypher/reentry_plan.py": 100.0,
+    "graphistry/compute/gfql/cypher/result_postprocess.py": 60.62,
+    "graphistry/compute/gfql/cypher/shortest_path_guards.py": 77.08,
+    "graphistry/compute/gfql/row/__init__.py": 100.0,
+    "graphistry/compute/gfql/row/dispatch.py": 62.5,
+    "graphistry/compute/gfql/row/entity_props.py": 79.74,
+    "graphistry/compute/gfql/row/entity_text.py": 54.47,
+    "graphistry/compute/gfql/row/frame_ops.py": 66.4,
+    "graphistry/compute/gfql/row/order_expr.py": 81.08,
+    "graphistry/compute/gfql/row/ordering.py": 83.92,
+    "graphistry/compute/gfql/row/pipeline.py": 70.3,
+    "graphistry/compute/gfql/temporal/__init__.py": 100.0,
+    "graphistry/compute/gfql/temporal/constructors.py": 86.06,
+    "graphistry/compute/gfql/temporal/durations.py": 75.47,
+    "graphistry/compute/gfql/temporal/folding.py": 90.0,
+    "graphistry/compute/gfql/temporal/rendering.py": 69.7,
+    "graphistry/compute/gfql/temporal/truncation.py": 76.92,
+    "graphistry/compute/gfql/temporal/values.py": 88.0,
+    "graphistry/compute/gfql/temporal_text.py": 61.11,
+    "graphistry/compute/gfql_unified.py": 79.52
   }
 }
