@@ -174,3 +174,22 @@ def test_load_baseline_accepts_object_schema(tmp_path: Path) -> None:
 
     assert files == {"graphistry/compute/gfql/cypher/parser.py": 85.25}
     assert tolerance == 0.25
+
+
+def test_load_baseline_accepts_numeric_schema(tmp_path: Path) -> None:
+    module = _load_module()
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(
+        json.dumps(
+            {
+                "tolerance_percent": 0.25,
+                "files": {"graphistry/compute/gfql/cypher/parser.py": 85.25},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    files, tolerance = module._load_baseline(str(baseline))
+
+    assert files == {"graphistry/compute/gfql/cypher/parser.py": 85.25}
+    assert tolerance == 0.25

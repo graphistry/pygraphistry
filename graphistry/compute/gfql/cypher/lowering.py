@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields as _dataclass_fields, replace
+from dataclasses import dataclass, field, replace
 import math
 import re
-from typing import AbstractSet, Any, Callable, Dict, FrozenSet, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
+from typing import AbstractSet, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 from typing_extensions import Literal
 import pandas as pd
 
@@ -79,9 +79,8 @@ from graphistry.compute.gfql.expr_parser import (
     parse_expr,
     walk_expr_nodes,
 )
-from graphistry.compute.gfql.cypher.reentry_plan import CarriedAlias, ReentryPlan
+from graphistry.compute.gfql.cypher.reentry_plan import ReentryPlan
 from graphistry.compute.gfql.cypher.ast import (
-    CallClause,
     BooleanExpr,
     CypherGraphQuery,
     CypherLiteral,
@@ -91,7 +90,6 @@ from graphistry.compute.gfql.cypher.ast import (
     GraphBinding,
     GraphConstructor,
     LabelRef,
-    LimitClause,
     MatchClause,
     NodePattern,
     ParameterRef,
@@ -6422,7 +6420,6 @@ def _lower_general_row_projection(
     *,
     params: Optional[Mapping[str, Any]],
     bound_visible_aliases: AbstractSet[str] = frozenset(),
-    bound_nullable_aliases: AbstractSet[str] = frozenset(),
     semantic_entity_kinds: Optional[Mapping[str, Literal["node", "edge", "scalar"]]] = None,
 ) -> CompiledCypherQuery:
     alias_targets = _alias_target(lowered.query) if query.match is not None else {}
@@ -8080,7 +8077,6 @@ def compile_cypher_query(
             lowered,
             params=params,
             bound_visible_aliases=bound_context.visible_aliases,
-            bound_nullable_aliases=bound_context.nullable_aliases,
             semantic_entity_kinds=bound_context.entity_kinds,
         )
 
