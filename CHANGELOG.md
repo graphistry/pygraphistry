@@ -69,6 +69,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Internal
 - **GFQL planner/IR cleanup tranche (#1542)**: Removed the private logical-planner `IdGen` helper, removed a redundant physical-planner child traversal delegator, deleted duplicate physical-planner skeleton tests, and consolidated logical-planner unit coverage while preserving runtime planner behavior.
+- **GFQL / Cypher parser/lowering test dedupe tranche (#1538)**: Consolidated duplicated parser/lowering regression tests, removed stale private parser-helper ownership assertions, and trimmed obsolete regression-comment boilerplate while preserving public parser/lowering behavior coverage.
 - **GFQL / Cypher result postprocess helper cleanup (#1522)**: Removed duplicated private result-projection formatting helpers from `graphistry.compute.gfql.cypher.result_postprocess` by reusing the shared row-entity formatting helpers already owned by `graphistry.compute.gfql.row.entity_props`. Runtime behavior is unchanged.
 - **Compute hop safe merge cleanup (#1166)**: Replaced the remaining direct hop output/min-hop `.merge()` calls with the engine-aware `safe_merge()` helper, aligning edge hydration with the existing node hydration path without changing hop semantics.
 - **GFQL / row pipeline cleanup tranche (#1523)**: Removed private RowPipelineMixin frame-op call-through wrappers now owned by `graphistry.compute.gfql.row.frame_ops` and DRYed duplicated row-pipeline/direct-Cypher tests while preserving the public row-pipeline dispatch surface and GFQL behavior.
