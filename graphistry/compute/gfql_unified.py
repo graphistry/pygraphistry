@@ -63,13 +63,7 @@ from graphistry.compute.dataframe import (
 )
 from graphistry.compute.gfql.ir.compilation import PhysicalPlan, PlanContext
 from graphistry.compute.gfql.ir.logical_plan import LogicalPlan
-from graphistry.compute.gfql.physical_planner import (
-    PhysicalPlanner,
-    ProcedureCallExecutorWrapper,
-    RowPipelineExecutorWrapper,
-    SamePathExecutorWrapper,
-    WavefrontExecutorWrapper,
-)
+from graphistry.compute.gfql.physical_planner import PhysicalPlanner
 from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager
 from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
 from graphistry.compute.typing import DataFrameT, SeriesT
@@ -751,17 +745,6 @@ def _execute_compiled_query_via_physical_plan(
     connected_match_join = None if compiled_extras is None else compiled_extras.connected_match_join
     connected_optional_match = None if compiled_extras is None else compiled_extras.connected_optional_match
 
-    if len(physical_plan.operators) != 1:
-        raise GFQLValidationError(
-            ErrorCode.E108,
-            "PhysicalPlan currently requires exactly one operator wrapper in this lane",
-            field="physical_plan.operators",
-            value=len(physical_plan.operators),
-            suggestion="Use a covered single-operator M3 route or extend the runtime dispatcher.",
-            language="cypher",
-        )
-
-    operator = physical_plan.operators[0]
     if connected_match_join is not None:
         return _apply_connected_match_join(
             base_graph,
@@ -780,7 +763,7 @@ def _execute_compiled_query_via_physical_plan(
             context=context,
         )
 
-    if isinstance(operator, (SamePathExecutorWrapper, RowPipelineExecutorWrapper)):
+    if physical_plan.route in ("same_path", "row_pipeline"):
         return _execute_compiled_query_chain_non_union(
             base_graph,
             compiled_query=compiled_query,
@@ -790,7 +773,7 @@ def _execute_compiled_query_via_physical_plan(
             start_nodes=start_nodes,
         )
 
-    if isinstance(operator, ProcedureCallExecutorWrapper):
+    if physical_plan.route == "procedure_call":
         if compiled_query.procedure_call is None:
             raise GFQLValidationError(
                 ErrorCode.E108,
@@ -811,7 +794,7 @@ def _execute_compiled_query_via_physical_plan(
             start_nodes=start_nodes,
         )
 
-    if isinstance(operator, WavefrontExecutorWrapper):
+    if physical_plan.route == "wavefront":
         raise GFQLValidationError(
             ErrorCode.E108,
             "Cypher wavefront physical route selected but compiled query has no connected join payload to execute",
@@ -823,10 +806,10 @@ def _execute_compiled_query_via_physical_plan(
 
     raise GFQLValidationError(
         ErrorCode.E108,
-        "Cypher physical plan produced an unknown operator wrapper",
-        field="physical_plan.operator",
-        value=type(operator).__name__,
-        suggestion="Use a covered M3 wrapper type or extend the runtime dispatcher.",
+        "Cypher physical plan produced an unknown route",
+        field="physical_plan.route",
+        value=physical_plan.route,
+        suggestion="Use a covered M3 route or extend the runtime dispatcher.",
         language="cypher",
     )
 
