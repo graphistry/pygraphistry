@@ -1,4 +1,4 @@
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 import re
 
 import pandas as pd
@@ -572,9 +572,18 @@ def fullmatch(
     return Fullmatch(pat, case, flags, na)
 
 
-class IsNumeric(ASTPredicate):
+class _CallablePredicate(ASTPredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        raise NotImplementedError()
 
     def __call__(self, s: SeriesT) -> SeriesT:
+        return cast(SeriesT, type(self).predicate(s))
+
+
+class IsNumeric(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.str.isnumeric()
 
 
@@ -585,9 +594,9 @@ def isnumeric() -> IsNumeric:
     return IsNumeric()
 
 
-class IsAlpha(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class IsAlpha(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.str.isalpha()
 
 
@@ -598,9 +607,9 @@ def isalpha() -> IsAlpha:
     return IsAlpha()
 
 
-class IsDigit(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class IsDigit(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.str.isdigit()
 
 
@@ -611,9 +620,9 @@ def isdigit() -> IsDigit:
     return IsDigit()
 
 
-class IsLower(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class IsLower(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.str.islower()
 
 
@@ -624,9 +633,9 @@ def islower() -> IsLower:
     return IsLower()
 
 
-class IsUpper(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class IsUpper(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.str.isupper()
 
 
@@ -637,9 +646,9 @@ def isupper() -> IsUpper:
     return IsUpper()
 
 
-class IsSpace(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class IsSpace(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.str.isspace()
 
 
@@ -650,9 +659,9 @@ def isspace() -> IsSpace:
     return IsSpace()
 
 
-class IsAlnum(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class IsAlnum(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.str.isalnum()
 
 
@@ -663,9 +672,9 @@ def isalnum() -> IsAlnum:
     return IsAlnum()
 
 
-class IsDecimal(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class IsDecimal(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.str.isdecimal()
 
 
@@ -676,9 +685,9 @@ def isdecimal() -> IsDecimal:
     return IsDecimal()
 
 
-class IsTitle(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class IsTitle(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.str.istitle()
 
 
@@ -689,9 +698,9 @@ def istitle() -> IsTitle:
     return IsTitle()
 
 
-class IsNull(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class IsNull(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.isnull()
 
 
@@ -702,9 +711,9 @@ def isnull() -> IsNull:
     return IsNull()
 
 
-class NotNull(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class NotNull(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.notnull()
 
 
