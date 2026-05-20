@@ -37,7 +37,6 @@ from graphistry.compute.gfql.cypher.ast import (
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, BoundVariable, ScopeFrame, SemanticTable
 from graphistry.compute.gfql.ir.compilation import GraphSchemaCatalog, PlanContext
-from graphistry.compute.gfql.ir.metadata import bound_variable_is_nullable
 from graphistry.compute.gfql.ir.logical_plan import RowSchema
 from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, ListType, LogicalType, NodeRef, PathType, ScalarType
 
@@ -174,7 +173,7 @@ class FrontendBinder:
                 union_scope[name] = BoundVariable(
                     name=name,
                     logical_type=_merge_logical_types(existing.logical_type, branch_var.logical_type),
-                    nullable=bound_variable_is_nullable(existing) or bound_variable_is_nullable(branch_var),
+                    nullable=existing.nullable or branch_var.nullable,
                     null_extended_from=existing.null_extended_from | branch_var.null_extended_from,
                     entity_kind=_merge_entity_kind(existing.entity_kind, branch_var.entity_kind),
                     scope_id=max(existing.scope_id, branch_var.scope_id),
