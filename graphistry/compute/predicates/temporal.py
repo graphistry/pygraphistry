@@ -1,18 +1,22 @@
-from typing import ClassVar
+from typing import Any, cast
 
 from .ASTPredicate import ASTPredicate
 from graphistry.compute.typing import SeriesT
 
 
 class _DatetimePropertyPredicate(ASTPredicate):
-    property_name: ClassVar[str]
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        raise NotImplementedError()
 
     def __call__(self, s: SeriesT) -> SeriesT:
-        return getattr(s.dt, self.property_name)
+        return cast(SeriesT, type(self).predicate(s))
 
 
 class IsMonthStart(_DatetimePropertyPredicate):
-    property_name = "is_month_start"
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        return s.dt.is_month_start
 
 def is_month_start() -> IsMonthStart:
     """
@@ -21,7 +25,9 @@ def is_month_start() -> IsMonthStart:
     return IsMonthStart()
 
 class IsMonthEnd(_DatetimePropertyPredicate):
-    property_name = "is_month_end"
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        return s.dt.is_month_end
 
 def is_month_end() -> IsMonthEnd:
     """
@@ -30,7 +36,9 @@ def is_month_end() -> IsMonthEnd:
     return IsMonthEnd()
 
 class IsQuarterStart(_DatetimePropertyPredicate):
-    property_name = "is_quarter_start"
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        return s.dt.is_quarter_start
 
 def is_quarter_start() -> IsQuarterStart:
     """
@@ -39,7 +47,9 @@ def is_quarter_start() -> IsQuarterStart:
     return IsQuarterStart()
 
 class IsQuarterEnd(_DatetimePropertyPredicate):
-    property_name = "is_quarter_end"
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        return s.dt.is_quarter_end
 
 def is_quarter_end() -> IsQuarterEnd:
     """
@@ -48,7 +58,9 @@ def is_quarter_end() -> IsQuarterEnd:
     return IsQuarterEnd()
 
 class IsYearStart(_DatetimePropertyPredicate):
-    property_name = "is_year_start"
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        return s.dt.is_year_start
 
 def is_year_start() -> IsYearStart:
     """
@@ -57,7 +69,9 @@ def is_year_start() -> IsYearStart:
     return IsYearStart()
 
 class IsYearEnd(_DatetimePropertyPredicate):
-    property_name = "is_year_end"
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        return s.dt.is_year_end
 
 def is_year_end() -> IsYearEnd:
     """
@@ -66,7 +80,9 @@ def is_year_end() -> IsYearEnd:
     return IsYearEnd()
 
 class IsLeapYear(_DatetimePropertyPredicate):
-    property_name = "is_leap_year"
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        return s.dt.is_leap_year
 
 def is_leap_year() -> IsLeapYear:
     """

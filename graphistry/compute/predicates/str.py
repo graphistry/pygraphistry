@@ -1,4 +1,4 @@
-from typing import Any, ClassVar, Optional, Union
+from typing import Any, Optional, Union, cast
 import re
 
 import pandas as pd
@@ -572,22 +572,19 @@ def fullmatch(
     return Fullmatch(pat, case, flags, na)
 
 
-class _StringMethodPredicate(ASTPredicate):
-    method_name: ClassVar[str]
+class _CallablePredicate(ASTPredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        raise NotImplementedError()
 
     def __call__(self, s: SeriesT) -> SeriesT:
-        return getattr(s.str, self.method_name)()
+        return cast(SeriesT, type(self).predicate(s))
 
 
-class _SeriesMethodPredicate(ASTPredicate):
-    method_name: ClassVar[str]
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return getattr(s, self.method_name)()
-
-
-class IsNumeric(_StringMethodPredicate):
-    method_name = "isnumeric"
+class IsNumeric(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        return s.str.isnumeric()
 
 
 def isnumeric() -> IsNumeric:
@@ -597,8 +594,10 @@ def isnumeric() -> IsNumeric:
     return IsNumeric()
 
 
-class IsAlpha(_StringMethodPredicate):
-    method_name = "isalpha"
+class IsAlpha(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        return s.str.isalpha()
 
 
 def isalpha() -> IsAlpha:
@@ -608,8 +607,10 @@ def isalpha() -> IsAlpha:
     return IsAlpha()
 
 
-class IsDigit(_StringMethodPredicate):
-    method_name = "isdigit"
+class IsDigit(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        return s.str.isdigit()
 
 
 def isdigit() -> IsDigit:
@@ -619,8 +620,10 @@ def isdigit() -> IsDigit:
     return IsDigit()
 
 
-class IsLower(_StringMethodPredicate):
-    method_name = "islower"
+class IsLower(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        return s.str.islower()
 
 
 def islower() -> IsLower:
@@ -630,8 +633,10 @@ def islower() -> IsLower:
     return IsLower()
 
 
-class IsUpper(_StringMethodPredicate):
-    method_name = "isupper"
+class IsUpper(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        return s.str.isupper()
 
 
 def isupper() -> IsUpper:
@@ -641,8 +646,10 @@ def isupper() -> IsUpper:
     return IsUpper()
 
 
-class IsSpace(_StringMethodPredicate):
-    method_name = "isspace"
+class IsSpace(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        return s.str.isspace()
 
 
 def isspace() -> IsSpace:
@@ -652,8 +659,10 @@ def isspace() -> IsSpace:
     return IsSpace()
 
 
-class IsAlnum(_StringMethodPredicate):
-    method_name = "isalnum"
+class IsAlnum(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        return s.str.isalnum()
 
 
 def isalnum() -> IsAlnum:
@@ -663,8 +672,10 @@ def isalnum() -> IsAlnum:
     return IsAlnum()
 
 
-class IsDecimal(_StringMethodPredicate):
-    method_name = "isdecimal"
+class IsDecimal(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        return s.str.isdecimal()
 
 
 def isdecimal() -> IsDecimal:
@@ -674,8 +685,10 @@ def isdecimal() -> IsDecimal:
     return IsDecimal()
 
 
-class IsTitle(_StringMethodPredicate):
-    method_name = "istitle"
+class IsTitle(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        return s.str.istitle()
 
 
 def istitle() -> IsTitle:
@@ -685,8 +698,10 @@ def istitle() -> IsTitle:
     return IsTitle()
 
 
-class IsNull(_SeriesMethodPredicate):
-    method_name = "isnull"
+class IsNull(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        return s.isnull()
 
 
 def isnull() -> IsNull:
@@ -696,8 +711,10 @@ def isnull() -> IsNull:
     return IsNull()
 
 
-class NotNull(_SeriesMethodPredicate):
-    method_name = "notnull"
+class NotNull(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        return s.notnull()
 
 
 def notnull() -> NotNull:
