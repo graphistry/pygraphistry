@@ -14,7 +14,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from graphistry.compute.exceptions import GFQLValidationError
+from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.api import compile_cypher
 from graphistry.compute.gfql_validate import gfql_validate
 from graphistry.tests.test_compute import CGFull
@@ -29,17 +29,9 @@ def _empty_g():
     return CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
 
 
-# ---------------------------------------------------------------------------
-# Parity: both validator (strict) and runtime (strict) reject
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     "query",
     [
-        # Cross-kind rebind — parity ships in this PR via the binder-layer
-        # _bind_node_pattern / _bind_relationship_pattern / _bind_path_alias
-        # entity_kind guard.
         "MATCH (a) MATCH ()-[a]->() RETURN a",
         "MATCH ()-[r]->() MATCH (r) RETURN r",
         "MATCH p = ()-->() MATCH (p) RETURN p",
@@ -70,21 +62,42 @@ def test_validator_and_runtime_both_admit_namespaced_builtins(query: str) -> Non
     compile_cypher(query)
 
 
-# ---------------------------------------------------------------------------
-# Parity: validator (strict) and runtime (strict) both admit.
-# These cases previously diverged due missing comprehension-local scope in
-# strict binder unresolved-identifier checks (#1371 P2).
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     "query",
     [
         "RETURN all(x IN [1, 2, 3] WHERE x > 1) AS ok",
         "RETURN [x IN [1, 2, 3] WHERE x > 1 | x + 1] AS xs",
+        "RETURN {F: -0x162CD4F6} AS literal",
     ],
 )
 def test_validator_and_runtime_both_admit_comprehension_locals(query: str) -> None:
     """Parity pin for comprehension-local scope handling after #1371 P2."""
     gfql_validate(_empty_g(), query, strict=True)
     compile_cypher(query)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) WHERE all(x IN n.labels WHERE x = 'A') RETURN n",
+        "MATCH (n) WHERE any(x IN n.labels WHERE x = 'B') RETURN n",
+        "CALL graphistry.degree() YIELD nodeId RETURN nodeId",
+    ],
+)
+def test_runtime_strict_admits_compile_only_scope_shapes(query: str) -> None:
+    compile_cypher(query)
+
+
+@pytest.mark.parametrize(
+    ("query", "identifier"),
+    [
+        ("MATCH (a) RETURN ghost", "ghost"),
+        ("MATCH (a) WHERE ghost.foo = 1 RETURN a", "ghost"),
+    ],
+)
+def test_runtime_strict_rejects_unresolved_aliases_with_e204(query: str, identifier: str) -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        compile_cypher(query)
+    assert exc_info.value.code == ErrorCode.E204
+    assert exc_info.value.context.get("field") == "identifier"
+    assert exc_info.value.context.get("value") == identifier
