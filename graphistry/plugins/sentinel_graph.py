@@ -350,7 +350,11 @@ class SentinelGraphMixin(Plottable):
         )
 
         try:
-            # Determine credential type
+            # Determine credential type. interactive_path tracks whether we
+            # selected the default InteractiveBrowserCredential path, so the
+            # DefaultAzureCredential fallback can apply at both construction
+            # and token-acquisition failure points (Leo PR review F4).
+            interactive_path = False
             if cfg.credential:
                 logger.debug("Using provided credential")
                 credential = cfg.credential
@@ -366,18 +370,33 @@ class SentinelGraphMixin(Plottable):
                 credential = DeviceCodeCredential()
             else:
                 logger.debug("Using interactive browser authentication")
+                interactive_path = True
                 try:
                     credential = InteractiveBrowserCredential()
                 except Exception:
                     # Security: Don't log exception details which might contain sensitive info
                     logger.warning(
-                        "Interactive browser auth failed. "
+                        "Interactive browser auth failed during construction. "
                         "Falling back to DefaultAzureCredential"
                     )
                     credential = DefaultAzureCredential()
 
-            # Get token
-            token_obj = credential.get_token(cfg.auth_scope)
+            # Get token. For the interactive-browser path, also fall back to
+            # DefaultAzureCredential if get_token() itself fails (e.g. headless
+            # / server environments where InteractiveBrowserCredential
+            # constructs fine but cannot complete a browser flow).
+            try:
+                token_obj = credential.get_token(cfg.auth_scope)
+            except Exception:
+                if not interactive_path:
+                    raise
+                logger.warning(
+                    "Interactive browser auth failed at token acquisition. "
+                    "Falling back to DefaultAzureCredential"
+                )
+                credential = DefaultAzureCredential()
+                token_obj = credential.get_token(cfg.auth_scope)
+
             token = token_obj.token
             cfg._token = token
             cfg._token_expiry = token_obj.expires_on
@@ -419,8 +438,8 @@ class SentinelGraphMixin(Plottable):
             logger.warning("No graph data found in response")
 
         return (
-            self.nodes(nodes_df, node='id')
-            .edges(edges_df, source='source', destination='target')
+            self.nodes(nodes_df, node='g_NodeId')
+            .edges(edges_df, source='g_src', destination='g_dst')
         )
 
     def _extract_nodes(self, data: dict) -> pd.DataFrame:
@@ -434,10 +453,14 @@ class SentinelGraphMixin(Plottable):
             for node in graph_nodes:
                 if isinstance(node, dict) and node.get("id"):
                     labels = node.get("labels", [])
-                    node_data = {"id": node["id"]}
-                    node_data["label"] = labels[0] if labels else None
-                    node_data["labels"] = labels
-                    node_data.update(node.get("properties", {}))
+                    # Spread response properties first; reserved binding
+                    # columns (g_NodeId, g_label, g_labels) overlay last so
+                    # provider properties named id/label/labels cannot
+                    # corrupt bindings (Leo PR review F3).
+                    node_data = dict(node.get("properties", {}))
+                    node_data["g_NodeId"] = node["id"]
+                    node_data["g_label"] = labels[0] if labels else None
+                    node_data["g_labels"] = labels
                     nodes_list.append(node_data)
         except Exception as e:
             logger.warning(f"Failed to extract from result.graph.nodes: {e}")
@@ -457,24 +480,24 @@ class SentinelGraphMixin(Plottable):
                             if not oid:
                                 continue
                             labels = cell.get("labels", [])
-                            node_data = {"id": oid}
-                            node_data["label"] = labels[0] if labels else None
-                            node_data["labels"] = labels
-                            node_data.update(cell.get("properties", {}))
+                            node_data = dict(cell.get("properties", {}))
+                            node_data["g_NodeId"] = oid
+                            node_data["g_label"] = labels[0] if labels else None
+                            node_data["g_labels"] = labels
                             nodes_list.append(node_data)
             except Exception as e:
                 logger.warning(f"Failed to extract from result.rawData.tables: {e}")
 
         if not nodes_list:
             logger.debug("No nodes found in response")
-            return pd.DataFrame(columns=["id", "label"])
+            return pd.DataFrame(columns=["g_NodeId", "g_label"])
 
         nodes_df = pd.DataFrame(nodes_list)
 
-        if "id" in nodes_df.columns and not nodes_df["id"].isna().all():
+        if "g_NodeId" in nodes_df.columns and not nodes_df["g_NodeId"].isna().all():
             nodes_df["_info_count"] = nodes_df.notna().sum(axis=1)
             nodes_df = nodes_df.sort_values("_info_count", ascending=False)
-            nodes_df = nodes_df.drop_duplicates(subset="id", keep="first")
+            nodes_df = nodes_df.drop_duplicates(subset="g_NodeId", keep="first")
             nodes_df = nodes_df.drop("_info_count", axis=1)
 
         return nodes_df.reset_index(drop=True)
@@ -495,14 +518,16 @@ class SentinelGraphMixin(Plottable):
                 if not (source and target):
                     continue
                 labels = edge.get("labels", [])
-                edge_data = {
-                    "source": source,
-                    "target": target,
-                    "id": edge.get("id"),
-                    "edge": labels[0] if labels else None,
-                    "labels": labels,
-                }
-                edge_data.update(edge.get("properties", {}))
+                # Spread response properties first; reserved binding
+                # columns (g_src, g_dst, g_EdgeId, g_edge, g_labels)
+                # overlay last so provider properties named source/target/
+                # id/edge/labels cannot corrupt bindings (Leo PR review F3).
+                edge_data = dict(edge.get("properties", {}))
+                edge_data["g_src"] = source
+                edge_data["g_dst"] = target
+                edge_data["g_EdgeId"] = edge.get("id")
+                edge_data["g_edge"] = labels[0] if labels else None
+                edge_data["g_labels"] = labels
                 edges_list.append(edge_data)
         except Exception as e:
             logger.warning(f"Failed to extract from result.graph.edges: {e}")
@@ -521,21 +546,19 @@ class SentinelGraphMixin(Plottable):
                             if not (source and target):
                                 continue
                             labels = cell.get("labels", [])
-                            edge_data = {
-                                "source": source,
-                                "target": target,
-                                "id": cell.get("oid"),
-                                "edge": labels[0] if labels else None,
-                                "labels": labels,
-                            }
-                            edge_data.update(cell.get("properties", {}))
+                            edge_data = dict(cell.get("properties", {}))
+                            edge_data["g_src"] = source
+                            edge_data["g_dst"] = target
+                            edge_data["g_EdgeId"] = cell.get("oid")
+                            edge_data["g_edge"] = labels[0] if labels else None
+                            edge_data["g_labels"] = labels
                             edges_list.append(edge_data)
             except Exception as e:
                 logger.warning(f"Failed to extract from result.rawData.tables: {e}")
 
         if not edges_list:
             logger.debug("No edges found in response")
-            return pd.DataFrame(columns=["source", "target"])
+            return pd.DataFrame(columns=["g_src", "g_dst"])
 
         return pd.DataFrame(edges_list).reset_index(drop=True)
 

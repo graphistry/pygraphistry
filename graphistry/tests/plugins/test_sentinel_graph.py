@@ -226,6 +226,40 @@ class TestAuthenticationToken:
             assert token == "new-token"
             assert g.session.sentinel_graph._token == "new-token"
 
+    @patch('azure.identity.DefaultAzureCredential')
+    @patch('azure.identity.InteractiveBrowserCredential')
+    def test_default_azure_fallback_on_get_token_failure(
+        self, mock_browser_class, mock_default_class
+    ):
+        """F4 regression: when InteractiveBrowserCredential.get_token()
+        fails (e.g. headless / server with no browser), the auth flow must
+        fall back to DefaultAzureCredential instead of raising
+        SentinelGraphConnectionError.
+        """
+        # Interactive browser constructs fine but get_token raises
+        mock_browser = Mock()
+        mock_browser.get_token.side_effect = Exception("no browser available")
+        mock_browser_class.return_value = mock_browser
+
+        # DefaultAzureCredential then succeeds
+        mock_token = Mock()
+        mock_token.token = "default-token"
+        mock_token.expires_on = (datetime.now() + timedelta(hours=1)).timestamp()
+        mock_default = Mock()
+        mock_default.get_token.return_value = mock_token
+        mock_default_class.return_value = mock_default
+
+        g = graphistry.bind()
+        g.configure_sentinel_graph(graph_instance="TestInstance")
+
+        token = g._get_auth_token()
+
+        assert token == "default-token"
+        mock_default_class.assert_called_once()
+        mock_default.get_token.assert_called_once_with(
+            "73c2949e-da2d-457a-9607-fcc665198967/.default"
+        )
+
 
 class TestQueryExecution:
     """Test query execution and HTTP handling"""
@@ -385,9 +419,9 @@ class TestResponseParsing:
         nodes_df = g._extract_nodes(SAMPLE_RESPONSE_FULL)
 
         assert len(nodes_df) == 3
-        assert 'id' in nodes_df.columns
-        assert 'label' in nodes_df.columns
-        assert set(nodes_df['id']) == {'node-a', 'node-b', 'node-c'}
+        assert 'g_NodeId' in nodes_df.columns
+        assert 'g_label' in nodes_df.columns
+        assert set(nodes_df['g_NodeId']) == {'node-a', 'node-b', 'node-c'}
 
     def test_extract_nodes_labels_mapped(self):
         """Test that labels list is mapped to label column"""
@@ -395,9 +429,9 @@ class TestResponseParsing:
         g.configure_sentinel_graph(graph_instance="TestInstance")
 
         nodes_df = g._extract_nodes(SAMPLE_RESPONSE_FULL)
-        node_a = nodes_df[nodes_df['id'] == 'node-a'].iloc[0]
-        assert node_a['label'] == 'User'
-        assert node_a['labels'] == ['User']
+        node_a = nodes_df[nodes_df['g_NodeId'] == 'node-a'].iloc[0]
+        assert node_a['g_label'] == 'User'
+        assert node_a['g_labels'] == ['User']
 
     def test_extract_nodes_properties_spread(self):
         """Test that node properties are spread as top-level columns"""
@@ -405,7 +439,7 @@ class TestResponseParsing:
         g.configure_sentinel_graph(graph_instance="TestInstance")
 
         nodes_df = g._extract_nodes(SAMPLE_RESPONSE_FULL)
-        node_a = nodes_df[nodes_df['id'] == 'node-a'].iloc[0]
+        node_a = nodes_df[nodes_df['g_NodeId'] == 'node-a'].iloc[0]
         assert node_a['name'] == 'Alice'
         assert node_a['department'] == 'Engineering'
 
@@ -420,9 +454,9 @@ class TestResponseParsing:
 
         # 3 entries in fixture (node-dup x2, node-other x1) -> 2 unique IDs after dedup
         assert len(nodes_df) == 2
-        assert set(nodes_df['id'].unique()) == {'node-dup', 'node-other'}
+        assert set(nodes_df['g_NodeId'].unique()) == {'node-dup', 'node-other'}
         # The richer record (with email + department) should be kept
-        dup_row = nodes_df[nodes_df['id'] == 'node-dup'].iloc[0]
+        dup_row = nodes_df[nodes_df['g_NodeId'] == 'node-dup'].iloc[0]
         assert dup_row.get('email') == 'bob@contoso.com'
 
     def test_extract_nodes_malformed_skips_missing_id(self):
@@ -434,7 +468,7 @@ class TestResponseParsing:
 
         # Only 'node-valid' should be present; the entry without 'id' is skipped
         assert len(nodes_df) == 1
-        assert nodes_df.iloc[0]['id'] == 'node-valid'
+        assert nodes_df.iloc[0]['g_NodeId'] == 'node-valid'
 
     def test_extract_nodes_empty_response(self):
         """Test extraction from empty response"""
@@ -444,8 +478,8 @@ class TestResponseParsing:
         nodes_df = g._extract_nodes(SAMPLE_RESPONSE_EMPTY)
 
         assert len(nodes_df) == 0
-        assert 'id' in nodes_df.columns
-        assert 'label' in nodes_df.columns
+        assert 'g_NodeId' in nodes_df.columns
+        assert 'g_label' in nodes_df.columns
 
     def test_extract_edges_full_response(self):
         """Test edge extraction from complete response"""
@@ -455,13 +489,13 @@ class TestResponseParsing:
         edges_df = g._extract_edges(SAMPLE_RESPONSE_FULL)
 
         assert len(edges_df) == 2
-        edge_ab = edges_df[edges_df['source'] == 'node-a'].iloc[0]
-        assert edge_ab['target'] == 'node-b'
-        assert edge_ab['edge'] == 'MemberOf'
+        edge_ab = edges_df[edges_df['g_src'] == 'node-a'].iloc[0]
+        assert edge_ab['g_dst'] == 'node-b'
+        assert edge_ab['g_edge'] == 'MemberOf'
 
-        edge_bc = edges_df[edges_df['source'] == 'node-b'].iloc[0]
-        assert edge_bc['target'] == 'node-c'
-        assert edge_bc['edge'] == 'HasAccess'
+        edge_bc = edges_df[edges_df['g_src'] == 'node-b'].iloc[0]
+        assert edge_bc['g_dst'] == 'node-c'
+        assert edge_bc['g_edge'] == 'HasAccess'
 
     def test_extract_edges_properties_spread(self):
         """Test that edge properties are spread as top-level columns"""
@@ -469,7 +503,7 @@ class TestResponseParsing:
         g.configure_sentinel_graph(graph_instance="TestInstance")
 
         edges_df = g._extract_edges(SAMPLE_RESPONSE_FULL)
-        edge_ab = edges_df[edges_df['source'] == 'node-a'].iloc[0]
+        edge_ab = edges_df[edges_df['g_src'] == 'node-a'].iloc[0]
         assert edge_ab['since'] == '2024-01-01'
 
     def test_extract_edges_only_response(self):
@@ -480,8 +514,8 @@ class TestResponseParsing:
         edges_df = g._extract_edges(get_edge_only_response())
 
         assert len(edges_df) == 1
-        assert edges_df.iloc[0]['source'] == 'ghost-node-a'
-        assert edges_df.iloc[0]['target'] == 'ghost-node-b'
+        assert edges_df.iloc[0]['g_src'] == 'ghost-node-a'
+        assert edges_df.iloc[0]['g_dst'] == 'ghost-node-b'
 
     def test_extract_edges_empty_response(self):
         """Test edge extraction from empty response"""
@@ -491,8 +525,8 @@ class TestResponseParsing:
         edges_df = g._extract_edges(SAMPLE_RESPONSE_EMPTY)
 
         assert len(edges_df) == 0
-        assert 'source' in edges_df.columns
-        assert 'target' in edges_df.columns
+        assert 'g_src' in edges_df.columns
+        assert 'g_dst' in edges_df.columns
 
     def test_extract_nodes_minimal(self):
         """Test minimal response with 1 node"""
@@ -502,8 +536,8 @@ class TestResponseParsing:
         nodes_df = g._extract_nodes(get_minimal_response())
 
         assert len(nodes_df) == 1
-        assert nodes_df.iloc[0]['id'] == 'node-001'
-        assert nodes_df.iloc[0]['label'] == 'Device'
+        assert nodes_df.iloc[0]['g_NodeId'] == 'node-001'
+        assert nodes_df.iloc[0]['g_label'] == 'Device'
 
     def test_null_properties_preserved(self):
         """None values in properties are passed through"""
@@ -516,6 +550,104 @@ class TestResponseParsing:
         node = nodes_df.iloc[0]
         assert node['name'] == 'Eve'
         assert node['role'] == 'analyst'
+
+    def test_node_properties_do_not_overwrite_binding_columns(self):
+        """F3 regression: Sentinel response properties named 'id', 'label',
+        or 'labels' must NOT silently overwrite the reserved binding
+        columns g_NodeId / g_label / g_labels.
+        """
+        response = {
+            "result": {
+                "graph": {
+                    "nodes": [
+                        {
+                            "id": "real-node-id",
+                            "labels": ["User"],
+                            "properties": {
+                                # All three intentionally collide with the
+                                # pre-rename binding names.
+                                "id": "EVIL-PROPERTY-ID",
+                                "label": "EVIL-PROPERTY-LABEL",
+                                "labels": ["EVIL-PROPERTY-LABELS"],
+                                "name": "Alice",
+                            },
+                        },
+                    ],
+                    "edges": [],
+                },
+                "rawData": {"tables": []},
+            },
+        }
+        g = graphistry.bind()
+        g.configure_sentinel_graph(graph_instance="TestInstance")
+
+        nodes_df = g._extract_nodes(response)
+
+        assert len(nodes_df) == 1
+        row = nodes_df.iloc[0]
+        # Binding columns must reflect the response's top-level fields.
+        assert row['g_NodeId'] == 'real-node-id'
+        assert row['g_label'] == 'User'
+        assert row['g_labels'] == ['User']
+        # Provider properties are preserved verbatim under their own names.
+        assert row['id'] == 'EVIL-PROPERTY-ID'
+        assert row['label'] == 'EVIL-PROPERTY-LABEL'
+        assert row['labels'] == ['EVIL-PROPERTY-LABELS']
+        assert row['name'] == 'Alice'
+
+
+class TestEdgeBindingIsolation:
+    """F3 regression coverage for edge bindings."""
+
+    def test_edge_properties_do_not_overwrite_binding_columns(self):
+        """Sentinel response properties named 'source', 'target', 'id', or
+        'edge' must NOT silently overwrite the reserved edge binding
+        columns g_src / g_dst / g_EdgeId / g_edge / g_labels.
+        """
+        response = {
+            "result": {
+                "graph": {
+                    "nodes": [],
+                    "edges": [
+                        {
+                            "id": "real-edge-id",
+                            "sourceId": "real-source",
+                            "targetId": "real-target",
+                            "labels": ["MemberOf"],
+                            "properties": {
+                                "source": "EVIL-PROPERTY-SOURCE",
+                                "target": "EVIL-PROPERTY-TARGET",
+                                "id": "EVIL-PROPERTY-EDGE-ID",
+                                "edge": "EVIL-PROPERTY-EDGE",
+                                "labels": ["EVIL-PROPERTY-LABELS"],
+                                "since": "2024-01-01",
+                            },
+                        },
+                    ],
+                },
+                "rawData": {"tables": []},
+            },
+        }
+        g = graphistry.bind()
+        g.configure_sentinel_graph(graph_instance="TestInstance")
+
+        edges_df = g._extract_edges(response)
+
+        assert len(edges_df) == 1
+        row = edges_df.iloc[0]
+        # Binding columns must reflect the response's top-level fields.
+        assert row['g_src'] == 'real-source'
+        assert row['g_dst'] == 'real-target'
+        assert row['g_EdgeId'] == 'real-edge-id'
+        assert row['g_edge'] == 'MemberOf'
+        assert row['g_labels'] == ['MemberOf']
+        # Provider properties are preserved verbatim under their own names.
+        assert row['source'] == 'EVIL-PROPERTY-SOURCE'
+        assert row['target'] == 'EVIL-PROPERTY-TARGET'
+        assert row['id'] == 'EVIL-PROPERTY-EDGE-ID'
+        assert row['edge'] == 'EVIL-PROPERTY-EDGE'
+        assert row['labels'] == ['EVIL-PROPERTY-LABELS']
+        assert row['since'] == '2024-01-01'
 
 
 class TestTableFormatParsing:
@@ -530,7 +662,7 @@ class TestTableFormatParsing:
         nodes_df = g._extract_nodes(response)
 
         assert len(nodes_df) == 2
-        assert set(nodes_df['id']) == {'table-node-001', 'table-node-002'}
+        assert set(nodes_df['g_NodeId']) == {'table-node-001', 'table-node-002'}
 
     def test_extract_edges_from_table_format(self):
         """Edges should be extracted from rawData.tables using sourceOid/targetOid"""
@@ -541,9 +673,9 @@ class TestTableFormatParsing:
         edges_df = g._extract_edges(response)
 
         assert len(edges_df) == 1
-        assert edges_df.iloc[0]['source'] == 'table-node-001'
-        assert edges_df.iloc[0]['target'] == 'table-node-002'
-        assert edges_df.iloc[0]['edge'] == 'HasRole'
+        assert edges_df.iloc[0]['g_src'] == 'table-node-001'
+        assert edges_df.iloc[0]['g_dst'] == 'table-node-002'
+        assert edges_df.iloc[0]['g_edge'] == 'HasRole'
 
     def test_table_format_node_labels_mapped(self):
         """Table format nodes should have label mapped from labels[0]"""
@@ -553,8 +685,8 @@ class TestTableFormatParsing:
         response = get_table_format_response()
         nodes_df = g._extract_nodes(response)
 
-        node_001 = nodes_df[nodes_df['id'] == 'table-node-001'].iloc[0]
-        assert node_001['label'] == 'User'
+        node_001 = nodes_df[nodes_df['g_NodeId'] == 'table-node-001'].iloc[0]
+        assert node_001['g_label'] == 'User'
 
 
 class TestGraphConversion:
