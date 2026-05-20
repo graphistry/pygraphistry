@@ -4,7 +4,14 @@ from graphistry.privacy import Mode, ModeAction
 from graphistry.utils.requests import log_requests_error
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.plugins_types.gexf_types import GexfEdgeViz, GexfNodeViz, GexfParseEngine
-from graphistry.client_session import ClientSession, ApiVersion, ENV_GRAPHISTRY_API_KEY, DatasetInfo, AuthManagerProtocol, strtobool
+from graphistry.client_session import (
+    ClientSession,
+    ApiVersion,
+    DatasetInfo,
+    AuthManagerProtocol,
+    require_supported_api_version,
+    strtobool,
+)
 from graphistry.Engine import EngineAbstractType
 from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationParam
@@ -486,17 +493,18 @@ class GraphistryClient(AuthManagerProtocol):
         return value
 
     def api_key(self, value: Optional[str] = None) -> Optional[str]:
-        """Set or get the API key.
-        Also set via environment variable GRAPHISTRY_API_KEY."""
+        """Deprecated compatibility shim for the removed api=1 API key flow."""
 
-        if value is None:
-            return self.session.api_key
+        warnings.warn(
+            "api_key() is deprecated and ignored. Legacy api=1 keys used the "
+            "removed /api/check and /etl flow; use api=3 with username/password, "
+            "token, or personal_key_id/personal_key_secret.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
-        # setter
-        if value is not self.session.api_key:
-            self.session.api_key = value.strip()
-            self.session._is_authenticated = False
-        return value
+        self.session.api_key = None
+        return None
 
     def api_token(self, value: Optional[str] = None) -> Optional[str]:
         """Set or get the API token.
@@ -554,13 +562,12 @@ class GraphistryClient(AuthManagerProtocol):
         if value is None:
             value = self.session.api_version
 
-        if value != 3:
-            raise ValueError("Expected API version to be 3. Legacy API versions 1 and 2 are no longer supported. Got: %s" % value)
+        supported_value = require_supported_api_version(value)
 
         # setter
-        self.session.api_version = value
+        self.session.api_version = supported_value
 
-        return value
+        return supported_value
 
     def certificate_validation(self, value: Optional[bool] = None) -> bool:
         """Enable/Disable SSL certificate validation (True, False).
@@ -590,7 +597,7 @@ class GraphistryClient(AuthManagerProtocol):
         personal_key_secret: Optional[str] = None,
         server: Optional[str] = None,
         protocol: Optional[str] = None,
-        api: Optional[Literal[3]] = None,
+        api: Optional[ApiVersion] = None,
         certificate_validation: Optional[bool] = None,
         bolt: Optional[Union[Dict, Any]] = None,
         store_token_creds_in_memory: Optional[bool] = None,
@@ -602,13 +609,14 @@ class GraphistryClient(AuthManagerProtocol):
         sso_opt_into_type: Optional[Literal["display", "browser"]] = None,
         verify_token: Optional[bool] = None,
     ) -> "GraphistryClient":
-        """API key registration and server selection
+        """Authentication and server selection.
 
-        Changing the key effects all derived Plotter instances.
+        Provide username/password, JWT token, or personal key ID/secret for
+        authentication.
 
-        Provide username/password or temporary token for authentication.
-
-        :param key: API key (deprecated, ignored)
+        :param key: Legacy api=1 API key (deprecated, ignored). Use
+            personal_key_id/personal_key_secret for the current key/value
+            authentication flow.
         :type key: Optional[str]
         :param username: Account username.
         :type username: Optional[str]
@@ -625,7 +633,7 @@ class GraphistryClient(AuthManagerProtocol):
         :param protocol: Protocol to use for server uploaders, defaults to "https".
         :type protocol: Optional[str]
         :param api: API version (only 3 is supported, uses Arrow+JWT)
-        :type api: Optional[Literal[3]]
+        :type api: Optional[Literal[1, 2, 3]]
         :param certificate_validation: Override default-on check for valid TLS certificate by setting to True.
         :type certificate_validation: Optional[bool]
         :param bolt: Neo4j bolt information. Optional driver or named constructor arguments for instantiating a new one.
@@ -722,7 +730,8 @@ class GraphistryClient(AuthManagerProtocol):
         
         self.api_version(api)
         # self.api_token_refresh_ms(token_refresh_ms)
-        self.api_key(key)
+        if key is not None:
+            self.api_key(key)
         self.server(server)
         self.protocol(protocol)
         self.client_protocol_hostname(client_protocol_hostname)
