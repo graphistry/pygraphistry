@@ -382,7 +382,7 @@ class TestComputeHopMixin(NoAuthTestCase):
         assert 'edge_hop' not in g2._edges.columns
 
     def test_hop_cycle_min_gt_one(self):
-        # Cycle a->b->c->a; ensure min>1 does not loop infinitely and labels stick to earliest hop
+        # Cycle a->b->c->a; ensure min>1 does not loop infinitely and retained paths can relabel seeds
         edges = pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'a']})
         g = graphistry.edges(edges, 's', 'd').nodes(pd.DataFrame({'id': ['a', 'b', 'c']}), 'id')
         seeds = pd.DataFrame({g._node: ['a']})
