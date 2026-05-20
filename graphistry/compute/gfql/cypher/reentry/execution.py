@@ -1,26 +1,4 @@
-"""Bounded-reentry data-frame execution helpers.
-
-Extracted from ``graphistry/compute/gfql_unified.py`` under #987 Step 3
-(`move runtime stitching into a dedicated reentry module`). Pure-move
-refactor — no semantic changes vs the prior in-line definitions.
-
-Together with ``cypher/reentry_plan.py`` (compile-time contract),
-``cypher/reentry/compiletime.py`` (compile-time query rewrites), and the
-``CompiledCypherQuery.start_nodes_query`` chain, this module owns the
-*data-frame side* of bounded ``MATCH ... WITH ... MATCH ...`` re-entry:
-preparing the dispatch base graph, building the seeded ``start_nodes``
-table, fanning out multi-row scalar / free-form prefixes, and null-filling
-unmatched rows for the OPTIONAL re-entry case.
-
-Callers (currently only ``gfql_unified.py``):
-
-- ``_compiled_query_reentry_state``           — whole-row carry
-- ``_compiled_query_scalar_reentry_state``    — scalar-only prefix carry
-- ``_compiled_query_freeform_reentry_state``  — free-form intermediate MATCH (single-row)
-- ``_freeform_broadcast_row_to_nodes``        — single-row broadcast (also used per-row in #1285 multi-row)
-- ``_union_scalar_reentry_results``           — concat per-row dispatches
-- ``_apply_optional_reentry_null_fill``       — OPTIONAL re-entry null fill
-"""
+"""DataFrame execution helpers for bounded ``MATCH ... WITH ... MATCH`` reentry."""
 # ruff: noqa: E501
 from __future__ import annotations
 
@@ -346,7 +324,7 @@ def union_scalar_reentry_results(
     base_graph: Plottable,
     engine: Union[EngineAbstract, str],
 ) -> Plottable:
-    """Union per-row suffix results from a multi-row scalar prefix (#1047)."""
+    """Union per-row suffix results from a multi-row scalar prefix."""
     node_frames = []
     for r in row_results:
         nodes = getattr(r, "_nodes", None)
@@ -438,13 +416,7 @@ def freeform_broadcast_row_to_nodes(
     *,
     row_index: int,
 ) -> Plottable:
-    """Build a dispatch graph for a single free-form prefix row.
-
-    Broadcasts that row's carried hidden columns onto every base node so the
-    trailing MATCH (running global, with `start_nodes=None`) inherits the
-    carried values via the row pipeline. Used for both single-prefix-row and
-    multi-prefix-row (#1285) free-form lanes.
-    """
+    """Broadcast one free-form prefix row's hidden carries onto the base nodes."""
     row = prefix_rows.iloc[row_index]
     broadcast_values: Dict[str, Any] = {}
     # Top-level scalar carries (e.g. ``WITH a, b.id AS bid``): the prefix row
@@ -489,20 +461,7 @@ def compiled_query_freeform_reentry_state(
     *,
     engine: Union[EngineAbstract, str],
 ) -> Tuple[Plottable, Optional[DataFrameT]]:
-    """#1263 free-form intermediate MATCH (LDBC SNB IC3 endpoint), single-row.
-
-    The trailing MATCH binds aliases that are NOT in the prefix WITH's carried
-    whole-row set, so it must run against the full base graph (no carried-id
-    seed filter). Carried hidden columns from the prefix row are broadcast
-    onto every base node so the row pipeline carries them through whichever
-    alias the trailing MATCH binds; downstream WHERE/RETURN expressions
-    referencing carried-alias properties resolve through those broadcast
-    columns.
-
-    Single-prefix-row dispatch only. Multi-prefix-row free-form (#1285) is
-    handled at the caller via a per-row union loop (mirror of the scalar-only
-    multi-row pattern at ``_execute_compiled_query_with_reentry``).
-    """
+    """Build the single-row dispatch state for free-form intermediate MATCH."""
     prefix_rows = getattr(prefix_result, "_nodes", None)
     base_nodes = getattr(base_graph, "_nodes", None)
     if base_nodes is None:

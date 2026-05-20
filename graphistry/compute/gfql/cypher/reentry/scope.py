@@ -1,10 +1,4 @@
-"""Alias-scope traversal helpers for reentry expressions.
-
-Walks expression ASTs and binding-row clauses to surface the set of aliases
-that own hidden reentry property references (``__cypher_reentry_*__``).
-
-Extracted from ``cypher.lowering`` (#1295, #1260 S2).
-"""
+"""Alias-scope traversal helpers for hidden reentry property references."""
 from __future__ import annotations
 
 __all__ = [

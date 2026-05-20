@@ -1,4 +1,4 @@
-"""Bounded reentry compile-time orchestration extracted from ``cypher.lowering``."""
+"""Bounded reentry compile-time orchestration."""
 from __future__ import annotations
 
 from dataclasses import replace
@@ -108,14 +108,7 @@ def _rewrite_terminal_singleton_reentry_unwind(
     reentry_return: ReturnClause,
     reentry_order_by: Optional[OrderByClause],
 ) -> Optional[Tuple[Tuple[UnwindClause, ...], ReturnClause, Optional[OrderByClause]]]:
-    """Rewrite `UNWIND [x] AS y` (terminal reentry tail) into an identifier rename.
-
-    For the bounded-reentry suffix shape `... WITH ... UNWIND [x] AS y RETURN ...`,
-    the current query model cannot encode WITH-before-UNWIND ordering. When the
-    unwind is a singleton list literal over an identifier, the operation is an
-    identity row mapping (`y := x`) and can be removed by rewriting downstream
-    references from `y` to `x`.
-    """
+    """Rewrite terminal `UNWIND [x] AS y` into a downstream identifier rename."""
     if len(reentry_unwinds) != 1:
         return None
     unwind_clause = reentry_unwinds[0]
@@ -170,23 +163,7 @@ def _rewrite_multi_whole_row_prefix(
     query: CypherQuery,
     reentry_first_alias: Optional[str],
 ) -> Tuple[ProjectionStage, Tuple[ProjectionStage, ...], Dict[str, Tuple[str, ...]]]:
-    """Decompose non-source whole-row aliases in the prefix WITH into scalar carries.
-
-    Returns ``(rewritten_prefix, rewritten_tail, multi_alias_carries)``:
-    * ``rewritten_prefix`` — prefix with non-source bare items replaced by scalar
-      carries (``x.id AS __carry_x__id__``), which the existing scalar-carry
-      plumbing forwards onto the reentry-alias's row table as hidden columns.
-    * ``rewritten_tail`` — ``query.with_stages[1:]`` with bare non-source-alias
-      forwarding items dropped (slice 4.3c). Carried properties survive the
-      chain via the hidden columns; bare items in downstream WITH stages were
-      pure forwarding noise.
-    * ``multi_alias_carries`` — ``{alias: (props...)}`` driving downstream
-      AST rewrites of ``<alias>.<prop>`` references.
-
-    Bare-identifier non-source references in actual USE positions (WHERE
-    expressions, RETURN items, ORDER BY) cause this pre-flight to return
-    untouched query state so the main flow's failfast surfaces the issue.
-    """
+    """Decompose non-source whole-row aliases in the prefix WITH into scalar carries."""
 
     original_tail = tuple(query.with_stages[1:])
     if reentry_first_alias is None:
@@ -207,9 +184,6 @@ def _rewrite_multi_whole_row_prefix(
     if not non_source_aliases:
         return prefix_stage, original_tail, {}
 
-    # Slice 4.3c: drop bare forwarding items in downstream WITH stages BEFORE
-    # the bare-ref scan so we don't false-positive on `WITH a, x, y, ...` chain
-    # forwards.
     candidate_set = set(non_source_aliases)
     cleaned_tail = tuple(
         _drop_bare_alias_items_from_stage(stage, candidate_set, identifier_re=identifier_re)
@@ -228,8 +202,6 @@ def _rewrite_multi_whole_row_prefix(
     if not referenced:
         return prefix_stage, cleaned_tail, {}
 
-    # Rewrite items: drop bare entries for `referenced` aliases, then append a
-    # scalar projection per (alias, property) pair using the hidden column name.
     drop_set = set(referenced)
     new_items: List[ReturnItem] = [
         item
@@ -238,8 +210,6 @@ def _rewrite_multi_whole_row_prefix(
     ]
     carried_props: Dict[str, Tuple[str, ...]] = {}
     for alias in referenced:
-        # Sort properties for deterministic prefix-result column ordering;
-        # downstream AST rewrites match by name, so order is purely cosmetic.
         props = tuple(sorted(props_by_alias[alias]))
         carried_props[alias] = props
         for prop in props:
@@ -320,11 +290,6 @@ def _compile_bounded_reentry_query(
             value=prefix_stage.where.text,
             span=prefix_stage.span,
         )
-    # #1358: classify carried aliases by kind (node / rel / path). The
-    # downstream reentry pipeline only handles whole-row node carries; bare
-    # carries of relationship variables or named-path aliases must surface as
-    # a clean scope error instead of falling into untested code paths in the
-    # multi-whole-row prefix rewriter.
     match_alias_kinds = _all_match_alias_kinds(query)
     for item in prefix_stage.clause.items:
         carry_name = _is_bare_carry_with_item(item)
@@ -356,10 +321,6 @@ def _compile_bounded_reentry_query(
             for item in prefix_stage.clause.items
             if _is_whole_row_with_item(item, match_node_aliases=match_node_aliases)
         }
-        # #1275: for free-form trailing MATCH (first alias not carried by prefix
-        # whole-row items), pre-rewrite non-source whole-row carries into scalar
-        # hidden columns so trailing `<carried>.<prop>` references can rewrite
-        # cleanly without double-wrapping hidden names.
         if primary_alias_hint not in whole_row_aliases:
             rewritten_prefix, rewritten_tail, multi_alias_carries = _rewrite_multi_whole_row_prefix(
                 prefix_stage,
@@ -449,14 +410,6 @@ def _compile_bounded_reentry_query(
             prefix_stage=prefix_stage,
             reentry_alias_hint=first_alias,
         )
-        # #1263 (LDBC SNB IC3 endpoint): detect free-form intermediate MATCH —
-        # the trailing MATCH's first alias is NOT in the prefix's carried
-        # whole-row set. Treat every carried whole-row alias as non-source so
-        # the existing property-carry rewriter materializes them as hidden
-        # columns; use ``first_alias`` as the carrier label so downstream
-        # ``<carried>.<prop>`` rewrites resolve against the trailing-MATCH row
-        # table at runtime (the runtime broadcasts the hidden columns onto
-        # every base node, so any alias the trailing MATCH binds carries them).
         whole_row_carried = tuple(
             column.output_name for column in prefix_projection.columns if column.kind == "whole_row"
         )
@@ -484,14 +437,6 @@ def _compile_bounded_reentry_query(
                 merged = set(non_source_carried_props_map.get(alias_name, ()))
                 merged.update(props)
                 non_source_carried_props_map[alias_name] = tuple(sorted(merged))
-            # #1275: free-form + carried-property bridge refs are admitted via
-            # `multi_alias_carries` pre-rewrite and downstream hidden-column
-            # expression rewrites.
-            # Non-source aliases that survived the prefix rewrite (i.e. had no
-            # property refs and no bare refs) are simply unused; safe to admit.
-            # `multi_alias_carries` (computed before the prefix compile) holds
-            # the {alias: props} for the rewritten ones — used below to
-            # populate ReentryPlan.aliases and rewrite trailing PropertyAccessExpr.
         for alias_name, carried_props in multi_alias_carries.items():
             merged = set(non_source_carried_props_map.get(alias_name, ()))
             merged.update(carried_props)
@@ -532,9 +477,6 @@ def _compile_bounded_reentry_query(
 
     hidden_columns = tuple(_reentry_hidden_column_name(output_name) for output_name in carry_columns)
 
-    # Build the explicit ReentryPlan contract. Scalar-only prefixes carry
-    # scalar columns only, while whole-row prefixes (including free-form)
-    # record carried aliases explicitly.
     if scalar_only_prefix:
         current_reentry_plan: ReentryPlan = ReentryPlan(
             reentry_alias_name=reentry_alias,
@@ -544,9 +486,6 @@ def _compile_bounded_reentry_query(
         )
     else:
         assert prefix_projection is not None
-        # #1263 free-form: no carried alias is the trailing-MATCH source, so
-        # every entry is recorded with is_reentry_alias=False. The carried-alias
-        # path keeps exactly one entry with is_reentry_alias=True.
         current_aliases: List[CarriedAlias] = []
         if not free_form:
             current_aliases.append(
@@ -565,8 +504,6 @@ def _compile_bounded_reentry_query(
                     carried_properties=non_source_carried_props_map.get(name, ()),
                 )
             )
-        # Keep secondary aliases recorded on the plan even when demoted to
-        # scalar carries by the #1071 rewrite path.
         for alias in demoted_secondary_aliases:
             if alias not in {entry.output_name for entry in current_aliases}:
                 current_aliases.append(
