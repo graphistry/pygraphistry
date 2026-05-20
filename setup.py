@@ -57,6 +57,7 @@ base_extras_light = {
     'jupyter': ['ipython'],
     'spanner': ['google-cloud-spanner'],
     'kusto': ['azure-kusto-data', 'azure-identity'],
+    'sentinel-graph': ['azure-identity'],
     'polars': ['polars'],
 }
 
