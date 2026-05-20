@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import datetime
 import math
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -55,34 +54,6 @@ def is_null_scalar(value: Any) -> bool:
     except Exception:
         return False
     return bool(marker) if isinstance(marker, bool) else False
-
-
-def is_nan_scalar(value: Any) -> bool:
-    if isinstance(value, bool):
-        return False
-    try:
-        return math.isnan(value)
-    except Exception:
-        return False
-
-
-def order_value_family(value: Any) -> Optional[str]:
-    if is_null_scalar(value) or is_nan_scalar(value):
-        return None
-    if isinstance(value, bool):
-        return "bool"
-    if isinstance(value, str):
-        return "str"
-    if isinstance(value, (int, float)):
-        return "number"
-    if isinstance(value, (datetime.datetime, datetime.date, datetime.time, pd.Timestamp)):
-        return "datetime"
-    type_name = type(value).__name__.lower()
-    if "datetime64" in type_name or "timedelta64" in type_name:
-        return "datetime"
-    if isinstance(value, (list, tuple, dict, set)):
-        return "unsupported"
-    return "unsupported"
 
 
 def validate_order_series_vector_safe(series: Any, expr: str) -> None:
