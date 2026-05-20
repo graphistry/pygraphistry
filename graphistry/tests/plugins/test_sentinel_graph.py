@@ -6,6 +6,13 @@ from datetime import datetime, timedelta
 import requests
 
 import graphistry
+
+# Check if azure.identity is available (optional sentinel-graph extra)
+try:
+    import azure.identity  # noqa: F401
+    HAS_AZURE_IDENTITY = True
+except ImportError:
+    HAS_AZURE_IDENTITY = False
 from graphistry.plugins.sentinel_graph import SentinelGraphMixin
 from graphistry.plugins_types.sentinel_graph_types import (
     SentinelGraphConfig,
@@ -127,6 +134,7 @@ class TestSentinelGraphConfiguration:
         assert g.session.sentinel_graph._token_expiry is None
 
 
+@pytest.mark.skipif(not HAS_AZURE_IDENTITY, reason="azure.identity not installed (sentinel-graph extra)")
 class TestAuthenticationToken:
     """Test authentication token retrieval and caching"""
 
