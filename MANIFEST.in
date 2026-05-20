@@ -1,3 +1,4 @@
 include versioneer.py
 include graphistry/_version.py
 include graphistry/py.typed
+include schemas/*.schema.json
