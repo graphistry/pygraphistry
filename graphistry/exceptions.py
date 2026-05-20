@@ -17,6 +17,13 @@ class SsoStateInvalidException(SsoException):
     """
     pass
 
+class SsoStateExpiredException(SsoException):
+    """
+    Raised when the SSO state has exceeded the client-side TTL,
+    meaning the server's PKCE verifier has likely expired.
+    """
+    pass
+
 
 
 class TokenExpireException(Exception):
