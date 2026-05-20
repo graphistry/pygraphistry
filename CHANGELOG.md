@@ -9,6 +9,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Added
+- **Schema artifacts for tooling contracts (#1326)**: Added committed structural JSON Schema artifacts for encodings, React settings, and URL params, plus a stdlib exporter/checker and CI drift guard for downstream LLM/tooling contract generation.
 - **Viz settings public contracts (#1234)**: Added `graphistry.viz_settings` as a public facade for canonical URL-parameter and React-facing visualization setting key constants, `Literal` key aliases, typed settings payloads, and frontend contract metadata for downstream type-checking.
 - **GFQL encode call parity (#1241)**: Added GFQL `call()` support for `encode_edge_icon` and `encode_axis`, plus deeper encode validator diagnostics for palette and categorical mapping payloads before remote or local execution.
 - **Changed-line coverage hygiene (#1533)**: Added a PR-only changed-line coverage gate that combines CPU coverage from the existing minimal and GFQL core test jobs, reports covered/missing executable package lines touched by a PR, and enforces an initial changed-line threshold without blocking on historical uncovered code.

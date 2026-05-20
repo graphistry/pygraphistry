@@ -156,6 +156,7 @@ jobs:
         emit python \
           '\.py$' \
           '^graphistry/' \
+          '^schemas/' \
           '^setup\.py$' \
           '^setup\.cfg$' \
           '^pytest\.ini$' \
@@ -292,6 +293,24 @@ jobs:
           echo "$plans_files"
           exit 1
         fi
+
+  schema-artifacts:
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Install package
+      run: python -m pip install -e .
+    - name: Check schema artifacts
+      run: python -m graphistry.devschemas.export --check
 
   generate-lockfiles:
     needs: changes
