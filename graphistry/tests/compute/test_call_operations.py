@@ -135,6 +135,36 @@ class TestCallExecution:
         assert result._nodes is not None
         assert len(result._nodes) == 3
 
+    def test_execute_encode_edge_icon(self, sample_graph):
+        result = execute_call(
+            sample_graph,
+            'encode_edge_icon',
+            {'column': 'edge_kind', 'categorical_mapping': {'email': 'envelope'}},
+            Engine.PANDAS
+        )
+
+        assert (
+            result._complex_encodings['edge_encodings']['default']['edgeIconEncoding']
+            ['mapping']['categorical']['fixed']['email']
+            == 'envelope'
+        )
+
+    def test_execute_encode_axis(self, sample_graph):
+        rows = [{'r': 10, 'external': True, 'label': 'outer'}]
+
+        result = execute_call(
+            sample_graph,
+            'encode_axis',
+            {'rows': rows},
+            Engine.PANDAS
+        )
+
+        assert (
+            result._complex_encodings['node_encodings']['default']['pointAxisEncoding']
+            ['rows']
+            == rows
+        )
+
     def test_execute_with_validation_error(self, sample_graph):
         with pytest.raises(GFQLTypeError) as exc_info:
             execute_call(

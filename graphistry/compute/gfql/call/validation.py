@@ -1,7 +1,7 @@
 """GFQL call safelist and parameter validators."""
 
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 from graphistry.compute.gfql.call.support import (
@@ -65,6 +65,8 @@ WhereRowsParserBundle = Tuple[
     WhereRowsCollectIdentifiersFn,
 ]
 WhereRowsParsedExpr = Tuple["ExprNode", WhereRowsCapabilityFn, WhereRowsCollectIdentifiersFn]
+ValidatorResult = Union[bool, str]
+ParamValidator = Callable[[object], ValidatorResult]
 
 
 @lru_cache(maxsize=1)
@@ -176,6 +178,70 @@ def is_where_rows_filter_dict(v: object) -> bool:
         if not (isinstance(val, ASTPredicate) or _is_json_compatible_value(val)):
             return False
     return True
+
+
+def _validate_string_list(name: str) -> ParamValidator:
+    def _validator(v: object) -> ValidatorResult:
+        if not isinstance(v, list):
+            return f"{name} must be a list of strings"
+        for i, item in enumerate(v):
+            if not isinstance(item, str):
+                return f"{name}[{i}] must be a string"
+        return True
+    return _validator
+
+
+def _validate_list_of_dicts(name: str) -> ParamValidator:
+    def _validator(v: object) -> ValidatorResult:
+        if not isinstance(v, list):
+            return f"{name} must be a list of dictionaries"
+        for i, item in enumerate(v):
+            if not isinstance(item, dict):
+                return f"{name}[{i}] must be a dictionary"
+        return True
+    return _validator
+
+
+def _validate_string_mapping(name: str) -> ParamValidator:
+    def _validator(v: object) -> ValidatorResult:
+        if not isinstance(v, dict):
+            return f"{name} must be a dictionary"
+        for key, value in v.items():
+            if not isinstance(key, str):
+                return f"{name} keys must be strings"
+            if not isinstance(value, str):
+                return f"{name}[{key!r}] must be a string"
+        return True
+    return _validator
+
+
+def _validate_numeric_mapping(name: str) -> ParamValidator:
+    def _validator(v: object) -> ValidatorResult:
+        if not isinstance(v, dict):
+            return f"{name} must be a dictionary"
+        for key, value in v.items():
+            if not isinstance(key, str):
+                return f"{name} keys must be strings"
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                return f"{name}[{key!r}] must be a number"
+        return True
+    return _validator
+
+
+def _validate_optional_string(name: str) -> ParamValidator:
+    def _validator(v: object) -> ValidatorResult:
+        if v is None or isinstance(v, str):
+            return True
+        return f"{name} must be a string or None"
+    return _validator
+
+
+def _validate_numeric(name: str) -> ParamValidator:
+    def _validator(v: object) -> ValidatorResult:
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return True
+        return f"{name} must be a number"
+    return _validator
 
 
 def is_list_of_dicts(v: object) -> bool:
@@ -771,11 +837,11 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'required_params': {'column'},
         'param_validators': {
             'column': is_string,
-            'palette': lambda v: isinstance(v, list),
+            'palette': _validate_string_list('palette'),
             'as_categorical': is_bool,
             'as_continuous': is_bool,
-            'categorical_mapping': is_dict,
-            'default_mapping': is_string_or_none
+            'categorical_mapping': _validate_string_mapping('categorical_mapping'),
+            'default_mapping': _validate_optional_string('default_mapping')
         },
         'description': 'Map node column values to colors',
         'schema_effects': NODE_COLUMN_SCHEMA_EFFECTS
@@ -786,11 +852,11 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'required_params': {'column'},
         'param_validators': {
             'column': is_string,
-            'palette': lambda v: isinstance(v, list),
+            'palette': _validate_string_list('palette'),
             'as_categorical': is_bool,
             'as_continuous': is_bool,
-            'categorical_mapping': is_dict,
-            'default_mapping': is_string_or_none
+            'categorical_mapping': _validate_string_mapping('categorical_mapping'),
+            'default_mapping': _validate_optional_string('default_mapping')
         },
         'description': 'Map edge column values to colors',
         'schema_effects': EDGE_COLUMN_SCHEMA_EFFECTS
@@ -801,8 +867,8 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'required_params': {'column'},
         'param_validators': {
             'column': is_string,
-            'categorical_mapping': is_dict,
-            'default_mapping': lambda v: isinstance(v, (int, float))
+            'categorical_mapping': _validate_numeric_mapping('categorical_mapping'),
+            'default_mapping': _validate_numeric('default_mapping')
         },
         'description': 'Map node column values to sizes',
         'schema_effects': NODE_COLUMN_SCHEMA_EFFECTS
@@ -813,13 +879,37 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'required_params': {'column'},
         'param_validators': {
             'column': is_string,
-            'categorical_mapping': is_dict,
+            'categorical_mapping': _validate_string_mapping('categorical_mapping'),
             'continuous_binning': lambda v: isinstance(v, list),
-            'default_mapping': is_string_or_none,
+            'default_mapping': _validate_optional_string('default_mapping'),
             'as_text': is_bool
         },
         'description': 'Map node column values to icons',
         'schema_effects': NODE_COLUMN_SCHEMA_EFFECTS
+    },
+
+    'encode_edge_icon': {
+        'allowed_params': {'column', 'categorical_mapping', 'continuous_binning', 'default_mapping', 'as_text'},
+        'required_params': {'column'},
+        'param_validators': {
+            'column': is_string,
+            'categorical_mapping': _validate_string_mapping('categorical_mapping'),
+            'continuous_binning': lambda v: isinstance(v, list),
+            'default_mapping': _validate_optional_string('default_mapping'),
+            'as_text': is_bool
+        },
+        'description': 'Map edge column values to icons',
+        'schema_effects': EDGE_COLUMN_SCHEMA_EFFECTS
+    },
+
+    'encode_axis': {
+        'allowed_params': {'rows'},
+        'required_params': set(),
+        'param_validators': {
+            'rows': _validate_list_of_dicts('rows')
+        },
+        'description': 'Render radial and linear axes with optional labels',
+        'schema_effects': NO_SCHEMA_EFFECTS
     },
 
     # Metadata methods
@@ -984,10 +1074,15 @@ def validate_call_params(function: str, params: Dict[str, object]) -> Dict[str, 
     for param_name, param_value in params.items():
         if param_name in param_validators:
             validator = param_validators[param_name]
-            if not validator(param_value):
+            validation_result = validator(param_value)
+            if validation_result is not True:
+                detail = validation_result if isinstance(validation_result, str) else None
+                message = f"Invalid type for parameter '{param_name}' in '{function}'"
+                if detail is not None:
+                    message = f"Invalid value for parameter '{param_name}' in '{function}': {detail}"
                 raise GFQLTypeError(
                     ErrorCode.E201,
-                    f"Invalid type for parameter '{param_name}' in '{function}'",
+                    message,
                     field=f"params.{param_name}",
                     value=f"{type(param_value).__name__}: {param_value}",
                     suggestion="Check the parameter type requirements"
