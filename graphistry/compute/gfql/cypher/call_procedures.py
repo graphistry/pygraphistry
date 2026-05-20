@@ -567,6 +567,27 @@ def _normalize_call_params(
         raise _invalid_call_argument(exc.message, call=call, value=raw_options) from exc
 
 
+def _compiled_procedure_call(
+    definition: _ProcedureDefinition,
+    call: CallClause,
+    *,
+    call_params: Mapping[str, Any],
+    output_columns: Tuple[ProcedureOutputColumn, ...] = (),
+) -> CompiledCypherProcedureCall:
+    return CompiledCypherProcedureCall(
+        procedure=definition.procedure,
+        backend=definition.backend,
+        algorithm=definition.algorithm,
+        output_columns=output_columns,
+        result_kind=definition.result_kind,
+        row_kind=definition.row_kind,
+        call_function=definition.call_function,
+        call_params=call_params,
+        line=call.span.line,
+        column=call.span.column,
+    )
+
+
 def compile_cypher_call(
     call: CallClause,
     *,
@@ -589,17 +610,7 @@ def compile_cypher_call(
                 call=call,
                 value=call.procedure,
             )
-        return CompiledCypherProcedureCall(
-            procedure=definition.procedure,
-            backend=definition.backend,
-            algorithm=definition.algorithm,
-            result_kind="graph",
-            row_kind=definition.row_kind,
-            call_function=definition.call_function,
-            call_params=call_params,
-            line=call.span.line,
-            column=call.span.column,
-        )
+        return _compiled_procedure_call(definition, call, call_params=call_params)
 
     available_outputs = _default_output_names(definition, call_params)
     if not call.yield_items:
@@ -607,17 +618,11 @@ def compile_cypher_call(
             ProcedureOutputColumn(source_name=name, output_name=name)
             for name in available_outputs
         )
-        return CompiledCypherProcedureCall(
-            procedure=definition.procedure,
-            backend=definition.backend,
-            algorithm=definition.algorithm,
-            output_columns=output_columns,
-            result_kind="rows",
-            row_kind=definition.row_kind,
-            call_function=definition.call_function,
+        return _compiled_procedure_call(
+            definition,
+            call,
             call_params=call_params,
-            line=call.span.line,
-            column=call.span.column,
+            output_columns=output_columns,
         )
 
     known_outputs = set(available_outputs)
@@ -651,17 +656,11 @@ def compile_cypher_call(
         compiled_outputs.append(
             ProcedureOutputColumn(source_name=yield_item.name, output_name=output_name)
         )
-    return CompiledCypherProcedureCall(
-        procedure=definition.procedure,
-        backend=definition.backend,
-        algorithm=definition.algorithm,
-        output_columns=tuple(compiled_outputs),
-        result_kind="rows",
-        row_kind=definition.row_kind,
-        call_function=definition.call_function,
+    return _compiled_procedure_call(
+        definition,
+        call,
         call_params=call_params,
-        line=call.span.line,
-        column=call.span.column,
+        output_columns=tuple(compiled_outputs),
     )
 
 

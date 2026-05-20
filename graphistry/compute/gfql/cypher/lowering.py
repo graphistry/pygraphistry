@@ -119,6 +119,12 @@ from graphistry.compute.gfql.cypher.call_procedures import (
     compile_cypher_call,
 )
 from graphistry.compute.gfql.cypher.ast_normalizer import ASTNormalizer
+from graphistry.compute.gfql.cypher.shortest_path_aliases import (
+    _ShortestPathAliasSpec,
+    _is_variable_length_relationship_pattern,
+    _match_pattern_alias_kinds,
+    _shortest_path_alias_specs,
+)
 from graphistry.compute.gfql.cypher.shortest_path_guards import (
     reject_shortest_path_alias_references_after_follow_on_match,
 )
@@ -422,15 +428,6 @@ class _PostAggregateExprPlan:
 class _StageColumnBinding:
     kind: Literal["property", "expr"]
     source_name: str
-
-
-@dataclass(frozen=True)
-class _ShortestPathAliasSpec:
-    alias: str
-    hop_column: str
-    pattern: Tuple[PatternElement, ...]
-    start_alias: Optional[str]
-    end_alias: Optional[str]
 
 
 @dataclass(frozen=True)
@@ -2975,12 +2972,6 @@ def _match_pattern_elements(clause: MatchClause) -> Tuple[PatternElement, ...]:
     return _normalized_match_pattern(clause)
 
 
-def _match_pattern_alias_kinds(clause: MatchClause) -> Tuple[PathPatternKind, ...]:
-    if clause.pattern_alias_kinds:
-        return clause.pattern_alias_kinds
-    return tuple("pattern" for _ in clause.patterns)
-
-
 def _query_has_shortest_path_patterns(query: CypherQuery) -> bool:
     return any(
         kind == "shortestPath"
@@ -5438,14 +5429,6 @@ def _reject_unsupported_where_expr_forms(query: CypherQuery) -> None:
         )
 
 
-def _is_variable_length_relationship_pattern(relationship: RelationshipPattern) -> bool:
-    return (
-        relationship.min_hops is not None
-        or relationship.max_hops is not None
-        or relationship.to_fixed_point
-    )
-
-
 def _variable_length_relationship_aliases(
     alias_targets: Mapping[str, ASTObject],
 ) -> Set[str]:
@@ -5474,44 +5457,6 @@ def _variable_length_path_aliases(query: CypherQuery) -> Set[str]:
                 for element in pattern
             ):
                 out.add(alias)
-    return out
-
-
-def _shortest_path_alias_specs(query: CypherQuery) -> Dict[str, _ShortestPathAliasSpec]:
-    out: Dict[str, _ShortestPathAliasSpec] = {}
-    for clause in query.matches + query.reentry_matches:
-        pattern_aliases = clause.pattern_aliases or tuple(None for _ in clause.patterns)
-        pattern_kinds = _match_pattern_alias_kinds(clause)
-        for alias, pattern, kind in zip(pattern_aliases, clause.patterns, pattern_kinds):
-            if alias is None or kind != "shortestPath":
-                continue
-            relationships = [element for element in pattern if isinstance(element, RelationshipPattern)]
-            if len(relationships) != 1 or len(pattern) != 3:
-                raise _unsupported(
-                    "Cypher shortestPath() currently supports only single-relationship path patterns in the local compiler",
-                    field="match",
-                    value=alias,
-                    line=clause.span.line,
-                    column=clause.span.column,
-                )
-            relationship = relationships[0]
-            if not _is_variable_length_relationship_pattern(relationship):
-                raise _unsupported(
-                    "Cypher shortestPath() requires a variable-length relationship pattern in the local compiler",
-                    field="match",
-                    value=alias,
-                    line=clause.span.line,
-                    column=clause.span.column,
-                )
-            start_alias = pattern[0].variable if isinstance(pattern[0], NodePattern) else None
-            end_alias = pattern[-1].variable if isinstance(pattern[-1], NodePattern) else None
-            out[alias] = _ShortestPathAliasSpec(
-                alias=alias,
-                hop_column=f"__cypher_shortest_path_hops__{alias}",
-                pattern=pattern,
-                start_alias=start_alias,
-                end_alias=end_alias,
-            )
     return out
 
 
@@ -5581,6 +5526,70 @@ def _shortest_path_relationship_hop_columns(clause: MatchClause) -> Dict[Tuple[i
     return out
 
 
+def _check_query_projection_exprs(
+    query: CypherQuery,
+    *,
+    check_expr: Callable[[str, str, int, int], None],
+    include_reentry_wheres: bool = False,
+) -> None:
+    if query.where is not None and query.where.expr_tree is not None:
+        check_expr(
+            boolean_expr_to_text(query.where.expr_tree),
+            "where",
+            query.where.span.line,
+            query.where.span.column,
+        )
+    if include_reentry_wheres:
+        for reentry_where in query.reentry_wheres:
+            if reentry_where is not None and reentry_where.expr_tree is not None:
+                check_expr(
+                    boolean_expr_to_text(reentry_where.expr_tree),
+                    "where",
+                    reentry_where.span.line,
+                    reentry_where.span.column,
+                )
+
+    def _check_projection_clause(clause: ReturnClause) -> None:
+        for item in clause.items:
+            if item.expression.text == "*":
+                continue
+            check_expr(
+                item.expression.text,
+                clause.kind,
+                item.span.line,
+                item.span.column,
+            )
+
+    _check_projection_clause(query.return_)
+
+    if query.order_by is not None:
+        for item in query.order_by.items:
+            check_expr(
+                item.expression.text,
+                "order_by",
+                item.span.line,
+                item.span.column,
+            )
+
+    for stage in query.with_stages:
+        _check_projection_clause(stage.clause)
+        if stage.where is not None:
+            check_expr(
+                stage.where.text,
+                "with.where",
+                stage.span.line,
+                stage.span.column,
+            )
+        if stage.order_by is not None:
+            for item in stage.order_by.items:
+                check_expr(
+                    item.expression.text,
+                    "order_by",
+                    item.span.line,
+                    item.span.column,
+                )
+
+
 def _reject_variable_length_path_alias_references(
     query: CypherQuery,
     *,
@@ -5613,61 +5622,16 @@ def _reject_variable_length_path_alias_references(
             column=column,
         )
 
-    if query.where is not None and query.where.expr_tree is not None:
-        _check_expr(
-            boolean_expr_to_text(query.where.expr_tree),
-            field="where",
-            line=query.where.span.line,
-            column=query.where.span.column,
-        )
-    for reentry_where in query.reentry_wheres:
-        if reentry_where is not None and reentry_where.expr_tree is not None:
-            _check_expr(
-                boolean_expr_to_text(reentry_where.expr_tree),
-                field="where",
-                line=reentry_where.span.line,
-                column=reentry_where.span.column,
-            )
-
-    def _check_projection_clause(clause: ReturnClause) -> None:
-        for item in clause.items:
-            if item.expression.text == "*":
-                continue
-            _check_expr(
-                item.expression.text,
-                field=clause.kind,
-                line=item.span.line,
-                column=item.span.column,
-            )
-
-    _check_projection_clause(query.return_)
-
-    if query.order_by is not None:
-        for item in query.order_by.items:
-            _check_expr(
-                item.expression.text,
-                field="order_by",
-                line=item.span.line,
-                column=item.span.column,
-            )
-
-    for stage in query.with_stages:
-        _check_projection_clause(stage.clause)
-        if stage.where is not None:
-            _check_expr(
-                stage.where.text,
-                field="with.where",
-                line=stage.span.line,
-                column=stage.span.column,
-            )
-        if stage.order_by is not None:
-            for item in stage.order_by.items:
-                _check_expr(
-                    item.expression.text,
-                    field="order_by",
-                    line=item.span.line,
-                    column=item.span.column,
-                )
+    _check_query_projection_exprs(
+        query,
+        check_expr=lambda expr_text, field, line, column: _check_expr(
+            expr_text,
+            field=field,
+            line=line,
+            column=column,
+        ),
+        include_reentry_wheres=True,
+    )
 
 
 def _reject_variable_length_relationship_alias_path_carriers(
@@ -5698,53 +5662,15 @@ def _reject_variable_length_relationship_alias_path_carriers(
             column=column,
         )
 
-    if query.where is not None and query.where.expr_tree is not None:
-        _check_expr(
-            boolean_expr_to_text(query.where.expr_tree),
-            field="where",
-            line=query.where.span.line,
-            column=query.where.span.column,
-        )
-
-    def _check_projection_clause(clause: ReturnClause) -> None:
-        for item in clause.items:
-            if item.expression.text == "*":
-                continue
-            _check_expr(
-                item.expression.text,
-                field=clause.kind,
-                line=item.span.line,
-                column=item.span.column,
-            )
-
-    _check_projection_clause(query.return_)
-
-    if query.order_by is not None:
-        for item in query.order_by.items:
-            _check_expr(
-                item.expression.text,
-                field="order_by",
-                line=item.span.line,
-                column=item.span.column,
-            )
-
-    for stage in query.with_stages:
-        _check_projection_clause(stage.clause)
-        if stage.where is not None:
-            _check_expr(
-                stage.where.text,
-                field="with.where",
-                line=stage.span.line,
-                column=stage.span.column,
-            )
-        if stage.order_by is not None:
-            for item in stage.order_by.items:
-                _check_expr(
-                    item.expression.text,
-                    field="order_by",
-                    line=item.span.line,
-                        column=item.span.column,
-                    )
+    _check_query_projection_exprs(
+        query,
+        check_expr=lambda expr_text, field, line, column: _check_expr(
+            expr_text,
+            field=field,
+            line=line,
+            column=column,
+        ),
+    )
 
 
 def _predicate_pattern_aliases(predicate: WherePatternPredicate) -> List[str]:
