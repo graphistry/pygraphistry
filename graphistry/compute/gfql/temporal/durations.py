@@ -42,27 +42,12 @@ def parse_temporal_sort_duration_components(text: str) -> Optional[tuple[int, in
     month_shift = 0
     total = Decimal(0)
 
-    def _consume(part: str, allowed_units: set[str]) -> Optional[list[tuple[Decimal, str]]]:
-        if part == "":
-            return []
-        pos = 0
-        out: list[tuple[Decimal, str]] = []
-        for match in _DAY_TIME_DURATION_TOKEN_RE.finditer(part):
-            if match.start() != pos:
-                return None
-            value_txt, unit = match.groups()
-            if unit not in allowed_units:
-                return None
-            out.append((Decimal(value_txt), unit))
-            pos = match.end()
-        if pos != len(part):
-            return None
-        return out
-
-    date_tokens = _consume(date_part, {"Y", "M", "W", "D"})
-    time_tokens = _consume(time_part, {"H", "M", "S"})
-    if date_tokens is None or time_tokens is None:
+    raw_date_tokens = _tt._consume_duration_tokens(date_part, {"Y", "M", "W", "D"}, _DAY_TIME_DURATION_TOKEN_RE)
+    raw_time_tokens = _tt._consume_duration_tokens(time_part, {"H", "M", "S"}, _DAY_TIME_DURATION_TOKEN_RE)
+    if raw_date_tokens is None or raw_time_tokens is None:
         return None
+    date_tokens = [(Decimal(value), unit) for value, unit in raw_date_tokens]
+    time_tokens = [(Decimal(value), unit) for value, unit in raw_time_tokens]
 
     for value, unit in date_tokens:
         if unit == "Y":
@@ -89,30 +74,62 @@ def parse_temporal_sort_duration_components(text: str) -> Optional[tuple[int, in
     return month_shift * prefix_sign, int((total * prefix_sign).to_integral_value())
 
 
-def _format_large_time_only_duration(total_nanoseconds: int) -> str:
-    if total_nanoseconds == 0:
+def _format_signed_time_duration(
+    total_units: int,
+    *,
+    units_per_second: int,
+    fraction_width: int,
+    include_days: bool = False,
+) -> str:
+    if total_units == 0:
         return "PT0S"
-    sign = -1 if total_nanoseconds < 0 else 1
-    remaining = abs(total_nanoseconds)
-    hours, remaining = divmod(remaining, 3_600_000_000_000)
-    minutes, remaining = divmod(remaining, 60_000_000_000)
-    seconds, nanoseconds = divmod(remaining, 1_000_000_000)
+    sign = -1 if total_units < 0 else 1
+    remaining = abs(total_units)
+    days = 0
+    if include_days:
+        days, remaining = divmod(remaining, 24 * 60 * 60 * units_per_second)
+    hours, remaining = divmod(remaining, 60 * 60 * units_per_second)
+    minutes, remaining = divmod(remaining, 60 * units_per_second)
+    seconds, fraction = divmod(remaining, units_per_second)
 
     def _signed(value: int) -> str:
         return f"{'-' if sign < 0 else ''}{value}"
 
-    parts = ["PT"]
+    parts = ["P"] if include_days else ["PT"]
+    if days:
+        parts.append(f"{_signed(days)}D")
+    time_parts = [] if include_days else parts
     if hours:
-        parts.append(f"{_signed(hours)}H")
+        time_parts.append(f"{_signed(hours)}H")
     if minutes:
-        parts.append(f"{_signed(minutes)}M")
-    if seconds or nanoseconds or len(parts) == 1:
-        if nanoseconds:
-            frac = str(nanoseconds).rjust(9, "0").rstrip("0")
-            parts.append(f"{_signed(seconds)}.{frac}S")
+        time_parts.append(f"{_signed(minutes)}M")
+    if seconds or fraction or (not days and not time_parts):
+        if fraction:
+            frac = str(fraction).rjust(fraction_width, "0").rstrip("0")
+            time_parts.append(f"{_signed(seconds)}.{frac}S")
         else:
-            parts.append(f"{_signed(seconds)}S")
+            time_parts.append(f"{_signed(seconds)}S")
+    if include_days and time_parts:
+        parts.append("T")
+        parts.extend(time_parts)
     return "".join(parts)
+
+
+def _format_large_time_only_duration(total_nanoseconds: int) -> str:
+    return _format_signed_time_duration(
+        total_nanoseconds,
+        units_per_second=1_000_000_000,
+        fraction_width=9,
+    )
+
+
+def _format_day_time_duration_nanoseconds(total_nanoseconds: int) -> str:
+    return _format_signed_time_duration(
+        total_nanoseconds,
+        units_per_second=1_000_000_000,
+        fraction_width=9,
+        include_days=True,
+    )
 
 
 def _fold_large_year_duration_function_call(
@@ -168,30 +185,11 @@ def _fold_large_year_duration_function_call(
 
 
 def _format_time_only_duration(delta: timedelta) -> str:
-    total_microseconds = _timedelta_total_microseconds(delta)
-    if total_microseconds == 0:
-        return "PT0S"
-    sign = -1 if total_microseconds < 0 else 1
-    remaining = abs(total_microseconds)
-    hours, remaining = divmod(remaining, 3_600_000_000)
-    minutes, remaining = divmod(remaining, 60_000_000)
-    seconds, microseconds = divmod(remaining, 1_000_000)
-
-    def _signed(value: int) -> str:
-        return f"{'-' if sign < 0 else ''}{value}"
-
-    parts = ["PT"]
-    if hours:
-        parts.append(f"{_signed(hours)}H")
-    if minutes:
-        parts.append(f"{_signed(minutes)}M")
-    if seconds or microseconds or len(parts) == 1:
-        if microseconds:
-            frac = str(microseconds).rjust(6, "0").rstrip("0")
-            parts.append(f"{_signed(seconds)}.{frac}S")
-        else:
-            parts.append(f"{_signed(seconds)}S")
-    return "".join(parts)
+    return _format_signed_time_duration(
+        _timedelta_total_microseconds(delta),
+        units_per_second=1_000_000,
+        fraction_width=6,
+    )
 
 
 def _format_duration_components(
@@ -261,7 +259,7 @@ def _fold_duration_between(
 
     rel = relativedelta(end_dt, start_dt)
     if rel.years == 0 and rel.months == 0:
-        return _tt._format_signed_day_time_duration(_timedelta_total_microseconds(delta) * 1_000)
+        return _format_day_time_duration_nanoseconds(_timedelta_total_microseconds(delta) * 1_000)
     return _format_duration_components(
         years=rel.years,
         months=rel.months,

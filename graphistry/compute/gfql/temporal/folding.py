@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime as py_datetime
 from datetime import timedelta
 import re
-from typing import Optional, cast
+from typing import Callable, Optional, cast
 
 from graphistry.compute.gfql.temporal import constructors as _tt
 from graphistry.compute.gfql.expr_parser import (
@@ -27,6 +27,42 @@ from graphistry.compute.gfql.temporal.durations import _fold_duration_function_c
 from graphistry.compute.gfql.temporal.rendering import _render_temporal_arg
 from graphistry.compute.gfql.temporal.truncation import _fold_temporal_truncate_call
 from graphistry.compute.gfql.temporal.values import _format_localdatetime_parts
+
+
+def _fold_expr_children(node: ExprNode, fold: Callable[[ExprNode], ExprNode]) -> ExprNode:
+    if isinstance(node, (Identifier, Literal, Wildcard)):
+        return node
+    if isinstance(node, UnaryOp):
+        return UnaryOp(node.op, fold(node.operand))
+    if isinstance(node, BinaryOp):
+        return BinaryOp(node.op, fold(node.left), fold(node.right))
+    if isinstance(node, IsNullOp):
+        return IsNullOp(fold(node.value), negated=node.negated)
+    if isinstance(node, CaseWhen):
+        return CaseWhen(fold(node.condition), fold(node.when_true), fold(node.when_false))
+    if isinstance(node, QuantifierExpr):
+        return QuantifierExpr(node.fn, node.var, fold(node.source), fold(node.predicate))
+    if isinstance(node, ListComprehension):
+        return ListComprehension(
+            node.var,
+            fold(node.source),
+            predicate=None if node.predicate is None else fold(node.predicate),
+            projection=None if node.projection is None else fold(node.projection),
+        )
+    if isinstance(node, ListLiteral):
+        return ListLiteral(tuple(fold(item) for item in node.items))
+    if isinstance(node, MapLiteral):
+        return MapLiteral(tuple((key, fold(value)) for key, value in node.items))
+    if isinstance(node, SubscriptExpr):
+        return SubscriptExpr(fold(node.value), fold(node.key))
+    if isinstance(node, SliceExpr):
+        return SliceExpr(
+            fold(node.value),
+            None if node.start is None else fold(node.start),
+            None if node.stop is None else fold(node.stop),
+        )
+    return node
+
 
 def _fold_datetime_epoch_function_call(
     fn_name: str,
@@ -88,18 +124,6 @@ def fold_temporal_constructor_ast(node: ExprNode) -> ExprNode:
     current_dt = py_datetime.now().astimezone()
 
     def _fold(inner: ExprNode) -> ExprNode:
-        if isinstance(inner, (Identifier, Literal, Wildcard)):
-            return inner
-        if isinstance(inner, UnaryOp):
-            return UnaryOp(inner.op, _fold(inner.operand))
-        if isinstance(inner, BinaryOp):
-            return BinaryOp(
-                inner.op,
-                _fold(inner.left),
-                _fold(inner.right),
-            )
-        if isinstance(inner, IsNullOp):
-            return IsNullOp(_fold(inner.value), negated=inner.negated)
         if isinstance(inner, FunctionCall):
             args = tuple(_fold(arg) for arg in inner.args)
             rewritten = FunctionCall(inner.name, args, distinct=inner.distinct)
@@ -162,41 +186,6 @@ def fold_temporal_constructor_ast(node: ExprNode) -> ExprNode:
                 if folded is not None:
                     return folded
             return rewritten
-        if isinstance(inner, CaseWhen):
-            return CaseWhen(
-                _fold(inner.condition),
-                _fold(inner.when_true),
-                _fold(inner.when_false),
-            )
-        if isinstance(inner, QuantifierExpr):
-            return QuantifierExpr(
-                inner.fn,
-                inner.var,
-                _fold(inner.source),
-                _fold(inner.predicate),
-            )
-        if isinstance(inner, ListComprehension):
-            return ListComprehension(
-                inner.var,
-                _fold(inner.source),
-                predicate=None if inner.predicate is None else _fold(inner.predicate),
-                projection=None if inner.projection is None else _fold(inner.projection),
-            )
-        if isinstance(inner, ListLiteral):
-            return ListLiteral(tuple(_fold(item) for item in inner.items))
-        if isinstance(inner, MapLiteral):
-            return MapLiteral(tuple((key, _fold(value)) for key, value in inner.items))
-        if isinstance(inner, SubscriptExpr):
-            return SubscriptExpr(
-                _fold(inner.value),
-                _fold(inner.key),
-            )
-        if isinstance(inner, SliceExpr):
-            return SliceExpr(
-                _fold(inner.value),
-                None if inner.start is None else _fold(inner.start),
-                None if inner.stop is None else _fold(inner.stop),
-            )
-        return inner
+        return _fold_expr_children(inner, _fold)
 
     return _fold(node)

@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 from datetime import datetime, date, time
 
-import graphistry.compute.ast_temporal as ast_temporal
+import graphistry.compute.gfql.temporal.constructors as temporal_constructors
 from graphistry.compute.ast_temporal import (
     DateTimeValue, DateValue, TimeValue, temporal_value_from_json
 )
@@ -44,7 +44,7 @@ class TestDateTimeValue:
         assert dt_utc.as_pandas_value().timestamp() == dt_est.as_pandas_value().timestamp()
 
     def test_timezone_conversion_falls_back_without_zoneinfo(self, monkeypatch):
-        monkeypatch.setattr(ast_temporal, "ZoneInfo", None)
+        monkeypatch.setattr(temporal_constructors, "ZoneInfo", None)
 
         dt_est = DateTimeValue("2024-01-01T12:00:00+00:00", "US/Eastern")
 
