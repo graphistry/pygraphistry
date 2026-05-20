@@ -39,6 +39,7 @@ PROFILE_DEFS=(
     "test-umap:test,testai,umap-learn:3.9::--no-emit-package torch"
     "test-ai:test,testai,ai:3.9::--no-emit-package torch --constraint /tmp/sentence-transformers-compat.txt"
     "docs:docs:3.10::"
+    "rtd:docs,pygraphviz:3.12:3.12:"
     "build:build:3.8::"
     "tck:test:3.8::"
 )
