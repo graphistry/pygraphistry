@@ -8,7 +8,11 @@ import pytest
 import graphistry.compute.gfql.call.validation as call_safelist
 import graphistry.compute.gfql.expr_parser as expr_parser
 import graphistry.compute.gfql.row.pipeline as row_pipeline_mixin
-from graphistry.compute.gfql.row.entity_props import entity_keys_series
+from graphistry.compute.gfql.row.entity_props import (
+    entity_keys_series,
+    format_node_entity_text,
+    format_node_labels_text,
+)
 from graphistry.compute.ast import (
     ASTCall,
     distinct,
@@ -37,6 +41,12 @@ def _mk_graph(nodes_df, edges_df=None):
     if edges_df is None:
         edges_df = pd.DataFrame({"s": ["a"], "d": ["b"]})
     return CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d")
+
+
+def _mk_cudf_graph(cudf, nodes_df, edges_df=None):
+    if edges_df is None:
+        edges_df = _self_loop_edges(nodes_df)
+    return CGFull().nodes(cudf.from_pandas(nodes_df), "id").edges(cudf.from_pandas(edges_df), "s", "d")
 
 
 def _normalize_expr_eval_output(value):
@@ -90,6 +100,114 @@ def _safe_df_records(df):
     return df.to_dict(orient="records")
 
 
+def test_row_entity_props_format_list_labels_and_type_text() -> None:
+    df = pd.DataFrame(
+        {
+            "n": [True, True],
+            "id": ["a", "b"],
+            "labels": [["Person", "Admin"], []],
+            "type": ["Special", None],
+        }
+    )
+
+    rendered = format_node_entity_text(
+        df,
+        alias_col="n",
+        excluded=("n", "id", "labels", "type"),
+        labels_are_list_like=True,
+    )
+    labels = format_node_labels_text(df, alias_col="n", labels_are_list_like=True)
+
+    assert rendered.tolist() == ["(:Person:Admin:Special)", "()"]
+    assert labels.tolist() == ["['Person', 'Admin']", "[]"]
+
+
+def test_row_entity_props_format_sparse_label_columns_and_type_text() -> None:
+    df = pd.DataFrame(
+        {
+            "n": [True, True, None],
+            "id": ["a", "b", "c"],
+            "label__Skip": [False, False, False],
+            "label__Keep": [True, False, False],
+            "type": [None, "Movie", None],
+        }
+    )
+
+    rendered = format_node_entity_text(
+        df,
+        alias_col="n",
+        excluded=("n", "id", "type"),
+        labels_are_list_like=False,
+    )
+    labels = format_node_labels_text(df, alias_col="n", labels_are_list_like=False)
+
+    rendered_values = rendered.tolist()
+    assert rendered_values[:2] == ["(:Keep)", "(:Movie)"]
+    assert pd.isna(rendered_values[2])
+    assert labels.tolist() == ["['Keep']", "['Movie']", "[]"]
+
+
+_NESTED_MAP_LIST_ORDER_CASES = [
+    pytest.param(
+        [
+            [{"k": [2]}],
+            [{"k": [1]}],
+            [{"k": [1]}, {"k": [0]}],
+            [{"k": [1]}, {"k": [2]}],
+        ],
+        ["b", "c", "d"],
+        id="basic",
+    ),
+    pytest.param(
+        [
+            [{"k": [None]}],
+            [{"k": [False]}],
+            [{"k": [True]}],
+            [{"k": [True, None]}],
+            [{"k": [True, True]}],
+        ],
+        ["b", "a", "d"],
+        id="nullable-bool",
+    ),
+    pytest.param(
+        [
+            [{"k": [[]]}],
+            [{"k": [[0]]}],
+            [{"k": [[1]]}],
+            [{"k": [[1, 0]]}],
+            [{"k": [[1, 1]]}],
+        ],
+        ["b", "d", "e"],
+        id="empty-nested-list",
+    ),
+]
+
+
+_LIST_SCALAR_CONCAT_CASES = [
+    pytest.param(
+        {"id": ["a", "b"], "vals": [[1, 2], []], "score": [3, 4]},
+        [
+            {"right_splat": [1, 2, 3], "left_splat": [3, 1, 2]},
+            {"right_splat": [4], "left_splat": [4]},
+        ],
+        id="non-null",
+    ),
+    pytest.param(
+        {"id": ["a", "b", "c"], "vals": [[1], [], None], "score": [None, None, None]},
+        [
+            {"right_splat": [1, None], "left_splat": [None, 1]},
+            {"right_splat": [None], "left_splat": [None]},
+            {"right_splat": None, "left_splat": None},
+        ],
+        id="null-scalar-and-list",
+    ),
+]
+
+
+def _maybe_stringify_nested_values(values, *, stringified):
+    return [repr(value) for value in values] if stringified else values
+
+
 def _install_ast_literal_visit_spy(monkeypatch):
     ast_visits = []
     original_ast_eval = row_pipeline_mixin.RowPipelineMixin._gfql_eval_expr_ast
@@ -116,6 +234,8 @@ def _self_loop_edges(nodes_df):
 
 
 def _run_node_steps(nodes_df, steps, edges_df=None):
+    if edges_df is None:
+        edges_df = _self_loop_edges(nodes_df)
     return _mk_graph(nodes_df, edges_df).gfql(steps)._nodes
 
 
@@ -144,7 +264,6 @@ def _assert_single_row_select_records(items, expected_records, *, nodes_df=None)
         base_nodes,
         [rows(), select(items)],
         expected_records,
-        edges_df=_self_loop_edges(base_nodes),
     )
 
 
@@ -217,6 +336,81 @@ def _assert_ast_parity(nodes, cases):
         assert _normalize_expr_eval_output(ast_out) == _normalize_expr_eval_output(legacy_out)
 
 
+def _ast_map_literal_nodes_df():
+    return pd.DataFrame(
+        {
+            "id": ["a", "b", "c"],
+            "score": [1, None, 3],
+            "vals": [[1, 2], [], None],
+        }
+    )
+
+
+def _assert_ast_map_literal_vector_values(g, monkeypatch, records_fn, *, expect_cudf=False):
+    if expect_cudf:
+        assert type(g._nodes).__module__.startswith("cudf")
+    ctx = row_pipeline_mixin._RowPipelineAdapter(g)
+    ok, ast_out = ctx._gfql_eval_expr_ast(
+        g._nodes,
+        expr_parser.parse_expr("{id: id, score: score, nested: [score, vals], vals: vals}"),
+    )
+    assert ok
+    assert [_normalize_record_value(item) for item in _safe_series_to_list(ast_out)] == [
+        {"id": "a", "score": 1, "nested": [1, [1, 2]], "vals": [1, 2]},
+        {"id": "b", "score": None, "nested": [None, []], "vals": []},
+        {"id": "c", "score": 3, "nested": [3, None], "vals": None},
+    ]
+
+    ast_visits = _install_ast_literal_visit_spy(monkeypatch)
+    result = g.gfql(
+        [
+            rows(),
+            select(
+                [
+                    ("id", "id"),
+                    ("m", "{id: id, score: score, vals: vals}"),
+                    ("maps", "[{id: id, score: score, vals: vals}, {id: id, score: score + 10, vals: vals}]"),
+                    ("picked", "{score: score, vals: vals}.score"),
+                ]
+            ),
+            order_by([("id", "asc")]),
+        ]
+    )
+    if expect_cudf:
+        assert type(result._nodes).__module__.startswith("cudf")
+    assert _normalize_records(records_fn(result._nodes)) == [
+        {
+            "id": "a",
+            "m": {"id": "a", "score": 1, "vals": [1, 2]},
+            "maps": [
+                {"id": "a", "score": 1, "vals": [1, 2]},
+                {"id": "a", "score": 11, "vals": [1, 2]},
+            ],
+            "picked": 1,
+        },
+        {
+            "id": "b",
+            "m": {"id": "b", "score": None, "vals": []},
+            "maps": [
+                {"id": "b", "score": None, "vals": []},
+                {"id": "b", "score": None, "vals": []},
+            ],
+            "picked": None,
+        },
+        {
+            "id": "c",
+            "m": {"id": "c", "score": 3, "vals": None},
+            "maps": [
+                {"id": "c", "score": 3, "vals": None},
+                {"id": "c", "score": 13, "vals": None},
+            ],
+            "picked": 3,
+        },
+    ]
+    assert ("MapLiteral", True) in ast_visits
+    assert ("ListLiteral", True) in ast_visits
+
+
 class TestRowPipelineASTPrimitives:
     @pytest.mark.parametrize(
         ("step", "function", "params"),
@@ -248,7 +442,7 @@ class TestRowPipelineASTPrimitives:
 def test_row_pipeline_select_supports_range_scalar_function() -> None:
     nodes_df = pd.DataFrame({"id": ["a"]})
 
-    result = _run_node_steps(nodes_df, [rows(), select([("vals", "range(0, 3)")])], edges_df=_self_loop_edges(nodes_df))
+    result = _run_node_steps(nodes_df, [rows(), select([("vals", "range(0, 3)")])])
 
     assert _normalize_records(result.to_dict(orient="records")) == [{"vals": [0, 1, 2, 3]}]
 
@@ -263,7 +457,6 @@ def test_row_pipeline_select_supports_range_with_constant_series_bounds() -> Non
             select([("ordered_x", "[0, 1, 2]"), ("num_of_values", "num_of_values")]),
             select([("equal", "ordered_x = range(0, num_of_values - 1)")]),
         ],
-        edges_df=_self_loop_edges(nodes_df),
     )
 
     assert _normalize_records(result.to_dict(orient="records")) == [{"equal": True}]
@@ -282,7 +475,6 @@ def test_row_pipeline_select_supports_range_with_varying_row_bounds_and_steps() 
     result = _run_node_steps(
         nodes_df,
         [rows(), select([("id", "id"), ("vals", "range(start, stop, step)")]), order_by([("id", "asc")])],
-        edges_df=_self_loop_edges(nodes_df),
     )
 
     assert _normalize_records(result.to_dict(orient="records")) == [
@@ -305,7 +497,7 @@ def test_row_pipeline_select_rejects_invalid_range_arguments(expr: str, pattern:
     nodes_df = pd.DataFrame({"id": ["a"]})
 
     with pytest.raises(GFQLTypeError, match=pattern):
-        _run_node_steps(nodes_df, [rows(), select([("vals", expr)])], edges_df=_self_loop_edges(nodes_df))
+        _run_node_steps(nodes_df, [rows(), select([("vals", expr)])])
 
 
 def test_row_pipeline_order_by_supports_temporal_duration_expression_keys() -> None:
@@ -330,7 +522,6 @@ def test_row_pipeline_order_by_supports_temporal_duration_expression_keys() -> N
             limit(3),
             select([("id", "id")]),
         ],
-        edges_df=_self_loop_edges(nodes_df),
     )
 
     assert result.to_dict(orient="records") == [{"id": "d"}, {"id": "e"}, {"id": "b"}]
@@ -359,7 +550,6 @@ def test_row_pipeline_order_by_supports_date_duration_expression_keys() -> None:
             limit(2),
             select([("id", "id")]),
         ],
-        edges_df=_self_loop_edges(nodes_df),
     )
 
     assert result.to_dict(orient="records") == [{"id": "a"}, {"id": "e"}]
@@ -371,7 +561,6 @@ def test_row_pipeline_select_supports_keys_for_map_literals_and_nulls() -> None:
     result = _run_node_steps(
         nodes_df,
         [rows(), select([("ks", "keys({k: 1, l: null})"), ("null_keys", "keys(null)")])],
-        edges_df=_self_loop_edges(nodes_df),
     )
 
     assert _normalize_records(result.to_dict(orient="records")) == [{"ks": ["k", "l"], "null_keys": None}]
@@ -388,7 +577,6 @@ def test_row_pipeline_order_by_falls_back_to_string_sort_for_mixed_date_text_bey
     result = _run_node_steps(
         nodes_df,
         [rows(), order_by([("date", "asc")]), select([("date", "date")])],
-        edges_df=_self_loop_edges(nodes_df),
     )
 
     assert result["date"].iloc[0] == "1984-10-01"
@@ -408,7 +596,6 @@ def test_row_pipeline_order_by_rejects_mixed_list_values_beyond_sample_window() 
         _run_node_steps(
             nodes_df,
             [rows(), order_by([("vals", "asc")]), select([("vals", "vals")])],
-            edges_df=_self_loop_edges(nodes_df),
         )
 
 
@@ -435,7 +622,6 @@ def test_row_pipeline_order_by_rejects_mixed_scalar_families_beyond_sample_windo
         _run_node_steps(
             nodes_df,
             [rows(), order_by([("v", "asc")]), select([("v", "v")])],
-            edges_df=_self_loop_edges(nodes_df),
         )
 
 
@@ -471,7 +657,6 @@ def test_row_pipeline_dynamic_subscript_uses_full_series_constant_check() -> Non
     result = _run_node_steps(
         nodes_df,
         [rows(), select([("x", "vals[idx]")])],
-        edges_df=_self_loop_edges(nodes_df),
     )
 
     assert result["x"].iloc[0] == 20
@@ -490,7 +675,6 @@ def test_row_pipeline_dynamic_subscript_supports_string_dtype_list_literals() ->
     result = _run_node_steps(
         nodes_df,
         [rows(), select([("x", "vals[idx]")])],
-        edges_df=_self_loop_edges(nodes_df),
     )
 
     assert result["x"].tolist() == [20, 60]
@@ -510,7 +694,6 @@ def test_row_pipeline_dynamic_subscript_rejects_mixed_list_scalar_beyond_sample_
         _run_node_steps(
             nodes_df,
             [rows(), select([("x", "vals[idx]")])],
-            edges_df=_self_loop_edges(nodes_df),
         )
 
 
@@ -528,7 +711,6 @@ def test_row_pipeline_dynamic_subscript_rejects_mixed_integer_key_beyond_sample_
         _run_node_steps(
             nodes_df,
             [rows(), select([("x", "vals[idx]")])],
-            edges_df=_self_loop_edges(nodes_df),
         )
 
 
@@ -545,7 +727,6 @@ def test_row_pipeline_property_access_rejects_mixed_map_scalar_beyond_sample_win
         _run_node_steps(
             nodes_df,
             [rows(), select([("x", "m.a")])],
-            edges_df=_self_loop_edges(nodes_df),
         )
 
 
@@ -562,7 +743,6 @@ def test_row_pipeline_labels_rejects_mixed_entity_scalar_beyond_sample_window() 
         _run_node_steps(
             nodes_df,
             [rows(), select([("x", "labels(e)")])],
-            edges_df=_self_loop_edges(nodes_df),
         )
 
 
@@ -581,7 +761,6 @@ def test_row_pipeline_range_rejects_mixed_integer_arg_beyond_sample_window() -> 
         _run_node_steps(
             nodes_df,
             [rows(), select([("vals", "range(start, stop, step)")])],
-            edges_df=_self_loop_edges(nodes_df),
         )
 
 
@@ -591,7 +770,6 @@ def test_row_pipeline_select_supports_properties_for_map_literals_and_nulls() ->
     result = _run_node_steps(
         nodes_df,
         [rows(), select([("m", "properties({name: 'Popeye', level: 9001})"), ("null_props", "properties(null)")])],
-        edges_df=_self_loop_edges(nodes_df),
     )
 
     assert _normalize_records(result.to_dict(orient="records")) == [
@@ -1676,110 +1854,27 @@ class TestRowPipelineExecution:
         with pytest.raises(Exception, match="Invalid type for parameter|non-negative integer|non-negative"):
             _run_node_steps(pd.DataFrame({"id": ["a", "b"]}), [rows(), builder(value)])
 
-    def test_row_pipeline_list_scalar_concat_keeps_semantics_on_pandas(self):
-        nodes_pd = pd.DataFrame({"id": ["a", "b"], "vals": [[1, 2], []], "score": [3, 4]})
+    @pytest.mark.parametrize(("nodes", "expected"), _LIST_SCALAR_CONCAT_CASES)
+    def test_row_pipeline_list_scalar_concat_keeps_semantics_on_pandas(self, nodes, expected):
+        nodes_pd = pd.DataFrame(nodes)
         result = _run_node_steps(
             nodes_pd,
             [rows(), select([("right_splat", "vals + score"), ("left_splat", "score + vals")])],
         )
-        records = _normalize_records(result.to_dict(orient="records"))
-        assert records == [
-            {"right_splat": [1, 2, 3], "left_splat": [3, 1, 2]},
-            {"right_splat": [4], "left_splat": [4]},
-        ]
-
-    def test_row_pipeline_list_scalar_concat_handles_null_scalar_and_null_list_on_pandas(self):
-        nodes_pd = pd.DataFrame(
-            {"id": ["a", "b", "c"], "vals": [[1], [], None], "score": [None, None, None]}
-        )
-        result = _run_node_steps(
-            nodes_pd,
-            [rows(), select([("right_splat", "vals + score"), ("left_splat", "score + vals")])],
-        )
-        records = _normalize_records(result.to_dict(orient="records"))
-        assert records == [
-            {"right_splat": [1, None], "left_splat": [None, 1]},
-            {"right_splat": [None], "left_splat": [None]},
-            {"right_splat": None, "left_splat": None},
-        ]
+        assert _normalize_records(result.to_dict(orient="records")) == expected
 
     def test_row_pipeline_ast_map_literal_supports_vector_values_on_pandas(self, monkeypatch):
-        nodes_pd = pd.DataFrame(
-            {
-                "id": ["a", "b", "c"],
-                "score": [1, None, 3],
-                "vals": [[1, 2], [], None],
-            }
+        _assert_ast_map_literal_vector_values(
+            _mk_graph(_ast_map_literal_nodes_df()),
+            monkeypatch,
+            lambda df: df.to_dict(orient="records"),
         )
-        g = _mk_graph(nodes_pd)
-        ctx = row_pipeline_mixin._RowPipelineAdapter(g)
-        table_df = g._nodes
-
-        ast_node = expr_parser.parse_expr(
-            "{id: id, score: score, nested: [score, vals], vals: vals}"
-        )
-        ok, ast_out = ctx._gfql_eval_expr_ast(table_df, ast_node)
-        assert ok
-        assert [_normalize_record_value(item) for item in _safe_series_to_list(ast_out)] == [
-            {"id": "a", "score": 1, "nested": [1, [1, 2]], "vals": [1, 2]},
-            {"id": "b", "score": None, "nested": [None, []], "vals": []},
-            {"id": "c", "score": 3, "nested": [3, None], "vals": None},
-        ]
-
-        ast_visits = _install_ast_literal_visit_spy(monkeypatch)
-
-        result = g.gfql(
-            [
-                rows(),
-                select(
-                    [
-                        ("id", "id"),
-                        ("m", "{id: id, score: score, vals: vals}"),
-                        ("maps", "[{id: id, score: score, vals: vals}, {id: id, score: score + 10, vals: vals}]"),
-                        ("picked", "{score: score, vals: vals}.score"),
-                    ]
-                ),
-                order_by([("id", "asc")]),
-            ]
-        )
-        assert _normalize_records(result._nodes.to_dict(orient="records")) == [
-            {
-                "id": "a",
-                "m": {"id": "a", "score": 1, "vals": [1, 2]},
-                "maps": [
-                    {"id": "a", "score": 1, "vals": [1, 2]},
-                    {"id": "a", "score": 11, "vals": [1, 2]},
-                ],
-                "picked": 1,
-            },
-            {
-                "id": "b",
-                "m": {"id": "b", "score": None, "vals": []},
-                "maps": [
-                    {"id": "b", "score": None, "vals": []},
-                    {"id": "b", "score": None, "vals": []},
-                ],
-                "picked": None,
-            },
-            {
-                "id": "c",
-                "m": {"id": "c", "score": 3, "vals": None},
-                "maps": [
-                    {"id": "c", "score": 3, "vals": None},
-                    {"id": "c", "score": 13, "vals": None},
-                ],
-                "picked": 3,
-            },
-        ]
-        assert ("MapLiteral", True) in ast_visits
-        assert ("ListLiteral", True) in ast_visits
 
     def test_row_pipeline_vectorized_cudf_when_available(self):
         cudf = pytest.importorskip("cudf")
 
         nodes_pd = pd.DataFrame({"id": ["a", "b", "c"], "score": [3, 1, 2]})
-        edges_pd = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+        g = _mk_cudf_graph(cudf, nodes_pd)
 
         result = g.gfql([
             rows(),
@@ -1799,204 +1894,35 @@ class TestRowPipelineExecution:
                 "list": ["[2, -2]", "[1, 2]", "[300, 0]", "[1, -20]", "[2, -2, 100]"],
             }
         )
-        edges_pd = _self_loop_edges(nodes_pd)
-        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+        g = _mk_cudf_graph(cudf, nodes_pd)
 
         result = g.gfql([rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])])
 
         assert type(result._nodes).__module__.startswith("cudf")
         assert _safe_df_records(result._nodes) == [{"id": "d"}, {"id": "b"}, {"id": "a"}]
 
-    def test_row_pipeline_order_by_stringified_nested_map_list_column_on_cudf_when_available(self):
-        cudf = pytest.importorskip("cudf")
-
-        nodes_pd = pd.DataFrame(
-            {
-                "id": ["a", "b", "c", "d"],
-                "list": [
-                    "[{'k': [2]}]",
-                    "[{'k': [1]}]",
-                    "[{'k': [1]}, {'k': [0]}]",
-                    "[{'k': [1]}, {'k': [2]}]",
-                ],
-            }
-        )
-        edges_pd = _self_loop_edges(nodes_pd)
-        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
-
-        result = g.gfql([rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])])
-
-        assert type(result._nodes).__module__.startswith("cudf")
-        assert _safe_df_records(result._nodes) == [{"id": "b"}, {"id": "c"}, {"id": "d"}]
-
-    def test_row_pipeline_order_by_stringified_nested_map_list_column_on_pandas(self):
-        nodes_pd = pd.DataFrame(
-            {
-                "id": ["a", "b", "c", "d"],
-                "list": [
-                    "[{'k': [2]}]",
-                    "[{'k': [1]}]",
-                    "[{'k': [1]}, {'k': [0]}]",
-                    "[{'k': [1]}, {'k': [2]}]",
-                ],
-            }
-        )
+    @pytest.mark.parametrize("stringified", [False, True], ids=["raw", "stringified"])
+    @pytest.mark.parametrize(("list_values", "expected_ids"), _NESTED_MAP_LIST_ORDER_CASES)
+    def test_row_pipeline_order_by_nested_map_list_on_pandas(self, list_values, expected_ids, stringified):
+        values = _maybe_stringify_nested_values(list_values, stringified=stringified)
+        ids = [chr(ord("a") + i) for i in range(len(values))]
+        nodes_pd = pd.DataFrame({"id": ids, "list": values})
         result = _run_node_steps(
             nodes_pd,
             [rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])],
-            edges_df=_self_loop_edges(nodes_pd),
-        )
-        assert result.to_dict(orient="records") == [{"id": "b"}, {"id": "c"}, {"id": "d"}]
-
-    def test_row_pipeline_order_by_raw_nested_map_list_column_on_pandas(self):
-        nodes_pd = pd.DataFrame(
-            {
-                "id": ["a", "b", "c", "d"],
-                "list": [
-                    [{"k": [2]}],
-                    [{"k": [1]}],
-                    [{"k": [1]}, {"k": [0]}],
-                    [{"k": [1]}, {"k": [2]}],
-                ],
-            }
-        )
-        result = _run_node_steps(
-            nodes_pd,
-            [rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])],
-            edges_df=_self_loop_edges(nodes_pd),
-        )
-        assert result.to_dict(orient="records") == [{"id": "b"}, {"id": "c"}, {"id": "d"}]
-
-    @pytest.mark.parametrize(
-        ("list_values", "expected_ids"),
-        [
-            pytest.param(
-                [
-                    [{"k": [None]}],
-                    [{"k": [False]}],
-                    [{"k": [True]}],
-                    [{"k": [True, None]}],
-                    [{"k": [True, True]}],
-                ],
-                ["b", "a", "d"],
-                id="raw-nullable-bool-nested",
-            ),
-            pytest.param(
-                [
-                    [{"k": [[]]}],
-                    [{"k": [[0]]}],
-                    [{"k": [[1]]}],
-                    [{"k": [[1, 0]]}],
-                    [{"k": [[1, 1]]}],
-                ],
-                ["b", "d", "e"],
-                id="raw-empty-and-nested-list",
-            ),
-        ],
-    )
-    def test_row_pipeline_order_by_raw_nested_map_list_non_primitive_variants_on_pandas(
-        self, list_values, expected_ids
-    ):
-        ids = [chr(ord("a") + i) for i in range(len(list_values))]
-        nodes_pd = pd.DataFrame({"id": ids, "list": list_values})
-        result = _run_node_steps(
-            nodes_pd,
-            [rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])],
-            edges_df=_self_loop_edges(nodes_pd),
         )
         assert result["id"].tolist() == expected_ids
 
-    @pytest.mark.parametrize(
-        ("list_values", "expected_ids"),
-        [
-            pytest.param(
-                [
-                    "[{'k': [None]}]",
-                    "[{'k': [False]}]",
-                    "[{'k': [True]}]",
-                    "[{'k': [True, None]}]",
-                    "[{'k': [True, True]}]",
-                ],
-                ["b", "a", "d"],
-                id="stringified-nullable-bool-nested",
-            ),
-            pytest.param(
-                [
-                    "[{'k': [[]]}]",
-                    "[{'k': [[0]]}]",
-                    "[{'k': [[1]]}]",
-                    "[{'k': [[1, 0]]}]",
-                    "[{'k': [[1, 1]]}]",
-                ],
-                ["b", "d", "e"],
-                id="stringified-empty-and-nested-list",
-            ),
-        ],
-    )
-    def test_row_pipeline_order_by_stringified_nested_map_list_non_primitive_variants_on_pandas(
-        self, list_values, expected_ids
+    @pytest.mark.parametrize("stringified", [False, True], ids=["raw", "stringified"])
+    @pytest.mark.parametrize(("list_values", "_expected_ids"), _NESTED_MAP_LIST_ORDER_CASES)
+    def test_row_pipeline_order_by_nested_map_list_parity_pandas_vs_cudf_when_available(
+        self, list_values, _expected_ids, stringified
     ):
-        ids = [chr(ord("a") + i) for i in range(len(list_values))]
-        nodes_pd = pd.DataFrame({"id": ids, "list": list_values})
-        result = _run_node_steps(
-            nodes_pd,
-            [rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])],
-            edges_df=_self_loop_edges(nodes_pd),
-        )
-        assert result["id"].tolist() == expected_ids
-
-    def test_row_pipeline_order_by_raw_nested_map_list_column_on_cudf_when_available(self):
         cudf = pytest.importorskip("cudf")
 
-        nodes_pd = pd.DataFrame(
-            {
-                "id": ["a", "b", "c", "d"],
-                "list": [
-                    [{"k": [2]}],
-                    [{"k": [1]}],
-                    [{"k": [1]}, {"k": [0]}],
-                    [{"k": [1]}, {"k": [2]}],
-                ],
-            }
-        )
-        edges_pd = _self_loop_edges(nodes_pd)
-        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
-
-        result = g.gfql([rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])])
-
-        assert type(result._nodes).__module__.startswith("cudf")
-        assert _safe_df_records(result._nodes) == [{"id": "b"}, {"id": "c"}, {"id": "d"}]
-
-    @pytest.mark.parametrize(
-        "list_values",
-        [
-            pytest.param(
-                [
-                    [{"k": [None]}],
-                    [{"k": [False]}],
-                    [{"k": [True]}],
-                    [{"k": [True, None]}],
-                    [{"k": [True, True]}],
-                ],
-                id="nullable-bool-nested",
-            ),
-            pytest.param(
-                [
-                    [{"k": [[]]}],
-                    [{"k": [[0]]}],
-                    [{"k": [[1]]}],
-                    [{"k": [[1, 0]]}],
-                    [{"k": [[1, 1]]}],
-                ],
-                id="empty-and-nested-list",
-            ),
-        ],
-    )
-    def test_row_pipeline_order_by_raw_nested_map_list_parity_pandas_vs_cudf_when_available(self, list_values):
-        cudf = pytest.importorskip("cudf")
-
-        ids = [chr(ord("a") + i) for i in range(len(list_values))]
-        nodes_pd = pd.DataFrame({"id": ids, "list": list_values})
+        values = _maybe_stringify_nested_values(list_values, stringified=stringified)
+        ids = [chr(ord("a") + i) for i in range(len(values))]
+        nodes_pd = pd.DataFrame({"id": ids, "list": values})
         edges_pd = _self_loop_edges(nodes_pd)
 
         pandas_result = _run_node_steps(
@@ -2006,52 +1932,7 @@ class TestRowPipelineExecution:
         )
         pandas_ids = pandas_result["id"].tolist()
 
-        g_cudf = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
-        cudf_result = g_cudf.gfql([rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])])
-        cudf_ids = _safe_series_to_list(cudf_result._nodes["id"])
-
-        assert cudf_ids == pandas_ids
-
-    @pytest.mark.parametrize(
-        "list_values",
-        [
-            pytest.param(
-                [
-                    "[{'k': [None]}]",
-                    "[{'k': [False]}]",
-                    "[{'k': [True]}]",
-                    "[{'k': [True, None]}]",
-                    "[{'k': [True, True]}]",
-                ],
-                id="stringified-nullable-bool-nested",
-            ),
-            pytest.param(
-                [
-                    "[{'k': [[]]}]",
-                    "[{'k': [[0]]}]",
-                    "[{'k': [[1]]}]",
-                    "[{'k': [[1, 0]]}]",
-                    "[{'k': [[1, 1]]}]",
-                ],
-                id="stringified-empty-and-nested-list",
-            ),
-        ],
-    )
-    def test_row_pipeline_order_by_stringified_nested_map_list_parity_pandas_vs_cudf_when_available(self, list_values):
-        cudf = pytest.importorskip("cudf")
-
-        ids = [chr(ord("a") + i) for i in range(len(list_values))]
-        nodes_pd = pd.DataFrame({"id": ids, "list": list_values})
-        edges_pd = _self_loop_edges(nodes_pd)
-
-        pandas_result = _run_node_steps(
-            nodes_pd,
-            [rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])],
-            edges_df=edges_pd,
-        )
-        pandas_ids = pandas_result["id"].tolist()
-
-        g_cudf = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+        g_cudf = _mk_cudf_graph(cudf, nodes_pd, edges_pd)
         cudf_result = g_cudf.gfql([rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])])
         cudf_ids = _safe_series_to_list(cudf_result._nodes["id"])
 
@@ -2067,8 +1948,7 @@ class TestRowPipelineExecution:
                 "list2": ["[3, -2]", "[2, -2]", "[1, -2]", "[4, -2]", "[5, -2]"],
             }
         )
-        edges_pd = _self_loop_edges(nodes_pd)
-        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+        g = _mk_cudf_graph(cudf, nodes_pd)
 
         result = g.gfql(
             [
@@ -2097,8 +1977,7 @@ class TestRowPipelineExecution:
                 "idx": [1, 0, 1],
             }
         )
-        edges_pd = _self_loop_edges(nodes_pd)
-        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+        g = _mk_cudf_graph(cudf, nodes_pd)
 
         result = g.gfql([rows(), select([("id", "id"), ("x", "list[idx]")]), order_by([("id", "asc")])])
 
@@ -2124,8 +2003,7 @@ class TestRowPipelineExecution:
                 "list": ["[2, -2]", "[1, 2]", "[300, 0]", "[1, -20]", "[2, -2, 100]"],
             }
         )
-        edges_pd = _self_loop_edges(nodes_pd)
-        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+        g = _mk_cudf_graph(cudf, nodes_pd)
 
         result = g.gfql([rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])])
 
@@ -2150,8 +2028,7 @@ class TestRowPipelineExecution:
         )
 
         nodes_pd = pd.DataFrame({"id": ["a", "b", "c"], "score": [3, 1, 2]})
-        edges_pd = _self_loop_edges(nodes_pd)
-        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+        g = _mk_cudf_graph(cudf, nodes_pd)
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
@@ -2164,112 +2041,21 @@ class TestRowPipelineExecution:
     def test_row_pipeline_cudf_ast_map_literal_vector_values_when_available(self, monkeypatch):
         cudf = pytest.importorskip("cudf")
 
-        nodes_pd = pd.DataFrame(
-            {
-                "id": ["a", "b", "c"],
-                "score": [1, None, 3],
-                "vals": [[1, 2], [], None],
-            }
-        )
-        edges_pd = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
-        ctx = row_pipeline_mixin._RowPipelineAdapter(g)
+        nodes_pd = _ast_map_literal_nodes_df()
+        g = _mk_cudf_graph(cudf, nodes_pd)
+        _assert_ast_map_literal_vector_values(g, monkeypatch, _safe_df_records, expect_cudf=True)
 
-        ok, ast_out = ctx._gfql_eval_expr_ast(
-            g._nodes,
-            expr_parser.parse_expr("{id: id, score: score, nested: [score, vals], vals: vals}"),
-        )
-        assert ok
-        assert [_normalize_record_value(item) for item in _safe_series_to_list(ast_out)] == [
-            {"id": "a", "score": 1, "nested": [1, [1, 2]], "vals": [1, 2]},
-            {"id": "b", "score": None, "nested": [None, []], "vals": []},
-            {"id": "c", "score": 3, "nested": [3, None], "vals": None},
-        ]
-
-        ast_visits = _install_ast_literal_visit_spy(monkeypatch)
-
-        result = g.gfql(
-            [
-                rows(),
-                select(
-                    [
-                        ("id", "id"),
-                        ("m", "{id: id, score: score, vals: vals}"),
-                        ("maps", "[{id: id, score: score, vals: vals}, {id: id, score: score + 10, vals: vals}]"),
-                        ("picked", "{score: score, vals: vals}.score"),
-                    ]
-                ),
-                order_by([("id", "asc")]),
-            ]
-        )
-
-        assert type(result._nodes).__module__.startswith("cudf")
-        assert _normalize_records(_safe_df_records(result._nodes)) == [
-            {
-                "id": "a",
-                "m": {"id": "a", "score": 1, "vals": [1, 2]},
-                "maps": [
-                    {"id": "a", "score": 1, "vals": [1, 2]},
-                    {"id": "a", "score": 11, "vals": [1, 2]},
-                ],
-                "picked": 1,
-            },
-            {
-                "id": "b",
-                "m": {"id": "b", "score": None, "vals": []},
-                "maps": [
-                    {"id": "b", "score": None, "vals": []},
-                    {"id": "b", "score": None, "vals": []},
-                ],
-                "picked": None,
-            },
-            {
-                "id": "c",
-                "m": {"id": "c", "score": 3, "vals": None},
-                "maps": [
-                    {"id": "c", "score": 3, "vals": None},
-                    {"id": "c", "score": 13, "vals": None},
-                ],
-                "picked": 3,
-            },
-        ]
-        assert ("MapLiteral", True) in ast_visits
-        assert ("ListLiteral", True) in ast_visits
-
-    def test_row_pipeline_cudf_list_scalar_concat_when_available(self):
+    @pytest.mark.parametrize(("nodes", "expected"), _LIST_SCALAR_CONCAT_CASES)
+    def test_row_pipeline_cudf_list_scalar_concat_when_available(self, nodes, expected):
         cudf = pytest.importorskip("cudf")
 
-        nodes_pd = pd.DataFrame({"id": ["a", "b"], "vals": [[1, 2], []], "score": [3, 4]})
-        edges_pd = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+        nodes_pd = pd.DataFrame(nodes)
+        g = _mk_cudf_graph(cudf, nodes_pd, pd.DataFrame({"s": ["a"], "d": ["b"]}))
 
         result = g.gfql([rows(), select([("right_splat", "vals + score"), ("left_splat", "score + vals")])])
 
         assert type(result._nodes).__module__.startswith("cudf")
-        records = _normalize_records(_safe_df_records(result._nodes))
-        assert records == [
-            {"right_splat": [1, 2, 3], "left_splat": [3, 1, 2]},
-            {"right_splat": [4], "left_splat": [4]},
-        ]
-
-    def test_row_pipeline_cudf_list_scalar_concat_handles_null_scalar_and_null_list_when_available(self):
-        cudf = pytest.importorskip("cudf")
-
-        nodes_pd = pd.DataFrame(
-            {"id": ["a", "b", "c"], "vals": [[1], [], None], "score": [None, None, None]}
-        )
-        edges_pd = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
-
-        result = g.gfql([rows(), select([("right_splat", "vals + score"), ("left_splat", "score + vals")])])
-
-        assert type(result._nodes).__module__.startswith("cudf")
-        records = _normalize_records(_safe_df_records(result._nodes))
-        assert records == [
-            {"right_splat": [1, None], "left_splat": [None, 1]},
-            {"right_splat": [None], "left_splat": [None]},
-            {"right_splat": None, "left_splat": None},
-        ]
+        assert _normalize_records(_safe_df_records(result._nodes)) == expected
 
     def test_row_pipeline_cudf_where_unwind_group_by_when_available(self):
         cudf = pytest.importorskip("cudf")
@@ -2280,8 +2066,7 @@ class TestRowPipelineExecution:
             "vals": [[1, 2], [3], [4, 5]],
             "score": [1, 2, 5],
         })
-        edges_pd = pd.DataFrame({"s": ["a"], "d": ["b"]})
-        g = CGFull().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "s", "d")
+        g = _mk_cudf_graph(cudf, nodes_pd)
 
         result = g.gfql([
             rows(),
@@ -2909,7 +2694,7 @@ class TestRelationshipAliasInRowExpression:
     def test_select_plain_rows_alias_like_columns_do_not_render_relationship_text(self):
         nodes_df = pd.DataFrame({"id": ["a"], "a.type": ["X"], "a.k": [1]})
         with pytest.raises((ValueError, GFQLTypeError), match="unsupported token in row expression"):
-            _run_node_steps(nodes_df, [rows(), select([("x", "a")])], edges_df=_self_loop_edges(nodes_df))
+            _run_node_steps(nodes_df, [rows(), select([("x", "a")])])
 
     def test_select_bare_relationship_alias_renders_on_cudf_when_available(self):
         cudf = pytest.importorskip("cudf")

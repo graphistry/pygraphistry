@@ -44,7 +44,8 @@ from graphistry.compute.gfql.row.entity_props import (
     edge_property_columns,
     entity_keys_series,
     format_edge_entity_text,
-    node_property_columns,
+    format_node_entity_text,
+    format_node_labels_text,
 )
 from graphistry.compute.gfql.row.entity_text import (
     entity_labels_scalar,
@@ -68,13 +69,6 @@ from graphistry.compute.gfql.row.ordering import (
     order_detect_temporal_mode,
     parse_stringified_list_series,
     validate_order_series_vector_safe,
-)
-from graphistry.compute.gfql.temporal.constructors import (
-    DATETIME_CALL_TEXT_RE,
-    DATE_CALL_TEXT_RE,
-    LOCALDATETIME_CALL_TEXT_RE,
-    LOCALTIME_CALL_TEXT_RE,
-    TIME_CALL_TEXT_RE,
 )
 from graphistry.compute.gfql.temporal.durations import (
     parse_temporal_sort_duration_components,
@@ -1174,7 +1168,14 @@ class RowPipelineMixin:
                     and node_id in table_df.columns
                     and RowPipelineMixin._gfql_series_bool_like(table_df[alias_name])
                 ):
-                    out = self._gfql_format_labels_series(table_df, alias_col=alias_name)
+                    out = format_node_labels_text(
+                        table_df,
+                        alias_col=alias_name,
+                        labels_are_list_like=(
+                            "labels" in table_df.columns
+                            and RowPipelineMixin._gfql_series_is_list_like(table_df["labels"])
+                        ),
+                    )
                     null_mask = self._gfql_null_mask(table_df, table_df[alias_name])
                     if hasattr(out, "where"):
                         out = self._gfql_mask_fill(out, null_mask, None)
@@ -1829,225 +1830,25 @@ class RowPipelineMixin:
         except TypeError:
             return table_df.sort_values(by=[row_col]).reset_index(drop=True)
 
-    @staticmethod
-    def _gfql_normalize_zero_offset_suffix(timezone: Any) -> Any:
-        if not hasattr(timezone, "where") or not hasattr(timezone, "isin"):
-            return timezone
-        zero_offset = timezone.isin(["+00:00", "-00:00"])
-        return timezone.where(~zero_offset, "Z")
-
-    def _gfql_entity_temporal_text(self, table_df: Any, series: Any, text: Any) -> Any:
-        if not hasattr(text, "str"):
-            return None
-        stripped = text.str.strip()
-        non_null = ~self._gfql_null_mask(table_df, series)
-
-        def _quote(values: Any) -> Any:
-            return "'" + values + "'"
-
-        date_mask = series_str_match(stripped, DATE_CALL_TEXT_RE.pattern, na=False)
-        if self._gfql_all_non_null_match(date_mask, non_null):
-            parts = stripped.str.extract(DATE_CALL_TEXT_RE.pattern)
-            year = parts["year"].fillna("0").astype("int64").astype(str).str.zfill(4)
-            month = parts["month"].fillna("0").astype("int64").astype(str).str.zfill(2)
-            day = parts["day"].fillna("0").astype("int64").astype(str).str.zfill(2)
-            return _quote(year + "-" + month + "-" + day)
-
-        localtime_mask = series_str_match(stripped, LOCALTIME_CALL_TEXT_RE.pattern, na=False)
-        if self._gfql_all_non_null_match(localtime_mask, non_null):
-            parts = stripped.str.extract(LOCALTIME_CALL_TEXT_RE.pattern)
-            hour = parts["hour"].fillna("0").astype("int64").astype(str).str.zfill(2)
-            minute = parts["minute"].fillna("0").astype("int64").astype(str).str.zfill(2)
-            second = parts["second"].fillna("")
-            nanos = parts["nano"].fillna("").str.zfill(9).str.rstrip("0")
-            base = hour + ":" + minute
-            has_seconds = (second != "") | (nanos != "")
-            second_text = ":" + second.where(second != "", "00").astype(str).str.zfill(2)
-            frac = "." + nanos
-            base = base + second_text.where(has_seconds, "")
-            base = base + frac.where(nanos != "", "")
-            return _quote(base)
-
-        time_mask = series_str_match(stripped, TIME_CALL_TEXT_RE.pattern, na=False)
-        if self._gfql_all_non_null_match(time_mask, non_null):
-            parts = stripped.str.extract(TIME_CALL_TEXT_RE.pattern)
-            hour = parts["hour"].fillna("0").astype("int64").astype(str).str.zfill(2)
-            minute = parts["minute"].fillna("0").astype("int64").astype(str).str.zfill(2)
-            second = parts["second"].fillna("")
-            nanos = parts["nano"].fillna("").str.zfill(9).str.rstrip("0")
-            timezone = self._gfql_normalize_zero_offset_suffix(parts["tz"].fillna(""))
-            base = hour + ":" + minute
-            has_seconds = (second != "") | (nanos != "")
-            second_text = ":" + second.where(second != "", "00").astype(str).str.zfill(2)
-            frac = "." + nanos
-            base = base + second_text.where(has_seconds, "")
-            base = base + frac.where(nanos != "", "")
-            base = base + timezone
-            return _quote(base)
-
-        localdatetime_mask = series_str_match(stripped, LOCALDATETIME_CALL_TEXT_RE.pattern, na=False)
-        if self._gfql_all_non_null_match(localdatetime_mask, non_null):
-            parts = stripped.str.extract(LOCALDATETIME_CALL_TEXT_RE.pattern)
-            year = parts["year"].fillna("0").astype("int64").astype(str).str.zfill(4)
-            month = parts["month"].fillna("0").astype("int64").astype(str).str.zfill(2)
-            day = parts["day"].fillna("0").astype("int64").astype(str).str.zfill(2)
-            hour = parts["hour"].fillna("0").astype("int64").astype(str).str.zfill(2)
-            minute = parts["minute"].fillna("0").astype("int64").astype(str).str.zfill(2)
-            second = parts["second"].fillna("")
-            nanos = parts["nano"].fillna("").str.zfill(9).str.rstrip("0")
-            base = year + "-" + month + "-" + day + "T" + hour + ":" + minute
-            has_seconds = (second != "") | (nanos != "")
-            second_text = ":" + second.where(second != "", "00").astype(str).str.zfill(2)
-            frac = "." + nanos
-            base = base + second_text.where(has_seconds, "")
-            base = base + frac.where(nanos != "", "")
-            return _quote(base)
-
-        datetime_mask = series_str_match(stripped, DATETIME_CALL_TEXT_RE.pattern, na=False)
-        if self._gfql_all_non_null_match(datetime_mask, non_null):
-            parts = stripped.str.extract(DATETIME_CALL_TEXT_RE.pattern)
-            year = parts["year"].fillna("0").astype("int64").astype(str).str.zfill(4)
-            month = parts["month"].fillna("0").astype("int64").astype(str).str.zfill(2)
-            day = parts["day"].fillna("0").astype("int64").astype(str).str.zfill(2)
-            hour = parts["hour"].fillna("0").astype("int64").astype(str).str.zfill(2)
-            minute = parts["minute"].fillna("0").astype("int64").astype(str).str.zfill(2)
-            second = parts["second"].fillna("")
-            nanos = parts["nano"].fillna("").str.zfill(9).str.rstrip("0")
-            timezone = self._gfql_normalize_zero_offset_suffix(parts["tz"].fillna(""))
-            base = year + "-" + month + "-" + day + "T" + hour + ":" + minute
-            has_seconds = (second != "") | (nanos != "")
-            second_text = ":" + second.where(second != "", "00").astype(str).str.zfill(2)
-            frac = "." + nanos
-            base = base + second_text.where(has_seconds, "")
-            base = base + frac.where(nanos != "", "")
-            base = base + timezone
-            return _quote(base)
-
-        return None
-
-    def _gfql_entity_scalar_text(self, table_df: Any, alias_col: str, series: Any) -> Any:
-        text = series.astype(str)
-        dtype_txt = str(getattr(series, "dtype", "")).lower()
-        if "bool" in dtype_txt and hasattr(text, "str"):
-            return text.str.lower()
-        if "float" in dtype_txt and hasattr(text, "str"):
-            return text.str.replace(r"\.0+$", "", regex=True)
-        if any(token in dtype_txt for token in ("int", "double", "decimal")):
-            return text
-        if hasattr(text, "str"):
-            stripped = text.str.strip()
-            non_null = ~self._gfql_null_mask(table_df, series)
-            list_like = series_str_match(stripped, r"^\[.*\]$", na=False)
-            if self._gfql_all_non_null_match(list_like, non_null):
-                return stripped
-            map_like = series_str_match(stripped, r"^\{.*\}$", na=False)
-            if self._gfql_all_non_null_match(map_like, non_null):
-                return stripped
-            temporal = self._gfql_entity_temporal_text(table_df, series, text)
-            if temporal is not None:
-                return temporal
-            bool_like = series_str_match(text, r"^(True|False)$", na=False)
-            num_like = series_str_match(text, r"^-?\d+(?:\.\d+)?$", na=False)
-            if self._gfql_all_non_null_match(bool_like, non_null):
-                return text.str.lower()
-            if self._gfql_all_non_null_match(num_like, non_null):
-                return text.str.replace(r"\.0+$", "", regex=True)
-            escaped = text.str.replace("\\", "\\\\", regex=False).str.replace("'", "\\'", regex=False)
-            out = "'" + escaped + "'"
-            out = out.where(~bool_like, text.str.lower())
-            out = out.where(~num_like, text.str.replace(r"\.0+$", "", regex=True))
-            out = out.where(~list_like, stripped)
-            out = out.where(~map_like, stripped)
-            return out
-        if hasattr(text, "str"):
-            escaped = text.str.replace("\\", "\\\\", regex=False).str.replace("'", "\\'", regex=False)
-            return "'" + escaped + "'"
-        return "'" + text + "'"
-
     def _gfql_format_entity_series(self, table_df: Any, *, alias_col: str, table: str, excluded: Sequence[str] = ()) -> Any:
-        blank = table_df[alias_col].astype(str).where(table_df[alias_col].isna(), "")
         excluded_cols = tuple(dict.fromkeys((alias_col,) + tuple(str(name) for name in excluded)))
         if table == "nodes":
-            labels = blank.copy()
-            if "labels" in table_df.columns and RowPipelineMixin._gfql_series_is_list_like(table_df["labels"]):
-                labels_raw = table_df["labels"].astype(str)
-                labels_body = labels_raw.str.replace("[", "", regex=False).str.replace("]", "", regex=False)
-                labels_body = labels_body.str.replace("'", "", regex=False).str.replace(", ", ":", regex=False)
-                has_list_labels = labels_raw != "[]"
-                labels = labels + (blank + ":" + labels_body).where(has_list_labels, "")
-            else:
-                label_cols = [
-                    col
-                    for col in table_df.columns
-                    if str(col).startswith("label__")
-                    and str(col).split("label__", 1)[1] not in {"<NA>", "None", "nan"}
-                ]
-                for col in label_cols:
-                    mask = table_df[col] == True  # noqa: E712
-                    labels = labels + (blank + ":" + str(col).split("label__", 1)[1]).where(mask, "")
-            if "type" in table_df.columns:
-                include = ~self._gfql_null_mask(table_df, table_df["type"])
-                labels = labels + (blank + ":" + table_df["type"].astype(str)).where(include, "")
-            prop_cols = node_property_columns(table_df, alias_col, excluded_cols)
-            left_bracket, right_bracket = "(", ")"
-        else:
-            if "type" in table_df.columns:
-                include = ~self._gfql_null_mask(table_df, table_df["type"])
-                labels = (blank + ":" + table_df["type"].astype(str)).where(include, "")
-            else:
-                labels = blank.copy()
-            prop_cols = edge_property_columns(table_df, alias_col, excluded_cols)
-            left_bracket, right_bracket = "[", "]"
-
-        prop_text = blank.copy()
-        has_props = (table_df[alias_col] == True) & False  # noqa: E712
-        for col in prop_cols:
-            series = table_df[col]
-            include = ~self._gfql_null_mask(table_df, series)
-            value_text = self._gfql_entity_scalar_text(table_df, alias_col, series)
-            segment = f"{col}: " + value_text
-            prefix = (blank + ", ").where(has_props & include, "")
-            append = (prefix + segment).where(include, "")
-            prop_text = prop_text + append
-            has_props = has_props | include
-
-        prop_block = ((blank + " {") + prop_text + "}").where(has_props & (labels != ""), "")
-        prop_only = ((blank + "{") + prop_text + "}").where(has_props & (labels == ""), "")
-        return left_bracket + labels + prop_block + prop_only + right_bracket
-
-    def _gfql_format_labels_series(self, table_df: Any, *, alias_col: str) -> Any:
-        blank = table_df[alias_col].astype(str).where(table_df[alias_col].isna(), "")
-        if "labels" in table_df.columns and RowPipelineMixin._gfql_series_is_list_like(table_df["labels"]):
-            labels_raw = table_df["labels"].astype(str)
-            null_mask = self._gfql_null_mask(table_df, table_df[alias_col])
-            if hasattr(labels_raw, "where"):
-                return self._gfql_mask_fill(labels_raw, null_mask, None)
-            return labels_raw
-        labels_text = blank.copy()
-        has_labels = (table_df[alias_col] == True) & False  # noqa: E712
-
-        label_cols = [
-            col
-            for col in table_df.columns
-            if str(col).startswith("label__")
-            and str(col).split("label__", 1)[1] not in {"<NA>", "None", "nan"}
-        ]
-        for col in label_cols:
-            label_name = str(col).split("label__", 1)[1]
-            include = table_df[col] == True  # noqa: E712
-            segment = (blank + f"'{label_name}'").where(include, "")
-            prefix = (blank + ", ").where(has_labels & include, "")
-            labels_text = labels_text + prefix + segment
-            has_labels = has_labels | include
-
-        if "type" in table_df.columns:
-            include = ~self._gfql_null_mask(table_df, table_df["type"])
-            segment = (blank + "'" + table_df["type"].astype(str) + "'").where(include, "")
-            prefix = (blank + ", ").where(has_labels & include, "")
-            labels_text = labels_text + prefix + segment
-            has_labels = has_labels | include
-
-        return ((blank + "[") + labels_text + "]").where(has_labels, "[]")
+            return format_node_entity_text(
+                table_df,
+                alias_col=alias_col,
+                excluded=excluded_cols,
+                labels_are_list_like=(
+                    "labels" in table_df.columns
+                    and RowPipelineMixin._gfql_series_is_list_like(table_df["labels"])
+                ),
+            )
+        return format_edge_entity_text(
+            table_df,
+            alias_col=alias_col,
+            property_columns=edge_property_columns(table_df, alias_col, excluded_cols),
+            type_col="type",
+            nullify_missing_alias_rows=False,
+        )
 
     @staticmethod
     def _gfql_series_is_entity_text_like(series: Any) -> bool:
