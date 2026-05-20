@@ -6,13 +6,6 @@ from datetime import datetime, timedelta
 import requests
 
 import graphistry
-# Explicit submodule import so the dotted string patch targets used below
-# (e.g. @patch('graphistry.plugins.sentinel_graph.requests.post')) resolve
-# under pytest-xdist parallel workers on Python 3.8 — `from
-# graphistry.plugins.sentinel_graph import X` alone doesn't reliably
-# expose `graphistry.plugins` as an attribute when xdist's importlib path
-# is used. This statement triggers __import__ which always sets it.
-import graphistry.plugins.sentinel_graph  # noqa: F401
 
 # Check if azure.identity is available (optional sentinel-graph extra)
 try:
