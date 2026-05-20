@@ -25,6 +25,7 @@
     "graphistry/compute/gfql/cypher/ast.py": 99.02,
     "graphistry/compute/gfql/cypher/ast_normalizer.py": 77.31,
     "graphistry/compute/gfql/cypher/call_procedures.py": 55.98,
+    "graphistry/compute/gfql/cypher/expression_text.py": 84.62,
     "graphistry/compute/gfql/cypher/lowering.py": 89.05,
     "graphistry/compute/gfql/cypher/parser.py": 88.35,
     "graphistry/compute/gfql/cypher/projection_planning.py": 80.78,
