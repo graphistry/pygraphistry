@@ -15,6 +15,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 - **GFQL chain tag warning cleanup (#877)**: Avoided pandas object-dtype `fillna()` downcast warnings when merging named chain tag columns without warning filters or behavior changes.
+- **GFQL chain input docs (#1255)**: Clarified that native GFQL chains must be passed as materialized Python list/dict/`Chain` objects, while `g.gfql(str)` remains the Cypher string-query entrypoint rather than a parser for stringified Python or JSON chain literals.
 - **GFQL temporal implementation shrink (#1563)**: DRYed temporal value timezone/scalar helpers, shared duration token parsing and day-time duration formatting ownership, and separated temporal AST traversal from constructor-folding decisions while preserving `temporal_text` compatibility and runtime behavior.
 - **Legacy API-key compatibility deprecation (#1539)**: Deprecated the removed api=1 `api_key()` compatibility surface so explicit key use warns and is ignored, stale `GRAPHISTRY_API_KEY` environment values are not loaded, api=1/2 fail locally before upload, and remote integration docs now point to api=3 JWT or personal key ID/secret authentication.
 - **GFQL Cypher reentry cleanup (#1555)**: DRYed duplicated carried-endpoint reentry flattening tests and direct reentry carrier backend tests, and trimmed stale private reentry helper export/comment scaffolding while preserving runtime behavior.
