@@ -1,38 +1,19 @@
-from typing import Any, Dict, Optional, Union, cast
+from typing import Any, ClassVar, Dict, Optional, cast
 from abc import ABC, abstractmethod
 from datetime import date, datetime, time
 from datetime import timezone as py_timezone
 from dateutil import parser as date_parser  # type: ignore[import]
 from datetime import tzinfo as py_tzinfo
 import pandas as pd
-import sys
 
-if sys.version_info >= (3, 9):
-    from zoneinfo import ZoneInfo as _ZoneInfoImport
-    ZoneInfo = cast(Any, _ZoneInfoImport)
-else:
-    ZoneInfo = cast(Any, None)
-
-try:
-    from dateutil.tz import gettz as _dateutil_gettz  # type: ignore[import-untyped]
-except Exception:
-    _dateutil_gettz = None
-
-from graphistry.models.gfql.types.temporal import DateTimeWire, DateWire, TimeWire, TemporalWire
-from graphistry.utils.json import JSONVal
+from graphistry.models.gfql.types.temporal import DateTimeWire, TemporalWire
+from graphistry.compute.gfql.temporal.constructors import _named_timezone
 
 
 def _resolve_timezone(timezone: str) -> Optional[py_tzinfo]:
     if timezone.upper() == "UTC":
         return py_timezone.utc
-    if ZoneInfo is not None:
-        try:
-            return ZoneInfo(timezone)
-        except Exception:
-            pass
-    if _dateutil_gettz is not None:
-        return _dateutil_gettz(timezone)
-    return None
+    return _named_timezone(timezone)
 
 
 class TemporalValue(ABC):
@@ -101,48 +82,51 @@ class DateTimeValue(TemporalValue):
         return self._parsed
 
 
-class DateValue(TemporalValue):
-    """Tagged date value"""
-    
+class _ScalarTemporalValue(TemporalValue):
+    _wire_type: ClassVar[str]
+
     def __init__(self, value: str):
         self.value = value
-        self._parsed = self._parse_date(value)
+        self._parsed = self._parse_value(value)
+
+    @abstractmethod
+    def _parse_value(self, value: str) -> Any:
+        pass
+
+    def to_json(self) -> TemporalWire:
+        return cast(TemporalWire, {"type": self._wire_type, "value": self.value})
+
+
+class DateValue(_ScalarTemporalValue):
+    """Tagged date value"""
+
+    _wire_type = "date"
     
     @classmethod
     def from_date(cls, d: date) -> 'DateValue':
         """Create from Python date"""
         return cls(d.isoformat())
     
-    def _parse_date(self, value: str) -> date:
+    def _parse_value(self, value: str) -> date:
         """Parse date string in ISO format (YYYY-MM-DD)"""
         return date_parser.isoparse(value).date()
-    
-    def to_json(self) -> DateWire:
-        """Return dict for tagged temporal value"""
-        result: DateWire = {
-            "type": "date",
-            "value": self.value
-        }
-        return result
     
     def as_pandas_value(self) -> pd.Timestamp:
         # Convert date to pandas Timestamp at midnight
         return pd.Timestamp(self._parsed)
 
 
-class TimeValue(TemporalValue):
+class TimeValue(_ScalarTemporalValue):
     """Tagged time value"""
-    
-    def __init__(self, value: str):
-        self.value = value
-        self._parsed = self._parse_time(value)
+
+    _wire_type = "time"
     
     @classmethod
     def from_time(cls, t: time) -> 'TimeValue':
         """Create from Python time"""
         return cls(t.isoformat())
     
-    def _parse_time(self, value: str) -> time:
+    def _parse_value(self, value: str) -> time:
         """Parse time string in ISO format (HH:MM:SS)"""
         # Handle time-only strings
         if 'T' not in value and ' ' not in value:
@@ -151,14 +135,6 @@ class TimeValue(TemporalValue):
         else:
             # Extract time from full datetime
             return date_parser.isoparse(value).time()
-    
-    def to_json(self) -> TimeWire:
-        """Return dict for tagged temporal value"""
-        result: TimeWire = {
-            "type": "time", 
-            "value": self.value
-        }
-        return result
     
     def as_pandas_value(self) -> time:
         return self._parsed

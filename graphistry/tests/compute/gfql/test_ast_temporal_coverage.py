@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 import graphistry.compute.ast_temporal as ast_temporal
+import graphistry.compute.gfql.temporal.constructors as temporal_constructors
 from graphistry.compute.ast_temporal import DateTimeValue, DateValue, TimeValue, temporal_value_from_json
 
 
@@ -29,15 +30,15 @@ def test_resolve_timezone_prefers_utc_and_falls_back_to_dateutil(monkeypatch: py
     assert ast_temporal._resolve_timezone("UTC") is timezone.utc
 
     fallback = _FixedTz()
-    monkeypatch.setattr(ast_temporal, "ZoneInfo", _raise_zoneinfo)
-    monkeypatch.setattr(ast_temporal, "_dateutil_gettz", lambda _name: fallback)
+    monkeypatch.setattr(temporal_constructors, "ZoneInfo", _raise_zoneinfo)
+    monkeypatch.setattr(temporal_constructors, "_dateutil_gettz", lambda _name: fallback)
 
     assert ast_temporal._resolve_timezone("Example/Zone") is fallback
 
 
 def test_resolve_timezone_returns_none_without_resolver(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(ast_temporal, "ZoneInfo", _raise_zoneinfo)
-    monkeypatch.setattr(ast_temporal, "_dateutil_gettz", None)
+    monkeypatch.setattr(temporal_constructors, "ZoneInfo", _raise_zoneinfo)
+    monkeypatch.setattr(temporal_constructors, "_dateutil_gettz", None)
 
     assert ast_temporal._resolve_timezone("Example/Zone") is None
 
