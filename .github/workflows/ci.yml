@@ -636,8 +636,7 @@ jobs:
 
   test-minimal-python:
     # Lite sentinel: oldest + newest Python only, heavy test files excluded. Gates all downstream.
-    # Heavy deferred files (test_hyper_dask, test_compute_chain, test_chain_let, test_hop, test_plotter)
-    # run in test-minimal-python-rest alongside the middle versions (3.9-3.13).
+    # Non-GFQL deferred files run in test-minimal-python-rest; GFQL-heavy files run in test-gfql-core.
     needs: [changes, python-lint-types, generate-lockfiles]
     # Run if Python files changed OR infrastructure changed OR manual/scheduled run
     if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
@@ -702,11 +701,11 @@ jobs:
         echo "- cypher-frontend-strict-typing (py3.12)"
         echo "- cypher-frontend-differential-parity (py3.12)"
         echo "- cypher-frontend-surface-guard"
-        echo "- test-minimal-python (full-suite sentinel gate)"
+        echo "- test-minimal-python (lite sentinel gate)"
 
 
   test-minimal-python-rest:
-    # Middle versions (3.9-3.13) + deferred heavy files, run after sentinel passes in parallel with downstream.
+    # Middle versions (3.9-3.13) + non-GFQL deferred files, run after sentinel + GFQL core pass.
     needs: [changes, test-minimal-python, test-gfql-core, generate-lockfiles]
     if: ${{ success() }}
     runs-on: ubuntu-latest
@@ -750,7 +749,7 @@ jobs:
       run: |
         ./docker/test-pip-install.sh
 
-    - name: Minimal full tests (includes deferred heavy files from sentinel)
+    - name: Minimal rest tests (middle versions and non-GFQL deferred files)
       run: |
         source pygraphistry/bin/activate
         ./bin/test-minimal.sh -n auto
@@ -803,13 +802,22 @@ jobs:
         COVERAGE_FILE=build/gfql-coverage-audit/coverage.gfql-py3.12 python -B -m pytest -vv -n auto \
           --cov=graphistry/compute \
           --cov-report= \
+          graphistry/tests/benchmarks/gfql \
           graphistry/tests/compute/test_ast.py \
           graphistry/tests/compute/test_chain.py \
           graphistry/tests/compute/test_chain_let.py \
           graphistry/tests/compute/test_chain_concat.py \
           graphistry/tests/compute/test_dataframe_primitives.py \
+          graphistry/tests/compute/test_gfql.py \
+          graphistry/tests/compute/test_gfql_call_validation.py \
+          graphistry/tests/compute/test_gfql_exceptions.py \
+          graphistry/tests/compute/test_gfql_hypergraph.py \
+          graphistry/tests/compute/test_gfql_validate_only.py \
+          graphistry/tests/compute/test_gfql_validation.py \
           graphistry/tests/compute/test_hop.py \
           graphistry/tests/compute/gfql \
+          graphistry/tests/test_gfql_remote_metadata.py \
+          graphistry/tests/test_gfql_remote_persistence.py \
           tests/gfql/ref
         python bin/coverage_audit.py \
           --profile gfql \
@@ -838,8 +846,17 @@ jobs:
           graphistry/tests/compute/test_chain_let.py \
           graphistry/tests/compute/test_chain_concat.py \
           graphistry/tests/compute/test_dataframe_primitives.py \
+          graphistry/tests/benchmarks/gfql \
+          graphistry/tests/compute/test_gfql.py \
+          graphistry/tests/compute/test_gfql_call_validation.py \
+          graphistry/tests/compute/test_gfql_exceptions.py \
+          graphistry/tests/compute/test_gfql_hypergraph.py \
+          graphistry/tests/compute/test_gfql_validate_only.py \
+          graphistry/tests/compute/test_gfql_validation.py \
           graphistry/tests/compute/test_hop.py \
           graphistry/tests/compute/gfql \
+          graphistry/tests/test_gfql_remote_metadata.py \
+          graphistry/tests/test_gfql_remote_persistence.py \
           tests/gfql/ref
 
     - name: T5 rollout gate — execution-path canary (env=true)
