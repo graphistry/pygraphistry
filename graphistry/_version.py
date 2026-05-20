@@ -54,7 +54,7 @@ class NotThisMethod(Exception):
 
 
 LONG_VERSION_PY : Any = {}
-HANDLERS = {}
+HANDLERS: Any = {}
 
 
 def register_vcs_handler(vcs, method):  # decorator
