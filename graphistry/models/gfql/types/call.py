@@ -37,7 +37,9 @@ CallMethodName = Literal[
     'compute_igraph',
     'description',
     'drop_nodes',
+    'encode_axis',
     'encode_edge_color',
+    'encode_edge_icon',
     'encode_point_color',
     'encode_point_icon',
     'encode_point_size',
@@ -231,6 +233,20 @@ class EncodePointIconParams(TypedDict, total=False):
     continuous_binning: List[Any]
     default_mapping: str
     as_text: bool
+
+
+class EncodeEdgeIconParams(TypedDict, total=False):
+    """Parameters for encode_edge_icon operation."""
+    column: str  # Required in safelist
+    categorical_mapping: Dict[str, str]
+    continuous_binning: List[Any]
+    default_mapping: str
+    as_text: bool
+
+
+class EncodeAxisParams(TypedDict, total=False):
+    """Parameters for encode_axis operation."""
+    rows: List[Dict[str, Any]]
 
 
 class LayoutIgraphParams(TypedDict, total=False):
@@ -556,6 +572,14 @@ def call(function: Literal['encode_point_size'], params: EncodePointSizeParams =
 
 @overload
 def call(function: Literal['encode_point_icon'], params: EncodePointIconParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['encode_edge_icon'], params: EncodeEdgeIconParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['encode_axis'], params: EncodeAxisParams = ...) -> 'ASTCall':
     ...
 
 @overload

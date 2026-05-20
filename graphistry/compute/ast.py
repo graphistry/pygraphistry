@@ -1358,6 +1358,7 @@ class ASTCall(ASTObject):
             'encode_edge_color': ['column'],
             'encode_point_size': ['column'],
             'encode_point_icon': ['column'],
+            'encode_edge_icon': ['column'],
             'layout_igraph': ['x_out_col', 'y_out_col'],
             'layout_cugraph': ['x_out_col', 'y_out_col'],
             'layout_graphviz': ['x_out_col', 'y_out_col'],
