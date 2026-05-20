@@ -161,6 +161,7 @@ git show origin/<base>:<file>
 
 - Test coverage should mirror changed areas in `graphistry/tests/**`.
 - Prefer behavioral tests over implementation-detail assertions.
+- Treat broad exception catches (`except Exception`, bare `except`) as a bad dynamic/over-defensive typing pattern by default. Require narrowed, documented exception types at local helpers; allow broad catches only at explicit isolation boundaries where the PR explains why programmer errors must be contained.
 - Control-flow checks (runtime code, tests, and prompt-routing logic) must use structured signals (for example `code`, context keys like `field`/`value`, AST/symbol kinds, and stable symbol-binding metadata/files) and never **hardcoded** message-substring matching.
 - Run focused validation before escalating severity when feasible:
 

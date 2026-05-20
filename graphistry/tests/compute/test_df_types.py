@@ -121,15 +121,13 @@ class TestArrowCompute(NoAuthTestCase):
         self.assertEqual(sorted(g._nodes["id"].tolist()), ["a", "b", "c"])
 
     def test_materialize_nodes_arrow_empty_edges(self):
-        """Empty pa.Table edges → materialize_nodes returns early without error.
-
-        Mirrors test_materialize_empty_edges in test_compute.py: empty edges →
-        early-return with _nodes=None (no node frame synthesized).
-        """
+        """Empty pa.Table edges → materialize_nodes returns an empty node table."""
         empty = pa.table({"src": pa.array([], type=pa.string()),
                           "dst": pa.array([], type=pa.string())})
         g = CGFull().edges(empty, "src", "dst").materialize_nodes()
-        self.assertIsNone(g._nodes)
+        self.assertIsInstance(g._nodes, pd.DataFrame)
+        self.assertEqual(g._node, "id")
+        self.assertEqual(g._nodes.to_dict(orient="records"), [])
 
     def test_materialize_nodes_invalid_type_still_raises(self):
         """Non-DataFrame, non-Arrow type still raises ValueError."""

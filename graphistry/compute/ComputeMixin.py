@@ -188,7 +188,7 @@ class ComputeMixin(Plottable):
         g = _coerce_input_formats(g, engine_concrete)
 
         if reuse:
-            if g._nodes is not None and _safe_len(g._nodes) > 0:
+            if g._nodes is not None:
                 if g._node is None:
                     logger.warning(
                         "Must set node id binding, not just nodes; set via .bind() or .nodes()"
@@ -204,10 +204,15 @@ class ComputeMixin(Plottable):
             raise ValueError(
                 "Missing source/destination bindings; set via .bind() or .edges()"
             )
-        if _safe_len(g._edges) == 0:
-            return g
-
         node_id = g._node if g._node is not None else "id"
+        if _safe_len(g._edges) == 0:
+            empty_nodes_df = (
+                g._edges[[g._source]]
+                .rename(columns={g._source: node_id})
+                .reset_index(drop=True)
+            )
+            return g.nodes(empty_nodes_df, node_id)
+
         concat_fn = df_concat(engine_concrete)
         concat_df = concat_fn([g._edges[g._source], g._edges[g._destination]])
         nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)

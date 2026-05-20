@@ -151,6 +151,17 @@ def test_call_route_uses_procedure_physical_route(monkeypatch):
     assert result._nodes["degree"].tolist() == [1, 1, 2]
 
 
+def test_call_degree_empty_edges_only_graph_materializes_nodes(monkeypatch):
+    edges = pd.DataFrame({"s": [], "d": []})
+    g = graphistry.bind(source="s", destination="d").edges(edges)
+    planner_routes = _spy_physical_routes(monkeypatch)
+    result = g.gfql("CALL graphistry.degree() RETURN degree ORDER BY degree")
+
+    assert planner_routes == ["procedure_call"]
+    assert result._nodes.to_dict(orient="records") == []
+    assert list(result._nodes.columns) == ["degree"]
+
+
 def test_top_level_optional_match_matched_case_uses_same_path_physical_route(monkeypatch):
     g = _mk_graph()
     planner_routes = _spy_physical_routes(monkeypatch)
