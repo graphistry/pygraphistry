@@ -9,6 +9,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Added
+- **Viz settings public contracts (#1234)**: Added `graphistry.viz_settings` as a public facade for canonical URL-parameter and React-facing visualization setting key constants, `Literal` key aliases, typed settings payloads, and frontend contract metadata for downstream type-checking.
 - **GFQL encode call parity (#1241)**: Added GFQL `call()` support for `encode_edge_icon` and `encode_axis`, plus deeper encode validator diagnostics for palette and categorical mapping payloads before remote or local execution.
 - **Changed-line coverage hygiene (#1533)**: Added a PR-only changed-line coverage gate that combines CPU coverage from the existing minimal and GFQL core test jobs, reports covered/missing executable package lines touched by a PR, and enforces an initial changed-line threshold without blocking on historical uncovered code.
 - **Coverage audit profiles (#1517)**: Added a coverage.py-backed audit helper with an initial GFQL dead-code triage profile that emits markdown/JSON zero-hit and low-hit reports for parser, lowering, row-pipeline, temporal, AST, unified, and chain files. CI now collects coverage inside the existing `test-gfql-core (3.12)` run via `pytest-cov`, uploads the pandas CPU audit artifact with per-file coverage lock-ins, and the RAPIDS Docker wrapper can run the same profile against periodic DGX RAPIDS 25.02 and 26.02 cuDF lock-ins.
