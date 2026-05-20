@@ -355,7 +355,7 @@ def combine_steps(
             out_df = safe_merge(out_df, step_df, on=id, how='left', engine=engine)
             x_name, y_name = f'{op._name}_x', f'{op._name}_y'
             if x_name in out_df.columns and y_name in out_df.columns:
-                out_df[op._name] = out_df[x_name].fillna(out_df[y_name])
+                out_df[op._name] = out_df[x_name].where(out_df[x_name].notna(), out_df[y_name])
                 out_df = out_df.drop(columns=[x_name, y_name])
             label_col = out_df[op._name]
             if engine == Engine.PANDAS:
