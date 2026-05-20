@@ -1,5 +1,5 @@
 from dataclasses import is_dataclass
-from typing import Any, get_args, get_origin, get_type_hints
+from typing import Any, get_args, get_type_hints
 
 
 def test_compilation_module_surface() -> None:
@@ -138,10 +138,27 @@ def test_compilation_state_is_mutable_dataclass() -> None:
     assert state.query_text.startswith("MATCH")
 
 
-def test_physical_plan_type_hints_resolve_runtime_forward_refs() -> None:
+def test_physical_plan_type_hints_expose_route_contract() -> None:
+    import graphistry.compute.gfql.ir.compilation as compilation
     from graphistry.compute.gfql.ir.compilation import PhysicalPlan
+    from graphistry.compute.gfql.physical_planner import PhysicalOperator
 
-    hints = get_type_hints(PhysicalPlan)
+    hints = get_type_hints(PhysicalPlan, globalns={**vars(compilation), "PhysicalOperator": PhysicalOperator})
 
-    assert "operators" in hints
-    assert get_origin(hints["operators"]) is tuple
+    assert set(get_args(hints["route"])) == {"same_path", "wavefront", "row_pipeline", "procedure_call"}
+    assert get_args(hints["operators"])[0] is PhysicalOperator
+
+
+def test_physical_planner_exports_wrapper_compatibility_shims() -> None:
+    import graphistry.compute.gfql.physical_planner as physical_planner
+
+    expected = {
+        "PhysicalOperator",
+        "PhysicalPlanner",
+        "ProcedureCallExecutorWrapper",
+        "RowPipelineExecutorWrapper",
+        "SamePathExecutorWrapper",
+        "WavefrontExecutorWrapper",
+    }
+
+    assert set(physical_planner.__all__) == expected

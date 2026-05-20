@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterator, Literal, Mapping, Sequence, Tuple, Union
+from typing import Dict, Iterator, Literal, Sequence, Tuple, Union
 
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.ir.compilation import PhysicalPlan, PlanContext

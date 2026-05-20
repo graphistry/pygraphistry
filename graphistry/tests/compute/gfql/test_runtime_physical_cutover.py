@@ -16,13 +16,7 @@ from graphistry.compute.gfql.defer_codes import (
 )
 from graphistry.compute.gfql.ir.compilation import PhysicalPlan
 from graphistry.compute.gfql.ir.logical_plan import PatternMatch, iter_children
-from graphistry.compute.gfql.physical_planner import (
-    PhysicalPlanner,
-    ProcedureCallExecutorWrapper,
-    RowPipelineExecutorWrapper,
-    SamePathExecutorWrapper,
-    WavefrontExecutorWrapper,
-)
+from graphistry.compute.gfql.physical_planner import PhysicalPlanner
 
 
 def _mk_graph():
@@ -73,7 +67,7 @@ def _assert_runtime_missing_logical_plan_context(
         assert "logical_plan_defer_reason" not in exc.context
 
 
-def _spy_physical_routes(monkeypatch, wrapper_cls=None, *, optional_only=False):
+def _spy_physical_routes(monkeypatch, *, optional_only=False):
     routes = []
     original_plan = PhysicalPlanner.plan
 
@@ -81,8 +75,6 @@ def _spy_physical_routes(monkeypatch, wrapper_cls=None, *, optional_only=False):
         physical_plan = original_plan(self, logical_plan, ctx)
         if not optional_only or _has_optional_pattern_match(logical_plan):
             routes.append(physical_plan.route)
-            if wrapper_cls is not None:
-                assert isinstance(physical_plan.operators[0], wrapper_cls)
         return physical_plan
 
     monkeypatch.setattr(PhysicalPlanner, "plan", _spy_plan)
@@ -98,23 +90,18 @@ def _assert_planned_query(query: str) -> None:
 
 def _assert_same_path_rows(monkeypatch, query: str, expected_rows, *, graph=None):
     _assert_planned_query(query)
-    routes = _spy_physical_routes(monkeypatch, SamePathExecutorWrapper)
+    routes = _spy_physical_routes(monkeypatch)
     result = (graph or _mk_graph()).gfql(query)
     assert routes == ["same_path"]
     assert result._nodes.to_dict(orient="records") == expected_rows
 
 
-def _force_physical_route(monkeypatch, route, wrapper):
+def _force_physical_route(monkeypatch, route):
     planner_calls = []
 
     def _force_plan(self, logical_plan, ctx):
         planner_calls.append(type(logical_plan).__name__)
-        return PhysicalPlan(
-            route=route,
-            operators=(wrapper(),),
-            logical_op_ids=(),
-            metadata={},
-        )
+        return PhysicalPlan(route=route)
 
     monkeypatch.setattr(PhysicalPlanner, "plan", _force_plan)
     return planner_calls
@@ -157,7 +144,7 @@ def test_gfql_wavefront_optional_match_parity():
 
 def test_call_route_uses_procedure_physical_route(monkeypatch):
     g = _mk_graph()
-    planner_routes = _spy_physical_routes(monkeypatch, ProcedureCallExecutorWrapper)
+    planner_routes = _spy_physical_routes(monkeypatch)
     result = g.gfql("CALL graphistry.degree() RETURN degree ORDER BY degree")
 
     assert planner_routes == ["procedure_call"]
@@ -166,7 +153,7 @@ def test_call_route_uses_procedure_physical_route(monkeypatch):
 
 def test_top_level_optional_match_matched_case_uses_same_path_physical_route(monkeypatch):
     g = _mk_graph()
-    planner_routes = _spy_physical_routes(monkeypatch, SamePathExecutorWrapper)
+    planner_routes = _spy_physical_routes(monkeypatch)
     result = g.gfql("OPTIONAL MATCH (n) RETURN n.id AS id ORDER BY id")
 
     assert planner_routes == ["same_path"]
@@ -177,7 +164,7 @@ def test_top_level_optional_match_unmatched_case_null_extends_via_same_path_rout
     nodes = pd.DataFrame({"id": ["a", "b", "c"], "label__Missing": [False, False, False]})
     edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"]})
     g = graphistry.bind(source="s", destination="d", node="id").nodes(nodes).edges(edges)
-    planner_routes = _spy_physical_routes(monkeypatch, SamePathExecutorWrapper)
+    planner_routes = _spy_physical_routes(monkeypatch)
     result = g.gfql("OPTIONAL MATCH (n:Missing) RETURN n.id AS id")
     rows = result._nodes.reset_index(drop=True)
 
@@ -188,7 +175,7 @@ def test_top_level_optional_match_unmatched_case_null_extends_via_same_path_rout
 
 def test_optional_reentry_route_uses_same_path_and_null_fills(monkeypatch):
     g = _mk_graph()
-    optional_routes = _spy_physical_routes(monkeypatch, SamePathExecutorWrapper, optional_only=True)
+    optional_routes = _spy_physical_routes(monkeypatch, optional_only=True)
     result = g.gfql(
         "MATCH (a) WITH a, a.id AS aid "
         "OPTIONAL MATCH (a)-->(b) "
@@ -208,7 +195,7 @@ def test_optional_reentry_route_uses_same_path_when_all_rows_match(monkeypatch):
     nodes = pd.DataFrame({"id": ["a", "b"]})
     edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "a"]})
     g = graphistry.bind(source="s", destination="d", node="id").nodes(nodes).edges(edges)
-    optional_routes = _spy_physical_routes(monkeypatch, SamePathExecutorWrapper, optional_only=True)
+    optional_routes = _spy_physical_routes(monkeypatch, optional_only=True)
     result = g.gfql(
         "MATCH (a) WITH a "
         "OPTIONAL MATCH (a)-->(b) "
@@ -225,7 +212,7 @@ def test_optional_reentry_route_uses_same_path_when_all_rows_match(monkeypatch):
 
 def test_same_path_route_uses_same_path_physical_route(monkeypatch):
     g = _mk_graph()
-    planner_routes = _spy_physical_routes(monkeypatch, SamePathExecutorWrapper)
+    planner_routes = _spy_physical_routes(monkeypatch)
     result = g.gfql("MATCH (n) RETURN n.id AS id ORDER BY id")
 
     assert planner_routes == ["same_path"]
@@ -234,7 +221,7 @@ def test_same_path_route_uses_same_path_physical_route(monkeypatch):
 
 def test_row_pipeline_route_uses_row_pipeline_physical_route(monkeypatch):
     g = _mk_graph()
-    planner_routes = _spy_physical_routes(monkeypatch, RowPipelineExecutorWrapper)
+    planner_routes = _spy_physical_routes(monkeypatch)
     result = g.gfql("RETURN 1 AS x")
 
     assert planner_routes == ["row_pipeline"]
@@ -435,12 +422,7 @@ def test_wavefront_route_without_join_payload_raises(monkeypatch):
     g = _mk_graph()
 
     def _force_wavefront_plan(self, logical_plan, ctx):
-        return PhysicalPlan(
-            route="wavefront",
-            operators=(WavefrontExecutorWrapper(),),
-            logical_op_ids=(),
-            metadata={},
-        )
+        return PhysicalPlan(route="wavefront")
 
     monkeypatch.setattr(PhysicalPlanner, "plan", _force_wavefront_plan)
 
@@ -460,7 +442,7 @@ def test_connected_match_join_uses_physical_route(monkeypatch):
         "type": ["IS_LOCATED_IN", "IS_LOCATED_IN"],
     })
     g = graphistry.bind(source="s", destination="d", node="id").nodes(nodes).edges(edges)
-    planner_calls = _force_physical_route(monkeypatch, "row_pipeline", RowPipelineExecutorWrapper)
+    planner_calls = _force_physical_route(monkeypatch, "row_pipeline")
 
     result = g.gfql(
         "MATCH "
@@ -475,7 +457,7 @@ def test_connected_match_join_uses_physical_route(monkeypatch):
 
 def test_connected_optional_match_uses_physical_route(monkeypatch):
     g = _mk_graph()
-    planner_calls = _force_physical_route(monkeypatch, "row_pipeline", RowPipelineExecutorWrapper)
+    planner_calls = _force_physical_route(monkeypatch, "row_pipeline")
 
     result = g.gfql(
         "MATCH (a)-->(b) "

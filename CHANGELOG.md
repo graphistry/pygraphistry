@@ -73,6 +73,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Internal
 - **GFQL IR metadata/verifier cleanup (#1566)**: Deleted the private `ir.metadata` helper layer, inlined the remaining nullable reads at IR consumers, and trimmed verifier helper scaffolding while preserving logical-plan verifier behavior.
+- **GFQL physical dispatch cleanup (#1565)**: Removed stale runtime coupling to physical-executor wrapper classes so dispatch keys off `PhysicalPlan.route`, while preserving the existing planner wrapper/metadata contract and same-path, row-pipeline, procedure-call, and wavefront route behavior.
 - **GFQL row pipeline cleanup tranche (#1557)**: Centralized private node entity/label text formatting in the row entity-props helpers, removed unused private ordering-family helpers, and DRYed duplicated row-pipeline pandas/cuDF regression fixtures while preserving runtime behavior.
 - **GFQL / Cypher binder fixture cleanup (#1556)**: Deleted stale strict-runtime binder baseline scaffolding, consolidated cross-kind rebind coverage, and trimmed binder expr-tree tests to public binder-consumption behavior while preserving validator/runtime parity coverage.
 - **GFQL policy/validation/rollout test cleanup (#1554)**: Consolidated duplicated policy shortcut and rollout gate test scaffolding while preserving public deprecated validation APIs and GFQL policy/rollout behavior.
