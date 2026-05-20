@@ -40,7 +40,8 @@ from .utils.plottable_memoize import check_set_memoize
 from .ai_utils import infer_graph, infer_self_graph
 from graphistry.otel import otel_traced, otel_detail_enabled
 
-# add this inside classes and have a method that can set log level
+# Shared feature preprocessing helpers are module-level and mixin methods, so a
+# module logger keeps diagnostics consistent without per-class plumbing.
 logger = setup_logger(__name__)
 
 
@@ -105,31 +106,6 @@ def is_cudf_df(df: Any) -> bool:
 def is_cudf_s(s: Any) -> bool:
     mod_str = str(getmodule(s))
     return 'cudf' in mod_str and 'series' in mod_str
-
-
-# ############################################################################
-#
-#     Rough calltree
-#
-# ############################################################################
-
-# umap
-#     featurize_or_get_nodes_dataframe_if_X_is_None
-#         _featurize_nodes
-#             _node_featurizer
-#                 process_textual_or_other_dataframes
-#                     encode_textual
-#                     process_dirty_dataframes
-#                     impute_and_scale_matrix
-#
-#    featurize_or_get_edges_dataframe_if_X_is_None
-#      _featurize_edges
-#             _edge_featurizer
-#                 featurize_edges:
-#                 rest of df goes to equivalent of _node_featurizer
-#
-#      featurize_or_get_edges_dataframe_if_X_is_None
-
 
 def resolve_feature_engine(
     feature_engine: FeatureEngine,
@@ -232,13 +208,6 @@ def resolve_scaler_target(use_scaler_target: Optional[ScalerType], feature_engin
     return use_scaler_target
 
 
-# #########################################################################
-#
-#      Pandas Helpers
-#
-# #########################################################################
-
-
 def safe_divide(a, b):
     a = np.array(a)
     b = np.array(b)
@@ -326,9 +295,6 @@ def remove_internal_namespace_if_present(df: pd.DataFrame) -> pd.DataFrame:
 
     if (len(df.columns) <= 2):
         df = df.rename(columns={c: c + '_1' for c in df.columns if c in reserved_namespace})
-        # if (isinstance(df.columns.to_list()[0],int)):
-        #     int_namespace = pd.to_numeric(df.columns, errors = 'ignore').dropna().to_list()  # type: ignore
-        #     df = df.rename(columns={c: str(c) + '_1' for c in df.columns if c in int_namespace})
     else:
         df = df.drop(columns=reserved_namespace, errors="ignore")  # type: ignore
     return df
@@ -347,13 +313,6 @@ def drop_duplicates_with_warning(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# ###########################################################################
-#
-#      Featurization Functions and Utils
-#
-# ###########################################################################
-
-# can also just do np.number to get all of these, thanks @LEO!
 numeric_dtypes = [
     "float64",
     "float32",
@@ -463,13 +422,6 @@ def find_bad_set_columns(df: pd.DataFrame, bad_set: List = ["[]"]):
     return bad_cols
 
 
-# ############################################################################
-#
-#      Text Utils
-#
-# ############################################################################
-
-
 def check_if_textual_column(
     df: pd.DataFrame,
     col: str,
@@ -539,13 +491,6 @@ def get_textual_columns(
     if len(text_cols) == 0:
         logger.debug("No Textual Columns were found")
     return text_cols
-
-
-# ######################################################################
-#
-#      Featurization Utils
-#
-# ######################################################################
 
 
 class Embedding:
@@ -1016,10 +961,6 @@ def process_dirty_dataframes(
             logger.info("obj columns: %s are being converted to str", object_columns)
         X_enc = make_array(X_enc)
 
-        #import warnings
-        #with warnings.catch_warnings():
-        #    warnings.filterwarnings("ignore", category=DeprecationWarning)
-        #    warnings.filterwarnings("ignore", category=FutureWarning)
         features_transformed = data_encoder.get_feature_names_out()
 
         all_transformers = data_encoder.transformers_
@@ -1076,10 +1017,6 @@ def process_dirty_dataframes(
         y_enc = label_encoder.fit_transform(y)
         y_enc = make_array(y_enc)
 
-        #import warnings
-        #with warnings.catch_warnings():
-        #    warnings.filterwarnings("ignore", category=DeprecationWarning)
-        #    warnings.filterwarnings("ignore", category=FutureWarning)
         if isinstance(label_encoder, TableVectorizer) or isinstance(
             label_encoder, FunctionTransformer
         ):
@@ -1090,13 +1027,9 @@ def process_dirty_dataframes(
         y_enc = pd.DataFrame(y_enc,
                              columns=labels_transformed,
                              index=y.index)
-        # y_enc = y_enc.fillna(0)
-        # add for later
         label_encoder.get_feature_names_out = callThrough(labels_transformed)
 
         logger.debug(f"-Shape of target {y_enc.shape}")
-        # logger.debug(f"-Target Transformers used:
-        # {label_encoder.transformers}\n")
         logger.debug(
             "--Fitting TableVectorizer on TARGET took"
             f" {(time() - t2) / 60:.2f} minutes\n"
@@ -1609,13 +1542,6 @@ def process_edge_dataframes(
     return res
 
 
-# ############################################################################
-#
-#      Vectorizer Class + Helpers
-#
-# ############################################################################
-
-
 def transform_text(
     df: pd.DataFrame,
     text_model: Union[SentenceTransformer, Pipeline],  # type: ignore
@@ -1656,25 +1582,9 @@ def transform_dirty(
     data_encoder: Union[TableVectorizer, FunctionTransformer],  # type: ignore
     name: str = "",
 ) -> pd.DataFrame:
-    # from sklearn.preprocessing import MultiLabelBinarizer
-    #logger.debug(f"\n{'~' * 80}\n-{name} Encoder:")
-    #logger.debug(f"{data_encoder}\n")
-    #logger.debug('\n' + '=' * 80)
-    # print(f"-{name} Encoder:")
-    # print(f"\t{data_encoder}\n")
-    # try:
-    #     logger.debug(f"{data_encoder.get_feature_names_in}")
-    # except Exception as e:
-    #     logger.warning(e)
-    #     pass
-    #logger.debug(f"TRANSFORM pre as df -- \t{df.dtypes}|{df.shape}")
-
-    # #####################################  for dirty_cat 0.3.0
     use_columns = getattr(data_encoder, 'columns_', [])
     if len(use_columns):
-        #logger.debug(f"Using columns: {use_columns}")
         X = data_encoder.transform(df[df.columns.intersection(use_columns)])
-    # #####################################  with dirty_cat 0.2.0
     else:
         logger.debug(f"Using all columns: {df.columns}")
         logger.debug('data_encoder: %s', data_encoder)
@@ -1693,7 +1603,6 @@ def transform_dirty(
             from sklearn.preprocessing import FunctionTransformer
             if isinstance(data_encoder, FunctionTransformer):
                 if hasattr(data_encoder, 'get_feature_names_in_'):
-                    #sklearn 1.x+
                     feature_names_in = data_encoder.feature_names_in_.tolist()
         except ImportError:
             pass
@@ -1712,8 +1621,6 @@ def transform_dirty(
                 df = df[feature_names_in]  # sort
 
         X = data_encoder.transform(df)
-    # ###################################
-    # X = data_encoder.transform(df)
 
     logger.debug(f"TRANSFORM DIRTY as Matrix -- \t{X.dtypes}|{X.shape}")
     X = make_array(X)
@@ -1724,8 +1631,6 @@ def transform_dirty(
 
     return X
 
-
-# TODO make a similar variant that coerces to fit() schema: subsetting & sorting
 def normalize_X_y(
     X: pd.DataFrame,
     y: pd.DataFrame,
@@ -1779,13 +1684,6 @@ def transform(
         text_cols,
     ) = res
 
-    #if not hasattr(self, '_feature_params'):
-    #    raise ValueError('Must first run `g.umap()` or `g.featurize()` before transforming data')
-    #if kind not in self._feature_params:
-    #    raise ValueError(f'Must first run `g.umap(kind="{kind}")` or `g.featurize(kind="{kind}")` before transforming data')
-    #trained_params = self._feature_params[kind]
-
-
     prev_def = df
     if len(df.columns) == 0:
         raise ValueError('df must have columns to transform data')
@@ -1812,7 +1710,6 @@ def transform(
         if list(ydf.columns) != list(target_names_in):
             ydf = ydf[target_names_in]  # sort
 
-    # index = df.index
     y = pd.DataFrame([])
     T = pd.DataFrame([])
     # encode nodes
@@ -1868,15 +1765,6 @@ def transform(
     logger.info(f"--Features matrix shape: {X.shape}")
     logger.info(f"--Target matrix shape: {y.shape}")
 
-    # if scaling_pipeline and not X.empty:
-    #     logger.info("--Scaling Features")
-    #     X = pd.DataFrame(scaling_pipeline.transform(X), columns=X.columns, index=index)
-    # if scaling_pipeline_target and not y.empty:
-    #     logger.info(f"--Scaling Target {scaling_pipeline_target}")
-    #     y = pd.DataFrame(
-    #         scaling_pipeline_target.transform(y), columns=y.columns, index=index
-    #     )
-
     return X, y
 
 
@@ -1889,10 +1777,6 @@ class FastEncoder:
         self.target_names_in = self._y.columns
         self.kind = kind
         self._assertions()
-        # these are the parts we can use to reconstruct transform.
-        self.res_names = ("X_enc y_enc data_encoder label_encoder "
-                          "scaling_pipeline scaling_pipeline_target "
-                          "text_model text_cols".split(" "))
 
     def _assertions(self):
         # add smart checks here
@@ -1916,15 +1800,6 @@ class FastEncoder:
 
         return res
 
-    def _hecho(self, res):
-        logger.info("\n-- Setting Encoder Parts from Fit ::")
-        logger.info(f'Feature Columns In: {self.feature_names_in}')
-        logger.info(f'Target Columns In: {self.target_names_in}')
-
-        for name, value in zip(self.res_names, res):
-            if name not in ["X_enc", "y_enc"]:
-                logger.info(f"[[ {name} ]]:  {value}\n")
-
     def _set_result(self, res):
         self.res = list(res)
         [
@@ -1940,9 +1815,6 @@ class FastEncoder:
             text_cols,
         ] = self.res
 
-        # self._hecho(res)
-        # data_encoder.feature_names_in = self.feature_names_in
-        # label_encoder.target_names_in = self.target_names_in
         self.feature_columns = X_enc.columns
         self.feature_columns_target = y_enc.columns
         self.X = X_encs
@@ -2026,13 +1898,6 @@ class FastEncoder:
         if return_pipeline:
             return X, y, scaling_pipeline, scaling_pipeline_target
         return X, y
-
-
-# ###########################################################################
-#
-#      Fast Memoize
-#
-# ###########################################################################
 
 
 def reuse_featurization(

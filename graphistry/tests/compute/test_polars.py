@@ -5,7 +5,7 @@ Covers graphistry/pygraphistry#1133.
 
 polars.DataFrame and polars.LazyFrame should work everywhere pd.DataFrame works for:
   - plot() upload path (via _table_to_arrow)
-  - _table_to_pandas()
+  - deprecated _table_to_pandas() compatibility shim
   - materialize_nodes() / get_degrees() / get_indegrees() / get_outdegrees()
   - hypergraph()
 """
@@ -37,19 +37,21 @@ NODES_PD = pd.DataFrame({"id": ["a", "b", "c"], "v": [1, 2, 3]})
 
 
 # ------------------------------------------------------------------
-# PlotterBase internals — _table_to_arrow and _table_to_pandas
+# PlotterBase internals — _table_to_arrow and deprecated _table_to_pandas
 # ------------------------------------------------------------------
 
 @unittest.skipUnless(HAS_POLARS, "polars not installed")
 class TestPolarsInternals(NoAuthTestCase):
 
     def test_table_to_pandas_dataframe(self):
-        result = CGFull()._table_to_pandas(EDGES_PL)
+        with self.assertWarns(DeprecationWarning):
+            result = CGFull()._table_to_pandas(EDGES_PL)
         self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(list(result.columns), ["src", "dst"])
 
     def test_table_to_pandas_lazyframe(self):
-        result = CGFull()._table_to_pandas(EDGES_LAZY)
+        with self.assertWarns(DeprecationWarning):
+            result = CGFull()._table_to_pandas(EDGES_LAZY)
         self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(list(result.columns), ["src", "dst"])
 
