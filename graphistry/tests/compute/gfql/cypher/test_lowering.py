@@ -12375,6 +12375,9 @@ def test_cypher_to_gfql_rejects_multi_source_aggregate_expr() -> None:
         cypher_to_gfql("MATCH (a)-[r]->(b) RETURN a.id AS a_id, max(b.score) AS max_b")
 
     assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "return"
+    assert exc_info.value.context["value"] == "b.score"
+    assert "value: 'b.score'" in str(exc_info.value)
 
 
 def test_gfql_executes_top_level_quantifier_expression() -> None:
