@@ -50,6 +50,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     sentinel_graph_from_credential,
     sentinel_graph,
     sentinel_graph_close,
+    sentinel_graph_list,
     gsql,
     gsql_endpoint,
     cosmos,

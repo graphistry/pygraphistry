@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **Microsoft Sentinel Graph connector (#1088)**: New plugin for querying the Microsoft Sentinel Graph API (Microsoft Security Platform, public preview) and visualizing the response with Graphistry. Public API: `graphistry.configure_sentinel_graph(...)`, `graphistry.sentinel_graph(query, language='GQL', response_formats=['Graph'])`, `graphistry.sentinel_graph_list()` (graph-instance discovery via `GET /graphs/graph-instances?graphTypes=Custom`), `graphistry.sentinel_graph_from_credential(...)`, `graphistry.sentinel_graph_close()`. Authentication supports `InteractiveBrowserCredential` (default), `ClientSecretCredential` (service principal via `tenant_id`/`client_id`/`client_secret`), `DeviceCodeCredential`, and any custom `azure.core.credentials.TokenCredential`. Response parsing handles the public-preview envelope `result.graph.{nodes,edges}` and the `result.rawData.tables` fallback. Security hardening includes HTTPS enforcement (HTTP endpoints rejected), SSL verification on by default, sanitized error messages, no token/query logging, token caching with 5-minute expiry buffer, and HTTP retry with exponential backoff. New optional install extra: `pip install graphistry[sentinel-graph]` (pulls `azure-identity`, `azure-core`). Test coverage in `graphistry/tests/plugins/test_sentinel_graph.py` with synthetic fixtures in `graphistry/tests/fixtures/sentinel_graph_responses.py`; auth tests skip cleanly when `azure.identity` is not installed so the minimal-Python CI lane stays green. Demo notebook at `demos/demos_databases_apis/microsoft/sentinel/sentinel_graph_examples.ipynb`.
+
 ## [0.55.1 - 2026-05-05]
 
 ### Tests
