@@ -208,8 +208,13 @@ GPU tests can also be run locally via `./docker/test-gpu-local.sh` .
 
 CI uses per-Python-version hashed lockfiles for supply chain security:
 
-- **Generation**: A `generate-lockfiles` CI job runs `bin/generate-lockfiles.sh` to produce lockfiles for all profile × Python version combos. These are uploaded as artifacts, not committed.
+- **Generation**: A `generate-lockfiles` CI job runs `bin/generate-lockfiles.sh` to produce lockfiles for all profile × Python version combos. Most are uploaded as artifacts, not committed.
+- **ReadTheDocs lockfile**: `requirements/rtd-py3.12.lock` is committed because `.readthedocs.yml` consumes it directly. Update it when changing RTD's Python version, docs/pygraphviz extras, `setup.py` dependency constraints that affect docs, or RTD install steps:
+  ```bash
+  PROFILES=rtd VERSIONS=3.12 ./bin/generate-lockfiles.sh
+  ```
+  CI's `check-rtd-lockfile` job regenerates only the RTD profile using the committed lockfile's `--exclude-newer` timestamp and fails if `requirements/rtd-py3.12.lock` is out of sync. To fix a red `check-rtd-lockfile`, rerun the command above and commit the resulting lockfile.
 - **6-day cooldown**: `--exclude-newer` ensures no package published in the last 6 days is included, mitigating 0-day supply chain attacks. `UV_EXCLUDE_NEWER` is also set globally as belt-and-suspenders.
 - **Hash verification**: `--require-hashes` on install ensures tamper-proof installs (except AI/umap profiles where torch conflicts prevent it).
-- **Adding a dependency**: After modifying `setup.py` extras, CI automatically regenerates lockfiles. No manual lockfile updates needed.
+- **Adding a dependency**: After modifying most `setup.py` extras, CI automatically regenerates artifact lockfiles. If the change affects ReadTheDocs docs dependencies, also update and commit `requirements/rtd-py3.12.lock`.
 - **Emergency override**: Set `COOLDOWN_DAYS=0` in `bin/generate-lockfiles.sh` to disable the 6-day cooldown for urgent patches.
