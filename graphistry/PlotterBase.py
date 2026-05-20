@@ -9,8 +9,8 @@ from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsD
 from graphistry.validate.validate_react_encodings import parse_apply_encodings_ops
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
-from graphistry.Engine import EngineAbstractType
-import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid
+from graphistry.Engine import Engine, EngineAbstractType, df_to_engine
+import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid, warnings
 from functools import lru_cache
 from weakref import WeakValueDictionary
 
@@ -2364,7 +2364,7 @@ class PlotterBase(Plottable):
         self._pygraphistry.refresh()
         logger.debug("4. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
 
-        uploader = self._plot_dispatch_arrow(g, n, name, description, self._style, memoize, validate_mode, warn)
+        uploader = self._plot_dispatch(g, n, name, description, self._style, memoize, validate_mode, warn)
         assert uploader is not None
         if skip_upload:
             return uploader
@@ -2831,12 +2831,15 @@ class PlotterBase(Plottable):
             if b not in cols:
                 error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
 
-    def _plot_dispatch_arrow(self, graph, nodes, name, description, metadata=None, memoize=True, validate_mode: ValidationMode = 'autofix', emit_warnings=True):
-        out = self._plot_dispatch(graph, nodes, name, description, 'arrow', metadata, memoize, validate_mode, emit_warnings)
-        assert isinstance(out, ArrowUploader)
-        return out
+    def _plot_dispatch_arrow(self, graph, nodes, name, description, metadata=None, memoize=True, validate_mode: ValidationMode = 'autofix', emit_warnings=True) -> ArrowUploader:
+        warnings.warn(
+            "_plot_dispatch_arrow() is deprecated; use _plot_dispatch(), which now always builds Arrow uploaders.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._plot_dispatch(graph, nodes, name, description, metadata, memoize, validate_mode, emit_warnings)
 
-    def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None, memoize=True, validate_mode: ValidationMode = 'autofix', emit_warnings=True) -> Union[ArrowUploader, Dict[str, Any]]:
+    def _plot_dispatch(self, graph, nodes, name, description, metadata=None, memoize=True, validate_mode: ValidationMode = 'autofix', emit_warnings=True) -> ArrowUploader:
 
         g: "PlotterBase" = self
         if self._point_title is None and self._point_label is None and g._nodes is not None:
@@ -2845,6 +2848,11 @@ class PlotterBase(Plottable):
             except:
                 1
 
+        def make_arrow_upload(edges: Any, upload_nodes: Any) -> ArrowUploader:
+            edges_arr = g._table_to_arrow(edges, memoize, validate_mode, emit_warnings)
+            nodes_arr = g._table_to_arrow(upload_nodes, memoize, validate_mode, emit_warnings)
+            return g._make_arrow_dataset(edges=edges_arr, nodes=nodes_arr, name=name, description=description, metadata=metadata)
+
         if isinstance(graph, pd.DataFrame) \
                 or isinstance(graph, pa.Table) \
                 or ( not (maybe_cudf() is None) and isinstance(graph, maybe_cudf().DataFrame) ) \
@@ -2852,13 +2860,13 @@ class PlotterBase(Plottable):
                 or ( not (maybe_dask_dataframe() is None) and isinstance(graph, maybe_dask_dataframe().DataFrame) ) \
                 or ( not (maybe_spark() is None) and isinstance(graph, maybe_spark().sql.dataframe.DataFrame) ) \
                 or ( not (maybe_polars() is None) and isinstance(graph, (maybe_polars().DataFrame, maybe_polars().LazyFrame)) ):
-            return g._make_dataset(graph, nodes, name, description, mode, metadata, memoize, validate_mode, emit_warnings)
+            return make_arrow_upload(graph, nodes)
 
         try:
             import igraph
             if isinstance(graph, igraph.Graph):
                 g2 = g.from_igraph(graph)
-                return g._make_dataset(g2._nodes, g2._edges, name, description, mode, metadata, memoize, validate_mode, emit_warnings)
+                return make_arrow_upload(g2._nodes, g2._edges)
         except ImportError:
             pass
 
@@ -2869,123 +2877,27 @@ class PlotterBase(Plottable):
                isinstance(graph, networkx.classes.multigraph.MultiGraph) or \
                isinstance(graph, networkx.classes.multidigraph.MultiDiGraph):
                 (e, n) = g.networkx2pandas(graph)
-                return g._make_dataset(e, n, name, description, mode, metadata, memoize, validate_mode, emit_warnings)
+                return make_arrow_upload(e, n)
         except ImportError:
             pass
 
         raise ValueError('Expected Pandas/Arrow/cuDF/Spark dataframe(s) or igraph/NetworkX graph.')
 
 
-    # Sanitize node/edge dataframe by
-    # - dropping indices
-    # - dropping edges with NAs in source or destination
-    # - dropping nodes with NAs in nodeid
-    # - creating a default node table if none was provided.
-    # - inferring numeric types of all columns containing numpy objects
-    def _sanitize_dataset(self, edges, nodes, nodeid):
-        self._check_bound_attribs(edges, ['source', 'destination'], 'Edge')
-        elist = edges.reset_index(drop=True) \
-                     .dropna(subset=[self._source, self._destination])
-
-        obj_df = elist.select_dtypes(include=[np.object_])
-        elist[obj_df.columns] = obj_df.apply(pd.to_numeric, errors='ignore')
-
-        if nodes is None:
-            nodes = pd.DataFrame()
-            nodes[nodeid] = pd.concat(
-                [edges[self._source], edges[self._destination]],
-                ignore_index=True).drop_duplicates()
-        else:
-            self._check_bound_attribs(nodes, ['node'], 'Vertex')
-
-        nlist = nodes.reset_index(drop=True) \
-                     .dropna(subset=[nodeid]) \
-                     .drop_duplicates(subset=[nodeid])
-
-        obj_df = nlist.select_dtypes(include=[np.object_])
-        nlist[obj_df.columns] = obj_df.apply(pd.to_numeric, errors='ignore')
-
-        return (elist, nlist)
-
-
-    def _check_dataset_size(self, elist, nlist):
-        edge_count = len(elist.index)
-        node_count = len(nlist.index)
-        graph_size = edge_count + node_count
-        if edge_count > 8e6:
-            error('Maximum number of edges (8M) exceeded: %d.' % edge_count)
-        if node_count > 8e6:
-            error('Maximum number of nodes (8M) exceeded: %d.' % node_count)
-        if graph_size > 1e6:
-            warn('Large graph: |nodes| + |edges| = %d. Layout/rendering might be slow.' % graph_size)
-
-
-    # Bind attributes for ETL1 by creating a copy of the designated column renamed
-    # with magic names understood by ETL1 (eg. pointColor, etc)
-    def _bind_attributes_v1(self, edges, nodes):
-        def bind(df, pbname, attrib, default=None):
-            bound = getattr(self, attrib)
-            if bound:
-                if bound in df.columns.tolist():
-                    df[pbname] = df[bound]
-                else:
-                    warn('Attribute "%s" bound to %s does not exist.' % (bound, attrib))
-            elif default:
-                df[pbname] = df[default]
-
-        nodeid = self._node or PlotterBase._defaultNodeId
-        (elist, nlist) = self._sanitize_dataset(edges, nodes, nodeid)
-        self._check_dataset_size(elist, nlist)
-
-        bind(elist, 'edgeColor', '_edge_color')
-        bind(elist, 'edgeSourceColor', '_edge_source_color')
-        bind(elist, 'edgeDestinationColor', '_edge_destination_color')
-        bind(elist, 'edgeLabel', '_edge_label')
-        bind(elist, 'edgeTitle', '_edge_title')
-        bind(elist, 'edgeSize', '_edge_size')
-        bind(elist, 'edgeWeight', '_edge_weight')
-        bind(elist, 'edgeOpacity', '_edge_opacity')
-        bind(elist, 'edgeIcon', '_edge_icon')
-        bind(nlist, 'pointColor', '_point_color')
-        bind(nlist, 'pointLabel', '_point_label')
-        bind(nlist, 'pointTitle', '_point_title', nodeid)
-        bind(nlist, 'pointSize', '_point_size')
-        bind(nlist, 'pointWeight', '_point_weight')
-        bind(nlist, 'pointOpacity', '_point_opacity')
-        bind(nlist, 'pointIcon', '_point_icon')
-        bind(nlist, 'pointX', '_point_x')
-        bind(nlist, 'pointY', '_point_y')
-        return (elist, nlist)
-
-    def _table_to_pandas(self, table) -> Optional[pd.DataFrame]:
-        """
-            pandas | arrow | dask | cudf | dask_cudf | polars | spark => pandas
-        """
+    def _table_to_pandas(self, table: Any) -> Optional[pd.DataFrame]:
+        """Deprecated compatibility wrapper for dataframe-like inputs to pandas."""
+        warnings.warn(
+            "_table_to_pandas() is deprecated; use graphistry.Engine.df_to_engine(..., Engine.PANDAS) "
+            "for dataframe engine coercion.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         if table is None:
-            return table
+            return None
 
-        if isinstance(table, pd.DataFrame):
-            return table
+        return df_to_engine(table, Engine.PANDAS)
 
-        if isinstance(table, pa.Table):
-            return table.to_pandas()
-        
-        if not (maybe_cudf() is None) and isinstance(table, maybe_cudf().DataFrame):
-            return table.to_pandas()
-
-        if not (maybe_dask_cudf() is None) and isinstance(table, maybe_dask_cudf().DataFrame):
-            return self._table_to_pandas(table.compute())
-
-        if not (maybe_dask_dataframe() is None) and isinstance(table, maybe_dask_dataframe().DataFrame):
-            return self._table_to_pandas(table.compute())
-
-        if not (maybe_polars() is None) and isinstance(table, (maybe_polars().DataFrame, maybe_polars().LazyFrame)):
-            if isinstance(table, maybe_polars().LazyFrame):
-                table = table.collect()
-            return table.to_pandas()
-
-        raise Exception('Unknown type %s: Could not convert data to Pandas dataframe' % str(type(table)))
 
     def _find_bad_arrow_columns(self, df: Any, is_cudf: bool = False) -> List[str]:
         """Find columns that fail Arrow conversion due to mixed types."""
@@ -3224,66 +3136,12 @@ class PlotterBase(Plottable):
             validate_mode = validate
         return self._table_to_arrow(table, memoize=False, validate_mode=validate_mode, emit_warnings=warn)
 
-    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True, validate_mode: ValidationMode = 'autofix', emit_warnings: bool = True) -> Union[ArrowUploader, Dict[str, Any]]:  # noqa: C901
-
-        logger.debug('_make_dataset (mode %s, memoize %s, validate_mode %s) name:[%s] des:[%s] (e::%s, n::%s) ',
-            mode, memoize, validate_mode, name, description, type(edges), type(nodes))
-
+    def _make_arrow_dataset(self, edges: Optional[pa.Table], nodes: Optional[pa.Table], name: str, description: str, metadata: Optional[Dict[str, Any]]) -> ArrowUploader:
         try:
-            if len(edges) == 0:
+            if edges is not None and len(edges) == 0:
                 warn('Graph has no edges, may have rendering issues')
         except:
             1
-        #compatibility checks
-        if mode == 'json':
-            if not (metadata is None):
-                if ('bg' in metadata) or ('fg' in metadata) or ('logo' in metadata) or ('page' in metadata):
-                    raise ValueError('Cannot set bg/fg/logo/page in api=1; try using api=3')
-            if not (self._complex_encodings is None
-                or self._complex_encodings == {
-                    'node_encodings': {'current': {}, 'default': {} },
-                    'edge_encodings': {'current': {}, 'default': {} }}):
-                raise ValueError('Cannot set complex encodings ".encode_[point/edge]_[feature]()" in api=1; try using api=3 or .bind()')
-
-        if mode == 'json':
-            edges_df = self._table_to_pandas(edges)
-            nodes_df = self._table_to_pandas(nodes)
-            return self._make_json_dataset(edges_df, nodes_df, name)
-        elif mode == 'arrow':
-            edges_arr = self._table_to_arrow(edges, memoize, validate_mode, emit_warnings)
-            nodes_arr = self._table_to_arrow(nodes, memoize, validate_mode, emit_warnings)
-            return self._make_arrow_dataset(edges=edges_arr, nodes=nodes_arr, name=name, description=description, metadata=metadata)
-            #token=None, dataset_id=None, url_params = None)
-        else:
-            raise ValueError('Unknown mode: ' + mode)
-
-
-    # Main helper for creating ETL1 payload
-    def _make_json_dataset(self, edges, nodes, name) -> Dict[str, Any]:
-
-        def flatten_categorical(df):
-            # Avoid cat_col.where(...)-related exceptions
-            df2 = df.copy()
-            for c in df:
-                if (df[c].dtype.name == 'category'):
-                    df2[c] = df[c].astype(df[c].cat.categories.dtype)
-            return df2
-
-        (elist, nlist) = self._bind_attributes_v1(edges, nodes)
-        edict = flatten_categorical(elist).where(pd.notnull(elist), None).to_dict(orient='records')
-
-        bindings = {'idField': self._node or PlotterBase._defaultNodeId,
-                    'destinationField': self._destination, 'sourceField': self._source}
-        dataset: Dict[str, Any] = {'name': self.session.dataset_prefix + name,
-                   'bindings': bindings, 'type': 'edgelist', 'graph': edict}
-
-        if nlist is not None:
-            ndict = flatten_categorical(nlist).where(pd.notnull(nlist), None).to_dict(orient='records')
-            dataset['labels'] = ndict
-        return dataset
-
-
-    def _make_arrow_dataset(self, edges: Optional[pa.Table], nodes: Optional[pa.Table], name: str, description: str, metadata: Optional[Dict[str, Any]]) -> ArrowUploader:
 
         au : ArrowUploader = ArrowUploader(
             client_session=self.session,
