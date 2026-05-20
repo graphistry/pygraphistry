@@ -1,6 +1,7 @@
 from functools import lru_cache
 from typing import Dict, List
 import logging
+import warnings
 import pandas as pd
 
 from common import NoAuthTestCase
@@ -143,6 +144,27 @@ class TestComputeChainMixin(NoAuthTestCase):
         assert sorted(g2._edges[ g2._edges.e2 ][g2._source].to_list()) == ["g", "l"]
         assert sorted(g2._edges[ g2._edges.e2 ][g2._destination].to_list()) == ["a", "b"]
         assert sorted(g2._nodes[ g2._nodes.n2 ][g2._node].to_list()) == ["a", "b"]
+
+    def test_chain_named_tags_no_fillna_futurewarning(self):
+        g = hops_graph()
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", FutureWarning)
+            g2 = g.gfql([
+                n({g._node: "e"}, name="n1"),
+                e_forward({}, hops=1),
+                e_forward({}, hops=1, name="e2"),
+                n(name="n2"),
+            ])
+
+        downcast_warnings = [
+            warning for warning in caught
+            if "Downcasting object dtype arrays on .fillna" in str(warning.message)
+        ]
+        assert downcast_warnings == []
+        assert g2._nodes[g2._nodes.n1][g2._node].to_list() == ["e"]
+        assert sorted(g2._edges[g2._edges.e2][g2._source].to_list()) == ["g", "l"]
+        assert sorted(g2._nodes[g2._nodes.n2][g2._node].to_list()) == ["a", "b"]
 
     def test_chain_predicate_is_in(self):
         g = hops_graph()
