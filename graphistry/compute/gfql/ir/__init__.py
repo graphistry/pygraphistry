@@ -40,6 +40,16 @@ from .logical_plan import (
     Union,
     Unwind,
 )
+from .metadata import (
+    bound_variable_is_nullable,
+    bound_variable_type,
+    column_is_nullable,
+    column_logical_type,
+    is_nullable,
+    merge_types,
+    widen_to_nullable,
+    with_nullable,
+)
 from .pushdown_safety import is_null_rejecting, is_null_safe, with_barrier_blocks_pushdown
 from .query_graph import ConnectedComponent, OptionalArm, QueryGraph, extract_query_graph
 from .verifier import verify
@@ -104,6 +114,14 @@ __all__ = [
     "Skip",
     "Union",
     "Unwind",
+    "bound_variable_is_nullable",
+    "bound_variable_type",
+    "column_is_nullable",
+    "column_logical_type",
+    "is_nullable",
+    "merge_types",
+    "widen_to_nullable",
+    "with_nullable",
     "is_null_rejecting",
     "is_null_safe",
     "with_barrier_blocks_pushdown",
