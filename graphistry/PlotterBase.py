@@ -15,7 +15,12 @@ from functools import lru_cache
 from weakref import WeakValueDictionary
 
 from graphistry.privacy import Privacy, Mode, ModeAction
-from graphistry.client_session import ClientSession, AuthManagerProtocol, DatasetInfo
+from graphistry.client_session import (
+    ClientSession,
+    AuthManagerProtocol,
+    DatasetInfo,
+    require_supported_api_version,
+)
 
 from .constants import SRC, DST, NODE
 from .plugins.igraph import to_igraph, from_igraph, compute_igraph, layout_igraph
@@ -2328,6 +2333,7 @@ class PlotterBase(Plottable):
 
         """
         logger.debug("1. @PloatterBase plot: _pygraphistry.org_name: {}".format(self.session.org_name))
+        require_supported_api_version(self.session.api_version)
 
         # Normalize validate param for backward compatibility
         validate_mode: ValidationMode
@@ -3286,7 +3292,6 @@ class PlotterBase(Plottable):
             name=name, description=description,
             metadata={
                 'usertag': self.session._tag,
-                'key': self.session.api_key,
                 'agent': 'pygraphistry',
                 'apiversion' : '3',
                 'agentversion': sys.modules['graphistry'].__version__,  # type: ignore

@@ -57,6 +57,16 @@ Connector tests (currently neo4j-only): `cd docker && WITH_NEO4J=1 ./test-cpu-lo
 
 * Will start a local neo4j (docker) then enable+run tests against it
 
+Remote Graphistry integration tests are opt-in because they require a live server and credentials:
+
+```bash
+TEST_REMOTE_INTEGRATION=1 \
+GRAPHISTRY_API_TOKEN=<jwt> \
+python -m pytest graphistry/tests/compute/test_chain_let_remote_integration.py
+```
+
+Use `GRAPHISTRY_USERNAME`/`GRAPHISTRY_PASSWORD` instead of `GRAPHISTRY_API_TOKEN` when token auth is not available. For service-account style authentication in application code, prefer `personal_key_id` + `personal_key_secret`. Optional env vars: `GRAPHISTRY_SERVER` and `GRAPHISTRY_TEST_DATASET_ID`.
+
 
 ## Docs
 
