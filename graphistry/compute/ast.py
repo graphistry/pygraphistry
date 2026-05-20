@@ -735,6 +735,11 @@ class ASTEdge(ASTObject):
             include_zero_hop_seed=self.include_zero_hop_seed,
         )
 
+def _init_directional_edge(edge: ASTEdge, direction: Direction, params: Dict[str, Any]) -> None:
+    kwargs = dict(params)
+    kwargs.pop("self", None)
+    ASTEdge.__init__(edge, direction=direction, **kwargs)
+
 class ASTEdgeForward(ASTEdge):
     """
     Internal, not intended for use outside of this module.
@@ -761,27 +766,7 @@ class ASTEdgeForward(ASTEdge):
         prune_to_endpoints: bool = False,
         include_zero_hop_seed: bool = False,
     ):
-        super().__init__(
-            direction='forward',
-            edge_match=edge_match,
-            hops=hops,
-            min_hops=min_hops,
-            max_hops=max_hops,
-            output_min_hops=output_min_hops,
-            output_max_hops=output_max_hops,
-            label_node_hops=label_node_hops,
-            label_edge_hops=label_edge_hops,
-            label_seeds=label_seeds,
-            source_node_match=source_node_match,
-            destination_node_match=destination_node_match,
-            to_fixed_point=to_fixed_point,
-            name=name,
-            source_node_query=source_node_query,
-            destination_node_query=destination_node_query,
-            edge_query=edge_query,
-            prune_to_endpoints=prune_to_endpoints,
-            include_zero_hop_seed=include_zero_hop_seed,
-        )
+        _init_directional_edge(self, 'forward', locals())
 
     @classmethod
     def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTEdge':
@@ -817,27 +802,7 @@ class ASTEdgeReverse(ASTEdge):
         prune_to_endpoints: bool = False,
         include_zero_hop_seed: bool = False,
     ):
-        super().__init__(
-            direction='reverse',
-            edge_match=edge_match,
-            hops=hops,
-            min_hops=min_hops,
-            max_hops=max_hops,
-            output_min_hops=output_min_hops,
-            output_max_hops=output_max_hops,
-            label_node_hops=label_node_hops,
-            label_edge_hops=label_edge_hops,
-            label_seeds=label_seeds,
-            source_node_match=source_node_match,
-            destination_node_match=destination_node_match,
-            to_fixed_point=to_fixed_point,
-            name=name,
-            source_node_query=source_node_query,
-            destination_node_query=destination_node_query,
-            edge_query=edge_query,
-            prune_to_endpoints=prune_to_endpoints,
-            include_zero_hop_seed=include_zero_hop_seed,
-        )
+        _init_directional_edge(self, 'reverse', locals())
 
     @classmethod
     def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTEdge':
@@ -873,27 +838,7 @@ class ASTEdgeUndirected(ASTEdge):
         prune_to_endpoints: bool = False,
         include_zero_hop_seed: bool = False,
     ):
-        super().__init__(
-            direction='undirected',
-            edge_match=edge_match,
-            hops=hops,
-            min_hops=min_hops,
-            max_hops=max_hops,
-            output_min_hops=output_min_hops,
-            output_max_hops=output_max_hops,
-            label_node_hops=label_node_hops,
-            label_edge_hops=label_edge_hops,
-            label_seeds=label_seeds,
-            source_node_match=source_node_match,
-            destination_node_match=destination_node_match,
-            to_fixed_point=to_fixed_point,
-            name=name,
-            source_node_query=source_node_query,
-            destination_node_query=destination_node_query,
-            edge_query=edge_query,
-            prune_to_endpoints=prune_to_endpoints,
-            include_zero_hop_seed=include_zero_hop_seed,
-        )
+        _init_directional_edge(self, 'undirected', locals())
 
     @classmethod
     def from_json(cls, d: Dict[str, Any], validate: bool = True) -> 'ASTEdge':

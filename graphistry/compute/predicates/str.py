@@ -1,4 +1,4 @@
-from typing import Any, Optional, Union
+from typing import Any, ClassVar, Optional, Union
 import re
 
 import pandas as pd
@@ -572,10 +572,22 @@ def fullmatch(
     return Fullmatch(pat, case, flags, na)
 
 
-class IsNumeric(ASTPredicate):
+class _StringMethodPredicate(ASTPredicate):
+    method_name: ClassVar[str]
 
     def __call__(self, s: SeriesT) -> SeriesT:
-        return s.str.isnumeric()
+        return getattr(s.str, self.method_name)()
+
+
+class _SeriesMethodPredicate(ASTPredicate):
+    method_name: ClassVar[str]
+
+    def __call__(self, s: SeriesT) -> SeriesT:
+        return getattr(s, self.method_name)()
+
+
+class IsNumeric(_StringMethodPredicate):
+    method_name = "isnumeric"
 
 
 def isnumeric() -> IsNumeric:
@@ -585,10 +597,8 @@ def isnumeric() -> IsNumeric:
     return IsNumeric()
 
 
-class IsAlpha(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s.str.isalpha()
+class IsAlpha(_StringMethodPredicate):
+    method_name = "isalpha"
 
 
 def isalpha() -> IsAlpha:
@@ -598,10 +608,8 @@ def isalpha() -> IsAlpha:
     return IsAlpha()
 
 
-class IsDigit(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s.str.isdigit()
+class IsDigit(_StringMethodPredicate):
+    method_name = "isdigit"
 
 
 def isdigit() -> IsDigit:
@@ -611,10 +619,8 @@ def isdigit() -> IsDigit:
     return IsDigit()
 
 
-class IsLower(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s.str.islower()
+class IsLower(_StringMethodPredicate):
+    method_name = "islower"
 
 
 def islower() -> IsLower:
@@ -624,10 +630,8 @@ def islower() -> IsLower:
     return IsLower()
 
 
-class IsUpper(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s.str.isupper()
+class IsUpper(_StringMethodPredicate):
+    method_name = "isupper"
 
 
 def isupper() -> IsUpper:
@@ -637,10 +641,8 @@ def isupper() -> IsUpper:
     return IsUpper()
 
 
-class IsSpace(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s.str.isspace()
+class IsSpace(_StringMethodPredicate):
+    method_name = "isspace"
 
 
 def isspace() -> IsSpace:
@@ -650,10 +652,8 @@ def isspace() -> IsSpace:
     return IsSpace()
 
 
-class IsAlnum(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s.str.isalnum()
+class IsAlnum(_StringMethodPredicate):
+    method_name = "isalnum"
 
 
 def isalnum() -> IsAlnum:
@@ -663,10 +663,8 @@ def isalnum() -> IsAlnum:
     return IsAlnum()
 
 
-class IsDecimal(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s.str.isdecimal()
+class IsDecimal(_StringMethodPredicate):
+    method_name = "isdecimal"
 
 
 def isdecimal() -> IsDecimal:
@@ -676,10 +674,8 @@ def isdecimal() -> IsDecimal:
     return IsDecimal()
 
 
-class IsTitle(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s.str.istitle()
+class IsTitle(_StringMethodPredicate):
+    method_name = "istitle"
 
 
 def istitle() -> IsTitle:
@@ -689,10 +685,8 @@ def istitle() -> IsTitle:
     return IsTitle()
 
 
-class IsNull(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s.isnull()
+class IsNull(_SeriesMethodPredicate):
+    method_name = "isnull"
 
 
 def isnull() -> IsNull:
@@ -702,10 +696,8 @@ def isnull() -> IsNull:
     return IsNull()
 
 
-class NotNull(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s.notnull()
+class NotNull(_SeriesMethodPredicate):
+    method_name = "notnull"
 
 
 def notnull() -> NotNull:

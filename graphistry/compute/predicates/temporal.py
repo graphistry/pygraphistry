@@ -1,14 +1,18 @@
-from typing import Any, Optional
-import pandas as pd
+from typing import ClassVar
 
 from .ASTPredicate import ASTPredicate
 from graphistry.compute.typing import SeriesT
 
 
-class IsMonthStart(ASTPredicate):
+class _DatetimePropertyPredicate(ASTPredicate):
+    property_name: ClassVar[str]
 
     def __call__(self, s: SeriesT) -> SeriesT:
-        return s.dt.is_month_start
+        return getattr(s.dt, self.property_name)
+
+
+class IsMonthStart(_DatetimePropertyPredicate):
+    property_name = "is_month_start"
 
 def is_month_start() -> IsMonthStart:
     """
@@ -16,10 +20,8 @@ def is_month_start() -> IsMonthStart:
     """
     return IsMonthStart()
 
-class IsMonthEnd(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s.dt.is_month_end
+class IsMonthEnd(_DatetimePropertyPredicate):
+    property_name = "is_month_end"
 
 def is_month_end() -> IsMonthEnd:
     """
@@ -27,10 +29,8 @@ def is_month_end() -> IsMonthEnd:
     """
     return IsMonthEnd()
 
-class IsQuarterStart(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s.dt.is_quarter_start
+class IsQuarterStart(_DatetimePropertyPredicate):
+    property_name = "is_quarter_start"
 
 def is_quarter_start() -> IsQuarterStart:
     """
@@ -38,10 +38,8 @@ def is_quarter_start() -> IsQuarterStart:
     """
     return IsQuarterStart()
 
-class IsQuarterEnd(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s.dt.is_quarter_end
+class IsQuarterEnd(_DatetimePropertyPredicate):
+    property_name = "is_quarter_end"
 
 def is_quarter_end() -> IsQuarterEnd:
     """
@@ -49,10 +47,8 @@ def is_quarter_end() -> IsQuarterEnd:
     """
     return IsQuarterEnd()
 
-class IsYearStart(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s.dt.is_year_start
+class IsYearStart(_DatetimePropertyPredicate):
+    property_name = "is_year_start"
 
 def is_year_start() -> IsYearStart:
     """
@@ -60,10 +56,8 @@ def is_year_start() -> IsYearStart:
     """
     return IsYearStart()
 
-class IsYearEnd(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s.dt.is_year_end
+class IsYearEnd(_DatetimePropertyPredicate):
+    property_name = "is_year_end"
 
 def is_year_end() -> IsYearEnd:
     """
@@ -71,10 +65,8 @@ def is_year_end() -> IsYearEnd:
     """
     return IsYearEnd()
 
-class IsLeapYear(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s.dt.is_leap_year
+class IsLeapYear(_DatetimePropertyPredicate):
+    property_name = "is_leap_year"
 
 def is_leap_year() -> IsLeapYear:
     """
