@@ -6,6 +6,8 @@ on:
 
   #Regular dev
   push:
+    branches:
+      - master
   pull_request:
 
   #Enable UI-driven branch testing
@@ -22,6 +24,12 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  # Cancel stale same-branch PR/manual runs. Branch push CI is master-only;
+  # branch validation happens via pull_request or workflow_dispatch.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 env:
   # 6-day dependency cooldown: refuse packages uploaded less than 6 days ago
@@ -41,6 +49,7 @@ jobs:
       gfql: ${{ steps.filter.outputs.gfql }}
       cypher_frontend_ci: ${{ steps.filter.outputs.cypher_frontend_ci }}
       benchmarks: ${{ steps.filter.outputs.benchmarks }}
+      ai: ${{ steps.filter.outputs.ai }}
       docs_only_latest: ${{ steps.docs_only_latest.outputs.docs_only_latest }}
     steps:
     - uses: actions/checkout@v4
@@ -58,7 +67,7 @@ jobs:
         HEAD_SHA: ${{ github.sha }}
       run: |
         set -euo pipefail
-        keys=(infra python spark gfql cypher_frontend_ci benchmarks docs)
+        keys=(infra python spark gfql cypher_frontend_ci benchmarks ai docs)
 
         emit_all() {
           # $1 = "true" or "false" — emit the same value for every key
@@ -189,6 +198,33 @@ jobs:
         emit benchmarks \
           '^benchmarks/'
 
+        # AI/UMAP/text featurization lanes. Keep shared public entrypoints and
+        # dependency lock generation conservative; GFQL-only internals should
+        # not drag the expensive AI matrix unless they touch UMAP/CALL surfaces.
+        emit ai \
+          '^setup\.py$' \
+          '^\.github/workflows/ci\.yml$' \
+          '^bin/generate-lockfiles\.sh$' \
+          '^bin/test-(ai|features|umap-learn-core|text|dbscan|embed|dgl)\.sh$' \
+          '^graphistry/Plottable\.py$' \
+          '^graphistry/PlotterBase\.py$' \
+          '^graphistry/Engine\.py$' \
+          '^graphistry/compute/chain\.py$' \
+          '^graphistry/compute/cluster\.py$' \
+          '^graphistry/dgl_utils\.py$' \
+          '^graphistry/feature_utils\.py$' \
+          '^graphistry/features\.py$' \
+          '^graphistry/networks\.py$' \
+          '^graphistry/text_utils\.py$' \
+          '^graphistry/umap_utils\.py$' \
+          '^graphistry/utils/lazy_import\.py$' \
+          '^graphistry/plugins_types/(embed|umap)_types\.py$' \
+          '^graphistry/compute/gfql/call/' \
+          '^graphistry/tests/test_(compute_cluster|feature_utils|text_utils|umap_utils)\.py$' \
+          '^graphistry/tests/compute/test_call_engine_coercion\.py$' \
+          '^graphistry/tests/data/reddit\.csv$' \
+          '^requirements/(test-ai|test-umap)-py.*\.lock$'
+
         # Documentation: docs tree + any md/rst at any depth + demos + notebooks.
         emit docs \
           '^docs/' \
@@ -259,7 +295,7 @@ jobs:
 
   generate-lockfiles:
     needs: changes
-    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -433,7 +469,7 @@ jobs:
   python-lint-types:
     needs: [changes, generate-lockfiles]
     # Run if Python files changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     
@@ -604,7 +640,7 @@ jobs:
     # run in test-minimal-python-rest alongside the middle versions (3.9-3.13).
     needs: [changes, python-lint-types, generate-lockfiles]
     # Run if Python files changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -724,7 +760,7 @@ jobs:
   # Runs in parallel with downstream jobs instead of blocking them.
   test-gfql-core:
     needs: [changes, python-lint-types, generate-lockfiles]
-    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -1193,9 +1229,8 @@ jobs:
         ./bin/test-polars.sh
 
   test-core-umap:
-    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
-    # Inherit condition from test-minimal-python
-    if: ${{ success() }}
+    needs: [changes, test-minimal-python, test-gfql-core, generate-lockfiles]
+    if: ${{ success() && (needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -1315,9 +1350,8 @@ jobs:
         ./bin/test-umap-learn-core.sh
 
   test-full-ai:
-    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
-    # Inherit condition from test-minimal-python
-    if: ${{ success() }}
+    needs: [changes, test-minimal-python, test-gfql-core, generate-lockfiles]
+    if: ${{ success() && (needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
