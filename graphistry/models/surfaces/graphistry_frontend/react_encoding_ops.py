@@ -37,8 +37,6 @@ class TextEncodingOp(TypedDict, total=False):  # pragma: no cover
     kind: Literal["text"]
     key: ReactTextEncodingKey
     column: str
-    categorical_mapping: Dict[Any, Any]
-    default_mapping: Any
 
 
 class IconEncodingOp(TypedDict, total=False):

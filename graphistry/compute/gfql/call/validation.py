@@ -318,14 +318,12 @@ def _numeric_encode_method(description: str, schema_effects: Dict[str, Any]) -> 
     }
 
 
-def _string_encode_method(description: str, schema_effects: Dict[str, Any]) -> Dict[str, Any]:
+def _column_encode_method(description: str, schema_effects: Dict[str, Any]) -> Dict[str, Any]:
     return {
-        'allowed_params': {'column', 'categorical_mapping', 'default_mapping'},
+        'allowed_params': {'column'},
         'required_params': {'column'},
         'param_validators': {
             'column': is_string,
-            'categorical_mapping': _validate_string_mapping('categorical_mapping'),
-            'default_mapping': _validate_optional_string('default_mapping')
         },
         'description': description,
         'schema_effects': schema_effects
@@ -1036,13 +1034,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
 
     'encode_edge_opacity': _numeric_encode_method('Map edge column values to opacity', EDGE_COLUMN_SCHEMA_EFFECTS),
 
-    'encode_point_label': _string_encode_method('Map node column values to labels', NODE_COLUMN_SCHEMA_EFFECTS),
+    'encode_point_label': _column_encode_method('Bind node label column', NODE_COLUMN_SCHEMA_EFFECTS),
 
-    'encode_edge_label': _string_encode_method('Map edge column values to labels', EDGE_COLUMN_SCHEMA_EFFECTS),
+    'encode_edge_label': _column_encode_method('Bind edge label column', EDGE_COLUMN_SCHEMA_EFFECTS),
 
-    'encode_point_title': _string_encode_method('Map node column values to titles', NODE_COLUMN_SCHEMA_EFFECTS),
+    'encode_point_title': _column_encode_method('Bind node title column', NODE_COLUMN_SCHEMA_EFFECTS),
 
-    'encode_edge_title': _string_encode_method('Map edge column values to titles', EDGE_COLUMN_SCHEMA_EFFECTS),
+    'encode_edge_title': _column_encode_method('Bind edge title column', EDGE_COLUMN_SCHEMA_EFFECTS),
 
     'encode_point_icon': {
         'allowed_params': {'column', 'categorical_mapping', 'continuous_binning', 'default_mapping', 'as_text'},

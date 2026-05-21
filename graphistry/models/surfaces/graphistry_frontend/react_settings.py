@@ -71,6 +71,10 @@ ReactSizeEncodingPayload: TypeAlias = Union[
     Tuple[str, ReactEncodingMapping, Any],
     List[Any],
 ]
+ReactTextEncodingPayload: TypeAlias = Union[
+    Tuple[str],
+    List[Any],
+]
 ReactIconEncodingPayload: TypeAlias = Union[
     Tuple[str],
     Tuple[str, ReactEncodingMapping],
@@ -79,7 +83,6 @@ ReactIconEncodingPayload: TypeAlias = Union[
     Tuple[str, ReactEncodingPalette, Any],
     List[Any],
 ]
-ReactTextEncodingPayload: TypeAlias = ReactSizeEncodingPayload
 
 
 class ApplyEncodingsReactSettingsDict(TypedDict, total=False):  # pragma: no cover

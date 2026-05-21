@@ -269,29 +269,21 @@ class EncodeEdgeOpacityParams(TypedDict, total=False):  # pragma: no cover
 class EncodePointLabelParams(TypedDict, total=False):  # pragma: no cover
     """Parameters for encode_point_label operation."""
     column: str  # Required in safelist
-    categorical_mapping: Dict[str, str]
-    default_mapping: str
 
 
 class EncodeEdgeLabelParams(TypedDict, total=False):  # pragma: no cover
     """Parameters for encode_edge_label operation."""
     column: str  # Required in safelist
-    categorical_mapping: Dict[str, str]
-    default_mapping: str
 
 
 class EncodePointTitleParams(TypedDict, total=False):  # pragma: no cover
     """Parameters for encode_point_title operation."""
     column: str  # Required in safelist
-    categorical_mapping: Dict[str, str]
-    default_mapping: str
 
 
 class EncodeEdgeTitleParams(TypedDict, total=False):  # pragma: no cover
     """Parameters for encode_edge_title operation."""
     column: str  # Required in safelist
-    categorical_mapping: Dict[str, str]
-    default_mapping: str
 
 
 class EncodePointIconParams(TypedDict, total=False):

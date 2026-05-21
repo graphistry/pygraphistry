@@ -537,7 +537,7 @@ class PlotterBase(Plottable):
           ``encodePointOpacity`` / ``encodeEdgeOpacity``:
           ``[column, categorical_mapping?, default_mapping?]``
         - ``encodePointLabel`` / ``encodeEdgeLabel`` / ``encodePointTitle`` /
-          ``encodeEdgeTitle``: ``[column, categorical_mapping?, default_mapping?]``
+          ``encodeEdgeTitle``: ``[column]``
         - ``encodePointIcons`` / ``encodeEdgeIcons``: ``[column, categorical_mapping_or_bins?, default_mapping?]``
         - ``encodeAxis``: ``rows`` list accepted by :meth:`encode_axis`
         """
@@ -563,7 +563,7 @@ class PlotterBase(Plottable):
                 out = color_method(column, **color_kwargs)
                 continue
 
-            if op["kind"] in ("numeric", "text"):
+            if op["kind"] == "numeric":
                 mapping_op = cast(Dict[str, Any], op)
                 encoding_kwargs: Dict[str, Any] = {}
                 if "categorical_mapping" in mapping_op:
@@ -576,12 +576,19 @@ class PlotterBase(Plottable):
                     "encodeEdgeWeight": out.encode_edge_weight,
                     "encodePointOpacity": out.encode_point_opacity,
                     "encodeEdgeOpacity": out.encode_edge_opacity,
+                }[mapping_op["key"]])
+                out = encoding_method(mapping_op["column"], **encoding_kwargs)
+                continue
+
+            if op["kind"] == "text":
+                text_op = cast(Dict[str, Any], op)
+                encoding_method = cast(Callable[..., Plottable], {
                     "encodePointLabel": out.encode_point_label,
                     "encodeEdgeLabel": out.encode_edge_label,
                     "encodePointTitle": out.encode_point_title,
                     "encodeEdgeTitle": out.encode_edge_title,
-                }[mapping_op["key"]])
-                out = encoding_method(mapping_op["column"], **encoding_kwargs)
+                }[text_op["key"]])
+                out = encoding_method(text_op["column"])
                 continue
 
             if op["kind"] == "icon":
@@ -770,7 +777,10 @@ class PlotterBase(Plottable):
         for_default: bool = True,
         for_current: bool = False,
     ) -> Plottable:
-        """Set edge size with more control than bind()."""
+        """Set edge size with more control than bind().
+
+        Categorical mappings are upload-accepted but not fully rendered by all Graphistry paths yet.
+        """
         return self.__encode('edge', 'size', 'edgeSizeEncoding', column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
@@ -783,7 +793,10 @@ class PlotterBase(Plottable):
         for_default: bool = True,
         for_current: bool = False,
     ) -> Plottable:
-        """Set edge weight with more control than bind()."""
+        """Set edge weight with more control than bind().
+
+        Categorical mappings are upload-accepted but not fully rendered by all Graphistry paths yet.
+        """
         return self.__encode('edge', 'weight', 'edgeWeightEncoding', column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
@@ -796,7 +809,10 @@ class PlotterBase(Plottable):
         for_default: bool = True,
         for_current: bool = False,
     ) -> Plottable:
-        """Set point opacity with more control than bind()."""
+        """Set point opacity with more control than bind().
+
+        Categorical mappings are upload-accepted but not fully rendered by all Graphistry paths yet.
+        """
         return self.__encode('point', 'opacity', 'pointOpacityEncoding', column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
@@ -809,10 +825,26 @@ class PlotterBase(Plottable):
         for_default: bool = True,
         for_current: bool = False,
     ) -> Plottable:
-        """Set edge opacity with more control than bind()."""
+        """Set edge opacity with more control than bind().
+
+        Categorical mappings are upload-accepted but not fully rendered by all Graphistry paths yet.
+        """
         return self.__encode('edge', 'opacity', 'edgeOpacityEncoding', column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
+
+    @staticmethod
+    def _reject_text_mapping(
+        method: str,
+        categorical_mapping: Optional[Dict[Any, str]],
+        default_mapping: Optional[str],
+    ) -> None:
+        if categorical_mapping is not None or default_mapping is not None:
+            raise ValueError(
+                f"{method} supports raw column binding only; "
+                "categorical_mapping/default_mapping would create label/title complex encodings "
+                "that Graphistry upload rejects"
+            )
 
     def encode_point_label(
         self,
@@ -822,10 +854,9 @@ class PlotterBase(Plottable):
         for_default: bool = True,
         for_current: bool = False,
     ) -> Plottable:
-        """Set point label with more control than bind()."""
-        return self.__encode('point', 'label', 'pointLabelEncoding', column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
-            for_default=for_default, for_current=for_current)
+        """Set the point label column, equivalent to ``bind(point_label=column)``."""
+        self._reject_text_mapping("encode_point_label", categorical_mapping, default_mapping)
+        return self.bind(point_label=column)
 
     def encode_edge_label(
         self,
@@ -835,10 +866,9 @@ class PlotterBase(Plottable):
         for_default: bool = True,
         for_current: bool = False,
     ) -> Plottable:
-        """Set edge label with more control than bind()."""
-        return self.__encode('edge', 'label', 'edgeLabelEncoding', column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
-            for_default=for_default, for_current=for_current)
+        """Set the edge label column, equivalent to ``bind(edge_label=column)``."""
+        self._reject_text_mapping("encode_edge_label", categorical_mapping, default_mapping)
+        return self.bind(edge_label=column)
 
     def encode_point_title(
         self,
@@ -848,10 +878,9 @@ class PlotterBase(Plottable):
         for_default: bool = True,
         for_current: bool = False,
     ) -> Plottable:
-        """Set point title with more control than bind()."""
-        return self.__encode('point', 'title', 'pointTitleEncoding', column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
-            for_default=for_default, for_current=for_current)
+        """Set the point title column, equivalent to ``bind(point_title=column)``."""
+        self._reject_text_mapping("encode_point_title", categorical_mapping, default_mapping)
+        return self.bind(point_title=column)
 
     def encode_edge_title(
         self,
@@ -861,10 +890,9 @@ class PlotterBase(Plottable):
         for_default: bool = True,
         for_current: bool = False,
     ) -> Plottable:
-        """Set edge title with more control than bind()."""
-        return self.__encode('edge', 'title', 'edgeTitleEncoding', column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
-            for_default=for_default, for_current=for_current)
+        """Set the edge title column, equivalent to ``bind(edge_title=column)``."""
+        self._reject_text_mapping("encode_edge_title", categorical_mapping, default_mapping)
+        return self.bind(edge_title=column)
 
 
     def encode_point_icon(

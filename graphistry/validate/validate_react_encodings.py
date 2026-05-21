@@ -159,9 +159,23 @@ def _parse_text_payload(
     validate_mode: ValidationMode,
     warn: bool,
 ) -> Optional[TextEncodingOp]:
-    op = _parse_mapping_payload(key, raw_value, validate_mode, warn)
-    if op is None:
+    payload = _expect_list_payload(raw_value, key, validate_mode, warn)
+    if payload is None or len(payload) == 0:
+        _issue("React text binding payload must include [column]", {"key": key}, validate_mode, warn)
         return None
+    if len(payload) > 1:
+        _issue(
+            "React text binding payload supports only [column]; "
+            "label/title categorical mappings are not supported",
+            {"key": key, "len": len(payload)},
+            validate_mode,
+            warn,
+        )
+        return None
+    column = _expect_column(payload[0], key, validate_mode, warn)
+    if column is None:
+        return None
+    op: Dict[str, Any] = {"key": key, "column": column}
     op["kind"] = "text"
     return cast(TextEncodingOp, op)
 

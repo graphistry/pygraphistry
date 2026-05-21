@@ -1645,7 +1645,7 @@ class GraphistryClient(AuthManagerProtocol):
         )
 
     def encode_point_label(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
-        """Set point label with more control than bind()."""
+        """Set the point label column."""
         return self._plotter().encode_point_label(
             column=column,
             categorical_mapping=categorical_mapping,
@@ -1655,7 +1655,7 @@ class GraphistryClient(AuthManagerProtocol):
         )
 
     def encode_edge_label(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
-        """Set edge label with more control than bind()."""
+        """Set the edge label column."""
         return self._plotter().encode_edge_label(
             column=column,
             categorical_mapping=categorical_mapping,
@@ -1665,7 +1665,7 @@ class GraphistryClient(AuthManagerProtocol):
         )
 
     def encode_point_title(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
-        """Set point title with more control than bind()."""
+        """Set the point title column."""
         return self._plotter().encode_point_title(
             column=column,
             categorical_mapping=categorical_mapping,
@@ -1675,7 +1675,7 @@ class GraphistryClient(AuthManagerProtocol):
         )
 
     def encode_edge_title(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
-        """Set edge title with more control than bind()."""
+        """Set the edge title column."""
         return self._plotter().encode_edge_title(
             column=column,
             categorical_mapping=categorical_mapping,
