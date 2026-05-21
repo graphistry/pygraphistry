@@ -1329,25 +1329,10 @@ jobs:
         name: lockfiles
         path: requirements
 
-    - name: Set HF cache env
+    - name: Set Python dependency env
       run: |
-        echo "HF_HOME=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
-        echo "HF_HUB_CACHE=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
         echo "PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu" >> "$GITHUB_ENV"
         echo "PIP_PREFER_BINARY=1" >> "$GITHUB_ENV"
-
-    - name: Prepare HF cache directory
-      run: |
-        mkdir -p "${HF_HOME}"
-
-    - name: Restore HF cache
-      id: hf-cache
-      uses: actions/cache@v4
-      with:
-        path: ${{ env.HF_HOME }}
-        key: hf-cache-${{ runner.os }}-v2
-        restore-keys: |
-          hf-cache-${{ runner.os }}-
 
     - name: Install test dependencies
       run: |
@@ -1358,56 +1343,6 @@ jobs:
         # Keep pip for torch +cpu from the PyTorch CPU wheel index: uv cannot resolve this local-version pin.
         python -m pip install --no-deps torch==2.8.0+cpu -f https://download.pytorch.org/whl/cpu
         uv pip install -e . --no-deps
-
-    - name: Warm HF cache (sentence-transformers)
-      id: warm-hf
-      if: steps['hf-cache'].outputs['cache-hit'] != 'true'
-      continue-on-error: true
-      run: |
-        mkdir -p "${HF_HOME}"
-        source pygraphistry/bin/activate
-        # sentence-transformers already installed from lockfile
-        python - <<'PY'
-        import os
-        from pathlib import Path
-        from sentence_transformers import SentenceTransformer
-
-        models = [
-            "sentence-transformers/average_word_embeddings_komninos",
-            "sentence-transformers/paraphrase-MiniLM-L6-v2",
-            "sentence-transformers/paraphrase-albert-small-v2",
-        ]
-
-        cache_dir = os.environ["HF_HOME"]
-        status_file = Path(cache_dir) / ".hf_cache_warmed"
-        status_file.parent.mkdir(parents=True, exist_ok=True)
-
-        success = True
-        for model in models:
-            try:
-                SentenceTransformer(model, cache_folder=cache_dir)
-            except Exception as exc:  # pragma: no cover - logging only
-                success = False
-                print(f"⚠️ HF warm failed for {model}: {exc}")
-
-        status_file.write_text("ok\n" if success else "partial\n")
-        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-            fh.write(f"success={str(success).lower()}\n")
-
-        print(f"✅ HF cache warm {'succeeded' if success else 'partial/fail'} at {cache_dir}")
-        PY
-
-    - name: Enable HF offline for tests
-      run: |
-        cache_hit="${{ steps['hf-cache'].outputs['cache-hit'] }}"
-        warm_success="${{ steps['warm-hf'].outputs.success }}"
-        if [ "${cache_hit}" = "true" ] || [ "${warm_success}" = "true" ]; then
-          echo "HF_HUB_OFFLINE=1" >> "$GITHUB_ENV"
-          echo "Using HF cache at ${HF_HOME} (cache-hit: ${cache_hit}, warm_success: ${warm_success})"
-        else
-          echo "HF_HUB_OFFLINE=0" >> "$GITHUB_ENV"
-          echo "HF cache not available; HF-dependent tests may skip or go online."
-        fi
 
     - name: Core feature tests (weak featurize)
       run: |
@@ -1453,6 +1388,13 @@ jobs:
         name: lockfiles
         path: requirements
 
+    - name: Derive HF cache key
+      id: hf-cache-key
+      run: |
+        key_output="$(python bin/ci-hf-cache-key.py requirements/test-ai-py${{ matrix.python-version }}.lock)"
+        printf '%s\n' "$key_output"
+        printf '%s\n' "$key_output" >> "$GITHUB_OUTPUT"
+
     - name: Set HF cache env
       run: |
         echo "HF_HOME=${RUNNER_TEMP}/hf-cache" >> "$GITHUB_ENV"
@@ -1468,10 +1410,8 @@ jobs:
       id: hf-cache
       uses: actions/cache@v4
       with:
-        path: ${{ env.HF_HOME }}
-        key: hf-cache-${{ runner.os }}-v2
-        restore-keys: |
-          hf-cache-${{ runner.os }}-
+        path: ${{ runner.temp }}/hf-cache
+        key: hf-cache-${{ runner.os }}-models-v3-${{ steps.hf-cache-key.outputs.key }}
 
     - name: Install test dependencies
       run: |
@@ -1492,6 +1432,9 @@ jobs:
     - name: Warm HF cache (sentence-transformers)
       id: warm-hf
       if: steps['hf-cache'].outputs['cache-hit'] != 'true'
+      env:
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        HUGGING_FACE_HUB_TOKEN: ${{ secrets.HF_TOKEN }}
       run: |
         mkdir -p "${HF_HOME}"
         source pygraphistry/bin/activate
@@ -1532,11 +1475,33 @@ jobs:
         warm_success="${{ steps['warm-hf'].outputs.success }}"
         if [ "${cache_hit}" = "true" ] || [ "${warm_success}" = "true" ]; then
           echo "HF_HUB_OFFLINE=1" >> "$GITHUB_ENV"
+          echo "TRANSFORMERS_OFFLINE=1" >> "$GITHUB_ENV"
           echo "Using HF cache at ${HF_HOME} (cache-hit: ${cache_hit}, warm_success: ${warm_success})"
         else
-          echo "HF_HUB_OFFLINE=0" >> "$GITHUB_ENV"
-          echo "HF cache not available; HF-dependent tests may skip or go online."
+          echo "::error::HF cache is unavailable and warmup did not succeed; refusing to run feature tests online."
+          exit 1
         fi
+
+    - name: Verify HF offline cache
+      run: |
+        source pygraphistry/bin/activate
+        python - <<'PY'
+        import os
+        from sentence_transformers import SentenceTransformer
+
+        assert os.environ.get("HF_HUB_OFFLINE") == "1"
+        assert os.environ.get("TRANSFORMERS_OFFLINE") == "1"
+
+        cache_dir = os.environ["HF_HOME"]
+        models = [
+            "sentence-transformers/average_word_embeddings_komninos",
+            "sentence-transformers/paraphrase-MiniLM-L6-v2",
+            "sentence-transformers/paraphrase-albert-small-v2",
+        ]
+        for model in models:
+            SentenceTransformer(model, cache_folder=cache_dir, local_files_only=True)
+        print(f"Verified HF offline cache at {cache_dir}")
+        PY
 
     - name: Full AI tests (rich featurize)
       run: |
