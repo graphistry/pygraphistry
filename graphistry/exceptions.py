@@ -27,10 +27,10 @@ class TokenExpireException(Exception):
 
 
 class ArrowConversionError(Exception):
-    """Raised in strict mode when Arrow conversion fails due to mixed types."""
+    """Raised when strict Arrow conversion fails due to mixed types."""
     def __init__(self, columns: list, original_error: Exception):
         self.columns = columns
         self.original_error = original_error
         msg = (f"Arrow conversion failed for columns {columns}. "
-               f"Use validate='autofix' to auto-coerce to strings.")
+               f"Use auto_coerce=True to auto-coerce to strings.")
         super().__init__(msg)
