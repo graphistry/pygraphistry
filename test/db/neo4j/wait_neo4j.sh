@@ -1,8 +1,8 @@
 #!/bin/bash
 
-export CONTAINER=${CONTAINER:-neo4j4-test}
+export CONTAINER=${CONTAINER:-neo4j-lts-test}
 export NEO4J_USERNAME=${NEO4J_USERNAME:-neo4j}
-export NEO4J_PASSWORD=${NEO4J_PASSWORD:-test}
+export NEO4J_PASSWORD=${NEO4J_PASSWORD:-testtest}
 export NEO4J_PORT=${NEO4J_PORT:-7687}
 
 if [[ -z ${CONTAINER} ]]
@@ -33,7 +33,7 @@ echo "wait for neo4j bolt to respond at port ${NEO4J_PORT}"
 
 # try an actual query as test?
 docker exec -e NEO4J_USERNAME -e NEO4J_PASSWORD -t ${CONTAINER} \
-  bash -c "until echo 'match (n) return count(n);' | bin/cypher-shell -a bolt://localhost:${NEO4J_PORT}; do echo $? ; sleep 1; done"
+  bash -c 'until bin/cypher-shell -a "bolt://localhost:${NEO4J_PORT}" -u "${NEO4J_USERNAME}" -p "${NEO4J_PASSWORD}" "match (n) return count(n);"; do status=$?; echo "${status}"; sleep 1; done'
 
 echo 'neo4j online!'
 
