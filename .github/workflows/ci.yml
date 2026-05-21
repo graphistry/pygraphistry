@@ -146,8 +146,10 @@ jobs:
         # Infrastructure: workflow defs, docker, bin scripts, root build config.
         emit infra \
           '^\.github/workflows/ci\.yml$' \
+          '^\.readthedocs\.yml$' \
           '^docker/' \
           '^bin/' \
+          '^requirements/rtd-py3\.12\.lock$' \
           '^setup\.py$' \
           '^setup\.cfg$' \
           '^MANIFEST\.in$'
@@ -351,6 +353,38 @@ jobs:
         name: lockfiles
         path: requirements/*.lock
         retention-days: 1
+
+  check-rtd-lockfile:
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.docs == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Install uv
+      run: pip install "uv==0.11.3"  # keep in sync with RTD install and generate-lockfiles
+    - name: Verify committed RTD lockfile
+      run: |
+        set -euo pipefail
+        exclude_newer=$(sed -n 's/.*--exclude-newer \([^ ]*\).*/\1/p' requirements/rtd-py3.12.lock | head -n 1)
+        if [ -z "${exclude_newer}" ]; then
+          echo "::error::requirements/rtd-py3.12.lock is missing an --exclude-newer timestamp in its generated header"
+          exit 1
+        fi
+
+        EXCLUDE_NEWER="${exclude_newer}" PROFILES=rtd VERSIONS=3.12 ./bin/generate-lockfiles.sh
+
+        if ! git diff --exit-code -- requirements/rtd-py3.12.lock; then
+          echo "::error::requirements/rtd-py3.12.lock is stale. Regenerate with: PROFILES=rtd VERSIONS=3.12 ./bin/generate-lockfiles.sh"
+          exit 1
+        fi
 
   tck-gfql:
     needs: [changes, test-minimal-python, generate-lockfiles]

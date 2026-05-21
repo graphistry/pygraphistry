@@ -7,6 +7,8 @@ set -ex
 #   ./bin/generate-lockfiles.sh                    # 6-day cooldown (default)
 #   COOLDOWN_DAYS=0 ./bin/generate-lockfiles.sh    # no cooldown (urgent patches)
 #   PROFILES=test VERSIONS=3.12 ./bin/generate-lockfiles.sh  # single combo
+#   PROFILES=rtd VERSIONS=3.12 ./bin/generate-lockfiles.sh   # committed RTD lockfile
+#   EXCLUDE_NEWER=2026-05-14T20:50:04Z PROFILES=rtd VERSIONS=3.12 ./bin/generate-lockfiles.sh  # deterministic freshness check
 #
 # Requires: uv >= 0.11
 
@@ -15,6 +17,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "$REPO_ROOT"
 
 COOLDOWN_DAYS="${COOLDOWN_DAYS:-6}"
+EXCLUDE_NEWER="${EXCLUDE_NEWER:-}"
 OUTPUT_DIR="${OUTPUT_DIR:-requirements}"
 mkdir -p "$OUTPUT_DIR"
 
@@ -39,13 +42,17 @@ PROFILE_DEFS=(
     "test-umap:test,testai,umap-learn:3.9::--no-emit-package torch"
     "test-ai:test,testai,ai:3.9::--no-emit-package torch --constraint /tmp/sentence-transformers-compat.txt"
     "docs:docs:3.10::"
+    "rtd:docs,pygraphviz:3.12:3.12:"
     "build:build:3.8::"
     "tck:test:3.8::"
 )
 PROFILES=(${PROFILES:-$(printf '%s\n' "${PROFILE_DEFS[@]}" | cut -d: -f1)})
 
 # Cooldown date
-if [ "$COOLDOWN_DAYS" -gt 0 ]; then
+if [ -n "$EXCLUDE_NEWER" ]; then
+    EXCLUDE_ARG="--exclude-newer ${EXCLUDE_NEWER}"
+    echo "Cooldown: PINNED (exclude after ${EXCLUDE_NEWER})"
+elif [ "$COOLDOWN_DAYS" -gt 0 ]; then
     if date -v -1d >/dev/null 2>&1; then
         EXCLUDE_DATE=$(date -u -v "-${COOLDOWN_DAYS}d" +%Y-%m-%dT%H:%M:%SZ)
     else

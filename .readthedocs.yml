@@ -22,8 +22,19 @@ build:
     - texlive-latex-extra
     - texlive-fonts-recommended
   jobs:
+    install:
+      # Keep ReadTheDocs on the same uv + hashed-lockfile installation style as CI.
+      # Maintainers: RTD consumes requirements/rtd-py3.12.lock directly.
+      # Regenerate and commit it after changing RTD's Python version, docs/pygraphviz
+      # extras, setup.py dependency constraints, or these install steps:
+      #   PROFILES=rtd VERSIONS=3.12 ./bin/generate-lockfiles.sh
+      # CI's check-rtd-lockfile job fails when this committed lock is stale.
+      - $READTHEDOCS_VIRTUALENV_PATH/bin/python -m pip install --upgrade pip
+      - $READTHEDOCS_VIRTUALENV_PATH/bin/python -m pip install "uv==0.11.3"
+      - $READTHEDOCS_VIRTUALENV_PATH/bin/uv pip install --python "$READTHEDOCS_VIRTUALENV_PATH/bin/python" --require-hashes -r requirements/rtd-py3.12.lock
+      - $READTHEDOCS_VIRTUALENV_PATH/bin/uv pip install --python "$READTHEDOCS_VIRTUALENV_PATH/bin/python" -e . --no-deps
     post_install:
-      # Copy content into docs/source after pip install
+      # Copy content into docs/source after dependency install
       - cp -r demos docs/source/demos
       - cp README.md docs/source/README.md
       - cp ARCHITECTURE.md docs/source/ARCHITECTURE.md
@@ -53,11 +64,3 @@ formats:
 # sphinx key triggers RTD's Sphinx support for environment/install steps
 sphinx:
   configuration: docs/source/conf.py
-
-python:
-  install:
-    - method: pip
-      path: .
-      extra_requirements:
-        - docs
-        - pygraphviz  # For plot_static() notebook execution
