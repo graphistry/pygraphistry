@@ -545,7 +545,7 @@ See [Quick Example](#quick-example-fraud-detection) for full JSON example.
 
 **Filters:** `filter_nodes_by_dict`, `filter_edges_by_dict`, `hop`, `drop_nodes`, `keep_nodes`
 
-**Layouts:** `layout_cugraph`, `layout_igraph`, `fa2_layout`, `group_in_a_box_layout`
+**Layouts:** `layout_cugraph`, `layout_igraph`, `layout_graphviz`, `fa2_layout`, `ring_continuous_layout`, `ring_categorical_layout`, `time_ring_layout`, `group_in_a_box_layout`, `circle_layout`, `tree_layout`, `mercator_layout`, `modularity_weighted_layout`
 
 **Encodings:** `encode_point_color`, `encode_edge_color`, `encode_point_size`, `encode_point_icon`
 

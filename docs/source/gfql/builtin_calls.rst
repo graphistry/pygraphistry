@@ -41,6 +41,40 @@ All Call operations:
 
 Call operations stay in graph state: the result remains a traversable graph with meaningful `_edges`, so you can keep matching or compose additional graph stages with `let()` / `ref()`. If you want row/tabular output, switch into row-pipeline operators such as `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, or use a row-returning local Cypher `CALL ... YIELD ... RETURN ...` query.
 
+Layout-aware consumers can detect layout helper calls without maintaining their
+own string lists:
+
+.. code-block:: python
+
+    from graphistry.compute import call
+    from graphistry.compute.gfql import (
+        LAYOUT_FUNCTION_NAMES,
+        RADIAL_LAYOUT_FUNCTION_NAMES,
+        RADIAL_LAYOUT_KINDS,
+        is_layout_chain,
+        is_layout_kind,
+    )
+
+    chain = [call('time_ring_layout', {'time_col': 'ts'})]
+    kind = is_layout_kind(chain)
+
+    assert is_layout_chain(chain)
+    assert kind == 'time_ring'
+    assert kind in RADIAL_LAYOUT_KINDS
+    assert 'time_ring_layout' in RADIAL_LAYOUT_FUNCTION_NAMES
+    assert 'group_in_a_box_layout' in LAYOUT_FUNCTION_NAMES
+    assert 'tree_layout' in LAYOUT_FUNCTION_NAMES
+
+The helpers accept materialized GFQL ``Chain`` objects, list/tuple chains, Chain
+wire dictionaries, and direct ``Call`` objects/dicts. Opaque strings are not
+parsed, so pass native GFQL structures rather than substring-matching query
+text. For legitimate pre-parse string diagnostics, use
+``LAYOUT_FUNCTION_NAMES`` or ``RADIAL_LAYOUT_FUNCTION_NAMES`` as the canonical
+safelisted function-name registries instead of maintaining local copies.
+These registries reflect GFQL ``call()`` safelist names. Legacy ``radial_*``
+names are not safelisted pygraphistry function names; normalize them before
+calling these helpers.
+
 Graph Transformation Methods
 ----------------------------
 
@@ -1025,6 +1059,219 @@ PyGraphistry's implementation is optimized for large graphs on both CPU and GPU.
     ])
 
 **Schema Effects:** Modifies node positions and optionally adds color encoding.
+
+circle_layout
+~~~~~~~~~~~~~
+
+Arrange nodes in a circular layout.
+
+**Parameters:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 15 15 50
+
+   * - Parameter
+     - Type
+     - Required
+     - Description
+   * - bounding_box
+     - list[number]
+     - No
+     - ``[cx, cy, width, height]`` bounding box. If omitted, the graph must already have ``x``/``y`` node positions.
+   * - ring_spacing
+     - number
+     - No
+     - Spacing between rings
+   * - point_spacing
+     - number
+     - No
+     - Spacing between points
+   * - partition_by
+     - string or list[string]
+     - No
+     - Node column(s) for partitioned circles
+   * - sort_by
+     - string or list[string]
+     - No
+     - Node column(s) for sort order
+   * - ascending
+     - boolean or list[boolean]
+     - No
+     - Sort direction
+   * - na_position
+     - string
+     - No
+     - ``'first'`` or ``'last'``
+   * - ignore_index
+     - boolean
+     - No
+     - Whether to ignore index during sort
+   * - engine
+     - string
+     - No
+     - Engine (``'auto'``, ``'pandas'``, ``'cudf'``, ``'dask'``, ``'dask_cudf'``)
+
+**Example:**
+
+.. code-block:: python
+
+    g.gfql([
+        call('circle_layout', {
+            'bounding_box': [0, 0, 1000, 1000],
+            'engine': 'pandas'
+        })
+    ])
+
+**Schema Effects:** Modifies node positions.
+
+tree_layout
+~~~~~~~~~~~
+
+Apply the Sugiyama-style tree layout.
+
+**Parameters:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 15 15 50
+
+   * - Parameter
+     - Type
+     - Required
+     - Description
+   * - level_col
+     - string
+     - No
+     - Output level column
+   * - level_sort_values_by
+     - string or list[string]
+     - No
+     - Column(s) for ordering nodes within levels
+   * - level_sort_values_by_ascending
+     - boolean
+     - No
+     - Sort direction for level ordering
+   * - width
+     - number
+     - No
+     - Layout width multiplier
+   * - height
+     - number
+     - No
+     - Layout height multiplier
+   * - rotate
+     - number
+     - No
+     - Rotation in degrees
+   * - allow_cycles
+     - boolean
+     - No
+     - Whether to tolerate cyclic inputs
+   * - root
+     - string/number/boolean
+     - No
+     - Optional root node id
+
+**Example:**
+
+.. code-block:: python
+
+    g.gfql([
+        call('tree_layout', {'level_col': 'level'})
+    ])
+
+**Schema Effects:** Modifies node positions and adds a level column.
+
+mercator_layout
+~~~~~~~~~~~~~~~
+
+Project latitude/longitude node columns into local Mercator coordinates.
+
+**Parameters:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 15 15 50
+
+   * - Parameter
+     - Type
+     - Required
+     - Description
+   * - scale_for_graphistry
+     - boolean
+     - No
+     - Use scaled coordinates suitable for Graphistry visualization
+
+**Example:**
+
+.. code-block:: python
+
+    geo_nodes = pd.DataFrame({
+        'id': ['nyc', 'sf'],
+        'latitude': [40.7128, 37.7749],
+        'longitude': [-74.0060, -122.4194],
+    })
+
+    graphistry.nodes(geo_nodes, 'id').gfql([
+        call('mercator_layout')
+    ])
+
+**Schema Effects:** Modifies node positions.
+
+modularity_weighted_layout
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Prepare a community-weighted layout by weighting edges within and across communities.
+
+**Parameters:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 15 15 50
+
+   * - Parameter
+     - Type
+     - Required
+     - Description
+   * - community_col
+     - string
+     - No
+     - Existing node community column
+   * - community_alg
+     - string
+     - No
+     - Community algorithm when ``community_col`` is omitted
+   * - community_params
+     - dict
+     - No
+     - Community algorithm parameters
+   * - same_community_weight
+     - number
+     - No
+     - Edge weight for within-community edges
+   * - cross_community_weight
+     - number
+     - No
+     - Edge weight for cross-community edges
+   * - edge_influence
+     - number
+     - No
+     - Graphistry edge influence setting
+   * - engine
+     - string
+     - No
+     - Engine (``'auto'``, ``'pandas'``, ``'cudf'``)
+
+**Example:**
+
+.. code-block:: python
+
+    g.gfql([
+        call('modularity_weighted_layout', {'community_col': 'department'})
+    ])
+
+**Schema Effects:** Adds edge weight columns and binds edge weight. May add a community column when ``community_col`` is omitted.
 
 Filtering and Transformation Methods
 ------------------------------------
