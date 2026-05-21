@@ -1131,12 +1131,14 @@ def hop(self: Plottable,
                 if len(seed_endpoint_hops) > 0:
                     seed_endpoint_hop_map = seed_endpoint_hops.groupby(node_col)[edge_hop_col].min()
                     seed_reached_mask = g_out._nodes[node_col].isin(seed_ids_series)
+                    seed_node_ids = g_out._nodes[node_col]
+                    seed_node_hops = g_out._nodes[node_hop_col]
                     reached_seed_hops = safe_map_series(
-                        g_out._nodes.loc[seed_reached_mask, node_col],
+                        seed_node_ids[seed_reached_mask],
                         seed_endpoint_hop_map,
                     )
                     g_out._nodes.loc[seed_reached_mask, node_hop_col] = _combine_first_no_warn(
-                        g_out._nodes.loc[seed_reached_mask, node_hop_col],
+                        seed_node_hops[seed_reached_mask],
                         reached_seed_hops,
                     )
 
