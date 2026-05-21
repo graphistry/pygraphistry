@@ -313,10 +313,10 @@ def validate_complex_encoding_badge(kind, mode, name, badge):
 def validate_complex_encoding(kind, mode, name, enc, attributes: Optional[List] = None):
 
 
-    name_match = re.match(r'^(point|edge)(Legend(Type|Pivot))?(Axis|Badge|Color|Icon|Kepler|Opacity|Size|Weight)(Top|TopLeft|Left|BottomLeft|Bottom|BottomRight|Right|TopRight|Cover)?Encoding$', name)
+    name_match = re.match(r'^(point|edge)(Legend(Type|Pivot))?(Axis|Badge|Color|Icon|Kepler|Label|Opacity|Size|Title|Weight)(Top|TopLeft|Left|BottomLeft|Bottom|BottomRight|Right|TopRight|Cover)?Encoding$', name)
     if not name_match:
         raise ValueError({
-            'message': f'Fields of {kind}_encodings.complex.{mode}.* must have name of the form (point|edge)(Legend(Type|Pivot))?(Color|Icon|Size|Weight|Kepler|Badge(Top|TopLeft...|Cover))Encoding',
+            'message': f'Fields of {kind}_encodings.complex.{mode}.* must have name of the form (point|edge)(Legend(Type|Pivot))?(Axis|Color|Icon|Label|Opacity|Size|Title|Weight|Kepler|Badge(Top|TopLeft...|Cover))Encoding',
             'data': {'field': name}})
 
     n_kind, n_legend, n_legend_field, n_enc, n_badge_pos = name_match.groups()

@@ -533,7 +533,11 @@ class PlotterBase(Plottable):
 
         Supported keys:
         - ``encodePointColor`` / ``encodeEdgeColor``: ``[column, variation?, mapping_or_palette?]``
-        - ``encodePointSize``: ``[column, categorical_mapping?, default_mapping?]``
+        - ``encodePointSize`` / ``encodeEdgeSize`` / ``encodeEdgeWeight`` /
+          ``encodePointOpacity`` / ``encodeEdgeOpacity``:
+          ``[column, categorical_mapping?, default_mapping?]``
+        - ``encodePointLabel`` / ``encodeEdgeLabel`` / ``encodePointTitle`` /
+          ``encodeEdgeTitle``: ``[column, categorical_mapping?, default_mapping?]``
         - ``encodePointIcons`` / ``encodeEdgeIcons``: ``[column, categorical_mapping_or_bins?, default_mapping?]``
         - ``encodeAxis``: ``rows`` list accepted by :meth:`encode_axis`
         """
@@ -546,7 +550,7 @@ class PlotterBase(Plottable):
         for op in ops:
             if op["kind"] == "color":
                 column = op["column"]
-                method = out.encode_point_color if op["key"] == "encodePointColor" else out.encode_edge_color
+                color_method = out.encode_point_color if op["key"] == "encodePointColor" else out.encode_edge_color
                 color_kwargs: Dict[str, Any] = {}
                 if "categorical_mapping" in op:
                     color_kwargs["categorical_mapping"] = op["categorical_mapping"]
@@ -556,16 +560,28 @@ class PlotterBase(Plottable):
                         color_kwargs["as_continuous"] = True
                     else:
                         color_kwargs["as_categorical"] = True
-                out = method(column, **color_kwargs)
+                out = color_method(column, **color_kwargs)
                 continue
 
-            if op["kind"] == "size":
-                size_kwargs: Dict[str, Any] = {}
-                if "categorical_mapping" in op:
-                    size_kwargs["categorical_mapping"] = op["categorical_mapping"]
-                if "default_mapping" in op:
-                    size_kwargs["default_mapping"] = op["default_mapping"]
-                out = out.encode_point_size(op["column"], **size_kwargs)
+            if op["kind"] in ("numeric", "text"):
+                mapping_op = cast(Dict[str, Any], op)
+                encoding_kwargs: Dict[str, Any] = {}
+                if "categorical_mapping" in mapping_op:
+                    encoding_kwargs["categorical_mapping"] = mapping_op["categorical_mapping"]
+                if "default_mapping" in mapping_op:
+                    encoding_kwargs["default_mapping"] = mapping_op["default_mapping"]
+                encoding_method = cast(Callable[..., Plottable], {
+                    "encodePointSize": out.encode_point_size,
+                    "encodeEdgeSize": out.encode_edge_size,
+                    "encodeEdgeWeight": out.encode_edge_weight,
+                    "encodePointOpacity": out.encode_point_opacity,
+                    "encodeEdgeOpacity": out.encode_edge_opacity,
+                    "encodePointLabel": out.encode_point_label,
+                    "encodeEdgeLabel": out.encode_edge_label,
+                    "encodePointTitle": out.encode_point_title,
+                    "encodeEdgeTitle": out.encode_edge_title,
+                }[mapping_op["key"]])
+                out = encoding_method(mapping_op["column"], **encoding_kwargs)
                 continue
 
             if op["kind"] == "icon":
@@ -580,7 +596,8 @@ class PlotterBase(Plottable):
                 out = icon_method(op["column"], **icon_kwargs)
                 continue
 
-            out = out.encode_axis(cast(List[Dict[Any, Any]], op["rows"]))
+            if op["kind"] == "axis":
+                out = out.encode_axis(cast(List[Dict[Any, Any]], op["rows"]))
         return out
 
 
@@ -742,6 +759,110 @@ class PlotterBase(Plottable):
 
         """
         return self.__encode('point', 'size', 'pointSizeEncoding', column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+    def encode_edge_size(
+        self,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, Union[int, float]]] = None,
+        default_mapping: Optional[Union[int, float]] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> Plottable:
+        """Set edge size with more control than bind()."""
+        return self.__encode('edge', 'size', 'edgeSizeEncoding', column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+    def encode_edge_weight(
+        self,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, Union[int, float]]] = None,
+        default_mapping: Optional[Union[int, float]] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> Plottable:
+        """Set edge weight with more control than bind()."""
+        return self.__encode('edge', 'weight', 'edgeWeightEncoding', column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+    def encode_point_opacity(
+        self,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, Union[int, float]]] = None,
+        default_mapping: Optional[Union[int, float]] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> Plottable:
+        """Set point opacity with more control than bind()."""
+        return self.__encode('point', 'opacity', 'pointOpacityEncoding', column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+    def encode_edge_opacity(
+        self,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, Union[int, float]]] = None,
+        default_mapping: Optional[Union[int, float]] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> Plottable:
+        """Set edge opacity with more control than bind()."""
+        return self.__encode('edge', 'opacity', 'edgeOpacityEncoding', column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+    def encode_point_label(
+        self,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, str]] = None,
+        default_mapping: Optional[str] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> Plottable:
+        """Set point label with more control than bind()."""
+        return self.__encode('point', 'label', 'pointLabelEncoding', column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+    def encode_edge_label(
+        self,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, str]] = None,
+        default_mapping: Optional[str] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> Plottable:
+        """Set edge label with more control than bind()."""
+        return self.__encode('edge', 'label', 'edgeLabelEncoding', column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+    def encode_point_title(
+        self,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, str]] = None,
+        default_mapping: Optional[str] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> Plottable:
+        """Set point title with more control than bind()."""
+        return self.__encode('point', 'title', 'pointTitleEncoding', column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+    def encode_edge_title(
+        self,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, str]] = None,
+        default_mapping: Optional[str] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> Plottable:
+        """Set edge title with more control than bind()."""
+        return self.__encode('edge', 'title', 'edgeTitleEncoding', column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
 

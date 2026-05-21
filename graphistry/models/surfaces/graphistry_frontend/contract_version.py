@@ -20,7 +20,7 @@ class FrontendContractVersionInfo(TypedDict):
 
 
 # Increment only when exported frontend contract keyspace/shape changes.
-GRAPHISTRY_FRONTEND_CONTRACT_VERSION: Final[int] = 1
+GRAPHISTRY_FRONTEND_CONTRACT_VERSION: Final[int] = 2
 
 # Optional pins to upstream runtime/library versions when known.
 GRAPHISTRY_FRONTEND_UPSTREAM_VERSIONS: Final[Dict[str, Optional[str]]] = {
@@ -56,6 +56,7 @@ GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURE: Final[str] = _contract_signature(
 # for the payload shape shipped with that version.
 GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION: Final[Dict[int, str]] = {
     1: "bf54644c941670c46000fd7590077e33bfbda881095e77ebcf2f11821045edbd",
+    2: "b7c67303de4f5054ed152637b30ff54821b45de2cdaa64573b6335dc9a0107b2",
 }
 
 if GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION.get(GRAPHISTRY_FRONTEND_CONTRACT_VERSION) != GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURE:

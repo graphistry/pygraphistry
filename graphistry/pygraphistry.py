@@ -1604,6 +1604,86 @@ class GraphistryClient(AuthManagerProtocol):
             for_current=for_current,
         )
 
+    def encode_edge_size(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
+        """Set edge size with more control than bind()."""
+        return self._plotter().encode_edge_size(
+            column=column,
+            categorical_mapping=categorical_mapping,
+            default_mapping=default_mapping,
+            for_default=for_default,
+            for_current=for_current,
+        )
+
+    def encode_edge_weight(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
+        """Set edge weight with more control than bind()."""
+        return self._plotter().encode_edge_weight(
+            column=column,
+            categorical_mapping=categorical_mapping,
+            default_mapping=default_mapping,
+            for_default=for_default,
+            for_current=for_current,
+        )
+
+    def encode_point_opacity(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
+        """Set point opacity with more control than bind()."""
+        return self._plotter().encode_point_opacity(
+            column=column,
+            categorical_mapping=categorical_mapping,
+            default_mapping=default_mapping,
+            for_default=for_default,
+            for_current=for_current,
+        )
+
+    def encode_edge_opacity(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
+        """Set edge opacity with more control than bind()."""
+        return self._plotter().encode_edge_opacity(
+            column=column,
+            categorical_mapping=categorical_mapping,
+            default_mapping=default_mapping,
+            for_default=for_default,
+            for_current=for_current,
+        )
+
+    def encode_point_label(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
+        """Set point label with more control than bind()."""
+        return self._plotter().encode_point_label(
+            column=column,
+            categorical_mapping=categorical_mapping,
+            default_mapping=default_mapping,
+            for_default=for_default,
+            for_current=for_current,
+        )
+
+    def encode_edge_label(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
+        """Set edge label with more control than bind()."""
+        return self._plotter().encode_edge_label(
+            column=column,
+            categorical_mapping=categorical_mapping,
+            default_mapping=default_mapping,
+            for_default=for_default,
+            for_current=for_current,
+        )
+
+    def encode_point_title(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
+        """Set point title with more control than bind()."""
+        return self._plotter().encode_point_title(
+            column=column,
+            categorical_mapping=categorical_mapping,
+            default_mapping=default_mapping,
+            for_default=for_default,
+            for_current=for_current,
+        )
+
+    def encode_edge_title(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
+        """Set edge title with more control than bind()."""
+        return self._plotter().encode_edge_title(
+            column=column,
+            categorical_mapping=categorical_mapping,
+            default_mapping=default_mapping,
+            for_default=for_default,
+            for_current=for_current,
+        )
+
     def encode_point_icon(self, 
         column,
         categorical_mapping=None,
@@ -2715,6 +2795,14 @@ style = PyGraphistry.style
 encode_point_color = PyGraphistry.encode_point_color
 encode_edge_color = PyGraphistry.encode_edge_color
 encode_point_size = PyGraphistry.encode_point_size
+encode_edge_size = PyGraphistry.encode_edge_size
+encode_edge_weight = PyGraphistry.encode_edge_weight
+encode_point_opacity = PyGraphistry.encode_point_opacity
+encode_edge_opacity = PyGraphistry.encode_edge_opacity
+encode_point_label = PyGraphistry.encode_point_label
+encode_edge_label = PyGraphistry.encode_edge_label
+encode_point_title = PyGraphistry.encode_point_title
+encode_edge_title = PyGraphistry.encode_edge_title
 encode_point_icon = PyGraphistry.encode_point_icon
 encode_edge_icon = PyGraphistry.encode_edge_icon
 encode_point_badge = PyGraphistry.encode_point_badge

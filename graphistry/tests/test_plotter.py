@@ -654,6 +654,44 @@ class TestPlotterArrowConversions(NoAuthTestCase):
             encoding_warnings = [x for x in w if 'Encoding validation warning' in str(x.message)]
             assert len(encoding_warnings) == 0, f"Expected no warnings with warn=False, got: {encoding_warnings}"
 
+    def test_encoding_validation_accepts_label_title_complex_encodings(self):
+        """Strict encoding validation accepts label/title complex parity encodings."""
+        from graphistry.validate.validate_encodings import validate_encodings
+
+        node_encodings = {
+            "bindings": {"node": "n"},
+            "complex": {"default": {
+                "pointLabelEncoding": {
+                    "graphType": "point",
+                    "encodingType": "label",
+                    "attribute": "role",
+                    "variation": "categorical",
+                    "mapping": {"categorical": {"fixed": {"admin": "Admin"}, "other": "Other"}},
+                }
+            }},
+        }
+        edge_encodings = {
+            "bindings": {"source": "s", "destination": "d"},
+            "complex": {"default": {
+                "edgeTitleEncoding": {
+                    "graphType": "edge",
+                    "encodingType": "title",
+                    "attribute": "kind",
+                    "variation": "categorical",
+                    "mapping": {"categorical": {"fixed": {"email": "Email"}, "other": "Other"}},
+                }
+            }},
+        }
+
+        out = validate_encodings(
+            node_encodings,
+            edge_encodings,
+            node_attributes=["n", "role"],
+            edge_attributes=["s", "d", "kind"],
+        )
+        assert out["node_encodings"]["complex"]["default"]["pointLabelEncoding"]["encodingType"] == "label"
+        assert out["edge_encodings"]["complex"]["default"]["edgeTitleEncoding"]["encodingType"] == "title"
+
     @pytest.mark.skipif(
         not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
         reason="cudf tests need TEST_CUDF=1",
@@ -997,6 +1035,125 @@ class TestPlotterEncodings(NoAuthTestCase):
     def test_point_size(self):
         assert graphistry.bind().encode_point_size("z")._point_size == "z"
 
+    def test_encode_parity_methods(self):
+        cases = [
+            ("encode_edge_size", "_edge_size", "edge_encodings", "edgeSizeEncoding", "size", 10, 1),
+            ("encode_edge_weight", "_edge_weight", "edge_encodings", "edgeWeightEncoding", "weight", 0.8, 0.1),
+            ("encode_point_opacity", "_point_opacity", "node_encodings", "pointOpacityEncoding", "opacity", 0.8, 0.1),
+            ("encode_edge_opacity", "_edge_opacity", "edge_encodings", "edgeOpacityEncoding", "opacity", 0.8, 0.1),
+            ("encode_point_label", "_point_label", "node_encodings", "pointLabelEncoding", "label", "Admin", "Other"),
+            ("encode_edge_label", "_edge_label", "edge_encodings", "edgeLabelEncoding", "label", "Admin", "Other"),
+            ("encode_point_title", "_point_title", "node_encodings", "pointTitleEncoding", "title", "Admin", "Other"),
+            ("encode_edge_title", "_edge_title", "edge_encodings", "edgeTitleEncoding", "title", "Admin", "Other"),
+        ]
+        for method, bound_attr, scope, encoding_key, encoding_type, mapping_value, default_value in cases:
+            assert getattr(graphistry.bind(), method)("z").__dict__[bound_attr] == "z"
+
+            encoded = getattr(graphistry.bind(), method)(
+                "z",
+                categorical_mapping={"admin": mapping_value},
+                default_mapping=default_value,
+            )
+            assert encoded._complex_encodings[scope]["default"][encoding_key] == {
+                "graphType": "point" if scope == "node_encodings" else "edge",
+                "encodingType": encoding_type,
+                "attribute": "z",
+                "variation": "categorical",
+                "mapping": {"categorical": {"fixed": {"admin": mapping_value}, "other": default_value}},
+            }
+
+    def test_module_encode_parity_methods(self):
+        cases = [
+            ("encode_edge_size", "edge_encodings", "edgeSizeEncoding", 10, 1),
+            ("encode_edge_weight", "edge_encodings", "edgeWeightEncoding", 0.8, 0.1),
+            ("encode_point_opacity", "node_encodings", "pointOpacityEncoding", 0.8, 0.1),
+            ("encode_edge_opacity", "edge_encodings", "edgeOpacityEncoding", 0.8, 0.1),
+            ("encode_point_label", "node_encodings", "pointLabelEncoding", "Admin", "Other"),
+            ("encode_edge_label", "edge_encodings", "edgeLabelEncoding", "Admin", "Other"),
+            ("encode_point_title", "node_encodings", "pointTitleEncoding", "Admin", "Other"),
+            ("encode_edge_title", "edge_encodings", "edgeTitleEncoding", "Admin", "Other"),
+        ]
+        for method, scope, encoding_key, mapping_value, default_value in cases:
+            encoded = getattr(graphistry, method)(
+                "z",
+                categorical_mapping={"admin": mapping_value},
+                default_mapping=default_value,
+            )
+            assert encoded._complex_encodings[scope]["default"][encoding_key]["attribute"] == "z"
+
+    def test_encode_parity_contract_keyspaces(self):
+        import importlib
+
+        call_types = importlib.reload(importlib.import_module("graphistry.models.gfql.types.call"))
+        react_settings = importlib.reload(
+            importlib.import_module("graphistry.models.surfaces.graphistry_frontend.react_settings")
+        )
+        react_encoding_ops = importlib.reload(
+            importlib.import_module("graphistry.models.surfaces.graphistry_frontend.react_encoding_ops")
+        )
+
+        EncodeEdgeLabelParams = call_types.EncodeEdgeLabelParams
+        EncodeEdgeOpacityParams = call_types.EncodeEdgeOpacityParams
+        EncodeEdgeSizeParams = call_types.EncodeEdgeSizeParams
+        EncodeEdgeTitleParams = call_types.EncodeEdgeTitleParams
+        EncodeEdgeWeightParams = call_types.EncodeEdgeWeightParams
+        EncodePointLabelParams = call_types.EncodePointLabelParams
+        EncodePointOpacityParams = call_types.EncodePointOpacityParams
+        EncodePointTitleParams = call_types.EncodePointTitleParams
+        ApplyEncodingsReactSettingsDict = react_settings.ApplyEncodingsReactSettingsDict
+        KnownReactSettingsDict = react_settings.KnownReactSettingsDict
+        ReactNumericEncodingKey = react_settings.ReactNumericEncodingKey
+        ReactTextEncodingKey = react_settings.ReactTextEncodingKey
+        EncodingOperationKind = react_encoding_ops.EncodingOperationKind
+        NumericEncodingOp = react_encoding_ops.NumericEncodingOp
+        ReactEncodingOp = react_encoding_ops.ReactEncodingOp
+        SizeEncodingOp = react_encoding_ops.SizeEncodingOp
+        TextEncodingOp = react_encoding_ops.TextEncodingOp
+
+        assert set(ReactNumericEncodingKey.__args__) == {
+            "encodePointSize",
+            "encodeEdgeSize",
+            "encodeEdgeWeight",
+            "encodePointOpacity",
+            "encodeEdgeOpacity",
+        }
+        assert set(ReactTextEncodingKey.__args__) == {
+            "encodePointLabel",
+            "encodeEdgeLabel",
+            "encodePointTitle",
+            "encodeEdgeTitle",
+        }
+        assert set(EncodingOperationKind.__args__) == {"color", "numeric", "text", "icon", "axis"}
+        assert SizeEncodingOp is NumericEncodingOp
+        assert NumericEncodingOp.__annotations__["kind"].__args__ == ("numeric",)
+        assert TextEncodingOp.__annotations__["kind"].__args__ == ("text",)
+        assert {item.__name__ for item in ReactEncodingOp.__args__} >= {"NumericEncodingOp", "TextEncodingOp"}
+
+        for key in [
+            "encodeEdgeSize",
+            "encodeEdgeWeight",
+            "encodePointOpacity",
+            "encodeEdgeOpacity",
+            "encodePointLabel",
+            "encodeEdgeLabel",
+            "encodePointTitle",
+            "encodeEdgeTitle",
+        ]:
+            assert key in ApplyEncodingsReactSettingsDict.__annotations__
+            assert key in KnownReactSettingsDict.__annotations__
+
+        for cls in [
+            EncodeEdgeSizeParams,
+            EncodeEdgeWeightParams,
+            EncodePointOpacityParams,
+            EncodeEdgeOpacityParams,
+            EncodePointLabelParams,
+            EncodeEdgeLabelParams,
+            EncodePointTitleParams,
+            EncodeEdgeTitleParams,
+        ]:
+            assert set(cls.__annotations__) == {"column", "categorical_mapping", "default_mapping"}
+
     def test_point_icon(self):
         assert graphistry.bind().encode_point_icon("z")._point_icon == "z"
 
@@ -1049,15 +1206,20 @@ class TestPlotterEncodings(NoAuthTestCase):
             "encodePointColor": ["kind", "categorical", {"primary": "red"}],
             "encodePointIcons": ["kind", {"primary": "server"}],
             "encodePointSize": ["bucket", {"small": 5, "large": 30}, 1],
+            "encodeEdgeWeight": ["weight_bucket", {"critical": 5}, 1],
+            "encodePointLabel": ["role", {"admin": "Admin"}, "Other"],
             "encodeAxis": [{"r": 200, "label": "outer", "external": True}],
         })
 
         node_default = g2._complex_encodings["node_encodings"]["default"]
+        edge_default = g2._complex_encodings["edge_encodings"]["default"]
         assert node_default["pointColorEncoding"]["attribute"] == "kind"
         assert node_default["pointColorEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "red"
         assert node_default["pointIconEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "server"
         assert node_default["pointSizeEncoding"]["mapping"]["categorical"]["fixed"]["small"] == 5
         assert node_default["pointSizeEncoding"]["mapping"]["categorical"]["other"] == 1
+        assert node_default["pointLabelEncoding"]["mapping"]["categorical"]["fixed"]["admin"] == "Admin"
+        assert edge_default["edgeWeightEncoding"]["mapping"]["categorical"]["fixed"]["critical"] == 5
         assert node_default["pointAxisEncoding"]["rows"][0]["label"] == "outer"
 
     def test_apply_encodings_autofix_continues(self):
@@ -1076,6 +1238,26 @@ class TestPlotterEncodings(NoAuthTestCase):
     def test_apply_encodings_strict_rejects_unsupported_react_key(self):
         with pytest.raises(ValueError):
             graphistry.bind().apply_encodings({"showInfo": True}, validate="strict")
+
+    def test_apply_encodings_strict_rejects_bad_mapping_payloads(self):
+        cases = [
+            ([], "React mapping encoding payload must include at least"),
+            (["bucket", {"small": 5}, 1, "extra"], "React mapping encoding payload supports at most 3 elements"),
+            (["bucket", ["small", 5]], "React mapping payload mapping must be a dict"),
+        ]
+        for payload, message in cases:
+            with pytest.raises(ValueError, match=message):
+                graphistry.bind().apply_encodings({"encodeEdgeSize": payload}, validate="strict")
+
+    def test_apply_encodings_strict_rejects_bad_text_payloads(self):
+        cases = [
+            ([], "React mapping encoding payload must include at least"),
+            (["role", {"admin": "Admin"}, "Other", "extra"], "React mapping encoding payload supports at most 3 elements"),
+            (["role", ["admin", "Admin"]], "React mapping payload mapping must be a dict"),
+        ]
+        for payload, message in cases:
+            with pytest.raises(ValueError, match=message):
+                graphistry.bind().apply_encodings({"encodePointLabel": payload}, validate="strict")
 
     def test_apply_encodings_module_export(self):
         g2 = graphistry.apply_encodings({"encodePointColor": ["kind", {"primary": "red"}]})

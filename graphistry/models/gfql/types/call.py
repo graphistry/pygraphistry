@@ -41,9 +41,17 @@ CallMethodName = Literal[
     'encode_axis',
     'encode_edge_color',
     'encode_edge_icon',
+    'encode_edge_label',
+    'encode_edge_opacity',
+    'encode_edge_size',
+    'encode_edge_title',
+    'encode_edge_weight',
     'encode_point_color',
     'encode_point_icon',
+    'encode_point_label',
+    'encode_point_opacity',
     'encode_point_size',
+    'encode_point_title',
     'fa2_layout',
     'filter_edges_by_dict',
     'filter_nodes_by_dict',
@@ -228,6 +236,62 @@ class EncodePointSizeParams(TypedDict, total=False):
     column: str  # Required in safelist
     categorical_mapping: Dict[str, Union[int, float]]
     default_mapping: Union[int, float]
+
+
+class EncodeEdgeSizeParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for encode_edge_size operation."""
+    column: str  # Required in safelist
+    categorical_mapping: Dict[str, Union[int, float]]
+    default_mapping: Union[int, float]
+
+
+class EncodeEdgeWeightParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for encode_edge_weight operation."""
+    column: str  # Required in safelist
+    categorical_mapping: Dict[str, Union[int, float]]
+    default_mapping: Union[int, float]
+
+
+class EncodePointOpacityParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for encode_point_opacity operation."""
+    column: str  # Required in safelist
+    categorical_mapping: Dict[str, Union[int, float]]
+    default_mapping: Union[int, float]
+
+
+class EncodeEdgeOpacityParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for encode_edge_opacity operation."""
+    column: str  # Required in safelist
+    categorical_mapping: Dict[str, Union[int, float]]
+    default_mapping: Union[int, float]
+
+
+class EncodePointLabelParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for encode_point_label operation."""
+    column: str  # Required in safelist
+    categorical_mapping: Dict[str, str]
+    default_mapping: str
+
+
+class EncodeEdgeLabelParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for encode_edge_label operation."""
+    column: str  # Required in safelist
+    categorical_mapping: Dict[str, str]
+    default_mapping: str
+
+
+class EncodePointTitleParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for encode_point_title operation."""
+    column: str  # Required in safelist
+    categorical_mapping: Dict[str, str]
+    default_mapping: str
+
+
+class EncodeEdgeTitleParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for encode_edge_title operation."""
+    column: str  # Required in safelist
+    categorical_mapping: Dict[str, str]
+    default_mapping: str
 
 
 class EncodePointIconParams(TypedDict, total=False):
@@ -538,7 +602,17 @@ CallParams = Union[
     EncodePointColorParams,
     EncodeEdgeColorParams,
     EncodePointSizeParams,
+    EncodeEdgeSizeParams,
+    EncodeEdgeWeightParams,
+    EncodePointOpacityParams,
+    EncodeEdgeOpacityParams,
+    EncodePointLabelParams,
+    EncodeEdgeLabelParams,
+    EncodePointTitleParams,
+    EncodeEdgeTitleParams,
     EncodePointIconParams,
+    EncodeEdgeIconParams,
+    EncodeAxisParams,
     LayoutIgraphParams,
     LayoutCugraphParams,
     LayoutGraphvizParams,
@@ -613,6 +687,38 @@ def call(function: Literal['encode_edge_color'], params: EncodeEdgeColorParams =
 
 @overload
 def call(function: Literal['encode_point_size'], params: EncodePointSizeParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['encode_edge_size'], params: EncodeEdgeSizeParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['encode_edge_weight'], params: EncodeEdgeWeightParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['encode_point_opacity'], params: EncodePointOpacityParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['encode_edge_opacity'], params: EncodeEdgeOpacityParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['encode_point_label'], params: EncodePointLabelParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['encode_edge_label'], params: EncodeEdgeLabelParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['encode_point_title'], params: EncodePointTitleParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['encode_edge_title'], params: EncodeEdgeTitleParams = ...) -> 'ASTCall':
     ...
 
 @overload

@@ -8,11 +8,12 @@ from graphistry.models.surfaces.graphistry_frontend.react_settings import (
     ReactColorEncodingKey,
     ReactEncodingVariation,
     ReactIconEncodingKey,
-    ReactSizeEncodingKey,
+    ReactNumericEncodingKey,
+    ReactTextEncodingKey,
 )
 
 AxisEncodingKey: TypeAlias = Literal["encodeAxis"]
-EncodingOperationKind: TypeAlias = Literal["color", "size", "icon", "axis"]
+EncodingOperationKind: TypeAlias = Literal["color", "numeric", "text", "icon", "axis"]
 
 
 class ColorEncodingOp(TypedDict, total=False):
@@ -24,9 +25,17 @@ class ColorEncodingOp(TypedDict, total=False):
     palette: List[Any]
 
 
-class SizeEncodingOp(TypedDict, total=False):
-    kind: Literal["size"]
-    key: ReactSizeEncodingKey
+class NumericEncodingOp(TypedDict, total=False):  # pragma: no cover
+    kind: Literal["numeric"]
+    key: ReactNumericEncodingKey
+    column: str
+    categorical_mapping: Dict[Any, Any]
+    default_mapping: Any
+
+
+class TextEncodingOp(TypedDict, total=False):  # pragma: no cover
+    kind: Literal["text"]
+    key: ReactTextEncodingKey
     column: str
     categorical_mapping: Dict[Any, Any]
     default_mapping: Any
@@ -47,5 +56,7 @@ class AxisEncodingOp(TypedDict):
     rows: AxisRows
 
 
-ReactEncodingOp = Union[ColorEncodingOp, SizeEncodingOp, IconEncodingOp, AxisEncodingOp]
+ReactEncodingOp = Union[ColorEncodingOp, NumericEncodingOp, TextEncodingOp, IconEncodingOp, AxisEncodingOp]
 
+# Backwards-compatible alias for the original point-size-only parser name.
+SizeEncodingOp = NumericEncodingOp

@@ -27,8 +27,10 @@ from .react_encoding_ops import (  # noqa: F401
     ColorEncodingOp,
     EncodingOperationKind,
     IconEncodingOp,
+    NumericEncodingOp,
     ReactEncodingOp,
     SizeEncodingOp,
+    TextEncodingOp,
 )
 from .react_settings import (  # noqa: F401
     APPLY_ENCODINGS_REACT_KEYS,
@@ -45,6 +47,9 @@ from .react_settings import (  # noqa: F401
     ReactEncodingVariation,
     ReactIconEncodingKey,
     ReactIconEncodingPayload,
+    ReactNumericEncodingKey,
+    ReactTextEncodingKey,
+    ReactTextEncodingPayload,
     ReactSettingsDict,
     ReactSizeEncodingKey,
     ReactSizeEncodingPayload,

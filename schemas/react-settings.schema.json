@@ -65,13 +65,37 @@
     "encodeEdgeIcons": {
       "$ref": "#/$defs/settingsValue"
     },
+    "encodeEdgeLabel": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "encodeEdgeOpacity": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "encodeEdgeSize": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "encodeEdgeTitle": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "encodeEdgeWeight": {
+      "$ref": "#/$defs/settingsValue"
+    },
     "encodePointColor": {
       "$ref": "#/$defs/settingsValue"
     },
     "encodePointIcons": {
       "$ref": "#/$defs/settingsValue"
     },
+    "encodePointLabel": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "encodePointOpacity": {
+      "$ref": "#/$defs/settingsValue"
+    },
     "encodePointSize": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "encodePointTitle": {
       "$ref": "#/$defs/settingsValue"
     },
     "exclusions": {
@@ -199,14 +223,22 @@
       "encodePointColor",
       "encodeEdgeColor",
       "encodePointSize",
+      "encodeEdgeSize",
+      "encodeEdgeWeight",
+      "encodePointOpacity",
+      "encodeEdgeOpacity",
+      "encodePointLabel",
+      "encodeEdgeLabel",
+      "encodePointTitle",
+      "encodeEdgeTitle",
       "encodePointIcons",
       "encodePointIcon",
       "encodeEdgeIcons",
       "encodeEdgeIcon",
       "encodeAxis"
     ],
-    "graphistry_frontend_contract_signature": "bf54644c941670c46000fd7590077e33bfbda881095e77ebcf2f11821045edbd",
-    "graphistry_frontend_contract_version": 1,
+    "graphistry_frontend_contract_signature": "b7c67303de4f5054ed152637b30ff54821b45de2cdaa64573b6335dc9a0107b2",
+    "graphistry_frontend_contract_version": 2,
     "graphistry_frontend_upstream_versions": {
       "graphistry_js_client_api": null,
       "graphistry_js_client_api_react": null,

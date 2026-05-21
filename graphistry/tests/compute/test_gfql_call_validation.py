@@ -545,6 +545,82 @@ class TestEncodePointSizeValidation:
         )
 
 
+class TestEncodeParityValidation:
+    """Test validation of encode parity call parameters."""
+
+    @pytest.mark.parametrize("function,mapping_value,default_value", [
+        ('encode_edge_size', 10, 1),
+        ('encode_edge_weight', 0.8, 0.1),
+        ('encode_point_opacity', 0.8, 0.1),
+        ('encode_edge_opacity', 0.8, 0.1),
+    ])
+    def test_valid_numeric_encode_parity_call(self, function, mapping_value, default_value):
+        params = {
+            'column': 'kind',
+            'categorical_mapping': {'admin': mapping_value},
+            'default_mapping': default_value,
+        }
+
+        validated = validate_call_params(function, params)
+        assert validated == params
+
+    @pytest.mark.parametrize("function", [
+        'encode_edge_size',
+        'encode_edge_weight',
+        'encode_point_opacity',
+        'encode_edge_opacity',
+    ])
+    def test_numeric_encode_parity_rejects_non_numeric_mapping_value(self, function):
+        params = {
+            'column': 'kind',
+            'categorical_mapping': {'admin': 'large'}
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params(function, params)
+
+        assert exc_info.value.message == (
+            f"Invalid value for parameter 'categorical_mapping' in '{function}': "
+            "categorical_mapping['admin'] must be a number"
+        )
+
+    @pytest.mark.parametrize("function,mapping_value,default_value", [
+        ('encode_point_label', 'Admin', 'Other'),
+        ('encode_edge_label', 'Admin', 'Other'),
+        ('encode_point_title', 'Admin', 'Other'),
+        ('encode_edge_title', 'Admin', 'Other'),
+    ])
+    def test_valid_text_encode_parity_call(self, function, mapping_value, default_value):
+        params = {
+            'column': 'kind',
+            'categorical_mapping': {'admin': mapping_value},
+            'default_mapping': default_value,
+        }
+
+        validated = validate_call_params(function, params)
+        assert validated == params
+
+    @pytest.mark.parametrize("function", [
+        'encode_point_label',
+        'encode_edge_label',
+        'encode_point_title',
+        'encode_edge_title',
+    ])
+    def test_text_encode_parity_rejects_non_string_mapping_value(self, function):
+        params = {
+            'column': 'kind',
+            'categorical_mapping': {'admin': 1}
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params(function, params)
+
+        assert exc_info.value.message == (
+            f"Invalid value for parameter 'categorical_mapping' in '{function}': "
+            "categorical_mapping['admin'] must be a string"
+        )
+
+
 class TestComputeIgraphValidation:
     """Test validation of compute_igraph() call parameters."""
 

@@ -304,6 +304,34 @@ def _validate_numeric(name: str) -> ParamValidator:
     return _validator
 
 
+def _numeric_encode_method(description: str, schema_effects: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        'allowed_params': {'column', 'categorical_mapping', 'default_mapping'},
+        'required_params': {'column'},
+        'param_validators': {
+            'column': is_string,
+            'categorical_mapping': _validate_numeric_mapping('categorical_mapping'),
+            'default_mapping': _validate_numeric('default_mapping')
+        },
+        'description': description,
+        'schema_effects': schema_effects
+    }
+
+
+def _string_encode_method(description: str, schema_effects: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        'allowed_params': {'column', 'categorical_mapping', 'default_mapping'},
+        'required_params': {'column'},
+        'param_validators': {
+            'column': is_string,
+            'categorical_mapping': _validate_string_mapping('categorical_mapping'),
+            'default_mapping': _validate_optional_string('default_mapping')
+        },
+        'description': description,
+        'schema_effects': schema_effects
+    }
+
+
 def is_list_of_dicts(v: object) -> bool:
     return isinstance(v, list) and all(isinstance(item, dict) for item in v)
 
@@ -998,17 +1026,23 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'schema_effects': EDGE_COLUMN_SCHEMA_EFFECTS
     },
 
-    'encode_point_size': {
-        'allowed_params': {'column', 'categorical_mapping', 'default_mapping'},
-        'required_params': {'column'},
-        'param_validators': {
-            'column': is_string,
-            'categorical_mapping': _validate_numeric_mapping('categorical_mapping'),
-            'default_mapping': _validate_numeric('default_mapping')
-        },
-        'description': 'Map node column values to sizes',
-        'schema_effects': NODE_COLUMN_SCHEMA_EFFECTS
-    },
+    'encode_point_size': _numeric_encode_method('Map node column values to sizes', NODE_COLUMN_SCHEMA_EFFECTS),
+
+    'encode_edge_size': _numeric_encode_method('Map edge column values to sizes', EDGE_COLUMN_SCHEMA_EFFECTS),
+
+    'encode_edge_weight': _numeric_encode_method('Map edge column values to weights', EDGE_COLUMN_SCHEMA_EFFECTS),
+
+    'encode_point_opacity': _numeric_encode_method('Map node column values to opacity', NODE_COLUMN_SCHEMA_EFFECTS),
+
+    'encode_edge_opacity': _numeric_encode_method('Map edge column values to opacity', EDGE_COLUMN_SCHEMA_EFFECTS),
+
+    'encode_point_label': _string_encode_method('Map node column values to labels', NODE_COLUMN_SCHEMA_EFFECTS),
+
+    'encode_edge_label': _string_encode_method('Map edge column values to labels', EDGE_COLUMN_SCHEMA_EFFECTS),
+
+    'encode_point_title': _string_encode_method('Map node column values to titles', NODE_COLUMN_SCHEMA_EFFECTS),
+
+    'encode_edge_title': _string_encode_method('Map edge column values to titles', EDGE_COLUMN_SCHEMA_EFFECTS),
 
     'encode_point_icon': {
         'allowed_params': {'column', 'categorical_mapping', 'continuous_binning', 'default_mapping', 'as_text'},

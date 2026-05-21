@@ -214,6 +214,30 @@ class TestCallExecution:
             == 'envelope'
         )
 
+    @pytest.mark.parametrize("function,encoding_key,scope,mapping_value", [
+        ('encode_edge_size', 'edgeSizeEncoding', 'edge_encodings', 10),
+        ('encode_edge_weight', 'edgeWeightEncoding', 'edge_encodings', 0.8),
+        ('encode_point_opacity', 'pointOpacityEncoding', 'node_encodings', 0.8),
+        ('encode_edge_opacity', 'edgeOpacityEncoding', 'edge_encodings', 0.8),
+        ('encode_point_label', 'pointLabelEncoding', 'node_encodings', 'Admin'),
+        ('encode_edge_label', 'edgeLabelEncoding', 'edge_encodings', 'Admin'),
+        ('encode_point_title', 'pointTitleEncoding', 'node_encodings', 'Admin'),
+        ('encode_edge_title', 'edgeTitleEncoding', 'edge_encodings', 'Admin'),
+    ])
+    def test_execute_encode_parity_methods(self, sample_graph, function, encoding_key, scope, mapping_value):
+        result = execute_call(
+            sample_graph,
+            function,
+            {'column': 'kind', 'categorical_mapping': {'admin': mapping_value}},
+            Engine.PANDAS
+        )
+
+        assert (
+            result._complex_encodings[scope]['default'][encoding_key]
+            ['mapping']['categorical']['fixed']['admin']
+            == mapping_value
+        )
+
     def test_execute_encode_axis(self, sample_graph):
         rows = [{'r': 10, 'external': True, 'label': 'outer'}]
 
