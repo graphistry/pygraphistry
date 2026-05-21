@@ -1,13 +1,6 @@
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional
 
-from graphistry.models.surfaces.graphistry_frontend.axis import (
-    AXIS_BOUNDS_ALLOWED_KEYS,
-    AXIS_ROW_ALLOWED_KEYS,
-    AXIS_ROW_BOOL_KEYS,
-    AXIS_ROW_NUMERIC_KEYS,
-    AXIS_ROW_POSITION_KEYS,
-    AxisKind,
-)
+from graphistry.models.surfaces.graphistry_frontend.axis import AxisKind
 from graphistry.models.surfaces.graphistry_frontend.react_settings import (
     REACT_SETTING_NAMES,
     ReactSettingsDict,
@@ -21,62 +14,6 @@ from graphistry.models.surfaces.graphistry_frontend.settings_value import Settin
 from graphistry.models.types import ValidationMode, ValidationParam
 from graphistry.util import warn as emit_warn
 from graphistry.validate.common import normalize_validation_params
-
-
-def _is_non_bool_number(v: Any) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
-
-
-def is_axis_bounds_payload(v: object) -> bool:
-    if not isinstance(v, dict):
-        return False
-    if any(k not in AXIS_BOUNDS_ALLOWED_KEYS for k in v.keys()):
-        return False
-    if "min" in v and not _is_non_bool_number(v["min"]):
-        return False
-    if "max" in v and not _is_non_bool_number(v["max"]):
-        return False
-    return True
-
-
-def is_axis_row_payload(v: object) -> bool:
-    if not isinstance(v, dict):
-        return False
-    if any(k not in AXIS_ROW_ALLOWED_KEYS for k in v.keys()):
-        return False
-    if "label" in v and not isinstance(v["label"], str):
-        return False
-    for k in AXIS_ROW_NUMERIC_KEYS:
-        if k in v and not _is_non_bool_number(v[k]):
-            return False
-    for k in AXIS_ROW_BOOL_KEYS:
-        if k in v and not isinstance(v[k], bool):
-            return False
-    if "bounds" in v and not is_axis_bounds_payload(v["bounds"]):
-        return False
-    if all(k not in v for k in AXIS_ROW_POSITION_KEYS):
-        return False
-    return True
-
-
-def is_axis_rows_payload(v: object) -> bool:
-    return isinstance(v, list) and all(is_axis_row_payload(item) for item in v)
-
-
-def is_ring_continuous_axis_payload(v: object) -> bool:
-    if is_axis_rows_payload(v):
-        return True
-    if isinstance(v, list):
-        return all(isinstance(item, str) for item in v)
-    if isinstance(v, dict):
-        return all(_is_non_bool_number(k) and isinstance(val, str) for k, val in v.items())
-    return False
-
-
-def is_ring_categorical_axis_payload(v: object) -> bool:
-    if is_axis_rows_payload(v):
-        return True
-    return isinstance(v, dict) and all(isinstance(val, str) for val in v.values())
 
 
 def _issue(

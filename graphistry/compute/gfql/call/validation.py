@@ -45,8 +45,9 @@ from graphistry.compute.gfql.call.support import (
     validate_hypergraph_opts,
 )
 from graphistry.validate import (
-    is_ring_categorical_axis_payload,
-    is_ring_continuous_axis_payload,
+    documented_axis_rows_payload_error,
+    ring_categorical_axis_payload_error,
+    ring_continuous_axis_payload_error,
 )
 from graphistry.compute.gfql.row.order_expr import (
     is_order_aggregate_alias_ast,
@@ -198,6 +199,42 @@ def _validate_list_of_dicts(name: str) -> ParamValidator:
         for i, item in enumerate(v):
             if not isinstance(item, dict):
                 return f"{name}[{i}] must be a dictionary"
+        return True
+    return _validator
+
+
+def _validate_encode_axis_rows(name: str) -> ParamValidator:
+    def _validator(v: object) -> ValidatorResult:
+        if not isinstance(v, list):
+            return f"{name} must be a list of dictionaries"
+        for i, item in enumerate(v):
+            if not isinstance(item, dict):
+                return f"{name}[{i}] must be a dictionary"
+        detail = documented_axis_rows_payload_error(v, name)
+        if detail is not None:
+            return detail
+        return True
+    return _validator
+
+
+def _validate_ring_continuous_axis(name: str) -> ParamValidator:
+    def _validator(v: object) -> ValidatorResult:
+        if v is None:
+            return True
+        detail = ring_continuous_axis_payload_error(v, name)
+        if detail is not None:
+            return detail
+        return True
+    return _validator
+
+
+def _validate_ring_categorical_axis(name: str) -> ParamValidator:
+    def _validator(v: object) -> ValidatorResult:
+        if v is None:
+            return True
+        detail = ring_categorical_axis_payload_error(v, name)
+        if detail is not None:
+            return detail
         return True
     return _validator
 
@@ -690,7 +727,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'v_start': lambda v: v is None or is_int_or_float(v),
             'v_end': lambda v: v is None or is_int_or_float(v),
             'v_step': lambda v: v is None or is_int_or_float(v),
-            'axis': lambda v: v is None or is_ring_continuous_axis_payload(v),
+            'axis': _validate_ring_continuous_axis('axis'),
             'normalize_ring_col': is_bool,
             'reverse': is_bool,
             'play_ms': lambda v: v is None or is_int(v),
@@ -715,7 +752,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'append_unhandled': is_bool,
             'min_r': lambda v: v is None or is_int_or_float(v),
             'max_r': lambda v: v is None or is_int_or_float(v),
-            'axis': lambda v: v is None or is_ring_categorical_axis_payload(v),
+            'axis': _validate_ring_categorical_axis('axis'),
             'reverse': is_bool,
             'play_ms': lambda v: v is None or is_int(v),
             'engine': lambda v: v is None or v in ('auto', 'pandas', 'cudf', 'dask', 'dask_cudf')
@@ -906,7 +943,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'allowed_params': {'rows'},
         'required_params': set(),
         'param_validators': {
-            'rows': _validate_list_of_dicts('rows')
+            'rows': _validate_encode_axis_rows('rows')
         },
         'description': 'Render radial and linear axes with optional labels',
         'schema_effects': NO_SCHEMA_EFFECTS

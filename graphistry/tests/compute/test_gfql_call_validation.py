@@ -379,6 +379,33 @@ class TestEncodeAxisValidation:
         validated = validate_call_params('encode_axis', params)
         assert validated == params
 
+    def test_valid_encode_axis_radial_row(self):
+        """Test documented radial axis row validation."""
+        params = {
+            'rows': [{'r': 10, 'external': True, 'label': 'outer'}]
+        }
+
+        validated = validate_call_params('encode_axis', params)
+        assert validated == params
+
+    def test_valid_encode_axis_linear_row(self):
+        """Test documented linear axis row validation."""
+        params = {
+            'rows': [{'y': 40, 'width': 20, 'bounds': {'min': 40, 'max': 400}}]
+        }
+
+        validated = validate_call_params('encode_axis', params)
+        assert validated == params
+
+    def test_encode_axis_allows_extension_subtype_rows(self):
+        """Test extension subtypes remain payload-compatible."""
+        params = {
+            'rows': [{'kind': 'polar-v2', 'radius': 10, 'label': 7}]
+        }
+
+        validated = validate_call_params('encode_axis', params)
+        assert validated == params
+
     def test_encode_axis_allows_default_rows(self):
         """Test that encode_axis mirrors direct Plottable default rows behavior."""
         params = {}
@@ -397,6 +424,36 @@ class TestEncodeAxisValidation:
 
         assert exc_info.value.message == (
             "Invalid value for parameter 'rows' in 'encode_axis': rows[1] must be a dictionary"
+        )
+
+    def test_encode_axis_rejects_radial_wrong_key(self):
+        """Test row-indexed diagnostics for documented radial row keys."""
+        params = {
+            'rows': [{'r': 10, 'radius': 10}]
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_axis', params)
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'rows' in 'encode_axis': "
+            "rows[0] radial axis row has unexpected key 'radius'; expected keys: "
+            "axisKind, axis_subtype, bounds, external, internal, kind, label, r, space, width, x, y"
+        )
+
+    def test_encode_axis_rejects_missing_position_key(self):
+        """Test row-indexed diagnostics for axis rows missing required position keys."""
+        params = {
+            'rows': [{'label': 'missing position'}]
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_axis', params)
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'rows' in 'encode_axis': "
+            "rows[0] axis row is missing required key one of r, x, y; expected keys: "
+            "axisKind, axis_subtype, bounds, external, internal, kind, label, r, space, width, x, y"
         )
 
     def test_encode_axis_rejects_non_list_rows(self):
@@ -665,7 +722,11 @@ class TestRingAxisValidation:
                 'ring_col': 'segment',
                 'axis': [{'label': 'missing_pos'}],
             })
-        assert 'axis' in exc_info.value.message
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'axis' in 'ring_categorical_layout': "
+            "axis[0] is missing one of required position keys: r, x, y; expected keys: "
+            "bounds, external, internal, label, r, space, width, x, y"
+        )
 
     def test_ring_continuous_axis_accepts_string_labels(self):
         params = validate_call_params('ring_continuous_layout', {
@@ -687,7 +748,10 @@ class TestRingAxisValidation:
                 'ring_col': 'score',
                 'axis': [{'y': 40, 'bounds': {'min': '40', 'max': 100}}],
             })
-        assert 'axis' in exc_info.value.message
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'axis' in 'ring_continuous_layout': "
+            "axis[0].bounds['min'] must be a number"
+        )
 
 
 if __name__ == '__main__':
