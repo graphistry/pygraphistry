@@ -214,6 +214,11 @@ CI uses per-Python-version hashed lockfiles for supply chain security:
   PROFILES=rtd VERSIONS=3.12 ./bin/generate-lockfiles.sh
   ```
   CI's `check-rtd-lockfile` job regenerates only the RTD profile using the committed lockfile's `--exclude-newer` timestamp and fails if `requirements/rtd-py3.12.lock` is out of sync. To fix a red `check-rtd-lockfile`, rerun the command above and commit the resulting lockfile.
+- **Spark lockfile**: `requirements/spark-py3.14.lock` is committed because the `test-spark` job installs a small Spark-specific smoke-test environment without the broader test extras. Update `requirements/spark-py3.14.in` when changing the direct Spark smoke dependencies, then regenerate and commit the lockfile:
+  ```bash
+  PROFILES=spark VERSIONS=3.14 ./bin/generate-lockfiles.sh
+  ```
+  CI's `check-spark-lockfile` job uses the committed lockfile's `--exclude-newer` timestamp and fails if `requirements/spark-py3.14.lock` is out of sync.
 - **6-day cooldown**: `--exclude-newer` ensures no package published in the last 6 days is included, mitigating 0-day supply chain attacks. `UV_EXCLUDE_NEWER` is also set globally as belt-and-suspenders.
 - **Hash verification**: `--require-hashes` on install ensures tamper-proof installs (except AI/umap profiles where torch conflicts prevent it).
 - **Adding a dependency**: After modifying most `setup.py` extras, CI automatically regenerates artifact lockfiles. If the change affects ReadTheDocs docs dependencies, also update and commit `requirements/rtd-py3.12.lock`.

@@ -17,6 +17,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL policy / Cypher compiler hooks (#1454)**: Added experimental exact-key `precompile` and `postcompile` policy hooks for local Cypher string-query compilation. `postcompile` reports success or failure using the existing policy `success`, `error`, and `error_type` fields plus a stable `CompileSummary` with scalar compiler metadata.
 
 ### Changed
+- **CI Spark/Neo4j dependency hardening (#1322)**: Pinned the Spark smoke-test installer to a committed hashed lockfile with a CI drift check, and moved the Neo4j connector test image from EOL Neo4j 4.1 to pinned Neo4j 5.26 LTS.
 - **GFQL axis/ring diagnostics (#1245)**: Strengthened `encode_axis` and ring-layout axis validators with anchored row-indexed diagnostics for documented radial/linear axis payload mistakes, while preserving extension-subtype compatibility.
 - **GFQL chain tag warning cleanup (#877)**: Avoided pandas object-dtype `fillna()` downcast warnings when merging named chain tag columns without warning filters or behavior changes.
 - **GFQL chain input docs (#1255)**: Clarified that native GFQL chains must be passed as materialized Python list/dict/`Chain` objects, while `g.gfql(str)` remains the Cypher string-query entrypoint rather than a parser for stringified Python or JSON chain literals.

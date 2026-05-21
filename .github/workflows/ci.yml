@@ -150,6 +150,7 @@ jobs:
           '^docker/' \
           '^bin/' \
           '^requirements/rtd-py3\.12\.lock$' \
+          '^requirements/spark-py3\.14\.(in|lock)$' \
           '^setup\.py$' \
           '^setup\.cfg$' \
           '^MANIFEST\.in$'
@@ -184,7 +185,8 @@ jobs:
           '^graphistry/hyper_dask\.py$' \
           '^graphistry/compute/ComputeMixin\.py$' \
           '^graphistry/tests/compute/test_df_types\.py$' \
-          '^graphistry/tests/compute/test_engine_coercion\.py$'
+          '^graphistry/tests/compute/test_engine_coercion\.py$' \
+          '^requirements/spark-py3\.14\.(in|lock)$'
 
         # Cypher frontend gate-relevant paths (workflow defs included so a CI
         # change here re-triggers the cypher gate alongside gfql/infra).
@@ -333,7 +335,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: requirements/*.lock
-        key: lockfiles-cd${{ inputs.cooldown_days || '6' }}-${{ hashFiles('setup.py', 'pyproject.toml', 'requirements/*.txt', 'bin/generate-lockfiles.sh') }}
+        key: lockfiles-cd${{ inputs.cooldown_days || '6' }}-${{ hashFiles('setup.py', 'pyproject.toml', 'requirements/*.txt', 'requirements/*.in', 'bin/generate-lockfiles.sh') }}
     - name: Install uv
       if: steps.lockfile-cache.outputs.cache-hit != 'true'
       run: pip install "uv==0.11.3"  # pinned version; bump periodically
@@ -383,6 +385,38 @@ jobs:
 
         if ! git diff --exit-code -- requirements/rtd-py3.12.lock; then
           echo "::error::requirements/rtd-py3.12.lock is stale. Regenerate with: PROFILES=rtd VERSIONS=3.12 ./bin/generate-lockfiles.sh"
+          exit 1
+        fi
+
+  check-spark-lockfile:
+    needs: changes
+    if: ${{ needs.changes.outputs.spark == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Install uv
+      run: pip install "uv==0.11.3"  # keep in sync with generate-lockfiles
+    - name: Verify committed Spark lockfile
+      run: |
+        set -euo pipefail
+        exclude_newer=$(sed -n 's/.*--exclude-newer \([^ ]*\).*/\1/p' requirements/spark-py3.14.lock | head -n 1)
+        if [ -z "${exclude_newer}" ]; then
+          echo "::error::requirements/spark-py3.14.lock is missing an --exclude-newer timestamp in its generated header"
+          exit 1
+        fi
+
+        EXCLUDE_NEWER="${exclude_newer}" PROFILES=spark VERSIONS=3.14 ./bin/generate-lockfiles.sh
+
+        if ! git diff --exit-code -- requirements/spark-py3.14.lock; then
+          echo "::error::requirements/spark-py3.14.lock is stale. Regenerate with: PROFILES=spark VERSIONS=3.14 ./bin/generate-lockfiles.sh"
           exit 1
         fi
 
@@ -1578,9 +1612,9 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ~/.cache/uv
-        key: uv-spark-${{ runner.os }}-py3.14-v2-${{ hashFiles('setup.py', '.github/workflows/ci.yml') }}
+        key: uv-spark-${{ runner.os }}-py3.14-v3-${{ hashFiles('requirements/spark-py3.14.lock') }}
         restore-keys: |
-          uv-spark-${{ runner.os }}-py3.14-v2-
+          uv-spark-${{ runner.os }}-py3.14-v3-
 
     - name: Install pyspark stack + graphistry
       run: |
@@ -1589,11 +1623,11 @@ jobs:
         fi
         python -m venv pygraphistry
         source pygraphistry/bin/activate
-        python -m pip install --upgrade pip uv
-        uv pip install pyspark pyarrow pandas requests pytest
+        python -m pip install --upgrade pip "uv==0.11.3"
+        uv pip install --require-hashes -r requirements/spark-py3.14.lock
         # Spark smoke tests do not require the full test extra toolchain.
         # Install base graphistry deps, but skip heavy contributor-only [test] extras.
-        uv pip install -e .
+        uv pip install -e . --no-deps
 
     - name: Run Spark tests
       run: |

@@ -295,7 +295,7 @@ class Test_Neo4jConnector:
     def setup_class(cls):
         from neo4j import GraphDatabase
 
-        NEO4J_CREDS = {"uri": "bolt://neo4j4-test:7687", "auth": ("neo4j", "test")}
+        NEO4J_CREDS = {"uri": "bolt://neo4j-lts-test:7687", "auth": ("neo4j", "testtest")}
         graphistry.pygraphistry.PyGraphistry._is_authenticated = True
         graphistry.register(api=3, bolt=GraphDatabase.driver(**NEO4J_CREDS))
 
