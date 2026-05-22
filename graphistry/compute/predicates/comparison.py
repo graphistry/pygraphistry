@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, TYPE_CHECKING, Union, cast
+from typing import Any, Callable, ClassVar, Dict, TYPE_CHECKING, Union, cast
 from datetime import date, time
 import operator
 import numpy as np
@@ -208,16 +208,26 @@ class _StringAllowingComparisonMixin:
             )
 
 
-class GT(_StringAllowingComparisonMixin, ComparisonPredicate):
+class _ScalarTemporalComparison(_StringAllowingComparisonMixin, ComparisonPredicate):
+    op: ClassVar[Any]
+    safe_scalar_compare: ClassVar[bool] = True
+
     def __call__(self, s: SeriesT) -> SeriesT:
-        """Greater than comparison"""
         if isinstance(self.val, (int, float, str)):
-            return self._safe_scalar_compare(s, operator.gt)
+            return (
+                self._safe_scalar_compare(s, type(self).op)
+                if self.safe_scalar_compare
+                else type(self).op(s, self.val)
+            )
         elif isinstance(self.val, TemporalValue):
             prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
-            return prepared_s > comparison_val
+            return type(self).op(prepared_s, comparison_val)
         else:
             raise TypeError(f"Unexpected value type: {type(self.val)}")
+
+
+class GT(_ScalarTemporalComparison):
+    op = staticmethod(operator.gt)
 
 def gt(val: ComparisonInput) -> GT:
     """
@@ -225,16 +235,8 @@ def gt(val: ComparisonInput) -> GT:
     """
     return GT(val)
 
-class LT(_StringAllowingComparisonMixin, ComparisonPredicate):
-    def __call__(self, s: SeriesT) -> SeriesT:
-        """Less than comparison"""
-        if isinstance(self.val, (int, float, str)):
-            return self._safe_scalar_compare(s, operator.lt)
-        elif isinstance(self.val, TemporalValue):
-            prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
-            return prepared_s < comparison_val
-        else:
-            raise TypeError(f"Unexpected value type: {type(self.val)}")
+class LT(_ScalarTemporalComparison):
+    op = staticmethod(operator.lt)
 
 def lt(val: ComparisonInput) -> LT:
     """
@@ -242,16 +244,8 @@ def lt(val: ComparisonInput) -> LT:
     """
     return LT(val)
 
-class GE(_StringAllowingComparisonMixin, ComparisonPredicate):
-    def __call__(self, s: SeriesT) -> SeriesT:
-        """Greater than or equal comparison"""
-        if isinstance(self.val, (int, float, str)):
-            return self._safe_scalar_compare(s, operator.ge)
-        elif isinstance(self.val, TemporalValue):
-            prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
-            return prepared_s >= comparison_val
-        else:
-            raise TypeError(f"Unexpected value type: {type(self.val)}")
+class GE(_ScalarTemporalComparison):
+    op = staticmethod(operator.ge)
 
 def ge(val: ComparisonInput) -> GE:
     """
@@ -259,16 +253,8 @@ def ge(val: ComparisonInput) -> GE:
     """
     return GE(val)
 
-class LE(_StringAllowingComparisonMixin, ComparisonPredicate):
-    def __call__(self, s: SeriesT) -> SeriesT:
-        """Less than or equal comparison"""
-        if isinstance(self.val, (int, float, str)):
-            return self._safe_scalar_compare(s, operator.le)
-        elif isinstance(self.val, TemporalValue):
-            prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
-            return prepared_s <= comparison_val
-        else:
-            raise TypeError(f"Unexpected value type: {type(self.val)}")
+class LE(_ScalarTemporalComparison):
+    op = staticmethod(operator.le)
 
 def le(val: ComparisonInput) -> LE:
     """
@@ -276,16 +262,9 @@ def le(val: ComparisonInput) -> LE:
     """
     return LE(val)
 
-class EQ(_StringAllowingComparisonMixin, ComparisonPredicate):
-    def __call__(self, s: SeriesT) -> SeriesT:
-        """Equal comparison"""
-        if isinstance(self.val, (int, float, str)):
-            return s == self.val
-        elif isinstance(self.val, TemporalValue):
-            prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
-            return prepared_s == comparison_val
-        else:
-            raise TypeError(f"Unexpected value type: {type(self.val)}")
+class EQ(_ScalarTemporalComparison):
+    op = staticmethod(operator.eq)
+    safe_scalar_compare = False
 
 def eq(val: ComparisonInput) -> EQ:
     """
@@ -300,16 +279,9 @@ def eq(val: ComparisonInput) -> EQ:
     """
     return EQ(val)
 
-class NE(_StringAllowingComparisonMixin, ComparisonPredicate):
-    def __call__(self, s: SeriesT) -> SeriesT:
-        """Not equal comparison"""
-        if isinstance(self.val, (int, float, str)):
-            return s != self.val
-        elif isinstance(self.val, TemporalValue):
-            prepared_s, comparison_val = self._prepare_temporal_comparison(s, self.val)
-            return prepared_s != comparison_val
-        else:
-            raise TypeError(f"Unexpected value type: {type(self.val)}")
+class NE(_ScalarTemporalComparison):
+    op = staticmethod(operator.ne)
+    safe_scalar_compare = False
 
 def ne(val: ComparisonInput) -> NE:
     """
@@ -328,24 +300,9 @@ class Between(ASTPredicate):
         self.lower = self._normalize_value(lower)
         self.upper = self._normalize_value(upper)
         self.inclusive = inclusive
-    
+
     def _normalize_value(self, val: BetweenBoundInput) -> Union[int, float, np.number, TemporalValue]:
-        """Convert various input types to internal representation"""
-        # Same normalization as ComparisonPredicate
-        if is_native_numeric(val):
-            return val
-        elif is_any_temporal(val):
-            # to_ast always returns TemporalValue for valid temporal inputs
-            temporal_val = to_ast(val)
-            return temporal_val
-        elif is_string(val):
-            raise ValueError(
-                f"Raw string '{val}' is ambiguous. Use:\n"
-                f"  - pd.Timestamp('{val}') for datetime\n"
-                f"  - {{'type': 'datetime', 'value': '{val}'}} for explicit type"
-            )
-        else:
-            raise TypeError(f"Unsupported type for {self.__class__.__name__}: {type(val)}")
+        return ComparisonPredicate._normalize_value(self, val)  # type: ignore[arg-type]
 
     def __call__(self, s: SeriesT) -> SeriesT:
         # Check if both bounds are same type

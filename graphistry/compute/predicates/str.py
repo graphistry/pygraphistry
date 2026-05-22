@@ -364,7 +364,7 @@ def endswith(
     return Endswith(pat, case, na)
 
 
-class Match(ASTPredicate):
+class _RegexStringPredicate(ASTPredicate):
     def __init__(
         self,
         pat: str,
@@ -378,26 +378,7 @@ class Match(ASTPredicate):
         self.na = na
 
     def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
-        # workaround cuDF not supporting 'case' and 'na' parameters
-        # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
-        # cudf.core.accessors.string.stringmethods.match/
-        if is_cudf:
-            if not self.case:
-                s_modified = s.str.lower()
-                pat_modified = (
-                    self.pat.lower()
-                    if isinstance(self.pat, str)
-                    else self.pat
-                )
-                return s_modified.str.match(pat_modified, flags=self.flags)
-            return s.str.match(self.pat, flags=self.flags)
-
-        effective_flags = self.flags
-        if not self.case:
-            effective_flags |= re.IGNORECASE
-        if effective_flags:
-            return s.str.match(self.pat, flags=effective_flags)
-        return s.str.match(self.pat)
+        raise NotImplementedError
 
     def __call__(self, s: SeriesT) -> SeriesT:
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
@@ -443,6 +424,30 @@ class Match(ASTPredicate):
             )
 
 
+class Match(_RegexStringPredicate):
+    def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
+        # workaround cuDF not supporting 'case' and 'na' parameters
+        # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
+        # cudf.core.accessors.string.stringmethods.match/
+        if is_cudf:
+            if not self.case:
+                s_modified = s.str.lower()
+                pat_modified = (
+                    self.pat.lower()
+                    if isinstance(self.pat, str)
+                    else self.pat
+                )
+                return s_modified.str.match(pat_modified, flags=self.flags)
+            return s.str.match(self.pat, flags=self.flags)
+
+        effective_flags = self.flags
+        if not self.case:
+            effective_flags |= re.IGNORECASE
+        if effective_flags:
+            return s.str.match(self.pat, flags=effective_flags)
+        return s.str.match(self.pat)
+
+
 def match(
     pat: str,
     case: bool = True,
@@ -455,19 +460,7 @@ def match(
     return Match(pat, case, flags, na)
 
 
-class Fullmatch(ASTPredicate):
-    def __init__(
-        self,
-        pat: str,
-        case: bool = True,
-        flags: int = 0,
-        na: Optional[bool] = None
-    ) -> None:
-        self.pat = pat
-        self.case = case
-        self.flags = flags
-        self.na = na
-
+class Fullmatch(_RegexStringPredicate):
     def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
         if is_cudf:
             # cuDF doesn't have fullmatch, use match() with anchors as
@@ -491,49 +484,6 @@ class Fullmatch(ASTPredicate):
         if effective_flags:
             return s.str.fullmatch(self.pat, flags=effective_flags)
         return s.str.fullmatch(self.pat)
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
-        result = self._compute_result(s, is_cudf)
-        if is_cudf:
-            return _cudf_handle_na(result, s, self.na)
-        return _pandas_handle_na(result, s, self.na)
-
-    def _validate_fields(self) -> None:
-        """Validate predicate fields."""
-        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
-
-        if not isinstance(self.pat, str):
-            raise GFQLTypeError(
-                ErrorCode.E201,
-                "pat must be string",
-                field="pat",
-                value=type(self.pat).__name__
-            )
-
-        if not isinstance(self.case, bool):
-            raise GFQLTypeError(
-                ErrorCode.E201,
-                "case must be boolean",
-                field="case",
-                value=type(self.case).__name__
-            )
-
-        if not isinstance(self.flags, int):
-            raise GFQLTypeError(
-                ErrorCode.E201,
-                "flags must be integer",
-                field="flags",
-                value=type(self.flags).__name__
-            )
-
-        if not isinstance(self.na, (bool, type(None))):
-            raise GFQLTypeError(
-                ErrorCode.E201,
-                "na must be boolean or None",
-                field="na",
-                value=type(self.na).__name__
-            )
 
 
 def fullmatch(
