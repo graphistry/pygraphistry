@@ -6536,6 +6536,36 @@ def test_string_cypher_failfast_rejects_multi_alias_return_star_projection() -> 
     assert "RETURN * currently requires a single MATCH alias" in exc_info.value.message
 
 
+def test_string_cypher_projection_duplicate_name_error_preserves_context() -> None:
+    graph = _mk_empty_graph()
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql("MATCH (n) RETURN n.id AS x, n.name AS x")
+
+    err = exc_info.value
+    assert err.code == ErrorCode.E108
+    assert err.context["field"] == "return.items"
+    assert err.context["value"] == "x"
+    assert err.context["line"] == 1
+    assert err.context["column"] == 29
+    assert err.context["language"] == "cypher"
+
+
+def test_string_cypher_projection_type_node_error_preserves_context() -> None:
+    graph = _mk_empty_graph()
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        graph.gfql("MATCH (n) RETURN type(n) AS t")
+
+    err = exc_info.value
+    assert err.code == ErrorCode.E108
+    assert err.context["field"] == "return.items"
+    assert err.context["value"] == "type(n)"
+    assert err.context["line"] == 1
+    assert err.context["column"] == 18
+    assert err.context["language"] == "cypher"
+
+
 @pytest.mark.parametrize(
     "query",
     [
