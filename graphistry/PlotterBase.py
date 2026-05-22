@@ -815,14 +815,14 @@ class PlotterBase(Plottable):
             raise ValueError(_TEXT_MAPPING_ERROR.format(method=method))
         return self.bind(**{_TEXT_BINDING_METHODS[method]: column})
 
-    encode_edge_size = partialmethod(_encode_numeric_method, "encode_edge_size")
-    encode_edge_weight = partialmethod(_encode_numeric_method, "encode_edge_weight")
-    encode_point_opacity = partialmethod(_encode_numeric_method, "encode_point_opacity")
-    encode_edge_opacity = partialmethod(_encode_numeric_method, "encode_edge_opacity")
-    encode_point_label = partialmethod(_encode_text_binding_method, "encode_point_label")
-    encode_edge_label = partialmethod(_encode_text_binding_method, "encode_edge_label")
-    encode_point_title = partialmethod(_encode_text_binding_method, "encode_point_title")
-    encode_edge_title = partialmethod(_encode_text_binding_method, "encode_edge_title")
+    encode_edge_size = partialmethod(_encode_numeric_method, "encode_edge_size")  # type: ignore[assignment]
+    encode_edge_weight = partialmethod(_encode_numeric_method, "encode_edge_weight")  # type: ignore[assignment]
+    encode_point_opacity = partialmethod(_encode_numeric_method, "encode_point_opacity")  # type: ignore[assignment]
+    encode_edge_opacity = partialmethod(_encode_numeric_method, "encode_edge_opacity")  # type: ignore[assignment]
+    encode_point_label = partialmethod(_encode_text_binding_method, "encode_point_label")  # type: ignore[assignment]
+    encode_edge_label = partialmethod(_encode_text_binding_method, "encode_edge_label")  # type: ignore[assignment]
+    encode_point_title = partialmethod(_encode_text_binding_method, "encode_point_title")  # type: ignore[assignment]
+    encode_edge_title = partialmethod(_encode_text_binding_method, "encode_edge_title")  # type: ignore[assignment]
 
 
     def encode_point_icon(
