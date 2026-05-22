@@ -7,6 +7,19 @@ The below Python API reference documentation is for three views of the core grap
 * The :py:class:`graphistry.Plottable` abstract interface for the core Graphistry graph object
 * The :py:class:`graphistry.PlotterBase` class implementing it
 
+Arrow Conversion Validation
+---------------------------
+
+``plot()``, ``upload()``, and ``to_arrow()`` use ``validate='autofix'`` by default
+for pandas/cuDF to Arrow conversion. When Arrow rejects mixed-type object columns,
+autofix probes object columns, coerces only the failing columns to strings, and
+emits a warning naming those columns when ``warn=True``. Use
+``validate='strict'`` or ``validate='strict-fast'`` to raise instead.
+
+For pandas inputs, autofix prefers pandas' nullable string dtype when available
+so missing values remain Arrow nulls after coercion. Older pandas versions fall
+back to standard Python string coercion.
+
 .. toctree::
    :maxdepth: 3
 
