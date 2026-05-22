@@ -189,6 +189,10 @@ def is_row_pipeline_call(function: str) -> bool:
 
 
 class RowPipelineMixin:
+    _g: Any
+    _gfql_start_nodes: Any
+    _gfql_rows_base_graph: Any
+    _gfql_rows_edge_aliases: Any
     _nodes: Any
     _edges: Any
     _node: Any
@@ -207,17 +211,18 @@ class RowPipelineMixin:
         return any(isinstance(col, str) and col.startswith(prefix) for col in table_df.columns)
 
     def _gfql_node_id_column(self) -> Optional[str]:
-        node_id = getattr(self, "_node", None)
+        node_id = self._node
         if node_id is not None:
             return cast(str, node_id)
         base_graph = self._gfql_base_graph()
-        node_id = getattr(base_graph, "_node", None) if base_graph is not None else None
-        return cast(Optional[str], node_id)
+        if base_graph is None:
+            return None
+        return cast(Optional[str], base_graph._node)
 
     def _gfql_base_graph(self, *, fallback_to_self: bool = False) -> Any:
-        base_graph = getattr(self, "_gfql_rows_base_graph", None)
+        base_graph = self._gfql_rows_base_graph
         if base_graph is None:
-            base_graph = getattr(self, "_g", None)
+            base_graph = self._g
         if base_graph is None and fallback_to_self:
             return self
         return base_graph
@@ -3830,7 +3835,8 @@ class RowPipelineMixin:
                 raise ValueError(f"{op_name} alias must be non-empty")
             if isinstance(expr, str):
                 value = table_df[expr] if expr in table_df.columns else self._gfql_eval_string_expr(table_df, expr)
-                if normalize_shortest_path_hops and "__cypher_shortest_path_hops__" in expr and hasattr(value, "isna"):
+                is_series_value = isinstance(value, pd.Series) or value.__class__.__module__.startswith("cudf")
+                if normalize_shortest_path_hops and "__cypher_shortest_path_hops__" in expr and is_series_value:
                     to_numeric = None
                     try:
                         to_numeric = s_to_numeric(resolve_engine(EngineAbstract.AUTO, table_df))
@@ -3968,7 +3974,7 @@ class RowPipelineMixin:
     def _gfql_apply_right_df(self, binding_ops: List[Dict[str, Any]]) -> Tuple[Any, Any]:
         base_graph = self._gfql_base_graph(fallback_to_self=True)
         right_rows = _RowPipelineAdapter(cast("Plottable", base_graph))._gfql_binding_ops_row_table(binding_ops)
-        return base_graph, getattr(right_rows, "_nodes", None)
+        return base_graph, right_rows._nodes
 
     def anti_semi_apply(
         self,
@@ -3986,7 +3992,7 @@ class RowPipelineMixin:
         if right_df is None or len(right_df) == 0:
             return self._gfql_row_table(left_df.copy())
 
-        node_id_col = getattr(base_graph, "_node", None)
+        node_id_col = base_graph._node
         if not isinstance(node_id_col, str) or node_id_col == "":
             node_id_col = "id"
 
@@ -4033,7 +4039,7 @@ class RowPipelineMixin:
             out_df[out_col] = False
             return self._gfql_row_table(out_df)
 
-        node_id_col = getattr(base_graph, "_node", None)
+        node_id_col = base_graph._node
         if not isinstance(node_id_col, str) or node_id_col == "":
             node_id_col = "id"
 
@@ -4073,7 +4079,7 @@ class RowPipelineMixin:
 
         base_graph, right_df = self._gfql_apply_right_df(binding_ops)
 
-        node_id_col = getattr(base_graph, "_node", None)
+        node_id_col = base_graph._node
         if not isinstance(node_id_col, str) or node_id_col == "":
             node_id_col = "id"
 
@@ -4589,12 +4595,31 @@ class _RowPipelineAdapter(RowPipelineMixin):
         return self._g.bind()
 
 
+_ROW_PIPELINE_DISPATCH: Dict[str, Callable[..., "Plottable"]] = {
+    "rows": RowPipelineMixin.rows,
+    "semi_apply_mark": RowPipelineMixin.semi_apply_mark,
+    "anti_semi_apply": RowPipelineMixin.anti_semi_apply,
+    "join_apply": RowPipelineMixin.join_apply,
+    "where_rows": RowPipelineMixin.where_rows,
+    "select": RowPipelineMixin.select,
+    "with_": RowPipelineMixin.with_,
+    "return_": RowPipelineMixin.return_,
+    "order_by": RowPipelineMixin.order_by,
+    "skip": RowPipelineMixin.skip,
+    "limit": RowPipelineMixin.limit,
+    "distinct": RowPipelineMixin.distinct,
+    "unwind": RowPipelineMixin.unwind,
+    "group_by": RowPipelineMixin.group_by,
+    "drop_cols": RowPipelineMixin.drop_cols,
+}
+
+
 def execute_row_pipeline_call(
     g: "Plottable", function: str, params: Dict[str, Any]
 ) -> "Plottable":
     if function not in ROW_PIPELINE_CALLS:
         raise ValueError(f"not a row-pipeline call: {function!r}")
     adapter = _RowPipelineAdapter(g)
-    method = getattr(adapter, function)
-    out = method(**params)
+    method = _ROW_PIPELINE_DISPATCH[function]
+    out = method(adapter, **params)
     return out
