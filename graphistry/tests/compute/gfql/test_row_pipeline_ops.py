@@ -15,10 +15,12 @@ from graphistry.compute.gfql.row.entity_props import (
 )
 from graphistry.compute.ast import (
     ASTCall,
+    anti_semi_apply,
     distinct,
     drop_cols,
     e_forward,
     group_by,
+    join_apply,
     limit,
     n,
     order_by,
@@ -2548,6 +2550,60 @@ class TestRowPipelineSafelist:
             )
         assert exc_info.value.code == ErrorCode.E303
         assert "join_aliases" in exc_info.value.message
+
+    def test_row_pipeline_apply_helpers_use_prefixed_join_key_and_payload(self, monkeypatch):
+        def _fake_binding_ops_rows(_self, _binding_ops):
+            return _mk_graph(pd.DataFrame({"n.id": ["a", "c"], "right_val": [10, 30]}))
+
+        monkeypatch.setattr(
+            row_pipeline_mixin._RowPipelineAdapter,
+            "_gfql_binding_ops_row_table",
+            _fake_binding_ops_rows,
+        )
+
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "n.id": ["a", "b", "c"], "score": [1, 2, 3]})
+        result = _mk_graph(nodes_df).gfql(
+            [
+                rows(),
+                join_apply(
+                    binding_ops=[{"type": "Node", "name": "n"}],
+                    join_aliases=["n"],
+                    how="left",
+                ),
+                order_by([("id", "asc")]),
+                select([("id", "id"), ("right_val", "right_val")]),
+            ]
+        )
+
+        assert _normalize_records(result._nodes.to_dict(orient="records")) == [
+            {"id": "a", "right_val": 10.0},
+            {"id": "b", "right_val": None},
+            {"id": "c", "right_val": 30.0},
+        ]
+
+    def test_row_pipeline_anti_semi_apply_uses_prefixed_join_key(self, monkeypatch):
+        def _fake_binding_ops_rows(_self, _binding_ops):
+            return _mk_graph(pd.DataFrame({"n.id": ["a", "c"]}))
+
+        monkeypatch.setattr(
+            row_pipeline_mixin._RowPipelineAdapter,
+            "_gfql_binding_ops_row_table",
+            _fake_binding_ops_rows,
+        )
+
+        nodes_df = pd.DataFrame({"id": ["a", "b", "c"], "n.id": ["a", "b", "c"]})
+        result = _mk_graph(nodes_df).gfql(
+            [
+                rows(),
+                anti_semi_apply(
+                    binding_ops=[{"type": "Node", "name": "n"}],
+                    join_aliases=["n"],
+                ),
+                select([("id", "id")]),
+            ]
+        )
+
+        assert result._nodes.to_dict(orient="records") == [{"id": "b"}]
 
 
 @pytest.mark.parametrize(
