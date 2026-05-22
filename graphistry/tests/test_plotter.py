@@ -659,15 +659,13 @@ class TestPlotterArrowConversions(NoAuthTestCase):
 
         node_encodings = {
             "bindings": {"node": "n"},
-            "complex": {"default": {
-                "pointLabelEncoding": {
-                    "graphType": "point",
-                    "encodingType": "label",
-                    "attribute": "role",
-                    "variation": "categorical",
-                    "mapping": {"categorical": {"fixed": {"admin": "Admin"}, "other": "Other"}},
-                }
-            }},
+            "complex": {"default": {"pointLabelEncoding": {
+                "graphType": "point",
+                "encodingType": "label",
+                "attribute": "role",
+                "variation": "categorical",
+                "mapping": {"categorical": {"fixed": {"admin": "Admin"}, "other": "Other"}},
+            }}},
         }
 
         with pytest.raises(ValueError) as exc_info:
@@ -1074,17 +1072,6 @@ class TestPlotterEncodings(NoAuthTestCase):
         encoded = graphistry.encode_edge_size("z", categorical_mapping={"admin": 10}, default_mapping=1)
         assert encoded._complex_encodings["edge_encodings"]["default"]["edgeSizeEncoding"]["attribute"] == "z"
         assert graphistry.encode_point_label("z")._point_label == "z"
-        with pytest.raises(ValueError) as exc_info:
-            graphistry.encode_point_label(
-                "z",
-                categorical_mapping={"admin": "Admin"},
-                default_mapping="Other",
-            )
-        assert str(exc_info.value) == (
-            "encode_point_label supports raw column binding only; "
-            "categorical_mapping/default_mapping would create label/title complex encodings "
-            "that Graphistry upload rejects"
-        )
 
     def test_point_icon(self):
         assert graphistry.bind().encode_point_icon("z")._point_icon == "z"

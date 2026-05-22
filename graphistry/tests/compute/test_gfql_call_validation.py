@@ -590,19 +590,8 @@ class TestEncodeParityValidation:
         'encode_point_title',
         'encode_edge_title',
     ])
-    def test_valid_text_encode_parity_call(self, function):
-        params = {'column': 'kind'}
-
-        validated = validate_call_params(function, params)
-        assert validated == params
-
-    @pytest.mark.parametrize("function", [
-        'encode_point_label',
-        'encode_edge_label',
-        'encode_point_title',
-        'encode_edge_title',
-    ])
-    def test_text_encode_parity_rejects_mapping_params(self, function):
+    def test_text_encode_parity_call_validation(self, function):
+        assert validate_call_params(function, {'column': 'kind'}) == {'column': 'kind'}
         params = {
             'column': 'kind',
             'categorical_mapping': {'admin': 1}
