@@ -22,6 +22,8 @@ from graphistry.compute.gfql.cypher import (
     parse_cypher,
     WherePatternPredicate,
 )
+import graphistry.compute.gfql.cypher.projection_planning as _projection_planning
+from graphistry.compute.gfql.cypher.ast import ExpressionText, ReturnClause, ReturnItem, SourceSpan
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherExecutionExtras, CompiledCypherGraphQuery
 from graphistry.compute.gfql.cypher.lowering import _logical_plan_route_for_query
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
@@ -80,6 +82,16 @@ def _mk_triangle_graph() -> _CypherTestGraph:
     return _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c"]}),
         pd.DataFrame({"s": ["a", "b", "a"], "d": ["b", "c", "c"]}),
+    )
+
+
+def _projection_clause(expression: str, alias: Optional[str] = None) -> ReturnClause:
+    span = SourceSpan(1, 1, 1, 1 + len(expression), 0, len(expression))
+    return ReturnClause(
+        items=(ReturnItem(ExpressionText(expression, span), alias, span),),
+        distinct=False,
+        kind="return",
+        span=span,
     )
 
 
@@ -6536,6 +6548,29 @@ def test_string_cypher_failfast_rejects_multi_alias_return_star_projection() -> 
     assert "RETURN * currently requires a single MATCH alias" in exc_info.value.message
 
 
+def test_projection_plan_defaults_return_star_to_single_alias_without_active_alias() -> None:
+    plan = _projection_planning._build_projection_plan(
+        _projection_clause("*"),
+        alias_targets={"a": ASTNode(name="a")},
+    )
+
+    assert plan.source_alias == "a"
+    assert plan.whole_row_output_names == ["a"]
+
+
+def test_projection_plan_defaults_scalar_expression_to_single_alias_without_active_alias() -> None:
+    plan = _projection_planning._build_projection_plan(
+        _projection_clause("1 + 2", "x"),
+        alias_targets={"a": ASTNode(name="a")},
+    )
+
+    assert plan.source_alias == "a"
+    assert plan.projection_items == [("x", "(1 + 2)")]
+    assert [(column.output_name, column.kind, column.source_name) for column in plan.projection_columns] == [
+        ("x", "expr", "(1 + 2)")
+    ]
+
+
 def test_string_cypher_projection_duplicate_name_error_preserves_context() -> None:
     graph = _mk_empty_graph()
 
@@ -7247,6 +7282,20 @@ def test_string_cypher_supports_bound_optional_match_null_rows_for_type() -> Non
     result = graph.gfql("MATCH (a) OPTIONAL MATCH (a)-[r:NOT_THERE]->() RETURN type(r) AS tr, type(null) AS tn")
 
     assert result._nodes.to_dict(orient="records") == [{"tr": None, "tn": None}]
+
+
+def test_string_cypher_supports_bound_optional_match_whole_row_with_scalar_projection() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["T"]}),
+    )
+
+    result = graph.gfql("MATCH (a) OPTIONAL MATCH (a)-[r:T]->(b) RETURN b, b.id + '!' AS label")
+
+    assert result._nodes.to_dict(orient="records") == [
+        {"b": "()", "label": "b!"},
+        {"b": None, "label": None},
+    ]
 
 
 def test_string_cypher_supports_top_level_optional_match_null_rows_for_whole_row_edge_projection() -> None:
