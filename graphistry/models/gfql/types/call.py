@@ -25,7 +25,6 @@ from typing import (
     cast,
     overload
 )
-from typing_extensions import TypeAlias
 
 if TYPE_CHECKING:
     from graphistry.compute.ast import ASTCall
@@ -239,22 +238,9 @@ class EncodePointSizeParams(TypedDict, total=False):
     default_mapping: Union[int, float]
 
 
-EncodeNumericParams: TypeAlias = EncodePointSizeParams  # pragma: no cover
-EncodeEdgeSizeParams: TypeAlias = EncodeNumericParams  # pragma: no cover
-EncodeEdgeWeightParams: TypeAlias = EncodeNumericParams  # pragma: no cover
-EncodePointOpacityParams: TypeAlias = EncodeNumericParams  # pragma: no cover
-EncodeEdgeOpacityParams: TypeAlias = EncodeNumericParams  # pragma: no cover
-
-
 class EncodeTextColumnParams(TypedDict, total=False):  # pragma: no cover
     """Parameters for raw text-binding encode operations."""
     column: str  # Required in safelist
-
-
-EncodePointLabelParams: TypeAlias = EncodeTextColumnParams  # pragma: no cover
-EncodeEdgeLabelParams: TypeAlias = EncodeTextColumnParams  # pragma: no cover
-EncodePointTitleParams: TypeAlias = EncodeTextColumnParams  # pragma: no cover
-EncodeEdgeTitleParams: TypeAlias = EncodeTextColumnParams  # pragma: no cover
 
 
 class EncodePointIconParams(TypedDict, total=False):
@@ -648,7 +634,7 @@ def call(function: Literal['encode_point_size'], params: EncodePointSizeParams =
 @overload
 def call(
     function: Literal['encode_edge_size', 'encode_edge_weight', 'encode_point_opacity', 'encode_edge_opacity'],
-    params: EncodeNumericParams = ...
+    params: EncodePointSizeParams = ...
 ) -> 'ASTCall':
     ...
 
