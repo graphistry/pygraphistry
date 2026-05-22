@@ -400,6 +400,14 @@ def _definition_from_compiled_call(compiled_call: CompiledCypherProcedureCall) -
     )
 
 
+def _output_rename_map(frame: Any, source_columns: Tuple[str, ...], output_columns: Tuple[str, ...]) -> Dict[str, str]:
+    return {
+        source_name: output_name
+        for source_name, output_name in zip(source_columns, output_columns)
+        if source_name != output_name and source_name in frame.columns and output_name not in frame.columns
+    }
+
+
 def _align_computed_result_columns(
     computed_graph: Plottable,
     compiled_call: CompiledCypherProcedureCall,
@@ -419,13 +427,7 @@ def _align_computed_result_columns(
             or computed_graph._destination is None
         ):
             return computed_graph
-        rename_map = {
-            source_name: output_name
-            for source_name, output_name in zip(source_columns, output_columns)
-            if source_name != output_name
-            and source_name in computed_graph._edges.columns
-            and output_name not in computed_graph._edges.columns
-        }
+        rename_map = _output_rename_map(computed_graph._edges, source_columns, output_columns)
         if not rename_map:
             return computed_graph
         return cast(
@@ -441,13 +443,7 @@ def _align_computed_result_columns(
     if compiled_call.row_kind in {"node", "node_or_graph"}:
         if computed_graph._nodes is None or computed_graph._node is None:
             return computed_graph
-        rename_map = {
-            source_name: output_name
-            for source_name, output_name in zip(source_columns, output_columns)
-            if source_name != output_name
-            and source_name in computed_graph._nodes.columns
-            and output_name not in computed_graph._nodes.columns
-        }
+        rename_map = _output_rename_map(computed_graph._nodes, source_columns, output_columns)
         if not rename_map:
             return computed_graph
         return cast(
@@ -784,6 +780,8 @@ def _networkx_algorithm_result(
     params: Mapping[str, Any],
 ) -> Any:
     try:
+        if compiled_call.algorithm == "pagerank":
+            return _networkx_pagerank_scores(graph_nx, **params)
         return getattr(_networkx_module(compiled_call), cast(str, compiled_call.algorithm))(graph_nx, **params)
     except TypeError as exc:
         raise GFQLValidationError(
@@ -796,6 +794,25 @@ def _networkx_algorithm_result(
             column=compiled_call.column,
             language="cypher",
         ) from exc
+
+
+def _networkx_pagerank_scores(graph_nx: Any, *, alpha: float = 0.85, max_iter: int = 100, tol: float = 1.0e-6) -> Dict[Any, float]:
+    nodes = list(graph_nx.nodes())
+    if not nodes:
+        return {}
+    node_count = len(nodes)
+    scores: Dict[Any, float] = dict.fromkeys(nodes, 1.0 / node_count)
+    degree_fn, predecessor_fn = (graph_nx.out_degree, graph_nx.predecessors) if graph_nx.is_directed() else (graph_nx.degree, graph_nx.neighbors)
+    for _ in range(max_iter):
+        dangling_mass = alpha * sum(scores[node] for node in nodes if degree_fn(node) == 0) / node_count
+        next_scores = {
+            node: ((1.0 - alpha) / node_count) + dangling_mass + alpha * sum(scores[pred] / degree_fn(pred) for pred in predecessor_fn(node) if degree_fn(pred) > 0)
+            for node in nodes
+        }
+        if sum(abs(next_scores[node] - scores[node]) for node in nodes) <= tol * node_count:
+            return next_scores
+        scores = next_scores
+    return scores
 
 
 def _networkx_out_col(compiled_call: CompiledCypherProcedureCall, default: str) -> str:
@@ -828,9 +845,7 @@ def _networkx_graph(
 
 
 def _networkx_common_inputs(compiled_call: CompiledCypherProcedureCall) -> Tuple[bool, Dict[str, Any]]:
-    directed = cast(bool, compiled_call.call_params.get("directed", True))
-    params = dict(cast(Mapping[str, Any], compiled_call.call_params.get("params", {})))
-    return directed, params
+    return cast(bool, compiled_call.call_params.get("directed", True)), dict(cast(Mapping[str, Any], compiled_call.call_params.get("params", {})))
 
 
 def _networkx_node_rows(base_graph: Plottable, compiled_call: CompiledCypherProcedureCall) -> DataFrameT:
