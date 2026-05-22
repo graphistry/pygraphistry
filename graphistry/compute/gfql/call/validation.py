@@ -1,7 +1,7 @@
 """GFQL call safelist and parameter validators."""
 
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 from graphistry.compute.gfql.call.support import (
@@ -44,6 +44,11 @@ from graphistry.compute.gfql.call.support import (
     is_unwind_expr,
     validate_hypergraph_opts,
 )
+from graphistry.validate import (
+    documented_axis_rows_payload_error,
+    ring_categorical_axis_payload_error,
+    ring_continuous_axis_payload_error,
+)
 from graphistry.compute.gfql.row.order_expr import (
     is_order_aggregate_alias_ast,
     order_expr_ast_static_supported,
@@ -61,6 +66,8 @@ WhereRowsParserBundle = Tuple[
     WhereRowsCollectIdentifiersFn,
 ]
 WhereRowsParsedExpr = Tuple["ExprNode", WhereRowsCapabilityFn, WhereRowsCollectIdentifiersFn]
+ValidatorResult = Union[bool, str]
+ParamValidator = Callable[[object], ValidatorResult]
 
 
 @lru_cache(maxsize=1)
@@ -174,6 +181,106 @@ def is_where_rows_filter_dict(v: object) -> bool:
     return True
 
 
+def _validate_string_list(name: str) -> ParamValidator:
+    def _validator(v: object) -> ValidatorResult:
+        if not isinstance(v, list):
+            return f"{name} must be a list of strings"
+        for i, item in enumerate(v):
+            if not isinstance(item, str):
+                return f"{name}[{i}] must be a string"
+        return True
+    return _validator
+
+
+def _validate_list_of_dicts(name: str) -> ParamValidator:
+    def _validator(v: object) -> ValidatorResult:
+        if not isinstance(v, list):
+            return f"{name} must be a list of dictionaries"
+        for i, item in enumerate(v):
+            if not isinstance(item, dict):
+                return f"{name}[{i}] must be a dictionary"
+        return True
+    return _validator
+
+
+def _validate_encode_axis_rows(name: str) -> ParamValidator:
+    def _validator(v: object) -> ValidatorResult:
+        if not isinstance(v, list):
+            return f"{name} must be a list of dictionaries"
+        for i, item in enumerate(v):
+            if not isinstance(item, dict):
+                return f"{name}[{i}] must be a dictionary"
+        detail = documented_axis_rows_payload_error(v, name)
+        if detail is not None:
+            return detail
+        return True
+    return _validator
+
+
+def _validate_ring_continuous_axis(name: str) -> ParamValidator:
+    def _validator(v: object) -> ValidatorResult:
+        if v is None:
+            return True
+        detail = ring_continuous_axis_payload_error(v, name)
+        if detail is not None:
+            return detail
+        return True
+    return _validator
+
+
+def _validate_ring_categorical_axis(name: str) -> ParamValidator:
+    def _validator(v: object) -> ValidatorResult:
+        if v is None:
+            return True
+        detail = ring_categorical_axis_payload_error(v, name)
+        if detail is not None:
+            return detail
+        return True
+    return _validator
+
+
+def _validate_string_mapping(name: str) -> ParamValidator:
+    def _validator(v: object) -> ValidatorResult:
+        if not isinstance(v, dict):
+            return f"{name} must be a dictionary"
+        for key, value in v.items():
+            if not isinstance(key, str):
+                return f"{name} keys must be strings"
+            if not isinstance(value, str):
+                return f"{name}[{key!r}] must be a string"
+        return True
+    return _validator
+
+
+def _validate_numeric_mapping(name: str) -> ParamValidator:
+    def _validator(v: object) -> ValidatorResult:
+        if not isinstance(v, dict):
+            return f"{name} must be a dictionary"
+        for key, value in v.items():
+            if not isinstance(key, str):
+                return f"{name} keys must be strings"
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                return f"{name}[{key!r}] must be a number"
+        return True
+    return _validator
+
+
+def _validate_optional_string(name: str) -> ParamValidator:
+    def _validator(v: object) -> ValidatorResult:
+        if v is None or isinstance(v, str):
+            return True
+        return f"{name} must be a string or None"
+    return _validator
+
+
+def _validate_numeric(name: str) -> ParamValidator:
+    def _validator(v: object) -> ValidatorResult:
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return True
+        return f"{name} must be a number"
+    return _validator
+
+
 def is_list_of_dicts(v: object) -> bool:
     return isinstance(v, list) and all(isinstance(item, dict) for item in v)
 
@@ -217,6 +324,13 @@ def _group_by_requires_node_cols(params: Dict[str, object]) -> List[str]:
     return out
 
 
+def _semi_apply_mark_added_node_cols(params: Dict[str, object]) -> Set[str]:
+    out_col = params.get("out_col")
+    if isinstance(out_col, str) and out_col != "":
+        return {out_col}
+    return set()
+
+
 # Parser-backed helpers stay local because tests monkeypatch parser availability
 # and capability behavior through this module.
 
@@ -258,6 +372,41 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         },
         description='Filter active row table by column values/predicates',
         schema_effects=_schema_effects(requires_node_cols=_where_rows_requires_node_cols),
+    ),
+
+    'anti_semi_apply': _method_entry(
+        allowed_params={'binding_ops', 'join_aliases'},
+        required_params={'binding_ops', 'join_aliases'},
+        param_validators={
+            'binding_ops': is_list_of_dicts,
+            'join_aliases': is_non_empty_list_of_strings,
+        },
+        description='Filter active rows by anti-semi joining against correlated binding rows',
+        schema_effects=NO_SCHEMA_EFFECTS,
+    ),
+
+    'semi_apply_mark': _method_entry(
+        allowed_params={'binding_ops', 'join_aliases', 'out_col'},
+        required_params={'binding_ops', 'join_aliases', 'out_col'},
+        param_validators={
+            'binding_ops': is_list_of_dicts,
+            'join_aliases': is_non_empty_list_of_strings,
+            'out_col': is_non_empty_string,
+        },
+        description='Annotate active rows with correlated pattern-existence booleans',
+        schema_effects=_schema_effects(adds_node_cols=_semi_apply_mark_added_node_cols),
+    ),
+
+    'join_apply': _method_entry(
+        allowed_params={'binding_ops', 'join_aliases', 'how'},
+        required_params={'binding_ops', 'join_aliases'},
+        param_validators={
+            'binding_ops': is_list_of_dicts,
+            'join_aliases': is_non_empty_list_of_strings,
+            'how': lambda v: v in {'inner', 'left'},
+        },
+        description='Join active rows with correlated binding rows',
+        schema_effects=NO_SCHEMA_EFFECTS,
     ),
 
     'order_by': _method_entry(
@@ -578,7 +727,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'v_start': lambda v: v is None or is_int_or_float(v),
             'v_end': lambda v: v is None or is_int_or_float(v),
             'v_step': lambda v: v is None or is_int_or_float(v),
-            'axis': lambda v: v is None or is_list_or_dict(v),
+            'axis': _validate_ring_continuous_axis('axis'),
             'normalize_ring_col': is_bool,
             'reverse': is_bool,
             'play_ms': lambda v: v is None or is_int(v),
@@ -603,7 +752,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'append_unhandled': is_bool,
             'min_r': lambda v: v is None or is_int_or_float(v),
             'max_r': lambda v: v is None or is_int_or_float(v),
-            'axis': lambda v: v is None or is_list_or_dict(v),
+            'axis': _validate_ring_categorical_axis('axis'),
             'reverse': is_bool,
             'play_ms': lambda v: v is None or is_int(v),
             'engine': lambda v: v is None or v in ('auto', 'pandas', 'cudf', 'dask', 'dask_cudf')
@@ -725,11 +874,11 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'required_params': {'column'},
         'param_validators': {
             'column': is_string,
-            'palette': lambda v: isinstance(v, list),
+            'palette': _validate_string_list('palette'),
             'as_categorical': is_bool,
             'as_continuous': is_bool,
-            'categorical_mapping': is_dict,
-            'default_mapping': is_string_or_none
+            'categorical_mapping': _validate_string_mapping('categorical_mapping'),
+            'default_mapping': _validate_optional_string('default_mapping')
         },
         'description': 'Map node column values to colors',
         'schema_effects': NODE_COLUMN_SCHEMA_EFFECTS
@@ -740,11 +889,11 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'required_params': {'column'},
         'param_validators': {
             'column': is_string,
-            'palette': lambda v: isinstance(v, list),
+            'palette': _validate_string_list('palette'),
             'as_categorical': is_bool,
             'as_continuous': is_bool,
-            'categorical_mapping': is_dict,
-            'default_mapping': is_string_or_none
+            'categorical_mapping': _validate_string_mapping('categorical_mapping'),
+            'default_mapping': _validate_optional_string('default_mapping')
         },
         'description': 'Map edge column values to colors',
         'schema_effects': EDGE_COLUMN_SCHEMA_EFFECTS
@@ -755,8 +904,8 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'required_params': {'column'},
         'param_validators': {
             'column': is_string,
-            'categorical_mapping': is_dict,
-            'default_mapping': lambda v: isinstance(v, (int, float))
+            'categorical_mapping': _validate_numeric_mapping('categorical_mapping'),
+            'default_mapping': _validate_numeric('default_mapping')
         },
         'description': 'Map node column values to sizes',
         'schema_effects': NODE_COLUMN_SCHEMA_EFFECTS
@@ -767,13 +916,37 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'required_params': {'column'},
         'param_validators': {
             'column': is_string,
-            'categorical_mapping': is_dict,
+            'categorical_mapping': _validate_string_mapping('categorical_mapping'),
             'continuous_binning': lambda v: isinstance(v, list),
-            'default_mapping': is_string_or_none,
+            'default_mapping': _validate_optional_string('default_mapping'),
             'as_text': is_bool
         },
         'description': 'Map node column values to icons',
         'schema_effects': NODE_COLUMN_SCHEMA_EFFECTS
+    },
+
+    'encode_edge_icon': {
+        'allowed_params': {'column', 'categorical_mapping', 'continuous_binning', 'default_mapping', 'as_text'},
+        'required_params': {'column'},
+        'param_validators': {
+            'column': is_string,
+            'categorical_mapping': _validate_string_mapping('categorical_mapping'),
+            'continuous_binning': lambda v: isinstance(v, list),
+            'default_mapping': _validate_optional_string('default_mapping'),
+            'as_text': is_bool
+        },
+        'description': 'Map edge column values to icons',
+        'schema_effects': EDGE_COLUMN_SCHEMA_EFFECTS
+    },
+
+    'encode_axis': {
+        'allowed_params': {'rows'},
+        'required_params': set(),
+        'param_validators': {
+            'rows': _validate_encode_axis_rows('rows')
+        },
+        'description': 'Render radial and linear axes with optional labels',
+        'schema_effects': NO_SCHEMA_EFFECTS
     },
 
     # Metadata methods
@@ -938,10 +1111,15 @@ def validate_call_params(function: str, params: Dict[str, object]) -> Dict[str, 
     for param_name, param_value in params.items():
         if param_name in param_validators:
             validator = param_validators[param_name]
-            if not validator(param_value):
+            validation_result = validator(param_value)
+            if validation_result is not True:
+                detail = validation_result if isinstance(validation_result, str) else None
+                message = f"Invalid type for parameter '{param_name}' in '{function}'"
+                if detail is not None:
+                    message = f"Invalid value for parameter '{param_name}' in '{function}': {detail}"
                 raise GFQLTypeError(
                     ErrorCode.E201,
-                    f"Invalid type for parameter '{param_name}' in '{function}'",
+                    message,
                     field=f"params.{param_name}",
                     value=f"{type(param_value).__name__}: {param_value}",
                     suggestion="Check the parameter type requirements"

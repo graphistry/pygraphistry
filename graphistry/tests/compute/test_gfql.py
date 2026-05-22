@@ -1,17 +1,33 @@
 import pandas as pd
 import pytest
 from typing import Any, Dict, List
+from unittest.mock import patch
 from graphistry.compute.ast import ASTLet, ASTRef, n, e
 from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.cypher import compile_cypher
-from graphistry.compute.gfql.cypher.lowering import _reentry_hidden_column_name
-from graphistry.compute.gfql_unified import _compiled_query_reentry_state
+from graphistry.compute.gfql.cypher.reentry.naming import _reentry_hidden_column_name
+from graphistry.compute.gfql.cypher.reentry.execution import compiled_query_reentry_state
 from graphistry.tests.test_compute import CGFull
 
 # Suppress deprecation warnings for chain() method in this test file
 # This file tests the migration from chain() to gfql()
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning:graphistry")
+
+_STRUCTURAL_EQUALITY_CASES = [
+    ("RETURN [[1], [2]] = [[1], [null]] AS result", None),
+    ("RETURN {k: null} = {k: null} AS result", None),
+    ("RETURN {k: 1} = {k: null} AS result", None),
+    ("RETURN {k: 1, l: null} = {k: null, l: null} AS result", None),
+    ("RETURN {k: 1, l: null} = {k: null, l: 1} AS result", None),
+    ("RETURN {k: 1, l: null} = {k: 1, l: 1} AS result", None),
+    ("RETURN [{k: [1, 2]}, {k: [2]}] = [{k: [1, 2]}, {k: [2]}] AS result", True),
+    ("RETURN [{k: [1, 2]}, {k: [2]}] = [{k: [1, 3]}, {k: [2]}] AS result", False),
+    ("RETURN [{k: [1, null]}] = [{k: [1, null]}] AS result", None),
+    ("RETURN [{k: [true, false]}] = [{k: [true, false]}] AS result", True),
+    ("RETURN [{k: [true, false]}] = [{k: [true, true]}] AS result", False),
+    ("RETURN [{k: [1, null]}] <> [{k: [1, null]}] AS result", None),
+]
 
 
 def _mk_graph(ids, types, src, dst):
@@ -258,6 +274,45 @@ class TestGFQL:
         with pytest.raises(ValueError):
             g.gfql([n()], params={"x": 1})
 
+    def test_gfql_validate_true_runs_preflight_before_compile(self):
+        g = _mk_people_company_graph3()
+        with patch(
+            "graphistry.compute.gfql_unified.gfql_preflight_validate",
+            side_effect=GFQLValidationError(ErrorCode.E108, "synthetic preflight failure"),
+        ):
+            with patch(
+                "graphistry.compute.gfql_unified._compile_string_query",
+                side_effect=AssertionError("compile should not run when preflight fails"),
+            ):
+                with pytest.raises(GFQLValidationError, match="synthetic preflight failure"):
+                    g.gfql("MATCH (p) RETURN p", validate=True)
+
+    def test_gfql_validate_false_skips_preflight(self):
+        g = _mk_people_company_graph3()
+
+        with patch(
+            "graphistry.compute.gfql_unified.gfql_preflight_validate",
+            side_effect=AssertionError("preflight should not run when validate=False"),
+        ):
+            result = g.gfql([n()])
+            assert result is not None
+
+    def test_gfql_validate_true_catches_cypher_schema_errors_by_default(self):
+        g = _mk_people_company_graph3()
+
+        with pytest.raises(GFQLValidationError) as exc_info:
+            g.gfql("MATCH (p:Employee) RETURN p.id AS id", validate=True)
+
+        assert exc_info.value.code == ErrorCode.E301
+
+    def test_gfql_validate_true_treats_all_strings_as_cypher(self):
+        g = _mk_people_company_graph3()
+
+        with pytest.raises(GFQLSyntaxError) as exc_info:
+            g.gfql("hello world not cypher", validate=True)
+
+        assert exc_info.value.code == ErrorCode.E107
+
     @pytest.mark.parametrize(
         ("direction", "expected"),
         [
@@ -284,6 +339,29 @@ class TestGFQL:
         )
 
         assert result._nodes.to_dict(orient="records") == expected
+
+    @pytest.mark.parametrize("stale_alias", ["c", "d"])
+    @pytest.mark.parametrize("direction", ["", " ASC", " ASCENDING", " DESC", " DESCENDING"])
+    def test_gfql_rejects_cypher_with_order_by_alias_not_visible_after_with(self, stale_alias, direction):
+        g = _mk_people_company_graph3()
+
+        with pytest.raises(GFQLValidationError) as exc_info:
+            g.gfql(f"MATCH (a), (b), (c) WITH a, b WITH a ORDER BY {stale_alias}{direction} RETURN a")
+
+        assert exc_info.value.code == ErrorCode.E204
+        assert exc_info.value.context["field"] == "identifier"
+        assert exc_info.value.context["value"] == stale_alias
+
+    def test_gfql_executes_cypher_with_order_by_projected_alias_after_with(self):
+        g = _mk_people_company_graph3()
+
+        result = g.gfql("MATCH (a) WITH a.id AS aid ORDER BY aid RETURN aid")
+
+        assert result._nodes.to_dict(orient="records") == [
+            {"aid": "a"},
+            {"aid": "b"},
+            {"aid": "c"},
+        ]
 
     @pytest.mark.parametrize(
         ("query", "expected"),
@@ -377,6 +455,12 @@ class TestGFQL:
             ("RETURN -0.0 AS literal", [{"literal": 0.0}]),
             ("RETURN keys({k: 1, l: null}) AS ks", [{"ks": ["k", "l"]}]),
             ("WITH null AS m RETURN keys(m) AS ks, keys(null) AS null_keys", [{"ks": None, "null_keys": None}]),
+            ("RETURN [[1], [2]] = [[1], [null]] AS result", [{"result": None}]),
+            ("RETURN {k: null} = {k: null} AS result", [{"result": None}]),
+            ("RETURN {k: 1} = {k: null} AS result", [{"result": None}]),
+            ("RETURN {k: 1, l: null} = {k: null, l: null} AS result", [{"result": None}]),
+            ("RETURN {k: 1, l: null} = {k: null, l: 1} AS result", [{"result": None}]),
+            ("RETURN {k: 1, l: null} = {k: 1, l: 1} AS result", [{"result": None}]),
         ],
     )
     def test_gfql_executes_cypher_literal_list_and_map_scalar_queries(self, query, expected):
@@ -385,6 +469,32 @@ class TestGFQL:
         result = g.gfql(query)
 
         assert result._nodes.to_dict(orient="records") == expected
+
+    @pytest.mark.parametrize(
+        ("query", "expected"),
+        _STRUCTURAL_EQUALITY_CASES,
+    )
+    def test_gfql_executes_cypher_structural_equality_queries_on_pandas(self, query, expected):
+        g = _mk_graph(ids=["a"], types=["person"], src=[], dst=[])
+        result = g.gfql(query)
+        assert result._nodes.to_dict(orient="records") == [{"result": expected}]
+
+    @pytest.mark.parametrize(
+        ("query", "expected"),
+        _STRUCTURAL_EQUALITY_CASES,
+    )
+    def test_gfql_executes_cypher_structural_equality_queries_on_cudf(self, query, expected):
+        g = _mk_cudf_graph(ids=["a"], types=["person"], src=[], dst=[])
+        result = g.gfql(query, engine="cudf")
+        assert result._nodes.to_pandas().to_dict(orient="records") == [{"result": expected}]
+
+    @pytest.mark.parametrize(("query", "expected"), _STRUCTURAL_EQUALITY_CASES)
+    def test_gfql_structural_equality_query_parity_pandas_vs_cudf(self, query, expected):
+        g_pd = _mk_graph(ids=["a"], types=["person"], src=[], dst=[])
+        g_cudf = _mk_cudf_graph(ids=["a"], types=["person"], src=[], dst=[])
+        pd_rows = g_pd.gfql(query)._nodes.to_dict(orient="records")
+        cudf_rows = g_cudf.gfql(query, engine="cudf")._nodes.to_pandas().to_dict(orient="records")
+        assert pd_rows == cudf_rows == [{"result": expected}]
     
     def test_gfql_deprecation_and_migration(self):
         """Test deprecation warnings and migration path"""
@@ -595,9 +705,11 @@ class TestGFQLCypherReentryCarrier:
 
     @staticmethod
     def _run_reentry_state(g, compiled, prefix_result, *, engine: str = "pandas"):
-        return _compiled_query_reentry_state(
+        plan = compiled.reentry_plan
+        assert plan is not None
+        return compiled_query_reentry_state(
             g,
-            compiled,
+            plan,
             prefix_result,
             engine=engine,
         )
@@ -636,38 +748,23 @@ class TestGFQLCypherReentryCarrier:
             for node_id, values in carry_values_by_id.items()
         }
 
-    def test_reentry_state_preserves_prefix_order_without_carried_columns(self):
-        g = _mk_reentry_scalar_graph()
-        self._assert_reentry_state_by_id(
-            g=g,
-            compiled=compile_cypher(
-                "MATCH (a:A) "
-                "WITH a "
-                "MATCH (a)-->(b) "
-                "RETURN b.id AS bid"
-            ),
-            prefix_result=g.gfql("MATCH (a:A) WITH a ORDER BY a.num DESC RETURN a"),
-            ordered_ids=["a2", "a1"],
-            carry_values_by_id={},
-            expect_same_graph=True,
-        )
-
-    def test_reentry_state_preserves_cudf_backend_without_carried_columns(self):
-        pytest.importorskip("cudf")
-        g = _mk_reentry_scalar_graph_cudf()
+    @pytest.mark.parametrize("engine", ["pandas", "cudf"])
+    def test_reentry_state_preserves_prefix_order_without_carried_columns(self, engine):
+        g = _mk_reentry_scalar_graph_cudf() if engine == "cudf" else _mk_reentry_scalar_graph()
         compiled = compile_cypher(
             "MATCH (a:A) "
             "WITH a "
             "MATCH (a)-->(b) "
             "RETURN b.id AS bid"
         )
-        prefix_result = g.gfql("MATCH (a:A) WITH a ORDER BY a.num DESC RETURN a", engine="cudf")
+        prefix_result = g.gfql("MATCH (a:A) WITH a ORDER BY a.num DESC RETURN a", engine=engine)
 
-        dispatch_graph, start_nodes = self._run_reentry_state(g, compiled, prefix_result, engine="cudf")
+        dispatch_graph, start_nodes = self._run_reentry_state(g, compiled, prefix_result, engine=engine)
 
         assert dispatch_graph is g
-        assert type(dispatch_graph._nodes).__module__.startswith("cudf")
-        assert type(start_nodes).__module__.startswith("cudf")
+        if engine == "cudf":
+            assert type(dispatch_graph._nodes).__module__.startswith("cudf")
+            assert type(start_nodes).__module__.startswith("cudf")
         assert _to_pandas_df(start_nodes).to_dict(orient="records") == self._expected_reentry_rows(
             ["a2", "a1"],
             {},
@@ -707,29 +804,31 @@ class TestGFQLCypherReentryCarrier:
             expect_same_graph=False,
         )
 
-    def test_reentry_state_preserves_cudf_backend_with_carried_scalars(self):
-        pytest.importorskip("cudf")
-        g = _mk_reentry_scalar_graph_cudf()
+    @pytest.mark.parametrize("engine", ["pandas", "cudf"])
+    def test_reentry_state_preserves_backend_with_carried_scalars(self, engine):
+        g = _mk_reentry_scalar_graph_cudf() if engine == "cudf" else _mk_reentry_scalar_graph()
         compiled = self._compile_reentry_query()
         prefix_result = g.gfql(
             "MATCH (a:A) WITH a, a.num AS property RETURN a, property ORDER BY property DESC",
-            engine="cudf",
+            engine=engine,
         )
 
-        dispatch_graph, start_nodes = self._run_reentry_state(g, compiled, prefix_result, engine="cudf")
+        dispatch_graph, start_nodes = self._run_reentry_state(g, compiled, prefix_result, engine=engine)
 
         assert dispatch_graph is not g
-        assert type(dispatch_graph._nodes).__module__.startswith("cudf")
-        assert type(start_nodes).__module__.startswith("cudf")
+        if engine == "cudf":
+            assert type(dispatch_graph._nodes).__module__.startswith("cudf")
+            assert type(start_nodes).__module__.startswith("cudf")
         assert _to_pandas_df(start_nodes).to_dict(orient="records") == self._expected_reentry_rows(
             ["a2", "a1"],
             {"a1": {"property": 1}, "a2": {"property": 2}},
         )
 
     @pytest.mark.parametrize(
-        ("with_clause", "rows", "carry_values_by_id", "existing_hidden_values"),
+        ("engine", "with_clause", "rows", "carry_values_by_id", "existing_hidden_values"),
         [
             (
+                "pandas",
                 "a, a.num AS property",
                 {"property": [2, 1]},
                 {
@@ -739,6 +838,7 @@ class TestGFQLCypherReentryCarrier:
                 {"__cypher_reentry_property__": ["orig1", "orig2", None, None]},
             ),
             (
+                "pandas",
                 "a, a.num AS property, a.num + 10 AS property2",
                 {"property": [2, 1], "property2": [12, 11]},
                 {
@@ -750,53 +850,42 @@ class TestGFQLCypherReentryCarrier:
                     "__cypher_reentry_property2__": ["keep1", "keep2", None, None],
                 },
             ),
+            (
+                "cudf",
+                "a, a.num AS property",
+                None,
+                {"a1": {"property": 1}, "a2": {"property": 2}},
+                {"__cypher_reentry_property__": ["orig1", "orig2", None, None]},
+            ),
         ],
     )
     def test_reentry_state_overrides_internal_hidden_column_collisions(
         self,
+        engine,
         with_clause,
         rows,
         carry_values_by_id,
         existing_hidden_values,
     ):
-        g = _mk_reentry_scalar_graph()
+        g = _mk_reentry_scalar_graph_cudf() if engine == "cudf" else _mk_reentry_scalar_graph()
         g._nodes = g._nodes.assign(**existing_hidden_values)
+        prefix_result = (
+            g.gfql(
+                "MATCH (a:A) WITH a, a.num AS property RETURN a, property ORDER BY property DESC",
+                engine="cudf",
+            )
+            if engine == "cudf"
+            else self._bind_reentry_prefix_result(g, rows=rows, ids=["a2", "a1"])
+        )
 
         self._assert_reentry_state_by_id(
             g=g,
             compiled=self._compile_reentry_query(with_clause),
-            prefix_result=self._bind_reentry_prefix_result(
-                g,
-                rows=rows,
-                ids=["a2", "a1"],
-            ),
+            prefix_result=prefix_result,
             ordered_ids=["a2", "a1"],
             carry_values_by_id=carry_values_by_id,
             expect_same_graph=False,
+            engine=engine,
         )
 
         self._assert_hidden_columns_preserved(g, existing_hidden_values)
-
-    def test_reentry_state_preserves_cudf_backend_when_hidden_columns_collide(self):
-        pytest.importorskip("cudf")
-        g = _mk_reentry_scalar_graph_cudf()
-        g._nodes = g._nodes.assign(__cypher_reentry_property__=["orig1", "orig2", None, None])
-
-        dispatch_graph, start_nodes = self._run_reentry_state(
-            g,
-            self._compile_reentry_query(),
-            g.gfql(
-                "MATCH (a:A) WITH a, a.num AS property RETURN a, property ORDER BY property DESC",
-                engine="cudf",
-            ),
-            engine="cudf",
-        )
-
-        assert dispatch_graph is not g
-        assert type(dispatch_graph._nodes).__module__.startswith("cudf")
-        assert type(start_nodes).__module__.startswith("cudf")
-        assert _to_pandas_df(start_nodes).to_dict(orient="records") == self._expected_reentry_rows(
-            ["a2", "a1"],
-            {"a1": {"property": 1}, "a2": {"property": 2}},
-        )
-        self._assert_hidden_columns_preserved(g, {"__cypher_reentry_property__": ["orig1", "orig2", None, None]})

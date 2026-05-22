@@ -355,7 +355,7 @@ def combine_steps(
             out_df = safe_merge(out_df, step_df, on=id, how='left', engine=engine)
             x_name, y_name = f'{op._name}_x', f'{op._name}_y'
             if x_name in out_df.columns and y_name in out_df.columns:
-                out_df[op._name] = out_df[x_name].fillna(out_df[y_name])
+                out_df[op._name] = out_df[x_name].where(out_df[x_name].notna(), out_df[y_name])
                 out_df = out_df.drop(columns=[x_name, y_name])
             label_col = out_df[op._name]
             if engine == Engine.PANDAS:
@@ -519,50 +519,6 @@ def combine_steps(
     return out_df
 
 
-def _inject_binding_ops_if_needed(
-    middle: List[ASTObject],
-    suffix: List[ASTObject],
-) -> List[ASTObject]:
-    """Inject serialized middle ops into a bare ``rows()`` call in the suffix.
-
-    When the middle contains named traversal ops (``n(name=...)``, ``e(name=...)``)
-    and the suffix starts with a ``rows()`` call that has no explicit ``binding_ops``,
-    serialize the middle ops and inject them so that ``rows()`` materializes a
-    multi-alias bindings table instead of a single-table view.  (#880)
-    """
-    from graphistry.compute.ast import ASTCall, rows as rows_fn
-
-    if not middle or not suffix:
-        return suffix
-
-    # Check if any middle op has a name (alias)
-    has_named = any(getattr(op, "_name", None) is not None for op in middle)
-    if not has_named:
-        return suffix
-
-    first_suffix = suffix[0]
-    if not isinstance(first_suffix, ASTCall):
-        return suffix
-    if first_suffix.function != "rows":
-        return suffix
-    # Don't override if binding_ops, source, or alias_endpoints already provided
-    if first_suffix.params.get("binding_ops") is not None:
-        return suffix
-    if first_suffix.params.get("source") is not None:
-        return suffix
-    if first_suffix.params.get("alias_endpoints") is not None:
-        return suffix
-
-    if any(not isinstance(op, (ASTNode, ASTEdge)) for op in middle):
-        return suffix  # Can't serialize non-traversal ops
-
-    binding_ops = serialize_binding_ops(middle)
-
-    # Create a new rows() call with binding_ops injected
-    new_rows = rows_fn(binding_ops=binding_ops)
-    return [new_rows] + list(suffix[1:])
-
-
 def _get_boundary_calls(ops: List[ASTObject]) -> Tuple[List[ASTObject], List[ASTObject], List[ASTObject]]:
     """Split ops into call-prefix, traversal middle, and call-suffix segments.
 
@@ -606,7 +562,7 @@ def _handle_boundary_calls(
     - ``None`` when there is no boundary-call pattern to handle.
     - A materialized ``Plottable`` when boundary-call execution was applied.
     """
-    from graphistry.compute.ast import ASTCall
+    from graphistry.compute.ast import ASTCall, rows as rows_fn
 
     has_call = any(isinstance(op, ASTCall) for op in ops)
     has_traversal = any(isinstance(op, (ASTNode, ASTEdge)) for op in ops)
@@ -669,10 +625,17 @@ def _handle_boundary_calls(
             setattr(g_temp, "_gfql_start_nodes", start_nodes)
         setattr(g_temp, "_gfql_rows_base_graph", suffix_base_graph)
         setattr(g_temp, "_gfql_shortest_path_backend", getattr(g_temp, "_gfql_shortest_path_backend", "auto"))
-        # #880: If middle has named ops and suffix starts with rows(),
-        # inject the middle ops as binding_ops so rows() can materialize
-        # a multi-alias bindings table instead of a single-table view.
-        suffix = _inject_binding_ops_if_needed(middle, suffix)
+        if (
+            middle
+            and any(getattr(op, "_name", None) is not None for op in middle)
+            and isinstance(suffix[0], ASTCall)
+            and suffix[0].function == "rows"
+            and suffix[0].params.get("binding_ops") is None
+            and suffix[0].params.get("source") is None
+            and suffix[0].params.get("alias_endpoints") is None
+            and all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
+        ):
+            suffix = [rows_fn(binding_ops=serialize_binding_ops(middle))] + list(suffix[1:])
         g_temp = _chain_impl(
             g_temp,
             suffix,
@@ -768,95 +731,6 @@ def _chain_impl(
     context,
     start_nodes: Optional[DataFrameT]
 ) -> Plottable:
-    """
-    Internal implementation of chain without policy wrapper indentation.
-    
-    Implementation overview:
-    1. Forward pass: execute each op to build per-step wavefronts.
-    2. Backward pass: reverse-prune wavefronts so surviving rows satisfy the
-       full chain, not just local step filters.
-    3. Materialize: combine surviving node/edge rows, preserving labels/tags.
-
-    **Example: Find nodes of some type**
-
-    ::
-
-            from graphistry.ast import n
-
-            people_nodes_df = g.chain([ n({"type": "person"}) ])._nodes
-            
-    **Example: Find 2-hop edge sequences with some attribute**
-
-    ::
-
-            from graphistry.ast import e_forward
-
-            g_2_hops = g.chain([ e_forward({"interesting": True}, hops=2) ])
-            g_2_hops.plot()
-
-    **Example: Find any node 1-2 hops out from another node, and label each hop**
-
-    ::
-
-            from graphistry.ast import n, e_undirected
-
-            g_2_hops = g.chain([ n({g._node: "a"}), e_undirected(name="hop1"), e_undirected(name="hop2") ])
-            print('# first-hop edges:', len(g_2_hops._edges[ g_2_hops._edges.hop1 == True ]))
-
-    **Example: Transaction nodes between two kinds of risky nodes**
-
-    ::
-
-            from graphistry.ast import n, e_forward, e_reverse
-
-            g_risky = g.chain([
-                n({"risk1": True}),
-                e_forward(to_fixed=True),
-                n({"type": "transaction"}, name="hit"),
-                e_reverse(to_fixed=True),
-                n({"risk2": True})
-            ])
-            print('# hits:', len(g_risky._nodes[ g_risky._nodes.hit ]))
-
-    **Example: Filter by multiple node types at each step using is_in**
-
-    ::
-
-            from graphistry.ast import n, e_forward, e_reverse, is_in
-
-            g_risky = g.chain([
-                n({"type": is_in(["person", "company"])}),
-                e_forward({"e_type": is_in(["owns", "reviews"])}, to_fixed=True),
-                n({"type": is_in(["transaction", "account"])}, name="hit"),
-                e_reverse(to_fixed=True),
-                n({"risk2": True})
-            ])
-            print('# hits:', len(g_risky._nodes[ g_risky._nodes.hit ]))
-    
-    **Example: Run with automatic GPU acceleration**
-
-    ::
-
-            import cudf
-            import graphistry
-
-            e_gdf = cudf.from_pandas(df)
-            g1 = graphistry.edges(e_gdf, 's', 'd')
-            g2 = g1.chain([ ... ])
-
-    **Example: Run with automatic GPU acceleration, and force GPU mode**
-
-    ::
-
-            import cudf
-            import graphistry
-
-            e_gdf = cudf.from_pandas(df)
-            g1 = graphistry.edges(e_gdf, 's', 'd')
-            g2 = g1.chain([ ... ], engine='cudf')
-
-    """
-
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
 
@@ -864,10 +738,7 @@ def _chain_impl(
         ops = ops.chain
 
     if validate_schema:
-        if isinstance(ops, Chain):
-            ops.validate(collect_all=False)
-        else:
-            Chain(ops).validate(collect_all=False)
+        Chain(ops).validate(collect_all=False)
 
     from graphistry.compute.ast import ASTCall
 
@@ -900,14 +771,13 @@ def _chain_impl(
                 validate_chain_schema(self, ops, collect_all=False)
 
             return execute_call(self, schema_changer.function, schema_changer.params, engine_concrete, policy=policy, context=context)
-        else:
-            before = ops[:schema_changer_idx]
-            schema_changer = ops[schema_changer_idx]
-            rest = ops[schema_changer_idx + 1:]
+        before = ops[:schema_changer_idx]
+        schema_changer = ops[schema_changer_idx]
+        rest = ops[schema_changer_idx + 1:]
 
-            g_temp = _chain_impl(self, before, engine, validate_schema, policy, context, start_nodes=None) if before else self
-            g_temp2 = _chain_impl(g_temp, [schema_changer], engine, validate_schema, policy, context, start_nodes=None)
-            return _chain_impl(g_temp2, rest, engine, validate_schema, policy, context, start_nodes=None) if rest else g_temp2
+        g_temp = _chain_impl(self, before, engine, validate_schema, policy, context, start_nodes=None) if before else self
+        g_temp2 = _chain_impl(g_temp, [schema_changer], engine, validate_schema, policy, context, start_nodes=None)
+        return _chain_impl(g_temp2, rest, engine, validate_schema, policy, context, start_nodes=None) if rest else g_temp2
 
     if len(ops) == 0:
         return self

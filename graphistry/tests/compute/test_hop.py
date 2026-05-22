@@ -1071,7 +1071,7 @@ def test_hop_labels_undirected():
 def test_hop_labels_node_only():
     # label_node_hops only — no label_edge_hops; edge hop column must be absent
     g = _mk_abc_chain()
-    n_a = g._nodes.query('v == "a"')
+    n_a = g._nodes[g._nodes['v'].isin(['a'])]
     g2 = g.hop(nodes=n_a, hops=2, direction='forward', label_node_hops='nh')
     assert 'nh' in g2._nodes.columns
     assert 'eh' not in g2._edges.columns
@@ -1120,6 +1120,91 @@ def test_hop_labels_multi_hop_ordering():
         for row in g2._edges[['s', 'd', 'eh']].to_dict(orient='records')
     }
     assert edge_hops == {('a', 'b'): 1, ('b', 'c'): 2, ('c', 'd'): 3}
+
+
+def _assert_hop_labels_min_hops_relabels_nodes_after_shorter_branch_pruned(frame_mod):
+    g = (
+        CGFull()
+        .edges(
+            frame_mod.DataFrame(
+                {
+                    's': ['a', 'b', 'c', 'a', 'x'],
+                    'd': ['b', 'c', 'd', 'x', 'd'],
+                    'edge_id': ['e1', 'e2', 'e3', 'short1', 'short2'],
+                }
+            ),
+            's',
+            'd',
+            edge='edge_id',
+        )
+        .nodes(frame_mod.DataFrame({'v': ['a', 'b', 'c', 'd', 'x']}), 'v')
+    )
+    n_a = g._nodes[g._nodes['v'].isin(['a'])]
+
+    g2 = g.hop(
+        nodes=n_a,
+        min_hops=3,
+        max_hops=3,
+        direction='forward',
+        label_node_hops='nh',
+        label_edge_hops='eh',
+        label_seeds=True,
+    )
+
+    nodes_df = g2._nodes.to_pandas() if hasattr(g2._nodes, 'to_pandas') else g2._nodes
+    edges_df = g2._edges.to_pandas() if hasattr(g2._edges, 'to_pandas') else g2._edges
+    node_hops = {row['v']: int(row['nh']) for row in nodes_df[['v', 'nh']].to_dict(orient='records')}
+    assert node_hops == {'a': 0, 'b': 1, 'c': 2, 'd': 3}
+    assert 'x' not in node_hops
+    assert set(edges_df['edge_id'].tolist()) == {'e1', 'e2', 'e3'}
+
+
+def test_hop_labels_min_hops_relabels_nodes_after_shorter_branch_pruned():
+    _assert_hop_labels_min_hops_relabels_nodes_after_shorter_branch_pruned(pd)
+
+
+def test_hop_labels_min_hops_relabels_reverse_nodes_after_shorter_branch_pruned():
+    g = (
+        CGFull()
+        .edges(
+            pd.DataFrame(
+                {
+                    's': ['a', 'b', 'c', 'a', 'x'],
+                    'd': ['b', 'c', 'd', 'x', 'd'],
+                    'edge_id': ['e1', 'e2', 'e3', 'short1', 'short2'],
+                }
+            ),
+            's',
+            'd',
+            edge='edge_id',
+        )
+        .nodes(pd.DataFrame({'v': ['a', 'b', 'c', 'd', 'x']}), 'v')
+    )
+    n_d = g._nodes.query('v == "d"')
+
+    g2 = g.hop(
+        nodes=n_d,
+        min_hops=3,
+        max_hops=3,
+        direction='reverse',
+        label_node_hops='nh',
+        label_edge_hops='eh',
+        label_seeds=True,
+    )
+
+    node_hops = {row['v']: int(row['nh']) for row in g2._nodes[['v', 'nh']].to_dict(orient='records')}
+    assert node_hops == {'a': 3, 'b': 2, 'c': 1, 'd': 0}
+    assert 'x' not in node_hops
+    assert set(g2._edges['edge_id'].tolist()) == {'e1', 'e2', 'e3'}
+
+
+@pytest.mark.skipif(
+    not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
+    reason="cudf tests need TEST_CUDF=1",
+)
+def test_hop_labels_min_hops_relabels_nodes_after_shorter_branch_pruned_cudf():
+    import cudf
+    _assert_hop_labels_min_hops_relabels_nodes_after_shorter_branch_pruned(cudf)
 
 
 def test_hop_labels_empty_result_with_edge_hops():

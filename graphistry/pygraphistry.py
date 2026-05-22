@@ -4,18 +4,30 @@ from graphistry.privacy import Mode, ModeAction
 from graphistry.utils.requests import log_requests_error
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.plugins_types.gexf_types import GexfEdgeViz, GexfNodeViz, GexfParseEngine
-from graphistry.client_session import ClientSession, ApiVersion, ENV_GRAPHISTRY_API_KEY, DatasetInfo, AuthManagerProtocol, strtobool
+from graphistry.client_session import (
+    ClientSession,
+    ApiVersion,
+    DatasetInfo,
+    AuthManagerProtocol,
+    require_supported_api_version,
+    strtobool,
+)
 from graphistry.Engine import EngineAbstractType
 from graphistry.models.collections import CollectionsInput
 from graphistry.models.types import ValidationParam
+from graphistry.models.surfaces.graphistry_frontend.react_settings import ApplyEncodingsReactSettingsDict
+from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 from graphistry.otel import inject_trace_headers, otel as otel_config
 
 """Top-level import of class PyGraphistry as "Graphistry". Used to connect to the Graphistry server and then create a base plotter."""
-import calendar, copy, gzip, io, json, numpy as np, pandas as pd, requests, sys, time, warnings
+import calendar, copy, gzip, io, json, numpy as np, pandas as pd, requests, sys, time, uuid, warnings
 
 from datetime import datetime
 
 from .arrow_uploader import ArrowUploader, ArrowFileUploader
+from .io.contracts.graphistry_server.dataset import GraphistryServerDatasetPayload
+from .io.adapters.graphistry_server.dataset import adapt_graphistry_server_dataset_payload_to_plottable_metadata
+from .io.metadata import deserialize_plottable_metadata
 
 from . import util
 from . import bolt_util
@@ -481,17 +493,18 @@ class GraphistryClient(AuthManagerProtocol):
         return value
 
     def api_key(self, value: Optional[str] = None) -> Optional[str]:
-        """Set or get the API key.
-        Also set via environment variable GRAPHISTRY_API_KEY."""
+        """Deprecated compatibility shim for the removed api=1 API key flow."""
 
-        if value is None:
-            return self.session.api_key
+        warnings.warn(
+            "api_key() is deprecated and ignored. Legacy api=1 keys used the "
+            "removed /api/check and /etl flow; use api=3 with username/password, "
+            "token, or personal_key_id/personal_key_secret.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
-        # setter
-        if value is not self.session.api_key:
-            self.session.api_key = value.strip()
-            self.session._is_authenticated = False
-        return value
+        self.session.api_key = None
+        return None
 
     def api_token(self, value: Optional[str] = None) -> Optional[str]:
         """Set or get the API token.
@@ -549,13 +562,12 @@ class GraphistryClient(AuthManagerProtocol):
         if value is None:
             value = self.session.api_version
 
-        if value != 3:
-            raise ValueError("Expected API version to be 3. Legacy API versions 1 and 2 are no longer supported. Got: %s" % value)
+        supported_value = require_supported_api_version(value)
 
         # setter
-        self.session.api_version = value
+        self.session.api_version = supported_value
 
-        return value
+        return supported_value
 
     def certificate_validation(self, value: Optional[bool] = None) -> bool:
         """Enable/Disable SSL certificate validation (True, False).
@@ -585,7 +597,7 @@ class GraphistryClient(AuthManagerProtocol):
         personal_key_secret: Optional[str] = None,
         server: Optional[str] = None,
         protocol: Optional[str] = None,
-        api: Optional[Literal[3]] = None,
+        api: Optional[ApiVersion] = None,
         certificate_validation: Optional[bool] = None,
         bolt: Optional[Union[Dict, Any]] = None,
         store_token_creds_in_memory: Optional[bool] = None,
@@ -597,13 +609,14 @@ class GraphistryClient(AuthManagerProtocol):
         sso_opt_into_type: Optional[Literal["display", "browser"]] = None,
         verify_token: Optional[bool] = None,
     ) -> "GraphistryClient":
-        """API key registration and server selection
+        """Authentication and server selection.
 
-        Changing the key effects all derived Plotter instances.
+        Provide username/password, JWT token, or personal key ID/secret for
+        authentication.
 
-        Provide username/password or temporary token for authentication.
-
-        :param key: API key (deprecated, ignored)
+        :param key: Legacy api=1 API key (deprecated, ignored). Use
+            personal_key_id/personal_key_secret for the current key/value
+            authentication flow.
         :type key: Optional[str]
         :param username: Account username.
         :type username: Optional[str]
@@ -620,7 +633,7 @@ class GraphistryClient(AuthManagerProtocol):
         :param protocol: Protocol to use for server uploaders, defaults to "https".
         :type protocol: Optional[str]
         :param api: API version (only 3 is supported, uses Arrow+JWT)
-        :type api: Optional[Literal[3]]
+        :type api: Optional[Literal[1, 2, 3]]
         :param certificate_validation: Override default-on check for valid TLS certificate by setting to True.
         :type certificate_validation: Optional[bool]
         :param bolt: Neo4j bolt information. Optional driver or named constructor arguments for instantiating a new one.
@@ -717,7 +730,8 @@ class GraphistryClient(AuthManagerProtocol):
         
         self.api_version(api)
         # self.api_token_refresh_ms(token_refresh_ms)
-        self.api_key(key)
+        if key is not None:
+            self.api_key(key)
         self.server(server)
         self.protocol(protocol)
         self.client_protocol_hostname(client_protocol_hostname)
@@ -1834,6 +1848,25 @@ class GraphistryClient(AuthManagerProtocol):
             shape=shape,
         )
 
+    def apply_encodings(
+        self,
+        react_encodings: Optional[ApplyEncodingsReactSettingsDict],
+        validate: ValidationParam = "strict",
+        warn: bool = True,
+    ) -> Plotter:
+        """Apply React-style declarative encodings.
+
+        See :meth:`graphistry.PlotterBase.PlotterBase.apply_encodings` for supported keys.
+        """
+        return cast(
+            Plotter,
+            self._plotter().apply_encodings(
+                react_encodings=react_encodings,
+                validate=validate,
+                warn=warn,
+            ),
+        )
+
     def bind(
         self,
         source: Optional[str] = None,
@@ -1907,6 +1940,71 @@ class GraphistryClient(AuthManagerProtocol):
             point_latitude=point_latitude,
             dataset_id=dataset_id
         ))
+
+    def from_dataset_id(self, dataset_id: str, api_token: Optional[str] = None) -> Plotter:
+        """Fetch existing remote dataset metadata and hydrate a Plotter.
+
+        :param dataset_id: Existing uploaded dataset id
+        :type dataset_id: str
+        :param api_token: Optional API token override. If omitted, uses current session token.
+        :type api_token: Optional[str]
+        :returns: Plotter bound to dataset id and hydrated from metadata payload
+        :rtype: Plotter
+        """
+        if not isinstance(dataset_id, str):
+            raise ValueError("dataset_id must be a string")
+        dataset_id = dataset_id.strip()
+        if dataset_id == "":
+            raise ValueError("dataset_id cannot be empty")
+
+        if api_token is None:
+            self.refresh()
+            api_token = self.session.api_token
+        if api_token is None:
+            raise ValueError("Missing API token: pass api_token or call graphistry.register()/login() first")
+
+        endpoint = f"{self.protocol()}://{self.server()}/api/v2/upload/datasets/{dataset_id}"
+        response = requests.get(
+            endpoint,
+            headers=inject_trace_headers({'Authorization': f'Bearer {api_token}'}),
+            verify=self.certificate_validation(),
+        )
+        log_requests_error(response)
+        if not (200 <= response.status_code < 300):
+            raise ValueError(
+                f"Failed to fetch dataset metadata for dataset_id='{dataset_id}': HTTP {response.status_code}"
+            )
+
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise ValueError("Dataset metadata endpoint returned non-object JSON")
+
+        data_payload = payload.get('data', payload)
+        if not isinstance(data_payload, dict):
+            raise ValueError("Dataset metadata endpoint returned invalid payload shape")
+
+        server_dataset_id = data_payload.get('dataset_id')
+        resolved_dataset_id = server_dataset_id if isinstance(server_dataset_id, str) and server_dataset_id else dataset_id
+        out = self.bind(dataset_id=resolved_dataset_id)
+
+        metadata = adapt_graphistry_server_dataset_payload_to_plottable_metadata(
+            cast(GraphistryServerDatasetPayload, data_payload)
+        )
+        if metadata:
+            out = cast(Plotter, deserialize_plottable_metadata(metadata, out))
+            from graphistry.validate import apply_axis_url_defaults
+            merged_url_params = apply_axis_url_defaults(out._url_params, out._complex_encodings)
+            if isinstance(merged_url_params, dict):
+                out._url_params = merged_url_params
+            out._dataset_id = resolved_dataset_id
+
+        info: DatasetInfo = {
+            'name': resolved_dataset_id,
+            'type': 'arrow',
+            'viztoken': str(uuid.uuid4()),
+        }
+        out._url = self._viz_url(info, out._url_params)
+        return out
 
     def client(self, inherit: bool = False) -> 'GraphistryClient':
         """Create a new client instance with isolated session state.
@@ -2374,9 +2472,16 @@ class GraphistryClient(AuthManagerProtocol):
     ):
         return self._plotter().from_cugraph(G, node_attributes, edge_attributes, load_nodes, load_edges, merge_if_existing)
 
-    def settings(self, height=None, url_params={}, render=None):
+    def settings(
+        self,
+        height=None,
+        url_params: Optional[URLParamsDict] = None,
+        render=None,
+        validate: ValidationParam = 'autofix',
+        warn: bool = True,
+    ):
 
-        return self._plotter().settings(height, url_params, render)
+        return self._plotter().settings(height, url_params, render, validate=validate, warn=warn)
 
     def collections(
         self,
@@ -2396,7 +2501,7 @@ class GraphistryClient(AuthManagerProtocol):
             warn=warn
         )
 
-    def _viz_url(self, info: DatasetInfo, url_params: Dict[str, Any]) -> str:
+    def _viz_url(self, info: DatasetInfo, url_params: URLParamsDict) -> str:
         splash_time = int(calendar.timegm(time.gmtime())) + 15
         extra = "&".join([k + "=" + str(v) for k, v in list(url_params.items())])
         cph = self.client_protocol_hostname()
@@ -2604,6 +2709,7 @@ refresh = PyGraphistry.refresh
 api_token = PyGraphistry.api_token
 verify_token = PyGraphistry.verify_token
 bind = PyGraphistry.bind
+from_dataset_id = PyGraphistry.from_dataset_id
 addStyle = PyGraphistry.addStyle
 style = PyGraphistry.style
 encode_point_color = PyGraphistry.encode_point_color
@@ -2613,6 +2719,7 @@ encode_point_icon = PyGraphistry.encode_point_icon
 encode_edge_icon = PyGraphistry.encode_edge_icon
 encode_point_badge = PyGraphistry.encode_point_badge
 encode_edge_badge = PyGraphistry.encode_edge_badge
+apply_encodings = PyGraphistry.apply_encodings
 infer_labels = PyGraphistry.infer_labels
 name = PyGraphistry.name
 description = PyGraphistry.description

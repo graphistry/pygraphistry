@@ -33,12 +33,12 @@ from graphistry.compute.gfql.cypher.ast import (
     WhereClause,
 )
 from graphistry.compute.exceptions import GFQLSyntaxError
-from graphistry.compute.gfql.expr_split import split_top_level_and
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart
 from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.pushdown_safety import is_null_rejecting
 from graphistry.compute.gfql.ir.types import BoundPredicate
+from graphistry.compute.gfql.passes.predicate_pushdown import split_top_level_and_conjuncts
 
 
 # ---------------------------------------------------------------------------
@@ -194,8 +194,8 @@ class TestBinderShape:
         assert "XOR" in parts[0].predicates[0].expression.upper()
 
     # Shape F: label AND property → 2 BoundPredicates (structured route).
-    # `expression` carries dataclass repr per binder's pre-existing
-    # literal-atom fidelity caveat (tracked in #1200); substring-match.
+    # `expression` carries dataclass repr for structured WherePredicate
+    # terms, so assertions intentionally substring-match stable fields.
     def test_label_and_property_produces_two_bound_predicates(self) -> None:
         parts = _match_parts(
             _bind("MATCH (n) WHERE n:Admin AND n.active = true RETURN n")
@@ -227,7 +227,7 @@ class TestPushdownExprShape:
 
     # Shape A: plain AND splits into independent conjuncts
     def test_a_and_b_splits_into_two_conjuncts(self) -> None:
-        assert split_top_level_and("n.x = 1 AND n.y = 2") == (
+        assert split_top_level_and_conjuncts("n.x = 1 AND n.y = 2") == (
             "n.x = 1",
             "n.y = 2",
         )
@@ -236,60 +236,60 @@ class TestPushdownExprShape:
     # The splitter is a standalone utility; this shape raises GFQLSyntaxError in the
     # parser but is valid input here (splitter operates independently of the parser).
     def test_and_with_paren_or_splits_at_outer_and_only(self) -> None:
-        parts = split_top_level_and("n.x = 1 AND (n.y = 2 OR n.z = 3)")
+        parts = split_top_level_and_conjuncts("n.x = 1 AND (n.y = 2 OR n.z = 3)")
         assert len(parts) == 2
         assert parts[0] == "n.x = 1"
         assert "OR" in parts[1].upper()
 
     # Shape C: OR-first compound — outer AND splits; OR group is opaque
     def test_paren_or_and_c_splits_at_outer_and_only(self) -> None:
-        parts = split_top_level_and("(n.x = 1 OR n.y = 2) AND n.z = 3")
+        parts = split_top_level_and_conjuncts("(n.x = 1 OR n.y = 2) AND n.z = 3")
         assert len(parts) == 2
         assert "OR" in parts[0].upper()
         assert parts[1] == "n.z = 3"
 
     # Shape D: NOT prefix — AND still splits correctly
     def test_not_a_and_b_splits_at_and(self) -> None:
-        parts = split_top_level_and("NOT n.x = 1 AND n.y = 2")
+        parts = split_top_level_and_conjuncts("NOT n.x = 1 AND n.y = 2")
         assert len(parts) == 2
         assert parts[0] == "NOT n.x = 1"
         assert parts[1] == "n.y = 2"
 
     # Shape E: XOR — not an AND so no split
     def test_xor_does_not_split(self) -> None:
-        assert split_top_level_and("n:Admin XOR n:Active") == ("n:Admin XOR n:Active",)
+        assert split_top_level_and_conjuncts("n:Admin XOR n:Active") == ("n:Admin XOR n:Active",)
 
     # Shape F: label predicate AND property — splits normally
     def test_label_and_property_splits(self) -> None:
-        assert split_top_level_and("n:Admin AND n.active = true") == (
+        assert split_top_level_and_conjuncts("n:Admin AND n.active = true") == (
             "n:Admin",
             "n.active = true",
         )
 
     # Shape G: quoted AND is opaque — single-quoted
     def test_single_quoted_and_does_not_split(self) -> None:
-        assert split_top_level_and("n.name = 'has AND text' AND n.x = 1") == (
+        assert split_top_level_and_conjuncts("n.name = 'has AND text' AND n.x = 1") == (
             "n.name = 'has AND text'",
             "n.x = 1",
         )
 
     # Shape G: backtick-quoted identifier with AND does not split
     def test_backtick_and_does_not_split(self) -> None:
-        assert split_top_level_and("n.`weird AND name` = 1 AND n.x = 2") == (
+        assert split_top_level_and_conjuncts("n.`weird AND name` = 1 AND n.x = 2") == (
             "n.`weird AND name` = 1",
             "n.x = 2",
         )
 
     # Shape G: square-bracket AND is opaque
     def test_square_bracket_and_does_not_split(self) -> None:
-        assert split_top_level_and("a[0 AND 1] AND b = 2") == (
+        assert split_top_level_and_conjuncts("a[0 AND 1] AND b = 2") == (
             "a[0 AND 1]",
             "b = 2",
         )
 
     # Shape G: curly-brace AND is opaque
     def test_curly_brace_and_does_not_split(self) -> None:
-        assert split_top_level_and("{k: v AND w} AND z = 1") == (
+        assert split_top_level_and_conjuncts("{k: v AND w} AND z = 1") == (
             "{k: v AND w}",
             "z = 1",
         )
@@ -299,10 +299,15 @@ class TestPushdownExprShape:
         pred = _pred("n.x = 1", frozenset({"n"}))
         assert is_null_rejecting(pred, frozenset({"n"}))
 
-    # Null-rejection: OR expression on optional alias — conservative: no null-safe form
-    # present, so is_null_rejecting returns True (the function does not analyze OR chains).
+    # Null-rejection: OR expression on optional alias stays conservative.
     def test_or_on_optional_alias_is_rejecting(self) -> None:
         pred = _pred("n.y = 2 OR n.z = 3", frozenset({"n"}))
+        assert is_null_rejecting(pred, frozenset({"n"}))
+
+    # Null-rejection: even with an IS NOT NULL branch, OR stays rejecting
+    # because disjunct-level alias analysis is intentionally out of scope.
+    def test_or_with_null_safe_substring_is_still_rejecting(self) -> None:
+        pred = _pred("n.x IS NOT NULL OR m.y = 1", frozenset({"n", "m"}))
         assert is_null_rejecting(pred, frozenset({"n"}))
 
     # Null-rejection: IS NULL on optional alias is null-safe (not rejecting)

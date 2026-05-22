@@ -9,5 +9,4 @@ Same-path constraints are expressed via `where` on a Chain; see :doc:`/gfql/wher
 
 .. automodule:: graphistry.compute.chain
    :members:
-   :undoc-members:
    :show-inheritance:

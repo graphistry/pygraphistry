@@ -24,6 +24,8 @@ from typing import cast
 from graphistry.compute.gfql.cypher import (
     BooleanExpr,
     CypherQuery,
+    NodePattern,
+    WherePredicate,
     parse_cypher,
 )
 
@@ -199,23 +201,89 @@ def test_and_xor_mixed_precedence_via_parens() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Known-limitation lock: primitive literal atoms
+# Primitive literal atoms
 # ---------------------------------------------------------------------------
 
 
-def test_literal_boolean_atoms_known_limitation_python_style_text() -> None:
-    # Locks the documented caveat in ``_wrap_as_boolean_atom``: literal
-    # transformers return raw Python values without span info, so atom_text
-    # falls back to ``str(True)`` → ``"True"`` instead of the source ``"true"``.
-    # No current consumer reads atom_text on literal atoms; if a future PR
-    # teaches literal transformers to carry span, this test should be updated
-    # to assert the Cypher-style lowercase text.
-    parsed = _parsed_where("MATCH (n) WHERE true XOR n.x > 1 RETURN n")
+def _assert_atom_source(query: str, atom: BooleanExpr, expected_text: str) -> None:
+    assert atom.atom_text == expected_text
+    assert atom.atom_span is not None
+    assert query[atom.atom_span.start_pos:atom.atom_span.end_pos] == expected_text
+
+
+def test_literal_boolean_atom_text_uses_source_slice() -> None:
+    query = "MATCH (n) WHERE TRUE XOR n.x > 1 RETURN n"
+    parsed = _parsed_where(query)
     assert parsed.where is not None and parsed.where.expr_tree is not None
     tree = parsed.where.expr_tree
     assert tree.op == "xor"
-    # Left operand is the boolean literal `true` — atom_text is Python-stringified.
     assert tree.left is not None and tree.left.op == "atom"
-    assert tree.left.atom_text == "True"  # known limitation — see docstring
+    _assert_atom_source(query, tree.left, "TRUE")
     # Right operand is a comparable with a Lark Tree span — accurate slice.
     assert tree.right is not None and tree.right.atom_text == "n.x > 1"
+
+
+def test_literal_false_atom_text_uses_source_slice() -> None:
+    query = "MATCH (n) WHERE false OR n.x > 1 RETURN n"
+    parsed = _parsed_where(query)
+    assert parsed.where is not None and parsed.where.expr_tree is not None
+    tree = parsed.where.expr_tree
+    assert tree.op == "or"
+    assert tree.left is not None and tree.left.op == "atom"
+    _assert_atom_source(query, tree.left, "false")
+
+
+def test_literal_null_atom_text_uses_source_slice() -> None:
+    query = "MATCH (n) WHERE null OR n.x > 1 RETURN n"
+    parsed = _parsed_where(query)
+    assert parsed.where is not None and parsed.where.expr_tree is not None
+    tree = parsed.where.expr_tree
+    assert tree.op == "or"
+    assert tree.left is not None and tree.left.op == "atom"
+    _assert_atom_source(query, tree.left, "null")
+
+
+def test_numeric_literal_atom_text_uses_source_slice() -> None:
+    for literal_text in ("1.0e+2", "+1", "-1", "0x10", "0o10"):
+        query = f"MATCH (n) WHERE {literal_text} XOR n.x > 1 RETURN n"
+        parsed = _parsed_where(query)
+        assert parsed.where is not None and parsed.where.expr_tree is not None
+        tree = parsed.where.expr_tree
+        assert tree.op == "xor"
+        assert tree.left is not None and tree.left.op == "atom"
+        _assert_atom_source(query, tree.left, literal_text)
+
+
+def test_structured_literal_predicates_keep_raw_values() -> None:
+    parsed = _parsed_where("MATCH (n {ok: TRUE, count: 0x10}) WHERE n.ok = true RETURN n")
+    node = cast(NodePattern, parsed.matches[0].patterns[0][0])
+    assert node.properties[0].value is True
+    assert node.properties[1].value == 16
+    assert parsed.where is not None
+    predicate = cast(WherePredicate, parsed.where.predicates[0])
+    assert predicate.right is True
+
+
+# ---------------------------------------------------------------------------
+# boolean_expr_to_text contract for the op == "pattern" branch
+# ---------------------------------------------------------------------------
+
+
+def test_boolean_expr_to_text_emits_atom_text_for_pattern_op() -> None:
+    # Pattern leaves are normally lifted out of expr_tree by
+    # _split_top_level_and_pattern_leaves before the binder walks the
+    # tree, so this branch is unreachable in production.  The unit test
+    # locks the contract explicitly so a future code path that DOES
+    # reach boolean_expr_to_text with a pattern leaf gets the raw
+    # pattern source rather than the empty-string fallthrough.
+    from graphistry.compute.gfql.cypher.ast import SourceSpan
+    from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
+
+    span = SourceSpan(line=1, column=1, end_line=1, end_column=10, start_pos=0, end_pos=10)
+    pattern_leaf = BooleanExpr(
+        op="pattern",
+        span=span,
+        atom_text="(a)-->(b)",
+        atom_span=span,
+    )
+    assert boolean_expr_to_text(pattern_leaf) == "(a)-->(b)"

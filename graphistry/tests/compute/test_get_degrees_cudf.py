@@ -59,6 +59,43 @@ class TestGetDegrees:
         assert 'degree_in' in result._nodes.columns
         assert 'degree_out' in result._nodes.columns
 
+    @skip_gpu
+    def test_get_degrees_empty_edges_cudf(self):
+        """Empty cuDF edges still yield a cuDF node table with degree columns."""
+        import cudf
+
+        edges_df = cudf.DataFrame({
+            'src': cudf.Series([], dtype='str'),
+            'dst': cudf.Series([], dtype='str')
+        })
+
+        g = graphistry.edges(edges_df, 'src', 'dst')
+        result = g.get_degrees()
+
+        assert result._nodes is not None
+        assert isinstance(result._nodes, cudf.DataFrame)
+        assert len(result._nodes) == 0
+        assert list(result._nodes.columns) == ['id', 'degree_in', 'degree_out', 'degree']
+
+    @skip_gpu
+    def test_materialize_nodes_empty_edges_cudf(self):
+        """Empty cuDF edges materialize a bound empty cuDF node table."""
+        import cudf
+
+        edges_df = cudf.DataFrame({
+            'src': cudf.Series([], dtype='str'),
+            'dst': cudf.Series([], dtype='str')
+        })
+
+        g = graphistry.edges(edges_df, 'src', 'dst')
+        result = g.materialize_nodes()
+
+        assert result._nodes is not None
+        assert isinstance(result._nodes, cudf.DataFrame)
+        assert result._node == 'id'
+        assert len(result._nodes) == 0
+        assert list(result._nodes.columns) == ['id']
+
     def test_get_indegrees_pandas(self):
         """Test get_indegrees with pandas DataFrames"""
         edges_df = pd.DataFrame({

@@ -21,7 +21,7 @@ from graphistry.compute.gfql.cypher import (
     parse_cypher,
 )
 from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
-from graphistry.compute.gfql.cypher.ast import GraphBinding, GraphConstructor, UseClause
+from graphistry.compute.gfql.cypher.ast import BooleanExpr, GraphBinding, GraphConstructor, UseClause
 
 
 def _parse_query(query: str) -> CypherQuery:
@@ -122,24 +122,18 @@ def test_parse_graph_constructor_with_call() -> None:
     assert parsed.constructor.matches == ()
 
 
-def test_parse_rejects_match_and_call_in_graph_constructor() -> None:
+@pytest.mark.parametrize(
+    "query",
+    [
+        "GRAPH { MATCH (a)-[r]->(b) CALL graphistry.degree.write() }",
+        "GRAPH { }",
+        "GRAPH { MATCH (a) RETURN a }",
+        "GRAPH { UNWIND [1,2] AS x }",
+    ],
+)
+def test_parse_rejects_invalid_graph_constructor_body(query: str) -> None:
     with pytest.raises(GFQLSyntaxError):
-        parse_cypher("GRAPH { MATCH (a)-[r]->(b) CALL graphistry.degree.write() }")
-
-
-def test_parse_rejects_empty_graph_constructor() -> None:
-    with pytest.raises(GFQLSyntaxError):
-        parse_cypher("GRAPH { }")
-
-
-def test_parse_rejects_return_inside_graph_constructor() -> None:
-    with pytest.raises(GFQLSyntaxError):
-        parse_cypher("GRAPH { MATCH (a) RETURN a }")
-
-
-def test_parse_rejects_unwind_inside_graph_constructor() -> None:
-    with pytest.raises(GFQLSyntaxError):
-        parse_cypher("GRAPH { UNWIND [1,2] AS x }")
+        parse_cypher(query)
 
 
 def test_parse_rejects_duplicate_graph_binding_name() -> None:
@@ -252,6 +246,24 @@ def test_parse_shortest_path_bound_pattern() -> None:
     assert parsed.match.pattern_alias_kinds == ("pattern", "pattern", "shortestPath")
 
 
+def test_parse_optional_bound_pattern_preserves_alias_metadata() -> None:
+    parsed = _parse_query("OPTIONAL MATCH p = (a)-[:R]->(b) RETURN b")
+
+    assert parsed.match is not None
+    assert parsed.match.optional is True
+    assert parsed.match.pattern_aliases == ("p",)
+    assert parsed.match.pattern_alias_kinds == ("pattern",)
+
+
+def test_parse_optional_shortest_path_preserves_alias_metadata() -> None:
+    parsed = _parse_query("OPTIONAL MATCH path = shortestPath((a)-[:KNOWS*]-(b)) RETURN path")
+
+    assert parsed.match is not None
+    assert parsed.match.optional is True
+    assert parsed.match.pattern_aliases == ("path",)
+    assert parsed.match.pattern_alias_kinds == ("shortestPath",)
+
+
 @pytest.mark.parametrize(
     "query,direction",
     [
@@ -360,42 +372,31 @@ def test_parse_where_clause() -> None:
     assert pred1.op == ">="
 
 
-def test_parse_where_and_label_predicates_produces_structured_ast() -> None:
-    # AND-joined bare label predicates must land in WhereClause.predicates (not .expr)
-    # because Lark routes them to generic_where_clause via ambiguity resolution.
-    parsed = _parse_query("MATCH (n) WHERE n:Admin AND n:Active RETURN n")
+@pytest.mark.parametrize(
+    "query,expected_labels",
+    [
+        ("MATCH (n) WHERE n:Admin RETURN n", [{"Admin"}]),
+        ("MATCH (n) WHERE n:Admin AND n:Active RETURN n", [{"Admin"}, {"Active"}]),
+        ("MATCH (n) WHERE n:Admin AND n:Active AND n:Super RETURN n", [{"Admin"}, {"Active"}, {"Super"}]),
+    ],
+)
+def test_parse_where_label_predicates_produce_structured_ast(
+    query: str,
+    expected_labels: list[set[str]],
+) -> None:
+    parsed = _parse_query(query)
 
     assert parsed.where is not None
     assert parsed.where.expr_tree is None
-    assert len(parsed.where.predicates) == 2
-    p0, p1 = parsed.where.predicates
-    assert isinstance(p0, WherePredicate) and isinstance(p0.left, LabelRef)
-    assert p0.op == "has_labels"
-    assert p0.left.alias == "n"
-    assert set(p0.left.labels) == {"Admin"}
-    assert isinstance(p1, WherePredicate) and isinstance(p1.left, LabelRef)
-    assert p1.left.alias == "n"
-    assert set(p1.left.labels) == {"Active"}
-
-
-def test_parse_where_single_label_predicate_produces_structured_ast() -> None:
-    parsed = _parse_query("MATCH (n) WHERE n:Admin RETURN n")
-
-    assert parsed.where is not None
-    assert parsed.where.expr_tree is None
-    assert len(parsed.where.predicates) == 1
-    p = parsed.where.predicates[0]
-    assert isinstance(p, WherePredicate) and isinstance(p.left, LabelRef)
-    assert p.op == "has_labels"
-    assert p.left.alias == "n"
-    assert set(p.left.labels) == {"Admin"}
+    assert len(parsed.where.predicates) == len(expected_labels)
+    for predicate, labels in zip(parsed.where.predicates, expected_labels):
+        assert isinstance(predicate, WherePredicate) and isinstance(predicate.left, LabelRef)
+        assert predicate.op == "has_labels"
+        assert predicate.left.alias == "n"
+        assert set(predicate.left.labels) == labels
 
 
 def test_parse_where_non_label_expression_produces_raw_expr() -> None:
-    # Non-label WHERE expressions land through a different grammar path
-    # (`where_predicates` or raw expr); the contract under review is that
-    # `generic_where_clause` never synthesizes fake has_labels predicates
-    # from non-label text.  Assert no has_labels predicate is present.
     parsed = _parse_query("MATCH (n) WHERE n.name = 'alice' RETURN n")
 
     assert parsed.where is not None
@@ -406,7 +407,6 @@ def test_parse_where_non_label_expression_produces_raw_expr() -> None:
 
 
 def test_parse_where_xor_label_expression_stays_as_raw_expr() -> None:
-    # XOR is not handled by generic_where_clause AND-split; must stay in .expr.
     parsed = _parse_query("MATCH (n) WHERE n:Admin XOR n:Active RETURN n")
 
     assert parsed.where is not None
@@ -415,92 +415,62 @@ def test_parse_where_xor_label_expression_stays_as_raw_expr() -> None:
     assert parsed.where.predicates == ()
 
 
-def test_parse_where_triple_and_label_conjunction_through_generic_where_clause() -> None:
-    # End-to-end coverage that a triple-AND bare-label WHERE still routes
-    # through ``generic_where_clause`` and is lifted into structured
-    # ``WhereClause.predicates`` by walking the parsed ``BooleanExpr``
-    # AND-spine (#1194).  No text-level AND splitting is involved.
-    parsed = _parse_query("MATCH (n) WHERE n:Admin AND n:Active AND n:Super RETURN n")
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) WHERE n:Admin OR n:Active RETURN n",
+        "MATCH (n) WHERE NOT n:Admin RETURN n",
+        "MATCH (n) WHERE 'A:B' = n.value RETURN n",
+    ],
+)
+def test_parse_where_label_like_non_and_spines_stay_raw(query: str) -> None:
+    parsed = _parse_query(query)
 
     assert parsed.where is not None
-    assert parsed.where.expr_tree is None
-    assert len(parsed.where.predicates) == 3
-    aliases = [
-        p.left.alias
-        for p in parsed.where.predicates
-        if isinstance(p, WherePredicate) and isinstance(p.left, LabelRef)
-    ]
-    assert aliases == ["n", "n", "n"]
+    assert parsed.where.expr_tree is not None
+    assert parsed.where.predicates == ()
 
 
-# --- Unit tests for the label-lifting helpers (#1194 walker) ---
+def test_label_lift_false_positive_boundaries() -> None:
+    from graphistry.compute.gfql.cypher.ast import SourceSpan
+    from graphistry.compute.gfql.cypher.parser import _lift_label_only_and_spine, _match_bare_label_atom
 
-
-def test_match_bare_label_atom_accepts_alias_and_labels() -> None:
-    from graphistry.compute.gfql.cypher.parser import _match_bare_label_atom
-
-    assert _match_bare_label_atom("n:Admin") == ("n", ("Admin",))
-    assert _match_bare_label_atom("b:Foo:Bar") == ("b", ("Foo", "Bar"))
-    assert _match_bare_label_atom("  n:Admin  ") == ("n", ("Admin",))
-
-
-def test_match_bare_label_atom_rejects_non_label_text() -> None:
-    # ``fullmatch`` is load-bearing as the false-positive guard from #1125 —
-    # text fragments that merely look label-shaped must not lift.
-    from graphistry.compute.gfql.cypher.parser import _match_bare_label_atom
+    span = SourceSpan(line=1, column=1, end_line=1, end_column=1, start_pos=0, end_pos=0)
+    label = BooleanExpr(op="atom", span=span, atom_text="n:Admin", atom_span=span)
+    non_label = BooleanExpr(op="atom", span=span, atom_text="n.prop = 1", atom_span=span)
 
     assert _match_bare_label_atom(None) is None
-    assert _match_bare_label_atom("") is None
-    assert _match_bare_label_atom("n.prop = 1") is None
-    assert _match_bare_label_atom("n:Admin AND extra") is None
-    assert _match_bare_label_atom("'A:B'") is None  # quoted string fragment
+    assert _match_bare_label_atom("'A:B'") is None
+    assert _lift_label_only_and_spine(BooleanExpr(op="or", span=span, left=label, right=label)) is None
+    assert _lift_label_only_and_spine(BooleanExpr(op="not", span=span, left=label)) is None
+    assert _lift_label_only_and_spine(BooleanExpr(op="and", span=span, left=label, right=non_label)) is None
 
 
-def _bx_atom(text: str):  # type: ignore[no-untyped-def]
-    from graphistry.compute.gfql.cypher.ast import BooleanExpr, SourceSpan
-
-    span = SourceSpan(line=1, column=1, end_line=1, end_column=1, start_pos=0, end_pos=0)
-    return BooleanExpr(op="atom", span=span, atom_text=text, atom_span=span)
-
-
-def _bx_branch(op, left, right=None):  # type: ignore[no-untyped-def]
-    from graphistry.compute.gfql.cypher.ast import BooleanExpr, SourceSpan
+def test_label_lift_helper_positive_boundaries() -> None:
+    from graphistry.compute.gfql.cypher.ast import SourceSpan
+    from graphistry.compute.gfql.cypher.parser import _lift_label_only_and_spine, _match_bare_label_atom
 
     span = SourceSpan(line=1, column=1, end_line=1, end_column=1, start_pos=0, end_pos=0)
-    return BooleanExpr(op=op, span=span, left=left, right=right)
 
+    def atom(text: str) -> BooleanExpr:
+        return BooleanExpr(op="atom", span=span, atom_text=text, atom_span=span)
 
-def test_lift_label_only_and_spine_walks_and_chain() -> None:
-    from graphistry.compute.gfql.cypher.parser import _lift_label_only_and_spine
-
-    # Left-associative AND: ((a AND b) AND c) — depth ordering preserves left-to-right.
-    tree = _bx_branch(
-        "and",
-        _bx_branch("and", _bx_atom("n:Admin"), _bx_atom("n:Active")),
-        _bx_atom("n:Super"),
+    tree = BooleanExpr(
+        op="and",
+        span=span,
+        left=BooleanExpr(op="and", span=span, left=atom("n:Admin"), right=atom("n:Active")),
+        right=atom("n:Super"),
     )
+
+    assert _match_bare_label_atom("") is None
+    assert _match_bare_label_atom("n:Admin AND extra") is None
+    assert _match_bare_label_atom("  b:Foo:Bar  ") == ("b", ("Foo", "Bar"))
+    assert _lift_label_only_and_spine(atom("n:Admin")) == (("n", ("Admin",)),)
     assert _lift_label_only_and_spine(tree) == (
         ("n", ("Admin",)),
         ("n", ("Active",)),
         ("n", ("Super",)),
     )
-
-
-def test_lift_label_only_and_spine_rejects_non_and_or_non_label() -> None:
-    from graphistry.compute.gfql.cypher.parser import _lift_label_only_and_spine
-
-    # OR root → reject (we only lift pure AND-spines).
-    assert _lift_label_only_and_spine(
-        _bx_branch("or", _bx_atom("n:Admin"), _bx_atom("n:Active"))
-    ) is None
-    # NOT root → reject.
-    assert _lift_label_only_and_spine(_bx_branch("not", _bx_atom("n:Admin"))) is None
-    # AND with a non-label leaf → reject (mixed predicates fall through).
-    assert _lift_label_only_and_spine(
-        _bx_branch("and", _bx_atom("n:Admin"), _bx_atom("n.prop = 1"))
-    ) is None
-    # Single-atom BooleanExpr → lifts as one predicate.
-    assert _lift_label_only_and_spine(_bx_atom("n:Admin")) == (("n", ("Admin",)),)
 
 
 def test_parse_where_null_predicates() -> None:
@@ -535,6 +505,32 @@ def test_parse_return_simple_case_expression() -> None:
 
     assert parsed.return_.items[0].expression.text == "CASE score WHEN 1 THEN 'one' ELSE 'other' END"
     assert parsed.return_.items[0].alias == "result"
+
+
+def test_parse_ic4_style_return_side_case_expression() -> None:
+    parsed = _parse_query(
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "RETURN tag.name AS tagName, "
+        "CASE WHEN 1275350400000 <= post.creationDate AND post.creationDate < 1306886400000 "
+        "THEN post.id ELSE null END AS postId"
+    )
+
+    assert len(parsed.with_stages) == 1
+    assert parsed.with_stages[0].clause.distinct is True
+    assert parsed.with_stages[0].clause.items[0].expression.text == "tag"
+    assert parsed.with_stages[0].clause.items[1].expression.text == "post"
+    assert parsed.return_.items[1].expression.text == (
+        "CASE WHEN 1275350400000 <= post.creationDate AND post.creationDate < 1306886400000 "
+        "THEN post.id ELSE null END"
+    )
+    assert parsed.return_.items[1].alias == "postId"
+
+
+def test_parse_rejects_return_case_missing_end() -> None:
+    with pytest.raises(GFQLSyntaxError):
+        _parse_query("RETURN CASE WHEN score > 1 THEN true ELSE false AS result")
 
 
 @pytest.mark.parametrize(
@@ -961,20 +957,105 @@ def test_parse_supports_where_pattern_predicate_and_expr_mix(query: str, expr_te
 @pytest.mark.parametrize(
     "query",
     [
-        # Variable-length patterns
+        # #1236: OR-around-pattern now stays in expr_tree for lowering/runtime.
         "MATCH (n) WHERE (n)-[:R*]->() OR n.id = 'z' RETURN n",
-        "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n",
-        # Non-variable-length patterns — same lift-step rejector path,
-        # but a more common shape to hit in practice.  Locks the
-        # rejection so future slice 2/3/4 lifts can't silently regress
-        # the simple-edge variant.
         "MATCH (n) WHERE (n)-[:R]->() OR n.id = 'z' RETURN n",
+    ],
+)
+def test_parse_supports_mixed_where_pattern_predicates_in_expr_tree(query: str) -> None:
+    parsed = _parse_query(query)
+    assert parsed.where is not None
+    assert parsed.where.expr_tree is not None
+    assert "OR" in boolean_expr_to_text(parsed.where.expr_tree).upper()
+    assert parsed.where.predicates == ()
+
+    def _has_pattern_leaf(node: BooleanExpr) -> bool:
+        if node.op == "pattern":
+            return True
+        left_has = _has_pattern_leaf(node.left) if node.left is not None else False
+        right_has = _has_pattern_leaf(node.right) if node.right is not None else False
+        return left_has or right_has
+
+    assert _has_pattern_leaf(parsed.where.expr_tree)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) WHERE n.txt = 'exists { shadow }' RETURN n",
+        "MATCH (n) WHERE n.txt = 'not exists { shadow }' RETURN n",
+        "MATCH (n) WHERE n.txt = 'not((a)-[:R]->(b))' RETURN n",
+        "MATCH (n) WHERE n.txt = \"exists { shadow }\" RETURN n",
+    ],
+)
+def test_parse_does_not_treat_pattern_existence_lexemes_inside_string_literals_as_unsupported(query: str) -> None:
+    parsed = _parse_query(query)
+    assert parsed.where is not None
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) // exists { shadow }\nRETURN n",
+        "MATCH (n) /* not((a)-[:R]->(b)) */ RETURN n",
+        "MATCH (n) WHERE n.txt = 'ok' // exists { shadow }\nRETURN n",
+        "RETURN ['exists { shadow }', 'plain'] AS xs",
+        "RETURN {k: 'not((a)-[:R]->(b))', v: 1} AS m",
+        "RETURN CASE WHEN true THEN 'exists { shadow }' ELSE 'plain' END AS out",
+        "RETURN \"contains // exists { shadow }\" AS out",
+        "RETURN 'escaped \\'exists { shadow }\\'' AS out",
+    ],
+)
+def test_parse_does_not_treat_pattern_existence_lexemes_inside_comments_or_literal_contexts_as_unsupported(
+    query: str,
+) -> None:
+    parsed = parse_cypher(query)
+    assert isinstance(parsed, CypherQuery)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) WHERE exists { (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE not exists { (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE not((n)-[:R]->()) RETURN n",
+        "MATCH (n) WHERE not((n:Admin)-[:R]->()) RETURN n",
+        "MATCH (n) WHERE not((n)-[:R {w: 1}]->()) RETURN n",
+        "MATCH (n) WHERE not((n)-[:R]->(:Admin)) RETURN n",
+        "MATCH (n) WHERE not((n)<-[:R]-()) RETURN n",
+        "MATCH (n) WHERE not((n)--()) RETURN n",
+        "MATCH (n) WHERE not((n)-[:R*]->()) RETURN n",
+        "MATCH (n) WHERE not((n)-[r:R]->()) RETURN n",
+        "MATCH (n) WHERE exists/*inline*/{ (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE not/*inline*/exists/*inline*/{ (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE not/*inline*/((n)-[:R]->()) RETURN n",
+        "MATCH (n) WHERE exists { (n)-[:R]->() } /* keep rejecting */ RETURN n",
+        "// leading comment\nMATCH (n) WHERE not((n)-[:R]->()) RETURN n",
+    ],
+)
+def test_parse_still_rejects_true_pattern_existence_expressions(query: str) -> None:
+    with pytest.raises(GFQLValidationError, match="Pattern existence expressions"):
+        _parse_query(query)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        # NOT-pattern: parse succeeds (#1031 slice 2 plumbing); the inner
+        # ``WherePatternPredicate`` is lifted with ``negated=True`` and
+        # surfaces the lowering-stage gate when compiled.
+        "MATCH (n) WHERE NOT (n)-[:R*]->() RETURN n",
         "MATCH (n) WHERE NOT (n)-[:R]->() RETURN n",
     ],
 )
-def test_parse_rejects_mixed_where_pattern_predicates_as_unsupported(query: str) -> None:
-    with pytest.raises(GFQLValidationError, match="mixed with generic row expressions"):
-        parse_cypher(query)
+def test_parse_lifts_top_level_not_pattern_to_negated_predicate(query: str) -> None:
+    parsed = _parse_query(query)
+    assert parsed.where is not None
+    pattern_preds = [
+        p for p in parsed.where.predicates if isinstance(p, WherePatternPredicate)
+    ]
+    assert len(pattern_preds) == 1
+    assert pattern_preds[0].negated is True
 
 
 def test_parse_aggregate_projection_items() -> None:

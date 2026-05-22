@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, Iterator, Literal, Mapping, Sequence, Tuple, Union
+from typing import Dict, Iterator, Literal, Sequence, Tuple, Union
 
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.ir.compilation import PhysicalPlan, PlanContext
@@ -22,6 +22,7 @@ from graphistry.compute.gfql.ir.logical_plan import (
     OrderBy,
     PathProjection,
     PatternMatch,
+    ProcedureCall,
     Project,
     RowsToGraph,
     SemiApply,
@@ -31,7 +32,7 @@ from graphistry.compute.gfql.ir.logical_plan import (
     iter_children,
 )
 
-PhysicalRoute = Literal["same_path", "wavefront", "row_pipeline"]
+PhysicalRoute = Literal["same_path", "wavefront", "row_pipeline", "procedure_call"]
 
 
 @dataclass(frozen=True)
@@ -70,17 +71,32 @@ class RowPipelineExecutorWrapper:
     metadata: Dict[str, object] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class ProcedureCallExecutorWrapper:
+    """Descriptor for dispatching to Cypher procedure execution."""
+
+    route: Literal["procedure_call"] = "procedure_call"
+    executor: Literal["execute_cypher_call"] = "execute_cypher_call"
+    logical_op_ids: Tuple[int, ...] = field(default_factory=tuple)
+    logical_operator_types: Tuple[str, ...] = field(default_factory=tuple)
+    procedures: Tuple[str, ...] = field(default_factory=tuple)
+    result_kinds: Tuple[str, ...] = field(default_factory=tuple)
+    metadata: Dict[str, object] = field(default_factory=dict)
+
+
 PhysicalOperator = Union[
     SamePathExecutorWrapper,
     WavefrontExecutorWrapper,
     RowPipelineExecutorWrapper,
+    ProcedureCallExecutorWrapper,
 ]
 
 
 _SAME_PATH_LOGICAL_OPS = (NodeScan, EdgeScan, IndexScan, PatternMatch, PathProjection)
 _WAVEFRONT_LOGICAL_OPS = (Join, Apply, SemiApply, AntiSemiApply, LogicalUnion)
 _ROW_PIPELINE_LOGICAL_OPS = (Filter, Project, Aggregate, Distinct, OrderBy, Limit, Skip, Unwind, GraphToRows, RowsToGraph)
-_SUPPORTED_LOGICAL_OPS = _SAME_PATH_LOGICAL_OPS + _WAVEFRONT_LOGICAL_OPS + _ROW_PIPELINE_LOGICAL_OPS
+_PROCEDURE_CALL_LOGICAL_OPS = (ProcedureCall,)
+_SUPPORTED_LOGICAL_OPS = _SAME_PATH_LOGICAL_OPS + _WAVEFRONT_LOGICAL_OPS + _ROW_PIPELINE_LOGICAL_OPS + _PROCEDURE_CALL_LOGICAL_OPS
 
 
 class PhysicalPlanner:
@@ -130,6 +146,8 @@ class PhysicalPlanner:
             return "wavefront"
         if any(isinstance(node, _SAME_PATH_LOGICAL_OPS) for node in nodes):
             return "same_path"
+        if all(isinstance(node, _PROCEDURE_CALL_LOGICAL_OPS) for node in nodes):
+            return "procedure_call"
         if all(isinstance(node, _ROW_PIPELINE_LOGICAL_OPS) for node in nodes):
             return "row_pipeline"
 
@@ -163,6 +181,15 @@ class PhysicalPlanner:
                 join_types=join_types,
             )
 
+        if route == "procedure_call":
+            call_nodes = tuple(node for node in nodes if isinstance(node, ProcedureCall))
+            return ProcedureCallExecutorWrapper(
+                logical_op_ids=logical_op_ids,
+                logical_operator_types=logical_types,
+                procedures=tuple(node.procedure for node in call_nodes),
+                result_kinds=tuple(node.result_kind for node in call_nodes),
+            )
+
         row_stage_ops = tuple(
             sorted({type(node).__name__.lower() for node in nodes if isinstance(node, _ROW_PIPELINE_LOGICAL_OPS)})
         )
@@ -184,18 +211,14 @@ class PhysicalPlanner:
             seen.add(marker)
             yield node
 
-            for child in reversed(tuple(self._children(node))):
+            for _slot, child in reversed(tuple(iter_children(node))):
                 stack.append(child)
-
-    @staticmethod
-    def _children(node: LogicalPlan) -> Iterable[LogicalPlan]:
-        for _slot, child in iter_children(node):
-            yield child
 
 
 __all__ = [
     "PhysicalOperator",
     "PhysicalPlanner",
+    "ProcedureCallExecutorWrapper",
     "RowPipelineExecutorWrapper",
     "SamePathExecutorWrapper",
     "WavefrontExecutorWrapper",

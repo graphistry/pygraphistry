@@ -230,7 +230,6 @@ class ArrowUploader:
     def metadata(self):
         return {
             #'usertag': PyGraphistry._tag,
-            #'key': PyGraphistry.api_key()
             'agent': 'pygraphistry',
             'apiversion' : '3',
             'agentversion': sys.modules['graphistry'].__version__,

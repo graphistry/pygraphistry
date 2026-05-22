@@ -10,6 +10,7 @@ from .ast import ASTLet, ASTObject
 from .chain import Chain, chain as chain_base
 from .chain_let import chain_let as chain_let_base
 from .gfql_unified import gfql as gfql_base
+from .gfql_validate import gfql_validate as gfql_validate_base
 from .chain_remote import (
     chain_remote as chain_remote_base,
     chain_remote_shape as chain_remote_shape_base
@@ -187,7 +188,7 @@ class ComputeMixin(Plottable):
         g = _coerce_input_formats(g, engine_concrete)
 
         if reuse:
-            if g._nodes is not None and _safe_len(g._nodes) > 0:
+            if g._nodes is not None:
                 if g._node is None:
                     logger.warning(
                         "Must set node id binding, not just nodes; set via .bind() or .nodes()"
@@ -203,10 +204,15 @@ class ComputeMixin(Plottable):
             raise ValueError(
                 "Missing source/destination bindings; set via .bind() or .edges()"
             )
-        if _safe_len(g._edges) == 0:
-            return g
-
         node_id = g._node if g._node is not None else "id"
+        if _safe_len(g._edges) == 0:
+            empty_nodes_df = (
+                g._edges[[g._source]]
+                .rename(columns={g._source: node_id})
+                .reset_index(drop=True)
+            )
+            return g.nodes(empty_nodes_df, node_id)
+
         concat_fn = df_concat(engine_concrete)
         concat_df = concat_fn([g._edges[g._source], g._edges[g._destination]])
         nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)
@@ -508,6 +514,10 @@ class ComputeMixin(Plottable):
         return gfql_base(self, *args, **kwargs)
     gfql.__doc__ = gfql_base.__doc__
 
+    def gfql_validate(self, *args, **kwargs):
+        return gfql_validate_base(self, *args, **kwargs)
+    gfql_validate.__doc__ = gfql_validate_base.__doc__
+
     def chain_remote(self, *args, **kwargs) -> Plottable:
         """
         .. deprecated:: 2.XX.X
@@ -591,7 +601,7 @@ class ComputeMixin(Plottable):
     
     def gfql_remote_shape(
         self,
-        chain: Union[Chain, List[ASTObject], Dict[str, JSONVal]],
+        chain: Union[Chain, List[ASTObject], ASTLet, Dict[str, JSONVal], str],
         api_token: Optional[str] = None,
         dataset_id: Optional[str] = None,
         format: Optional[FormatType] = None,

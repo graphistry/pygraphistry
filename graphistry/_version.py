@@ -15,7 +15,7 @@ import os
 import re
 import subprocess
 import sys
-from typing import Any
+from typing import Any, Dict
 
 
 def get_keywords():
@@ -54,7 +54,7 @@ class NotThisMethod(Exception):
 
 
 LONG_VERSION_PY : Any = {}
-HANDLERS = {}
+HANDLERS: Dict[str, Dict[str, Any]] = {}
 
 
 def register_vcs_handler(vcs, method):  # decorator

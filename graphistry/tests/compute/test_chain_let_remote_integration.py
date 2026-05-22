@@ -6,7 +6,7 @@ Enable with: TEST_REMOTE_INTEGRATION=1
 Additional optional env vars:
 - GRAPHISTRY_USERNAME: Username for authentication
 - GRAPHISTRY_PASSWORD: Password for authentication  
-- GRAPHISTRY_API_KEY: API key (alternative to username/password)
+- GRAPHISTRY_API_TOKEN: JWT token (alternative to username/password)
 - GRAPHISTRY_SERVER: Server URL (defaults to hub.graphistry.com)
 - GRAPHISTRY_TEST_DATASET_ID: Known dataset ID to test with
 """
@@ -40,12 +40,13 @@ class TestRemoteGraphIntegration:
         server = os.environ.get("GRAPHISTRY_SERVER", "hub.graphistry.com")
         protocol = "https" if "443" in server or "https" in server else "http"
         
-        if os.environ.get("GRAPHISTRY_API_KEY"):
+        if os.environ.get("GRAPHISTRY_API_TOKEN"):
             PyGraphistry.register(
                 api=3,
                 protocol=protocol,
                 server=server,
-                api_key=os.environ["GRAPHISTRY_API_KEY"]
+                token=os.environ["GRAPHISTRY_API_TOKEN"],
+                verify_token=False
             )
         elif os.environ.get("GRAPHISTRY_USERNAME") and os.environ.get("GRAPHISTRY_PASSWORD"):
             PyGraphistry.register(
@@ -56,7 +57,7 @@ class TestRemoteGraphIntegration:
                 password=os.environ["GRAPHISTRY_PASSWORD"]
             )
         else:
-            pytest.skip("Need GRAPHISTRY_API_KEY or GRAPHISTRY_USERNAME/PASSWORD for remote tests")
+            pytest.skip("Need GRAPHISTRY_API_TOKEN or GRAPHISTRY_USERNAME/PASSWORD for remote tests")
     
     def test_remote_graph_fetch_real_dataset(self):
         """Test fetching a real dataset from Graphistry server."""

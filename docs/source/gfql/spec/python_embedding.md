@@ -54,6 +54,12 @@ nodes_df = result._nodes  # Filtered nodes DataFrame
 edges_df = result._edges  # Filtered edges DataFrame
 ```
 
+Native GFQL chains are Python-embedded values, not source strings. Pass actual
+Python `list`, `dict` envelope, or `Chain` objects to `g.gfql(...)`; a `str`
+query is treated as Cypher text and is not decoded as a Python literal or JSON
+chain. Tooling that receives serialized native chains should decode them before
+calling `g.gfql(...)`, or intentionally emit Cypher query text.
+
 ### Row-Pipeline Query Execution (`MATCH ... RETURN` style)
 
 ```python

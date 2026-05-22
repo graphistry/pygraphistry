@@ -1,0 +1,203 @@
+{
+  "$defs": {
+    "settingsValue": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/settingsValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/settingsValue"
+          },
+          "type": "object"
+        }
+      ],
+      "description": "Structural JSON value accepted by settings validators. Deeper semantics remain in pygraphistry validators."
+    }
+  },
+  "$id": "https://schemas.graphistry.com/pygraphistry/graphistry-url-params.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Structural contract for graph.html/embed URL parameters accepted by pygraphistry settings(url_params=...).",
+  "properties": {
+    "bg": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "bottom": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "collections": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "collectionsGlobalEdgeColor": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "collectionsGlobalNodeColor": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "dissuadeHubs": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "edgeCurvature": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "edgeInfluence": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "edgeOpacity": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "favicon": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "gravity": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "info": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "labelBackground": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "labelColor": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "labelOpacity": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "left": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "linLog": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "lockedR": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "lockedX": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "lockedY": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "logoAutoInvert": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "logoMaxHeight": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "logoMaxWidth": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "logoPosition": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "logoUrl": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "menu": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "neighborhoodHighlight": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "neighborhoodHighlightHops": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "pageTitle": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "play": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "pointOpacity": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "pointSize": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "pointStrokeWidth": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "pointsOfInterestMax": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "precisionVsSpeed": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "right": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "scalingRatio": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "shortenLabels": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showActions": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showArrows": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showCollections": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showHistograms": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showInspector": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showLabelOnHover": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showLabelPropertiesOnHover": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showLabels": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showPointsOfInterest": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showPointsOfInterestLabel": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "splashAfter": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "strongGravity": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "top": {
+      "$ref": "#/$defs/settingsValue"
+    }
+  },
+  "title": "Graphistry URL Params",
+  "type": "object",
+  "x-graphistry": {
+    "graphistry_frontend_contract_signature": "bf54644c941670c46000fd7590077e33bfbda881095e77ebcf2f11821045edbd",
+    "graphistry_frontend_contract_version": 1,
+    "graphistry_frontend_upstream_versions": {
+      "graphistry_js_client_api": null,
+      "graphistry_js_client_api_react": null,
+      "graphistry_server": null
+    }
+  }
+}

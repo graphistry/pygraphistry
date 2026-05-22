@@ -18,3 +18,4 @@ See the article on :ref:`10min-pygraphistry` for a high-level overview of bindin
    utils/index
    layout/index
    plugins/index
+   schema_artifacts

@@ -30,6 +30,12 @@ image with `--gpus all`.  Key env-var defaults:
 | `WITH_LINT` | `0` | Run ruff |
 | `WITH_TYPECHECK` | `0` | Run mypy |
 
+For `RAPIDS_VERSION=25.02`, the script injects a newer CUDA Python bridge
+(`numba-cuda==0.22.2`, `cuda-python==12.9.5`, and matching CUDA helper
+packages) during image build. The stock 25.02 image can initialize CUDA on
+DGX Spark GB10 and run CuPy, but it segfaults on trivial cuDF host
+materialization such as `cudf.DataFrame({"x": [1, 2]}).to_pandas()`.
+
 The script **volume-mounts `graphistry/` read-only** at runtime, so you only
 need to sync changed source files — no full image rebuild required for most
 iterations.

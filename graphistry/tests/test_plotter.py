@@ -211,68 +211,6 @@ class TestPlotterNameBindings(NoAuthTestCase):
         assert plotter._description == "d"
 
 
-class TestPlotterPandasConversions(NoAuthTestCase):
-    def test_table_to_pandas_from_none(self):
-        plotter = graphistry.bind()
-        assert plotter._table_to_pandas(None) is None
-
-    def test_table_to_pandas_from_pandas(self):
-        plotter = graphistry.bind()
-        df = pd.DataFrame({"x": []})
-        assert isinstance(plotter._table_to_pandas(df), pd.DataFrame)
-
-    def test_table_to_pandas_from_arrow(self):
-        plotter = graphistry.bind()
-        df = pd.DataFrame({"x": []})
-        arr = pa.Table.from_pandas(df)
-        assert isinstance(plotter._table_to_pandas(arr), pd.DataFrame)
-
-    @pytest.mark.skipif(
-        not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
-        reason="cudf tests need TEST_CUDF=1",
-    )
-    def test_table_to_pandas_from_cudf(self):
-        import cudf
-
-        plotter = graphistry.bind()
-        df = pd.DataFrame({"x": [1, 2, 3]})
-        gdf = cudf.from_pandas(df)
-        out = plotter._table_to_pandas(gdf)
-        assert isinstance(out, pd.DataFrame)
-        assertFrameEqual(out, df)
-
-    @pytest.mark.skipif(
-        not ("TEST_DASK" in os.environ and os.environ["TEST_DASK"] == "1"),
-        reason="dask tests need TEST_DASK=1",
-    )
-    def test_table_to_pandas_from_dask(self):
-        import dask, dask.dataframe
-        from dask.distributed import Client
-
-        with Client(processes=True):
-            plotter = graphistry.bind()
-            df = pd.DataFrame({"x": [1, 2, 3]})
-            ddf = dask.dataframe.from_pandas(df, npartitions=2)
-            out = plotter._table_to_pandas(ddf)
-            assert isinstance(out, pd.DataFrame)
-            assertFrameEqual(out, df)
-
-    @pytest.mark.skipif(
-        not ("TEST_DASK_CUDF" in os.environ and os.environ["TEST_DASK_CUDF"] == "1"),
-        reason="dask_cudf tests need TEST_DASK_CUDF=1",
-    )
-    def test_table_to_pandas_from_dask_cudf(self):
-        import cudf, dask_cudf
-
-        plotter = graphistry.bind()
-        df = pd.DataFrame({"x": [1, 2, 3]})
-        gdf = cudf.from_pandas(df)
-        dgdf = dask_cudf.from_cudf(gdf, npartitions=2)
-        out = plotter._table_to_pandas(dgdf)
-        assert isinstance(out, pd.DataFrame)
-        assertFrameEqual(out, df)
-
-
 class TestPlotterLabelInference(NoAuthTestCase):
     def test_infer_labels_predefined_title(self):
         g = graphistry.nodes(pd.DataFrame({"x": [1, 2], "y": [1, 2]})).bind(
@@ -309,6 +247,74 @@ class TestPlotterLabelInference(NoAuthTestCase):
             g.infer_labels()
 
 
+class TestPlotterPandasConversions(NoAuthTestCase):
+    def test_table_to_pandas_from_none(self):
+        plotter = graphistry.bind()
+        with pytest.warns(DeprecationWarning, match="_table_to_pandas"):
+            assert plotter._table_to_pandas(None) is None
+
+    def test_table_to_pandas_from_pandas(self):
+        plotter = graphistry.bind()
+        df = pd.DataFrame({"x": []})
+        with pytest.warns(DeprecationWarning, match="_table_to_pandas"):
+            assert isinstance(plotter._table_to_pandas(df), pd.DataFrame)
+
+    def test_table_to_pandas_from_arrow(self):
+        plotter = graphistry.bind()
+        df = pd.DataFrame({"x": []})
+        arr = pa.Table.from_pandas(df)
+        with pytest.warns(DeprecationWarning, match="_table_to_pandas"):
+            assert isinstance(plotter._table_to_pandas(arr), pd.DataFrame)
+
+    @pytest.mark.skipif(
+        not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
+        reason="cudf tests need TEST_CUDF=1",
+    )
+    def test_table_to_pandas_from_cudf(self):
+        import cudf
+
+        plotter = graphistry.bind()
+        df = pd.DataFrame({"x": [1, 2, 3]})
+        gdf = cudf.from_pandas(df)
+        with pytest.warns(DeprecationWarning, match="_table_to_pandas"):
+            out = plotter._table_to_pandas(gdf)
+        assert isinstance(out, pd.DataFrame)
+        assertFrameEqual(out, df)
+
+    @pytest.mark.skipif(
+        not ("TEST_DASK" in os.environ and os.environ["TEST_DASK"] == "1"),
+        reason="dask tests need TEST_DASK=1",
+    )
+    def test_table_to_pandas_from_dask(self):
+        import dask, dask.dataframe
+        from dask.distributed import Client
+
+        with Client(processes=True):
+            plotter = graphistry.bind()
+            df = pd.DataFrame({"x": [1, 2, 3]})
+            ddf = dask.dataframe.from_pandas(df, npartitions=2)
+            with pytest.warns(DeprecationWarning, match="_table_to_pandas"):
+                out = plotter._table_to_pandas(ddf)
+            assert isinstance(out, pd.DataFrame)
+            assertFrameEqual(out, df)
+
+    @pytest.mark.skipif(
+        not ("TEST_DASK_CUDF" in os.environ and os.environ["TEST_DASK_CUDF"] == "1"),
+        reason="dask_cudf tests need TEST_DASK_CUDF=1",
+    )
+    def test_table_to_pandas_from_dask_cudf(self):
+        import cudf, dask_cudf
+
+        plotter = graphistry.bind()
+        df = pd.DataFrame({"x": [1, 2, 3]})
+        gdf = cudf.from_pandas(df)
+        dgdf = dask_cudf.from_cudf(gdf, npartitions=2)
+        with pytest.warns(DeprecationWarning, match="_table_to_pandas"):
+            out = plotter._table_to_pandas(dgdf)
+        assert isinstance(out, pd.DataFrame)
+        assertFrameEqual(out, df)
+
+
 class TestPlotterArrowConversions(NoAuthTestCase):
     @classmethod
     def setUpClass(cls):
@@ -331,6 +337,13 @@ class TestPlotterArrowConversions(NoAuthTestCase):
         df = pd.DataFrame({"x": []})
         arr = pa.Table.from_pandas(df)
         assert isinstance(plotter._table_to_arrow(arr), pa.Table)
+
+    def test_plot_dispatch_arrow_deprecated_shim(self):
+        g = graphistry.bind(source="s", destination="d")
+        edges = pd.DataFrame({"s": [0], "d": [1]})
+        with pytest.warns(DeprecationWarning, match="_plot_dispatch_arrow"):
+            uploader = g._plot_dispatch_arrow(edges, None, "n", "d")
+        assert isinstance(uploader.edges, pa.Table)
 
     def test_api3_plot_from_pandas(self):
         g = graphistry.edges(pd.DataFrame({"s": [0], "d": [0]})).bind(
@@ -972,6 +985,54 @@ class TestPlotterEncodings(NoAuthTestCase):
 
     def test_edge_color(self):
         assert graphistry.bind().encode_edge_color("z")._edge_color == "z"
+
+    def test_apply_encodings_happy_path(self):
+        g2 = graphistry.bind().apply_encodings({
+            "encodePointColor": ["kind", "categorical", {"primary": "red"}],
+            "encodePointIcons": ["kind", {"primary": "server"}],
+            "encodePointSize": ["bucket", {"small": 5, "large": 30}, 1],
+            "encodeAxis": [{"r": 200, "label": "outer", "external": True}],
+        })
+
+        node_default = g2._complex_encodings["node_encodings"]["default"]
+        assert node_default["pointColorEncoding"]["attribute"] == "kind"
+        assert node_default["pointColorEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "red"
+        assert node_default["pointIconEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "server"
+        assert node_default["pointSizeEncoding"]["mapping"]["categorical"]["fixed"]["small"] == 5
+        assert node_default["pointSizeEncoding"]["mapping"]["categorical"]["other"] == 1
+        assert node_default["pointAxisEncoding"]["rows"][0]["label"] == "outer"
+
+    def test_apply_encodings_autofix_continues(self):
+        g2 = graphistry.bind().apply_encodings(
+            {
+                "encodePointColor": "bad-shape",
+                "encodePointSize": ["bucket", {"small": 5}],
+            },
+            validate="autofix",
+            warn=False,
+        )
+        node_default = g2._complex_encodings["node_encodings"]["default"]
+        assert "pointColorEncoding" not in node_default
+        assert node_default["pointSizeEncoding"]["attribute"] == "bucket"
+
+    def test_apply_encodings_strict_rejects_unsupported_react_key(self):
+        with pytest.raises(ValueError):
+            graphistry.bind().apply_encodings({"showInfo": True}, validate="strict")
+
+    def test_apply_encodings_module_export(self):
+        g2 = graphistry.apply_encodings({"encodePointColor": ["kind", {"primary": "red"}]})
+        node_default = g2._complex_encodings["node_encodings"]["default"]
+        assert node_default["pointColorEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "red"
+
+    def test_apply_encodings_singular_icon_aliases(self):
+        g2 = graphistry.bind().apply_encodings({
+            "encodePointIcon": ["kind", {"primary": "server"}],
+            "encodeEdgeIcon": ["kind", {"primary": "arrow-right"}],
+        })
+        node_default = g2._complex_encodings["node_encodings"]["default"]
+        edge_default = g2._complex_encodings["edge_encodings"]["default"]
+        assert node_default["pointIconEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "server"
+        assert edge_default["edgeIconEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "arrow-right"
 
     def test_badge(self):
 

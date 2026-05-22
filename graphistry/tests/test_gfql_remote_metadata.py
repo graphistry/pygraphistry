@@ -14,7 +14,8 @@ import pandas as pd
 import zipfile
 
 import graphistry
-from graphistry.compute.ast import ASTNode
+from graphistry.compute.ast import ASTNode, call
+from graphistry.compute.exceptions import GFQLTypeError
 
 
 # Mock metadata structures mirroring arrow uploader format
@@ -88,6 +89,46 @@ MOCK_FULL_METADATA = {
     'style': {
         'bg': {'color': '#000000'},
         'fg': {'blendMode': 'screen'}
+    }
+}
+
+MOCK_RADIAL_AXIS_METADATA = {
+    "encodings": {
+        "complex_encodings": {
+            "node_encodings": {
+                "default": {
+                    "pointAxisEncoding": {
+                        "graphType": "point",
+                        "encodingType": "axis",
+                        "variation": "categorical",
+                        "attribute": "degree",
+                        "rows": [{"r": 200, "label": "outer", "external": True}],
+                    }
+                },
+                "current": {},
+            },
+            "edge_encodings": {"default": {}, "current": {}},
+        }
+    }
+}
+
+MOCK_LINEAR_AXIS_METADATA = {
+    "encodings": {
+        "complex_encodings": {
+            "node_encodings": {
+                "default": {
+                    "pointAxisEncoding": {
+                        "graphType": "point",
+                        "encodingType": "axis",
+                        "variation": "categorical",
+                        "attribute": "degree",
+                        "rows": [{"y": 40, "label": "lvl", "internal": True}],
+                    }
+                },
+                "current": {},
+            },
+            "edge_encodings": {"default": {}, "current": {}},
+        }
     }
 }
 
@@ -224,6 +265,94 @@ class TestGFQLRemoteMetadataHydration(unittest.TestCase):
             f"Expected bg color '#000000', got '{result._style['bg']['color']}'"
         assert result._style['fg']['blendMode'] == 'screen', \
             f"Expected fg blendMode 'screen', got '{result._style['fg']['blendMode']}'"
+
+    @patch('graphistry.compute.chain_remote.requests.post')
+    def test_persist_hydrates_radial_axis_url_defaults(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "nodes": self.nodes_df.to_dict("records"),
+            "edges": self.edges_df.to_dict("records"),
+            "dataset_id": "test_123",
+            "metadata": MOCK_RADIAL_AXIS_METADATA,
+        }
+        mock_response.ok = True
+        mock_response.raise_for_status.return_value = None
+        mock_post.return_value = mock_response
+
+        self.g._dataset_id = "test_dataset_123"
+
+        result = self.g.gfql_remote([ASTNode()], format="json", persist=True, api_token="test_token")
+
+        assert result._url_params["play"] == 0
+        assert result._url_params["lockedR"] is True
+        assert result._url_params["splashAfter"] is False
+
+    @patch('graphistry.compute.chain_remote.requests.post')
+    def test_persist_hydrates_linear_axis_url_defaults(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "nodes": self.nodes_df.to_dict("records"),
+            "edges": self.edges_df.to_dict("records"),
+            "dataset_id": "test_123",
+            "metadata": MOCK_LINEAR_AXIS_METADATA,
+        }
+        mock_response.ok = True
+        mock_response.raise_for_status.return_value = None
+        mock_post.return_value = mock_response
+
+        self.g._dataset_id = "test_dataset_123"
+
+        result = self.g.gfql_remote([ASTNode()], format="json", persist=True, api_token="test_token")
+
+        assert result._url_params["play"] == 0
+        assert result._url_params["lockedX"] is True
+        assert result._url_params["lockedY"] is True
+        assert result._url_params["splashAfter"] is False
+
+    @patch('graphistry.compute.chain_remote.requests.post')
+    def test_encode_axis_validation_fails_pre_wire(self, mock_post):
+        self.g._dataset_id = "test_dataset_123"
+
+        with self.assertRaises(GFQLTypeError) as cm:
+            self.g.gfql_remote(
+                [call("encode_axis", {"rows": [{"r": 10, "radius": 10}]})],
+                format="json",
+                api_token="test_token",
+            )
+
+        self.assertEqual(
+            cm.exception.message,
+            "Invalid value for parameter 'rows' in 'encode_axis': "
+            "rows[0] radial axis row has unexpected key 'radius'; expected keys: "
+            "axisKind, axis_subtype, bounds, external, internal, kind, label, r, space, width, x, y",
+        )
+        mock_post.assert_not_called()
+
+    @patch('graphistry.compute.chain_remote.requests.post')
+    def test_ring_axis_validation_fails_pre_wire(self, mock_post):
+        self.g._dataset_id = "test_dataset_123"
+
+        with self.assertRaises(GFQLTypeError) as cm:
+            self.g.gfql_remote(
+                [
+                    call(
+                        "ring_continuous_layout",
+                        {
+                            "ring_col": "score",
+                            "axis": [{"y": 40, "bounds": {"min": "40", "max": 100}}],
+                        },
+                    )
+                ],
+                format="json",
+                api_token="test_token",
+            )
+
+        self.assertEqual(
+            cm.exception.message,
+            "Invalid value for parameter 'axis' in 'ring_continuous_layout': "
+            "axis[0].bounds['min'] must be a number",
+        )
+        mock_post.assert_not_called()
 
     @patch('graphistry.compute.chain_remote.requests.post')
     def test_empty_metadata_doesnt_break(self, mock_post):

@@ -17,6 +17,7 @@ from graphistry.compute.gfql.expr_parser import (
     validate_expr_capabilities,
 )
 from graphistry.compute.gfql.language_defs import GFQL_COMPARISON_BINARY_OP_NAMES
+from graphistry.compute.gfql.string_literals import parse_cypher_string_token, render_cypher_string_literal
 
 
 def _has_lark() -> bool:
@@ -79,6 +80,113 @@ def test_validate_expr_capabilities_rejects_properties_on_scalar_literals() -> N
     for bad in (Literal(1), Literal("Cypher"), parse_expr("[true, false]") if _has_lark() else Literal(True)):
         errors = validate_expr_capabilities(FunctionCall(name="properties", args=(bad,)))
         assert "properties() requires a node, relationship, map, or null argument" in errors
+
+
+@pytest.mark.parametrize(
+    "token,expected",
+    [
+        ("'plain'", "plain"),
+        ('"double"', "double"),
+        (r"'\''", "'"),
+        (r'"\""', '"'),
+        (r"'\u01FF'", "\u01ff"),
+        (r"'\U000001FF'", "\u01ff"),
+        (r"'a\\bcn5t'", "a\\\\bcn5t"),
+        (r"'\n\t\r\b\f'", "\n\t\r\b\f"),
+        (r"'\\'", "\\\\"),
+        (r"'\"'", '"'),
+        (r'"\'"', "'"),
+    ],
+)
+def test_parse_cypher_string_token_accepts_unicode_quote_and_preserved_escapes(
+    token: str,
+    expected: str,
+) -> None:
+    assert parse_cypher_string_token(token) == expected
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        "plain",
+        "'unterminated",
+        r"'trailing\'",
+        r"'\q'",
+        r"'\/'",
+        r"'\uH'",
+        r"'\U0001FF'",
+        "123",
+        "None",
+    ],
+)
+def test_parse_cypher_string_token_rejects_invalid_literals(token: str) -> None:
+    with pytest.raises(ValueError):
+        parse_cypher_string_token(token)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "'",
+        '"',
+        "\\",
+        "\\'",
+        "\\\\'",
+        "a\\b",
+        "line\nbreak",
+        "tab\tseparated",
+        "carriage\rreturn",
+        "backspace\bseparated",
+        "formfeed\fseparated",
+        "\u01ff",
+    ],
+)
+def test_cypher_string_literal_renderer_round_trips(value: str) -> None:
+    assert parse_cypher_string_token(render_cypher_string_literal(value)) == value
+
+
+def test_cypher_string_literal_renderer_uses_unambiguous_backslash_and_quote_escapes() -> None:
+    assert render_cypher_string_literal("\\'\n") == r"'\u005C\u0027\u000A'"
+
+
+@requires_lark
+@pytest.mark.parametrize(
+    "value",
+    [
+        "\\",
+        "\\'",
+        "'",
+        '"',
+        "a\\b",
+        "line\nbreak",
+        "tab\tseparated",
+        "\u01ff",
+    ],
+)
+def test_parse_expr_round_trips_rendered_cypher_string_literals(value: str) -> None:
+    assert parse_expr(render_cypher_string_literal(value)) == Literal(value)
+
+
+@requires_lark
+@pytest.mark.parametrize(
+    "expr,expected",
+    [
+        (r"'\n\t\r\b\f'", "\n\t\r\b\f"),
+        (r"'\\'", "\\\\"),
+        (r"'\"'", '"'),
+        (r'"\'"', "'"),
+    ],
+)
+def test_parse_expr_handles_user_written_cypher_string_escapes(expr: str, expected: str) -> None:
+    assert parse_expr(expr) == Literal(expected)
+
+
+@requires_lark
+@pytest.mark.parametrize("expr", ["'unterminated", r"'\uH'"])
+def test_parse_expr_rejects_invalid_string_literals(expr: str) -> None:
+    with pytest.raises(Exception):
+        parse_expr(expr)
 
 
 @requires_lark

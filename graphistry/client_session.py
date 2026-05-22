@@ -5,6 +5,7 @@ from functools import lru_cache
 import json
 import warnings
 
+from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 from graphistry.privacy import Privacy
 from . import util
 from .plugins_types.spanner_types import SpannerConfig
@@ -12,7 +13,16 @@ from .plugins_types.kusto_types import KustoConfig
 
 
 
-ApiVersion = Literal[3]
+ApiVersion = Literal[1, 2, 3]
+SupportedApiVersion = Literal[3]
+
+SUPPORTED_API_VERSION: SupportedApiVersion = 3
+UNSUPPORTED_API_VERSION_MESSAGE = (
+    "Expected API version to be 3. Legacy API versions 1 and 2 are no longer "
+    "supported: api=1 used the removed /api/check and /etl upload flow, which "
+    "now returns HTTP 410. Use api=3 with username/password, token, or "
+    "personal_key_id/personal_key_secret. Got: %s"
+)
 
 ENV_GRAPHISTRY_API_KEY = "GRAPHISTRY_API_KEY"
 
@@ -49,16 +59,14 @@ class ClientSession:
         self._is_authenticated: bool = False
         self._tag = util.fingerprint()  # NOTE: Should this be unique per PyGraphistry.client()?
 
-        self.api_key: Optional[str] = get_from_env(ENV_GRAPHISTRY_API_KEY, str)
+        self.api_key: Optional[str] = None
         self.api_token: Optional[str] = get_from_env("GRAPHISTRY_API_TOKEN", str)
         # self.api_token_refresh_ms: Optional[int] = None
 
         env_api_version = get_from_env("GRAPHISTRY_API_VERSION", int)
         if env_api_version is None:
-            env_api_version = 3
-        elif env_api_version != 3:
-            raise ValueError("Expected API version to be 3. Legacy API versions 1 and 2 are no longer supported. Got: %s" % env_api_version)
-        self.api_version: ApiVersion = cast(ApiVersion, env_api_version)  
+            env_api_version = SUPPORTED_API_VERSION
+        self.api_version: SupportedApiVersion = require_supported_api_version(cast(Optional[ApiVersion], env_api_version))
 
         self.dataset_prefix: str = get_from_env("GRAPHISTRY_DATASET_PREFIX", str, "PyGraphistry/")
         self.hostname: str = get_from_env("GRAPHISTRY_HOSTNAME", str, "hub.graphistry.com")
@@ -135,7 +143,7 @@ class AuthManagerProtocol(Protocol):
     def refresh(self, token: Optional[str] = None, fail_silent: bool = False) -> Optional[str]:
         ...
     
-    def _viz_url(self, info: DatasetInfo, url_params: Dict[str, Any]) -> str:
+    def _viz_url(self, info: DatasetInfo, url_params: URLParamsDict) -> str:
         ...
 
     def certificate_validation(self, value: Optional[bool] = None) -> bool:
@@ -155,6 +163,16 @@ def use_global_session() -> ClientSession:
                   DeprecationWarning, stacklevel=2)
     from .pygraphistry import PyGraphistry
     return PyGraphistry.session
+
+
+def require_supported_api_version(value: Optional[ApiVersion]) -> SupportedApiVersion:
+    if value is None:
+        return SUPPORTED_API_VERSION
+
+    if value != SUPPORTED_API_VERSION:
+        raise ValueError(UNSUPPORTED_API_VERSION_MESSAGE % value)
+
+    return cast(SupportedApiVersion, value)
 
 
 T = TypeVar("T")

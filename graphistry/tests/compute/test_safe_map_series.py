@@ -1,9 +1,21 @@
 """
 Tests for Engine.safe_map_series — cudf-safe Series.map(dict) bridge (#977).
 """
+import sys
+import types
+
 import pytest
 import pandas as pd
 from graphistry.Engine import safe_map_series
+
+
+def _cudf_or_skip_gpu():
+    cudf = pytest.importorskip("cudf")
+    try:
+        cudf.Series([1])
+    except Exception as exc:
+        pytest.skip(f"cudf installed but no usable CUDA device: {exc}")
+    return cudf
 
 
 def test_safe_map_series_pandas_dict() -> None:
@@ -45,7 +57,7 @@ def test_safe_map_series_pandas_regression_no_sigsegv() -> None:
 
 def test_safe_map_series_cudf_dict() -> None:
     """cudf Series + dict mapping — bridges through pandas, no SIGSEGV."""
-    cudf = pytest.importorskip("cudf")
+    cudf = _cudf_or_skip_gpu()
     s = cudf.Series(["a", "b", "a", "c"])
     result = safe_map_series(s, {"a": 1, "b": 2, "c": 3})
     assert result.to_pandas().tolist() == [1, 2, 1, 3]
@@ -53,7 +65,7 @@ def test_safe_map_series_cudf_dict() -> None:
 
 def test_safe_map_series_cudf_series_mapping() -> None:
     """cudf Series + cudf Series-as-mapping."""
-    cudf = pytest.importorskip("cudf")
+    cudf = _cudf_or_skip_gpu()
     s = cudf.Series(["a", "b", "c"])
     mapping = cudf.Series([10, 20, 30], index=["a", "b", "c"])
     result = safe_map_series(s, mapping)
@@ -62,7 +74,7 @@ def test_safe_map_series_cudf_series_mapping() -> None:
 
 def test_safe_map_series_cudf_missing_keys() -> None:
     """cudf: missing keys produce null."""
-    cudf = pytest.importorskip("cudf")
+    cudf = _cudf_or_skip_gpu()
     s = cudf.Series(["a", "x"])
     result = safe_map_series(s, {"a": 1})
     vals = result.to_pandas()
@@ -128,7 +140,7 @@ def test_safe_map_series_pandas_series_mapping_non_default_index() -> None:
 
 def test_safe_map_series_cudf_non_default_index() -> None:
     """cudf: non-default index on source series is preserved in the result."""
-    cudf = pytest.importorskip("cudf")
+    cudf = _cudf_or_skip_gpu()
     s = cudf.Series(["a", "b"], index=[10, 20])
     result = safe_map_series(s, {"a": 1, "b": 2})
     assert result.index.to_pandas().tolist() == [10, 20]
@@ -137,7 +149,7 @@ def test_safe_map_series_cudf_non_default_index() -> None:
 
 def test_safe_map_series_cudf_empty_mapping() -> None:
     """cudf: empty mapping dict — all keys miss, result is all null."""
-    cudf = pytest.importorskip("cudf")
+    cudf = _cudf_or_skip_gpu()
     s = cudf.Series(["a", "b", "c"])
     result = safe_map_series(s, {})
     vals = result.to_pandas()
@@ -151,9 +163,33 @@ def test_safe_map_series_cudf_pd_series_mapping() -> None:
     Exercises Engine.py:399-400 — the branch triggered when a cudf source series
     is mapped through a pandas Series (e.g. hop_map = df.set_index(node_col)[hop_col]).
     """
-    cudf = pytest.importorskip("cudf")
+    cudf = _cudf_or_skip_gpu()
     s = cudf.Series(["x", "z", "y", "x"])
     mapping = pd.Series([0, 1, 2], index=["x", "y", "z"])  # pandas, non-default index
     result = safe_map_series(s, mapping)
     vals = result.to_pandas()
     assert vals.tolist() == [0, 2, 1, 0]
+
+
+def test_safe_map_series_cudf_branch_dict_cpu_fake(monkeypatch) -> None:
+    """Exercise the cudf merge branch without requiring a CUDA device."""
+    fake_cudf = types.SimpleNamespace(Series=pd.Series, DataFrame=pd.DataFrame)
+    monkeypatch.setitem(sys.modules, "cudf", fake_cudf)
+
+    s = pd.Series(["a", "b", "a"], index=[10, 20, 30])
+    result = safe_map_series(s, {"a": 1, "b": 2})
+
+    assert result.index.tolist() == [10, 20, 30]
+    assert result.tolist() == [1, 2, 1]
+
+
+def test_safe_map_series_cudf_branch_pandas_series_mapping_cpu_fake(monkeypatch) -> None:
+    """Exercise cudf-source/pandas-mapping branch without a CUDA device."""
+    fake_cudf = types.SimpleNamespace(Series=pd.Series, DataFrame=pd.DataFrame)
+    monkeypatch.setitem(sys.modules, "cudf", fake_cudf)
+
+    s = pd.Series(["x", "z", "y", "x"])
+    mapping = pd.Series([0, 1, 2], index=["x", "y", "z"])
+    result = safe_map_series(s, mapping)
+
+    assert result.tolist() == [0, 2, 1, 0]

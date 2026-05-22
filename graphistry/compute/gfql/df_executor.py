@@ -7,8 +7,15 @@ from typing import Dict, Literal, Sequence, List, Optional, Any, Tuple, Set
 from graphistry.Engine import Engine, safe_map_series, safe_merge
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject
+from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.gfql.ref.enumerator import OracleCaps, OracleResult, enumerate_chain
-from graphistry.compute.gfql.same_path_types import INEQ_WHERE_OPS, PathState, WhereComparison
+from graphistry.compute.gfql.same_path_types import (
+    INEQ_WHERE_OPS,
+    NODE_IDENTITY_COLUMN,
+    PathState,
+    StepColumnRef,
+    WhereComparison,
+)
 from graphistry.compute.gfql.same_path.chain_meta import ChainMeta
 from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
 from graphistry.compute.gfql.same_path.df_utils import (
@@ -231,13 +238,13 @@ class DFSamePathExecutor:
         with otel_span("gfql.df_executor.compute_allowed_tags"):
             allowed_tags = self._compute_allowed_tags()
         with otel_span("gfql.df_executor.backward_prune"):
-            state = self._backward_prune(allowed_tags)
+            state = backward_prune(self, allowed_tags)
         with otel_span("gfql.df_executor.post_prune.non_adjacent"):
             state = apply_non_adjacent_where_post_prune(self, state)
         with otel_span("gfql.df_executor.post_prune.edge_where"):
             state = apply_edge_where_post_prune(self, state)
         with otel_span("gfql.df_executor.materialize"):
-            return self._materialize_filtered(state)
+            return materialize_filtered(self, state)
 
     _run_gpu = _run_native
 
@@ -285,14 +292,8 @@ class DFSamePathExecutor:
             out[alias] = series_values(frame[id_col])
         return out
 
-    def _backward_prune(self, allowed_tags: Dict[str, Any]) -> PathState:
-        return backward_prune(self, allowed_tags)
-
     def backward_propagate_constraints(self, state: PathState, start_node_idx: int, end_node_idx: int) -> PathState:
         return backward_propagate_constraints(self, state, start_node_idx, end_node_idx)
-
-    def _materialize_filtered(self, state: PathState) -> Plottable:
-        return materialize_filtered(self, state)
 
     @staticmethod
     def _resolve_label_cols(op: ASTEdge) -> Tuple[Optional[str], Optional[str]]:
@@ -391,6 +392,7 @@ class DFSamePathExecutor:
 
 def build_same_path_inputs(g: Plottable, chain: Sequence[ASTObject], where: Sequence[WhereComparison], engine: Engine, include_paths: bool = False) -> SamePathExecutorInputs:
     bindings = _collect_alias_bindings(chain)
+    where = _resolve_internal_node_identity_where(g, bindings, where)
     _validate_where_aliases(bindings, where)
     schema_trace = trace_chain_schema(g, list(chain))
     _validate_where_columns(bindings, where, schema_trace, chain)
@@ -415,9 +417,40 @@ def _collect_alias_bindings(chain: Sequence[ASTObject]) -> Dict[str, AliasBindin
             continue
 
         if alias in bindings:
-            raise ValueError(f"Duplicate alias '{alias}' detected in chain")
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                f"Duplicate alias '{alias}' detected in chain",
+                field="chain",
+                value=alias,
+                language="cypher",
+            )
         bindings[alias] = AliasBinding(alias, idx, kind, step)
     return bindings
+
+
+def _resolve_internal_node_identity_where(
+    g: Plottable,
+    bindings: Dict[str, AliasBinding],
+    where: Sequence[WhereComparison],
+) -> Sequence[WhereComparison]:
+    node_col = getattr(g, "_node", None)
+    if not node_col:
+        return where
+
+    def _resolve(ref: StepColumnRef) -> StepColumnRef:
+        binding = bindings.get(ref.alias)
+        if (
+            ref.column == NODE_IDENTITY_COLUMN
+            and binding is not None
+            and binding.kind == "node"
+        ):
+            return StepColumnRef(ref.alias, str(node_col))
+        return ref
+
+    return tuple(
+        WhereComparison(_resolve(clause.left), clause.op, _resolve(clause.right))
+        for clause in where
+    )
 
 
 def _collect_required_columns(where: Sequence[WhereComparison]) -> Dict[str, Sequence[str]]:
@@ -434,7 +467,13 @@ def _validate_where_aliases(bindings: Dict[str, AliasBinding], where: Sequence[W
     referenced = {clause.left.alias for clause in where} | {clause.right.alias for clause in where}
     missing = sorted(alias for alias in referenced if alias not in bindings)
     if missing:
-        raise ValueError(f"WHERE references aliases with no node/edge bindings: {', '.join(missing)}")
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            f"WHERE references aliases with no node/edge bindings: {', '.join(missing)}",
+            field="where",
+            value=missing,
+            language="cypher",
+        )
 
 
 def _validate_where_columns(
@@ -469,9 +508,13 @@ def _validate_where_columns(
                 available = ", ".join(sorted(cols)[:10])
                 if len(cols) > 10:
                     available += ", ..."
-                raise ValueError(
+                raise GFQLValidationError(
+                    ErrorCode.E108,
                     f"WHERE references missing column '{ref.column}' on alias '{ref.alias}' "
-                    f"({binding.kind}, step={binding.step_index}). Available columns: {available}"
+                    f"({binding.kind}, step={binding.step_index}). Available columns: {available}",
+                    field="where",
+                    value=f"{ref.alias}.{ref.column}",
+                    language="cypher",
                 )
 
 

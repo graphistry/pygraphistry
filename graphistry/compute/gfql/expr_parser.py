@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import ast as pyast
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Protocol, Sequence, Set, Tuple, Type, Union, cast
 
+from graphistry.compute.gfql.string_literals import parse_cypher_string_token
 from graphistry.compute.gfql.language_defs import (
     GFQL_ALLOWED_BINARY_OPS,
     GFQL_ALLOWED_FUNCTIONS,
@@ -308,14 +308,10 @@ def _parser() -> _ParserLike:
 
 
 def _parse_string_token(token: str) -> str:
-    if len(token) < 2 or token[0] != token[-1] or token[0] not in {"'", '"'}:
-        raise GFQLExprParseError("Invalid string literal")
     try:
-        value = pyast.literal_eval(token)
+        value = parse_cypher_string_token(token)
     except Exception as exc:
         raise GFQLExprParseError("Invalid string literal") from exc
-    if not isinstance(value, str):
-        raise GFQLExprParseError("Invalid string literal")
     return value
 
 
@@ -708,6 +704,50 @@ def _build_transformer() -> _TransformerLike:
     return cast(_TransformerLike, _AstBuilder())
 
 
+def _rebuild_expr_node(
+    node: ExprNode,
+    *,
+    rewrite: Callable[[ExprNode], ExprNode],
+    error_context: str,
+) -> ExprNode:
+    if isinstance(node, (Identifier, Literal, Wildcard)):
+        return node
+    if isinstance(node, UnaryOp):
+        return UnaryOp(node.op, rewrite(node.operand))
+    if isinstance(node, BinaryOp):
+        return BinaryOp(node.op, rewrite(node.left), rewrite(node.right))
+    if isinstance(node, IsNullOp):
+        return IsNullOp(rewrite(node.value), negated=node.negated)
+    if isinstance(node, FunctionCall):
+        return FunctionCall(node.name, tuple(rewrite(arg) for arg in node.args), distinct=node.distinct)
+    if isinstance(node, CaseWhen):
+        return CaseWhen(rewrite(node.condition), rewrite(node.when_true), rewrite(node.when_false))
+    if isinstance(node, QuantifierExpr):
+        return QuantifierExpr(node.fn, node.var, rewrite(node.source), rewrite(node.predicate))
+    if isinstance(node, ListComprehension):
+        return ListComprehension(
+            node.var,
+            rewrite(node.source),
+            predicate=None if node.predicate is None else rewrite(node.predicate),
+            projection=None if node.projection is None else rewrite(node.projection),
+        )
+    if isinstance(node, ListLiteral):
+        return ListLiteral(tuple(rewrite(item) for item in node.items))
+    if isinstance(node, MapLiteral):
+        return MapLiteral(tuple((key, rewrite(value)) for key, value in node.items))
+    if isinstance(node, SubscriptExpr):
+        return SubscriptExpr(rewrite(node.value), rewrite(node.key))
+    if isinstance(node, SliceExpr):
+        return SliceExpr(
+            rewrite(node.value),
+            None if node.start is None else rewrite(node.start),
+            None if node.stop is None else rewrite(node.stop),
+        )
+    if isinstance(node, PropertyAccessExpr):
+        return PropertyAccessExpr(rewrite(node.value), node.property)
+    raise TypeError(f"Unsupported expression node type for {error_context}: {type(node).__name__}")
+
+
 def _normalize_dotted_identifiers(node: ExprNode) -> ExprNode:
     if isinstance(node, Identifier):
         parts = node.name.split(".")
@@ -717,67 +757,11 @@ def _normalize_dotted_identifiers(node: ExprNode) -> ExprNode:
         for prop in parts[1:]:
             out = PropertyAccessExpr(value=out, property=prop)
         return out
-    if isinstance(node, Literal):
-        return node
-    if isinstance(node, UnaryOp):
-        return UnaryOp(op=node.op, operand=_normalize_dotted_identifiers(node.operand))
-    if isinstance(node, BinaryOp):
-        return BinaryOp(
-            op=node.op,
-            left=_normalize_dotted_identifiers(node.left),
-            right=_normalize_dotted_identifiers(node.right),
-        )
-    if isinstance(node, IsNullOp):
-        return IsNullOp(value=_normalize_dotted_identifiers(node.value), negated=node.negated)
-    if isinstance(node, FunctionCall):
-        return FunctionCall(
-            name=node.name,
-            args=tuple(_normalize_dotted_identifiers(arg) for arg in node.args),
-            distinct=node.distinct,
-        )
-    if isinstance(node, Wildcard):
-        return node
-    if isinstance(node, CaseWhen):
-        return CaseWhen(
-            condition=_normalize_dotted_identifiers(node.condition),
-            when_true=_normalize_dotted_identifiers(node.when_true),
-            when_false=_normalize_dotted_identifiers(node.when_false),
-        )
-    if isinstance(node, QuantifierExpr):
-        return QuantifierExpr(
-            fn=node.fn,
-            var=node.var,
-            source=_normalize_dotted_identifiers(node.source),
-            predicate=_normalize_dotted_identifiers(node.predicate),
-        )
-    if isinstance(node, ListComprehension):
-        return ListComprehension(
-            var=node.var,
-            source=_normalize_dotted_identifiers(node.source),
-            predicate=None if node.predicate is None else _normalize_dotted_identifiers(node.predicate),
-            projection=None if node.projection is None else _normalize_dotted_identifiers(node.projection),
-        )
-    if isinstance(node, ListLiteral):
-        return ListLiteral(tuple(_normalize_dotted_identifiers(item) for item in node.items))
-    if isinstance(node, MapLiteral):
-        return MapLiteral(tuple((key, _normalize_dotted_identifiers(value)) for key, value in node.items))
-    if isinstance(node, SubscriptExpr):
-        return SubscriptExpr(
-            value=_normalize_dotted_identifiers(node.value),
-            key=_normalize_dotted_identifiers(node.key),
-        )
-    if isinstance(node, SliceExpr):
-        return SliceExpr(
-            value=_normalize_dotted_identifiers(node.value),
-            start=None if node.start is None else _normalize_dotted_identifiers(node.start),
-            stop=None if node.stop is None else _normalize_dotted_identifiers(node.stop),
-        )
-    if isinstance(node, PropertyAccessExpr):
-        return PropertyAccessExpr(
-            value=_normalize_dotted_identifiers(node.value),
-            property=node.property,
-        )
-    return node
+    return _rebuild_expr_node(
+        node,
+        rewrite=_normalize_dotted_identifiers,
+        error_context="dotted identifier normalization",
+    )
 
 
 def parse_expr(expr: str) -> ExprNode:
@@ -799,26 +783,7 @@ def parse_expr(expr: str) -> ExprNode:
             raise
         raise GFQLExprParseError("Invalid GFQL expression") from exc
 
-    if not isinstance(
-        node,
-        (
-            Identifier,
-            Literal,
-            UnaryOp,
-            BinaryOp,
-            IsNullOp,
-            FunctionCall,
-            Wildcard,
-            CaseWhen,
-            QuantifierExpr,
-            ListComprehension,
-            ListLiteral,
-            MapLiteral,
-            SubscriptExpr,
-            SliceExpr,
-            PropertyAccessExpr,
-        ),
-    ):
+    if not isinstance(node, _EXPR_NODE_TYPES):
         raise GFQLExprParseError("Invalid GFQL expression AST")
     return cast(ExprNode, node)
 

@@ -14,6 +14,7 @@ future verifier extensions:
 """
 from __future__ import annotations
 
+import re
 from typing import FrozenSet, Sequence
 
 from graphistry.compute.gfql.ir.bound_ir import ScopeFrame
@@ -32,6 +33,39 @@ _NULL_SAFE_FORMS = (
     "coalesce(",
     "nullif(",
 )
+
+
+def _mask_quoted_and_backticked(expr: str) -> str:
+    """Replace quoted/backticked segments with spaces for safe substring scans."""
+    chars = list(expr)
+    quote: str | None = None
+    i = 0
+    n = len(chars)
+    while i < n:
+        ch = chars[i]
+        if quote is None:
+            if ch in {"'", '"', "`"}:
+                quote = ch
+                chars[i] = " "
+            i += 1
+            continue
+
+        chars[i] = " "
+        if ch == "\\" and quote in {"'", '"'}:
+            # Respect escaped characters in quoted strings.
+            if i + 1 < n:
+                chars[i + 1] = " "
+                i += 2
+                continue
+        if ch == quote:
+            quote = None
+        i += 1
+    return "".join(chars)
+
+
+def _normalize_unquoted_whitespace(expr: str) -> str:
+    """Collapse unquoted whitespace runs for stable token/substr checks."""
+    return re.sub(r"\s+", " ", expr).strip()
 
 
 def is_null_rejecting(
@@ -55,9 +89,10 @@ def is_null_rejecting(
       regardless of the left side.  Example: ``n.name IS NULL AND n.type = 'x'``
       contains IS NULL but is null-rejecting overall.
 
-    Compound OR is not analyzed — a null-safe form anywhere in an OR chain
-    correctly triggers the null-safe classification because ``True OR <anything>``
-    is True when the null-safe conjunct evaluates to True for NULL inputs.
+    Compound OR is not analyzed and is treated as null-rejecting when any
+    null-extended alias is referenced.  This avoids false negatives on mixed
+    alias forms such as ``n.x IS NOT NULL OR m.y = 1`` where substring checks
+    alone cannot prove optional-arm safety.
 
     :param predicate: The bound predicate to classify.
     :param null_extended_aliases: Aliases that may be NULL from OPTIONAL MATCH.
@@ -67,10 +102,16 @@ def is_null_rejecting(
         return False
     if not predicate.expression:
         return True
-    expr_lower = predicate.expression.lower()
+    expr_lower = _normalize_unquoted_whitespace(
+        _mask_quoted_and_backticked(predicate.expression.lower())
+    )
     # AND compounds are always null-rejecting: even if one conjunct is null-safe,
     # the other may not be, and True AND NULL = NULL (row filtered).
-    if " and " in expr_lower:
+    if re.search(r"\band\b", expr_lower):
+        return True
+    # OR compounds are conservatively treated as null-rejecting; we do not
+    # perform disjunct-level alias analysis in this helper.
+    if re.search(r"\bor\b", expr_lower):
         return True
     for form in _NULL_SAFE_FORMS:
         if form in expr_lower:

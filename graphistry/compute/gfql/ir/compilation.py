@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, FrozenSet, List, Literal, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Iterable, List, Literal, Optional, Tuple
 
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, ScopeFrame, SemanticTable
 from graphistry.compute.gfql.ir.logical_plan import LogicalPlan
@@ -34,6 +34,55 @@ class GraphSchemaCatalog:
     edge_source_column: Optional[str] = None
     edge_destination_column: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_schema_parts(
+        cls,
+        *,
+        node_columns: Iterable[str] = (),
+        edge_columns: Iterable[str] = (),
+        node_id_column: Optional[str] = None,
+        edge_source_column: Optional[str] = None,
+        edge_destination_column: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> "GraphSchemaCatalog":
+        """Build a catalog from iterables while normalizing into stable shapes.
+
+        T1 contract: callers can pass any iterable of column names and receive
+        a frozen-set-backed catalog. Metadata is copied so caller-side
+        mutations after construction do not alias into the catalog.
+        """
+        return cls(
+            node_columns=frozenset(node_columns),
+            edge_columns=frozenset(edge_columns),
+            node_id_column=node_id_column,
+            edge_source_column=edge_source_column,
+            edge_destination_column=edge_destination_column,
+            metadata=dict(metadata or {}),
+        )
+
+    @property
+    def node_id(self) -> Optional[str]:
+        """Canonical accessor for the node identity column name."""
+        return self.node_id_column
+
+    @property
+    def edge_source(self) -> Optional[str]:
+        """Canonical accessor for the edge source column name."""
+        return self.edge_source_column
+
+    @property
+    def edge_destination(self) -> Optional[str]:
+        """Canonical accessor for the edge destination column name."""
+        return self.edge_destination_column
+
+    def has_node_column(self, column: str) -> bool:
+        """Return whether a node column exists in the catalog contract."""
+        return column in self.node_columns
+
+    def has_edge_column(self, column: str) -> bool:
+        """Return whether an edge column exists in the catalog contract."""
+        return column in self.edge_columns
 
 
 GFQLSchema = GraphSchemaCatalog
@@ -95,7 +144,7 @@ class CompilerError:
 class PhysicalPlan:
     """Physical plan wrapper contract for M3 planner routing."""
 
-    route: Literal["same_path", "wavefront", "row_pipeline"] = "row_pipeline"
+    route: Literal["same_path", "wavefront", "row_pipeline", "procedure_call"] = "row_pipeline"
     operators: Tuple[PhysicalOperator, ...] = field(default_factory=tuple)
     logical_op_ids: Tuple[int, ...] = field(default_factory=tuple)
     metadata: Dict[str, Any] = field(default_factory=dict)

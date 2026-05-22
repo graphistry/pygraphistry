@@ -15,7 +15,7 @@ from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundVariable, ScopeFrame, SemanticTable
 from graphistry.compute.gfql.ir.logical_plan import RowSchema
-from graphistry.compute.gfql.ir.compilation import PlanContext
+from graphistry.compute.gfql.ir.compilation import GraphSchemaCatalog, PlanContext
 from graphistry.compute.gfql.ir.types import EdgeRef, NodeRef, PathType, ScalarType
 from typing import Any, List, Tuple, cast
 
@@ -31,11 +31,18 @@ def test_cypher_frontend_binder_returns_bound_ir_placeholder() -> None:
     assert isinstance(bound, BoundIR)
 
 
-def _capture_binder_calls(monkeypatch: pytest.MonkeyPatch) -> List[Tuple[object, PlanContext]]:
-    calls: List[Tuple[object, PlanContext]] = []
+def _capture_binder_calls(monkeypatch: pytest.MonkeyPatch) -> List[Tuple[object, PlanContext, bool]]:
+    calls: List[Tuple[object, PlanContext, bool]] = []
 
-    def _fake_bind(self: FrontendBinder, ast: object, ctx: PlanContext) -> BoundIR:
-        calls.append((ast, ctx))
+    def _fake_bind(
+        self: FrontendBinder,
+        ast: object,
+        ctx: PlanContext,
+        *,
+        strict_name_resolution: bool = True,
+    ) -> BoundIR:
+        _ = self
+        calls.append((ast, ctx, strict_name_resolution))
         return BoundIR()
 
     monkeypatch.setattr(FrontendBinder, "bind", _fake_bind)
@@ -43,8 +50,14 @@ def _capture_binder_calls(monkeypatch: pytest.MonkeyPatch) -> List[Tuple[object,
 
 
 def _stub_bound_ir(monkeypatch: pytest.MonkeyPatch, bound_ir: BoundIR) -> None:
-    def _fake_bind(self: FrontendBinder, ast: object, ctx: PlanContext) -> BoundIR:
-        _ = (self, ast, ctx)
+    def _fake_bind(
+        self: FrontendBinder,
+        ast: object,
+        ctx: PlanContext,
+        *,
+        strict_name_resolution: bool = True,
+    ) -> BoundIR:
+        _ = (self, ast, ctx, strict_name_resolution)
         return bound_ir
 
     monkeypatch.setattr(FrontendBinder, "bind", _fake_bind)
@@ -276,6 +289,13 @@ def test_binder_union_merges_branch_bindings() -> None:
     assert any(part.clause == "UNION" for part in bound.query_parts)
 
 
+def test_binder_union_merges_nullable_bit_across_branches() -> None:
+    bound = FrontendBinder().bind(parse_cypher("RETURN null AS x UNION RETURN 2 AS x"), PlanContext())
+    x_var = bound.semantic_table.variables["x"]
+    assert isinstance(x_var.logical_type, ScalarType)
+    assert x_var.nullable is True
+
+
 def test_binder_with_scope_boundary_keeps_projected_alias_only() -> None:
     query = "MATCH (n:Person) WITH n AS m RETURN m"
     bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
@@ -289,6 +309,64 @@ def test_binder_unresolved_name_failure_after_with_scope_reset() -> None:
     query = "MATCH (n:Person) WITH n AS m RETURN n"
     with pytest.raises(GFQLValidationError, match="Unresolved identifier"):
         FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+
+@pytest.mark.parametrize("stale_alias", ["c", "d"])
+@pytest.mark.parametrize("direction", ["", " ASC", " ASCENDING", " DESC", " DESCENDING"])
+def test_binder_with_order_by_rejects_alias_not_visible_after_with(stale_alias: str, direction: str) -> None:
+    query = f"MATCH (a)-->(b)-->(c) WITH a, b WITH a ORDER BY {stale_alias}{direction} RETURN a"
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert exc_info.value.code == ErrorCode.E204
+    assert exc_info.value.context["field"] == "identifier"
+    assert exc_info.value.context["value"] == stale_alias
+    assert exc_info.value.context["visible_scope"] == ["a", "b"]
+
+
+def test_binder_with_order_by_accepts_current_or_projected_aliases() -> None:
+    query = "MATCH (a)-->(b) WITH a, b WITH a.id AS aid ORDER BY b.id, aid RETURN aid"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert [part.clause for part in bound.query_parts] == ["MATCH", "WITH", "WITH", "RETURN"]
+    assert set(bound.semantic_table.variables) == {"aid"}
+
+
+def test_binder_return_order_by_rejects_alias_not_visible_after_with() -> None:
+    query = "MATCH (a)-->(b)-->(c) WITH a, b WITH a RETURN a ORDER BY c"
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert exc_info.value.code == ErrorCode.E204
+    assert exc_info.value.context["field"] == "identifier"
+    assert exc_info.value.context["value"] == "c"
+    assert exc_info.value.context["visible_scope"] == ["a"]
+
+
+def test_binder_ic4_return_case_across_with_distinct_scope() -> None:
+    query = (
+        "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
+        "(friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag:Tag) "
+        "WITH DISTINCT tag, post "
+        "RETURN CASE WHEN 1275350400000 <= post.creationDate AND post.creationDate < 1306886400000 "
+        "THEN post.id ELSE null END AS postId"
+    )
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert [part.clause for part in bound.query_parts] == ["MATCH", "WITH", "RETURN"]
+    assert "postId" in bound.semantic_table.variables
+    post_id_var = bound.semantic_table.variables["postId"]
+    assert isinstance(post_id_var.logical_type, ScalarType)
+    assert post_id_var.entity_kind == "scalar"
+
+
+def test_binder_unresolved_name_failure_inside_return_case_predicate() -> None:
+    query = "MATCH (n:Person) WITH n AS m RETURN CASE WHEN ghost IS NULL THEN 1 ELSE 0 END AS x"
+    with pytest.raises(GFQLValidationError, match="Unresolved identifier") as exc_info:
+        FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+    assert exc_info.value.code == ErrorCode.E204
 
 
 @pytest.mark.parametrize(
@@ -305,14 +383,69 @@ def test_binder_unresolved_name_failure_in_compound_expression(query: str) -> No
 
 
 @pytest.mark.parametrize(
+    ("query", "identifier"),
+    [
+        ("MATCH (n:Person) RETURN collect(ghost) AS xs", "ghost"),
+        ("RETURN [ghost] AS xs", "ghost"),
+    ],
+)
+def test_binder_retired_loose_flag_rejects_unresolved_collection_inputs(query: str, identifier: str) -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=False)
+    assert exc_info.value.code == ErrorCode.E204
+    assert exc_info.value.context["field"] == "identifier"
+    assert exc_info.value.context["value"] == identifier
+
+
+@pytest.mark.parametrize(
     "query",
     [
         "MATCH (n:Person) RETURN coalesce(n.id, 1) AS x",
         "MATCH (n:Person) RETURN coalesce('ghost', n.id) AS x",
         "RETURN 'ghost' AS x",
+        "RETURN all(x IN [1, 2, 3] WHERE x > 1) AS x",
+        "RETURN any(x IN [1, 2, 3] WHERE x = 2) AS x",
+        "RETURN none(x IN [1, 2, 3] WHERE x = 2) AS x",
+        "RETURN single(x IN [1, 2, 3] WHERE x = 2) AS x",
+        "RETURN [x IN [1, 2, 3] WHERE x > 1 | x + 1] AS x",
     ],
 )
 def test_binder_strict_name_resolution_allows_valid_expressions(query: str) -> None:
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+    assert "x" in bound.semantic_table.variables
+
+
+def test_binder_strict_name_resolution_rejects_comprehension_local_outside_scope() -> None:
+    query = "RETURN all(x IN [1, 2, 3] WHERE x > 1) AS ok, x AS leaked"
+    with pytest.raises(GFQLValidationError, match="Unresolved identifier"):
+        FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+@pytest.mark.parametrize(
+    ("query", "expected_alias"),
+    [
+        ("CALL graphistry.degree() YIELD nodeId RETURN nodeId", "nodeId"),
+        ("CALL graphistry.degree() YIELD nodeId AS nid RETURN nid", "nid"),
+    ],
+)
+def test_binder_strict_name_resolution_preserves_call_yield_scope(query: str, expected_alias: str) -> None:
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert [part.clause for part in bound.query_parts] == ["CALL", "RETURN"]
+    assert expected_alias in bound.semantic_table.variables
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "RETURN duration.inSeconds(localtime(), localtime()) AS x",
+        "RETURN duration.between(localdatetime('2018-01-01T12:00'), localdatetime('2018-01-02T10:00')) AS x",
+        "RETURN datetime.fromepoch(416779, 999999999) AS x",
+        "RETURN date.truncate('decade', date({year: 1984, month: 10, day: 11}), {day: 2}) AS x",
+        "RETURN localdatetime.truncate('weekYear', localdatetime({year: 1984, month: 1, day: 1, hour: 12}), {day: 5}) AS x",
+        "RETURN time.truncate('hour', time({hour: 12, minute: 31, timezone: '+01:00'}), {nanosecond: 2}) AS x",
+    ],
+)
+def test_binder_strict_name_resolution_allows_namespaced_builtin_calls(query: str) -> None:
     bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
     assert "x" in bound.semantic_table.variables
 
@@ -324,6 +457,92 @@ def test_binder_unwind_extends_existing_scope() -> None:
     unwind_part = next(part for part in bound.query_parts if part.clause == "UNWIND")
     assert unwind_part.inputs == frozenset({"n"})
     assert unwind_part.outputs == frozenset({"n", "x"})
+
+
+def test_binder_strict_name_resolution_allows_post_with_unwind_alias_resolution() -> None:
+    query = (
+        "MATCH (root:S)-[:X]->(b1:B) "
+        "WITH root, collect(b1.id) AS bee_ids "
+        "UNWIND bee_ids AS bid "
+        "MATCH (root)-[:Y]->(c:C {id: bid}) "
+        "RETURN c.id AS id"
+    )
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert [part.clause for part in bound.query_parts] == ["MATCH", "WITH", "UNWIND", "MATCH", "RETURN"]
+    assert "id" in bound.semantic_table.variables
+
+
+def test_binder_retired_loose_flag_preserves_source_order_for_post_with_unwind() -> None:
+    query = (
+        "MATCH (root:S)-[:X]->(b1:B) "
+        "WITH root, collect(b1.id) AS bee_ids "
+        "UNWIND bee_ids AS bid "
+        "MATCH (root)-[:Y]->(c:C {id: bid}) "
+        "RETURN c.id AS id"
+    )
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=False)
+
+    assert [part.clause for part in bound.query_parts] == ["MATCH", "WITH", "UNWIND", "MATCH", "RETURN"]
+    assert "id" in bound.semantic_table.variables
+
+
+def test_binder_strict_name_resolution_allows_post_with_unwind_after_multiple_with_stages() -> None:
+    query = (
+        "MATCH (root:S)-[:X]->(b1:B) "
+        "WITH root, collect(b1.id) AS bee_ids "
+        "WITH root, bee_ids "
+        "UNWIND bee_ids AS bid "
+        "MATCH (root)-[:Y]->(c:C {id: bid}) "
+        "RETURN c.id AS id"
+    )
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert [part.clause for part in bound.query_parts] == ["MATCH", "WITH", "WITH", "UNWIND", "MATCH", "RETURN"]
+    assert "id" in bound.semantic_table.variables
+
+
+def test_binder_with_where_validates_against_projected_alias_scope() -> None:
+    query = "MATCH (n:Person) WITH n AS m WHERE m.id > 0 RETURN m"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    assert [part.clause for part in bound.query_parts] == ["MATCH", "WITH", "RETURN"]
+    with_part = next(part for part in bound.query_parts if part.clause == "WITH")
+    assert with_part.inputs == frozenset({"n"})
+    assert with_part.outputs == frozenset({"m"})
+    assert with_part.predicates[0].expression == "m.id > 0"
+
+
+def test_binder_with_where_validates_against_source_alias_scope() -> None:
+    query = "MATCH (n:Person) WITH n AS m WHERE n.id > 0 RETURN m"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    with_part = next(part for part in bound.query_parts if part.clause == "WITH")
+    assert with_part.inputs == frozenset({"n"})
+    assert with_part.outputs == frozenset({"m"})
+    assert with_part.predicates[0].expression == "n.id > 0"
+
+
+def test_binder_with_where_rejects_unknown_source_or_projected_alias() -> None:
+    query = "MATCH (n:Person) WITH n AS m WHERE ghost.id > 0 RETURN m"
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(parse_cypher(query), PlanContext())
+
+    assert exc_info.value.code == ErrorCode.E204
+    assert exc_info.value.context["field"] == "identifier"
+    assert exc_info.value.context["value"] == "ghost"
+    assert exc_info.value.context["visible_scope"] == ["m", "n"]
+
+
+def test_binder_strict_name_resolution_rejects_scalar_unwind_alias_rebound_as_node() -> None:
+    query = "UNWIND [1, 2] AS x MATCH (x) RETURN x"
+    with pytest.raises(GFQLValidationError, match="different entity kind") as exc_info:
+        FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert exc_info.value.code == ErrorCode.E204
+    assert exc_info.value.context["existing_kind"] == "scalar"
+    assert exc_info.value.context["new_kind"] == "node"
+    assert exc_info.value.context["value"] == "x"
 
 
 def test_binder_label_narrowing_from_match_labels_and_where_conjunction() -> None:
@@ -478,3 +697,141 @@ def test_binder_unresolved_identifier_code_is_e204() -> None:
     with pytest.raises(GFQLValidationError) as exc_info:
         FrontendBinder().bind(parse_cypher("RETURN ghost"), PlanContext(), strict_name_resolution=True)
     assert exc_info.value.code == ErrorCode.E204
+
+
+def _strict_catalog_ctx(
+    *,
+    node_columns: List[str],
+    edge_columns: List[str],
+    strict: bool = True,
+) -> PlanContext:
+    return PlanContext(
+        catalog=GraphSchemaCatalog.from_schema_parts(
+            node_columns=node_columns,
+            edge_columns=edge_columns,
+            metadata={"strict": strict},
+        )
+    )
+
+
+def test_binder_strict_schema_rejects_missing_match_label_with_context() -> None:
+    ctx = _strict_catalog_ctx(
+        node_columns=["id", "name", "label__Admin"],
+        edge_columns=["src", "dst"],
+    )
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(parse_cypher("MATCH (n:Person) RETURN n"), ctx, strict_name_resolution=True)
+    err = exc_info.value
+    assert err.code == ErrorCode.E301
+    assert err.context["alias"] == "n"
+    assert err.context["stage"] == "MATCH"
+    assert err.context["field"].startswith("MATCH.patterns[0].elements[0].labels")
+    assert "disable strict mode" not in err.context["suggestion"]
+    assert err.context["suggestion"] == "Use labels that exist in the node schema or extend the schema catalog."
+
+
+def test_binder_strict_schema_rejects_missing_property_in_return_with_context() -> None:
+    ctx = _strict_catalog_ctx(
+        node_columns=["id", "name", "label__Person"],
+        edge_columns=["src", "dst"],
+    )
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(parse_cypher("MATCH (n:Person) RETURN n.age AS age"), ctx, strict_name_resolution=True)
+    err = exc_info.value
+    assert err.code == ErrorCode.E301
+    assert err.context["alias"] == "n"
+    assert err.context["stage"] == "RETURN"
+    assert err.context["field"] == "RETURN.expression"
+    assert err.context["value"] == "n.age"
+    assert "disable strict mode" not in err.context["suggestion"]
+    assert err.context["suggestion"] == "Use properties that exist in node schema columns or extend the schema catalog."
+
+
+def test_binder_strict_schema_accepts_admitted_label_and_property_shapes() -> None:
+    ctx = _strict_catalog_ctx(
+        node_columns=["id", "name", "label__Person"],
+        edge_columns=["src", "dst"],
+    )
+    bound = FrontendBinder().bind(
+        parse_cypher("MATCH (n:Person {id: 1}) WHERE n.name = 'alice' RETURN n.id AS nid"),
+        ctx,
+        strict_name_resolution=True,
+    )
+    assert "nid" in bound.semantic_table.variables
+
+
+def test_binder_retired_loose_mode_rejects_missing_schema_fields() -> None:
+    ctx = _strict_catalog_ctx(
+        node_columns=["id"],
+        edge_columns=["src", "dst"],
+        strict=False,
+    )
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(
+            parse_cypher("MATCH (n:Person) RETURN n.unknown AS u"),
+            ctx,
+            strict_name_resolution=False,
+        )
+    assert exc_info.value.code == ErrorCode.E301
+    assert exc_info.value.context["field"] == "MATCH.patterns[0].elements[0].labels"
+
+
+def test_binder_schema_enforced_even_when_legacy_strict_name_flag_false() -> None:
+    ctx = _strict_catalog_ctx(
+        node_columns=["id", "label__Person"],
+        edge_columns=["src", "dst"],
+        strict=True,
+    )
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(
+            parse_cypher("MATCH (n:Person) RETURN n.name AS name"),
+            ctx,
+            strict_name_resolution=False,
+        )
+    assert exc_info.value.code == ErrorCode.E301
+    assert exc_info.value.context["field"] == "RETURN.expression"
+
+
+def test_binder_strict_name_resolution_with_empty_catalog_keeps_existing_behavior() -> None:
+    bound = FrontendBinder().bind(
+        parse_cypher("MATCH (n:Person) RETURN n.unknown AS u"),
+        PlanContext(),
+        strict_name_resolution=True,
+    )
+    assert "u" in bound.semantic_table.variables
+
+
+def test_binder_strict_schema_checks_expr_tree_where_property_refs() -> None:
+    ctx = _strict_catalog_ctx(
+        node_columns=["id", "name", "label__Person"],
+        edge_columns=["src", "dst"],
+    )
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(
+            parse_cypher("MATCH (n:Person) WHERE (n.name = 'x') OR (n.age > 1) RETURN n"),
+            ctx,
+            strict_name_resolution=True,
+        )
+    err = exc_info.value
+    assert err.code == ErrorCode.E301
+    assert err.context["stage"] == "MATCH WHERE"
+    assert err.context["value"] == "n.age"
+
+
+def test_binder_strict_schema_rejects_missing_relationship_property_in_match_pattern() -> None:
+    ctx = _strict_catalog_ctx(
+        node_columns=["id", "label__Person"],
+        edge_columns=["src", "dst", "since"],
+    )
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(
+            parse_cypher("MATCH (a:Person)-[r:KNOWS {weight: 1}]->(b:Person) RETURN r"),
+            ctx,
+            strict_name_resolution=True,
+        )
+    err = exc_info.value
+    assert err.code == ErrorCode.E301
+    assert err.context["entity_kind"] == "edge"
+    assert "weight" in err.context["value"]
+    assert "disable strict mode" not in err.context["suggestion"]
+    assert err.context["suggestion"] == "Use properties that exist in edge schema columns or extend the schema catalog."

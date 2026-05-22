@@ -41,7 +41,7 @@ dev_extras = {
       'sphinx-copybutton==0.5.2',
       'sphinx-book-theme==1.1.3',
     ],
-    'test': ['ruff>=0.8.0', 'hypothesis', 'mock', 'mypy', 'pytest', 'pytest-xdist'] + stubs + test_workarounds,
+    'test': ['coverage', 'pytest-cov', 'ruff>=0.8.0', 'hypothesis', 'mock', 'mypy', 'pytest', 'pytest-xdist'] + stubs + test_workarounds,
     'testai': [
       'numba>=0.57.1'  # https://github.com/numba/numba/issues/8615
     ],

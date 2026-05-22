@@ -83,20 +83,50 @@ class TestComputeMixin(NoAuthTestCase):
     def test_materialize_empty_edges(self):
         """Test materialize_nodes() with empty edges DataFrame.
 
-        This is an edge case where materialize_nodes() returns early without
-        setting _node binding, which is why validation checks in hop() are necessary.
+        Empty edge tables still establish the node-table invariant for downstream
+        degree, GFQL, and layout code paths.
         """
         cg = CGFull()
-        # Create graph with empty edges
         g = cg.edges(pd.DataFrame({"s": [], "d": []}), "s", "d")
 
-        # materialize_nodes() should return early for empty edges
         g2 = g.materialize_nodes()
 
-        # The critical assertion: _node should be None because materialize_nodes()
-        # returns early at ComputeMixin.py line 196 without calling .nodes()
-        assert g2._node is None, "Empty edges should leave _node as None"
-        assert g2._nodes is None or len(g2._nodes) == 0
+        assert g2._node == "id"
+        assert g2._nodes is not None
+        assert g2._nodes.to_dict(orient="records") == []
+
+    def test_get_degrees_empty_edges_materializes_empty_nodes(self):
+        cg = CGFull()
+        g = cg.edges(pd.DataFrame({"s": [], "d": []}), "s", "d")
+
+        g2 = g.get_degrees()
+
+        assert g2._node == "id"
+        assert g2._nodes.to_dict(orient="records") == []
+        assert list(g2._nodes.columns) == ["id", "degree_in", "degree_out", "degree"]
+
+    def test_get_degrees_empty_edges_is_idempotent(self):
+        cg = CGFull()
+        g = cg.edges(pd.DataFrame({"s": [], "d": []}), "s", "d")
+
+        g2 = g.get_degrees().get_degrees()
+
+        assert g2._node == "id"
+        assert g2._nodes.to_dict(orient="records") == []
+        assert list(g2._nodes.columns) == ["id", "degree_in", "degree_out", "degree"]
+
+    def test_materialize_reuse_preserves_bound_empty_nodes(self):
+        cg = CGFull()
+        g = (
+            cg.edges(pd.DataFrame({"s": ["a"], "d": ["b"]}), "s", "d")
+            .nodes(pd.DataFrame({"id": [], "kept": []}), "id")
+        )
+
+        g2 = g.materialize_nodes()
+
+        assert g2._node == "id"
+        assert list(g2._nodes.columns) == ["id", "kept"]
+        assert g2._nodes.to_dict(orient="records") == []
 
     def test_degrees_in(self):
         cg = CGFull()

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-import datetime
+import ast
 import math
 import re
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
+from graphistry.Engine import Engine, s_cons
+from graphistry.compute.typing import SeriesT
 
 from graphistry.compute.gfql.series_str_compat import (
     series_sequence_len,
@@ -15,7 +17,7 @@ from graphistry.compute.gfql.series_str_compat import (
     series_str_fullmatch,
     series_str_match,
 )
-from graphistry.compute.gfql.temporal_text import (
+from graphistry.compute.gfql.temporal.constructors import (
     DATETIME_CALL_TEXT_RE,
     DATE_CALL_TEXT_RE,
     LOCALDATETIME_CALL_TEXT_RE,
@@ -54,37 +56,9 @@ def is_null_scalar(value: Any) -> bool:
     return bool(marker) if isinstance(marker, bool) else False
 
 
-def is_nan_scalar(value: Any) -> bool:
-    if isinstance(value, bool):
-        return False
-    try:
-        return math.isnan(value)
-    except Exception:
-        return False
-
-
-def order_value_family(value: Any) -> Optional[str]:
-    if is_null_scalar(value) or is_nan_scalar(value):
-        return None
-    if isinstance(value, bool):
-        return "bool"
-    if isinstance(value, str):
-        return "str"
-    if isinstance(value, (int, float)):
-        return "number"
-    if isinstance(value, (datetime.datetime, datetime.date, datetime.time, pd.Timestamp)):
-        return "datetime"
-    type_name = type(value).__name__.lower()
-    if "datetime64" in type_name or "timedelta64" in type_name:
-        return "datetime"
-    if isinstance(value, (list, tuple, dict, set)):
-        return "unsupported"
-    return "unsupported"
-
-
 def validate_order_series_vector_safe(series: Any, expr: str) -> None:
     dtype_txt = str(getattr(series, "dtype", "")).lower()
-    if dtype_txt != "object":
+    if dtype_txt != "object" and dtype_txt != "string":
         return
     if not hasattr(series, "isna") or not hasattr(series, "astype"):
         return
@@ -96,6 +70,7 @@ def validate_order_series_vector_safe(series: Any, expr: str) -> None:
     if not hasattr(text, "str"):
         return
     actual_string = _actual_string_mask(series, text, null_mask)
+    list_shape_string_match = series_str_match(text.str.strip(), _GFQL_LIST_TEXT_RE.pattern, na=False)
     bool_mask = (~null_mask) & (~actual_string) & text.isin(["True", "False"])
     number_mask = (~null_mask) & (~actual_string) & series_str_fullmatch(text, _GFQL_LIST_NUMERIC_TEXT_RE.pattern, na=False)
     datetime_mask = (~null_mask) & (~actual_string) & (
@@ -103,8 +78,9 @@ def validate_order_series_vector_safe(series: Any, expr: str) -> None:
         | series_str_fullmatch(text, _GFQL_DATETIME_TEXT_RE.pattern, na=False)
         | series_str_fullmatch(text, _GFQL_TIME_TEXT_RE.pattern, na=False)
     )
-    string_mask = (~null_mask) & actual_string
-    classified_mask = null_mask | bool_mask | number_mask | datetime_mask | string_mask
+    list_shape_string_mask = (~null_mask) & actual_string & list_shape_string_match
+    plain_string_mask = (~null_mask) & actual_string & ~list_shape_string_match
+    classified_mask = null_mask | bool_mask | number_mask | datetime_mask | list_shape_string_mask | plain_string_mask
     families = set()
     if hasattr(bool_mask, "any") and bool(bool_mask.any()):
         families.add("bool")
@@ -112,8 +88,10 @@ def validate_order_series_vector_safe(series: Any, expr: str) -> None:
         families.add("number")
     if hasattr(datetime_mask, "any") and bool(datetime_mask.any()):
         families.add("datetime")
-    if hasattr(string_mask, "any") and bool(string_mask.any()):
+    if hasattr(plain_string_mask, "any") and bool(plain_string_mask.any()):
         families.add("str")
+    if hasattr(list_shape_string_mask, "any") and bool(list_shape_string_mask.any()):
+        families.add("list_string")
     unsupported_mask = ~classified_mask
     if hasattr(unsupported_mask, "any") and bool(unsupported_mask.any()):
         families.add("unsupported")
@@ -153,6 +131,84 @@ def order_detect_list_series(series: Any) -> bool:
     if hasattr(valid, "where"):
         return bool(valid.where(~null_mask, True).all())
     return False
+
+
+def order_detect_stringified_list_series(series: Any) -> bool:
+    """Return True when every non-null entry is a string matching ``[...]`` syntax.
+
+    Complements ``order_detect_list_series`` (which only matches Python-list values).
+    Lets ``ORDER BY <col>`` apply Cypher list-orderability semantics when the
+    underlying dataframe stores list properties as strings (a common shape when
+    data round-trips through CSV / Arrow string columns).
+    """
+    if not hasattr(series, "isna") or not hasattr(series, "astype"):
+        return False
+    null_mask = series.isna()
+    non_null = ~null_mask
+    if hasattr(non_null, "any") and not bool(non_null.any()):
+        return False
+    text = series.astype(str)
+    if not hasattr(text, "str"):
+        return False
+    actual_string = _actual_string_mask(series, text, null_mask)
+    list_like = series_str_match(text.str.strip(), _GFQL_LIST_TEXT_RE.pattern, na=False)
+    valid = (~null_mask) & actual_string & list_like
+    if not (hasattr(valid, "where") and bool(valid.where(~null_mask, True).all())):
+        return False
+    return bool(((~null_mask) & actual_string).any())
+
+
+def _is_cudf_series(series: Any) -> bool:
+    return hasattr(series, "__class__") and series.__class__.__module__.startswith("cudf")
+
+
+def parse_stringified_list_series(series: Any) -> Optional[SeriesT]:
+    """Parse a stringified-list column into a Python-list column via ``ast.literal_eval``.
+
+    Returns a parsed list-typed series (cudf when input is cudf, otherwise pandas)
+    with original list/tuple values passed through, or ``None`` if any non-null
+    entry fails to parse to a list/tuple.
+
+    Caller contract: when assigning into a cuDF table, prefer coercing any
+    pandas-series fallback back to a cuDF series first; only host-bridge as a
+    defensive fallback if that coercion fails.
+    """
+    source_values: List[Any]
+    if hasattr(series, "to_arrow"):
+        source_values = series.to_arrow().to_pylist()
+    elif hasattr(series, "to_pandas"):
+        source_values = series.to_pandas().tolist()
+    elif hasattr(series, "tolist"):
+        source_values = series.tolist()
+    else:
+        source_values = list(series)
+
+    parsed: List[Any] = []
+    for value in source_values:
+        if is_null_scalar(value):
+            parsed.append(None)
+            continue
+        if isinstance(value, (list, tuple)):
+            parsed.append(list(value))
+            continue
+        if isinstance(value, str):
+            try:
+                literal = ast.literal_eval(value)
+            except (SyntaxError, ValueError):
+                return None
+            if isinstance(literal, (list, tuple)):
+                parsed.append(list(literal))
+                continue
+        return None
+    out_index = getattr(series, "index", None)
+    if _is_cudf_series(series):
+        return s_cons(Engine.CUDF)(parsed, index=out_index)
+    if out_index is not None and hasattr(out_index, "to_pandas"):
+        try:
+            out_index = out_index.to_pandas()
+        except (AttributeError, TypeError, ValueError):
+            out_index = None
+    return s_cons(Engine.PANDAS)(parsed, index=out_index, dtype="object")
 
 
 def order_detect_temporal_mode(series: Any) -> Optional[str]:

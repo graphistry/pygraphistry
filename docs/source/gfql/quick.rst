@@ -29,14 +29,25 @@ Basic Usage
 - **query**: Sequence of graph node/edge matchers and optional row-pipeline call steps (for example, `rows()`, `where_rows()`, `return_()`, `order_by()`, `limit()`), or an equivalent GFQL chain object.
 - **engine**: Optional execution engine. Engine is typically not set, defaulting to `'auto'`. Use `'cudf'` for GPU acceleration and `'pandas'` for CPU.
 
+Native GFQL chains are typed Python inputs. Pass the list, dict envelope, or
+``Chain`` object itself; strings passed to ``g.gfql(...)`` are interpreted as
+query text for the selected string language.
+
 Use this page as a quick MATCH/chain reference.
 For row-pipeline RETURN semantics, see :doc:`return`.
 
 Choose The Right Entrypoint
 ---------------------------
 
-- Use `g.gfql([...])` for native GFQL operators and `g.gfql("MATCH ...")` for Cypher syntax on the current graph.
-- Use `g.gfql_remote([...])` for remote GFQL when the dataset size or hardware profile calls for remote execution, including remote GPU execution. See :ref:`gfql-remote`.
+- Use ``g.gfql([...])`` for native GFQL operators and
+  ``g.gfql("MATCH ...")`` for Cypher syntax on the current graph.
+- If a tool receives a serialized native chain such as ``"[{'type': ...}]"``,
+  decode it into a real Python list/dict/``Chain`` before calling
+  ``g.gfql(...)``. ``g.gfql(str)`` is reserved for Cypher query text by
+  default.
+- Use ``g.gfql_remote([...])`` for remote GFQL when the dataset size or
+  hardware profile calls for remote execution, including remote GPU execution.
+  See :ref:`gfql-remote`.
 
 .. warning::
    `graphistry.cypher("...")` and `g.cypher("...")` are a separate remote database Cypher path
@@ -56,6 +67,10 @@ Cypher Strings Through ``g.gfql()``
 Use ``g.gfql("MATCH ...")`` when you want Cypher syntax and declarative graph
 semantics on a bound graph instead of writing the equivalent GFQL chain by
 hand:
+
+Do not pass stringified Python or JSON native-chain literals to
+``g.gfql(...)``. Materialize those serialized values before calling GFQL, or
+emit Cypher text intentionally.
 
 .. doc-test: xfail
 
