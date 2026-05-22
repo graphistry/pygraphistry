@@ -64,14 +64,12 @@ def _upload_otel_attrs(
     erase_files_on_fail: bool = True,
     validate: ValidationParam = "autofix",
     warn: bool = True,
-    auto_coerce: bool = False,
 ) -> Dict[str, Any]:
     attrs: Dict[str, Any] = {"graphistry.memoize": memoize}
     if otel_detail_enabled():
         attrs["graphistry.validate"] = str(validate)
         attrs["graphistry.erase_files_on_fail"] = erase_files_on_fail
         attrs["graphistry.warn"] = warn
-        attrs["graphistry.auto_coerce"] = auto_coerce
     return attrs
 
 
@@ -90,7 +88,6 @@ def _plot_otel_attrs(
     override_html_style: Optional[str] = None,
     validate: ValidationParam = "autofix",
     warn: bool = True,
-    auto_coerce: bool = False,
 ) -> Dict[str, Any]:
     attrs: Dict[str, Any] = {
         "graphistry.render": str(render),
@@ -102,7 +99,6 @@ def _plot_otel_attrs(
         attrs["graphistry.memoize"] = memoize
         attrs["graphistry.erase_files_on_fail"] = erase_files_on_fail
         attrs["graphistry.warn"] = warn
-        attrs["graphistry.auto_coerce"] = auto_coerce
     return attrs
 
 
@@ -2212,8 +2208,7 @@ class PlotterBase(Plottable):
         memoize: bool = True,
         erase_files_on_fail: bool = True,
         validate: ValidationParam = 'autofix',
-        warn: bool = True,
-        auto_coerce: bool = False
+        warn: bool = True
     ) -> Plottable:
         """Upload data to the Graphistry server and return as a Plottable. Headless-centric variant of plot().
 
@@ -2228,14 +2223,11 @@ class PlotterBase(Plottable):
         :param erase_files_on_fail: Removes uploaded files if an error is encountered during parse. Only applicable when upload as files enabled. Default on.
         :type erase_files_on_fail: bool
 
-        :param validate: Data validation mode for visualization settings and encodings.
+        :param validate: Data validation mode. 'autofix' (default) auto-coerces mixed-type columns to string. 'strict' or 'strict-fast' raises ArrowConversionError on mixed types. For backward compatibility: True maps to 'strict', False maps to 'autofix'.
         :type validate: ValidationParam
 
-        :param warn: Whether to emit warnings when auto-fixing settings/encoding validation issues (only applies when validate='autofix'). validate=False forces warn=False. Default True.
+        :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix'). validate=False forces warn=False. Default True.
         :type warn: bool
-
-        :param auto_coerce: Opt in to coercing mixed-type pandas/cuDF object columns to strings during Arrow conversion. Default False preserves strict Arrow conversion.
-        :type auto_coerce: bool
 
         **Example: Simple**
             ::
@@ -2254,8 +2246,7 @@ class PlotterBase(Plottable):
             memoize=memoize,
             erase_files_on_fail=erase_files_on_fail,
             validate=validate,
-            warn=warn,
-            auto_coerce=auto_coerce
+            warn=warn
         )
 
     @otel_traced("graphistry.plot", attrs_fn=_plot_otel_attrs)
@@ -2273,8 +2264,7 @@ class PlotterBase(Plottable):
         extra_html: str = "",
         override_html_style: Optional[str] = None,
         validate: ValidationParam = 'autofix',
-        warn: bool = True,
-        auto_coerce: bool = False
+        warn: bool = True
     ) -> Any:
         """Upload data to the Graphistry server and show as an iframe of it.
 
@@ -2316,14 +2306,11 @@ class PlotterBase(Plottable):
         :param override_html_style: Set fully custom style tag.
         :type override_html_style: Optional[str]
 
-        :param validate: Data validation mode for visualization settings and encodings.
+        :param validate: Data validation mode. 'autofix' (default) auto-coerces mixed-type columns to string. 'strict' or 'strict-fast' raises ArrowConversionError on mixed types. For backward compatibility: True maps to 'strict', False maps to 'autofix'.
         :type validate: ValidationParam
 
-        :param warn: Whether to emit warnings when auto-fixing settings/encoding validation issues (only applies when validate='autofix'). validate=False forces warn=False. Default True.
+        :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix'). validate=False forces warn=False. Default True.
         :type warn: bool
-
-        :param auto_coerce: Opt in to coercing mixed-type pandas/cuDF object columns to strings during Arrow conversion. Coerced column names are logged at info level. Default False preserves strict Arrow conversion.
-        :type auto_coerce: bool
 
         **Example: Simple**
             ::
@@ -2377,7 +2364,7 @@ class PlotterBase(Plottable):
         self._pygraphistry.refresh()
         logger.debug("4. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
 
-        uploader = self._plot_dispatch(g, n, name, description, self._style, memoize, validate_mode, warn, auto_coerce=auto_coerce)
+        uploader = self._plot_dispatch(g, n, name, description, self._style, memoize, validate_mode, warn)
         assert uploader is not None
         if skip_upload:
             return uploader
@@ -2844,15 +2831,15 @@ class PlotterBase(Plottable):
             if b not in cols:
                 error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
 
-    def _plot_dispatch_arrow(self, graph, nodes, name, description, metadata=None, memoize=True, validate_mode: ValidationMode = 'autofix', emit_warnings=True, auto_coerce: bool = False) -> ArrowUploader:
+    def _plot_dispatch_arrow(self, graph, nodes, name, description, metadata=None, memoize=True, validate_mode: ValidationMode = 'autofix', emit_warnings=True) -> ArrowUploader:
         warnings.warn(
             "_plot_dispatch_arrow() is deprecated; use _plot_dispatch(), which now always builds Arrow uploaders.",
             DeprecationWarning,
             stacklevel=2,
         )
-        return self._plot_dispatch(graph, nodes, name, description, metadata, memoize, validate_mode, emit_warnings, auto_coerce=auto_coerce)
+        return self._plot_dispatch(graph, nodes, name, description, metadata, memoize, validate_mode, emit_warnings)
 
-    def _plot_dispatch(self, graph, nodes, name, description, metadata=None, memoize=True, validate_mode: ValidationMode = 'autofix', emit_warnings=True, auto_coerce: bool = False) -> ArrowUploader:
+    def _plot_dispatch(self, graph, nodes, name, description, metadata=None, memoize=True, validate_mode: ValidationMode = 'autofix', emit_warnings=True) -> ArrowUploader:
 
         g: "PlotterBase" = self
         if self._point_title is None and self._point_label is None and g._nodes is not None:
@@ -2862,8 +2849,8 @@ class PlotterBase(Plottable):
                 1
 
         def make_arrow_upload(edges: Any, upload_nodes: Any) -> ArrowUploader:
-            edges_arr = g._table_to_arrow(edges, memoize, auto_coerce=auto_coerce)
-            nodes_arr = g._table_to_arrow(upload_nodes, memoize, auto_coerce=auto_coerce)
+            edges_arr = g._table_to_arrow(edges, memoize, validate_mode, emit_warnings)
+            nodes_arr = g._table_to_arrow(upload_nodes, memoize, validate_mode, emit_warnings)
             return g._make_arrow_dataset(edges=edges_arr, nodes=nodes_arr, name=name, description=description, metadata=metadata)
 
         if isinstance(graph, pd.DataFrame) \
@@ -2926,7 +2913,7 @@ class PlotterBase(Plottable):
                     bad_cols.append(str(col))
         return bad_cols
 
-    def _coerce_mixed_type_columns(self, df: Any, is_cudf: bool = False) -> Any:
+    def _coerce_mixed_type_columns(self, df: Any, is_cudf: bool = False, emit_warning: bool = True) -> Any:
         """Coerce mixed-type columns to string for Arrow conversion."""
         coerced_cols: List[str] = []
         coerce_cols: List[Any] = []
@@ -2941,28 +2928,26 @@ class PlotterBase(Plottable):
                     coerce_cols.append(col)
                     coerced_cols.append(str(col))
         if coerce_cols:
-            string_dtype = "str" if is_cudf else "string"
-            df_fixed = df.astype({col: string_dtype for col in coerce_cols})
+            df_fixed = df.astype({col: str for col in coerce_cols})
         else:
             df_fixed = df
-        if coerced_cols:
-            logger.info(
-                "Auto-coerced mixed-type columns to string for Arrow conversion: %s",
-                coerced_cols,
-            )
+        if coerced_cols and emit_warning:
+            warn(f'Coerced mixed-type columns to string for Arrow conversion: {coerced_cols}. '
+                 f'Convert explicitly before plot() for better control.')
         return df_fixed
 
-    def _table_to_arrow(self, table: Any, memoize: bool = True, auto_coerce: bool = False) -> Optional[pa.Table]:  # noqa: C901
+    def _table_to_arrow(self, table: Any, memoize: bool = True, validate_mode: ValidationMode = 'autofix', emit_warnings: bool = True) -> Optional[pa.Table]:  # noqa: C901
         """
             pandas | arrow | dask | cudf | dask_cudf | polars | spark => arrow
 
             dask/dask_cudf convert to pandas/cudf
 
-            :param auto_coerce: When True, coerce mixed-type object columns to strings and log the column names.
-                                Default False preserves strict Arrow conversion.
+            :param validate_mode: 'autofix' (default) coerces mixed-type columns to string with warning,
+                                  'strict' or 'strict-fast' raises ArrowConversionError on mixed types
+            :param warn: Whether to emit warnings when auto-coercing (only applies to autofix mode)
         """
 
-        logger.debug('_table_to_arrow of %s (memoize: %s, auto_coerce: %s)', type(table), memoize, auto_coerce)
+        logger.debug('_table_to_arrow of %s (memoize: %s, validate_mode: %s)', type(table), memoize, validate_mode)
 
         if table is None:
             return None
@@ -2996,12 +2981,12 @@ class PlotterBase(Plottable):
             try:
                 out = pa.Table.from_pandas(table, preserve_index=False).replace_schema_metadata({})
             except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid) as e:
-                if not auto_coerce:
+                if validate_mode in ('strict', 'strict-fast'):
                     bad_cols = self._find_bad_arrow_columns(table, is_cudf=False)
                     from graphistry.exceptions import ArrowConversionError
                     raise ArrowConversionError(columns=bad_cols, original_error=e)
                 logger.debug('Arrow conversion failed, auto-coercing: %s', e)
-                table_fixed = self._coerce_mixed_type_columns(table, is_cudf=False)
+                table_fixed = self._coerce_mixed_type_columns(table, is_cudf=False, emit_warning=emit_warnings)
                 out = pa.Table.from_pandas(table_fixed, preserve_index=False).replace_schema_metadata({})
 
             if memoize and (hashed is not None):
@@ -3031,12 +3016,12 @@ class PlotterBase(Plottable):
             try:
                 out = table.to_arrow()
             except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid) as e:
-                if not auto_coerce:
+                if validate_mode in ('strict', 'strict-fast'):
                     bad_cols = self._find_bad_arrow_columns(table, is_cudf=True)
                     from graphistry.exceptions import ArrowConversionError
                     raise ArrowConversionError(columns=bad_cols, original_error=e)
                 logger.debug('cuDF Arrow conversion failed, auto-coercing: %s', e)
-                table_fixed = self._coerce_mixed_type_columns(table, is_cudf=True)
+                table_fixed = self._coerce_mixed_type_columns(table, is_cudf=True, emit_warning=emit_warnings)
                 out = table_fixed.to_arrow()  # type: ignore[union-attr]
 
             if memoize:
@@ -3051,22 +3036,22 @@ class PlotterBase(Plottable):
             logger.debug('dgdf->arrow via gdf hash check')
             dgdf = table.persist()
             gdf = dgdf.compute()
-            return self._table_to_arrow(gdf, memoize, auto_coerce=auto_coerce)
+            return self._table_to_arrow(gdf, memoize, validate_mode, emit_warnings)
 
         if not (maybe_dask_dataframe() is None) and isinstance(table, maybe_dask_dataframe().DataFrame):
             logger.debug('ddf->arrow via df hash check')
             ddf = table.persist()
             df = ddf.compute()
-            return self._table_to_arrow(df, memoize, auto_coerce=auto_coerce)
+            return self._table_to_arrow(df, memoize, validate_mode, emit_warnings)
 
         if not (maybe_spark() is None) and isinstance(table, maybe_spark().sql.dataframe.DataFrame):
             logger.debug('spark->arrow via df')
             df = table.toPandas()
             #TODO push the hash check to Spark
-            return self._table_to_arrow(df, memoize, auto_coerce=auto_coerce)
+            return self._table_to_arrow(df, memoize, validate_mode, emit_warnings)
 
         if not (maybe_polars() is None) and isinstance(table, (maybe_polars().DataFrame, maybe_polars().LazyFrame)):
-            # auto_coerce is not applied for polars input: polars frames are
+            # validate_mode and emit_warnings are not applied for polars input: polars frames are
             # strictly typed so mixed-type columns cannot exist, making validation a no-op here.
             if isinstance(table, maybe_polars().LazyFrame):
                 table = table.collect()
@@ -3093,18 +3078,25 @@ class PlotterBase(Plottable):
     def to_arrow(
         self,
         table: Optional[Any] = None,
-        auto_coerce: bool = False
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
     ) -> Optional[pa.Table]:
         """
         Convert a DataFrame to Arrow format.
 
         This method is useful for debugging Arrow conversion issues.
         If the DataFrame contains mixed-type columns that would cause Arrow
-        conversion to fail, pass ``auto_coerce=True`` to coerce those columns
-        to strings and log the column names.
+        conversion to fail, they will be automatically coerced to strings
+        with a warning in autofix mode.
 
-        :param auto_coerce: Opt in to coercing mixed-type pandas/cuDF object columns to strings during Arrow conversion. Default False preserves strict Arrow conversion.
-        :type auto_coerce: bool
+        :param validate: Data validation mode. 'autofix' (default) auto-coerces mixed-type columns to string.
+                         'strict' or 'strict-fast' raises ArrowConversionError on mixed types.
+                         For backward compatibility: True maps to 'strict', False maps to 'autofix'.
+        :type validate: ValidationParam
+
+        :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix').
+                     validate=False forces warn=False. Default True.
+        :type warn: bool
 
         :param table: DataFrame to convert. If None, converts the bound edges.
         :type table: Optional[pandas.DataFrame, cudf.DataFrame, pyarrow.Table]
@@ -3126,15 +3118,23 @@ class PlotterBase(Plottable):
                 g = graphistry.edges(df, 'src', 'dst')
 
                 # Debug: see what Arrow conversion produces
-                arr = g.to_arrow(df, auto_coerce=True)
+                arr = g.to_arrow(df, validate='autofix', warn=True)
                 print(arr.schema)
 
                 # Or convert bound edges
-                arr2 = g.to_arrow()
+                arr2 = g.to_arrow(validate='strict')
         """
         if table is None:
             table = self._edges
-        return self._table_to_arrow(table, memoize=False, auto_coerce=auto_coerce)
+        validate_mode: ValidationMode
+        if validate is True:
+            validate_mode = 'strict'
+        elif validate is False:
+            validate_mode = 'autofix'
+            warn = False
+        else:
+            validate_mode = validate
+        return self._table_to_arrow(table, memoize=False, validate_mode=validate_mode, emit_warnings=warn)
 
     def _make_arrow_dataset(self, edges: Optional[pa.Table], nodes: Optional[pa.Table], name: str, description: str, metadata: Optional[Dict[str, Any]]) -> ArrowUploader:
         try:

@@ -323,33 +323,6 @@ class TestPlotterArrowConversions(NoAuthTestCase):
         graphistry.pygraphistry.PyGraphistry.relogin = lambda: True
         graphistry.register(api=3)
 
-    def _patch_plotterbase_logger_info(self):
-        import importlib
-
-        plotter_base_module = importlib.import_module("graphistry.PlotterBase")
-        return patch.object(plotter_base_module.logger, "info")
-
-    def _plotterbase_module(self):
-        import importlib
-
-        return importlib.import_module("graphistry.PlotterBase")
-
-    def test_otel_attrs_include_auto_coerce_when_detail_enabled(self):
-        plotter_base_module = self._plotterbase_module()
-
-        with patch.object(plotter_base_module, "otel_detail_enabled", return_value=True):
-            upload_attrs = plotter_base_module._upload_otel_attrs(
-                graphistry.bind(),
-                auto_coerce=True,
-            )
-            plot_attrs = plotter_base_module._plot_otel_attrs(
-                graphistry.bind(),
-                auto_coerce=True,
-            )
-
-        assert upload_attrs["graphistry.auto_coerce"] is True
-        assert plot_attrs["graphistry.auto_coerce"] is True
-
     def test_table_to_arrow_from_none(self):
         plotter = graphistry.bind()
         assert plotter._table_to_arrow(None) is None
@@ -431,81 +404,17 @@ class TestPlotterArrowConversions(NoAuthTestCase):
         assert not (arr1 is plotter._table_to_arrow(df))
 
     # ==========================================================================
-    # auto_coerce mixed-type columns tests (Issue #867)
+    # Auto-coerce mixed-type columns tests (Issue #867)
     # ==========================================================================
 
-    def test_table_to_arrow_strict_passing_column_no_coerce(self):
-        """Strict default passes Arrow-compatible columns without auto-coerce logs."""
-        plotter = graphistry.bind()
-        df = pd.DataFrame({'src': [1, 2, 3], 'dst': [2, 3, 1], 'weight': [1.0, 2.0, 3.0]})
-        with self._patch_plotterbase_logger_info() as info_mock:
-            arr = plotter._table_to_arrow(df, memoize=False)
-        assert isinstance(arr, pa.Table)
-        info_mock.assert_not_called()
-
-    def test_table_to_arrow_mixed_types_strict_fails_by_default(self):
-        """auto_coerce defaults to False, preserving strict Arrow conversion."""
-        from graphistry.exceptions import ArrowConversionError
+    def test_table_to_arrow_mixed_types_coerced(self):
+        """Mixed-type columns (bytes/float/str) are auto-coerced to string with warning."""
         plotter = graphistry.bind()
         df = pd.DataFrame({'x': [1, 2, 3], 'amount': [b'bytes', 1.5, 'str']})
-        with pytest.raises(ArrowConversionError, match='Arrow conversion failed') as exc_info:
-            plotter._table_to_arrow(df, memoize=False)
-        assert exc_info.value.columns == ['amount']
-
-    def test_table_to_arrow_mixed_types_auto_coerced(self):
-        """auto_coerce=True coerces failing mixed-type columns to string and info-logs names."""
-        import warnings
-        plotter = graphistry.bind()
-        df = pd.DataFrame({'x': [1, 2, 3], 'amount': [b'bytes', 1.5, None]})
-        with self._patch_plotterbase_logger_info() as info_mock:
-            with warnings.catch_warnings(record=True) as captured:
-                warnings.simplefilter("always")
-                arr = plotter._table_to_arrow(df, memoize=False, auto_coerce=True)
+        with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
+            arr = plotter._table_to_arrow(df, memoize=False)
         assert isinstance(arr, pa.Table)
         assert pa.types.is_string(arr.schema.field('amount').type) or pa.types.is_large_string(arr.schema.field('amount').type)
-        assert arr.column('amount').to_pylist() == ["bytes", "1.5", None]
-        info_mock.assert_called_once_with(
-            "Auto-coerced mixed-type columns to string for Arrow conversion: %s",
-            ['amount'],
-        )
-        assert not any("Coerced mixed-type columns" in str(w.message) for w in captured)
-
-    def test_table_to_arrow_multi_candidate_auto_coerce_heuristic(self):
-        """Heuristic keeps Arrow-compatible object columns and string-coerces only failing columns."""
-        plotter = graphistry.bind()
-        df = pd.DataFrame({
-            'ok_object': ['a', 'b', None],
-            'mixed_scalar': [b'bytes', 1.5, 'str'],
-            'mixed_nested': [[1, 2], {'x': 1}, None],
-        })
-        with self._patch_plotterbase_logger_info() as info_mock:
-            arr = plotter._table_to_arrow(df, memoize=False, auto_coerce=True)
-        assert isinstance(arr, pa.Table)
-        assert pa.types.is_string(arr.schema.field('ok_object').type) or pa.types.is_large_string(arr.schema.field('ok_object').type)
-        assert pa.types.is_string(arr.schema.field('mixed_scalar').type) or pa.types.is_large_string(arr.schema.field('mixed_scalar').type)
-        assert pa.types.is_string(arr.schema.field('mixed_nested').type) or pa.types.is_large_string(arr.schema.field('mixed_nested').type)
-        info_mock.assert_called_once()
-        assert info_mock.call_args.args[1] == ['mixed_scalar', 'mixed_nested']
-
-    def test_table_to_arrow_dask_dataframe_forwards_auto_coerce(self):
-        """Collected dataframe engines forward auto_coerce into the pandas conversion."""
-        plotter_base_module = self._plotterbase_module()
-
-        class FakeDaskFrame:
-            def persist(self):
-                return self
-
-            def compute(self):
-                return pd.DataFrame({"mixed": [b"bytes", 1.5, None]})
-
-        class FakeDaskModule:
-            DataFrame = FakeDaskFrame
-
-        plotter = graphistry.bind()
-        with patch.object(plotter_base_module, "maybe_dask_dataframe", return_value=FakeDaskModule):
-            arr = plotter._table_to_arrow(FakeDaskFrame(), memoize=False, auto_coerce=True)
-
-        assert arr.column("mixed").to_pylist() == ["bytes", "1.5", None]
 
     def test_table_to_arrow_clean_data_no_warning(self):
         """Clean data does not emit warnings."""
@@ -528,58 +437,98 @@ class TestPlotterArrowConversions(NoAuthTestCase):
     # Validate mode tests (Issue #867)
     # ==========================================================================
 
-    def test_table_to_arrow_strict_fast_path_raises_on_mixed(self):
-        """Strict private conversion path raises ArrowConversionError on mixed types."""
+    def test_validate_strict_raises_on_mixed(self):
+        """strict mode raises ArrowConversionError on mixed types."""
         from graphistry.exceptions import ArrowConversionError
         plotter = graphistry.bind()
         df = pd.DataFrame({'x': [1, 2, 3], 'mixed': [b'bytes', 1.5, 'str']})
         with pytest.raises(ArrowConversionError, match='Arrow conversion failed'):
-            plotter._table_to_arrow(df, memoize=False)
+            plotter._table_to_arrow(df, memoize=False, validate_mode='strict')
+
+    def test_validate_strict_fast_raises_on_mixed(self):
+        """strict-fast mode raises ArrowConversionError on mixed types."""
+        from graphistry.exceptions import ArrowConversionError
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1, 2, 3], 'mixed': [b'bytes', 1.5, 'str']})
+        with pytest.raises(ArrowConversionError, match='Arrow conversion failed'):
+            plotter._table_to_arrow(df, memoize=False, validate_mode='strict-fast')
+
+    def test_validate_autofix_coerces_with_warning(self):
+        """autofix mode coerces mixed types with warning."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1, 2, 3], 'mixed': [b'bytes', 1.5, 'str']})
+        with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
+            arr = plotter._table_to_arrow(df, memoize=False, validate_mode='autofix')
+        assert isinstance(arr, pa.Table)
 
     def test_validate_strict_allows_clean_data(self):
-        """Strict default allows clean data through."""
+        """strict mode allows clean data through."""
         plotter = graphistry.bind()
         df = pd.DataFrame({'x': [1, 2, 3], 'weight': [1.1, 2.2, 3.3]})
-        arr = plotter._table_to_arrow(df, memoize=False)
+        arr = plotter._table_to_arrow(df, memoize=False, validate_mode='strict')
         assert isinstance(arr, pa.Table)
 
     # ==========================================================================
     # plot() entrypoint validation tests (Issue #867)
     # ==========================================================================
 
-    def test_plot_mixed_raises_by_default(self):
-        """plot() defaults to strict Arrow conversion for mixed types."""
+    def test_plot_strict_mixed_raises(self):
+        """plot(validate='strict') raises on mixed types."""
         from graphistry.exceptions import ArrowConversionError
         # Use unique data to avoid memoization from other tests
         g = graphistry.edges(pd.DataFrame({
             'src': [10, 20, 30], 'dst': [20, 30, 10], 'mixed': [b'strict1', 1.1, 'test']
         }), 'src', 'dst')
         with pytest.raises(ArrowConversionError):
-            g.plot(skip_upload=True)
+            g.plot(skip_upload=True, validate='strict')
 
-    def test_plot_validate_false_does_not_auto_coerce(self):
-        """validate controls settings/encodings and does not silently coerce Arrow data."""
+    def test_plot_validate_true_raises(self):
+        """plot(validate=True) maps to strict and raises."""
         from graphistry.exceptions import ArrowConversionError
         # Use unique data to avoid memoization from other tests
         g = graphistry.edges(pd.DataFrame({
             'src': [11, 21, 31], 'dst': [21, 31, 11], 'mixed': [b'strict2', 2.2, 'test']
         }), 'src', 'dst')
         with pytest.raises(ArrowConversionError):
-            g.plot(skip_upload=True, validate=False, warn=False)
+            g.plot(skip_upload=True, validate=True)
 
-    def test_plot_auto_coerce_true_coerces_with_info_log(self):
-        """plot(auto_coerce=True) opts into string coercion with an info log."""
+    def test_plot_autofix_warn_true_warns(self):
+        """plot(validate='autofix', warn=True) coerces WITH warning."""
         # Use unique data to avoid memoization from other tests
         g = graphistry.edges(pd.DataFrame({
             'src': [12, 22, 32], 'dst': [22, 32, 12], 'mixed': [b'warn1', 3.3, 'test']
         }), 'src', 'dst')
-        with self._patch_plotterbase_logger_info() as info_mock:
-            result = g.plot(skip_upload=True, auto_coerce=True)
+        with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
+            result = g.plot(skip_upload=True, validate='autofix', warn=True)
         assert result is not None
-        info_mock.assert_called_once_with(
-            "Auto-coerced mixed-type columns to string for Arrow conversion: %s",
-            ['mixed'],
-        )
+
+    def test_plot_autofix_warn_false_silent(self):
+        """plot(validate='autofix', warn=False) coerces WITHOUT warning."""
+        import warnings
+        # Use unique data to avoid memoization from other tests
+        g = graphistry.edges(pd.DataFrame({
+            'src': [13, 23, 33], 'dst': [23, 33, 13], 'mixed': [b'silent1', 4.4, 'test']
+        }), 'src', 'dst')
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = g.plot(skip_upload=True, validate='autofix', warn=False)
+            coerce_warnings = [x for x in w if 'Coerced' in str(x.message)]
+            assert len(coerce_warnings) == 0, f"Expected no warnings with warn=False, got: {coerce_warnings}"
+        assert result is not None
+
+    def test_plot_validate_false_silent(self):
+        """plot(validate=False) maps to autofix+warn=False, coerces silently."""
+        import warnings
+        # Use unique data to avoid memoization from other tests
+        g = graphistry.edges(pd.DataFrame({
+            'src': [14, 24, 34], 'dst': [24, 34, 14], 'mixed': [b'silent2', 5.5, 'test']
+        }), 'src', 'dst')
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = g.plot(skip_upload=True, validate=False)
+            coerce_warnings = [x for x in w if 'Coerced' in str(x.message)]
+            assert len(coerce_warnings) == 0, f"Expected no warnings with validate=False, got: {coerce_warnings}"
+        assert result is not None
 
     # ==========================================================================
     # Encoding validation tests (Issue #867)
@@ -646,20 +595,6 @@ class TestPlotterArrowConversions(NoAuthTestCase):
                 pass
             encoding_warnings = [x for x in w if 'Encoding validation warning' in str(x.message)]
             assert len(encoding_warnings) == 0, f"Expected no warnings with warn=False, got: {encoding_warnings}"
-
-    @pytest.mark.skipif(
-        not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
-        reason="cudf tests need TEST_CUDF=1",
-    )
-    def test_table_to_arrow_cudf_auto_coerce_smoke(self):
-        """auto_coerce=True remains valid on the cuDF Arrow conversion path."""
-        import cudf
-
-        plotter = graphistry.bind()
-        df = cudf.DataFrame({"x": [1, 2], "label": ["a", None]})
-        arr = plotter._table_to_arrow(df, memoize=False, auto_coerce=True)
-        assert isinstance(arr, pa.Table)
-        assert arr.column("label").to_pylist() == ["a", None]
 
     @pytest.mark.skipif(
         not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),

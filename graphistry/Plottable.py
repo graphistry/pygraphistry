@@ -812,7 +812,8 @@ class Plottable(Protocol):
     def to_arrow(
         self,
         table: Optional[Any] = None,
-        auto_coerce: bool = False
+        validate: ValidationParam = 'autofix',
+        warn: bool = True
     ) -> Optional[Any]:
         ...
 
@@ -840,8 +841,7 @@ class Plottable(Protocol):
         memoize: bool = True,
         erase_files_on_fail: bool = True,
         validate: ValidationParam = 'autofix',
-        warn: bool = True,
-        auto_coerce: bool = False
+        warn: bool = True
     ) -> 'Plottable':
         ...
 
@@ -859,8 +859,7 @@ class Plottable(Protocol):
         extra_html: str = "",
         override_html_style: Optional[str] = None,
         validate: ValidationParam = 'autofix',
-        warn: bool = True,
-        auto_coerce: bool = False
+        warn: bool = True
     ) -> Any:
         ...
 
