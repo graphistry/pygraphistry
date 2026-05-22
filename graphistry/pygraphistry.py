@@ -1604,85 +1604,32 @@ class GraphistryClient(AuthManagerProtocol):
             for_current=for_current,
         )
 
-    def encode_edge_size(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
-        """Set edge size with more control than bind()."""
-        return self._plotter().encode_edge_size(
-            column=column,
-            categorical_mapping=categorical_mapping,
-            default_mapping=default_mapping,
-            for_default=for_default,
-            for_current=for_current,
-        )
+    def _encode_plotter_method(self, method, *args, **kwargs):
+        return getattr(self._plotter(), method)(*args, **kwargs)
 
-    def encode_edge_weight(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
-        """Set edge weight with more control than bind()."""
-        return self._plotter().encode_edge_weight(
-            column=column,
-            categorical_mapping=categorical_mapping,
-            default_mapping=default_mapping,
-            for_default=for_default,
-            for_current=for_current,
-        )
+    def encode_edge_size(self, *args, **kwargs):
+        return self._encode_plotter_method("encode_edge_size", *args, **kwargs)
 
-    def encode_point_opacity(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
-        """Set point opacity with more control than bind()."""
-        return self._plotter().encode_point_opacity(
-            column=column,
-            categorical_mapping=categorical_mapping,
-            default_mapping=default_mapping,
-            for_default=for_default,
-            for_current=for_current,
-        )
+    def encode_edge_weight(self, *args, **kwargs):
+        return self._encode_plotter_method("encode_edge_weight", *args, **kwargs)
 
-    def encode_edge_opacity(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
-        """Set edge opacity with more control than bind()."""
-        return self._plotter().encode_edge_opacity(
-            column=column,
-            categorical_mapping=categorical_mapping,
-            default_mapping=default_mapping,
-            for_default=for_default,
-            for_current=for_current,
-        )
+    def encode_point_opacity(self, *args, **kwargs):
+        return self._encode_plotter_method("encode_point_opacity", *args, **kwargs)
 
-    def encode_point_label(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
-        """Set the point label column."""
-        return self._plotter().encode_point_label(
-            column=column,
-            categorical_mapping=categorical_mapping,
-            default_mapping=default_mapping,
-            for_default=for_default,
-            for_current=for_current,
-        )
+    def encode_edge_opacity(self, *args, **kwargs):
+        return self._encode_plotter_method("encode_edge_opacity", *args, **kwargs)
 
-    def encode_edge_label(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
-        """Set the edge label column."""
-        return self._plotter().encode_edge_label(
-            column=column,
-            categorical_mapping=categorical_mapping,
-            default_mapping=default_mapping,
-            for_default=for_default,
-            for_current=for_current,
-        )
+    def encode_point_label(self, *args, **kwargs):
+        return self._encode_plotter_method("encode_point_label", *args, **kwargs)
 
-    def encode_point_title(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
-        """Set the point title column."""
-        return self._plotter().encode_point_title(
-            column=column,
-            categorical_mapping=categorical_mapping,
-            default_mapping=default_mapping,
-            for_default=for_default,
-            for_current=for_current,
-        )
+    def encode_edge_label(self, *args, **kwargs):
+        return self._encode_plotter_method("encode_edge_label", *args, **kwargs)
 
-    def encode_edge_title(self, column, categorical_mapping=None, default_mapping=None, for_default=True, for_current=False):
-        """Set the edge title column."""
-        return self._plotter().encode_edge_title(
-            column=column,
-            categorical_mapping=categorical_mapping,
-            default_mapping=default_mapping,
-            for_default=for_default,
-            for_current=for_current,
-        )
+    def encode_point_title(self, *args, **kwargs):
+        return self._encode_plotter_method("encode_point_title", *args, **kwargs)
+
+    def encode_edge_title(self, *args, **kwargs):
+        return self._encode_plotter_method("encode_edge_title", *args, **kwargs)
 
     def encode_point_icon(self, 
         column,

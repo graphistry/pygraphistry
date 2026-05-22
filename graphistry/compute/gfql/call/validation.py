@@ -1026,22 +1026,6 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
 
     'encode_point_size': _numeric_encode_method('Map node column values to sizes', NODE_COLUMN_SCHEMA_EFFECTS),
 
-    'encode_edge_size': _numeric_encode_method('Map edge column values to sizes', EDGE_COLUMN_SCHEMA_EFFECTS),
-
-    'encode_edge_weight': _numeric_encode_method('Map edge column values to weights', EDGE_COLUMN_SCHEMA_EFFECTS),
-
-    'encode_point_opacity': _numeric_encode_method('Map node column values to opacity', NODE_COLUMN_SCHEMA_EFFECTS),
-
-    'encode_edge_opacity': _numeric_encode_method('Map edge column values to opacity', EDGE_COLUMN_SCHEMA_EFFECTS),
-
-    'encode_point_label': _column_encode_method('Bind node label column', NODE_COLUMN_SCHEMA_EFFECTS),
-
-    'encode_edge_label': _column_encode_method('Bind edge label column', EDGE_COLUMN_SCHEMA_EFFECTS),
-
-    'encode_point_title': _column_encode_method('Bind node title column', NODE_COLUMN_SCHEMA_EFFECTS),
-
-    'encode_edge_title': _column_encode_method('Bind edge title column', EDGE_COLUMN_SCHEMA_EFFECTS),
-
     'encode_point_icon': {
         'allowed_params': {'column', 'categorical_mapping', 'continuous_binning', 'default_mapping', 'as_text'},
         'required_params': {'column'},
@@ -1217,6 +1201,24 @@ _LAYOUT_CALL_KINDS: Dict[str, str] = {
     'mercator_layout': 'mercator',
     'modularity_weighted_layout': 'modularity_weighted',
 }
+SAFELIST_V1.update({
+    name: _numeric_encode_method(description, effects)
+    for name, description, effects in (
+        ('encode_edge_size', 'Map edge column values to sizes', EDGE_COLUMN_SCHEMA_EFFECTS),
+        ('encode_edge_weight', 'Map edge column values to weights', EDGE_COLUMN_SCHEMA_EFFECTS),
+        ('encode_point_opacity', 'Map node column values to opacity', NODE_COLUMN_SCHEMA_EFFECTS),
+        ('encode_edge_opacity', 'Map edge column values to opacity', EDGE_COLUMN_SCHEMA_EFFECTS),
+    )
+})
+SAFELIST_V1.update({
+    name: _column_encode_method(description, effects)
+    for name, description, effects in (
+        ('encode_point_label', 'Bind node label column', NODE_COLUMN_SCHEMA_EFFECTS),
+        ('encode_edge_label', 'Bind edge label column', EDGE_COLUMN_SCHEMA_EFFECTS),
+        ('encode_point_title', 'Bind node title column', NODE_COLUMN_SCHEMA_EFFECTS),
+        ('encode_edge_title', 'Bind edge title column', EDGE_COLUMN_SCHEMA_EFFECTS),
+    )
+})
 
 
 def validate_call_params(function: str, params: Dict[str, object]) -> Dict[str, object]:

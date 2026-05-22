@@ -222,85 +222,14 @@ class Plottable(Protocol):
     ) -> "Plottable":
         ...
 
-    def encode_edge_size(
-        self,
-        column: str,
-        categorical_mapping: Optional[Dict[Any, Union[int, float]]] = ...,
-        default_mapping: Optional[Union[int, float]] = ...,
-        for_default: bool = True,
-        for_current: bool = False,
-    ) -> "Plottable":
-        ...
-
-    def encode_edge_weight(
-        self,
-        column: str,
-        categorical_mapping: Optional[Dict[Any, Union[int, float]]] = ...,
-        default_mapping: Optional[Union[int, float]] = ...,
-        for_default: bool = True,
-        for_current: bool = False,
-    ) -> "Plottable":
-        ...
-
-    def encode_point_opacity(
-        self,
-        column: str,
-        categorical_mapping: Optional[Dict[Any, Union[int, float]]] = ...,
-        default_mapping: Optional[Union[int, float]] = ...,
-        for_default: bool = True,
-        for_current: bool = False,
-    ) -> "Plottable":
-        ...
-
-    def encode_edge_opacity(
-        self,
-        column: str,
-        categorical_mapping: Optional[Dict[Any, Union[int, float]]] = ...,
-        default_mapping: Optional[Union[int, float]] = ...,
-        for_default: bool = True,
-        for_current: bool = False,
-    ) -> "Plottable":
-        ...
-
-    def encode_point_label(
-        self,
-        column: str,
-        categorical_mapping: Optional[Dict[Any, str]] = ...,
-        default_mapping: Optional[str] = ...,
-        for_default: bool = True,
-        for_current: bool = False,
-    ) -> "Plottable":
-        ...
-
-    def encode_edge_label(
-        self,
-        column: str,
-        categorical_mapping: Optional[Dict[Any, str]] = ...,
-        default_mapping: Optional[str] = ...,
-        for_default: bool = True,
-        for_current: bool = False,
-    ) -> "Plottable":
-        ...
-
-    def encode_point_title(
-        self,
-        column: str,
-        categorical_mapping: Optional[Dict[Any, str]] = ...,
-        default_mapping: Optional[str] = ...,
-        for_default: bool = True,
-        for_current: bool = False,
-    ) -> "Plottable":
-        ...
-
-    def encode_edge_title(
-        self,
-        column: str,
-        categorical_mapping: Optional[Dict[Any, str]] = ...,
-        default_mapping: Optional[str] = ...,
-        for_default: bool = True,
-        for_current: bool = False,
-    ) -> "Plottable":
-        ...
+    def encode_edge_size(self, *args: Any, **kwargs: Any) -> "Plottable": ...
+    def encode_edge_weight(self, *args: Any, **kwargs: Any) -> "Plottable": ...
+    def encode_point_opacity(self, *args: Any, **kwargs: Any) -> "Plottable": ...
+    def encode_edge_opacity(self, *args: Any, **kwargs: Any) -> "Plottable": ...
+    def encode_point_label(self, *args: Any, **kwargs: Any) -> "Plottable": ...
+    def encode_edge_label(self, *args: Any, **kwargs: Any) -> "Plottable": ...
+    def encode_point_title(self, *args: Any, **kwargs: Any) -> "Plottable": ...
+    def encode_edge_title(self, *args: Any, **kwargs: Any) -> "Plottable": ...
 
     def encode_point_icon(
         self,

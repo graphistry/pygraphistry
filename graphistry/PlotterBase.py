@@ -11,7 +11,7 @@ from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
 from graphistry.Engine import Engine, EngineAbstractType, df_to_engine
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid, warnings
-from functools import lru_cache
+from functools import lru_cache, partialmethod
 from weakref import WeakValueDictionary
 
 from graphistry.privacy import Privacy, Mode, ModeAction
@@ -56,6 +56,36 @@ from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
 from .util import setup_logger
 logger = setup_logger(__name__)
+
+_NUMERIC_ENCODING_METHODS: Dict[str, Tuple[str, str, str]] = {
+    "encode_edge_size": ("edge", "size", "edgeSizeEncoding"),
+    "encode_edge_weight": ("edge", "weight", "edgeWeightEncoding"),
+    "encode_point_opacity": ("point", "opacity", "pointOpacityEncoding"),
+    "encode_edge_opacity": ("edge", "opacity", "edgeOpacityEncoding"),
+}
+_TEXT_BINDING_METHODS = {
+    "encode_point_label": "point_label",
+    "encode_edge_label": "edge_label",
+    "encode_point_title": "point_title",
+    "encode_edge_title": "edge_title",
+}
+_APPLY_NUMERIC_METHODS = {
+    "encodePointSize": "encode_point_size",
+    "encodeEdgeSize": "encode_edge_size",
+    "encodeEdgeWeight": "encode_edge_weight",
+    "encodePointOpacity": "encode_point_opacity",
+    "encodeEdgeOpacity": "encode_edge_opacity",
+}
+_APPLY_TEXT_METHODS = {
+    "encodePointLabel": "encode_point_label",
+    "encodeEdgeLabel": "encode_edge_label",
+    "encodePointTitle": "encode_point_title",
+    "encodeEdgeTitle": "encode_edge_title",
+}
+_TEXT_MAPPING_ERROR = (
+    "{method} supports raw column binding only; categorical_mapping/default_mapping would create "
+    "label/title complex encodings that Graphistry upload rejects"
+)
 
 
 def _upload_otel_attrs(
@@ -570,24 +600,13 @@ class PlotterBase(Plottable):
                     encoding_kwargs["categorical_mapping"] = mapping_op["categorical_mapping"]
                 if "default_mapping" in mapping_op:
                     encoding_kwargs["default_mapping"] = mapping_op["default_mapping"]
-                encoding_method = cast(Callable[..., Plottable], {
-                    "encodePointSize": out.encode_point_size,
-                    "encodeEdgeSize": out.encode_edge_size,
-                    "encodeEdgeWeight": out.encode_edge_weight,
-                    "encodePointOpacity": out.encode_point_opacity,
-                    "encodeEdgeOpacity": out.encode_edge_opacity,
-                }[mapping_op["key"]])
+                encoding_method = cast(Callable[..., Plottable], getattr(out, _APPLY_NUMERIC_METHODS[mapping_op["key"]]))
                 out = encoding_method(mapping_op["column"], **encoding_kwargs)
                 continue
 
             if op["kind"] == "text":
                 text_op = cast(Dict[str, Any], op)
-                encoding_method = cast(Callable[..., Plottable], {
-                    "encodePointLabel": out.encode_point_label,
-                    "encodeEdgeLabel": out.encode_edge_label,
-                    "encodePointTitle": out.encode_point_title,
-                    "encodeEdgeTitle": out.encode_edge_title,
-                }[text_op["key"]])
+                encoding_method = cast(Callable[..., Plottable], getattr(out, _APPLY_TEXT_METHODS[text_op["key"]]))
                 out = encoding_method(text_op["column"])
                 continue
 
@@ -769,130 +788,41 @@ class PlotterBase(Plottable):
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
 
-    def encode_edge_size(
+    def _encode_numeric_method(
         self,
-        column: str,
-        categorical_mapping: Optional[Dict[Any, Union[int, float]]] = None,
-        default_mapping: Optional[Union[int, float]] = None,
-        for_default: bool = True,
-        for_current: bool = False,
-    ) -> Plottable:
-        """Set edge size with more control than bind().
-
-        Categorical mappings are upload-accepted but not fully rendered by all Graphistry paths yet.
-        """
-        return self.__encode('edge', 'size', 'edgeSizeEncoding', column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
-            for_default=for_default, for_current=for_current)
-
-    def encode_edge_weight(
-        self,
-        column: str,
-        categorical_mapping: Optional[Dict[Any, Union[int, float]]] = None,
-        default_mapping: Optional[Union[int, float]] = None,
-        for_default: bool = True,
-        for_current: bool = False,
-    ) -> Plottable:
-        """Set edge weight with more control than bind().
-
-        Categorical mappings are upload-accepted but not fully rendered by all Graphistry paths yet.
-        """
-        return self.__encode('edge', 'weight', 'edgeWeightEncoding', column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
-            for_default=for_default, for_current=for_current)
-
-    def encode_point_opacity(
-        self,
-        column: str,
-        categorical_mapping: Optional[Dict[Any, Union[int, float]]] = None,
-        default_mapping: Optional[Union[int, float]] = None,
-        for_default: bool = True,
-        for_current: bool = False,
-    ) -> Plottable:
-        """Set point opacity with more control than bind().
-
-        Categorical mappings are upload-accepted but not fully rendered by all Graphistry paths yet.
-        """
-        return self.__encode('point', 'opacity', 'pointOpacityEncoding', column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
-            for_default=for_default, for_current=for_current)
-
-    def encode_edge_opacity(
-        self,
-        column: str,
-        categorical_mapping: Optional[Dict[Any, Union[int, float]]] = None,
-        default_mapping: Optional[Union[int, float]] = None,
-        for_default: bool = True,
-        for_current: bool = False,
-    ) -> Plottable:
-        """Set edge opacity with more control than bind().
-
-        Categorical mappings are upload-accepted but not fully rendered by all Graphistry paths yet.
-        """
-        return self.__encode('edge', 'opacity', 'edgeOpacityEncoding', column=column,
-            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
-            for_default=for_default, for_current=for_current)
-
-    @staticmethod
-    def _reject_text_mapping(
         method: str,
-        categorical_mapping: Optional[Dict[Any, str]],
-        default_mapping: Optional[str],
-    ) -> None:
+        column: str,
+        categorical_mapping: Optional[Dict[Any, Union[int, float]]] = None,
+        default_mapping: Optional[Union[int, float]] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> Plottable:
+        graph_type, encoding_type, encoding_key = _NUMERIC_ENCODING_METHODS[method]
+        return self.__encode(graph_type, encoding_type, encoding_key, column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+    def _encode_text_binding_method(
+        self,
+        method: str,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, str]] = None,
+        default_mapping: Optional[str] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> Plottable:
         if categorical_mapping is not None or default_mapping is not None:
-            raise ValueError(
-                f"{method} supports raw column binding only; "
-                "categorical_mapping/default_mapping would create label/title complex encodings "
-                "that Graphistry upload rejects"
-            )
+            raise ValueError(_TEXT_MAPPING_ERROR.format(method=method))
+        return self.bind(**{_TEXT_BINDING_METHODS[method]: column})
 
-    def encode_point_label(
-        self,
-        column: str,
-        categorical_mapping: Optional[Dict[Any, str]] = None,
-        default_mapping: Optional[str] = None,
-        for_default: bool = True,
-        for_current: bool = False,
-    ) -> Plottable:
-        """Set the point label column, equivalent to ``bind(point_label=column)``."""
-        self._reject_text_mapping("encode_point_label", categorical_mapping, default_mapping)
-        return self.bind(point_label=column)
-
-    def encode_edge_label(
-        self,
-        column: str,
-        categorical_mapping: Optional[Dict[Any, str]] = None,
-        default_mapping: Optional[str] = None,
-        for_default: bool = True,
-        for_current: bool = False,
-    ) -> Plottable:
-        """Set the edge label column, equivalent to ``bind(edge_label=column)``."""
-        self._reject_text_mapping("encode_edge_label", categorical_mapping, default_mapping)
-        return self.bind(edge_label=column)
-
-    def encode_point_title(
-        self,
-        column: str,
-        categorical_mapping: Optional[Dict[Any, str]] = None,
-        default_mapping: Optional[str] = None,
-        for_default: bool = True,
-        for_current: bool = False,
-    ) -> Plottable:
-        """Set the point title column, equivalent to ``bind(point_title=column)``."""
-        self._reject_text_mapping("encode_point_title", categorical_mapping, default_mapping)
-        return self.bind(point_title=column)
-
-    def encode_edge_title(
-        self,
-        column: str,
-        categorical_mapping: Optional[Dict[Any, str]] = None,
-        default_mapping: Optional[str] = None,
-        for_default: bool = True,
-        for_current: bool = False,
-    ) -> Plottable:
-        """Set the edge title column, equivalent to ``bind(edge_title=column)``."""
-        self._reject_text_mapping("encode_edge_title", categorical_mapping, default_mapping)
-        return self.bind(edge_title=column)
+    encode_edge_size = partialmethod(_encode_numeric_method, "encode_edge_size")
+    encode_edge_weight = partialmethod(_encode_numeric_method, "encode_edge_weight")
+    encode_point_opacity = partialmethod(_encode_numeric_method, "encode_point_opacity")
+    encode_edge_opacity = partialmethod(_encode_numeric_method, "encode_edge_opacity")
+    encode_point_label = partialmethod(_encode_text_binding_method, "encode_point_label")
+    encode_edge_label = partialmethod(_encode_text_binding_method, "encode_edge_label")
+    encode_point_title = partialmethod(_encode_text_binding_method, "encode_point_title")
+    encode_edge_title = partialmethod(_encode_text_binding_method, "encode_edge_title")
 
 
     def encode_point_icon(

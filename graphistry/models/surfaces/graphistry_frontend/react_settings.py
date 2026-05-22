@@ -22,20 +22,9 @@ ReactEncodingVariation: TypeAlias = Literal["categorical", "continuous"]
 ReactEncodingMapping: TypeAlias = Dict[Any, Any]
 ReactEncodingPalette: TypeAlias = List[Any]
 ReactColorEncodingKey: TypeAlias = Literal["encodePointColor", "encodeEdgeColor"]
-ReactNumericEncodingKey: TypeAlias = Literal[  # pragma: no cover
-    "encodePointSize",
-    "encodeEdgeSize",
-    "encodeEdgeWeight",
-    "encodePointOpacity",
-    "encodeEdgeOpacity",
-]
+ReactNumericEncodingKey: TypeAlias = Literal["encodePointSize", "encodeEdgeSize", "encodeEdgeWeight", "encodePointOpacity", "encodeEdgeOpacity"]  # pragma: no cover
 ReactSizeEncodingKey: TypeAlias = ReactNumericEncodingKey
-ReactTextEncodingKey: TypeAlias = Literal[  # pragma: no cover
-    "encodePointLabel",
-    "encodeEdgeLabel",
-    "encodePointTitle",
-    "encodeEdgeTitle",
-]
+ReactTextEncodingKey: TypeAlias = Literal["encodePointLabel", "encodeEdgeLabel", "encodePointTitle", "encodeEdgeTitle"]  # pragma: no cover
 ReactIconEncodingKey: TypeAlias = Literal["encodePointIcons", "encodeEdgeIcons"]
 ApplyEncodingsReactKey: TypeAlias = Literal[
     "encodePointColor",

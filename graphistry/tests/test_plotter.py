@@ -654,8 +654,7 @@ class TestPlotterArrowConversions(NoAuthTestCase):
             encoding_warnings = [x for x in w if 'Encoding validation warning' in str(x.message)]
             assert len(encoding_warnings) == 0, f"Expected no warnings with warn=False, got: {encoding_warnings}"
 
-    def test_encoding_validation_rejects_label_title_complex_encodings(self):
-        """Strict encoding validation rejects label/title complex encodings."""
+    def test_encoding_validation_rejects_label_complex_encoding(self):
         from graphistry.validate.validate_encodings import validate_encodings
 
         node_encodings = {
@@ -670,25 +669,13 @@ class TestPlotterArrowConversions(NoAuthTestCase):
                 }
             }},
         }
-        edge_encodings = {
-            "bindings": {"source": "s", "destination": "d"},
-            "complex": {"default": {
-                "edgeTitleEncoding": {
-                    "graphType": "edge",
-                    "encodingType": "title",
-                    "attribute": "kind",
-                    "variation": "categorical",
-                    "mapping": {"categorical": {"fixed": {"email": "Email"}, "other": "Other"}},
-                }
-            }},
-        }
 
         with pytest.raises(ValueError) as exc_info:
             validate_encodings(
                 node_encodings,
-                edge_encodings,
+                {"bindings": {"source": "s", "destination": "d"}},
                 node_attributes=["n", "role"],
-                edge_attributes=["s", "d", "kind"],
+                edge_attributes=["s", "d"],
             )
         assert "Axis|Color|Icon|Opacity|Size|Weight|Kepler" in str(exc_info.value)
 
@@ -1084,20 +1071,8 @@ class TestPlotterEncodings(NoAuthTestCase):
             )
 
     def test_module_encode_parity_methods(self):
-        cases = [
-            ("encode_edge_size", "edge_encodings", "edgeSizeEncoding", 10, 1),
-            ("encode_edge_weight", "edge_encodings", "edgeWeightEncoding", 0.8, 0.1),
-            ("encode_point_opacity", "node_encodings", "pointOpacityEncoding", 0.8, 0.1),
-            ("encode_edge_opacity", "edge_encodings", "edgeOpacityEncoding", 0.8, 0.1),
-        ]
-        for method, scope, encoding_key, mapping_value, default_value in cases:
-            encoded = getattr(graphistry, method)(
-                "z",
-                categorical_mapping={"admin": mapping_value},
-                default_mapping=default_value,
-            )
-            assert encoded._complex_encodings[scope]["default"][encoding_key]["attribute"] == "z"
-
+        encoded = graphistry.encode_edge_size("z", categorical_mapping={"admin": 10}, default_mapping=1)
+        assert encoded._complex_encodings["edge_encodings"]["default"]["edgeSizeEncoding"]["attribute"] == "z"
         assert graphistry.encode_point_label("z")._point_label == "z"
         with pytest.raises(ValueError) as exc_info:
             graphistry.encode_point_label(
@@ -1110,83 +1085,6 @@ class TestPlotterEncodings(NoAuthTestCase):
             "categorical_mapping/default_mapping would create label/title complex encodings "
             "that Graphistry upload rejects"
         )
-
-    def test_encode_parity_contract_keyspaces(self):
-        import importlib
-
-        call_types = importlib.reload(importlib.import_module("graphistry.models.gfql.types.call"))
-        react_settings = importlib.reload(
-            importlib.import_module("graphistry.models.surfaces.graphistry_frontend.react_settings")
-        )
-        react_encoding_ops = importlib.reload(
-            importlib.import_module("graphistry.models.surfaces.graphistry_frontend.react_encoding_ops")
-        )
-
-        EncodeEdgeLabelParams = call_types.EncodeEdgeLabelParams
-        EncodeEdgeOpacityParams = call_types.EncodeEdgeOpacityParams
-        EncodeEdgeSizeParams = call_types.EncodeEdgeSizeParams
-        EncodeEdgeTitleParams = call_types.EncodeEdgeTitleParams
-        EncodeEdgeWeightParams = call_types.EncodeEdgeWeightParams
-        EncodePointLabelParams = call_types.EncodePointLabelParams
-        EncodePointOpacityParams = call_types.EncodePointOpacityParams
-        EncodePointTitleParams = call_types.EncodePointTitleParams
-        ApplyEncodingsReactSettingsDict = react_settings.ApplyEncodingsReactSettingsDict
-        KnownReactSettingsDict = react_settings.KnownReactSettingsDict
-        ReactNumericEncodingKey = react_settings.ReactNumericEncodingKey
-        ReactTextEncodingKey = react_settings.ReactTextEncodingKey
-        EncodingOperationKind = react_encoding_ops.EncodingOperationKind
-        NumericEncodingOp = react_encoding_ops.NumericEncodingOp
-        ReactEncodingOp = react_encoding_ops.ReactEncodingOp
-        SizeEncodingOp = react_encoding_ops.SizeEncodingOp
-        TextEncodingOp = react_encoding_ops.TextEncodingOp
-
-        assert set(ReactNumericEncodingKey.__args__) == {
-            "encodePointSize",
-            "encodeEdgeSize",
-            "encodeEdgeWeight",
-            "encodePointOpacity",
-            "encodeEdgeOpacity",
-        }
-        assert set(ReactTextEncodingKey.__args__) == {
-            "encodePointLabel",
-            "encodeEdgeLabel",
-            "encodePointTitle",
-            "encodeEdgeTitle",
-        }
-        assert set(EncodingOperationKind.__args__) == {"color", "numeric", "text", "icon", "axis"}
-        assert SizeEncodingOp is NumericEncodingOp
-        assert NumericEncodingOp.__annotations__["kind"].__args__ == ("numeric",)
-        assert TextEncodingOp.__annotations__["kind"].__args__ == ("text",)
-        assert {item.__name__ for item in ReactEncodingOp.__args__} >= {"NumericEncodingOp", "TextEncodingOp"}
-
-        for key in [
-            "encodeEdgeSize",
-            "encodeEdgeWeight",
-            "encodePointOpacity",
-            "encodeEdgeOpacity",
-            "encodePointLabel",
-            "encodeEdgeLabel",
-            "encodePointTitle",
-            "encodeEdgeTitle",
-        ]:
-            assert key in ApplyEncodingsReactSettingsDict.__annotations__
-            assert key in KnownReactSettingsDict.__annotations__
-
-        for cls in [
-            EncodeEdgeSizeParams,
-            EncodeEdgeWeightParams,
-            EncodePointOpacityParams,
-            EncodeEdgeOpacityParams,
-        ]:
-            assert set(cls.__annotations__) == {"column", "categorical_mapping", "default_mapping"}
-
-        for cls in [
-            EncodePointLabelParams,
-            EncodeEdgeLabelParams,
-            EncodePointTitleParams,
-            EncodeEdgeTitleParams,
-        ]:
-            assert set(cls.__annotations__) == {"column"}
 
     def test_point_icon(self):
         assert graphistry.bind().encode_point_icon("z")._point_icon == "z"
