@@ -461,6 +461,62 @@ class TestPlotterArrowConversions(NoAuthTestCase):
             arr = plotter._table_to_arrow(df, memoize=False, validate_mode='autofix')
         assert isinstance(arr, pa.Table)
 
+    def test_validate_autofix_preserves_nulls_when_coercing(self):
+        """pandas nullable string autofix keeps missing values as Arrow nulls."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1, 2, 3], 'mixed': [b'bytes', None, 1.5]})
+        with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
+            arr = plotter._table_to_arrow(df, memoize=False, validate_mode='autofix')
+
+        values = arr.column('mixed').to_pylist()
+        assert values[1] is None
+        assert isinstance(values[0], str)
+        assert isinstance(values[2], str)
+
+    def test_validate_autofix_only_coerces_bad_object_columns(self):
+        """autofix probes object columns and leaves Arrow-compatible object columns alone."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({
+            'ok_object': pd.Series(['a', 'b', None], dtype=object),
+            'mixed_scalar': pd.Series([b'bytes', 1.5, None], dtype=object),
+            'mixed_nested': pd.Series([{'x': 1}, ['y'], None], dtype=object),
+        })
+
+        fixed = plotter._coerce_mixed_type_columns(df, is_cudf=False, emit_warning=False)
+
+        assert fixed['ok_object'].dtype == object
+        if hasattr(pd, "StringDtype"):
+            assert isinstance(fixed['mixed_scalar'].dtype, pd.StringDtype)
+            assert isinstance(fixed['mixed_nested'].dtype, pd.StringDtype)
+            assert pd.isna(fixed['mixed_scalar'].iloc[2])
+        else:
+            assert fixed['mixed_scalar'].dtype == object
+
+    def test_validate_autofix_cudf_dtype_keeps_existing_string_path(self):
+        plotter = graphistry.bind()
+
+        assert plotter._mixed_type_string_dtype(is_cudf=True) is str
+
+    def test_validate_autofix_pandas_nullable_string_fallback(self):
+        """Older pandas-compatible fallback uses str if nullable string coercion fails."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'mixed': [b'bytes', 1.5, None]})
+        original_astype = pd.DataFrame.astype
+        calls = []
+
+        def astype_with_nullable_failure(self, dtype, *args, **kwargs):
+            calls.append(dtype)
+            if len(calls) == 1:
+                raise TypeError("nullable string unavailable")
+            return original_astype(self, dtype, *args, **kwargs)
+
+        with patch.object(pd.DataFrame, "astype", astype_with_nullable_failure):
+            fixed = plotter._coerce_mixed_type_columns(df, is_cudf=False, emit_warning=False)
+
+        assert calls[0] == {'mixed': 'string'}
+        assert calls[1] == {'mixed': str}
+        assert fixed['mixed'].tolist() == ['bytes', '1.5', 'None']
+
     def test_validate_strict_allows_clean_data(self):
         """strict mode allows clean data through."""
         plotter = graphistry.bind()
