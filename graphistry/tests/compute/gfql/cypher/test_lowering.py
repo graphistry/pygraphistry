@@ -23,7 +23,7 @@ from graphistry.compute.gfql.cypher import (
     WherePatternPredicate,
     projection_planning as _projection_planning,
 )
-from graphistry.compute.gfql.cypher.ast import ExpressionText, ReturnClause, ReturnItem, SourceSpan
+from graphistry.compute.gfql.cypher.ast import ExpressionText, OrderByClause, OrderItem, ReturnClause, ReturnItem, SourceSpan
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherExecutionExtras, CompiledCypherGraphQuery
 from graphistry.compute.gfql.cypher.lowering import _logical_plan_route_for_query
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
@@ -10921,6 +10921,45 @@ def test_string_cypher_executes_with_match_reentry_preserves_orderby_limit_prefi
 def test_string_cypher_failfast_rejects_with_match_reentry_unbounded_or_skip_order_shapes(query: str) -> None:
     with pytest.raises(GFQLValidationError, match="requires bounded literal LIMIT"):
         _mk_reentry_order_limit_graph().gfql(query)
+
+
+def test_string_cypher_reentry_prefix_order_error_preserves_context() -> None:
+    query = (
+        "MATCH (p:Person {id: 'p0'})-[:KNOWS]->(friend:Person) "
+        "WITH friend "
+        "ORDER BY friend.firstName ASC "
+        "MATCH (friend)-[:STUDY_AT]->(uni:University) "
+        "RETURN friend.id AS friendId"
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _mk_reentry_order_limit_graph().gfql(query)
+
+    err = exc_info.value
+    assert err.code == ErrorCode.E108
+    assert err.context["field"] == "with.order_by"
+    assert err.context["value"] == ["friend.firstName"]
+    assert err.context["line"] == 1
+    assert err.context["column"] == 67
+    assert err.context["language"] == "cypher"
+
+
+def test_reentry_order_by_rewrite_aborts_when_expression_cannot_rewrite() -> None:
+    from graphistry.compute.gfql.cypher.reentry.lowering_support import _rewrite_order_by_expressions
+
+    span = SourceSpan(1, 1, 1, 17, 0, 16)
+    order_by = OrderByClause(
+        items=(OrderItem(ExpressionText("friend.firstName", span), "asc", span),),
+        span=span,
+    )
+    seen: List[Tuple[str, str]] = []
+
+    def _cannot_rewrite(expr: ExpressionText, field: str) -> Optional[ExpressionText]:
+        seen.append((expr.text, field))
+        return None
+
+    assert _rewrite_order_by_expressions(order_by, _cannot_rewrite) is None
+    assert seen == [("friend.firstName", "order_by")]
 
 
 def test_string_cypher_executes_seeded_multihop_then_with_match_reentry_shape() -> None:
