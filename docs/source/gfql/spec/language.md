@@ -477,6 +477,11 @@ For security and stability, Call operations are restricted to a predefined safel
 - `ring_continuous_layout`: Radial layout driven by numeric attributes
 - `ring_categorical_layout`: Radial layout grouping by categories
 - `time_ring_layout`: Time-series radial layout (accepts ISO timestamp bounds)
+- `group_in_a_box_layout`: Group-in-a-box community layout
+- `circle_layout`: Circular node layout
+- `tree_layout`: Sugiyama-style tree layout
+- `mercator_layout`: Mercator projection for latitude/longitude node coordinates
+- `modularity_weighted_layout`: Community-weighted edge layout preparation
 
 ```{note}
 `time_ring_layout` accepts ISO-8601 strings for `time_start` / `time_end` when

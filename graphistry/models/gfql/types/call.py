@@ -35,6 +35,7 @@ CallMethodName = Literal[
     'collapse',
     'compute_cugraph',
     'compute_igraph',
+    'circle_layout',
     'description',
     'drop_nodes',
     'encode_axis',
@@ -57,9 +58,12 @@ CallMethodName = Literal[
     'layout_cugraph',
     'layout_graphviz',
     'layout_igraph',
+    'mercator_layout',
+    'modularity_weighted_layout',
     'ring_continuous_layout',
     'ring_categorical_layout',
     'time_ring_layout',
+    'tree_layout',
     'materialize_nodes',
     'name',
     'prune_self_edges',
@@ -364,6 +368,47 @@ class GroupInABoxLayoutParams(TypedDict, total=False):
     engine: Literal['auto', 'cpu', 'gpu', 'pandas', 'cudf']
 
 
+class CircleLayoutParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for circle_layout operation."""
+    bounding_box: Optional[Union[Tuple[float, float, float, float], List[float]]]
+    ring_spacing: Optional[float]
+    point_spacing: Optional[float]
+    partition_by: Optional[Union[str, List[str]]]
+    sort_by: Optional[Union[str, List[str]]]
+    ascending: Union[bool, List[bool]]
+    na_position: Literal['first', 'last']
+    ignore_index: bool
+    engine: GFQLEngineLiteral
+
+
+class TreeLayoutParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for tree_layout operation."""
+    level_col: Optional[str]
+    level_sort_values_by: Optional[Union[str, List[str]]]
+    level_sort_values_by_ascending: bool
+    width: Optional[float]
+    height: Optional[float]
+    rotate: Optional[float]
+    allow_cycles: bool
+    root: Optional[Union[str, int, float, bool]]
+
+
+class MercatorLayoutParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for mercator_layout operation."""
+    scale_for_graphistry: bool
+
+
+class ModularityWeightedLayoutParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for modularity_weighted_layout operation."""
+    community_col: Optional[str]
+    community_alg: Optional[str]
+    community_params: Optional[Dict[str, Any]]
+    same_community_weight: float
+    cross_community_weight: float
+    edge_influence: float
+    engine: Literal['auto', 'pandas', 'cudf']
+
+
 class GetIndegreesParams(TypedDict, total=False):
     """Parameters for get_indegrees operation."""
     col: str
@@ -612,6 +657,22 @@ def call(function: Literal['fa2_layout'], params: Fa2LayoutParams = ...) -> 'AST
 
 @overload
 def call(function: Literal['group_in_a_box_layout'], params: GroupInABoxLayoutParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['circle_layout'], params: CircleLayoutParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['tree_layout'], params: TreeLayoutParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['mercator_layout'], params: MercatorLayoutParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['modularity_weighted_layout'], params: ModularityWeightedLayoutParams = ...) -> 'ASTCall':
     ...
 
 @overload

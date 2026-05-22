@@ -135,6 +135,71 @@ class TestCallExecution:
         assert result._nodes is not None
         assert len(result._nodes) == 3
 
+    def test_execute_circle_layout(self, sample_graph):
+        result = execute_call(
+            sample_graph,
+            'circle_layout',
+            {'bounding_box': [0, 0, 100, 100], 'engine': 'pandas'},
+            Engine.PANDAS
+        )
+
+        assert 'x' in result._nodes.columns
+        assert 'y' in result._nodes.columns
+
+    def test_execute_tree_layout(self):
+        edges_df = pd.DataFrame({
+            'source': ['a', 'b'],
+            'target': ['b', 'c'],
+        })
+        nodes_df = pd.DataFrame({
+            'node': ['a', 'b', 'c'],
+            'rank': [1, 2, 3],
+        })
+        g = CGFull().edges(edges_df).nodes(nodes_df).bind(source='source', destination='target', node='node')
+
+        result = execute_call(
+            g,
+            'tree_layout',
+            {'level_sort_values_by': 'rank'},
+            Engine.PANDAS
+        )
+
+        assert 'x' in result._nodes.columns
+        assert 'y' in result._nodes.columns
+        assert 'level' in result._nodes.columns
+
+    def test_execute_mercator_layout(self):
+        nodes_df = pd.DataFrame({
+            'node': ['nyc', 'sf'],
+            'latitude': [40.7128, 37.7749],
+            'longitude': [-74.0060, -122.4194],
+        })
+        g = CGFull().nodes(nodes_df).bind(node='node')
+
+        result = execute_call(
+            g,
+            'mercator_layout',
+            {},
+            Engine.PANDAS
+        )
+
+        assert 'x' in result._nodes.columns
+        assert 'y' in result._nodes.columns
+        assert result._point_x == 'x'
+        assert result._point_y == 'y'
+
+    def test_execute_modularity_weighted_layout_with_existing_community(self, sample_graph):
+        result = execute_call(
+            sample_graph,
+            'modularity_weighted_layout',
+            {'community_col': 'type', 'engine': 'pandas'},
+            Engine.PANDAS
+        )
+
+        assert 'weight' in result._edges.columns
+        assert 'same_community' in result._edges.columns
+        assert result._edge_weight == 'weight'
+
     def test_execute_encode_edge_icon(self, sample_graph):
         result = execute_call(
             sample_graph,

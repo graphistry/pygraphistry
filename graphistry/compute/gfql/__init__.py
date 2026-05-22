@@ -28,6 +28,15 @@ from graphistry.compute.gfql.rollout import (
     strict_schema_env_default,
 )
 
+from graphistry.compute.gfql.layout import (
+    LAYOUT_FUNCTION_NAMES,
+    LAYOUT_KINDS,
+    RADIAL_LAYOUT_FUNCTION_NAMES,
+    RADIAL_LAYOUT_KINDS,
+    is_layout_chain,
+    is_layout_kind,
+)
+
 __all__ = [
     # Validation classes
     'ValidationIssue',
@@ -55,4 +64,12 @@ __all__ = [
     'env_bool',
     'resolve_strict_schema',
     'strict_schema_env_default',
+
+    # Layout chain helpers
+    'LAYOUT_FUNCTION_NAMES',
+    'LAYOUT_KINDS',
+    'RADIAL_LAYOUT_FUNCTION_NAMES',
+    'RADIAL_LAYOUT_KINDS',
+    'is_layout_chain',
+    'is_layout_kind',
 ]

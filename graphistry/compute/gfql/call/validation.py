@@ -134,6 +134,29 @@ def _expr_required_cols(params: Dict[str, object], key: str = 'expr') -> List[st
     expr = params.get(key)
     return _where_rows_expr_required_cols(expr) if isinstance(expr, str) else []
 
+def _is_string_or_string_list_or_none(v: object) -> bool:
+    return v is None or is_string(v) or is_list_of_strings(v)
+
+
+def _is_bool_or_bool_list(v: object) -> bool:
+    return isinstance(v, bool) or (
+        isinstance(v, list)
+        and all(isinstance(item, bool) for item in v)
+    )
+
+
+def _is_numeric_quad(v: object) -> bool:
+    return (
+        isinstance(v, (list, tuple))
+        and len(v) == 4
+        and all(is_int_or_float(item) for item in v)
+    )
+
+
+def _is_json_scalar_or_none(v: object) -> bool:
+    return v is None or isinstance(v, (str, int, float, bool))
+
+
 def is_order_keys(v: object) -> bool:
     def _is_static_order_expr_supported(expr: str) -> bool:
         txt = expr.strip()
@@ -799,6 +822,82 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         'schema_effects': XY_NODE_SCHEMA_EFFECTS
     },
 
+    'circle_layout': {
+        'allowed_params': {
+            'bounding_box', 'ring_spacing', 'point_spacing', 'partition_by',
+            'sort_by', 'ascending', 'na_position', 'ignore_index', 'engine'
+        },
+        'required_params': set(),
+        'param_validators': {
+            'bounding_box': lambda v: v is None or _is_numeric_quad(v),
+            'ring_spacing': lambda v: v is None or is_int_or_float(v),
+            'point_spacing': lambda v: v is None or is_int_or_float(v),
+            'partition_by': _is_string_or_string_list_or_none,
+            'sort_by': _is_string_or_string_list_or_none,
+            'ascending': _is_bool_or_bool_list,
+            'na_position': lambda v: v in ('first', 'last'),
+            'ignore_index': is_bool,
+            'engine': lambda v: v in ('auto', 'pandas', 'cudf', 'dask', 'dask_cudf')
+        },
+        'description': 'Circular node layout',
+        'schema_effects': XY_NODE_SCHEMA_EFFECTS
+    },
+
+    'tree_layout': {
+        'allowed_params': {
+            'level_col', 'level_sort_values_by', 'level_sort_values_by_ascending',
+            'width', 'height', 'rotate', 'allow_cycles', 'root'
+        },
+        'required_params': set(),
+        'param_validators': {
+            'level_col': is_string_or_none,
+            'level_sort_values_by': _is_string_or_string_list_or_none,
+            'level_sort_values_by_ascending': is_bool,
+            'width': lambda v: v is None or is_int_or_float(v),
+            'height': lambda v: v is None or is_int_or_float(v),
+            'rotate': lambda v: v is None or is_int_or_float(v),
+            'allow_cycles': is_bool,
+            'root': _is_json_scalar_or_none
+        },
+        'description': 'Sugiyama-style tree layout',
+        'schema_effects': XY_NODE_SCHEMA_EFFECTS
+    },
+
+    'mercator_layout': {
+        'allowed_params': {'scale_for_graphistry'},
+        'required_params': set(),
+        'param_validators': {
+            'scale_for_graphistry': is_bool
+        },
+        'description': 'Mercator projection layout for latitude/longitude node coordinates',
+        'schema_effects': XY_NODE_SCHEMA_EFFECTS
+    },
+
+    'modularity_weighted_layout': {
+        'allowed_params': {
+            'community_col', 'community_alg', 'community_params',
+            'same_community_weight', 'cross_community_weight', 'edge_influence',
+            'engine'
+        },
+        'required_params': set(),
+        'param_validators': {
+            'community_col': is_string_or_none,
+            'community_alg': is_string_or_none,
+            'community_params': lambda v: v is None or is_dict(v),
+            'same_community_weight': is_int_or_float,
+            'cross_community_weight': is_int_or_float,
+            'edge_influence': is_int_or_float,
+            'engine': lambda v: v in ('auto', 'pandas', 'cudf')
+        },
+        'description': 'Community-weighted edge layout preparation',
+        'schema_effects': {
+            'adds_node_cols': lambda p: [] if isinstance(p.get('community_col'), str) else [p.get('community_alg') or 'community_multilevel'],
+            'adds_edge_cols': ['weight', 'same_community'],
+            'requires_node_cols': lambda p: [p['community_col']] if isinstance(p.get('community_col'), str) else [],
+            'requires_edge_cols': []
+        }
+    },
+
     # Self-edge pruning
     'prune_self_edges': {
         'allowed_params': set(),
@@ -1069,6 +1168,22 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'requires_edge_cols': _umap_edge_required_cols
         }
     }
+}
+
+
+_LAYOUT_CALL_KINDS: Dict[str, str] = {
+    'layout_cugraph': 'cugraph',
+    'layout_igraph': 'igraph',
+    'layout_graphviz': 'graphviz',
+    'ring_continuous_layout': 'ring_continuous',
+    'ring_categorical_layout': 'ring_categorical',
+    'time_ring_layout': 'time_ring',
+    'fa2_layout': 'force_directed',
+    'group_in_a_box_layout': 'group_in_a_box',
+    'circle_layout': 'circle',
+    'tree_layout': 'tree',
+    'mercator_layout': 'mercator',
+    'modularity_weighted_layout': 'modularity_weighted',
 }
 
 

@@ -699,6 +699,58 @@ class TestCallObjectCreation:
             call_obj.validate()
 
 
+class TestLayoutCallValidation:
+    """Validation for GFQL layout calls backed by Python layout methods."""
+
+    def test_circle_layout_params_valid(self):
+        params = validate_call_params('circle_layout', {
+            'bounding_box': [0, 0, 100, 100],
+            'partition_by': ['type', 'cluster'],
+            'sort_by': 'degree',
+            'ascending': [True, False],
+            'na_position': 'first',
+            'engine': 'pandas',
+        })
+        assert params['bounding_box'] == [0, 0, 100, 100]
+
+    def test_circle_layout_rejects_non_json_dataframe_boundary(self):
+        with pytest.raises(GFQLTypeError):
+            validate_call_params('circle_layout', {
+                'bounding_box': {'x': 0, 'y': 0, 'w': 100, 'h': 100},
+            })
+
+    def test_tree_layout_params_valid(self):
+        params = validate_call_params('tree_layout', {
+            'level_col': 'level',
+            'level_sort_values_by': ['type', 'rank'],
+            'level_sort_values_by_ascending': False,
+            'width': 100,
+            'height': 50,
+            'rotate': 90,
+            'allow_cycles': True,
+            'root': 'a',
+        })
+        assert params['root'] == 'a'
+
+    def test_mercator_layout_params_valid(self):
+        params = validate_call_params('mercator_layout', {
+            'scale_for_graphistry': False,
+        })
+        assert params['scale_for_graphistry'] is False
+
+    def test_modularity_weighted_layout_params_valid(self):
+        params = validate_call_params('modularity_weighted_layout', {
+            'community_col': 'community',
+            'community_alg': None,
+            'community_params': None,
+            'same_community_weight': 2.0,
+            'cross_community_weight': 0.3,
+            'edge_influence': 2.0,
+            'engine': 'pandas',
+        })
+        assert params['community_col'] == 'community'
+
+
 class TestRingAxisValidation:
     """Deep axis payload validation for ring layout calls."""
 
