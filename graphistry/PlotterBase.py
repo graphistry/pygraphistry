@@ -57,7 +57,7 @@ from .tigeristry import Tigeristry
 from .util import setup_logger
 logger = setup_logger(__name__)
 
-_NUMERIC_ENCODING_METHODS: Dict[str, Tuple[str, str, str]] = {
+_MAPPED_PROPERTY_ENCODING_METHODS: Dict[str, Tuple[str, str, str]] = {
     "encode_edge_size": ("edge", "size", "edgeSizeEncoding"),
     "encode_edge_weight": ("edge", "weight", "edgeWeightEncoding"),
     "encode_point_opacity": ("point", "opacity", "pointOpacityEncoding"),
@@ -69,7 +69,7 @@ _TEXT_BINDING_METHODS = {
     "encode_point_title": "point_title",
     "encode_edge_title": "edge_title",
 }
-_APPLY_NUMERIC_METHODS = {
+_APPLY_MAPPED_PROPERTY_METHODS = {
     "encodePointSize": "encode_point_size",
     "encodeEdgeSize": "encode_edge_size",
     "encodeEdgeWeight": "encode_edge_weight",
@@ -593,14 +593,17 @@ class PlotterBase(Plottable):
                 out = color_method(column, **color_kwargs)
                 continue
 
-            if op["kind"] == "numeric":
+            if op["kind"] == "mapped_property":
                 mapping_op = cast(Dict[str, Any], op)
                 encoding_kwargs: Dict[str, Any] = {}
                 if "categorical_mapping" in mapping_op:
                     encoding_kwargs["categorical_mapping"] = mapping_op["categorical_mapping"]
                 if "default_mapping" in mapping_op:
                     encoding_kwargs["default_mapping"] = mapping_op["default_mapping"]
-                encoding_method = cast(Callable[..., Plottable], getattr(out, _APPLY_NUMERIC_METHODS[mapping_op["key"]]))
+                encoding_method = cast(
+                    Callable[..., Plottable],
+                    getattr(out, _APPLY_MAPPED_PROPERTY_METHODS[mapping_op["key"]]),
+                )
                 out = encoding_method(mapping_op["column"], **encoding_kwargs)
                 continue
 
@@ -788,7 +791,7 @@ class PlotterBase(Plottable):
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
 
-    def _encode_numeric_method(
+    def _encode_mapped_property_method(
         self,
         method: str,
         column: str,
@@ -797,7 +800,7 @@ class PlotterBase(Plottable):
         for_default: bool = True,
         for_current: bool = False,
     ) -> Plottable:
-        graph_type, encoding_type, encoding_key = _NUMERIC_ENCODING_METHODS[method]
+        graph_type, encoding_type, encoding_key = _MAPPED_PROPERTY_ENCODING_METHODS[method]
         return self.__encode(graph_type, encoding_type, encoding_key, column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
@@ -815,10 +818,10 @@ class PlotterBase(Plottable):
             raise ValueError(_TEXT_MAPPING_ERROR.format(method=method))
         return self.bind(**{_TEXT_BINDING_METHODS[method]: column})
 
-    encode_edge_size = partialmethod(_encode_numeric_method, "encode_edge_size")  # type: ignore[assignment]
-    encode_edge_weight = partialmethod(_encode_numeric_method, "encode_edge_weight")  # type: ignore[assignment]
-    encode_point_opacity = partialmethod(_encode_numeric_method, "encode_point_opacity")  # type: ignore[assignment]
-    encode_edge_opacity = partialmethod(_encode_numeric_method, "encode_edge_opacity")  # type: ignore[assignment]
+    encode_edge_size = partialmethod(_encode_mapped_property_method, "encode_edge_size")  # type: ignore[assignment]
+    encode_edge_weight = partialmethod(_encode_mapped_property_method, "encode_edge_weight")  # type: ignore[assignment]
+    encode_point_opacity = partialmethod(_encode_mapped_property_method, "encode_point_opacity")  # type: ignore[assignment]
+    encode_edge_opacity = partialmethod(_encode_mapped_property_method, "encode_edge_opacity")  # type: ignore[assignment]
     encode_point_label = partialmethod(_encode_text_binding_method, "encode_point_label")  # type: ignore[assignment]
     encode_edge_label = partialmethod(_encode_text_binding_method, "encode_edge_label")  # type: ignore[assignment]
     encode_point_title = partialmethod(_encode_text_binding_method, "encode_point_title")  # type: ignore[assignment]

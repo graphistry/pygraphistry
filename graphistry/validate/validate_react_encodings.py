@@ -6,12 +6,12 @@ from graphistry.models.surfaces.graphistry_frontend.react_settings import (
     REACT_SETTING_NAME_SET,
     ReactIconEncodingKey,
     ReactEncodingVariation,
-    ReactNumericEncodingKey,
+    ReactMappedPropertyEncodingKey,
     ReactTextEncodingKey,
 )
 from graphistry.models.surfaces.graphistry_frontend.react_encoding_ops import (
     ColorEncodingOp,
-    NumericEncodingOp,
+    MappedPropertyEncodingOp,
     TextEncodingOp,
     IconEncodingOp,
     ReactEncodingOp,
@@ -140,17 +140,17 @@ def _parse_mapping_payload(
     return op
 
 
-def _parse_numeric_payload(
-    key: ReactNumericEncodingKey,
+def _parse_mapped_property_payload(
+    key: ReactMappedPropertyEncodingKey,
     raw_value: Any,
     validate_mode: ValidationMode,
     warn: bool,
-) -> Optional[NumericEncodingOp]:
+) -> Optional[MappedPropertyEncodingOp]:
     op = _parse_mapping_payload(key, raw_value, validate_mode, warn)
     if op is None:
         return None
-    op["kind"] = "numeric"
-    return cast(NumericEncodingOp, op)
+    op["kind"] = "mapped_property"
+    return cast(MappedPropertyEncodingOp, op)
 
 
 def _parse_text_payload(
@@ -250,9 +250,14 @@ def parse_apply_encodings_ops(
             continue
 
         if key in ("encodePointSize", "encodeEdgeSize", "encodeEdgeWeight", "encodePointOpacity", "encodeEdgeOpacity"):
-            numeric_op = _parse_numeric_payload(cast(ReactNumericEncodingKey, key), value, validate_mode, warn)
-            if numeric_op is not None:
-                out.append(numeric_op)
+            mapped_property_op = _parse_mapped_property_payload(
+                cast(ReactMappedPropertyEncodingKey, key),
+                value,
+                validate_mode,
+                warn,
+            )
+            if mapped_property_op is not None:
+                out.append(mapped_property_op)
             continue
 
         if key in ("encodePointLabel", "encodeEdgeLabel", "encodePointTitle", "encodeEdgeTitle"):

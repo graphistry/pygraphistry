@@ -36,6 +36,7 @@ from graphistry.models.surfaces import (  # noqa: E402, F401
     ReactColorEncodingPayload,
     ReactSizeEncodingKey,
     ReactSizeEncodingPayload,
+    ReactMappedPropertyEncodingKey,
     graphistry_frontend_contract_version_info,
     ReactIconEncodingKey,
     ReactIconEncodingPayload,
