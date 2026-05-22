@@ -21,8 +21,8 @@ from graphistry.compute.gfql.cypher import (
     lower_match_query,
     parse_cypher,
     WherePatternPredicate,
+    projection_planning as _projection_planning,
 )
-import graphistry.compute.gfql.cypher.projection_planning as _projection_planning
 from graphistry.compute.gfql.cypher.ast import ExpressionText, ReturnClause, ReturnItem, SourceSpan
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherExecutionExtras, CompiledCypherGraphQuery
 from graphistry.compute.gfql.cypher.lowering import _logical_plan_route_for_query
