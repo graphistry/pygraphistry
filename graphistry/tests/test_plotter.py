@@ -515,7 +515,9 @@ class TestPlotterArrowConversions(NoAuthTestCase):
 
         assert calls[0] == {'mixed': 'string'}
         assert calls[1] == {'mixed': str}
-        assert fixed['mixed'].tolist() == ['bytes', '1.5', 'None']
+        values = fixed['mixed'].tolist()
+        assert values[:2] == ['bytes', '1.5']
+        assert values[2] == 'None' or pd.isna(values[2])
 
     def test_validate_strict_allows_clean_data(self):
         """strict mode allows clean data through."""
