@@ -102,18 +102,10 @@ class KnownReactSettingsDict(TypedDict, total=False):  # pragma: no cover
     edgeOpacity: SettingNumber
     encodeAxis: AxisRows
     encodeEdgeColor: ReactColorEncodingPayload
-    encodeEdgeLabel: ReactTextEncodingPayload
     encodeEdgeIcons: ReactIconEncodingPayload
-    encodeEdgeOpacity: ReactSizeEncodingPayload
-    encodeEdgeSize: ReactSizeEncodingPayload
-    encodeEdgeTitle: ReactTextEncodingPayload
-    encodeEdgeWeight: ReactSizeEncodingPayload
     encodePointColor: ReactColorEncodingPayload
     encodePointIcons: ReactIconEncodingPayload
-    encodePointLabel: ReactTextEncodingPayload
-    encodePointOpacity: ReactSizeEncodingPayload
     encodePointSize: ReactSizeEncodingPayload
-    encodePointTitle: ReactTextEncodingPayload
     exclusions: SettingsValue
     filters: SettingsValue
     gravity: SettingNumber
@@ -158,10 +150,8 @@ class KnownReactSettingsDict(TypedDict, total=False):  # pragma: no cover
 
 REACT_SETTING_NAMES: Tuple[str, ...] = (
     "axes", "backgroundColor", "controls", "edgeCurvature", "edgeInfluence",
-    "edgeOpacity", "encodeAxis", "encodeEdgeColor", "encodeEdgeLabel", "encodeEdgeIcons",
-    "encodeEdgeOpacity", "encodeEdgeSize", "encodeEdgeTitle", "encodeEdgeWeight",
-    "encodePointColor", "encodePointIcons", "encodePointLabel", "encodePointOpacity",
-    "encodePointSize", "encodePointTitle", "exclusions",
+    "edgeOpacity", "encodeAxis", "encodeEdgeColor", "encodeEdgeIcons",
+    "encodePointColor", "encodePointIcons", "encodePointSize", "exclusions",
     "filters", "gravity", "dissuadeHubs", "iframeStyle", "labelBackground", "labelColor",
     "labelOpacity", "linLog", "lockedR", "lockedX", "lockedY",
     "neighborhoodHighlight", "neighborhoodHighlightHops", "play",

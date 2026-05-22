@@ -231,11 +231,16 @@ class EncodeEdgeColorParams(TypedDict, total=False):
     default_mapping: str
 
 
-class EncodePointSizeParams(TypedDict, total=False):
-    """Parameters for encode_point_size operation."""
+class EncodeNumericMappingParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for numeric encode mapping operations."""
     column: str  # Required in safelist
     categorical_mapping: Dict[str, Union[int, float]]
     default_mapping: Union[int, float]
+
+
+class EncodePointSizeParams(EncodeNumericMappingParams, total=False):  # pragma: no cover
+    """Parameters for encode_point_size operation."""
+    pass
 
 
 class EncodeTextColumnParams(TypedDict, total=False):  # pragma: no cover
@@ -634,7 +639,7 @@ def call(function: Literal['encode_point_size'], params: EncodePointSizeParams =
 @overload
 def call(
     function: Literal['encode_edge_size', 'encode_edge_weight', 'encode_point_opacity', 'encode_edge_opacity'],
-    params: EncodePointSizeParams = ...
+    params: EncodeNumericMappingParams = ...
 ) -> 'ASTCall':
     ...
 

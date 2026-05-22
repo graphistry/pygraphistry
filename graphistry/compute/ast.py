@@ -1354,9 +1354,17 @@ class ASTCall(ASTObject):
             'collapse': ['column'],
         }
         for encode_fn in (
-            'encode_point_color', 'encode_edge_color', 'encode_point_size', 'encode_edge_size',
-            'encode_edge_weight', 'encode_point_opacity', 'encode_edge_opacity', 'encode_point_label',
-            'encode_edge_label', 'encode_point_title', 'encode_edge_title',
+            'encode_point_color',
+            'encode_edge_color',
+            'encode_point_size',
+            'encode_edge_size',
+            'encode_edge_weight',
+            'encode_point_opacity',
+            'encode_edge_opacity',
+            'encode_point_label',
+            'encode_edge_label',
+            'encode_point_title',
+            'encode_edge_title',
         ):
             output_col_params[encode_fn] = ['column']
 
