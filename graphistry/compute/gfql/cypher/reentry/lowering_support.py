@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import fields as _dataclass_fields, replace
 import re
-from typing import AbstractSet, Any, Dict, FrozenSet, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, cast
+from typing import AbstractSet, Any, Callable, Dict, FrozenSet, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, cast
 
 from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
 from graphistry.compute.gfql.cypher.ast import (
@@ -11,6 +11,8 @@ from graphistry.compute.gfql.cypher.ast import (
     ExpressionText,
     MatchClause,
     NodePattern,
+    OrderByClause,
+    OrderItem,
     PatternElement,
     ProjectionStage,
     PropertyRef,
@@ -49,6 +51,21 @@ def _post_processing_with(
             optional_projection_row_guard=optional_projection_row_guard,
         )
     )
+
+
+def _rewrite_order_by_expressions(
+    order_by: Optional[OrderByClause],
+    rewrite_expr: Callable[[ExpressionText, str], Optional[ExpressionText]],
+) -> Optional[OrderByClause]:
+    if order_by is None:
+        return None
+    rewritten_items: List[OrderItem] = []
+    for item in order_by.items:
+        rewritten_expr = rewrite_expr(item.expression, "order_by")
+        if rewritten_expr is None:
+            return None
+        rewritten_items.append(replace(item, expression=rewritten_expr))
+    return replace(order_by, items=tuple(rewritten_items))
 
 
 def _drop_bare_alias_items_from_stage(
@@ -411,17 +428,7 @@ def _demote_secondary_whole_row_aliases(
         for unwind in query.reentry_unwinds
     )
     rewritten_return = _rewrite_reentry_projection_clause(query.return_, rewrite_expr=rewrite_text)
-    rewritten_order_by = (
-        None
-        if query.order_by is None
-        else replace(
-            query.order_by,
-            items=tuple(
-                replace(item, expression=rewrite_text(item.expression, "order_by"))
-                for item in query.order_by.items
-            ),
-        )
-    )
+    rewritten_order_by = _rewrite_order_by_expressions(query.order_by, rewrite_text)
 
     if bare_collected:
         raise _lowering._unsupported_at_span(
@@ -431,19 +438,17 @@ def _demote_secondary_whole_row_aliases(
             span=query.return_.span,
         )
 
-    new_items: List[ReturnItem] = []
     secondary_drop_indices = {idx for idx, _item in secondary_items}
-    for idx, item in enumerate(prefix_stage.clause.items):
-        if idx in secondary_drop_indices:
-            continue
-        new_items.append(item)
+    new_items: List[ReturnItem] = [
+        item for idx, item in enumerate(prefix_stage.clause.items)
+        if idx not in secondary_drop_indices
+    ]
     template_span = prefix_stage.span
     for alias_name, prop in sorted(refs_collected):
-        hidden_alias = _secondary_reentry_hidden_column_name(alias_name, prop)
         new_items.append(
             ReturnItem(
                 expression=ExpressionText(text=f"{alias_name}.{prop}", span=template_span),
-                alias=hidden_alias,
+                alias=_secondary_reentry_hidden_column_name(alias_name, prop),
                 span=template_span,
             )
         )
@@ -453,17 +458,17 @@ def _demote_secondary_whole_row_aliases(
     )
 
     if refs_collected and rewritten_with_stages_tail:
-        forwarded_items: List[ReturnItem] = []
-        for alias_name, prop in sorted(refs_collected):
-            hidden_alias = _secondary_reentry_hidden_column_name(alias_name, prop)
-            forwarded_items.append(
-                ReturnItem(
-                    expression=ExpressionText(text=hidden_alias, span=template_span),
-                    alias=None,
+        forwarded_tuple = tuple(
+            ReturnItem(
+                expression=ExpressionText(
+                    text=_secondary_reentry_hidden_column_name(alias_name, prop),
                     span=template_span,
-                )
+                ),
+                alias=None,
+                span=template_span,
             )
-        forwarded_tuple = tuple(forwarded_items)
+            for alias_name, prop in sorted(refs_collected)
+        )
         rewritten_with_stages_tail = tuple(
             replace(
                 stage,

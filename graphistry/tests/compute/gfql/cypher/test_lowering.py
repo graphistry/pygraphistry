@@ -10923,6 +10923,27 @@ def test_string_cypher_failfast_rejects_with_match_reentry_unbounded_or_skip_ord
         _mk_reentry_order_limit_graph().gfql(query)
 
 
+def test_string_cypher_reentry_prefix_order_error_preserves_context() -> None:
+    query = (
+        "MATCH (p:Person {id: 'p0'})-[:KNOWS]->(friend:Person) "
+        "WITH friend "
+        "ORDER BY friend.firstName ASC "
+        "MATCH (friend)-[:STUDY_AT]->(uni:University) "
+        "RETURN friend.id AS friendId"
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _mk_reentry_order_limit_graph().gfql(query)
+
+    err = exc_info.value
+    assert err.code == ErrorCode.E108
+    assert err.context["field"] == "with.order_by"
+    assert err.context["value"] == ["friend.firstName"]
+    assert err.context["line"] == 1
+    assert err.context["column"] == 67
+    assert err.context["language"] == "cypher"
+
+
 def test_string_cypher_executes_seeded_multihop_then_with_match_reentry_shape() -> None:
     nodes = pd.DataFrame(
         {

@@ -3,15 +3,13 @@ from __future__ import annotations
 
 from dataclasses import replace
 import re
-from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, cast
-from typing_extensions import Literal
+from typing import Any, Callable, Dict, List, Mapping, NoReturn, Optional, Tuple, cast
 
 from graphistry.compute.gfql.cypher.ast import (
     CypherQuery,
     ExpressionText,
     MatchClause,
     OrderByClause,
-    OrderItem,
     ProjectionStage,
     ReturnClause,
     ReturnItem,
@@ -21,13 +19,11 @@ from graphistry.compute.gfql.cypher.lowering import (
     CompiledCypherExecutionExtras,
     CompiledCypherQuery,
     _connected_component_from_pattern,
-    _execution_extras_with,
     _match_pattern_elements,
     _pattern_node_aliases,
     _render_expr_node,
     _rewrite_expr_identifiers,
     _rewrite_where_clause_and_resync,
-    _unsupported,
     _unsupported_at_span,
     _verify_selected_logical_plan,
     compile_cypher_query,
@@ -47,6 +43,7 @@ from graphistry.compute.gfql.cypher.reentry.lowering_support import (
     _is_bare_carry_with_item,
     _is_whole_row_with_item,
     _post_processing_with,
+    _rewrite_order_by_expressions,
 )
 from graphistry.compute.gfql.cypher.reentry.naming import (
     _reentry_hidden_column_name,
@@ -73,12 +70,21 @@ from graphistry.compute.gfql.ir.logical_plan import (
     RowSchema as LogicalRowSchema,
 )
 
+
+def _raise_requires_named_reentry_alias(reentry_match: MatchClause, first_alias: Optional[str]) -> NoReturn:
+    raise _unsupported_at_span(
+        "Cypher MATCH after WITH currently requires the trailing MATCH to start from a named node alias",
+        field="match",
+        value=first_alias,
+        span=reentry_match.span,
+    )
+
+
 def _map_terminal_reentry_query(
     compiled_query: CompiledCypherQuery,
     *,
     transform: Callable[[CompiledCypherQuery], CompiledCypherQuery],
 ) -> CompiledCypherQuery:
-    compiled_extras = compiled_query.execution_extras or CompiledCypherExecutionExtras()
     if compiled_query.start_nodes_query is None:
         return transform(compiled_query)
     mapped_start_nodes = _map_terminal_reentry_query(
@@ -87,19 +93,16 @@ def _map_terminal_reentry_query(
     )
     return replace(
         compiled_query,
-        execution_extras=_execution_extras_with(
-            compiled_query,
-            connected_optional_match=compiled_extras.connected_optional_match,
-            connected_match_join=compiled_extras.connected_match_join,
-            query_graph=compiled_extras.query_graph,
+        execution_extras=replace(
+            compiled_query.execution_extras or CompiledCypherExecutionExtras(),
             start_nodes_query=mapped_start_nodes,
-            optional_reentry=compiled_query.optional_reentry,
-            reentry_plan=compiled_query.reentry_plan,
-            logical_plan=compiled_query.logical_plan,
-            logical_plan_defer_reason=compiled_query.logical_plan_defer_reason,
-            logical_plan_defer_code=compiled_query.logical_plan_defer_code,
+            scope_stack=(),
         ),
     )
+
+
+def _without_outer_query_context(query: CypherQuery, **updates: Any) -> CypherQuery:
+    return replace(query, call=None, row_sequence=(), graph_bindings=(), use=None, **updates)
 
 
 def _rewrite_terminal_singleton_reentry_unwind(
@@ -127,7 +130,7 @@ def _rewrite_terminal_singleton_reentry_unwind(
         return (), reentry_return, reentry_order_by
     replacements = {unwind_alias: source_name}
 
-    def _rewrite_expr(expr: ExpressionText) -> Optional[ExpressionText]:
+    def _rewrite_expr(expr: ExpressionText, _field: str) -> Optional[ExpressionText]:
         try:
             node = parse_expr(expr.text)
         except (GFQLExprParseError, ImportError):
@@ -137,23 +140,14 @@ def _rewrite_terminal_singleton_reentry_unwind(
 
     rewritten_return_items: List[ReturnItem] = []
     for item in reentry_return.items:
-        rewritten_expr = _rewrite_expr(item.expression)
+        rewritten_expr = _rewrite_expr(item.expression, "return")
         if rewritten_expr is None:
             return None
         rewritten_return_items.append(replace(item, expression=rewritten_expr))
     rewritten_return = replace(reentry_return, items=tuple(rewritten_return_items))
-    rewritten_order_by = None
-    if reentry_order_by is not None:
-        rewritten_order_items: List[OrderItem] = []
-        for order_item in reentry_order_by.items:
-            rewritten_expr = _rewrite_expr(order_item.expression)
-            if rewritten_expr is None:
-                return None
-            rewritten_order_items.append(replace(order_item, expression=rewritten_expr))
-        rewritten_order_by = replace(
-            reentry_order_by,
-            items=tuple(rewritten_order_items),
-        )
+    rewritten_order_by = _rewrite_order_by_expressions(reentry_order_by, _rewrite_expr)
+    if reentry_order_by is not None and rewritten_order_by is None:
+        return None
     return (), rewritten_return, rewritten_order_by
 
 
@@ -169,14 +163,11 @@ def _rewrite_multi_whole_row_prefix(
     if reentry_first_alias is None:
         return prefix_stage, original_tail, {}
 
-    identifier_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
     bare_item_indices: Dict[str, int] = {}
     for idx, item in enumerate(prefix_stage.clause.items):
-        if item.alias is not None:
-            continue
-        text = item.expression.text.strip()
-        if identifier_re.fullmatch(text):
-            bare_item_indices[text] = idx
+        carry_name = _is_bare_carry_with_item(item)
+        if carry_name is not None:
+            bare_item_indices[carry_name] = idx
 
     non_source_aliases = tuple(
         name for name in bare_item_indices if name != reentry_first_alias
@@ -185,6 +176,7 @@ def _rewrite_multi_whole_row_prefix(
         return prefix_stage, original_tail, {}
 
     candidate_set = set(non_source_aliases)
+    identifier_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
     cleaned_tail = tuple(
         _drop_bare_alias_items_from_stage(stage, candidate_set, identifier_re=identifier_re)
         for stage in original_tail
@@ -202,26 +194,19 @@ def _rewrite_multi_whole_row_prefix(
     if not referenced:
         return prefix_stage, cleaned_tail, {}
 
-    drop_set = set(referenced)
-    new_items: List[ReturnItem] = [
-        item
-        for idx, item in enumerate(prefix_stage.clause.items)
-        if not any(idx == bare_item_indices[name] for name in drop_set)
-    ]
+    drop_indices = {bare_item_indices[name] for name in referenced}
+    new_items: List[ReturnItem] = [item for idx, item in enumerate(prefix_stage.clause.items) if idx not in drop_indices]
+    span = prefix_stage.clause.span
     carried_props: Dict[str, Tuple[str, ...]] = {}
     for alias in referenced:
         props = tuple(sorted(props_by_alias[alias]))
         carried_props[alias] = props
         for prop in props:
-            hidden_name = _reentry_property_carry_name(alias, prop)
             new_items.append(
                 ReturnItem(
-                    expression=ExpressionText(
-                        text=f"{alias}.{prop}",
-                        span=prefix_stage.clause.span,
-                    ),
-                    alias=hidden_name,
-                    span=prefix_stage.clause.span,
+                    expression=ExpressionText(text=f"{alias}.{prop}", span=span),
+                    alias=_reentry_property_carry_name(alias, prop),
+                    span=span,
                 )
             )
 
@@ -337,14 +322,10 @@ def _compile_bounded_reentry_query(
     )
     non_source_carried_props_map: Dict[str, Tuple[str, ...]] = dict(demoted_secondary_props)
     projection_items = [item.expression.text for item in prefix_stage.clause.items]
-    prefix_query = replace(
+    prefix_query = _without_outer_query_context(
         query,
-        call=None,
-        row_sequence=(),
         reentry_matches=(),
         reentry_wheres=(),
-        graph_bindings=(),
-        use=None,
         with_stages=(),
         return_=replace(prefix_stage.clause, kind="return"),
         order_by=prefix_stage.order_by,
@@ -367,15 +348,9 @@ def _compile_bounded_reentry_query(
     first_alias = _first_pattern_node_alias(reentry_match)
     prefix_projection = prefix_compiled.result_projection
     scalar_only_prefix = prefix_projection is None
-    prefix_projection_table: Optional[Literal["nodes", "edges"]] = None
     if scalar_only_prefix:
-        scalar_prefix_aliases = {
-            item.alias
-            for item in prefix_stage.clause.items
-            if item.alias is not None
-        }
         reused_scalar_aliases = sorted(
-            scalar_prefix_aliases
+            {item.alias for item in prefix_stage.clause.items if item.alias is not None}
             & set().union(*(_pattern_node_aliases(pattern) for pattern in reentry_match.patterns))
         )
         if reused_scalar_aliases:
@@ -388,12 +363,7 @@ def _compile_bounded_reentry_query(
                 span=reentry_match.span,
             )
         if first_alias is None:
-            raise _unsupported_at_span(
-                "Cypher MATCH after WITH currently requires the trailing MATCH to start from a named node alias",
-                field="match",
-                value=first_alias,
-                span=reentry_match.span,
-            )
+            _raise_requires_named_reentry_alias(reentry_match, first_alias)
         reentry_alias = first_alias
         carry_columns = _bounded_reentry_scalar_prefix_columns(
             prefix_stage,
@@ -402,7 +372,6 @@ def _compile_bounded_reentry_query(
         free_form = False
     else:
         assert prefix_projection is not None
-        prefix_projection_table = prefix_projection.table
         reentry_alias, carry_columns, non_source_alias_names = _bounded_reentry_carry_columns(
             prefix_projection,
             projection_items=projection_items,
@@ -434,15 +403,15 @@ def _compile_bounded_reentry_query(
             for alias_name, props in props_by_alias.items():
                 if not props:
                     continue
-                merged = set(non_source_carried_props_map.get(alias_name, ()))
-                merged.update(props)
-                non_source_carried_props_map[alias_name] = tuple(sorted(merged))
+                non_source_carried_props_map[alias_name] = tuple(
+                    sorted({*non_source_carried_props_map.get(alias_name, ()), *props})
+                )
         for alias_name, carried_props in multi_alias_carries.items():
-            merged = set(non_source_carried_props_map.get(alias_name, ()))
-            merged.update(carried_props)
-            non_source_carried_props_map[alias_name] = tuple(sorted(merged))
+            non_source_carried_props_map[alias_name] = tuple(
+                sorted({*non_source_carried_props_map.get(alias_name, ()), *carried_props})
+            )
     if not _bounded_reentry_prefix_order_is_safe(prefix_stage=prefix_stage, query=query, params=params):
-        raise _unsupported(
+        raise _unsupported_at_span(
             "Cypher MATCH after WITH requires bounded literal LIMIT (and no SKIP) to preserve prefix WITH row ordering across MATCH re-entry when the trailing query has no ORDER BY",
             field="with.order_by",
             value=(
@@ -450,14 +419,13 @@ def _compile_bounded_reentry_query(
                 if prefix_stage.order_by is not None
                 else None
             ),
-            line=prefix_stage.order_by.span.line if prefix_stage.order_by is not None else prefix_stage.span.line,
-            column=prefix_stage.order_by.span.column if prefix_stage.order_by is not None else prefix_stage.span.column,
+            span=prefix_stage.order_by.span if prefix_stage.order_by is not None else prefix_stage.span,
         )
-    if prefix_projection_table is not None and prefix_projection_table != "nodes":
+    if prefix_projection is not None and prefix_projection.table != "nodes":
         raise _unsupported_at_span(
             "Cypher MATCH after WITH currently supports node re-entry only",
             field="with",
-            value=prefix_projection_table,
+            value=prefix_projection.table,
             span=prefix_stage.span,
         )
     if len(query.return_.items) == 1 and query.return_.items[0].expression.text == "*":
@@ -468,12 +436,7 @@ def _compile_bounded_reentry_query(
             span=query.return_.span,
         )
     if first_alias is None:
-        raise _unsupported_at_span(
-            "Cypher MATCH after WITH currently requires the trailing MATCH to start from a named node alias",
-            field="match",
-            value=first_alias,
-            span=reentry_match.span,
-        )
+        _raise_requires_named_reentry_alias(reentry_match, first_alias)
 
     hidden_columns = tuple(_reentry_hidden_column_name(output_name) for output_name in carry_columns)
 
@@ -486,55 +449,36 @@ def _compile_bounded_reentry_query(
         )
     else:
         assert prefix_projection is not None
-        current_aliases: List[CarriedAlias] = []
-        if not free_form:
-            current_aliases.append(
+        carried_names = tuple(
+            name
+            for name in dict.fromkeys(non_source_alias_names + demoted_secondary_aliases + tuple(multi_alias_carries))
+            if free_form or name != reentry_alias
+        )
+        current_aliases = (
+            (() if free_form else (
                 CarriedAlias(
                     output_name=reentry_alias,
                     table=prefix_projection.table,
                     is_reentry_alias=True,
-                )
-            )
-        for name in non_source_alias_names:
-            current_aliases.append(
+                ),
+            ))
+            + tuple(
                 CarriedAlias(
                     output_name=name,
                     table=prefix_projection.table,
                     is_reentry_alias=False,
                     carried_properties=non_source_carried_props_map.get(name, ()),
                 )
+                for name in carried_names
             )
-        for alias in demoted_secondary_aliases:
-            if alias not in {entry.output_name for entry in current_aliases}:
-                current_aliases.append(
-                    CarriedAlias(
-                        output_name=alias,
-                        table=prefix_projection.table,
-                        is_reentry_alias=False,
-                        carried_properties=non_source_carried_props_map.get(alias, ()),
-                    )
-                )
-        for alias in multi_alias_carries:
-            if alias not in {entry.output_name for entry in current_aliases}:
-                current_aliases.append(
-                    CarriedAlias(
-                        output_name=alias,
-                        table=prefix_projection.table,
-                        is_reentry_alias=False,
-                        carried_properties=non_source_carried_props_map.get(alias, ()),
-                    )
-                )
+        )
         current_reentry_plan = ReentryPlan(
             reentry_alias_name=reentry_alias,
-            aliases=tuple(current_aliases),
+            aliases=current_aliases,
             scalar_columns=tuple(carry_columns),
             scalar_only=False,
             free_form=free_form,
         )
-
-    non_source_carried_props: Optional[Mapping[str, Tuple[str, ...]]] = (
-        non_source_carried_props_map if non_source_carried_props_map else None
-    )
 
     def rewrite_expr(expr: ExpressionText, field: str) -> ExpressionText:
         return _rewrite_reentry_expr_to_hidden_properties(
@@ -542,7 +486,7 @@ def _compile_bounded_reentry_query(
             carried_alias=reentry_alias,
             carried_columns=carry_columns,
             field=field,
-            non_source_carried_props=non_source_carried_props,
+            non_source_carried_props=non_source_carried_props_map or None,
         )
 
     reentry_where = query.reentry_where
@@ -550,7 +494,7 @@ def _compile_bounded_reentry_query(
     reentry_order_by = query.order_by
     rewritten_with_stages = remaining_with_stages
     rewritten_reentry_unwinds = query.reentry_unwinds
-    remaining_reentry_wheres = query.reentry_wheres[1:] if query.reentry_wheres else ()
+    remaining_reentry_wheres = query.reentry_wheres[1:]
     rewritten_remaining_reentry_wheres = remaining_reentry_wheres
     rewritten_reentry_match = reentry_match
     rewritten_remaining_reentry_matches = remaining_reentry_matches
@@ -582,16 +526,9 @@ def _compile_bounded_reentry_query(
         if not remaining_reentry_matches:
             reentry_return = _rewrite_reentry_projection_clause(query.return_, rewrite_expr=rewrite_expr)
             if reentry_order_by is not None:
-                reentry_order_by = replace(
-                    reentry_order_by,
-                    items=tuple(
-                        replace(
-                            item,
-                            expression=rewrite_expr(item.expression, "order_by"),
-                        )
-                        for item in reentry_order_by.items
-                    ),
-                )
+                rewritten_order_by = _rewrite_order_by_expressions(reentry_order_by, rewrite_expr)
+                assert rewritten_order_by is not None
+                reentry_order_by = rewritten_order_by
     if rewritten_reentry_unwinds and rewritten_with_stages and not rewritten_remaining_reentry_matches:
         singleton_rewrite = _rewrite_terminal_singleton_reentry_unwind(
             reentry_unwinds=rewritten_reentry_unwinds,
@@ -608,12 +545,8 @@ def _compile_bounded_reentry_query(
                 value=first_unwind.expression.text,
                 span=first_unwind.span,
             )
-    suffix_query = replace(
+    suffix_query = _without_outer_query_context(
         query,
-        call=None,
-        row_sequence=(),
-        graph_bindings=(),
-        use=None,
         matches=(rewritten_reentry_match,),
         where=reentry_where,
         unwinds=rewritten_reentry_unwinds,
@@ -633,7 +566,6 @@ def _compile_bounded_reentry_query(
             span=reentry_match.span,
         )
     def attach_current_reentry(target: CompiledCypherQuery) -> CompiledCypherQuery:
-        target_extras = target.execution_extras or CompiledCypherExecutionExtras()
         target_projection = target.result_projection
         if target_projection is not None and target_projection.alias == reentry_alias and hidden_columns:
             target_projection = replace(
@@ -653,14 +585,12 @@ def _compile_bounded_reentry_query(
                 optional_null_fill=target.optional_null_fill,
                 optional_projection_row_guard=target.optional_projection_row_guard,
             ),
-            execution_extras=_execution_extras_with(
-                target,
-                connected_optional_match=target_extras.connected_optional_match,
-                connected_match_join=target_extras.connected_match_join,
-                query_graph=target_extras.query_graph,
+            execution_extras=replace(
+                target.execution_extras or CompiledCypherExecutionExtras(),
                 start_nodes_query=prefix_compiled,
                 optional_reentry=is_optional,
                 reentry_plan=current_reentry_plan,
+                scope_stack=(),
                 logical_plan=(
                     target.logical_plan
                     if target.logical_plan is not None or not is_optional
