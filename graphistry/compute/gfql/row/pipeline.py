@@ -210,11 +210,17 @@ class RowPipelineMixin:
         node_id = getattr(self, "_node", None)
         if node_id is not None:
             return cast(str, node_id)
+        base_graph = self._gfql_base_graph()
+        node_id = getattr(base_graph, "_node", None) if base_graph is not None else None
+        return cast(Optional[str], node_id)
+
+    def _gfql_base_graph(self, *, fallback_to_self: bool = False) -> Any:
         base_graph = getattr(self, "_gfql_rows_base_graph", None)
         if base_graph is None:
             base_graph = getattr(self, "_g", None)
-        node_id = getattr(base_graph, "_node", None) if base_graph is not None else None
-        return cast(Optional[str], node_id)
+        if base_graph is None and fallback_to_self:
+            return self
+        return base_graph
 
     @staticmethod
     def _gfql_fresh_col_name(columns: Any, prefix: str) -> str:
@@ -1771,10 +1777,6 @@ class RowPipelineMixin:
         return order_expr_ast_static_supported(node)
 
     @staticmethod
-    def _gfql_all_non_null_match(mask: Any, non_null: Any) -> bool:
-        return bool(hasattr(mask, "where") and mask.where(non_null, True).all())
-
-    @staticmethod
     def _gfql_series_to_pylist(values: Any) -> List[Any]:
         if hasattr(values, "to_arrow"):
             try:
@@ -3253,9 +3255,7 @@ class RowPipelineMixin:
             return self._gfql_empty_frame(), {}
 
         RowPipelineMixin._gfql_validate_binding_ops(ops)
-        base_graph = getattr(self, "_gfql_rows_base_graph", None)
-        if base_graph is None:
-            base_graph = getattr(self, "_g", None)
+        base_graph = self._gfql_base_graph()
         if base_graph is None:
             self._gfql_bindings_error(
                 "Cypher multi-alias row bindings require a graph-backed row pipeline context"
@@ -3489,9 +3489,7 @@ class RowPipelineMixin:
             self._gfql_bindings_error(
                 "Cypher multi-alias row bindings require a node id column"
             )
-        base_graph = getattr(self, "_gfql_rows_base_graph", None)
-        if base_graph is None:
-            base_graph = getattr(self, "_g", None)
+        base_graph = self._gfql_base_graph()
         base_nodes = getattr(base_graph, "_nodes", None) if base_graph is not None else None
         empty_lookup_source = (
             base_nodes.iloc[0:0].copy()
@@ -3555,7 +3553,7 @@ class RowPipelineMixin:
         if self._nodes is None or self._edges is None or len(seed_table) == 0:
             return None
 
-        base_graph = getattr(self, "_gfql_rows_base_graph", None) or getattr(self, "_g", None)
+        base_graph = self._gfql_base_graph()
         if base_graph is None:
             return None
         src_col = getattr(base_graph, "_source", None)
@@ -3697,9 +3695,7 @@ class RowPipelineMixin:
         if self._nodes is None:
             return self._gfql_row_table(self._gfql_empty_frame())
 
-        base_graph = getattr(self, "_gfql_rows_base_graph", None)
-        if base_graph is None:
-            base_graph = getattr(self, "_g", None)
+        base_graph = self._gfql_base_graph()
         if base_graph is None:
             self._gfql_bindings_error(
                 "Cypher multi-alias row bindings require a graph-backed row pipeline context"
@@ -3780,13 +3776,7 @@ class RowPipelineMixin:
         bindings = edges.copy()
         for alias, endpoint in alias_endpoints.items():
             join_col = src_col if endpoint == "src" else dst_col
-            # Build alias-prefixed lookup from nodes
-            lookup = nodes[[node_id]].copy()
-            lookup[f"{alias}.{node_id}"] = nodes[node_id]
-            for col in nodes.columns:
-                if col == node_id:
-                    continue
-                lookup[f"{alias}.{col}"] = nodes[col]
+            lookup = self._gfql_node_alias_lookup_frame(nodes, node_id, alias)
             bindings = bindings.merge(
                 lookup,
                 left_on=join_col,
@@ -3811,38 +3801,36 @@ class RowPipelineMixin:
 
     drop_cols = row_frame_ops.drop_cols
 
-    def select(self, items: List[Any]) -> "Plottable":
-        table_df = self._gfql_get_active_table()
+    def _gfql_project_items(
+        self,
+        table_df: Any,
+        items: List[Any],
+        *,
+        op_name: str,
+        normalize_shortest_path_hops: bool = False,
+    ) -> Dict[str, Any]:
         if items is None:
             raise ValueError(
-                "select(items=...) requires entries of form (alias, expr) or shorthand 'col'"
+                f"{op_name}(items=...) requires entries of form (alias, expr) or shorthand 'col'"
             )
 
         projected: Dict[str, Any] = {}
-        cudf_row_table = resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF
-
-        def _project_scalar(value: Any) -> Any:
-            return self._gfql_broadcast_scalar(table_df, value)
-
         for item in items:
             if isinstance(item, str):
                 alias_raw, expr = item, item
             else:
                 if not isinstance(item, (list, tuple)) or len(item) != 2:
                     raise ValueError(
-                        "select expects entries of form (alias, expr) or shorthand 'col', "
+                        f"{op_name} expects entries of form (alias, expr) or shorthand 'col', "
                         f"got {item!r}"
                     )
                 alias_raw, expr = item
             alias = str(alias_raw)
             if alias == "":
-                raise ValueError("select alias must be non-empty")
+                raise ValueError(f"{op_name} alias must be non-empty")
             if isinstance(expr, str):
-                if expr in table_df.columns:
-                    value = table_df[expr]
-                else:
-                    value = self._gfql_eval_string_expr(table_df, expr)
-                if "__cypher_shortest_path_hops__" in expr and hasattr(value, "isna"):
+                value = table_df[expr] if expr in table_df.columns else self._gfql_eval_string_expr(table_df, expr)
+                if normalize_shortest_path_hops and "__cypher_shortest_path_hops__" in expr and hasattr(value, "isna"):
                     to_numeric = None
                     try:
                         to_numeric = s_to_numeric(resolve_engine(EngineAbstract.AUTO, table_df))
@@ -3857,10 +3845,21 @@ class RowPipelineMixin:
                         except (TypeError, ValueError, RuntimeError):
                             pass
                 if not hasattr(value, "astype"):
-                    value = _project_scalar(value)
+                    value = self._gfql_broadcast_scalar(table_df, value)
                 projected[alias] = value
             else:
-                projected[alias] = _project_scalar(expr)
+                projected[alias] = self._gfql_broadcast_scalar(table_df, expr)
+        return projected
+
+    def select(self, items: List[Any]) -> "Plottable":
+        table_df = self._gfql_get_active_table()
+        cudf_row_table = resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF
+        projected = self._gfql_project_items(
+            table_df,
+            items,
+            op_name="select",
+            normalize_shortest_path_hops=True,
+        )
 
         if cudf_row_table and any(isinstance(value, pd.Series) for value in projected.values()):
             out_df = _gfql_projected_values_to_pandas_frame(projected, len(table_df))
@@ -3878,22 +3877,7 @@ class RowPipelineMixin:
         if not extend:
             return self.select(items)
         table_df = self._gfql_get_active_table()
-        projected: Dict[str, Any] = {}
-        for item in items:
-            if isinstance(item, str):
-                alias, expr = item, item
-            else:
-                alias, expr = item
-            alias = str(alias)
-            if isinstance(expr, str):
-                if expr in table_df.columns:
-                    projected[alias] = table_df[expr]
-                else:
-                    projected[alias] = self._gfql_eval_string_expr(table_df, expr)
-                if not hasattr(projected[alias], "astype"):
-                    projected[alias] = self._gfql_broadcast_scalar(table_df, projected[alias])
-            else:
-                projected[alias] = self._gfql_broadcast_scalar(table_df, expr)
+        projected = self._gfql_project_items(table_df, items, op_name="with_")
         out_df = table_df.assign(**projected)
         return self._gfql_row_table(out_df)
 
@@ -3924,38 +3908,33 @@ class RowPipelineMixin:
 
         return self._gfql_row_table(out_df)
 
-    def anti_semi_apply(
-        self,
+    @staticmethod
+    def _gfql_validate_apply_args(
+        op_name: str,
         binding_ops: List[Dict[str, Any]],
         join_aliases: List[str],
-    ) -> "Plottable":
-        """Row anti-semi-join against rows produced by ``binding_ops``."""
+        *,
+        out_col: Optional[str] = None,
+        how: Optional[str] = None,
+    ) -> None:
         if not isinstance(binding_ops, list) or len(binding_ops) == 0:
-            raise ValueError("anti_semi_apply(binding_ops=...) requires a non-empty list")
+            raise ValueError(f"{op_name}(binding_ops=...) requires a non-empty list")
         if not isinstance(join_aliases, list) or len(join_aliases) == 0:
-            raise ValueError("anti_semi_apply(join_aliases=...) requires a non-empty list")
+            raise ValueError(f"{op_name}(join_aliases=...) requires a non-empty list")
         if not all(isinstance(alias, str) and alias.strip() for alias in join_aliases):
-            raise ValueError("anti_semi_apply(join_aliases=...) must be a list of non-empty strings")
+            raise ValueError(f"{op_name}(join_aliases=...) must be a list of non-empty strings")
+        if out_col is not None and (not isinstance(out_col, str) or out_col.strip() == ""):
+            raise ValueError(f"{op_name}(out_col=...) requires a non-empty string")
+        if how is not None and how not in {"inner", "left"}:
+            raise ValueError(f"{op_name}(how=...) must be 'inner' or 'left'")
 
-        left_df = self._gfql_get_active_table()
-        if left_df is None or len(left_df) == 0:
-            return self._gfql_row_table(self._gfql_empty_frame(left_df))
-
-        base_graph = getattr(self, "_gfql_rows_base_graph", None)
-        if base_graph is None:
-            base_graph = getattr(self, "_g", None)
-        if base_graph is None:
-            base_graph = self
-
-        right_rows = _RowPipelineAdapter(cast("Plottable", base_graph))._gfql_binding_ops_row_table(binding_ops)
-        right_df = getattr(right_rows, "_nodes", None)
-        if right_df is None or len(right_df) == 0:
-            return self._gfql_row_table(left_df.copy())
-
-        node_id_col = getattr(base_graph, "_node", None)
-        if not isinstance(node_id_col, str) or node_id_col == "":
-            node_id_col = "id"
-
+    @staticmethod
+    def _gfql_shared_join_cols(
+        left_df: Any,
+        right_df: Any,
+        join_aliases: List[str],
+        node_id_col: str,
+    ) -> Tuple[List[str], List[str]]:
         join_cols: List[str] = []
         missing_aliases: List[str] = []
         for alias in join_aliases:
@@ -3963,16 +3942,61 @@ class RowPipelineMixin:
             chosen = next((col for col in candidates if col in left_df.columns and col in right_df.columns), None)
             if chosen is None:
                 missing_aliases.append(alias)
-                continue
-            if chosen not in join_cols:
+            elif chosen not in join_cols:
                 join_cols.append(chosen)
+        return join_cols, missing_aliases
 
+    @staticmethod
+    def _gfql_raise_missing_join_cols(
+        *,
+        message: str,
+        field: str,
+        join_aliases: List[str],
+        missing_aliases: List[str],
+        suggestion: str,
+        language: str,
+    ) -> None:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            message,
+            field=field,
+            value={"join_aliases": join_aliases, "missing_aliases": missing_aliases},
+            suggestion=suggestion,
+            language=language,
+        )
+
+    def _gfql_apply_right_df(self, binding_ops: List[Dict[str, Any]]) -> Tuple[Any, Any]:
+        base_graph = self._gfql_base_graph(fallback_to_self=True)
+        right_rows = _RowPipelineAdapter(cast("Plottable", base_graph))._gfql_binding_ops_row_table(binding_ops)
+        return base_graph, getattr(right_rows, "_nodes", None)
+
+    def anti_semi_apply(
+        self,
+        binding_ops: List[Dict[str, Any]],
+        join_aliases: List[str],
+    ) -> "Plottable":
+        """Row anti-semi-join against rows produced by ``binding_ops``."""
+        self._gfql_validate_apply_args("anti_semi_apply", binding_ops, join_aliases)
+
+        left_df = self._gfql_get_active_table()
+        if left_df is None or len(left_df) == 0:
+            return self._gfql_row_table(self._gfql_empty_frame(left_df))
+
+        base_graph, right_df = self._gfql_apply_right_df(binding_ops)
+        if right_df is None or len(right_df) == 0:
+            return self._gfql_row_table(left_df.copy())
+
+        node_id_col = getattr(base_graph, "_node", None)
+        if not isinstance(node_id_col, str) or node_id_col == "":
+            node_id_col = "id"
+
+        join_cols, missing_aliases = self._gfql_shared_join_cols(left_df, right_df, join_aliases, node_id_col)
         if not join_cols:
-            raise GFQLValidationError(
-                ErrorCode.E108,
-                "Cypher WHERE NOT (pattern) anti-semi-join lowering could not recover shared alias join columns",
+            self._gfql_raise_missing_join_cols(
+                message="Cypher WHERE NOT (pattern) anti-semi-join lowering could not recover shared alias join columns",
                 field="where",
-                value={"join_aliases": join_aliases, "missing_aliases": missing_aliases},
+                join_aliases=join_aliases,
+                missing_aliases=missing_aliases,
                 suggestion="Use a NOT-pattern that references aliases already bound in the active MATCH scope.",
                 language="cypher",
             )
@@ -3991,14 +4015,7 @@ class RowPipelineMixin:
         out_col: str,
     ) -> "Plottable":
         """Annotate each active row with correlated pattern-match existence."""
-        if not isinstance(binding_ops, list) or len(binding_ops) == 0:
-            raise ValueError("semi_apply_mark(binding_ops=...) requires a non-empty list")
-        if not isinstance(join_aliases, list) or len(join_aliases) == 0:
-            raise ValueError("semi_apply_mark(join_aliases=...) requires a non-empty list")
-        if not all(isinstance(alias, str) and alias.strip() for alias in join_aliases):
-            raise ValueError("semi_apply_mark(join_aliases=...) must be a list of non-empty strings")
-        if not isinstance(out_col, str) or out_col.strip() == "":
-            raise ValueError("semi_apply_mark(out_col=...) requires a non-empty string")
+        self._gfql_validate_apply_args("semi_apply_mark", binding_ops, join_aliases, out_col=out_col)
 
         left_df = self._gfql_get_active_table()
         if left_df is None:
@@ -4010,14 +4027,7 @@ class RowPipelineMixin:
             out_df[out_col] = pd.Series(dtype="bool")
             return self._gfql_row_table(out_df)
 
-        base_graph = getattr(self, "_gfql_rows_base_graph", None)
-        if base_graph is None:
-            base_graph = getattr(self, "_g", None)
-        if base_graph is None:
-            base_graph = self
-
-        right_rows = _RowPipelineAdapter(cast("Plottable", base_graph))._gfql_binding_ops_row_table(binding_ops)
-        right_df = getattr(right_rows, "_nodes", None)
+        base_graph, right_df = self._gfql_apply_right_df(binding_ops)
         if right_df is None or len(right_df) == 0:
             out_df = left_df.copy()
             out_df[out_col] = False
@@ -4027,23 +4037,13 @@ class RowPipelineMixin:
         if not isinstance(node_id_col, str) or node_id_col == "":
             node_id_col = "id"
 
-        join_cols: List[str] = []
-        missing_aliases: List[str] = []
-        for alias in join_aliases:
-            candidates = (f"{alias}.{node_id_col}", alias)
-            chosen = next((col for col in candidates if col in left_df.columns and col in right_df.columns), None)
-            if chosen is None:
-                missing_aliases.append(alias)
-                continue
-            if chosen not in join_cols:
-                join_cols.append(chosen)
-
+        join_cols, missing_aliases = self._gfql_shared_join_cols(left_df, right_df, join_aliases, node_id_col)
         if not join_cols:
-            raise GFQLValidationError(
-                ErrorCode.E108,
-                "Cypher WHERE pattern semi-apply lowering could not recover shared alias join columns",
+            self._gfql_raise_missing_join_cols(
+                message="Cypher WHERE pattern semi-apply lowering could not recover shared alias join columns",
                 field="where",
-                value={"join_aliases": join_aliases, "missing_aliases": missing_aliases},
+                join_aliases=join_aliases,
+                missing_aliases=missing_aliases,
                 suggestion="Use a pattern that references aliases already bound in the active MATCH scope.",
                 language="cypher",
             )
@@ -4063,14 +4063,7 @@ class RowPipelineMixin:
         how: str = "inner",
     ) -> "Plottable":
         """Join active rows with rows produced by ``binding_ops``."""
-        if not isinstance(binding_ops, list) or len(binding_ops) == 0:
-            raise ValueError("join_apply(binding_ops=...) requires a non-empty list")
-        if not isinstance(join_aliases, list) or len(join_aliases) == 0:
-            raise ValueError("join_apply(join_aliases=...) requires a non-empty list")
-        if not all(isinstance(alias, str) and alias.strip() for alias in join_aliases):
-            raise ValueError("join_apply(join_aliases=...) must be a list of non-empty strings")
-        if how not in {"inner", "left"}:
-            raise ValueError("join_apply(how=...) must be 'inner' or 'left'")
+        self._gfql_validate_apply_args("join_apply", binding_ops, join_aliases, how=how)
 
         left_df = self._gfql_get_active_table()
         if left_df is None:
@@ -4078,46 +4071,25 @@ class RowPipelineMixin:
         if len(left_df) == 0:
             return self._gfql_row_table(left_df.copy())
 
-        base_graph = getattr(self, "_gfql_rows_base_graph", None)
-        if base_graph is None:
-            base_graph = getattr(self, "_g", None)
-        if base_graph is None:
-            base_graph = self
-
-        right_rows = _RowPipelineAdapter(cast("Plottable", base_graph))._gfql_binding_ops_row_table(binding_ops)
-        right_df = getattr(right_rows, "_nodes", None)
+        base_graph, right_df = self._gfql_apply_right_df(binding_ops)
 
         node_id_col = getattr(base_graph, "_node", None)
         if not isinstance(node_id_col, str) or node_id_col == "":
             node_id_col = "id"
 
-        join_cols: List[str] = []
-        missing_aliases: List[str] = []
         right_cols: List[str] = [] if right_df is None else list(right_df.columns)
-        for alias in join_aliases:
-            candidates = (f"{alias}.{node_id_col}", alias)
-            chosen = next(
-                (
-                    col
-                    for col in candidates
-                    if col in left_df.columns
-                    and right_df is not None
-                    and col in right_df.columns
-                ),
-                None,
-            )
-            if chosen is None:
-                missing_aliases.append(alias)
-                continue
-            if chosen not in join_cols:
-                join_cols.append(chosen)
+        join_cols, missing_aliases = (
+            ([], list(join_aliases))
+            if right_df is None
+            else self._gfql_shared_join_cols(left_df, right_df, join_aliases, node_id_col)
+        )
 
         if not join_cols:
-            raise GFQLValidationError(
-                ErrorCode.E108,
-                "GFQL row join could not recover shared alias join columns",
+            self._gfql_raise_missing_join_cols(
+                message="GFQL row join could not recover shared alias join columns",
                 field="join_apply",
-                value={"join_aliases": join_aliases, "missing_aliases": missing_aliases},
+                join_aliases=join_aliases,
+                missing_aliases=missing_aliases,
                 suggestion="Join on aliases present in both the active row table and binding_ops rows.",
                 language="gfql",
             )
