@@ -1346,6 +1346,17 @@ class ASTCall(ASTObject):
             'get_topological_levels': ['level_col'],
             'compute_cugraph': ['out_col'],
             'compute_igraph': ['out_col'],
+            'encode_point_color': ['column'],
+            'encode_edge_color': ['column'],
+            'encode_point_size': ['column'],
+            'encode_edge_size': ['column'],
+            'encode_edge_weight': ['column'],
+            'encode_point_opacity': ['column'],
+            'encode_edge_opacity': ['column'],
+            'encode_point_label': ['column'],
+            'encode_edge_label': ['column'],
+            'encode_point_title': ['column'],
+            'encode_edge_title': ['column'],
             'encode_point_icon': ['column'],
             'encode_edge_icon': ['column'],
             'layout_igraph': ['x_out_col', 'y_out_col'],
@@ -1353,20 +1364,6 @@ class ASTCall(ASTObject):
             'layout_graphviz': ['x_out_col', 'y_out_col'],
             'collapse': ['column'],
         }
-        for encode_fn in (
-            'encode_point_color',
-            'encode_edge_color',
-            'encode_point_size',
-            'encode_edge_size',
-            'encode_edge_weight',
-            'encode_point_opacity',
-            'encode_edge_opacity',
-            'encode_point_label',
-            'encode_edge_label',
-            'encode_point_title',
-            'encode_edge_title',
-        ):
-            output_col_params[encode_fn] = ['column']
 
         if self.function in output_col_params:
             for param in output_col_params[self.function]:
