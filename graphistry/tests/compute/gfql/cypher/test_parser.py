@@ -88,6 +88,21 @@ def test_parse_graph_binding() -> None:
     assert parsed.use.ref == "g1"
 
 
+def test_parse_graph_binding_with_trailing_semicolon_preserves_query_fields() -> None:
+    parsed = parse_cypher(
+        "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) } "
+        "USE g1 MATCH (x) RETURN x;"
+    )
+
+    assert isinstance(parsed, CypherQuery)
+    assert parsed.trailing_semicolon is True
+    assert len(parsed.graph_bindings) == 1
+    assert parsed.graph_bindings[0].name == "g1"
+    assert parsed.use is not None
+    assert parsed.use.ref == "g1"
+    assert parsed.return_.items[0].expression.text == "x"
+
+
 def test_parse_multi_graph_binding() -> None:
     parsed = parse_cypher(
         "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) } "
@@ -807,6 +822,25 @@ def test_parse_return_pipeline_clauses() -> None:
     assert parsed.limit is not None and isinstance(parsed.limit.value, ExpressionText)
     assert parsed.limit.value.text == "2"
     assert parsed.trailing_semicolon is True
+
+
+def test_parse_shared_expression_and_page_rule_handlers_preserve_text() -> None:
+    parsed = _parse_query(
+        "UNWIND [1, 2] AS x WITH x WHERE x > 0 "
+        "RETURN x + 1 AS y ORDER BY y DESC SKIP 1 LIMIT 2"
+    )
+
+    assert parsed.unwinds[0].expression.text == "[1, 2]"
+    assert len(parsed.with_stages) == 1
+    assert parsed.with_stages[0].where is not None
+    assert parsed.with_stages[0].where.text == "x > 0"
+    assert parsed.return_.items[0].expression.text == "x + 1"
+    assert parsed.order_by is not None
+    assert parsed.order_by.items[0].expression.text == "y"
+    assert parsed.skip is not None and isinstance(parsed.skip.value, ExpressionText)
+    assert parsed.skip.value.text == "1"
+    assert parsed.limit is not None and isinstance(parsed.limit.value, ExpressionText)
+    assert parsed.limit.value.text == "2"
 
 
 def test_parse_terminal_with_clause() -> None:
