@@ -747,6 +747,25 @@ def test_binder_strict_schema_rejects_missing_property_in_return_with_context() 
     assert err.context["suggestion"] == "Use properties that exist in node schema columns or extend the schema catalog."
 
 
+def test_binder_strict_schema_rejects_missing_property_in_with_where_with_context() -> None:
+    ctx = _strict_catalog_ctx(
+        node_columns=["id", "name", "label__Person"],
+        edge_columns=["src", "dst"],
+    )
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(
+            parse_cypher("MATCH (n:Person) WITH n AS m WHERE m.age > 1 RETURN m"),
+            ctx,
+            strict_name_resolution=True,
+        )
+    err = exc_info.value
+    assert err.code == ErrorCode.E301
+    assert err.context["alias"] == "m"
+    assert err.context["stage"] == "WITH WHERE"
+    assert err.context["field"] == "WITH WHERE.expression"
+    assert err.context["value"] == "m.age"
+
+
 def test_binder_strict_schema_accepts_admitted_label_and_property_shapes() -> None:
     ctx = _strict_catalog_ctx(
         node_columns=["id", "name", "label__Person"],
