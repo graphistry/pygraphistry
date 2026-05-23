@@ -35,14 +35,12 @@ _DEGREE_OUTPUTS: Tuple[str, ...] = ("nodeId", "degree", "degree_in", "degree_out
 _CUGRAPH_RESERVED_KEYS = frozenset({"out_col", "params", "kind", "directed", "G"})
 _IGRAPH_RESERVED_KEYS = frozenset({"out_col", "directed", "use_vids", "params"})
 _NETWORKX_RESERVED_KEYS = frozenset({"out_col", "params", "directed"})
-_NETWORKX_NODE_ALGORITHMS: Dict[str, Tuple[str, ...]] = {
-    "pagerank": ("pagerank",),
-    "betweenness_centrality": ("betweenness_centrality",),
+_NETWORKX_PROCEDURES: Dict[str, Tuple[_ROW_KIND, Tuple[str, ...]]] = {
+    "pagerank": ("node", ("pagerank",)),
+    "betweenness_centrality": ("node", ("betweenness_centrality",)),
+    "edge_betweenness_centrality": ("edge", ("edge_betweenness_centrality",)),
+    "k_core": ("graph_only", ()),
 }
-_NETWORKX_EDGE_ALGORITHMS: Dict[str, Tuple[str, ...]] = {
-    "edge_betweenness_centrality": ("edge_betweenness_centrality",),
-}
-_NETWORKX_GRAPH_ALGORITHMS = frozenset({"k_core"})
 
 
 @dataclass(frozen=True)
@@ -166,13 +164,8 @@ def _resolve_procedure_definition(call: CallClause) -> _ProcedureDefinition:
         )
 
     if backend_name == "nx":
-        if algorithm in _NETWORKX_NODE_ALGORITHMS:
-            nx_row_kind: _ROW_KIND = "node"
-        elif algorithm in _NETWORKX_EDGE_ALGORITHMS:
-            nx_row_kind = "edge"
-        elif algorithm in _NETWORKX_GRAPH_ALGORITHMS:
-            nx_row_kind = "graph_only"
-        else:
+        nx_spec = _NETWORKX_PROCEDURES.get(algorithm)
+        if nx_spec is None:
             raise _unsupported_call(
                 "Only the limited graphistry.nx pagerank / betweenness / edge_betweenness / k_core local Cypher CALL subset is currently supported",
                 call=call,
@@ -184,7 +177,7 @@ def _resolve_procedure_definition(call: CallClause) -> _ProcedureDefinition:
             algorithm=algorithm,
             call_function="networkx",
             result_kind="graph" if is_write else "rows",
-            row_kind=nx_row_kind,
+            row_kind=nx_spec[0],
         )
 
     assert backend_name == "cugraph"
@@ -371,11 +364,8 @@ def _source_value_columns(definition: _ProcedureDefinition) -> Tuple[str, ...]:
 
     if definition.backend == "networkx":
         assert definition.algorithm is not None
-        if definition.algorithm in _NETWORKX_NODE_ALGORITHMS:
-            return tuple(_NETWORKX_NODE_ALGORITHMS[definition.algorithm])
-        if definition.algorithm in _NETWORKX_EDGE_ALGORITHMS:
-            return tuple(_NETWORKX_EDGE_ALGORITHMS[definition.algorithm])
-        return ()
+        nx_spec = _NETWORKX_PROCEDURES.get(definition.algorithm)
+        return () if nx_spec is None else nx_spec[1]
 
     assert definition.backend == "cugraph"
     assert definition.algorithm is not None
@@ -779,10 +769,17 @@ def _networkx_algorithm_result(
     graph_nx: Any,
     params: Mapping[str, Any],
 ) -> Any:
+    algorithm = compiled_call.algorithm
     try:
-        if compiled_call.algorithm == "pagerank":
+        if algorithm == "pagerank":
             return _networkx_pagerank_scores(graph_nx, **params)
-        return getattr(_networkx_module(compiled_call), cast(str, compiled_call.algorithm))(graph_nx, **params)
+        nx = _networkx_module(compiled_call)
+        if algorithm == "betweenness_centrality":
+            return nx.betweenness_centrality(graph_nx, **params)
+        if algorithm == "edge_betweenness_centrality":
+            return nx.edge_betweenness_centrality(graph_nx, **params)
+        if algorithm == "k_core":
+            return nx.k_core(graph_nx, **params)
     except TypeError as exc:
         raise GFQLValidationError(
             ErrorCode.E108,
@@ -794,6 +791,7 @@ def _networkx_algorithm_result(
             column=compiled_call.column,
             language="cypher",
         ) from exc
+    raise ValueError(f"Unexpected NetworkX Cypher CALL algorithm: {algorithm}")
 
 
 def _networkx_pagerank_scores(graph_nx: Any, *, alpha: float = 0.85, max_iter: int = 100, tol: float = 1.0e-6) -> Dict[Any, float]:
@@ -816,7 +814,10 @@ def _networkx_pagerank_scores(graph_nx: Any, *, alpha: float = 0.85, max_iter: i
 
 
 def _networkx_out_col(compiled_call: CompiledCypherProcedureCall, default: str) -> str:
-    return cast(str, compiled_call.call_params.get("out_col", compiled_call.algorithm or default))
+    out_col = compiled_call.call_params.get("out_col")
+    if isinstance(out_col, str):
+        return out_col
+    return compiled_call.algorithm or default
 
 
 def _networkx_graph(
