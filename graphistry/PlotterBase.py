@@ -11,7 +11,7 @@ from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
 from graphistry.Engine import Engine, EngineAbstractType, df_to_engine
 import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid, warnings
-from functools import lru_cache
+from functools import lru_cache, partialmethod
 from weakref import WeakValueDictionary
 
 from graphistry.privacy import Privacy, Mode, ModeAction
@@ -56,6 +56,36 @@ from .nodexlistry import NodeXLGraphistry
 from .tigeristry import Tigeristry
 from .util import setup_logger
 logger = setup_logger(__name__)
+
+_MAPPED_PROPERTY_ENCODING_METHODS: Dict[str, Tuple[str, str, str]] = {
+    "encode_edge_size": ("edge", "size", "edgeSizeEncoding"),
+    "encode_edge_weight": ("edge", "weight", "edgeWeightEncoding"),
+    "encode_point_opacity": ("point", "opacity", "pointOpacityEncoding"),
+    "encode_edge_opacity": ("edge", "opacity", "edgeOpacityEncoding"),
+}
+_TEXT_BINDING_METHODS = {
+    "encode_point_label": "point_label",
+    "encode_edge_label": "edge_label",
+    "encode_point_title": "point_title",
+    "encode_edge_title": "edge_title",
+}
+_APPLY_MAPPED_PROPERTY_METHODS = {
+    "encodePointSize": "encode_point_size",
+    "encodeEdgeSize": "encode_edge_size",
+    "encodeEdgeWeight": "encode_edge_weight",
+    "encodePointOpacity": "encode_point_opacity",
+    "encodeEdgeOpacity": "encode_edge_opacity",
+}
+_APPLY_TEXT_METHODS = {
+    "encodePointLabel": "encode_point_label",
+    "encodeEdgeLabel": "encode_edge_label",
+    "encodePointTitle": "encode_point_title",
+    "encodeEdgeTitle": "encode_edge_title",
+}
+_TEXT_MAPPING_ERROR = (
+    "{method} supports raw column binding only; categorical_mapping/default_mapping would create "
+    "label/title complex encodings that Graphistry upload rejects"
+)
 
 
 def _upload_otel_attrs(
@@ -533,7 +563,11 @@ class PlotterBase(Plottable):
 
         Supported keys:
         - ``encodePointColor`` / ``encodeEdgeColor``: ``[column, variation?, mapping_or_palette?]``
-        - ``encodePointSize``: ``[column, categorical_mapping?, default_mapping?]``
+        - ``encodePointSize`` / ``encodeEdgeSize`` / ``encodeEdgeWeight`` /
+          ``encodePointOpacity`` / ``encodeEdgeOpacity``:
+          ``[column, categorical_mapping?, default_mapping?]``
+        - ``encodePointLabel`` / ``encodeEdgeLabel`` / ``encodePointTitle`` /
+          ``encodeEdgeTitle``: ``[column]``
         - ``encodePointIcons`` / ``encodeEdgeIcons``: ``[column, categorical_mapping_or_bins?, default_mapping?]``
         - ``encodeAxis``: ``rows`` list accepted by :meth:`encode_axis`
         """
@@ -546,7 +580,7 @@ class PlotterBase(Plottable):
         for op in ops:
             if op["kind"] == "color":
                 column = op["column"]
-                method = out.encode_point_color if op["key"] == "encodePointColor" else out.encode_edge_color
+                color_method = out.encode_point_color if op["key"] == "encodePointColor" else out.encode_edge_color
                 color_kwargs: Dict[str, Any] = {}
                 if "categorical_mapping" in op:
                     color_kwargs["categorical_mapping"] = op["categorical_mapping"]
@@ -556,16 +590,27 @@ class PlotterBase(Plottable):
                         color_kwargs["as_continuous"] = True
                     else:
                         color_kwargs["as_categorical"] = True
-                out = method(column, **color_kwargs)
+                out = color_method(column, **color_kwargs)
                 continue
 
-            if op["kind"] == "size":
-                size_kwargs: Dict[str, Any] = {}
-                if "categorical_mapping" in op:
-                    size_kwargs["categorical_mapping"] = op["categorical_mapping"]
-                if "default_mapping" in op:
-                    size_kwargs["default_mapping"] = op["default_mapping"]
-                out = out.encode_point_size(op["column"], **size_kwargs)
+            if op["kind"] == "mapped_property":
+                mapping_op = cast(Dict[str, Any], op)
+                encoding_kwargs: Dict[str, Any] = {}
+                if "categorical_mapping" in mapping_op:
+                    encoding_kwargs["categorical_mapping"] = mapping_op["categorical_mapping"]
+                if "default_mapping" in mapping_op:
+                    encoding_kwargs["default_mapping"] = mapping_op["default_mapping"]
+                encoding_method = cast(
+                    Callable[..., Plottable],
+                    getattr(out, _APPLY_MAPPED_PROPERTY_METHODS[mapping_op["key"]]),
+                )
+                out = encoding_method(mapping_op["column"], **encoding_kwargs)
+                continue
+
+            if op["kind"] == "text":
+                text_op = cast(Dict[str, Any], op)
+                encoding_method = cast(Callable[..., Plottable], getattr(out, _APPLY_TEXT_METHODS[text_op["key"]]))
+                out = encoding_method(text_op["column"])
                 continue
 
             if op["kind"] == "icon":
@@ -580,7 +625,8 @@ class PlotterBase(Plottable):
                 out = icon_method(op["column"], **icon_kwargs)
                 continue
 
-            out = out.encode_axis(cast(List[Dict[Any, Any]], op["rows"]))
+            if op["kind"] == "axis":
+                out = out.encode_axis(cast(List[Dict[Any, Any]], op["rows"]))
         return out
 
 
@@ -744,6 +790,42 @@ class PlotterBase(Plottable):
         return self.__encode('point', 'size', 'pointSizeEncoding', column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
+
+    def _encode_mapped_property_method(
+        self,
+        method: str,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, Union[int, float]]] = None,
+        default_mapping: Optional[Union[int, float]] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> Plottable:
+        graph_type, encoding_type, encoding_key = _MAPPED_PROPERTY_ENCODING_METHODS[method]
+        return self.__encode(graph_type, encoding_type, encoding_key, column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+    def _encode_text_binding_method(
+        self,
+        method: str,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, str]] = None,
+        default_mapping: Optional[str] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> Plottable:
+        if categorical_mapping is not None or default_mapping is not None:
+            raise ValueError(_TEXT_MAPPING_ERROR.format(method=method))
+        return self.bind(**{_TEXT_BINDING_METHODS[method]: column})
+
+    encode_edge_size = partialmethod(_encode_mapped_property_method, "encode_edge_size")  # type: ignore[assignment]
+    encode_edge_weight = partialmethod(_encode_mapped_property_method, "encode_edge_weight")  # type: ignore[assignment]
+    encode_point_opacity = partialmethod(_encode_mapped_property_method, "encode_point_opacity")  # type: ignore[assignment]
+    encode_edge_opacity = partialmethod(_encode_mapped_property_method, "encode_edge_opacity")  # type: ignore[assignment]
+    encode_point_label = partialmethod(_encode_text_binding_method, "encode_point_label")  # type: ignore[assignment]
+    encode_edge_label = partialmethod(_encode_text_binding_method, "encode_edge_label")  # type: ignore[assignment]
+    encode_point_title = partialmethod(_encode_text_binding_method, "encode_point_title")  # type: ignore[assignment]
+    encode_edge_title = partialmethod(_encode_text_binding_method, "encode_edge_title")  # type: ignore[assignment]
 
 
     def encode_point_icon(

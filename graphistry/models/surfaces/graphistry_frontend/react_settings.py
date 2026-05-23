@@ -22,12 +22,23 @@ ReactEncodingVariation: TypeAlias = Literal["categorical", "continuous"]
 ReactEncodingMapping: TypeAlias = Dict[Any, Any]
 ReactEncodingPalette: TypeAlias = List[Any]
 ReactColorEncodingKey: TypeAlias = Literal["encodePointColor", "encodeEdgeColor"]
-ReactSizeEncodingKey: TypeAlias = Literal["encodePointSize"]
+ReactMappedPropertyEncodingKey: TypeAlias = Literal["encodePointSize", "encodeEdgeSize", "encodeEdgeWeight", "encodePointOpacity", "encodeEdgeOpacity"]  # pragma: no cover
+ReactNumericEncodingKey: TypeAlias = ReactMappedPropertyEncodingKey
+ReactSizeEncodingKey: TypeAlias = ReactMappedPropertyEncodingKey
+ReactTextEncodingKey: TypeAlias = Literal["encodePointLabel", "encodeEdgeLabel", "encodePointTitle", "encodeEdgeTitle"]  # pragma: no cover
 ReactIconEncodingKey: TypeAlias = Literal["encodePointIcons", "encodeEdgeIcons"]
 ApplyEncodingsReactKey: TypeAlias = Literal[
     "encodePointColor",
     "encodeEdgeColor",
     "encodePointSize",
+    "encodeEdgeSize",
+    "encodeEdgeWeight",
+    "encodePointOpacity",
+    "encodeEdgeOpacity",
+    "encodePointLabel",
+    "encodeEdgeLabel",
+    "encodePointTitle",
+    "encodeEdgeTitle",
     "encodePointIcons",
     "encodePointIcon",
     "encodeEdgeIcons",
@@ -50,6 +61,10 @@ ReactSizeEncodingPayload: TypeAlias = Union[
     Tuple[str, ReactEncodingMapping, Any],
     List[Any],
 ]
+ReactTextEncodingPayload: TypeAlias = Union[
+    Tuple[str],
+    List[Any],
+]
 ReactIconEncodingPayload: TypeAlias = Union[
     Tuple[str],
     Tuple[str, ReactEncodingMapping],
@@ -60,10 +75,18 @@ ReactIconEncodingPayload: TypeAlias = Union[
 ]
 
 
-class ApplyEncodingsReactSettingsDict(TypedDict, total=False):
+class ApplyEncodingsReactSettingsDict(TypedDict, total=False):  # pragma: no cover
     encodePointColor: ReactColorEncodingPayload
     encodeEdgeColor: ReactColorEncodingPayload
     encodePointSize: ReactSizeEncodingPayload
+    encodeEdgeSize: ReactSizeEncodingPayload
+    encodeEdgeWeight: ReactSizeEncodingPayload
+    encodePointOpacity: ReactSizeEncodingPayload
+    encodeEdgeOpacity: ReactSizeEncodingPayload
+    encodePointLabel: ReactTextEncodingPayload
+    encodeEdgeLabel: ReactTextEncodingPayload
+    encodePointTitle: ReactTextEncodingPayload
+    encodeEdgeTitle: ReactTextEncodingPayload
     encodePointIcons: ReactIconEncodingPayload
     encodePointIcon: ReactIconEncodingPayload
     encodeEdgeIcons: ReactIconEncodingPayload
@@ -71,7 +94,7 @@ class ApplyEncodingsReactSettingsDict(TypedDict, total=False):
     encodeAxis: AxisRows
 
 
-class KnownReactSettingsDict(TypedDict, total=False):
+class KnownReactSettingsDict(TypedDict, total=False):  # pragma: no cover
     axes: SettingsValue
     backgroundColor: SettingString
     controls: SettingsValue
@@ -147,6 +170,14 @@ APPLY_ENCODINGS_REACT_KEYS: Tuple[ApplyEncodingsReactKey, ...] = (
     "encodePointColor",
     "encodeEdgeColor",
     "encodePointSize",
+    "encodeEdgeSize",
+    "encodeEdgeWeight",
+    "encodePointOpacity",
+    "encodeEdgeOpacity",
+    "encodePointLabel",
+    "encodeEdgeLabel",
+    "encodePointTitle",
+    "encodeEdgeTitle",
     "encodePointIcons",
     "encodePointIcon",
     "encodeEdgeIcons",

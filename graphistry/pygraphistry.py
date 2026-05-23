@@ -1604,6 +1604,33 @@ class GraphistryClient(AuthManagerProtocol):
             for_current=for_current,
         )
 
+    def _encode_plotter_method(self, method, *args, **kwargs):
+        return getattr(self._plotter(), method)(*args, **kwargs)
+
+    def encode_edge_size(self, *args, **kwargs):
+        return self._encode_plotter_method("encode_edge_size", *args, **kwargs)
+
+    def encode_edge_weight(self, *args, **kwargs):
+        return self._encode_plotter_method("encode_edge_weight", *args, **kwargs)
+
+    def encode_point_opacity(self, *args, **kwargs):
+        return self._encode_plotter_method("encode_point_opacity", *args, **kwargs)
+
+    def encode_edge_opacity(self, *args, **kwargs):
+        return self._encode_plotter_method("encode_edge_opacity", *args, **kwargs)
+
+    def encode_point_label(self, *args, **kwargs):
+        return self._encode_plotter_method("encode_point_label", *args, **kwargs)
+
+    def encode_edge_label(self, *args, **kwargs):
+        return self._encode_plotter_method("encode_edge_label", *args, **kwargs)
+
+    def encode_point_title(self, *args, **kwargs):
+        return self._encode_plotter_method("encode_point_title", *args, **kwargs)
+
+    def encode_edge_title(self, *args, **kwargs):
+        return self._encode_plotter_method("encode_edge_title", *args, **kwargs)
+
     def encode_point_icon(self, 
         column,
         categorical_mapping=None,
@@ -2715,6 +2742,14 @@ style = PyGraphistry.style
 encode_point_color = PyGraphistry.encode_point_color
 encode_edge_color = PyGraphistry.encode_edge_color
 encode_point_size = PyGraphistry.encode_point_size
+encode_edge_size = PyGraphistry.encode_edge_size
+encode_edge_weight = PyGraphistry.encode_edge_weight
+encode_point_opacity = PyGraphistry.encode_point_opacity
+encode_edge_opacity = PyGraphistry.encode_edge_opacity
+encode_point_label = PyGraphistry.encode_point_label
+encode_edge_label = PyGraphistry.encode_edge_label
+encode_point_title = PyGraphistry.encode_point_title
+encode_edge_title = PyGraphistry.encode_edge_title
 encode_point_icon = PyGraphistry.encode_point_icon
 encode_edge_icon = PyGraphistry.encode_edge_icon
 encode_point_badge = PyGraphistry.encode_point_badge
