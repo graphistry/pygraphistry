@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 - **GFQL call validation safelist + encode parity (#1058, #1253)**: DRYed repeated private safelist entry definitions for call validators while adding `encode_edge_size`, `encode_edge_weight`, and point/edge opacity, label, and title encode helpers with GFQL `call()` validation, apply-encodings/schema key contracts, and anchored validator coverage.
+- **GFQL CALL procedure implementation shrink (#1058)**: DRYed local Cypher CALL output-column derivation, computed-output renaming, and NetworkX backend error/dependency plumbing while preserving the no-SciPy `graphistry.nx.pagerank` path. Public CALL procedure behavior and diagnostics are preserved.
 
 ## [0.56.0 - 2026-05-23]
 
@@ -76,7 +77,6 @@ Documented public APIs remain available: `g.gfql(...)`, `g.gfql_remote(...)`, do
 - **GFQL policy / Cypher compiler hooks (#1454)**: Added experimental exact-key `precompile` and `postcompile` policy hooks for local Cypher string-query compilation. `postcompile` reports success or failure using the existing policy `success`, `error`, and `error_type` fields plus a stable `CompileSummary` with scalar compiler metadata.
 
 ### Changed
-- **GFQL CALL procedure implementation shrink (#1058)**: DRYed local Cypher CALL output-column derivation, computed-output renaming, and NetworkX backend error/dependency plumbing while preserving the no-SciPy `graphistry.nx.pagerank` path. Public CALL procedure behavior and diagnostics are preserved.
 - **GFQL predicate/AST implementation shrink (#1058)**: DRYed repeated predicate comparison dispatch, regex string predicate scaffolding, and AST filter-dict serialization while preserving public predicate APIs, wire JSON, and compiler-plan behavior.
 - **CI Spark/Neo4j dependency hardening (#1322)**: Pinned the Spark smoke-test installer to a committed hashed lockfile with a CI drift check, and moved the Neo4j connector test image from EOL Neo4j 4.1 to pinned Neo4j 5.26 LTS.
 - **GFQL axis/ring diagnostics (#1245)**: Strengthened `encode_axis` and ring-layout axis validators with anchored row-indexed diagnostics for documented radial/linear axis payload mistakes, while preserving extension-subtype compatibility.
