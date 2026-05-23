@@ -11,23 +11,47 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [0.56.0 - 2026-05-23]
 
 ### Breaking / Migration Notes
-- **Authentication now requires `api=3`**:
-  - From `graphistry.register(api=1, key=...)`, `graphistry.register(api=2, ...)`, `graphistry.api_key(...)`, `graphistry.register(key=...)`, or `GRAPHISTRY_API_KEY` -> use `graphistry.register(api=3, personal_key_id=..., personal_key_secret=...)`, username/password, or token authentication.
-  - From `GRAPHISTRY_API_VERSION=1` / `GRAPHISTRY_API_VERSION=2` or `client.api_version(1/2)` -> omit the legacy setting or use API version `3`.
-- **GFQL / Cypher validation is strict by default**:
-  - From unresolved aliases such as `MATCH (a) RETURN ghost`, `MATCH (a) WHERE ghost.foo = 1 RETURN a`, or `RETURN [ghost] AS xs` -> bind or project the alias first, for example `MATCH (a) WITH a.name AS ghost RETURN ghost`, or use a literal directly.
-  - From cross-kind alias reuse such as `MATCH (a) MATCH ()-[a]->() RETURN a` -> use distinct aliases, for example `MATCH (a) MATCH ()-[r]->() RETURN a, r`.
-  - From schema-loose calls that reference labels/properties absent from the bound graph schema -> add the label/property columns to the graph data/schema or query only existing fields.
-  - Use `g.gfql_validate(...)` or `g.gfql(..., validate=True)` to preflight query migrations.
-- **Deprecated Cypher compiler inspection APIs**:
-  - From `compile_cypher(...)`, `CompiledCypher*`, or deep `compile_cypher_query` imports for execution -> use `g.gfql(..., language="cypher")`.
-  - From `compile_cypher(...)` for chain translation -> use `cypher_to_gfql(...)` or `gfql_from_cypher(...)`.
-- **Private GFQL / plotter compatibility shims**:
-  - From `graphistry.compute.gfql.row_ordering` or `graphistry.compute.gfql.order_expr_utils` -> use `graphistry.compute.gfql.row.ordering` when a private owner import is unavoidable.
-  - From `graphistry.compute.gfql.row_pipeline_mixin` or `graphistry.compute.gfql.row_pipeline_dispatch` -> use `graphistry.compute.gfql.row.pipeline` when a private owner import is unavoidable, or the public `g.gfql(...)` execution API.
-  - From `graphistry.compute.gfql.cypher.reentry.runtime` compile-time helper imports -> use `graphistry.compute.gfql.cypher.reentry.compiletime`; runtime data-frame helpers live in `graphistry.compute.gfql.cypher.reentry.execution`.
-  - From private `_plot_dispatch_arrow(...)` / `_table_to_pandas(...)` calls -> use public `plot()` / `upload()` where possible, `_plot_dispatch(...)` for the current private dispatch path, or `from graphistry.Engine import df_to_engine, Engine; df_to_engine(table, Engine.PANDAS)` for table conversion.
-  - Public `g.gfql(...)`, `g.gfql_remote(...)`, documented `Chain` constructors, and documented predicate APIs are preserved.
+
+#### Authentication
+| Before | Now | Notes |
+|---|---|---|
+| `graphistry.register(api=1, key=...)` | `graphistry.register(api=3, personal_key_id=..., personal_key_secret=...)` | Legacy api=1 key upload used removed `/api/check` and `/etl` paths. |
+| `graphistry.register(key=...)` | `graphistry.register(personal_key_id=..., personal_key_secret=...)` | `key=` is deprecated and ignored. |
+| `graphistry.api_key(...)` | `graphistry.register(personal_key_id=..., personal_key_secret=...)` | `api_key()` is deprecated and returns `None`. |
+| `GRAPHISTRY_API_KEY=...` | Pass `personal_key_id=` and `personal_key_secret=` to `graphistry.register(...)` | `GRAPHISTRY_API_KEY` is no longer loaded into the client session. |
+| `graphistry.register(api=2, ...)` | `graphistry.register(api=3, username=..., password=...)`, `graphistry.register(api=3, token=...)`, or `graphistry.register(api=3, personal_key_id=..., personal_key_secret=...)` | API version 3 is the only supported upload API. Keep the credential style that matches your deployment. |
+| `GRAPHISTRY_API_VERSION=1`, `GRAPHISTRY_API_VERSION=2`, or `client.api_version(1/2)` | Remove the setting, set `GRAPHISTRY_API_VERSION=3`, or call `client.api_version(3)` | Non-3 API versions now fail before upload. |
+
+#### GFQL / Cypher Validation
+| Before | Now | Notes |
+|---|---|---|
+| `MATCH (a) RETURN ghost` | `MATCH (a) WITH a.name AS ghost RETURN ghost` | Unresolved aliases now fail validation. Project the value before returning it. |
+| `MATCH (a) WHERE ghost.foo = 1 RETURN a` | `MATCH (a) WHERE a.foo = 1 RETURN a` | `WHERE` clauses must reference bound aliases. |
+| `RETURN [ghost] AS xs` | `WITH 1 AS ghost RETURN [ghost] AS xs` or `RETURN [1] AS xs` | List and aggregate expressions do not create unresolved variables. |
+| `MATCH (a) MATCH ()-[a]->() RETURN a` | `MATCH (a) MATCH ()-[r]->() RETURN a, r` | Node, edge, path, and scalar aliases must not reuse the same name for different entity kinds. |
+| Querying `:Person` or `n.name` when the bound graph schema lacks the label/property | Add the label/property columns to the graph data/schema, or query labels/properties that exist | Legacy loose name-resolution flags do not bypass schema/catalog checks. |
+| Running a query and discovering validation errors during execution | Run `g.gfql_validate(...)` or `g.gfql(..., validate=True)` first | Validation reports structured errors before running the query. |
+
+#### Cypher Compiler APIs
+| Before | Now | Notes |
+|---|---|---|
+| `compile_cypher("MATCH ...")` for execution | `g.gfql("MATCH ...", language="cypher")` | `compile_cypher(...)` exposes deprecated compiler-internal shapes. |
+| `compile_cypher("MATCH ...")` to materialize a GFQL chain | `cypher_to_gfql("MATCH ...")` or `gfql_from_cypher(...)` | Use the translation helper instead of a compiler-internal object. |
+| Deep imports of `compile_cypher_query` or `CompiledCypher*` | Public execution through `g.gfql(...)`; public translation through `cypher_to_gfql(...)` / `gfql_from_cypher(...)` | Compiler-internal objects are not the public API. |
+
+#### Private GFQL / Plotter Helpers
+| Before | Now | Notes |
+|---|---|---|
+| `graphistry.compute.gfql.row_ordering` | `graphistry.compute.gfql.row.ordering` | Private module ownership moved under the row package. |
+| `graphistry.compute.gfql.order_expr_utils` | `graphistry.compute.gfql.row.ordering` | Row ordering helpers now live in the row package owner module. |
+| `graphistry.compute.gfql.row_pipeline_mixin` | `graphistry.compute.gfql.row.pipeline` | Private row-pipeline compatibility shim removed. |
+| `graphistry.compute.gfql.row_pipeline_dispatch` | `graphistry.compute.gfql.row.pipeline` | Private row-pipeline compatibility shim removed. |
+| `graphistry.compute.gfql.cypher.reentry.runtime` for compile-time helpers | `graphistry.compute.gfql.cypher.reentry.compiletime` | Compile-time reentry ownership moved out of the old runtime-named module. |
+| Runtime data-frame reentry helper imports from `graphistry.compute.gfql.cypher.reentry.runtime` | `graphistry.compute.gfql.cypher.reentry.execution` | Runtime reentry stitching helpers live in `execution`. |
+| `_plot_dispatch_arrow(...)` | `_plot_dispatch(...)` | Arrow upload dispatch is the current private dispatch path. Public callers should use `plot()` / `upload()`. |
+| `_table_to_pandas(table)` | `from graphistry.Engine import df_to_engine, Engine; df_to_engine(table, Engine.PANDAS)` | Engine conversion is the owner for table-to-pandas coercion. |
+
+Documented public APIs remain available: `g.gfql(...)`, `g.gfql_remote(...)`, documented `Chain` constructors, and documented predicate APIs.
 
 ### Added
 - **GFQL layout-chain predicate (#1254)**: Added public `is_layout_chain()` and `is_layout_kind()` helpers plus canonical layout/radial registry constants so downstream tooling can detect safelisted layout calls from GFQL `Chain` objects, chain lists, wire dictionaries, and legitimate pre-parse strings without maintaining brittle string-match lists. Also exposed `circle_layout`, `tree_layout`, `mercator_layout`, and `modularity_weighted_layout` as GFQL `call()` operations.
