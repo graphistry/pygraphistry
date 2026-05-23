@@ -11,9 +11,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [0.56.0 - 2026-05-23]
 
 ### Breaking / Migration Notes
-- **GFQL / Cypher stricter local validation**: Local Cypher execution now uses the strict binder path by default and retired several residual compatibility fallbacks. Queries that previously depended on unresolved aliases, cross-kind alias reuse, or unplanned-chain fallback execution now fail fast with structured validation errors. Migrate affected queries by projecting aliases explicitly through `WITH`, avoiding reuse of an alias for a different entity kind, and using `g.gfql_validate(...)` or `g.gfql(..., validate=True)` to preflight query changes.
-- **Legacy API-key compatibility deprecation**: Legacy `api=1` / `api=2` key paths and `api_key()` compatibility behavior are deprecated or ignored on current clients. Use api=3 JWT login or personal key ID/secret authentication instead.
-- **Private GFQL compatibility imports**: Several private GFQL parser/lowering/row-pipeline compatibility shims were removed. Public `g.gfql(...)`, `g.gfql_remote(...)`, documented `Chain` constructors, and documented predicate APIs are preserved; code importing private `graphistry.compute.gfql.*` helper modules should move to the canonical owner modules named in the entries below.
+- **Authentication now requires `api=3`**:
+  - From `graphistry.register(api=1, key=...)`, `graphistry.register(api=2, ...)`, `graphistry.api_key(...)`, `graphistry.register(key=...)`, or `GRAPHISTRY_API_KEY` -> use `graphistry.register(api=3, personal_key_id=..., personal_key_secret=...)`, username/password, or token authentication.
+  - From `GRAPHISTRY_API_VERSION=1` / `GRAPHISTRY_API_VERSION=2` or `client.api_version(1/2)` -> omit the legacy setting or use API version `3`.
+- **GFQL / Cypher validation is strict by default**:
+  - From unresolved aliases such as `MATCH (a) RETURN ghost`, `MATCH (a) WHERE ghost.foo = 1 RETURN a`, or `RETURN [ghost] AS xs` -> bind or project the alias first, for example `MATCH (a) WITH a.name AS ghost RETURN ghost`, or use a literal directly.
+  - From cross-kind alias reuse such as `MATCH (a) MATCH ()-[a]->() RETURN a` -> use distinct aliases, for example `MATCH (a) MATCH ()-[r]->() RETURN a, r`.
+  - From schema-loose calls that reference labels/properties absent from the bound graph schema -> add the label/property columns to the graph data/schema or query only existing fields.
+  - Use `g.gfql_validate(...)` or `g.gfql(..., validate=True)` to preflight query migrations.
+- **Deprecated Cypher compiler inspection APIs**:
+  - From `compile_cypher(...)`, `CompiledCypher*`, or deep `compile_cypher_query` imports for execution -> use `g.gfql(..., language="cypher")`.
+  - From `compile_cypher(...)` for chain translation -> use `cypher_to_gfql(...)` or `gfql_from_cypher(...)`.
+- **Private GFQL / plotter compatibility shims**:
+  - From `graphistry.compute.gfql.row_ordering` or `graphistry.compute.gfql.order_expr_utils` -> use `graphistry.compute.gfql.row.ordering` when a private owner import is unavoidable.
+  - From `graphistry.compute.gfql.row_pipeline_mixin` or `graphistry.compute.gfql.row_pipeline_dispatch` -> use `graphistry.compute.gfql.row.pipeline` when a private owner import is unavoidable, or the public `g.gfql(...)` execution API.
+  - From `graphistry.compute.gfql.cypher.reentry.runtime` compile-time helper imports -> use `graphistry.compute.gfql.cypher.reentry.compiletime`; runtime data-frame helpers live in `graphistry.compute.gfql.cypher.reentry.execution`.
+  - From private `_plot_dispatch_arrow(...)` / `_table_to_pandas(...)` calls -> use public `plot()` / `upload()` where possible, `_plot_dispatch(...)` for the current private dispatch path, or `from graphistry.Engine import df_to_engine, Engine; df_to_engine(table, Engine.PANDAS)` for table conversion.
+  - Public `g.gfql(...)`, `g.gfql_remote(...)`, documented `Chain` constructors, and documented predicate APIs are preserved.
 
 ### Added
 - **GFQL layout-chain predicate (#1254)**: Added public `is_layout_chain()` and `is_layout_kind()` helpers plus canonical layout/radial registry constants so downstream tooling can detect safelisted layout calls from GFQL `Chain` objects, chain lists, wire dictionaries, and legitimate pre-parse strings without maintaining brittle string-match lists. Also exposed `circle_layout`, `tree_layout`, `mercator_layout`, and `modularity_weighted_layout` as GFQL `call()` operations.
