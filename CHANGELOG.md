@@ -10,29 +10,37 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.56.0 - 2026-05-23]
 
-### Breaking / Migration Notes
+### Migration / Compatibility Notes
+
+Expected impact is low for users on documented APIs: current `api=3` authentication, valid GFQL/Cypher queries, public `g.gfql(...)` / `g.gfql_remote(...)`, documented `Chain` constructors, and documented predicate APIs continue to work. The rows below cover legacy auth settings, deprecated/private helper imports, deprecated compiler-inspection APIs, and Cypher queries that previously relied on unresolved or ambiguous names.
 
 #### Authentication
+`api=3` has been the documented/current authentication path; existing `api=3` username/password, token, personal-key, and SSO flows do not need migration.
+
 | Before | Now | Notes |
 |---|---|---|
 | `graphistry.register(api=1, key=...)` | `graphistry.register(api=3, personal_key_id=..., personal_key_secret=...)` | Legacy api=1 key upload used removed `/api/check` and `/etl` paths. |
-| `graphistry.register(key=...)` | `graphistry.register(personal_key_id=..., personal_key_secret=...)` | `key=` is deprecated and ignored. |
-| `graphistry.api_key(...)` | `graphistry.register(personal_key_id=..., personal_key_secret=...)` | `api_key()` is deprecated and returns `None`. |
+| `graphistry.register(key=...)` | `graphistry.register(personal_key_id=..., personal_key_secret=...)` | `key=` was the legacy api=1 key value. It is deprecated and ignored. |
+| `graphistry.api_key(...)` | `graphistry.register(personal_key_id=..., personal_key_secret=...)` | `api_key()` was the legacy api=1 key setter. It is deprecated and returns `None`. |
 | `GRAPHISTRY_API_KEY=...` | Pass `personal_key_id=` and `personal_key_secret=` to `graphistry.register(...)` | `GRAPHISTRY_API_KEY` is no longer loaded into the client session. |
 | `graphistry.register(api=2, ...)` | `graphistry.register(api=3, username=..., password=...)`, `graphistry.register(api=3, token=...)`, or `graphistry.register(api=3, personal_key_id=..., personal_key_secret=...)` | API version 3 is the only supported upload API. Keep the credential style that matches your deployment. |
 | `GRAPHISTRY_API_VERSION=1`, `GRAPHISTRY_API_VERSION=2`, or `client.api_version(1/2)` | Remove the setting, set `GRAPHISTRY_API_VERSION=3`, or call `client.api_version(3)` | Non-3 API versions now fail before upload. |
 
 #### GFQL / Cypher Validation
+Valid GFQL/Cypher queries should keep working. The examples below are invalid or ambiguous query shapes that now fail validation instead of reaching later fallback execution.
+
 | Before | Now | Notes |
 |---|---|---|
-| `MATCH (a) RETURN ghost` | `MATCH (a) WITH a.name AS ghost RETURN ghost` | Unresolved aliases now fail validation. Project the value before returning it. |
-| `MATCH (a) WHERE ghost.foo = 1 RETURN a` | `MATCH (a) WHERE a.foo = 1 RETURN a` | `WHERE` clauses must reference bound aliases. |
-| `RETURN [ghost] AS xs` | `WITH 1 AS ghost RETURN [ghost] AS xs` or `RETURN [1] AS xs` | List and aggregate expressions do not create unresolved variables. |
+| `MATCH (a) RETURN ghost` | `MATCH (a) WITH a.name AS ghost RETURN ghost` | `ghost` was never bound. Project the value before returning it. |
+| `MATCH (a) WHERE ghost.foo = 1 RETURN a` | `MATCH (a) WHERE a.foo = 1 RETURN a` | `ghost` was never bound. `WHERE` clauses must reference bound aliases. |
+| `RETURN [ghost] AS xs` | `WITH 1 AS ghost RETURN [ghost] AS xs` or `RETURN [1] AS xs` | `ghost` was never bound. List and aggregate expressions do not create variables. |
 | `MATCH (a) MATCH ()-[a]->() RETURN a` | `MATCH (a) MATCH ()-[r]->() RETURN a, r` | Node, edge, path, and scalar aliases must not reuse the same name for different entity kinds. |
 | Querying `:Person` or `n.name` when the bound graph schema lacks the label/property | Add the label/property columns to the graph data/schema, or query labels/properties that exist | Legacy loose name-resolution flags do not bypass schema/catalog checks. |
 | Running a query and discovering validation errors during execution | Run `g.gfql_validate(...)` or `g.gfql(..., validate=True)` first | Validation reports structured errors before running the query. |
 
 #### Cypher Compiler APIs
+Public Cypher execution remains `g.gfql(..., language="cypher")`. This table is for callers importing deprecated compiler inspection internals.
+
 | Before | Now | Notes |
 |---|---|---|
 | `compile_cypher("MATCH ...")` for execution | `g.gfql("MATCH ...", language="cypher")` | `compile_cypher(...)` exposes deprecated compiler-internal shapes. |
@@ -40,6 +48,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 | Deep imports of `compile_cypher_query` or `CompiledCypher*` | Public execution through `g.gfql(...)`; public translation through `cypher_to_gfql(...)` / `gfql_from_cypher(...)` | Compiler-internal objects are not the public API. |
 
 #### Private GFQL / Plotter Helpers
+This table is for private imports/calls. Documented public GFQL and plotter APIs remain available.
+
 | Before | Now | Notes |
 |---|---|---|
 | `graphistry.compute.gfql.row_ordering` | `graphistry.compute.gfql.row.ordering` | Private module ownership moved under the row package. |
