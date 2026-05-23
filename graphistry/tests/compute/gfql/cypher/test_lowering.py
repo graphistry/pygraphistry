@@ -7783,6 +7783,16 @@ def test_string_cypher_call_rejects_invalid_procedure_or_yield(query: str) -> No
     assert exc_info.value.code == ErrorCode.E108
 
 
+@pytest.mark.parametrize("procedure", ["degree_centrality", "closeness_centrality.write", "connected_components"])
+def test_compile_cypher_call_rejects_unsupported_networkx_subset_structured(procedure: str) -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _compile_query(f"CALL graphistry.nx.{procedure}()")
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "call"
+    assert exc_info.value.context["value"] == f"graphistry.nx.{procedure}"
+
+
 def test_string_cypher_executes_bare_pagerank_call_in_row_state() -> None:
     pytest.importorskip("igraph")
 
