@@ -28,29 +28,11 @@ from graphistry.compute.gfql.expr_parser import (
     ListComprehension,
     PropertyAccessExpr,
     QuantifierExpr,
+    _rebuild_expr_node,
     collect_identifiers,
     parse_expr,
     walk_expr_nodes,
 )
-
-
-def _post_processing_with(
-    *,
-    result_projection: Optional[Any],
-    empty_result_row: Optional[Dict[str, Any]],
-    optional_null_fill: Optional[Any],
-    optional_projection_row_guard: Optional[Any],
-) -> Optional[Any]:
-    from graphistry.compute.gfql.cypher import lowering as _lowering
-
-    return _lowering._normalize_post_processing(
-        _lowering.CompiledCypherPostProcessing(
-            result_projection=result_projection,
-            empty_result_row=empty_result_row,
-            optional_null_fill=optional_null_fill,
-            optional_projection_row_guard=optional_projection_row_guard,
-        )
-    )
 
 
 def _rewrite_order_by_expressions(
@@ -71,18 +53,12 @@ def _rewrite_order_by_expressions(
 def _drop_bare_alias_items_from_stage(
     stage: ProjectionStage,
     aliases: AbstractSet[str],
-    *,
-    identifier_re: "re.Pattern[str]",
 ) -> ProjectionStage:
     """Drop bare-identifier projection items whose name is in ``aliases``."""
     new_items = tuple(
         item
         for item in stage.clause.items
-        if not (
-            item.alias is None
-            and identifier_re.fullmatch(item.expression.text.strip())
-            and item.expression.text.strip() in aliases
-        )
+        if (carry_name := _is_bare_carry_with_item(item)) is None or carry_name not in aliases
     )
     if len(new_items) == len(stage.clause.items):
         return stage
@@ -177,12 +153,7 @@ def _first_pattern_node_alias(clause: MatchClause) -> Optional[str]:
         first_pattern = clause.patterns[0]
         if first_pattern and isinstance(first_pattern[0], NodePattern):
             return first_pattern[0].variable
-    from graphistry.compute.gfql.cypher import lowering as _lowering
-
-    pattern = _lowering._match_pattern_elements(clause)
-    if not pattern or not isinstance(pattern[0], NodePattern):
-        return None
-    return pattern[0].variable
+    return None
 
 
 _BARE_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -190,12 +161,8 @@ _BARE_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 def _is_whole_row_with_item(item: ReturnItem, *, match_node_aliases: Set[str]) -> bool:
     """A WITH item is a whole-row carry when it is a bare prior node alias."""
-    text = item.expression.text
-    if not _BARE_IDENT_RE.match(text):
-        return False
-    if item.alias is not None and item.alias != text:
-        return False
-    return text in match_node_aliases
+    carry_name = _is_bare_carry_with_item(item)
+    return carry_name is not None and carry_name in match_node_aliases
 
 
 def _all_match_alias_kinds(query: CypherQuery) -> Dict[str, str]:
@@ -295,38 +262,15 @@ def _rewrite_secondary_alias_property_refs(
         if node.name in secondary_aliases and node.name not in active_shadow:
             bare.add(node.name)
         return node
-    if isinstance(node, QuantifierExpr):
-        next_shadow = active_shadow | {node.var}
-        return QuantifierExpr(
-            node.fn,
-            node.var,
-            _rewrite_secondary_alias_property_refs(
-                node.source, secondary_aliases=secondary_aliases, refs=refs, bare=bare, shadowed=next_shadow,
-            ),
-            _rewrite_secondary_alias_property_refs(
-                node.predicate, secondary_aliases=secondary_aliases, refs=refs, bare=bare, shadowed=next_shadow,
-            ),
-        )
-    if isinstance(node, ListComprehension):
-        next_shadow = active_shadow | {node.var}
-        return ListComprehension(
-            node.var,
-            _rewrite_secondary_alias_property_refs(
-                node.source, secondary_aliases=secondary_aliases, refs=refs, bare=bare, shadowed=next_shadow,
-            ),
-            predicate=None if node.predicate is None else _rewrite_secondary_alias_property_refs(
-                node.predicate, secondary_aliases=secondary_aliases, refs=refs, bare=bare, shadowed=next_shadow,
-            ),
-            projection=None if node.projection is None else _rewrite_secondary_alias_property_refs(
-                node.projection, secondary_aliases=secondary_aliases, refs=refs, bare=bare, shadowed=next_shadow,
-            ),
-        )
-    from graphistry.compute.gfql.cypher import lowering as _lowering
-
-    return _lowering._rebuild_expr_node(
+    child_shadow = (
+        active_shadow | {node.var}
+        if isinstance(node, (QuantifierExpr, ListComprehension))
+        else active_shadow
+    )
+    return _rebuild_expr_node(
         node,
         rewrite=lambda child: _rewrite_secondary_alias_property_refs(
-            child, secondary_aliases=secondary_aliases, refs=refs, bare=bare, shadowed=active_shadow,
+            child, secondary_aliases=secondary_aliases, refs=refs, bare=bare, shadowed=child_shadow,
         ),
         error_context="secondary alias rewrite",
     )
@@ -412,10 +356,9 @@ def _demote_secondary_whole_row_aliases(
         where_clause if where_clause is None else _lowering._rewrite_where_clause_and_resync(where_clause, rewrite_text, "where")
         for where_clause in query.reentry_wheres
     )
-    secondary_forwarding_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
     cleaned_with_stages_tail = tuple(
         _drop_bare_alias_items_from_stage(
-            stage, secondary_aliases, identifier_re=secondary_forwarding_re
+            stage, secondary_aliases
         )
         for stage in query.with_stages[1:]
     )

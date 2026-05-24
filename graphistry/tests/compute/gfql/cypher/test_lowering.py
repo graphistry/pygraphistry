@@ -10722,6 +10722,96 @@ def test_string_cypher_executes_with_match_reentry_secondary_alias_property_in_o
     )
 
     assert result._nodes.to_dict(orient="records") == [{"cid": "c1"}]
+
+
+@pytest.mark.parametrize(
+    ("predicate", "expected_cid", "expected_null"),
+    [("IS NULL", "c_null", True), ("IS NOT NULL", "c_value", False)],
+)
+def test_string_cypher_executes_with_match_reentry_secondary_alias_null_property_where(
+    predicate: str,
+    expected_cid: str,
+    expected_null: bool,
+) -> None:
+    """Demoted secondary alias properties preserve null semantics in trailing WHERE."""
+    nodes = pd.DataFrame(
+        {
+            "id": ["a_null", "a_value", "b_null", "b_value", "c_null", "c_value"],
+            "label__A": [True, True, False, False, False, False],
+            "label__B": [False, False, True, True, False, False],
+            "label__C": [False, False, False, False, True, True],
+            "score": pd.Series([None, 7, None, None, None, None], dtype="Int64"),
+        }
+    )
+    edges = pd.DataFrame(
+        {
+            "s": ["a_null", "a_value", "b_null", "b_value"],
+            "d": ["b_null", "b_value", "c_null", "c_value"],
+            "type": ["R", "R", "S", "S"],
+        }
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        f"WHERE a.score {predicate} "
+        "RETURN c.id AS cid, a.score AS score"
+    )
+
+    rows = result._nodes.to_dict(orient="records")
+    assert len(rows) == 1
+    assert rows[0]["cid"] == expected_cid
+    assert bool(pd.isna(rows[0]["score"])) is expected_null
+
+
+@pytest.mark.parametrize(
+    ("predicate", "expected_cid", "expected_null"),
+    [("IS NULL", "c_null", True), ("IS NOT NULL", "c_value", False)],
+)
+def test_string_cypher_executes_with_match_reentry_secondary_alias_null_property_where_on_cudf(
+    predicate: str,
+    expected_cid: str,
+    expected_null: bool,
+) -> None:
+    """cuDF parity for demoted secondary alias null filtering."""
+    cudf = _require_cudf_runtime()
+    nodes = cudf.from_pandas(
+        pd.DataFrame(
+            {
+                "id": ["a_null", "a_value", "b_null", "b_value", "c_null", "c_value"],
+                "label__A": [True, True, False, False, False, False],
+                "label__B": [False, False, True, True, False, False],
+                "label__C": [False, False, False, False, True, True],
+                "score": pd.Series([None, 7, None, None, None, None], dtype="Int64"),
+            }
+        )
+    )
+    edges = cudf.from_pandas(
+        pd.DataFrame(
+            {
+                "s": ["a_null", "a_value", "b_null", "b_value"],
+                "d": ["b_null", "b_value", "c_null", "c_value"],
+                "type": ["R", "R", "S", "S"],
+            }
+        )
+    )
+
+    result = _mk_graph(nodes, edges).gfql(
+        "MATCH (a:A)-[:R]->(b:B) "
+        "WITH a, b "
+        "MATCH (b)-[:S]->(c:C) "
+        f"WHERE a.score {predicate} "
+        "RETURN c.id AS cid, a.score AS score",
+        engine="cudf",
+    )
+
+    rows = _to_pandas_df(result._nodes).to_dict(orient="records")
+    assert len(rows) == 1
+    assert rows[0]["cid"] == expected_cid
+    assert bool(pd.isna(rows[0]["score"])) is expected_null
+
+
 def test_string_cypher_executes_three_alias_with_match_reentry() -> None:
     """Three-alias carry through WITH; secondaries referenced by property in RETURN (#1071)."""
     graph = _mk_graph(
@@ -11290,6 +11380,61 @@ def test_reentry_order_by_rewrite_aborts_when_expression_cannot_rewrite() -> Non
 
     assert _rewrite_order_by_expressions(order_by, _cannot_rewrite) is None
     assert seen == [("friend.firstName", "order_by")]
+
+
+def test_reentry_first_pattern_node_alias_handles_empty_pattern_list() -> None:
+    from graphistry.compute.gfql.cypher.ast import MatchClause
+    from graphistry.compute.gfql.cypher.reentry.lowering_support import _first_pattern_node_alias
+
+    span = SourceSpan(1, 1, 1, 1, 0, 0)
+
+    assert _first_pattern_node_alias(MatchClause(patterns=(), span=span)) is None
+
+
+def test_reentry_where_predicate_text_rejects_unrenderable_structured_predicates() -> None:
+    from graphistry.compute.gfql.cypher.ast import LabelRef, PropertyRef, WherePredicate
+    from graphistry.compute.gfql.cypher.lowering import _row_where_predicate_text
+
+    span = SourceSpan(1, 1, 1, 1, 0, 0)
+
+    assert _row_where_predicate_text(
+        WherePredicate(
+            left=LabelRef(alias="a", labels=("A",), span=span),
+            op="has_labels",
+            right=None,
+            span=span,
+        )
+    ) is None
+    assert _row_where_predicate_text(
+        WherePredicate(
+            left=PropertyRef(alias="a", property="score", span=span),
+            op="is_null",
+            right=PropertyRef(alias="b", property="score", span=span),
+            span=span,
+        )
+    ) is None
+
+
+def test_reentry_secondary_alias_rewrite_respects_shadowed_expression_vars() -> None:
+    from graphistry.compute.gfql.cypher.reentry.lowering_support import _collect_secondary_property_refs
+
+    expressions = (
+        "[x IN [1, 2] | x]",
+        "ANY(x IN [1, 2] WHERE x > 1)",
+    )
+    for expression in expressions:
+        span = SourceSpan(1, 1, 1, 1 + len(expression), 0, len(expression))
+        expr = ExpressionText(expression, span)
+
+        rewritten, refs, bare = _collect_secondary_property_refs(
+            expr,
+            secondary_aliases={"x"},
+            field="return",
+        )
+
+        assert rewritten == expr
+        assert refs == set()
+        assert bare == set()
 
 
 def test_string_cypher_executes_seeded_multihop_then_with_match_reentry_shape() -> None:

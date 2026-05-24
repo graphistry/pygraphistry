@@ -6073,7 +6073,14 @@ def _render_row_where_operand_text(value: Union[PropertyRef, CypherLiteral]) -> 
 
 
 def _row_where_predicate_text(predicate: WherePredicate) -> Optional[str]:
-    if isinstance(predicate.left, LabelRef) or predicate.right is None:
+    if isinstance(predicate.left, LabelRef):
+        return None
+    if predicate.op in {"is_null", "is_not_null"}:
+        if predicate.right is not None:
+            return None
+        rendered_op = "IS NOT NULL" if predicate.op == "is_not_null" else "IS NULL"
+        return f"{_render_row_where_operand_text(predicate.left)} {rendered_op}"
+    if predicate.right is None:
         return None
     op_map = {"==": "=", "<>": "!="}
     rendered_op = op_map.get(predicate.op, predicate.op)
