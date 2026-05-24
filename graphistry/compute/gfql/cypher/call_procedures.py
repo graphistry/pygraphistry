@@ -38,8 +38,16 @@ _NETWORKX_RESERVED_KEYS = frozenset({"out_col", "params", "directed"})
 _NETWORKX_PROCEDURES: Dict[str, Tuple[_ROW_KIND, Tuple[str, ...]]] = {
     "pagerank": ("node", ("pagerank",)),
     "betweenness_centrality": ("node", ("betweenness_centrality",)),
+    "closeness_centrality": ("node", ("closeness_centrality",)),
+    "connected_components": ("node", ("labels",)),
+    "core_number": ("node", ("core_number",)),
+    "degree_centrality": ("node", ("degree_centrality",)),
+    "eigenvector_centrality": ("node", ("eigenvector_centrality",)),
     "edge_betweenness_centrality": ("edge", ("edge_betweenness_centrality",)),
+    "hits": ("node", ("hubs", "authorities")),
+    "katz_centrality": ("node", ("katz_centrality",)),
     "k_core": ("graph_only", ()),
+    "strongly_connected_components": ("node", ("labels",)),
 }
 
 
@@ -79,7 +87,7 @@ def _unsupported_call(message: str, *, call: CallClause, value: Any) -> GFQLVali
         message,
         field="call",
         value=value,
-        suggestion="Use graphistry.degree, supported graphistry.igraph.* / graphistry.cugraph.* procedures, or the limited graphistry.nx pagerank / betweenness / edge_betweenness / k_core subset.",
+        suggestion="Use graphistry.degree, supported graphistry.igraph.* / graphistry.cugraph.* procedures, or supported graphistry.nx procedures.",
         line=call.span.line,
         column=call.span.column,
         language="cypher",
@@ -167,7 +175,7 @@ def _resolve_procedure_definition(call: CallClause) -> _ProcedureDefinition:
         nx_spec = _NETWORKX_PROCEDURES.get(algorithm)
         if nx_spec is None:
             raise _unsupported_call(
-                "Only the limited graphistry.nx pagerank / betweenness / edge_betweenness / k_core local Cypher CALL subset is currently supported",
+                "Unsupported graphistry.nx.* procedure in the local compiler",
                 call=call,
                 value=call.procedure,
             )
@@ -689,6 +697,24 @@ def _merge_node_property_rows(
     return graph_with_nodes.nodes(merged_nodes, node=node_col)
 
 
+def _merge_node_property_columns(
+    base_graph: Plottable,
+    rows_df: DataFrameT,
+    *,
+    value_columns: Sequence[str],
+) -> Plottable:
+    graph_with_nodes = _materialized_graph(base_graph)
+    assert graph_with_nodes._nodes is not None
+    assert graph_with_nodes._node is not None
+    node_col = graph_with_nodes._node
+    nodes_df = graph_with_nodes._nodes
+    existing_value_columns = [col for col in value_columns if col in nodes_df.columns]
+    merge_base = cast(DataFrameT, nodes_df.drop(columns=existing_value_columns)) if existing_value_columns else nodes_df
+    projected_rows = rows_df.rename(columns={"nodeId": node_col})[[node_col, *value_columns]]
+    merged_nodes = cast(DataFrameT, safe_merge(merge_base, projected_rows, on=node_col, how="left"))
+    return graph_with_nodes.nodes(merged_nodes, node=node_col)
+
+
 def _merge_edge_property_rows(
     base_graph: Plottable,
     rows_df: DataFrameT,
@@ -764,6 +790,27 @@ def _networkx_module(compiled_call: CompiledCypherProcedureCall) -> Any:
     return nx
 
 
+def _ensure_networkx_feature(
+    has_feature: bool,
+    compiled_call: CompiledCypherProcedureCall,
+    feature_name: str,
+    nx: Any,
+) -> None:
+    if has_feature:
+        return
+    nx_version = getattr(nx, "__version__", "unknown")
+    raise GFQLValidationError(
+        ErrorCode.E108,
+        f"{compiled_call.procedure} requires {feature_name}, which is unavailable in the installed NetworkX version",
+        field="call",
+        value=compiled_call.procedure,
+        suggestion=f"Upgrade networkx or use a different graphistry.nx procedure. Installed networkx version: {nx_version}.",
+        line=compiled_call.line,
+        column=compiled_call.column,
+        language="cypher",
+    )
+
+
 def _networkx_algorithm_result(
     compiled_call: CompiledCypherProcedureCall,
     graph_nx: Any,
@@ -775,11 +822,54 @@ def _networkx_algorithm_result(
             return _networkx_pagerank_scores(graph_nx, **params)
         nx = _networkx_module(compiled_call)
         if algorithm == "betweenness_centrality":
+            _ensure_networkx_feature(hasattr(nx, "betweenness_centrality"), compiled_call, "networkx.betweenness_centrality", nx)
             return nx.betweenness_centrality(graph_nx, **params)
+        if algorithm == "closeness_centrality":
+            _ensure_networkx_feature(hasattr(nx, "closeness_centrality"), compiled_call, "networkx.closeness_centrality", nx)
+            return nx.closeness_centrality(graph_nx, **params)
+        if algorithm == "connected_components":
+            _raise_networkx_no_params(params)
+            if graph_nx.is_directed():
+                _ensure_networkx_feature(hasattr(nx, "weakly_connected_components"), compiled_call, "networkx.weakly_connected_components", nx)
+                components = nx.weakly_connected_components(graph_nx)
+            else:
+                _ensure_networkx_feature(hasattr(nx, "connected_components"), compiled_call, "networkx.connected_components", nx)
+                components = nx.connected_components(graph_nx)
+            return _networkx_component_labels(components)
+        if algorithm == "core_number":
+            _raise_networkx_no_params(params)
+            _ensure_networkx_feature(hasattr(nx, "core_number"), compiled_call, "networkx.core_number", nx)
+            return nx.core_number(graph_nx, **params)
+        if algorithm == "degree_centrality":
+            _raise_networkx_no_params(params)
+            _ensure_networkx_feature(hasattr(nx, "degree_centrality"), compiled_call, "networkx.degree_centrality", nx)
+            return nx.degree_centrality(graph_nx)
+        if algorithm == "eigenvector_centrality":
+            _ensure_networkx_feature(hasattr(nx, "eigenvector_centrality"), compiled_call, "networkx.eigenvector_centrality", nx)
+            return nx.eigenvector_centrality(graph_nx, **params)
         if algorithm == "edge_betweenness_centrality":
+            _ensure_networkx_feature(hasattr(nx, "edge_betweenness_centrality"), compiled_call, "networkx.edge_betweenness_centrality", nx)
             return nx.edge_betweenness_centrality(graph_nx, **params)
+        if algorithm == "hits":
+            _ensure_networkx_feature(hasattr(nx, "hits"), compiled_call, "networkx.hits", nx)
+            try:
+                hubs, authorities = nx.hits(graph_nx, **params)
+            except ModuleNotFoundError as exc:
+                if exc.name != "scipy":
+                    raise
+                hubs, authorities = _networkx_hits_scores(graph_nx, **params)
+            return {"hubs": hubs, "authorities": authorities}
+        if algorithm == "katz_centrality":
+            _ensure_networkx_feature(hasattr(nx, "katz_centrality"), compiled_call, "networkx.katz_centrality", nx)
+            return nx.katz_centrality(graph_nx, **params)
         if algorithm == "k_core":
+            _ensure_networkx_feature(hasattr(nx, "k_core"), compiled_call, "networkx.k_core", nx)
             return nx.k_core(graph_nx, **params)
+        if algorithm == "strongly_connected_components":
+            _raise_networkx_no_params(params)
+            _ensure_networkx_feature(hasattr(nx, "strongly_connected_components"), compiled_call, "networkx.strongly_connected_components", nx)
+            graph_for_components = graph_nx if graph_nx.is_directed() else graph_nx.to_directed()
+            return _networkx_component_labels(nx.strongly_connected_components(graph_for_components))
     except TypeError as exc:
         raise GFQLValidationError(
             ErrorCode.E108,
@@ -792,6 +882,69 @@ def _networkx_algorithm_result(
             language="cypher",
         ) from exc
     raise ValueError(f"Unexpected NetworkX Cypher CALL algorithm: {algorithm}")
+
+
+def _raise_networkx_no_params(params: Mapping[str, Any]) -> None:
+    if params:
+        raise TypeError("algorithm does not accept parameters")
+
+
+def _networkx_component_labels(components: Any) -> Dict[Any, int]:
+    labels: Dict[Any, int] = {}
+    for label, component in enumerate(components):
+        for node in component:
+            labels[node] = label
+    return labels
+
+
+def _networkx_hits_scores(
+    graph_nx: Any,
+    *,
+    max_iter: int = 100,
+    tol: float = 1.0e-8,
+    nstart: Optional[Mapping[Any, float]] = None,
+    normalized: bool = True,
+) -> Tuple[Dict[Any, float], Dict[Any, float]]:
+    nodes = list(graph_nx.nodes())
+    if not nodes:
+        return {}, {}
+
+    node_count = len(nodes)
+    if nstart is None:
+        hubs: Dict[Any, float] = dict.fromkeys(nodes, 1.0 / node_count)
+    else:
+        total = sum(float(nstart.get(node, 0.0)) for node in nodes)
+        norm = total if total != 0 else 1.0
+        hubs = {node: float(nstart.get(node, 0.0)) / norm for node in nodes}
+
+    predecessor_fn = graph_nx.predecessors if graph_nx.is_directed() else graph_nx.neighbors
+    successor_fn = graph_nx.successors if graph_nx.is_directed() else graph_nx.neighbors
+    authorities: Dict[Any, float] = dict.fromkeys(nodes, 1.0 / node_count)
+
+    for _ in range(max_iter):
+        last_hubs = hubs
+        authorities = {
+            node: sum(last_hubs.get(pred, 0.0) for pred in predecessor_fn(node))
+            for node in nodes
+        }
+        authority_norm = sum(abs(value) for value in authorities.values()) or 1.0
+        authorities = {node: value / authority_norm for node, value in authorities.items()}
+        hubs = {
+            node: sum(authorities.get(succ, 0.0) for succ in successor_fn(node))
+            for node in nodes
+        }
+        hub_norm = sum(abs(value) for value in hubs.values()) or 1.0
+        hubs = {node: value / hub_norm for node, value in hubs.items()}
+        if sum(abs(hubs[node] - last_hubs[node]) for node in nodes) < tol:
+            break
+
+    if normalized:
+        hub_total = sum(hubs.values()) or 1.0
+        authority_total = sum(authorities.values()) or 1.0
+        hubs = {node: value / hub_total for node, value in hubs.items()}
+        authorities = {node: value / authority_total for node, value in authorities.items()}
+
+    return hubs, authorities
 
 
 def _networkx_pagerank_scores(graph_nx: Any, *, alpha: float = 0.85, max_iter: int = 100, tol: float = 1.0e-6) -> Dict[Any, float]:
@@ -856,9 +1009,16 @@ def _networkx_node_rows(base_graph: Plottable, compiled_call: CompiledCypherProc
     nodes_pdf = _as_pandas_frame(graph_with_nodes._nodes, (graph_with_nodes._node,))
 
     scores = _networkx_algorithm_result(compiled_call, graph_nx, params)
-    out_col = _networkx_out_col(compiled_call, "pagerank")
+    value_columns = _normalized_value_columns(
+        _definition_from_compiled_call(compiled_call),
+        compiled_call.call_params,
+    )
     rows_pdf = nodes_pdf.rename(columns={graph_with_nodes._node: "nodeId"}).copy()
-    rows_pdf[out_col] = rows_pdf["nodeId"].map(scores).fillna(0.0)
+    if isinstance(scores, Mapping) and all(isinstance(scores.get(col), Mapping) for col in value_columns):
+        for col in value_columns:
+            rows_pdf[col] = rows_pdf["nodeId"].map(scores[col]).fillna(0.0)
+    else:
+        rows_pdf[value_columns[0]] = rows_pdf["nodeId"].map(scores).fillna(0.0)
     return cast(DataFrameT, rows_pdf)
 
 
@@ -914,7 +1074,13 @@ def _merge_networkx_projected_graph(base_graph: Plottable, graph_nx: Any) -> Plo
 def _execute_networkx_graph_call(base_graph: Plottable, compiled_call: CompiledCypherProcedureCall) -> Plottable:
     if compiled_call.row_kind == "node":
         rows_df = _networkx_node_rows(base_graph, compiled_call)
-        out_col = _networkx_out_col(compiled_call, "pagerank")
+        value_columns = _normalized_value_columns(
+            _definition_from_compiled_call(compiled_call),
+            compiled_call.call_params,
+        )
+        if len(value_columns) > 1:
+            return _merge_node_property_columns(base_graph, rows_df, value_columns=value_columns)
+        out_col = value_columns[0]
         return _merge_node_property_rows(
             base_graph,
             rows_df,

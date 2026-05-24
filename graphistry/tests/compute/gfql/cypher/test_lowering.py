@@ -23,6 +23,13 @@ from graphistry.compute.gfql.cypher import (
     WherePatternPredicate,
     projection_planning as _projection_planning,
 )
+from graphistry.compute.gfql.cypher.call_procedures import (
+    CompiledCypherProcedureCall,
+    _ensure_networkx_feature,
+    _networkx_component_labels,
+    _networkx_hits_scores,
+    _networkx_pagerank_scores,
+)
 from graphistry.compute.gfql.cypher.ast import ExpressionText, OrderByClause, OrderItem, ReturnClause, ReturnItem, SourceSpan
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherExecutionExtras, CompiledCypherGraphQuery
 from graphistry.compute.gfql.cypher.lowering import _logical_plan_route_for_query
@@ -143,6 +150,43 @@ def _mk_path_with_isolate_graph_cudf() -> _CypherTestGraph:
 
 def _mk_empty_graph() -> _CypherTestGraph:
     return _mk_graph(pd.DataFrame({"id": []}), pd.DataFrame({"s": [], "d": []}))
+
+
+class _MiniNxGraph:
+    def __init__(
+        self,
+        edges: List[Tuple[str, str]],
+        *,
+        nodes: List[str],
+        directed: bool = True,
+    ) -> None:
+        self._edges = edges
+        self._nodes = nodes
+        self._directed = directed
+
+    def nodes(self) -> List[str]:
+        return self._nodes
+
+    def is_directed(self) -> bool:
+        return self._directed
+
+    def predecessors(self, node: str) -> List[str]:
+        return [src for src, dst in self._edges if dst == node]
+
+    def successors(self, node: str) -> List[str]:
+        return [dst for src, dst in self._edges if src == node]
+
+    def out_degree(self, node: str) -> int:
+        return len(self.successors(node))
+
+    def neighbors(self, node: str) -> List[str]:
+        neighbors = [dst for src, dst in self._edges if src == node]
+        if not self._directed:
+            neighbors.extend(src for src, dst in self._edges if dst == node)
+        return neighbors
+
+    def degree(self, node: str) -> int:
+        return len(self.neighbors(node))
 
 
 def _mk_reentry_carried_scalar_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -7670,6 +7714,9 @@ def test_cypher_to_gfql_rejects_union_programs() -> None:
         ("CALL graphistry.cugraph.k_core.write()", "graphistry.cugraph.k_core.write", "graph"),
         ("CALL graphistry.nx.pagerank()", "graphistry.nx.pagerank", "rows"),
         ("CALL graphistry.nx.betweenness_centrality()", "graphistry.nx.betweenness_centrality", "rows"),
+        ("CALL graphistry.nx.connected_components()", "graphistry.nx.connected_components", "rows"),
+        ("CALL graphistry.nx.core_number()", "graphistry.nx.core_number", "rows"),
+        ("CALL graphistry.nx.hits()", "graphistry.nx.hits", "rows"),
         ("CALL graphistry.nx.edge_betweenness_centrality()", "graphistry.nx.edge_betweenness_centrality", "rows"),
         ("CALL graphistry.degree.write()", "graphistry.degree.write", "graph"),
         ("CALL graphistry.igraph.betweenness.write()", "graphistry.igraph.betweenness.write", "graph"),
@@ -7783,7 +7830,7 @@ def test_string_cypher_call_rejects_invalid_procedure_or_yield(query: str) -> No
     assert exc_info.value.code == ErrorCode.E108
 
 
-@pytest.mark.parametrize("procedure", ["degree_centrality", "closeness_centrality.write", "connected_components"])
+@pytest.mark.parametrize("procedure", ["jaccard", "louvain.write", "minimum_spanning_tree.write"])
 def test_compile_cypher_call_rejects_unsupported_networkx_subset_structured(procedure: str) -> None:
     with pytest.raises(GFQLValidationError) as exc_info:
         _compile_query(f"CALL graphistry.nx.{procedure}()")
@@ -7922,6 +7969,14 @@ def test_compile_cypher_call_flattens_networkx_options_into_params() -> None:
             (("source", "source"), ("destination", "destination"), ("ebc", "ebc")),
         ),
         (
+            "CALL graphistry.nx.connected_components()",
+            (("nodeId", "nodeId"), ("labels", "labels")),
+        ),
+        (
+            "CALL graphistry.nx.hits()",
+            (("nodeId", "nodeId"), ("hubs", "hubs"), ("authorities", "authorities")),
+        ),
+        (
             "CALL graphistry.cugraph.hits()",
             (("nodeId", "nodeId"), ("hits", "hits"), ("authorities", "authorities")),
         ),
@@ -7941,6 +7996,15 @@ def test_compile_cypher_call_output_columns_are_backend_stable(query: str, expec
 def test_compile_cypher_call_rejects_multi_column_out_col_structured() -> None:
     with pytest.raises(GFQLValidationError) as exc_info:
         _compile_query("CALL graphistry.cugraph.hits({out_col: 'score'})")
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "call.args.out_col"
+    assert exc_info.value.context["value"] == "score"
+
+
+def test_compile_cypher_call_rejects_multi_column_networkx_out_col_structured() -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _compile_query("CALL graphistry.nx.hits({out_col: 'score'})")
 
     assert exc_info.value.code == ErrorCode.E108
     assert exc_info.value.context["field"] == "call.args.out_col"
@@ -8006,6 +8070,87 @@ def test_string_cypher_executes_networkx_betweenness_row_call_with_out_col() -> 
     assert result._nodes.to_dict(orient="records") == [{"nodeId": "b", "bc": 0.5}]
 
 
+@pytest.mark.parametrize(
+    ("procedure", "out_col"),
+    [
+        ("closeness_centrality", "closeness_centrality"),
+        ("core_number", "core_number"),
+        ("degree_centrality", "degree_centrality"),
+        ("eigenvector_centrality({directed: false})", "eigenvector_centrality"),
+        ("katz_centrality({directed: false, alpha: 0.1})", "katz_centrality"),
+    ],
+)
+def test_string_cypher_executes_networkx_node_scalar_parity_calls(procedure: str, out_col: str) -> None:
+    pytest.importorskip("networkx")
+
+    result = _mk_simple_path_graph().gfql(
+        f"CALL graphistry.nx.{procedure} "
+        f"YIELD nodeId, {out_col} "
+        f"RETURN nodeId, {out_col} "
+        "ORDER BY nodeId ASC"
+    )
+
+    assert result._edges.empty
+    assert list(result._nodes.columns) == ["nodeId", out_col]
+    assert result._nodes["nodeId"].tolist() == ["a", "b", "c"]
+    assert result._nodes[out_col].notna().all()
+
+
+def test_string_cypher_executes_networkx_connected_components_row_call() -> None:
+    pytest.importorskip("networkx")
+
+    result = _mk_path_with_isolate_graph().gfql(
+        "CALL graphistry.nx.connected_components({directed: false}) "
+        "YIELD nodeId, labels "
+        "RETURN nodeId, labels "
+        "ORDER BY nodeId ASC"
+    )
+
+    assert result._edges.empty
+    rows = result._nodes.to_dict(orient="records")
+    assert rows[:3] == [
+        {"nodeId": "a", "labels": 0},
+        {"nodeId": "b", "labels": 0},
+        {"nodeId": "c", "labels": 0},
+    ]
+    assert rows[3] == {"nodeId": "z", "labels": 1}
+
+
+def test_string_cypher_executes_networkx_strongly_connected_components_row_call() -> None:
+    pytest.importorskip("networkx")
+
+    result = _mk_simple_path_graph().gfql(
+        "CALL graphistry.nx.strongly_connected_components() "
+        "YIELD nodeId, labels "
+        "RETURN nodeId, labels "
+        "ORDER BY nodeId ASC"
+    )
+
+    assert result._edges.empty
+    assert result._nodes["nodeId"].tolist() == ["a", "b", "c"]
+    assert len(set(result._nodes["labels"].tolist())) == 3
+
+
+def test_string_cypher_executes_networkx_hits_row_and_write_calls() -> None:
+    pytest.importorskip("networkx")
+
+    rows = _mk_simple_path_graph().gfql(
+        "CALL graphistry.nx.hits() "
+        "YIELD nodeId, hubs, authorities "
+        "RETURN nodeId, hubs, authorities "
+        "ORDER BY nodeId ASC"
+    )
+
+    assert rows._edges.empty
+    assert list(rows._nodes.columns) == ["nodeId", "hubs", "authorities"]
+    assert rows._nodes[["hubs", "authorities"]].notna().all().all()
+
+    graph = _mk_simple_path_graph().gfql("CALL graphistry.nx.hits.write()")
+    assert {"hubs", "authorities"}.issubset(set(graph._nodes.columns))
+    assert graph._nodes[["hubs", "authorities"]].notna().all().all()
+    assert not graph._edges.empty
+
+
 def test_string_cypher_executes_networkx_edge_row_call() -> None:
     pytest.importorskip("networkx")
 
@@ -8053,6 +8198,18 @@ def test_string_cypher_networkx_bad_params_raise_structured_error() -> None:
     assert exc_info.value.context["value"] == {"bogus_option": 1}
 
 
+@pytest.mark.parametrize("procedure", ["degree_centrality", "connected_components", "core_number", "strongly_connected_components"])
+def test_string_cypher_networkx_no_param_algorithms_reject_extra_params(procedure: str) -> None:
+    pytest.importorskip("networkx")
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _mk_simple_path_graph().gfql(f"CALL graphistry.nx.{procedure}({{bogus_option: 1}})")
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "call.args"
+    assert exc_info.value.context["value"] == {"bogus_option": 1}
+
+
 def test_string_cypher_executes_networkx_graph_write_call() -> None:
     pytest.importorskip("networkx")
 
@@ -8065,6 +8222,88 @@ def test_string_cypher_executes_networkx_graph_write_call() -> None:
         {"s": "a", "d": "b"},
         {"s": "b", "d": "c"},
     ]
+
+
+def test_networkx_component_labels_assigns_dense_labels_without_networkx_dependency() -> None:
+    labels = _networkx_component_labels([{"a", "b"}, {"z"}])
+
+    assert labels["a"] == labels["b"]
+    assert labels["z"] == 1
+    assert set(labels.values()) == {0, 1}
+
+
+def test_networkx_feature_guard_reports_installed_version_structurally() -> None:
+    compiled_call = CompiledCypherProcedureCall(
+        procedure="graphistry.nx.future_algorithm",
+        backend="networkx",
+        algorithm="future_algorithm",
+        line=4,
+        column=9,
+    )
+    nx_stub = type("NetworkXStub", (), {"__version__": "1.2.3"})()
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _ensure_networkx_feature(
+            False,
+            compiled_call,
+            "networkx.future_algorithm",
+            nx_stub,
+        )
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "call"
+    assert exc_info.value.context["value"] == "graphistry.nx.future_algorithm"
+    assert "1.2.3" in exc_info.value.context["suggestion"]
+    assert exc_info.value.context["line"] == 4
+    assert exc_info.value.context["column"] == 9
+
+
+def test_networkx_hits_fallback_scores_directed_graph_without_scipy_dependency() -> None:
+    graph = _MiniNxGraph(
+        [("a", "b"), ("a", "c"), ("b", "c")],
+        nodes=["a", "b", "c"],
+    )
+
+    hubs, authorities = _networkx_hits_scores(graph, max_iter=50)
+
+    assert set(hubs) == {"a", "b", "c"}
+    assert set(authorities) == {"a", "b", "c"}
+    assert sum(hubs.values()) == pytest.approx(1.0)
+    assert sum(authorities.values()) == pytest.approx(1.0)
+    assert hubs["a"] >= hubs["c"]
+    assert authorities["c"] >= authorities["a"]
+
+
+def test_networkx_hits_fallback_handles_empty_and_zero_start_graphs() -> None:
+    assert _networkx_hits_scores(_MiniNxGraph([], nodes=[])) == ({}, {})
+
+    graph = _MiniNxGraph(
+        [("a", "b"), ("b", "c")],
+        nodes=["a", "b", "c"],
+    )
+
+    hubs, authorities = _networkx_hits_scores(
+        graph,
+        max_iter=10,
+        nstart={"a": 0, "b": 0, "c": 0},
+        normalized=False,
+    )
+
+    assert set(hubs) == {"a", "b", "c"}
+    assert set(authorities) == {"a", "b", "c"}
+
+
+def test_networkx_pagerank_fallback_scores_directed_path_without_networkx_dependency() -> None:
+    graph = _MiniNxGraph(
+        [("a", "b"), ("b", "c")],
+        nodes=["a", "b", "c"],
+    )
+
+    scores = _networkx_pagerank_scores(graph, max_iter=50)
+
+    assert set(scores) == {"a", "b", "c"}
+    assert sum(scores.values()) == pytest.approx(1.0)
+    assert scores["c"] > scores["b"] > scores["a"]
 
 
 def test_string_cypher_executes_real_cugraph_node_row_call_on_cudf() -> None:

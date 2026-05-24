@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Added
+- **GFQL NetworkX CALL parity (#1058)**: Expanded the local Cypher `graphistry.nx.*` CALL surface with explicit NetworkX dispatch for `degree_centrality`, `closeness_centrality`, `eigenvector_centrality`, `katz_centrality`, `connected_components`, `strongly_connected_components`, `core_number`, and multi-output `hits`, including row and `.write()` coverage.
+
 ### Changed
 - **GFQL validate entrypoint implementation shrink (#1058)**: DRYed legacy `graphistry.compute.gfql.validate` issue construction, filter-key checks, schema-filter diagnostics, and report formatting while preserving deprecated public validation helpers and anchored error diagnostics.
 - **GFQL Cypher reentry execution shrink (#1058)**: DRYed private reentry execution graph-state construction and removed stale internal scalar/free-form helper parameters while preserving whole-row/scalar/free-form reentry behavior, optional null-fill shape, and diagnostics.
