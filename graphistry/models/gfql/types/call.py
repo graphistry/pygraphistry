@@ -41,9 +41,17 @@ CallMethodName = Literal[
     'encode_axis',
     'encode_edge_color',
     'encode_edge_icon',
+    'encode_edge_label',
+    'encode_edge_opacity',
+    'encode_edge_size',
+    'encode_edge_title',
+    'encode_edge_weight',
     'encode_point_color',
     'encode_point_icon',
+    'encode_point_label',
+    'encode_point_opacity',
     'encode_point_size',
+    'encode_point_title',
     'fa2_layout',
     'filter_edges_by_dict',
     'filter_nodes_by_dict',
@@ -223,11 +231,21 @@ class EncodeEdgeColorParams(TypedDict, total=False):
     default_mapping: str
 
 
-class EncodePointSizeParams(TypedDict, total=False):
-    """Parameters for encode_point_size operation."""
+class EncodeNumericMappingParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for numeric encode mapping operations."""
     column: str  # Required in safelist
     categorical_mapping: Dict[str, Union[int, float]]
     default_mapping: Union[int, float]
+
+
+class EncodePointSizeParams(EncodeNumericMappingParams, total=False):  # pragma: no cover
+    """Parameters for encode_point_size operation."""
+    pass
+
+
+class EncodeTextColumnParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for raw text-binding encode operations."""
+    column: str  # Required in safelist
 
 
 class EncodePointIconParams(TypedDict, total=False):
@@ -538,7 +556,10 @@ CallParams = Union[
     EncodePointColorParams,
     EncodeEdgeColorParams,
     EncodePointSizeParams,
+    EncodeTextColumnParams,
     EncodePointIconParams,
+    EncodeEdgeIconParams,
+    EncodeAxisParams,
     LayoutIgraphParams,
     LayoutCugraphParams,
     LayoutGraphvizParams,
@@ -613,6 +634,20 @@ def call(function: Literal['encode_edge_color'], params: EncodeEdgeColorParams =
 
 @overload
 def call(function: Literal['encode_point_size'], params: EncodePointSizeParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(
+    function: Literal['encode_edge_size', 'encode_edge_weight', 'encode_point_opacity', 'encode_edge_opacity'],
+    params: EncodeNumericMappingParams = ...
+) -> 'ASTCall':
+    ...
+
+@overload
+def call(
+    function: Literal['encode_point_label', 'encode_edge_label', 'encode_point_title', 'encode_edge_title'],
+    params: EncodeTextColumnParams = ...
+) -> 'ASTCall':
     ...
 
 @overload

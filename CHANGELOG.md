@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Changed
+- **GFQL call validation safelist + encode parity (#1058, #1253)**: DRYed repeated private safelist entry definitions for call validators while adding `encode_edge_size`, `encode_edge_weight`, and point/edge opacity, label, and title encode helpers with GFQL `call()` validation, apply-encodings/schema key contracts, and anchored validator coverage.
+
 ## [0.56.0 - 2026-05-23]
 
 ### Migration / Compatibility Notes

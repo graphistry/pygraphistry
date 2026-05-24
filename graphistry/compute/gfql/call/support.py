@@ -407,7 +407,7 @@ def _method_entry(
     *,
     allowed_params: Set[str],
     required_params: Set[str],
-    param_validators: Dict[str, Callable[[object], bool]],
+    param_validators: Dict[str, Callable[[object], object]],
     description: str,
     schema_effects: Dict[str, Any],
 ) -> Dict[str, Any]:
@@ -427,4 +427,55 @@ def _projection_row_entry(description: str) -> Dict[str, Any]:
         param_validators={"items": is_projection_items},
         description=description,
         schema_effects=_schema_effects(adds_node_cols=_select_added_node_cols),
+    )
+
+
+def _safelist_entry(
+    allowed_params: Set[str],
+    *,
+    description: str,
+    required_params: Any = None,
+    param_validators: Any = None,
+    schema_effects: Dict[str, Any] = NO_SCHEMA_EFFECTS,
+) -> Dict[str, Any]:
+    return _method_entry(
+        allowed_params=allowed_params,
+        required_params=set() if required_params is None else required_params,
+        param_validators={} if param_validators is None else param_validators,
+        description=description,
+        schema_effects=schema_effects,
+    )
+
+
+def _named_string_entry(param_name: str, description: str) -> Dict[str, Any]:
+    return _safelist_entry(
+        {param_name},
+        required_params={param_name},
+        param_validators={param_name: is_string},
+        description=description,
+    )
+
+
+def _filter_by_dict_entry(table: str, description: str) -> Dict[str, Any]:
+    def cols(p: Dict[str, Any]) -> List[str]:
+        return list((p.get("filter_dict") or {}).keys())
+
+    return _safelist_entry(
+        {"filter_dict"},
+        required_params={"filter_dict"},
+        param_validators={"filter_dict": is_dict},
+        description=description,
+        schema_effects=_schema_effects(
+            requires_node_cols=cols if table == "nodes" else [],
+            requires_edge_cols=cols if table == "edges" else [],
+        ),
+    )
+
+
+def _degree_entry(col_default: str, description: str) -> Dict[str, Any]:
+    return _safelist_entry(
+        {"col"},
+        param_validators={"col": is_string},
+        description=description,
+        schema_effects=_schema_effects(adds_node_cols=lambda p: [p.get("col", col_default)]),
     )

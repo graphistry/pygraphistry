@@ -214,6 +214,46 @@ class TestCallExecution:
             == 'envelope'
         )
 
+    @pytest.mark.parametrize("function,encoding_key,scope,mapping_value", [
+        ('encode_edge_size', 'edgeSizeEncoding', 'edge_encodings', 10),
+        ('encode_edge_weight', 'edgeWeightEncoding', 'edge_encodings', 0.8),
+        ('encode_point_opacity', 'pointOpacityEncoding', 'node_encodings', 0.8),
+        ('encode_edge_opacity', 'edgeOpacityEncoding', 'edge_encodings', 0.8),
+    ])
+    def test_execute_numeric_encode_parity_methods(self, sample_graph, function, encoding_key, scope, mapping_value):
+        result = execute_call(
+            sample_graph,
+            function,
+            {'column': 'kind', 'categorical_mapping': {'admin': mapping_value}},
+            Engine.PANDAS
+        )
+
+        assert (
+            result._complex_encodings[scope]['default'][encoding_key]
+            ['mapping']['categorical']['fixed']['admin']
+            == mapping_value
+        )
+
+    @pytest.mark.parametrize("function,bound_attr", [
+        ('encode_point_label', '_point_label'),
+        ('encode_edge_label', '_edge_label'),
+        ('encode_point_title', '_point_title'),
+        ('encode_edge_title', '_edge_title'),
+    ])
+    def test_execute_text_encode_parity_methods_bind_raw_columns(self, sample_graph, function, bound_attr):
+        result = execute_call(
+            sample_graph,
+            function,
+            {'column': 'kind'},
+            Engine.PANDAS
+        )
+
+        assert getattr(result, bound_attr) == 'kind'
+        assert result._complex_encodings == {
+            'node_encodings': {'default': {}, 'current': {}},
+            'edge_encodings': {'default': {}, 'current': {}},
+        }
+
     def test_execute_encode_axis(self, sample_graph):
         rows = [{'r': 10, 'external': True, 'label': 'outer'}]
 

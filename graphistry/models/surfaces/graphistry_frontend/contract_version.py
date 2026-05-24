@@ -19,7 +19,7 @@ class FrontendContractVersionInfo(TypedDict):
     upstream_versions: Dict[str, Optional[str]]
 
 
-# Increment only when exported frontend contract keyspace/shape changes.
+# Increment only when React component or URL/server-facing frontend keyspace/shape changes.
 GRAPHISTRY_FRONTEND_CONTRACT_VERSION: Final[int] = 1
 
 # Optional pins to upstream runtime/library versions when known.
@@ -50,20 +50,21 @@ def _contract_signature(payload: Dict[str, object]) -> str:
 GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURE: Final[str] = _contract_signature(
     _frontend_contract_signature_payload()
 )
-# Signature map is keyed by contract version.
+# Signature map is keyed by contract version. Compatible client-side additions
+# can update the signature without forcing a server/React prop contract version bump.
 # Each value must be the output of:
 #   _contract_signature(_frontend_contract_signature_payload())
 # for the payload shape shipped with that version.
 GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION: Final[Dict[int, str]] = {
-    1: "bf54644c941670c46000fd7590077e33bfbda881095e77ebcf2f11821045edbd",
+    1: "40b317d4c0bf81249b32d4943ae29a710101525200d50acd6a22c62316004b76",
 }
 
 if GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION.get(GRAPHISTRY_FRONTEND_CONTRACT_VERSION) != GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURE:
     raise ValueError(
         "graphistry_frontend contract drift detected. "
         "Update graphistry/models/surfaces/graphistry_frontend/contract_version.py: "
-        "(1) bump GRAPHISTRY_FRONTEND_CONTRACT_VERSION, "
-        "(2) add the new signature to GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION, "
+        "(1) bump GRAPHISTRY_FRONTEND_CONTRACT_VERSION if the change is breaking/server-facing, "
+        "(2) refresh GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURES_BY_VERSION for compatible client-side changes, "
         "(3) optionally set GRAPHISTRY_FRONTEND_UPSTREAM_VERSIONS pins. "
         f"computed_signature={GRAPHISTRY_FRONTEND_CONTRACT_SIGNATURE}, "
         "expected_signature="

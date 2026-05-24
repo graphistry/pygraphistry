@@ -7,18 +7,20 @@ from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 from graphistry.compute.gfql.call.support import (
     EDGE_COLUMN_SCHEMA_EFFECTS,
     NODE_COLUMN_SCHEMA_EFFECTS,
-    NO_SCHEMA_EFFECTS,
     XY_NODE_SCHEMA_EFFECTS,
     XY_OUT_COL_SCHEMA_EFFECTS,
+    _degree_entry,
+    _filter_by_dict_entry,
     _group_by_added_node_cols,
     _hypergraph_edge_adds,
     _hypergraph_input_required_cols,
     _hypergraph_node_adds,
     _is_json_compatible_value,
-    _method_entry,
+    _named_string_entry,
     _projection_row_entry,
     _rows_requires_edge_cols,
     _rows_requires_node_cols,
+    _safelist_entry,
     _schema_effects,
     _select_added_node_cols,
     is_projection_items,
@@ -215,47 +217,25 @@ def _validate_string_list(name: str) -> ParamValidator:
     return _validator
 
 
-def _validate_list_of_dicts(name: str) -> ParamValidator:
+def _validate_payload_error(
+    name: str,
+    error_fn: Callable[[object, str], Optional[str]],
+    *,
+    allow_none: bool = False,
+    list_of_dicts_message: bool = False,
+) -> ParamValidator:
     def _validator(v: object) -> ValidatorResult:
-        if not isinstance(v, list):
-            return f"{name} must be a list of dictionaries"
-        for i, item in enumerate(v):
-            if not isinstance(item, dict):
-                return f"{name}[{i}] must be a dictionary"
-        return True
-    return _validator
-
-
-def _validate_encode_axis_rows(name: str) -> ParamValidator:
-    def _validator(v: object) -> ValidatorResult:
-        if not isinstance(v, list):
-            return f"{name} must be a list of dictionaries"
-        for i, item in enumerate(v):
-            if not isinstance(item, dict):
-                return f"{name}[{i}] must be a dictionary"
-        detail = documented_axis_rows_payload_error(v, name)
-        if detail is not None:
-            return detail
-        return True
-    return _validator
-
-
-def _validate_ring_continuous_axis(name: str) -> ParamValidator:
-    def _validator(v: object) -> ValidatorResult:
-        if v is None:
+        if allow_none and v is None:
             return True
-        detail = ring_continuous_axis_payload_error(v, name)
-        if detail is not None:
-            return detail
-        return True
-    return _validator
-
-
-def _validate_ring_categorical_axis(name: str) -> ParamValidator:
-    def _validator(v: object) -> ValidatorResult:
-        if v is None:
-            return True
-        detail = ring_categorical_axis_payload_error(v, name)
+        if list_of_dicts_message:
+            # Preserve the exact GFQL call() diagnostic established before the
+            # canonical axis payload helper used "axis row dictionaries".
+            if not isinstance(v, list):
+                return f"{name} must be a list of dictionaries"
+            for i, item in enumerate(v):
+                if not isinstance(item, dict):
+                    return f"{name}[{i}] must be a dictionary"
+        detail = error_fn(v, name)
         if detail is not None:
             return detail
         return True
@@ -304,18 +284,40 @@ def _validate_numeric(name: str) -> ParamValidator:
     return _validator
 
 
+_COLOR_ENCODING_VALIDATORS: Dict[str, ParamValidator] = {
+    "column": is_string,
+    "palette": _validate_string_list("palette"),
+    "as_categorical": is_bool,
+    "as_continuous": is_bool,
+    "categorical_mapping": _validate_string_mapping("categorical_mapping"),
+    "default_mapping": _validate_optional_string("default_mapping"),
+}
+
+_ICON_ENCODING_VALIDATORS: Dict[str, ParamValidator] = {
+    "column": is_string,
+    "categorical_mapping": _validate_string_mapping("categorical_mapping"),
+    "continuous_binning": lambda v: isinstance(v, list),
+    "default_mapping": _validate_optional_string("default_mapping"),
+    "as_text": is_bool,
+}
+
+_SIZE_ENCODING_VALIDATORS: Dict[str, ParamValidator] = {
+    "column": is_string,
+    "categorical_mapping": _validate_numeric_mapping("categorical_mapping"),
+    "default_mapping": _validate_numeric("default_mapping"),
+}
+
+_COLUMN_ENCODING_VALIDATORS: Dict[str, ParamValidator] = {
+    "column": is_string,
+}
+
+
 def is_list_of_dicts(v: object) -> bool:
     return isinstance(v, list) and all(isinstance(item, dict) for item in v)
 
 
 def is_where_rows_expr(v: object) -> bool:
-    if not is_non_empty_string(v):
-        return False
-    txt = str(v).strip()
-    parser_bundle = _where_rows_expr_parser_fn()
-    if parser_bundle is None:
-        return False
-    return _where_rows_expr_parser_parse_ok(txt)
+    return is_non_empty_string(v) and _where_rows_expr_parser_parse_ok(str(v).strip())
 
 
 def _where_rows_requires_node_cols(params: Dict[str, object]) -> List[str]:
@@ -354,13 +356,9 @@ def _semi_apply_mark_added_node_cols(params: Dict[str, object]) -> Set[str]:
     return set()
 
 
-# Parser-backed helpers stay local because tests monkeypatch parser availability
-# and capability behavior through this module.
-
 SAFELIST_V1: Dict[str, Dict[str, Any]] = {
-    'rows': _method_entry(
-        allowed_params={'table', 'source', 'alias_endpoints', 'binding_ops'},
-        required_params=set(),
+    'rows': _safelist_entry(
+        {'table', 'source', 'alias_endpoints', 'binding_ops'},
         param_validators={
             'table': lambda v: v in ['nodes', 'edges'],
             'source': is_string_or_none,
@@ -378,17 +376,16 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
 
     'return_': _projection_row_entry('RETURN-style row projection alias of select()'),
 
-    'with_': _method_entry(
-        allowed_params={'items', 'extend'},
+    'with_': _safelist_entry(
+        {'items', 'extend'},
         required_params={'items'},
         param_validators={'items': is_projection_items},
         description='WITH-style row projection; extend=True adds columns without dropping existing ones (#880)',
         schema_effects=_schema_effects(adds_node_cols=_select_added_node_cols),
     ),
 
-    'where_rows': _method_entry(
-        allowed_params={'filter_dict', 'expr'},
-        required_params=set(),
+    'where_rows': _safelist_entry(
+        {'filter_dict', 'expr'},
         param_validators={
             'filter_dict': is_where_rows_filter_dict,
             'expr': is_where_rows_expr,
@@ -397,19 +394,18 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         schema_effects=_schema_effects(requires_node_cols=_where_rows_requires_node_cols),
     ),
 
-    'anti_semi_apply': _method_entry(
-        allowed_params={'binding_ops', 'join_aliases'},
+    'anti_semi_apply': _safelist_entry(
+        {'binding_ops', 'join_aliases'},
         required_params={'binding_ops', 'join_aliases'},
         param_validators={
             'binding_ops': is_list_of_dicts,
             'join_aliases': is_non_empty_list_of_strings,
         },
         description='Filter active rows by anti-semi joining against correlated binding rows',
-        schema_effects=NO_SCHEMA_EFFECTS,
     ),
 
-    'semi_apply_mark': _method_entry(
-        allowed_params={'binding_ops', 'join_aliases', 'out_col'},
+    'semi_apply_mark': _safelist_entry(
+        {'binding_ops', 'join_aliases', 'out_col'},
         required_params={'binding_ops', 'join_aliases', 'out_col'},
         param_validators={
             'binding_ops': is_list_of_dicts,
@@ -420,8 +416,8 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         schema_effects=_schema_effects(adds_node_cols=_semi_apply_mark_added_node_cols),
     ),
 
-    'join_apply': _method_entry(
-        allowed_params={'binding_ops', 'join_aliases', 'how'},
+    'join_apply': _safelist_entry(
+        {'binding_ops', 'join_aliases', 'how'},
         required_params={'binding_ops', 'join_aliases'},
         param_validators={
             'binding_ops': is_list_of_dicts,
@@ -429,35 +425,31 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'how': lambda v: v in {'inner', 'left'},
         },
         description='Join active rows with correlated binding rows',
-        schema_effects=NO_SCHEMA_EFFECTS,
     ),
 
-    'order_by': _method_entry(
-        allowed_params={'keys'},
+    'order_by': _safelist_entry(
+        {'keys'},
         required_params={'keys'},
         param_validators={'keys': is_order_keys},
         description='Sort active row table by expression/direction keys',
-        schema_effects=NO_SCHEMA_EFFECTS,
     ),
 
-    'skip': _method_entry(
-        allowed_params={'value'},
+    'skip': _safelist_entry(
+        {'value'},
         required_params={'value'},
         param_validators={'value': is_non_negative_int_like},
         description='Skip first N rows from active row table',
-        schema_effects=NO_SCHEMA_EFFECTS,
     ),
 
-    'limit': _method_entry(
-        allowed_params={'value'},
+    'limit': _safelist_entry(
+        {'value'},
         required_params={'value'},
         param_validators={'value': is_non_negative_int_like},
         description='Limit active row table to first N rows',
-        schema_effects=NO_SCHEMA_EFFECTS,
     ),
 
-    'unwind': _method_entry(
-        allowed_params={'expr', 'as_'},
+    'unwind': _safelist_entry(
+        {'expr', 'as_'},
         required_params={'expr'},
         param_validators={
             'expr': is_unwind_expr,
@@ -470,8 +462,8 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         ),
     ),
 
-    'group_by': _method_entry(
-        allowed_params={'keys', 'aggregations', 'key_prefixes'},
+    'group_by': _safelist_entry(
+        {'keys', 'aggregations', 'key_prefixes'},
         required_params={'keys', 'aggregations'},
         param_validators={
             'keys': is_non_empty_list_of_strings,
@@ -485,35 +477,30 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         ),
     ),
 
-    'drop_cols': _method_entry(
-        allowed_params={'cols'},
+    'drop_cols': _safelist_entry(
+        {'cols'},
         required_params={'cols'},
         param_validators={
             'cols': is_list_of_strings,
         },
         description='Drop named columns from the active row table (ignores missing columns)',
-        schema_effects=NO_SCHEMA_EFFECTS,
     ),
 
-    'distinct': _method_entry(
-        allowed_params=set(),
-        required_params=set(),
-        param_validators={},
+    'distinct': _safelist_entry(
+        set(),
         description='Drop duplicate rows from active row table',
-        schema_effects=NO_SCHEMA_EFFECTS,
     ),
 
-    'get_degrees': {
-        'allowed_params': {'col', 'degree_in', 'degree_out', 'engine'},
-        'required_params': set(),
-        'param_validators': {
+    'get_degrees': _safelist_entry(
+        {'col', 'degree_in', 'degree_out', 'engine'},
+        param_validators={
             'col': is_string,
             'degree_in': is_string,
             'degree_out': is_string,
             'engine': is_string
         },
-        'description': 'Calculate node degrees',
-        'schema_effects': {
+        description='Calculate node degrees',
+        schema_effects={
             'adds_node_cols': lambda p: [
                 p.get('col', 'degree'),
                 p.get('degree_in', 'degree_in'),
@@ -523,51 +510,29 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'requires_node_cols': [],
             'requires_edge_cols': []
         }
-    },
+    ),
     
-    'filter_nodes_by_dict': {
-        'allowed_params': {'filter_dict'},
-        'required_params': {'filter_dict'},
-        'param_validators': {
-            'filter_dict': is_dict
-        },
-        'description': 'Filter nodes by attribute values',
-        'schema_effects': {
-            'adds_node_cols': [],
-            'adds_edge_cols': [],
-            'requires_node_cols': lambda p: list((p.get('filter_dict') or {}).keys()),
-            'requires_edge_cols': []
-        }
-    },
+    'filter_nodes_by_dict': _filter_by_dict_entry(
+        table="nodes",
+        description='Filter nodes by attribute values',
+    ),
     
-    'filter_edges_by_dict': {
-        'allowed_params': {'filter_dict'},
-        'required_params': {'filter_dict'},
-        'param_validators': {
-            'filter_dict': is_dict
-        },
-        'description': 'Filter edges by attribute values',
-        'schema_effects': {
-            'adds_node_cols': [],
-            'adds_edge_cols': [],
-            'requires_node_cols': [],
-            'requires_edge_cols': lambda p: list((p.get('filter_dict') or {}).keys())
-        }
-    },
+    'filter_edges_by_dict': _filter_by_dict_entry(
+        table="edges",
+        description='Filter edges by attribute values',
+    ),
     
-    'materialize_nodes': {
-        'allowed_params': {'engine', 'reuse'},
-        'required_params': set(),
-        'param_validators': {
+    'materialize_nodes': _safelist_entry(
+        {'engine', 'reuse'},
+        param_validators={
             'engine': is_string,
             'reuse': is_bool
         },
-        'description': 'Generate node table from edges',
-        'schema_effects': NO_SCHEMA_EFFECTS
-    },
+        description='Generate node table from edges',
+    ),
     
-    'hop': {
-        'allowed_params': {
+    'hop': _safelist_entry(
+        {
             'nodes', 'hops', 'to_fixed_point', 'direction',
             'source_node_match', 'edge_match', 'destination_node_match',
             'source_node_query', 'edge_query', 'destination_node_query',
@@ -575,8 +540,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'min_hops', 'max_hops', 'output_min_hops', 'output_max_hops',
             'label_node_hops', 'label_edge_hops', 'label_seeds'
         },
-        'required_params': set(),
-        'param_validators': {
+        param_validators={
             'hops': is_int,
             'min_hops': is_int,
             'max_hops': is_int,
@@ -596,51 +560,31 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'return_as_wave_front': is_bool,
             'engine': is_string
         },
-        'description': 'Traverse edges with optional hop bounds and node/edge hop label columns',
-        'schema_effects': {
-            'adds_node_cols': lambda p: [p['label_node_hops']] if p.get('label_node_hops') else [],
-            'adds_edge_cols': lambda p: [p['label_edge_hops']] if p.get('label_edge_hops') else [],
-            'requires_node_cols': lambda p: list((p.get('source_node_match') or {}).keys()) + list((p.get('destination_node_match') or {}).keys()),
-            'requires_edge_cols': lambda p: list((p.get('edge_match') or {}).keys())
-        }
-    },
+        description='Traverse edges with optional hop bounds and node/edge hop label columns',
+        schema_effects=_schema_effects(
+            adds_node_cols=lambda p: [p['label_node_hops']] if p.get('label_node_hops') else [],
+            adds_edge_cols=lambda p: [p['label_edge_hops']] if p.get('label_edge_hops') else [],
+            requires_node_cols=lambda p: list((p.get('source_node_match') or {}).keys()) + list((p.get('destination_node_match') or {}).keys()),
+            requires_edge_cols=lambda p: list((p.get('edge_match') or {}).keys()),
+        ),
+    ),
 
     # In/out degree methods
-    'get_indegrees': {
-        'allowed_params': {'col'},
-        'required_params': set(),
-        'param_validators': {
-            'col': is_string
-        },
-        'description': 'Calculate node in-degrees',
-        'schema_effects': {
-            'adds_node_cols': lambda p: [p.get('col', 'degree_in')],
-            'adds_edge_cols': [],
-            'requires_node_cols': [],
-            'requires_edge_cols': []
-        }
-    },
+    'get_indegrees': _degree_entry(
+        col_default='degree_in',
+        description='Calculate node in-degrees',
+    ),
 
-    'get_outdegrees': {
-        'allowed_params': {'col'},
-        'required_params': set(),
-        'param_validators': {
-            'col': is_string
-        },
-        'description': 'Calculate node out-degrees',
-        'schema_effects': {
-            'adds_node_cols': lambda p: [p.get('col', 'degree_out')],
-            'adds_edge_cols': [],
-            'requires_node_cols': [],
-            'requires_edge_cols': []
-        }
-    },
+    'get_outdegrees': _degree_entry(
+        col_default='degree_out',
+        description='Calculate node out-degrees',
+    ),
 
     # Graph algorithm operations
-    'compute_cugraph': {
-        'allowed_params': {'alg', 'out_col', 'params', 'kind', 'directed', 'G'},
-        'required_params': {'alg'},
-        'param_validators': {
+    'compute_cugraph': _safelist_entry(
+        {'alg', 'out_col', 'params', 'kind', 'directed', 'G'},
+        required_params={'alg'},
+        param_validators={
             'alg': is_string,
             'out_col': is_string_or_none,
             'params': is_dict,
@@ -648,39 +592,28 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'directed': is_bool,
             'G': lambda x: x is None  # Allow None only
         },
-        'description': 'Run cuGraph algorithms (pagerank, louvain, etc)',
-        'schema_effects': {
-            'adds_node_cols': lambda p: [p.get('out_col', p['alg'])],
-            'adds_edge_cols': [],
-            'requires_node_cols': [],
-            'requires_edge_cols': []
-        }
-    },
+        description='Run cuGraph algorithms (pagerank, louvain, etc)',
+        schema_effects=_schema_effects(adds_node_cols=lambda p: [p.get('out_col', p['alg'])]),
+    ),
 
-    'compute_igraph': {
-        'allowed_params': {'alg', 'out_col', 'directed', 'use_vids', 'params'},
-        'required_params': {'alg'},
-        'param_validators': {
+    'compute_igraph': _safelist_entry(
+        {'alg', 'out_col', 'directed', 'use_vids', 'params'},
+        required_params={'alg'},
+        param_validators={
             'alg': is_string,
             'out_col': is_string_or_none,
             'directed': is_bool,
             'use_vids': is_bool,
             'params': is_dict
         },
-        'description': 'Run igraph algorithms',
-        'schema_effects': {
-            'adds_node_cols': lambda p: [p.get('out_col', p['alg'])],
-            'adds_edge_cols': [],
-            'requires_node_cols': [],
-            'requires_edge_cols': []
-        }
-    },
+        description='Run igraph algorithms',
+        schema_effects=_schema_effects(adds_node_cols=lambda p: [p.get('out_col', p['alg'])]),
+    ),
 
     # Layout operations
-    'layout_cugraph': {
-        'allowed_params': {'layout', 'params', 'kind', 'directed', 'G', 'bind_position', 'x_out_col', 'y_out_col', 'play'},
-        'required_params': set(),
-        'param_validators': {
+    'layout_cugraph': _safelist_entry(
+        {'layout', 'params', 'kind', 'directed', 'G', 'bind_position', 'x_out_col', 'y_out_col', 'play'},
+        param_validators={
             'layout': is_string,
             'params': is_dict,
             'kind': is_string,
@@ -691,14 +624,14 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'y_out_col': is_string,
             'play': is_int
         },
-        'description': 'GPU-accelerated graph layouts',
-        'schema_effects': XY_OUT_COL_SCHEMA_EFFECTS
-    },
+        description='GPU-accelerated graph layouts',
+        schema_effects=XY_OUT_COL_SCHEMA_EFFECTS,
+    ),
 
-    'layout_igraph': {
-        'allowed_params': {'layout', 'directed', 'use_vids', 'bind_position', 'x_out_col', 'y_out_col', 'params', 'play'},
-        'required_params': {'layout'},
-        'param_validators': {
+    'layout_igraph': _safelist_entry(
+        {'layout', 'directed', 'use_vids', 'bind_position', 'x_out_col', 'y_out_col', 'params', 'play'},
+        required_params={'layout'},
+        param_validators={
             'layout': is_string,
             'directed': is_bool,
             'use_vids': is_bool,
@@ -708,17 +641,16 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'params': is_dict,
             'play': is_int
         },
-        'description': 'igraph-based layouts',
-        'schema_effects': XY_OUT_COL_SCHEMA_EFFECTS
-    },
+        description='igraph-based layouts',
+        schema_effects=XY_OUT_COL_SCHEMA_EFFECTS,
+    ),
 
-    'layout_graphviz': {
-        'allowed_params': {
+    'layout_graphviz': _safelist_entry(
+        {
             'prog', 'args', 'directed', 'strict', 'graph_attr',
             'node_attr', 'edge_attr', 'x_out_col', 'y_out_col', 'bind_position'
         },
-        'required_params': set(),
-        'param_validators': {
+        param_validators={
             'prog': is_string,
             'args': is_string_or_none,
             'directed': is_bool,
@@ -730,18 +662,17 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'y_out_col': is_string,
             'bind_position': is_bool
         },
-        'description': 'Graphviz layouts (dot, neato, etc)',
-        'schema_effects': XY_NODE_SCHEMA_EFFECTS
-    },
+        description='Graphviz layouts (dot, neato, etc)',
+        schema_effects=XY_NODE_SCHEMA_EFFECTS,
+    ),
 
-    'ring_continuous_layout': {
-        'allowed_params': {
+    'ring_continuous_layout': _safelist_entry(
+        {
             'ring_col', 'min_r', 'max_r', 'normalize_ring_col', 'num_rings',
             'ring_step', 'v_start', 'v_end', 'v_step', 'axis', 'format_axis',
             'format_labels', 'reverse', 'play_ms', 'engine'
         },
-        'required_params': set(),
-        'param_validators': {
+        param_validators={
             'ring_col': is_string_or_none,
             'min_r': lambda v: v is None or is_int_or_float(v),
             'max_r': lambda v: v is None or is_int_or_float(v),
@@ -750,24 +681,24 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'v_start': lambda v: v is None or is_int_or_float(v),
             'v_end': lambda v: v is None or is_int_or_float(v),
             'v_step': lambda v: v is None or is_int_or_float(v),
-            'axis': _validate_ring_continuous_axis('axis'),
+            'axis': lambda v: True if v is None else ring_continuous_axis_payload_error(v, 'axis') or True,
             'normalize_ring_col': is_bool,
             'reverse': is_bool,
             'play_ms': lambda v: v is None or is_int(v),
             'engine': lambda v: v is None or v in ('auto', 'pandas', 'cudf', 'dask', 'dask_cudf')
         },
-        'description': 'Radial layout based on numeric columns',
-        'schema_effects': XY_NODE_SCHEMA_EFFECTS
-    },
+        description='Radial layout based on numeric columns',
+        schema_effects=XY_NODE_SCHEMA_EFFECTS,
+    ),
 
-    'ring_categorical_layout': {
-        'allowed_params': {
+    'ring_categorical_layout': _safelist_entry(
+        {
             'ring_col', 'order', 'drop_empty', 'combine_unhandled',
             'append_unhandled', 'min_r', 'max_r', 'axis', 'format_axis',
             'format_labels', 'reverse', 'play_ms', 'engine'
         },
-        'required_params': {'ring_col'},
-        'param_validators': {
+        required_params={'ring_col'},
+        param_validators={
             'ring_col': is_string,
             'order': lambda v: v is None or is_list(v),
             'drop_empty': is_bool,
@@ -775,23 +706,23 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'append_unhandled': is_bool,
             'min_r': lambda v: v is None or is_int_or_float(v),
             'max_r': lambda v: v is None or is_int_or_float(v),
-            'axis': _validate_ring_categorical_axis('axis'),
+            'axis': lambda v: True if v is None else ring_categorical_axis_payload_error(v, 'axis') or True,
             'reverse': is_bool,
             'play_ms': lambda v: v is None or is_int(v),
             'engine': lambda v: v is None or v in ('auto', 'pandas', 'cudf', 'dask', 'dask_cudf')
         },
-        'description': 'Radial layout grouping nodes by categories',
-        'schema_effects': XY_NODE_SCHEMA_EFFECTS
-    },
+        description='Radial layout grouping nodes by categories',
+        schema_effects=XY_NODE_SCHEMA_EFFECTS,
+    ),
 
-    'time_ring_layout': {
-        'allowed_params': {
+    'time_ring_layout': _safelist_entry(
+        {
             'time_col', 'time_start', 'time_end', 'time_unit', 'num_rings',
             'min_r', 'max_r', 'format_axis', 'format_label',
             'reverse', 'play_ms', 'engine'
         },
-        'required_params': {'time_col'},
-        'param_validators': {
+        required_params={'time_col'},
+        param_validators={
             'time_col': is_string,
             'time_start': lambda v: v is None or isinstance(v, str),
             'time_end': lambda v: v is None or isinstance(v, str),
@@ -803,14 +734,13 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'play_ms': lambda v: v is None or is_int(v),
             'engine': lambda v: v is None or v in ('auto', 'pandas', 'cudf', 'dask', 'dask_cudf')
         },
-        'description': 'Radial layout for time-series rings',
-        'schema_effects': XY_NODE_SCHEMA_EFFECTS
-    },
+        description='Radial layout for time-series rings',
+        schema_effects=XY_NODE_SCHEMA_EFFECTS,
+    ),
 
-    'fa2_layout': {
-        'allowed_params': {'fa2_params', 'circle_layout_params', 'partition_key', 'remove_self_edges', 'engine', 'featurize'},
-        'required_params': set(),
-        'param_validators': {
+    'fa2_layout': _safelist_entry(
+        {'fa2_params', 'circle_layout_params', 'partition_key', 'remove_self_edges', 'engine', 'featurize'},
+        param_validators={
             'fa2_params': is_dict,
             'circle_layout_params': is_dict,
             'partition_key': is_string_or_none,
@@ -818,9 +748,9 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'engine': is_string,
             'featurize': is_dict
         },
-        'description': 'ForceAtlas2 layout algorithm',
-        'schema_effects': XY_NODE_SCHEMA_EFFECTS
-    },
+        description='ForceAtlas2 layout algorithm',
+        schema_effects=XY_NODE_SCHEMA_EFFECTS,
+    ),
 
     'circle_layout': {
         'allowed_params': {
@@ -899,19 +829,15 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     },
 
     # Self-edge pruning
-    'prune_self_edges': {
-        'allowed_params': set(),
-        'required_params': set(),
-        'param_validators': {},
-        'description': 'Remove self-loops from graph',
-        'schema_effects': NO_SCHEMA_EFFECTS
-    },
+    'prune_self_edges': _safelist_entry(
+        set(),
+        description='Remove self-loops from graph',
+    ),
 
     # Graph transformations
-    'collapse': {
-        'allowed_params': {'node', 'attribute', 'column', 'self_edges', 'unwrap', 'verbose'},
-        'required_params': set(),
-        'param_validators': {
+    'collapse': _safelist_entry(
+        {'node', 'attribute', 'column', 'self_edges', 'unwrap', 'verbose'},
+        param_validators={
             'node': is_string_or_none,
             'attribute': is_string_or_none,
             'column': is_string_or_none,
@@ -919,164 +845,174 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'unwrap': is_bool,
             'verbose': is_bool
         },
-        'description': 'Collapse nodes by shared attribute values',
-        'schema_effects': {
-            'adds_node_cols': ['node_final'],
-            'adds_edge_cols': ['src_final', 'dst_final'],
-            'requires_node_cols': lambda p: [p['column']] if isinstance(p.get('column'), str) else [],
-            'requires_edge_cols': []
-        }
-    },
+        description='Collapse nodes by shared attribute values',
+        schema_effects=_schema_effects(
+            adds_node_cols=['node_final'],
+            adds_edge_cols=['src_final', 'dst_final'],
+            requires_node_cols=lambda p: [p['column']] if isinstance(p.get('column'), str) else [],
+        ),
+    ),
 
-    'drop_nodes': {
-        'allowed_params': {'nodes'},
-        'required_params': {'nodes'},
-        'param_validators': {
+    'drop_nodes': _safelist_entry(
+        {'nodes'},
+        required_params={'nodes'},
+        param_validators={
             'nodes': lambda v: isinstance(v, list) or is_dict(v)
         },
-        'description': 'Remove specified nodes and their edges',
-        'schema_effects': NO_SCHEMA_EFFECTS
-    },
+        description='Remove specified nodes and their edges',
+    ),
 
-    'keep_nodes': {
-        'allowed_params': {'nodes'},
-        'required_params': {'nodes'},
-        'param_validators': {
+    'keep_nodes': _safelist_entry(
+        {'nodes'},
+        required_params={'nodes'},
+        param_validators={
             'nodes': lambda v: isinstance(v, list) or is_dict(v)
         },
-        'description': 'Keep only specified nodes and their edges',
-        'schema_effects': NO_SCHEMA_EFFECTS
-    },
+        description='Keep only specified nodes and their edges',
+    ),
 
     # Topology analysis
-    'get_topological_levels': {
-        'allowed_params': {'level_col', 'allow_cycles', 'warn_cycles', 'remove_self_loops'},
-        'required_params': set(),
-        'param_validators': {
+    'get_topological_levels': _safelist_entry(
+        {'level_col', 'allow_cycles', 'warn_cycles', 'remove_self_loops'},
+        param_validators={
             'level_col': is_string,
             'allow_cycles': is_bool,
             'warn_cycles': is_bool,
             'remove_self_loops': is_bool
         },
-        'description': 'Compute topological levels for DAG analysis',
-        'schema_effects': {
-            'adds_node_cols': lambda p: [p.get('level_col', 'level')],
-            'adds_edge_cols': [],
-            'requires_node_cols': [],
-            'requires_edge_cols': []
-        }
-    },
+        description='Compute topological levels for DAG analysis',
+        schema_effects=_schema_effects(adds_node_cols=lambda p: [p.get('level_col', 'level')]),
+    ),
 
     # Visual encoding methods
-    'encode_point_color': {
-        'allowed_params': {'column', 'palette', 'as_categorical', 'as_continuous', 'categorical_mapping', 'default_mapping'},
-        'required_params': {'column'},
-        'param_validators': {
-            'column': is_string,
-            'palette': _validate_string_list('palette'),
-            'as_categorical': is_bool,
-            'as_continuous': is_bool,
-            'categorical_mapping': _validate_string_mapping('categorical_mapping'),
-            'default_mapping': _validate_optional_string('default_mapping')
-        },
-        'description': 'Map node column values to colors',
-        'schema_effects': NODE_COLUMN_SCHEMA_EFFECTS
-    },
+    'encode_point_color': _safelist_entry(
+        set(_COLOR_ENCODING_VALIDATORS),
+        required_params={"column"},
+        param_validators=_COLOR_ENCODING_VALIDATORS,
+        description='Map node column values to colors',
+        schema_effects=NODE_COLUMN_SCHEMA_EFFECTS,
+    ),
 
-    'encode_edge_color': {
-        'allowed_params': {'column', 'palette', 'as_categorical', 'as_continuous', 'categorical_mapping', 'default_mapping'},
-        'required_params': {'column'},
-        'param_validators': {
-            'column': is_string,
-            'palette': _validate_string_list('palette'),
-            'as_categorical': is_bool,
-            'as_continuous': is_bool,
-            'categorical_mapping': _validate_string_mapping('categorical_mapping'),
-            'default_mapping': _validate_optional_string('default_mapping')
-        },
-        'description': 'Map edge column values to colors',
-        'schema_effects': EDGE_COLUMN_SCHEMA_EFFECTS
-    },
+    'encode_edge_color': _safelist_entry(
+        set(_COLOR_ENCODING_VALIDATORS),
+        required_params={"column"},
+        param_validators=_COLOR_ENCODING_VALIDATORS,
+        description='Map edge column values to colors',
+        schema_effects=EDGE_COLUMN_SCHEMA_EFFECTS,
+    ),
 
-    'encode_point_size': {
-        'allowed_params': {'column', 'categorical_mapping', 'default_mapping'},
-        'required_params': {'column'},
-        'param_validators': {
-            'column': is_string,
-            'categorical_mapping': _validate_numeric_mapping('categorical_mapping'),
-            'default_mapping': _validate_numeric('default_mapping')
-        },
-        'description': 'Map node column values to sizes',
-        'schema_effects': NODE_COLUMN_SCHEMA_EFFECTS
-    },
+    'encode_point_size': _safelist_entry(
+        set(_SIZE_ENCODING_VALIDATORS),
+        required_params={"column"},
+        param_validators=_SIZE_ENCODING_VALIDATORS,
+        description='Map node column values to sizes',
+        schema_effects=NODE_COLUMN_SCHEMA_EFFECTS,
+    ),
 
-    'encode_point_icon': {
-        'allowed_params': {'column', 'categorical_mapping', 'continuous_binning', 'default_mapping', 'as_text'},
-        'required_params': {'column'},
-        'param_validators': {
-            'column': is_string,
-            'categorical_mapping': _validate_string_mapping('categorical_mapping'),
-            'continuous_binning': lambda v: isinstance(v, list),
-            'default_mapping': _validate_optional_string('default_mapping'),
-            'as_text': is_bool
-        },
-        'description': 'Map node column values to icons',
-        'schema_effects': NODE_COLUMN_SCHEMA_EFFECTS
-    },
+    'encode_edge_size': _safelist_entry(
+        set(_SIZE_ENCODING_VALIDATORS),
+        required_params={"column"},
+        param_validators=_SIZE_ENCODING_VALIDATORS,
+        description='Map edge column values to sizes',
+        schema_effects=EDGE_COLUMN_SCHEMA_EFFECTS,
+    ),
 
-    'encode_edge_icon': {
-        'allowed_params': {'column', 'categorical_mapping', 'continuous_binning', 'default_mapping', 'as_text'},
-        'required_params': {'column'},
-        'param_validators': {
-            'column': is_string,
-            'categorical_mapping': _validate_string_mapping('categorical_mapping'),
-            'continuous_binning': lambda v: isinstance(v, list),
-            'default_mapping': _validate_optional_string('default_mapping'),
-            'as_text': is_bool
-        },
-        'description': 'Map edge column values to icons',
-        'schema_effects': EDGE_COLUMN_SCHEMA_EFFECTS
-    },
+    'encode_edge_weight': _safelist_entry(
+        set(_SIZE_ENCODING_VALIDATORS),
+        required_params={"column"},
+        param_validators=_SIZE_ENCODING_VALIDATORS,
+        description='Map edge column values to weights',
+        schema_effects=EDGE_COLUMN_SCHEMA_EFFECTS,
+    ),
 
-    'encode_axis': {
-        'allowed_params': {'rows'},
-        'required_params': set(),
-        'param_validators': {
-            'rows': _validate_encode_axis_rows('rows')
+    'encode_point_opacity': _safelist_entry(
+        set(_SIZE_ENCODING_VALIDATORS),
+        required_params={"column"},
+        param_validators=_SIZE_ENCODING_VALIDATORS,
+        description='Map node column values to opacity',
+        schema_effects=NODE_COLUMN_SCHEMA_EFFECTS,
+    ),
+
+    'encode_edge_opacity': _safelist_entry(
+        set(_SIZE_ENCODING_VALIDATORS),
+        required_params={"column"},
+        param_validators=_SIZE_ENCODING_VALIDATORS,
+        description='Map edge column values to opacity',
+        schema_effects=EDGE_COLUMN_SCHEMA_EFFECTS,
+    ),
+
+    'encode_point_label': _safelist_entry(
+        set(_COLUMN_ENCODING_VALIDATORS),
+        required_params={"column"},
+        param_validators=_COLUMN_ENCODING_VALIDATORS,
+        description='Bind node label column',
+        schema_effects=NODE_COLUMN_SCHEMA_EFFECTS,
+    ),
+
+    'encode_edge_label': _safelist_entry(
+        set(_COLUMN_ENCODING_VALIDATORS),
+        required_params={"column"},
+        param_validators=_COLUMN_ENCODING_VALIDATORS,
+        description='Bind edge label column',
+        schema_effects=EDGE_COLUMN_SCHEMA_EFFECTS,
+    ),
+
+    'encode_point_title': _safelist_entry(
+        set(_COLUMN_ENCODING_VALIDATORS),
+        required_params={"column"},
+        param_validators=_COLUMN_ENCODING_VALIDATORS,
+        description='Bind node title column',
+        schema_effects=NODE_COLUMN_SCHEMA_EFFECTS,
+    ),
+
+    'encode_edge_title': _safelist_entry(
+        set(_COLUMN_ENCODING_VALIDATORS),
+        required_params={"column"},
+        param_validators=_COLUMN_ENCODING_VALIDATORS,
+        description='Bind edge title column',
+        schema_effects=EDGE_COLUMN_SCHEMA_EFFECTS,
+    ),
+
+    'encode_point_icon': _safelist_entry(
+        set(_ICON_ENCODING_VALIDATORS),
+        required_params={"column"},
+        param_validators=_ICON_ENCODING_VALIDATORS,
+        description='Map node column values to icons',
+        schema_effects=NODE_COLUMN_SCHEMA_EFFECTS,
+    ),
+
+    'encode_edge_icon': _safelist_entry(
+        set(_ICON_ENCODING_VALIDATORS),
+        required_params={"column"},
+        param_validators=_ICON_ENCODING_VALIDATORS,
+        description='Map edge column values to icons',
+        schema_effects=EDGE_COLUMN_SCHEMA_EFFECTS,
+    ),
+
+    'encode_axis': _safelist_entry(
+        {'rows'},
+        param_validators={
+            'rows': _validate_payload_error(
+                'rows',
+                documented_axis_rows_payload_error,
+                list_of_dicts_message=True,
+            )
         },
-        'description': 'Render radial and linear axes with optional labels',
-        'schema_effects': NO_SCHEMA_EFFECTS
-    },
+        description='Render radial and linear axes with optional labels',
+    ),
 
     # Metadata methods
-    'name': {
-        'allowed_params': {'name'},
-        'required_params': {'name'},
-        'param_validators': {
-            'name': is_string
-        },
-        'description': 'Set visualization name',
-        'schema_effects': NO_SCHEMA_EFFECTS
-    },
+    'name': _named_string_entry('name', 'Set visualization name'),
 
-    'description': {
-        'allowed_params': {'description'},
-        'required_params': {'description'},
-        'param_validators': {
-            'description': is_string
-        },
-        'description': 'Set visualization description',
-        'schema_effects': NO_SCHEMA_EFFECTS
-    },
+    'description': _named_string_entry('description', 'Set visualization description'),
 
     # Layout with community detection
-    'group_in_a_box_layout': {
-        'allowed_params': {
+    'group_in_a_box_layout': _safelist_entry(
+        {
             'partition_alg', 'partition_params', 'layout_alg', 'layout_params',
             'x', 'y', 'w', 'h', 'encode_colors', 'colors', 'partition_key', 'engine'
         },
-        'required_params': set(),
-        'param_validators': {
+        param_validators={
             'partition_alg': is_string_or_none,
             'partition_params': is_dict,
             'layout_alg': lambda v: v is None or is_string(v) or callable(v),
@@ -1090,19 +1026,18 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'partition_key': is_string_or_none,
             'engine': lambda v: v in ['auto', 'cpu', 'gpu', 'pandas', 'cudf']
         },
-        'description': 'Group-in-a-box layout with community detection',
-        'schema_effects': XY_NODE_SCHEMA_EFFECTS
-    },
+        description='Group-in-a-box layout with community detection',
+        schema_effects=XY_NODE_SCHEMA_EFFECTS,
+    ),
 
     # Hypergraph transformation
-    'hypergraph': {
-        'allowed_params': {
+    'hypergraph': _safelist_entry(
+        {
             'entity_types', 'opts', 'drop_na', 'drop_edge_attrs',
             'verbose', 'direct', 'engine', 'npartitions', 'chunksize',
             'from_edges', 'return_as'
         },
-        'required_params': set(),  # All params are optional
-        'param_validators': {
+        param_validators={
             'entity_types': lambda v: v is None or is_list_of_strings(v),
             'opts': validate_hypergraph_opts,  # Use detailed validator
             'drop_na': is_bool,
@@ -1115,26 +1050,25 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'from_edges': is_bool,
             'return_as': lambda v: is_string(v) and v in ['graph', 'all', 'entities', 'events', 'edges', 'nodes']
         },
-        'description': 'Transform event data into a hypergraph',
-        'schema_effects': {
+        description='Transform event data into a hypergraph',
+        schema_effects={
             'adds_node_cols': _hypergraph_node_adds,
             'adds_edge_cols': _hypergraph_edge_adds,
             'requires_node_cols': lambda p: [] if p.get('from_edges') else _hypergraph_input_required_cols(p),
             'requires_edge_cols': lambda p: _hypergraph_input_required_cols(p) if p.get('from_edges') else []
         }
-    },
+    ),
 
     # UMAP embedding operations
-    'umap': {
-        'allowed_params': {
+    'umap': _safelist_entry(
+        {
             'X', 'y', 'kind', 'scale', 'n_neighbors', 'min_dist', 'spread',
             'local_connectivity', 'repulsion_strength', 'negative_sample_rate',
             'n_components', 'metric', 'suffix', 'play', 'encode_position',
             'encode_weight', 'dbscan', 'engine', 'feature_engine', 'inplace',
             'memoize', 'umap_kwargs', 'umap_fit_kwargs', 'umap_transform_kwargs'
         },
-        'required_params': set(),  # All params are optional
-        'param_validators': {
+        param_validators={
             'X': lambda v: v is None or is_string(v) or is_list_of_strings(v),
             'y': lambda v: v is None or is_string(v) or is_list_of_strings(v),
             'kind': lambda v: v in ['nodes', 'edges'],
@@ -1160,14 +1094,14 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'umap_fit_kwargs': is_dict,
             'umap_transform_kwargs': is_dict
         },
-        'description': 'UMAP dimensionality reduction for graph embeddings',
-        'schema_effects': {
+        description='UMAP dimensionality reduction for graph embeddings',
+        schema_effects={
             'adds_node_cols': _umap_node_adds,
             'adds_edge_cols': _umap_edge_adds,
             'requires_node_cols': _umap_node_required_cols,
             'requires_edge_cols': _umap_edge_required_cols
         }
-    }
+    )
 }
 
 

@@ -6,11 +6,13 @@ from graphistry.models.surfaces.graphistry_frontend.react_settings import (
     REACT_SETTING_NAME_SET,
     ReactIconEncodingKey,
     ReactEncodingVariation,
-    ReactSizeEncodingKey,
+    ReactMappedPropertyEncodingKey,
+    ReactTextEncodingKey,
 )
 from graphistry.models.surfaces.graphistry_frontend.react_encoding_ops import (
     ColorEncodingOp,
-    SizeEncodingOp,
+    MappedPropertyEncodingOp,
+    TextEncodingOp,
     IconEncodingOp,
     ReactEncodingOp,
 )
@@ -106,24 +108,24 @@ def _parse_color_payload(
     return None
 
 
-def _parse_size_payload(
+def _parse_mapping_payload(
+    key: str,
     raw_value: Any,
     validate_mode: ValidationMode,
     warn: bool,
-) -> Optional[SizeEncodingOp]:
-    key: ReactSizeEncodingKey = "encodePointSize"
+) -> Optional[Dict[str, Any]]:
     payload = _expect_list_payload(raw_value, key, validate_mode, warn)
     if payload is None or len(payload) == 0:
-        _issue("React size encoding payload must include at least [column]", {"key": key}, validate_mode, warn)
+        _issue("React mapping encoding payload must include at least [column]", {"key": key}, validate_mode, warn)
         return None
     if len(payload) > 3:
-        _issue("React size encoding payload supports at most 3 elements", {"key": key, "len": len(payload)}, validate_mode, warn)
+        _issue("React mapping encoding payload supports at most 3 elements", {"key": key, "len": len(payload)}, validate_mode, warn)
         return None
     column = _expect_column(payload[0], key, validate_mode, warn)
     if column is None:
         return None
 
-    op: SizeEncodingOp = {"kind": "size", "key": key, "column": column}
+    op: Dict[str, Any] = {"key": key, "column": column}
     if len(payload) >= 2:
         mapping = payload[1]
         if mapping is None:
@@ -131,11 +133,51 @@ def _parse_size_payload(
         elif isinstance(mapping, dict):
             op["categorical_mapping"] = mapping
         else:
-            _issue("React size mapping must be a dict", {"key": key, "type": type(mapping).__name__}, validate_mode, warn)
+            _issue("React mapping payload mapping must be a dict", {"key": key, "type": type(mapping).__name__}, validate_mode, warn)
             return None
     if len(payload) == 3:
         op["default_mapping"] = payload[2]
     return op
+
+
+def _parse_mapped_property_payload(
+    key: ReactMappedPropertyEncodingKey,
+    raw_value: Any,
+    validate_mode: ValidationMode,
+    warn: bool,
+) -> Optional[MappedPropertyEncodingOp]:
+    op = _parse_mapping_payload(key, raw_value, validate_mode, warn)
+    if op is None:
+        return None
+    op["kind"] = "mapped_property"
+    return cast(MappedPropertyEncodingOp, op)
+
+
+def _parse_text_payload(
+    key: ReactTextEncodingKey,
+    raw_value: Any,
+    validate_mode: ValidationMode,
+    warn: bool,
+) -> Optional[TextEncodingOp]:
+    payload = _expect_list_payload(raw_value, key, validate_mode, warn)
+    if payload is None or len(payload) == 0:
+        _issue("React text binding payload must include [column]", {"key": key}, validate_mode, warn)
+        return None
+    if len(payload) > 1:
+        _issue(
+            "React text binding payload supports only [column]; "
+            "label/title categorical mappings are not supported",
+            {"key": key, "len": len(payload)},
+            validate_mode,
+            warn,
+        )
+        return None
+    column = _expect_column(payload[0], key, validate_mode, warn)
+    if column is None:
+        return None
+    op: Dict[str, Any] = {"key": key, "column": column}
+    op["kind"] = "text"
+    return cast(TextEncodingOp, op)
 
 
 def _parse_icon_payload(
@@ -207,10 +249,21 @@ def parse_apply_encodings_ops(
                 out.append(color_op)
             continue
 
-        if key == "encodePointSize":
-            size_op = _parse_size_payload(value, validate_mode, warn)
-            if size_op is not None:
-                out.append(size_op)
+        if key in ("encodePointSize", "encodeEdgeSize", "encodeEdgeWeight", "encodePointOpacity", "encodeEdgeOpacity"):
+            mapped_property_op = _parse_mapped_property_payload(
+                cast(ReactMappedPropertyEncodingKey, key),
+                value,
+                validate_mode,
+                warn,
+            )
+            if mapped_property_op is not None:
+                out.append(mapped_property_op)
+            continue
+
+        if key in ("encodePointLabel", "encodeEdgeLabel", "encodePointTitle", "encodeEdgeTitle"):
+            text_op = _parse_text_payload(cast(ReactTextEncodingKey, key), value, validate_mode, warn)
+            if text_op is not None:
+                out.append(text_op)
             continue
 
         icon_key = _normalize_icon_key(key)
