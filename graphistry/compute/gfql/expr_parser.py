@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, replace
 from functools import lru_cache
-from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Protocol, Sequence, Set, Tuple, Type, Union, cast
+from typing import Callable, Dict, FrozenSet, Iterable, List, Optional, Protocol, Sequence, Set, Tuple, Type, Union, cast
+from typing_extensions import TypeAlias, TypeGuard
 
 from graphistry.compute.gfql.string_literals import parse_cypher_string_token
 from graphistry.compute.gfql.language_defs import (
@@ -20,6 +21,8 @@ DEFAULT_ALLOWED_BINARY_OPS: FrozenSet[str] = GFQL_ALLOWED_BINARY_OPS
 DEFAULT_ALLOWED_UNARY_OPS: FrozenSet[str] = GFQL_ALLOWED_UNARY_OPS
 DEFAULT_ALLOWED_QUANTIFIERS: FrozenSet[str] = GFQL_ALLOWED_QUANTIFIERS
 
+_LiteralValue: TypeAlias = Union[None, bool, int, float, str]
+
 
 @dataclass(frozen=True)
 class Identifier:
@@ -28,7 +31,7 @@ class Identifier:
 
 @dataclass(frozen=True)
 class Literal:
-    value: Any
+    value: _LiteralValue
 
 
 @dataclass(frozen=True)
@@ -151,6 +154,48 @@ _EXPR_NODE_TYPES = (
 )
 
 ExprVisitor = Callable[[ExprNode], None]
+
+
+@dataclass(frozen=True)
+class _FunctionArgs:
+    args: Tuple[ExprNode, ...]
+    distinct: bool = False
+
+
+@dataclass(frozen=True)
+class _CaseArm:
+    when_expr: ExprNode
+    then_expr: ExprNode
+
+
+_MapEntry: TypeAlias = Tuple[str, ExprNode]
+_SubscriptIndex: TypeAlias = _MapEntry
+_SubscriptSlice: TypeAlias = Tuple[str, Optional[ExprNode], Optional[ExprNode]]
+_AstItem: TypeAlias = Union[ExprNode, _FunctionArgs, _CaseArm, List[ExprNode], List[_MapEntry], _MapEntry, _SubscriptSlice]
+_ExprFieldValue: TypeAlias = Union[_LiteralValue, ExprNode, Optional[ExprNode], _MapEntry, Tuple[ExprNode, ...], Tuple[_MapEntry, ...]]
+
+
+class _LarkTree(Protocol):
+    pass
+
+
+class _LarkToken(Protocol):
+    type: str
+    value: str
+
+
+_TransformItem: TypeAlias = Union[_AstItem, _LarkToken]
+_TransformItems: TypeAlias = Sequence[_TransformItem]
+
+
+class _LarkParser(Protocol):
+    def parse(self, text: str) -> _LarkTree:
+        ...
+
+
+class _LarkTransformer(Protocol):
+    def transform(self, tree: _LarkTree) -> _TransformItem:
+        ...
 
 
 class GFQLExprParseError(ValueError):
@@ -279,16 +324,6 @@ BLOCK_COMMENT: /\/\*[\s\S]*?\*\//
 
 _GRAMMAR = _GRAMMAR.replace("__GFQL_COMPARISON_GRAMMAR_ALTS__", GFQL_COMPARISON_GRAMMAR_ALTS)
 
-class _ParserLike(Protocol):
-    def parse(self, text: str) -> object:
-        ...
-
-
-class _TransformerLike(Protocol):
-    def transform(self, tree: object) -> object:
-        ...
-
-
 def _lark_imports() -> Tuple[type, type, Type[Exception]]:
     try:
         from lark import Lark, Transformer
@@ -301,10 +336,9 @@ def _lark_imports() -> Tuple[type, type, Type[Exception]]:
 
 
 @lru_cache(maxsize=1)
-def _parser() -> _ParserLike:
+def _parser() -> _LarkParser:
     Lark, _, _ = _lark_imports()
-    parser = Lark(_GRAMMAR, start="start", parser="lalr", maybe_placeholders=False)
-    return cast(_ParserLike, parser)
+    return cast(_LarkParser, Lark(_GRAMMAR, start="start", parser="lalr", maybe_placeholders=False))
 
 
 def _parse_string_token(token: str) -> str:
@@ -329,73 +363,107 @@ def _parse_number_token(token: str) -> Union[int, float]:
     return int(token)
 
 
-def _build_transformer() -> _TransformerLike:
+def _build_transformer() -> _LarkTransformer:
     _, Transformer, _ = _lark_imports()
 
-    def _is_token(value: Any) -> bool:
+    class _RuleHost(Protocol):
+        def _quantifier_expr(self, fn: str, items: _TransformItems) -> QuantifierExpr:
+            ...
+
+        def _list_comprehension(
+            self, items: _TransformItems, *, has_where: bool, has_projection: bool
+        ) -> ListComprehension:
+            ...
+
+    def _is_token(value: _TransformItem) -> TypeGuard[_LarkToken]:
         return hasattr(value, "type") and hasattr(value, "value")
 
-    def _strip_tokens(items: Sequence[Any]) -> List[Any]:
-        return [item for item in items if not _is_token(item)]
+    def _strip_tokens(items: _TransformItems) -> List[_AstItem]:
+        stripped: List[_AstItem] = []
+        for item in items:
+            if _is_token(item):
+                continue
+            stripped.append(cast(_AstItem, item))
+        return stripped
 
-    @dataclass(frozen=True)
-    class _FunctionArgs:
-        args: Tuple[ExprNode, ...]
-        distinct: bool = False
+    def _unary_rule(op: str) -> Callable[[_RuleHost, _TransformItems], UnaryOp]:
+        def _rule(self: _RuleHost, items: _TransformItems) -> UnaryOp:
+            return UnaryOp(op=op, operand=cast(ExprNode, _strip_tokens(items)[0]))
+        return _rule
 
-    @dataclass(frozen=True)
-    class _CaseArm:
-        when_expr: ExprNode
-        then_expr: ExprNode
+    def _binary_rule(op: str) -> Callable[[_RuleHost, _TransformItems], BinaryOp]:
+        def _rule(self: _RuleHost, items: _TransformItems) -> BinaryOp:
+            stripped = _strip_tokens(items)
+            return BinaryOp(op=op, left=cast(ExprNode, stripped[0]), right=cast(ExprNode, stripped[1]))
+        return _rule
+
+    def _quantifier_rule(fn: str) -> Callable[[_RuleHost, _TransformItems], QuantifierExpr]:
+        def _rule(self: _RuleHost, items: _TransformItems) -> QuantifierExpr:
+            return self._quantifier_expr(fn, items)
+        return _rule
+
+    def _list_comprehension_rule(
+        *, has_where: bool, has_projection: bool
+    ) -> Callable[[_RuleHost, _TransformItems], ListComprehension]:
+        def _rule(self: _RuleHost, items: _TransformItems) -> ListComprehension:
+            return self._list_comprehension(items, has_where=has_where, has_projection=has_projection)
+        return _rule
+
+    def _slice_rule(
+        start_index: Optional[int], stop_index: Optional[int]
+    ) -> Callable[[_RuleHost, _TransformItems], _SubscriptSlice]:
+        def _rule(self: _RuleHost, items: _TransformItems) -> _SubscriptSlice:
+            stripped = _strip_tokens(items)
+            start = None if start_index is None else cast(ExprNode, stripped[start_index])
+            stop = None if stop_index is None else cast(ExprNode, stripped[stop_index])
+            return ("slice", start, stop)
+        return _rule
 
     class _AstBuilder(Transformer):  # type: ignore[valid-type,misc]
-        def __init__(self) -> None:
-            super().__init__(visit_tokens=True)
-
-        def grouped(self, items: Sequence[Any]) -> ExprNode:
+        def grouped(self, items: _TransformItems) -> ExprNode:
             return cast(ExprNode, _strip_tokens(items)[0])
 
-        def expr_list(self, items: Sequence[Any]) -> List[ExprNode]:
+        def expr_list(self, items: _TransformItems) -> List[ExprNode]:
             return [cast(ExprNode, i) for i in _strip_tokens(items)]
 
-        def null_lit(self, _: Sequence[Any]) -> Literal:
+        def null_lit(self, _: _TransformItems) -> Literal:
             return Literal(None)
 
-        def true_lit(self, _: Sequence[Any]) -> Literal:
+        def true_lit(self, _: _TransformItems) -> Literal:
             return Literal(True)
 
-        def false_lit(self, _: Sequence[Any]) -> Literal:
+        def false_lit(self, _: _TransformItems) -> Literal:
             return Literal(False)
 
-        def number_lit(self, items: Sequence[Any]) -> Literal:
+        def number_lit(self, items: _TransformItems) -> Literal:
             if len(items) != 1:
                 raise GFQLExprParseError("Invalid numeric literal")
             return Literal(_parse_number_token(str(items[0])))
 
-        def string_lit(self, items: Sequence[Any]) -> Literal:
+        def string_lit(self, items: _TransformItems) -> Literal:
             if len(items) != 1:
                 raise GFQLExprParseError("Invalid string literal")
             return Literal(_parse_string_token(str(items[0])))
 
-        def identifier(self, items: Sequence[Any]) -> Identifier:
+        def identifier(self, items: _TransformItems) -> Identifier:
             names = [str(i) for i in items if _is_token(i) and str(getattr(i, "type", "")) == "NAME"]
             if len(names) == 0:
                 raise GFQLExprParseError("Invalid identifier")
             return Identifier(".".join(names))
 
-        def regular_func_args(self, items: Sequence[Any]) -> _FunctionArgs:
+        def regular_func_args(self, items: _TransformItems) -> _FunctionArgs:
             return _FunctionArgs(tuple(cast(ExprNode, i) for i in _strip_tokens(items)))
 
-        def distinct_func_args(self, items: Sequence[Any]) -> _FunctionArgs:
+        def distinct_func_args(self, items: _TransformItems) -> _FunctionArgs:
             stripped = _strip_tokens(items)
             if len(stripped) != 1:
                 raise GFQLExprParseError("Invalid DISTINCT function argument")
             return _FunctionArgs((cast(ExprNode, stripped[0]),), distinct=True)
 
-        def star_arg(self, _: Sequence[Any]) -> Wildcard:
+        def star_arg(self, _: _TransformItems) -> Wildcard:
             return Wildcard()
 
-        def function_call(self, items: Sequence[Any]) -> FunctionCall:
+        def function_call(self, items: _TransformItems) -> FunctionCall:
             fn = ""
             args: Tuple[ExprNode, ...] = ()
             distinct = False
@@ -414,7 +482,7 @@ def _build_transformer() -> _TransformerLike:
                 raise GFQLExprParseError("Invalid function call")
             return FunctionCall(fn, args, distinct=distinct)
 
-        def case_when(self, items: Sequence[Any]) -> _CaseArm:
+        def case_when(self, items: _TransformItems) -> _CaseArm:
             stripped = _strip_tokens(items)
             if len(stripped) != 2:
                 raise GFQLExprParseError("Invalid CASE arm")
@@ -423,7 +491,7 @@ def _build_transformer() -> _TransformerLike:
                 then_expr=cast(ExprNode, stripped[1]),
             )
 
-        def case_else(self, items: Sequence[Any]) -> ExprNode:
+        def case_else(self, items: _TransformItems) -> ExprNode:
             stripped = _strip_tokens(items)
             if len(stripped) != 1:
                 raise GFQLExprParseError("Invalid CASE ELSE clause")
@@ -452,7 +520,7 @@ def _build_transformer() -> _TransformerLike:
                 raise GFQLExprParseError("Invalid CASE expression")
             return node
 
-        def searched_case_expr(self, items: Sequence[Any]) -> CaseWhen:
+        def searched_case_expr(self, items: _TransformItems) -> CaseWhen:
             arms: List[_CaseArm] = []
             else_expr: Optional[ExprNode] = None
             for item in _strip_tokens(items):
@@ -462,7 +530,7 @@ def _build_transformer() -> _TransformerLike:
                     else_expr = cast(ExprNode, item)
             return self._fold_case_arms(arms, else_expr=else_expr)
 
-        def simple_case_expr(self, items: Sequence[Any]) -> CaseWhen:
+        def simple_case_expr(self, items: _TransformItems) -> CaseWhen:
             stripped = _strip_tokens(items)
             if len(stripped) < 2:
                 raise GFQLExprParseError("Invalid CASE expression")
@@ -476,13 +544,13 @@ def _build_transformer() -> _TransformerLike:
                     else_expr = cast(ExprNode, item)
             return self._fold_case_arms(arms, base_expr=base_expr, else_expr=else_expr)
 
-        def case_expr(self, items: Sequence[Any]) -> CaseWhen:
+        def case_expr(self, items: _TransformItems) -> CaseWhen:
             stripped = _strip_tokens(items)
             if len(stripped) != 1 or not isinstance(stripped[0], CaseWhen):
                 raise GFQLExprParseError("Invalid CASE expression")
             return cast(CaseWhen, stripped[0])
 
-        def _quantifier_expr(self, fn: str, items: Sequence[Any]) -> QuantifierExpr:
+        def _quantifier_expr(self, fn: str, items: _TransformItems) -> QuantifierExpr:
             var = ""
             expr_nodes: List[ExprNode] = []
             for item in items:
@@ -497,20 +565,13 @@ def _build_transformer() -> _TransformerLike:
             predicate = expr_nodes[1]
             return QuantifierExpr(fn=fn, var=var, source=source, predicate=predicate)
 
-        def any_quant(self, items: Sequence[Any]) -> QuantifierExpr:
-            return self._quantifier_expr("any", items)
-
-        def all_quant(self, items: Sequence[Any]) -> QuantifierExpr:
-            return self._quantifier_expr("all", items)
-
-        def none_quant(self, items: Sequence[Any]) -> QuantifierExpr:
-            return self._quantifier_expr("none", items)
-
-        def single_quant(self, items: Sequence[Any]) -> QuantifierExpr:
-            return self._quantifier_expr("single", items)
+        any_quant = _quantifier_rule("any")
+        all_quant = _quantifier_rule("all")
+        none_quant = _quantifier_rule("none")
+        single_quant = _quantifier_rule("single")
 
         def _list_comprehension(
-            self, items: Sequence[Any], *, has_where: bool, has_projection: bool
+            self, items: _TransformItems, *, has_where: bool, has_projection: bool
         ) -> ListComprehension:
             var_name = ""
             expr_nodes: List[ExprNode] = []
@@ -545,85 +606,62 @@ def _build_transformer() -> _TransformerLike:
                 projection=projection,
             )
 
-        def lc_source(self, items: Sequence[Any]) -> ListComprehension:
-            return self._list_comprehension(items, has_where=False, has_projection=False)
+        lc_source = _list_comprehension_rule(has_where=False, has_projection=False)
+        lc_projection = _list_comprehension_rule(has_where=False, has_projection=True)
+        lc_where = _list_comprehension_rule(has_where=True, has_projection=False)
+        lc_where_projection = _list_comprehension_rule(has_where=True, has_projection=True)
 
-        def lc_projection(self, items: Sequence[Any]) -> ListComprehension:
-            return self._list_comprehension(items, has_where=False, has_projection=True)
-
-        def lc_where(self, items: Sequence[Any]) -> ListComprehension:
-            return self._list_comprehension(items, has_where=True, has_projection=False)
-
-        def lc_where_projection(self, items: Sequence[Any]) -> ListComprehension:
-            return self._list_comprehension(items, has_where=True, has_projection=True)
-
-        def list_literal(self, items: Sequence[Any]) -> ListLiteral:
+        def list_literal(self, items: _TransformItems) -> ListLiteral:
             if len(items) == 0:
                 return ListLiteral(())
             return ListLiteral(tuple(cast(List[ExprNode], items[0])))
 
-        def map_key_name(self, items: Sequence[Any]) -> str:
+        def map_key_name(self, items: _TransformItems) -> str:
             if len(items) != 1:
                 raise GFQLExprParseError("Invalid map key")
             return str(items[0])
 
-        def map_key_string(self, items: Sequence[Any]) -> str:
+        def map_key_string(self, items: _TransformItems) -> str:
             if len(items) != 1:
                 raise GFQLExprParseError("Invalid map key")
             return _parse_string_token(str(items[0]))
 
-        def map_entry(self, items: Sequence[Any]) -> Tuple[str, ExprNode]:
+        def map_entry(self, items: _TransformItems) -> _MapEntry:
             stripped = _strip_tokens(items)
             return (str(stripped[0]), cast(ExprNode, stripped[1]))
 
-        def map_entries(self, items: Sequence[Any]) -> List[Tuple[str, ExprNode]]:
-            return [cast(Tuple[str, ExprNode], i) for i in _strip_tokens(items)]
+        def map_entries(self, items: _TransformItems) -> List[_MapEntry]:
+            return [cast(_MapEntry, i) for i in _strip_tokens(items)]
 
-        def map_literal(self, items: Sequence[Any]) -> MapLiteral:
+        def map_literal(self, items: _TransformItems) -> MapLiteral:
             stripped = _strip_tokens(items)
             if len(stripped) == 0:
                 return MapLiteral(())
             return MapLiteral(tuple(cast(List[Tuple[str, ExprNode]], stripped[0])))
 
-        def subscript_index(self, items: Sequence[Any]) -> Tuple[str, ExprNode]:
+        def subscript_index(self, items: _TransformItems) -> _SubscriptIndex:
             return ("index", cast(ExprNode, _strip_tokens(items)[0]))
 
-        def subscript_slice_between(
-            self, items: Sequence[Any]
-        ) -> Tuple[str, Optional[ExprNode], Optional[ExprNode]]:
-            stripped = _strip_tokens(items)
-            return ("slice", cast(ExprNode, stripped[0]), cast(ExprNode, stripped[1]))
+        subscript_slice_between = _slice_rule(0, 1)
+        subscript_slice_from = _slice_rule(0, None)
+        subscript_slice_to = _slice_rule(None, 0)
+        subscript_slice_all = _slice_rule(None, None)
 
-        def subscript_slice_from(
-            self, items: Sequence[Any]
-        ) -> Tuple[str, Optional[ExprNode], Optional[ExprNode]]:
-            stripped = _strip_tokens(items)
-            return ("slice", cast(ExprNode, stripped[0]), None)
-
-        def subscript_slice_to(
-            self, items: Sequence[Any]
-        ) -> Tuple[str, Optional[ExprNode], Optional[ExprNode]]:
-            stripped = _strip_tokens(items)
-            return ("slice", None, cast(ExprNode, stripped[0]))
-
-        def subscript_slice_all(
-            self, _items: Sequence[Any]
-        ) -> Tuple[str, Optional[ExprNode], Optional[ExprNode]]:
-            return ("slice", None, None)
-
-        def subscript(self, items: Sequence[Any]) -> ExprNode:
+        def subscript(self, items: _TransformItems) -> ExprNode:
             stripped = _strip_tokens(items)
             value = cast(ExprNode, stripped[0])
-            sub = cast(Tuple[Any, ...], stripped[1])
+            sub = cast(Union[_SubscriptIndex, _SubscriptSlice], stripped[1])
             if sub[0] == "index":
-                return SubscriptExpr(value=value, key=cast(ExprNode, sub[1]))
+                index = cast(_SubscriptIndex, sub)
+                return SubscriptExpr(value=value, key=index[1])
+            span = cast(_SubscriptSlice, sub)
             return SliceExpr(
                 value=value,
-                start=cast(Optional[ExprNode], sub[1]),
-                stop=cast(Optional[ExprNode], sub[2]),
+                start=span[1],
+                stop=span[2],
             )
 
-        def property_access(self, items: Sequence[Any]) -> PropertyAccessExpr:
+        def property_access(self, items: _TransformItems) -> PropertyAccessExpr:
             stripped = _strip_tokens(items)
             if len(stripped) != 1:
                 raise GFQLExprParseError("Invalid property access")
@@ -633,44 +671,20 @@ def _build_transformer() -> _TransformerLike:
                 raise GFQLExprParseError("Invalid property access")
             return PropertyAccessExpr(value=value, property=names[-1])
 
-        def uplus(self, items: Sequence[Any]) -> UnaryOp:
-            return UnaryOp(op="+", operand=cast(ExprNode, _strip_tokens(items)[0]))
+        uplus = _unary_rule("+")
+        uminus = _unary_rule("-")
+        not_op = _unary_rule("not")
 
-        def uminus(self, items: Sequence[Any]) -> UnaryOp:
-            return UnaryOp(op="-", operand=cast(ExprNode, _strip_tokens(items)[0]))
+        or_op = _binary_rule("or")
+        xor_op = _binary_rule("xor")
+        and_op = _binary_rule("and")
+        add_op = _binary_rule("+")
+        sub_op = _binary_rule("-")
+        mul_op = _binary_rule("*")
+        div_op = _binary_rule("/")
+        mod_op = _binary_rule("%")
 
-        def not_op(self, items: Sequence[Any]) -> UnaryOp:
-            return UnaryOp(op="not", operand=cast(ExprNode, _strip_tokens(items)[0]))
-
-        def _bin(self, op: str, items: Sequence[Any]) -> BinaryOp:
-            stripped = _strip_tokens(items)
-            return BinaryOp(op=op, left=cast(ExprNode, stripped[0]), right=cast(ExprNode, stripped[1]))
-
-        def or_op(self, items: Sequence[Any]) -> BinaryOp:
-            return self._bin("or", items)
-
-        def xor_op(self, items: Sequence[Any]) -> BinaryOp:
-            return self._bin("xor", items)
-
-        def and_op(self, items: Sequence[Any]) -> BinaryOp:
-            return self._bin("and", items)
-
-        def add_op(self, items: Sequence[Any]) -> BinaryOp:
-            return self._bin("+", items)
-
-        def sub_op(self, items: Sequence[Any]) -> BinaryOp:
-            return self._bin("-", items)
-
-        def mul_op(self, items: Sequence[Any]) -> BinaryOp:
-            return self._bin("*", items)
-
-        def div_op(self, items: Sequence[Any]) -> BinaryOp:
-            return self._bin("/", items)
-
-        def mod_op(self, items: Sequence[Any]) -> BinaryOp:
-            return self._bin("%", items)
-
-        def cmp_op(self, items: Sequence[Any]) -> BinaryOp:
+        def cmp_op(self, items: _TransformItems) -> BinaryOp:
             op = ""
             for item in items:
                 if _is_token(item) and str(getattr(item, "type", "")) == "COMP_OP":
@@ -681,27 +695,18 @@ def _build_transformer() -> _TransformerLike:
                 raise GFQLExprParseError("Missing comparison operator")
             return BinaryOp(op=op, left=cast(ExprNode, stripped[0]), right=cast(ExprNode, stripped[1]))
 
-        def in_op(self, items: Sequence[Any]) -> BinaryOp:
-            return self._bin("in", items)
+        in_op = _binary_rule("in")
+        contains_op = _binary_rule("contains")
+        starts_with_op = _binary_rule("starts_with")
+        ends_with_op = _binary_rule("ends_with")
 
-        def contains_op(self, items: Sequence[Any]) -> BinaryOp:
-            return self._bin("contains", items)
-
-        def starts_with_op(self, items: Sequence[Any]) -> BinaryOp:
-            stripped = _strip_tokens(items)
-            return BinaryOp(op="starts_with", left=cast(ExprNode, stripped[0]), right=cast(ExprNode, stripped[1]))
-
-        def ends_with_op(self, items: Sequence[Any]) -> BinaryOp:
-            stripped = _strip_tokens(items)
-            return BinaryOp(op="ends_with", left=cast(ExprNode, stripped[0]), right=cast(ExprNode, stripped[1]))
-
-        def is_null(self, items: Sequence[Any]) -> IsNullOp:
+        def is_null(self, items: _TransformItems) -> IsNullOp:
             return IsNullOp(value=cast(ExprNode, _strip_tokens(items)[0]), negated=False)
 
-        def is_not_null(self, items: Sequence[Any]) -> IsNullOp:
+        def is_not_null(self, items: _TransformItems) -> IsNullOp:
             return IsNullOp(value=cast(ExprNode, _strip_tokens(items)[0]), negated=True)
 
-    return cast(_TransformerLike, _AstBuilder())
+    return cast(_LarkTransformer, _AstBuilder())
 
 
 def _rebuild_expr_node(
@@ -712,40 +717,29 @@ def _rebuild_expr_node(
 ) -> ExprNode:
     if isinstance(node, (Identifier, Literal, Wildcard)):
         return node
-    if isinstance(node, UnaryOp):
-        return UnaryOp(node.op, rewrite(node.operand))
-    if isinstance(node, BinaryOp):
-        return BinaryOp(node.op, rewrite(node.left), rewrite(node.right))
-    if isinstance(node, IsNullOp):
-        return IsNullOp(rewrite(node.value), negated=node.negated)
-    if isinstance(node, FunctionCall):
-        return FunctionCall(node.name, tuple(rewrite(arg) for arg in node.args), distinct=node.distinct)
-    if isinstance(node, CaseWhen):
-        return CaseWhen(rewrite(node.condition), rewrite(node.when_true), rewrite(node.when_false))
-    if isinstance(node, QuantifierExpr):
-        return QuantifierExpr(node.fn, node.var, rewrite(node.source), rewrite(node.predicate))
-    if isinstance(node, ListComprehension):
-        return ListComprehension(
-            node.var,
-            rewrite(node.source),
-            predicate=None if node.predicate is None else rewrite(node.predicate),
-            projection=None if node.projection is None else rewrite(node.projection),
+    if isinstance(node, _EXPR_NODE_TYPES):
+        return cast(
+            ExprNode,
+            replace(
+                node,
+                **{  # type: ignore[arg-type]
+                    field.name: _rewrite_expr_value(cast(_ExprFieldValue, getattr(node, field.name)), rewrite)
+                    for field in fields(node)
+                },
+            ),
         )
-    if isinstance(node, ListLiteral):
-        return ListLiteral(tuple(rewrite(item) for item in node.items))
-    if isinstance(node, MapLiteral):
-        return MapLiteral(tuple((key, rewrite(value)) for key, value in node.items))
-    if isinstance(node, SubscriptExpr):
-        return SubscriptExpr(rewrite(node.value), rewrite(node.key))
-    if isinstance(node, SliceExpr):
-        return SliceExpr(
-            rewrite(node.value),
-            None if node.start is None else rewrite(node.start),
-            None if node.stop is None else rewrite(node.stop),
-        )
-    if isinstance(node, PropertyAccessExpr):
-        return PropertyAccessExpr(rewrite(node.value), node.property)
     raise TypeError(f"Unsupported expression node type for {error_context}: {type(node).__name__}")
+
+
+def _rewrite_expr_value(value: _ExprFieldValue, rewrite: Callable[[ExprNode], ExprNode]) -> _ExprFieldValue:
+    if isinstance(value, _EXPR_NODE_TYPES):
+        return rewrite(value)
+    if isinstance(value, tuple):
+        return cast(
+            _ExprFieldValue,
+            tuple(_rewrite_expr_value(cast(_ExprFieldValue, item), rewrite) for item in value),
+        )
+    return value
 
 
 def _normalize_dotted_identifiers(node: ExprNode) -> ExprNode:
@@ -795,41 +789,21 @@ def is_expr_node(node: object) -> bool:
 def iter_expr_children(node: ExprNode) -> Tuple[ExprNode, ...]:
     if isinstance(node, (Identifier, Literal, Wildcard)):
         return ()
-    if isinstance(node, UnaryOp):
-        return (node.operand,)
-    if isinstance(node, BinaryOp):
-        return (node.left, node.right)
-    if isinstance(node, IsNullOp):
-        return (node.value,)
-    if isinstance(node, FunctionCall):
-        return node.args
-    if isinstance(node, CaseWhen):
-        return (node.condition, node.when_true, node.when_false)
-    if isinstance(node, QuantifierExpr):
-        return (node.source, node.predicate)
-    if isinstance(node, ListComprehension):
-        children: List[ExprNode] = [node.source]
-        if node.predicate is not None:
-            children.append(node.predicate)
-        if node.projection is not None:
-            children.append(node.projection)
-        return tuple(children)
-    if isinstance(node, ListLiteral):
-        return node.items
-    if isinstance(node, MapLiteral):
-        return tuple(value for _, value in node.items)
-    if isinstance(node, SubscriptExpr):
-        return (node.value, node.key)
-    if isinstance(node, SliceExpr):
-        children = [node.value]
-        if node.start is not None:
-            children.append(node.start)
-        if node.stop is not None:
-            children.append(node.stop)
-        return tuple(children)
-    if isinstance(node, PropertyAccessExpr):
-        return (node.value,)
+    if isinstance(node, _EXPR_NODE_TYPES):
+        return tuple(
+            child
+            for field in fields(node)
+            for child in _iter_expr_values(getattr(node, field.name))
+        )
     return ()
+
+
+def _iter_expr_values(value: _ExprFieldValue) -> Iterable[ExprNode]:
+    if isinstance(value, _EXPR_NODE_TYPES):
+        yield value
+    elif isinstance(value, tuple):
+        for item in value:
+            yield from _iter_expr_values(cast(_ExprFieldValue, item))
 
 
 def walk_expr_nodes(

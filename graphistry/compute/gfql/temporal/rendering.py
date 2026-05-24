@@ -19,8 +19,8 @@ def _render_temporal_arg(node: ExprNode) -> Optional[str]:
         return None
     if isinstance(node, MapLiteral):
         parts: list[str] = []
-        for key, value in node.items:
-            rendered = _render_temporal_arg(value)
+        for key, item in node.items:
+            rendered = _render_temporal_arg(item)
             if rendered is None:
                 return None
             parts.append(f"{key}: {rendered}")
