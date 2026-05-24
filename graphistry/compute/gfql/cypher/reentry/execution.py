@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union, cast
 from graphistry.Engine import EngineAbstract, df_concat, df_cons, resolve_engine, safe_merge
 from graphistry.Plottable import Plottable
 from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
-from graphistry.compute.gfql.cypher.lowering import CompiledCypherQuery
 from graphistry.compute.gfql.cypher.reentry.naming import _reentry_hidden_column_name
 from graphistry.compute.gfql.cypher.reentry_plan import ReentryPlan
 from graphistry.compute.gfql.cypher.result_postprocess import (
@@ -19,6 +18,16 @@ from graphistry.compute.typing import DataFrameT, SeriesT
 REENTRY_WHOLE_ROW_SUGGESTION = "Carry a whole-row node alias through WITH before MATCH re-entry."
 REENTRY_SCALAR_SUGGESTION = "Carry scalar columns through WITH before MATCH re-entry."
 REENTRY_DUPLICATE_CARRIED_ROWS_REASON = "duplicate_carried_node_rows"
+
+
+def _bind_reentry_graph(graph: Plottable, node_rows: Optional[DataFrameT], *, empty_edges: bool = False) -> Plottable:
+    out = graph.bind()
+    out._nodes = node_rows
+    if empty_edges:
+        edges_df = getattr(graph, "_edges", None)
+        if edges_df is not None:
+            out._edges = cast(DataFrameT, edges_df.iloc[0:0])
+    return out
 
 
 def reentry_validation_error(
@@ -86,19 +95,14 @@ def apply_optional_reentry_null_fill(
         return result
 
     if result_df is None or len(result_df) == 0:
-        if fill_rows:
-            out = result.bind()
-            out._nodes = df_ctor(fill_rows)
-            return out
-        return result
+        return _bind_reentry_graph(result, df_ctor(fill_rows))
 
     fill_df = df_ctor(fill_rows)
-    out = result.bind()
-    out._nodes = concat([result_df, fill_df], ignore_index=True, sort=False)
-    edges_df = getattr(result, "_edges", None)
-    if edges_df is not None:
-        out._edges = edges_df[:0]
-    return out
+    return _bind_reentry_graph(
+        result,
+        concat([result_df, fill_df], ignore_index=True, sort=False),
+        empty_edges=True,
+    )
 
 
 def _optional_reentry_carried_null_rows(
@@ -122,22 +126,20 @@ def _optional_reentry_carried_null_rows(
         return None
 
     prefix_records = _records_for_columns(prefix_df, carried_columns)
-    if _has_duplicate_optional_reentry_keys(prefix_records, carried_columns):
+    prefix_keys = [_optional_reentry_key(record, carried_columns) for record in prefix_records]
+    if len(set(prefix_keys)) != len(prefix_keys):
         return None
     if result_df is None or len(result_df) == 0:
         missing_records = prefix_records
     else:
-        if not all(col in result_df.columns for col in carried_columns):
-            return None
         matched_keys = {
-            tuple(_optional_reentry_key_value(record[col]) for col in carried_columns)
+            _optional_reentry_key(record, carried_columns)
             for record in _records_for_columns(result_df, carried_columns)
         }
         missing_records = [
             record
-            for record in prefix_records
-            if tuple(_optional_reentry_key_value(record[col]) for col in carried_columns)
-            not in matched_keys
+            for record, key in zip(prefix_records, prefix_keys)
+            if key not in matched_keys
         ]
 
     fill_rows: List[Dict[str, Any]] = []
@@ -149,17 +151,8 @@ def _optional_reentry_carried_null_rows(
     return fill_rows
 
 
-def _has_duplicate_optional_reentry_keys(
-    records: Sequence[Dict[str, Any]],
-    columns: Tuple[str, ...],
-) -> bool:
-    seen = set()
-    for record in records:
-        key = tuple(_optional_reentry_key_value(record[col]) for col in columns)
-        if key in seen:
-            return True
-        seen.add(key)
-    return False
+def _optional_reentry_key(record: Dict[str, Any], columns: Tuple[str, ...]) -> Tuple[Any, ...]:
+    return tuple(_optional_reentry_key_value(record[col]) for col in columns)
 
 
 def _records_for_columns(df: DataFrameT, columns: Tuple[str, ...]) -> List[Dict[str, Any]]:
@@ -183,7 +176,7 @@ def _optional_reentry_key_value(value: Any) -> Any:
     try:
         if value != value:
             return None
-    except Exception:
+    except (TypeError, ValueError):
         return value
     return value
 
@@ -306,11 +299,7 @@ def compiled_query_reentry_state(
     merge_base = cast(DataFrameT, base_nodes.drop(columns=hidden_columns)) if hidden_columns else base_nodes
     node_rows = cast(DataFrameT, safe_merge(merge_base, carry_payload, on=id_column, how="left"))
 
-    dispatch_graph = base_graph.bind()
-    dispatch_graph._nodes = node_rows
-    edges_df = getattr(base_graph, "_edges", None)
-    if edges_df is not None:
-        dispatch_graph._edges = edges_df
+    dispatch_graph = _bind_reentry_graph(base_graph, node_rows)
     return dispatch_graph, ordered_reentry_start_nodes(
         node_rows=node_rows,
         carried_node_ids=carried_node_ids,
@@ -330,16 +319,14 @@ def union_scalar_reentry_results(
         nodes = getattr(r, "_nodes", None)
         if nodes is not None and len(cast(Any, nodes)) > 0:
             node_frames.append(nodes)
-    result = base_graph.bind()
     if node_frames:
         concrete_engine = resolve_engine(cast(Any, engine), node_frames[0])
         concat = df_concat(concrete_engine)
-        result._nodes = cast(DataFrameT, concat(node_frames, ignore_index=True))
+        node_rows = cast(DataFrameT, concat(node_frames, ignore_index=True))
     else:
         base_nodes = getattr(base_graph, "_nodes", None)
-        result._nodes = cast(DataFrameT, base_nodes.iloc[0:0]) if base_nodes is not None else None
-    result._edges = getattr(base_graph, "_edges", None)
-    return result
+        node_rows = cast(DataFrameT, base_nodes.iloc[0:0]) if base_nodes is not None else None
+    return _bind_reentry_graph(base_graph, node_rows)
 
 
 def compiled_query_scalar_reentry_state(
@@ -347,7 +334,6 @@ def compiled_query_scalar_reentry_state(
     prefix_result: Plottable,
     *,
     carried_columns: Sequence[str],
-    engine: Union[EngineAbstract, str],
     row_index: int = 0,
 ) -> Tuple[Plottable, Optional[DataFrameT]]:
     prefix_rows = getattr(prefix_result, "_nodes", None)
@@ -362,12 +348,11 @@ def compiled_query_scalar_reentry_state(
     if prefix_row_count == 0:
         if base_nodes is None:
             return base_graph, None
-        dispatch_graph = base_graph.bind()
-        dispatch_graph._nodes = cast(DataFrameT, base_nodes.iloc[0:0])
-        edges_df = getattr(base_graph, "_edges", None)
-        if edges_df is not None:
-            dispatch_graph._edges = cast(DataFrameT, edges_df.iloc[0:0])
-        return dispatch_graph, None
+        return _bind_reentry_graph(
+            base_graph,
+            cast(DataFrameT, base_nodes.iloc[0:0]),
+            empty_edges=True,
+        ), None
     if base_nodes is None:
         raise reentry_validation_error(
             "Cypher MATCH after WITH scalar-only prefix stages could not recover the base node table for re-entry",
@@ -377,12 +362,7 @@ def compiled_query_scalar_reentry_state(
     if not carried_columns:
         # Scalar-only prefix with zero carried scalars: keep the full node table.
         # Row fan-out/union for multi-row prefixes happens in the caller.
-        dispatch_graph = base_graph.bind()
-        dispatch_graph._nodes = base_nodes
-        edges_df = getattr(base_graph, "_edges", None)
-        if edges_df is not None:
-            dispatch_graph._edges = edges_df
-        return dispatch_graph, None
+        return _bind_reentry_graph(base_graph, base_nodes), None
     missing_column = next((name for name in carried_columns if name not in prefix_rows.columns), None)
     if missing_column is not None:
         raise reentry_validation_error(
@@ -400,12 +380,7 @@ def compiled_query_scalar_reentry_state(
             }
         ),
     )
-    dispatch_graph = base_graph.bind()
-    dispatch_graph._nodes = node_rows
-    edges_df = getattr(base_graph, "_edges", None)
-    if edges_df is not None:
-        dispatch_graph._edges = edges_df
-    return dispatch_graph, None
+    return _bind_reentry_graph(base_graph, node_rows), None
 
 
 def freeform_broadcast_row_to_nodes(
@@ -418,25 +393,19 @@ def freeform_broadcast_row_to_nodes(
 ) -> Plottable:
     """Broadcast one free-form prefix row's hidden carries onto the base nodes."""
     row = prefix_rows.iloc[row_index]
-    broadcast_values: Dict[str, Any] = {}
-    # Top-level scalar carries (e.g. ``WITH a, b.id AS bid``): the prefix row
-    # exposes them under their output names; the runtime hidden column on the
-    # base node table is keyed by ``_reentry_hidden_column_name``.
-    for col in plan.scalar_columns:
-        if col in prefix_rows.columns:
-            broadcast_values[_reentry_hidden_column_name(col)] = row[col]
-    # Non-source whole-row property carries (slice 4.3b from #1248): the prefix
-    # row already exposes these under their `__cypher_reentry_*` names; copy
-    # them across as-is.
-    for col in prefix_rows.columns:
-        if isinstance(col, str) and col.startswith("__cypher_reentry_"):
-            broadcast_values[col] = row[col]
+    broadcast_values: Dict[str, Any] = {
+        _reentry_hidden_column_name(col): row[col]
+        for col in plan.scalar_columns
+        if col in prefix_rows.columns
+    }
+    broadcast_values.update({
+        col: row[col]
+        for col in prefix_rows.columns
+        if isinstance(col, str) and col.startswith("__cypher_reentry_")
+    })
 
     if broadcast_values:
-        existing_hidden = [
-            c for c in base_nodes.columns
-            if isinstance(c, str) and c.startswith("__cypher_reentry_")
-        ]
+        existing_hidden = [c for c in base_nodes.columns if isinstance(c, str) and c.startswith("__cypher_reentry_")]
         node_rows = (
             cast(DataFrameT, base_nodes.drop(columns=existing_hidden))
             if existing_hidden
@@ -446,20 +415,14 @@ def freeform_broadcast_row_to_nodes(
     else:
         node_rows = cast(DataFrameT, base_nodes)
 
-    dispatch_graph = base_graph.bind()
-    dispatch_graph._nodes = node_rows
-    edges_df = getattr(base_graph, "_edges", None)
-    if edges_df is not None:
-        dispatch_graph._edges = edges_df
-    return dispatch_graph
+    return _bind_reentry_graph(base_graph, node_rows)
 
 
 def compiled_query_freeform_reentry_state(
     base_graph: Plottable,
-    compiled_query: CompiledCypherQuery,
     prefix_result: Plottable,
     *,
-    engine: Union[EngineAbstract, str],
+    plan: ReentryPlan,
 ) -> Tuple[Plottable, Optional[DataFrameT]]:
     """Build the single-row dispatch state for free-form intermediate MATCH."""
     prefix_rows = getattr(prefix_result, "_nodes", None)
@@ -474,33 +437,11 @@ def compiled_query_freeform_reentry_state(
     if prefix_rows is None or len(prefix_rows) == 0:
         # Empty prefix → empty result. Return a graph with empty nodes/edges
         # so the suffix produces no rows.
-        dispatch_graph = base_graph.bind()
-        dispatch_graph._nodes = cast(DataFrameT, base_nodes.iloc[0:0])
-        edges_df = getattr(base_graph, "_edges", None)
-        if edges_df is not None:
-            dispatch_graph._edges = cast(DataFrameT, edges_df.iloc[0:0])
-        return dispatch_graph, None
-    # Single-row dispatch only; the caller routes multi-row through the
-    # per-row union loop in ``_execute_compiled_query_with_reentry``.
-    if len(prefix_rows) > 1:
-        raise reentry_validation_error(
-            "Cypher MATCH after WITH (free-form intermediate MATCH) single-row "
-            "dispatcher invoked with a multi-row prefix; the caller should "
-            "route multi-row free-form through the per-row union loop.",
-            value=len(prefix_rows),
-            suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
-        )
-
-    plan = compiled_query.reentry_plan
-    if plan is None:
-        # Defensive: caller already gated on plan.free_form, so reaching here
-        # without a plan is a programmer error.
-        raise reentry_validation_error(
-            "Cypher free-form intermediate MATCH dispatched without a ReentryPlan",
-            value=None,
-            suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
-        )
-
+        return _bind_reentry_graph(
+            base_graph,
+            cast(DataFrameT, base_nodes.iloc[0:0]),
+            empty_edges=True,
+        ), None
     dispatch_graph = freeform_broadcast_row_to_nodes(
         base_graph, cast(DataFrameT, base_nodes), cast(DataFrameT, prefix_rows), plan, row_index=0,
     )
