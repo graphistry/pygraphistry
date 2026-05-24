@@ -43,3 +43,6 @@ ln -s ../.agents/skills .claude/skills
 
 - During publish assistance, after pushing tag `X.Y.Z`, always check `.github/workflows/publish-pypi.yml` run state.
 - Treat `Publish distribution to PyPI` in `waiting` as an expected manual gate for environment `pypi-release`; explicitly instruct maintainer to click `Review deployments` before expecting PyPI completion.
+- After the workflow completes, verify both TestPyPI and PyPI public metadata report `X.Y.Z`; PyPI may lag briefly after the job succeeds.
+- Create or verify the matching GitHub Release for tag `X.Y.Z`, then check Read the Docs. `latest` may update automatically, while tag-specific versions can require maintainer activation in the RTD dashboard.
+- Record release follow-ups discovered during readiness audits as issues in the owning repo before final handoff.
