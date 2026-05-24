@@ -957,7 +957,6 @@ def _execute_compiled_query_with_reentry(
                         base_graph,
                         prefix_result,
                         carried_columns=plan.scalar_columns,
-                        engine=engine,
                         row_index=i,
                     )
                     row_result = _execute_compiled_query(
@@ -976,7 +975,6 @@ def _execute_compiled_query_with_reentry(
                     base_graph,
                     prefix_result,
                     carried_columns=plan.scalar_columns,
-                    engine=engine,
                 )
         elif plan.free_form:
             # #1263 (LDBC SNB IC3 endpoint): trailing MATCH binds aliases
@@ -1034,9 +1032,8 @@ def _execute_compiled_query_with_reentry(
                 )
             compiled_base_graph, start_nodes = _compiled_query_freeform_reentry_state(
                 base_graph,
-                compiled_query,
                 prefix_result,
-                engine=engine,
+                plan=plan,
             )
         else:
             prefix_rows_for_whole_row = cast(Optional[DataFrameT], getattr(prefix_result, "_nodes", None))
