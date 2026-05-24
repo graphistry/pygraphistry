@@ -194,6 +194,104 @@ def test_edge_validation():
     print(format_validation_errors(issues))
 
 
+def test_syntax_filter_key_diagnostics_are_stable():
+    issues = validate_syntax([
+        n({1: "person"}),
+        e_forward(
+            edge_match={2: "knows"},
+            source_node_match={3: "a"},
+            destination_node_match={4: "b"},
+        ),
+        n(),
+    ])
+
+    errors = [issue for issue in issues if issue.error_type == "INVALID_FILTER_KEY"]
+    assert [(issue.operation_index, issue.field, issue.message, issue.suggestion) for issue in errors] == [
+        (0, "1", "Invalid filter key format: 1", "Filter keys must be strings"),
+        (1, "edge_match.2", "Invalid filter key format: 2", "Filter keys must be strings"),
+        (1, "source_node_match.3", "Invalid filter key format: 3", "Filter keys must be strings"),
+        (1, "destination_node_match.4", "Invalid filter key format: 4", "Filter keys must be strings"),
+    ]
+
+
+def test_schema_filter_diagnostics_are_stable_across_node_edge_shapes():
+    schema = Schema(
+        node_columns={"id": "object", "age": "int64", "name": "object"},
+        edge_columns={"relationship": "object", "weight": "float64"},
+    )
+    chain = [
+        n({"missing_node": "value", "age": contains("25")}),
+        e_forward(
+            edge_match={"missing_edge": "value", "weight": contains("1")},
+            source_node_match={"missing_source": "a"},
+            destination_node_match={"missing_dest": "b"},
+        ),
+        n(),
+    ]
+
+    issues = validate_schema(chain, schema)
+
+    assert [
+        (issue.error_type, issue.operation_index, issue.field, issue.message)
+        for issue in issues
+    ] == [
+        ("COLUMN_NOT_FOUND", 0, "missing_node", 'Column "missing_node" not found in node data'),
+        ("TYPE_MISMATCH", 0, "age", 'Column "age" is int64 but predicate expects string'),
+        ("COLUMN_NOT_FOUND", 1, "edge_match.missing_edge", 'Column "missing_edge" not found in edge data'),
+        ("TYPE_MISMATCH", 1, "edge_match.weight", 'Column "weight" is float64 but predicate expects string'),
+        ("COLUMN_NOT_FOUND", 1, "source_node_match.missing_source", 'Column "missing_source" not found in node data'),
+        ("COLUMN_NOT_FOUND", 1, "destination_node_match.missing_dest", 'Column "missing_dest" not found in node data'),
+    ]
+
+
+def test_validation_issue_and_report_formatting_are_stable():
+    error = ValidationIssue(
+        "error",
+        "Column problem",
+        operation_index=2,
+        field="age",
+        suggestion="Fix age",
+        error_type="TYPE_MISMATCH",
+    )
+    warning = ValidationIssue(
+        "warning",
+        "Slow hop",
+        operation_index=3,
+        field="hops",
+        suggestion="Use fixed hops",
+        error_type="UNBOUNDED_HOPS_WARNING",
+    )
+
+    assert repr(error) == (
+        "ERROR: Column problem | at operation 2 | field: age | "
+        "Suggestion: Fix age"
+    )
+    assert ValidationIssue("error", "Column problem") != ValidationIssue(
+        "error", "Column problem"
+    )
+    assert error.to_dict() == {
+        "level": "error",
+        "message": "Column problem",
+        "operation_index": 2,
+        "field": "age",
+        "suggestion": "Fix age",
+        "error_type": "TYPE_MISMATCH",
+    }
+    assert format_validation_errors([error, warning]) == (
+        "GFQL Validation Report:\n"
+        "--------------------------------------------------\n"
+        "\nERRORS (1):\n"
+        "\n1. Column problem\n"
+        "   Location: Operation 2\n"
+        "   Field: age\n"
+        "   💡 Fix age\n"
+        "\nWARNINGS (1):\n"
+        "\n1. Slow hop\n"
+        "   Location: Operation 3\n"
+        "   💡 Use fixed hops"
+    )
+
+
 if __name__ == "__main__":
     test_syntax_validation()
     test_schema_validation()
