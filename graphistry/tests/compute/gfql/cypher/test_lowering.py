@@ -7783,6 +7783,16 @@ def test_string_cypher_call_rejects_invalid_procedure_or_yield(query: str) -> No
     assert exc_info.value.code == ErrorCode.E108
 
 
+@pytest.mark.parametrize("procedure", ["degree_centrality", "closeness_centrality.write", "connected_components"])
+def test_compile_cypher_call_rejects_unsupported_networkx_subset_structured(procedure: str) -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _compile_query(f"CALL graphistry.nx.{procedure}()")
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "call"
+    assert exc_info.value.context["value"] == f"graphistry.nx.{procedure}"
+
+
 def test_string_cypher_executes_bare_pagerank_call_in_row_state() -> None:
     pytest.importorskip("igraph")
 
@@ -7892,6 +7902,51 @@ def test_compile_cypher_call_flattens_networkx_options_into_params() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("query", "expected_outputs"),
+    [
+        (
+            "CALL graphistry.degree()",
+            (("nodeId", "nodeId"), ("degree", "degree"), ("degree_in", "degree_in"), ("degree_out", "degree_out")),
+        ),
+        (
+            "CALL graphistry.igraph.pagerank({out_col: 'pr'})",
+            (("nodeId", "nodeId"), ("pr", "pr")),
+        ),
+        (
+            "CALL graphistry.nx.pagerank({out_col: 'pr'})",
+            (("nodeId", "nodeId"), ("pr", "pr")),
+        ),
+        (
+            "CALL graphistry.nx.edge_betweenness_centrality({out_col: 'ebc'})",
+            (("source", "source"), ("destination", "destination"), ("ebc", "ebc")),
+        ),
+        (
+            "CALL graphistry.cugraph.hits()",
+            (("nodeId", "nodeId"), ("hits", "hits"), ("authorities", "authorities")),
+        ),
+        ("CALL graphistry.nx.k_core.write()", ()),
+    ],
+)
+def test_compile_cypher_call_output_columns_are_backend_stable(query: str, expected_outputs: Tuple[Tuple[str, str], ...]) -> None:
+    compiled = _compile_query(query)
+
+    assert compiled.procedure_call is not None
+    assert tuple(
+        (output.source_name, output.output_name)
+        for output in compiled.procedure_call.output_columns
+    ) == expected_outputs
+
+
+def test_compile_cypher_call_rejects_multi_column_out_col_structured() -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _compile_query("CALL graphistry.cugraph.hits({out_col: 'score'})")
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "call.args.out_col"
+    assert exc_info.value.context["value"] == "score"
+
+
 def test_compile_cypher_call_rejects_graph_only_cugraph_rows() -> None:
     with pytest.raises(GFQLValidationError) as exc_info:
         _compile_query("CALL graphistry.cugraph.k_core()")
@@ -7936,6 +7991,21 @@ def test_string_cypher_executes_networkx_betweenness_row_call() -> None:
     assert result._nodes.to_dict(orient="records") == [{"nodeId": "b", "betweenness_centrality": 0.5}]
 
 
+def test_string_cypher_executes_networkx_betweenness_row_call_with_out_col() -> None:
+    pytest.importorskip("networkx")
+
+    result = _mk_simple_path_graph().gfql(
+        "CALL graphistry.nx.betweenness_centrality({out_col: 'bc'}) "
+        "YIELD nodeId, bc "
+        "RETURN nodeId, bc "
+        "ORDER BY bc DESC, nodeId ASC "
+        "LIMIT 1"
+    )
+
+    assert result._edges.empty
+    assert result._nodes.to_dict(orient="records") == [{"nodeId": "b", "bc": 0.5}]
+
+
 def test_string_cypher_executes_networkx_edge_row_call() -> None:
     pytest.importorskip("networkx")
 
@@ -7960,6 +8030,27 @@ def test_string_cypher_executes_networkx_edge_write_call() -> None:
 
     assert "edge_betweenness_centrality" in result._edges.columns
     assert result._edges["edge_betweenness_centrality"].gt(0).all()
+
+
+def test_string_cypher_executes_networkx_edge_write_call_with_out_col() -> None:
+    pytest.importorskip("networkx")
+
+    result = _mk_simple_path_graph().gfql("CALL graphistry.nx.edge_betweenness_centrality.write({out_col: 'ebc'})")
+
+    assert "ebc" in result._edges.columns
+    assert "edge_betweenness_centrality" not in result._edges.columns
+    assert result._edges["ebc"].gt(0).all()
+
+
+def test_string_cypher_networkx_bad_params_raise_structured_error() -> None:
+    pytest.importorskip("networkx")
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _mk_simple_path_graph().gfql("CALL graphistry.nx.betweenness_centrality({bogus_option: 1})")
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "call.args"
+    assert exc_info.value.context["value"] == {"bogus_option": 1}
 
 
 def test_string_cypher_executes_networkx_graph_write_call() -> None:
