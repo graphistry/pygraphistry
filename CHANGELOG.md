@@ -9,6 +9,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Changed
+- **GFQL validate entrypoint implementation shrink (#1058)**: DRYed legacy `graphistry.compute.gfql.validate` issue construction, filter-key checks, schema-filter diagnostics, and report formatting while preserving deprecated public validation helpers and anchored error diagnostics.
 - **GFQL call validation safelist + encode parity (#1058, #1253)**: DRYed repeated private safelist entry definitions for call validators while adding `encode_edge_size`, `encode_edge_weight`, and point/edge opacity, label, and title encode helpers with GFQL `call()` validation, apply-encodings/schema key contracts, and anchored validator coverage.
 - **GFQL CALL procedure implementation shrink (#1058)**: DRYed local Cypher CALL output-column derivation, computed-output renaming, and NetworkX backend error/dependency plumbing while preserving the no-SciPy `graphistry.nx.pagerank` path. Public CALL procedure behavior and diagnostics are preserved.
 
