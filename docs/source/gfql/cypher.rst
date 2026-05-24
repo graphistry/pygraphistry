@@ -349,18 +349,32 @@ Procedure And Multi-Branch Forms
   Topology-returning procedures such as ``graphistry.cugraph.k_core()`` or
   ``graphistry.igraph.spanning_tree()`` require ``.write()``.
 
-- ``graphistry.nx.*`` remains a deliberately smaller compatibility subset than
-  ``igraph`` / ``cugraph``, but it now includes representative node, edge, and
+- ``graphistry.nx.*`` remains a curated CPU subset rather than the full
+  NetworkX API, but it includes common node, edge, multi-output, and
   graph-returning forms:
 
   - ``graphistry.nx.pagerank()`` / ``.write()``
   - ``graphistry.nx.betweenness_centrality()`` / ``.write()``
+  - ``graphistry.nx.degree_centrality()`` / ``.write()``
+  - ``graphistry.nx.closeness_centrality()`` / ``.write()``
+  - ``graphistry.nx.eigenvector_centrality()`` / ``.write()``
+  - ``graphistry.nx.katz_centrality()`` / ``.write()``
+  - ``graphistry.nx.connected_components()`` / ``.write()``
+  - ``graphistry.nx.strongly_connected_components()`` / ``.write()``
+  - ``graphistry.nx.core_number()`` / ``.write()``
+  - ``graphistry.nx.hits()`` / ``.write()``
   - ``graphistry.nx.edge_betweenness_centrality()`` / ``.write()``
   - ``graphistry.nx.k_core.write()``
 
   Node calls use ``nodeId`` + the algorithm column, edge calls use
   ``source`` / ``destination`` + the algorithm column, and topology-returning
-  calls such as ``k_core`` require ``.write()``.
+  calls such as ``k_core`` require ``.write()``. Multi-output ``hits`` returns
+  ``nodeId``, ``hubs``, and ``authorities``.
+
+  This NetworkX algorithm subset is GFQL local Cypher only. The regular
+  NetworkX plugin API remains conversion-focused (for example,
+  ``from_networkx()`` / ``networkx2pandas()``) and does not currently expose a
+  public ``compute_networkx()`` method.
 
 - Local Cypher ``CALL`` options accept one optional map argument. The top-level
   keys mirror ``compute_igraph()`` / ``compute_cugraph()`` options such as
@@ -386,8 +400,12 @@ Component-labeling examples:
         "CALL graphistry.cugraph.connected_components({out_col: 'wcc_row', directed: false})",
         language="cypher",
     )
+    g.gfql(
+        "CALL graphistry.nx.connected_components({directed: false})",
+        language="cypher",
+    )
 
-- Outside that smaller ``networkx`` subset, ``graphistry.nx.*`` is not part of
+- Outside that curated ``networkx`` subset, ``graphistry.nx.*`` is not part of
   the current local Cypher ``CALL`` surface.
 
 - ``cypher_to_gfql()`` stays stricter than direct execution and intentionally

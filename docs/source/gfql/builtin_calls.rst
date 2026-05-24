@@ -512,13 +512,17 @@ Current supported names include:
 - **Row mode:** ``g.gfql("CALL graphistry.igraph.pagerank()")`` returns row state with ``nodeId`` plus the default algorithm output column in ``_nodes`` and an empty placeholder ``_edges`` frame (for example, ``assert result._edges.empty``).
 - **Graph mode / topology mode:** ``g.gfql("CALL graphistry.igraph.pagerank.write()")`` keeps the result in graph state with traversable edges (for example, ``assert not result._edges.empty``). Topology-returning algorithms such as ``spanning_tree`` and ``gomory_hu_tree`` require ``.write()``.
 - **Options map:** Local Cypher procedures accept one optional map argument. ``out_col``, ``directed``, ``use_vids``, and ``params`` mirror ``compute_igraph()`` directly, and any extra keys are forwarded into the nested algorithm ``params`` dictionary. For example, ``CALL graphistry.igraph.pagerank({damping: 0.9, directed: false})`` maps to ``compute_igraph('pagerank', directed=False, params={'damping': 0.9})``.
-- **NetworkX compatibility subset:** The local Cypher compiler also keeps a small ``graphistry.nx.*`` subset for parity with the older branch behavior:
+- **NetworkX local subset:** The local Cypher compiler also supports a CPU ``graphistry.nx.*`` subset for parity with common cuGraph-style row outputs:
 
-  - Node-enriching calls: ``CALL graphistry.nx.pagerank()`` / ``.write()`` and ``CALL graphistry.nx.betweenness_centrality()`` / ``.write()``
+  - Node-enriching calls: ``CALL graphistry.nx.pagerank()`` / ``.write()``, ``CALL graphistry.nx.betweenness_centrality()`` / ``.write()``, ``CALL graphistry.nx.degree_centrality()`` / ``.write()``, ``CALL graphistry.nx.closeness_centrality()`` / ``.write()``, ``CALL graphistry.nx.eigenvector_centrality()`` / ``.write()``, ``CALL graphistry.nx.katz_centrality()`` / ``.write()``, ``CALL graphistry.nx.connected_components()`` / ``.write()``, ``CALL graphistry.nx.strongly_connected_components()`` / ``.write()``, ``CALL graphistry.nx.core_number()`` / ``.write()``, and ``CALL graphistry.nx.hits()`` / ``.write()``
   - Edge-enriching calls: ``CALL graphistry.nx.edge_betweenness_centrality()`` / ``.write()``
   - Topology-returning calls: ``CALL graphistry.nx.k_core.write()``
 
-  They follow the same row-vs-``.write()`` contract as the other backends: node calls use ``nodeId`` + value column rows, edge calls use ``source`` / ``destination`` + value column rows, and topology-returning calls require ``.write()``.
+  They follow the same row-vs-``.write()`` contract as the other backends: node calls use ``nodeId`` + value column rows, edge calls use ``source`` / ``destination`` + value column rows, and topology-returning calls require ``.write()``. Multi-output ``hits`` returns ``nodeId``, ``hubs``, and ``authorities`` and does not accept ``out_col``.
+
+  This is a GFQL local Cypher surface. The regular NetworkX plugin API is still
+  conversion-focused (for example, ``from_networkx()`` / ``networkx2pandas()``)
+  and does not currently expose a public ``compute_networkx()`` method.
 
 **Parameter Discovery:** For detailed algorithm parameters, see the `Python igraph documentation <https://igraph.org/python/>`_. Parameters are passed via the ``params`` dictionary.
 
