@@ -262,6 +262,7 @@ class PlotterBase(Plottable):
         self._point_y : Optional[str] = None
         self._point_longitude : Optional[str] = None
         self._point_latitude : Optional[str] = None
+        self._gfql_schema : Any = None
         # Settings
         self._height : int = 500
         self._render : RenderModesConcrete = resolve_render_mode(self, True)
@@ -1616,6 +1617,7 @@ class PlotterBase(Plottable):
             url: Optional[str] = None,
             nodes_file_id: Optional[str] = None,
             edges_file_id: Optional[str] = None,
+            schema: Optional[Any] = None,
         ) -> Plottable:
         """Relate data attributes to graph structure and visual representation. To facilitate reuse and replayable notebooks, the binding call is chainable. Invocation does not effect the old binding: it instead returns a new Plotter instance with the new bindings added to the existing ones. Both the old and new bindings can then be used for different graphs.
 
@@ -1684,6 +1686,9 @@ class PlotterBase(Plottable):
 
         :param edges_file_id: Remote edges file id
         :type edges_file_id: Optional[str]
+
+        :param schema: Optional experimental public GFQL schema declaration from ``graphistry.schema``.
+        :type schema: Optional[Any]
 
         :returns: Plotter
         :rtype: Plotter
@@ -1764,6 +1769,7 @@ class PlotterBase(Plottable):
         res._url = url or self._url
         res._nodes_file_id = nodes_file_id or self._nodes_file_id
         res._edges_file_id = edges_file_id or self._edges_file_id
+        res._gfql_schema = schema if schema is not None else self._gfql_schema
 
         # Invalidate dataset_id if we're changing encodings, not setting IDs
         encoding_params_changed = any([

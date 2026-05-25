@@ -60,6 +60,16 @@ Method :meth:`gfql_remote <graphistry.compute.ComputeMixin.ComputeMixin.gfql_rem
 - **engine**: Optional execution engine. Engine is typically not set, defaulting to `'auto'`. Use `'cudf'` for GPU acceleration and `'pandas'` for CPU.
 - **validate**: Defaulting to `True`, whether to validate the query and data.
 
+.. note::
+
+   A public ``GraphSchema`` bound with ``g.bind(schema=schema)`` is used by
+   local validation APIs such as ``g.gfql_validate(...)`` and
+   ``g.gfql(..., validate=True)``. That schema surface is experimental in this
+   release, and ``gfql_remote(...)`` does not currently send the schema object
+   to the server. If you want declared-schema checks before a remote run, call
+   ``g.gfql_validate(query)`` locally first, then call ``g.gfql_remote(query)``.
+   Remote schema transport is tracked as a follow-on capability.
+
 
 Manual CPU, GPU engine selection
 ---------------------------------
