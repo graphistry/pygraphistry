@@ -362,7 +362,10 @@ def _merge_undirected_reverse_edge_attrs(
     ).rename(columns={reverse_source_col: destination_col})
     reverse_value_columns = {col: f"__graphistry_reverse_{col}__" for col in value_columns}
     reversed_base = reversed_base.rename(columns=reverse_value_columns)
-    reverse_projected = reversed_base[[source_col, destination_col, *reverse_value_columns.values()]]
+    reverse_projected = reversed_base[[source_col, destination_col, *reverse_value_columns.values()]].drop_duplicates(
+        subset=[source_col, destination_col],
+        keep="first",
+    )
     merged_with_reverse = cast(
         pd.DataFrame,
         safe_merge(merged_edges, reverse_projected, on=list(edge_keys), how="left"),
