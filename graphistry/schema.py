@@ -331,6 +331,7 @@ class GraphSchema:
     node_id_column: Optional[str] = None
     edge_source_column: Optional[str] = None
     edge_destination_column: Optional[str] = None
+    metadata: Mapping[str, Any] = field(default_factory=dict, compare=False)
 
     def __init__(
         self,
@@ -341,6 +342,7 @@ class GraphSchema:
         node_id_column: Optional[str] = None,
         edge_source_column: Optional[str] = None,
         edge_destination_column: Optional[str] = None,
+        metadata: Optional[Mapping[str, Any]] = None,
     ) -> None:
         object.__setattr__(self, "node_types", tuple(node_types))
         object.__setattr__(self, "edge_types", tuple(edge_types))
@@ -348,6 +350,7 @@ class GraphSchema:
         object.__setattr__(self, "node_id_column", node_id_column)
         object.__setattr__(self, "edge_source_column", edge_source_column)
         object.__setattr__(self, "edge_destination_column", edge_destination_column)
+        object.__setattr__(self, "metadata", dict(metadata or {}))
 
     @property
     def node_columns(self) -> FrozenSet[str]:
@@ -441,6 +444,7 @@ class GraphSchema:
             "node_id_column": self.node_id_column,
             "edge_source_column": self.edge_source_column,
             "edge_destination_column": self.edge_destination_column,
+            "metadata": dict(self.metadata),
         }
 
     @classmethod
@@ -454,6 +458,7 @@ class GraphSchema:
         node_id_column: Optional[str] = None,
         edge_source_column: Optional[str] = None,
         edge_destination_column: Optional[str] = None,
+        metadata: Optional[Mapping[str, Any]] = None,
         coercion: CoercionMode = "widen",
     ) -> "GraphSchema":
         """Import graph schema declarations from Arrow schemas.
@@ -471,6 +476,7 @@ class GraphSchema:
                 Optional[str],
                 declaration.get("edge_destination_column", edge_destination_column),
             )
+            metadata = cast(Optional[Mapping[str, Any]], declaration.get("metadata", metadata))
 
         nodes = tuple(
             NodeType.from_arrow(name, schema, coercion=coercion)
@@ -487,6 +493,7 @@ class GraphSchema:
             node_id_column=node_id_column,
             edge_source_column=edge_source_column,
             edge_destination_column=edge_destination_column,
+            metadata=metadata,
         )
 
     def to_catalog(
@@ -514,6 +521,7 @@ class GraphSchema:
                 edge_type.name: edge_type.to_row_schema(include_type_label=False)
                 for edge_type in self.edge_types
             },
+            "schema_metadata": dict(self.metadata),
         }
         return GraphSchemaCatalog.from_schema_parts(
             node_columns=self.node_columns,

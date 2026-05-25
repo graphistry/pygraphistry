@@ -164,7 +164,15 @@ def test_node_and_edge_types_round_trip_from_arrow() -> None:
 def test_graph_schema_arrow_declaration_round_trip() -> None:
     pa = pytest.importorskip("pyarrow")
 
-    schema = _schema(strict=False)
+    schema = GraphSchema(
+        node_types=_schema(strict=False).node_types,
+        edge_types=_schema(strict=False).edge_types,
+        strict=False,
+        node_id_column="id",
+        edge_source_column="src",
+        edge_destination_column="dst",
+        metadata={"source": "declared", "owner": "unit-test"},
+    )
     declaration = schema.to_arrow()
 
     assert declaration["nodes"].field("age").type == pa.int64()
@@ -173,6 +181,7 @@ def test_graph_schema_arrow_declaration_round_trip() -> None:
     assert declaration["edges"].metadata[b"gfql.arrow_bridge.version"] == b"1"
     assert declaration["edge_types"]["WORKS_AT"]["source"] == ("Person",)
     assert declaration["edge_types"]["WORKS_AT"]["destination"] == ("Company",)
+    assert declaration["metadata"] == {"source": "declared", "owner": "unit-test"}
 
     imported = GraphSchema.from_arrow(declaration)
 
@@ -180,9 +189,21 @@ def test_graph_schema_arrow_declaration_round_trip() -> None:
     assert imported.node_id_column == "id"
     assert imported.edge_source_column == "src"
     assert imported.edge_destination_column == "dst"
+    assert imported.metadata == {"source": "declared", "owner": "unit-test"}
     assert imported.node_columns == schema.node_columns
     assert imported.edge_columns == schema.edge_columns
     assert imported.edge_types[0].topology.as_metadata() == schema.edge_types[0].topology.as_metadata()
+
+
+def test_graph_schema_metadata_is_cataloged_but_not_validation_contract() -> None:
+    schema = GraphSchema(
+        node_types=_schema().node_types,
+        edge_types=_schema().edge_types,
+        metadata={"source": "inferred"},
+    )
+
+    assert schema == GraphSchema(node_types=_schema().node_types, edge_types=_schema().edge_types)
+    assert schema.to_catalog().metadata["schema_metadata"] == {"source": "inferred"}
 
 
 def test_bind_schema_is_chainable_and_used_by_preflight() -> None:

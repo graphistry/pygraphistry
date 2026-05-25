@@ -42,6 +42,7 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     encode_point_badge,
     encode_edge_badge,
     apply_encodings,
+    infer_schema,
     hypergraph,
     bolt,
     cypher,
@@ -138,6 +139,12 @@ from graphistry.schema import (
     EdgeType,
     GraphSchema,
     NodeType,
+)
+
+from graphistry.schema_inference import (
+    InferredProperty,
+    PresenceState,
+    SchemaInferenceReport,
 )
 
 from graphistry.privacy import (

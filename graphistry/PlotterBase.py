@@ -1622,6 +1622,7 @@ class PlotterBase(Plottable):
             nodes_file_id: Optional[str] = None,
             edges_file_id: Optional[str] = None,
             schema: Optional[Any] = None,
+            infer_schema: Any = False,
         ) -> Plottable:
         """Relate data attributes to graph structure and visual representation. To facilitate reuse and replayable notebooks, the binding call is chainable. Invocation does not effect the old binding: it instead returns a new Plotter instance with the new bindings added to the existing ones. Both the old and new bindings can then be used for different graphs.
 
@@ -1693,6 +1694,9 @@ class PlotterBase(Plottable):
 
         :param schema: Optional experimental public GFQL schema declaration from ``graphistry.schema``.
         :type schema: Optional[Any]
+
+        :param infer_schema: Infer an experimental public GFQL schema from currently bound data and attach it.
+        :type infer_schema: bool
 
         :returns: Plotter
         :rtype: Plotter
@@ -1773,7 +1777,16 @@ class PlotterBase(Plottable):
         res._url = url or self._url
         res._nodes_file_id = nodes_file_id or self._nodes_file_id
         res._edges_file_id = edges_file_id or self._edges_file_id
-        res._gfql_schema = schema if schema is not None else self._gfql_schema
+        if schema is not None and infer_schema:
+            raise ValueError("schema and infer_schema cannot both be set")
+        if infer_schema and self._gfql_schema is not None:
+            raise ValueError("schema and infer_schema cannot both be set")
+        if infer_schema:
+            from graphistry.schema_inference import infer_schema as _infer_schema
+
+            res._gfql_schema = _infer_schema(res)
+        else:
+            res._gfql_schema = schema if schema is not None else self._gfql_schema
 
         # Invalidate dataset_id if we're changing encodings, not setting IDs
         encoding_params_changed = any([
@@ -1791,6 +1804,12 @@ class PlotterBase(Plottable):
 
     def copy(self) -> Plottable:
         return copy.copy(self)
+
+    def infer_schema(self, *, schema: Optional[Any] = None, return_report: bool = False) -> Any:
+        """Infer an experimental public GFQL schema from currently bound data."""
+        from graphistry.schema_inference import infer_schema
+
+        return infer_schema(self, schema=schema, return_report=return_report)
 
 
     def nodes(self, nodes: Union[Callable, Any], node=None, *args, **kwargs) -> Plottable:
