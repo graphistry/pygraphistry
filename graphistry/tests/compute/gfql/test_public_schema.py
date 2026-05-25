@@ -190,6 +190,8 @@ def test_bind_schema_is_chainable_and_used_by_preflight() -> None:
     g = _graph(schema).bind(point_color="name")
 
     assert g._gfql_schema is schema
+    assert g.schema is schema
+    assert g.has_schema() is True
     report = g.gfql_validate("MATCH (p:Person)-[:WORKS_AT]->(c:Company) RETURN p.name AS name")
     assert report["ok"] is True
 

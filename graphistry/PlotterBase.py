@@ -1800,11 +1800,15 @@ class PlotterBase(Plottable):
         The returned object is the same schema instance supplied through
         ``bind(schema=...)``. The accessor is read-only: use ``bind(schema=...)``
         to attach a schema to a new plotter.
+
+        This is local declaration introspection only. It does not infer a schema
+        from data, fetch a remote dataset schema, or serialize the schema into
+        ``gfql_remote()`` requests in this release.
         """
         return self._gfql_schema
 
     def has_schema(self) -> bool:
-        """Return ``True`` when this plotter has a GFQL ``GraphSchema`` bound."""
+        """Return ``True`` when this plotter has a local GFQL schema bound."""
         return self._gfql_schema is not None
 
     def copy(self) -> Plottable:
