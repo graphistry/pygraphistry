@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pandas as pd
 import pytest
 
@@ -8,7 +10,7 @@ from graphistry.exceptions import SchemaValidationError
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.ir.logical_plan import RowSchema
 from graphistry.compute.gfql.ir.types import ScalarType
-from graphistry.schema import EdgeType, GraphSchema, NodeType
+from graphistry.schema import EdgeTopology, EdgeType, GraphSchema, NodeType, pretty_print_schema
 
 
 def _schema(*, strict: bool = True) -> GraphSchema:
@@ -20,6 +22,20 @@ def _schema(*, strict: bool = True) -> GraphSchema:
         node_types=[person, company],
         edge_types=[works_at, contracts],
         strict=strict,
+        node_id_column="id",
+        edge_source_column="src",
+        edge_destination_column="dst",
+    )
+
+
+def _pretty_schema() -> GraphSchema:
+    person = NodeType("Person", {"id": int, "name": str, "age": int})
+    company = NodeType("Company", {"id": int, "name": str})
+    works_at = EdgeType("WORKS_AT", source=person, destination=company, properties={"since": int})
+    contracts = EdgeType("CONTRACTS", source=company, destination=person, properties={"fee": float})
+    return GraphSchema(
+        node_types=[person, company],
+        edge_types=[works_at, contracts],
         node_id_column="id",
         edge_source_column="src",
         edge_destination_column="dst",
@@ -45,6 +61,124 @@ def test_public_schema_imports_are_stable() -> None:
     assert graphistry.NodeType is NodeType
     assert graphistry.EdgeType is EdgeType
     assert graphistry.GraphSchema is GraphSchema
+    assert graphistry.pretty_print_schema is pretty_print_schema
+
+
+def test_graph_schema_pretty_cypher_and_repr_are_compact() -> None:
+    schema = _pretty_schema()
+
+    expected = "\n".join(
+        (
+            "(:Person {id: int64, name: string, age: int64})",
+            "(:Company {id: int64, name: string})",
+            "(:Person)-[:WORKS_AT {since: int64}]->(:Company)",
+            "(:Company)-[:CONTRACTS {fee: float64}]->(:Person)",
+        )
+    )
+
+    assert schema.pretty() == expected
+    assert repr(schema) == expected
+    assert pretty_print_schema(schema) == expected
+
+
+def test_graph_schema_pretty_yaml_is_stable() -> None:
+    schema = _pretty_schema()
+
+    expected = "\n".join(
+        (
+            "strict: true",
+            "node_id_column: id",
+            "edge_columns:",
+            "  source: src",
+            "  destination: dst",
+            "nodes:",
+            "  Person:",
+            "    labels: Person",
+            "    properties:",
+            "      id: int64",
+            "      name: string",
+            "      age: int64",
+            "  Company:",
+            "    labels: Company",
+            "    properties:",
+            "      id: int64",
+            "      name: string",
+            "relationships:",
+            "  WORKS_AT:",
+            "    from: Person",
+            "    to: Company",
+            "    properties:",
+            "      since: int64",
+            "  CONTRACTS:",
+            "    from: Company",
+            "    to: Person",
+            "    properties:",
+            "      fee: float64",
+        )
+    )
+
+    assert schema.pretty("yaml") == expected
+    assert pretty_print_schema(schema, format="yaml") == expected
+
+
+def test_graph_schema_pretty_compact_counts_public_contracts() -> None:
+    schema = _pretty_schema()
+
+    assert schema.pretty("compact") == "GraphSchema(2 node types, 2 edge types, 7 properties)"
+    assert GraphSchema().pretty() == "GraphSchema(0 node types, 0 edge types, 0 properties)"
+
+
+def test_schema_dataclass_pretty_outputs_are_anchored() -> None:
+    person = NodeType("Person", {"id": int, "name": str})
+    edge = EdgeType("WORKS_AT", "Person", "Company", {"since": int})
+    topology = EdgeTopology("WORKS_AT", frozenset({"Person"}), frozenset({"Company"}))
+
+    assert person.pretty() == "(:Person {id: int64, name: string})"
+    assert person.pretty("compact") == "NodeType(Person, 2 properties)"
+    assert edge.pretty() == "(:Person)-[:WORKS_AT {since: int64}]->(:Company)"
+    assert edge.pretty("compact") == "EdgeType(WORKS_AT, Person -> Company, 1 property)"
+    assert topology.pretty() == "(:Person)-[:WORKS_AT]->(:Company)"
+    assert topology.pretty("compact") == "EdgeTopology(WORKS_AT, Person -> Company)"
+
+
+def test_schema_pretty_prints_arrow_dtypes_without_dataclass_noise() -> None:
+    pa = pytest.importorskip("pyarrow")
+
+    person = NodeType(
+        "Person",
+        pa.schema(
+            [
+                pa.field("id", pa.int64(), nullable=False),
+                pa.field("name", pa.large_string()),
+            ]
+        ),
+    )
+
+    assert person.pretty() == "(:Person {id: int64!, name: string})"
+
+
+def test_schema_pretty_escapes_non_identifier_names() -> None:
+    node = NodeType("Person Type", {"display name": str})
+    edge = EdgeType("WORKS-AT", "Person Type", "Company", {"start year": int})
+
+    assert node.pretty() == "(:`Person Type` {`display name`: string})"
+    assert edge.pretty() == "(:`Person Type`)-[:`WORKS-AT` {`start year`: int64}]->(:Company)"
+    assert node.pretty("yaml") == "\n".join(
+        (
+            '"Person Type":',
+            '  labels: "Person Type"',
+            "  properties:",
+            '    "display name": string',
+        )
+    )
+
+
+def test_schema_pretty_rejects_unknown_format_with_anchored_message() -> None:
+    with pytest.raises(
+        ValueError,
+        match="schema pretty format must be one of 'cypher', 'yaml', 'compact'; got 'json'",
+    ):
+        pretty_print_schema(_pretty_schema(), format=cast(Any, "json"))
 
 
 def test_graph_schema_adapts_to_internal_catalog() -> None:

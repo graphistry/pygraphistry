@@ -7,7 +7,8 @@ inference, coercion, remote transport, and planner use are developed.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, FrozenSet, Iterable, Mapping, Optional, Tuple, Union, cast
+import re
+from typing import Any, Dict, FrozenSet, Iterable, Literal, Mapping, Optional, Tuple, Union, cast
 
 from graphistry.compute.gfql.ir.compilation import GraphSchemaCatalog
 from graphistry.compute.gfql.ir.arrow_bridge import CoercionMode, from_arrow, to_arrow
@@ -18,6 +19,113 @@ from graphistry.compute.gfql.ir.types import EdgeRef, ListType, LogicalType, Nod
 NodeRefInput = Union["NodeType", str, Iterable[str]]
 PropertySchemaInput = Union[Mapping[str, Any], RowSchema, Any]
 GraphArrowDeclaration = Mapping[str, Any]
+SchemaPrettyFormat = Literal["cypher", "yaml", "compact"]
+
+_PRETTY_FORMATS: Tuple[SchemaPrettyFormat, ...] = ("cypher", "yaml", "compact")
+_CYPHER_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_YAML_PLAIN_SCALAR = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
+_YAML_RESERVED = {"false", "null", "off", "on", "true", "yes", "no", "~"}
+
+
+def _validate_pretty_format(format: str) -> SchemaPrettyFormat:
+    if format not in _PRETTY_FORMATS:
+        expected = ", ".join(repr(value) for value in _PRETTY_FORMATS)
+        raise ValueError(f"schema pretty format must be one of {expected}; got {format!r}")
+    return cast(SchemaPrettyFormat, format)
+
+
+def _plural(count: int, noun: str) -> str:
+    if count == 1:
+        return f"{count} {noun}"
+    if noun.endswith("y"):
+        return f"{count} {noun[:-1]}ies"
+    return f"{count} {noun}s"
+
+
+def _ordered_labels(primary: Optional[str], labels: Iterable[str]) -> Tuple[str, ...]:
+    ordered = tuple(sorted(str(label) for label in labels if str(label)))
+    if primary is None or primary not in ordered:
+        return ordered
+    return (primary,) + tuple(label for label in ordered if label != primary)
+
+
+def _format_logical_type(logical_type: LogicalType) -> str:
+    if isinstance(logical_type, ScalarType):
+        suffix = "" if logical_type.nullable else "!"
+        return f"{logical_type.kind}{suffix}"
+    if isinstance(logical_type, ListType):
+        return f"list<{_format_logical_type(logical_type.element_type)}>"
+    if isinstance(logical_type, NodeRef):
+        labels = _ordered_labels(None, logical_type.labels)
+        return "node" if not labels else f"node<{ '|'.join(labels) }>"
+    if isinstance(logical_type, EdgeRef):
+        parts = [part for part in (logical_type.src_label, logical_type.type, logical_type.dst_label) if part]
+        return "edge" if not parts else f"edge<{ '->'.join(parts) }>"
+    if isinstance(logical_type, PathType):
+        return f"path<{logical_type.min_hops}..{logical_type.max_hops}>"
+    return "unknown"
+
+
+def _cypher_identifier(name: str) -> str:
+    value = str(name)
+    if _CYPHER_IDENTIFIER.match(value):
+        return value
+    return f"`{value.replace('`', '``')}`"
+
+
+def _cypher_label_pattern(labels: Iterable[str]) -> str:
+    ordered = tuple(labels)
+    return "".join(f":{_cypher_identifier(label)}" for label in ordered)
+
+
+def _cypher_property_map(properties: Mapping[str, LogicalType]) -> str:
+    if not properties:
+        return ""
+    body = ", ".join(
+        f"{_cypher_identifier(str(name))}: {_format_logical_type(logical_type)}"
+        for name, logical_type in properties.items()
+    )
+    return f" {{{body}}}"
+
+
+def _inline_labels(labels: Iterable[str]) -> str:
+    ordered = tuple(labels)
+    if not ordered:
+        return "[]"
+    if len(ordered) == 1:
+        return ordered[0]
+    return "[" + ", ".join(ordered) + "]"
+
+
+def _yaml_atom(value: str) -> str:
+    text = str(value)
+    if _YAML_PLAIN_SCALAR.match(text) and text.lower() not in _YAML_RESERVED:
+        return text
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _yaml_inline_labels(labels: Iterable[str]) -> str:
+    ordered = tuple(labels)
+    if not ordered:
+        return "[]"
+    if len(ordered) == 1:
+        return _yaml_atom(ordered[0])
+    return "[" + ", ".join(_yaml_atom(label) for label in ordered) + "]"
+
+
+def _yaml_property_lines(properties: Mapping[str, LogicalType], indent: str) -> Tuple[str, ...]:
+    if not properties:
+        return (f"{indent}properties: {{}}",)
+    lines = [f"{indent}properties:"]
+    lines.extend(
+        f"{indent}  {_yaml_atom(str(name))}: {_format_logical_type(logical_type)}"
+        for name, logical_type in properties.items()
+    )
+    return tuple(lines)
+
+
+def _indent_lines(lines: Iterable[str], indent: str) -> Tuple[str, ...]:
+    return tuple(f"{indent}{line}" for line in lines)
 
 
 def _is_arrow_schema(value: Any) -> bool:
@@ -217,6 +325,27 @@ class NodeType:
             properties = _strip_label_properties(properties, normalized_labels)
         return cls(name, properties=properties, labels=normalized_labels)
 
+    def pretty(self, format: SchemaPrettyFormat = "cypher") -> str:
+        """Render this node contract as compact schema text.
+
+        Example:
+            ``NodeType("Person", {"id": int}).pretty()`` returns
+            ``(:Person {id: int64})``.
+        """
+        pretty_format = _validate_pretty_format(format)
+        labels = _ordered_labels(self.name, self.labels) or (self.name,)
+        if pretty_format == "cypher":
+            return f"({_cypher_label_pattern(labels)}{_cypher_property_map(self.properties)})"
+        if pretty_format == "compact":
+            return f"NodeType({self.name}, {_plural(len(self.properties), 'property')})"
+
+        lines = [f"{_yaml_atom(self.name)}:", f"  labels: {_yaml_inline_labels(labels)}"]
+        lines.extend(_yaml_property_lines(self.properties, "  "))
+        return "\n".join(lines)
+
+    def __repr__(self) -> str:
+        return self.pretty("cypher")
+
 
 @dataclass(frozen=True)
 class EdgeTopology:
@@ -232,6 +361,34 @@ class EdgeTopology:
             "source_labels": tuple(sorted(self.source_labels)),
             "destination_labels": tuple(sorted(self.destination_labels)),
         }
+
+    def pretty(self, format: SchemaPrettyFormat = "cypher") -> str:
+        """Render this relationship topology as compact schema text."""
+        pretty_format = _validate_pretty_format(format)
+        source = _ordered_labels(None, self.source_labels)
+        destination = _ordered_labels(None, self.destination_labels)
+        if pretty_format == "cypher":
+            return (
+                f"({_cypher_label_pattern(source)})"
+                f"-[:{_cypher_identifier(self.relationship_type)}]->"
+                f"({_cypher_label_pattern(destination)})"
+            )
+        if pretty_format == "compact":
+            return (
+                f"EdgeTopology({self.relationship_type}, "
+                f"{_inline_labels(source)} -> {_inline_labels(destination)})"
+            )
+
+        return "\n".join(
+            (
+                f"{_yaml_atom(self.relationship_type)}:",
+                f"  from: {_yaml_inline_labels(source)}",
+                f"  to: {_yaml_inline_labels(destination)}",
+            )
+        )
+
+    def __repr__(self) -> str:
+        return self.pretty("cypher")
 
     @classmethod
     def from_metadata(cls, value: Mapping[str, object]) -> "EdgeTopology":
@@ -319,6 +476,39 @@ class EdgeType:
         if include_type_label:
             properties.pop(_label_column(name), None)
         return cls(name, source=source, destination=destination, properties=properties)
+
+    def pretty(self, format: SchemaPrettyFormat = "cypher") -> str:
+        """Render this edge contract as compact schema text.
+
+        Example:
+            ``EdgeType("WORKS_AT", "Person", "Company", {"since": int}).pretty()``
+            returns ``(:Person)-[:WORKS_AT {since: int64}]->(:Company)``.
+        """
+        pretty_format = _validate_pretty_format(format)
+        source = _ordered_labels(None, self.source)
+        destination = _ordered_labels(None, self.destination)
+        if pretty_format == "cypher":
+            return (
+                f"({_cypher_label_pattern(source)})"
+                f"-[:{_cypher_identifier(self.name)}{_cypher_property_map(self.properties)}]->"
+                f"({_cypher_label_pattern(destination)})"
+            )
+        if pretty_format == "compact":
+            return (
+                f"EdgeType({self.name}, {_inline_labels(source)} -> {_inline_labels(destination)}, "
+                f"{_plural(len(self.properties), 'property')})"
+            )
+
+        lines = [
+            f"{_yaml_atom(self.name)}:",
+            f"  from: {_yaml_inline_labels(source)}",
+            f"  to: {_yaml_inline_labels(destination)}",
+        ]
+        lines.extend(_yaml_property_lines(self.properties, "  "))
+        return "\n".join(lines)
+
+    def __repr__(self) -> str:
+        return self.pretty("cypher")
 
 
 @dataclass(frozen=True)
@@ -524,6 +714,51 @@ class GraphSchema:
             metadata=metadata,
         )
 
+    def pretty(self, format: SchemaPrettyFormat = "cypher") -> str:
+        """Render this schema for prompts, logs, or debugging.
+
+        ``format="cypher"`` is the compact default for LLM prompts,
+        ``format="yaml"`` is indented for human debugging, and
+        ``format="compact"`` returns a one-line summary.
+        """
+        pretty_format = _validate_pretty_format(format)
+        if pretty_format == "cypher":
+            patterns = tuple(node_type.pretty("cypher") for node_type in self.node_types)
+            patterns += tuple(edge_type.pretty("cypher") for edge_type in self.edge_types)
+            return "\n".join(patterns) if patterns else self.pretty("compact")
+        if pretty_format == "compact":
+            property_count = sum(len(node_type.properties) for node_type in self.node_types)
+            property_count += sum(len(edge_type.properties) for edge_type in self.edge_types)
+            return (
+                f"GraphSchema({_plural(len(self.node_types), 'node type')}, "
+                f"{_plural(len(self.edge_types), 'edge type')}, "
+                f"{_plural(property_count, 'property')})"
+            )
+
+        lines = [
+            f"strict: {str(self.strict).lower()}",
+            f"node_id_column: {self.node_id_column if self.node_id_column is not None else 'null'}",
+            "edge_columns:",
+            f"  source: {self.edge_source_column if self.edge_source_column is not None else 'null'}",
+            f"  destination: {self.edge_destination_column if self.edge_destination_column is not None else 'null'}",
+            "nodes:",
+        ]
+        if self.node_types:
+            for node_type in self.node_types:
+                lines.extend(_indent_lines(node_type.pretty("yaml").splitlines(), "  "))
+        else:
+            lines[-1] = "nodes: {}"
+        lines.append("relationships:")
+        if self.edge_types:
+            for edge_type in self.edge_types:
+                lines.extend(_indent_lines(edge_type.pretty("yaml").splitlines(), "  "))
+        else:
+            lines[-1] = "relationships: {}"
+        return "\n".join(lines)
+
+    def __repr__(self) -> str:
+        return self.pretty("cypher")
+
 
 def _merge_arrow_schemas(schemas: Iterable[Any], *, kind: str) -> Any:
     import pyarrow as pa
@@ -561,4 +796,27 @@ def _edge_type_from_arrow_entry(
     return EdgeType.from_arrow(name, source, destination, schema, coercion=coercion)
 
 
-__all__ = ["EdgeTopology", "EdgeType", "GraphSchema", "NodeType"]
+PrettySchemaInput = Union[EdgeTopology, EdgeType, GraphSchema, NodeType]
+
+
+def pretty_print_schema(
+    schema: PrettySchemaInput,
+    format: SchemaPrettyFormat = "cypher",
+) -> str:
+    """Render a public graph schema declaration.
+
+    This ergonomic wrapper mirrors each schema dataclass's ``pretty()`` method.
+    Example:
+        ``pretty_print_schema(schema, format="compact")`` returns a one-line
+        summary such as ``GraphSchema(2 node types, 1 edge type, 5 properties)``.
+    """
+    return schema.pretty(format)
+
+
+__all__ = [
+    "EdgeTopology",
+    "EdgeType",
+    "GraphSchema",
+    "NodeType",
+    "pretty_print_schema",
+]

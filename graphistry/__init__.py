@@ -138,6 +138,7 @@ from graphistry.schema import (
     EdgeType,
     GraphSchema,
     NodeType,
+    pretty_print_schema,
 )
 
 from graphistry.privacy import (
