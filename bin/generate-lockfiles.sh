@@ -50,7 +50,7 @@ PROFILE_DEFS=(
     "rtd:docs,pygraphviz:3.12:3.12::"
     "spark::3.14:3.14::requirements/spark-py3.14.in"
     "build:build:3.8:::"
-    "tck:test:3.8:::"
+    "tck:test,networkx:3.8:::"
 )
 PROFILES=(${PROFILES:-$(printf '%s\n' "${PROFILE_DEFS[@]}" | cut -d: -f1)})
 
