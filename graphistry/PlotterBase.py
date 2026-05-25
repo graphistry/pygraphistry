@@ -26,6 +26,7 @@ from .constants import SRC, DST, NODE
 from .plugins.igraph import to_igraph, from_igraph, compute_igraph, layout_igraph
 from .plugins.gexf import from_gexf, to_gexf
 from .plugins.graphviz import layout_graphviz, render_graphviz
+from .plugins.networkx import compute_networkx
 from graphistry.plugins_types.graphviz_types import (
     Format,
     Prog,
@@ -2745,6 +2746,8 @@ class PlotterBase(Plottable):
         e_df, n_df = g.networkx2pandas(G)
         return g.edges(e_df).nodes(n_df)
 
+
+    compute_networkx = compute_networkx
 
     from_cugraph = from_cugraph
     to_cugraph = to_cugraph

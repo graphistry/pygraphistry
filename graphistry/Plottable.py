@@ -737,6 +737,15 @@ class Plottable(Protocol):
     
     def networkx2pandas(self, G: Any) -> Tuple[pd.DataFrame, pd.DataFrame]:
         ...
+
+    def compute_networkx(self,
+        alg: str,
+        out_col: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        directed: bool = True,
+        G: Optional[Any] = None
+    ) -> 'Plottable':
+        ...
     
     def fa2_layout(
         self,
