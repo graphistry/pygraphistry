@@ -363,7 +363,9 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
 
     ```python
     graph = networkx.read_edgelist('facebook_combined.txt')
-    graphistry.bind(source='src', destination='dst', node='nodeid').plot(graph)
+    g = graphistry.bind(source='src', destination='dst', node='nodeid').from_networkx(graph)
+    g2 = g.compute_networkx('degree_centrality', out_col='degree_score', directed=False)
+    g2.plot()
     ```
 
 * [HyperNetX](https://github.com/pnnl/HyperNetX) ([notebook demo](https://github.com/graphistry/pygraphistry/blob/master/demos/demos_databases_apis/hypernetx/hypernetx.ipynb))
