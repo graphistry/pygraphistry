@@ -520,9 +520,9 @@ Current supported names include:
 
   They follow the same row-vs-``.write()`` contract as the other backends: node calls use ``nodeId`` + value column rows, edge calls use ``source`` / ``destination`` + value column rows, and topology-returning calls require ``.write()``. Multi-output ``hits`` returns ``nodeId``, ``hubs``, and ``authorities`` and does not accept ``out_col``.
 
-  This is a GFQL local Cypher surface. The regular NetworkX plugin API is still
-  conversion-focused (for example, ``from_networkx()`` / ``networkx2pandas()``)
-  and does not currently expose a public ``compute_networkx()`` method.
+  The same curated NetworkX algorithm subset is available from regular Python
+  as ``g.compute_networkx(...)`` for users who do not need the local Cypher
+  ``CALL`` path.
 
 **Parameter Discovery:** For detailed algorithm parameters, see the `Python igraph documentation <https://igraph.org/python/>`_. Parameters are passed via the ``params`` dictionary.
 

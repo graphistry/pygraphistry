@@ -371,10 +371,9 @@ Procedure And Multi-Branch Forms
   calls such as ``k_core`` require ``.write()``. Multi-output ``hits`` returns
   ``nodeId``, ``hubs``, and ``authorities``.
 
-  This NetworkX algorithm subset is GFQL local Cypher only. The regular
-  NetworkX plugin API remains conversion-focused (for example,
-  ``from_networkx()`` / ``networkx2pandas()``) and does not currently expose a
-  public ``compute_networkx()`` method.
+  The same curated NetworkX algorithm subset is available from regular Python
+  as ``g.compute_networkx(...)`` for users who do not need the local Cypher
+  ``CALL`` path.
 
 - Local Cypher ``CALL`` options accept one optional map argument. The top-level
   keys mirror ``compute_igraph()`` / ``compute_cugraph()`` options such as
