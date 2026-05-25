@@ -1,4 +1,5 @@
 import graphistry
+import graphistry.feature_utils as feature_utils
 import logging
 import numpy as np
 import pandas as pd
@@ -6,6 +7,7 @@ from typing import Any
 
 import pytest
 import unittest
+from unittest.mock import patch
 
 from graphistry.feature_utils import (
     process_dirty_dataframes,
@@ -30,6 +32,38 @@ has_min_dependancy_text, _, _ = lazy_sentence_transformers_import()
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 logging.getLogger("graphistry.feature_utils").setLevel(logging.DEBUG)
+
+
+def _assert_embedding_frames_allclose(
+    testcase: unittest.TestCase,
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    message: str,
+) -> None:
+    testcase.assertEqual(left.shape, right.shape, f"{message}: shape mismatch")
+    left_values = np.asarray(left.values, dtype=np.float64)
+    right_values = np.asarray(right.values, dtype=np.float64)
+    testcase.assertGreater(
+        float(np.linalg.norm(left_values.reshape(-1))),
+        0.0,
+        f"{message}: left embeddings should be non-zero",
+    )
+    testcase.assertGreater(
+        float(np.linalg.norm(right_values.reshape(-1))),
+        0.0,
+        f"{message}: right embeddings should be non-zero",
+    )
+    try:
+        np.testing.assert_allclose(
+            left_values,
+            right_values,
+            rtol=1e-5,
+            atol=1e-5,
+            err_msg=message,
+        )
+    except AssertionError as exc:
+        testcase.fail(str(exc))
+
 
 model_avg_name = (
     "/models/average_word_embeddings_komninos"  # 250mb, fastest vectorizer in transformer models
@@ -404,6 +438,55 @@ class TestFeatureMethods(unittest.TestCase):
 
 class TestModelNameHandling(unittest.TestCase):
     """Test that both legacy and new model name formats work correctly"""
+
+    def test_legacy_model_name_resolves_to_canonical_sentence_transformers_id(self):
+        """Legacy and qualified names should load the same model identifier."""
+        seen_model_names = []
+
+        class FakeSentenceTransformer:
+            def __init__(self, model_name):
+                self.model_name = model_name
+                seen_model_names.append(model_name)
+
+            def encode(self, values, **kwargs):
+                return np.full((len(values), 3), 1.0)
+
+        test_df = pd.DataFrame({
+            'text': ['test sentence for encoding'],
+            'id': [1]
+        })
+        small_model = "paraphrase-albert-small-v2"
+
+        with patch.object(
+            feature_utils,
+            "lazy_sentence_transformers_import",
+            return_value=(True, None, FakeSentenceTransformer),
+        ):
+            legacy_result, legacy_text_cols, legacy_model = encode_textual(
+                test_df,
+                min_words=0,
+                model_name=small_model,
+                use_ngrams=False
+            )
+            qualified_result, qualified_text_cols, qualified_model = encode_textual(
+                test_df,
+                min_words=0,
+                model_name=f"sentence-transformers/{small_model}",
+                use_ngrams=False
+            )
+
+        expected_model_name = f"sentence-transformers/{small_model}"
+        self.assertEqual(seen_model_names, [expected_model_name, expected_model_name])
+        self.assertEqual(legacy_model.model_name, expected_model_name)
+        self.assertEqual(qualified_model.model_name, expected_model_name)
+        self.assertEqual(legacy_text_cols, ['text'])
+        self.assertEqual(qualified_text_cols, ['text'])
+        _assert_embedding_frames_allclose(
+            self,
+            legacy_result,
+            qualified_result,
+            "Canonicalized model names should produce identical embeddings",
+        )
     
     @pytest.mark.skipif(not has_min_dependancy or not has_min_dependancy_text, reason="requires ai feature dependencies")
     def test_model_name_formats(self):
@@ -536,19 +619,12 @@ class TestModelNameHandling(unittest.TestCase):
             use_ngrams=False
         )
         
-        # Both should produce semantically equivalent embeddings.
         # Different load paths can introduce tiny floating-point variation in CI.
-        self.assertEqual(result1.shape, result2.shape, 
-                        "Different formats should produce same shape embeddings")
-        v1 = np.asarray(result1.values, dtype=np.float64).reshape(-1)
-        v2 = np.asarray(result2.values, dtype=np.float64).reshape(-1)
-        denom = np.linalg.norm(v1) * np.linalg.norm(v2)
-        self.assertGreater(denom, 0.0, "Embeddings should be non-zero vectors")
-        cosine = float(np.dot(v1, v2) / denom)
-        self.assertGreater(
-            cosine,
-            0.9999,
-            f"Different formats should produce near-identical embeddings, got cosine={cosine}",
+        _assert_embedding_frames_allclose(
+            self,
+            result1,
+            result2,
+            "Different formats should produce near-identical embeddings",
         )
 
 
