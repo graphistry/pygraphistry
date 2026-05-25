@@ -20,6 +20,13 @@ For pandas inputs, autofix prefers pandas' nullable string dtype when available
 so missing values remain Arrow nulls after coercion. Older pandas versions fall
 back to standard Python string coercion.
 
+When a plotter has an experimental ``graphistry.schema.GraphSchema`` bound via
+``g.bind(schema=schema)``, pass ``schema_validate='strict'`` to ``plot()``,
+``upload()``, or ``to_arrow()`` to require declared columns and Arrow types at
+the boundary. Use ``schema_validate='autofix'`` to cast compatible columns to
+declared Arrow types after normal Arrow conversion. The default
+``schema_validate=False`` preserves existing behavior.
+
 .. toctree::
    :maxdepth: 3
 

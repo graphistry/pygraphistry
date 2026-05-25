@@ -3,7 +3,7 @@ from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast, over
 from typing_extensions import Literal
 from graphistry.io.types import ComplexEncodingsDict
 from graphistry.models.collections import CollectionsInput
-from graphistry.models.types import ValidationMode, ValidationParam
+from graphistry.models.types import SchemaValidationMode, SchemaValidationParam, ValidationMode, ValidationParam
 from graphistry.models.surfaces.graphistry_frontend.react_settings import ApplyEncodingsReactSettingsDict
 from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 from graphistry.validate.validate_react_encodings import parse_apply_encodings_ops
@@ -94,12 +94,14 @@ def _upload_otel_attrs(
     erase_files_on_fail: bool = True,
     validate: ValidationParam = "autofix",
     warn: bool = True,
+    schema_validate: SchemaValidationParam = False,
 ) -> Dict[str, Any]:
     attrs: Dict[str, Any] = {"graphistry.memoize": memoize}
     if otel_detail_enabled():
         attrs["graphistry.validate"] = str(validate)
         attrs["graphistry.erase_files_on_fail"] = erase_files_on_fail
         attrs["graphistry.warn"] = warn
+        attrs["graphistry.schema_validate"] = str(schema_validate)
     return attrs
 
 
@@ -118,6 +120,7 @@ def _plot_otel_attrs(
     override_html_style: Optional[str] = None,
     validate: ValidationParam = "autofix",
     warn: bool = True,
+    schema_validate: SchemaValidationParam = False,
 ) -> Dict[str, Any]:
     attrs: Dict[str, Any] = {
         "graphistry.render": str(render),
@@ -129,6 +132,7 @@ def _plot_otel_attrs(
         attrs["graphistry.memoize"] = memoize
         attrs["graphistry.erase_files_on_fail"] = erase_files_on_fail
         attrs["graphistry.warn"] = warn
+        attrs["graphistry.schema_validate"] = str(schema_validate)
     return attrs
 
 
@@ -2296,7 +2300,8 @@ class PlotterBase(Plottable):
         memoize: bool = True,
         erase_files_on_fail: bool = True,
         validate: ValidationParam = 'autofix',
-        warn: bool = True
+        warn: bool = True,
+        schema_validate: SchemaValidationParam = False
     ) -> Plottable:
         """Upload data to the Graphistry server and return as a Plottable. Headless-centric variant of plot().
 
@@ -2317,6 +2322,11 @@ class PlotterBase(Plottable):
         :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix'). validate=False forces warn=False. Default True.
         :type warn: bool
 
+        :param schema_validate: Opt-in bound ``GraphSchema`` validation at the Arrow upload boundary.
+                                False disables schema enforcement. True/'strict' rejects missing or incompatible
+                                declared columns. 'autofix' casts compatible columns to declared Arrow types.
+        :type schema_validate: SchemaValidationParam
+
         **Example: Simple**
             ::
 
@@ -2334,7 +2344,8 @@ class PlotterBase(Plottable):
             memoize=memoize,
             erase_files_on_fail=erase_files_on_fail,
             validate=validate,
-            warn=warn
+            warn=warn,
+            schema_validate=schema_validate
         )
 
     @otel_traced("graphistry.plot", attrs_fn=_plot_otel_attrs)
@@ -2352,7 +2363,8 @@ class PlotterBase(Plottable):
         extra_html: str = "",
         override_html_style: Optional[str] = None,
         validate: ValidationParam = 'autofix',
-        warn: bool = True
+        warn: bool = True,
+        schema_validate: SchemaValidationParam = False
     ) -> Any:
         """Upload data to the Graphistry server and show as an iframe of it.
 
@@ -2399,6 +2411,11 @@ class PlotterBase(Plottable):
 
         :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix'). validate=False forces warn=False. Default True.
         :type warn: bool
+
+        :param schema_validate: Opt-in bound ``GraphSchema`` validation at the Arrow upload boundary.
+                                False disables schema enforcement. True/'strict' rejects missing or incompatible
+                                declared columns. 'autofix' casts compatible columns to declared Arrow types.
+        :type schema_validate: SchemaValidationParam
 
         **Example: Simple**
             ::
@@ -2452,7 +2469,17 @@ class PlotterBase(Plottable):
         self._pygraphistry.refresh()
         logger.debug("4. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
 
-        uploader = self._plot_dispatch(g, n, name, description, self._style, memoize, validate_mode, warn)
+        uploader = self._plot_dispatch(
+            g,
+            n,
+            name,
+            description,
+            self._style,
+            memoize,
+            validate_mode,
+            warn,
+            schema_validate,
+        )
         assert uploader is not None
         if skip_upload:
             return uploader
@@ -2919,15 +2946,47 @@ class PlotterBase(Plottable):
             if b not in cols:
                 error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
 
-    def _plot_dispatch_arrow(self, graph, nodes, name, description, metadata=None, memoize=True, validate_mode: ValidationMode = 'autofix', emit_warnings=True) -> ArrowUploader:
+    def _plot_dispatch_arrow(
+        self,
+        graph,
+        nodes,
+        name,
+        description,
+        metadata=None,
+        memoize=True,
+        validate_mode: ValidationMode = 'autofix',
+        emit_warnings=True,
+        schema_validate: SchemaValidationParam = False,
+    ) -> ArrowUploader:
         warnings.warn(
             "_plot_dispatch_arrow() is deprecated; use _plot_dispatch(), which now always builds Arrow uploaders.",
             DeprecationWarning,
             stacklevel=2,
         )
-        return self._plot_dispatch(graph, nodes, name, description, metadata, memoize, validate_mode, emit_warnings)
+        return self._plot_dispatch(
+            graph,
+            nodes,
+            name,
+            description,
+            metadata,
+            memoize,
+            validate_mode,
+            emit_warnings,
+            schema_validate,
+        )
 
-    def _plot_dispatch(self, graph, nodes, name, description, metadata=None, memoize=True, validate_mode: ValidationMode = 'autofix', emit_warnings=True) -> ArrowUploader:
+    def _plot_dispatch(
+        self,
+        graph,
+        nodes,
+        name,
+        description,
+        metadata=None,
+        memoize=True,
+        validate_mode: ValidationMode = 'autofix',
+        emit_warnings=True,
+        schema_validate: SchemaValidationParam = False,
+    ) -> ArrowUploader:
 
         g: "PlotterBase" = self
         if self._point_title is None and self._point_label is None and g._nodes is not None:
@@ -2937,8 +2996,22 @@ class PlotterBase(Plottable):
                 1
 
         def make_arrow_upload(edges: Any, upload_nodes: Any) -> ArrowUploader:
-            edges_arr = g._table_to_arrow(edges, memoize, validate_mode, emit_warnings)
-            nodes_arr = g._table_to_arrow(upload_nodes, memoize, validate_mode, emit_warnings)
+            edges_arr = g._table_to_arrow(
+                edges,
+                memoize,
+                validate_mode,
+                emit_warnings,
+                schema_validate=schema_validate,
+                schema_table="edges",
+            )
+            nodes_arr = g._table_to_arrow(
+                upload_nodes,
+                memoize,
+                validate_mode,
+                emit_warnings,
+                schema_validate=schema_validate,
+                schema_table="nodes",
+            )
             return g._make_arrow_dataset(edges=edges_arr, nodes=nodes_arr, name=name, description=description, metadata=metadata)
 
         if isinstance(graph, pd.DataFrame) \
@@ -3039,7 +3112,231 @@ class PlotterBase(Plottable):
                  f'Convert explicitly before plot() for better control.')
         return df_fixed
 
-    def _table_to_arrow(self, table: Any, memoize: bool = True, validate_mode: ValidationMode = 'autofix', emit_warnings: bool = True) -> Optional[pa.Table]:  # noqa: C901
+    @staticmethod
+    def _normalize_schema_validate(schema_validate: SchemaValidationParam) -> Optional[SchemaValidationMode]:
+        if schema_validate is False:
+            return None
+        if schema_validate is True:
+            return "strict"
+        if schema_validate in ("strict", "autofix"):
+            return schema_validate
+        raise ValueError(
+            "schema_validate must be False, True, 'strict', or 'autofix'; "
+            f"got {schema_validate!r}"
+        )
+
+    @staticmethod
+    def _merge_declared_arrow_schemas(schemas: List[pa.Schema]) -> pa.Schema:
+        fields: Dict[str, pa.Field] = {}
+        for schema in schemas:
+            for field in schema:
+                existing = fields.get(field.name)
+                if existing is not None and existing != field:
+                    raise ValueError(
+                        f"Conflicting declared Arrow field for {field.name!r}: "
+                        f"{existing!r} vs {field!r}"
+                    )
+                fields[field.name] = field
+        return pa.schema(list(fields.values()))
+
+    @staticmethod
+    def _relax_arrow_schema_nullability(schema: pa.Schema) -> pa.Schema:
+        return pa.schema(
+            [
+                pa.field(arrow_field.name, arrow_field.type, nullable=True, metadata=arrow_field.metadata)
+                for arrow_field in schema
+            ],
+            metadata=schema.metadata,
+        )
+
+    @staticmethod
+    def _arrow_marker_has_true(table: pa.Table, column_name: str) -> bool:
+        if column_name not in table.schema.names:
+            return False
+        try:
+            import pyarrow.compute as pc
+
+            return bool(pc.any(pc.fill_null(table.column(column_name), False)).as_py())
+        except (pa.lib.ArrowInvalid, pa.lib.ArrowTypeError, TypeError, ValueError):
+            return True
+
+    @staticmethod
+    def _arrow_types_schema_compatible(actual: pa.DataType, expected: pa.DataType) -> bool:
+        if actual == expected:
+            return True
+        types = pa.types
+        if (types.is_string(actual) or types.is_large_string(actual)) and (
+            types.is_string(expected) or types.is_large_string(expected)
+        ):
+            return True
+        if (types.is_binary(actual) or types.is_large_binary(actual)) and (
+            types.is_binary(expected) or types.is_large_binary(expected)
+        ):
+            return True
+        return False
+
+    def _schema_arrow_for_table(self, schema_table: str, table: Optional[pa.Table] = None) -> Optional[pa.Schema]:
+        schema = self._gfql_schema
+        if schema is None:
+            return None
+        if schema_table == "nodes":
+            if table is not None:
+                available = set(table.schema.names)
+                marker_present = any(
+                    str(name).startswith("label__") and len(str(name)) > len("label__")
+                    for name in available
+                )
+                active_labels = {
+                    str(name)[len("label__"):]
+                    for name in available
+                    if str(name).startswith("label__")
+                    and len(str(name)) > len("label__")
+                    and self._arrow_marker_has_true(table, str(name))
+                }
+                active_node_types = [
+                    node_type
+                    for node_type in schema.node_types
+                    if node_type.labels & active_labels
+                ]
+                if active_node_types:
+                    active_schema = self._merge_declared_arrow_schemas(
+                        [node_type.to_arrow() for node_type in active_node_types]
+                    )
+                    if len(active_node_types) > 1:
+                        return self._relax_arrow_schema_nullability(active_schema)
+                    return active_schema
+                if marker_present:
+                    return pa.schema([])
+            return schema.node_arrow()
+        if schema_table == "edges":
+            if table is not None:
+                marker_present = any(f"label__{edge_type.name}" in table.schema.names for edge_type in schema.edge_types)
+                active_edge_types = [
+                    edge_type
+                    for edge_type in schema.edge_types
+                    if self._arrow_marker_has_true(table, f"label__{edge_type.name}")
+                ]
+                if active_edge_types:
+                    active_schema = self._merge_declared_arrow_schemas(
+                        [edge_type.to_arrow() for edge_type in active_edge_types]
+                    )
+                    if len(active_edge_types) > 1:
+                        return self._relax_arrow_schema_nullability(active_schema)
+                    return active_schema
+                if marker_present:
+                    return pa.schema([])
+            return schema.edge_arrow()
+        raise ValueError("schema_table must be 'nodes' or 'edges'")
+
+    def _schema_required_columns(self, schema_table: str) -> List[str]:
+        schema = self._gfql_schema
+        if schema is None:
+            return []
+        columns: List[str] = []
+        if schema_table == "nodes":
+            if self._node is not None:
+                columns.append(self._node)
+            elif schema.node_id_column is not None:
+                columns.append(schema.node_id_column)
+        elif schema_table == "edges":
+            if self._source is not None:
+                columns.append(self._source)
+            elif schema.edge_source_column is not None:
+                columns.append(schema.edge_source_column)
+            if self._destination is not None:
+                columns.append(self._destination)
+            elif schema.edge_destination_column is not None:
+                columns.append(schema.edge_destination_column)
+        else:
+            raise ValueError("schema_table must be 'nodes' or 'edges'")
+        return columns
+
+    def _enforce_bound_schema_arrow(
+        self,
+        table: Optional[pa.Table],
+        *,
+        schema_table: str,
+        schema_validate: SchemaValidationParam,
+    ) -> Optional[pa.Table]:
+        mode = self._normalize_schema_validate(schema_validate)
+        if table is None or mode is None:
+            return table
+
+        available = set(table.schema.names)
+        expected_schema = self._schema_arrow_for_table(schema_table, table=table)
+        if expected_schema is None:
+            raise ValueError("schema_validate requires a bound graphistry.schema.GraphSchema")
+
+        from graphistry.exceptions import SchemaValidationError
+
+        for column in self._schema_required_columns(schema_table):
+            if column not in available:
+                raise SchemaValidationError(
+                    table=schema_table,
+                    column=column,
+                    reason="missing required binding column",
+                )
+
+        out = table
+        for expected_field in expected_schema:
+            if expected_field.name not in available:
+                raise SchemaValidationError(
+                    table=schema_table,
+                    column=expected_field.name,
+                    reason="missing declared schema column",
+                    expected=expected_field.type,
+                )
+
+            current_field = out.schema.field(expected_field.name)
+            arrow_column = cast(Any, out.column(expected_field.name))
+            if not expected_field.nullable and arrow_column.null_count:
+                raise SchemaValidationError(
+                    table=schema_table,
+                    column=expected_field.name,
+                    reason="declared non-nullable column contains nulls",
+                    expected="non-null",
+                    actual=f"{arrow_column.null_count} nulls",
+                )
+
+            if current_field.type == expected_field.type:
+                continue
+
+            if mode == "strict":
+                if self._arrow_types_schema_compatible(current_field.type, expected_field.type):
+                    continue
+                raise SchemaValidationError(
+                    table=schema_table,
+                    column=expected_field.name,
+                    reason="Arrow type mismatch",
+                    expected=expected_field.type,
+                    actual=current_field.type,
+                )
+
+            try:
+                casted = arrow_column.cast(expected_field.type)
+            except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid, ValueError, TypeError) as exc:
+                raise SchemaValidationError(
+                    table=schema_table,
+                    column=expected_field.name,
+                    reason="could not coerce Arrow column to declared type",
+                    expected=expected_field.type,
+                    actual=current_field.type,
+                ) from exc
+
+            index = out.schema.get_field_index(expected_field.name)
+            out = out.set_column(index, expected_field, casted)
+
+        return out
+
+    def _table_to_arrow(
+        self,
+        table: Any,
+        memoize: bool = True,
+        validate_mode: ValidationMode = 'autofix',
+        emit_warnings: bool = True,
+        schema_validate: SchemaValidationParam = False,
+        schema_table: str = "edges",
+    ) -> Optional[pa.Table]:  # noqa: C901
         """
             pandas | arrow | dask | cudf | dask_cudf | polars | spark => arrow
 
@@ -3048,6 +3345,9 @@ class PlotterBase(Plottable):
             :param validate_mode: 'autofix' (default) coerces mixed-type columns to string with warning,
                                   'strict' or 'strict-fast' raises ArrowConversionError on mixed types
             :param warn: Whether to emit warnings when auto-coercing (only applies to autofix mode)
+            :param schema_validate: False disables bound schema enforcement; True/'strict' rejects
+                                    mismatches; 'autofix' casts compatible Arrow columns to declared types
+            :param schema_table: 'edges' or 'nodes' when schema_validate is enabled
         """
 
         logger.debug('_table_to_arrow of %s (memoize: %s, validate_mode: %s)', type(table), memoize, validate_mode)
@@ -3057,7 +3357,11 @@ class PlotterBase(Plottable):
 
         if isinstance(table, pa.Table):
             #TODO: should we hash just in case there's an older-identity hash match?
-            return table
+            return self._enforce_bound_schema_arrow(
+                table,
+                schema_table=schema_table,
+                schema_validate=schema_validate,
+            )
         
         if isinstance(table, pd.DataFrame):
             hashed = None
@@ -3074,7 +3378,11 @@ class PlotterBase(Plottable):
                 try:
                     if hashed in PlotterBase._pd_hash_to_arrow:
                         logger.debug('pd->arrow memoization hit: %s', hashed)
-                        return PlotterBase._pd_hash_to_arrow[hashed].v
+                        return self._enforce_bound_schema_arrow(
+                            PlotterBase._pd_hash_to_arrow[hashed].v,
+                            schema_table=schema_table,
+                            schema_validate=schema_validate,
+                        )
                     else:
                         logger.debug('pd->arrow memoization miss for id (of %s): %s', len(PlotterBase._pd_hash_to_arrow), hashed)
                 except:
@@ -3097,7 +3405,11 @@ class PlotterBase(Plottable):
                 cache_coercion(hashed, w)
                 PlotterBase._pd_hash_to_arrow[hashed] = w
 
-            return out
+            return self._enforce_bound_schema_arrow(
+                out,
+                schema_table=schema_table,
+                schema_validate=schema_validate,
+            )
 
         if not (maybe_cudf() is None) and isinstance(table, maybe_cudf().DataFrame):
             hashed = None
@@ -3109,7 +3421,11 @@ class PlotterBase(Plottable):
                 try:
                     if hashed in PlotterBase._cudf_hash_to_arrow:
                         logger.debug('cudf->arrow memoization hit: %s', hashed)
-                        return PlotterBase._cudf_hash_to_arrow[hashed].v
+                        return self._enforce_bound_schema_arrow(
+                            PlotterBase._cudf_hash_to_arrow[hashed].v,
+                            schema_table=schema_table,
+                            schema_validate=schema_validate,
+                        )
                     else:
                         logger.debug('cudf->arrow memoization miss for id (of %s): %s', len(PlotterBase._cudf_hash_to_arrow), hashed)
                 except:
@@ -3132,26 +3448,51 @@ class PlotterBase(Plottable):
                 cache_coercion(hashed, w)
                 PlotterBase._cudf_hash_to_arrow[hashed] = w
 
-            return out
+            return self._enforce_bound_schema_arrow(
+                out,
+                schema_table=schema_table,
+                schema_validate=schema_validate,
+            )
 
         # TODO: per-gdf hashing?
         if not (maybe_dask_cudf() is None) and isinstance(table, maybe_dask_cudf().DataFrame):
             logger.debug('dgdf->arrow via gdf hash check')
             dgdf = table.persist()
             gdf = dgdf.compute()
-            return self._table_to_arrow(gdf, memoize, validate_mode, emit_warnings)
+            return self._table_to_arrow(
+                gdf,
+                memoize,
+                validate_mode,
+                emit_warnings,
+                schema_validate=schema_validate,
+                schema_table=schema_table,
+            )
 
         if not (maybe_dask_dataframe() is None) and isinstance(table, maybe_dask_dataframe().DataFrame):
             logger.debug('ddf->arrow via df hash check')
             ddf = table.persist()
             df = ddf.compute()
-            return self._table_to_arrow(df, memoize, validate_mode, emit_warnings)
+            return self._table_to_arrow(
+                df,
+                memoize,
+                validate_mode,
+                emit_warnings,
+                schema_validate=schema_validate,
+                schema_table=schema_table,
+            )
 
         if not (maybe_spark() is None) and isinstance(table, maybe_spark().sql.dataframe.DataFrame):
             logger.debug('spark->arrow via df')
             df = table.toPandas()
             #TODO push the hash check to Spark
-            return self._table_to_arrow(df, memoize, validate_mode, emit_warnings)
+            return self._table_to_arrow(
+                df,
+                memoize,
+                validate_mode,
+                emit_warnings,
+                schema_validate=schema_validate,
+                schema_table=schema_table,
+            )
 
         if not (maybe_polars() is None) and isinstance(table, (maybe_polars().DataFrame, maybe_polars().LazyFrame)):
             # validate_mode and emit_warnings are not applied for polars input: polars frames are
@@ -3174,7 +3515,11 @@ class PlotterBase(Plottable):
                 w = WeakValueWrapper(out)
                 cache_coercion(hashed, w)
                 PlotterBase._polars_hash_to_arrow[hashed] = w
-            return out
+            return self._enforce_bound_schema_arrow(
+                out,
+                schema_table=schema_table,
+                schema_validate=schema_validate,
+            )
 
         raise Exception('Unknown type %s: Could not convert data to Arrow' % str(type(table)))
 
@@ -3182,7 +3527,9 @@ class PlotterBase(Plottable):
         self,
         table: Optional[Any] = None,
         validate: ValidationParam = 'autofix',
-        warn: bool = True
+        warn: bool = True,
+        schema_validate: SchemaValidationParam = False,
+        schema_table: str = "edges",
     ) -> Optional[pa.Table]:
         """
         Convert a DataFrame to Arrow format.
@@ -3200,6 +3547,14 @@ class PlotterBase(Plottable):
         :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix').
                      validate=False forces warn=False. Default True.
         :type warn: bool
+
+        :param schema_validate: Opt-in bound ``GraphSchema`` validation. False disables schema enforcement.
+                                True/'strict' rejects missing or incompatible declared columns.
+                                'autofix' casts compatible Arrow columns to declared types.
+        :type schema_validate: SchemaValidationParam
+
+        :param schema_table: Which bound schema table to validate against: 'edges' or 'nodes'.
+        :type schema_table: str
 
         :param table: DataFrame to convert. If None, converts the bound edges.
         :type table: Optional[pandas.DataFrame, cudf.DataFrame, pyarrow.Table]
@@ -3237,7 +3592,41 @@ class PlotterBase(Plottable):
             warn = False
         else:
             validate_mode = validate
-        return self._table_to_arrow(table, memoize=False, validate_mode=validate_mode, emit_warnings=warn)
+        return self._table_to_arrow(
+            table,
+            memoize=False,
+            validate_mode=validate_mode,
+            emit_warnings=warn,
+            schema_validate=schema_validate,
+            schema_table=schema_table,
+        )
+
+    def validate_arrow_schema(
+        self,
+        table: str = "edges",
+        *,
+        validate: SchemaValidationParam = "strict",
+        warn: bool = True,
+    ) -> Optional[pa.Table]:
+        """Validate or coerce a bound table against the bound experimental ``GraphSchema``.
+
+        ``validate='strict'`` rejects missing columns, Arrow type mismatches, and
+        non-nullability violations. ``validate='autofix'`` casts compatible
+        columns to declared Arrow types after normal Arrow conversion.
+        """
+        if table == "edges":
+            data = self._edges
+        elif table == "nodes":
+            data = self._nodes
+        else:
+            raise ValueError("table must be 'edges' or 'nodes'")
+        return self.to_arrow(
+            data,
+            validate="autofix" if validate == "autofix" else "strict",
+            warn=warn,
+            schema_validate=validate,
+            schema_table=table,
+        )
 
     def _make_arrow_dataset(self, edges: Optional[pa.Table], nodes: Optional[pa.Table], name: str, description: str, metadata: Optional[Dict[str, Any]]) -> ArrowUploader:
         try:

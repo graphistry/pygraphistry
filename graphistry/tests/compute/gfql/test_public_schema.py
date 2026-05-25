@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 import graphistry
+from graphistry.exceptions import SchemaValidationError
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.ir.logical_plan import RowSchema
 from graphistry.compute.gfql.ir.types import ScalarType
@@ -28,8 +29,8 @@ def _schema(*, strict: bool = True) -> GraphSchema:
 def _graph(schema: GraphSchema):
     nodes = pd.DataFrame(
         [
-            {"id": 1, "name": "alice", "label__Person": True, "label__Company": False},
-            {"id": 2, "name": "acme", "label__Person": False, "label__Company": True},
+            {"id": 1, "age": 42, "name": "alice", "label__Person": True, "label__Company": False},
+            {"id": 2, "age": 0, "name": "acme", "label__Person": False, "label__Company": True},
         ]
     )
     edges = pd.DataFrame(
@@ -134,6 +135,56 @@ def test_public_schema_accepts_arrow_mapping_values() -> None:
     assert exported.field("display_name").nullable is False
 
 
+def test_node_and_edge_types_round_trip_from_arrow() -> None:
+    pa = pytest.importorskip("pyarrow")
+
+    person = NodeType(
+        "Person",
+        pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("name", pa.large_string())]),
+    )
+    works_at = EdgeType(
+        "WORKS_AT",
+        source="Person",
+        destination="Company",
+        properties=pa.schema([pa.field("since", pa.int32(), nullable=False)]),
+    )
+
+    imported_node = NodeType.from_arrow("Person", person.to_arrow())
+    imported_edge = EdgeType.from_arrow("WORKS_AT", "Person", "Company", works_at.to_arrow())
+
+    assert imported_node.labels == frozenset({"Person"})
+    assert imported_node.properties == person.properties
+    assert "label__Person" not in imported_node.properties
+    assert imported_edge.source == frozenset({"Person"})
+    assert imported_edge.destination == frozenset({"Company"})
+    assert imported_edge.properties == works_at.properties
+    assert "label__WORKS_AT" not in imported_edge.properties
+
+
+def test_graph_schema_arrow_declaration_round_trip() -> None:
+    pa = pytest.importorskip("pyarrow")
+
+    schema = _schema(strict=False)
+    declaration = schema.to_arrow()
+
+    assert declaration["nodes"].field("age").type == pa.int64()
+    assert declaration["edges"].field("since").type == pa.int64()
+    assert declaration["nodes"].metadata[b"gfql.arrow_bridge.version"] == b"1"
+    assert declaration["edges"].metadata[b"gfql.arrow_bridge.version"] == b"1"
+    assert declaration["edge_types"]["WORKS_AT"]["source"] == ("Person",)
+    assert declaration["edge_types"]["WORKS_AT"]["destination"] == ("Company",)
+
+    imported = GraphSchema.from_arrow(declaration)
+
+    assert imported.strict is False
+    assert imported.node_id_column == "id"
+    assert imported.edge_source_column == "src"
+    assert imported.edge_destination_column == "dst"
+    assert imported.node_columns == schema.node_columns
+    assert imported.edge_columns == schema.edge_columns
+    assert imported.edge_types[0].topology.as_metadata() == schema.edge_types[0].topology.as_metadata()
+
+
 def test_bind_schema_is_chainable_and_used_by_preflight() -> None:
     schema = _schema()
     g = _graph(schema).bind(point_color="name")
@@ -141,6 +192,133 @@ def test_bind_schema_is_chainable_and_used_by_preflight() -> None:
     assert g._gfql_schema is schema
     report = g.gfql_validate("MATCH (p:Person)-[:WORKS_AT]->(c:Company) RETURN p.name AS name")
     assert report["ok"] is True
+
+
+def test_bound_schema_arrow_boundary_strict_passes() -> None:
+    pa = pytest.importorskip("pyarrow")
+    g = _graph(_schema())
+
+    arr = g.to_arrow(validate="strict", schema_validate="strict")
+
+    assert arr is not None
+    assert arr.schema.field("since").type == pa.int64()
+
+
+def test_bound_schema_arrow_boundary_plot_strict_validates_edges_and_nodes(monkeypatch: pytest.MonkeyPatch) -> None:
+    g = _graph(_schema())
+    monkeypatch.setattr(g._pygraphistry, "refresh", lambda: None)
+
+    uploader = g.plot(skip_upload=True, schema_validate="strict")
+
+    assert uploader.edges is not None
+    assert uploader.nodes is not None
+
+
+def test_bound_schema_arrow_boundary_autofix_casts_declared_column() -> None:
+    pa = pytest.importorskip("pyarrow")
+    schema = _schema()
+    edges = pd.DataFrame(
+        [
+            {"src": 1, "dst": 2, "since": "2020", "label__WORKS_AT": True},
+        ]
+    )
+    nodes = _graph(schema)._nodes
+    g = graphistry.edges(edges, "src", "dst").nodes(nodes, "id").bind(schema=schema)
+
+    arr = g.to_arrow(validate="autofix", schema_validate="autofix")
+
+    assert arr is not None
+    assert arr.schema.field("since").type == pa.int64()
+    assert arr.column("since").to_pylist() == [2020]
+
+
+def test_bound_schema_arrow_boundary_strict_rejects_type_mismatch() -> None:
+    schema = _schema()
+    edges = pd.DataFrame(
+        [
+            {"src": 1, "dst": 2, "since": "2020", "label__WORKS_AT": True},
+        ]
+    )
+    nodes = _graph(schema)._nodes
+    g = graphistry.edges(edges, "src", "dst").nodes(nodes, "id").bind(schema=schema)
+
+    with pytest.raises(SchemaValidationError) as exc_info:
+        g.to_arrow(validate="strict", schema_validate="strict")
+
+    err = exc_info.value
+    assert err.table == "edges"
+    assert err.column == "since"
+    assert err.reason == "Arrow type mismatch"
+
+
+def test_bound_schema_arrow_boundary_rejects_missing_declared_column() -> None:
+    schema = _schema()
+    edges = pd.DataFrame(
+        [
+            {"src": 1, "dst": 2, "label__WORKS_AT": True},
+        ]
+    )
+    nodes = _graph(schema)._nodes
+    g = graphistry.edges(edges, "src", "dst").nodes(nodes, "id").bind(schema=schema)
+
+    with pytest.raises(SchemaValidationError) as exc_info:
+        g.validate_arrow_schema("edges")
+
+    err = exc_info.value
+    assert err.table == "edges"
+    assert err.column == "since"
+    assert err.reason == "missing declared schema column"
+
+
+def test_bound_schema_arrow_boundary_ignores_inactive_edge_type_columns() -> None:
+    schema = _schema()
+    edges = pd.DataFrame(
+        [
+            {
+                "src": 1,
+                "dst": 2,
+                "since": 2020,
+                "label__WORKS_AT": True,
+                "label__CONTRACTS": False,
+            },
+        ]
+    )
+    nodes = _graph(schema)._nodes
+    g = graphistry.edges(edges, "src", "dst").nodes(nodes, "id").bind(schema=schema)
+
+    arr = g.validate_arrow_schema("edges")
+
+    assert arr is not None
+    assert arr.column("since").to_pylist() == [2020]
+
+
+def test_bound_schema_arrow_boundary_non_nullable_property_is_type_local() -> None:
+    pa = pytest.importorskip("pyarrow")
+    person = NodeType(
+        "Person",
+        pa.schema(
+            [
+                pa.field("id", pa.int64(), nullable=False),
+                pa.field("age", pa.int64(), nullable=False),
+            ]
+        ),
+    )
+    company = NodeType("Company", pa.schema([pa.field("id", pa.int64(), nullable=False)]))
+    schema = GraphSchema(node_types=[person, company], node_id_column="id")
+    nodes = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "age": pa.array([42, None], type=pa.int64()),
+            "label__Person": pa.array([True, False]),
+            "label__Company": pa.array([False, True]),
+        }
+    )
+    g = graphistry.bind(node="id", schema=schema).nodes(nodes)
+
+    arr = g.validate_arrow_schema("nodes")
+
+    assert arr is not None
+    assert arr.column("age").to_pylist() == [42, None]
 
 
 def test_schema_bound_preflight_rejects_missing_property() -> None:
