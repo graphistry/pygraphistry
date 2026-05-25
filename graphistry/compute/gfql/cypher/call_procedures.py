@@ -28,6 +28,10 @@ from graphistry.compute.gfql.cypher.procedures.networkx import (
     networkx_node_rows as _networkx_node_rows,
     networkx_source_value_columns,
 )
+from graphistry.compute.gfql.schema_effects import (
+    apply_graph_schema_effect,
+    schema_effect_for_procedure_output,
+)
 from graphistry.compute.typing import DataFrameT
 from graphistry.plugins.cugraph import (
     compute_algs as _CUGRAPH_COMPUTE_ALGS,
@@ -747,7 +751,15 @@ def _write_only_igraph_row_error(compiled_call: CompiledCypherProcedureCall) -> 
 
 def execute_cypher_call(base_graph: Plottable, compiled_call: CompiledCypherProcedureCall) -> Plottable:
     if compiled_call.result_kind == "graph":
-        return _execute_backend_call(base_graph, compiled_call)
+        result_graph = _execute_backend_call(base_graph, compiled_call)
+        definition = _definition_from_compiled_call(compiled_call)
+        effect = schema_effect_for_procedure_output(
+            backend=compiled_call.backend,
+            algorithm=compiled_call.algorithm,
+            row_kind=compiled_call.row_kind,
+            value_columns=_normalized_value_columns(definition, compiled_call.call_params),
+        )
+        return apply_graph_schema_effect(base_graph, result_graph, effect)
 
     if compiled_call.backend == "degree":
         default_rows = _degree_rows(base_graph)

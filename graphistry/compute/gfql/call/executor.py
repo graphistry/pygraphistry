@@ -18,6 +18,7 @@ from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 from graphistry.compute.engine_coercion import ensure_engine_match
 from graphistry.compute.gfql.policy import PolicyContext, PolicyException
 from graphistry.compute.gfql.policy.stats import extract_graph_stats
+from graphistry.compute.gfql.schema_effects import apply_call_schema_effect
 
 if TYPE_CHECKING:
     from graphistry.compute.execution_context import ExecutionContext
@@ -147,6 +148,7 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         # Schema-changing operations (UMAP, hypergraph) may alter DataFrame types
         if _is_plottable_like(result):
             result = ensure_engine_match(cast(Plottable, result), engine)
+            result = apply_call_schema_effect(g, cast(Plottable, result), function, validated_params)
 
         success = True
 
