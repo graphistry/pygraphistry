@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Literal, Optional, TypedDict, cast
+from dataclasses import replace
+from typing import Any, Literal, Optional, TypedDict, cast
 
 import pandas as pd
 
@@ -48,7 +49,7 @@ def entity_projection_meta_entry(
     from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 
     entity_meta = cast(
-        Optional[Dict[str, WholeRowProjectionMeta]],
+        Optional[dict[str, WholeRowProjectionMeta]],
         getattr(result, "_cypher_entity_projection_meta", None),
     )
     if not isinstance(entity_meta, dict) or output_name not in entity_meta:
@@ -63,11 +64,6 @@ def entity_projection_meta_entry(
     return entity_meta[output_name]
 
 
-
-def _bool_mask(series: SeriesT) -> SeriesT:
-    return cast(SeriesT, series == True)  # noqa: E712
-
-
 def _node_label_text(df: DataFrameT, alias_col: str) -> SeriesT:
     label_cols = [
         col
@@ -78,7 +74,7 @@ def _node_label_text(df: DataFrameT, alias_col: str) -> SeriesT:
     if label_cols:
         labels = _empty_text(df, alias_col)
         for col in label_cols:
-            mask = _bool_mask(cast(SeriesT, df[col]))
+            mask = cast(SeriesT, cast(SeriesT, df[col]) == True)  # noqa: E712
             label = ":" + str(col).split("label__", 1)[1]
             labels = cast(SeriesT, labels + _const_text(df, alias_col, label).where(mask, ""))
         return labels
@@ -161,51 +157,25 @@ def _project_expr_column(
     return cast(SeriesT, value if hasattr(value, "astype") else _broadcast_projected_scalar(adapter, rows_df, value))
 
 
-def _whole_row_projection_meta(
-    result: Plottable,
-    rows_df: DataFrameT,
-    projection: ResultProjectionPlan,
-) -> WholeRowProjectionMeta | None:
-    id_column = getattr(result, "_node" if projection.table == "nodes" else "_edge", None)
-    if id_column is None or id_column not in rows_df.columns:
-        return None
-    return {
-        "table": projection.table,
-        "alias": projection.alias,
-        "id_column": id_column,
-        "ids": cast(SeriesT, rows_df[id_column]).copy(),
-    }
-
-
 def _projection_alias_rows(
-    rows_df: DataFrameT,
-    *,
-    alias: str,
-) -> Optional[DataFrameT]:
-    binding_rows = _binding_alias_projection_rows(rows_df, alias=alias)
-    if binding_rows is not None and alias in binding_rows.columns:
-        return binding_rows
-    if alias in rows_df.columns:
-        return rows_df
-    return None
-
-
-def _binding_alias_projection_rows(
     rows_df: DataFrameT,
     *,
     alias: str,
 ) -> Optional[DataFrameT]:
     prefix = f"{alias}."
     alias_columns = [column for column in rows_df.columns if str(column).startswith(prefix)]
-    if not alias_columns:
-        return None
-    alias_rows = cast(
-        DataFrameT,
-        rows_df[alias_columns].rename(columns={column: str(column)[len(prefix):] for column in alias_columns}),
-    )
-    if alias in rows_df.columns and alias not in alias_rows.columns:
-        alias_rows = cast(DataFrameT, alias_rows.assign(**{alias: rows_df[alias]}))
-    return alias_rows
+    if alias_columns:
+        alias_rows = cast(
+            DataFrameT,
+            rows_df[alias_columns].rename(columns={column: str(column)[len(prefix):] for column in alias_columns}),
+        )
+        if alias in rows_df.columns and alias not in alias_rows.columns:
+            alias_rows = cast(DataFrameT, alias_rows.assign(**{alias: rows_df[alias]}))
+        if alias in alias_rows.columns:
+            return alias_rows
+    if alias in rows_df.columns:
+        return rows_df
+    return None
 
 
 def apply_result_projection(result: Plottable, projection: ResultProjectionPlan) -> Plottable:
@@ -223,24 +193,19 @@ def apply_result_projection(result: Plottable, projection: ResultProjectionPlan)
             source_rows_df = _projection_alias_rows(rows_df, alias=source_alias)
             if source_rows_df is None or source_alias not in source_rows_df.columns:
                 raise ValueError(f"whole-row projection source alias not found: {source_alias!r}")
-            source_projection = projection if source_alias == projection.alias else ResultProjectionPlan(
-                alias=source_alias,
-                table=projection.table,
-                columns=projection.columns,
-                exclude_columns=projection.exclude_columns,
-            )
+            source_projection = projection if source_alias == projection.alias else replace(projection, alias=source_alias)
             projected_data[column.output_name] = (
                 _format_node_entities(source_rows_df, source_projection)
                 if projection.table == "nodes"
                 else _format_edge_entities(source_rows_df, source_projection)
             )
-            whole_row_meta = _whole_row_projection_meta(result, source_rows_df, source_projection)
-            if whole_row_meta is not None:
+            id_column = getattr(result, "_node" if source_projection.table == "nodes" else "_edge", None)
+            if id_column is not None and id_column in source_rows_df.columns:
                 projected_entity_meta[column.output_name] = {
-                    "table": whole_row_meta["table"],
-                    "alias": whole_row_meta["alias"],
-                    "id_column": whole_row_meta["id_column"],
-                    "ids": whole_row_meta["ids"],
+                    "table": source_projection.table,
+                    "alias": source_projection.alias,
+                    "id_column": id_column,
+                    "ids": cast(SeriesT, source_rows_df[id_column]).copy(),
                 }
         else:
             if column.kind == "property":
