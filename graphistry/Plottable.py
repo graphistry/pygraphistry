@@ -18,7 +18,7 @@ from graphistry.Engine import EngineAbstractType
 from graphistry.utils.json import JSONVal
 from graphistry.client_session import ClientSession, AuthManagerProtocol
 from graphistry.models.collections import CollectionsInput
-from graphistry.models.types import ValidationParam
+from graphistry.models.types import SchemaValidationParam, ValidationParam
 from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 
 if TYPE_CHECKING:
@@ -822,7 +822,18 @@ class Plottable(Protocol):
         self,
         table: Optional[Any] = None,
         validate: ValidationParam = 'autofix',
-        warn: bool = True
+        warn: bool = True,
+        schema_validate: SchemaValidationParam = False,
+        schema_table: str = "edges",
+    ) -> Optional[Any]:
+        ...
+
+    def validate_arrow_schema(
+        self,
+        table: str = "edges",
+        *,
+        validate: SchemaValidationParam = "strict",
+        warn: bool = True,
     ) -> Optional[Any]:
         ...
 
@@ -850,7 +861,8 @@ class Plottable(Protocol):
         memoize: bool = True,
         erase_files_on_fail: bool = True,
         validate: ValidationParam = 'autofix',
-        warn: bool = True
+        warn: bool = True,
+        schema_validate: SchemaValidationParam = False,
     ) -> 'Plottable':
         ...
 
@@ -868,7 +880,8 @@ class Plottable(Protocol):
         extra_html: str = "",
         override_html_style: Optional[str] = None,
         validate: ValidationParam = 'autofix',
-        warn: bool = True
+        warn: bool = True,
+        schema_validate: SchemaValidationParam = False,
     ) -> Any:
         ...
 

@@ -41,7 +41,7 @@ check against.
        "WORKS_AT",
        source=Person,
        destination=Company,
-       properties=pa.schema([pa.field("since", pa.int32(), nullable=False)]),
+       properties=pa.schema([pa.field("since", pa.int64(), nullable=False)]),
    )
 
    schema = GraphSchema(
@@ -101,6 +101,17 @@ Schema Objects
   bridge. Label/type columns are included by default so exports line up with
   the table columns used by binder/preflight validation.
 
+``NodeType.from_arrow(...)`` and ``EdgeType.from_arrow(...)``
+  Import explicit Arrow declarations back into public schema objects. This is
+  declaration import, not inference: edge imports still require source and
+  destination labels, and graph-level imports require named node/edge entries.
+
+``GraphSchema.to_arrow()`` and ``GraphSchema.from_arrow(...)``
+  Export/import a declaration payload containing per-node/per-edge Arrow
+  schemas plus merged ``nodes`` and ``edges`` table schemas. The merged schemas
+  are useful for dataframe boundary validation; the per-type entries preserve
+  type names and edge topology.
+
 What Preflight Checks
 ---------------------
 
@@ -119,6 +130,35 @@ what labels, relationship types, properties, and topology they expect, then
 validate user-authored or generated Cypher before running it. The same typed
 contract is also the foundation for later inference, coercion, remote transport,
 and planner/performance work, but this page covers the declared local contract.
+
+Arrow Boundary Validation
+-------------------------
+
+You can also opt into declared-schema checks at Arrow conversion and upload
+boundaries. This is off by default so existing ``plot()``, ``upload()``, and
+``to_arrow()`` calls keep their current behavior.
+
+``schema_validate="strict"``
+  Requires every declared node/edge schema column to exist and match the
+  declared Arrow type. Non-nullable declared columns must not contain nulls.
+
+``schema_validate="autofix"``
+  Performs the same presence and non-null checks, and casts compatible columns
+  to the declared Arrow type after normal Arrow conversion. Existing
+  ``validate="autofix"`` mixed-type coercion still runs first.
+
+.. code-block:: python
+
+   # Debug a bound edge table against the schema.
+   edges_arrow = g.to_arrow(schema_validate="strict")
+
+   # Coerce compatible values such as string-encoded integers to the declared
+   # Arrow type before local conversion. The same option is accepted by plot()
+   # and upload().
+   edges_arrow_autofix = g.to_arrow(schema_validate="autofix")
+
+   # Validate the node table explicitly.
+   nodes_arrow = g.validate_arrow_schema("nodes", validate="strict")
 
 Provided vs. Inferred Schema
 ----------------------------
@@ -173,7 +213,7 @@ Top-level imports are also available:
 
    from graphistry import NodeType, EdgeType, GraphSchema
 
-This lane exposes declaration, Arrow row-schema export, and binder/preflight
-integration. Inference from existing plottables, Arrow import/coercion at
-plottable boundaries, schema effects for graph-growing calls, and remote schema
+This lane exposes declaration, Arrow row-schema import/export, binder/preflight
+integration, and opt-in Arrow boundary validation/coercion. Inference from
+existing plottables, schema effects for graph-growing calls, and remote schema
 transport remain separate follow-on surfaces.

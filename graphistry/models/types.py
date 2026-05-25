@@ -9,3 +9,5 @@ from typing import Literal, Union
 
 ValidationMode = Literal['strict', 'strict-fast', 'autofix']
 ValidationParam = Union[ValidationMode, bool]
+SchemaValidationMode = Literal['strict', 'autofix']
+SchemaValidationParam = Union[SchemaValidationMode, bool]
