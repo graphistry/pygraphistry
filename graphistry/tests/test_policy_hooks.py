@@ -110,6 +110,54 @@ class TestPolicyHooks:
         g.gfql(call('hop', {'hops': 2}), policy={'postcall': postcall_policy})
         assert hook_called['postcall'], "Postcall hook should have been called"
 
+    def test_postcall_hook_observes_call_validation_error(self):
+        """Postcall receives structured error context when call execution fails."""
+        from graphistry.Engine import Engine
+        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+        from graphistry.compute.gfql.call.executor import execute_call
+
+        observed = []
+
+        def postcall_policy(context: PolicyContext) -> None:
+            observed.append(dict(context))
+
+        df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+        g = graphistry.edges(df, 's', 'd')
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            execute_call(g, 'hop', {'hops': 'bad'}, Engine.PANDAS, policy={'postcall': postcall_policy})
+
+        assert exc_info.value.code == ErrorCode.E201
+        assert len(observed) == 1
+        ctx = observed[0]
+        assert ctx['phase'] == 'postcall'
+        assert ctx['call_op'] == 'hop'
+        assert ctx['call_params'] == {'hops': 'bad'}
+        assert ctx['success'] is False
+        assert ctx['error_type'] == 'GFQLTypeError'
+        assert "Invalid type for parameter 'hops'" in ctx['error']
+        assert ctx['graph_stats']['edges'] == 2
+
+    def test_postcall_policy_denial_chains_call_error(self):
+        """Postcall policy denial takes priority while preserving original cause."""
+        from graphistry.Engine import Engine
+        from graphistry.compute.exceptions import GFQLTypeError
+        from graphistry.compute.gfql.call.executor import execute_call
+
+        def deny_postcall(context: PolicyContext) -> None:
+            assert context['success'] is False
+            raise PolicyException('postcall', 'blocked after call error')
+
+        df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+        g = graphistry.edges(df, 's', 'd')
+
+        with pytest.raises(PolicyException) as exc_info:
+            execute_call(g, 'hop', {'hops': 'bad'}, Engine.PANDAS, policy={'postcall': deny_postcall})
+
+        assert exc_info.value.query_type == 'call'
+        assert exc_info.value.data_size['edges'] == 2
+        assert isinstance(exc_info.value.__cause__, GFQLTypeError)
+
     def test_multiple_hooks(self):
         """Test that multiple hooks can be used together."""
         hooks_called = {'preload': False, 'postload': False}
