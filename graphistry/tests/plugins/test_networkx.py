@@ -63,6 +63,17 @@ def test_compute_networkx_k_core_projects_graph_and_preserves_attrs():
     assert set(g2._edges["edge_attr"]) == {10, 20, 30}
 
 
+def test_compute_networkx_cudf_input_restores_cudf_engine():
+    cudf = pytest.importorskip("cudf")
+    g = graphistry.edges(cudf.DataFrame({"s": ["a", "b", "c"], "d": ["b", "c", "a"]}), "s", "d").materialize_nodes()
+
+    g2 = g.compute_networkx("degree_centrality", out_col="degree_score", directed=False)
+
+    assert isinstance(g2._nodes, cudf.DataFrame)
+    assert isinstance(g2._edges, cudf.DataFrame)
+    assert set(g2._nodes["degree_score"].to_arrow().to_pylist()) == {1.0}
+
+
 def test_compute_networkx_rejects_unknown_algorithm():
     g = _graph(pd.DataFrame({"s": ["a"], "d": ["b"]}))
 
