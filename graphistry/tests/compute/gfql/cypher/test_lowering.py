@@ -5180,6 +5180,10 @@ def test_string_cypher_executes_duration_between_with_alias_properties() -> None
     )
 
 
+def test_string_cypher_folds_temporal_constructor_before_property_access() -> None:
+    _assert_query_rows("RETURN duration({days: 1}).days AS days", [{"days": 1}])
+
+
 def test_string_cypher_executes_negative_duration_between_day_time_components() -> None:
     _assert_query_rows(
         "RETURN duration.between("
