@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 - **GFQL NetworkX CALL parity (#1058)**: Expanded the local Cypher `graphistry.nx.*` CALL surface with explicit NetworkX dispatch for `degree_centrality`, `closeness_centrality`, `eigenvector_centrality`, `katz_centrality`, `connected_components`, `strongly_connected_components`, `core_number`, and multi-output `hits`, including row and `.write()` coverage.
+- **NetworkX/SciPy optional dependency policy (#1618)**: Declared supported `networkx>=2.5,<4` and optional `scipy>=1.5,<2` ranges for NetworkX-backed GFQL CALL procedures, with runtime version guards and a focused lower/current-upper CI matrix.
 
 ### Changed
 - **GFQL Cypher result postprocess shrink (#1058)**: Collapsed private result-projection alias/metadata helpers while preserving prefixed alias whole-row rendering, reentry entity metadata, and pandas/cuDF projection behavior.

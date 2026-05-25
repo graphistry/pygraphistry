@@ -721,6 +721,66 @@ jobs:
       run: |
         python bin/ci_cypher_surface_guard.py
 
+  test-networkx-scipy-policy:
+    name: test-networkx-scipy-policy (${{ matrix.label }}, py${{ matrix.python-version }})
+    needs: [changes, generate-lockfiles]
+    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: nx-lower-no-scipy
+            python-version: '3.8'
+            lock-profile: test-networkx-policy-lower-no-scipy
+          - label: nx-lower-scipy
+            python-version: '3.8'
+            lock-profile: test-networkx-policy-lower-scipy
+          - label: nx-upper-scipy
+            python-version: '3.12'
+            lock-profile: test-networkx-policy-upper-scipy
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install NetworkX policy dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/${{ matrix.lock-profile }}-py${{ matrix.python-version }}.lock
+        uv pip install -e . --no-deps
+        python - <<'PY'
+        import importlib.util
+        import networkx
+        print("networkx:", networkx.__version__)
+        if importlib.util.find_spec("scipy") is None:
+            print("scipy: not installed")
+        else:
+            import scipy
+            print("scipy:", scipy.__version__)
+        PY
+
+    - name: Run NetworkX CALL policy tests
+      run: |
+        source pygraphistry/bin/activate
+        python -B -m pytest -q graphistry/tests/compute/gfql/cypher/test_lowering.py -k 'networkx'
+
   test-minimal-python:
     # Lite sentinel: oldest + newest Python only, heavy test files excluded. Gates all downstream.
     # Non-GFQL deferred files run in test-minimal-python-rest; GFQL-heavy files run in test-gfql-core.
