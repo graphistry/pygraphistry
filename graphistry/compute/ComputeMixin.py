@@ -100,6 +100,16 @@ def _coerce_to_pandas(g: "Plottable") -> "Plottable":
     return _coerce_input_formats(g, Engine.PANDAS)
 
 
+def _degree_agg(edges: Any, key_col: str, out_name: str, node_id: str) -> Any:
+    """Groupby edges on key_col, return small (node_id, out_name) frame. Caller handles empty edges."""
+    return (
+        edges[[key_col]]
+        .groupby(key_col, sort=False).size()
+        .reset_index(name=out_name)
+        .rename(columns={key_col: node_id})
+    )
+
+
 class ComputeMixin(Plottable):
     
     def __init__(self, *a, **kw):
@@ -218,47 +228,33 @@ class ComputeMixin(Plottable):
         nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)
         return g.nodes(nodes_df, node_id)
 
-    def get_indegrees(self, col: str = "degree_in"):
-        """See get_degrees"""
+    def _single_direction_degree(self, key_col: str, col: str) -> "Plottable":
+        """Shared body for get_indegrees / get_outdegrees: groupby one direction, merge into nodes."""
         engine_concrete = resolve_engine(EngineAbstract.AUTO, self)
         g = _coerce_input_formats(self, engine_concrete)
         g_nodes = g.materialize_nodes(engine=engine_concrete.value)
+        node_id = g_nodes._node
 
         if _safe_len(g._edges) == 0:
-            if col not in g_nodes._nodes.columns:
-                nodes_df = g_nodes._nodes.assign(**{col: 0})
-                nodes_df = nodes_df.assign(**{col: nodes_df[col].astype("int32")})
-            else:
-                nodes_df = g_nodes._nodes.copy()
-            return g.nodes(nodes_df, g_nodes._node)
+            if col in g_nodes._nodes.columns:
+                return g.nodes(g_nodes._nodes.copy(), node_id)
+            nodes_df = g_nodes._nodes.assign(**{col: 0})
+            nodes_df = nodes_df.assign(**{col: nodes_df[col].astype("int32")})
+            return g.nodes(nodes_df, node_id)
 
-        in_degree_df = (
-            g._edges[[g._source, g._destination]]
-            .groupby(g._destination)
-            .agg({g._source: "count"})
-            .reset_index()
-            .rename(columns={g._source: col, g._destination: g_nodes._node})
-        )
+        agg = _degree_agg(g._edges, key_col, col, node_id)
+        nodes_subset = g_nodes._nodes[[c for c in g_nodes._nodes.columns if c != col]]
+        nodes_df = safe_merge(nodes_subset, agg, on=node_id, how='left')
+        nodes_df = nodes_df.assign(**{col: nodes_df[col].fillna(0).astype("int32")})
+        return g.nodes(nodes_df, node_id)
 
-        nodes_subset = g_nodes._nodes[
-            [c for c in g_nodes._nodes.columns if c != col]
-        ]
-        nodes_df = safe_merge(nodes_subset, in_degree_df, on=g_nodes._node, how='left')
-        nodes_df = nodes_df.assign(**{
-            col: nodes_df[col].fillna(0).astype("int32")
-        })
-        return g.nodes(nodes_df, g_nodes._node)
+    def get_indegrees(self, col: str = "degree_in"):
+        """See get_degrees"""
+        return self._single_direction_degree(self._destination, col)
 
     def get_outdegrees(self, col: str = "degree_out"):
         """See get_degrees"""
-        engine_concrete = resolve_engine(EngineAbstract.AUTO, self)
-        g = _coerce_input_formats(self, engine_concrete)
-        g2 = g.edges(
-            g._edges.rename(
-                columns={g._source: g._destination, g._destination: g._source}
-            )
-        ).get_indegrees(col)
-        return g.nodes(g2._nodes, g2._node)
+        return self._single_direction_degree(self._source, col)
 
     def get_degrees(
         self,
@@ -284,10 +280,35 @@ class ComputeMixin(Plottable):
                 g2 = g.get_degrees()
                 print(g2._nodes)  # pd.DataFrame with 'id', 'degree', 'degree_in', 'degree_out'
         """
-        g = self
-        g2 = g.get_indegrees(degree_in).get_outdegrees(degree_out)
-        g2._nodes[col] = g2._nodes[degree_in] + g2._nodes[degree_out]
-        return g2
+        engine_concrete = resolve_engine(EngineAbstract.AUTO, self)
+        g = _coerce_input_formats(self, engine_concrete)
+        g_nodes = g.materialize_nodes(engine=engine_concrete.value)
+        node_id = g_nodes._node
+
+        if _safe_len(g._edges) == 0:
+            nodes_df = g_nodes._nodes
+            for c in (degree_in, degree_out, col):
+                nodes_df = nodes_df.assign(**{c: 0})
+                nodes_df = nodes_df.assign(**{c: nodes_df[c].astype("int32")})
+            return g.nodes(nodes_df, node_id)
+
+        in_df = _degree_agg(g._edges, g._destination, degree_in, node_id)
+        out_df = _degree_agg(g._edges, g._source, degree_out, node_id)
+        deg = safe_merge(in_df, out_df, on=node_id, how="outer")
+        deg = deg.assign(**{
+            degree_in: deg[degree_in].fillna(0).astype("int32"),
+            degree_out: deg[degree_out].fillna(0).astype("int32"),
+        })
+        deg = deg.assign(**{col: (deg[degree_in] + deg[degree_out]).astype("int32")})
+
+        keep = [c for c in g_nodes._nodes.columns if c not in (degree_in, degree_out, col)]
+        nodes_df = safe_merge(g_nodes._nodes[keep], deg, on=node_id, how="left")
+        nodes_df = nodes_df.assign(**{
+            degree_in: nodes_df[degree_in].fillna(0).astype("int32"),
+            degree_out: nodes_df[degree_out].fillna(0).astype("int32"),
+            col: nodes_df[col].fillna(0).astype("int32"),
+        })
+        return g.nodes(nodes_df, node_id)
 
     def drop_nodes(self, nodes):
         """
