@@ -1807,10 +1807,6 @@ class PlotterBase(Plottable):
         """
         return self._gfql_schema
 
-    def has_schema(self) -> bool:
-        """Return ``True`` when this plotter has a local GFQL schema bound."""
-        return self._gfql_schema is not None
-
     def copy(self) -> Plottable:
         return copy.copy(self)
 

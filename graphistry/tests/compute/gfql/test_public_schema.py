@@ -191,7 +191,6 @@ def test_bind_schema_is_chainable_and_used_by_preflight() -> None:
 
     assert g._gfql_schema is schema
     assert g.schema is schema
-    assert g.has_schema() is True
     report = g.gfql_validate("MATCH (p:Person)-[:WORKS_AT]->(c:Company) RETURN p.name AS name")
     assert report["ok"] is True
 
@@ -201,7 +200,6 @@ def test_schema_accessor_returns_bound_schema() -> None:
     g = _graph(schema)
 
     assert g.schema is schema
-    assert g.has_schema() is True
 
 
 def test_schema_accessor_is_read_only() -> None:
@@ -218,7 +216,6 @@ def test_schema_accessor_returns_none_when_unbound() -> None:
     g = graphistry.bind()
 
     assert g.schema is None
-    assert g.has_schema() is False
 
 
 def test_bound_schema_arrow_boundary_strict_passes() -> None:

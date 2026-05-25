@@ -28,10 +28,10 @@ declared Arrow types after normal Arrow conversion. The default
 ``schema_validate=False`` preserves existing behavior.
 
 Use the experimental read-only ``g.schema`` accessor to inspect the bound
-``GraphSchema`` object, or ``g.has_schema()`` when only a predicate is needed.
-This reports only the local declaration attached through ``bind(schema=...)``:
-it does not infer a schema from data, fetch a remote dataset schema, or serialize
-the schema into ``gfql_remote()`` requests.
+``GraphSchema`` object. Check ``g.schema is not None`` when only a predicate is
+needed. This reports only the local declaration attached through
+``bind(schema=...)``: it does not infer a schema from data, fetch a remote
+dataset schema, or serialize the schema into ``gfql_remote()`` requests.
 
 .. toctree::
    :maxdepth: 3

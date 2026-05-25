@@ -74,7 +74,7 @@ check against.
 
    g.gfql_validate("MATCH (p:Person)-[:WORKS_AT]->(c:Company) RETURN p.name")
    assert g.schema is schema
-   assert g.has_schema()
+   assert g.schema is not None
 
 Schema Objects
 --------------
@@ -98,10 +98,11 @@ Schema Objects
   makes schema-bound ``g.gfql_validate(...)`` permissive by default; callers can
   still override per call with ``g.gfql_validate(..., strict=True)``.
 
-``g.schema`` and ``g.has_schema()``
+``g.schema``
   Read back the experimental ``GraphSchema`` bound with ``bind(schema=...)``.
-  ``g.schema`` returns the bound object or ``None``; ``g.has_schema()`` returns
-  a matching boolean. Use ``bind(schema=...)`` to attach schemas, not assignment.
+  ``g.schema`` returns the bound object or ``None``. Use
+  ``g.schema is not None`` when only a predicate is needed. Use
+  ``bind(schema=...)`` to attach schemas, not assignment.
   This is local declaration introspection only. It does not infer schemas from
   data, fetch or hydrate remote dataset schemas, or serialize schemas into
   ``gfql_remote()`` requests in this release.

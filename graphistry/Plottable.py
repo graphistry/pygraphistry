@@ -376,9 +376,6 @@ class Plottable(Protocol):
     def schema(self) -> Optional["GraphSchema"]:
         ...
 
-    def has_schema(self) -> bool:
-        ...
-
     # ### ComputeMixin
 
     def get_indegrees(self, col: str = 'degree_in') -> 'Plottable':
