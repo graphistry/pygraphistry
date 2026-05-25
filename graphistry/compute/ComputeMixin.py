@@ -234,6 +234,7 @@ class ComputeMixin(Plottable):
         g = _coerce_input_formats(self, engine_concrete)
         g_nodes = g.materialize_nodes(engine=engine_concrete.value)
         node_id = g_nodes._node
+        assert node_id is not None  # materialize_nodes raises otherwise
 
         if _safe_len(g._edges) == 0:
             if col in g_nodes._nodes.columns:
@@ -250,10 +251,12 @@ class ComputeMixin(Plottable):
 
     def get_indegrees(self, col: str = "degree_in"):
         """See get_degrees"""
+        assert self._destination is not None, "Missing destination binding; set via .bind() or .edges()"
         return self._single_direction_degree(self._destination, col)
 
     def get_outdegrees(self, col: str = "degree_out"):
         """See get_degrees"""
+        assert self._source is not None, "Missing source binding; set via .bind() or .edges()"
         return self._single_direction_degree(self._source, col)
 
     def get_degrees(
@@ -284,6 +287,8 @@ class ComputeMixin(Plottable):
         g = _coerce_input_formats(self, engine_concrete)
         g_nodes = g.materialize_nodes(engine=engine_concrete.value)
         node_id = g_nodes._node
+        assert node_id is not None  # materialize_nodes raises otherwise
+        assert g._source is not None and g._destination is not None  # likewise
 
         if _safe_len(g._edges) == 0:
             nodes_df = g_nodes._nodes
