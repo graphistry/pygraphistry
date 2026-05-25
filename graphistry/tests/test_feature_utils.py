@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 import unittest
 
+import graphistry.feature_utils as feature_utils_module
 from graphistry.feature_utils import (
     process_dirty_dataframes,
     process_nodes_dataframes,
@@ -550,6 +551,86 @@ class TestModelNameHandling(unittest.TestCase):
             0.9999,
             f"Different formats should produce near-identical embeddings, got cosine={cosine}",
         )
+
+
+def test_encode_textual_reuses_normalized_sentence_transformer_model(monkeypatch):
+    class FakeSentenceTransformer:
+        def __init__(self, model_name):
+            calls.append(model_name)
+            self.model_name = model_name
+
+        def encode(self, values, **kwargs):
+            return np.ones((len(values), 2))
+
+    calls = []
+    test_df = pd.DataFrame({"text": ["hello world"], "number": [1]})
+    model_name = "paraphrase-albert-small-v2"
+
+    feature_utils_module._get_sentence_transformer_model.cache_clear()
+    monkeypatch.setattr(
+        feature_utils_module,
+        "lazy_sentence_transformers_import",
+        lambda: (True, "ok", FakeSentenceTransformer),
+    )
+    try:
+        _, _, legacy_model = encode_textual(
+            test_df,
+            min_words=0,
+            model_name=model_name,
+            use_ngrams=False,
+        )
+        _, _, full_model = encode_textual(
+            test_df,
+            min_words=0,
+            model_name=f"sentence-transformers/{model_name}",
+            use_ngrams=False,
+        )
+    finally:
+        feature_utils_module._get_sentence_transformer_model.cache_clear()
+
+    assert legacy_model is full_model
+    assert calls == [f"sentence-transformers/{model_name}"]
+
+
+def test_encode_textual_keeps_distinct_sentence_transformer_names(monkeypatch):
+    class FakeSentenceTransformer:
+        def __init__(self, model_name):
+            calls.append(model_name)
+            self.model_name = model_name
+
+        def encode(self, values, **kwargs):
+            return np.ones((len(values), 2))
+
+    calls = []
+    test_df = pd.DataFrame({"text": ["hello world"], "number": [1]})
+
+    feature_utils_module._get_sentence_transformer_model.cache_clear()
+    monkeypatch.setattr(
+        feature_utils_module,
+        "lazy_sentence_transformers_import",
+        lambda: (True, "ok", FakeSentenceTransformer),
+    )
+    try:
+        _, _, sentence_transformers_model = encode_textual(
+            test_df,
+            min_words=0,
+            model_name="sentence-transformers/paraphrase-albert-small-v2",
+            use_ngrams=False,
+        )
+        _, _, provider_model = encode_textual(
+            test_df,
+            min_words=0,
+            model_name="other-org/paraphrase-albert-small-v2",
+            use_ngrams=False,
+        )
+    finally:
+        feature_utils_module._get_sentence_transformer_model.cache_clear()
+
+    assert sentence_transformers_model is not provider_model
+    assert calls == [
+        "sentence-transformers/paraphrase-albert-small-v2",
+        "other-org/paraphrase-albert-small-v2",
+    ]
 
 
 if __name__ == "__main__":

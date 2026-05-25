@@ -1601,6 +1601,7 @@ jobs:
       run: |
         source pygraphistry/bin/activate
         python -B -m pytest -vv -n auto \
+          --durations=50 \
           graphistry/tests/test_compute_cluster.py \
           graphistry/tests/test_feature_utils.py \
           graphistry/tests/test_text_utils.py \
