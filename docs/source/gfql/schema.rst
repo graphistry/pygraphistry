@@ -73,6 +73,8 @@ check against.
    )
 
    g.gfql_validate("MATCH (p:Person)-[:WORKS_AT]->(c:Company) RETURN p.name")
+   assert g.schema is schema
+   assert g.has_schema()
 
 Schema Objects
 --------------
@@ -95,6 +97,11 @@ Schema Objects
   ``GraphSchemaCatalog`` used by binder/preflight validation. ``strict=False``
   makes schema-bound ``g.gfql_validate(...)`` permissive by default; callers can
   still override per call with ``g.gfql_validate(..., strict=True)``.
+
+``g.schema`` and ``g.has_schema()``
+  Read back the experimental ``GraphSchema`` bound with ``bind(schema=...)``.
+  ``g.schema`` returns the bound object or ``None``; ``g.has_schema()`` returns
+  a matching boolean. Use ``bind(schema=...)`` to attach schemas, not assignment.
 
 ``NodeType.to_arrow()`` and ``EdgeType.to_arrow()``
   Export declarations as ``pyarrow.Schema`` objects through GFQL's row-schema

@@ -27,6 +27,9 @@ the boundary. Use ``schema_validate='autofix'`` to cast compatible columns to
 declared Arrow types after normal Arrow conversion. The default
 ``schema_validate=False`` preserves existing behavior.
 
+Use the experimental read-only ``g.schema`` accessor to inspect the bound
+``GraphSchema`` object, or ``g.has_schema()`` when only a predicate is needed.
+
 .. toctree::
    :maxdepth: 3
 

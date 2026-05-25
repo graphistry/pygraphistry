@@ -58,6 +58,9 @@ from .tigeristry import Tigeristry
 from .util import setup_logger
 logger = setup_logger(__name__)
 
+if TYPE_CHECKING:
+    from graphistry.schema import GraphSchema
+
 _MAPPED_PROPERTY_ENCODING_METHODS: Dict[str, Tuple[str, str, str]] = {
     "encode_edge_size": ("edge", "size", "edgeSizeEncoding"),
     "encode_edge_weight": ("edge", "weight", "edgeWeightEncoding"),
@@ -267,7 +270,7 @@ class PlotterBase(Plottable):
         self._point_y : Optional[str] = None
         self._point_longitude : Optional[str] = None
         self._point_latitude : Optional[str] = None
-        self._gfql_schema : Any = None
+        self._gfql_schema : Optional["GraphSchema"] = None
         # Settings
         self._height : int = 500
         self._render : RenderModesConcrete = resolve_render_mode(self, True)
@@ -1789,6 +1792,20 @@ class PlotterBase(Plottable):
             res._dataset_id = None
 
         return res
+
+    @property
+    def schema(self) -> Optional["GraphSchema"]:
+        """Return the bound experimental GFQL ``GraphSchema``, if any.
+
+        The returned object is the same schema instance supplied through
+        ``bind(schema=...)``. The accessor is read-only: use ``bind(schema=...)``
+        to attach a schema to a new plotter.
+        """
+        return self._gfql_schema
+
+    def has_schema(self) -> bool:
+        """Return ``True`` when this plotter has a GFQL ``GraphSchema`` bound."""
+        return self._gfql_schema is not None
 
     def copy(self) -> Plottable:
         return copy.copy(self)
