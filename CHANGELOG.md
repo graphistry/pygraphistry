@@ -13,6 +13,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 - **GFQL call support implementation shrink (#1058)**: DRYed private call safelist schema-effect helpers and option-column collectors while preserving validated `call()` behavior, schema-effect keys, and diagnostics.
+- **GFQL temporal folding implementation shrink (#1058)**: Reused the shared expression AST rebuild helper for temporal constructor folding, preserving recursive folding behavior while covering property-access children such as `duration({days: 1}).days`.
 - **GFQL validate entrypoint implementation shrink (#1058)**: DRYed legacy `graphistry.compute.gfql.validate` issue construction, filter-key checks, schema-filter diagnostics, and report formatting while preserving deprecated public validation helpers and anchored error diagnostics.
 - **GFQL Cypher reentry execution shrink (#1058)**: DRYed private reentry execution graph-state construction and removed stale internal scalar/free-form helper parameters while preserving whole-row/scalar/free-form reentry behavior, optional null-fill shape, and diagnostics.
 - **GFQL Cypher reentry lowering support shrink (#1058)**: DRYed private reentry lowering-support helpers, removed stale old-shape defensive handling, and reused canonical expression/post-processing rebuild paths while preserving reentry behavior and diagnostic source spans.
