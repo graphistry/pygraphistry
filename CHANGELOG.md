@@ -12,6 +12,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **GFQL NetworkX CALL parity (#1058)**: Expanded the local Cypher `graphistry.nx.*` CALL surface with explicit NetworkX dispatch for `degree_centrality`, `closeness_centrality`, `eigenvector_centrality`, `katz_centrality`, `connected_components`, `strongly_connected_components`, `core_number`, and multi-output `hits`, including row and `.write()` coverage.
 
 ### Changed
+- **GFQL hop implementation shrink (#1058)**: Removed stale hop-local debug scaffolding while preserving public `hop()` traversal, hop-label, and pandas/cuDF behavior.
 - **GFQL call support implementation shrink (#1058)**: DRYed private call safelist schema-effect helpers and option-column collectors while preserving validated `call()` behavior, schema-effect keys, and diagnostics.
 - **GFQL temporal folding implementation shrink (#1058)**: Reused the shared expression AST rebuild helper for temporal constructor folding, preserving recursive folding behavior while covering property-access children such as `duration({days: 1}).days`.
 - **GFQL validate entrypoint implementation shrink (#1058)**: DRYed legacy `graphistry.compute.gfql.validate` issue construction, filter-key checks, schema-filter diagnostics, and report formatting while preserving deprecated public validation helpers and anchored error diagnostics.
