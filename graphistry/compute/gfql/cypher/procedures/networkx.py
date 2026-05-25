@@ -15,8 +15,8 @@ from graphistry.compute.gfql.cypher.procedures.common import (
     merge_node_property_rows,
     raise_missing_backend_dependency,
 )
-from graphistry.compute.networkx_policy import networkx_version_error, scipy_version_error
 from graphistry.compute.typing import DataFrameT
+from graphistry.plugins.networkx.policy import networkx_version_error, scipy_version_error
 
 if TYPE_CHECKING:
     from graphistry.compute.gfql.cypher.call_procedures import CompiledCypherProcedureCall

@@ -36,7 +36,7 @@ from graphistry.compute.gfql.cypher.procedures.networkx import (
     _networkx_pagerank_scores,
     networkx_normalized_value_columns,
 )
-from graphistry.compute.networkx_policy import NETWORKX_SCIPY_EXTRA_REQUIREMENTS, NETWORKX_VERSION_SPEC, SCIPY_VERSION_SPEC
+from graphistry.plugins.networkx.policy import NETWORKX_SCIPY_EXTRA_REQUIREMENTS, NETWORKX_VERSION_SPEC, SCIPY_VERSION_SPEC
 from graphistry.compute.gfql.cypher.ast import ExpressionText, OrderByClause, OrderItem, ReturnClause, ReturnItem, SourceSpan
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherExecutionExtras, CompiledCypherGraphQuery
 from graphistry.compute.gfql.cypher.lowering import _logical_plan_route_for_query
