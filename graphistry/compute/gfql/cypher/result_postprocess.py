@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any, Literal, Optional, TypedDict, cast
+from typing import Any, Dict, Literal, Optional, TypedDict, cast
 
 import pandas as pd
 
@@ -49,7 +49,7 @@ def entity_projection_meta_entry(
     from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 
     entity_meta = cast(
-        Optional[dict[str, WholeRowProjectionMeta]],
+        Optional[Dict[str, WholeRowProjectionMeta]],
         getattr(result, "_cypher_entity_projection_meta", None),
     )
     if not isinstance(entity_meta, dict) or output_name not in entity_meta:
@@ -185,8 +185,8 @@ def apply_result_projection(result: Plottable, projection: ResultProjectionPlan)
     alias_rows_df = _projection_alias_rows(rows_df, alias=projection.alias)
     if alias_rows_df is None or projection.alias not in alias_rows_df.columns:
         return result
-    projected_data: dict[str, SeriesT] = {}
-    projected_entity_meta: dict[str, WholeRowProjectionMeta] = {}
+    projected_data: Dict[str, SeriesT] = {}
+    projected_entity_meta: Dict[str, WholeRowProjectionMeta] = {}
     for column in projection.columns:
         if column.kind == "whole_row":
             source_alias = column.source_name or projection.alias
