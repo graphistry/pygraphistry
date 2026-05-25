@@ -733,16 +733,13 @@ jobs:
         include:
           - label: nx-lower-no-scipy
             python-version: '3.8'
-            networkx-spec: 'networkx==2.5'
-            scipy-spec: ''
+            lock-profile: test-networkx-policy-lower-no-scipy
           - label: nx-lower-scipy
             python-version: '3.8'
-            networkx-spec: 'networkx==2.5'
-            scipy-spec: 'scipy==1.5.4'
+            lock-profile: test-networkx-policy-lower-scipy
           - label: nx-upper-scipy
             python-version: '3.12'
-            networkx-spec: 'networkx<4'
-            scipy-spec: 'scipy<2'
+            lock-profile: test-networkx-policy-upper-scipy
     steps:
     - name: Checkout repo
       uses: actions/checkout@v4
@@ -766,14 +763,8 @@ jobs:
         python -m venv pygraphistry
         source pygraphistry/bin/activate
         python -m pip install --upgrade pip uv
-        uv pip install --require-hashes -r requirements/test-py${{ matrix.python-version }}.lock
+        uv pip install --require-hashes -r requirements/${{ matrix.lock-profile }}-py${{ matrix.python-version }}.lock
         uv pip install -e . --no-deps
-        if [[ -n "${{ matrix.scipy-spec }}" ]]; then
-          uv pip install "${{ matrix.networkx-spec }}" "${{ matrix.scipy-spec }}"
-        else
-          uv pip install "${{ matrix.networkx-spec }}"
-          uv pip uninstall -y scipy || true
-        fi
         python - <<'PY'
         import importlib.util
         import networkx

@@ -39,6 +39,9 @@ PROFILE_DEFS=(
     "test-compat-latest:test,bolt,nodexl:3.14:3.14:--constraint /tmp/pandas-latest.txt:"
     "test-compat-gfql-legacy:test:3.9:3.9:--constraint /tmp/pandas-legacy.txt:"
     "test-compat-gfql-latest:test:3.14:3.14:--constraint /tmp/pandas-latest.txt:"
+    "test-networkx-policy-lower-no-scipy:test,networkx:3.8:3.8:--constraint /tmp/networkx-lower.txt:"
+    "test-networkx-policy-lower-scipy:test,networkx-scipy:3.8:3.8:--constraint /tmp/networkx-lower.txt:"
+    "test-networkx-policy-upper-scipy:test,networkx-scipy:3.12:3.12:--constraint /tmp/networkx-upper.txt:"
     "test-polars:test,polars:3.9:::"
     "test-graphviz:test,pygraphviz:3.8:::"
     "test-umap:test,testai,umap-learn:3.9::--no-emit-package torch:"
@@ -72,6 +75,10 @@ fi
 echo "pandas==2.2.3" > /tmp/pandas-legacy.txt
 echo "pandas==2.3.3" > /tmp/pandas-rapids-aligned.txt
 echo "pandas>=3.0.0" > /tmp/pandas-latest.txt
+echo "networkx==2.5" > /tmp/networkx-lower.txt
+echo "scipy==1.5.4" >> /tmp/networkx-lower.txt
+echo "networkx<4" > /tmp/networkx-upper.txt
+echo "scipy<2" >> /tmp/networkx-upper.txt
 
 # sentence-transformers 5.4.x moved WordEmbeddings to a new module path; HF-cached models
 # serialised with 5.3.x configs cannot be loaded by 5.4.x, breaking test-ai until tests + cache
