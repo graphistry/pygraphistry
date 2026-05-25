@@ -26,12 +26,15 @@ from graphistry.compute.gfql.cypher import (
 )
 from graphistry.compute.gfql.cypher.call_procedures import (
     CompiledCypherProcedureCall,
+)
+from graphistry.compute.gfql.cypher.procedures.networkx import (
     _ensure_networkx_feature,
     _ensure_networkx_version_policy,
     _ensure_scipy_version_policy,
     _networkx_component_labels,
     _networkx_hits_scores,
     _networkx_pagerank_scores,
+    networkx_normalized_value_columns,
 )
 from graphistry.compute.networkx_policy import NETWORKX_SCIPY_EXTRA_REQUIREMENTS, NETWORKX_VERSION_SPEC, SCIPY_VERSION_SPEC
 from graphistry.compute.gfql.cypher.ast import ExpressionText, OrderByClause, OrderItem, ReturnClause, ReturnItem, SourceSpan
@@ -8013,6 +8016,23 @@ def test_compile_cypher_call_rejects_multi_column_out_col_structured() -> None:
 def test_compile_cypher_call_rejects_multi_column_networkx_out_col_structured() -> None:
     with pytest.raises(GFQLValidationError) as exc_info:
         _compile_query("CALL graphistry.nx.hits({out_col: 'score'})")
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "call.args.out_col"
+    assert exc_info.value.context["value"] == "score"
+
+
+def test_networkx_backend_rejects_multi_column_out_col_structured() -> None:
+    compiled_call = CompiledCypherProcedureCall(
+        procedure="graphistry.nx.hits",
+        backend="networkx",
+        algorithm="hits",
+        call_params={"out_col": "score"},
+        row_kind="node",
+    )
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        networkx_normalized_value_columns(compiled_call)
 
     assert exc_info.value.code == ErrorCode.E108
     assert exc_info.value.context["field"] == "call.args.out_col"
