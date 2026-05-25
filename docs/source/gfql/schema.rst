@@ -5,8 +5,9 @@ GFQL accepts public schema declarations through the stable
 ``graphistry.schema`` import path. Use this when application code owns a graph
 contract and wants Cypher preflight checks to fail before query execution.
 The API is experimental in this release: the import path and core declaration
-objects are intended to be stable, while inference, coercion, remote transport,
-and planner use are still follow-on surfaces.
+objects are intended to be stable, while coercion, remote transport, and
+planner use are still follow-on surfaces. Inference is also experimental and
+must be requested explicitly.
 
 The schema is optional. When you provide one, PyGraphistry uses it as the
 declared contract for local GFQL validation. When you do not provide one,
@@ -95,6 +96,8 @@ Schema Objects
   ``GraphSchemaCatalog`` used by binder/preflight validation. ``strict=False``
   makes schema-bound ``g.gfql_validate(...)`` permissive by default; callers can
   still override per call with ``g.gfql_validate(..., strict=True)``.
+  ``metadata`` is descriptive provenance for callers and exports; it is not part
+  of validation semantics.
 
 ``NodeType.to_arrow()`` and ``EdgeType.to_arrow()``
   Export declarations as ``pyarrow.Schema`` objects through GFQL's row-schema
@@ -128,8 +131,8 @@ Invalid queries raise ``GFQLValidationError`` with structured context.
 This is a correctness and documentation surface first: applications can state
 what labels, relationship types, properties, and topology they expect, then
 validate user-authored or generated Cypher before running it. The same typed
-contract is also the foundation for later inference, coercion, remote transport,
-and planner/performance work, but this page covers the declared local contract.
+contract is also used by inference and is the foundation for later coercion,
+remote transport, and planner/performance work.
 
 Arrow Boundary Validation
 -------------------------
@@ -163,22 +166,116 @@ boundaries. This is off by default so existing ``plot()``, ``upload()``, and
 Provided vs. Inferred Schema
 ----------------------------
 
-In this release, schemas are **provided**, not inferred. You create
-``NodeType``, ``EdgeType``, and ``GraphSchema`` objects directly and attach them
-with ``graphistry.bind(..., schema=schema)`` or ``g.bind(schema=schema)``.
+You can provide a schema directly or infer one from bound local data.
 
-Without an explicit ``GraphSchema``:
+Use a provided schema when application code owns the contract:
 
-* ``g.gfql_validate(...)`` can still use local dataframe columns already bound
-  on ``g._nodes`` and ``g._edges`` for schema-aware checks.
-* It does not infer node types, edge types, Arrow dtypes, nullability, or
-  topology from data.
+.. code-block:: python
+
+   declared_g = (
+       graphistry
+       .edges(edges_df, "src", "dst")
+       .nodes(nodes_df, "id")
+       .bind(schema=schema)
+   )
+
+Use inference when the graph data should define the first draft contract:
+
+.. code-block:: python
+
+   inferred_base_g = graphistry.edges(edges_df, "src", "dst").nodes(nodes_df, "id")
+   inferred_schema = inferred_base_g.infer_schema()
+   inferred_g = inferred_base_g.bind(schema=inferred_schema)
+
+For one-step local binding, use:
+
+.. code-block:: python
+
+   inferred_g = (
+       graphistry
+       .edges(edges_df, "src", "dst")
+       .nodes(nodes_df, "id")
+       .bind(infer_schema=True)
+   )
+
+Inference is opt-in. ``graphistry.bind(...)`` and ``g.bind(...)`` do not infer a
+schema unless ``infer_schema=True`` is passed.
+
+Inference Rules
+---------------
+
+``graphistry.infer_schema(g)`` and ``g.infer_schema()`` return a public
+``GraphSchema``. They inspect currently bound ``nodes`` and ``edges`` dataframes:
+
+* Node types come from boolean ``label__<Label>`` columns on the node table.
+* Edge types come from boolean ``label__<TYPE>`` columns on the edge table.
+* Node properties are non-label node columns observed on rows for a label.
+* Edge properties are non-label edge columns, excluding the bound source,
+  destination, and edge-id columns.
+* Source/destination topology is inferred when edges reference bound node ids
+  and those nodes have label columns. Edge-only graphs keep edge types and
+  properties, but do not invent endpoint labels.
 * A remote-only graph such as ``graphistry.bind(dataset_id="...")`` has no
   local dataframe columns, so local validation is limited to syntax, compile,
   and structural checks unless you also bind a declared schema.
 
-Schema inference from existing plottables is tracked separately from this
-declared-schema API.
+Inference uses the same Arrow/GFQL row-schema bridge as declared schemas for
+logical property types. The returned ``GraphSchema`` can be passed to
+``g.bind(schema=schema)`` and used by ``g.gfql_validate(...)``.
+
+Inferred schemas include descriptive provenance:
+
+.. code-block:: python
+
+   inferred_schema.metadata["source"] == "inferred"
+
+When declared definitions override inferred definitions through
+``infer_schema(..., schema=schema)``, the returned schema uses
+``metadata["source"] == "mixed"``. This metadata is informational; it does not
+change preflight validation, Arrow validation, or schema equality.
+
+Presence And Nullability
+------------------------
+
+The public ``GraphSchema`` stores the inferred logical type and scalar
+nullability needed by validation. For more detail, request the experimental
+report:
+
+.. code-block:: python
+
+   schema, report = g.infer_schema(return_report=True)
+
+The report tracks property presence separately from type:
+
+``required``
+  The property has observed values on every row for that node label or edge
+  type.
+
+``optional``
+  The property has observed values on some rows and nulls on other rows for
+  that node label or edge type.
+
+``maybe_absent``
+  The column exists on the dataframe but has no observed value for that node
+  label or edge type. This commonly means another label/type uses the column.
+
+``unknown``
+  No rows were available for that node label or edge type.
+
+Declared Overrides
+------------------
+
+Declared schemas stay explicit. Passing ``schema=...`` to ``infer_schema()``
+uses declared node and edge definitions in preference to inferred definitions
+with the same names, while keeping inferred definitions for other names.
+
+.. code-block:: python
+
+   refined_schema = g.infer_schema(schema=schema)
+
+``g.bind(schema=..., infer_schema=True)`` is rejected. Use either a provided
+schema or inferred schema in a single bind call so the validation contract is
+unambiguous.
 
 Local vs. Remote GFQL
 ---------------------

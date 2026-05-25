@@ -364,7 +364,11 @@ class Plottable(Protocol):
         nodes_file_id: Optional[str] = None,
         edges_file_id: Optional[str] = None,
         schema: Optional[Any] = None,
+        infer_schema: Any = False,
     ) -> 'Plottable':
+        ...
+
+    def infer_schema(self, *, schema: Optional[Any] = None, return_report: bool = False) -> Any:
         ...
 
     def copy(self) -> 'Plottable':

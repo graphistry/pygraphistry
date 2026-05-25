@@ -1925,12 +1925,14 @@ class GraphistryClient(AuthManagerProtocol):
         nodes_file_id: Optional[str] = None,
         edges_file_id: Optional[str] = None,
         schema: Optional[Any] = None,
+        infer_schema: Any = False,
     ) -> Plotter:
         """Create a base plotter.
 
         Typically called at start of a program. For parameters, see ``plotter.bind()`` .
         The ``schema`` parameter accepts the experimental public GFQL schema
-        declarations from ``graphistry.schema``.
+        declarations from ``graphistry.schema``. ``infer_schema=True`` infers
+        that schema from currently bound local data.
 
         :returns: Plotter
         :rtype: Plotter
@@ -1974,7 +1976,16 @@ class GraphistryClient(AuthManagerProtocol):
             nodes_file_id=nodes_file_id,
             edges_file_id=edges_file_id,
             schema=schema,
+            infer_schema=infer_schema,
         ))
+
+    def infer_schema(self, g: Optional[Any] = None, *, schema: Optional[Any] = None, return_report: bool = False) -> Any:
+        """Infer an experimental public GFQL schema from a plotter."""
+        from graphistry.schema_inference import infer_schema
+
+        if g is None:
+            raise ValueError("graphistry.infer_schema(g) requires a plotter; use g.infer_schema() for bound graphs")
+        return infer_schema(g, schema=schema, return_report=return_report)
 
     def from_dataset_id(self, dataset_id: str, api_token: Optional[str] = None) -> Plotter:
         """Fetch existing remote dataset metadata and hydrate a Plotter.
@@ -2763,6 +2774,7 @@ encode_edge_icon = PyGraphistry.encode_edge_icon
 encode_point_badge = PyGraphistry.encode_point_badge
 encode_edge_badge = PyGraphistry.encode_edge_badge
 apply_encodings = PyGraphistry.apply_encodings
+infer_schema = PyGraphistry.infer_schema
 infer_labels = PyGraphistry.infer_labels
 name = PyGraphistry.name
 description = PyGraphistry.description
