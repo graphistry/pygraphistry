@@ -10,6 +10,7 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
 from graphistry.compute.gfql.call.validation import validate_call_params
 from graphistry.compute.gfql.cypher.ast import CallClause
+from graphistry.compute.networkx_policy import networkx_version_error, scipy_version_error
 from graphistry.compute.gfql.expr_parser import (
     BinaryOp,
     ExprNode,
@@ -787,7 +788,48 @@ def _networkx_module(compiled_call: CompiledCypherProcedureCall) -> Any:
             suggestion="Install networkx or use graphistry.igraph.* / graphistry.cugraph.* procedures.",
             exc=exc,
         )
+    _ensure_networkx_version_policy(compiled_call, nx)
     return nx
+
+
+def _ensure_networkx_version_policy(compiled_call: CompiledCypherProcedureCall, nx: Any) -> None:
+    error = networkx_version_error(getattr(nx, "__version__", None))
+    if error is None:
+        return
+    raise GFQLValidationError(
+        ErrorCode.E108,
+        f"{compiled_call.procedure} requires a supported NetworkX version",
+        field="call",
+        value=compiled_call.procedure,
+        suggestion=error,
+        line=compiled_call.line,
+        column=compiled_call.column,
+        language="cypher",
+    )
+
+
+def _ensure_scipy_version_policy(compiled_call: CompiledCypherProcedureCall, scipy_module: Any) -> None:
+    error = scipy_version_error(getattr(scipy_module, "__version__", None))
+    if error is None:
+        return
+    raise GFQLValidationError(
+        ErrorCode.E108,
+        f"{compiled_call.procedure} requires a supported SciPy version when SciPy is installed",
+        field="call",
+        value=compiled_call.procedure,
+        suggestion=error,
+        line=compiled_call.line,
+        column=compiled_call.column,
+        language="cypher",
+    )
+
+
+def _optional_scipy_module() -> Optional[Any]:
+    try:
+        import scipy
+    except ImportError:
+        return None
+    return scipy
 
 
 def _ensure_networkx_feature(
@@ -852,6 +894,9 @@ def _networkx_algorithm_result(
             return nx.edge_betweenness_centrality(graph_nx, **params)
         if algorithm == "hits":
             _ensure_networkx_feature(hasattr(nx, "hits"), compiled_call, "networkx.hits", nx)
+            scipy_module = _optional_scipy_module()
+            if scipy_module is not None:
+                _ensure_scipy_version_policy(compiled_call, scipy_module)
             try:
                 hubs, authorities = nx.hits(graph_nx, **params)
             except ModuleNotFoundError as exc:

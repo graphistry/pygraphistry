@@ -50,7 +50,7 @@ dev_extras = {
 
 base_extras_light = {
     'igraph': ['igraph'],
-    'networkx': ['networkx>=2.5'],
+    'networkx': ['networkx>=2.5,<4'],
     'gremlin': ['gremlinpython'],
     'bolt': ['neo4j', 'neotime'],
     'nodexl': ['openpyxl>=3.1.5', 'xlrd'],
@@ -62,6 +62,7 @@ base_extras_light = {
 
 base_extras_heavy = {
   'umap-learn': ['umap-learn','skrub', 'scikit-learn', 'scipy'],
+  'networkx-scipy': ['networkx>=2.5,<4', 'scipy>=1.5,<2'],
   'pygraphviz': ['pygraphviz'],  # + apt-get graphviz, graphviz-dev
   'rapids': [
     "cudf-cu12==24.12.*", "dask-cudf-cu12==24.12.*", "cuml-cu12==24.12.*",

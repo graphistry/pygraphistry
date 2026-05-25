@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import fields as dataclass_fields
+from pathlib import Path
 import pandas as pd
 import pytest
 import graphistry
@@ -26,10 +27,13 @@ from graphistry.compute.gfql.cypher import (
 from graphistry.compute.gfql.cypher.call_procedures import (
     CompiledCypherProcedureCall,
     _ensure_networkx_feature,
+    _ensure_networkx_version_policy,
+    _ensure_scipy_version_policy,
     _networkx_component_labels,
     _networkx_hits_scores,
     _networkx_pagerank_scores,
 )
+from graphistry.compute.networkx_policy import NETWORKX_SCIPY_EXTRA_REQUIREMENTS, NETWORKX_VERSION_SPEC, SCIPY_VERSION_SPEC
 from graphistry.compute.gfql.cypher.ast import ExpressionText, OrderByClause, OrderItem, ReturnClause, ReturnItem, SourceSpan
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherExecutionExtras, CompiledCypherGraphQuery
 from graphistry.compute.gfql.cypher.lowering import _logical_plan_route_for_query
@@ -8260,6 +8264,69 @@ def test_networkx_feature_guard_reports_installed_version_structurally() -> None
     assert "1.2.3" in exc_info.value.context["suggestion"]
     assert exc_info.value.context["line"] == 4
     assert exc_info.value.context["column"] == 9
+
+
+def test_networkx_optional_dependency_policy_matches_setup_extras() -> None:
+    setup_py = Path(__file__).parents[5] / "setup.py"
+    setup_text = setup_py.read_text()
+
+    for requirement in ("networkx" + NETWORKX_VERSION_SPEC, *NETWORKX_SCIPY_EXTRA_REQUIREMENTS):
+        assert requirement in setup_text
+
+
+def test_networkx_version_policy_accepts_supported_lower_bound_structurally() -> None:
+    compiled_call = CompiledCypherProcedureCall(
+        procedure="graphistry.nx.pagerank",
+        backend="networkx",
+        algorithm="pagerank",
+        line=2,
+        column=5,
+    )
+    nx_stub = type("NetworkXStub", (), {"__version__": "2.5"})()
+
+    _ensure_networkx_version_policy(compiled_call, nx_stub)
+
+
+def test_networkx_version_policy_rejects_unsupported_combination_structured() -> None:
+    compiled_call = CompiledCypherProcedureCall(
+        procedure="graphistry.nx.pagerank",
+        backend="networkx",
+        algorithm="pagerank",
+        line=2,
+        column=5,
+    )
+    nx_stub = type("NetworkXStub", (), {"__version__": "2.4"})()
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _ensure_networkx_version_policy(compiled_call, nx_stub)
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "call"
+    assert exc_info.value.context["value"] == "graphistry.nx.pagerank"
+    assert f"networkx{NETWORKX_VERSION_SPEC}" in exc_info.value.context["suggestion"]
+    assert exc_info.value.context["line"] == 2
+    assert exc_info.value.context["column"] == 5
+
+
+def test_networkx_scipy_policy_rejects_unsupported_installed_scipy_structured() -> None:
+    compiled_call = CompiledCypherProcedureCall(
+        procedure="graphistry.nx.hits",
+        backend="networkx",
+        algorithm="hits",
+        line=3,
+        column=7,
+    )
+    scipy_stub = type("SciPyStub", (), {"__version__": "2.0.0"})()
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _ensure_scipy_version_policy(compiled_call, scipy_stub)
+
+    assert exc_info.value.code == ErrorCode.E108
+    assert exc_info.value.context["field"] == "call"
+    assert exc_info.value.context["value"] == "graphistry.nx.hits"
+    assert f"scipy{SCIPY_VERSION_SPEC}" in exc_info.value.context["suggestion"]
+    assert exc_info.value.context["line"] == 3
+    assert exc_info.value.context["column"] == 7
 
 
 def test_networkx_hits_fallback_scores_directed_graph_without_scipy_dependency() -> None:
