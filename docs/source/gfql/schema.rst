@@ -112,6 +112,54 @@ Schema Objects
   are useful for dataframe boundary validation; the per-type entries preserve
   type names and edge topology.
 
+Pretty-Printing Schemas
+-----------------------
+
+Use ``schema.pretty()`` or ``repr(schema)`` when a prompt, log, or notebook
+cell needs the declared graph contract without the verbose dataclass wrapper.
+The default ``"cypher"`` format is compact and LLM-friendly:
+
+.. code-block:: python
+
+   from graphistry.schema import pretty_print_schema
+
+   print(schema.pretty())
+   print(pretty_print_schema(schema))
+
+.. code-block:: text
+
+   (:Person {id: int64!, name: string})
+   (:Company {id: int64!, name: string})
+   (:Person)-[:WORKS_AT {since: int64!}]->(:Company)
+
+The ``!`` suffix marks declared non-null Arrow fields.
+
+``schema.pretty("yaml")`` renders an indented debugging view:
+
+.. code-block:: yaml
+
+   strict: true
+   node_id_column: id
+   edge_columns:
+     source: src
+     destination: dst
+   nodes:
+     Person:
+       labels: Person
+       properties:
+         id: int64!
+         name: string
+   relationships:
+     WORKS_AT:
+       from: Person
+       to: Company
+       properties:
+         since: int64!
+
+``schema.pretty("compact")`` returns a single-line summary such as
+``GraphSchema(2 node types, 1 edge type, 5 properties)``. ``NodeType``,
+``EdgeType``, and ``EdgeTopology`` support the same three formats.
+
 What Preflight Checks
 ---------------------
 
