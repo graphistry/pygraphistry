@@ -15,6 +15,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 - **GFQL call executor implementation shrink (#1058)**: DRYed private call execution, postcall graph-stat selection, and policy exception enrichment while preserving validated `call()` execution, postcall-on-error behavior, and policy-denial precedence.
+- **AI feature test/runtime performance (#1058)**: Reused normalized `SentenceTransformer` model instances within each Python process during `encode_textual()` calls, reducing repeated model construction in `test-full-ai` and user workflows that encode with the same model repeatedly. Added `test-full-ai` duration reporting for continued CI profiling.
 - **GFQL Cypher result postprocess shrink (#1058)**: Collapsed private result-projection alias/metadata helpers while preserving prefixed alias whole-row rendering, reentry entity metadata, and pandas/cuDF projection behavior.
 - **GFQL hop implementation shrink (#1058)**: Removed stale hop-local debug scaffolding while preserving public `hop()` traversal, hop-label, and pandas/cuDF behavior.
 - **GFQL call support implementation shrink (#1058)**: DRYed private call safelist schema-effect helpers and option-column collectors while preserving validated `call()` behavior, schema-effect keys, and diagnostics.

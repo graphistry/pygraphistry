@@ -5,7 +5,7 @@ import pandas as pd
 from time import time
 from inspect import getmodule
 import warnings
-from functools import partial
+from functools import lru_cache, partial
 from typing import cast
 
 from typing import (
@@ -720,6 +720,20 @@ def _get_sentence_transformer_headers(emb, text_cols):
     return [f"{'_'.join(text_cols)}_{k}" for k in range(emb.shape[1])]
 
 
+def _normalize_sentence_transformer_model_name(model_name: str) -> str:
+    if model_name.startswith('/') or model_name.startswith('./'):
+        return os.path.split(model_name)[-1]
+    if '/' not in model_name:
+        return f"sentence-transformers/{model_name}"
+    return model_name
+
+
+@lru_cache(maxsize=8)
+def _get_sentence_transformer_model(model_name: str) -> Any:
+    _, _, SentenceTransformer = lazy_sentence_transformers_import()
+    return SentenceTransformer(model_name)
+
+
 def encode_textual(
     df: pd.DataFrame,
     min_words: float = 2.5,
@@ -729,8 +743,6 @@ def encode_textual(
     max_df: float = 0.2,
     min_df: int = 3,
 ) -> Tuple[pd.DataFrame, List, Any]:
-    _, _, SentenceTransformer = lazy_sentence_transformers_import()
-
     t = time()
     text_cols = get_textual_columns(
         df, min_words=min_words
@@ -751,19 +763,9 @@ def encode_textual(
             embeddings = make_array(model.fit_transform(res))
             transformed_columns = list(model[0].vocabulary_.keys())
         else:
-            # Handle different model name formats:
-            # 1. Local path: "/models/xyz" -> extract just model name (preserves old behavior)
-            # 2. Org prefix: "org/model" -> use as-is
-            # 3. Legacy: "model" -> prepend "sentence-transformers/"
-            if model_name.startswith('/') or model_name.startswith('./'):
-                # Local path - extract just the model name (preserves old behavior)
-                model_name = os.path.split(model_name)[-1]
-            elif '/' not in model_name:
-                # Legacy format without org prefix, add sentence-transformers/
-                model_name = f"sentence-transformers/{model_name}"
-            # else: already has org/model format, use as-is
-            
-            model = SentenceTransformer(model_name)
+            model = _get_sentence_transformer_model(
+                _normalize_sentence_transformer_model_name(model_name)
+            )
             batch_size = use_global_session().encode_textual_batch_size
             embeddings = model.encode(res.values, **({'batch_size': batch_size} if batch_size is not None else {}))
             transformed_columns = _get_sentence_transformer_headers(
