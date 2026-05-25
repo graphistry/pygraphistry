@@ -131,6 +131,25 @@ validate user-authored or generated Cypher before running it. The same typed
 contract is also the foundation for later inference, coercion, remote transport,
 and planner/performance work, but this page covers the declared local contract.
 
+Schema Effects
+--------------
+
+Some graph-growing GFQL calls add properties to an existing graph. For example,
+``CALL graphistry.degree.write()`` adds degree columns to nodes, and
+PageRank-style ``.write()`` procedures add score columns. When a graph has a
+bound ``GraphSchema``, PyGraphistry now tracks those successful local effects
+internally and attaches the updated schema snapshot to the returned graph:
+
+.. code-block:: python
+
+   enriched = g.gfql("CALL graphistry.degree.write()")
+   enriched.gfql_validate("MATCH (n:Person) RETURN n.degree")
+
+This is not a new public API surface. The effect model is internal while schema
+inference, remote transport, and planner use continue to evolve. It is scoped to
+local graph results with an explicitly bound schema; remote GFQL requests still
+do not serialize schema snapshots or effect history.
+
 Arrow Boundary Validation
 -------------------------
 
@@ -214,6 +233,6 @@ Top-level imports are also available:
    from graphistry import NodeType, EdgeType, GraphSchema
 
 This lane exposes declaration, Arrow row-schema import/export, binder/preflight
-integration, and opt-in Arrow boundary validation/coercion. Inference from
-existing plottables, schema effects for graph-growing calls, and remote schema
-transport remain separate follow-on surfaces.
+integration, opt-in Arrow boundary validation/coercion, and internal local
+schema-effect propagation for graph-growing calls. Inference from existing
+plottables and remote schema transport remain separate follow-on surfaces.
