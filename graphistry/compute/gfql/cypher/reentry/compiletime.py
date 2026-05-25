@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-import re
 from typing import Any, Callable, Dict, List, Mapping, NoReturn, Optional, Tuple, cast
 
 from graphistry.compute.gfql.cypher.ast import (
@@ -16,10 +15,12 @@ from graphistry.compute.gfql.cypher.ast import (
     UnwindClause,
 )
 from graphistry.compute.gfql.cypher.lowering import (
+    CompiledCypherPostProcessing,
     CompiledCypherExecutionExtras,
     CompiledCypherQuery,
     _connected_component_from_pattern,
     _match_pattern_elements,
+    _normalize_post_processing,
     _pattern_node_aliases,
     _render_expr_node,
     _rewrite_expr_identifiers,
@@ -42,7 +43,6 @@ from graphistry.compute.gfql.cypher.reentry.lowering_support import (
     _first_pattern_node_alias,
     _is_bare_carry_with_item,
     _is_whole_row_with_item,
-    _post_processing_with,
     _rewrite_order_by_expressions,
 )
 from graphistry.compute.gfql.cypher.reentry.naming import (
@@ -176,9 +176,8 @@ def _rewrite_multi_whole_row_prefix(
         return prefix_stage, original_tail, {}
 
     candidate_set = set(non_source_aliases)
-    identifier_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
     cleaned_tail = tuple(
-        _drop_bare_alias_items_from_stage(stage, candidate_set, identifier_re=identifier_re)
+        _drop_bare_alias_items_from_stage(stage, candidate_set)
         for stage in original_tail
     )
     cleaned_query = replace(query, with_stages=(prefix_stage,) + cleaned_tail)
@@ -577,13 +576,15 @@ def _compile_bounded_reentry_query(
         is_optional = reentry_match.optional or target.optional_reentry
         return replace(
             target,
-            post_processing=_post_processing_with(
-                result_projection=target_projection,
-                # Clear empty_result_row when optional_reentry is set — the
-                # reentry null-fill handles missing rows instead.
-                empty_result_row=None if is_optional else target.empty_result_row,
-                optional_null_fill=target.optional_null_fill,
-                optional_projection_row_guard=target.optional_projection_row_guard,
+            post_processing=_normalize_post_processing(
+                CompiledCypherPostProcessing(
+                    result_projection=target_projection,
+                    # Clear empty_result_row when optional_reentry is set — the
+                    # reentry null-fill handles missing rows instead.
+                    empty_result_row=None if is_optional else target.empty_result_row,
+                    optional_null_fill=target.optional_null_fill,
+                    optional_projection_row_guard=target.optional_projection_row_guard,
+                )
             ),
             execution_extras=replace(
                 target.execution_extras or CompiledCypherExecutionExtras(),
