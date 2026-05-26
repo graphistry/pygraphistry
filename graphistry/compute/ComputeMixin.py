@@ -103,8 +103,7 @@ def _coerce_to_pandas(g: "Plottable") -> "Plottable":
 def _degree_agg(edges: Any, key_col: str, out_name: str, node_id: str) -> Any:
     """Groupby edges on key_col, return small (node_id, out_name) frame. Caller handles empty edges."""
     return (
-        edges[[key_col]]
-        .groupby(key_col, sort=False).size()
+        edges[key_col].value_counts(sort=False)
         .reset_index(name=out_name)
         .rename(columns={key_col: node_id})
     )
