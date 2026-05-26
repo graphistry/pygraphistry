@@ -7,7 +7,7 @@ import graphistry
 from graphistry.exceptions import SchemaValidationError
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.ir.logical_plan import RowSchema
-from graphistry.compute.gfql.ir.types import ScalarType
+from graphistry.compute.gfql.ir.types import ListType, NodeRef, ScalarType
 from graphistry.schema import EdgeType, GraphSchema, NodeType
 
 
@@ -183,6 +183,149 @@ def test_graph_schema_arrow_declaration_round_trip() -> None:
     assert imported.node_columns == schema.node_columns
     assert imported.edge_columns == schema.edge_columns
     assert imported.edge_types[0].topology.as_metadata() == schema.edge_types[0].topology.as_metadata()
+
+
+def test_graph_schema_rejects_conflicting_node_physical_column_types() -> None:
+    with pytest.raises(ValueError) as exc_info:
+        GraphSchema(
+            node_types=[
+                NodeType("Cat", {"age": int}),
+                NodeType("Dog", {"age": str}),
+            ]
+        )
+
+    message = str(exc_info.value)
+    assert "nodes" in message
+    assert "age" in message
+    assert "Cat" in message
+    assert "Dog" in message
+    assert "int64" in message
+    assert "string" in message
+
+
+def test_graph_schema_rejects_conflicting_edge_physical_column_types() -> None:
+    with pytest.raises(ValueError) as exc_info:
+        GraphSchema(
+            edge_types=[
+                EdgeType("LIKES", source="Cat", destination="Toy", properties={"weight": int}),
+                EdgeType("CHASES", source="Dog", destination="Toy", properties={"weight": str}),
+            ]
+        )
+
+    message = str(exc_info.value)
+    assert "edges" in message
+    assert "weight" in message
+    assert "LIKES" in message
+    assert "CHASES" in message
+    assert "int64" in message
+    assert "string" in message
+
+
+def test_graph_schema_from_arrow_rejects_conflicting_node_physical_column_types() -> None:
+    pa = pytest.importorskip("pyarrow")
+
+    with pytest.raises(ValueError) as exc_info:
+        GraphSchema.from_arrow(
+            {
+                "node_types": {
+                    "Cat": pa.schema([pa.field("age", pa.int64())]),
+                    "Dog": pa.schema([pa.field("age", pa.large_string())]),
+                },
+                "edge_types": {},
+            }
+        )
+
+    message = str(exc_info.value)
+    assert "nodes" in message
+    assert "age" in message
+    assert "Cat" in message
+    assert "Dog" in message
+
+
+def test_graph_schema_from_arrow_rejects_conflicting_edge_physical_column_types() -> None:
+    pa = pytest.importorskip("pyarrow")
+
+    with pytest.raises(ValueError) as exc_info:
+        GraphSchema.from_arrow(
+            {
+                "node_types": {},
+                "edge_types": {
+                    "LIKES": {
+                        "source": ("Cat",),
+                        "destination": ("Toy",),
+                        "schema": pa.schema([pa.field("weight", pa.int64())]),
+                    },
+                    "CHASES": {
+                        "source": ("Dog",),
+                        "destination": ("Toy",),
+                        "schema": pa.schema([pa.field("weight", pa.large_string())]),
+                    },
+                },
+            }
+        )
+
+    message = str(exc_info.value)
+    assert "edges" in message
+    assert "weight" in message
+    assert "LIKES" in message
+    assert "CHASES" in message
+
+
+def test_graph_schema_rejects_conflicting_list_physical_column_types() -> None:
+    with pytest.raises(ValueError) as exc_info:
+        GraphSchema(
+            node_types=[
+                NodeType("Cat", {"tags": ListType(ScalarType("int64"))}),
+                NodeType("Dog", {"tags": ListType(ScalarType("string"))}),
+            ]
+        )
+
+    message = str(exc_info.value)
+    assert "nodes" in message
+    assert "tags" in message
+    assert "Cat" in message
+    assert "Dog" in message
+
+
+def test_graph_schema_rejects_conflicting_node_ref_physical_column_types() -> None:
+    with pytest.raises(ValueError) as exc_info:
+        GraphSchema(
+            node_types=[
+                NodeType("Cat", {"friend": NodeRef(frozenset({"Cat"}))}),
+                NodeType("Dog", {"friend": NodeRef(frozenset({"Dog"}))}),
+            ]
+        )
+
+    message = str(exc_info.value)
+    assert "nodes" in message
+    assert "friend" in message
+    assert "Cat" in message
+    assert "Dog" in message
+
+
+def test_graph_schema_allows_type_local_nullability_for_shared_node_column() -> None:
+    pa = pytest.importorskip("pyarrow")
+
+    cat = NodeType("Cat", pa.schema([pa.field("lives", pa.int64(), nullable=False)]))
+    dog = NodeType("Dog", pa.schema([pa.field("lives", pa.int64(), nullable=True)]))
+
+    schema = GraphSchema(node_types=[cat, dog])
+
+    assert schema.node_types[0].properties["lives"] == ScalarType("int64", nullable=False)
+    assert schema.node_types[1].properties["lives"] == ScalarType("int64", nullable=True)
+    assert schema.node_arrow().field("lives").nullable is True
+
+
+def test_graph_schema_absent_property_does_not_change_type_local_nullability() -> None:
+    pa = pytest.importorskip("pyarrow")
+
+    cat = NodeType("Cat", pa.schema([pa.field("lives", pa.int64(), nullable=False)]))
+    house = NodeType("House", pa.schema([pa.field("address", pa.large_string())]))
+
+    schema = GraphSchema(node_types=[cat, house])
+
+    assert schema.node_types[0].properties["lives"] == ScalarType("int64", nullable=False)
+    assert "lives" not in schema.node_types[1].properties
 
 
 def test_bind_schema_is_chainable_and_used_by_preflight() -> None:
