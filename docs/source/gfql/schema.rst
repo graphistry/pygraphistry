@@ -94,7 +94,12 @@ Schema Objects
   Groups node/edge contracts and adapts them to the internal
   ``GraphSchemaCatalog`` used by binder/preflight validation. ``strict=False``
   makes schema-bound ``g.gfql_validate(...)`` permissive by default; callers can
-  still override per call with ``g.gfql_validate(..., strict=True)``.
+  still override per call with ``g.gfql_validate(..., strict=True)``. A physical
+  node property column must have the same logical type for every node type that
+  declares it, and a physical edge property column must have the same logical
+  type for every edge type that declares it. Use separate column names when two
+  labels or relationship types need incompatible values under the same property
+  name.
 
 ``NodeType.to_arrow()`` and ``EdgeType.to_arrow()``
   Export declarations as ``pyarrow.Schema`` objects through GFQL's row-schema
@@ -110,7 +115,14 @@ Schema Objects
   Export/import a declaration payload containing per-node/per-edge Arrow
   schemas plus merged ``nodes`` and ``edges`` table schemas. The merged schemas
   are useful for dataframe boundary validation; the per-type entries preserve
-  type names and edge topology.
+  type names and edge topology. When the same column is declared with the same
+  Arrow type but different nullability, merged table schemas mark that column as
+  nullable while the per-type declarations keep their original nullability.
+
+Nullability is type-local. If ``Cat.lives`` is declared non-nullable and
+``House`` does not declare ``lives``, ``Cat.lives`` remains non-nullable in the
+``Cat`` declaration. Boundary validation against a full fused node table still
+accounts for which labels are active in each row.
 
 What Preflight Checks
 ---------------------
