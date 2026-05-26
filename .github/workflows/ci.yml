@@ -780,6 +780,7 @@ jobs:
       run: |
         source pygraphistry/bin/activate
         python -B -m pytest -q graphistry/tests/compute/gfql/cypher/test_lowering.py -k 'networkx'
+        python -B -m pytest -q graphistry/tests/plugins/test_networkx.py
 
   test-minimal-python:
     # Lite sentinel: oldest + newest Python only, heavy test files excluded. Gates all downstream.

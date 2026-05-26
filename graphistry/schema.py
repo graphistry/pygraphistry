@@ -6,6 +6,7 @@ inference, coercion, remote transport, and planner use are developed.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, FrozenSet, Iterable, Mapping, Optional, Tuple, Union, cast
 
@@ -18,6 +19,7 @@ from graphistry.compute.gfql.ir.types import EdgeRef, ListType, LogicalType, Nod
 NodeRefInput = Union["NodeType", str, Iterable[str]]
 PropertySchemaInput = Union[Mapping[str, Any], RowSchema, Any]
 GraphArrowDeclaration = Mapping[str, Any]
+_METADATA_LOGICAL_TYPE_KEY = b"gfql.logical_type"
 
 
 def _is_arrow_schema(value: Any) -> bool:
@@ -143,6 +145,63 @@ def _labels_from_node_ref(value: NodeRefInput) -> FrozenSet[str]:
     if isinstance(value, str):
         return frozenset((value,))
     return frozenset(str(label) for label in value if str(label))
+
+
+def _logical_type_concordance_key(logical_type: LogicalType) -> Tuple[Any, ...]:
+    if isinstance(logical_type, ScalarType):
+        return ("scalar", logical_type.kind.lower())
+    if isinstance(logical_type, ListType):
+        return ("list", _logical_type_concordance_key(logical_type.element_type))
+    if isinstance(logical_type, NodeRef):
+        return ("node", tuple(sorted(logical_type.labels)))
+    if isinstance(logical_type, EdgeRef):
+        return (
+            "edge",
+            logical_type.type,
+            logical_type.src_label,
+            logical_type.dst_label,
+        )
+    if isinstance(logical_type, PathType):
+        return ("path", logical_type.min_hops, logical_type.max_hops)
+    return ("unknown", repr(logical_type))
+
+
+def _validate_physical_column_concordance(
+    *,
+    kind: str,
+    declarations: Iterable[Tuple[str, Mapping[str, LogicalType]]],
+) -> None:
+    seen: Dict[str, Tuple[str, LogicalType, Tuple[Any, ...]]] = {}
+    for owner, properties in declarations:
+        for column, logical_type in properties.items():
+            key = _logical_type_concordance_key(logical_type)
+            existing = seen.get(column)
+            if existing is None:
+                seen[column] = (owner, logical_type, key)
+                continue
+
+            existing_owner, existing_type, existing_key = existing
+            if existing_key != key:
+                raise ValueError(
+                    f"Conflicting GraphSchema declaration for {kind} column {column!r}: "
+                    f"{existing_owner} has {existing_type!r}; {owner} has {logical_type!r}. "
+                    "Use one physical column type across all labels/types, or rename one "
+                    "property column."
+                )
+
+
+def _validate_graph_schema_concordance(
+    node_types: Iterable["NodeType"],
+    edge_types: Iterable["EdgeType"],
+) -> None:
+    _validate_physical_column_concordance(
+        kind="nodes",
+        declarations=((node_type.name, node_type.properties) for node_type in node_types),
+    )
+    _validate_physical_column_concordance(
+        kind="edges",
+        declarations=((edge_type.name, edge_type.properties) for edge_type in edge_types),
+    )
 
 
 @dataclass(frozen=True)
@@ -342,8 +401,11 @@ class GraphSchema:
         edge_source_column: Optional[str] = None,
         edge_destination_column: Optional[str] = None,
     ) -> None:
-        object.__setattr__(self, "node_types", tuple(node_types))
-        object.__setattr__(self, "edge_types", tuple(edge_types))
+        node_types_tuple = tuple(node_types)
+        edge_types_tuple = tuple(edge_types)
+        _validate_graph_schema_concordance(node_types_tuple, edge_types_tuple)
+        object.__setattr__(self, "node_types", node_types_tuple)
+        object.__setattr__(self, "edge_types", edge_types_tuple)
         object.__setattr__(self, "strict", bool(strict))
         object.__setattr__(self, "node_id_column", node_id_column)
         object.__setattr__(self, "edge_source_column", edge_source_column)
@@ -538,12 +600,79 @@ def _merge_arrow_schemas(schemas: Iterable[Any], *, kind: str) -> Any:
         for arrow_field in schema:
             existing = fields.get(arrow_field.name)
             if existing is not None and existing != arrow_field:
+                merged_metadata = _merge_field_metadata_for_nullability(existing, arrow_field)
+                if existing.type == arrow_field.type and merged_metadata is not None:
+                    fields[arrow_field.name] = pa.field(
+                        arrow_field.name,
+                        arrow_field.type,
+                        nullable=existing.nullable or arrow_field.nullable,
+                        metadata=merged_metadata,
+                    )
+                    continue
                 raise ValueError(
                     f"Conflicting Arrow declaration for {kind} column {arrow_field.name!r}: "
                     f"{existing!r} vs {arrow_field!r}"
                 )
             fields[arrow_field.name] = arrow_field
     return pa.schema(list(fields.values()), metadata=metadata)
+
+
+def _merge_field_metadata_for_nullability(existing: Any, incoming: Any) -> Optional[Mapping[bytes, bytes]]:
+    if existing.metadata == incoming.metadata:
+        return existing.metadata
+
+    existing_metadata = dict(existing.metadata or {})
+    incoming_metadata = dict(incoming.metadata or {})
+    existing_payload_raw = existing_metadata.get(_METADATA_LOGICAL_TYPE_KEY)
+    incoming_payload_raw = incoming_metadata.get(_METADATA_LOGICAL_TYPE_KEY)
+    if existing_payload_raw is None or incoming_payload_raw is None:
+        return None
+
+    existing_other = {
+        key: value
+        for key, value in existing_metadata.items()
+        if key != _METADATA_LOGICAL_TYPE_KEY
+    }
+    incoming_other = {
+        key: value
+        for key, value in incoming_metadata.items()
+        if key != _METADATA_LOGICAL_TYPE_KEY
+    }
+    if existing_other != incoming_other:
+        return None
+
+    try:
+        existing_payload = json.loads(existing_payload_raw.decode("utf-8"))
+        incoming_payload = json.loads(incoming_payload_raw.decode("utf-8"))
+    except (AttributeError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+
+    if not (
+        isinstance(existing_payload, dict)
+        and isinstance(incoming_payload, dict)
+        and existing_payload.get("family") == "scalar"
+        and incoming_payload.get("family") == "scalar"
+    ):
+        return None
+
+    existing_compare = dict(existing_payload)
+    incoming_compare = dict(incoming_payload)
+    existing_compare.pop("nullable", None)
+    incoming_compare.pop("nullable", None)
+    if existing_compare != incoming_compare:
+        return None
+
+    merged_payload = dict(incoming_payload)
+    merged_payload["nullable"] = bool(
+        existing_payload.get("nullable", True)
+        or incoming_payload.get("nullable", True)
+    )
+    merged_metadata = dict(incoming_metadata)
+    merged_metadata[_METADATA_LOGICAL_TYPE_KEY] = json.dumps(
+        merged_payload,
+        sort_keys=True,
+    ).encode("utf-8")
+    return merged_metadata
 
 
 def _edge_type_from_arrow_entry(
