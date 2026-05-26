@@ -239,8 +239,7 @@ class ComputeMixin(Plottable):
         if _safe_len(g._edges) == 0:
             if col in g_nodes._nodes.columns:
                 return g.nodes(g_nodes._nodes.copy(), node_id)
-            nodes_df = g_nodes._nodes.assign(**{col: 0})
-            nodes_df = nodes_df.assign(**{col: nodes_df[col].astype("int32")})
+            nodes_df = g_nodes._nodes.assign(**{col: 0}).astype({col: "int32"})
             return g.nodes(nodes_df, node_id)
 
         agg = _degree_agg(g._edges, key_col, col, node_id)
@@ -291,10 +290,8 @@ class ComputeMixin(Plottable):
         assert g._source is not None and g._destination is not None  # likewise
 
         if _safe_len(g._edges) == 0:
-            nodes_df = g_nodes._nodes
-            for c in (degree_in, degree_out, col):
-                nodes_df = nodes_df.assign(**{c: 0})
-                nodes_df = nodes_df.assign(**{c: nodes_df[c].astype("int32")})
+            cols = (degree_in, degree_out, col)
+            nodes_df = g_nodes._nodes.assign(**{c: 0 for c in cols}).astype({c: "int32" for c in cols})
             return g.nodes(nodes_df, node_id)
 
         in_df = _degree_agg(g._edges, g._destination, degree_in, node_id)
