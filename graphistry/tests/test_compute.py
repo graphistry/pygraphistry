@@ -149,10 +149,10 @@ class TestComputeMixin(NoAuthTestCase):
         )
         g2 = g.get_outdegrees()
         assert g2._nodes.to_dict(orient="records") == [
-            {"id": "b", "degree_out": 1},
             {"id": "a", "degree_out": 1},
-            {"id": "d", "degree_out": 0},
+            {"id": "b", "degree_out": 1},
             {"id": "c", "degree_out": 1},
+            {"id": "d", "degree_out": 0},
         ]
         assert g2._node == "id"
 
@@ -169,6 +169,59 @@ class TestComputeMixin(NoAuthTestCase):
             {"id": "d", "degree_in": 1, "degree_out": 0, "degree": 1},
         ]
         assert g2._node == "id"
+
+    def test_degrees_with_null_endpoint(self):
+        cg = CGFull()
+        g = cg.edges(
+            pd.DataFrame({
+                "s": ["a", "b", None, "c"],
+                "d": ["b", "a", "b",  None],
+            }),
+            "s", "d",
+        )
+        in_by_id = {r["id"]: r["degree_in"] for r in g.get_indegrees()._nodes.to_dict(orient="records") if pd.notna(r["id"])}
+        assert in_by_id == {"a": 1, "b": 2, "c": 0}
+
+        out_by_id = {r["id"]: r["degree_out"] for r in g.get_outdegrees()._nodes.to_dict(orient="records") if pd.notna(r["id"])}
+        assert out_by_id == {"a": 1, "b": 1, "c": 1}
+
+    def test_get_indegrees_empty_edges_fresh_col(self):
+        cg = CGFull()
+        g = (
+            cg.edges(pd.DataFrame({"s": [], "d": []}), "s", "d")
+              .nodes(pd.DataFrame({"id": ["a", "b"]}), "id")
+        )
+        g2 = g.get_indegrees()
+        assert g2._nodes.to_dict(orient="records") == [
+            {"id": "a", "degree_in": 0},
+            {"id": "b", "degree_in": 0},
+        ]
+        assert g2._nodes["degree_in"].dtype.name == "int32"
+
+    def test_get_indegrees_empty_edges_preserves_existing_col(self):
+        cg = CGFull()
+        g = (
+            cg.edges(pd.DataFrame({"s": [], "d": []}), "s", "d")
+              .nodes(pd.DataFrame({"id": ["a", "b"], "degree_in": [5, 7]}), "id")
+        )
+        g2 = g.get_indegrees()
+        assert g2._nodes.to_dict(orient="records") == [
+            {"id": "a", "degree_in": 5},
+            {"id": "b", "degree_in": 7},
+        ]
+
+    def test_get_outdegrees_empty_edges_fresh_col(self):
+        cg = CGFull()
+        g = (
+            cg.edges(pd.DataFrame({"s": [], "d": []}), "s", "d")
+              .nodes(pd.DataFrame({"id": ["a", "b"]}), "id")
+        )
+        g2 = g.get_outdegrees()
+        assert g2._nodes.to_dict(orient="records") == [
+            {"id": "a", "degree_out": 0},
+            {"id": "b", "degree_out": 0},
+        ]
+        assert g2._nodes["degree_out"].dtype.name == "int32"
 
     def test_get_topological_levels_mt(self):
         cg = CGFull()
