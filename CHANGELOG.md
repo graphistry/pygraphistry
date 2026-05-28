@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+## [0.56.1 - 2026-05-27]
+
 ### Added
 - **GFQL schema effects (#1485)**: Added an internal typed schema-effect model for graph-growing GFQL calls so bound experimental `GraphSchema` snapshots are updated after successful degree, PageRank-style node-property writes, and edge-property write calls. Later local validation can see properties added by those calls without exposing a public `SchemaEffect` API or changing remote GFQL transport.
 - **NetworkX Python compute API (#1619)**: Added `g.compute_networkx(...)` for the curated NetworkX algorithm subset already exposed through GFQL local Cypher, including node, edge, and `k_core` graph-returning outputs, plus updated NetworkX notebook/API docs.
