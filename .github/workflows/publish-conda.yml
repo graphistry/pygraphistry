@@ -1,0 +1,32 @@
+name: Publish Python 🐍 distributions 📦 to Conda
+
+on:
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+
+
+jobs:
+  build-n-publish:
+    name: Build and publish Python 🐍 distributions 📦 to Conda
+    runs-on: ubuntu-latest
+    steps:
+
+    - uses: actions/checkout@v3
+
+    - uses: conda-incubator/setup-miniconda@v2
+      with:
+        auto-update-conda: true
+
+    - name: Build Conda Packages
+      # Bash shells do not use ~/.profile or ~/.bashrc so these shells need to be explicitely declared as shell:
+      # bash -l {0} on steps that need to be properly activated
+      shell: bash -l {0}
+      env:
+        ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+      run: |
+        conda install conda-build anaconda-client conda-verify
+        conda config --set anaconda_upload yes
+        cd conda
+        conda build -c conda-forge -c pytorch -c dglteam -c districtdatalabs --token "$ANACONDA_TOKEN" .
