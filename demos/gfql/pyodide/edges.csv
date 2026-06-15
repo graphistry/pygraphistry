@@ -1,0 +1,4 @@
+src,dst,weight
+alice,bob,1
+bob,carol,2
+alice,carol,3

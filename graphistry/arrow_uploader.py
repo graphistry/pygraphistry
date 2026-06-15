@@ -1,6 +1,13 @@
+from __future__ import annotations
+
 from typing import List, Optional, Dict, Any
 
-import base64, io, json, pyarrow as pa, requests, sys
+import base64, io, json, requests, sys
+
+try:
+    import pyarrow as pa
+except ImportError:
+    pa = None
 
 from graphistry.privacy import Mode, Privacy, ModeAction
 from graphistry.otel import inject_trace_headers

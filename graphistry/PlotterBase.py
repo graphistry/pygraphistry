@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from graphistry.Plottable import Plottable, RenderModes, RenderModesConcrete
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast, overload, TYPE_CHECKING
 from typing_extensions import Literal
@@ -10,9 +12,14 @@ from graphistry.validate.validate_react_encodings import parse_apply_encodings_o
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
 from graphistry.Engine import Engine, EngineAbstractType, df_to_engine
-import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid, warnings
+import copy, hashlib, numpy as np, pandas as pd, sys, uuid, warnings
 from functools import lru_cache, partialmethod
 from weakref import WeakValueDictionary
+
+try:
+    import pyarrow as pa
+except ImportError:
+    pa = None
 
 from graphistry.privacy import Privacy, Mode, ModeAction
 from graphistry.client_session import (
@@ -3018,7 +3025,7 @@ class PlotterBase(Plottable):
             return g._make_arrow_dataset(edges=edges_arr, nodes=nodes_arr, name=name, description=description, metadata=metadata)
 
         if isinstance(graph, pd.DataFrame) \
-                or isinstance(graph, pa.Table) \
+                or (pa is not None and isinstance(graph, pa.Table)) \
                 or ( not (maybe_cudf() is None) and isinstance(graph, maybe_cudf().DataFrame) ) \
                 or ( not (maybe_dask_cudf() is None) and isinstance(graph, maybe_dask_cudf().DataFrame) ) \
                 or ( not (maybe_dask_dataframe() is None) and isinstance(graph, maybe_dask_dataframe().DataFrame) ) \
