@@ -3,6 +3,7 @@ import sys
 from unittest import mock
 
 import pandas as pd
+import requests
 
 # Import modules before graphistry shadows them with classes/symbols.
 # This ensures sys.modules has the modules, allowing proper mock patching.
@@ -97,6 +98,109 @@ def test_plot_ott_in_url(mock_post):
         url = g.plot(render="url", as_files=False, validate=False, warn=False, memoize=False)
 
     assert "token=test-ott-token" in url, f"OTT missing from viz URL: {url}"
+
+
+def _patch_inject(fn):
+    """Decorator: patch inject_trace_headers in both modules that use it."""
+    import functools
+    @functools.wraps(fn)
+    @mock.patch("requests.post")
+    def wrapper(mock_post, *args, **kwargs):
+        plotter_base_module = sys.modules["graphistry.PlotterBase"]
+        arrow_uploader_module = sys.modules["graphistry.arrow_uploader"]
+        with mock.patch.object(arrow_uploader_module, "inject_trace_headers", side_effect=_inject_trace), \
+             mock.patch.object(plotter_base_module, "inject_trace_headers", side_effect=_inject_trace):
+            return fn(mock_post, *args, **kwargs)
+    return wrapper
+
+
+@_patch_inject
+def test_plot_ott_http_error_degrades_gracefully(mock_post):
+    """503 from OTT endpoint → URL has no ?token= (degrades to cookie auth)."""
+    def _side_effect(url, **kw):
+        if "/api/v1/auth/jwt/ott/" in url:
+            resp = _mock_response({"error": "server error"}, status=503)
+            resp.raise_for_status = mock.Mock(
+                side_effect=requests.HTTPError("503 Server Error", response=resp))
+            return resp
+        return _post_response_for_plot(url)
+
+    mock_post.side_effect = _side_effect
+    g = _make_graph()
+    url = g.plot(render="url", as_files=False, validate=False, warn=False, memoize=False)
+    assert "token=" not in url, f"?token= must be absent on OTT failure: {url}"
+
+
+@_patch_inject
+def test_plot_ott_missing_key_degrades_gracefully(mock_post):
+    """Malformed OTT response (no 'ott' key) → URL has no ?token=."""
+    def _side_effect(url, **kw):
+        if "/api/v1/auth/jwt/ott/" in url:
+            return _mock_response({})  # missing 'ott' key
+        return _post_response_for_plot(url)
+
+    mock_post.side_effect = _side_effect
+    g = _make_graph()
+    url = g.plot(render="url", as_files=False, validate=False, warn=False, memoize=False)
+    assert "token=" not in url, f"?token= must be absent on malformed response: {url}"
+
+
+@_patch_inject
+def test_plot_ott_html_response_degrades_gracefully(mock_post):
+    """Non-JSON (HTML) response from OTT endpoint → URL has no ?token=.
+
+    Reproduces the JSONDecodeError seen in Colab when the server redirects to
+    a login page (HTTP 200 + text/html) because the endpoint isn't deployed yet.
+    """
+    def _side_effect(url, **kw):
+        if "/api/v1/auth/jwt/ott/" in url:
+            resp = mock.Mock()
+            resp.status_code = 200
+            resp.headers = {"content-type": "text/html; charset=utf-8"}
+            resp.text = "<html><body>Please log in</body></html>"
+            resp.raise_for_status = mock.Mock()  # 200, does not raise
+            return resp
+        return _post_response_for_plot(url)
+
+    mock_post.side_effect = _side_effect
+    g = _make_graph()
+    url = g.plot(render="url", as_files=False, validate=False, warn=False, memoize=False)
+    assert "token=" not in url, f"?token= must be absent when server returns HTML: {url}"
+
+
+@_patch_inject
+def test_plot_ott_connection_error_degrades_gracefully(mock_post):
+    """Network error on OTT exchange → URL has no ?token=."""
+    def _side_effect(url, **kw):
+        if "/api/v1/auth/jwt/ott/" in url:
+            raise requests.ConnectionError("connection refused")
+        return _post_response_for_plot(url)
+
+    mock_post.side_effect = _side_effect
+    g = _make_graph()
+    url = g.plot(render="url", as_files=False, validate=False, warn=False, memoize=False)
+    assert "token=" not in url, f"?token= must be absent on connection error: {url}"
+
+
+@_patch_inject
+def test_plot_ott_failure_warns_about_iframe(mock_post):
+    """Warning message on OTT failure must mention cross-origin iframe re-login."""
+    def _side_effect(url, **kw):
+        if "/api/v1/auth/jwt/ott/" in url:
+            resp = _mock_response({"error": "misconfigured"}, status=503)
+            resp.raise_for_status = mock.Mock(
+                side_effect=requests.HTTPError("503", response=resp))
+            return resp
+        return _post_response_for_plot(url)
+
+    mock_post.side_effect = _side_effect
+    g = _make_graph()
+    plotter_base_module = sys.modules["graphistry.PlotterBase"]
+    with mock.patch.object(plotter_base_module.logger, "warning") as mock_warn:
+        g.plot(render="url", as_files=False, validate=False, warn=False, memoize=False)
+    assert mock_warn.called, "Expected a warning on OTT failure"
+    warning_text = " ".join(str(a) for a in mock_warn.call_args[0])
+    assert "cross-origin" in warning_text, f"Warning must mention cross-origin: {warning_text}"
 
 
 @mock.patch("requests.post")

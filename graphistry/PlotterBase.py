@@ -2382,6 +2382,7 @@ class PlotterBase(Plottable):
 
         token = self.session.api_token
         if token:
+            resp = None
             try:
                 server_base = '%s://%s' % (self.session.protocol, self.session.hostname)
                 resp = requests.post(
@@ -2391,12 +2392,26 @@ class PlotterBase(Plottable):
                     timeout=30,
                 )
                 resp.raise_for_status()
+                content_type = resp.headers.get('content-type', '')
+                if 'application/json' not in content_type:
+                    raise ValueError(
+                        'OTT endpoint returned non-JSON (content-type: %s) — '
+                        'server may not have the OTT endpoint deployed yet. '
+                        'Body: %.200s' % (content_type, resp.text))
                 url_params['token'] = resp.json()['ott']
             except requests.HTTPError as e:
-                logger.warning("Failed to exchange JWT for OTT: %s (status=%s, body=%.200s)",
-                               e, resp.status_code, resp.text)
+                logger.warning(
+                    "OTT exchange failed — cross-origin iframe embedding will require "
+                    "re-login (SameSite cookies blocked). "
+                    "Ensure OTT_EXCHANGE_SECRET is set on the server. "
+                    "Error: %s (status=%s, body=%.200s)",
+                    e, resp.status_code, resp.text)
             except Exception as e:
-                logger.warning("Failed to exchange JWT for OTT: %s", e)
+                logger.warning(
+                    "OTT exchange failed — cross-origin iframe embedding will require "
+                    "re-login (SameSite cookies blocked). "
+                    "Error: %s (body=%.200s)",
+                    e, resp.text if resp is not None else '<no response>')
 
         viz_url = self._pygraphistry._viz_url(info, url_params)
         cfg_client_protocol_hostname = self.session.client_protocol_hostname
