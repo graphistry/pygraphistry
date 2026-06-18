@@ -2522,6 +2522,7 @@ class PlotterBase(Plottable):
                         'Body: %.200s' % (content_type, resp.text))
                 url_params['token'] = resp.json()['ott']
             except requests.HTTPError as e:
+                assert resp is not None
                 logger.warning(
                     "OTT exchange failed — cross-origin iframe embedding will require "
                     "re-login (SameSite cookies blocked). "
