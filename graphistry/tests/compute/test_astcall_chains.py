@@ -166,35 +166,7 @@ class TestASTCallChainHazards:
             ])
 
     # ========================================================================
-    # CATEGORY 3: Enrichment Operations (Non-filter ASTCalls)
-    # ========================================================================
-
-    # Note: These tests require enrichment operations to be implemented
-    # Keeping stubs for completeness
-
-    @pytest.mark.skip(reason="Enrichment operations not yet in safelist")
-    def test_single_enrichment(self, sample_graph):
-        """Single enrichment operation should work."""
-        # Example: add a computed column
-        enrich_op = ASTCall('assign_edges', {'columns': {'doubled_weight': 'weight * 2'}})
-        result = sample_graph.gfql([enrich_op])
-
-        assert 'doubled_weight' in result._edges.columns
-        assert all(result._edges['doubled_weight'] == result._edges['weight'] * 2)
-
-    @pytest.mark.skip(reason="Enrichment operations not yet in safelist")
-    def test_enrichment_then_filter(self, sample_graph):
-        """Enrich data, then filter using enriched column."""
-        enrich_op = ASTCall('assign_edges', {'columns': {'doubled_weight': 'weight * 2'}})
-        filter_op = ASTCall('filter_edges_by_dict', {'filter_dict': {'doubled_weight': {'gte': 10}}})
-        result = sample_graph.gfql([enrich_op, filter_op])
-
-        # Filter should see the enriched column
-        assert 'doubled_weight' in result._edges.columns
-        assert all(result._edges['doubled_weight'] >= 10)
-
-    # ========================================================================
-    # CATEGORY 4: Edge Cases
+    # CATEGORY 3: Edge Cases
     # ========================================================================
 
     def test_filter_to_empty_edges(self, sample_graph):
@@ -225,7 +197,7 @@ class TestASTCallChainHazards:
         assert result._nodes is not None
 
     # ========================================================================
-    # CATEGORY 5: Complex Predicate Filters
+    # CATEGORY 4: Complex Predicate Filters
     # ========================================================================
 
     def test_filter_with_numeric_predicates(self, sample_graph):

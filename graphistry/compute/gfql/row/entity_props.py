@@ -90,6 +90,10 @@ def _false_mask(df: DataFrameT, alias_col: str) -> SeriesT:
     return cast(SeriesT, (base == True) & False)  # noqa: E712
 
 
+def _mask_has_true(mask: SeriesT) -> bool:
+    return hasattr(mask, "any") and bool(mask.any())
+
+
 def _is_null_mask(series: SeriesT) -> SeriesT:
     return cast(SeriesT, series.isna())
 
@@ -392,6 +396,85 @@ def format_edge_entity_text(
     if nullify_missing_alias_rows:
         return _nullify_missing_alias_rows(df, alias_col, rendered)
     return rendered
+
+
+def format_node_entity_text(
+    df: DataFrameT,
+    *,
+    alias_col: str,
+    excluded: Sequence[str],
+    labels_are_list_like: bool,
+) -> SeriesT:
+    labels = _empty_text(df, alias_col)
+    if labels_are_list_like and "labels" in df.columns:
+        labels_raw = cast(SeriesT, df["labels"].astype(str))
+        labels_body = cast(SeriesT, labels_raw.str.replace("[", "", regex=False).str.replace("]", "", regex=False))
+        labels_body = cast(SeriesT, labels_body.str.replace("'", "", regex=False).str.replace(", ", ":", regex=False))
+        has_list_labels = cast(SeriesT, labels_raw != "[]")
+        labels = cast(SeriesT, labels + (_const_text(df, alias_col, ":") + labels_body).where(has_list_labels, ""))
+    else:
+        label_cols = [
+            col
+            for col in df.columns
+            if str(col).startswith("label__")
+            and str(col).split("label__", 1)[1] not in {"<NA>", "None", "nan"}
+        ]
+        for col in label_cols:
+            mask = cast(SeriesT, df[col] == True)  # noqa: E712
+            if not _mask_has_true(mask):
+                continue
+            labels = cast(SeriesT, labels + (_const_text(df, alias_col, ":" + str(col).split("label__", 1)[1])).where(mask, ""))
+    if "type" in df.columns:
+        type_series = cast(SeriesT, df["type"])
+        include = cast(SeriesT, ~_is_null_mask(type_series))
+        if _mask_has_true(include):
+            labels = cast(SeriesT, labels + (_const_text(df, alias_col, ":") + type_series.astype(str)).where(include, ""))
+
+    prop_text, has_props = append_property_segments(df, alias_col, node_property_columns(df, alias_col, excluded))
+    labels_present = cast(SeriesT, labels != "")
+    prop_block = cast(SeriesT, (_const_text(df, alias_col, " {") + prop_text + "}").where(has_props & labels_present, ""))
+    prop_only = cast(SeriesT, (_const_text(df, alias_col, "{") + prop_text + "}").where(has_props & ~labels_present, ""))
+    return cast(SeriesT, _const_text(df, alias_col, "(") + labels + prop_block + prop_only + ")")
+
+
+def format_node_labels_text(
+    df: DataFrameT,
+    *,
+    alias_col: str,
+    labels_are_list_like: bool,
+) -> SeriesT:
+    if labels_are_list_like and "labels" in df.columns:
+        labels_raw = cast(SeriesT, df["labels"].astype(str))
+        return _nullify_missing_alias_rows(df, alias_col, labels_raw)
+
+    labels_text = _empty_text(df, alias_col)
+    has_labels = _false_mask(df, alias_col)
+    label_cols = [
+        col
+        for col in df.columns
+        if str(col).startswith("label__")
+        and str(col).split("label__", 1)[1] not in {"<NA>", "None", "nan"}
+    ]
+    for col in label_cols:
+        label_name = str(col).split("label__", 1)[1]
+        include = cast(SeriesT, df[col] == True)  # noqa: E712
+        if not _mask_has_true(include):
+            continue
+        segment = cast(SeriesT, (_const_text(df, alias_col, f"'{label_name}'")).where(include, ""))
+        prefix = cast(SeriesT, (_const_text(df, alias_col, ", ")).where(has_labels & include, ""))
+        labels_text = cast(SeriesT, labels_text + prefix + segment)
+        has_labels = cast(SeriesT, has_labels | include)
+
+    if "type" in df.columns:
+        type_series = cast(SeriesT, df["type"])
+        include = cast(SeriesT, ~_is_null_mask(type_series))
+        if _mask_has_true(include):
+            segment = cast(SeriesT, (_const_text(df, alias_col, "'") + type_series.astype(str) + "'").where(include, ""))
+            prefix = cast(SeriesT, (_const_text(df, alias_col, ", ")).where(has_labels & include, ""))
+            labels_text = cast(SeriesT, labels_text + prefix + segment)
+            has_labels = cast(SeriesT, has_labels | include)
+
+    return cast(SeriesT, (_const_text(df, alias_col, "[") + labels_text + "]").where(has_labels, "[]"))
 
 
 def entity_property_columns(

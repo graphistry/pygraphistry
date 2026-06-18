@@ -43,7 +43,26 @@ if [[ "$WITH_TYPECHECK" != "0" ]]; then
 fi
 
 echo "=== Testing ==="
-if [[ "$WITH_TEST" != "0" ]]; then
+if [[ "${WITH_COVERAGE_AUDIT:-${WITH_GFQL_COVERAGE_AUDIT:-0}}" != "0" ]]; then
+    COVERAGE_BASELINE_ARGS=()
+    COVERAGE_PROFILE="${COVERAGE_PROFILE:-gfql}"
+    COVERAGE_ENGINE_LABEL="${COVERAGE_ENGINE_LABEL:-${GFQL_COVERAGE_ENGINE_LABEL:-rapids-cudf}}"
+    COVERAGE_OUTPUT_DIR="${COVERAGE_OUTPUT_DIR:-${GFQL_COVERAGE_OUTPUT_DIR:-/tmp/gfql-coverage-audit}}"
+    COVERAGE_BASELINE_FILE="${COVERAGE_BASELINE_FILE:-${GFQL_COVERAGE_BASELINE_FILE:-}}"
+    COVERAGE_BASELINE_TOLERANCE="${COVERAGE_BASELINE_TOLERANCE:-${GFQL_COVERAGE_BASELINE_TOLERANCE:-}}"
+    if [[ -n "${COVERAGE_BASELINE_FILE}" ]]; then
+        COVERAGE_BASELINE_ARGS+=(--baseline-file "${COVERAGE_BASELINE_FILE}")
+    fi
+    if [[ -n "${COVERAGE_BASELINE_TOLERANCE}" ]]; then
+        COVERAGE_BASELINE_ARGS+=(--baseline-tolerance "${COVERAGE_BASELINE_TOLERANCE}")
+    fi
+    python bin/coverage_audit.py \
+        --profile "${COVERAGE_PROFILE}" \
+        --engine-label "${COVERAGE_ENGINE_LABEL}" \
+        --output-dir "${COVERAGE_OUTPUT_DIR}" \
+        "${COVERAGE_BASELINE_ARGS[@]}" \
+        -- "$@"
+elif [[ "$WITH_TEST" != "0" ]]; then
     ./bin/test.sh $@
 fi
 

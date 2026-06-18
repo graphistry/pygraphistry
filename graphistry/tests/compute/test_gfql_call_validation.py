@@ -13,7 +13,7 @@ Tests cover diverse operation types:
 import pandas as pd
 import pytest
 from graphistry.compute.ast import call, ASTCall
-from graphistry.compute.gfql.call.validation import validate_call_params
+from graphistry.compute.gfql.call.validation import SAFELIST_V1, validate_call_params
 from graphistry.compute.exceptions import GFQLTypeError
 
 
@@ -231,6 +231,378 @@ class TestEncodePointColorValidation:
         assert 'Invalid type for parameter' in exc_info.value.message
         assert 'column' in exc_info.value.message
 
+    def test_encode_point_color_rejects_non_string_palette_entry(self):
+        """Test that palette entries are validated before execution."""
+        params = {
+            'column': 'type',
+            'palette': ['#FF0000', 123]
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_point_color', params)
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'palette' in 'encode_point_color': "
+            "palette[1] must be a string"
+        )
+
+    def test_encode_point_color_rejects_non_list_palette(self):
+        """Test that palette must use the direct encode list shape."""
+        params = {
+            'column': 'type',
+            'palette': '#FF0000'
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_point_color', params)
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'palette' in 'encode_point_color': "
+            "palette must be a list of strings"
+        )
+
+    def test_encode_point_color_rejects_non_string_mapping_value(self):
+        """Test that categorical mapping values are validated before execution."""
+        params = {
+            'column': 'type',
+            'categorical_mapping': {'admin': 1}
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_point_color', params)
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'categorical_mapping' in 'encode_point_color': "
+            "categorical_mapping['admin'] must be a string"
+        )
+
+    def test_encode_point_color_rejects_non_dict_mapping(self):
+        """Test that categorical mappings must be dictionaries."""
+        params = {
+            'column': 'type',
+            'categorical_mapping': [('admin', '#FF0000')]
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_point_color', params)
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'categorical_mapping' in 'encode_point_color': "
+            "categorical_mapping must be a dictionary"
+        )
+
+    def test_encode_point_color_rejects_non_string_mapping_key(self):
+        """Test that categorical mapping keys are string categories."""
+        params = {
+            'column': 'type',
+            'categorical_mapping': {1: '#FF0000'}
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_point_color', params)
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'categorical_mapping' in 'encode_point_color': "
+            "categorical_mapping keys must be strings"
+        )
+
+    def test_encode_point_color_rejects_non_string_default_mapping(self):
+        """Test that default color mappings are strings or None."""
+        params = {
+            'column': 'type',
+            'default_mapping': 1
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_point_color', params)
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'default_mapping' in 'encode_point_color': "
+            "default_mapping must be a string or None"
+        )
+
+
+class TestEncodeEdgeIconValidation:
+    """Test validation of encode_edge_icon() call parameters."""
+
+    def test_valid_encode_edge_icon_call(self):
+        """Test that valid encode_edge_icon call passes validation."""
+        params = {
+            'column': 'edge_kind',
+            'categorical_mapping': {'email': 'envelope'},
+            'default_mapping': 'question',
+            'as_text': False
+        }
+
+        validated = validate_call_params('encode_edge_icon', params)
+        assert validated == params
+
+    def test_encode_edge_icon_missing_required(self):
+        """Test that missing required column parameter is rejected."""
+        params = {
+            'categorical_mapping': {'email': 'envelope'}
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_edge_icon', params)
+
+        assert exc_info.value.message == "Missing required parameters for 'encode_edge_icon'"
+
+    def test_encode_edge_icon_rejects_non_string_mapping_value(self):
+        """Test that categorical mapping values are validated before execution."""
+        params = {
+            'column': 'edge_kind',
+            'categorical_mapping': {'email': 1}
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_edge_icon', params)
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'categorical_mapping' in 'encode_edge_icon': "
+            "categorical_mapping['email'] must be a string"
+        )
+
+
+class TestEncodeAxisValidation:
+    """Test validation of encode_axis() call parameters."""
+
+    def test_valid_encode_axis_call(self):
+        """Test that valid encode_axis call passes validation."""
+        params = {
+            'rows': [
+                {'r': 10, 'external': True, 'label': 'outer'},
+                {'y': 2, 'internal': True}
+            ]
+        }
+
+        validated = validate_call_params('encode_axis', params)
+        assert validated == params
+
+    def test_valid_encode_axis_radial_row(self):
+        """Test documented radial axis row validation."""
+        params = {
+            'rows': [{'r': 10, 'external': True, 'label': 'outer'}]
+        }
+
+        validated = validate_call_params('encode_axis', params)
+        assert validated == params
+
+    def test_valid_encode_axis_linear_row(self):
+        """Test documented linear axis row validation."""
+        params = {
+            'rows': [{'y': 40, 'width': 20, 'bounds': {'min': 40, 'max': 400}}]
+        }
+
+        validated = validate_call_params('encode_axis', params)
+        assert validated == params
+
+    def test_encode_axis_allows_extension_subtype_rows(self):
+        """Test extension subtypes remain payload-compatible."""
+        params = {
+            'rows': [{'kind': 'polar-v2', 'radius': 10, 'label': 7}]
+        }
+
+        validated = validate_call_params('encode_axis', params)
+        assert validated == params
+
+    def test_encode_axis_allows_default_rows(self):
+        """Test that encode_axis mirrors direct Plottable default rows behavior."""
+        params = {}
+
+        validated = validate_call_params('encode_axis', params)
+        assert validated == params
+
+    def test_encode_axis_rejects_non_dict_row(self):
+        """Test that rows entries are validated before execution."""
+        params = {
+            'rows': [{'r': 10}, 'bad']
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_axis', params)
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'rows' in 'encode_axis': rows[1] must be a dictionary"
+        )
+
+    def test_encode_axis_rejects_radial_wrong_key(self):
+        """Test row-indexed diagnostics for documented radial row keys."""
+        params = {
+            'rows': [{'r': 10, 'radius': 10}]
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_axis', params)
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'rows' in 'encode_axis': "
+            "rows[0] radial axis row has unexpected key 'radius'; expected keys: "
+            "axisKind, axis_subtype, bounds, external, internal, kind, label, r, space, width, x, y"
+        )
+
+    def test_encode_axis_rejects_missing_position_key(self):
+        """Test row-indexed diagnostics for axis rows missing required position keys."""
+        params = {
+            'rows': [{'label': 'missing position'}]
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_axis', params)
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'rows' in 'encode_axis': "
+            "rows[0] axis row is missing required key one of r, x, y; expected keys: "
+            "axisKind, axis_subtype, bounds, external, internal, kind, label, r, space, width, x, y"
+        )
+
+    def test_encode_axis_rejects_non_list_rows(self):
+        """Test that rows use the direct encode_axis list shape."""
+        params = {
+            'rows': {'r': 10}
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_axis', params)
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'rows' in 'encode_axis': rows must be a list of dictionaries"
+        )
+
+
+class TestEncodePointSizeValidation:
+    """Test validation of encode_point_size() call parameters."""
+
+    def test_valid_encode_point_size_mapping_call(self):
+        """Test that numeric size mappings and defaults pass validation."""
+        params = {
+            'column': 'kind',
+            'categorical_mapping': {'admin': 10},
+            'default_mapping': 1.5
+        }
+
+        validated = validate_call_params('encode_point_size', params)
+        assert validated == params
+
+    def test_encode_point_size_rejects_non_dict_mapping(self):
+        """Test that numeric categorical mappings must be dictionaries."""
+        params = {
+            'column': 'kind',
+            'categorical_mapping': [('admin', 10)]
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_point_size', params)
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'categorical_mapping' in 'encode_point_size': "
+            "categorical_mapping must be a dictionary"
+        )
+
+    def test_encode_point_size_rejects_non_string_mapping_key(self):
+        """Test that numeric categorical mapping keys are string categories."""
+        params = {
+            'column': 'kind',
+            'categorical_mapping': {1: 10}
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_point_size', params)
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'categorical_mapping' in 'encode_point_size': "
+            "categorical_mapping keys must be strings"
+        )
+
+    def test_encode_point_size_rejects_boolean_mapping_value(self):
+        """Test that bool is not accepted as a numeric size."""
+        params = {
+            'column': 'kind',
+            'categorical_mapping': {'admin': True}
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_point_size', params)
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'categorical_mapping' in 'encode_point_size': "
+            "categorical_mapping['admin'] must be a number"
+        )
+
+    def test_encode_point_size_rejects_boolean_default_mapping(self):
+        """Test that bool is not accepted as a default numeric size."""
+        params = {
+            'column': 'kind',
+            'default_mapping': True
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_point_size', params)
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'default_mapping' in 'encode_point_size': "
+            "default_mapping must be a number"
+        )
+
+
+class TestEncodeParityValidation:
+    """Test validation of encode parity call parameters."""
+
+    @pytest.mark.parametrize("function,mapping_value,default_value", [
+        ('encode_edge_size', 10, 1),
+        ('encode_edge_weight', 0.8, 0.1),
+        ('encode_point_opacity', 0.8, 0.1),
+        ('encode_edge_opacity', 0.8, 0.1),
+    ])
+    def test_valid_numeric_encode_parity_call(self, function, mapping_value, default_value):
+        params = {
+            'column': 'kind',
+            'categorical_mapping': {'admin': mapping_value},
+            'default_mapping': default_value,
+        }
+
+        validated = validate_call_params(function, params)
+        assert validated == params
+
+    @pytest.mark.parametrize("function", [
+        'encode_edge_size',
+        'encode_edge_weight',
+        'encode_point_opacity',
+        'encode_edge_opacity',
+    ])
+    def test_numeric_encode_parity_rejects_non_numeric_mapping_value(self, function):
+        params = {
+            'column': 'kind',
+            'categorical_mapping': {'admin': 'large'}
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params(function, params)
+
+        assert exc_info.value.message == (
+            f"Invalid value for parameter 'categorical_mapping' in '{function}': "
+            "categorical_mapping['admin'] must be a number"
+        )
+
+    @pytest.mark.parametrize("function", [
+        'encode_point_label',
+        'encode_edge_label',
+        'encode_point_title',
+        'encode_edge_title',
+    ])
+    def test_text_encode_parity_call_validation(self, function):
+        assert validate_call_params(function, {'column': 'kind'}) == {'column': 'kind'}
+        params = {
+            'column': 'kind',
+            'categorical_mapping': {'admin': 1}
+        }
+
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params(function, params)
+
+        assert exc_info.value.message == f"Unknown parameters for '{function}'"
+        assert "Allowed parameters: column" in str(exc_info.value)
+
 
 class TestComputeIgraphValidation:
     """Test validation of compute_igraph() call parameters."""
@@ -301,6 +673,15 @@ class TestMetadataValidation:
 
         validated = validate_call_params('description', params)
         assert validated == params
+
+    def test_description_rejects_non_string(self):
+        """Test helper-backed metadata validators keep per-field diagnostics."""
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('description', {'description': 123})
+
+        assert exc_info.value.message == (
+            "Invalid type for parameter 'description' in 'description'"
+        )
 
 
 class TestUnknownFunctionValidation:
@@ -386,6 +767,58 @@ class TestCallObjectCreation:
             call_obj.validate()
 
 
+class TestLayoutCallValidation:
+    """Validation for GFQL layout calls backed by Python layout methods."""
+
+    def test_circle_layout_params_valid(self):
+        params = validate_call_params('circle_layout', {
+            'bounding_box': [0, 0, 100, 100],
+            'partition_by': ['type', 'cluster'],
+            'sort_by': 'degree',
+            'ascending': [True, False],
+            'na_position': 'first',
+            'engine': 'pandas',
+        })
+        assert params['bounding_box'] == [0, 0, 100, 100]
+
+    def test_circle_layout_rejects_non_json_dataframe_boundary(self):
+        with pytest.raises(GFQLTypeError):
+            validate_call_params('circle_layout', {
+                'bounding_box': {'x': 0, 'y': 0, 'w': 100, 'h': 100},
+            })
+
+    def test_tree_layout_params_valid(self):
+        params = validate_call_params('tree_layout', {
+            'level_col': 'level',
+            'level_sort_values_by': ['type', 'rank'],
+            'level_sort_values_by_ascending': False,
+            'width': 100,
+            'height': 50,
+            'rotate': 90,
+            'allow_cycles': True,
+            'root': 'a',
+        })
+        assert params['root'] == 'a'
+
+    def test_mercator_layout_params_valid(self):
+        params = validate_call_params('mercator_layout', {
+            'scale_for_graphistry': False,
+        })
+        assert params['scale_for_graphistry'] is False
+
+    def test_modularity_weighted_layout_params_valid(self):
+        params = validate_call_params('modularity_weighted_layout', {
+            'community_col': 'community',
+            'community_alg': None,
+            'community_params': None,
+            'same_community_weight': 2.0,
+            'cross_community_weight': 0.3,
+            'edge_influence': 2.0,
+            'engine': 'pandas',
+        })
+        assert params['community_col'] == 'community'
+
+
 class TestRingAxisValidation:
     """Deep axis payload validation for ring layout calls."""
 
@@ -409,7 +842,11 @@ class TestRingAxisValidation:
                 'ring_col': 'segment',
                 'axis': [{'label': 'missing_pos'}],
             })
-        assert 'axis' in exc_info.value.message
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'axis' in 'ring_categorical_layout': "
+            "axis[0] is missing one of required position keys: r, x, y; expected keys: "
+            "bounds, external, internal, label, r, space, width, x, y"
+        )
 
     def test_ring_continuous_axis_accepts_string_labels(self):
         params = validate_call_params('ring_continuous_layout', {
@@ -431,7 +868,88 @@ class TestRingAxisValidation:
                 'ring_col': 'score',
                 'axis': [{'y': 40, 'bounds': {'min': '40', 'max': 100}}],
             })
-        assert 'axis' in exc_info.value.message
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'axis' in 'ring_continuous_layout': "
+            "axis[0].bounds['min'] must be a number"
+        )
+
+
+class TestSafelistHelperContracts:
+    """Regression coverage for helper-built safelist entries."""
+
+    def test_all_safelist_entries_have_complete_contract(self):
+        expected_keys = {
+            'allowed_params',
+            'required_params',
+            'param_validators',
+            'description',
+            'schema_effects',
+        }
+        expected_schema_keys = {
+            'adds_node_cols',
+            'adds_edge_cols',
+            'requires_node_cols',
+            'requires_edge_cols',
+        }
+
+        for function, config in SAFELIST_V1.items():
+            assert set(config) == expected_keys, function
+            assert isinstance(config['allowed_params'], set), function
+            assert isinstance(config['required_params'], set), function
+            assert config['required_params'] <= config['allowed_params'], function
+            assert set(config['param_validators']) <= config['allowed_params'], function
+            assert set(config['schema_effects']) == expected_schema_keys, function
+
+    @pytest.mark.parametrize(
+        "function,params",
+        [
+            (
+                'encode_edge_color',
+                {
+                    'column': 'edge_kind',
+                    'palette': ['#FF0000', '#00FF00'],
+                    'categorical_mapping': {'email': '#FF0000'},
+                    'default_mapping': '#999999',
+                },
+            ),
+            (
+                'encode_point_icon',
+                {
+                    'column': 'kind',
+                    'categorical_mapping': {'admin': 'user-shield'},
+                    'continuous_binning': [{'value': 1}],
+                    'default_mapping': 'circle',
+                    'as_text': False,
+                },
+            ),
+        ],
+    )
+    def test_helper_backed_visual_encoding_positive_paths(self, function, params):
+        assert validate_call_params(function, params) == params
+
+    def test_encode_edge_color_reuses_color_validator_diagnostics(self):
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_edge_color', {
+                'column': 'edge_kind',
+                'palette': ['#FF0000', 123],
+            })
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'palette' in 'encode_edge_color': "
+            "palette[1] must be a string"
+        )
+
+    def test_encode_point_icon_reuses_icon_validator_diagnostics(self):
+        with pytest.raises(GFQLTypeError) as exc_info:
+            validate_call_params('encode_point_icon', {
+                'column': 'kind',
+                'categorical_mapping': {'admin': 1},
+            })
+
+        assert exc_info.value.message == (
+            "Invalid value for parameter 'categorical_mapping' in 'encode_point_icon': "
+            "categorical_mapping['admin'] must be a string"
+        )
 
 
 if __name__ == '__main__':

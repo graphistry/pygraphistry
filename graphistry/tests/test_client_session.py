@@ -1,5 +1,6 @@
 import pytest
 import graphistry
+from graphistry.client_session import ClientSession
 from graphistry.pygraphistry import GraphistryClient, PyGraphistry
 
 import pandas as pd
@@ -9,9 +10,8 @@ from unittest import mock
 class TestClientSession:
     """
     Tests for Graphistry client()/register() interactions using the *current*
-    public surface.  The legacy attribute helpers (api_key(), …) are intentionally
-    **not** used;  we interrogate `graphistry.session` or `client.session`
-    directly.
+    public surface. Legacy api_key compatibility is tested only as an inert,
+    deprecated shim; isolation tests use token/session state.
     """
 
     # --------------------------------------------------------------------- #
@@ -48,7 +48,7 @@ class TestClientSession:
 
     def test_client_session_isolation(self):
         # Set up global session state directly
-        PyGraphistry.session.api_key = "global_key"
+        PyGraphistry.session.api_token = "global_token"
         global_session = PyGraphistry.session
 
         client = graphistry.client()
@@ -56,22 +56,22 @@ class TestClientSession:
         assert isinstance(client, GraphistryClient)
 
         # Set client session state directly  
-        client.session.api_key = "client_key"
+        client.session.api_token = "client_token"
 
-        assert global_session.api_key == "global_key"
-        assert client.session.api_key == "client_key"
+        assert global_session.api_token == "global_token"
+        assert client.session.api_token == "client_token"
         assert global_session is not client.session
 
     def test_global_session_persistence(self):
         # Test that global session persists across operations
         session1 = PyGraphistry.session
-        session1.api_key = "K1"
+        session1.api_token = "T1"
 
         session2 = PyGraphistry.session
-        session2.api_key = "K2"
+        session2.api_token = "T2"
 
         assert session1 is session2           # same object
-        assert session2.api_key == "K2"       # value updated
+        assert session2.api_token == "T2"     # value updated
 
     def test_client_inheritance(self):
         graphistry.register(
@@ -96,14 +96,14 @@ class TestClientSession:
         client1, client2, client3 = (graphistry.client() for _ in range(3))
 
         # Set session state directly to test isolation
-        client1.session.api_key = "key1"
-        client2.session.api_key = "key2"
-        client3.session.api_key = "key3"
+        client1.session.api_token = "tok1"
+        client2.session.api_token = "tok2"
+        client3.session.api_token = "tok3"
 
-        assert client1.session.api_key == "key1"
-        assert client2.session.api_key == "key2"
-        assert client3.session.api_key == "key3"
-        assert PyGraphistry.session.api_key not in {"key1", "key2", "key3"}
+        assert client1.session.api_token == "tok1"
+        assert client2.session.api_token == "tok2"
+        assert client3.session.api_token == "tok3"
+        assert PyGraphistry.session.api_token not in {"tok1", "tok2", "tok3"}
 
     # --------------------------------------------------------------------- #
     # Plotter propagation                                                   #
@@ -112,12 +112,12 @@ class TestClientSession:
     def test_client_bind_operations(self):
         client = graphistry.client()
         # Set session state directly to test plotter propagation
-        client.session.api_key = "client_key"
+        client.session.api_token = "client_token"
 
         g = client.bind(source="src", destination="dst")
         assert g._source == "src"
         assert g._destination == "dst"
-        assert g._pygraphistry.session.api_key == "client_key"
+        assert g._pygraphistry.session.api_token == "client_token"
 
     @mock.patch('graphistry.pygraphistry.ArrowUploader._switch_org')
     @mock.patch('requests.post')
@@ -221,22 +221,86 @@ class TestClientSession:
         except Exception:
             pass  # This is expected but we don't want to depend on specific behavior
 
+    def test_register_legacy_api_fails_locally_with_upgrade_message(self):
+        client = graphistry.client()
+
+        with pytest.raises(ValueError) as exc:
+            client.register(api=1)
+
+        message = str(exc.value)
+        assert "Legacy API versions 1 and 2 are no longer supported" in message
+        assert "/api/check" in message
+        assert "/etl" in message
+        assert "HTTP 410" in message
+
+    def test_register_legacy_key_warns_and_ignores(self):
+        client = graphistry.client()
+
+        with pytest.warns(DeprecationWarning, match=r"api_key\(\) is deprecated"):
+            client.register(key="old-api-key")
+
+        assert client.session.api_key is None
+
+    def test_api_key_surface_warns_and_returns_none(self):
+        client = graphistry.client()
+        client.session.api_key = "manually-mutated-legacy-key"
+
+        with pytest.warns(DeprecationWarning, match=r"api_key\(\) is deprecated"):
+            assert client.api_key() is None
+        assert client.session.api_key is None
+
+        with pytest.warns(DeprecationWarning, match=r"api_key\(\) is deprecated"):
+            assert client.api_key("old-api-key") is None
+        assert client.session.api_key is None
+
+    def test_env_legacy_api_fails_locally_with_upgrade_message(self, monkeypatch):
+        monkeypatch.setenv("GRAPHISTRY_API_VERSION", "1")
+
+        with pytest.raises(ValueError) as exc:
+            ClientSession()
+
+        assert "Legacy API versions 1 and 2 are no longer supported" in str(exc.value)
+
+    def test_stale_env_legacy_key_is_ignored(self, monkeypatch):
+        monkeypatch.setenv("GRAPHISTRY_API_KEY", "old-api-key")
+
+        client = GraphistryClient()
+
+        assert client.session.api_key is None
+        with pytest.warns(DeprecationWarning, match=r"api_key\(\) is deprecated"):
+            assert client.api_key() is None
+
+    def test_plot_legacy_api_fails_before_refresh_or_upload(self):
+        client = graphistry.client()
+        client.session.api_version = 1  # type: ignore[assignment]
+        g = client.bind(source="src", destination="dst").edges(
+            pd.DataFrame({"src": [1], "dst": [2]})
+        )
+
+        with mock.patch.object(client, "refresh") as mock_refresh:
+            with mock.patch.object(g, "_plot_dispatch_arrow") as mock_dispatch:
+                with pytest.raises(ValueError, match="Legacy API versions 1 and 2"):
+                    g.plot(render="url")
+
+        mock_refresh.assert_not_called()
+        mock_dispatch.assert_not_called()
+
     # --------------------------------------------------------------------- #
     # Isolation from subsequent global changes                              #
     # --------------------------------------------------------------------- #
 
     def test_client_state_isolation_from_global_changes(self):
         # Set up global state directly
-        PyGraphistry.session.api_key = "global1"
+        PyGraphistry.session.api_token = "global1"
 
         client = graphistry.client(inherit=True)
-        assert client.session.api_key == "global1"
+        assert client.session.api_token == "global1"
 
         # mutate global state directly
-        PyGraphistry.session.api_key = "global2"
+        PyGraphistry.session.api_token = "global2"
 
-        assert PyGraphistry.session.api_key == "global2"
-        assert client.session.api_key == "global1"
+        assert PyGraphistry.session.api_token == "global2"
+        assert client.session.api_token == "global1"
 
     # ------------------------------------------------------------------ #
     # Token-based registration                                          #

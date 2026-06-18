@@ -311,6 +311,40 @@ def test_binder_unresolved_name_failure_after_with_scope_reset() -> None:
         FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
 
 
+@pytest.mark.parametrize("stale_alias", ["c", "d"])
+@pytest.mark.parametrize("direction", ["", " ASC", " ASCENDING", " DESC", " DESCENDING"])
+def test_binder_with_order_by_rejects_alias_not_visible_after_with(stale_alias: str, direction: str) -> None:
+    query = f"MATCH (a)-->(b)-->(c) WITH a, b WITH a ORDER BY {stale_alias}{direction} RETURN a"
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert exc_info.value.code == ErrorCode.E204
+    assert exc_info.value.context["field"] == "identifier"
+    assert exc_info.value.context["value"] == stale_alias
+    assert exc_info.value.context["visible_scope"] == ["a", "b"]
+
+
+def test_binder_with_order_by_accepts_current_or_projected_aliases() -> None:
+    query = "MATCH (a)-->(b) WITH a, b WITH a.id AS aid ORDER BY b.id, aid RETURN aid"
+    bound = FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert [part.clause for part in bound.query_parts] == ["MATCH", "WITH", "WITH", "RETURN"]
+    assert set(bound.semantic_table.variables) == {"aid"}
+
+
+def test_binder_return_order_by_rejects_alias_not_visible_after_with() -> None:
+    query = "MATCH (a)-->(b)-->(c) WITH a, b WITH a RETURN a ORDER BY c"
+
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(parse_cypher(query), PlanContext(), strict_name_resolution=True)
+
+    assert exc_info.value.code == ErrorCode.E204
+    assert exc_info.value.context["field"] == "identifier"
+    assert exc_info.value.context["value"] == "c"
+    assert exc_info.value.context["visible_scope"] == ["a"]
+
+
 def test_binder_ic4_return_case_across_with_distinct_scope() -> None:
     query = (
         "MATCH (person:Person {id: $pid})-[:KNOWS]-(friend:Person), "
@@ -713,6 +747,25 @@ def test_binder_strict_schema_rejects_missing_property_in_return_with_context() 
     assert err.context["suggestion"] == "Use properties that exist in node schema columns or extend the schema catalog."
 
 
+def test_binder_strict_schema_rejects_missing_property_in_with_where_with_context() -> None:
+    ctx = _strict_catalog_ctx(
+        node_columns=["id", "name", "label__Person"],
+        edge_columns=["src", "dst"],
+    )
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(
+            parse_cypher("MATCH (n:Person) WITH n AS m WHERE m.age > 1 RETURN m"),
+            ctx,
+            strict_name_resolution=True,
+        )
+    err = exc_info.value
+    assert err.code == ErrorCode.E301
+    assert err.context["alias"] == "m"
+    assert err.context["stage"] == "WITH WHERE"
+    assert err.context["field"] == "WITH WHERE.expression"
+    assert err.context["value"] == "m.age"
+
+
 def test_binder_strict_schema_accepts_admitted_label_and_property_shapes() -> None:
     ctx = _strict_catalog_ctx(
         node_columns=["id", "name", "label__Person"],
@@ -726,20 +779,19 @@ def test_binder_strict_schema_accepts_admitted_label_and_property_shapes() -> No
     assert "nid" in bound.semantic_table.variables
 
 
-def test_binder_retired_loose_mode_rejects_missing_schema_fields() -> None:
+def test_binder_schema_metadata_can_disable_schema_field_checks() -> None:
     ctx = _strict_catalog_ctx(
         node_columns=["id"],
         edge_columns=["src", "dst"],
         strict=False,
     )
-    with pytest.raises(GFQLValidationError) as exc_info:
-        FrontendBinder().bind(
-            parse_cypher("MATCH (n:Person) RETURN n.unknown AS u"),
-            ctx,
-            strict_name_resolution=False,
-        )
-    assert exc_info.value.code == ErrorCode.E301
-    assert exc_info.value.context["field"] == "MATCH.patterns[0].elements[0].labels"
+    bound = FrontendBinder().bind(
+        parse_cypher("MATCH (n:Person) RETURN n.unknown AS u"),
+        ctx,
+        strict_name_resolution=False,
+    )
+
+    assert "u" in bound.semantic_table.variables
 
 
 def test_binder_schema_enforced_even_when_legacy_strict_name_flag_false() -> None:

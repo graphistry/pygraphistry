@@ -7,7 +7,7 @@ semantic contracts and staged migration work.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, FrozenSet, Iterable, List, Literal, Mapping, Match, Optional, Sequence, Set, Tuple, Union, cast
 
 from graphistry.compute.gfql.cypher.ast import (
@@ -20,6 +20,7 @@ from graphistry.compute.gfql.cypher.ast import (
     LabelRef,
     MatchClause,
     NodePattern,
+    OrderByClause,
     ParameterRef,
     PathPatternKind,
     PatternElement,
@@ -36,7 +37,6 @@ from graphistry.compute.gfql.cypher.ast import (
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, BoundVariable, ScopeFrame, SemanticTable
 from graphistry.compute.gfql.ir.compilation import GraphSchemaCatalog, PlanContext
-from graphistry.compute.gfql.ir.metadata import bound_variable_is_nullable
 from graphistry.compute.gfql.ir.logical_plan import RowSchema
 from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, ListType, LogicalType, NodeRef, PathType, ScalarType
 
@@ -131,9 +131,6 @@ class FrontendBinder:
         type or nullability cannot be derived exactly, binder keeps "unknown"
         scalar types and nullable=True.
         """
-        # #1420: keep the legacy keyword source-compatible, but strict binder
-        # semantics are now canonical.
-        _ = strict_name_resolution
         if isinstance(ast, CypherUnionQuery):
             return self._bind_union_query(ast=ast, ctx=ctx)
         if isinstance(ast, CypherGraphQuery):
@@ -153,7 +150,7 @@ class FrontendBinder:
 
         if not any(part.clause == "RETURN" for part in state.query_parts):
             # Query shape can still carry a final RETURN clause outside row_sequence.
-            self._bind_return_clause(state=state, clause=ast.return_)
+            self._bind_return_clause(state=state, clause=ast.return_, order_by=ast.order_by)
 
         return _finalize_bound_ir(state=state, ctx=ctx)
 
@@ -173,7 +170,7 @@ class FrontendBinder:
                 union_scope[name] = BoundVariable(
                     name=name,
                     logical_type=_merge_logical_types(existing.logical_type, branch_var.logical_type),
-                    nullable=bound_variable_is_nullable(existing) or bound_variable_is_nullable(branch_var),
+                    nullable=existing.nullable or branch_var.nullable,
                     null_extended_from=existing.null_extended_from | branch_var.null_extended_from,
                     entity_kind=_merge_entity_kind(existing.entity_kind, branch_var.entity_kind),
                     scope_id=max(existing.scope_id, branch_var.scope_id),
@@ -371,16 +368,18 @@ class FrontendBinder:
                         )
                     continue
 
+                src_labels = _node_labels_at(pattern=pattern, idx=element_idx - 1)
+                dst_labels = _node_labels_at(pattern=pattern, idx=element_idx + 1)
                 self._validate_relationship_pattern_schema(
                     state=state,
                     alias=element.variable,
                     relationship_pattern=element,
                     stage=clause_kind,
                     location=f"{clause_kind}.patterns[{pattern_idx}].elements[{element_idx}]",
+                    source_labels=src_labels,
+                    destination_labels=dst_labels,
                 )
                 if element.variable is not None:
-                    src_labels = _node_labels_at(pattern=pattern, idx=element_idx - 1)
-                    dst_labels = _node_labels_at(pattern=pattern, idx=element_idx + 1)
                     changed_aliases.add(
                         self._bind_relationship_pattern(
                             state=state,
@@ -430,41 +429,16 @@ class FrontendBinder:
         _append_scope_frame(state=state, origin_clause=clause_kind)
 
     def _bind_projection_stage(self, state: _BindState, stage: ProjectionStage, origin: str) -> None:
-        inputs = frozenset(state.scope.keys())
-        clause_scope_id = _next_scope_id(state)
-        next_scope, next_confidence = self._project_items(
+        self._bind_projection_clause(
             state=state,
             items=stage.clause.items,
-            clause_scope_id=clause_scope_id,
-            stage=origin,
+            distinct=stage.clause.distinct,
+            origin=origin,
+            where=stage.where,
+            where_stage=f"{origin} WHERE",
+            order_by=stage.order_by,
+            order_by_stage=f"{origin} ORDER BY",
         )
-
-        predicates: List[BoundPredicate] = []
-        if stage.where is not None:
-            where_state = self._projection_where_state(
-                state=state,
-                next_scope=next_scope,
-                next_confidence=next_confidence,
-            )
-            self._validate_expression_property_refs(state=where_state, expression=stage.where, stage=f"{origin} WHERE")
-            predicates.append(BoundPredicate(expression=stage.where.text))
-            _collect_parameter_names(stage.where, out=state.parameter_names)
-
-        state.scope = next_scope
-        state.scope_confidence = next_confidence
-        state.query_parts.append(
-            BoundQueryPart(
-                clause=origin,
-                inputs=inputs,
-                outputs=frozenset(next_scope.keys()),
-                predicates=predicates,
-                metadata={
-                    "distinct": stage.clause.distinct,
-                    "schema_confidence": dict(sorted(next_confidence.items())),
-                },
-            )
-        )
-        _append_scope_frame(state=state, origin_clause=origin)
 
     def _bind_unwind_clause(self, state: _BindState, clause: UnwindClause) -> None:
         inputs = frozenset(state.scope.keys())
@@ -479,12 +453,9 @@ class FrontendBinder:
 
         next_scope = dict(state.scope)
         next_conf = dict(state.scope_confidence)
-        next_scope[clause.alias] = BoundVariable(
+        next_scope[clause.alias] = _bound_variable_from_binding(
             name=clause.alias,
-            logical_type=binding.logical_type,
-            nullable=binding.nullable,
-            null_extended_from=binding.null_extended_from,
-            entity_kind=binding.entity_kind,
+            binding=binding,
             scope_id=clause_scope_id,
         )
         next_conf[clause.alias] = binding.schema_confidence
@@ -505,42 +476,78 @@ class FrontendBinder:
         )
         _append_scope_frame(state=state, origin_clause="UNWIND")
 
-    def _bind_return_clause(self, state: _BindState, clause: ReturnClause, stage: Optional[ProjectionStage] = None) -> None:
+    def _bind_return_clause(
+        self,
+        state: _BindState,
+        clause: ReturnClause,
+        stage: Optional[ProjectionStage] = None,
+        order_by: Optional[OrderByClause] = None,
+    ) -> None:
+        self._bind_projection_clause(
+            state=state,
+            items=clause.items,
+            distinct=clause.distinct,
+            origin="RETURN",
+            where=stage.where if stage is not None else None,
+            where_stage="RETURN WHERE",
+            order_by=stage.order_by if stage is not None else order_by,
+            order_by_stage="RETURN ORDER BY",
+        )
+
+    def _bind_projection_clause(
+        self,
+        *,
+        state: _BindState,
+        items: Sequence[ReturnItem],
+        distinct: bool,
+        origin: str,
+        where: Optional[ExpressionText],
+        where_stage: str,
+        order_by: Optional[OrderByClause],
+        order_by_stage: str,
+    ) -> None:
         inputs = frozenset(state.scope.keys())
         clause_scope_id = _next_scope_id(state)
         next_scope, next_confidence = self._project_items(
             state=state,
-            items=clause.items,
+            items=items,
             clause_scope_id=clause_scope_id,
-            stage="RETURN",
+            stage=origin,
         )
 
         predicates: List[BoundPredicate] = []
-        if stage is not None and stage.where is not None:
-            where_state = self._projection_where_state(
+        subclause_state: Optional[_BindState] = None
+        if where is not None or order_by is not None:
+            subclause_state = self._projection_subclause_state(
                 state=state,
                 next_scope=next_scope,
                 next_confidence=next_confidence,
             )
-            self._validate_expression_property_refs(state=where_state, expression=stage.where, stage="RETURN WHERE")
-            predicates.append(BoundPredicate(expression=stage.where.text))
-            _collect_parameter_names(stage.where, out=state.parameter_names)
+        if where is not None:
+            assert subclause_state is not None
+            self._validate_expression_property_refs(state=subclause_state, expression=where, stage=where_stage)
+            predicates.append(BoundPredicate(expression=where.text))
+            _collect_parameter_names(where, out=state.parameter_names)
+
+        if order_by is not None:
+            assert subclause_state is not None
+            self._validate_order_by_clause(state=subclause_state, clause=order_by, stage=order_by_stage)
 
         state.scope = next_scope
         state.scope_confidence = next_confidence
         state.query_parts.append(
             BoundQueryPart(
-                clause="RETURN",
+                clause=origin,
                 inputs=inputs,
                 outputs=frozenset(next_scope.keys()),
                 predicates=predicates,
                 metadata={
-                    "distinct": clause.distinct,
+                    "distinct": distinct,
                     "schema_confidence": dict(sorted(next_confidence.items())),
                 },
             )
         )
-        _append_scope_frame(state=state, origin_clause="RETURN")
+        _append_scope_frame(state=state, origin_clause=origin)
 
     def _project_items(
         self,
@@ -565,34 +572,35 @@ class FrontendBinder:
                 confidence=state.scope_confidence,
             )
             _collect_parameter_names(item.expression, out=state.parameter_names)
-            next_scope[out_name] = BoundVariable(
-                name=out_name,
-                logical_type=binding.logical_type,
-                nullable=binding.nullable,
-                null_extended_from=binding.null_extended_from,
-                entity_kind=binding.entity_kind,
-                scope_id=clause_scope_id,
-            )
+            next_scope[out_name] = _bound_variable_from_binding(name=out_name, binding=binding, scope_id=clause_scope_id)
             next_confidence[out_name] = binding.schema_confidence
         return next_scope, next_confidence
 
-
-    def _projection_where_state(
+    def _projection_subclause_state(
         self,
         *,
         state: _BindState,
         next_scope: Dict[str, BoundVariable],
         next_confidence: Dict[str, SchemaConfidence],
     ) -> _BindState:
-        where_scope = dict(state.scope)
-        where_scope.update(next_scope)
-        where_confidence = dict(state.scope_confidence)
-        where_confidence.update(next_confidence)
+        subclause_scope = dict(state.scope)
+        subclause_scope.update(next_scope)
+        subclause_confidence = dict(state.scope_confidence)
+        subclause_confidence.update(next_confidence)
         return _BindState(
-            scope=where_scope,
-            scope_confidence=where_confidence,
+            scope=subclause_scope,
+            scope_confidence=subclause_confidence,
             catalog=state.catalog,
         )
+
+    def _validate_order_by_clause(self, *, state: _BindState, clause: OrderByClause, stage: str) -> None:
+        for item in clause.items:
+            self._validate_expression_property_refs(state=state, expression=item.expression, stage=stage)
+            _infer_expression_binding(
+                expression=item.expression,
+                scope=state.scope,
+                confidence=state.scope_confidence,
+            )
 
     def _append_where_part(self, state: _BindState, clause_name: str, where: WhereClause) -> None:
         self._validate_where_clause_schema(state=state, where=where, stage=clause_name)
@@ -614,30 +622,13 @@ class FrontendBinder:
         next_scope = dict(state.scope)
         next_conf = dict(state.scope_confidence)
 
-        if clause.yield_items:
-            for item in clause.yield_items:
-                output_name = item.alias or item.name
-                next_scope[output_name] = BoundVariable(
-                    name=output_name,
-                    logical_type=ScalarType(kind="unknown", nullable=True),
-                    nullable=True,
-                    null_extended_from=frozenset(),
-                    entity_kind="scalar",
-                    scope_id=clause_scope_id,
-                )
-                next_conf[output_name] = "inferred"
-        else:
+        output_names = [item.alias or item.name for item in clause.yield_items]
+        if not output_names:
             default_output = _default_call_output_alias(clause.procedure)
-            if default_output is not None:
-                next_scope[default_output] = BoundVariable(
-                    name=default_output,
-                    logical_type=ScalarType(kind="unknown", nullable=True),
-                    nullable=True,
-                    null_extended_from=frozenset(),
-                    entity_kind="scalar",
-                    scope_id=clause_scope_id,
-                )
-                next_conf[default_output] = "inferred"
+            output_names = [default_output] if default_output is not None else []
+        for output_name in output_names:
+            next_scope[output_name] = _unknown_scalar_variable(name=output_name, scope_id=clause_scope_id)
+            next_conf[output_name] = "inferred"
         for arg in clause.args:
             self._validate_expression_property_refs(state=state, expression=arg, stage="CALL")
 
@@ -671,6 +662,7 @@ class FrontendBinder:
         node_columns = state.catalog.node_columns
         if not node_columns:
             return
+        columns = _catalog_node_columns_for_labels(state.catalog, frozenset(node_pattern.labels)) or node_columns
         alias_label = alias or "<anonymous-node>"
         for label in node_pattern.labels:
             label_col = f"label__{label}"
@@ -683,14 +675,14 @@ class FrontendBinder:
                     available_labels=_catalog_node_labels(state.catalog),
                 )
         for entry in node_pattern.properties:
-            if entry.key not in node_columns:
+            if entry.key not in columns:
                 raise _missing_property_in_schema_error(
                     alias=alias_label,
                     property_name=entry.key,
                     stage=stage,
                     field=f"{location}.properties",
                     entity_kind="node",
-                    available_columns=tuple(sorted(node_columns)),
+                    available_columns=tuple(sorted(columns)),
                 )
 
     def _validate_relationship_pattern_schema(
@@ -701,6 +693,8 @@ class FrontendBinder:
         relationship_pattern: RelationshipPattern,
         stage: str,
         location: str,
+        source_labels: FrozenSet[str] = frozenset(),
+        destination_labels: FrozenSet[str] = frozenset(),
     ) -> None:
         if not _strict_schema_mode(state):
             return
@@ -708,16 +702,77 @@ class FrontendBinder:
         if not edge_columns:
             return
         alias_label = alias or "<anonymous-edge>"
+        scoped_columns = _catalog_edge_columns_for_types(state.catalog, relationship_pattern.types)
+        columns = scoped_columns if scoped_columns is not None else edge_columns
+        available_types = _catalog_edge_types(state.catalog)
+        if available_types:
+            for rel_type in relationship_pattern.types:
+                if rel_type not in available_types:
+                    raise _missing_relationship_type_in_schema_error(
+                        alias=alias_label,
+                        relationship_type=rel_type,
+                        stage=stage,
+                        field=f"{location}.types",
+                        available_relationship_types=available_types,
+                    )
+        self._validate_relationship_topology_schema(
+            state=state,
+            alias=alias_label,
+            relationship_pattern=relationship_pattern,
+            stage=stage,
+            field=f"{location}.topology",
+            source_labels=source_labels,
+            destination_labels=destination_labels,
+        )
         for entry in relationship_pattern.properties:
-            if entry.key not in edge_columns:
+            if entry.key not in columns:
                 raise _missing_property_in_schema_error(
                     alias=alias_label,
                     property_name=entry.key,
                     stage=stage,
                     field=f"{location}.properties",
                     entity_kind="edge",
-                    available_columns=tuple(sorted(edge_columns)),
+                    available_columns=tuple(sorted(columns)),
                 )
+
+    def _validate_relationship_topology_schema(
+        self,
+        *,
+        state: _BindState,
+        alias: str,
+        relationship_pattern: RelationshipPattern,
+        stage: str,
+        field: str,
+        source_labels: FrozenSet[str],
+        destination_labels: FrozenSet[str],
+    ) -> None:
+        if not relationship_pattern.types:
+            return
+        topologies = _catalog_edge_topologies(state.catalog)
+        if not topologies:
+            return
+        if not source_labels and not destination_labels:
+            return
+        for rel_type in relationship_pattern.types:
+            candidates = tuple(t for t in topologies if t["relationship_type"] == rel_type)
+            if not candidates:
+                continue
+            if _relationship_topology_matches(
+                candidates=candidates,
+                direction=relationship_pattern.direction,
+                source_labels=source_labels,
+                destination_labels=destination_labels,
+            ):
+                return
+        raise _relationship_topology_error(
+            alias=alias,
+            relationship_types=relationship_pattern.types,
+            stage=stage,
+            field=field,
+            source_labels=tuple(sorted(source_labels)),
+            destination_labels=tuple(sorted(destination_labels)),
+            available_topologies=topologies,
+        )
 
     def _validate_where_clause_schema(self, *, state: _BindState, where: WhereClause, stage: str) -> None:
         if not _strict_schema_mode(state):
@@ -741,12 +796,16 @@ class FrontendBinder:
                             location=f"{stage}.where.pattern[{idx}].elements[{pattern_idx}]",
                         )
                     else:
+                        source_labels = _node_labels_at(pattern=term.pattern, idx=pattern_idx - 1)
+                        destination_labels = _node_labels_at(pattern=term.pattern, idx=pattern_idx + 1)
                         self._validate_relationship_pattern_schema(
                             state=state,
                             alias=pattern_element.variable,
                             relationship_pattern=pattern_element,
                             stage=stage,
                             location=f"{stage}.where.pattern[{idx}].elements[{pattern_idx}]",
+                            source_labels=source_labels,
+                            destination_labels=destination_labels,
                         )
         if where.expr_tree is not None:
             self._validate_expression_property_refs(
@@ -864,10 +923,18 @@ class FrontendBinder:
                 return
             raise _unresolved_name_error(identifier=property_ref.alias, visible_scope=state.scope)
         if source.entity_kind == "node":
-            columns = state.catalog.node_columns
+            node_labels: FrozenSet[str] = frozenset()
+            if isinstance(source.logical_type, NodeRef):
+                node_labels = source.logical_type.labels
+            scoped_columns = _catalog_node_columns_for_labels(state.catalog, node_labels)
+            columns = scoped_columns if scoped_columns is not None else state.catalog.node_columns
             entity_kind: Literal["node", "edge"] = "node"
         elif source.entity_kind == "edge":
-            columns = state.catalog.edge_columns
+            edge_types: Tuple[str, ...] = tuple()
+            if isinstance(source.logical_type, EdgeRef) and source.logical_type.type is not None:
+                edge_types = (source.logical_type.type,)
+            scoped_columns = _catalog_edge_columns_for_types(state.catalog, edge_types)
+            columns = scoped_columns if scoped_columns is not None else state.catalog.edge_columns
             entity_kind = "edge"
         else:
             return
@@ -895,38 +962,15 @@ class FrontendBinder:
         optional_arm_id: Optional[str],
     ) -> str:
         logical_type = NodeRef(labels=labels)
-        existing = state.scope.get(alias)
-        if existing is None:
-            state.scope[alias] = BoundVariable(
-                name=alias,
-                logical_type=logical_type,
-                nullable=optional_arm_id is not None,
-                null_extended_from=frozenset({optional_arm_id}) if optional_arm_id is not None else frozenset(),
-                entity_kind="node",
-                scope_id=clause_scope_id,
-            )
-            state.scope_confidence[alias] = "declared"
-            return alias
-
-        if existing.entity_kind != "node":
-            raise _cross_kind_rebind_error(
-                alias=alias,
-                existing_kind=existing.entity_kind,
-                new_kind="node",
-                new_role="node pattern",
-            )
-
-        merged = BoundVariable(
-            name=alias,
-            logical_type=_merge_logical_types(existing.logical_type, logical_type),
-            nullable=existing.nullable,
-            null_extended_from=existing.null_extended_from,
+        return _bind_pattern_alias(
+            state=state,
+            alias=alias,
+            logical_type=logical_type,
             entity_kind="node",
-            scope_id=existing.scope_id,
+            new_role="node pattern",
+            clause_scope_id=clause_scope_id,
+            optional_arm_id=optional_arm_id,
         )
-        state.scope[alias] = merged
-        state.scope_confidence[alias] = _merge_confidence(state.scope_confidence.get(alias, "declared"), "declared")
-        return alias
 
     def _bind_relationship_pattern(
         self,
@@ -945,38 +989,15 @@ class FrontendBinder:
             src_label=_first_or_none(src_labels),
             dst_label=_first_or_none(dst_labels),
         )
-        existing = state.scope.get(alias)
-        if existing is None:
-            state.scope[alias] = BoundVariable(
-                name=alias,
-                logical_type=logical_type,
-                nullable=optional_arm_id is not None,
-                null_extended_from=frozenset({optional_arm_id}) if optional_arm_id is not None else frozenset(),
-                entity_kind="edge",
-                scope_id=clause_scope_id,
-            )
-            state.scope_confidence[alias] = "declared"
-            return alias
-
-        if existing.entity_kind != "edge":
-            raise _cross_kind_rebind_error(
-                alias=alias,
-                existing_kind=existing.entity_kind,
-                new_kind="edge",
-                new_role="relationship pattern",
-            )
-
-        merged = BoundVariable(
-            name=alias,
-            logical_type=_merge_logical_types(existing.logical_type, logical_type),
-            nullable=existing.nullable,
-            null_extended_from=existing.null_extended_from,
+        return _bind_pattern_alias(
+            state=state,
+            alias=alias,
+            logical_type=logical_type,
             entity_kind="edge",
-            scope_id=existing.scope_id,
+            new_role="relationship pattern",
+            clause_scope_id=clause_scope_id,
+            optional_arm_id=optional_arm_id,
         )
-        state.scope[alias] = merged
-        state.scope_confidence[alias] = _merge_confidence(state.scope_confidence.get(alias, "declared"), "declared")
-        return alias
 
     def _bind_path_alias(
         self,
@@ -993,37 +1014,15 @@ class FrontendBinder:
         else:
             logical_type = PathType(min_hops=path_hops[0], max_hops=path_hops[1])
 
-        existing = state.scope.get(alias)
-        if existing is None:
-            state.scope[alias] = BoundVariable(
-                name=alias,
-                logical_type=logical_type,
-                nullable=optional_arm_id is not None,
-                null_extended_from=frozenset({optional_arm_id}) if optional_arm_id is not None else frozenset(),
-                entity_kind="scalar",
-                scope_id=clause_scope_id,
-            )
-            state.scope_confidence[alias] = "declared"
-            return alias
-
-        if existing.entity_kind != "scalar":
-            raise _cross_kind_rebind_error(
-                alias=alias,
-                existing_kind=existing.entity_kind,
-                new_kind="scalar",
-                new_role="path alias",
-            )
-
-        state.scope[alias] = BoundVariable(
-            name=alias,
-            logical_type=_merge_logical_types(existing.logical_type, logical_type),
-            nullable=existing.nullable,
-            null_extended_from=existing.null_extended_from,
+        return _bind_pattern_alias(
+            state=state,
+            alias=alias,
+            logical_type=logical_type,
             entity_kind="scalar",
-            scope_id=existing.scope_id,
+            new_role="path alias",
+            clause_scope_id=clause_scope_id,
+            optional_arm_id=optional_arm_id,
         )
-        state.scope_confidence[alias] = _merge_confidence(state.scope_confidence.get(alias, "declared"), "declared")
-        return alias
 
 
 @dataclass(frozen=True)
@@ -1035,6 +1034,98 @@ class _ExpressionBinding:
     schema_confidence: SchemaConfidence
 
 
+def _bound_variable_from_binding(*, name: str, binding: _ExpressionBinding, scope_id: int) -> BoundVariable:
+    return BoundVariable(
+        name=name,
+        logical_type=binding.logical_type,
+        nullable=binding.nullable,
+        null_extended_from=binding.null_extended_from,
+        entity_kind=binding.entity_kind,
+        scope_id=scope_id,
+    )
+
+
+def _unknown_scalar_variable(*, name: str, scope_id: int) -> BoundVariable:
+    return BoundVariable(
+        name=name,
+        logical_type=ScalarType(kind="unknown", nullable=True),
+        nullable=True,
+        null_extended_from=frozenset(),
+        entity_kind="scalar",
+        scope_id=scope_id,
+    )
+
+
+def _scalar_binding(
+    kind: str = "unknown",
+    *,
+    nullable: bool = True,
+    null_extended_from: FrozenSet[str] = frozenset(),
+    schema_confidence: SchemaConfidence = "inferred",
+) -> _ExpressionBinding:
+    return _ExpressionBinding(
+        logical_type=ScalarType(kind=kind, nullable=nullable),
+        entity_kind="scalar",
+        nullable=nullable,
+        null_extended_from=null_extended_from,
+        schema_confidence=schema_confidence,
+    )
+
+
+def _list_binding(
+    *,
+    element_type: LogicalType,
+    null_extended_from: FrozenSet[str] = frozenset(),
+    schema_confidence: SchemaConfidence = "inferred",
+) -> _ExpressionBinding:
+    return _ExpressionBinding(
+        logical_type=ListType(element_type=element_type),
+        entity_kind="scalar",
+        nullable=False,
+        null_extended_from=null_extended_from,
+        schema_confidence=schema_confidence,
+    )
+
+
+def _bind_pattern_alias(
+    *,
+    state: _BindState,
+    alias: str,
+    logical_type: LogicalType,
+    entity_kind: Literal["node", "edge", "scalar"],
+    new_role: str,
+    clause_scope_id: int,
+    optional_arm_id: Optional[str],
+) -> str:
+    existing = state.scope.get(alias)
+    if existing is None:
+        state.scope[alias] = BoundVariable(
+            name=alias,
+            logical_type=logical_type,
+            nullable=optional_arm_id is not None,
+            null_extended_from=frozenset({optional_arm_id}) if optional_arm_id is not None else frozenset(),
+            entity_kind=entity_kind,
+            scope_id=clause_scope_id,
+        )
+        state.scope_confidence[alias] = "declared"
+        return alias
+
+    if existing.entity_kind != entity_kind:
+        raise _cross_kind_rebind_error(
+            alias=alias,
+            existing_kind=existing.entity_kind,
+            new_kind=entity_kind,
+            new_role=new_role,
+        )
+
+    state.scope[alias] = replace(
+        existing,
+        logical_type=_merge_logical_types(existing.logical_type, logical_type),
+    )
+    state.scope_confidence[alias] = _merge_confidence(state.scope_confidence.get(alias, "declared"), "declared")
+    return alias
+
+
 def _infer_expression_binding(
     *,
     expression: ExpressionText,
@@ -1043,13 +1134,7 @@ def _infer_expression_binding(
 ) -> _ExpressionBinding:
     text = expression.text.strip()
     if _COUNT_CALL_RE.match(text):
-        return _ExpressionBinding(
-            logical_type=ScalarType(kind="int64", nullable=False),
-            entity_kind="scalar",
-            nullable=False,
-            null_extended_from=frozenset(),
-            schema_confidence="declared",
-        )
+        return _scalar_binding("int64", nullable=False, schema_confidence="declared")
 
     collect_match = _COLLECT_ALIAS_CALL_RE.fullmatch(text)
     if collect_match is not None:
@@ -1057,10 +1142,8 @@ def _infer_expression_binding(
         source = scope.get(source_alias)
         if source is None:
             raise _unresolved_name_error(identifier=source_alias, visible_scope=scope)
-        return _ExpressionBinding(
-            logical_type=ListType(element_type=source.logical_type),
-            entity_kind="scalar",
-            nullable=False,
+        return _list_binding(
+            element_type=source.logical_type,
             null_extended_from=source.null_extended_from,
             schema_confidence=_demote_confidence(confidence.get(source_alias, "propagated")),
         )
@@ -1083,69 +1166,22 @@ def _infer_expression_binding(
         if source is None:
             if not _is_hidden_reentry_property(property_name):
                 raise _unresolved_name_error(identifier=alias, visible_scope=scope)
-            return _ExpressionBinding(
-                logical_type=ScalarType(kind="unknown", nullable=True),
-                entity_kind="scalar",
-                nullable=True,
-                null_extended_from=frozenset(),
-                schema_confidence="inferred",
-            )
-        if _is_hidden_reentry_property(property_name):
-            return _ExpressionBinding(
-                logical_type=ScalarType(kind="unknown", nullable=True),
-                entity_kind="scalar",
-                nullable=True,
-                null_extended_from=source.null_extended_from,
-                schema_confidence=_demote_confidence(confidence.get(alias, "propagated")),
-            )
-        return _ExpressionBinding(
-            logical_type=ScalarType(kind="unknown", nullable=True),
-            entity_kind="scalar",
-            nullable=True,
+            return _scalar_binding()
+        return _scalar_binding(
             null_extended_from=source.null_extended_from,
             schema_confidence=_demote_confidence(confidence.get(alias, "propagated")),
         )
 
     if _is_bool_literal(text):
-        return _ExpressionBinding(
-            logical_type=ScalarType(kind="bool", nullable=False),
-            entity_kind="scalar",
-            nullable=False,
-            null_extended_from=frozenset(),
-            schema_confidence="declared",
-        )
+        return _scalar_binding("bool", nullable=False, schema_confidence="declared")
     if _is_int_literal(text):
-        return _ExpressionBinding(
-            logical_type=ScalarType(kind="int64", nullable=False),
-            entity_kind="scalar",
-            nullable=False,
-            null_extended_from=frozenset(),
-            schema_confidence="declared",
-        )
+        return _scalar_binding("int64", nullable=False, schema_confidence="declared")
     if _is_float_literal(text):
-        return _ExpressionBinding(
-            logical_type=ScalarType(kind="float64", nullable=False),
-            entity_kind="scalar",
-            nullable=False,
-            null_extended_from=frozenset(),
-            schema_confidence="declared",
-        )
+        return _scalar_binding("float64", nullable=False, schema_confidence="declared")
     if _is_null_literal(text):
-        return _ExpressionBinding(
-            logical_type=ScalarType(kind="null", nullable=True),
-            entity_kind="scalar",
-            nullable=True,
-            null_extended_from=frozenset(),
-            schema_confidence="declared",
-        )
+        return _scalar_binding("null", schema_confidence="declared")
     if _is_string_literal(text):
-        return _ExpressionBinding(
-            logical_type=ScalarType(kind="string", nullable=False),
-            entity_kind="scalar",
-            nullable=False,
-            null_extended_from=frozenset(),
-            schema_confidence="declared",
-        )
+        return _scalar_binding("string", nullable=False, schema_confidence="declared")
     if _looks_like_list_literal(text):
         alias_list_match = _SINGLE_ALIAS_LIST_LITERAL_RE.fullmatch(text)
         if alias_list_match is not None:
@@ -1154,20 +1190,12 @@ def _infer_expression_binding(
                 source = scope.get(alias)
                 if source is None:
                     raise _unresolved_name_error(identifier=alias, visible_scope=scope)
-                return _ExpressionBinding(
-                    logical_type=ListType(element_type=source.logical_type),
-                    entity_kind="scalar",
-                    nullable=False,
+                return _list_binding(
+                    element_type=source.logical_type,
                     null_extended_from=source.null_extended_from,
                     schema_confidence=_demote_confidence(confidence.get(alias, "propagated")),
                 )
-        return _ExpressionBinding(
-            logical_type=ListType(element_type=ScalarType(kind="unknown", nullable=True)),
-            entity_kind="scalar",
-            nullable=False,
-            null_extended_from=frozenset(),
-            schema_confidence="inferred",
-        )
+        return _list_binding(element_type=ScalarType(kind="unknown", nullable=True))
     if text.startswith("shortestPath(") or text.startswith("allShortestPaths("):
         path_type = PathType(min_hops=1, max_hops=1)
         if text.startswith("allShortestPaths("):
@@ -1199,9 +1227,7 @@ def _infer_expression_binding(
     else:
         schema_conf = "inferred"
 
-    return _ExpressionBinding(
-        logical_type=ScalarType(kind="unknown", nullable=nullable),
-        entity_kind="scalar",
+    return _scalar_binding(
         nullable=nullable,
         null_extended_from=null_extended_from,
         schema_confidence=schema_conf,
@@ -1229,10 +1255,7 @@ def _infer_unwind_binding(
             null_extended_from=expr_binding.null_extended_from,
             schema_confidence=expr_binding.schema_confidence,
         )
-    return _ExpressionBinding(
-        logical_type=ScalarType(kind="unknown", nullable=True),
-        entity_kind="scalar",
-        nullable=True,
+    return _scalar_binding(
         null_extended_from=expr_binding.null_extended_from,
         schema_confidence="inferred",
     )
@@ -1721,8 +1744,7 @@ def _is_hidden_reentry_property(property_name: str) -> bool:
 
 
 def _strict_schema_mode(state: _BindState) -> bool:
-    _ = state
-    return True
+    return bool(state.catalog.metadata.get("strict", True))
 
 
 def _catalog_node_labels(catalog: GraphSchemaCatalog) -> Tuple[str, ...]:
@@ -1732,6 +1754,106 @@ def _catalog_node_labels(catalog: GraphSchemaCatalog) -> Tuple[str, ...]:
         if str(column).startswith("label__")
     )
     return tuple(labels)
+
+
+def _catalog_edge_types(catalog: GraphSchemaCatalog) -> Tuple[str, ...]:
+    metadata_types = catalog.metadata.get("edge_types")
+    if isinstance(metadata_types, (list, tuple, set, frozenset)):
+        return tuple(sorted(str(value) for value in metadata_types))
+    types = sorted(
+        str(column).split("label__", 1)[1]
+        for column in catalog.edge_columns
+        if str(column).startswith("label__")
+    )
+    return tuple(types)
+
+
+def _catalog_edge_topologies(catalog: GraphSchemaCatalog) -> Tuple[Dict[str, object], ...]:
+    raw = catalog.metadata.get("edge_topologies")
+    if not isinstance(raw, (list, tuple)):
+        return tuple()
+    out: List[Dict[str, object]] = []
+    for item in raw:
+        if not isinstance(item, Mapping):
+            continue
+        relationship_type = item.get("relationship_type")
+        if relationship_type is None:
+            continue
+        source_labels = item.get("source_labels", ())
+        destination_labels = item.get("destination_labels", ())
+        out.append(
+            {
+                "relationship_type": str(relationship_type),
+                "source_labels": tuple(str(label) for label in source_labels),
+                "destination_labels": tuple(str(label) for label in destination_labels),
+            }
+        )
+    return tuple(out)
+
+
+def _catalog_node_columns_for_labels(catalog: GraphSchemaCatalog, labels: FrozenSet[str]) -> Optional[FrozenSet[str]]:
+    if not labels:
+        return None
+    raw = catalog.metadata.get("node_columns_by_label")
+    if not isinstance(raw, Mapping):
+        return None
+    matched: FrozenSet[str] = frozenset()
+    found = False
+    for label in labels:
+        columns = raw.get(label)
+        if isinstance(columns, (list, tuple, set, frozenset)):
+            matched = matched | frozenset(str(column) for column in columns)
+            found = True
+    if not found:
+        return None
+    return matched
+
+
+def _catalog_edge_columns_for_types(catalog: GraphSchemaCatalog, relationship_types: Tuple[str, ...]) -> Optional[FrozenSet[str]]:
+    if not relationship_types:
+        return None
+    raw = catalog.metadata.get("edge_columns_by_type")
+    if not isinstance(raw, Mapping):
+        return None
+    matched: FrozenSet[str] = frozenset()
+    found = False
+    for relationship_type in relationship_types:
+        columns = raw.get(relationship_type)
+        if isinstance(columns, (list, tuple, set, frozenset)):
+            matched = matched | frozenset(str(column) for column in columns)
+            found = True
+    if not found:
+        return None
+    return matched
+
+
+def _labels_match(required: Tuple[str, ...], actual: FrozenSet[str]) -> bool:
+    if not actual or not required:
+        return True
+    return not actual.isdisjoint(set(required))
+
+
+def _relationship_topology_matches(
+    *,
+    candidates: Tuple[Dict[str, object], ...],
+    direction: Literal["forward", "reverse", "undirected"],
+    source_labels: FrozenSet[str],
+    destination_labels: FrozenSet[str],
+) -> bool:
+    for candidate in candidates:
+        required_source = cast(Tuple[str, ...], candidate["source_labels"])
+        required_destination = cast(Tuple[str, ...], candidate["destination_labels"])
+        if direction == "reverse":
+            if _labels_match(required_source, destination_labels) and _labels_match(required_destination, source_labels):
+                return True
+        elif direction == "undirected":
+            forward_ok = _labels_match(required_source, source_labels) and _labels_match(required_destination, destination_labels)
+            reverse_ok = _labels_match(required_source, destination_labels) and _labels_match(required_destination, source_labels)
+            if forward_ok or reverse_ok:
+                return True
+        elif _labels_match(required_source, source_labels) and _labels_match(required_destination, destination_labels):
+            return True
+    return False
 
 
 def _missing_label_in_schema_error(
@@ -1752,6 +1874,54 @@ def _missing_label_in_schema_error(
         label=label,
         stage=stage,
         available_labels=available_labels,
+        language="cypher",
+    )
+
+
+def _missing_relationship_type_in_schema_error(
+    *,
+    alias: str,
+    relationship_type: str,
+    stage: str,
+    field: str,
+    available_relationship_types: Tuple[str, ...],
+) -> GFQLValidationError:
+    return GFQLValidationError(
+        ErrorCode.E301,
+        "Cypher relationship type is missing from strict binder schema catalog",
+        field=field,
+        value=f"{alias}:{relationship_type}",
+        suggestion="Use relationship types that exist in the edge schema or extend the schema catalog.",
+        alias=alias,
+        relationship_type=relationship_type,
+        stage=stage,
+        available_relationship_types=available_relationship_types,
+        language="cypher",
+    )
+
+
+def _relationship_topology_error(
+    *,
+    alias: str,
+    relationship_types: Tuple[str, ...],
+    stage: str,
+    field: str,
+    source_labels: Tuple[str, ...],
+    destination_labels: Tuple[str, ...],
+    available_topologies: Tuple[Dict[str, object], ...],
+) -> GFQLValidationError:
+    return GFQLValidationError(
+        ErrorCode.E301,
+        "Cypher relationship topology is incompatible with strict binder schema catalog",
+        field=field,
+        value=f"{source_labels}-[{relationship_types}]->{destination_labels}",
+        suggestion="Use source/destination labels allowed by the edge schema topology or extend the schema catalog.",
+        alias=alias,
+        relationship_types=relationship_types,
+        source_labels=source_labels,
+        destination_labels=destination_labels,
+        stage=stage,
+        available_topologies=available_topologies,
         language="cypher",
     )
 

@@ -47,14 +47,23 @@ from graphistry.models.surfaces import (  # noqa: E402, F401
     apply_encodings_keys,
     SettingsValue,
 )
+from .validate_axis import (  # noqa: E402, F401
+    axis_bounds_payload_error,
+    is_axis_bounds_payload,
+    axis_row_payload_error,
+    is_axis_row_payload,
+    axis_rows_payload_error,
+    is_axis_rows_payload,
+    documented_axis_row_payload_error,
+    documented_axis_rows_payload_error,
+    ring_continuous_axis_payload_error,
+    is_ring_continuous_axis_payload,
+    ring_categorical_axis_payload_error,
+    is_ring_categorical_axis_payload,
+)
 from .validate_settings import (  # noqa: E402, F401
     normalize_url_params,
     normalize_react_settings,
-    is_axis_bounds_payload,
-    is_axis_row_payload,
-    is_axis_rows_payload,
-    is_ring_continuous_axis_payload,
-    is_ring_categorical_axis_payload,
     classify_axis_kind,
     apply_axis_url_defaults,
 )

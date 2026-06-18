@@ -14,7 +14,8 @@ import pandas as pd
 import zipfile
 
 import graphistry
-from graphistry.compute.ast import ASTNode
+from graphistry.compute.ast import ASTNode, call
+from graphistry.compute.exceptions import GFQLTypeError
 
 
 # Mock metadata structures mirroring arrow uploader format
@@ -307,6 +308,51 @@ class TestGFQLRemoteMetadataHydration(unittest.TestCase):
         assert result._url_params["lockedX"] is True
         assert result._url_params["lockedY"] is True
         assert result._url_params["splashAfter"] is False
+
+    @patch('graphistry.compute.chain_remote.requests.post')
+    def test_encode_axis_validation_fails_pre_wire(self, mock_post):
+        self.g._dataset_id = "test_dataset_123"
+
+        with self.assertRaises(GFQLTypeError) as cm:
+            self.g.gfql_remote(
+                [call("encode_axis", {"rows": [{"r": 10, "radius": 10}]})],
+                format="json",
+                api_token="test_token",
+            )
+
+        self.assertEqual(
+            cm.exception.message,
+            "Invalid value for parameter 'rows' in 'encode_axis': "
+            "rows[0] radial axis row has unexpected key 'radius'; expected keys: "
+            "axisKind, axis_subtype, bounds, external, internal, kind, label, r, space, width, x, y",
+        )
+        mock_post.assert_not_called()
+
+    @patch('graphistry.compute.chain_remote.requests.post')
+    def test_ring_axis_validation_fails_pre_wire(self, mock_post):
+        self.g._dataset_id = "test_dataset_123"
+
+        with self.assertRaises(GFQLTypeError) as cm:
+            self.g.gfql_remote(
+                [
+                    call(
+                        "ring_continuous_layout",
+                        {
+                            "ring_col": "score",
+                            "axis": [{"y": 40, "bounds": {"min": "40", "max": 100}}],
+                        },
+                    )
+                ],
+                format="json",
+                api_token="test_token",
+            )
+
+        self.assertEqual(
+            cm.exception.message,
+            "Invalid value for parameter 'axis' in 'ring_continuous_layout': "
+            "axis[0].bounds['min'] must be a number",
+        )
+        mock_post.assert_not_called()
 
     @patch('graphistry.compute.chain_remote.requests.post')
     def test_empty_metadata_doesnt_break(self, mock_post):

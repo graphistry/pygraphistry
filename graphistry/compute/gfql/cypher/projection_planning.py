@@ -1,24 +1,16 @@
-"""Projection-planning helpers extracted from ``cypher.lowering`` (#1301, #1260 S3).
-
-These helpers stay behavior-identical to the historical implementations by
-reusing the same symbol table from ``cypher.lowering``.
-"""
+"""Projection-planning helpers extracted from ``cypher.lowering``."""
 # mypy: ignore-errors
 # ruff: noqa: F821
 from __future__ import annotations
 
-# Rebind the lowering symbol table (including private helpers) so extracted
-# functions stay behavior-identical without re-plumbing deep dependencies.
 from graphistry.compute.gfql.cypher import lowering as _lowering
 
 globals().update(vars(_lowering))
 
 def _split_qualified_name(expr: str, *, line: int, column: int) -> Tuple[str, Optional[str]]:
     parts = expr.split(".")
-    if len(parts) == 1:
-        return parts[0], None
-    if len(parts) == 2:
-        return parts[0], parts[1]
+    if len(parts) <= 2:
+        return parts[0], parts[1] if len(parts) == 2 else None
     raise _unsupported(
         "Only simple aliases and alias.property expressions are supported in Cypher RETURN/ORDER BY",
         field="expression",
@@ -31,31 +23,44 @@ def _split_qualified_name(expr: str, *, line: int, column: int) -> Tuple[str, Op
 def _qualified_ref_from_node(
     node: ExprNode,
     *,
+    alias_targets: Optional[Mapping[str, ASTObject]] = None,
     field: str,
     value: str,
     line: int,
     column: int,
-) -> Tuple[str, Optional[str]]:
+) -> Optional[Tuple[str, Optional[str]]]:
     if isinstance(node, Identifier):
-        return _split_qualified_name(node.name, line=line, column=column)
+        try:
+            return _split_qualified_name(node.name, line=line, column=column)
+        except GFQLValidationError:
+            return None
     if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
-        alias_name, prop = _split_qualified_name(node.value.name, line=line, column=column)
+        try:
+            alias_name, prop = _split_qualified_name(node.value.name, line=line, column=column)
+        except GFQLValidationError:
+            return None
         if prop is not None:
-            raise _unsupported(
-                "Only simple aliases and alias.property expressions are supported in Cypher RETURN/ORDER BY",
-                field=field,
-                value=value,
-                line=line,
-                column=column,
-            )
+            return None
         return alias_name, node.property
-    raise _unsupported(
-        "Only simple aliases and alias.property expressions are supported in Cypher RETURN/ORDER BY",
-        field=field,
-        value=value,
-        line=line,
-        column=column,
-    )
+    if isinstance(node, FunctionCall) and node.name == "type":
+        if len(node.args) != 1 or not isinstance(node.args[0], Identifier):
+            return None
+        alias_name, prop = _split_qualified_name(node.args[0].name, line=line, column=column)
+        if prop is not None:
+            return None
+        target = (alias_targets or {}).get(alias_name)
+        if target is None:
+            return None
+        if isinstance(target, ASTEdge):
+            return alias_name, "type"
+        raise _unsupported(
+            "type(...) is only supported for relationship aliases in this phase",
+            field=field,
+            value=value,
+            line=line,
+            column=column,
+        )
+    return None
 
 
 def _projection_ref_from_expr(
@@ -68,42 +73,16 @@ def _projection_ref_from_expr(
     column: int,
 ) -> Tuple[str, Optional[str]]:
     node = _parse_row_expr(expr, params=params, field=field, line=line, column=column)
-    if isinstance(node, (Identifier, PropertyAccessExpr)):
-        return _qualified_ref_from_node(
-            node,
-            field=field,
-            value=expr,
-            line=line,
-            column=column,
-        )
-    if isinstance(node, FunctionCall) and node.name == "type":
-        if len(node.args) != 1 or not isinstance(node.args[0], Identifier):
-            raise _unsupported(
-                "type(...) is only supported with a single relationship alias argument in this phase",
-                field=field,
-                value=expr,
-                line=line,
-                column=column,
-            )
-        alias_name, prop = _split_qualified_name(node.args[0].name, line=line, column=column)
-        if prop is not None:
-            raise _unsupported(
-                "type(...) only supports bare relationship aliases in this phase",
-                field=field,
-                value=expr,
-                line=line,
-                column=column,
-            )
-        target = alias_targets.get(alias_name)
-        if not isinstance(target, ASTEdge):
-            raise _unsupported(
-                "type(...) is only supported for relationship aliases in this phase",
-                field=field,
-                value=expr,
-                line=line,
-                column=column,
-            )
-        return alias_name, "type"
+    ref = _qualified_ref_from_node(
+        node,
+        alias_targets=alias_targets,
+        field=field,
+        value=expr,
+        line=line,
+        column=column,
+    )
+    if ref is not None:
+        return ref
     raise _unsupported(
         "Only simple aliases, alias.property, and type(rel_alias) expressions are supported in Cypher RETURN/ORDER BY",
         field=field,
@@ -111,37 +90,6 @@ def _projection_ref_from_expr(
         line=line,
         column=column,
     )
-
-
-def _raise_if_invalid_graph_projection_expr(
-    expr: str,
-    *,
-    alias_targets: Mapping[str, ASTObject],
-    params: Optional[Mapping[str, Any]] = None,
-    field: str,
-    line: int,
-    column: int,
-) -> None:
-    node = _parse_row_expr(expr, params=params, field=field, line=line, column=column)
-    if not isinstance(node, FunctionCall) or node.name != "type" or len(node.args) != 1:
-        return
-    arg = node.args[0]
-    if not isinstance(arg, Identifier):
-        return
-    alias_name, prop = _split_qualified_name(arg.name, line=line, column=column)
-    if prop is not None:
-        return
-    target = alias_targets.get(alias_name)
-    if target is None:
-        return
-    if not isinstance(target, ASTEdge):
-        raise _unsupported(
-            "type(...) is only supported for relationship aliases in this phase",
-            field=field,
-            value=expr,
-            line=line,
-            column=column,
-        )
 
 
 def _reject_duplicate_alias_row_refs(
@@ -245,28 +193,31 @@ def _build_projection_plan(
                     language="cypher",
                 )
             prop = None
-            binding = None
-            projected_expr_binding = False
         else:
-            try:
-                alias_name, prop = _projection_ref_from_expr(
-                    item.expression.text,
-                    alias_targets=alias_targets,
-                    params=params,
-                    field=f"{clause.kind}.items",
-                    line=item.span.line,
-                    column=item.span.column,
-                )
-            except GFQLValidationError:
-                _raise_if_invalid_graph_projection_expr(
-                    item.expression.text,
-                    alias_targets=alias_targets,
-                    params=params,
-                    field=f"{clause.kind}.items",
-                    line=item.span.line,
-                    column=item.span.column,
-                )
+            node = _parse_row_expr(
+                item.expression.text,
+                params=params,
+                field=f"{clause.kind}.items",
+                line=item.span.line,
+                column=item.span.column,
+            )
+            ref = _qualified_ref_from_node(
+                node,
+                alias_targets=alias_targets,
+                field=f"{clause.kind}.items",
+                value=item.expression.text,
+                line=item.span.line,
+                column=item.span.column,
+            )
+            if ref is None:
                 simple_ref = False
+                unsupported_ref = _unsupported(
+                    "Only simple aliases, alias.property, and type(rel_alias) expressions are supported in Cypher RETURN/ORDER BY",
+                    field=f"{clause.kind}.items",
+                    value=item.expression.text,
+                    line=item.span.line,
+                    column=item.span.column,
+                )
                 aliases = sorted(
                     _expr_match_aliases(
                         item.expression.text,
@@ -288,9 +239,11 @@ def _build_projection_plan(
                         alias_name = next(iter(alias_targets.keys()))
                         prop = None
                     else:
-                        raise
+                        raise unsupported_ref
                 else:
-                    raise
+                    raise unsupported_ref
+            else:
+                alias_name, prop = ref
         if alias_name not in alias_targets and projected_columns is not None:
             binding = projected_columns.get(alias_name)
             if binding is not None:
@@ -329,23 +282,7 @@ def _build_projection_plan(
             if all_source_aliases is None:
                 all_source_aliases = {source_alias}
             all_source_aliases.add(alias_name)
-        if item.expression.text == "*":
-            output_name = item.alias or alias_name
-            if output_name in available_columns or output_name in whole_row_output_names:
-                raise GFQLValidationError(
-                    ErrorCode.E108,
-                    "Duplicate Cypher projection names are not yet supported in local lowering",
-                    field=f"{clause.kind}.items",
-                    value=output_name,
-                    suggestion="Use distinct output names in RETURN/WITH.",
-                    line=item.span.line,
-                    column=item.span.column,
-                    language="cypher",
-                )
-            whole_row_output_names.append(output_name)
-            whole_row_sources[output_name] = alias_name
-            continue
-        if simple_ref and prop is None:
+        if item.expression.text == "*" or (simple_ref and prop is None):
             output_name = item.alias or alias_name
             if output_name in available_columns or output_name in whole_row_output_names:
                 raise GFQLValidationError(
@@ -499,20 +436,18 @@ def _result_projection_plan(
 ) -> Optional[ResultProjectionPlan]:
     if not plan.whole_row_output_names:
         return None
-    columns: List[ResultProjectionColumn] = []
-    for output_name in plan.whole_row_output_names:
-        columns.append(
-            ResultProjectionColumn(
-                output_name=output_name,
-                kind="whole_row",
-                source_name=plan.whole_row_sources.get(output_name, plan.source_alias),
-            )
+    columns = tuple(
+        ResultProjectionColumn(
+            output_name=output_name,
+            kind="whole_row",
+            source_name=plan.whole_row_sources.get(output_name, plan.source_alias),
         )
-    columns.extend(plan.projection_columns)
+        for output_name in plan.whole_row_output_names
+    ) + tuple(plan.projection_columns)
     return ResultProjectionPlan(
         alias=plan.source_alias,
         table=cast(Literal["nodes", "edges"], plan.table),
-        columns=tuple(columns),
+        columns=columns,
         exclude_columns=tuple(sorted(alias_targets.keys())),
     )
 
@@ -593,6 +528,20 @@ def _empty_optional_projection_row(
     return out
 
 
+def _eligible_optional_projection_query(query: CypherQuery) -> bool:
+    return (
+        len(query.matches) == 2
+        and not query.matches[0].optional
+        and query.matches[1].optional
+        and query.where is None
+        and not query.with_stages
+        and not query.unwinds
+        and query.order_by is None
+        and query.skip is None
+        and query.limit is None
+    )
+
+
 def _optional_null_fill_plan(
     query: CypherQuery,
     *,
@@ -603,17 +552,7 @@ def _optional_null_fill_plan(
     bound_visible_aliases: AbstractSet[str] = frozenset(),
     semantic_entity_kinds: Optional[Mapping[str, Literal["node", "edge", "scalar"]]] = None,
 ) -> Optional[OptionalNullFillPlan]:
-    if (
-        len(query.matches) != 2
-        or query.matches[0].optional
-        or not query.matches[1].optional
-        or query.where is not None
-        or query.with_stages
-        or query.unwinds
-        or query.order_by is not None
-        or query.skip is not None
-        or query.limit is not None
-    ):
+    if not _eligible_optional_projection_query(query):
         return None
 
     seed_alias = _single_node_seed_alias(query.matches[0])
@@ -702,17 +641,7 @@ def _optional_projection_row_guard_plan(
     *,
     params: Optional[Mapping[str, Any]],
 ) -> Optional[OptionalProjectionRowGuardPlan]:
-    if (
-        len(query.matches) != 2
-        or query.matches[0].optional
-        or not query.matches[1].optional
-        or query.where is not None
-        or query.with_stages
-        or query.unwinds
-        or query.order_by is not None
-        or query.skip is not None
-        or query.limit is not None
-    ):
+    if not _eligible_optional_projection_query(query):
         return None
     base_clause = query.matches[0]
     if len(base_clause.patterns) == 1:

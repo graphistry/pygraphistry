@@ -35,12 +35,23 @@ CallMethodName = Literal[
     'collapse',
     'compute_cugraph',
     'compute_igraph',
+    'circle_layout',
     'description',
     'drop_nodes',
+    'encode_axis',
     'encode_edge_color',
+    'encode_edge_icon',
+    'encode_edge_label',
+    'encode_edge_opacity',
+    'encode_edge_size',
+    'encode_edge_title',
+    'encode_edge_weight',
     'encode_point_color',
     'encode_point_icon',
+    'encode_point_label',
+    'encode_point_opacity',
     'encode_point_size',
+    'encode_point_title',
     'fa2_layout',
     'filter_edges_by_dict',
     'filter_nodes_by_dict',
@@ -55,9 +66,12 @@ CallMethodName = Literal[
     'layout_cugraph',
     'layout_graphviz',
     'layout_igraph',
+    'mercator_layout',
+    'modularity_weighted_layout',
     'ring_continuous_layout',
     'ring_categorical_layout',
     'time_ring_layout',
+    'tree_layout',
     'materialize_nodes',
     'name',
     'prune_self_edges',
@@ -217,11 +231,21 @@ class EncodeEdgeColorParams(TypedDict, total=False):
     default_mapping: str
 
 
-class EncodePointSizeParams(TypedDict, total=False):
-    """Parameters for encode_point_size operation."""
+class EncodeNumericMappingParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for numeric encode mapping operations."""
     column: str  # Required in safelist
     categorical_mapping: Dict[str, Union[int, float]]
     default_mapping: Union[int, float]
+
+
+class EncodePointSizeParams(EncodeNumericMappingParams, total=False):  # pragma: no cover
+    """Parameters for encode_point_size operation."""
+    pass
+
+
+class EncodeTextColumnParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for raw text-binding encode operations."""
+    column: str  # Required in safelist
 
 
 class EncodePointIconParams(TypedDict, total=False):
@@ -231,6 +255,20 @@ class EncodePointIconParams(TypedDict, total=False):
     continuous_binning: List[Any]
     default_mapping: str
     as_text: bool
+
+
+class EncodeEdgeIconParams(TypedDict, total=False):
+    """Parameters for encode_edge_icon operation."""
+    column: str  # Required in safelist
+    categorical_mapping: Dict[str, str]
+    continuous_binning: List[Any]
+    default_mapping: str
+    as_text: bool
+
+
+class EncodeAxisParams(TypedDict, total=False):
+    """Parameters for encode_axis operation."""
+    rows: List[Dict[str, Any]]
 
 
 class LayoutIgraphParams(TypedDict, total=False):
@@ -346,6 +384,47 @@ class GroupInABoxLayoutParams(TypedDict, total=False):
     colors: List[str]
     partition_key: str
     engine: Literal['auto', 'cpu', 'gpu', 'pandas', 'cudf']
+
+
+class CircleLayoutParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for circle_layout operation."""
+    bounding_box: Optional[Union[Tuple[float, float, float, float], List[float]]]
+    ring_spacing: Optional[float]
+    point_spacing: Optional[float]
+    partition_by: Optional[Union[str, List[str]]]
+    sort_by: Optional[Union[str, List[str]]]
+    ascending: Union[bool, List[bool]]
+    na_position: Literal['first', 'last']
+    ignore_index: bool
+    engine: GFQLEngineLiteral
+
+
+class TreeLayoutParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for tree_layout operation."""
+    level_col: Optional[str]
+    level_sort_values_by: Optional[Union[str, List[str]]]
+    level_sort_values_by_ascending: bool
+    width: Optional[float]
+    height: Optional[float]
+    rotate: Optional[float]
+    allow_cycles: bool
+    root: Optional[Union[str, int, float, bool]]
+
+
+class MercatorLayoutParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for mercator_layout operation."""
+    scale_for_graphistry: bool
+
+
+class ModularityWeightedLayoutParams(TypedDict, total=False):  # pragma: no cover
+    """Parameters for modularity_weighted_layout operation."""
+    community_col: Optional[str]
+    community_alg: Optional[str]
+    community_params: Optional[Dict[str, Any]]
+    same_community_weight: float
+    cross_community_weight: float
+    edge_influence: float
+    engine: Literal['auto', 'pandas', 'cudf']
 
 
 class GetIndegreesParams(TypedDict, total=False):
@@ -477,7 +556,10 @@ CallParams = Union[
     EncodePointColorParams,
     EncodeEdgeColorParams,
     EncodePointSizeParams,
+    EncodeTextColumnParams,
     EncodePointIconParams,
+    EncodeEdgeIconParams,
+    EncodeAxisParams,
     LayoutIgraphParams,
     LayoutCugraphParams,
     LayoutGraphvizParams,
@@ -555,7 +637,29 @@ def call(function: Literal['encode_point_size'], params: EncodePointSizeParams =
     ...
 
 @overload
+def call(
+    function: Literal['encode_edge_size', 'encode_edge_weight', 'encode_point_opacity', 'encode_edge_opacity'],
+    params: EncodeNumericMappingParams = ...
+) -> 'ASTCall':
+    ...
+
+@overload
+def call(
+    function: Literal['encode_point_label', 'encode_edge_label', 'encode_point_title', 'encode_edge_title'],
+    params: EncodeTextColumnParams = ...
+) -> 'ASTCall':
+    ...
+
+@overload
 def call(function: Literal['encode_point_icon'], params: EncodePointIconParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['encode_edge_icon'], params: EncodeEdgeIconParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['encode_axis'], params: EncodeAxisParams = ...) -> 'ASTCall':
     ...
 
 @overload
@@ -588,6 +692,22 @@ def call(function: Literal['fa2_layout'], params: Fa2LayoutParams = ...) -> 'AST
 
 @overload
 def call(function: Literal['group_in_a_box_layout'], params: GroupInABoxLayoutParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['circle_layout'], params: CircleLayoutParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['tree_layout'], params: TreeLayoutParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['mercator_layout'], params: MercatorLayoutParams = ...) -> 'ASTCall':
+    ...
+
+@overload
+def call(function: Literal['modularity_weighted_layout'], params: ModularityWeightedLayoutParams = ...) -> 'ASTCall':
     ...
 
 @overload

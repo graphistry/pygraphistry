@@ -88,6 +88,19 @@ _WIDE_LOCALDATETIME_TEXT_RE = re.compile(
     r"T(?P<hour>\d{2}):(?P<minute>\d{2})"
     r"(?::(?P<second>\d{2})(?:\.(?P<frac>\d+))?)?$"
 )
+_DATE_CONTROL_FIELDS = frozenset(
+    {
+        "date",
+        "year",
+        "month",
+        "day",
+        "week",
+        "dayOfWeek",
+        "ordinalDay",
+        "quarter",
+        "dayOfQuarter",
+    }
+)
 
 
 def _split_map_items(text: str) -> list[str]:
@@ -180,6 +193,28 @@ def _parse_fraction_to_nanos(frac: Optional[str]) -> int:
     return int(frac.ljust(9, "0")[:9])
 
 
+def _consume_duration_tokens(
+    part: str,
+    allowed_units: set[str],
+    token_re: re.Pattern[str],
+) -> Optional[list[tuple[str, str]]]:
+    if part == "":
+        return []
+    pos = 0
+    out: list[tuple[str, str]] = []
+    for token_match in token_re.finditer(part):
+        if token_match.start() != pos:
+            return None
+        value_txt, unit = token_match.groups()
+        if unit not in allowed_units:
+            return None
+        out.append((value_txt, unit))
+        pos = token_match.end()
+    if pos != len(part):
+        return None
+    return out
+
+
 def _normalize_offset_text(tz_text: str) -> str:
     if tz_text == "Z":
         return "Z"
@@ -194,13 +229,6 @@ def _normalize_offset_text(tz_text: str) -> str:
     if second == "00":
         return f"{sign}{hour}:{minute}"
     return f"{sign}{hour}:{minute}:{second}"
-
-
-def _split_tz_suffix_parts(tz_suffix: Optional[str]) -> tuple[Optional[str], Optional[str]]:
-    if tz_suffix is None:
-        return None, None
-    core, zone_name = _split_zone_name(tz_suffix)
-    return (core or None), zone_name
 
 
 def _named_timezone(zone_name: str) -> Optional[py_tzinfo]:
@@ -276,11 +304,6 @@ def _base_date_from_text(text: Optional[str]) -> Optional[py_date]:
         )
     except ValueError:
         return None
-
-
-def _day_of_quarter(value: py_date) -> int:
-    start = py_date(value.year, ((value.month - 1) // 3) * 3 + 1, 1)
-    return (value - start).days + 1
 
 
 def _base_time_parts_from_text(text: Optional[str]) -> Optional[dict[str, object]]:
@@ -365,7 +388,11 @@ def _date_from_fields(
         if year is None:
             return None
         quarter = _parse_int(fields.get("quarter"))
-        day_of_quarter = _parse_int(fields.get("dayOfQuarter"), _day_of_quarter(base) if base is not None else 1)
+        day_default = 1
+        if base is not None:
+            quarter_start = py_date(base.year, ((base.month - 1) // 3) * 3 + 1, 1)
+            day_default = (base - quarter_start).days + 1
+        day_of_quarter = _parse_int(fields.get("dayOfQuarter"), day_default)
         if quarter is None or day_of_quarter is None:
             return None
         start = py_date(year, ((quarter - 1) * 3) + 1, 1)
@@ -544,7 +571,7 @@ def _preserve_source_timezone_suffix(
 ) -> Optional[str]:
     if source_value is None or source_value.tz_suffix is None:
         return None
-    offset, zone_name = _split_tz_suffix_parts(source_value.tz_suffix)
+    offset, zone_name = _split_zone_name(source_value.tz_suffix)
     if zone_name is None:
         return offset or "Z"
     suffix = _zone_suffix(zone_name, local_datetime_text)
@@ -600,6 +627,31 @@ def _converted_aware_source_base(
     return converted_base, converted_dt.date()
 
 
+def _timezone_suffix_for_result(
+    *,
+    tz_text: Optional[str],
+    source_value: Optional[_TemporalValue],
+    local_datetime_text: str,
+    keep_zone_name: bool,
+    effective_base: Optional[dict[str, object]],
+) -> Optional[str]:
+    if tz_text is None:
+        preserved_suffix = _preserve_source_timezone_suffix(
+            source_value,
+            local_datetime_text,
+            keep_zone_name=keep_zone_name,
+        )
+        if preserved_suffix is not None:
+            return preserved_suffix
+        base_tz = None if effective_base is None else cast(Optional[str], effective_base.get("tz"))
+        return base_tz or "Z"
+    return _render_explicit_timezone_suffix(
+        tz_text,
+        local_datetime_text,
+        keep_zone_name=keep_zone_name,
+    )
+
+
 def _normalize_time_map(fields: dict[str, str]) -> Optional[str]:
     source_value = _source_temporal_value(fields)
     source_base = _base_time_parts_from_text(_first_present_field_text(fields, "time", "datetime", "localdatetime"))
@@ -617,24 +669,14 @@ def _normalize_time_map(fields: dict[str, str]) -> Optional[str]:
     if local is None:
         return None
     local_datetime_text = _zone_compatible_local_datetime_text(effective_date or py_date(1970, 1, 1), local)
-    if tz_text is None:
-        preserved_suffix = _preserve_source_timezone_suffix(
-            source_value,
-            local_datetime_text,
-            keep_zone_name=False,
-        )
-        if preserved_suffix is not None:
-            return local + preserved_suffix
-        base_tz = None if effective_base is None else cast(Optional[str], effective_base.get("tz"))
-        return local + (base_tz or "Z")
-    explicit_suffix = _render_explicit_timezone_suffix(
-        tz_text,
-        local_datetime_text,
+    suffix = _timezone_suffix_for_result(
+        tz_text=tz_text,
+        source_value=source_value,
+        local_datetime_text=local_datetime_text,
         keep_zone_name=False,
+        effective_base=effective_base,
     )
-    if explicit_suffix is None:
-        return None
-    return local + explicit_suffix
+    return None if suffix is None else local + suffix
 
 
 def _normalize_localdatetime_string(text: str) -> Optional[str]:
@@ -712,20 +754,7 @@ def _normalize_datetime_map(fields: dict[str, str]) -> Optional[str]:
     source_date_base = _base_date_from_text(_first_present_field_text(fields, "date", "datetime", "localdatetime"))
     effective_base_date = source_date_base or (source_value.date_value if source_value is not None else None)
     effective_time_base = source_base
-    explicit_date_controls = any(
-        key in fields
-        for key in (
-            "date",
-            "year",
-            "month",
-            "day",
-            "week",
-            "dayOfWeek",
-            "ordinalDay",
-            "quarter",
-            "dayOfQuarter",
-        )
-    )
+    explicit_date_controls = any(key in fields for key in _DATE_CONTROL_FIELDS)
     date_part: Optional[str]
     if explicit_date_controls:
         date_part = _normalize_date_map(fields, base_date=effective_base_date)
@@ -754,24 +783,14 @@ def _normalize_datetime_map(fields: dict[str, str]) -> Optional[str]:
     if date_part is None or time_part is None:
         return None
     out = f"{date_part}T{time_part}"
-    if tz_text is None:
-        preserved_suffix = _preserve_source_timezone_suffix(
-            source_value,
-            out,
-            keep_zone_name=True,
-        )
-        if preserved_suffix is not None:
-            return out + preserved_suffix
-        base_tz = None if effective_time_base is None else cast(Optional[str], effective_time_base.get("tz"))
-        return out + (base_tz or "Z")
-    explicit_suffix = _render_explicit_timezone_suffix(
-        tz_text,
-        out,
+    suffix = _timezone_suffix_for_result(
+        tz_text=tz_text,
+        source_value=source_value,
+        local_datetime_text=out,
         keep_zone_name=True,
+        effective_base=effective_time_base,
     )
-    if explicit_suffix is None:
-        return None
-    return out + explicit_suffix
+    return None if suffix is None else out + suffix
 
 
 def _normalize_duration_string(text: str) -> Optional[str]:
@@ -811,25 +830,8 @@ def _normalize_duration_string(text: str) -> Optional[str]:
     else:
         date_part, time_part = body, ""
 
-    def _consume(part: str, allowed_units: set[str]) -> Optional[list[tuple[str, str]]]:
-        if part == "":
-            return []
-        pos = 0
-        out: list[tuple[str, str]] = []
-        for token_match in _DURATION_TOKEN_RE.finditer(part):
-            if token_match.start() != pos:
-                return None
-            value_txt, unit = token_match.groups()
-            if unit not in allowed_units:
-                return None
-            out.append((value_txt, unit))
-            pos = token_match.end()
-        if pos != len(part):
-            return None
-        return out
-
-    date_tokens = _consume(date_part, {"Y", "M", "W", "D"})
-    time_tokens = _consume(time_part, {"H", "M", "S"})
+    date_tokens = _consume_duration_tokens(date_part, {"Y", "M", "W", "D"}, _DURATION_TOKEN_RE)
+    time_tokens = _consume_duration_tokens(time_part, {"H", "M", "S"}, _DURATION_TOKEN_RE)
     if date_tokens is None or time_tokens is None:
         return None
 
@@ -841,39 +843,6 @@ def _normalize_duration_string(text: str) -> Optional[str]:
     for value_txt, unit in time_tokens:
         component_fields[time_key_map[unit]] = sign + value_txt
     return _normalize_duration_map(component_fields)
-
-
-def _format_signed_day_time_duration(total_nanoseconds: int) -> str:
-    if total_nanoseconds == 0:
-        return "PT0S"
-    sign = -1 if total_nanoseconds < 0 else 1
-    remaining = abs(total_nanoseconds)
-    days, remaining = divmod(remaining, 24 * 60 * 60 * 1_000_000_000)
-    hours, remaining = divmod(remaining, 60 * 60 * 1_000_000_000)
-    minutes, remaining = divmod(remaining, 60 * 1_000_000_000)
-    seconds, nanoseconds = divmod(remaining, 1_000_000_000)
-
-    def _signed(value: int) -> str:
-        return f"{'-' if sign < 0 else ''}{value}"
-
-    parts = ["P"]
-    if days:
-        parts.append(f"{_signed(days)}D")
-    time_parts: list[str] = []
-    if hours:
-        time_parts.append(f"{_signed(hours)}H")
-    if minutes:
-        time_parts.append(f"{_signed(minutes)}M")
-    if seconds or nanoseconds or (not days and not time_parts):
-        if nanoseconds:
-            frac = str(nanoseconds).rjust(9, "0").rstrip("0")
-            time_parts.append(f"{_signed(seconds)}.{frac}S")
-        else:
-            time_parts.append(f"{_signed(seconds)}S")
-    if time_parts:
-        parts.append("T")
-        parts.extend(time_parts)
-    return "".join(parts)
 
 
 def _normalize_duration_map(fields: dict[str, str]) -> str:
@@ -1034,9 +1003,9 @@ def _current_temporal_literal(fn_name: str, current_dt: py_datetime) -> Optional
         return _format_date(local_dt.year, local_dt.month, local_dt.day)
     if fn_name == "localtime":
         return local_time_text
+    offset = local_dt.utcoffset()
+    suffix = "Z" if offset is None or offset == timedelta(0) else _format_offset(offset)
     if fn_name == "time":
-        offset = local_dt.utcoffset()
-        suffix = "Z" if offset is None or offset == timedelta(0) else _format_offset(offset)
         return local_time_text + suffix
     local_datetime_text = _format_localdatetime_parts(
         local_dt.date(),
@@ -1048,13 +1017,28 @@ def _current_temporal_literal(fn_name: str, current_dt: py_datetime) -> Optional
     if fn_name == "localdatetime":
         return local_datetime_text
     if fn_name == "datetime":
-        offset = local_dt.utcoffset()
-        suffix = "Z" if offset is None or offset == timedelta(0) else _format_offset(offset)
         return local_datetime_text + suffix
     return None
 
 
 def normalize_temporal_constructor_text(text: str) -> Optional[str]:
+    map_normalizers: dict[str, Callable[[dict[str, str]], Optional[str]]] = {
+        "date": _normalize_date_map,
+        "localtime": _normalize_localtime_map,
+        "time": _normalize_time_map,
+        "localdatetime": _normalize_localdatetime_map,
+        "datetime": _normalize_datetime_map,
+        "duration": lambda fields: _normalize_duration_map(fields),
+    }
+    literal_normalizers: dict[str, Callable[[str], Optional[str]]] = {
+        "date": _extract_date_text,
+        "localtime": _cast_temporal_to_localtime_string,
+        "time": _cast_temporal_to_time_string,
+        "localdatetime": _cast_temporal_to_localdatetime_string,
+        "datetime": _cast_temporal_to_datetime_string,
+        "duration": _normalize_duration_string,
+    }
+
     stripped = text.strip()
     match = _TEMPORAL_FUNC_RE.fullmatch(stripped)
     if match is None:
@@ -1066,36 +1050,12 @@ def normalize_temporal_constructor_text(text: str) -> Optional[str]:
         fields = _parse_map_fields(arg_text)
         if fields is None:
             return None
-        if fn == "date":
-            return _normalize_date_map(fields)
-        if fn == "localtime":
-            return _normalize_localtime_map(fields)
-        if fn == "time":
-            return _normalize_time_map(fields)
-        if fn == "localdatetime":
-            return _normalize_localdatetime_map(fields)
-        if fn == "datetime":
-            return _normalize_datetime_map(fields)
-        if fn == "duration":
-            return _normalize_duration_map(fields)
-        return None
+        return map_normalizers[fn](fields)
 
     literal = _parse_quoted(arg_text)
     if literal is None:
         return None
-    if fn == "date":
-        return _extract_date_text(literal)
-    if fn == "localtime":
-        return _cast_temporal_to_localtime_string(literal)
-    if fn == "time":
-        return _cast_temporal_to_time_string(literal)
-    if fn == "localdatetime":
-        return _cast_temporal_to_localdatetime_string(literal)
-    if fn == "datetime":
-        return _cast_temporal_to_datetime_string(literal)
-    if fn == "duration":
-        return _normalize_duration_string(literal)
-    return None
+    return literal_normalizers[fn](literal)
 
 
 from graphistry.compute.gfql.temporal.values import (  # noqa: E402

@@ -7,6 +7,9 @@ set -ex
 #   ./bin/generate-lockfiles.sh                    # 6-day cooldown (default)
 #   COOLDOWN_DAYS=0 ./bin/generate-lockfiles.sh    # no cooldown (urgent patches)
 #   PROFILES=test VERSIONS=3.12 ./bin/generate-lockfiles.sh  # single combo
+#   PROFILES=rtd VERSIONS=3.12 ./bin/generate-lockfiles.sh   # committed RTD lockfile
+#   PROFILES=spark VERSIONS=3.14 ./bin/generate-lockfiles.sh # committed Spark CI lockfile
+#   EXCLUDE_NEWER=2026-05-14T20:50:04Z PROFILES=rtd VERSIONS=3.12 ./bin/generate-lockfiles.sh  # deterministic freshness check
 #
 # Requires: uv >= 0.11
 
@@ -15,6 +18,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "$REPO_ROOT"
 
 COOLDOWN_DAYS="${COOLDOWN_DAYS:-6}"
+EXCLUDE_NEWER="${EXCLUDE_NEWER:-}"
 OUTPUT_DIR="${OUTPUT_DIR:-requirements}"
 mkdir -p "$OUTPUT_DIR"
 
@@ -22,30 +26,39 @@ mkdir -p "$OUTPUT_DIR"
 ALL_VERSIONS=(3.8 3.9 3.10 3.11 3.12 3.13 3.14)
 VERSIONS=(${VERSIONS:-${ALL_VERSIONS[@]}})
 
-# Profiles and their extras. Format: "name:extras:min_python:max_python:extra_flags"
+# Profiles and their extras. Format: "name:extras:min_python:max_python:extra_flags:source"
 # min_python/max_python: skip versions outside [min, max] (inclusive). Use "" for no bound.
 # extra_flags: additional uv pip compile flags (e.g., --no-emit-package torch, --override pkg==ver).
+# source: optional compile source file; defaults to setup.py.
 PROFILE_DEFS=(
-    "test:test:3.8::"
-    "test-core:test,build,bolt,igraph,networkx,gremlin,nodexl,jupyter:3.8::"
-    "test-compat:test,bolt,nodexl:3.8::"
-    "test-compat-legacy:test,bolt,nodexl:3.9:3.9:--constraint /tmp/pandas-legacy.txt"
-    "test-compat-rapids-aligned:test,bolt,nodexl:3.13:3.13:--constraint /tmp/pandas-rapids-aligned.txt"
-    "test-compat-latest:test,bolt,nodexl:3.14:3.14:--constraint /tmp/pandas-latest.txt"
-    "test-compat-gfql-legacy:test:3.9:3.9:--constraint /tmp/pandas-legacy.txt"
-    "test-compat-gfql-latest:test:3.14:3.14:--constraint /tmp/pandas-latest.txt"
-    "test-polars:test,polars:3.9::"
-    "test-graphviz:test,pygraphviz:3.8::"
-    "test-umap:test,testai,umap-learn:3.9::--no-emit-package torch"
-    "test-ai:test,testai,ai:3.9::--no-emit-package torch --constraint /tmp/sentence-transformers-compat.txt"
-    "docs:docs:3.10::"
-    "build:build:3.8::"
-    "tck:test:3.8::"
+    "test:test:3.8:::"
+    "test-core:test,build,bolt,igraph,networkx,gremlin,nodexl,jupyter:3.8:::"
+    "test-compat:test,bolt,nodexl:3.8:::"
+    "test-compat-legacy:test,bolt,nodexl:3.9:3.9:--constraint /tmp/pandas-legacy.txt:"
+    "test-compat-rapids-aligned:test,bolt,nodexl:3.13:3.13:--constraint /tmp/pandas-rapids-aligned.txt:"
+    "test-compat-latest:test,bolt,nodexl:3.14:3.14:--constraint /tmp/pandas-latest.txt:"
+    "test-compat-gfql-legacy:test:3.9:3.9:--constraint /tmp/pandas-legacy.txt:"
+    "test-compat-gfql-latest:test:3.14:3.14:--constraint /tmp/pandas-latest.txt:"
+    "test-networkx-policy-lower-no-scipy:test,networkx:3.8:3.8:--constraint /tmp/networkx-lower.txt:"
+    "test-networkx-policy-lower-scipy:test,networkx-scipy:3.8:3.8:--constraint /tmp/networkx-lower.txt:"
+    "test-networkx-policy-upper-scipy:test,networkx-scipy:3.12:3.12:--constraint /tmp/networkx-upper.txt:"
+    "test-polars:test,polars:3.9:::"
+    "test-graphviz:test,pygraphviz:3.8:::"
+    "test-umap:test,testai,umap-learn:3.9::--no-emit-package torch:"
+    "test-ai:test,testai,ai:3.9::--no-emit-package torch --constraint /tmp/sentence-transformers-compat.txt:"
+    "docs:docs:3.10:::"
+    "rtd:docs,pygraphviz:3.12:3.12::"
+    "spark::3.14:3.14::requirements/spark-py3.14.in"
+    "build:build:3.8:::"
+    "tck:test,networkx:3.8:::"
 )
 PROFILES=(${PROFILES:-$(printf '%s\n' "${PROFILE_DEFS[@]}" | cut -d: -f1)})
 
 # Cooldown date
-if [ "$COOLDOWN_DAYS" -gt 0 ]; then
+if [ -n "$EXCLUDE_NEWER" ]; then
+    EXCLUDE_ARG="--exclude-newer ${EXCLUDE_NEWER}"
+    echo "Cooldown: PINNED (exclude after ${EXCLUDE_NEWER})"
+elif [ "$COOLDOWN_DAYS" -gt 0 ]; then
     if date -v -1d >/dev/null 2>&1; then
         EXCLUDE_DATE=$(date -u -v "-${COOLDOWN_DAYS}d" +%Y-%m-%dT%H:%M:%SZ)
     else
@@ -62,6 +75,10 @@ fi
 echo "pandas==2.2.3" > /tmp/pandas-legacy.txt
 echo "pandas==2.3.3" > /tmp/pandas-rapids-aligned.txt
 echo "pandas>=3.0.0" > /tmp/pandas-latest.txt
+echo "networkx==2.5" > /tmp/networkx-lower.txt
+echo "scipy==1.5.4" >> /tmp/networkx-lower.txt
+echo "networkx<4" > /tmp/networkx-upper.txt
+echo "scipy<2" >> /tmp/networkx-upper.txt
 
 # sentence-transformers 5.4.x moved WordEmbeddings to a new module path; HF-cached models
 # serialised with 5.3.x configs cannot be loaded by 5.4.x, breaking test-ai until tests + cache
@@ -73,16 +90,17 @@ echo "Profiles: ${PROFILES[*]}"
 echo "=== Generating lockfiles ==="
 
 for profile_def in "${PROFILE_DEFS[@]}"; do
-    IFS=: read -r name extras min_python max_python extra_flags <<< "$profile_def"
+    IFS=: read -r name extras min_python max_python extra_flags source <<< "$profile_def"
+    source="${source:-setup.py}"
 
     # Skip if not in requested profiles
     if ! printf '%s\n' "${PROFILES[@]}" | grep -qx "$name"; then
         continue
     fi
 
-    # Build extras arg
+    # Build extras arg. Non-setup sources such as requirements/*.in cannot take extras.
     EXTRAS_ARG=""
-    if [ -n "$extras" ]; then
+    if [ "$source" = "setup.py" ] && [ -n "$extras" ]; then
         IFS=',' read -ra extra_list <<< "$extras"
         for extra in "${extra_list[@]}"; do
             EXTRAS_ARG="$EXTRAS_ARG --extra $extra"
@@ -100,7 +118,7 @@ for profile_def in "${PROFILE_DEFS[@]}"; do
             continue
         fi
         echo "--- ${name}-py${ver}.lock ---"
-        uv pip compile setup.py \
+        uv pip compile "$source" \
             $EXTRAS_ARG \
             --python-version "$ver" \
             --generate-hashes \

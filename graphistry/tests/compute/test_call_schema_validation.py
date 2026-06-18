@@ -85,6 +85,34 @@ class TestCallSchemaValidation:
         errors = validate_chain_schema(sample_graph, chain, collect_all=True)
         # Schema validation tracks added columns from call schema effects
         assert len(errors) == 0
+
+    def test_degree_shorthand_schema_effects_default_and_custom_cols(self, sample_graph):
+        """Test helper-backed degree entries expose added node columns."""
+        default_chain = Chain([
+            ASTCall('get_indegrees', {}),
+            ASTCall('filter_nodes_by_dict', {'filter_dict': {'degree_in': 1}}),
+        ])
+        errors = validate_chain_schema(sample_graph, default_chain, collect_all=True)
+        assert len(errors) == 0
+
+        custom_chain = Chain([
+            ASTCall('get_outdegrees', {'col': 'out_degree'}),
+            ASTCall('filter_nodes_by_dict', {'filter_dict': {'out_degree': 1}}),
+        ])
+        errors = validate_chain_schema(sample_graph, custom_chain, collect_all=True)
+        assert len(errors) == 0
+
+        with pytest.raises(GFQLSchemaError) as exc_info:
+            validate_chain_schema(
+                sample_graph,
+                [
+                    ASTCall('get_outdegrees', {'col': 'out_degree'}),
+                    ASTCall('filter_nodes_by_dict', {'filter_dict': {'degree_out': 1}}),
+                ],
+                collect_all=False,
+            )
+        assert exc_info.value.code == ErrorCode.E301
+        assert 'degree_out' in str(exc_info.value)
     
     def test_method_without_schema_effects(self, sample_graph):
         """Test that methods without schema effects don't cause errors."""

@@ -1,0 +1,236 @@
+{
+  "$defs": {
+    "complexEncoding": {
+      "additionalProperties": true,
+      "description": "Structural complex encoding payload. Detailed semantic checks remain in validate_encodings().",
+      "properties": {
+        "asText": {
+          "type": "boolean"
+        },
+        "attribute": {
+          "type": "string"
+        },
+        "blendMode": {
+          "type": "string"
+        },
+        "border": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "colors": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "encodingType": {
+          "type": "string"
+        },
+        "graphType": {
+          "enum": [
+            "point",
+            "edge"
+          ]
+        },
+        "mapping": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        },
+        "shape": {
+          "type": "string"
+        },
+        "style": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "type": "object"
+        },
+        "variation": {
+          "enum": [
+            "categorical",
+            "continuous"
+          ]
+        }
+      },
+      "required": [
+        "attribute",
+        "variation"
+      ],
+      "type": "object"
+    },
+    "complexEncodings": {
+      "additionalProperties": false,
+      "properties": {
+        "edge_encodings": {
+          "$ref": "#/$defs/complexModes"
+        },
+        "node_encodings": {
+          "$ref": "#/$defs/complexModes"
+        }
+      },
+      "required": [
+        "node_encodings",
+        "edge_encodings"
+      ],
+      "type": "object"
+    },
+    "complexModes": {
+      "additionalProperties": false,
+      "properties": {
+        "current": {
+          "additionalProperties": {
+            "$ref": "#/$defs/complexEncoding"
+          },
+          "type": "object"
+        },
+        "default": {
+          "additionalProperties": {
+            "$ref": "#/$defs/complexEncoding"
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "metadataEncodings": {
+      "additionalProperties": false,
+      "properties": {
+        "complex_encodings": {
+          "$ref": "#/$defs/complexEncodings"
+        },
+        "edge_badge": {
+          "type": "string"
+        },
+        "edge_color": {
+          "type": "string"
+        },
+        "edge_destination_color": {
+          "type": "string"
+        },
+        "edge_icon": {
+          "type": "string"
+        },
+        "edge_label": {
+          "type": "string"
+        },
+        "edge_opacity": {
+          "type": "string"
+        },
+        "edge_size": {
+          "type": "string"
+        },
+        "edge_source_color": {
+          "type": "string"
+        },
+        "edge_title": {
+          "type": "string"
+        },
+        "edge_weight": {
+          "type": "string"
+        },
+        "point_badge": {
+          "type": "string"
+        },
+        "point_color": {
+          "type": "string"
+        },
+        "point_icon": {
+          "type": "string"
+        },
+        "point_label": {
+          "type": "string"
+        },
+        "point_opacity": {
+          "type": "string"
+        },
+        "point_size": {
+          "type": "string"
+        },
+        "point_title": {
+          "type": "string"
+        },
+        "point_x": {
+          "type": "string"
+        },
+        "point_y": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "nodeEdgeEncodingsPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "edge_encodings": {
+          "additionalProperties": true,
+          "properties": {
+            "bindings": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "required": [
+                "source",
+                "destination"
+              ],
+              "type": "object"
+            },
+            "complex": {
+              "$ref": "#/$defs/complexModes"
+            }
+          },
+          "required": [
+            "bindings"
+          ],
+          "type": "object"
+        },
+        "node_encodings": {
+          "additionalProperties": true,
+          "properties": {
+            "bindings": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "complex": {
+              "$ref": "#/$defs/complexModes"
+            }
+          },
+          "required": [
+            "bindings"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "node_encodings",
+        "edge_encodings"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.graphistry.com/pygraphistry/encodings.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Structural contract for simple and complex visualization encodings. Runtime validators remain canonical for semantic checks.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/metadataEncodings"
+    },
+    {
+      "$ref": "#/$defs/nodeEdgeEncodingsPayload"
+    }
+  ],
+  "title": "Graphistry Encodings",
+  "x-graphistry": {
+    "graphistry_frontend_contract_signature": "40b317d4c0bf81249b32d4943ae29a710101525200d50acd6a22c62316004b76",
+    "graphistry_frontend_contract_version": 1,
+    "graphistry_frontend_upstream_versions": {
+      "graphistry_js_client_api": null,
+      "graphistry_js_client_api_react": null,
+      "graphistry_server": null
+    }
+  }
+}

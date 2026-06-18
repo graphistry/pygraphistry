@@ -211,68 +211,6 @@ class TestPlotterNameBindings(NoAuthTestCase):
         assert plotter._description == "d"
 
 
-class TestPlotterPandasConversions(NoAuthTestCase):
-    def test_table_to_pandas_from_none(self):
-        plotter = graphistry.bind()
-        assert plotter._table_to_pandas(None) is None
-
-    def test_table_to_pandas_from_pandas(self):
-        plotter = graphistry.bind()
-        df = pd.DataFrame({"x": []})
-        assert isinstance(plotter._table_to_pandas(df), pd.DataFrame)
-
-    def test_table_to_pandas_from_arrow(self):
-        plotter = graphistry.bind()
-        df = pd.DataFrame({"x": []})
-        arr = pa.Table.from_pandas(df)
-        assert isinstance(plotter._table_to_pandas(arr), pd.DataFrame)
-
-    @pytest.mark.skipif(
-        not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
-        reason="cudf tests need TEST_CUDF=1",
-    )
-    def test_table_to_pandas_from_cudf(self):
-        import cudf
-
-        plotter = graphistry.bind()
-        df = pd.DataFrame({"x": [1, 2, 3]})
-        gdf = cudf.from_pandas(df)
-        out = plotter._table_to_pandas(gdf)
-        assert isinstance(out, pd.DataFrame)
-        assertFrameEqual(out, df)
-
-    @pytest.mark.skipif(
-        not ("TEST_DASK" in os.environ and os.environ["TEST_DASK"] == "1"),
-        reason="dask tests need TEST_DASK=1",
-    )
-    def test_table_to_pandas_from_dask(self):
-        import dask, dask.dataframe
-        from dask.distributed import Client
-
-        with Client(processes=True):
-            plotter = graphistry.bind()
-            df = pd.DataFrame({"x": [1, 2, 3]})
-            ddf = dask.dataframe.from_pandas(df, npartitions=2)
-            out = plotter._table_to_pandas(ddf)
-            assert isinstance(out, pd.DataFrame)
-            assertFrameEqual(out, df)
-
-    @pytest.mark.skipif(
-        not ("TEST_DASK_CUDF" in os.environ and os.environ["TEST_DASK_CUDF"] == "1"),
-        reason="dask_cudf tests need TEST_DASK_CUDF=1",
-    )
-    def test_table_to_pandas_from_dask_cudf(self):
-        import cudf, dask_cudf
-
-        plotter = graphistry.bind()
-        df = pd.DataFrame({"x": [1, 2, 3]})
-        gdf = cudf.from_pandas(df)
-        dgdf = dask_cudf.from_cudf(gdf, npartitions=2)
-        out = plotter._table_to_pandas(dgdf)
-        assert isinstance(out, pd.DataFrame)
-        assertFrameEqual(out, df)
-
-
 class TestPlotterLabelInference(NoAuthTestCase):
     def test_infer_labels_predefined_title(self):
         g = graphistry.nodes(pd.DataFrame({"x": [1, 2], "y": [1, 2]})).bind(
@@ -309,6 +247,74 @@ class TestPlotterLabelInference(NoAuthTestCase):
             g.infer_labels()
 
 
+class TestPlotterPandasConversions(NoAuthTestCase):
+    def test_table_to_pandas_from_none(self):
+        plotter = graphistry.bind()
+        with pytest.warns(DeprecationWarning, match="_table_to_pandas"):
+            assert plotter._table_to_pandas(None) is None
+
+    def test_table_to_pandas_from_pandas(self):
+        plotter = graphistry.bind()
+        df = pd.DataFrame({"x": []})
+        with pytest.warns(DeprecationWarning, match="_table_to_pandas"):
+            assert isinstance(plotter._table_to_pandas(df), pd.DataFrame)
+
+    def test_table_to_pandas_from_arrow(self):
+        plotter = graphistry.bind()
+        df = pd.DataFrame({"x": []})
+        arr = pa.Table.from_pandas(df)
+        with pytest.warns(DeprecationWarning, match="_table_to_pandas"):
+            assert isinstance(plotter._table_to_pandas(arr), pd.DataFrame)
+
+    @pytest.mark.skipif(
+        not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
+        reason="cudf tests need TEST_CUDF=1",
+    )
+    def test_table_to_pandas_from_cudf(self):
+        import cudf
+
+        plotter = graphistry.bind()
+        df = pd.DataFrame({"x": [1, 2, 3]})
+        gdf = cudf.from_pandas(df)
+        with pytest.warns(DeprecationWarning, match="_table_to_pandas"):
+            out = plotter._table_to_pandas(gdf)
+        assert isinstance(out, pd.DataFrame)
+        assertFrameEqual(out, df)
+
+    @pytest.mark.skipif(
+        not ("TEST_DASK" in os.environ and os.environ["TEST_DASK"] == "1"),
+        reason="dask tests need TEST_DASK=1",
+    )
+    def test_table_to_pandas_from_dask(self):
+        import dask, dask.dataframe
+        from dask.distributed import Client
+
+        with Client(processes=True):
+            plotter = graphistry.bind()
+            df = pd.DataFrame({"x": [1, 2, 3]})
+            ddf = dask.dataframe.from_pandas(df, npartitions=2)
+            with pytest.warns(DeprecationWarning, match="_table_to_pandas"):
+                out = plotter._table_to_pandas(ddf)
+            assert isinstance(out, pd.DataFrame)
+            assertFrameEqual(out, df)
+
+    @pytest.mark.skipif(
+        not ("TEST_DASK_CUDF" in os.environ and os.environ["TEST_DASK_CUDF"] == "1"),
+        reason="dask_cudf tests need TEST_DASK_CUDF=1",
+    )
+    def test_table_to_pandas_from_dask_cudf(self):
+        import cudf, dask_cudf
+
+        plotter = graphistry.bind()
+        df = pd.DataFrame({"x": [1, 2, 3]})
+        gdf = cudf.from_pandas(df)
+        dgdf = dask_cudf.from_cudf(gdf, npartitions=2)
+        with pytest.warns(DeprecationWarning, match="_table_to_pandas"):
+            out = plotter._table_to_pandas(dgdf)
+        assert isinstance(out, pd.DataFrame)
+        assertFrameEqual(out, df)
+
+
 class TestPlotterArrowConversions(NoAuthTestCase):
     @classmethod
     def setUpClass(cls):
@@ -331,6 +337,13 @@ class TestPlotterArrowConversions(NoAuthTestCase):
         df = pd.DataFrame({"x": []})
         arr = pa.Table.from_pandas(df)
         assert isinstance(plotter._table_to_arrow(arr), pa.Table)
+
+    def test_plot_dispatch_arrow_deprecated_shim(self):
+        g = graphistry.bind(source="s", destination="d")
+        edges = pd.DataFrame({"s": [0], "d": [1]})
+        with pytest.warns(DeprecationWarning, match="_plot_dispatch_arrow"):
+            uploader = g._plot_dispatch_arrow(edges, None, "n", "d")
+        assert isinstance(uploader.edges, pa.Table)
 
     def test_api3_plot_from_pandas(self):
         g = graphistry.edges(pd.DataFrame({"s": [0], "d": [0]})).bind(
@@ -447,6 +460,64 @@ class TestPlotterArrowConversions(NoAuthTestCase):
         with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
             arr = plotter._table_to_arrow(df, memoize=False, validate_mode='autofix')
         assert isinstance(arr, pa.Table)
+
+    def test_validate_autofix_preserves_nulls_when_coercing(self):
+        """pandas nullable string autofix keeps missing values as Arrow nulls."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'x': [1, 2, 3], 'mixed': [b'bytes', None, 1.5]})
+        with pytest.warns(RuntimeWarning, match='Coerced mixed-type columns'):
+            arr = plotter._table_to_arrow(df, memoize=False, validate_mode='autofix')
+
+        values = arr.column('mixed').to_pylist()
+        assert values[1] is None
+        assert isinstance(values[0], str)
+        assert isinstance(values[2], str)
+
+    def test_validate_autofix_only_coerces_bad_object_columns(self):
+        """autofix probes object columns and leaves Arrow-compatible object columns alone."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({
+            'ok_object': pd.Series(['a', 'b', None], dtype=object),
+            'mixed_scalar': pd.Series([b'bytes', 1.5, None], dtype=object),
+            'mixed_nested': pd.Series([{'x': 1}, ['y'], None], dtype=object),
+        })
+
+        fixed = plotter._coerce_mixed_type_columns(df, is_cudf=False, emit_warning=False)
+
+        assert fixed['ok_object'].dtype == object
+        if hasattr(pd, "StringDtype"):
+            assert isinstance(fixed['mixed_scalar'].dtype, pd.StringDtype)
+            assert isinstance(fixed['mixed_nested'].dtype, pd.StringDtype)
+            assert pd.isna(fixed['mixed_scalar'].iloc[2])
+        else:
+            assert fixed['mixed_scalar'].dtype == object
+
+    def test_validate_autofix_cudf_dtype_keeps_existing_string_path(self):
+        plotter = graphistry.bind()
+
+        assert plotter._mixed_type_string_dtype(is_cudf=True) is str
+
+    def test_validate_autofix_pandas_nullable_string_fallback(self):
+        """Older pandas-compatible fallback uses str if nullable string coercion fails."""
+        plotter = graphistry.bind()
+        df = pd.DataFrame({'mixed': [b'bytes', 1.5, None]})
+        original_astype = pd.DataFrame.astype
+        calls = []
+
+        def astype_with_nullable_failure(self, dtype, *args, **kwargs):
+            calls.append(dtype)
+            if len(calls) == 1:
+                raise TypeError("nullable string unavailable")
+            return original_astype(self, dtype, *args, **kwargs)
+
+        with patch.object(pd.DataFrame, "astype", astype_with_nullable_failure):
+            fixed = plotter._coerce_mixed_type_columns(df, is_cudf=False, emit_warning=False)
+
+        assert calls[0] == {'mixed': 'string'}
+        assert calls[1] == {'mixed': str}
+        values = fixed['mixed'].tolist()
+        assert values[:2] == ['bytes', '1.5']
+        assert values[2] == 'None' or pd.isna(values[2])
 
     def test_validate_strict_allows_clean_data(self):
         """strict mode allows clean data through."""
@@ -582,6 +653,29 @@ class TestPlotterArrowConversions(NoAuthTestCase):
                 pass
             encoding_warnings = [x for x in w if 'Encoding validation warning' in str(x.message)]
             assert len(encoding_warnings) == 0, f"Expected no warnings with warn=False, got: {encoding_warnings}"
+
+    def test_encoding_validation_rejects_label_complex_encoding(self):
+        from graphistry.validate.validate_encodings import validate_encodings
+
+        node_encodings = {
+            "bindings": {"node": "n"},
+            "complex": {"default": {"pointLabelEncoding": {
+                "graphType": "point",
+                "encodingType": "label",
+                "attribute": "role",
+                "variation": "categorical",
+                "mapping": {"categorical": {"fixed": {"admin": "Admin"}, "other": "Other"}},
+            }}},
+        }
+
+        with pytest.raises(ValueError) as exc_info:
+            validate_encodings(
+                node_encodings,
+                {"bindings": {"source": "s", "destination": "d"}},
+                node_attributes=["n", "role"],
+                edge_attributes=["s", "d"],
+            )
+        assert "Axis|Color|Icon|Opacity|Size|Weight|Kepler" in str(exc_info.value)
 
     @pytest.mark.skipif(
         not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
@@ -926,6 +1020,59 @@ class TestPlotterEncodings(NoAuthTestCase):
     def test_point_size(self):
         assert graphistry.bind().encode_point_size("z")._point_size == "z"
 
+    def test_encode_parity_methods(self):
+        numeric_cases = [
+            ("encode_edge_size", "_edge_size", "edge_encodings", "edgeSizeEncoding", "size", 10, 1),
+            ("encode_edge_weight", "_edge_weight", "edge_encodings", "edgeWeightEncoding", "weight", 0.8, 0.1),
+            ("encode_point_opacity", "_point_opacity", "node_encodings", "pointOpacityEncoding", "opacity", 0.8, 0.1),
+            ("encode_edge_opacity", "_edge_opacity", "edge_encodings", "edgeOpacityEncoding", "opacity", 0.8, 0.1),
+        ]
+        for method, bound_attr, scope, encoding_key, encoding_type, mapping_value, default_value in numeric_cases:
+            assert getattr(graphistry.bind(), method)("z").__dict__[bound_attr] == "z"
+
+            encoded = getattr(graphistry.bind(), method)(
+                "z",
+                categorical_mapping={"admin": mapping_value},
+                default_mapping=default_value,
+            )
+            assert encoded._complex_encodings[scope]["default"][encoding_key] == {
+                "graphType": "point" if scope == "node_encodings" else "edge",
+                "encodingType": encoding_type,
+                "attribute": "z",
+                "variation": "categorical",
+                "mapping": {"categorical": {"fixed": {"admin": mapping_value}, "other": default_value}},
+            }
+
+        text_cases = [
+            ("encode_point_label", "_point_label"),
+            ("encode_edge_label", "_edge_label"),
+            ("encode_point_title", "_point_title"),
+            ("encode_edge_title", "_edge_title"),
+        ]
+        for method, bound_attr in text_cases:
+            encoded = getattr(graphistry.bind(), method)("z")
+            assert encoded.__dict__[bound_attr] == "z"
+            assert encoded._complex_encodings == {
+                "node_encodings": {"default": {}, "current": {}},
+                "edge_encodings": {"default": {}, "current": {}},
+            }
+            with pytest.raises(ValueError) as exc_info:
+                getattr(graphistry.bind(), method)(
+                    "z",
+                    categorical_mapping={"admin": "Admin"},
+                    default_mapping="Other",
+                )
+            assert str(exc_info.value) == (
+                f"{method} supports raw column binding only; "
+                "categorical_mapping/default_mapping would create label/title complex encodings "
+                "that Graphistry upload rejects"
+            )
+
+    def test_module_encode_parity_methods(self):
+        encoded = graphistry.encode_edge_size("z", categorical_mapping={"admin": 10}, default_mapping=1)
+        assert encoded._complex_encodings["edge_encodings"]["default"]["edgeSizeEncoding"]["attribute"] == "z"
+        assert graphistry.encode_point_label("z")._point_label == "z"
+
     def test_point_icon(self):
         assert graphistry.bind().encode_point_icon("z")._point_icon == "z"
 
@@ -978,16 +1125,32 @@ class TestPlotterEncodings(NoAuthTestCase):
             "encodePointColor": ["kind", "categorical", {"primary": "red"}],
             "encodePointIcons": ["kind", {"primary": "server"}],
             "encodePointSize": ["bucket", {"small": 5, "large": 30}, 1],
+            "encodeEdgeWeight": ["weight_bucket", {"critical": 5}, 1],
+            "encodePointLabel": ["role"],
             "encodeAxis": [{"r": 200, "label": "outer", "external": True}],
         })
 
         node_default = g2._complex_encodings["node_encodings"]["default"]
+        edge_default = g2._complex_encodings["edge_encodings"]["default"]
         assert node_default["pointColorEncoding"]["attribute"] == "kind"
         assert node_default["pointColorEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "red"
         assert node_default["pointIconEncoding"]["mapping"]["categorical"]["fixed"]["primary"] == "server"
         assert node_default["pointSizeEncoding"]["mapping"]["categorical"]["fixed"]["small"] == 5
         assert node_default["pointSizeEncoding"]["mapping"]["categorical"]["other"] == 1
+        assert g2._point_label == "role"
+        assert edge_default["edgeWeightEncoding"]["mapping"]["categorical"]["fixed"]["critical"] == 5
         assert node_default["pointAxisEncoding"]["rows"][0]["label"] == "outer"
+
+    def test_apply_encodings_rejects_text_mappings(self):
+        with pytest.raises(ValueError) as exc_info:
+            graphistry.bind().apply_encodings({
+                "encodePointLabel": ["role", {"admin": "Admin"}, "Other"],
+            })
+        assert str(exc_info.value) == (
+            "{'message': 'React text binding payload supports only [column]; "
+            "label/title categorical mappings are not supported', "
+            "'data': {'key': 'encodePointLabel', 'len': 3}}"
+        )
 
     def test_apply_encodings_autofix_continues(self):
         g2 = graphistry.bind().apply_encodings(
@@ -1005,6 +1168,26 @@ class TestPlotterEncodings(NoAuthTestCase):
     def test_apply_encodings_strict_rejects_unsupported_react_key(self):
         with pytest.raises(ValueError):
             graphistry.bind().apply_encodings({"showInfo": True}, validate="strict")
+
+    def test_apply_encodings_strict_rejects_bad_mapping_payloads(self):
+        cases = [
+            ([], "React mapping encoding payload must include at least"),
+            (["bucket", {"small": 5}, 1, "extra"], "React mapping encoding payload supports at most 3 elements"),
+            (["bucket", ["small", 5]], "React mapping payload mapping must be a dict"),
+        ]
+        for payload, message in cases:
+            with pytest.raises(ValueError, match=message):
+                graphistry.bind().apply_encodings({"encodeEdgeSize": payload}, validate="strict")
+
+    def test_apply_encodings_strict_rejects_bad_text_payloads(self):
+        cases = [
+            ([], "React text binding payload must include"),
+            (["role", {"admin": "Admin"}], "React text binding payload supports only"),
+            (["role", ["admin", "Admin"]], "React text binding payload supports only"),
+        ]
+        for payload, message in cases:
+            with pytest.raises(ValueError, match=message):
+                graphistry.bind().apply_encodings({"encodePointLabel": payload}, validate="strict")
 
     def test_apply_encodings_module_export(self):
         g2 = graphistry.apply_encodings({"encodePointColor": ["kind", {"primary": "red"}]})

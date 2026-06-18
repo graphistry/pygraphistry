@@ -7,26 +7,16 @@ from typing import Optional, cast
 
 from graphistry.compute.gfql.temporal import constructors as _tt
 from graphistry.compute.gfql.expr_parser import (
-    BinaryOp,
-    CaseWhen,
     ExprNode,
     FunctionCall,
-    Identifier,
-    IsNullOp,
-    ListComprehension,
-    ListLiteral,
     Literal,
-    MapLiteral,
-    QuantifierExpr,
-    SliceExpr,
-    SubscriptExpr,
-    UnaryOp,
-    Wildcard,
+    _rebuild_expr_node,
 )
 from graphistry.compute.gfql.temporal.durations import _fold_duration_function_call
 from graphistry.compute.gfql.temporal.rendering import _render_temporal_arg
 from graphistry.compute.gfql.temporal.truncation import _fold_temporal_truncate_call
 from graphistry.compute.gfql.temporal.values import _format_localdatetime_parts
+
 
 def _fold_datetime_epoch_function_call(
     fn_name: str,
@@ -88,18 +78,6 @@ def fold_temporal_constructor_ast(node: ExprNode) -> ExprNode:
     current_dt = py_datetime.now().astimezone()
 
     def _fold(inner: ExprNode) -> ExprNode:
-        if isinstance(inner, (Identifier, Literal, Wildcard)):
-            return inner
-        if isinstance(inner, UnaryOp):
-            return UnaryOp(inner.op, _fold(inner.operand))
-        if isinstance(inner, BinaryOp):
-            return BinaryOp(
-                inner.op,
-                _fold(inner.left),
-                _fold(inner.right),
-            )
-        if isinstance(inner, IsNullOp):
-            return IsNullOp(_fold(inner.value), negated=inner.negated)
         if isinstance(inner, FunctionCall):
             args = tuple(_fold(arg) for arg in inner.args)
             rewritten = FunctionCall(inner.name, args, distinct=inner.distinct)
@@ -162,41 +140,6 @@ def fold_temporal_constructor_ast(node: ExprNode) -> ExprNode:
                 if folded is not None:
                     return folded
             return rewritten
-        if isinstance(inner, CaseWhen):
-            return CaseWhen(
-                _fold(inner.condition),
-                _fold(inner.when_true),
-                _fold(inner.when_false),
-            )
-        if isinstance(inner, QuantifierExpr):
-            return QuantifierExpr(
-                inner.fn,
-                inner.var,
-                _fold(inner.source),
-                _fold(inner.predicate),
-            )
-        if isinstance(inner, ListComprehension):
-            return ListComprehension(
-                inner.var,
-                _fold(inner.source),
-                predicate=None if inner.predicate is None else _fold(inner.predicate),
-                projection=None if inner.projection is None else _fold(inner.projection),
-            )
-        if isinstance(inner, ListLiteral):
-            return ListLiteral(tuple(_fold(item) for item in inner.items))
-        if isinstance(inner, MapLiteral):
-            return MapLiteral(tuple((key, _fold(value)) for key, value in inner.items))
-        if isinstance(inner, SubscriptExpr):
-            return SubscriptExpr(
-                _fold(inner.value),
-                _fold(inner.key),
-            )
-        if isinstance(inner, SliceExpr):
-            return SliceExpr(
-                _fold(inner.value),
-                None if inner.start is None else _fold(inner.start),
-                None if inner.stop is None else _fold(inner.stop),
-            )
-        return inner
+        return _rebuild_expr_node(inner, rewrite=_fold, error_context="temporal constructor folding")
 
     return _fold(node)

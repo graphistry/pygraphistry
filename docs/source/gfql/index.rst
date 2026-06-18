@@ -63,6 +63,7 @@ See also:
    builtin_calls
    policy
    strict_mode
+   schema
    wire_protocol_examples
 
 .. toctree::

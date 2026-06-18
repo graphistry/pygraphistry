@@ -77,71 +77,34 @@ def _hops(result, src, tgt):
 # ---------------------------------------------------------------------------
 
 class TestIgraphShortestPathDistances:
-
-    def test_direct_edge(self):
-        sp = _step_pairs([1, 2], [2, 3])
-        result = igraph_shortest_path_distances(sp, [1], [2], max_hops=None, directed=False)
-        assert _hops(result, 1, 2) == 1
-
-    def test_two_hops(self):
-        sp = _step_pairs([1, 2], [2, 3])
-        result = igraph_shortest_path_distances(sp, [1], [3], max_hops=None, directed=False)
-        assert _hops(result, 1, 3) == 2
-
-    def test_disconnected_returns_none(self):
-        sp = _step_pairs([1], [2])
-        result = igraph_shortest_path_distances(sp, [1], [3], max_hops=None, directed=False)
-        assert _hops(result, 1, 3) is None
-
-    def test_self_zero_hops(self):
-        # min_hops=0: trivial 0-hop self-distance is valid
-        sp = _step_pairs([1], [2])
-        result = igraph_shortest_path_distances(sp, [1], [1], min_hops=0, max_hops=None, directed=False)
-        assert _hops(result, 1, 1) == 0
-
-    def test_self_zero_hops_suppressed_when_min_hops_1(self):
-        # min_hops=1 (default): trivial 0-hop self-distance suppressed; no self-loop → None
-        sp = _step_pairs([1], [2])
-        result = igraph_shortest_path_distances(sp, [1], [1], min_hops=1, max_hops=None, directed=False)
-        assert _hops(result, 1, 1) is None
-
-    def test_self_loop_returns_1_when_min_hops_1(self):
-        # self-loop edge exists; min_hops=1 should return 1 (via the loop edge)
-        sp = _step_pairs([1, 1], [2, 1])  # edge 1→1 is the self-loop
-        result = igraph_shortest_path_distances(sp, [1], [1], min_hops=1, max_hops=None, directed=False)
-        assert _hops(result, 1, 1) == 1
-
-    def test_max_hops_truncates(self):
-        # 1—2—3: distance 2; max_hops=1 should return None
-        sp = _step_pairs([1, 2], [2, 3])
-        result = igraph_shortest_path_distances(sp, [1], [3], max_hops=1, directed=False)
-        assert _hops(result, 1, 3) is None
-
-    def test_directed_one_way(self):
-        # Edge 1→2 only; reverse lookup should be unreachable when directed
-        sp = _step_pairs([1], [2])
-        undirected = igraph_shortest_path_distances(sp, [2], [1], max_hops=None, directed=False)
-        directed = igraph_shortest_path_distances(sp, [2], [1], max_hops=None, directed=True)
-        assert _hops(undirected, 2, 1) == 1
-        assert _hops(directed, 2, 1) is None
-
-    def test_multi_row_batched(self):
-        # Triangle 1—2—3—1 (undirected)
-        sp = _step_pairs([1, 2, 3], [2, 3, 1])
-        result = igraph_shortest_path_distances(sp, [1, 1, 2], [2, 3, 3], max_hops=None, directed=False)
-        assert _hops(result, 1, 2) == 1
-        assert _hops(result, 1, 3) == 1  # direct via 3→1 undirected
-        assert _hops(result, 2, 3) == 1
-
-    def test_unknown_source_returns_none(self):
-        sp = _step_pairs([1], [2])
-        result = igraph_shortest_path_distances(sp, [99], [2], max_hops=None, directed=False)
-        assert _hops(result, 99, 2) is None
-
-    def test_unknown_target_returns_none(self):
-        sp = _step_pairs([1], [2])
-        result = igraph_shortest_path_distances(sp, [1], [99], max_hops=None, directed=False)
-        assert _hops(result, 1, 99) is None
+    @pytest.mark.parametrize(
+        ("frm", "to", "sources", "targets", "kwargs", "expected"),
+        [
+            ([1, 2], [2, 3], [1], [2], {"directed": False}, {(1, 2): 1}),
+            ([1, 2], [2, 3], [1], [3], {"directed": False}, {(1, 3): 2}),
+            ([1], [2], [1], [3], {"directed": False}, {(1, 3): None}),
+            ([1], [2], [1], [1], {"min_hops": 0, "directed": False}, {(1, 1): 0}),
+            ([1], [2], [1], [1], {"min_hops": 1, "directed": False}, {(1, 1): None}),
+            ([1, 1], [2, 1], [1], [1], {"min_hops": 1, "directed": False}, {(1, 1): 1}),
+            ([1, 2], [2, 3], [1], [3], {"max_hops": 1, "directed": False}, {(1, 3): None}),
+            ([1], [2], [2], [1], {"directed": False}, {(2, 1): 1}),
+            ([1], [2], [2], [1], {"directed": True}, {(2, 1): None}),
+            ([1, 2, 3], [2, 3, 1], [1, 1, 2], [2, 3, 3], {"directed": False}, {(1, 2): 1, (1, 3): 1, (2, 3): 1}),
+            ([1], [2], [99], [2], {"directed": False}, {(99, 2): None}),
+            ([1], [2], [1], [99], {"directed": False}, {(1, 99): None}),
+        ],
+    )
+    def test_distance_cases(self, frm, to, sources, targets, kwargs, expected):
+        call_kwargs = dict(kwargs)
+        result = igraph_shortest_path_distances(
+            _step_pairs(frm, to),
+            sources,
+            targets,
+            max_hops=call_kwargs.pop("max_hops", None),
+            **call_kwargs,
+        )
+        for (src, tgt), hops in expected.items():
+            assert _hops(result, src, tgt) == hops
 
     def test_result_schema(self):
         sp = _step_pairs([1], [2])

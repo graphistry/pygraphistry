@@ -1,12 +1,12 @@
 from functools import lru_cache
 from typing import Dict, List
 import logging
+import warnings
 import pandas as pd
 
 from common import NoAuthTestCase
 import pytest
 from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, is_in, join_apply, rows, select
-from graphistry.compute.chain import _inject_binding_ops_if_needed
 from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.tests.test_compute import CGFull
 from graphistry.tests.test_compute_hops import hops_graph
@@ -144,6 +144,27 @@ class TestComputeChainMixin(NoAuthTestCase):
         assert sorted(g2._edges[ g2._edges.e2 ][g2._source].to_list()) == ["g", "l"]
         assert sorted(g2._edges[ g2._edges.e2 ][g2._destination].to_list()) == ["a", "b"]
         assert sorted(g2._nodes[ g2._nodes.n2 ][g2._node].to_list()) == ["a", "b"]
+
+    def test_chain_named_tags_no_fillna_futurewarning(self):
+        g = hops_graph()
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", FutureWarning)
+            g2 = g.gfql([
+                n({g._node: "e"}, name="n1"),
+                e_forward({}, hops=1),
+                e_forward({}, hops=1, name="e2"),
+                n(name="n2"),
+            ])
+
+        downcast_warnings = [
+            warning for warning in caught
+            if "Downcasting object dtype arrays on .fillna" in str(warning.message)
+        ]
+        assert downcast_warnings == []
+        assert g2._nodes[g2._nodes.n1][g2._node].to_list() == ["e"]
+        assert sorted(g2._edges[g2._edges.e2][g2._source].to_list()) == ["g", "l"]
+        assert sorted(g2._nodes[g2._nodes.n2][g2._node].to_list()) == ["a", "b"]
 
     def test_chain_predicate_is_in(self):
         g = hops_graph()
@@ -2202,29 +2223,3 @@ class TestChainBindingsTable(NoAuthTestCase):
             {"lt": False},
             {"lt": True},
         ]
-
-    def test_inject_binding_ops_skips_existing_alias_endpoints(self):
-        """Injection helper should not override explicit alias_endpoints rows()."""
-        middle = [n(name="x"), e_forward(), n(name="y")]
-        suffix = [rows(alias_endpoints={"x": "src", "y": "dst"})]
-        out = _inject_binding_ops_if_needed(middle, suffix)
-        assert out == suffix
-        assert out[0].params["alias_endpoints"] == {"x": "src", "y": "dst"}
-        assert "binding_ops" not in out[0].params
-
-    def test_inject_binding_ops_skips_existing_binding_ops(self):
-        """Injection helper should preserve an explicitly provided binding_ops payload."""
-        middle = [n(name="x"), e_forward(), n(name="y")]
-        existing = [n(name="seed").to_json(validate=False)]
-        suffix = [rows(binding_ops=existing)]
-        out = _inject_binding_ops_if_needed(middle, suffix)
-        assert out == suffix
-        assert out[0].params["binding_ops"] == existing
-
-    def test_inject_binding_ops_skips_non_traversal_middle(self):
-        """Injection helper should not serialize non-node/edge middle operations."""
-        middle = [n(name="x"), select([("xid", "x.id")]), n(name="y")]
-        suffix = [rows()]
-        out = _inject_binding_ops_if_needed(middle, suffix)
-        assert out == suffix
-        assert "binding_ops" not in out[0].params

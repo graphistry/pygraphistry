@@ -4,7 +4,7 @@ import ast as pyast
 from dataclasses import dataclass, replace
 from functools import lru_cache
 import re
-from typing import Any, List, Literal, Optional, Protocol, Sequence, Tuple, Type, Union, cast
+from typing import Any, Callable, List, Literal, Optional, Protocol, Sequence, Tuple, Type, Union, cast
 
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.cypher.ast import (
@@ -599,10 +599,22 @@ def _build_transformer(source: str) -> _TransformerLike:
         ">=": ">=",
     }
 
+    def _relationship_rule(direction: str, *, simple: bool = False) -> Callable[[Any, Any, Sequence[Any]], RelationshipPattern]:
+        def _rule(self: Any, meta: Any, items: Sequence[Any]) -> RelationshipPattern:
+            return self._relationship(meta, () if simple else items, direction=direction)
+        return _rule
+
     @v_args(meta=True)  # type: ignore[misc]
     class _CypherAstBuilder(Transformer):  # type: ignore[valid-type,misc]
         def _slice(self, span: SourceSpan) -> str:
             return source[span.start_pos:span.end_pos]
+
+        def _expression_slice(self, meta: Any, _items: Sequence[Any]) -> _ExpressionSlice:
+            span = _span_from_meta(meta)
+            return _ExpressionSlice(text=self._slice(span).strip(), span=span)
+
+        def _string_tuple(self, _meta: Any, items: Sequence[Any]) -> Tuple[str, ...]:
+            return tuple(str(item) for item in items)
 
         def variable(self, meta: Any, items: Sequence[Any]) -> str:
             if len(items) != 1:
@@ -614,11 +626,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("Invalid node label", line=meta.line, column=meta.column)
             return str(items[0])
 
-        def labels(self, _meta: Any, items: Sequence[Any]) -> Tuple[str, ...]:
-            return tuple(str(item) for item in items)
-
-        def rel_types(self, _meta: Any, items: Sequence[Any]) -> Tuple[str, ...]:
-            return tuple(str(item) for item in items)
+        labels = rel_types = _string_tuple
 
         def parameter(self, meta: Any, items: Sequence[Any]) -> ParameterRef:
             if len(items) != 1:
@@ -773,43 +781,19 @@ def _build_transformer(source: str) -> _TransformerLike:
         def rel_range_open_max(self, meta: Any, items: Sequence[Any]) -> dict[str, Any]:
             if len(items) != 1:
                 raise _to_syntax_error("Invalid relationship range", line=meta.line, column=meta.column)
-            try:
-                value = int(str(items[0]))
-            except Exception as exc:
-                raise _to_syntax_error("Invalid relationship range bound", line=meta.line, column=meta.column) from exc
-            if value < 0:
-                raise _to_unsupported(
-                    "Cypher negative-hop relationship ranges are not supported",
-                    line=meta.line,
-                    column=meta.column,
-                    field="match",
-                    value=self._slice(_span_from_meta(meta)),
-                )
+            value = self._rel_hops(meta, items[0])
             return {"min_hops": value, "max_hops": None, "to_fixed_point": True}
 
         def rel_range_fixed(self, meta: Any, _items: Sequence[Any]) -> dict[str, Any]:
             return {"min_hops": None, "max_hops": None, "to_fixed_point": True}
 
-        def rel_forward(self, meta: Any, items: Sequence[Any]) -> RelationshipPattern:
-            return self._relationship(meta, items, direction="forward")
-
-        def rel_reverse(self, meta: Any, items: Sequence[Any]) -> RelationshipPattern:
-            return self._relationship(meta, items, direction="reverse")
-
-        def rel_undirected(self, meta: Any, items: Sequence[Any]) -> RelationshipPattern:
-            return self._relationship(meta, items, direction="undirected")
-
-        def rel_forward_simple(self, meta: Any, _items: Sequence[Any]) -> RelationshipPattern:
-            return self._relationship(meta, (), direction="forward")
-
-        def rel_reverse_simple(self, meta: Any, _items: Sequence[Any]) -> RelationshipPattern:
-            return self._relationship(meta, (), direction="reverse")
-
-        def rel_undirected_simple(self, meta: Any, _items: Sequence[Any]) -> RelationshipPattern:
-            return self._relationship(meta, (), direction="undirected")
-
-        def rel_bidirectional_simple(self, meta: Any, _items: Sequence[Any]) -> RelationshipPattern:
-            return self._relationship(meta, (), direction="undirected")
+        rel_forward = _relationship_rule("forward")
+        rel_reverse = _relationship_rule("reverse")
+        rel_undirected = _relationship_rule("undirected")
+        rel_forward_simple = _relationship_rule("forward", simple=True)
+        rel_reverse_simple = _relationship_rule("reverse", simple=True)
+        rel_undirected_simple = _relationship_rule("undirected", simple=True)
+        rel_bidirectional_simple = _relationship_rule("undirected", simple=True)
 
         def relationship_pattern(self, meta: Any, items: Sequence[Any]) -> RelationshipPattern:
             if len(items) != 1 or not isinstance(items[0], RelationshipPattern):
@@ -880,21 +864,7 @@ def _build_transformer(source: str) -> _TransformerLike:
         def distinct(self, _meta: Any, _items: Sequence[Any]) -> bool:
             return True
 
-        def qualified_name(self, meta: Any, _items: Sequence[Any]) -> _ExpressionSlice:
-            span = _span_from_meta(meta)
-            return _ExpressionSlice(text=self._slice(span).strip(), span=span)
-
-        def return_expr(self, meta: Any, _items: Sequence[Any]) -> _ExpressionSlice:
-            span = _span_from_meta(meta)
-            return _ExpressionSlice(text=self._slice(span).strip(), span=span)
-
-        def order_expr(self, meta: Any, _items: Sequence[Any]) -> _ExpressionSlice:
-            span = _span_from_meta(meta)
-            return _ExpressionSlice(text=self._slice(span).strip(), span=span)
-
-        def unwind_expr(self, meta: Any, _items: Sequence[Any]) -> _ExpressionSlice:
-            span = _span_from_meta(meta)
-            return _ExpressionSlice(text=self._slice(span).strip(), span=span)
+        qualified_name = return_expr = order_expr = unwind_expr = _expression_slice
 
         def property_ref(self, meta: Any, items: Sequence[Any]) -> PropertyRef:
             if len(items) != 2:
@@ -922,55 +892,39 @@ def _build_transformer(source: str) -> _TransformerLike:
                 span=_span_from_meta(meta),
             )
 
-        def is_null_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
-            if len(items) != 1:
-                raise _to_syntax_error("Invalid WHERE IS NULL predicate", line=meta.line, column=meta.column)
+        def _where_predicate(
+            self,
+            meta: Any,
+            items: Sequence[Any],
+            *,
+            op: str,
+            message: str,
+            rhs: bool = False,
+        ) -> WherePredicate:
+            expected = 2 if rhs else 1
+            if len(items) != expected:
+                raise _to_syntax_error(message, line=meta.line, column=meta.column)
             return WherePredicate(
                 left=cast(PropertyRef, items[0]),
-                op="is_null",
-                right=None,
+                op=cast(Any, op),
+                right=cast(Any, items[1]) if rhs else None,
                 span=_span_from_meta(meta),
             )
+
+        def is_null_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
+            return self._where_predicate(meta, items, op="is_null", message="Invalid WHERE IS NULL predicate")
 
         def is_not_null_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
-            if len(items) != 1:
-                raise _to_syntax_error("Invalid WHERE IS NOT NULL predicate", line=meta.line, column=meta.column)
-            return WherePredicate(
-                left=cast(PropertyRef, items[0]),
-                op="is_not_null",
-                right=None,
-                span=_span_from_meta(meta),
-            )
+            return self._where_predicate(meta, items, op="is_not_null", message="Invalid WHERE IS NOT NULL predicate")
 
         def contains_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
-            if len(items) != 2:
-                raise _to_syntax_error("Invalid WHERE CONTAINS predicate", line=meta.line, column=meta.column)
-            return WherePredicate(
-                left=cast(PropertyRef, items[0]),
-                op="contains",
-                right=cast(Any, items[1]),
-                span=_span_from_meta(meta),
-            )
+            return self._where_predicate(meta, items, op="contains", message="Invalid WHERE CONTAINS predicate", rhs=True)
 
         def starts_with_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
-            if len(items) != 2:
-                raise _to_syntax_error("Invalid WHERE STARTS WITH predicate", line=meta.line, column=meta.column)
-            return WherePredicate(
-                left=cast(PropertyRef, items[0]),
-                op="starts_with",
-                right=cast(Any, items[1]),
-                span=_span_from_meta(meta),
-            )
+            return self._where_predicate(meta, items, op="starts_with", message="Invalid WHERE STARTS WITH predicate", rhs=True)
 
         def ends_with_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
-            if len(items) != 2:
-                raise _to_syntax_error("Invalid WHERE ENDS WITH predicate", line=meta.line, column=meta.column)
-            return WherePredicate(
-                left=cast(PropertyRef, items[0]),
-                op="ends_with",
-                right=cast(Any, items[1]),
-                span=_span_from_meta(meta),
-            )
+            return self._where_predicate(meta, items, op="ends_with", message="Invalid WHERE ENDS WITH predicate", rhs=True)
 
         def has_labels_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
             if len(items) != 2:
@@ -1226,9 +1180,7 @@ def _build_transformer(source: str) -> _TransformerLike:
                 span=_span_from_meta(meta),
             )
 
-        def call_arg(self, meta: Any, _items: Sequence[Any]) -> _ExpressionSlice:
-            span = _span_from_meta(meta)
-            return _ExpressionSlice(text=self._slice(span).strip(), span=span)
+        call_arg = _expression_slice
 
         def call_args(self, _meta: Any, items: Sequence[Any]) -> Tuple[_ExpressionSlice, ...]:
             return tuple(cast(_ExpressionSlice, item) for item in items)
@@ -1302,14 +1254,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             span = _span_from_meta(meta)
             return _ExpressionSlice(text=self._slice(span), span=span)
 
-        def bare_label_predicate(self, meta: Any, items: Sequence[Any]) -> _ExpressionSlice:
-            if len(items) != 2:
-                raise _to_syntax_error("Invalid label predicate expression", line=meta.line, column=meta.column)
-            labels = cast(Sequence[str], items[1])
-            if len(labels) == 0:
-                raise _to_syntax_error("Label predicate must reference at least one label", line=meta.line, column=meta.column)
-            span = _span_from_meta(meta)
-            return _ExpressionSlice(text=self._slice(span), span=span)
+        bare_label_predicate = grouped_label_predicate
 
         def _projection_clause(
             self,
@@ -1371,23 +1316,17 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("ORDER BY clause cannot be empty", line=meta.line, column=meta.column)
             return OrderByClause(items=order_items, span=_span_from_meta(meta))
 
-        def skip_clause(self, meta: Any, items: Sequence[Any]) -> SkipClause:
+        def _page_clause(self, meta: Any, items: Sequence[Any], *, keyword: str, clause_type: Type[Any]) -> Any:
             if len(items) != 1:
-                raise _to_syntax_error("Invalid SKIP clause", line=meta.line, column=meta.column)
+                raise _to_syntax_error(f"Invalid {keyword} clause", line=meta.line, column=meta.column)
             span = _span_from_meta(meta)
-            return SkipClause(
-                value=ExpressionText(text=self._slice(span)[len("SKIP"):].strip(), span=span),
-                span=span,
-            )
+            return clause_type(value=ExpressionText(text=self._slice(span)[len(keyword):].strip(), span=span), span=span)
+
+        def skip_clause(self, meta: Any, items: Sequence[Any]) -> SkipClause:
+            return cast(SkipClause, self._page_clause(meta, items, keyword="SKIP", clause_type=SkipClause))
 
         def limit_clause(self, meta: Any, items: Sequence[Any]) -> LimitClause:
-            if len(items) != 1:
-                raise _to_syntax_error("Invalid LIMIT clause", line=meta.line, column=meta.column)
-            span = _span_from_meta(meta)
-            return LimitClause(
-                value=ExpressionText(text=self._slice(span)[len("LIMIT"):].strip(), span=span),
-                span=span,
-            )
+            return cast(LimitClause, self._page_clause(meta, items, keyword="LIMIT", clause_type=LimitClause))
 
         def _projection_stage(self, meta: Any, items: Sequence[Any], *, expected_kind: str) -> ProjectionStage:
             clause: Optional[ReturnClause] = None
@@ -1660,14 +1599,10 @@ def _build_transformer(source: str) -> _TransformerLike:
                 use=use_clause_node,
             )
 
-        def union_all(self, meta: Any, _items: Sequence[Any]) -> str:
-            if meta.empty:
-                return "all"
+        def union_all(self, _meta: Any, _items: Sequence[Any]) -> str:
             return "all"
 
-        def union_distinct(self, meta: Any, _items: Sequence[Any]) -> str:
-            if meta.empty:
-                return "distinct"
+        def union_distinct(self, _meta: Any, _items: Sequence[Any]) -> str:
             return "distinct"
 
         def union_query(self, meta: Any, items: Sequence[Any]) -> Union[CypherQuery, CypherUnionQuery]:
@@ -1688,28 +1623,11 @@ def _build_transformer(source: str) -> _TransformerLike:
             if len(branches) == 1:
                 branch = branches[0]
                 if trailing_semicolon and not branch.trailing_semicolon:
-                    return CypherQuery(
-                        matches=branch.matches,
-                        where=branch.where,
-                        call=branch.call,
-                        unwinds=branch.unwinds,
-                        with_stages=branch.with_stages,
-                        return_=branch.return_,
-                        order_by=branch.order_by,
-                        skip=branch.skip,
-                        limit=branch.limit,
-                        row_sequence=branch.row_sequence,
-                        trailing_semicolon=True,
-                        span=branch.span,
-                        reentry_matches=branch.reentry_matches,
-                        reentry_wheres=branch.reentry_wheres,
-                        reentry_unwinds=branch.reentry_unwinds,
-                    )
+                    return replace(branch, trailing_semicolon=True)
                 return branch
             if len(union_kinds) != len(branches) - 1:
                 raise _to_syntax_error("Invalid UNION query", line=meta.line, column=meta.column)
-            union_kind_set = set(union_kinds)
-            if len(union_kind_set) != 1:
+            if len(set(union_kinds)) != 1:
                 raise _to_syntax_error(
                     "Mixing UNION and UNION ALL is not supported in the current GFQL Cypher compiler",
                     line=meta.line,
@@ -1819,35 +1737,14 @@ def _build_transformer(source: str) -> _TransformerLike:
                     "Graph query must contain a query body after graph bindings",
                     line=meta.line, column=meta.column,
                 )
-            if not bindings and not isinstance(query, CypherUnionQuery):
-                # Check for USE in the query body (already parsed as part of query_item)
+            if not bindings:
                 return query
-            if bindings:
-                if isinstance(query, CypherUnionQuery):
-                    raise _to_unsupported(
-                        "GRAPH bindings with UNION queries are not yet supported",
-                        line=meta.line, column=meta.column,
-                    )
-                return CypherQuery(
-                    matches=query.matches,
-                    where=query.where,
-                    call=query.call,
-                    unwinds=query.unwinds,
-                    with_stages=query.with_stages,
-                    return_=query.return_,
-                    order_by=query.order_by,
-                    skip=query.skip,
-                    limit=query.limit,
-                    row_sequence=query.row_sequence,
-                    trailing_semicolon=query.trailing_semicolon,
-                    span=query.span,
-                    reentry_matches=query.reentry_matches,
-                    reentry_wheres=query.reentry_wheres,
-                    reentry_unwinds=query.reentry_unwinds,
-                    graph_bindings=tuple(bindings),
-                    use=query.use,
+            if isinstance(query, CypherUnionQuery):
+                raise _to_unsupported(
+                    "GRAPH bindings with UNION queries are not yet supported",
+                    line=meta.line, column=meta.column,
                 )
-            return query
+            return replace(query, graph_bindings=tuple(bindings))
 
         def graph_query_standalone(
             self, meta: Any, items: Sequence[Any]
@@ -1992,11 +1889,7 @@ def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery, CypherGraph
 
 def _validate_graph_bindings(node: Union[CypherQuery, CypherGraphQuery]) -> None:
     """Validate graph binding names: no duplicates, no forward/circular refs."""
-    if isinstance(node, CypherGraphQuery):
-        bindings = node.graph_bindings
-    else:
-        bindings = node.graph_bindings
-
+    bindings = node.graph_bindings
     seen: dict[str, GraphBinding] = {}
     for binding in bindings:
         lower_name = binding.name.lower()

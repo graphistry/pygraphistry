@@ -1,14 +1,4 @@
-"""Carry-column / prefix-order helpers for bounded reentry compilation.
-
-Decides which prefix WITH outputs survive into the trailing MATCH as carried
-scalar columns and validates that the prefix's ordering is reentry-safe.
-
-Extracted from ``cypher.lowering`` (#1295, #1260 S2). The heavy
-``_compile_bounded_reentry_query`` orchestrator that consumes these helpers
-intentionally stays in ``lowering.py`` for this slice — it shares heavy edit
-surface with the sibling #1294 cleanup (PR #1297). A follow-on slice can move
-the orchestrator once #1297 has landed.
-"""
+"""Carry-column and prefix-order helpers for bounded reentry compilation."""
 from __future__ import annotations
 
 import re
@@ -42,15 +32,7 @@ def _bounded_reentry_carry_columns(
     prefix_stage: ProjectionStage,
     reentry_alias_hint: Optional[str] = None,
 ) -> Tuple[str, Tuple[str, ...], Tuple[str, ...]]:
-    """Return (reentry_alias, carried_scalar_columns, non_source_alias_names).
-
-    Today's caller continues to consume the first two fields. The third lists
-    other whole-row aliases the prefix carries that aren't the trailing-MATCH
-    source — those are recorded on the ``ReentryPlan`` for future use and
-    drive a compile-time failfast if any of them are referenced downstream
-    (carrying non-source whole-row aliases through reentry is the slice
-    handled by `#989` follow-up work).
-    """
+    """Return (reentry_alias, carried_scalar_columns, non_source_alias_names)."""
     from graphistry.compute.gfql.cypher import lowering as _lowering
 
     whole_row_columns = tuple(

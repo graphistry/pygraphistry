@@ -238,13 +238,13 @@ class DFSamePathExecutor:
         with otel_span("gfql.df_executor.compute_allowed_tags"):
             allowed_tags = self._compute_allowed_tags()
         with otel_span("gfql.df_executor.backward_prune"):
-            state = self._backward_prune(allowed_tags)
+            state = backward_prune(self, allowed_tags)
         with otel_span("gfql.df_executor.post_prune.non_adjacent"):
             state = apply_non_adjacent_where_post_prune(self, state)
         with otel_span("gfql.df_executor.post_prune.edge_where"):
             state = apply_edge_where_post_prune(self, state)
         with otel_span("gfql.df_executor.materialize"):
-            return self._materialize_filtered(state)
+            return materialize_filtered(self, state)
 
     _run_gpu = _run_native
 
@@ -292,14 +292,8 @@ class DFSamePathExecutor:
             out[alias] = series_values(frame[id_col])
         return out
 
-    def _backward_prune(self, allowed_tags: Dict[str, Any]) -> PathState:
-        return backward_prune(self, allowed_tags)
-
     def backward_propagate_constraints(self, state: PathState, start_node_idx: int, end_node_idx: int) -> PathState:
         return backward_propagate_constraints(self, state, start_node_idx, end_node_idx)
-
-    def _materialize_filtered(self, state: PathState) -> Plottable:
-        return materialize_filtered(self, state)
 
     @staticmethod
     def _resolve_label_cols(op: ASTEdge) -> Tuple[Optional[str], Optional[str]]:

@@ -6,7 +6,7 @@ after parameter validation.
 
 import threading
 import time
-from typing import Dict, Any, cast, Optional, TYPE_CHECKING, Callable, Tuple
+from typing import Dict, Any, cast, Optional, TYPE_CHECKING, Tuple
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine
 from graphistry.compute.gfql.call.validation import validate_call_params
@@ -18,6 +18,7 @@ from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 from graphistry.compute.engine_coercion import ensure_engine_match
 from graphistry.compute.gfql.policy import PolicyContext, PolicyException
 from graphistry.compute.gfql.policy.stats import extract_graph_stats
+from graphistry.compute.gfql.schema_effects import apply_call_schema_effect
 
 if TYPE_CHECKING:
     from graphistry.compute.execution_context import ExecutionContext
@@ -37,34 +38,54 @@ def _is_plottable_like(obj: object) -> bool:
     return all(hasattr(obj, attr) for attr in ("_nodes", "_edges", "bind"))
 
 
+def _run_policy_hook(handler: Any, policy_context: 'PolicyContext', data_size: Optional['GraphStats']) -> Optional[PolicyException]:
+    try:
+        handler(policy_context)
+    except PolicyException as e:
+        if e.query_type is None:
+            e.query_type = 'call'
+        if e.data_size is None:
+            e.data_size = data_size
+        return e
+    return None
+
+
+def _execute_validated_call(g: Plottable, function: str, validated_params: Dict[str, Any]) -> Any:
+    if is_row_pipeline_call(function):
+        return execute_row_pipeline_call(g, function, validated_params)
+
+    if not hasattr(g, function):
+        raise AttributeError(
+            f"Plottable has no method '{function}'. "
+            f"This should not happen if safelist is properly configured."
+        )
+
+    method = getattr(g, function)
+    return method(**validated_params)
+
+
+def _postcall_graph_and_stats(
+    g: Plottable,
+    result: Any,
+    success: bool
+) -> Tuple[Plottable, Optional['GraphStats']]:
+    if success and _is_plottable_like(result):
+        graph_for_stats = cast(Plottable, result)
+        return graph_for_stats, extract_graph_stats(graph_for_stats)
+    if success:
+        return g, None
+    return g, extract_graph_stats(g)
+
+
 def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: Engine, policy=None, context: Optional['ExecutionContext'] = None) -> Plottable:
-    """Execute a validated method call on a Plottable.
-
-    Args:
-        g: The graph to call the method on
-        function: Name of the method to call
-        params: Parameters for the method (will be validated)
-        engine: Execution engine
-        policy: Optional policy dict, or will use thread-local if available
-        context: Optional ExecutionContext for tracking execution state
-
-    Returns:
-        Result of the method call (usually a new Plottable)
-
-    Raises:
-        GFQLTypeError: If validation fails or method doesn't exist
-        AttributeError: If method doesn't exist on Plottable
-    """
-    # Create context if not provided
+    """Execute a validated method call on a Plottable."""
     if context is None:
         from graphistry.compute.execution_context import ExecutionContext
         context = ExecutionContext()
 
-    # Get policy from thread-local if not passed
     if policy is None:
         policy = getattr(_thread_local, 'policy', None)
 
-    # Precall policy phase - before executing call operation
     final_params = params
 
     if policy and 'precall' in policy:
@@ -89,19 +110,10 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
             '_policy_depth': 0
         }
 
-        try:
-            # Policy can only accept (None) or deny (exception)
-            policy['precall'](policy_context)
+        policy_error = _run_policy_hook(policy['precall'], policy_context, stats)
+        if policy_error is not None:
+            raise policy_error
 
-        except PolicyException as e:
-            # Enrich exception with context if not already set
-            if e.query_type is None:
-                e.query_type = 'call'
-            if e.data_size is None:
-                e.data_size = stats
-            raise
-
-    # Initialize variables for finally block
     result = None
     error = None
     success = False
@@ -110,37 +122,15 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
     validated_params = None
     hypergraph_returns_dataframe = False
 
-    # Push execution depth and operation path for call execution
-    # This moves from current depth to depth+1 (e.g., binding -> call, or let -> call)
     context.push_depth()
     context.push_path(f"call:{function}")
 
     try:
-        # Validate parameters against safelist (inside try block so postcall fires on validation errors)
         validated_params = validate_call_params(function, final_params)
-        params_for_return = validated_params if validated_params is not None else final_params
         if function == 'hypergraph':
-            hypergraph_returns_dataframe = params_for_return.get('return_as', 'graph') != 'graph'
+            hypergraph_returns_dataframe = validated_params.get('return_as', 'graph') != 'graph'
 
-        if is_row_pipeline_call(function):
-            # Route GFQL row-pipeline calls via dedicated adapter to avoid
-            # widening core Plottable/ComputeMixin inheritance.
-            result = execute_row_pipeline_call(g, function, validated_params)
-        else:
-            # Check if method exists on Plottable
-            if not hasattr(g, function):
-                raise AttributeError(
-                    f"Plottable has no method '{function}'. "
-                    f"This should not happen if safelist is properly configured."
-                )
-
-            # Get the method
-            method = getattr(g, function)
-
-            # Execute the method with validated parameters
-            result = method(**validated_params)
-
-        # Calculate execution time
+        result = _execute_validated_call(g, function, validated_params)
         execution_time = time.perf_counter() - start_time
 
         # Ensure result is a Plottable (most methods return self or new Plottable)
@@ -158,42 +148,22 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         # Schema-changing operations (UMAP, hypergraph) may alter DataFrame types
         if _is_plottable_like(result):
             result = ensure_engine_match(cast(Plottable, result), engine)
+            result = apply_call_schema_effect(g, cast(Plottable, result), function, validated_params)
 
-        # Mark as successful
         success = True
 
     except Exception as e:
-        # Calculate execution time even on error
         execution_time = time.perf_counter() - start_time
-
-        # Capture error for postcall hook
         error = e
-        # Don't re-raise yet - let finally block run first
 
     finally:
-        # Pop execution depth and operation path before firing postcall hook
         context.pop_depth()
         context.pop_path()
 
         # Postcall policy phase - ALWAYS fires (even on error)
         policy_error = None
         if policy and 'postcall' in policy:
-            result_stats: Optional['GraphStats'] = None
-
-            # Extract stats from result (if success) or input graph (if error)
-            # IMPORTANT: hypergraph can return DataFrame when return_as != 'graph'
-            # We must check isinstance BEFORE using the result to avoid triggering DataFrame.style (requires Jinja2)
-            if success and _is_plottable_like(result):
-                graph_for_stats = cast(Plottable, result)
-                result_stats = extract_graph_stats(graph_for_stats)
-            elif success:
-                # Result is not a Plottable (e.g., DataFrame from hypergraph) - use input graph for stats
-                graph_for_stats = g
-                result_stats = None  # Can't extract stats from DataFrame
-            else:
-                # Error case - use input graph
-                graph_for_stats = g
-                result_stats = extract_graph_stats(graph_for_stats)
+            graph_for_stats, result_stats = _postcall_graph_and_stats(g, result, success)
 
             current_path = context.operation_path
             postcall_context: 'PolicyContext' = {
@@ -218,47 +188,29 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
                 postcall_context['error'] = str(error)  # type: ignore
                 postcall_context['error_type'] = type(error).__name__  # type: ignore
 
-            try:
-                # Policy can only accept (None) or deny (exception)
-                policy['postcall'](postcall_context)
+            policy_error = _run_policy_hook(policy['postcall'], postcall_context, result_stats)
 
-            except PolicyException as e:
-                # Enrich exception with context if not already set
-                if e.query_type is None:
-                    e.query_type = 'call'
-                if e.data_size is None:
-                    e.data_size = result_stats
-                # Capture policy error instead of raising immediately
-                policy_error = e
-
-    # After finally block, decide which error to raise
-    # Priority: PolicyException > operation error
     if policy_error is not None:
-        # Policy denied - chain from operation error if one exists
         if error is not None:
             raise policy_error from error
-        else:
-            raise policy_error
-    elif error is not None:
-        # Wrap the error with context
-        if isinstance(error, TypeError):
-            raise GFQLTypeError(
-                ErrorCode.E201,
-                f"Parameter error calling '{function}': {str(error)}",
-                field="params",
-                value=validated_params if validated_params is not None else params,
-                suggestion="Check parameter names and types"
-            ) from error
-        elif isinstance(error, GFQLTypeError):
-            # Already a GFQLTypeError (e.g., from validation), just re-raise
-            raise error
-        else:
-            raise GFQLTypeError(
-                ErrorCode.E303,
-                f"Error executing '{function}': {str(error)}",
-                field="function",
-                value=function
-            ) from error
+        raise policy_error
+    if isinstance(error, TypeError):
+        raise GFQLTypeError(
+            ErrorCode.E201,
+            f"Parameter error calling '{function}': {str(error)}",
+            field="params",
+            value=validated_params if validated_params is not None else params,
+            suggestion="Check parameter names and types"
+        ) from error
+    if isinstance(error, GFQLTypeError):
+        raise error
+    if error is not None:
+        raise GFQLTypeError(
+            ErrorCode.E303,
+            f"Error executing '{function}': {str(error)}",
+            field="function",
+            value=function
+        ) from error
 
     # Cast: At this point, all error paths have been handled, so result is guaranteed to be a Plottable
     return cast(Plottable, result)

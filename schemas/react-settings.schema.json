@@ -1,0 +1,224 @@
+{
+  "$defs": {
+    "settingsValue": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/settingsValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/settingsValue"
+          },
+          "type": "object"
+        }
+      ],
+      "description": "Structural JSON value accepted by settings validators. Deeper semantics remain in pygraphistry validators."
+    }
+  },
+  "$id": "https://schemas.graphistry.com/pygraphistry/graphistry-react-settings.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Structural contract for React-facing visualization settings. Semantic validation remains in pygraphistry validators.",
+  "properties": {
+    "axes": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "backgroundColor": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "controls": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "dissuadeHubs": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "edgeCurvature": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "edgeInfluence": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "edgeOpacity": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "encodeAxis": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "encodeEdgeColor": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "encodeEdgeIcons": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "encodePointColor": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "encodePointIcons": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "encodePointSize": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "exclusions": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "filters": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "gravity": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "iframeStyle": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "labelBackground": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "labelColor": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "labelOpacity": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "linLog": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "lockedR": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "lockedX": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "lockedY": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "neighborhoodHighlight": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "neighborhoodHighlightHops": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "play": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "pointOpacity": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "pointSize": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "pointsOfInterestMax": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "precisionVsSpeed": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "pruneOrphans": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "scalingRatio": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showArrows": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showHistograms": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showInfo": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showInspector": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showLabelActions": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showLabelInspector": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showLabelOnHover": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showLabelPropertiesOnHover": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showLabels": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showMenu": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showPointsOfInterest": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showPointsOfInterestLabel": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showSplashScreen": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showTimebars": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "showToolbar": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "strongGravity": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "ticks": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "type": {
+      "$ref": "#/$defs/settingsValue"
+    },
+    "workbook": {
+      "$ref": "#/$defs/settingsValue"
+    }
+  },
+  "title": "Graphistry React Settings",
+  "type": "object",
+  "x-graphistry": {
+    "apply_encodings_react_keys": [
+      "encodePointColor",
+      "encodeEdgeColor",
+      "encodePointSize",
+      "encodeEdgeSize",
+      "encodeEdgeWeight",
+      "encodePointOpacity",
+      "encodeEdgeOpacity",
+      "encodePointLabel",
+      "encodeEdgeLabel",
+      "encodePointTitle",
+      "encodeEdgeTitle",
+      "encodePointIcons",
+      "encodePointIcon",
+      "encodeEdgeIcons",
+      "encodeEdgeIcon",
+      "encodeAxis"
+    ],
+    "graphistry_frontend_contract_signature": "40b317d4c0bf81249b32d4943ae29a710101525200d50acd6a22c62316004b76",
+    "graphistry_frontend_contract_version": 1,
+    "graphistry_frontend_upstream_versions": {
+      "graphistry_js_client_api": null,
+      "graphistry_js_client_api_react": null,
+      "graphistry_server": null
+    }
+  }
+}

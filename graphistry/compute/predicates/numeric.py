@@ -1,4 +1,5 @@
-from typing import Any, Union
+import operator
+from typing import Any, ClassVar, Union, cast
 import pandas as pd
 
 from .ASTPredicate import ASTPredicate
@@ -6,8 +7,13 @@ from graphistry.compute.typing import SeriesT
 
 
 class NumericASTPredicate(ASTPredicate):
+    op: ClassVar[Any]
+
     def __init__(self, val: Union[int, float]) -> None:
         self.val = val
+
+    def __call__(self, s: SeriesT) -> SeriesT:
+        return cast(SeriesT, type(self).op(s, self.val))
 
     def _validate_fields(self) -> None:
         """Validate predicate fields."""
@@ -24,11 +30,7 @@ class NumericASTPredicate(ASTPredicate):
 ###
 
 class GT(NumericASTPredicate):
-    def __init__(self, val: float) -> None:
-        self.val = val
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s > self.val
+    op = staticmethod(operator.gt)
 
 def gt(val: float) -> GT:
     """
@@ -37,11 +39,7 @@ def gt(val: float) -> GT:
     return GT(val)
 
 class LT(NumericASTPredicate):
-    def __init__(self, val: float) -> None:
-        self.val = val
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s < self.val
+    op = staticmethod(operator.lt)
 
 def lt(val: float) -> LT:
     """
@@ -50,11 +48,7 @@ def lt(val: float) -> LT:
     return LT(val)
 
 class GE(NumericASTPredicate):
-    def __init__(self, val: float) -> None:
-        self.val = val
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s >= self.val
+    op = staticmethod(operator.ge)
 
 def ge(val: float) -> GE:
     """
@@ -63,11 +57,7 @@ def ge(val: float) -> GE:
     return GE(val)
 
 class LE(NumericASTPredicate):
-    def __init__(self, val: float) -> None:
-        self.val = val
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s <= self.val
+    op = staticmethod(operator.le)
 
 def le(val: float) -> LE:
     """
@@ -76,11 +66,7 @@ def le(val: float) -> LE:
     return LE(val)
 
 class EQ(NumericASTPredicate):
-    def __init__(self, val: float) -> None:
-        self.val = val
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s == self.val
+    op = staticmethod(operator.eq)
 
 def eq(val: float) -> EQ:
     """
@@ -89,11 +75,7 @@ def eq(val: float) -> EQ:
     return EQ(val)
 
 class NE(NumericASTPredicate):
-    def __init__(self, val: float) -> None:
-        self.val = val
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        return s != self.val
+    op = staticmethod(operator.ne)
 
 def ne(val: float) -> NE:
     """

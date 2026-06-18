@@ -1,4 +1,4 @@
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 import re
 
 import pandas as pd
@@ -193,7 +193,7 @@ def never_match() -> NeverMatch:
     return NeverMatch()
 
 
-class Startswith(ASTPredicate):
+class _BoundaryStringPredicate(ASTPredicate):
     def __init__(
         self,
         pat: Union[str, tuple],
@@ -205,12 +205,16 @@ class Startswith(ASTPredicate):
         self.case = case
         self.na = na
 
+    def _match_boundary(self, s: SeriesT, pat: Union[str, tuple]) -> SeriesT:
+        raise NotImplementedError
+
     def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
         # workaround: pandas and cuDF don't support 'case' parameter
         # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
         # cudf.core.accessors.string.stringmethods.startswith/
         # https://pandas.pydata.org/pandas-docs/stable/reference/api/
         # pandas.Series.str.startswith.html
+        # pandas.Series.str.endswith.html
 
         # Handle tuple patterns
         # Workaround for cuDF bug: docs claim tuple support but implementation fails
@@ -219,7 +223,7 @@ class Startswith(ASTPredicate):
             # pandas supports tuples natively (OR logic), cuDF doesn't
             if not is_cudf and self.case:
                 # Use pandas native tuple support for case-sensitive
-                return s.str.startswith(self.pat)
+                return self._match_boundary(s, self.pat)
             if not is_cudf and not self.case:
                 # pandas tuple with case-insensitive - need workaround
                 if len(self.pat) == 0:
@@ -227,7 +231,7 @@ class Startswith(ASTPredicate):
                 s_lower = s.str.lower()
                 patterns_lower = tuple(p.lower() for p in self.pat)
                 # Use pandas native tuple support on lowercased data
-                return s_lower.str.startswith(patterns_lower)
+                return self._match_boundary(s_lower, patterns_lower)
 
             # cuDF - need manual OR logic (workaround for bug #20237)
             if len(self.pat) == 0:
@@ -241,19 +245,19 @@ class Startswith(ASTPredicate):
                 s_modified = s
                 patterns = list(self.pat)
             # Start with first pattern
-            result = s_modified.str.startswith(patterns[0])
+            result = self._match_boundary(s_modified, patterns[0])
             # OR with remaining patterns
             for pat in patterns[1:]:
-                result = result | s_modified.str.startswith(pat)
+                result = result | self._match_boundary(s_modified, pat)
             return result
 
         if not self.case:
             # Use str.lower() workaround for case-insensitive matching
             s_modified = s.str.lower()
             pat_modified = self.pat.lower()
-            return s_modified.str.startswith(pat_modified)
+            return self._match_boundary(s_modified, pat_modified)
 
-        return s.str.startswith(self.pat)
+        return self._match_boundary(s, self.pat)
 
     def __call__(self, s: SeriesT) -> SeriesT:
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
@@ -300,6 +304,11 @@ class Startswith(ASTPredicate):
                 field="na",
                 value=type(self.na).__name__
             )
+
+
+class Startswith(_BoundaryStringPredicate):
+    def _match_boundary(self, s: SeriesT, pat: Union[str, tuple]) -> SeriesT:
+        return s.str.startswith(pat)
 
 
 def startswith(
@@ -326,114 +335,9 @@ def startswith(
     return Startswith(pat, case, na)
 
 
-class Endswith(ASTPredicate):
-    def __init__(
-        self,
-        pat: Union[str, tuple],
-        case: bool = True,
-        na: Optional[bool] = None
-    ) -> None:
-        # Convert list to tuple for JSON deserialization compatibility
-        self.pat = tuple(pat) if isinstance(pat, list) else pat
-        self.case = case
-        self.na = na
-
-    def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
-        # workaround: pandas and cuDF don't support 'case' parameter
-        # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
-        # cudf.core.accessors.string.stringmethods.endswith/
-        # https://pandas.pydata.org/pandas-docs/stable/reference/api/
-        # pandas.Series.str.endswith.html
-
-        # Handle tuple patterns
-        # Workaround for cuDF bug: docs claim tuple support but implementation fails
-        # See: https://github.com/rapidsai/cudf/issues/20237
-        if isinstance(self.pat, tuple):
-            # pandas supports tuples natively (OR logic), cuDF doesn't
-            if not is_cudf and self.case:
-                # Use pandas native tuple support for case-sensitive
-                return s.str.endswith(self.pat)
-            if not is_cudf and not self.case:
-                # pandas tuple with case-insensitive - need workaround
-                if len(self.pat) == 0:
-                    # Create False for all values - scalar broadcast, not Python list
-                    return pd.Series(False, index=s.index)
-                s_lower = s.str.lower()
-                patterns_lower = tuple(p.lower() for p in self.pat)
-                # Use pandas native tuple support on lowercased data
-                return s_lower.str.endswith(patterns_lower)
-
-            # cuDF - need manual OR logic (workaround for bug #20237)
-            if len(self.pat) == 0:
-                import cudf
-                # Create False for all values - scalar broadcast, not Python list
-                return cudf.Series(False, index=s.index)
-            if not self.case:
-                s_modified = s.str.lower()
-                patterns = [p.lower() for p in self.pat]
-            else:
-                s_modified = s
-                patterns = list(self.pat)
-            # Start with first pattern
-            result = s_modified.str.endswith(patterns[0])
-            # OR with remaining patterns
-            for pat in patterns[1:]:
-                result = result | s_modified.str.endswith(pat)
-            return result
-
-        if not self.case:
-            # Use str.lower() workaround for case-insensitive matching
-            s_modified = s.str.lower()
-            pat_modified = self.pat.lower()
-            return s_modified.str.endswith(pat_modified)
-
-        return s.str.endswith(self.pat)
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
-        result = self._compute_result(s, is_cudf)
-        if is_cudf:
-            return _cudf_handle_na(result, s, self.na)
-        return _pandas_handle_na(result, s, self.na)
-
-    def _validate_fields(self) -> None:
-        """Validate predicate fields."""
-        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
-
-        if not isinstance(self.pat, (str, tuple)):
-            raise GFQLTypeError(
-                ErrorCode.E201,
-                "pat must be string or tuple of strings",
-                field="pat",
-                value=type(self.pat).__name__
-            )
-
-        # If tuple, validate all elements are strings
-        if isinstance(self.pat, tuple):
-            for i, p in enumerate(self.pat):
-                if not isinstance(p, str):
-                    raise GFQLTypeError(
-                        ErrorCode.E201,
-                        f"pat tuple element {i} must be string",
-                        field="pat",
-                        value=type(p).__name__
-                    )
-
-        if not isinstance(self.case, bool):
-            raise GFQLTypeError(
-                ErrorCode.E201,
-                "case must be boolean",
-                field="case",
-                value=type(self.case).__name__
-            )
-
-        if not isinstance(self.na, (bool, type(None))):
-            raise GFQLTypeError(
-                ErrorCode.E201,
-                "na must be boolean or None",
-                field="na",
-                value=type(self.na).__name__
-            )
+class Endswith(_BoundaryStringPredicate):
+    def _match_boundary(self, s: SeriesT, pat: Union[str, tuple]) -> SeriesT:
+        return s.str.endswith(pat)
 
 
 def endswith(
@@ -460,7 +364,7 @@ def endswith(
     return Endswith(pat, case, na)
 
 
-class Match(ASTPredicate):
+class _RegexStringPredicate(ASTPredicate):
     def __init__(
         self,
         pat: str,
@@ -474,26 +378,7 @@ class Match(ASTPredicate):
         self.na = na
 
     def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
-        # workaround cuDF not supporting 'case' and 'na' parameters
-        # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
-        # cudf.core.accessors.string.stringmethods.match/
-        if is_cudf:
-            if not self.case:
-                s_modified = s.str.lower()
-                pat_modified = (
-                    self.pat.lower()
-                    if isinstance(self.pat, str)
-                    else self.pat
-                )
-                return s_modified.str.match(pat_modified, flags=self.flags)
-            return s.str.match(self.pat, flags=self.flags)
-
-        effective_flags = self.flags
-        if not self.case:
-            effective_flags |= re.IGNORECASE
-        if effective_flags:
-            return s.str.match(self.pat, flags=effective_flags)
-        return s.str.match(self.pat)
+        raise NotImplementedError
 
     def __call__(self, s: SeriesT) -> SeriesT:
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
@@ -539,6 +424,30 @@ class Match(ASTPredicate):
             )
 
 
+class Match(_RegexStringPredicate):
+    def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
+        # workaround cuDF not supporting 'case' and 'na' parameters
+        # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
+        # cudf.core.accessors.string.stringmethods.match/
+        if is_cudf:
+            if not self.case:
+                s_modified = s.str.lower()
+                pat_modified = (
+                    self.pat.lower()
+                    if isinstance(self.pat, str)
+                    else self.pat
+                )
+                return s_modified.str.match(pat_modified, flags=self.flags)
+            return s.str.match(self.pat, flags=self.flags)
+
+        effective_flags = self.flags
+        if not self.case:
+            effective_flags |= re.IGNORECASE
+        if effective_flags:
+            return s.str.match(self.pat, flags=effective_flags)
+        return s.str.match(self.pat)
+
+
 def match(
     pat: str,
     case: bool = True,
@@ -551,19 +460,7 @@ def match(
     return Match(pat, case, flags, na)
 
 
-class Fullmatch(ASTPredicate):
-    def __init__(
-        self,
-        pat: str,
-        case: bool = True,
-        flags: int = 0,
-        na: Optional[bool] = None
-    ) -> None:
-        self.pat = pat
-        self.case = case
-        self.flags = flags
-        self.na = na
-
+class Fullmatch(_RegexStringPredicate):
     def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
         if is_cudf:
             # cuDF doesn't have fullmatch, use match() with anchors as
@@ -587,49 +484,6 @@ class Fullmatch(ASTPredicate):
         if effective_flags:
             return s.str.fullmatch(self.pat, flags=effective_flags)
         return s.str.fullmatch(self.pat)
-
-    def __call__(self, s: SeriesT) -> SeriesT:
-        is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
-        result = self._compute_result(s, is_cudf)
-        if is_cudf:
-            return _cudf_handle_na(result, s, self.na)
-        return _pandas_handle_na(result, s, self.na)
-
-    def _validate_fields(self) -> None:
-        """Validate predicate fields."""
-        from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
-
-        if not isinstance(self.pat, str):
-            raise GFQLTypeError(
-                ErrorCode.E201,
-                "pat must be string",
-                field="pat",
-                value=type(self.pat).__name__
-            )
-
-        if not isinstance(self.case, bool):
-            raise GFQLTypeError(
-                ErrorCode.E201,
-                "case must be boolean",
-                field="case",
-                value=type(self.case).__name__
-            )
-
-        if not isinstance(self.flags, int):
-            raise GFQLTypeError(
-                ErrorCode.E201,
-                "flags must be integer",
-                field="flags",
-                value=type(self.flags).__name__
-            )
-
-        if not isinstance(self.na, (bool, type(None))):
-            raise GFQLTypeError(
-                ErrorCode.E201,
-                "na must be boolean or None",
-                field="na",
-                value=type(self.na).__name__
-            )
 
 
 def fullmatch(
@@ -668,9 +522,18 @@ def fullmatch(
     return Fullmatch(pat, case, flags, na)
 
 
-class IsNumeric(ASTPredicate):
+class _CallablePredicate(ASTPredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
+        raise NotImplementedError()
 
     def __call__(self, s: SeriesT) -> SeriesT:
+        return cast(SeriesT, type(self).predicate(s))
+
+
+class IsNumeric(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.str.isnumeric()
 
 
@@ -681,9 +544,9 @@ def isnumeric() -> IsNumeric:
     return IsNumeric()
 
 
-class IsAlpha(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class IsAlpha(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.str.isalpha()
 
 
@@ -694,9 +557,9 @@ def isalpha() -> IsAlpha:
     return IsAlpha()
 
 
-class IsDigit(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class IsDigit(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.str.isdigit()
 
 
@@ -707,9 +570,9 @@ def isdigit() -> IsDigit:
     return IsDigit()
 
 
-class IsLower(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class IsLower(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.str.islower()
 
 
@@ -720,9 +583,9 @@ def islower() -> IsLower:
     return IsLower()
 
 
-class IsUpper(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class IsUpper(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.str.isupper()
 
 
@@ -733,9 +596,9 @@ def isupper() -> IsUpper:
     return IsUpper()
 
 
-class IsSpace(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class IsSpace(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.str.isspace()
 
 
@@ -746,9 +609,9 @@ def isspace() -> IsSpace:
     return IsSpace()
 
 
-class IsAlnum(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class IsAlnum(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.str.isalnum()
 
 
@@ -759,9 +622,9 @@ def isalnum() -> IsAlnum:
     return IsAlnum()
 
 
-class IsDecimal(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class IsDecimal(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.str.isdecimal()
 
 
@@ -772,9 +635,9 @@ def isdecimal() -> IsDecimal:
     return IsDecimal()
 
 
-class IsTitle(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class IsTitle(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.str.istitle()
 
 
@@ -785,9 +648,9 @@ def istitle() -> IsTitle:
     return IsTitle()
 
 
-class IsNull(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class IsNull(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.isnull()
 
 
@@ -798,9 +661,9 @@ def isnull() -> IsNull:
     return IsNull()
 
 
-class NotNull(ASTPredicate):
-
-    def __call__(self, s: SeriesT) -> SeriesT:
+class NotNull(_CallablePredicate):
+    @staticmethod
+    def predicate(s: Any) -> Any:
         return s.notnull()
 
 

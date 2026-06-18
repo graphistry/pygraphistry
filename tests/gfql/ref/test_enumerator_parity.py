@@ -544,7 +544,7 @@ class TestTrickyHopBounds:
         assert oracle.nodes.empty or len(oracle.nodes) == 0
         assert oracle.edges.empty or len(oracle.edges) == 0
 
-    def test_hop_label_uses_shortest_path_not_valid_path(self):
+    def test_hop_label_uses_shortest_retained_path(self):
         nodes = [{"id": x} for x in ["a", "b", "c", "d", "x"]]
         edges = [
             {"edge_id": "e1", "src": "a", "dst": "b"},
@@ -573,10 +573,9 @@ class TestTrickyHopBounds:
             if pd.notna(row["hop"])
         }
 
-        # d should have hop=2 (minimum distance via short path)
-        # even though only the 3-hop path satisfies min_hops
-        assert gfql_node_hops.get("d") == 2, (
-            f"Node d should have hop=2 (shortest path), got {gfql_node_hops.get('d')}"
+        # d should have hop=3 because the shorter 2-hop path is filtered by min_hops
+        assert gfql_node_hops.get("d") == 3, (
+            f"Node d should have hop=3 (shortest retained path), got {gfql_node_hops.get('d')}"
         )
 
         # x should NOT be in output (short path doesn't satisfy min_hops=3)
@@ -588,9 +587,9 @@ class TestTrickyHopBounds:
         oracle = enumerate_chain(g, ops, caps=OracleCaps(max_nodes=50, max_edges=50))
         oracle_node_hops = oracle.node_hop_labels or {}
 
-        # Oracle should also have d at hop=2
-        assert oracle_node_hops.get("d") == 2, (
-            f"Oracle: node d should have hop=2, got {oracle_node_hops.get('d')}"
+        # Oracle should also have d at hop=3
+        assert oracle_node_hops.get("d") == 3, (
+            f"Oracle: node d should have hop=3, got {oracle_node_hops.get('d')}"
         )
 
         # Oracle should also exclude x
@@ -666,9 +665,9 @@ class TestTrickyHopBounds:
             if pd.notna(row["hop"])
         }
 
-        # a should have hop=2 (via short reverse path d<-x<-a)
-        assert gfql_node_hops.get("a") == 2, (
-            f"Node a should have hop=2 (shortest reverse path), got {gfql_node_hops.get('a')}"
+        # a should have hop=3 because the shorter reverse path is filtered by min_hops
+        assert gfql_node_hops.get("a") == 3, (
+            f"Node a should have hop=3 (shortest retained reverse path), got {gfql_node_hops.get('a')}"
         )
 
         # x should NOT be in output (short path doesn't satisfy min_hops=3)
@@ -679,6 +678,6 @@ class TestTrickyHopBounds:
         # Verify oracle matches
         oracle = enumerate_chain(g, ops, caps=OracleCaps(max_nodes=50, max_edges=50))
         oracle_node_hops = oracle.node_hop_labels or {}
-        assert oracle_node_hops.get("a") == 2, (
-            f"Oracle: node a should have hop=2, got {oracle_node_hops.get('a')}"
+        assert oracle_node_hops.get("a") == 3, (
+            f"Oracle: node a should have hop=3, got {oracle_node_hops.get('a')}"
         )

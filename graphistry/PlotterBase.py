@@ -3,24 +3,30 @@ from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast, over
 from typing_extensions import Literal
 from graphistry.io.types import ComplexEncodingsDict
 from graphistry.models.collections import CollectionsInput
-from graphistry.models.types import ValidationMode, ValidationParam
+from graphistry.models.types import SchemaValidationMode, SchemaValidationParam, ValidationMode, ValidationParam
 from graphistry.models.surfaces.graphistry_frontend.react_settings import ApplyEncodingsReactSettingsDict
 from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 from graphistry.validate.validate_react_encodings import parse_apply_encodings_ops
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
-from graphistry.Engine import EngineAbstractType
-import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, requests, sys, uuid
-from functools import lru_cache
+from graphistry.Engine import Engine, EngineAbstractType, df_to_engine
+import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid, warnings
+from functools import lru_cache, partialmethod
 from weakref import WeakValueDictionary
 
 from graphistry.privacy import Privacy, Mode, ModeAction
-from graphistry.client_session import ClientSession, AuthManagerProtocol, DatasetInfo
+from graphistry.client_session import (
+    ClientSession,
+    AuthManagerProtocol,
+    DatasetInfo,
+    require_supported_api_version,
+)
 
 from .constants import SRC, DST, NODE
 from .plugins.igraph import to_igraph, from_igraph, compute_igraph, layout_igraph
 from .plugins.gexf import from_gexf, to_gexf
 from .plugins.graphviz import layout_graphviz, render_graphviz
+from .plugins.networkx import compute_networkx
 from graphistry.plugins_types.graphviz_types import (
     Format,
     Prog,
@@ -52,6 +58,36 @@ from .tigeristry import Tigeristry
 from .util import setup_logger
 logger = setup_logger(__name__)
 
+_MAPPED_PROPERTY_ENCODING_METHODS: Dict[str, Tuple[str, str, str]] = {
+    "encode_edge_size": ("edge", "size", "edgeSizeEncoding"),
+    "encode_edge_weight": ("edge", "weight", "edgeWeightEncoding"),
+    "encode_point_opacity": ("point", "opacity", "pointOpacityEncoding"),
+    "encode_edge_opacity": ("edge", "opacity", "edgeOpacityEncoding"),
+}
+_TEXT_BINDING_METHODS = {
+    "encode_point_label": "point_label",
+    "encode_edge_label": "edge_label",
+    "encode_point_title": "point_title",
+    "encode_edge_title": "edge_title",
+}
+_APPLY_MAPPED_PROPERTY_METHODS = {
+    "encodePointSize": "encode_point_size",
+    "encodeEdgeSize": "encode_edge_size",
+    "encodeEdgeWeight": "encode_edge_weight",
+    "encodePointOpacity": "encode_point_opacity",
+    "encodeEdgeOpacity": "encode_edge_opacity",
+}
+_APPLY_TEXT_METHODS = {
+    "encodePointLabel": "encode_point_label",
+    "encodeEdgeLabel": "encode_edge_label",
+    "encodePointTitle": "encode_point_title",
+    "encodeEdgeTitle": "encode_edge_title",
+}
+_TEXT_MAPPING_ERROR = (
+    "{method} supports raw column binding only; categorical_mapping/default_mapping would create "
+    "label/title complex encodings that Graphistry upload rejects"
+)
+
 
 def _upload_otel_attrs(
     self: Plottable,
@@ -59,12 +95,14 @@ def _upload_otel_attrs(
     erase_files_on_fail: bool = True,
     validate: ValidationParam = "autofix",
     warn: bool = True,
+    schema_validate: SchemaValidationParam = False,
 ) -> Dict[str, Any]:
     attrs: Dict[str, Any] = {"graphistry.memoize": memoize}
     if otel_detail_enabled():
         attrs["graphistry.validate"] = str(validate)
         attrs["graphistry.erase_files_on_fail"] = erase_files_on_fail
         attrs["graphistry.warn"] = warn
+        attrs["graphistry.schema_validate"] = str(schema_validate)
     return attrs
 
 
@@ -83,6 +121,7 @@ def _plot_otel_attrs(
     override_html_style: Optional[str] = None,
     validate: ValidationParam = "autofix",
     warn: bool = True,
+    schema_validate: SchemaValidationParam = False,
 ) -> Dict[str, Any]:
     attrs: Dict[str, Any] = {
         "graphistry.render": str(render),
@@ -94,6 +133,7 @@ def _plot_otel_attrs(
         attrs["graphistry.memoize"] = memoize
         attrs["graphistry.erase_files_on_fail"] = erase_files_on_fail
         attrs["graphistry.warn"] = warn
+        attrs["graphistry.schema_validate"] = str(schema_validate)
     return attrs
 
 
@@ -227,6 +267,7 @@ class PlotterBase(Plottable):
         self._point_y : Optional[str] = None
         self._point_longitude : Optional[str] = None
         self._point_latitude : Optional[str] = None
+        self._gfql_schema : Any = None
         # Settings
         self._height : int = 500
         self._render : RenderModesConcrete = resolve_render_mode(self, True)
@@ -528,7 +569,11 @@ class PlotterBase(Plottable):
 
         Supported keys:
         - ``encodePointColor`` / ``encodeEdgeColor``: ``[column, variation?, mapping_or_palette?]``
-        - ``encodePointSize``: ``[column, categorical_mapping?, default_mapping?]``
+        - ``encodePointSize`` / ``encodeEdgeSize`` / ``encodeEdgeWeight`` /
+          ``encodePointOpacity`` / ``encodeEdgeOpacity``:
+          ``[column, categorical_mapping?, default_mapping?]``
+        - ``encodePointLabel`` / ``encodeEdgeLabel`` / ``encodePointTitle`` /
+          ``encodeEdgeTitle``: ``[column]``
         - ``encodePointIcons`` / ``encodeEdgeIcons``: ``[column, categorical_mapping_or_bins?, default_mapping?]``
         - ``encodeAxis``: ``rows`` list accepted by :meth:`encode_axis`
         """
@@ -541,7 +586,7 @@ class PlotterBase(Plottable):
         for op in ops:
             if op["kind"] == "color":
                 column = op["column"]
-                method = out.encode_point_color if op["key"] == "encodePointColor" else out.encode_edge_color
+                color_method = out.encode_point_color if op["key"] == "encodePointColor" else out.encode_edge_color
                 color_kwargs: Dict[str, Any] = {}
                 if "categorical_mapping" in op:
                     color_kwargs["categorical_mapping"] = op["categorical_mapping"]
@@ -551,16 +596,27 @@ class PlotterBase(Plottable):
                         color_kwargs["as_continuous"] = True
                     else:
                         color_kwargs["as_categorical"] = True
-                out = method(column, **color_kwargs)
+                out = color_method(column, **color_kwargs)
                 continue
 
-            if op["kind"] == "size":
-                size_kwargs: Dict[str, Any] = {}
-                if "categorical_mapping" in op:
-                    size_kwargs["categorical_mapping"] = op["categorical_mapping"]
-                if "default_mapping" in op:
-                    size_kwargs["default_mapping"] = op["default_mapping"]
-                out = out.encode_point_size(op["column"], **size_kwargs)
+            if op["kind"] == "mapped_property":
+                mapping_op = cast(Dict[str, Any], op)
+                encoding_kwargs: Dict[str, Any] = {}
+                if "categorical_mapping" in mapping_op:
+                    encoding_kwargs["categorical_mapping"] = mapping_op["categorical_mapping"]
+                if "default_mapping" in mapping_op:
+                    encoding_kwargs["default_mapping"] = mapping_op["default_mapping"]
+                encoding_method = cast(
+                    Callable[..., Plottable],
+                    getattr(out, _APPLY_MAPPED_PROPERTY_METHODS[mapping_op["key"]]),
+                )
+                out = encoding_method(mapping_op["column"], **encoding_kwargs)
+                continue
+
+            if op["kind"] == "text":
+                text_op = cast(Dict[str, Any], op)
+                encoding_method = cast(Callable[..., Plottable], getattr(out, _APPLY_TEXT_METHODS[text_op["key"]]))
+                out = encoding_method(text_op["column"])
                 continue
 
             if op["kind"] == "icon":
@@ -575,7 +631,8 @@ class PlotterBase(Plottable):
                 out = icon_method(op["column"], **icon_kwargs)
                 continue
 
-            out = out.encode_axis(cast(List[Dict[Any, Any]], op["rows"]))
+            if op["kind"] == "axis":
+                out = out.encode_axis(cast(List[Dict[Any, Any]], op["rows"]))
         return out
 
 
@@ -739,6 +796,42 @@ class PlotterBase(Plottable):
         return self.__encode('point', 'size', 'pointSizeEncoding', column=column,
             categorical_mapping=categorical_mapping, default_mapping=default_mapping,
             for_default=for_default, for_current=for_current)
+
+    def _encode_mapped_property_method(
+        self,
+        method: str,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, Union[int, float]]] = None,
+        default_mapping: Optional[Union[int, float]] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> Plottable:
+        graph_type, encoding_type, encoding_key = _MAPPED_PROPERTY_ENCODING_METHODS[method]
+        return self.__encode(graph_type, encoding_type, encoding_key, column=column,
+            categorical_mapping=categorical_mapping, default_mapping=default_mapping,
+            for_default=for_default, for_current=for_current)
+
+    def _encode_text_binding_method(
+        self,
+        method: str,
+        column: str,
+        categorical_mapping: Optional[Dict[Any, str]] = None,
+        default_mapping: Optional[str] = None,
+        for_default: bool = True,
+        for_current: bool = False,
+    ) -> Plottable:
+        if categorical_mapping is not None or default_mapping is not None:
+            raise ValueError(_TEXT_MAPPING_ERROR.format(method=method))
+        return self.bind(**{_TEXT_BINDING_METHODS[method]: column})
+
+    encode_edge_size = partialmethod(_encode_mapped_property_method, "encode_edge_size")  # type: ignore[assignment]
+    encode_edge_weight = partialmethod(_encode_mapped_property_method, "encode_edge_weight")  # type: ignore[assignment]
+    encode_point_opacity = partialmethod(_encode_mapped_property_method, "encode_point_opacity")  # type: ignore[assignment]
+    encode_edge_opacity = partialmethod(_encode_mapped_property_method, "encode_edge_opacity")  # type: ignore[assignment]
+    encode_point_label = partialmethod(_encode_text_binding_method, "encode_point_label")  # type: ignore[assignment]
+    encode_edge_label = partialmethod(_encode_text_binding_method, "encode_edge_label")  # type: ignore[assignment]
+    encode_point_title = partialmethod(_encode_text_binding_method, "encode_point_title")  # type: ignore[assignment]
+    encode_edge_title = partialmethod(_encode_text_binding_method, "encode_edge_title")  # type: ignore[assignment]
 
 
     def encode_point_icon(
@@ -1529,6 +1622,7 @@ class PlotterBase(Plottable):
             url: Optional[str] = None,
             nodes_file_id: Optional[str] = None,
             edges_file_id: Optional[str] = None,
+            schema: Optional[Any] = None,
         ) -> Plottable:
         """Relate data attributes to graph structure and visual representation. To facilitate reuse and replayable notebooks, the binding call is chainable. Invocation does not effect the old binding: it instead returns a new Plotter instance with the new bindings added to the existing ones. Both the old and new bindings can then be used for different graphs.
 
@@ -1597,6 +1691,9 @@ class PlotterBase(Plottable):
 
         :param edges_file_id: Remote edges file id
         :type edges_file_id: Optional[str]
+
+        :param schema: Optional experimental public GFQL schema declaration from ``graphistry.schema``.
+        :type schema: Optional[Any]
 
         :returns: Plotter
         :rtype: Plotter
@@ -1677,6 +1774,7 @@ class PlotterBase(Plottable):
         res._url = url or self._url
         res._nodes_file_id = nodes_file_id or self._nodes_file_id
         res._edges_file_id = edges_file_id or self._edges_file_id
+        res._gfql_schema = schema if schema is not None else self._gfql_schema
 
         # Invalidate dataset_id if we're changing encodings, not setting IDs
         encoding_params_changed = any([
@@ -2203,7 +2301,8 @@ class PlotterBase(Plottable):
         memoize: bool = True,
         erase_files_on_fail: bool = True,
         validate: ValidationParam = 'autofix',
-        warn: bool = True
+        warn: bool = True,
+        schema_validate: SchemaValidationParam = False
     ) -> Plottable:
         """Upload data to the Graphistry server and return as a Plottable. Headless-centric variant of plot().
 
@@ -2224,6 +2323,11 @@ class PlotterBase(Plottable):
         :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix'). validate=False forces warn=False. Default True.
         :type warn: bool
 
+        :param schema_validate: Opt-in bound ``GraphSchema`` validation at the Arrow upload boundary.
+                                False disables schema enforcement. True/'strict' rejects missing or incompatible
+                                declared columns. 'autofix' casts compatible columns to declared Arrow types.
+        :type schema_validate: SchemaValidationParam
+
         **Example: Simple**
             ::
 
@@ -2241,7 +2345,8 @@ class PlotterBase(Plottable):
             memoize=memoize,
             erase_files_on_fail=erase_files_on_fail,
             validate=validate,
-            warn=warn
+            warn=warn,
+            schema_validate=schema_validate
         )
 
     @otel_traced("graphistry.plot", attrs_fn=_plot_otel_attrs)
@@ -2259,7 +2364,8 @@ class PlotterBase(Plottable):
         extra_html: str = "",
         override_html_style: Optional[str] = None,
         validate: ValidationParam = 'autofix',
-        warn: bool = True
+        warn: bool = True,
+        schema_validate: SchemaValidationParam = False
     ) -> Any:
         """Upload data to the Graphistry server and show as an iframe of it.
 
@@ -2307,6 +2413,11 @@ class PlotterBase(Plottable):
         :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix'). validate=False forces warn=False. Default True.
         :type warn: bool
 
+        :param schema_validate: Opt-in bound ``GraphSchema`` validation at the Arrow upload boundary.
+                                False disables schema enforcement. True/'strict' rejects missing or incompatible
+                                declared columns. 'autofix' casts compatible columns to declared Arrow types.
+        :type schema_validate: SchemaValidationParam
+
         **Example: Simple**
             ::
 
@@ -2328,6 +2439,7 @@ class PlotterBase(Plottable):
 
         """
         logger.debug("1. @PloatterBase plot: _pygraphistry.org_name: {}".format(self.session.org_name))
+        require_supported_api_version(self.session.api_version)
 
         # Normalize validate param for backward compatibility
         validate_mode: ValidationMode
@@ -2358,7 +2470,17 @@ class PlotterBase(Plottable):
         self._pygraphistry.refresh()
         logger.debug("4. @PloatterBase plot: self._pygraphistry.org_name: {}".format(self.session.org_name))
 
-        uploader = self._plot_dispatch_arrow(g, n, name, description, self._style, memoize, validate_mode, warn)
+        uploader = self._plot_dispatch(
+            g,
+            n,
+            name,
+            description,
+            self._style,
+            memoize,
+            validate_mode,
+            warn,
+            schema_validate,
+        )
         assert uploader is not None
         if skip_upload:
             return uploader
@@ -2657,6 +2779,8 @@ class PlotterBase(Plottable):
         return g.edges(e_df).nodes(n_df)
 
 
+    compute_networkx = compute_networkx
+
     from_cugraph = from_cugraph
     to_cugraph = to_cugraph
     compute_cugraph = compute_cugraph
@@ -2857,12 +2981,47 @@ class PlotterBase(Plottable):
             if b not in cols:
                 error('%s attribute "%s" bound to "%s" does not exist.' % (typ, a, b))
 
-    def _plot_dispatch_arrow(self, graph, nodes, name, description, metadata=None, memoize=True, validate_mode: ValidationMode = 'autofix', emit_warnings=True):
-        out = self._plot_dispatch(graph, nodes, name, description, 'arrow', metadata, memoize, validate_mode, emit_warnings)
-        assert isinstance(out, ArrowUploader)
-        return out
+    def _plot_dispatch_arrow(
+        self,
+        graph,
+        nodes,
+        name,
+        description,
+        metadata=None,
+        memoize=True,
+        validate_mode: ValidationMode = 'autofix',
+        emit_warnings=True,
+        schema_validate: SchemaValidationParam = False,
+    ) -> ArrowUploader:
+        warnings.warn(
+            "_plot_dispatch_arrow() is deprecated; use _plot_dispatch(), which now always builds Arrow uploaders.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._plot_dispatch(
+            graph,
+            nodes,
+            name,
+            description,
+            metadata,
+            memoize,
+            validate_mode,
+            emit_warnings,
+            schema_validate,
+        )
 
-    def _plot_dispatch(self, graph, nodes, name, description, mode='json', metadata=None, memoize=True, validate_mode: ValidationMode = 'autofix', emit_warnings=True) -> Union[ArrowUploader, Dict[str, Any]]:
+    def _plot_dispatch(
+        self,
+        graph,
+        nodes,
+        name,
+        description,
+        metadata=None,
+        memoize=True,
+        validate_mode: ValidationMode = 'autofix',
+        emit_warnings=True,
+        schema_validate: SchemaValidationParam = False,
+    ) -> ArrowUploader:
 
         g: "PlotterBase" = self
         if self._point_title is None and self._point_label is None and g._nodes is not None:
@@ -2871,6 +3030,25 @@ class PlotterBase(Plottable):
             except:
                 1
 
+        def make_arrow_upload(edges: Any, upload_nodes: Any) -> ArrowUploader:
+            edges_arr = g._table_to_arrow(
+                edges,
+                memoize,
+                validate_mode,
+                emit_warnings,
+                schema_validate=schema_validate,
+                schema_table="edges",
+            )
+            nodes_arr = g._table_to_arrow(
+                upload_nodes,
+                memoize,
+                validate_mode,
+                emit_warnings,
+                schema_validate=schema_validate,
+                schema_table="nodes",
+            )
+            return g._make_arrow_dataset(edges=edges_arr, nodes=nodes_arr, name=name, description=description, metadata=metadata)
+
         if isinstance(graph, pd.DataFrame) \
                 or isinstance(graph, pa.Table) \
                 or ( not (maybe_cudf() is None) and isinstance(graph, maybe_cudf().DataFrame) ) \
@@ -2878,13 +3056,13 @@ class PlotterBase(Plottable):
                 or ( not (maybe_dask_dataframe() is None) and isinstance(graph, maybe_dask_dataframe().DataFrame) ) \
                 or ( not (maybe_spark() is None) and isinstance(graph, maybe_spark().sql.dataframe.DataFrame) ) \
                 or ( not (maybe_polars() is None) and isinstance(graph, (maybe_polars().DataFrame, maybe_polars().LazyFrame)) ):
-            return g._make_dataset(graph, nodes, name, description, mode, metadata, memoize, validate_mode, emit_warnings)
+            return make_arrow_upload(graph, nodes)
 
         try:
             import igraph
             if isinstance(graph, igraph.Graph):
                 g2 = g.from_igraph(graph)
-                return g._make_dataset(g2._nodes, g2._edges, name, description, mode, metadata, memoize, validate_mode, emit_warnings)
+                return make_arrow_upload(g2._nodes, g2._edges)
         except ImportError:
             pass
 
@@ -2895,123 +3073,27 @@ class PlotterBase(Plottable):
                isinstance(graph, networkx.classes.multigraph.MultiGraph) or \
                isinstance(graph, networkx.classes.multidigraph.MultiDiGraph):
                 (e, n) = g.networkx2pandas(graph)
-                return g._make_dataset(e, n, name, description, mode, metadata, memoize, validate_mode, emit_warnings)
+                return make_arrow_upload(e, n)
         except ImportError:
             pass
 
         raise ValueError('Expected Pandas/Arrow/cuDF/Spark dataframe(s) or igraph/NetworkX graph.')
 
 
-    # Sanitize node/edge dataframe by
-    # - dropping indices
-    # - dropping edges with NAs in source or destination
-    # - dropping nodes with NAs in nodeid
-    # - creating a default node table if none was provided.
-    # - inferring numeric types of all columns containing numpy objects
-    def _sanitize_dataset(self, edges, nodes, nodeid):
-        self._check_bound_attribs(edges, ['source', 'destination'], 'Edge')
-        elist = edges.reset_index(drop=True) \
-                     .dropna(subset=[self._source, self._destination])
-
-        obj_df = elist.select_dtypes(include=[np.object_])
-        elist[obj_df.columns] = obj_df.apply(pd.to_numeric, errors='ignore')
-
-        if nodes is None:
-            nodes = pd.DataFrame()
-            nodes[nodeid] = pd.concat(
-                [edges[self._source], edges[self._destination]],
-                ignore_index=True).drop_duplicates()
-        else:
-            self._check_bound_attribs(nodes, ['node'], 'Vertex')
-
-        nlist = nodes.reset_index(drop=True) \
-                     .dropna(subset=[nodeid]) \
-                     .drop_duplicates(subset=[nodeid])
-
-        obj_df = nlist.select_dtypes(include=[np.object_])
-        nlist[obj_df.columns] = obj_df.apply(pd.to_numeric, errors='ignore')
-
-        return (elist, nlist)
-
-
-    def _check_dataset_size(self, elist, nlist):
-        edge_count = len(elist.index)
-        node_count = len(nlist.index)
-        graph_size = edge_count + node_count
-        if edge_count > 8e6:
-            error('Maximum number of edges (8M) exceeded: %d.' % edge_count)
-        if node_count > 8e6:
-            error('Maximum number of nodes (8M) exceeded: %d.' % node_count)
-        if graph_size > 1e6:
-            warn('Large graph: |nodes| + |edges| = %d. Layout/rendering might be slow.' % graph_size)
-
-
-    # Bind attributes for ETL1 by creating a copy of the designated column renamed
-    # with magic names understood by ETL1 (eg. pointColor, etc)
-    def _bind_attributes_v1(self, edges, nodes):
-        def bind(df, pbname, attrib, default=None):
-            bound = getattr(self, attrib)
-            if bound:
-                if bound in df.columns.tolist():
-                    df[pbname] = df[bound]
-                else:
-                    warn('Attribute "%s" bound to %s does not exist.' % (bound, attrib))
-            elif default:
-                df[pbname] = df[default]
-
-        nodeid = self._node or PlotterBase._defaultNodeId
-        (elist, nlist) = self._sanitize_dataset(edges, nodes, nodeid)
-        self._check_dataset_size(elist, nlist)
-
-        bind(elist, 'edgeColor', '_edge_color')
-        bind(elist, 'edgeSourceColor', '_edge_source_color')
-        bind(elist, 'edgeDestinationColor', '_edge_destination_color')
-        bind(elist, 'edgeLabel', '_edge_label')
-        bind(elist, 'edgeTitle', '_edge_title')
-        bind(elist, 'edgeSize', '_edge_size')
-        bind(elist, 'edgeWeight', '_edge_weight')
-        bind(elist, 'edgeOpacity', '_edge_opacity')
-        bind(elist, 'edgeIcon', '_edge_icon')
-        bind(nlist, 'pointColor', '_point_color')
-        bind(nlist, 'pointLabel', '_point_label')
-        bind(nlist, 'pointTitle', '_point_title', nodeid)
-        bind(nlist, 'pointSize', '_point_size')
-        bind(nlist, 'pointWeight', '_point_weight')
-        bind(nlist, 'pointOpacity', '_point_opacity')
-        bind(nlist, 'pointIcon', '_point_icon')
-        bind(nlist, 'pointX', '_point_x')
-        bind(nlist, 'pointY', '_point_y')
-        return (elist, nlist)
-
-    def _table_to_pandas(self, table) -> Optional[pd.DataFrame]:
-        """
-            pandas | arrow | dask | cudf | dask_cudf | polars | spark => pandas
-        """
+    def _table_to_pandas(self, table: Any) -> Optional[pd.DataFrame]:
+        """Deprecated compatibility wrapper for dataframe-like inputs to pandas."""
+        warnings.warn(
+            "_table_to_pandas() is deprecated; use graphistry.Engine.df_to_engine(..., Engine.PANDAS) "
+            "for dataframe engine coercion.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         if table is None:
-            return table
+            return None
 
-        if isinstance(table, pd.DataFrame):
-            return table
+        return df_to_engine(table, Engine.PANDAS)
 
-        if isinstance(table, pa.Table):
-            return table.to_pandas()
-        
-        if not (maybe_cudf() is None) and isinstance(table, maybe_cudf().DataFrame):
-            return table.to_pandas()
-
-        if not (maybe_dask_cudf() is None) and isinstance(table, maybe_dask_cudf().DataFrame):
-            return self._table_to_pandas(table.compute())
-
-        if not (maybe_dask_dataframe() is None) and isinstance(table, maybe_dask_dataframe().DataFrame):
-            return self._table_to_pandas(table.compute())
-
-        if not (maybe_polars() is None) and isinstance(table, (maybe_polars().DataFrame, maybe_polars().LazyFrame)):
-            if isinstance(table, maybe_polars().LazyFrame):
-                table = table.collect()
-            return table.to_pandas()
-
-        raise Exception('Unknown type %s: Could not convert data to Pandas dataframe' % str(type(table)))
 
     def _find_bad_arrow_columns(self, df: Any, is_cudf: bool = False) -> List[str]:
         """Find columns that fail Arrow conversion due to mixed types."""
@@ -3026,6 +3108,15 @@ class PlotterBase(Plottable):
                 except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
                     bad_cols.append(str(col))
         return bad_cols
+
+    @staticmethod
+    def _mixed_type_string_dtype(is_cudf: bool = False) -> Any:
+        """Best-effort string dtype for mixed-type Arrow autofix."""
+        if is_cudf:
+            return str
+        if hasattr(pd, "StringDtype"):
+            return "string"
+        return str
 
     def _coerce_mixed_type_columns(self, df: Any, is_cudf: bool = False, emit_warning: bool = True) -> Any:
         """Coerce mixed-type columns to string for Arrow conversion."""
@@ -3042,7 +3133,13 @@ class PlotterBase(Plottable):
                     coerce_cols.append(col)
                     coerced_cols.append(str(col))
         if coerce_cols:
-            df_fixed = df.astype({col: str for col in coerce_cols})
+            string_dtype = self._mixed_type_string_dtype(is_cudf=is_cudf)
+            try:
+                df_fixed = df.astype({col: string_dtype for col in coerce_cols})
+            except (TypeError, ValueError, AttributeError):
+                if is_cudf or string_dtype is str:
+                    raise
+                df_fixed = df.astype({col: str for col in coerce_cols})
         else:
             df_fixed = df
         if coerced_cols and emit_warning:
@@ -3050,7 +3147,231 @@ class PlotterBase(Plottable):
                  f'Convert explicitly before plot() for better control.')
         return df_fixed
 
-    def _table_to_arrow(self, table: Any, memoize: bool = True, validate_mode: ValidationMode = 'autofix', emit_warnings: bool = True) -> Optional[pa.Table]:  # noqa: C901
+    @staticmethod
+    def _normalize_schema_validate(schema_validate: SchemaValidationParam) -> Optional[SchemaValidationMode]:
+        if schema_validate is False:
+            return None
+        if schema_validate is True:
+            return "strict"
+        if schema_validate in ("strict", "autofix"):
+            return schema_validate
+        raise ValueError(
+            "schema_validate must be False, True, 'strict', or 'autofix'; "
+            f"got {schema_validate!r}"
+        )
+
+    @staticmethod
+    def _merge_declared_arrow_schemas(schemas: List[pa.Schema]) -> pa.Schema:
+        fields: Dict[str, pa.Field] = {}
+        for schema in schemas:
+            for field in schema:
+                existing = fields.get(field.name)
+                if existing is not None and existing != field:
+                    raise ValueError(
+                        f"Conflicting declared Arrow field for {field.name!r}: "
+                        f"{existing!r} vs {field!r}"
+                    )
+                fields[field.name] = field
+        return pa.schema(list(fields.values()))
+
+    @staticmethod
+    def _relax_arrow_schema_nullability(schema: pa.Schema) -> pa.Schema:
+        return pa.schema(
+            [
+                pa.field(arrow_field.name, arrow_field.type, nullable=True, metadata=arrow_field.metadata)
+                for arrow_field in schema
+            ],
+            metadata=schema.metadata,
+        )
+
+    @staticmethod
+    def _arrow_marker_has_true(table: pa.Table, column_name: str) -> bool:
+        if column_name not in table.schema.names:
+            return False
+        try:
+            import pyarrow.compute as pc
+
+            return bool(pc.any(pc.fill_null(table.column(column_name), False)).as_py())
+        except (pa.lib.ArrowInvalid, pa.lib.ArrowTypeError, TypeError, ValueError):
+            return True
+
+    @staticmethod
+    def _arrow_types_schema_compatible(actual: pa.DataType, expected: pa.DataType) -> bool:
+        if actual == expected:
+            return True
+        types = pa.types
+        if (types.is_string(actual) or types.is_large_string(actual)) and (
+            types.is_string(expected) or types.is_large_string(expected)
+        ):
+            return True
+        if (types.is_binary(actual) or types.is_large_binary(actual)) and (
+            types.is_binary(expected) or types.is_large_binary(expected)
+        ):
+            return True
+        return False
+
+    def _schema_arrow_for_table(self, schema_table: str, table: Optional[pa.Table] = None) -> Optional[pa.Schema]:
+        schema = self._gfql_schema
+        if schema is None:
+            return None
+        if schema_table == "nodes":
+            if table is not None:
+                available = set(table.schema.names)
+                marker_present = any(
+                    str(name).startswith("label__") and len(str(name)) > len("label__")
+                    for name in available
+                )
+                active_labels = {
+                    str(name)[len("label__"):]
+                    for name in available
+                    if str(name).startswith("label__")
+                    and len(str(name)) > len("label__")
+                    and self._arrow_marker_has_true(table, str(name))
+                }
+                active_node_types = [
+                    node_type
+                    for node_type in schema.node_types
+                    if node_type.labels & active_labels
+                ]
+                if active_node_types:
+                    active_schema = self._merge_declared_arrow_schemas(
+                        [node_type.to_arrow() for node_type in active_node_types]
+                    )
+                    if len(active_node_types) > 1:
+                        return self._relax_arrow_schema_nullability(active_schema)
+                    return active_schema
+                if marker_present:
+                    return pa.schema([])
+            return schema.node_arrow()
+        if schema_table == "edges":
+            if table is not None:
+                marker_present = any(f"label__{edge_type.name}" in table.schema.names for edge_type in schema.edge_types)
+                active_edge_types = [
+                    edge_type
+                    for edge_type in schema.edge_types
+                    if self._arrow_marker_has_true(table, f"label__{edge_type.name}")
+                ]
+                if active_edge_types:
+                    active_schema = self._merge_declared_arrow_schemas(
+                        [edge_type.to_arrow() for edge_type in active_edge_types]
+                    )
+                    if len(active_edge_types) > 1:
+                        return self._relax_arrow_schema_nullability(active_schema)
+                    return active_schema
+                if marker_present:
+                    return pa.schema([])
+            return schema.edge_arrow()
+        raise ValueError("schema_table must be 'nodes' or 'edges'")
+
+    def _schema_required_columns(self, schema_table: str) -> List[str]:
+        schema = self._gfql_schema
+        if schema is None:
+            return []
+        columns: List[str] = []
+        if schema_table == "nodes":
+            if self._node is not None:
+                columns.append(self._node)
+            elif schema.node_id_column is not None:
+                columns.append(schema.node_id_column)
+        elif schema_table == "edges":
+            if self._source is not None:
+                columns.append(self._source)
+            elif schema.edge_source_column is not None:
+                columns.append(schema.edge_source_column)
+            if self._destination is not None:
+                columns.append(self._destination)
+            elif schema.edge_destination_column is not None:
+                columns.append(schema.edge_destination_column)
+        else:
+            raise ValueError("schema_table must be 'nodes' or 'edges'")
+        return columns
+
+    def _enforce_bound_schema_arrow(
+        self,
+        table: Optional[pa.Table],
+        *,
+        schema_table: str,
+        schema_validate: SchemaValidationParam,
+    ) -> Optional[pa.Table]:
+        mode = self._normalize_schema_validate(schema_validate)
+        if table is None or mode is None:
+            return table
+
+        available = set(table.schema.names)
+        expected_schema = self._schema_arrow_for_table(schema_table, table=table)
+        if expected_schema is None:
+            raise ValueError("schema_validate requires a bound graphistry.schema.GraphSchema")
+
+        from graphistry.exceptions import SchemaValidationError
+
+        for column in self._schema_required_columns(schema_table):
+            if column not in available:
+                raise SchemaValidationError(
+                    table=schema_table,
+                    column=column,
+                    reason="missing required binding column",
+                )
+
+        out = table
+        for expected_field in expected_schema:
+            if expected_field.name not in available:
+                raise SchemaValidationError(
+                    table=schema_table,
+                    column=expected_field.name,
+                    reason="missing declared schema column",
+                    expected=expected_field.type,
+                )
+
+            current_field = out.schema.field(expected_field.name)
+            arrow_column = cast(Any, out.column(expected_field.name))
+            if not expected_field.nullable and arrow_column.null_count:
+                raise SchemaValidationError(
+                    table=schema_table,
+                    column=expected_field.name,
+                    reason="declared non-nullable column contains nulls",
+                    expected="non-null",
+                    actual=f"{arrow_column.null_count} nulls",
+                )
+
+            if current_field.type == expected_field.type:
+                continue
+
+            if mode == "strict":
+                if self._arrow_types_schema_compatible(current_field.type, expected_field.type):
+                    continue
+                raise SchemaValidationError(
+                    table=schema_table,
+                    column=expected_field.name,
+                    reason="Arrow type mismatch",
+                    expected=expected_field.type,
+                    actual=current_field.type,
+                )
+
+            try:
+                casted = arrow_column.cast(expected_field.type)
+            except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid, ValueError, TypeError) as exc:
+                raise SchemaValidationError(
+                    table=schema_table,
+                    column=expected_field.name,
+                    reason="could not coerce Arrow column to declared type",
+                    expected=expected_field.type,
+                    actual=current_field.type,
+                ) from exc
+
+            index = out.schema.get_field_index(expected_field.name)
+            out = out.set_column(index, expected_field, casted)
+
+        return out
+
+    def _table_to_arrow(
+        self,
+        table: Any,
+        memoize: bool = True,
+        validate_mode: ValidationMode = 'autofix',
+        emit_warnings: bool = True,
+        schema_validate: SchemaValidationParam = False,
+        schema_table: str = "edges",
+    ) -> Optional[pa.Table]:  # noqa: C901
         """
             pandas | arrow | dask | cudf | dask_cudf | polars | spark => arrow
 
@@ -3059,6 +3380,9 @@ class PlotterBase(Plottable):
             :param validate_mode: 'autofix' (default) coerces mixed-type columns to string with warning,
                                   'strict' or 'strict-fast' raises ArrowConversionError on mixed types
             :param warn: Whether to emit warnings when auto-coercing (only applies to autofix mode)
+            :param schema_validate: False disables bound schema enforcement; True/'strict' rejects
+                                    mismatches; 'autofix' casts compatible Arrow columns to declared types
+            :param schema_table: 'edges' or 'nodes' when schema_validate is enabled
         """
 
         logger.debug('_table_to_arrow of %s (memoize: %s, validate_mode: %s)', type(table), memoize, validate_mode)
@@ -3068,7 +3392,11 @@ class PlotterBase(Plottable):
 
         if isinstance(table, pa.Table):
             #TODO: should we hash just in case there's an older-identity hash match?
-            return table
+            return self._enforce_bound_schema_arrow(
+                table,
+                schema_table=schema_table,
+                schema_validate=schema_validate,
+            )
         
         if isinstance(table, pd.DataFrame):
             hashed = None
@@ -3085,7 +3413,11 @@ class PlotterBase(Plottable):
                 try:
                     if hashed in PlotterBase._pd_hash_to_arrow:
                         logger.debug('pd->arrow memoization hit: %s', hashed)
-                        return PlotterBase._pd_hash_to_arrow[hashed].v
+                        return self._enforce_bound_schema_arrow(
+                            PlotterBase._pd_hash_to_arrow[hashed].v,
+                            schema_table=schema_table,
+                            schema_validate=schema_validate,
+                        )
                     else:
                         logger.debug('pd->arrow memoization miss for id (of %s): %s', len(PlotterBase._pd_hash_to_arrow), hashed)
                 except:
@@ -3108,7 +3440,11 @@ class PlotterBase(Plottable):
                 cache_coercion(hashed, w)
                 PlotterBase._pd_hash_to_arrow[hashed] = w
 
-            return out
+            return self._enforce_bound_schema_arrow(
+                out,
+                schema_table=schema_table,
+                schema_validate=schema_validate,
+            )
 
         if not (maybe_cudf() is None) and isinstance(table, maybe_cudf().DataFrame):
             hashed = None
@@ -3120,7 +3456,11 @@ class PlotterBase(Plottable):
                 try:
                     if hashed in PlotterBase._cudf_hash_to_arrow:
                         logger.debug('cudf->arrow memoization hit: %s', hashed)
-                        return PlotterBase._cudf_hash_to_arrow[hashed].v
+                        return self._enforce_bound_schema_arrow(
+                            PlotterBase._cudf_hash_to_arrow[hashed].v,
+                            schema_table=schema_table,
+                            schema_validate=schema_validate,
+                        )
                     else:
                         logger.debug('cudf->arrow memoization miss for id (of %s): %s', len(PlotterBase._cudf_hash_to_arrow), hashed)
                 except:
@@ -3143,26 +3483,51 @@ class PlotterBase(Plottable):
                 cache_coercion(hashed, w)
                 PlotterBase._cudf_hash_to_arrow[hashed] = w
 
-            return out
+            return self._enforce_bound_schema_arrow(
+                out,
+                schema_table=schema_table,
+                schema_validate=schema_validate,
+            )
 
         # TODO: per-gdf hashing?
         if not (maybe_dask_cudf() is None) and isinstance(table, maybe_dask_cudf().DataFrame):
             logger.debug('dgdf->arrow via gdf hash check')
             dgdf = table.persist()
             gdf = dgdf.compute()
-            return self._table_to_arrow(gdf, memoize, validate_mode, emit_warnings)
+            return self._table_to_arrow(
+                gdf,
+                memoize,
+                validate_mode,
+                emit_warnings,
+                schema_validate=schema_validate,
+                schema_table=schema_table,
+            )
 
         if not (maybe_dask_dataframe() is None) and isinstance(table, maybe_dask_dataframe().DataFrame):
             logger.debug('ddf->arrow via df hash check')
             ddf = table.persist()
             df = ddf.compute()
-            return self._table_to_arrow(df, memoize, validate_mode, emit_warnings)
+            return self._table_to_arrow(
+                df,
+                memoize,
+                validate_mode,
+                emit_warnings,
+                schema_validate=schema_validate,
+                schema_table=schema_table,
+            )
 
         if not (maybe_spark() is None) and isinstance(table, maybe_spark().sql.dataframe.DataFrame):
             logger.debug('spark->arrow via df')
             df = table.toPandas()
             #TODO push the hash check to Spark
-            return self._table_to_arrow(df, memoize, validate_mode, emit_warnings)
+            return self._table_to_arrow(
+                df,
+                memoize,
+                validate_mode,
+                emit_warnings,
+                schema_validate=schema_validate,
+                schema_table=schema_table,
+            )
 
         if not (maybe_polars() is None) and isinstance(table, (maybe_polars().DataFrame, maybe_polars().LazyFrame)):
             # validate_mode and emit_warnings are not applied for polars input: polars frames are
@@ -3185,7 +3550,11 @@ class PlotterBase(Plottable):
                 w = WeakValueWrapper(out)
                 cache_coercion(hashed, w)
                 PlotterBase._polars_hash_to_arrow[hashed] = w
-            return out
+            return self._enforce_bound_schema_arrow(
+                out,
+                schema_table=schema_table,
+                schema_validate=schema_validate,
+            )
 
         raise Exception('Unknown type %s: Could not convert data to Arrow' % str(type(table)))
 
@@ -3193,7 +3562,9 @@ class PlotterBase(Plottable):
         self,
         table: Optional[Any] = None,
         validate: ValidationParam = 'autofix',
-        warn: bool = True
+        warn: bool = True,
+        schema_validate: SchemaValidationParam = False,
+        schema_table: str = "edges",
     ) -> Optional[pa.Table]:
         """
         Convert a DataFrame to Arrow format.
@@ -3211,6 +3582,14 @@ class PlotterBase(Plottable):
         :param warn: Whether to emit warnings when auto-fixing data issues (only applies when validate='autofix').
                      validate=False forces warn=False. Default True.
         :type warn: bool
+
+        :param schema_validate: Opt-in bound ``GraphSchema`` validation. False disables schema enforcement.
+                                True/'strict' rejects missing or incompatible declared columns.
+                                'autofix' casts compatible Arrow columns to declared types.
+        :type schema_validate: SchemaValidationParam
+
+        :param schema_table: Which bound schema table to validate against: 'edges' or 'nodes'.
+        :type schema_table: str
 
         :param table: DataFrame to convert. If None, converts the bound edges.
         :type table: Optional[pandas.DataFrame, cudf.DataFrame, pyarrow.Table]
@@ -3248,68 +3627,48 @@ class PlotterBase(Plottable):
             warn = False
         else:
             validate_mode = validate
-        return self._table_to_arrow(table, memoize=False, validate_mode=validate_mode, emit_warnings=warn)
+        return self._table_to_arrow(
+            table,
+            memoize=False,
+            validate_mode=validate_mode,
+            emit_warnings=warn,
+            schema_validate=schema_validate,
+            schema_table=schema_table,
+        )
 
-    def _make_dataset(self, edges, nodes, name, description, mode, metadata=None, memoize: bool = True, validate_mode: ValidationMode = 'autofix', emit_warnings: bool = True) -> Union[ArrowUploader, Dict[str, Any]]:  # noqa: C901
+    def validate_arrow_schema(
+        self,
+        table: str = "edges",
+        *,
+        validate: SchemaValidationParam = "strict",
+        warn: bool = True,
+    ) -> Optional[pa.Table]:
+        """Validate or coerce a bound table against the bound experimental ``GraphSchema``.
 
-        logger.debug('_make_dataset (mode %s, memoize %s, validate_mode %s) name:[%s] des:[%s] (e::%s, n::%s) ',
-            mode, memoize, validate_mode, name, description, type(edges), type(nodes))
+        ``validate='strict'`` rejects missing columns, Arrow type mismatches, and
+        non-nullability violations. ``validate='autofix'`` casts compatible
+        columns to declared Arrow types after normal Arrow conversion.
+        """
+        if table == "edges":
+            data = self._edges
+        elif table == "nodes":
+            data = self._nodes
+        else:
+            raise ValueError("table must be 'edges' or 'nodes'")
+        return self.to_arrow(
+            data,
+            validate="autofix" if validate == "autofix" else "strict",
+            warn=warn,
+            schema_validate=validate,
+            schema_table=table,
+        )
 
+    def _make_arrow_dataset(self, edges: Optional[pa.Table], nodes: Optional[pa.Table], name: str, description: str, metadata: Optional[Dict[str, Any]]) -> ArrowUploader:
         try:
-            if len(edges) == 0:
+            if edges is not None and len(edges) == 0:
                 warn('Graph has no edges, may have rendering issues')
         except:
             1
-        #compatibility checks
-        if mode == 'json':
-            if not (metadata is None):
-                if ('bg' in metadata) or ('fg' in metadata) or ('logo' in metadata) or ('page' in metadata):
-                    raise ValueError('Cannot set bg/fg/logo/page in api=1; try using api=3')
-            if not (self._complex_encodings is None
-                or self._complex_encodings == {
-                    'node_encodings': {'current': {}, 'default': {} },
-                    'edge_encodings': {'current': {}, 'default': {} }}):
-                raise ValueError('Cannot set complex encodings ".encode_[point/edge]_[feature]()" in api=1; try using api=3 or .bind()')
-
-        if mode == 'json':
-            edges_df = self._table_to_pandas(edges)
-            nodes_df = self._table_to_pandas(nodes)
-            return self._make_json_dataset(edges_df, nodes_df, name)
-        elif mode == 'arrow':
-            edges_arr = self._table_to_arrow(edges, memoize, validate_mode, emit_warnings)
-            nodes_arr = self._table_to_arrow(nodes, memoize, validate_mode, emit_warnings)
-            return self._make_arrow_dataset(edges=edges_arr, nodes=nodes_arr, name=name, description=description, metadata=metadata)
-            #token=None, dataset_id=None, url_params = None)
-        else:
-            raise ValueError('Unknown mode: ' + mode)
-
-
-    # Main helper for creating ETL1 payload
-    def _make_json_dataset(self, edges, nodes, name) -> Dict[str, Any]:
-
-        def flatten_categorical(df):
-            # Avoid cat_col.where(...)-related exceptions
-            df2 = df.copy()
-            for c in df:
-                if (df[c].dtype.name == 'category'):
-                    df2[c] = df[c].astype(df[c].cat.categories.dtype)
-            return df2
-
-        (elist, nlist) = self._bind_attributes_v1(edges, nodes)
-        edict = flatten_categorical(elist).where(pd.notnull(elist), None).to_dict(orient='records')
-
-        bindings = {'idField': self._node or PlotterBase._defaultNodeId,
-                    'destinationField': self._destination, 'sourceField': self._source}
-        dataset: Dict[str, Any] = {'name': self.session.dataset_prefix + name,
-                   'bindings': bindings, 'type': 'edgelist', 'graph': edict}
-
-        if nlist is not None:
-            ndict = flatten_categorical(nlist).where(pd.notnull(nlist), None).to_dict(orient='records')
-            dataset['labels'] = ndict
-        return dataset
-
-
-    def _make_arrow_dataset(self, edges: Optional[pa.Table], nodes: Optional[pa.Table], name: str, description: str, metadata: Optional[Dict[str, Any]]) -> ArrowUploader:
 
         au : ArrowUploader = ArrowUploader(
             client_session=self.session,
@@ -3318,7 +3677,6 @@ class PlotterBase(Plottable):
             name=name, description=description,
             metadata={
                 'usertag': self.session._tag,
-                'key': self.session.api_key,
                 'agent': 'pygraphistry',
                 'apiversion' : '3',
                 'agentversion': sys.modules['graphistry'].__version__,  # type: ignore

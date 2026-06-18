@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, Iterator, Literal, Mapping, Sequence, Tuple, Union
+from typing import Dict, Iterator, Literal, Sequence, Tuple, Union
 
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.ir.compilation import PhysicalPlan, PlanContext
@@ -211,13 +211,8 @@ class PhysicalPlanner:
             seen.add(marker)
             yield node
 
-            for child in reversed(tuple(self._children(node))):
+            for _slot, child in reversed(tuple(iter_children(node))):
                 stack.append(child)
-
-    @staticmethod
-    def _children(node: LogicalPlan) -> Iterable[LogicalPlan]:
-        for _slot, child in iter_children(node):
-            yield child
 
 
 __all__ = [

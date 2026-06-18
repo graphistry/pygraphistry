@@ -278,6 +278,9 @@ class TestAllEncodingMethods:
             'id': [1, 2, 3],
             'color_val': ['red', 'blue', 'green'],
             'size_val': [10, 20, 30],
+            'opacity_val': [0.5, 0.7, 0.9],
+            'label_val': ['A', 'B', 'C'],
+            'title_val': ['Alpha', 'Beta', 'Gamma'],
             'icon_val': ['user', 'star', 'heart'],
             'badge_val': ['A', 'B', 'C']
         })
@@ -285,6 +288,11 @@ class TestAllEncodingMethods:
             'src': [1, 2],
             'dst': [2, 3],
             'edge_color': ['red', 'blue'],
+            'edge_size': [2, 4],
+            'edge_weight': [0.2, 0.7],
+            'edge_opacity': [0.5, 0.9],
+            'edge_label': ['x', 'y'],
+            'edge_title': ['X', 'Y'],
             'edge_icon': ['arrow', 'line'],
             'edge_badge': ['X', 'Y']
         })
@@ -293,6 +301,14 @@ class TestAllEncodingMethods:
     @pytest.mark.parametrize("method,kwargs", [
         ("encode_point_color", {"column": "color_val"}),
         ("encode_point_size", {"column": "size_val"}),
+        ("encode_edge_size", {"column": "edge_size"}),
+        ("encode_edge_weight", {"column": "edge_weight"}),
+        ("encode_point_opacity", {"column": "opacity_val"}),
+        ("encode_edge_opacity", {"column": "edge_opacity"}),
+        ("encode_point_label", {"column": "label_val"}),
+        ("encode_edge_label", {"column": "edge_label"}),
+        ("encode_point_title", {"column": "title_val"}),
+        ("encode_edge_title", {"column": "edge_title"}),
         ("encode_point_icon", {"column": "icon_val"}),
         ("encode_point_badge", {"column": "badge_val"}),
         ("encode_edge_color", {"column": "edge_color"}),

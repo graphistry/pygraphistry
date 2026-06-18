@@ -18,7 +18,7 @@ from graphistry.Engine import EngineAbstractType
 from graphistry.utils.json import JSONVal
 from graphistry.client_session import ClientSession, AuthManagerProtocol
 from graphistry.models.collections import CollectionsInput
-from graphistry.models.types import ValidationParam
+from graphistry.models.types import SchemaValidationParam, ValidationParam
 from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 
 if TYPE_CHECKING:
@@ -222,6 +222,14 @@ class Plottable(Protocol):
     ) -> "Plottable":
         ...
 
+    def encode_edge_size(self, *args: Any, **kwargs: Any) -> "Plottable": ...
+    def encode_edge_weight(self, *args: Any, **kwargs: Any) -> "Plottable": ...
+    def encode_point_opacity(self, *args: Any, **kwargs: Any) -> "Plottable": ...
+    def encode_edge_opacity(self, *args: Any, **kwargs: Any) -> "Plottable": ...
+    def encode_point_label(self, *args: Any, **kwargs: Any) -> "Plottable": ...
+    def encode_edge_label(self, *args: Any, **kwargs: Any) -> "Plottable": ...
+    def encode_point_title(self, *args: Any, **kwargs: Any) -> "Plottable": ...
+    def encode_edge_title(self, *args: Any, **kwargs: Any) -> "Plottable": ...
 
     def encode_point_icon(
         self,
@@ -355,6 +363,7 @@ class Plottable(Protocol):
         url: Optional[str] = None,
         nodes_file_id: Optional[str] = None,
         edges_file_id: Optional[str] = None,
+        schema: Optional[Any] = None,
     ) -> 'Plottable':
         ...
 
@@ -728,6 +737,15 @@ class Plottable(Protocol):
     
     def networkx2pandas(self, G: Any) -> Tuple[pd.DataFrame, pd.DataFrame]:
         ...
+
+    def compute_networkx(self,
+        alg: str,
+        out_col: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        directed: bool = True,
+        G: Optional[Any] = None
+    ) -> 'Plottable':
+        ...
     
     def fa2_layout(
         self,
@@ -813,7 +831,18 @@ class Plottable(Protocol):
         self,
         table: Optional[Any] = None,
         validate: ValidationParam = 'autofix',
-        warn: bool = True
+        warn: bool = True,
+        schema_validate: SchemaValidationParam = False,
+        schema_table: str = "edges",
+    ) -> Optional[Any]:
+        ...
+
+    def validate_arrow_schema(
+        self,
+        table: str = "edges",
+        *,
+        validate: SchemaValidationParam = "strict",
+        warn: bool = True,
     ) -> Optional[Any]:
         ...
 
@@ -841,7 +870,8 @@ class Plottable(Protocol):
         memoize: bool = True,
         erase_files_on_fail: bool = True,
         validate: ValidationParam = 'autofix',
-        warn: bool = True
+        warn: bool = True,
+        schema_validate: SchemaValidationParam = False,
     ) -> 'Plottable':
         ...
 
@@ -859,7 +889,8 @@ class Plottable(Protocol):
         extra_html: str = "",
         override_html_style: Optional[str] = None,
         validate: ValidationParam = 'autofix',
-        warn: bool = True
+        warn: bool = True,
+        schema_validate: SchemaValidationParam = False,
     ) -> Any:
         ...
 

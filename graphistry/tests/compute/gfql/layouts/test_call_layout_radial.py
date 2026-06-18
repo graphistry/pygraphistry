@@ -8,42 +8,41 @@ from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 from graphistry.tests.test_compute import CGFull
 
 
+def _bound_graph(edges: pd.DataFrame, nodes: pd.DataFrame):
+    return (
+        CGFull()
+        .edges(edges)
+        .nodes(nodes)
+        .bind(source='source', destination='target', node='node')
+    )
+
+
+def _cycle_edges(node_count: int) -> pd.DataFrame:
+    return pd.DataFrame({
+        'source': list(range(node_count)),
+        'target': list(range(1, node_count)) + [0],
+    })
+
+
+def _assert_edges_preserved(before, after) -> None:
+    pd.testing.assert_frame_equal(
+        after._edges.reset_index(drop=True),
+        before._edges.reset_index(drop=True),
+    )
+
+
 class TestGFQLRingLayoutsCPU:
     """Dedicated tests for ring_* GFQL calls across modes."""
 
     def _graph_with_numeric(self):
-        edges = pd.DataFrame({
-            'source': [0, 1, 2],
-            'target': [1, 2, 0]
-        })
-        nodes = pd.DataFrame({
-            'node': [0, 1, 2],
-            'score': [0.1, 0.6, 0.9]
-        })
-        return CGFull()\
-            .edges(edges)\
-            .nodes(nodes)\
-            .bind(source='source', destination='target', node='node')
+        nodes = pd.DataFrame({'node': [0, 1, 2], 'score': [0.1, 0.6, 0.9]})
+        return _bound_graph(_cycle_edges(len(nodes)), nodes)
 
     def _graph_with_categories(self):
-        edges = pd.DataFrame({
-            'source': [0, 1, 2, 3],
-            'target': [1, 2, 3, 0]
-        })
-        nodes = pd.DataFrame({
-            'node': [0, 1, 2, 3],
-            'segment': ['a', 'b', 'a', 'c']
-        })
-        return CGFull()\
-            .edges(edges)\
-            .nodes(nodes)\
-            .bind(source='source', destination='target', node='node')
+        nodes = pd.DataFrame({'node': [0, 1, 2, 3], 'segment': ['a', 'b', 'a', 'c']})
+        return _bound_graph(_cycle_edges(len(nodes)), nodes)
 
     def _graph_with_time(self):
-        edges = pd.DataFrame({
-            'source': [0, 1, 2],
-            'target': [1, 2, 0]
-        })
         nodes = pd.DataFrame({
             'node': [0, 1, 2],
             'ts': pd.to_datetime([
@@ -52,16 +51,9 @@ class TestGFQLRingLayoutsCPU:
                 '2024-01-01T00:02:00'
             ])
         })
-        return CGFull()\
-            .edges(edges)\
-            .nodes(nodes)\
-            .bind(source='source', destination='target', node='node')
+        return _bound_graph(_cycle_edges(len(nodes)), nodes)
 
     def _graph_with_time_unit(self, unit: str):
-        edges = pd.DataFrame({
-            'source': [0, 1, 2],
-            'target': [1, 2, 0]
-        })
         nodes = pd.DataFrame({
             'node': [0, 1, 2],
             'ts': pd.to_datetime([
@@ -70,10 +62,7 @@ class TestGFQLRingLayoutsCPU:
                 '2024-01-01T00:02:00'
             ]).astype(f'datetime64[{unit}]')
         })
-        return CGFull()\
-            .edges(edges)\
-            .nodes(nodes)\
-            .bind(source='source', destination='target', node='node')
+        return _bound_graph(_cycle_edges(len(nodes)), nodes)
 
     def test_continuous_mode_basic(self):
         """Continuous mode should bind coordinates from a numeric column."""
@@ -89,6 +78,7 @@ class TestGFQLRingLayoutsCPU:
         assert {'x', 'y', 'r'} <= set(result._nodes.columns)
         assert result._point_x == 'x'
         assert result._point_y == 'y'
+        _assert_edges_preserved(g, result)
 
     def test_default_mode_is_continuous(self):
         """Omitting mode should default to continuous layout."""
@@ -102,6 +92,17 @@ class TestGFQLRingLayoutsCPU:
         )
 
         assert {'x', 'y', 'r'} <= set(result._nodes.columns)
+        _assert_edges_preserved(g, result)
+
+    def test_core_continuous_layout_preserves_edges(self):
+        g = self._graph_with_numeric()
+
+        result = g.ring_continuous_layout(ring_col='score')
+
+        assert {'x', 'y', 'r'} <= set(result._nodes.columns)
+        assert result._point_x == 'x'
+        assert result._point_y == 'y'
+        _assert_edges_preserved(g, result)
 
     def test_categorical_mode_basic(self):
         """Categorical mode should position nodes by category without numeric params."""
@@ -118,6 +119,7 @@ class TestGFQLRingLayoutsCPU:
         )
 
         assert {'x', 'y', 'r'} <= set(result._nodes.columns)
+        _assert_edges_preserved(g, result)
 
     def test_categorical_rejects_continuous_params(self):
         """Passing continuous-only params to categorical mode should fail validation."""
@@ -150,6 +152,22 @@ class TestGFQLRingLayoutsCPU:
         )
 
         assert {'x', 'y', 'r'} <= set(result._nodes.columns)
+        _assert_edges_preserved(g, result)
+
+    def test_core_time_layout_preserves_edges(self):
+        g = self._graph_with_time()
+
+        result = g.time_ring_layout(
+            time_col='ts',
+            time_start='2024-01-01T00:00:00',
+            time_end='2024-01-01T00:02:00',
+            num_rings=3,
+        )
+
+        assert {'x', 'y', 'r'} <= set(result._nodes.columns)
+        assert result._point_x == 'x'
+        assert result._point_y == 'y'
+        _assert_edges_preserved(g, result)
 
     @pytest.mark.parametrize('unit', ['us', 'ms'])
     def test_time_mode_unit_parity(self, unit):
@@ -183,6 +201,8 @@ class TestGFQLRingLayoutsCPU:
             result_ns._nodes['r'].to_numpy(),
             result_unit._nodes['r'].to_numpy()
         )
+        _assert_edges_preserved(g_ns, result_ns)
+        _assert_edges_preserved(g_unit, result_unit)
 
     def test_time_mode_invalid_strings_raise(self):
         """Time mode should raise when time bounds are invalid strings."""

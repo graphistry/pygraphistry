@@ -1,14 +1,4 @@
-"""AST/query rewriters that retarget reentry expressions onto carried columns.
-
-Walks ``ExpressionText``, ``ReturnClause``, ``MatchClause``, ``ProjectionStage``,
-and ``CypherQuery`` shapes to substitute references to carried prefix outputs
-with property accesses on the reentry-alias's row table (or, in the
-``collect/UNWIND`` corridor, normalize the prefix into a whole-row carry).
-
-Extracted from ``cypher.lowering`` (#1295, #1260 S2). Generic lowering helpers
-are referenced lazily via ``cypher.lowering`` to avoid circular import at module
-load time.
-"""
+"""AST/query rewriters that retarget reentry expressions onto carried columns."""
 from __future__ import annotations
 
 from dataclasses import replace
@@ -47,7 +37,6 @@ __all__ = [
     "_rewrite_reentry_projection_stage",
     "_rewrite_collect_unwind_reentry_query",
 ]
-
 
 def _rewrite_reentry_expr_to_hidden_properties(
     expr: ExpressionText,

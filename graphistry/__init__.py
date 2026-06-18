@@ -28,6 +28,14 @@ from graphistry.pygraphistry import (  # noqa: E402, F401
     collections,
     encode_point_color,
     encode_point_size,
+    encode_edge_size,
+    encode_edge_weight,
+    encode_point_opacity,
+    encode_edge_opacity,
+    encode_point_label,
+    encode_edge_label,
+    encode_point_title,
+    encode_edge_title,
     encode_point_icon,
     encode_edge_color,
     encode_edge_icon,
@@ -125,6 +133,13 @@ from graphistry.compute import (
 
 from graphistry.Engine import Engine
 
+from graphistry.schema import (
+    EdgeTopology,
+    EdgeType,
+    GraphSchema,
+    NodeType,
+)
+
 from graphistry.privacy import (
     Mode, Privacy
 )
@@ -133,6 +148,7 @@ from . import compute as compute  # noqa: F401
 from . import pygraphistry as pygraphistry  # noqa: F401
 from . import render as render  # noqa: F401
 from . import arrow_uploader as arrow_uploader  # noqa: F401
+from . import viz_settings as viz_settings  # noqa: F401
 
 from ._version import get_versions
 

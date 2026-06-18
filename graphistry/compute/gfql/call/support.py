@@ -49,6 +49,10 @@ def is_list_or_dict(v: object) -> bool:
     return isinstance(v, (list, dict))
 
 
+def _strings(*values: object) -> List[str]:
+    return [value for value in values if isinstance(value, str)]
+
+
 def _is_json_compatible_value(v: object) -> bool:
     if v is None:
         return True
@@ -80,9 +84,7 @@ def is_projection_items(v: object) -> bool:
 
 
 def is_non_empty_list_of_strings(v: object) -> bool:
-    if not isinstance(v, list):
-        return False
-    return len(v) > 0 and all(isinstance(item, str) for item in v)
+    return isinstance(v, list) and len(v) > 0 and all(isinstance(item, str) for item in v)
 
 
 def is_list_of_agg_specs(v: object) -> bool:
@@ -216,17 +218,11 @@ def _hypergraph_input_required_cols(params: Dict[str, object]) -> List[str]:
 
 def _hypergraph_node_adds(params: Dict[str, object]) -> List[str]:
     opts = _resolve_hyper_opts(params)
-    node_id = opts.get("NODEID", "nodeID")
-    node_type = opts.get("NODETYPE", "type")
-    title = opts.get("TITLE", "nodeTitle")
-    out: List[str] = []
-    if isinstance(node_id, str):
-        out.append(node_id)
-    if isinstance(node_type, str):
-        out.append(node_type)
-    if isinstance(title, str):
-        out.append(title)
-    return out
+    return _strings(
+        opts.get("NODEID", "nodeID"),
+        opts.get("NODETYPE", "type"),
+        opts.get("TITLE", "nodeTitle"),
+    )
 
 
 def _hypergraph_edge_adds(params: Dict[str, object]) -> List[str]:
@@ -238,14 +234,7 @@ def _hypergraph_edge_adds(params: Dict[str, object]) -> List[str]:
     else:
         src = opts.get("ATTRIBID", "attribID")
         dst = opts.get("EVENTID", "EventID")
-    out: List[str] = []
-    if isinstance(src, str):
-        out.append(src)
-    if isinstance(dst, str):
-        out.append(dst)
-    if isinstance(edge_type, str):
-        out.append(edge_type)
-    return out
+    return _strings(src, dst, edge_type)
 
 
 def _umap_kind(params: Dict[str, object]) -> str:
@@ -290,30 +279,15 @@ def _umap_edge_adds(params: Dict[str, object]) -> List[str]:
 
 
 def _xy_out_cols(params: Dict[str, object]) -> List[str]:
-    out: List[str] = []
-    x_col = params.get("x_out_col", "x")
-    y_col = params.get("y_out_col", "y")
-    if isinstance(x_col, str):
-        out.append(x_col)
-    if isinstance(y_col, str):
-        out.append(y_col)
-    return out
+    return _strings(params.get("x_out_col", "x"), params.get("y_out_col", "y"))
 
 
 def _required_column(params: Dict[str, object]) -> List[str]:
-    col = params.get("column")
-    return [col] if isinstance(col, str) else []
+    return _strings(params.get("column"))
 
 
 def is_dict_str_to_list_str(v: object) -> bool:
-    if not isinstance(v, dict):
-        return False
-    for key, val in v.items():
-        if not isinstance(key, str):
-            return False
-        if not is_list_of_strings(val):
-            return False
-    return True
+    return isinstance(v, dict) and all(isinstance(key, str) and is_list_of_strings(val) for key, val in v.items())
 
 
 def validate_hypergraph_opts(v: object) -> bool:
@@ -339,53 +313,16 @@ def validate_hypergraph_opts(v: object) -> bool:
         if not isinstance(key, str):
             return False
         if key in string_keys:
-            if not isinstance(val, str):
-                return False
+            ok = isinstance(val, str)
         elif key == "SKIP":
-            if not is_list_of_strings(val):
-                return False
+            ok = is_list_of_strings(val)
         elif key in ("CATEGORIES", "EDGES"):
-            if not is_dict_str_to_list_str(val):
-                return False
-        elif not isinstance(val, (str, int, float, bool, list, dict, type(None))):
+            ok = is_dict_str_to_list_str(val)
+        else:
+            ok = isinstance(val, (str, int, float, bool, list, dict, type(None)))
+        if not ok:
             return False
     return True
-
-
-NO_SCHEMA_EFFECTS: Dict[str, List[str]] = {
-    "adds_node_cols": [],
-    "adds_edge_cols": [],
-    "requires_node_cols": [],
-    "requires_edge_cols": [],
-}
-
-XY_OUT_COL_SCHEMA_EFFECTS: Dict[str, Any] = {
-    "adds_node_cols": _xy_out_cols,
-    "adds_edge_cols": [],
-    "requires_node_cols": [],
-    "requires_edge_cols": [],
-}
-
-XY_NODE_SCHEMA_EFFECTS: Dict[str, List[str]] = {
-    "adds_node_cols": ["x", "y"],
-    "adds_edge_cols": [],
-    "requires_node_cols": [],
-    "requires_edge_cols": [],
-}
-
-NODE_COLUMN_SCHEMA_EFFECTS: Dict[str, Any] = {
-    "adds_node_cols": [],
-    "adds_edge_cols": [],
-    "requires_node_cols": _required_column,
-    "requires_edge_cols": [],
-}
-
-EDGE_COLUMN_SCHEMA_EFFECTS: Dict[str, Any] = {
-    "adds_node_cols": [],
-    "adds_edge_cols": [],
-    "requires_node_cols": [],
-    "requires_edge_cols": _required_column,
-}
 
 
 def _schema_effects(
@@ -403,11 +340,18 @@ def _schema_effects(
     }
 
 
+NO_SCHEMA_EFFECTS: Dict[str, List[str]] = _schema_effects()
+XY_OUT_COL_SCHEMA_EFFECTS: Dict[str, Any] = _schema_effects(adds_node_cols=_xy_out_cols)
+XY_NODE_SCHEMA_EFFECTS: Dict[str, List[str]] = _schema_effects(adds_node_cols=["x", "y"])
+NODE_COLUMN_SCHEMA_EFFECTS: Dict[str, Any] = _schema_effects(requires_node_cols=_required_column)
+EDGE_COLUMN_SCHEMA_EFFECTS: Dict[str, Any] = _schema_effects(requires_edge_cols=_required_column)
+
+
 def _method_entry(
     *,
     allowed_params: Set[str],
     required_params: Set[str],
-    param_validators: Dict[str, Callable[[object], bool]],
+    param_validators: Dict[str, Callable[[object], object]],
     description: str,
     schema_effects: Dict[str, Any],
 ) -> Dict[str, Any]:
@@ -421,10 +365,61 @@ def _method_entry(
 
 
 def _projection_row_entry(description: str) -> Dict[str, Any]:
-    return _method_entry(
+    return _safelist_entry(
         allowed_params={"items"},
         required_params={"items"},
         param_validators={"items": is_projection_items},
         description=description,
         schema_effects=_schema_effects(adds_node_cols=_select_added_node_cols),
+    )
+
+
+def _safelist_entry(
+    allowed_params: Set[str],
+    *,
+    description: str,
+    required_params: Any = None,
+    param_validators: Any = None,
+    schema_effects: Dict[str, Any] = NO_SCHEMA_EFFECTS,
+) -> Dict[str, Any]:
+    return _method_entry(
+        allowed_params=allowed_params,
+        required_params=set() if required_params is None else required_params,
+        param_validators={} if param_validators is None else param_validators,
+        description=description,
+        schema_effects=schema_effects,
+    )
+
+
+def _named_string_entry(param_name: str, description: str) -> Dict[str, Any]:
+    return _safelist_entry(
+        {param_name},
+        required_params={param_name},
+        param_validators={param_name: is_string},
+        description=description,
+    )
+
+
+def _filter_by_dict_entry(table: str, description: str) -> Dict[str, Any]:
+    def cols(p: Dict[str, Any]) -> List[str]:
+        return list((p.get("filter_dict") or {}).keys())
+
+    return _safelist_entry(
+        {"filter_dict"},
+        required_params={"filter_dict"},
+        param_validators={"filter_dict": is_dict},
+        description=description,
+        schema_effects=_schema_effects(
+            requires_node_cols=cols if table == "nodes" else [],
+            requires_edge_cols=cols if table == "edges" else [],
+        ),
+    )
+
+
+def _degree_entry(col_default: str, description: str) -> Dict[str, Any]:
+    return _safelist_entry(
+        {"col"},
+        param_validators={"col": is_string},
+        description=description,
+        schema_effects=_schema_effects(adds_node_cols=lambda p: [p.get("col", col_default)]),
     )

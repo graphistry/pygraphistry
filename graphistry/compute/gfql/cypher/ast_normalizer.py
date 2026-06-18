@@ -1,31 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-import re
-from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, cast
-from typing_extensions import Literal
+from dataclasses import replace
+from typing import Any, List, Mapping, Optional
 
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.expr_parser import (
-    BinaryOp,
-    CaseWhen,
     ExprNode,
     FunctionCall,
     Identifier,
     IsNullOp,
-    ListComprehension,
-    ListLiteral,
-    Literal as ExprLiteral,
-    MapLiteral,
     PropertyAccessExpr,
-    QuantifierExpr,
-    SliceExpr,
-    SubscriptExpr,
-    UnaryOp,
-    Wildcard,
+    _rebuild_expr_node,
     parse_expr,
 )
-from graphistry.compute.gfql.string_literals import render_cypher_string_literal
 
 from .ast import (
     BooleanExpr,
@@ -34,22 +21,16 @@ from .ast import (
     MatchClause,
     NodePattern,
     OrderByClause,
-    PathPatternKind,
-    PatternElement,
-    RelationshipPattern,
     ReturnClause,
     WhereClause,
 )
 from ._boolean_expr_text import boolean_expr_to_text
-
-
-@dataclass(frozen=True)
-class _ShortestPathAliasSpec:
-    alias: str
-    hop_column: str
-    pattern: Tuple[PatternElement, ...]
-    start_alias: Optional[str]
-    end_alias: Optional[str]
+from .expression_text import render_expr_node as _render_expr_node
+from .shortest_path_aliases import (
+    _ShortestPathAliasSpec,
+    _match_pattern_alias_kinds,
+    _shortest_path_alias_specs,
+)
 
 
 def _unsupported(message: str, *, field: str, value: Any, line: int, column: int) -> GFQLValidationError:
@@ -63,217 +44,6 @@ def _unsupported(message: str, *, field: str, value: Any, line: int, column: int
         column=column,
         language="cypher",
     )
-
-
-def _is_variable_length_relationship_pattern(relationship: RelationshipPattern) -> bool:
-    return (
-        relationship.min_hops is not None
-        or relationship.max_hops is not None
-        or relationship.to_fixed_point
-    )
-
-
-def _match_pattern_alias_kinds(clause: MatchClause) -> Tuple[PathPatternKind, ...]:
-    if clause.pattern_alias_kinds:
-        return cast(Tuple[PathPatternKind, ...], clause.pattern_alias_kinds)
-    return tuple("pattern" for _ in clause.patterns)
-
-
-def _shortest_path_alias_specs(query: CypherQuery) -> Dict[str, _ShortestPathAliasSpec]:
-    out: Dict[str, _ShortestPathAliasSpec] = {}
-    for clause in query.matches + query.reentry_matches:
-        pattern_aliases = clause.pattern_aliases or tuple(None for _ in clause.patterns)
-        pattern_kinds = _match_pattern_alias_kinds(clause)
-        for alias, pattern, kind in zip(pattern_aliases, clause.patterns, pattern_kinds):
-            if alias is None or kind != "shortestPath":
-                continue
-            relationships = [element for element in pattern if isinstance(element, RelationshipPattern)]
-            if len(relationships) != 1 or len(pattern) != 3:
-                raise _unsupported(
-                    "Cypher shortestPath() currently supports only single-relationship path patterns in the local compiler",
-                    field="match",
-                    value=alias,
-                    line=clause.span.line,
-                    column=clause.span.column,
-                )
-            relationship = relationships[0]
-            if not _is_variable_length_relationship_pattern(relationship):
-                raise _unsupported(
-                    "Cypher shortestPath() requires a variable-length relationship pattern in the local compiler",
-                    field="match",
-                    value=alias,
-                    line=clause.span.line,
-                    column=clause.span.column,
-                )
-            start_alias = pattern[0].variable if isinstance(pattern[0], NodePattern) else None
-            end_alias = pattern[-1].variable if isinstance(pattern[-1], NodePattern) else None
-            out[alias] = _ShortestPathAliasSpec(
-                alias=alias,
-                hop_column=f"__cypher_shortest_path_hops__{alias}",
-                pattern=pattern,
-                start_alias=start_alias,
-                end_alias=end_alias,
-            )
-    return out
-
-
-def _cypher_literal_expr_text(value: Any) -> str:
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int) and not isinstance(value, bool):
-        return str(value)
-    if isinstance(value, float):
-        if value != value:
-            return "null"
-        return repr(value)
-    if isinstance(value, str):
-        return render_cypher_string_literal(value)
-    if isinstance(value, (list, tuple)):
-        return "[" + ", ".join(_cypher_literal_expr_text(item) for item in value) + "]"
-    if isinstance(value, dict):
-        parts: List[str] = []
-        for key, item in value.items():
-            key_txt = str(key)
-            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key_txt):
-                rendered_key = key_txt
-            else:
-                rendered_key = render_cypher_string_literal(key_txt)
-            parts.append(f"{rendered_key}: {_cypher_literal_expr_text(item)}")
-        return "{" + ", ".join(parts) + "}"
-    raise GFQLValidationError(
-        ErrorCode.E108,
-        "Cypher parameter value is outside the currently supported literal subset",
-        field="params",
-        value=type(value).__name__,
-        suggestion="Use null, booleans, numbers, strings, lists, or maps as parameter values.",
-        language="cypher",
-    )
-
-
-def _render_expr_node(node: ExprNode) -> str:
-    if isinstance(node, Identifier):
-        return cast(str, node.name)
-    if isinstance(node, ExprLiteral):
-        return _cypher_literal_expr_text(node.value)
-    if isinstance(node, UnaryOp):
-        operand = _render_expr_node(node.operand)
-        if node.op == "not":
-            return f"(NOT {operand})"
-        return f"({node.op}{operand})"
-    if isinstance(node, BinaryOp):
-        left = _render_expr_node(node.left)
-        right = _render_expr_node(node.right)
-        if node.op in {"and", "or", "xor", "in"}:
-            op_txt = node.op.upper()
-        elif node.op == "starts_with":
-            op_txt = "STARTS WITH"
-        elif node.op == "ends_with":
-            op_txt = "ENDS WITH"
-        elif node.op == "contains":
-            op_txt = "CONTAINS"
-        else:
-            op_txt = node.op
-        return f"({left} {op_txt} {right})"
-    if isinstance(node, IsNullOp):
-        suffix = "IS NOT NULL" if node.negated else "IS NULL"
-        return f"({_render_expr_node(node.value)} {suffix})"
-    if isinstance(node, FunctionCall):
-        args = ", ".join(_render_expr_node(arg) for arg in node.args)
-        if node.distinct:
-            args = f"DISTINCT {args}"
-        return f"{node.name}({args})"
-    if isinstance(node, Wildcard):
-        return "*"
-    if isinstance(node, CaseWhen):
-        return (
-            "CASE WHEN "
-            f"{_render_expr_node(node.condition)} THEN {_render_expr_node(node.when_true)} "
-            f"ELSE {_render_expr_node(node.when_false)} END"
-        )
-    if isinstance(node, QuantifierExpr):
-        return (
-            f"{node.fn.upper()}({node.var} IN {_render_expr_node(node.source)} "
-            f"WHERE {_render_expr_node(node.predicate)})"
-        )
-    if isinstance(node, ListComprehension):
-        rendered = f"[{node.var} IN {_render_expr_node(node.source)}"
-        if node.predicate is not None:
-            rendered += f" WHERE {_render_expr_node(node.predicate)}"
-        if node.projection is not None:
-            rendered += f" | {_render_expr_node(node.projection)}"
-        return rendered + "]"
-    if isinstance(node, ListLiteral):
-        return "[" + ", ".join(_render_expr_node(item) for item in node.items) + "]"
-    if isinstance(node, MapLiteral):
-        parts: List[str] = []
-        for key, value in node.items:
-            rendered_key = key if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) else _cypher_literal_expr_text(key)
-            parts.append(f"{rendered_key}: {_render_expr_node(value)}")
-        return "{" + ", ".join(parts) + "}"
-    if isinstance(node, SubscriptExpr):
-        return f"{_render_expr_node(node.value)}[{_render_expr_node(node.key)}]"
-    if isinstance(node, SliceExpr):
-        start = "" if node.start is None else _render_expr_node(node.start)
-        stop = "" if node.stop is None else _render_expr_node(node.stop)
-        return f"{_render_expr_node(node.value)}[{start}..{stop}]"
-    if isinstance(node, PropertyAccessExpr):
-        return f"{_render_expr_node(node.value)}.{node.property}"
-    raise TypeError(f"Unsupported expression node type for rendering: {type(node).__name__}")
-
-
-def _rebuild_expr_node(
-    node: ExprNode,
-    *,
-    rewrite: Callable[[ExprNode], ExprNode],
-    error_context: str,
-) -> ExprNode:
-    if isinstance(node, (Identifier, ExprLiteral, Wildcard)):
-        return node
-    if isinstance(node, UnaryOp):
-        return UnaryOp(node.op, rewrite(node.operand))
-    if isinstance(node, BinaryOp):
-        return BinaryOp(node.op, rewrite(node.left), rewrite(node.right))
-    if isinstance(node, IsNullOp):
-        return IsNullOp(rewrite(node.value), negated=node.negated)
-    if isinstance(node, FunctionCall):
-        return FunctionCall(node.name, tuple(rewrite(arg) for arg in node.args), distinct=node.distinct)
-    if isinstance(node, CaseWhen):
-        return CaseWhen(
-            rewrite(node.condition),
-            rewrite(node.when_true),
-            rewrite(node.when_false),
-        )
-    if isinstance(node, QuantifierExpr):
-        return QuantifierExpr(
-            node.fn,
-            node.var,
-            rewrite(node.source),
-            rewrite(node.predicate),
-        )
-    if isinstance(node, ListComprehension):
-        return ListComprehension(
-            node.var,
-            rewrite(node.source),
-            predicate=None if node.predicate is None else rewrite(node.predicate),
-            projection=None if node.projection is None else rewrite(node.projection),
-        )
-    if isinstance(node, ListLiteral):
-        return ListLiteral(tuple(rewrite(item) for item in node.items))
-    if isinstance(node, MapLiteral):
-        return MapLiteral(tuple((key, rewrite(value)) for key, value in node.items))
-    if isinstance(node, SubscriptExpr):
-        return SubscriptExpr(rewrite(node.value), rewrite(node.key))
-    if isinstance(node, SliceExpr):
-        return SliceExpr(
-            rewrite(node.value),
-            None if node.start is None else rewrite(node.start),
-            None if node.stop is None else rewrite(node.stop),
-        )
-    if isinstance(node, PropertyAccessExpr):
-        return PropertyAccessExpr(rewrite(node.value), node.property)
-    raise TypeError(f"Unsupported expression node in {error_context}: {type(node).__name__}")
 
 
 def _rewrite_shortest_path_expr_node(

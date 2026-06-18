@@ -1,5 +1,3 @@
-# python -m unittest
-import datetime as dt
 import graphistry
 import logging
 import numpy as np
@@ -9,6 +7,7 @@ from typing import Any
 import pytest
 import unittest
 
+import graphistry.feature_utils as feature_utils_module
 from graphistry.feature_utils import (
     process_dirty_dataframes,
     process_nodes_dataframes,
@@ -35,8 +34,6 @@ logging.getLogger("graphistry.feature_utils").setLevel(logging.DEBUG)
 
 model_avg_name = (
     "/models/average_word_embeddings_komninos"  # 250mb, fastest vectorizer in transformer models
-    #"/models/paraphrase-albert-small-v2"  # 40mb
-    #"/models/paraphrase-MiniLM-L3-v2"  # 60mb
 )
 
 
@@ -48,18 +45,6 @@ bad_df = pd.DataFrame(
         "list_int": [[1], [2, 3], [4], []],
         "list_str": [["x"], ["1", "2"], ["y"], []],
         "list_bool": [[True], [True, False], [False], []],
-        # "list_date_str": [
-        #     ["2018-01-01 00:00:00"],
-        #     ["2018-01-02 00:00:00", "2018-01-03 00:00:00"],
-        #     ["2018-01-05 00:00:00"],
-        #     [],
-        # ],
-        # "list_date": [
-        #     [pd.Timestamp("2018-01-05")],
-        #     [pd.Timestamp("2018-01-05"), pd.Timestamp("2018-01-05")],
-        #     [],
-        #     [],
-        # ],
         "list_mixed": [[1], ["1", "2"], [False, None], []],
         "bool": [True, False, True, True],
         "char": ["a", "b", "c", "d"],
@@ -68,32 +53,6 @@ bad_df = pd.DataFrame(
         "emoji": ["😋", "😋😋", "😋", "😋"],
         "int": [0, 1, 2, 3],
         "num": [0.5, 1.5, 2.5, 3.5],
-        # "date_str": [
-        #     "2018-01-01 00:00:00",
-        #     "2018-01-02 00:00:00",
-        #     "2018-01-03 00:00:00",
-        #     "2018-01-05 00:00:00",
-        # ],
-        # API 1 BUG: Try with https://github.com/graphistry/pygraphistry/pull/126
-        # "date": [
-        #     dt.datetime(2018, 1, 1),
-        #     dt.datetime(2018, 1, 1),
-        #     dt.datetime(2018, 1, 1),
-        #     dt.datetime(2018, 1, 1),
-        # ],
-        # "time": [
-        #     pd.Timestamp("2018-01-05"),
-        #     pd.Timestamp("2018-01-05"),
-        #     pd.Timestamp("2018-01-05"),
-        #     pd.Timestamp("2018-01-05"),
-        # ],
-        # # API 2 BUG: Need timedelta in https://github.com/graphistry/pygraphistry/blob/master/graphistry/vgraph.py#L108
-        # "delta": [
-        #     pd.Timedelta("1 day"),
-        #     pd.Timedelta("1 day"),
-        #     pd.Timedelta("1 day"),
-        #     pd.Timedelta("1 day"),
-        # ],
         "textual": [
             "here we have a sentence. And here is another sentence. Graphistry is an amazing tool!"
         ] * 2 + ['And now for something completely different so we dont mess up the tests with a repeat document'] + ['I love my wife'],
@@ -105,13 +64,10 @@ bad_df = pd.DataFrame(
 edge_df = bad_df.astype(str)
 good_edge_cols = [
     "textual",
-    #"delta",
-    #"time",
     "colors",
     "list_str",
     "bool",
     "char",
-    #"list_date",
 ]
 
 single_target_edge = pd.DataFrame({"emoji": edge_df["emoji"].values})
@@ -595,6 +551,86 @@ class TestModelNameHandling(unittest.TestCase):
             0.9999,
             f"Different formats should produce near-identical embeddings, got cosine={cosine}",
         )
+
+
+def test_encode_textual_reuses_normalized_sentence_transformer_model(monkeypatch):
+    class FakeSentenceTransformer:
+        def __init__(self, model_name):
+            calls.append(model_name)
+            self.model_name = model_name
+
+        def encode(self, values, **kwargs):
+            return np.ones((len(values), 2))
+
+    calls = []
+    test_df = pd.DataFrame({"text": ["hello world"], "number": [1]})
+    model_name = "paraphrase-albert-small-v2"
+
+    feature_utils_module._get_sentence_transformer_model.cache_clear()
+    monkeypatch.setattr(
+        feature_utils_module,
+        "lazy_sentence_transformers_import",
+        lambda: (True, "ok", FakeSentenceTransformer),
+    )
+    try:
+        _, _, legacy_model = encode_textual(
+            test_df,
+            min_words=0,
+            model_name=model_name,
+            use_ngrams=False,
+        )
+        _, _, full_model = encode_textual(
+            test_df,
+            min_words=0,
+            model_name=f"sentence-transformers/{model_name}",
+            use_ngrams=False,
+        )
+    finally:
+        feature_utils_module._get_sentence_transformer_model.cache_clear()
+
+    assert legacy_model is full_model
+    assert calls == [f"sentence-transformers/{model_name}"]
+
+
+def test_encode_textual_keeps_distinct_sentence_transformer_names(monkeypatch):
+    class FakeSentenceTransformer:
+        def __init__(self, model_name):
+            calls.append(model_name)
+            self.model_name = model_name
+
+        def encode(self, values, **kwargs):
+            return np.ones((len(values), 2))
+
+    calls = []
+    test_df = pd.DataFrame({"text": ["hello world"], "number": [1]})
+
+    feature_utils_module._get_sentence_transformer_model.cache_clear()
+    monkeypatch.setattr(
+        feature_utils_module,
+        "lazy_sentence_transformers_import",
+        lambda: (True, "ok", FakeSentenceTransformer),
+    )
+    try:
+        _, _, sentence_transformers_model = encode_textual(
+            test_df,
+            min_words=0,
+            model_name="sentence-transformers/paraphrase-albert-small-v2",
+            use_ngrams=False,
+        )
+        _, _, provider_model = encode_textual(
+            test_df,
+            min_words=0,
+            model_name="other-org/paraphrase-albert-small-v2",
+            use_ngrams=False,
+        )
+    finally:
+        feature_utils_module._get_sentence_transformer_model.cache_clear()
+
+    assert sentence_transformers_model is not provider_model
+    assert calls == [
+        "sentence-transformers/paraphrase-albert-small-v2",
+        "other-org/paraphrase-albert-small-v2",
+    ]
 
 
 if __name__ == "__main__":

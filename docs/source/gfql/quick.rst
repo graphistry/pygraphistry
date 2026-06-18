@@ -29,14 +29,25 @@ Basic Usage
 - **query**: Sequence of graph node/edge matchers and optional row-pipeline call steps (for example, `rows()`, `where_rows()`, `return_()`, `order_by()`, `limit()`), or an equivalent GFQL chain object.
 - **engine**: Optional execution engine. Engine is typically not set, defaulting to `'auto'`. Use `'cudf'` for GPU acceleration and `'pandas'` for CPU.
 
+Native GFQL chains are typed Python inputs. Pass the list, dict envelope, or
+``Chain`` object itself; strings passed to ``g.gfql(...)`` are interpreted as
+query text for the selected string language.
+
 Use this page as a quick MATCH/chain reference.
 For row-pipeline RETURN semantics, see :doc:`return`.
 
 Choose The Right Entrypoint
 ---------------------------
 
-- Use `g.gfql([...])` for native GFQL operators and `g.gfql("MATCH ...")` for Cypher syntax on the current graph.
-- Use `g.gfql_remote([...])` for remote GFQL when the dataset size or hardware profile calls for remote execution, including remote GPU execution. See :ref:`gfql-remote`.
+- Use ``g.gfql([...])`` for native GFQL operators and
+  ``g.gfql("MATCH ...")`` for Cypher syntax on the current graph.
+- If a tool receives a serialized native chain such as ``"[{'type': ...}]"``,
+  decode it into a real Python list/dict/``Chain`` before calling
+  ``g.gfql(...)``. ``g.gfql(str)`` is reserved for Cypher query text by
+  default.
+- Use ``g.gfql_remote([...])`` for remote GFQL when the dataset size or
+  hardware profile calls for remote execution, including remote GPU execution.
+  See :ref:`gfql-remote`.
 
 .. warning::
    `graphistry.cypher("...")` and `g.cypher("...")` are a separate remote database Cypher path
@@ -48,7 +59,7 @@ Graph State Vs Row State
 - **Graph state** keeps a traversable graph in `_nodes` and `_edges`. Matchers, graph-preserving `call(...)` transforms, `let()` / `ref()` graph DAG stages, local Cypher `CALL graphistry.*.write()` queries, and local Cypher `GRAPH { MATCH ... }` constructors stay in graph state. (`GRAPH { }` is a GFQL extension — see :doc:`cypher` for details.)
 - **Row state** stores tabular results in `_nodes` and uses an empty placeholder `_edges` frame. Row-pipeline steps such as `rows()`, `with_()`, `select()`, `return_()`, `group_by()`, and row-returning local Cypher `CALL ... YIELD ... RETURN ...` queries move into row state.
 - A bare local Cypher procedure call without `.write()` also moves into row state. For example, `CALL graphistry.degree()` projects its default output columns into `_nodes` and clears `_edges`.
-- If you want to enrich a graph and keep matching locally, use a graph-preserving `call()` / `let()` pattern or a bare local Cypher `CALL graphistry.*.write()`. The local Cypher compiler currently supports `graphistry.degree.write()` plus `graphistry.igraph.<alg>.write()` and `graphistry.cugraph.<alg>.write()` for algorithms exposed through `compute_igraph()` / `compute_cugraph()`, along with the smaller compatibility subset `graphistry.nx.pagerank.write()`, `graphistry.nx.betweenness_centrality.write()`, `graphistry.nx.edge_betweenness_centrality.write()`, and `graphistry.nx.k_core.write()`.
+- If you want to enrich a graph and keep matching locally, use a graph-preserving `call()` / `let()` pattern or a bare local Cypher `CALL graphistry.*.write()`. The local Cypher compiler currently supports `graphistry.degree.write()` plus `graphistry.igraph.<alg>.write()` and `graphistry.cugraph.<alg>.write()` for algorithms exposed through `compute_igraph()` / `compute_cugraph()`, along with a curated NetworkX subset including `graphistry.nx.pagerank.write()`, `graphistry.nx.betweenness_centrality.write()`, `graphistry.nx.degree_centrality.write()`, `graphistry.nx.closeness_centrality.write()`, `graphistry.nx.eigenvector_centrality.write()`, `graphistry.nx.katz_centrality.write()`, `graphistry.nx.connected_components.write()`, `graphistry.nx.strongly_connected_components.write()`, `graphistry.nx.core_number.write()`, `graphistry.nx.hits.write()`, `graphistry.nx.edge_betweenness_centrality.write()`, and `graphistry.nx.k_core.write()`.
 
 Cypher Strings Through ``g.gfql()``
 -----------------------------------
@@ -56,6 +67,10 @@ Cypher Strings Through ``g.gfql()``
 Use ``g.gfql("MATCH ...")`` when you want Cypher syntax and declarative graph
 semantics on a bound graph instead of writing the equivalent GFQL chain by
 hand:
+
+Do not pass stringified Python or JSON native-chain literals to
+``g.gfql(...)``. Materialize those serialized values before calling GFQL, or
+emit Cypher text intentionally.
 
 .. doc-test: xfail
 

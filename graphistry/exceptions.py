@@ -34,3 +34,28 @@ class ArrowConversionError(Exception):
         msg = (f"Arrow conversion failed for columns {columns}. "
                f"Use validate='autofix' to auto-coerce to strings.")
         super().__init__(msg)
+
+
+class SchemaValidationError(Exception):
+    """Raised when opt-in schema boundary validation fails."""
+
+    def __init__(
+        self,
+        *,
+        table: str,
+        column: str,
+        reason: str,
+        expected: object = None,
+        actual: object = None,
+    ):
+        self.table = table
+        self.column = column
+        self.reason = reason
+        self.expected = expected
+        self.actual = actual
+        details = f"Schema validation failed for {table}.{column}: {reason}."
+        if expected is not None:
+            details += f" Expected {expected!r}."
+        if actual is not None:
+            details += f" Actual {actual!r}."
+        super().__init__(details)
