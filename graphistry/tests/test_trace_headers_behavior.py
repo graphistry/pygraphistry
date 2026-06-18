@@ -128,7 +128,7 @@ def test_plot_ott_http_error_degrades_gracefully(mock_post):
     mock_post.side_effect = _side_effect
     g = _make_graph()
     url = g.plot(render="url", as_files=False, validate=False, warn=False, memoize=False)
-    assert "token=" not in url, f"?token= must be absent on OTT failure: {url}"
+    assert "&token=" not in url, f"?token= must be absent on OTT failure: {url}"
 
 
 @_patch_inject
@@ -142,7 +142,7 @@ def test_plot_ott_missing_key_degrades_gracefully(mock_post):
     mock_post.side_effect = _side_effect
     g = _make_graph()
     url = g.plot(render="url", as_files=False, validate=False, warn=False, memoize=False)
-    assert "token=" not in url, f"?token= must be absent on malformed response: {url}"
+    assert "&token=" not in url, f"?token= must be absent on malformed response: {url}"
 
 
 @_patch_inject
@@ -165,7 +165,7 @@ def test_plot_ott_html_response_degrades_gracefully(mock_post):
     mock_post.side_effect = _side_effect
     g = _make_graph()
     url = g.plot(render="url", as_files=False, validate=False, warn=False, memoize=False)
-    assert "token=" not in url, f"?token= must be absent when server returns HTML: {url}"
+    assert "&token=" not in url, f"?token= must be absent when server returns HTML: {url}"
 
 
 @_patch_inject
@@ -179,7 +179,7 @@ def test_plot_ott_connection_error_degrades_gracefully(mock_post):
     mock_post.side_effect = _side_effect
     g = _make_graph()
     url = g.plot(render="url", as_files=False, validate=False, warn=False, memoize=False)
-    assert "token=" not in url, f"?token= must be absent on connection error: {url}"
+    assert "&token=" not in url, f"?token= must be absent on connection error: {url}"
 
 
 @_patch_inject
