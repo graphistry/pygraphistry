@@ -10,7 +10,7 @@ from graphistry.validate.validate_react_encodings import parse_apply_encodings_o
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.render.resolve_render_mode import resolve_render_mode
 from graphistry.Engine import Engine, EngineAbstractType, df_to_engine
-import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, sys, uuid, warnings
+import copy, hashlib, numpy as np, pandas as pd, pyarrow as pa, requests, sys, uuid, warnings
 from functools import lru_cache, partialmethod
 from weakref import WeakValueDictionary
 
