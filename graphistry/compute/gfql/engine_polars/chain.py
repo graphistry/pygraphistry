@@ -13,7 +13,7 @@ from typing import Any, List, Optional, Tuple
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
-from .hop import hop_polars
+from .hop import hop_polars, ensure_nodes_polars
 from .predicates import filter_by_dict_polars
 
 
@@ -26,6 +26,7 @@ def _exec(op: ASTObject, g: Plottable, prev_wf, target_wf) -> Plottable:
     import polars as pl
 
     node_col = g._node
+    assert node_col is not None
     if isinstance(op, ASTNode):
         if op.query is not None:
             raise NotImplementedError("polars chain engine does not yet support node query=")
@@ -74,6 +75,7 @@ def _exec(op: ASTObject, g: Plottable, prev_wf, target_wf) -> Plottable:
 def _combine_edges(g, steps, label_steps):
     import polars as pl
     src, dst, node_col, edge_id = g._source, g._destination, g._node, g._edge
+    assert src is not None and dst is not None and node_col is not None and edge_id is not None
 
     frames = []
     for idx, (op, g_step) in enumerate(steps):
@@ -113,6 +115,7 @@ def _combine_edges(g, steps, label_steps):
 def _combine_nodes(g, steps):
     import polars as pl
     node_col = g._node
+    assert node_col is not None
     frames = [
         g_step._nodes.select(pl.col(node_col))
         for _, g_step in steps
@@ -125,23 +128,27 @@ def _combine_nodes(g, steps):
     return g._nodes.join(ids, on=node_col, how="semi")
 
 
-def _apply_node_names(out, g, label_steps):
+def _apply_node_names(out, g, steps):
     """Tag node aliases on the FINAL node frame (after endpoint materialization).
 
-    A node carries the alias if it matched the named node step AND (when that
-    step is followed by an edge step) participates in that edge. Join-based.
+    A node carries the alias if it matched the named node step (in the
+    backward-PRUNED step, so dead-end matches are excluded) AND, when that step
+    is followed by an edge step, participates in that edge's PRUNED edges.
+    Using the pruned ``steps`` (not the forward-pass frames) is essential — the
+    forward frames over-include and would tag nodes absent from the final graph.
     """
     import polars as pl
     node_col, src, dst = g._node, g._source, g._destination
-    label_list = list(label_steps)
-    for idx, (op, g_step) in enumerate(label_list):
+    assert node_col is not None and src is not None and dst is not None
+    step_list = list(steps)
+    for idx, (op, g_step) in enumerate(step_list):
         if op._name is None or not isinstance(op, ASTNode) or g_step._nodes is None:
             continue
         if op._name not in g_step._nodes.columns:
             continue
         named = g_step._nodes.filter(pl.col(op._name)).select(pl.col(node_col)).unique()
-        if idx + 1 < len(label_list):
-            next_op, next_step = label_list[idx + 1]
+        if idx + 1 < len(step_list):
+            next_op, next_step = step_list[idx + 1]
             if isinstance(next_op, ASTEdge) and next_step._edges is not None and next_step._edges.height > 0:
                 e = next_step._edges
                 if next_op.direction == "forward":
@@ -188,7 +195,12 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
             "in multi-edge chains; deferred. Use engine='pandas'."
         )
 
-    g = self.materialize_nodes(engine="polars")
+    if start_nodes is not None:
+        from graphistry.Engine import Engine, df_to_engine
+        start_nodes = df_to_engine(start_nodes, Engine.POLARS)
+
+    g = ensure_nodes_polars(self)
+    assert g._node is not None and g._source is not None and g._destination is not None
     if g._edge is None:
         EID = "__gfql_edge_index__"
         g = g.edges(g._edges.with_row_index(EID), g._source, g._destination, edge=EID)
@@ -222,24 +234,27 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
     steps: List[Tuple[ASTObject, Plottable]] = list(zip(ops, list(reversed(g_rev))))
     label_steps: List[Tuple[ASTObject, Plottable]] = list(zip(ops, g_stack))
 
+    node_col, src, dst = g._node, g._source, g._destination
+    assert node_col is not None and src is not None and dst is not None
+
     final_nodes = _combine_nodes(g, steps)
     final_edges = _combine_edges(g, steps, label_steps)
 
     # Endpoint materialization (vectorized: anti-join missing endpoints).
     if final_edges.height > 0:
         endpoints = pl.concat(
-            [final_edges.select(pl.col(g._source).alias(g._node)),
-             final_edges.select(pl.col(g._destination).alias(g._node))],
+            [final_edges.select(pl.col(src).alias(node_col)),
+             final_edges.select(pl.col(dst).alias(node_col))],
             how="vertical_relaxed",
-        ).unique(subset=[g._node])
-        missing = endpoints.join(final_nodes.select(pl.col(g._node)), on=g._node, how="anti")
+        ).unique(subset=[node_col])
+        missing = endpoints.join(final_nodes.select(pl.col(node_col)), on=node_col, how="anti")
         if missing.height > 0:
-            extra = g._nodes.join(missing, on=g._node, how="semi")
-            final_nodes = pl.concat([final_nodes, extra], how="diagonal_relaxed").unique(subset=[g._node])
+            extra = g._nodes.join(missing, on=node_col, how="semi")
+            final_nodes = pl.concat([final_nodes, extra], how="diagonal_relaxed").unique(subset=[node_col])
 
-    final_nodes = _apply_node_names(final_nodes, g, label_steps)
+    final_nodes = _apply_node_names(final_nodes, g, steps)
 
     if added_edge_index:
         final_edges = final_edges.drop(EID)
-        return self.nodes(final_nodes, g._node).edges(final_edges, g._source, g._destination)
-    return g.nodes(final_nodes, g._node).edges(final_edges, g._source, g._destination)
+        return self.nodes(final_nodes, node_col).edges(final_edges, src, dst)
+    return g.nodes(final_nodes, node_col).edges(final_edges, src, dst)

@@ -239,6 +239,9 @@ def _pl_concat(frames, *, ignore_index: bool = True, sort: bool = False, **_kw):
         return pl.DataFrame()
     if len(frames) == 1:
         return frames[0]
+    if isinstance(frames[0], pl.Series):
+        # Series concat only supports the default vertical strategy.
+        return pl.concat(frames)
     return pl.concat(frames, how="vertical_relaxed")
 
 
