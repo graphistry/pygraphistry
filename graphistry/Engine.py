@@ -13,18 +13,20 @@ class Engine(Enum):
     CUDF = 'cudf'
     DASK = 'dask'
     DASK_CUDF = 'dask_cudf'
+    POLARS = 'polars'
 
 class EngineAbstract(Enum):
     PANDAS = Engine.PANDAS.value
     CUDF = Engine.CUDF.value
     DASK = Engine.DASK.value
     DASK_CUDF = Engine.DASK_CUDF.value
+    POLARS = Engine.POLARS.value
     AUTO = 'auto'
 
 
 # Type alias for engine parameter - accepts both enum values and string literals
 # Includes 'auto' for automatic detection
-EngineAbstractType = Union[EngineAbstract, Literal['pandas', 'cudf', 'dask', 'dask_cudf', 'auto']]
+EngineAbstractType = Union[EngineAbstract, Literal['pandas', 'cudf', 'dask', 'dask_cudf', 'polars', 'auto']]
 
 DataframeLike = Any  # pdf, cudf, ddf, dgdf
 DataframeLocalLike = Any  # pdf, cudf
@@ -209,7 +211,36 @@ def df_to_engine(df, engine: Engine):
         if not isinstance(df, pd.DataFrame):
             df = df_to_engine(df, Engine.PANDAS)
         return dd.from_pandas(df, npartitions=1)
-    raise ValueError(f'Only engines pandas/cudf/dask supported, got: {engine}')
+    elif engine == Engine.POLARS:
+        import polars as pl
+        if isinstance(df, pl.DataFrame):
+            return df
+        if isinstance(df, pl.LazyFrame):
+            return df.collect()
+        if isinstance(df, pa.Table):
+            return pl.from_arrow(df)
+        if isinstance(df, pd.DataFrame):
+            return pl.from_pandas(df)
+        # cudf/dask/spark and anything else: route through pandas first
+        return pl.from_pandas(df_to_engine(df, Engine.PANDAS))
+    raise ValueError(f'Only engines pandas/cudf/dask/polars supported, got: {engine}')
+
+def _pl_concat(frames, *, ignore_index: bool = True, sort: bool = False, **_kw):
+    """pandas/cudf-signature-compatible row concat for polars.
+
+    polars has no row index and no ``sort`` kwarg; ``ignore_index``/``sort`` are
+    accepted-and-ignored so generic call sites (hop/chain) work unchanged.
+    ``vertical_relaxed`` aligns to a common supertype like pandas does for
+    mixed-but-compatible column dtypes.
+    """
+    import polars as pl
+    frames = list(frames)
+    if len(frames) == 0:
+        return pl.DataFrame()
+    if len(frames) == 1:
+        return frames[0]
+    return pl.concat(frames, how="vertical_relaxed")
+
 
 def df_concat(engine: Engine):
     if engine == Engine.PANDAS:
@@ -217,6 +248,8 @@ def df_concat(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.concat
+    elif engine == Engine.POLARS:
+        return _pl_concat
     elif engine == Engine.DASK:
         raise NotImplementedError("DASK is an input format, not a compute engine — use engine='auto' or engine='pandas'")
     raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
@@ -290,6 +323,9 @@ def df_cons(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.DataFrame
+    elif engine == Engine.POLARS:
+        import polars as pl
+        return pl.DataFrame
     raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 def s_cons(engine: Engine):
@@ -298,6 +334,9 @@ def s_cons(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.Series
+    elif engine == Engine.POLARS:
+        import polars as pl
+        return pl.Series
     raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
 
 def s_sqrt(engine: Engine):
