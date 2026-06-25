@@ -201,14 +201,15 @@ def test_polars_chain_duplicate_edges_multiplicity():
 
 
 def test_polars_chain_edges_only_runs():
-    # No node table / binding: pandas is degenerate here (nan node, _node=None);
-    # polars returns clean materialized nodes. Edges must still match and it must
-    # not crash (the prior BLOCKER).
+    # No node table / binding: this used to crash the polars engine (the prior
+    # BLOCKER). The pandas engine is itself degenerate on this input (it raises
+    # in pandas concat internals on newer pandas, or returns a nan node), so we
+    # do NOT compare to pandas here — we assert the polars engine runs and
+    # returns the sensible materialized result.
     g = graphistry.edges(pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 0]}), "s", "d")
-    gp = g.chain([n(), e_forward(), n()], engine="pandas")
     gl = g.chain([n(), e_forward(), n()], engine="polars")
-    assert _eset(gp) == _eset(gl)
     assert _nset(gl) == {0, 1, 2}
+    assert _eset(gl) == {(0, 1), (1, 2), (2, 0)}
 
 
 def test_polars_chain_pandas_start_nodes():

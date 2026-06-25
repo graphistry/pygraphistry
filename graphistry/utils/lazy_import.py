@@ -25,16 +25,6 @@ def lazy_cudf_import():
         logger.warn("Unexpected exn during lazy import", exc_info=e)
         return False, e, None
 
-def lazy_polars_import():
-    try:
-        import polars as pl  # type: ignore
-        return True, "ok", pl
-    except ModuleNotFoundError as e:
-        return False, e, None
-    except Exception as e:
-        logger.warn("Unexpected exn during lazy import", exc_info=e)
-        return False, e, None
-
 def lazy_cuml_import():
     try:
         warnings.filterwarnings("ignore")
