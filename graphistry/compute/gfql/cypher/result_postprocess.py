@@ -185,7 +185,42 @@ def _projection_alias_rows(
     return None
 
 
+def _is_polars_frame(df: Any) -> bool:
+    return df is not None and "polars" in type(df).__module__
+
+
+def _bridge_result_frames(result: Plottable, to: Literal["pandas", "polars"]) -> Plottable:
+    """Convert a result's node/edge frames between polars and pandas.
+
+    The cypher result projection (entity-text formatting) is a row-wise,
+    pandas-native step; we run it on a host-bridged pandas copy and convert the
+    formatted result back to polars so ``engine='polars'`` stays polars-typed
+    end-to-end. The heavy filter/dedup/slice already ran natively in polars. See
+    plans/gfql-polars-engine (Phase 2).
+    """
+    out = result.bind()
+    for attr in ("_nodes", "_edges"):
+        df = getattr(result, attr, None)
+        if df is None:
+            continue
+        if to == "pandas" and _is_polars_frame(df):
+            setattr(out, attr, df.to_pandas())
+        elif to == "polars" and isinstance(df, pd.DataFrame):
+            import polars as pl
+            setattr(out, attr, pl.from_pandas(df))
+    return out
+
+
 def apply_result_projection(result: Plottable, projection: ResultProjectionPlan) -> Plottable:
+    rows_df = getattr(result, "_nodes", None)
+    if _is_polars_frame(rows_df):
+        bridged = _bridge_result_frames(result, to="pandas")
+        out = _apply_result_projection_pandas(bridged, projection)
+        return _bridge_result_frames(out, to="polars")
+    return _apply_result_projection_pandas(result, projection)
+
+
+def _apply_result_projection_pandas(result: Plottable, projection: ResultProjectionPlan) -> Plottable:
     rows_df = cast(DataFrameT, getattr(result, "_nodes", None))
     if rows_df is None:
         return result

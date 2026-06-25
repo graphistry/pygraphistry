@@ -166,7 +166,101 @@ def _apply_node_names(out, g, steps):
     return out
 
 
+def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
+    """Execute a boundary run of ASTCall ops on a polars graph.
+
+    Mirrors the suffix/prefix handling in ``chain._handle_boundary_calls``:
+    threads the row-pipeline context attrs and applies the named-middle →
+    ``rows(binding_ops=...)`` rewrite, then dispatches each call through
+    ``op.execute(..., engine=Engine.POLARS)`` so the row pipeline runs natively
+    (or raises NotImplementedError for not-yet-ported ops).
+    """
+    from graphistry.Engine import Engine
+    from graphistry.compute.ast import ASTCall, ASTNode as _ASTNode, ASTEdge as _ASTEdge, rows as rows_fn
+    from graphistry.compute.chain import serialize_binding_ops
+
+    calls = list(calls)
+    if not calls:
+        return g_cur
+
+    if start_nodes is not None:
+        setattr(g_cur, "_gfql_start_nodes", start_nodes)
+    setattr(g_cur, "_gfql_rows_base_graph", base_graph)
+    setattr(g_cur, "_gfql_shortest_path_backend", getattr(g_cur, "_gfql_shortest_path_backend", "auto"))
+
+    if (
+        middle
+        and any(getattr(op, "_name", None) is not None for op in middle)
+        and isinstance(calls[0], ASTCall)
+        and calls[0].function == "rows"
+        and calls[0].params.get("binding_ops") is None
+        and calls[0].params.get("source") is None
+        and calls[0].params.get("alias_endpoints") is None
+        and all(isinstance(op, (_ASTNode, _ASTEdge)) for op in middle)
+    ):
+        calls = [rows_fn(binding_ops=serialize_binding_ops(middle))] + list(calls[1:])
+
+    for op in calls:
+        g_cur = op.execute(
+            g=g_cur,
+            prev_node_wavefront=None,
+            target_wave_front=None,
+            engine=Engine.POLARS,
+        )
+    return g_cur
+
+
 def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plottable:
+    from graphistry.compute.ast import ASTCall
+    from graphistry.compute.chain import Chain, _get_boundary_calls
+
+    if isinstance(ops, Chain):
+        ops = ops.chain
+    ops = list(ops)
+
+    if len(ops) == 0:
+        return self
+
+    has_call = any(isinstance(op, ASTCall) for op in ops)
+    has_traversal = any(isinstance(op, (ASTNode, ASTEdge)) for op in ops)
+
+    if not has_call:
+        return _chain_traversal_polars(self, ops, start_nodes)
+
+    if not has_traversal:
+        # Pure call chain (e.g. let() bodies): no traversal, just run the calls.
+        return _run_calls_polars(self, ops, start_nodes, base_graph=self, middle=[])
+
+    prefix, middle, suffix = _get_boundary_calls(ops)
+
+    # has_traversal is True here, so middle is non-empty.
+    has_call_in_middle = any(isinstance(op, ASTCall) for op in middle)
+    has_traversal_in_middle = any(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
+    if has_call_in_middle and has_traversal_in_middle:
+        from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
+        raise GFQLValidationError(
+            code=ErrorCode.E201,
+            message="Cannot mix call() operations with n()/e() traversals in interior of chain",
+            suggestion="call() operations are only allowed at chain boundaries (start/end).",
+        )
+
+    if prefix:
+        # Leading call() ops produce a row table that a following traversal would
+        # have to re-enter as a graph; the pandas path handles this via cascading
+        # _chain_impl, but it is not a cypher shape (MATCH always comes first) and
+        # the polars traversal does not yet consume a row-table input. Defer.
+        raise NotImplementedError(
+            "polars chain engine does not yet support call() before a traversal; "
+            "use engine='pandas' for this chain."
+        )
+
+    g_cur = _chain_traversal_polars(self, middle, start_nodes)
+    if suffix:
+        g_cur = _run_calls_polars(g_cur, suffix, start_nodes, base_graph=self, middle=middle)
+    return g_cur
+
+
+def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plottable:
     import polars as pl
     from graphistry.compute.chain import Chain
 
