@@ -34,7 +34,10 @@ import pandas as pd
 import graphistry
 
 # (name, cypher) — exercised on both engines via g.gfql(cypher, engine=...)
+# Native = frame ops (rows/limit/skip/distinct) run in polars; Bridged = the
+# cypher expression engine (select/order_by/group_by) runs host-bridged to pandas.
 WORKLOADS: List[Tuple[str, str]] = [
+    # native frame-op path
     ("RETURN n LIMIT 10", "MATCH (n) RETURN n LIMIT 10"),
     ("RETURN n SKIP/LIMIT", "MATCH (n) RETURN n SKIP 5 LIMIT 100"),
     ("WHERE > RETURN LIMIT", "MATCH (n) WHERE n.score > 90 RETURN n LIMIT 50"),
@@ -42,6 +45,12 @@ WORKLOADS: List[Tuple[str, str]] = [
     ("WHERE > RETURN n", "MATCH (n) WHERE n.score > 50 RETURN n"),
     ("RETURN n (full)", "MATCH (n) RETURN n"),
     ("rel RETURN m LIMIT", "MATCH (n)-[e]->(m) RETURN m LIMIT 100"),
+    # host-bridged expression path
+    ("select n.score", "MATCH (n) RETURN n.score"),
+    ("select 2 cols", "MATCH (n) RETURN n.score, n.kind"),
+    ("order_by", "MATCH (n) RETURN n.score ORDER BY n.score DESC"),
+    ("where+select+limit", "MATCH (n) WHERE n.score > 50 RETURN n.score ORDER BY n.score LIMIT 100"),
+    ("group_by count", "MATCH (n) RETURN n.kind, count(n) AS c"),
 ]
 
 

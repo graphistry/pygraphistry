@@ -215,6 +215,64 @@ def test_polars_chain_pure_call_no_traversal():
     assert g._nodes.height == 2
 
 
+def test_chain_polars_chain_input_and_empty():
+    """chain_polars accepts a Chain object and an empty op list."""
+    from graphistry.compute.chain import Chain
+    from graphistry.compute.ast import n
+    out = BASE.chain(Chain([n()]), engine="polars")            # Chain unwrap
+    assert "polars" in type(out._nodes).__module__
+    empty = BASE.chain([], engine="polars")                    # empty ops -> self
+    assert empty is not None
+
+
+def test_bridge_helpers_unit():
+    """Direct coverage of the host-bridge helpers' edge branches."""
+    from graphistry.compute.gfql.engine_polars.chain import (
+        _bridge_frame, _bridge_graph, _call_native_on_polars,
+    )
+    from graphistry.compute.ast import call, n
+    # _bridge_frame: None-safe + idempotent (already-correct-type) both directions
+    assert _bridge_frame(None, "pandas") is None
+    plf = pl.DataFrame({"a": [1, 2]})
+    assert _bridge_frame(plf, "polars") is plf                 # already polars
+    assert isinstance(_bridge_frame(plf, "pandas"), pd.DataFrame)
+    pdf = plf.to_pandas()
+    assert _bridge_frame(pdf, "pandas") is pdf                 # already pandas
+    assert "polars" in type(_bridge_frame(pdf, "polars")).__module__
+    # _bridge_graph: None-safe
+    assert _bridge_graph(None, "pandas") is None
+    # _call_native_on_polars: non-ASTCall, native, non-native
+    assert _call_native_on_polars(n()) is False
+    assert _call_native_on_polars(call("limit", {"value": 1})) is True
+    assert _call_native_on_polars(call("select", {"items": []})) is False
+    assert _call_native_on_polars(call("rows", {"binding_ops": [{}]})) is False
+
+
+def test_run_calls_polars_empty_and_start_nodes():
+    """_run_calls_polars: empty-calls short circuit + start_nodes bridging path."""
+    from graphistry.compute.gfql.engine_polars.chain import _run_calls_polars
+    from graphistry.compute.ast import call
+    g = _polars_graph()
+    # empty calls -> returns the graph unchanged
+    assert _run_calls_polars(g, [], None, g, []) is g
+    # a bridged op (select) with start_nodes set exercises the start_nodes
+    # setattr + bridge of start_nodes, then converts back to polars
+    sn = g._nodes.select(pl.col(g._node))
+    out = _run_calls_polars(g, [call("rows", {"table": "nodes"}), call("select", {"items": ["v"]})], sn, g, [])
+    assert "polars" in type(out._nodes).__module__
+
+
+def test_run_calls_polars_binding_ops_rewrite():
+    """Named middle + bare rows() triggers the binding_ops rewrite (then bridges)."""
+    from graphistry.compute.gfql.engine_polars.chain import _run_calls_polars
+    from graphistry.compute.ast import call, n, e_forward
+    g = _polars_graph()
+    middle = [n(name="a"), e_forward(), n(name="b")]
+    # bare rows() (no binding_ops/source/alias_endpoints) + named middle -> rewrite
+    out = _run_calls_polars(g, [call("rows", {})], None, g, middle)
+    assert out is not None
+
+
 def test_frame_ops_polars_rows_empty_table():
     """rows() materializes an empty active table without index artifacts."""
     from graphistry.Engine import Engine, df_to_engine
