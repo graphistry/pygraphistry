@@ -72,6 +72,7 @@ def hop_polars(
 ) -> Plottable:
     import polars as pl
     from graphistry.Engine import Engine, df_to_engine
+    from .gpu import join as _gjoin  # GPU-collects when POLARS_GPU active, else eager join
 
     if direction not in ("forward", "reverse", "undirected"):
         raise ValueError(
@@ -184,7 +185,7 @@ def hop_polars(
         current_hop += 1
 
         frontier_iter = frontier if allowed_source is None else frontier.join(allowed_source, on=NID, how="semi")
-        hop_edges = pairs.join(frontier_iter.rename({NID: FROM}), on=FROM, how="semi")
+        hop_edges = _gjoin(pairs, frontier_iter.rename({NID: FROM}), on=FROM, how="semi")
 
         is_last = not to_fixed_point and resolved_max_hops is not None and current_hop >= resolved_max_hops
         if target_final is not None and is_last:
@@ -208,7 +209,7 @@ def hop_polars(
     else:
         visited_edges = edges_idx.select(pl.col(EID)).clear()
 
-    out_edges = edges_idx.join(visited_edges, on=EID, how="semi")
+    out_edges = _gjoin(edges_idx, visited_edges, on=EID, how="semi")
     if synth_eid:
         out_edges = out_edges.drop(EID)
 
@@ -223,6 +224,6 @@ def hop_polars(
         ).unique(subset=[NID])
         needed = pl.concat([needed, endpoints], how="vertical_relaxed").unique(subset=[NID])
 
-    out_nodes = all_nodes.join(needed.rename({NID: node_col}), on=node_col, how="semi")
+    out_nodes = _gjoin(all_nodes, needed.rename({NID: node_col}), on=node_col, how="semi")
 
     return g.nodes(out_nodes, node_col).edges(out_edges, src, dst)

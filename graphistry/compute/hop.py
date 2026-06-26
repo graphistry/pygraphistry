@@ -109,23 +109,26 @@ def hop(self: Plottable,
     from graphistry.compute.ComputeMixin import _coerce_input_formats  # lazy — avoids circular import
     self = _coerce_input_formats(self, engine_concrete)
 
-    if engine_concrete == Engine.POLARS:
+    if engine_concrete in (Engine.POLARS, Engine.POLARS_GPU):
         # Native polars traversal lives in a dedicated dispatched module so the
         # production pandas/cuDF internals below stay untouched (see
         # plans/gfql-polars-engine). Correctness gated by differential parity.
+        # POLARS_GPU runs the SAME native ops but collects the hot joins on GPU.
         from graphistry.compute.gfql.engine_polars import hop_polars
-        return hop_polars(
-            self, nodes, hops,
-            min_hops=min_hops, max_hops=max_hops,
-            output_min_hops=output_min_hops, output_max_hops=output_max_hops,
-            label_node_hops=label_node_hops, label_edge_hops=label_edge_hops,
-            label_seeds=label_seeds, to_fixed_point=to_fixed_point,
-            direction=direction, edge_match=edge_match,
-            source_node_match=source_node_match, destination_node_match=destination_node_match,
-            source_node_query=source_node_query, destination_node_query=destination_node_query,
-            edge_query=edge_query, return_as_wave_front=return_as_wave_front,
-            include_zero_hop_seed=include_zero_hop_seed, target_wave_front=target_wave_front,
-        )
+        from graphistry.compute.gfql.engine_polars.gpu import gpu_mode
+        with gpu_mode(engine_concrete == Engine.POLARS_GPU):
+            return hop_polars(
+                self, nodes, hops,
+                min_hops=min_hops, max_hops=max_hops,
+                output_min_hops=output_min_hops, output_max_hops=output_max_hops,
+                label_node_hops=label_node_hops, label_edge_hops=label_edge_hops,
+                label_seeds=label_seeds, to_fixed_point=to_fixed_point,
+                direction=direction, edge_match=edge_match,
+                source_node_match=source_node_match, destination_node_match=destination_node_match,
+                source_node_query=source_node_query, destination_node_query=destination_node_query,
+                edge_query=edge_query, return_as_wave_front=return_as_wave_front,
+                include_zero_hop_seed=include_zero_hop_seed, target_wave_front=target_wave_front,
+            )
 
     def _combine_first_no_warn(target, fill):
         """Avoid pandas concat warning when combine_first sees empty inputs."""
