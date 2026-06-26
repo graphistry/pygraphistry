@@ -583,17 +583,50 @@ def _where_predicate_parser() -> _ParserLike:
     return cast(_ParserLike, parser)
 
 
-def _lift_atom_as_where_predicate(atom_text: str) -> Optional["WherePredicate"]:
+def _retarget_span(s: SourceSpan, base: SourceSpan) -> SourceSpan:
+    """Shift an atom-relative span (from re-parsing an isolated atom substring) into
+    absolute query coordinates, given the atom's absolute ``base`` span. Exact for
+    single-line atoms (the normal case); best-effort across embedded newlines."""
+    return SourceSpan(
+        line=base.line + (s.line - 1),
+        column=(base.column + s.column - 1) if s.line == 1 else s.column,
+        end_line=base.line + (s.end_line - 1),
+        end_column=(base.column + s.end_column - 1) if s.end_line == 1 else s.end_column,
+        start_pos=base.start_pos + s.start_pos,
+        end_pos=base.start_pos + s.end_pos,
+    )
+
+
+def _retarget_predicate_spans(pred: "WherePredicate", base: SourceSpan) -> "WherePredicate":
+    """Rebuild a lifted predicate with every span shifted from atom-relative to
+    absolute (see ``_retarget_span``), so downstream errors (e.g. E108 in lowering)
+    point at the predicate's real position in the query instead of column 1."""
+    left = replace(pred.left, span=_retarget_span(pred.left.span, base))
+    right = pred.right
+    if isinstance(right, (PropertyRef, ParameterRef)):
+        right = replace(right, span=_retarget_span(right.span, base))
+    return replace(pred, left=left, right=right, span=_retarget_span(pred.span, base))
+
+
+def _lift_atom_as_where_predicate(
+    atom_text: str, base_span: Optional[SourceSpan] = None
+) -> Optional["WherePredicate"]:
     """Re-parse one WHERE atom as a structured ``where_predicate``; ``None`` if it
     is not a simple predicate. A ``None`` makes the caller drop the whole clause to
-    its ``expr_tree`` -> ``where_rows`` (full-lift-only, no partial residual)."""
+    its ``expr_tree`` -> ``where_rows`` (full-lift-only, no partial residual).
+
+    The atom is parsed in isolation, so Lark reports spans relative to the substring;
+    ``base_span`` (the atom's absolute position in the original query) shifts them back
+    to absolute coordinates so error messages locate the predicate correctly."""
     _, _, LarkError, _ = _lark_imports()
     try:
         tree = _where_predicate_parser().parse(atom_text)
         pred = _build_transformer(atom_text).transform(tree)
     except (LarkError, GFQLSyntaxError, GFQLValidationError):
         return None
-    return pred if isinstance(pred, WherePredicate) else None
+    if not isinstance(pred, WherePredicate):
+        return None
+    return _retarget_predicate_spans(pred, base_span) if base_span is not None else pred
 
 
 def _lift_and_spine_predicates(
@@ -624,7 +657,7 @@ def _lift_and_spine_predicates(
             conjuncts.append(cur)
     lifted: List["WherePredicate"] = []
     for conjunct in conjuncts:
-        pred = _lift_atom_as_where_predicate(conjunct.atom_text) if conjunct.op == "atom" and conjunct.atom_text is not None else None
+        pred = _lift_atom_as_where_predicate(conjunct.atom_text, conjunct.atom_span) if conjunct.op == "atom" and conjunct.atom_text is not None else None
         if pred is None:
             return None  # a non-liftable conjunct -> keep the whole clause as expr_tree
         lifted.append(pred)
@@ -1177,11 +1210,23 @@ def _build_transformer(source: str) -> _TransformerLike:
             # non-BooleanExpr operand and are wrapped as a single-atom tree
             # so the invariant ``(expr is None) == (expr_tree is None)``
             # holds (#1213 sub-PR A / #1214).
-            expr_tree: BooleanExpr = (
-                cast(BooleanExpr, items[0])
-                if items and isinstance(items[0], BooleanExpr)
-                else BooleanExpr(op="atom", span=span, atom_text=expr_text, atom_span=span)
-            )
+            if items and isinstance(items[0], BooleanExpr):
+                expr_tree: BooleanExpr = cast(BooleanExpr, items[0])
+            else:
+                # Align the synthesized atom's ``atom_span`` with the stripped
+                # ``expr_text`` (which drops "WHERE" + whitespace) so the span matches
+                # the atom text; otherwise a lifted single-predicate's error position
+                # would point at the WHERE keyword instead of the predicate.
+                body = self._slice(span)[len("WHERE"):]
+                start_off = len("WHERE") + (len(body) - len(body.lstrip()))
+                atom_span = replace(
+                    span,
+                    column=span.column + start_off,
+                    start_pos=span.start_pos + start_off,
+                    end_column=span.column + start_off + len(expr_text),
+                    end_pos=span.start_pos + start_off + len(expr_text),
+                )
+                expr_tree = BooleanExpr(op="atom", span=atom_span, atom_text=expr_text, atom_span=atom_span)
             # The unified grammar parses every WHERE as a generic `expr`, so bare
             # label predicates and AND chains of them arrive here as a ``BooleanExpr``.
             # Walk the parsed tree (single source of truth) to lift them to structured
