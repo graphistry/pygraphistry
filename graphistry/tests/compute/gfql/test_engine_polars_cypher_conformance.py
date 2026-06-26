@@ -51,6 +51,13 @@ def _round_floats(df):
     return out
 
 
+def _normalize_nulls(df):
+    """Collapse pandas NaN/None and polars null to a single sentinel so the
+    differential check compares null SEMANTICS, not the engines' null repr
+    (``nan`` vs ``None``) which astype(str) would otherwise render differently."""
+    return df.where(df.notna(), "∅")
+
+
 def _assert_parity(g, query):
     a = _to_pd(g.gfql(query, engine="pandas")._nodes).reset_index(drop=True)
     b = _to_pd(g.gfql(query, engine="polars")._nodes).reset_index(drop=True)
@@ -63,7 +70,7 @@ def _assert_parity(g, query):
     # column shape + row count are conformant here.
     if "LIMIT" in query and "ORDER BY" not in query:
         return
-    a, b = _round_floats(a), _round_floats(b)
+    a, b = _normalize_nulls(_round_floats(a)), _normalize_nulls(_round_floats(b))
     if "ORDER BY" in query:
         pd.testing.assert_frame_equal(a.astype(str), b.astype(str), check_dtype=False)
     else:
@@ -129,6 +136,41 @@ CORPUS = [
 @pytest.mark.parametrize("query", CORPUS)
 def test_cypher_conformance_corpus(query):
     _assert_parity(BASE, query)
+
+
+def _nullable_graph():
+    """Nulls in numeric/string/bool columns + zero/negative — exercises the
+    native lowering's NULL / cypher 3-valued-logic semantics vs pandas."""
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 3, 4, 5, 6],
+        "val": [10, None, 30, None, 50, 0, -5],
+        "kind": ["a", "b", None, "a", None, "b", "a"],
+        "flag": [True, None, False, True, None, False, True],
+    })
+    edges = pd.DataFrame({"s": [0, 1, 2, 3, 4, 5], "d": [1, 2, 3, 4, 5, 6]})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+NULLABLE = [
+    "MATCH (n) WHERE n.val > 25 RETURN n.val",           # null compares -> excluded
+    "MATCH (n) WHERE n.val >= 0 RETURN n.id",
+    "MATCH (n) RETURN n.val + 1 AS p",                    # null arithmetic -> null
+    "MATCH (n) RETURN n.val > 25 AS big",                # null comparison projection
+    "MATCH (n) WHERE n.val > 5 AND n.kind = 'a' RETURN n.id",   # 3-valued AND
+    "MATCH (n) WHERE n.val > 5 OR n.kind = 'b' RETURN n.id",    # 3-valued OR
+    "MATCH (n) RETURN n.val ORDER BY n.val",             # null sort position
+    "MATCH (n) RETURN n.val ORDER BY n.val DESC",
+    "MATCH (n) RETURN n.kind, count(n) AS c",            # null group key
+    "MATCH (n) RETURN n.kind, sum(n.val) AS s, avg(n.val) AS a",  # null in agg
+    "MATCH (n) RETURN DISTINCT n.kind",
+    "MATCH (n) WHERE n.flag = true RETURN n.id",         # nullable bool
+    "MATCH (n) RETURN n",                                # whole entity w/ nulls -> bridge
+]
+
+
+@pytest.mark.parametrize("query", NULLABLE)
+def test_cypher_conformance_nullable(query):
+    _assert_parity(_nullable_graph(), query)
 
 
 def _scalar_graph():
