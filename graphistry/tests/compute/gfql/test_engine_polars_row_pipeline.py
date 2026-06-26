@@ -120,6 +120,82 @@ def test_polars_row_pipeline_bridged_is_polars_typed(query):
     assert "polars" in type(rpl).__module__
 
 
+# Queries whose row ops (select/order_by + their exprs) lower to NATIVE polars —
+# no host-bridge round-trip. Parity must hold and no pandas conversion happens.
+NATIVE_LOWERED = [
+    "MATCH (n) RETURN n.val",
+    "MATCH (n) RETURN n.val AS v, n.kind",
+    "MATCH (n) RETURN n.val, n.name",
+    "MATCH (n) RETURN n.val + 1 AS p",
+    "MATCH (n) RETURN n.val * 2 AS d, n.kind",
+    "MATCH (n) RETURN n.val - 5 AS m",
+    "MATCH (n) RETURN n.val > 25 AS big",
+    "MATCH (n) RETURN DISTINCT n.kind",
+    "MATCH (n) RETURN n.val ORDER BY n.val DESC",
+    "MATCH (n) RETURN n.val ORDER BY n.val",
+    "MATCH (n) WHERE n.val > 15 RETURN n.val ORDER BY n.val DESC LIMIT 2",
+]
+
+
+def _bridge_count(query):
+    """(result_nodes, #polars->pandas bridges) for a polars cypher run."""
+    import graphistry.compute.gfql.engine_polars.chain as ch
+    orig = ch._bridge_graph
+    cnt = [0]
+
+    def traced(g, to, *a, **k):
+        if to == "pandas":
+            cnt[0] += 1
+        return orig(g, to, *a, **k)
+
+    ch._bridge_graph = traced
+    try:
+        res = BASE.gfql(query, engine="polars")._nodes
+    finally:
+        ch._bridge_graph = orig
+    return res, cnt[0]
+
+
+@pytest.mark.parametrize("query", NATIVE_LOWERED)
+def test_polars_row_pipeline_native_parity(query):
+    _assert_parity(query, order_sensitive="ORDER BY" in query)
+
+
+@pytest.mark.parametrize("query", NATIVE_LOWERED)
+def test_polars_row_pipeline_runs_native(query):
+    """select/order_by lowering keeps these off the pandas bridge."""
+    res, bridges = _bridge_count(query)
+    assert "polars" in type(res).__module__
+    assert bridges == 0, f"expected native (0 bridges) for {query!r}, got {bridges}"
+
+
+def test_row_expr_lowering_unit():
+    """lower_expr_str / lower_select_items / lower_order_by_keys edge cases."""
+    from graphistry.compute.gfql.engine_polars.row_pipeline import (
+        lower_expr_str, lower_select_items, lower_order_by_keys,
+    )
+    cols = ["id", "n", "val", "kind"]
+    # bare column + property resolution (single-entity bare; bindings prefixed)
+    assert lower_expr_str("val", cols) is not None
+    assert lower_expr_str("n.val", cols) is not None          # alias marker + bare prop
+    assert lower_expr_str("n.val", ["n.val", "m.val"]) is not None  # prefixed
+    # unresolvable -> None (bridge)
+    assert lower_expr_str("n.missing", cols) is None
+    assert lower_expr_str("nope.x", cols) is None
+    # arithmetic / comparison / boolean lower; exotic (function/list) bail
+    assert lower_expr_str("n.val + 1", cols) is not None
+    assert lower_expr_str("n.val > 5 AND n.val < 100", cols) is not None
+    assert lower_expr_str("count(n)", cols) is None
+    assert lower_expr_str("[1, 2, 3]", cols) is None
+    # select items: all-lowerable -> list; any unlowerable -> None
+    assert lower_select_items([("v", "n.val"), ("k", "n.kind")], cols) is not None
+    assert lower_select_items([("c", "count(n)")], cols) is None
+    # order_by keys: directions + bail
+    assert lower_order_by_keys([("n.val", "desc")], cols) is not None
+    assert lower_order_by_keys([("count(n)", "asc")], cols) is None
+    assert lower_order_by_keys(["bad-shape"], cols) is None
+
+
 def test_polars_frame_op_limit_matches_slice():
     """limit/skip operate on a polars active table without index artifacts."""
     g = BASE.gfql("MATCH (n) RETURN n LIMIT 4", engine="polars")

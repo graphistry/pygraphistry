@@ -285,24 +285,37 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     ):
         calls = [rows_fn(binding_ops=serialize_binding_ops(middle))] + list(calls[1:])
 
-    engine = Engine.POLARS
-    if not all(_call_native_on_polars(op) for op in calls):
-        # Host-bridge the context once; run the row pipeline in pandas. Skip
-        # bridging the (potentially large) base graph when no suffix op reads it.
-        g_cur = _bridge_graph(g_cur, "pandas", include_base=_suffix_needs_base_graph(calls))
-        engine = Engine.PANDAS
-
-    for op in calls:
-        g_cur = op.execute(
-            g=g_cur,
-            prev_node_wavefront=None,
-            target_wave_front=None,
-            engine=engine,
-        )
-
-    if engine == Engine.PANDAS:
-        g_cur = _bridge_graph(g_cur, "polars")
+    # Per-op native-or-bridge: run each call natively on polars where possible
+    # (frame ops + lowered select/order_by); at the first op that can't be
+    # lowered (column shape is only known mid-run), host-bridge the remaining
+    # ops to pandas and convert the result back to polars.
+    for i, op in enumerate(calls):
+        native = _try_native_row_op(g_cur, op)
+        if native is not None:
+            g_cur = native
+            continue
+        remaining = calls[i:]
+        g_cur = _bridge_graph(g_cur, "pandas", include_base=_suffix_needs_base_graph(remaining))
+        for op2 in remaining:
+            g_cur = op2.execute(g=g_cur, prev_node_wavefront=None, target_wave_front=None, engine=Engine.PANDAS)
+        return _bridge_graph(g_cur, "polars")
     return g_cur
+
+
+def _try_native_row_op(g_cur, op):
+    """Run a row-pipeline call natively on polars, or return None to bridge."""
+    from graphistry.Engine import Engine
+    from .row_pipeline import select_polars, order_by_polars
+
+    fn = getattr(op, "function", None)
+    if _call_native_on_polars(op):
+        # frame ops (rows/limit/skip/distinct/drop_cols) — engine-polymorphic
+        return op.execute(g=g_cur, prev_node_wavefront=None, target_wave_front=None, engine=Engine.POLARS)
+    if fn in ("select", "return_"):
+        return select_polars(g_cur, op.params.get("items", []))
+    if fn == "order_by":
+        return order_by_polars(g_cur, op.params.get("keys", []))
+    return None
 
 
 def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plottable:
