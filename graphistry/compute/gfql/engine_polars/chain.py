@@ -305,7 +305,7 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
 def _try_native_row_op(g_cur, op):
     """Run a row-pipeline call natively on polars, or return None to bridge."""
     from graphistry.Engine import Engine
-    from .row_pipeline import select_polars, order_by_polars
+    from .row_pipeline import select_polars, order_by_polars, group_by_polars, unwind_polars
 
     fn = getattr(op, "function", None)
     if _call_native_on_polars(op):
@@ -313,8 +313,14 @@ def _try_native_row_op(g_cur, op):
         return op.execute(g=g_cur, prev_node_wavefront=None, target_wave_front=None, engine=Engine.POLARS)
     if fn in ("select", "return_"):
         return select_polars(g_cur, op.params.get("items", []))
+    if fn == "with_" and not op.params.get("extend", False):
+        return select_polars(g_cur, op.params.get("items", []))
     if fn == "order_by":
         return order_by_polars(g_cur, op.params.get("keys", []))
+    if fn == "group_by":
+        return group_by_polars(g_cur, op.params.get("keys", []), op.params.get("aggregations", []))
+    if fn == "unwind":
+        return unwind_polars(g_cur, op.params.get("expr", ""), op.params.get("as_", "value"))
     return None
 
 

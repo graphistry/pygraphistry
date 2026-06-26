@@ -141,7 +141,11 @@ def lower_select_items(items: Sequence[Any], columns: Sequence[str]) -> Optional
         else:
             return None
         if not isinstance(expr, str):
-            return None
+            # Non-string projection value = constant literal (e.g. the synthetic
+            # ``__cypher_group__`` = 1 for keyless aggregation).
+            import polars as pl
+            out.append(pl.lit(expr).alias(alias))
+            continue
         lowered = lower_expr_str(expr, columns)
         if lowered is None:
             return None
@@ -200,6 +204,84 @@ def order_by_polars(g: Plottable, keys: Sequence[Any]) -> Optional[Plottable]:
     # cypher ORDER BY puts NULLs last — polars default is nulls_last=False, so set
     # it explicitly to match the pandas engine's na_position='last'.
     return _rewrap(g, table.sort(exprs, descending=descending, nulls_last=True))
+
+
+# Aggregation funcs lowered to native polars; collect/collect_distinct/stdev/
+# percentile etc. return None → bridge.
+def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str) -> Optional[Any]:
+    import polars as pl
+    func = func.lower()
+    if func == "count" and (expr is None or expr == "*"):
+        return pl.len().alias(alias)
+    if not isinstance(expr, str) or expr not in columns:
+        return None
+    col = pl.col(expr)
+    if func == "count":
+        return col.count().alias(alias)
+    if func == "sum":
+        return col.sum().alias(alias)
+    if func in ("avg", "mean"):
+        return col.mean().alias(alias)
+    if func == "min":
+        return col.min().alias(alias)
+    if func == "max":
+        return col.max().alias(alias)
+    return None
+
+
+def group_by_polars(g: Plottable, keys: Sequence[Any], aggregations: Sequence[Any]) -> Optional[Plottable]:
+    """Native polars group-by; None if a key/agg isn't lowerable.
+
+    Matches the pandas engine's ``dropna=False`` (null keys kept) and non-null
+    aggregation semantics. Output order is first-occurrence (maintain_order),
+    though the differential parity gate compares order-insensitively.
+    """
+    table = _active_table(g)
+    cols = list(table.columns)
+    if not keys or not all(isinstance(k, str) and k in cols for k in keys):
+        return None
+    aggs: List[Any] = []
+    for agg in aggregations:
+        if not isinstance(agg, (list, tuple)) or len(agg) not in (2, 3):
+            return None
+        alias = str(agg[0])
+        func = str(agg[1])
+        expr = agg[2] if len(agg) == 3 else None
+        lowered = _agg_expr(func, expr, cols, alias)
+        if lowered is None:
+            return None
+        aggs.append(lowered)
+    out = table.group_by(list(keys), maintain_order=True).agg(aggs)
+    return _rewrap(g, out)
+
+
+def unwind_polars(g: Plottable, expr: str, as_: str = "value") -> Optional[Plottable]:
+    """Native polars UNWIND for a literal list (cross-join); None to bridge.
+
+    ``UNWIND [a, b, ...] AS x`` cross-joins each active row with the list values
+    (matching cypher's per-row expansion and empty-list → 0 rows). List-column /
+    expression unwinds (null/empty-element semantics) bridge for now.
+    """
+    import polars as pl
+    from graphistry.compute.gfql.expr_parser import ListLiteral, Literal
+
+    if not isinstance(expr, str):
+        return None
+    parse = _parser()
+    if parse is None:
+        return None
+    try:
+        node = parse(expr)
+    except Exception:
+        return None
+    if not isinstance(node, ListLiteral) or not all(isinstance(it, Literal) for it in node.items):
+        return None
+    table = _active_table(g)
+    if as_ in table.columns:
+        return None
+    values = [it.value for it in node.items if isinstance(it, Literal)]
+    rhs = pl.DataFrame({as_: values})
+    return _rewrap(g, table.join(rhs, how="cross"))
 
 
 def can_select_native(items: Sequence[Any], columns: Sequence[str]) -> bool:

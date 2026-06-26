@@ -134,6 +134,15 @@ NATIVE_LOWERED = [
     "MATCH (n) RETURN n.val ORDER BY n.val DESC",
     "MATCH (n) RETURN n.val ORDER BY n.val",
     "MATCH (n) WHERE n.val > 15 RETURN n.val ORDER BY n.val DESC LIMIT 2",
+    # group_by / aggregation (count/sum/avg/min/max), keyed + keyless
+    "MATCH (n) RETURN n.kind, count(n) AS c",
+    "MATCH (n) RETURN count(n) AS c",
+    "MATCH (n) RETURN n.kind, sum(n.val) AS s, avg(n.val) AS a",
+    "MATCH (n) RETURN n.kind, min(n.val) AS mn, max(n.val) AS mx",
+    "MATCH (n) RETURN n.kind, count(n) AS c ORDER BY c DESC",
+    # unwind of a literal list (cross-join)
+    "MATCH (n) UNWIND [1, 2] AS x RETURN n.val, x",
+    "MATCH (n) UNWIND [1, 2, 3] AS x RETURN x",
 ]
 
 
