@@ -83,9 +83,12 @@ def _lower_function(node: Any, columns: Sequence[str]) -> Optional[Any]:
     so the caller raises NotImplementedError rather than guessing.
     """
     name = node.name.lower()
-    args = [lower_expr(arg, columns) for arg in node.args]
-    if any(arg is None for arg in args):
-        return None
+    args: List[Any] = []
+    for arg in node.args:
+        lowered = lower_expr(arg, columns)
+        if lowered is None:
+            return None
+        args.append(lowered)
     if name == "coalesce" and args:
         import polars as pl
         # cypher coalesce = first non-null; pl.coalesce has identical semantics.
