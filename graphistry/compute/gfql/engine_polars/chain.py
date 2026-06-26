@@ -166,14 +166,76 @@ def _apply_node_names(out, g, steps):
     return out
 
 
+def _bridge_frame(df, to):
+    """Convert a single frame between polars and pandas (None-safe, idempotent)."""
+    if df is None:
+        return None
+    is_pl = "polars" in type(df).__module__
+    if to == "pandas":
+        return df.to_pandas() if is_pl else df
+    if is_pl:
+        return df
+    import polars as pl
+    return pl.from_pandas(df)
+
+
+def _bridge_graph(g, to, _memo=None):
+    """Convert a graph's frame-bearing attrs between polars and pandas.
+
+    Covers the active node/edge tables plus the row-pipeline context the
+    expression engine reads (``_gfql_rows_base_graph`` Plottable and
+    ``_gfql_start_nodes`` frame). ``_gfql_rows_edge_aliases`` is a set of
+    strings, carried as-is. ``_gfql_rows_base_graph`` chains can be cyclic, so a
+    memo keyed on object identity (registered before recursing) breaks cycles.
+    """
+    if g is None:
+        return None
+    if _memo is None:
+        _memo = {}
+    if id(g) in _memo:
+        return _memo[id(g)]
+    out = g.nodes(_bridge_frame(g._nodes, to), g._node)
+    out = out.edges(_bridge_frame(g._edges, to), g._source, g._destination, g._edge)
+    _memo[id(g)] = out
+    base = getattr(g, "_gfql_rows_base_graph", None)
+    if base is not None:
+        setattr(out, "_gfql_rows_base_graph", _bridge_graph(base, to, _memo))
+    sn = getattr(g, "_gfql_start_nodes", None)
+    if sn is not None:
+        setattr(out, "_gfql_start_nodes", _bridge_frame(sn, to))
+    for attr in ("_gfql_rows_edge_aliases", "_gfql_shortest_path_backend", "_cypher_entity_projection_meta"):
+        val = getattr(g, attr, None)
+        if val is not None:
+            setattr(out, attr, val)
+    return out
+
+
+def _call_native_on_polars(op) -> bool:
+    """Whether a row-pipeline call has a native polars implementation (no bridge)."""
+    from graphistry.compute.ast import ASTCall
+    from graphistry.compute.gfql.row.pipeline import _POLARS_NATIVE_ROW_PIPELINE_CALLS
+    if not isinstance(op, ASTCall):
+        return False
+    if op.function not in _POLARS_NATIVE_ROW_PIPELINE_CALLS:
+        return False
+    if op.function == "rows" and (
+        op.params.get("binding_ops") is not None
+        or op.params.get("alias_endpoints") is not None
+    ):
+        return False
+    return True
+
+
 def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     """Execute a boundary run of ASTCall ops on a polars graph.
 
     Mirrors the suffix/prefix handling in ``chain._handle_boundary_calls``:
     threads the row-pipeline context attrs and applies the named-middle →
-    ``rows(binding_ops=...)`` rewrite, then dispatches each call through
-    ``op.execute(..., engine=Engine.POLARS)`` so the row pipeline runs natively
-    (or raises NotImplementedError for not-yet-ported ops).
+    ``rows(binding_ops=...)`` rewrite. If every call has a native polars
+    implementation the whole run executes on ``Engine.POLARS`` (fast path);
+    otherwise the graph context is host-bridged to pandas, the run executes via
+    the pandas row pipeline (correctness for not-yet-ported ops), and the result
+    is converted back to polars so ``engine='polars'`` stays polars-typed.
     """
     from graphistry.Engine import Engine
     from graphistry.compute.ast import ASTCall, ASTNode as _ASTNode, ASTEdge as _ASTEdge, rows as rows_fn
@@ -200,13 +262,22 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     ):
         calls = [rows_fn(binding_ops=serialize_binding_ops(middle))] + list(calls[1:])
 
+    engine = Engine.POLARS
+    if not all(_call_native_on_polars(op) for op in calls):
+        # Host-bridge the whole context once; run the row pipeline in pandas.
+        g_cur = _bridge_graph(g_cur, "pandas")
+        engine = Engine.PANDAS
+
     for op in calls:
         g_cur = op.execute(
             g=g_cur,
             prev_node_wavefront=None,
             target_wave_front=None,
-            engine=Engine.POLARS,
+            engine=engine,
         )
+
+    if engine == Engine.PANDAS:
+        g_cur = _bridge_graph(g_cur, "polars")
     return g_cur
 
 

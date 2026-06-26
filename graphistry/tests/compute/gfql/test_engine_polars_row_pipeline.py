@@ -82,28 +82,42 @@ SUPPORTED = [
     "MATCH (n) RETURN n, n.val, n.kind",
 ]
 
-
-@pytest.mark.parametrize("query", SUPPORTED)
-def test_polars_row_pipeline_parity(query):
-    _assert_parity(query)
-
-
-# Ops that route into the pandas cypher expression engine; must defer, not
-# silently diverge. Each compiles to a row-pipeline call (select / order_by /
-# where_rows / group_by / unwind) or a multi-entity binding_ops rows().
-DEFERRED = [
-    "MATCH (n) RETURN n.val",                              # select
-    "MATCH (n) RETURN n.val, n.kind",                      # select
-    "MATCH (n) RETURN DISTINCT n.kind",                    # select + distinct
-    "MATCH (n)-[e]->(m) WHERE n.val < m.val RETURN n, m",  # cross-entity where_rows + binding_ops
-    "MATCH (n) RETURN count(n) AS c",                      # group_by / aggregation
+# Row ops whose cypher expression engine isn't natively lowered yet: these run
+# correctly via the host-bridge fallback (active table + context bridged to
+# pandas, run there, converted back to polars). Parity must still hold.
+BRIDGED = [
+    # property projection (select)
+    "MATCH (n) RETURN n.val",
+    "MATCH (n) RETURN n.val, n.kind",
+    "MATCH (n) RETURN n.name, n.val",
+    # distinct on a projected column
+    "MATCH (n) RETURN DISTINCT n.kind",
+    # order_by
+    "MATCH (n) RETURN n.val ORDER BY n.val DESC",
+    "MATCH (n) RETURN n.val ORDER BY n.val",
+    "MATCH (n) WHERE n.val > 15 RETURN n.val ORDER BY n.val DESC LIMIT 2",
+    # cross-entity WHERE (where_rows) + multi-entity binding_ops projection
+    "MATCH (n)-[e]->(m) WHERE n.val < m.val RETURN n, m",
+    "MATCH (n)-[e]->(m) RETURN n, m",
+    # aggregation / group_by
+    "MATCH (n) RETURN count(n) AS c",
+    "MATCH (n) RETURN n.kind, count(n) AS c",
+    # unwind
+    "MATCH (n) UNWIND [1, 2] AS x RETURN n.val, x",
 ]
 
 
-@pytest.mark.parametrize("query", DEFERRED)
-def test_polars_row_pipeline_deferred_raises(query):
-    with pytest.raises(NotImplementedError):
-        BASE.gfql(query, engine="polars")
+@pytest.mark.parametrize("query", SUPPORTED + BRIDGED)
+def test_polars_row_pipeline_parity(query):
+    # ORDER BY queries are order-sensitive; the rest compare orderlessly.
+    _assert_parity(query, order_sensitive="ORDER BY" in query)
+
+
+@pytest.mark.parametrize("query", BRIDGED)
+def test_polars_row_pipeline_bridged_is_polars_typed(query):
+    """Bridged row ops still return polars-typed results (engine consistency)."""
+    rpl = BASE.gfql(query, engine="polars")._nodes
+    assert "polars" in type(rpl).__module__
 
 
 def test_polars_frame_op_limit_matches_slice():

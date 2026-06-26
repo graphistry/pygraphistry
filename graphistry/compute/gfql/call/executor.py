@@ -194,11 +194,6 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         if error is not None:
             raise policy_error from error
         raise policy_error
-    # Deferred-capability signals (e.g. the polars row pipeline not yet
-    # supporting an op) propagate unwrapped so callers see NotImplementedError
-    # rather than a misleading GFQLTypeError. See plans/gfql-polars-engine.
-    if isinstance(error, NotImplementedError):
-        raise error
     if isinstance(error, TypeError):
         raise GFQLTypeError(
             ErrorCode.E201,
