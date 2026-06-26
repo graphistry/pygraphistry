@@ -1992,6 +1992,11 @@ class RowPipelineMixin:
     def _gfql_series_is_list_like(series: Any) -> bool:
         if not hasattr(series, "isna") or not hasattr(series, "astype"):
             return False
+        # numeric/bool/complex columns can never be list-like — skip the spurious
+        # astype(str)+regex scan (byte-identical; the scan returns False anyway).
+        _dt = getattr(series, "dtype", None)
+        if _dt is not None and getattr(_dt, "kind", "O") in ("i", "u", "f", "b", "c"):
+            return False
         null_mask = series.isna()
         non_null = ~null_mask
         if hasattr(non_null, "any") and not bool(non_null.any()):

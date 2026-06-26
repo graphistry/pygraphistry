@@ -115,8 +115,19 @@ def _actual_string_mask(series: Any, text: Any, null_mask: Any) -> Any:
     return mask
 
 
+def _is_non_listable_dtype(series: Any) -> bool:
+    """True for numeric/bool/complex columns, which can never hold list values or
+    list-syntax *text*. Lets list/temporal detection skip the spurious
+    ``astype(str)`` + regex scan on these columns (byte-identical — the scan
+    returns False/None for them anyway). Mirrors the #1650/#1651 dtype gate."""
+    dtype = getattr(series, "dtype", None)
+    return dtype is not None and getattr(dtype, "kind", "O") in ("i", "u", "f", "b", "c")
+
+
 def order_detect_list_series(series: Any) -> bool:
     if not hasattr(series, "isna") or not hasattr(series, "astype"):
+        return False
+    if _is_non_listable_dtype(series):
         return False
     null_mask = series.isna()
     non_null = ~null_mask
@@ -142,6 +153,8 @@ def order_detect_stringified_list_series(series: Any) -> bool:
     data round-trips through CSV / Arrow string columns).
     """
     if not hasattr(series, "isna") or not hasattr(series, "astype"):
+        return False
+    if _is_non_listable_dtype(series):
         return False
     null_mask = series.isna()
     non_null = ~null_mask

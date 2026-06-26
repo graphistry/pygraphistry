@@ -123,6 +123,13 @@ def _project_property_column(
     if column.source_name is None or column.source_name not in rows_df.columns:
         raise ValueError(f"projection source column not found: {column.source_name!r}")
     series = cast(SeriesT, rows_df[column.source_name])
+    # Temporal-constructor normalization only applies to STRING values; numeric/bool/
+    # complex columns can never hold temporal text, so skip the (otherwise spurious)
+    # ``astype(str)`` + detection scan and return the column as-is — byte-identical,
+    # since the scan returns None for these dtypes. Mirrors the #1650/#1651 gate.
+    _dtype = getattr(series, "dtype", None)
+    if _dtype is not None and getattr(_dtype, "kind", "O") in ("i", "u", "f", "b", "c"):
+        return series
     if hasattr(series, "astype") and hasattr(cast(SeriesT, series.astype(str)), "str"):
         normalized = _normalize_temporal_constructor_series(
             rows_df,
