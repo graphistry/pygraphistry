@@ -145,8 +145,8 @@ def _scalar_graph():
 
 
 def _bridge_count(g, query):
-    import graphistry.compute.gfql.cypher.result_postprocess as rp
-    orig = rp._bridge_result_frames
+    import graphistry.compute.gfql.engine_polars.projection as proj
+    orig = proj._bridge_result_frames
     cnt = [0]
 
     def traced(result, to, *a, **k):
@@ -154,11 +154,11 @@ def _bridge_count(g, query):
             cnt[0] += 1
         return orig(result, to, *a, **k)
 
-    rp._bridge_result_frames = traced
+    proj._bridge_result_frames = traced
     try:
         g.gfql(query, engine="polars")
     finally:
-        rp._bridge_result_frames = orig
+        proj._bridge_result_frames = orig
     return cnt[0]
 
 
