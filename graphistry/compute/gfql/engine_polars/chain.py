@@ -187,11 +187,10 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
 
     Mirrors the suffix/prefix handling in ``chain._handle_boundary_calls``:
     threads the row-pipeline context attrs and applies the named-middle →
-    ``rows(binding_ops=...)`` rewrite. If every call has a native polars
-    implementation the whole run executes on ``Engine.POLARS`` (fast path);
-    otherwise the graph context is host-bridged to pandas, the run executes via
-    the pandas row pipeline (correctness for not-yet-ported ops), and the result
-    is converted back to polars so ``engine='polars'`` stays polars-typed.
+    ``rows(binding_ops=...)`` rewrite. Each call runs natively on
+    ``Engine.POLARS`` via ``_try_native_row_op``; an op with no native polars
+    implementation raises ``NotImplementedError`` (NO pandas fallback — see
+    plan.md NO-CHEATING) rather than secretly running the pandas row pipeline.
     """
     from graphistry.Engine import Engine
     from graphistry.compute.ast import ASTCall, ASTNode as _ASTNode, ASTEdge as _ASTEdge, rows as rows_fn
@@ -234,9 +233,9 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
 
 
 def _try_native_row_op(g_cur, op):
-    """Run a row-pipeline call natively on polars, or return None to bridge."""
+    """Run a row-pipeline call natively on polars, or return None to defer (NIE)."""
     from graphistry.Engine import Engine
-    from .row_pipeline import select_polars, order_by_polars, group_by_polars, unwind_polars
+    from .row_pipeline import select_polars, order_by_polars, group_by_polars, unwind_polars, where_rows_polars
 
     fn = getattr(op, "function", None)
     if _call_native_on_polars(op):
@@ -246,6 +245,8 @@ def _try_native_row_op(g_cur, op):
         return select_polars(g_cur, op.params.get("items", []))
     if fn == "with_" and not op.params.get("extend", False):
         return select_polars(g_cur, op.params.get("items", []))
+    if fn == "where_rows":
+        return where_rows_polars(g_cur, op.params.get("filter_dict"), op.params.get("expr"))
     if fn == "order_by":
         return order_by_polars(g_cur, op.params.get("keys", []))
     if fn == "group_by":

@@ -97,6 +97,9 @@ NATIVE_LOWERED = [
     "MATCH (n) RETURN n.val ORDER BY n.val DESC",
     "MATCH (n) RETURN n.val ORDER BY n.val",
     "MATCH (n) WHERE n.val > 15 RETURN n.val ORDER BY n.val DESC LIMIT 2",
+    # OR / NOT WHERE doesn't fold into the matcher -> native where_rows filter
+    "MATCH (n) WHERE n.val > 80 OR n.kind = 'alpha' RETURN n.val, n.kind",
+    "MATCH (n) WHERE NOT n.kind = 'beta' RETURN n.kind",
     "MATCH (n) RETURN n.kind, count(n) AS c",
     "MATCH (n) RETURN count(n) AS c",
     "MATCH (n) RETURN n.kind, sum(n.val) AS s, avg(n.val) AS a",

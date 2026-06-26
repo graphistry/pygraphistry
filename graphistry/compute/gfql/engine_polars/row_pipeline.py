@@ -193,6 +193,43 @@ def select_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
     return _rewrap(g, table.select(exprs))
 
 
+def where_rows_polars(
+    g: Plottable,
+    filter_dict: Optional[dict] = None,
+    expr: Optional[str] = None,
+) -> Optional[Plottable]:
+    """Native polars row-table WHERE; None if the predicate isn't lowerable.
+
+    Cypher's 3-valued WHERE keeps only rows whose predicate is TRUE (NULL and
+    FALSE are both dropped) — polars ``DataFrame.filter`` has exactly this
+    semantics, and polars boolean ``|``/``&`` use Kleene logic, so a lowered
+    ``pl.Expr`` predicate matches the pandas engine / cypher NULL handling
+    without special-casing. filter_dict entries are scalar-equality conjuncts.
+    """
+    import polars as pl
+    table = _active_table(g)
+    columns = list(table.columns)
+    preds: List[Any] = []
+    if filter_dict:
+        for col, val in filter_dict.items():
+            if col not in columns or isinstance(val, (list, tuple, set, dict)):
+                return None  # missing column / IN-list etc. -> defer (NIE)
+            preds.append(pl.col(col) == val)
+    if expr is not None:
+        if not isinstance(expr, str):
+            return None
+        lowered = lower_expr_str(expr, columns)
+        if lowered is None:
+            return None
+        preds.append(lowered)
+    if not preds:
+        return g  # empty WHERE -> identity
+    combined = preds[0]
+    for pred in preds[1:]:
+        combined = combined & pred
+    return _rewrap(g, table.filter(combined))
+
+
 def order_by_polars(g: Plottable, keys: Sequence[Any]) -> Optional[Plottable]:
     """Native polars sort; None if any key isn't lowerable."""
     table = _active_table(g)

@@ -98,6 +98,11 @@ CORPUS = [
     "MATCH (n) WHERE n.kind = 'alpha' RETURN n.val",
     "MATCH (n) WHERE n.val > 20 AND n.val < 90 RETURN n.name",
     "MATCH (n) WHERE n.flag = true RETURN n.val",
+    # single-entity WHERE that does NOT fold (OR / NOT) -> native where_rows filter
+    "MATCH (n) WHERE n.val > 80 OR n.kind = 'alpha' RETURN n.val, n.kind",
+    "MATCH (n) WHERE n.val < 20 OR n.val > 80 RETURN n.val ORDER BY n.val",
+    "MATCH (n) WHERE NOT n.kind = 'beta' RETURN n.kind",
+    "MATCH (n) WHERE n.flag = true OR n.val > 50 RETURN n.name ORDER BY n.name",
     # order_by
     "MATCH (n) RETURN n.val ORDER BY n.val",
     "MATCH (n) RETURN n.val ORDER BY n.val DESC",
@@ -163,6 +168,9 @@ NULLABLE = [
     "MATCH (n) RETURN n.val + 1 AS p",                    # null arithmetic -> null
     "MATCH (n) RETURN n.val > 25 AS big",                # null comparison projection
     "MATCH (n) WHERE n.val > 5 AND n.kind = 'a' RETURN n.id",   # 3-valued AND (folds)
+    "MATCH (n) WHERE n.val > 5 OR n.kind = 'b' RETURN n.id",    # 3-valued OR -> native where_rows
+    "MATCH (n) WHERE n.val < 0 OR n.flag = true RETURN n.id",   # null in OR operands
+    "MATCH (n) WHERE NOT n.val > 25 RETURN n.id",               # NOT over null -> null dropped
     "MATCH (n) RETURN n.val ORDER BY n.val",             # null sort position
     "MATCH (n) RETURN n.val ORDER BY n.val DESC",
     "MATCH (n) RETURN n.kind, count(n) AS c",            # null group key
@@ -206,7 +214,7 @@ def test_cypher_conformance_fuzz(seed):
     props = ["n.val", "n.score", "n.kind", "n.name"]
     num_props = ["n.val", "n.score"]
 
-    shape = rng.choice(["project", "where", "order", "agg", "distinct", "limit", "arith"])
+    shape = rng.choice(["project", "where", "or_where", "order", "agg", "distinct", "limit", "arith"])
     if shape == "project":
         sel = ", ".join(rng.sample(props, rng.randint(1, 3)))
         q = f"MATCH (n) RETURN {sel}"
@@ -215,6 +223,12 @@ def test_cypher_conformance_fuzz(seed):
         op = rng.choice([">", "<", ">=", "<=", "="])
         v = rng.randint(0, 100)
         q = f"MATCH (n) WHERE {p} {op} {v} RETURN n.val, n.kind"
+    elif shape == "or_where":
+        # OR doesn't fold into the node matcher -> exercises native where_rows
+        p1, p2 = rng.sample(num_props, 2)
+        o1, o2 = rng.choice([">", "<", ">=", "<="]), rng.choice([">", "<", ">=", "<="])
+        v1, v2 = rng.randint(0, 100), rng.randint(0, 100)
+        q = f"MATCH (n) WHERE {p1} {o1} {v1} OR {p2} {o2} {v2} RETURN n.val, n.kind"
     elif shape == "order":
         p = rng.choice(num_props)
         d = rng.choice(["", " DESC"])
