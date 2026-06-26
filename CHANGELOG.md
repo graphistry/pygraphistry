@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Performance
+- **GFQL temporal-detection dtype gate (#1650)**: `order_detect_temporal_mode` now short-circuits for numeric/bool/complex columns, which can never hold temporal *text*, instead of running an `astype(str)` + multi-regex `fullmatch` scan on every comparison. Eliminates spurious row-wise stringification in `where_rows`/comparison paths whose output never contains entity-text. Byte-identical results; measured `where_rows` speedups ~3.1× (pandas) and ~4.4–13.3× (cuDF, scaling with row count). Does not address whole-entity `RETURN a` text rendering, which is tracked separately.
+
 ## [0.56.1 - 2026-05-27]
 
 ### Added
