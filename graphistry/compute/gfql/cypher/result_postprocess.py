@@ -211,9 +211,38 @@ def _bridge_result_frames(result: Plottable, to: Literal["pandas", "polars"]) ->
     return out
 
 
+def _try_native_polars_projection(result: Plottable, rows_df: Any, projection: ResultProjectionPlan) -> Optional[Plottable]:
+    """Native polars result projection for property/expr columns already present
+    in the (polars) row table. Returns None (→ bridge) for whole-row entity-text
+    columns, expression columns needing evaluation, or temporal/nested dtypes
+    whose pandas rendering the bridge handles. Differential-conformance gated."""
+    import polars as pl
+
+    exprs = []
+    for column in projection.columns:
+        if column.kind == "whole_row":
+            return None
+        src = column.source_name
+        if src is None or src not in rows_df.columns:
+            return None  # expression needing evaluation / missing -> bridge
+        dtype = rows_df.schema[src]
+        if dtype in (pl.Date, pl.Datetime, pl.Duration, pl.Time) or isinstance(dtype, (pl.List, pl.Struct, pl.Object)):
+            return None  # temporal/nested rendering -> bridge
+        exprs.append(pl.col(src).alias(column.output_name))
+    out = result.bind()
+    out._nodes = rows_df.select(exprs)
+    edges_df = getattr(result, "_edges", None)
+    if edges_df is not None:
+        out._edges = edges_df.clear() if _is_polars_frame(edges_df) else edges_df[:0]
+    return out
+
+
 def apply_result_projection(result: Plottable, projection: ResultProjectionPlan) -> Plottable:
     rows_df = getattr(result, "_nodes", None)
     if _is_polars_frame(rows_df):
+        native = _try_native_polars_projection(result, rows_df, projection)
+        if native is not None:
+            return native
         bridged = _bridge_result_frames(result, to="pandas")
         out = _apply_result_projection_pandas(bridged, projection)
         return _bridge_result_frames(out, to="polars")
