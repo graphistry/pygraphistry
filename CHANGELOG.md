@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Changed
+- **GFQL Cypher parser switched to LALR(1) (#1031)**: Unified the WHERE grammar so every clause parses as a single generic boolean `expr`, and replaced the Earley parser with one LALR(1) parser for all supported queries (~80× faster parse; OR/XOR/NOT-in-WHERE and post-WITH WHERE still parse). `generic_where_clause` now lifts a top-level AND of simple predicates (cmp / IS NULL / CONTAINS / STARTS/ENDS WITH / has-labels) back out to structured `filter_dict` predicates post-parse, preserving the former routing for flat ANDs and additionally fast-pathing associativity-equivalent nested/parenthesized ANDs (e.g. `a AND (b AND c)`, formerly routed to `where_rows`); non-liftable clauses (OR/XOR/NOT, arithmetic) stay on `where_rows`. Same query results; only the internal predicate-engine routing differs.
+
 ## [0.56.1 - 2026-05-27]
 
 ### Added
