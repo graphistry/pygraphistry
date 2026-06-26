@@ -179,7 +179,7 @@ def _bridge_frame(df, to):
     return pl.from_pandas(df)
 
 
-def _bridge_graph(g, to, _memo=None):
+def _bridge_graph(g, to, include_base=True, _memo=None):
     """Convert a graph's frame-bearing attrs between polars and pandas.
 
     Covers the active node/edge tables plus the row-pipeline context the
@@ -187,6 +187,11 @@ def _bridge_graph(g, to, _memo=None):
     ``_gfql_start_nodes`` frame). ``_gfql_rows_edge_aliases`` is a set of
     strings, carried as-is. ``_gfql_rows_base_graph`` chains can be cyclic, so a
     memo keyed on object identity (registered before recursing) breaks cycles.
+
+    ``include_base=False`` drops ``_gfql_rows_base_graph`` instead of bridging it
+    — used when the suffix ops are self-contained (projection/sort/filter on the
+    active table only) so we avoid converting the full base graph. See
+    ``_suffix_needs_base_graph``.
     """
     if g is None:
         return None
@@ -198,8 +203,8 @@ def _bridge_graph(g, to, _memo=None):
     out = out.edges(_bridge_frame(g._edges, to), g._source, g._destination, g._edge)
     _memo[id(g)] = out
     base = getattr(g, "_gfql_rows_base_graph", None)
-    if base is not None:
-        setattr(out, "_gfql_rows_base_graph", _bridge_graph(base, to, _memo))
+    if base is not None and include_base:
+        setattr(out, "_gfql_rows_base_graph", _bridge_graph(base, to, include_base, _memo))
     sn = getattr(g, "_gfql_start_nodes", None)
     if sn is not None:
         setattr(out, "_gfql_start_nodes", _bridge_frame(sn, to))
@@ -208,6 +213,24 @@ def _bridge_graph(g, to, _memo=None):
         if val is not None:
             setattr(out, attr, val)
     return out
+
+
+# Row-pipeline calls whose pandas implementation reads the base graph
+# (``_gfql_base_graph()``) — they join the active table against the original
+# graph. Everything else (select/with_/return_/order_by/where_rows/group_by/
+# unwind/distinct/limit/skip/drop_cols/simple rows) is self-contained on the
+# active table, so the bridge can skip converting the base graph for them.
+_BASE_GRAPH_DEPENDENT_CALLS = frozenset({"semi_apply_mark", "anti_semi_apply", "join_apply"})
+
+
+def _suffix_needs_base_graph(calls) -> bool:
+    for op in calls:
+        fn = getattr(op, "function", None)
+        if fn in _BASE_GRAPH_DEPENDENT_CALLS:
+            return True
+        if fn == "rows" and (op.params.get("binding_ops") is not None or op.params.get("alias_endpoints") is not None):
+            return True
+    return False
 
 
 def _call_native_on_polars(op) -> bool:
@@ -264,8 +287,9 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
 
     engine = Engine.POLARS
     if not all(_call_native_on_polars(op) for op in calls):
-        # Host-bridge the whole context once; run the row pipeline in pandas.
-        g_cur = _bridge_graph(g_cur, "pandas")
+        # Host-bridge the context once; run the row pipeline in pandas. Skip
+        # bridging the (potentially large) base graph when no suffix op reads it.
+        g_cur = _bridge_graph(g_cur, "pandas", include_base=_suffix_needs_base_graph(calls))
         engine = Engine.PANDAS
 
     for op in calls:

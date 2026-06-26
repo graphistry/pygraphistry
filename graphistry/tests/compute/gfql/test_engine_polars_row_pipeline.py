@@ -262,6 +262,21 @@ def test_run_calls_polars_empty_and_start_nodes():
     assert "polars" in type(out._nodes).__module__
 
 
+def test_suffix_needs_base_graph_classifier():
+    """The bridge skips base-graph conversion only for self-contained suffixes."""
+    from graphistry.compute.gfql.engine_polars.chain import _suffix_needs_base_graph
+    from graphistry.compute.ast import call
+    # self-contained: projection/sort/filter on the active table only
+    assert _suffix_needs_base_graph([call("select", {"items": ["v"]})]) is False
+    assert _suffix_needs_base_graph([call("rows", {"table": "nodes"}), call("order_by", {"keys": []})]) is False
+    # base-graph dependent: apply ops + multi-entity rows()
+    assert _suffix_needs_base_graph([call("join_apply", {})]) is True
+    assert _suffix_needs_base_graph([call("semi_apply_mark", {})]) is True
+    assert _suffix_needs_base_graph([call("anti_semi_apply", {})]) is True
+    assert _suffix_needs_base_graph([call("rows", {"binding_ops": [{}]})]) is True
+    assert _suffix_needs_base_graph([call("rows", {"alias_endpoints": {"a": "b"}})]) is True
+
+
 def test_run_calls_polars_binding_ops_rewrite():
     """Named middle + bare rows() triggers the binding_ops rewrite (then bridges)."""
     from graphistry.compute.gfql.engine_polars.chain import _run_calls_polars
