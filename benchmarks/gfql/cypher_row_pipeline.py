@@ -96,14 +96,24 @@ def timeit(fn: Callable[[], object], runs: int, warmup: int) -> float:
     return statistics.median(samples)
 
 
+def _polars_graph(g):
+    """Same graph with node/edge frames already in polars, so the polars runs
+    don't pay a per-call pandas->polars input coercion that the pandas runs avoid
+    (a real deployment keeps the graph in its engine's native frame type)."""
+    from graphistry.Engine import Engine, df_to_engine
+    return g.nodes(df_to_engine(g._nodes, Engine.POLARS), g._node).edges(
+        df_to_engine(g._edges, Engine.POLARS), g._source, g._destination)
+
+
 def run(sizes: List[Tuple[int, int]], runs: int, warmup: int) -> List[ResultRow]:
     rows: List[ResultRow] = []
     for n_nodes, n_edges in sizes:
-        g = make_graph(n_nodes, n_edges)
+        g_pd = make_graph(n_nodes, n_edges)
+        g_pl = _polars_graph(g_pd)
         for name, query in WORKLOADS:
             try:
-                pandas_ms = timeit(lambda: g.gfql(query, engine="pandas"), runs, warmup)
-                polars_ms = timeit(lambda: g.gfql(query, engine="polars"), runs, warmup)
+                pandas_ms = timeit(lambda: g_pd.gfql(query, engine="pandas"), runs, warmup)
+                polars_ms = timeit(lambda: g_pl.gfql(query, engine="polars"), runs, warmup)
                 rows.append(ResultRow(name, n_nodes, n_edges, pandas_ms, polars_ms))
             except Exception as exc:  # noqa: BLE001 - bench harness reports, never crashes the sweep
                 rows.append(ResultRow(name, n_nodes, n_edges, None, None, error=f"{type(exc).__name__}: {exc}"))
