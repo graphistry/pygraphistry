@@ -75,15 +75,37 @@ def _resolve_property(alias: str, prop: str, columns: Sequence[str]) -> Optional
     return None
 
 
+def _lower_function(node: Any, columns: Sequence[str]) -> Optional[Any]:
+    """Lower a whitelisted scalar cypher function to polars, or None to defer.
+
+    Only functions whose polars mapping matches the pandas engine's semantics
+    (verified by differential parity) are admitted; everything else returns None
+    so the caller raises NotImplementedError rather than guessing.
+    """
+    name = node.name.lower()
+    args = [lower_expr(arg, columns) for arg in node.args]
+    if any(arg is None for arg in args):
+        return None
+    if name == "coalesce" and args:
+        import polars as pl
+        # cypher coalesce = first non-null; pl.coalesce has identical semantics.
+        return pl.coalesce(args)
+    if name == "abs" and len(args) == 1:
+        return args[0].abs()
+    return None
+
+
 def lower_expr(node: Any, columns: Sequence[str]) -> Optional[Any]:
-    """Lower a parsed cypher ExprNode to a polars expression, or None to bridge."""
+    """Lower a parsed cypher ExprNode to a polars expression, or None to defer."""
     import polars as pl
     from graphistry.compute.gfql.expr_parser import (
-        Identifier, Literal, BinaryOp, UnaryOp, IsNullOp, PropertyAccessExpr,
+        Identifier, Literal, BinaryOp, UnaryOp, IsNullOp, PropertyAccessExpr, FunctionCall,
     )
 
     if isinstance(node, Literal):
         return pl.lit(node.value)
+    if isinstance(node, FunctionCall):
+        return _lower_function(node, columns)
     if isinstance(node, Identifier):
         return pl.col(node.name) if node.name in columns else None
     if isinstance(node, PropertyAccessExpr):

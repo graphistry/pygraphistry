@@ -92,6 +92,9 @@ CORPUS = [
     "MATCH (n) RETURN n.val * 2 - 3 AS x",
     "MATCH (n) RETURN n.val % 7 AS r",
     "MATCH (n) RETURN n.score / 2 AS half",
+    # whitelisted scalar functions (native lowering)
+    "MATCH (n) RETURN coalesce(n.val, 0) AS c",
+    "MATCH (n) RETURN abs(n.val - 50) AS d",
     "MATCH (n) RETURN n.val > 50 AS big, n.kind",
     "MATCH (n) RETURN n.val >= 50 AND n.val <= 80 AS mid",
     # single-entity WHERE (folds into matcher), returning properties
@@ -166,6 +169,8 @@ NULLABLE = [
     "MATCH (n) WHERE n.val > 25 RETURN n.val",           # null compares -> excluded
     "MATCH (n) WHERE n.val >= 0 RETURN n.id",
     "MATCH (n) RETURN n.val + 1 AS p",                    # null arithmetic -> null
+    "MATCH (n) RETURN coalesce(n.val, -1) AS c",          # coalesce fills null
+    "MATCH (n) RETURN abs(n.val) AS a",                   # abs over null -> null
     "MATCH (n) RETURN n.val > 25 AS big",                # null comparison projection
     "MATCH (n) WHERE n.val > 5 AND n.kind = 'a' RETURN n.id",   # 3-valued AND (folds)
     "MATCH (n) WHERE n.val > 5 OR n.kind = 'b' RETURN n.id",    # 3-valued OR -> native where_rows
