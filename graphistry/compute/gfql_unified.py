@@ -1657,6 +1657,17 @@ def _chain_dispatch(
     context: ExecutionContext,
     start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
+    if chain_obj.where and engine in (EngineAbstract.POLARS, "polars", Engine.POLARS):
+        # The same-path WHERE executor (DFSamePathExecutor / df_executor.py) is
+        # pandas/cuDF only — it uses pandas idioms on the graph frames. For
+        # engine='polars' the frames are polars, so host-bridge the graph to
+        # pandas, run the same-path route there, and convert the result back to
+        # polars. (Native polars same-path is a follow-up; correctness first.)
+        from graphistry.compute.gfql.engine_polars.chain import _bridge_frame, _bridge_graph
+        g_pd = _bridge_graph(g, "pandas")
+        sn_pd = _bridge_frame(start_nodes, "pandas")
+        result = _chain_dispatch(g_pd, chain_obj, EngineAbstract.PANDAS, policy, context, sn_pd)
+        return _bridge_graph(result, "polars")
     if chain_obj.where:
         if start_nodes is not None:
             raise GFQLValidationError(

@@ -117,6 +117,12 @@ CORPUS = [
     "MATCH (n)-[e]->(m) RETURN n.val, m.val",
     "MATCH (n)-[e]->(m) WHERE n.val < m.val RETURN n, m",
     "MATCH (a)-[e]->(b) RETURN b LIMIT 5",
+    # cross-entity (same-path) WHERE — routes through the DFSamePathExecutor,
+    # host-bridged for polars (regression guard for the .assign-on-polars crash)
+    "MATCH (a)-[e]->(b) WHERE a.val < b.val RETURN a.kind, b.kind",
+    "MATCH (a)-[e]->(b) WHERE a.val < b.val RETURN a.val, b.val",
+    "MATCH (a)-[e]->(b) WHERE a.val < b.val AND b.val > 20 RETURN a.name, b.name",
+    "MATCH (a)-[e]->(b) WHERE a.kind = b.kind RETURN a.id, b.id",
 ]
 
 
