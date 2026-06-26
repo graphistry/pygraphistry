@@ -15,6 +15,7 @@ Everything else (CASE, list/map, subscript, functions, temporal) → bridge.
 from typing import Any, List, Optional, Sequence, Tuple
 
 from graphistry.Plottable import Plottable
+from . import gpu  # GPU-collects these ops when POLARS_GPU active, else eager (CPU unchanged)
 
 
 def _parser():
@@ -215,7 +216,7 @@ def select_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
     exprs = lower_select_items(items, list(table.columns))
     if exprs is None:
         return None
-    return _rewrap(g, table.select(exprs))
+    return _rewrap(g, gpu.select(table, exprs))
 
 
 def where_rows_polars(
@@ -252,7 +253,7 @@ def where_rows_polars(
     combined = preds[0]
     for pred in preds[1:]:
         combined = combined & pred
-    return _rewrap(g, table.filter(combined))
+    return _rewrap(g, gpu.where(table, combined))
 
 
 def order_by_polars(g: Plottable, keys: Sequence[Any]) -> Optional[Plottable]:
@@ -265,7 +266,7 @@ def order_by_polars(g: Plottable, keys: Sequence[Any]) -> Optional[Plottable]:
     # nulls_last=False matches pandas sort_values default (NaN last only for asc);
     # cypher ORDER BY puts NULLs last — polars default is nulls_last=False, so set
     # it explicitly to match the pandas engine's na_position='last'.
-    return _rewrap(g, table.sort(exprs, descending=descending, nulls_last=True))
+    return _rewrap(g, gpu.sort(table, exprs, descending=descending, nulls_last=True))
 
 
 # Aggregation funcs lowered to native polars; collect/collect_distinct/stdev/
@@ -313,7 +314,7 @@ def group_by_polars(g: Plottable, keys: Sequence[Any], aggregations: Sequence[An
         if lowered is None:
             return None
         aggs.append(lowered)
-    out = table.group_by(list(keys), maintain_order=True).agg(aggs)
+    out = gpu.group_agg(table, list(keys), aggs, maintain_order=True)
     return _rewrap(g, out)
 
 
@@ -343,7 +344,7 @@ def unwind_polars(g: Plottable, expr: str, as_: str = "value") -> Optional[Plott
         return None
     values = [it.value for it in node.items if isinstance(it, Literal)]
     rhs = pl.DataFrame({as_: values})
-    return _rewrap(g, table.join(rhs, how="cross"))
+    return _rewrap(g, gpu.join(table, rhs, how="cross"))
 
 
 def can_select_native(items: Sequence[Any], columns: Sequence[str]) -> bool:

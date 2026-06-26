@@ -61,3 +61,29 @@ def join(left: Any, right: Any, **kwargs: Any) -> Any:
     if gpu_active():
         return left.lazy().join(right.lazy(), **kwargs).collect(engine=_gpu_engine())
     return left.join(right, **kwargs)
+
+
+# Row-pipeline op helpers: each runs the op on GPU (lazy + GPU collect) when GPU
+# mode is active, else the ordinary eager op verbatim (CPU behavior unchanged).
+def select(df: Any, exprs: Any) -> Any:
+    if gpu_active():
+        return df.lazy().select(exprs).collect(engine=_gpu_engine())
+    return df.select(exprs)
+
+
+def where(df: Any, predicate: Any) -> Any:  # filter (named to avoid shadowing builtin)
+    if gpu_active():
+        return df.lazy().filter(predicate).collect(engine=_gpu_engine())
+    return df.filter(predicate)
+
+
+def sort(df: Any, by: Any, **kwargs: Any) -> Any:
+    if gpu_active():
+        return df.lazy().sort(by, **kwargs).collect(engine=_gpu_engine())
+    return df.sort(by, **kwargs)
+
+
+def group_agg(df: Any, keys: Any, aggs: Any, **kwargs: Any) -> Any:
+    if gpu_active():
+        return df.lazy().group_by(keys, **kwargs).agg(aggs).collect(engine=_gpu_engine())
+    return df.group_by(keys, **kwargs).agg(aggs)
