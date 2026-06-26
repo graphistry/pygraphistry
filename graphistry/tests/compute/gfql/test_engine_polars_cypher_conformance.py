@@ -125,6 +125,54 @@ def test_cypher_conformance_corpus(query):
     _assert_parity(BASE, query)
 
 
+def _scalar_graph():
+    """int/string/bool only — eligible for native polars entity-text rendering,
+    incl. quote/backslash escaping and null omission."""
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 3],
+        "amount": [10, 20, 30, 40],
+        "label": ["plain", "has'quote", "back\\slash", None],
+        "active": [True, False, True, False],
+    })
+    edges = pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3]})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+def _bridge_count(g, query):
+    import graphistry.compute.gfql.cypher.result_postprocess as rp
+    orig = rp._bridge_result_frames
+    cnt = [0]
+
+    def traced(result, to, *a, **k):
+        if to == "pandas":
+            cnt[0] += 1
+        return orig(result, to, *a, **k)
+
+    rp._bridge_result_frames = traced
+    try:
+        g.gfql(query, engine="polars")
+    finally:
+        rp._bridge_result_frames = orig
+    return cnt[0]
+
+
+def test_native_entity_text_parity_and_no_bridge():
+    """Whole-entity RETURN n on an int/string/bool graph renders natively
+    (no projection bridge) and matches pandas, including escaping + null omit."""
+    g = _scalar_graph()
+    _assert_parity(g, "MATCH (n) RETURN n")
+    assert _bridge_count(g, "MATCH (n) RETURN n") == 0, "expected native entity-text (0 bridges)"
+    # whole + property mix still native
+    _assert_parity(g, "MATCH (n) RETURN n, n.amount")
+
+
+def test_entity_text_float_bridges_but_correct():
+    """A float property forces the entity-text bridge but stays correct."""
+    _assert_parity(BASE, "MATCH (n) RETURN n")  # BASE has float 'score'
+    # float graph entity-text must bridge (float repr differs polars vs pandas)
+    assert _bridge_count(BASE, "MATCH (n) RETURN n") >= 1
+
+
 @pytest.mark.parametrize("seed", list(range(40)))
 def test_cypher_conformance_fuzz(seed):
     """Seeded fuzzer: random RETURN/WHERE/ORDER/LIMIT/agg queries, both engines."""
