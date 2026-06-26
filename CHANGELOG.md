@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Changed
+- **GFQL Cypher parse memoization (perf)**: `parse_cypher` now memoizes its result (LRU over the deterministic lark parse+transform → immutable frozen AST). Repeated identical Cypher queries skip the ~15 ms parse — the dominant per-call cost of small queries (~50% of a Cypher call at 100k rows) — making end-to-end query latency ~1.3–1.7× faster at small/interactive sizes across pandas/polars/cuDF. Safe to share the cached AST: every Cypher AST node is `@dataclass(frozen=True)` and `compile_cypher_query` does not mutate the parsed tree; validation errors still raise and are not cached.
 ## [0.56.1 - 2026-05-27]
 
 ### Added

@@ -1173,3 +1173,36 @@ def test_or_where_now_parses_after_earley_swap() -> None:
     assert parsed.where.expr_tree is not None
     assert parsed.where.expr_tree.op == "or"
     assert "OR" in boolean_expr_to_text(parsed.where.expr_tree).upper()
+
+
+def test_parse_cypher_is_memoized_and_safe() -> None:
+    # parse_cypher memoizes its (deterministic) result: repeated identical
+    # queries return the SAME cached frozen AST (skips the ~15ms lark parse).
+    from graphistry.compute.gfql.cypher.parser import _parse_cypher_cached
+
+    q = "MATCH (a)-[e]->(b) WHERE a.val > 50 RETURN a.val"
+    _parse_cypher_cached.cache_clear()
+    first = parse_cypher(q)
+    second = parse_cypher(q)
+    assert first is second  # cache hit returns the identical object
+
+    # Cached AST is immutable, so sharing it across callers is safe.
+    with pytest.raises(Exception):
+        first.where = None  # type: ignore[misc]  # frozen dataclass
+
+    # Distinct query text is a distinct cache entry (no cross-contamination).
+    other = parse_cypher("MATCH (a) RETURN a.val")
+    assert other is not first
+
+    # Clearing the cache and re-parsing yields an equal (value-identical) AST.
+    _parse_cypher_cached.cache_clear()
+    reparsed = parse_cypher(q)
+    assert reparsed == first
+
+
+def test_parse_cypher_invalid_input_not_cached() -> None:
+    # Non-str / empty input must raise (and not poison the cache).
+    with pytest.raises(GFQLSyntaxError):
+        parse_cypher("")
+    with pytest.raises(GFQLSyntaxError):
+        parse_cypher("   ")
