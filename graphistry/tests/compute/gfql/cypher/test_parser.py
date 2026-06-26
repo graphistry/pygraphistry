@@ -1206,3 +1206,99 @@ def test_parse_cypher_invalid_input_not_cached() -> None:
         parse_cypher("")
     with pytest.raises(GFQLSyntaxError):
         parse_cypher("   ")
+
+
+# --- Single LALR(1) path (Earley removed) -------------------------------------
+# After WHERE-grammar unification, parse_cypher uses one LALR(1) parser for every
+# supported query -- including OR/XOR/NOT-in-WHERE and post-WITH WHERE, which the
+# former dual grammar could only parse under Earley. These smoke-test that the
+# whole corpus parses to a valid query on the sole LALR path.
+
+_PARITY_QUERIES = [
+    "MATCH (n) WHERE n.x = 50 RETURN n.__rid__",
+    "MATCH (n) WHERE n.active = true AND n.x = 5 RETURN n.id",
+    "MATCH (a)-[r:R]->(b) RETURN a.id, r.weight, b.id",
+    "MATCH (n {a: 1, b: 2}) RETURN n",
+    "MATCH (n) WHERE n.x IN [1, 2, 3] RETURN count(n)",
+    "OPTIONAL MATCH (n)-[r]->(m) RETURN n, m",
+    "MATCH (n) WHERE NOT (n)-[:R]->() RETURN n",
+    "MATCH (n) RETURN n.first_name AS fn ORDER BY fn",
+    # Formerly Earley-only constructs, now on the LALR path:
+    "MATCH (n) WHERE n:Admin AND n.active = true RETURN n",       # label + property
+    "MATCH (n) WHERE n.a > 3 OR n.b = 1 RETURN n",                # OR in WHERE
+    "MATCH (n) WHERE n.x = 1 XOR n.y = 2 RETURN n",               # XOR in WHERE
+    "MATCH (n)-[rel]->(x) WITH n, x WHERE n.animal = x.animal RETURN n, x",  # WITH-WHERE
+]
+
+
+@pytest.mark.parametrize("query", _PARITY_QUERIES)
+def test_unified_lalr_parses_corpus(query: str) -> None:
+    assert isinstance(parse_cypher(query), CypherQuery)
+
+
+def test_lalr_is_the_only_parser() -> None:
+    # The Earley parser and its fallback hook are gone.
+    from graphistry.compute.gfql.cypher import parser as _p
+
+    assert not hasattr(_p, "_parser")
+    assert not hasattr(_p, "_lalr_tree_needs_earley")
+    assert _p._parser_lalr().parse("MATCH (n) WHERE n.x = 1 OR n.y = 2 RETURN n") is not None
+
+
+def test_unified_where_lifts_label_and_property_to_structured() -> None:
+    # Post grammar-unification: every WHERE parses as the generic expr under the
+    # sole LALR parser, and generic_where_clause lifts label + property back to
+    # structured predicates.
+    label = "MATCH (n) WHERE n:Admin AND n.active = true RETURN n"
+    parsed = cast(CypherQuery, parse_cypher(label))
+    assert parsed.where is not None
+    assert parsed.where.expr_tree is None         # structured via the lift
+    assert len(parsed.where.predicates) == 2
+
+
+# --- Flat-AND spine lift in generic_where_clause -------------------------------
+# A parenthesized / nested pure-AND of simple predicates lifts wholly to the
+# structured (filter_dict) form instead of dropping to the where_rows engine.
+# Anything with a non-liftable conjunct (OR/XOR/NOT, arithmetic) keeps the WHOLE
+# clause on expr_tree -- full-lift-only, never a partial split.
+
+def test_nested_pure_and_lifts_to_structured() -> None:
+    w = cast(CypherQuery, parse_cypher(
+        "MATCH (n) WHERE n.x = 1 AND (n.y = 2 AND n.z = 3) RETURN n"
+    )).where
+    assert w is not None
+    assert w.expr_tree is None            # structured, not a tree
+    assert len(w.predicates) == 3         # x, y, z all lifted
+
+
+def test_and_with_or_stays_on_expr_tree() -> None:
+    w = cast(CypherQuery, parse_cypher(
+        "MATCH (n) WHERE n.x = 1 AND (n.y = 2 OR n.z = 3) RETURN n"
+    )).where
+    assert w is not None
+    assert w.predicates == ()             # no partial split
+    assert w.expr_tree is not None        # whole clause stays a tree
+
+
+def test_not_in_and_spine_stays_on_expr_tree() -> None:
+    w = cast(CypherQuery, parse_cypher(
+        "MATCH (n) WHERE NOT n.x = 1 AND n.y = 2 RETURN n"
+    )).where
+    assert w is not None
+    assert w.predicates == ()
+    assert w.expr_tree is not None
+
+
+# --- OR stays on the row engine (no OR->is_in optimization in this PR) ----------
+# OR-of-equalities collapse to is_in is a deferred routing optimization; the
+# parser-switch lift reproduces the old grammar's routing, under which any OR
+# clause stays on expr_tree -> where_rows.
+def test_or_clause_stays_on_expr_tree() -> None:
+    for q in (
+        "MATCH (n) WHERE n.x = 1 OR n.x = 2 OR n.x = 3 RETURN n",  # same column
+        "MATCH (n) WHERE n.x = 1 OR n.y = 2 RETURN n",             # cross column
+    ):
+        w = cast(CypherQuery, parse_cypher(q)).where
+        assert w is not None
+        assert w.predicates == ()
+        assert w.expr_tree is not None
