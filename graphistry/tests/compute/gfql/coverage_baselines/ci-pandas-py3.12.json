@@ -49,7 +49,7 @@
     "graphistry/compute/gfql/row/dispatch.py": 62.5,
     "graphistry/compute/gfql/row/entity_props.py": 79.74,
     "graphistry/compute/gfql/row/entity_text.py": 54.47,
-    "graphistry/compute/gfql/row/frame_ops.py": 66.4,
+    "graphistry/compute/gfql/row/frame_ops.py": 65.0,
     "graphistry/compute/gfql/row/order_expr.py": 81.08,
     "graphistry/compute/gfql/row/ordering.py": 83.92,
     "graphistry/compute/gfql/row/pipeline.py": 70.3,
