@@ -1302,3 +1302,33 @@ def test_or_clause_stays_on_expr_tree() -> None:
         assert w is not None
         assert w.predicates == ()
         assert w.expr_tree is not None
+
+
+# --- Lifted predicates keep absolute source spans ------------------------------
+# Re-parsing each conjunct in isolation would collapse its span to column 1; the
+# lift shifts spans back to absolute query coordinates (via the conjunct's
+# atom_span) so downstream errors (e.g. E108) point at the real predicate, not
+# the start of the query. Regression guard for the column-1 span bug.
+def test_lifted_predicate_spans_are_absolute() -> None:
+    q = "MATCH (n) WHERE n.x = 1 AND m.y = 2 RETURN n"
+    w = cast(CypherQuery, parse_cypher(q)).where
+    assert w is not None and w.expr_tree is None  # structured via the lift
+    by_alias = {cast(PropertyRef, p.left).alias: p for p in w.predicates}
+    # `n.x` / `m.y` sit at their true offsets in the query, not column 1.
+    assert q[by_alias["n"].left.span.start_pos:].startswith("n.x")
+    assert by_alias["n"].left.span.column == q.index("n.x") + 1
+    assert q[by_alias["m"].left.span.start_pos:].startswith("m.y")
+    assert by_alias["m"].left.span.column == q.index("m.y") + 1
+
+
+def test_lifted_single_predicate_span_skips_where_keyword() -> None:
+    # Single-predicate WHERE: the synthesized atom span must align with the
+    # predicate text, not the WHERE keyword (the +len("WHERE ") off-by-six case).
+    q = "MATCH (a)-[]->(b) WHERE a.x = b.y RETURN a"
+    w = cast(CypherQuery, parse_cypher(q)).where
+    assert w is not None and len(w.predicates) == 1
+    left = cast(PropertyRef, w.predicates[0].left)
+    right = w.predicates[0].right
+    assert left.span.column == q.index("a.x") + 1
+    assert isinstance(right, PropertyRef)
+    assert right.span.column == q.index("b.y") + 1
