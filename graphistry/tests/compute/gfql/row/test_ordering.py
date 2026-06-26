@@ -5,6 +5,7 @@ import pytest
 
 from graphistry.compute.ast import limit, order_by, rows, select
 from graphistry.compute.exceptions import GFQLTypeError
+from graphistry.compute.gfql.row.ordering import order_detect_temporal_mode
 from graphistry.tests.test_compute import CGFull
 
 
@@ -193,3 +194,36 @@ def test_row_pipeline_order_by_multi_key_stringified_list_with_scalar() -> None:
     assert result["num"].tolist() == [20, 10, 15, 5]
     leaked = [c for c in result.columns if "__gfql_sort_listparsed" in str(c)]
     assert leaked == [], f"aux columns leaked: {leaked}"
+
+
+@pytest.mark.parametrize(
+    "series",
+    [
+        pd.Series([1, 2, 3], dtype="int64"),
+        pd.Series([1, 2, 3], dtype="uint32"),
+        pd.Series([1.5, 2.5], dtype="float64"),
+        pd.Series([True, False], dtype="bool"),
+    ],
+    ids=["int64", "uint32", "float64", "bool"],
+)
+def test_order_detect_temporal_mode_skips_non_text_dtypes(series: pd.Series) -> None:
+    # Numeric/bool columns can never hold temporal *text*; the detector must
+    # short-circuit without the astype(str) + multi-regex scan (issue #1650).
+    assert order_detect_temporal_mode(series) is None
+
+
+def test_order_detect_temporal_mode_still_detects_text_temporals() -> None:
+    # Gate must not regress detection on object/string columns.
+    assert order_detect_temporal_mode(pd.Series(["2020-01-01", "2020-02-02"], dtype="object")) == "date"
+    assert order_detect_temporal_mode(pd.Series(["abc", "def"], dtype="object")) is None
+
+
+def test_where_rows_numeric_filter_returns_correct_rows() -> None:
+    # End-to-end: a numeric where_rows comparison still filters correctly with the
+    # temporal-detection gate in place.
+    nodes_df = pd.DataFrame({"id": [0, 1, 2, 3], "val": [10, 60, 51, 99]})
+    edges_df = pd.DataFrame({"s": [0, 1], "d": [2, 3]})
+    from graphistry.compute.ast import where_rows
+
+    out = _mk_graph(nodes_df, edges_df).gfql([rows(), where_rows(expr="val > 50")])._nodes
+    assert sorted(out["val"].tolist()) == [51, 60, 99]

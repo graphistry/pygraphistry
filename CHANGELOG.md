@@ -10,6 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 - **GFQL Cypher parse memoization (perf)**: `parse_cypher` now memoizes its result (LRU over the deterministic lark parse+transform → immutable frozen AST). Repeated identical Cypher queries skip the ~15 ms parse — the dominant per-call cost of small queries (~50% of a Cypher call at 100k rows) — making end-to-end query latency ~1.3–1.7× faster at small/interactive sizes across pandas/polars/cuDF. Safe to share the cached AST: every Cypher AST node is `@dataclass(frozen=True)` and `compile_cypher_query` does not mutate the parsed tree; validation errors still raise and are not cached.
+
+### Performance
+- **GFQL temporal-detection dtype gate (#1650)**: `order_detect_temporal_mode` now short-circuits for numeric/bool/complex columns, which can never hold temporal *text*, instead of running an `astype(str)` + multi-regex `fullmatch` scan on every comparison. Eliminates spurious row-wise stringification in `where_rows`/comparison paths whose output never contains entity-text. Byte-identical results; measured `where_rows` speedups ~3.1× (pandas) and ~4.4–13.3× (cuDF, scaling with row count). Does not address whole-entity `RETURN a` text rendering, which is tracked separately.
+
 ## [0.56.1 - 2026-05-27]
 
 ### Added
