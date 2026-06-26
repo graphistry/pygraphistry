@@ -82,46 +82,9 @@ SUPPORTED = [
     "MATCH (n) RETURN n, n.val, n.kind",
 ]
 
-# Row ops whose cypher expression engine isn't natively lowered yet: these run
-# correctly via the host-bridge fallback (active table + context bridged to
-# pandas, run there, converted back to polars). Parity must still hold.
-BRIDGED = [
-    # property projection (select)
-    "MATCH (n) RETURN n.val",
-    "MATCH (n) RETURN n.val, n.kind",
-    "MATCH (n) RETURN n.name, n.val",
-    # distinct on a projected column
-    "MATCH (n) RETURN DISTINCT n.kind",
-    # order_by
-    "MATCH (n) RETURN n.val ORDER BY n.val DESC",
-    "MATCH (n) RETURN n.val ORDER BY n.val",
-    "MATCH (n) WHERE n.val > 15 RETURN n.val ORDER BY n.val DESC LIMIT 2",
-    # cross-entity WHERE (where_rows) + multi-entity binding_ops projection
-    "MATCH (n)-[e]->(m) WHERE n.val < m.val RETURN n, m",
-    "MATCH (n)-[e]->(m) RETURN n, m",
-    # aggregation / group_by
-    "MATCH (n) RETURN count(n) AS c",
-    "MATCH (n) RETURN n.kind, count(n) AS c",
-    # unwind
-    "MATCH (n) UNWIND [1, 2] AS x RETURN n.val, x",
-]
-
-
-@pytest.mark.parametrize("query", SUPPORTED + BRIDGED)
-def test_polars_row_pipeline_parity(query):
-    # ORDER BY queries are order-sensitive; the rest compare orderlessly.
-    _assert_parity(query, order_sensitive="ORDER BY" in query)
-
-
-@pytest.mark.parametrize("query", BRIDGED)
-def test_polars_row_pipeline_bridged_is_polars_typed(query):
-    """Bridged row ops still return polars-typed results (engine consistency)."""
-    rpl = BASE.gfql(query, engine="polars")._nodes
-    assert "polars" in type(rpl).__module__
-
-
-# Queries whose row ops (select/order_by + their exprs) lower to NATIVE polars —
-# no host-bridge round-trip. Parity must hold and no pandas conversion happens.
+# Row ops lowered to NATIVE polars (no pandas) — select/with_/return_ projection
+# (property/arithmetic/comparison/boolean/literal), order_by, group_by
+# (count/sum/avg/min/max), unwind. Parity vs pandas; results are polars-typed.
 NATIVE_LOWERED = [
     "MATCH (n) RETURN n.val",
     "MATCH (n) RETURN n.val AS v, n.kind",
@@ -134,48 +97,41 @@ NATIVE_LOWERED = [
     "MATCH (n) RETURN n.val ORDER BY n.val DESC",
     "MATCH (n) RETURN n.val ORDER BY n.val",
     "MATCH (n) WHERE n.val > 15 RETURN n.val ORDER BY n.val DESC LIMIT 2",
-    # group_by / aggregation (count/sum/avg/min/max), keyed + keyless
     "MATCH (n) RETURN n.kind, count(n) AS c",
     "MATCH (n) RETURN count(n) AS c",
     "MATCH (n) RETURN n.kind, sum(n.val) AS s, avg(n.val) AS a",
     "MATCH (n) RETURN n.kind, min(n.val) AS mn, max(n.val) AS mx",
     "MATCH (n) RETURN n.kind, count(n) AS c ORDER BY c DESC",
-    # unwind of a literal list (cross-join)
     "MATCH (n) UNWIND [1, 2] AS x RETURN n.val, x",
     "MATCH (n) UNWIND [1, 2, 3] AS x RETURN x",
 ]
 
-
-def _bridge_count(query):
-    """(result_nodes, #polars->pandas bridges) for a polars cypher run."""
-    import graphistry.compute.gfql.engine_polars.chain as ch
-    orig = ch._bridge_graph
-    cnt = [0]
-
-    def traced(g, to, *a, **k):
-        if to == "pandas":
-            cnt[0] += 1
-        return orig(g, to, *a, **k)
-
-    ch._bridge_graph = traced
-    try:
-        res = BASE.gfql(query, engine="polars")._nodes
-    finally:
-        ch._bridge_graph = orig
-    return res, cnt[0]
+# NO-CHEATING (see plan.md): no native impl yet -> NotImplementedError, never a
+# silent pandas bridge. Multi-entity bindings + cross-entity same-path WHERE.
+DEFERRED = [
+    "MATCH (n)-[e]->(m) WHERE n.val < m.val RETURN n, m",   # cross-entity WHERE
+    "MATCH (n)-[e]->(m) RETURN n, m",                       # multi-entity bindings
+    "MATCH (n)-[e]->(m) RETURN n.val, m.val",               # multi-entity bindings
+]
 
 
-@pytest.mark.parametrize("query", NATIVE_LOWERED)
-def test_polars_row_pipeline_native_parity(query):
+@pytest.mark.parametrize("query", SUPPORTED + NATIVE_LOWERED)
+def test_polars_row_pipeline_parity(query):
+    # ORDER BY queries are order-sensitive; the rest compare orderlessly.
     _assert_parity(query, order_sensitive="ORDER BY" in query)
 
 
 @pytest.mark.parametrize("query", NATIVE_LOWERED)
-def test_polars_row_pipeline_runs_native(query):
-    """select/order_by lowering keeps these off the pandas bridge."""
-    res, bridges = _bridge_count(query)
-    assert "polars" in type(res).__module__
-    assert bridges == 0, f"expected native (0 bridges) for {query!r}, got {bridges}"
+def test_polars_row_pipeline_is_polars_typed(query):
+    """Native row ops return polars-typed results (no pandas round-trip)."""
+    assert "polars" in type(BASE.gfql(query, engine="polars")._nodes).__module__
+
+
+@pytest.mark.parametrize("query", DEFERRED)
+def test_polars_row_pipeline_deferred_raises(query):
+    """Not-yet-native ops raise NotImplementedError (never silently bridge)."""
+    with pytest.raises(NotImplementedError):
+        BASE.gfql(query, engine="polars")
 
 
 def test_row_expr_lowering_unit():
@@ -310,67 +266,35 @@ def test_chain_polars_chain_input_and_empty():
     assert empty is not None
 
 
-def test_bridge_helpers_unit():
-    """Direct coverage of the host-bridge helpers' edge branches."""
-    from graphistry.compute.gfql.engine_polars.chain import (
-        _bridge_frame, _bridge_graph, _call_native_on_polars,
-    )
+def test_call_native_on_polars_classifier():
+    """_call_native_on_polars: only frame ops (single-entity rows) are native."""
+    from graphistry.compute.gfql.engine_polars.chain import _call_native_on_polars
     from graphistry.compute.ast import call, n
-    # _bridge_frame: None-safe + idempotent (already-correct-type) both directions
-    assert _bridge_frame(None, "pandas") is None
-    plf = pl.DataFrame({"a": [1, 2]})
-    assert _bridge_frame(plf, "polars") is plf                 # already polars
-    assert isinstance(_bridge_frame(plf, "pandas"), pd.DataFrame)
-    pdf = plf.to_pandas()
-    assert _bridge_frame(pdf, "pandas") is pdf                 # already pandas
-    assert "polars" in type(_bridge_frame(pdf, "polars")).__module__
-    # _bridge_graph: None-safe
-    assert _bridge_graph(None, "pandas") is None
-    # _call_native_on_polars: non-ASTCall, native, non-native
     assert _call_native_on_polars(n()) is False
     assert _call_native_on_polars(call("limit", {"value": 1})) is True
     assert _call_native_on_polars(call("select", {"items": []})) is False
     assert _call_native_on_polars(call("rows", {"binding_ops": [{}]})) is False
 
 
-def test_run_calls_polars_empty_and_start_nodes():
-    """_run_calls_polars: empty-calls short circuit + start_nodes bridging path."""
+def test_run_calls_polars_empty_and_native():
+    """_run_calls_polars: empty-calls short circuit + native select stays polars."""
     from graphistry.compute.gfql.engine_polars.chain import _run_calls_polars
     from graphistry.compute.ast import call
     g = _polars_graph()
-    # empty calls -> returns the graph unchanged
     assert _run_calls_polars(g, [], None, g, []) is g
-    # a bridged op (select) with start_nodes set exercises the start_nodes
-    # setattr + bridge of start_nodes, then converts back to polars
-    sn = g._nodes.select(pl.col(g._node))
-    out = _run_calls_polars(g, [call("rows", {"table": "nodes"}), call("select", {"items": ["v"]})], sn, g, [])
+    out = _run_calls_polars(g, [call("rows", {"table": "nodes"}), call("select", {"items": ["v"]})], None, g, [])
     assert "polars" in type(out._nodes).__module__
 
 
-def test_suffix_needs_base_graph_classifier():
-    """The bridge skips base-graph conversion only for self-contained suffixes."""
-    from graphistry.compute.gfql.engine_polars.chain import _suffix_needs_base_graph
-    from graphistry.compute.ast import call
-    # self-contained: projection/sort/filter on the active table only
-    assert _suffix_needs_base_graph([call("select", {"items": ["v"]})]) is False
-    assert _suffix_needs_base_graph([call("rows", {"table": "nodes"}), call("order_by", {"keys": []})]) is False
-    # base-graph dependent: apply ops + multi-entity rows()
-    assert _suffix_needs_base_graph([call("join_apply", {})]) is True
-    assert _suffix_needs_base_graph([call("semi_apply_mark", {})]) is True
-    assert _suffix_needs_base_graph([call("anti_semi_apply", {})]) is True
-    assert _suffix_needs_base_graph([call("rows", {"binding_ops": [{}]})]) is True
-    assert _suffix_needs_base_graph([call("rows", {"alias_endpoints": {"a": "b"}})]) is True
-
-
-def test_run_calls_polars_binding_ops_rewrite():
-    """Named middle + bare rows() triggers the binding_ops rewrite (then bridges)."""
+def test_run_calls_polars_binding_ops_defers():
+    """Named middle + bare rows() rewrites to rows(binding_ops), which is not
+    native -> NotImplementedError (NO pandas bridge, see plan.md NO-CHEATING)."""
     from graphistry.compute.gfql.engine_polars.chain import _run_calls_polars
     from graphistry.compute.ast import call, n, e_forward
     g = _polars_graph()
     middle = [n(name="a"), e_forward(), n(name="b")]
-    # bare rows() (no binding_ops/source/alias_endpoints) + named middle -> rewrite
-    out = _run_calls_polars(g, [call("rows", {})], None, g, middle)
-    assert out is not None
+    with pytest.raises(NotImplementedError):
+        _run_calls_polars(g, [call("rows", {})], None, g, middle)
 
 
 def test_frame_ops_polars_rows_empty_table():

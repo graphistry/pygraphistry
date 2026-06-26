@@ -189,9 +189,10 @@ def apply_result_projection(result: Plottable, projection: ResultProjectionPlan)
     rows_df = getattr(result, "_nodes", None)
     if rows_df is not None and "polars" in type(rows_df).__module__:
         # Native polars projection lives in engine_polars (not this pandas-audited
-        # module); it host-bridges back to the pandas renderer when needed.
+        # module); it renders natively or raises NotImplementedError — NO pandas
+        # bridge (see plans/gfql-polars-engine NO-CHEATING).
         from graphistry.compute.gfql.engine_polars.projection import apply_result_projection_polars
-        return apply_result_projection_polars(result, projection, _apply_result_projection_pandas)
+        return apply_result_projection_polars(result, projection)
     return _apply_result_projection_pandas(result, projection)
 
 

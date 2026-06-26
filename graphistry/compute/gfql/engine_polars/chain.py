@@ -166,73 +166,6 @@ def _apply_node_names(out, g, steps):
     return out
 
 
-def _bridge_frame(df, to):
-    """Convert a single frame between polars and pandas (None-safe, idempotent)."""
-    if df is None:
-        return None
-    is_pl = "polars" in type(df).__module__
-    if to == "pandas":
-        return df.to_pandas() if is_pl else df
-    if is_pl:
-        return df
-    import polars as pl
-    return pl.from_pandas(df)
-
-
-def _bridge_graph(g, to, include_base=True, _memo=None):
-    """Convert a graph's frame-bearing attrs between polars and pandas.
-
-    Covers the active node/edge tables plus the row-pipeline context the
-    expression engine reads (``_gfql_rows_base_graph`` Plottable and
-    ``_gfql_start_nodes`` frame). ``_gfql_rows_edge_aliases`` is a set of
-    strings, carried as-is. ``_gfql_rows_base_graph`` chains can be cyclic, so a
-    memo keyed on object identity (registered before recursing) breaks cycles.
-
-    ``include_base=False`` drops ``_gfql_rows_base_graph`` instead of bridging it
-    — used when the suffix ops are self-contained (projection/sort/filter on the
-    active table only) so we avoid converting the full base graph. See
-    ``_suffix_needs_base_graph``.
-    """
-    if g is None:
-        return None
-    if _memo is None:
-        _memo = {}
-    if id(g) in _memo:
-        return _memo[id(g)]
-    out = g.nodes(_bridge_frame(g._nodes, to), g._node)
-    out = out.edges(_bridge_frame(g._edges, to), g._source, g._destination, g._edge)
-    _memo[id(g)] = out
-    base = getattr(g, "_gfql_rows_base_graph", None)
-    if base is not None and include_base:
-        setattr(out, "_gfql_rows_base_graph", _bridge_graph(base, to, include_base, _memo))
-    sn = getattr(g, "_gfql_start_nodes", None)
-    if sn is not None:
-        setattr(out, "_gfql_start_nodes", _bridge_frame(sn, to))
-    for attr in ("_gfql_rows_edge_aliases", "_gfql_shortest_path_backend", "_cypher_entity_projection_meta"):
-        val = getattr(g, attr, None)
-        if val is not None:
-            setattr(out, attr, val)
-    return out
-
-
-# Row-pipeline calls whose pandas implementation reads the base graph
-# (``_gfql_base_graph()``) — they join the active table against the original
-# graph. Everything else (select/with_/return_/order_by/where_rows/group_by/
-# unwind/distinct/limit/skip/drop_cols/simple rows) is self-contained on the
-# active table, so the bridge can skip converting the base graph for them.
-_BASE_GRAPH_DEPENDENT_CALLS = frozenset({"semi_apply_mark", "anti_semi_apply", "join_apply"})
-
-
-def _suffix_needs_base_graph(calls) -> bool:
-    for op in calls:
-        fn = getattr(op, "function", None)
-        if fn in _BASE_GRAPH_DEPENDENT_CALLS:
-            return True
-        if fn == "rows" and (op.params.get("binding_ops") is not None or op.params.get("alias_endpoints") is not None):
-            return True
-    return False
-
-
 def _call_native_on_polars(op) -> bool:
     """Whether a row-pipeline call has a native polars implementation (no bridge)."""
     from graphistry.compute.ast import ASTCall
@@ -285,20 +218,18 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     ):
         calls = [rows_fn(binding_ops=serialize_binding_ops(middle))] + list(calls[1:])
 
-    # Per-op native-or-bridge: run each call natively on polars where possible
-    # (frame ops + lowered select/order_by); at the first op that can't be
-    # lowered (column shape is only known mid-run), host-bridge the remaining
-    # ops to pandas and convert the result back to polars.
-    for i, op in enumerate(calls):
+    # Per-op NATIVE-OR-DEFER: run each call natively on polars; an op we can't
+    # lower natively raises NotImplementedError (NO pandas fallback — see plan.md
+    # NO-CHEATING). The honest signal tells the caller to use engine='pandas'.
+    for op in calls:
         native = _try_native_row_op(g_cur, op)
-        if native is not None:
-            g_cur = native
-            continue
-        remaining = calls[i:]
-        g_cur = _bridge_graph(g_cur, "pandas", include_base=_suffix_needs_base_graph(remaining))
-        for op2 in remaining:
-            g_cur = op2.execute(g=g_cur, prev_node_wavefront=None, target_wave_front=None, engine=Engine.PANDAS)
-        return _bridge_graph(g_cur, "polars")
+        if native is None:
+            raise NotImplementedError(
+                f"polars engine does not yet natively support cypher row op "
+                f"{getattr(op, 'function', op)!r}; use engine='pandas' for this query "
+                f"(no pandas fallback — see plans/gfql-polars-engine NO-CHEATING)"
+            )
+        g_cur = native
     return g_cur
 
 

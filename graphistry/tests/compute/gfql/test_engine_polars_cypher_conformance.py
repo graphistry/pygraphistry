@@ -79,18 +79,13 @@ def _assert_parity(g, query):
         pd.testing.assert_frame_equal(a_s, b_s, check_dtype=False)
 
 
+# Queries the polars engine runs NATIVELY (property/arith/order/agg/unwind +
+# single-entity WHERE returning properties). Run on BASE; parity vs pandas.
 CORPUS = [
-    # whole-entity
-    "MATCH (n) RETURN n",
-    "MATCH (n) RETURN n LIMIT 5",
-    "MATCH (n) RETURN n SKIP 3",
-    "MATCH (n) RETURN n SKIP 2 LIMIT 4",
-    "MATCH (n) RETURN DISTINCT n",
     # property projection
     "MATCH (n) RETURN n.val",
     "MATCH (n) RETURN n.val, n.kind, n.score",
     "MATCH (n) RETURN n.val AS v, n.name AS nm",
-    "MATCH (n) RETURN n, n.val",
     "MATCH (n) RETURN DISTINCT n.kind",
     # arithmetic / comparison / boolean projection
     "MATCH (n) RETURN n.val + 1 AS p",
@@ -99,8 +94,7 @@ CORPUS = [
     "MATCH (n) RETURN n.score / 2 AS half",
     "MATCH (n) RETURN n.val > 50 AS big, n.kind",
     "MATCH (n) RETURN n.val >= 50 AND n.val <= 80 AS mid",
-    # single-entity WHERE (folds into matcher)
-    "MATCH (n) WHERE n.val > 40 RETURN n",
+    # single-entity WHERE (folds into matcher), returning properties
     "MATCH (n) WHERE n.kind = 'alpha' RETURN n.val",
     "MATCH (n) WHERE n.val > 20 AND n.val < 90 RETURN n.name",
     "MATCH (n) WHERE n.flag = true RETURN n.val",
@@ -119,23 +113,35 @@ CORPUS = [
     # unwind
     "MATCH (n) UNWIND [1, 2, 3] AS x RETURN n.val, x",
     "MATCH (n) UNWIND ['a', 'b'] AS t RETURN n.kind, t",
-    # relationship patterns
-    "MATCH (n)-[e]->(m) RETURN m",
-    "MATCH (n)-[e]->(m) RETURN n.val, m.val",
-    "MATCH (n)-[e]->(m) WHERE n.val < m.val RETURN n, m",
-    "MATCH (a)-[e]->(b) RETURN b LIMIT 5",
-    # cross-entity (same-path) WHERE — routes through the DFSamePathExecutor,
-    # host-bridged for polars (regression guard for the .assign-on-polars crash)
-    "MATCH (a)-[e]->(b) WHERE a.val < b.val RETURN a.kind, b.kind",
-    "MATCH (a)-[e]->(b) WHERE a.val < b.val RETURN a.val, b.val",
-    "MATCH (a)-[e]->(b) WHERE a.val < b.val AND b.val > 20 RETURN a.name, b.name",
-    "MATCH (a)-[e]->(b) WHERE a.kind = b.kind RETURN a.id, b.id",
 ]
 
 
 @pytest.mark.parametrize("query", CORPUS)
 def test_cypher_conformance_corpus(query):
     _assert_parity(BASE, query)
+
+
+# NO-CHEATING (see plan.md): the polars engine has no native implementation for
+# these yet, so it must raise NotImplementedError (NOT silently run pandas).
+# Whole-entity RETURN over a float column (BASE.score), multi-entity bindings,
+# and cross-entity same-path WHERE.
+DEFERRED = [
+    "MATCH (n) RETURN n",                                   # float entity-text
+    "MATCH (n) RETURN n LIMIT 5",
+    "MATCH (n) RETURN DISTINCT n",
+    "MATCH (n) RETURN n, n.val",
+    "MATCH (n)-[e]->(m) RETURN m",                          # whole entity (float)
+    "MATCH (n)-[e]->(m) RETURN n.val, m.val",               # multi-entity bindings
+    "MATCH (n)-[e]->(m) WHERE n.val < m.val RETURN n, m",   # cross-entity WHERE
+    "MATCH (a)-[e]->(b) WHERE a.val < b.val RETURN a.kind, b.kind",
+    "MATCH (a)-[e]->(b) WHERE a.kind = b.kind RETURN a.id, b.id",
+]
+
+
+@pytest.mark.parametrize("query", DEFERRED)
+def test_cypher_deferred_raises_not_bridges(query):
+    with pytest.raises(NotImplementedError):
+        BASE.gfql(query, engine="polars")
 
 
 def _nullable_graph():
@@ -156,15 +162,13 @@ NULLABLE = [
     "MATCH (n) WHERE n.val >= 0 RETURN n.id",
     "MATCH (n) RETURN n.val + 1 AS p",                    # null arithmetic -> null
     "MATCH (n) RETURN n.val > 25 AS big",                # null comparison projection
-    "MATCH (n) WHERE n.val > 5 AND n.kind = 'a' RETURN n.id",   # 3-valued AND
-    "MATCH (n) WHERE n.val > 5 OR n.kind = 'b' RETURN n.id",    # 3-valued OR
+    "MATCH (n) WHERE n.val > 5 AND n.kind = 'a' RETURN n.id",   # 3-valued AND (folds)
     "MATCH (n) RETURN n.val ORDER BY n.val",             # null sort position
     "MATCH (n) RETURN n.val ORDER BY n.val DESC",
     "MATCH (n) RETURN n.kind, count(n) AS c",            # null group key
     "MATCH (n) RETURN n.kind, sum(n.val) AS s, avg(n.val) AS a",  # null in agg
     "MATCH (n) RETURN DISTINCT n.kind",
     "MATCH (n) WHERE n.flag = true RETURN n.id",         # nullable bool
-    "MATCH (n) RETURN n",                                # whole entity w/ nulls -> bridge
 ]
 
 
@@ -186,39 +190,12 @@ def _scalar_graph():
     return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
 
 
-def _bridge_count(g, query):
-    import graphistry.compute.gfql.engine_polars.projection as proj
-    orig = proj._bridge_result_frames
-    cnt = [0]
-
-    def traced(result, to, *a, **k):
-        if to == "pandas":
-            cnt[0] += 1
-        return orig(result, to, *a, **k)
-
-    proj._bridge_result_frames = traced
-    try:
-        g.gfql(query, engine="polars")
-    finally:
-        proj._bridge_result_frames = orig
-    return cnt[0]
-
-
-def test_native_entity_text_parity_and_no_bridge():
-    """Whole-entity RETURN n on an int/string/bool graph renders natively
-    (no projection bridge) and matches pandas, including escaping + null omit."""
+def test_native_entity_text_parity():
+    """Whole-entity RETURN n on an int/string/bool graph renders NATIVELY in
+    polars and matches pandas (escaping + null omission). No pandas bridge."""
     g = _scalar_graph()
     _assert_parity(g, "MATCH (n) RETURN n")
-    assert _bridge_count(g, "MATCH (n) RETURN n") == 0, "expected native entity-text (0 bridges)"
-    # whole + property mix still native
     _assert_parity(g, "MATCH (n) RETURN n, n.amount")
-
-
-def test_entity_text_float_bridges_but_correct():
-    """A float property forces the entity-text bridge but stays correct."""
-    _assert_parity(BASE, "MATCH (n) RETURN n")  # BASE has float 'score'
-    # float graph entity-text must bridge (float repr differs polars vs pandas)
-    assert _bridge_count(BASE, "MATCH (n) RETURN n") >= 1
 
 
 @pytest.mark.parametrize("seed", list(range(40)))

@@ -718,6 +718,9 @@ def chain(
         if validate_schema:
             Chain(ops if not isinstance(ops, Chain) else ops.chain).validate(collect_all=False)
         from graphistry.compute.gfql.engine_polars.chain import chain_polars
+        # NO pandas fallback here (see plan.md NO-CHEATING): chain_polars raises
+        # NotImplementedError for deferred features (var-length/multi-hop edges,
+        # undirected multi-edge); that honest signal propagates to the caller.
         return chain_polars(self, ops, start_nodes=start_nodes)
 
     if policy:

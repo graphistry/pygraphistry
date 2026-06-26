@@ -4,14 +4,12 @@ Lives in ``engine_polars`` (not the pandas-audited ``cypher`` package) so the
 polars-only rendering doesn't depress the pandas gfql coverage audit. Handles
 the result projection for ``engine='polars'``: native ``rows_df.select`` for
 property/expr columns and native ``({prop: val, ...})`` entity text for
-single-entity int/string/bool nodes; bridges (polars→pandas→polars) for the
-formatting the pandas renderer must do (whole-row floats/temporal/nested,
-labels, multi-entity, edges, exotic expressions). Differential-conformance
-gated. See plans/gfql-polars-engine.
+single-entity int/string/bool nodes; raises NotImplementedError (NO pandas
+bridge — see plan.md NO-CHEATING) for formatting not yet native (whole-row
+floats/temporal/nested, labels, multi-entity, edges, exotic expressions).
+Differential-conformance gated. See plans/gfql-polars-engine.
 """
-from typing import Any, Callable, Optional
-
-import pandas as pd
+from typing import Any, Optional
 
 from graphistry.Plottable import Plottable
 
@@ -20,28 +18,13 @@ def _is_polars_frame(df: Any) -> bool:
     return df is not None and "polars" in type(df).__module__
 
 
-def _bridge_result_frames(result: Plottable, to: str) -> Plottable:
-    """Convert a result's node/edge frames between polars and pandas."""
-    out = result.bind()
-    for attr in ("_nodes", "_edges"):
-        df = getattr(result, attr, None)
-        if df is None:
-            continue
-        if to == "pandas" and _is_polars_frame(df):
-            setattr(out, attr, df.to_pandas())
-        elif to == "polars" and isinstance(df, pd.DataFrame):
-            import polars as pl
-            setattr(out, attr, pl.from_pandas(df))
-    return out
-
-
 def _native_scalar_text_expr(col: str, dtype: Any) -> Optional[Any]:
     """Per-dtype cypher value rendering as a polars expression, or None to bail.
 
     Matches the pandas entity renderer for the safe scalar dtypes: ints raw,
     bools lowercased, strings single-quoted with ``\\``→``\\\\`` then ``'``→``\\'``.
     Floats (scientific/NaN repr diverges from pandas), temporal and nested types
-    return None so the caller host-bridges those entities.
+    return None so the caller raises NotImplementedError for those entities.
     """
     import polars as pl
     if dtype in (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64):
@@ -56,7 +39,7 @@ def _native_scalar_text_expr(col: str, dtype: Any) -> Optional[Any]:
 
 def _native_node_entity_text_expr(rows_df: Any, alias: str, exclude: Any) -> Optional[Any]:
     """Native polars ``({prop: val, ...})`` node entity text for the single-entity
-    case with int/string/bool properties and no labels; None → bridge.
+    case with int/string/bool properties and no labels; None → caller raises.
 
     ``pl.concat_str(..., ignore_nulls=True)`` joins only the non-null property
     segments with ``", "``, exactly matching the pandas renderer's null-omission.
@@ -99,14 +82,14 @@ def _native_node_entity_text_expr(rows_df: Any, alias: str, exclude: Any) -> Opt
 
 def _try_native_projection(result: Plottable, rows_df: Any, projection: Any) -> Optional[Plottable]:
     """Native polars projection for property/expr columns already present in the
-    (polars) row table + entity text for int/string/bool nodes. None → bridge."""
+    (polars) row table + entity text for int/string/bool nodes. None → caller raises NIE."""
     import polars as pl
 
     exprs = []
     for column in projection.columns:
         if column.kind == "whole_row":
             if projection.table != "nodes":
-                return None  # edge entity rendering -> bridge
+                return None  # edge entity rendering -> defer (NIE)
             source_alias = column.source_name or projection.alias
             ent = _native_node_entity_text_expr(rows_df, source_alias, projection.exclude_columns)
             if ent is None:
@@ -115,10 +98,10 @@ def _try_native_projection(result: Plottable, rows_df: Any, projection: Any) -> 
             continue
         src = column.source_name
         if src is None or src not in rows_df.columns:
-            return None  # expression needing evaluation / missing -> bridge
+            return None  # expression needing evaluation / missing -> defer (NIE)
         dtype = rows_df.schema[src]
         if dtype in (pl.Date, pl.Datetime, pl.Duration, pl.Time) or isinstance(dtype, (pl.List, pl.Struct, pl.Object)):
-            return None  # temporal/nested rendering -> bridge
+            return None  # temporal/nested rendering -> defer (NIE)
         exprs.append(pl.col(src).alias(column.output_name))
     out = result.bind()
     out._nodes = rows_df.select(exprs)
@@ -131,14 +114,21 @@ def _try_native_projection(result: Plottable, rows_df: Any, projection: Any) -> 
 def apply_result_projection_polars(
     result: Plottable,
     projection: Any,
-    pandas_fallback: Callable[[Plottable, Any], Plottable],
 ) -> Plottable:
-    """Entry point: native projection where possible, else host-bridge the pandas
-    renderer and convert back to polars."""
+    """Native polars result projection, or honest NotImplementedError.
+
+    NO pandas fallback (see plan.md NO-CHEATING): property/expr columns and
+    int/string/bool node entity-text render natively; whole-row entity-text over
+    float/temporal/nested columns, labels, edges, or multi-entity bindings is not
+    yet native, so we raise rather than secretly run the pandas renderer.
+    """
     rows_df = getattr(result, "_nodes", None)
     native = _try_native_projection(result, rows_df, projection)
     if native is not None:
         return native
-    bridged = _bridge_result_frames(result, to="pandas")
-    out = pandas_fallback(bridged, projection)
-    return _bridge_result_frames(out, to="polars")
+    raise NotImplementedError(
+        "polars engine does not yet natively render this cypher result projection "
+        "(whole-entity RETURN over float/temporal/nested/label/multi-entity columns); "
+        "use engine='pandas' for this query "
+        "(no pandas fallback — see plans/gfql-polars-engine NO-CHEATING)"
+    )
