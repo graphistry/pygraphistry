@@ -388,6 +388,34 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             "in multi-edge chains; deferred. Use engine='pandas'."
         )
 
+    # Unconstrained 1-hop fast path: [n(), e, n()] where BOTH nodes are
+    # unconstrained (no filter/name/query) and the edge has no match/name/query
+    # (the viz edge-crossfilter shape `MATCH ()-[e]->() WHERE e.x RETURN e`, where
+    # the WHERE/RETURN run later in the row pipeline). The result is then just ALL
+    # edges + their endpoint nodes (isolated nodes excluded), direction-independent
+    # — so skip forward/backward/combine. Byte-identical.
+    def _unconstrained_node(op):
+        return isinstance(op, ASTNode) and not op.filter_dict and op._name is None and op.query is None
+
+    def _plain_edge(op):
+        return (isinstance(op, ASTEdge) and op.is_simple_single_hop()
+                and op.edge_match is None and op.source_node_match is None
+                and op.destination_node_match is None and op._name is None
+                and op.source_node_query is None and op.destination_node_query is None
+                and op.edge_query is None and not op.include_zero_hop_seed)
+
+    if (start_nodes is None and len(ops) == 3
+            and _unconstrained_node(ops[0]) and _plain_edge(ops[1]) and _unconstrained_node(ops[2])):
+        gf = ensure_nodes_polars(self)
+        ncol, scol, dcol = gf._node, gf._source, gf._destination
+        assert ncol is not None and scol is not None and dcol is not None
+        endpoints = pl.concat(
+            [gf._edges.select(pl.col(scol).alias(ncol)), gf._edges.select(pl.col(dcol).alias(ncol))],
+            how="vertical_relaxed",
+        )
+        nodes = gf._nodes.join(endpoints.unique(), on=ncol, how="semi")
+        return gf.nodes(nodes, ncol).edges(gf._edges, scol, dcol)
+
     if start_nodes is not None:
         from graphistry.Engine import Engine, df_to_engine
         start_nodes = df_to_engine(start_nodes, Engine.POLARS)
