@@ -223,7 +223,23 @@ def select_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
     exprs = lower_select_items(items, list(table.columns))
     if exprs is None:
         return None
-    return _rewrap(g, table.select(exprs))
+    out = table.select(exprs)
+    if _select_emits_temporal_constructor_text(out):
+        # A projected String column holds Cypher temporal-constructor text
+        # (date({...}) etc.); the pandas projection normalizes it to ISO, not yet
+        # native — decline honestly rather than leak the raw text (NO-CHEATING).
+        # Only scans String columns, so numeric/bool projections pay nothing.
+        return None
+    return _rewrap(g, out)
+
+
+def _select_emits_temporal_constructor_text(out: Any) -> bool:
+    import polars as pl
+    from graphistry.compute.gfql.engine_polars.projection import _has_temporal_constructor_text
+    for name, dtype in out.schema.items():
+        if dtype == pl.String and _has_temporal_constructor_text(out, name):
+            return True
+    return False
 
 
 def where_rows_polars(
