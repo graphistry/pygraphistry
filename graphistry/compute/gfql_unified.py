@@ -1668,6 +1668,15 @@ def _chain_dispatch(
     context: ExecutionContext,
     start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
+    if chain_obj.where and engine in (EngineAbstract.POLARS, "polars", Engine.POLARS):
+        # Cross-entity / same-path WHERE routes through DFSamePathExecutor
+        # (df_executor.py), which has no native polars implementation. NO pandas
+        # fallback (see plan.md NO-CHEATING) — raise honestly.
+        raise NotImplementedError(
+            "polars engine does not yet natively support cross-entity (same-path) "
+            "WHERE; use engine='pandas' for this query "
+            "(no pandas fallback — see plans/gfql-polars-engine NO-CHEATING)"
+        )
     if chain_obj.where:
         if start_nodes is not None:
             raise GFQLValidationError(

@@ -294,7 +294,21 @@ def apply_result_projection(
     Cypher-display-string column; the reentry / OPTIONAL-MATCH null-fill machinery
     (which still assumes a single-column entity value) opts out via this flag until
     it is unified onto the structured path.
+
+    For ``engine='polars'`` the native projection lives in engine_polars (not this
+    pandas-audited module); it renders natively or raises NotImplementedError — NO
+    pandas bridge (see plans/gfql-polars-engine NO-CHEATING).
     """
+    rows_df = getattr(result, "_nodes", None)
+    if rows_df is not None and "polars" in type(rows_df).__module__:
+        from graphistry.compute.gfql.engine_polars.projection import apply_result_projection_polars
+        return apply_result_projection_polars(result, projection, structured=structured)
+    return _apply_result_projection_pandas(result, projection, structured=structured)
+
+
+def _apply_result_projection_pandas(
+    result: Plottable, projection: ResultProjectionPlan, *, structured: bool = True
+) -> Plottable:
     rows_df = cast(DataFrameT, getattr(result, "_nodes", None))
     if rows_df is None:
         return result
