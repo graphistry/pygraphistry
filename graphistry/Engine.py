@@ -225,10 +225,51 @@ def df_to_engine(df, engine: Engine):
         if isinstance(df, pa.Table):
             return pl.from_arrow(df)
         if isinstance(df, pd.DataFrame):
-            return pl.from_pandas(df)
+            return _pl_from_pandas(df)
         # cudf/dask/spark and anything else: route through pandas first
-        return pl.from_pandas(df_to_engine(df, Engine.PANDAS))
+        return _pl_from_pandas(df_to_engine(df, Engine.PANDAS))
     raise ValueError(f'Only engines pandas/cudf/dask/polars supported, got: {engine}')
+
+
+def _mixed_type_object_columns(df) -> List[str]:
+    """Object columns holding >1 Python scalar type among non-null values.
+
+    Cypher properties are dynamically typed, so a pandas object column can hold
+    e.g. ``int`` and ``str`` together; polars/Arrow cannot represent that in one
+    column. Used to name the offender in the honest ``NotImplementedError``."""
+    bad: List[str] = []
+    for col in df.columns:
+        if str(getattr(df[col], "dtype", "")) != "object":
+            continue
+        types = set()
+        for value in df[col].to_numpy():
+            if value is None or (isinstance(value, float) and value != value):  # None / NaN
+                continue
+            types.add(type(value))
+            if len(types) > 1:
+                bad.append(str(col))
+                break
+    return bad
+
+
+def _pl_from_pandas(df):
+    """``pl.from_pandas`` that declines honestly on heterogeneous columns.
+
+    Polars/Arrow cannot represent a mixed-type (e.g. int+str) object column, which
+    pandas allows for dynamically-typed Cypher properties. Rather than surface a
+    cryptic ``pyarrow.lib.ArrowInvalid`` from deep inside construction, raise a
+    clear ``NotImplementedError`` pointing at ``engine='pandas'`` (NO-CHEATING: no
+    silent string-coercion, which would change comparison semantics)."""
+    import polars as pl
+    try:
+        return pl.from_pandas(df)
+    except Exception as e:
+        bad = _mixed_type_object_columns(df)
+        hint = f" (mixed-type column(s): {bad})" if bad else ""
+        raise NotImplementedError(
+            "engine='polars' cannot represent a heterogeneous/mixed-type column"
+            f"{hint}; use engine='pandas' for this data"
+        ) from e
 
 def _pl_concat(frames, *, ignore_index: bool = True, sort: bool = False, **_kw):
     """pandas/cudf-signature-compatible row concat for polars.
