@@ -130,9 +130,10 @@ def test_polars_hop_predicate_matches_parity():
         assert _edge_set(gp) == _edge_set(gl), kw
 
 
-def test_polars_filter_by_dict_fallback():
-    # Exotic predicate (not lowered to a polars expr) must fall back to a
-    # single-column pandas eval and still filter correctly.
+def test_polars_filter_by_dict_exotic_predicate_declines():
+    # NO-CHEATING: an exotic predicate with no native polars lowering must raise
+    # NotImplementedError, NOT silently evaluate the column via pandas (the old
+    # bridge misrepresented pandas semantics as polars).
     from graphistry.compute.predicates.ASTPredicate import ASTPredicate
     from graphistry.compute.gfql.engine_polars.predicates import filter_by_dict_polars, predicate_to_expr
 
@@ -141,6 +142,6 @@ def test_polars_filter_by_dict_fallback():
             return (s % 2) == 1
 
     df = pl.DataFrame({"id": [1, 2, 3, 4, 5], "v": [1, 2, 3, 4, 5]})
-    assert predicate_to_expr("v", IsOdd()) is None  # not lowered → fallback path
-    out = filter_by_dict_polars(df, {"v": IsOdd()})
-    assert set(out["v"].to_list()) == {1, 3, 5}
+    assert predicate_to_expr("v", IsOdd()) is None  # not lowered
+    with pytest.raises(NotImplementedError):
+        filter_by_dict_polars(df, {"v": IsOdd()})
