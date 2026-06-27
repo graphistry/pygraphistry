@@ -96,10 +96,15 @@ def _native_node_entity_text_expr(rows_df: Any, alias: str, exclude: Any) -> Opt
             return None
         segments.append(pl.when(pl.col(col).is_null()).then(None).otherwise(pl.lit(f"{col}: ") + val))
     if not segments:
-        return pl.lit("()")
-    props = pl.concat_str(segments, separator=", ", ignore_nulls=True)
-    has_props = props.str.len_chars() > 0
-    return pl.lit("(") + pl.when(has_props).then(pl.lit("{") + props + pl.lit("}")).otherwise(pl.lit("")) + pl.lit(")")
+        rendered = pl.lit("()")
+    else:
+        props = pl.concat_str(segments, separator=", ", ignore_nulls=True)
+        has_props = props.str.len_chars() > 0
+        rendered = pl.lit("(") + pl.when(has_props).then(pl.lit("{") + props + pl.lit("}")).otherwise(pl.lit("")) + pl.lit(")")
+    # Nullify absent (OPTIONAL-MATCH miss) rows: the alias marker column is null
+    # there, and an absent entity must render as null, not "()" (mirrors the pandas
+    # renderer's _nullify_missing_alias_rows). A real property-less node keeps "()".
+    return pl.when(pl.col(alias).is_null()).then(None).otherwise(rendered)
 
 
 def _flat_entity_exprs_polars(rows_df: Any, projection: Any, source_alias: str, output_name: str, id_column: Any) -> Optional[list]:

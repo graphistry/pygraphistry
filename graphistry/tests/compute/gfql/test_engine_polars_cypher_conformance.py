@@ -194,6 +194,17 @@ def test_temporal_constructor_property_declines_honestly():
         g.gfql("MATCH (n) RETURN n.date", engine="polars")
 
 
+def test_optional_match_absent_entity_renders_null():
+    """OPTIONAL MATCH miss → the absent whole-entity must render as null, not '()'
+    (the alias marker column is null; mirrors pandas _nullify_missing_alias_rows)."""
+    empty = pd.DataFrame({"id": pd.Series([], dtype="int64")})
+    edges = pd.DataFrame({"s": pd.Series([], dtype="int64"), "d": pd.Series([], dtype="int64")})
+    g = graphistry.nodes(empty, "id").edges(edges, "s", "d")
+    out = g.gfql("OPTIONAL MATCH (n) RETURN n", engine="polars")._nodes
+    out = out.to_pandas() if hasattr(out, "to_pandas") else out
+    assert out["n"].tolist() == [None]
+
+
 def test_mixed_type_column_declines_honestly():
     """A heterogeneous (int+str) object column — legal for dynamically-typed Cypher
     properties in pandas, but unrepresentable in polars/Arrow — must raise a clear
