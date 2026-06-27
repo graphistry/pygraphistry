@@ -675,33 +675,79 @@ def _chain_otel_attrs(
 
 
 @otel_traced("gfql.chain", attrs_fn=_chain_otel_attrs)
-def _try_chain_fast_path(g_in: Plottable, ops, engine_concrete) -> Optional[Plottable]:
+def _try_chain_fast_path(g_in: Plottable, ops, engine_concrete, start_nodes=None) -> Optional[Plottable]:
     """Degenerate-shape fast path (ALL engines): a node-only ``MATCH (n)`` (the
     dominant tabular/crossfilter shape — node filter, histogram, table search)
     returns the filtered node table directly + empty edges, skipping the
     forward/backward/combine BFS machinery. Returns the result Plottable, or
     ``None`` to fall through to the full path.
 
-    Gated to a single unnamed/unqueried node. Byte-identical to the full machinery
-    (``trackA_golden`` adversarial bar + hop/chain suites). On cuDF this keeps the
-    op on the resident frame (one filter) instead of the BFS + ~31 drop_duplicates.
-    NOTE: the 1-HOP shape is intentionally NOT fast-pathed here — the full
-    machinery's node merges upcast int→float (a pandas artifact), so a join-free
-    fast path would change dtypes (not byte-identical); the polars engine handles
-    1-hop in its own (dtype-consistent) fast path. See plans/gfql-polars-engine."""
+    Gated to unnamed/unqueried nodes + a plain single-hop edge (no match/name/
+    query); filtered-undirected falls through. Same VALUES + node/edge sets as the
+    full machinery (``trackA_golden`` + hop/chain suites), and now CONSISTENT
+    across engines: the 1-hop preserves node-attribute dtypes (int stays int)
+    rather than the full machinery's spurious int→float merge upcast — matching the
+    polars engine's fast path. On cuDF the ops stay on the resident frame (a couple
+    semi-joins) instead of the BFS + ~31 drop_duplicates that buried the GPU win."""
     from graphistry.compute.filter_by_dict import filter_by_dict
 
-    if len(ops) != 1:
+    # Eager pandas/cuDF only: these direct frame ops (.iloc/.isin/concat) are
+    # well-defined + cheap here. polars uses its own engine_polars fast path;
+    # dask/spark keep the full machinery (lazy/partitioned semantics + the engine
+    # coercion the full path performs).
+    if engine_concrete not in (Engine.PANDAS, Engine.CUDF):
         return None
-    n0 = ops[0]
+    if start_nodes is not None:
+        return None  # seeded chains use the full path (fast path has no seed)
+
+    if len(ops) == 1:
+        n0 = ops[0]
+        if not (isinstance(n0, ASTNode) and n0._name is None and getattr(n0, "query", None) is None):
+            return None
+        g = g_in.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
+        if g._nodes is None:
+            return None
+        nodes = filter_by_dict(g._nodes, n0.filter_dict, engine_concrete) if n0.filter_dict else g._nodes
+        edges = g._edges.iloc[0:0] if g._edges is not None else None
+        return g.nodes(nodes).edges(edges) if edges is not None else g.nodes(nodes)
+
+    if len(ops) != 3:
+        return None
+    n0, e1, n2 = ops
     if not (isinstance(n0, ASTNode) and n0._name is None and getattr(n0, "query", None) is None):
         return None
-    g = g_in.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
-    if g._nodes is None:
+    if not (isinstance(n2, ASTNode) and n2._name is None and getattr(n2, "query", None) is None):
         return None
-    nodes = filter_by_dict(g._nodes, n0.filter_dict, engine_concrete) if n0.filter_dict else g._nodes
-    edges = g._edges.iloc[0:0] if g._edges is not None else None
-    return g.nodes(nodes).edges(edges) if edges is not None else g.nodes(nodes)
+    if not (isinstance(e1, ASTEdge) and e1.is_simple_single_hop()
+            and e1.edge_match is None and e1.source_node_match is None
+            and e1.destination_node_match is None and e1._name is None
+            and e1.source_node_query is None and e1.destination_node_query is None
+            and e1.edge_query is None and not e1.include_zero_hop_seed):
+        return None
+    direction = e1.direction
+    unconstrained = not n0.filter_dict and not n2.filter_dict
+    if not unconstrained and direction == "undirected":
+        return None  # filtered-undirected (OR of both directions) -> full path
+    g = g_in.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
+    if g._nodes is None or g._edges is None:
+        return None
+    src, dst, node = g._source, g._destination, g._node
+    edges = g._edges
+    if not unconstrained:
+        from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
+        if n0.filter_dict:
+            ids = filter_by_dict(g._nodes, n0.filter_dict, engine_concrete)[node]
+            edges = edges[edges[from_col].isin(ids)]
+        if n2.filter_dict:
+            ids = filter_by_dict(g._nodes, n2.filter_dict, engine_concrete)[node]
+            edges = edges[edges[to_col].isin(ids)]
+    concat = df_concat(engine_concrete)
+    endpoints = concat([
+        edges[[src]].rename(columns={src: node}),
+        edges[[dst]].rename(columns={dst: node}),
+    ]).drop_duplicates()
+    nodes = g._nodes[g._nodes[node].isin(endpoints[node])]
+    return g.nodes(nodes).edges(edges)
 
 
 def chain(
@@ -827,7 +873,7 @@ def _chain_impl(
     if validate_schema:
         validate_chain_schema(self, ops, collect_all=False)
 
-    _fast = _try_chain_fast_path(self, ops, engine_concrete)
+    _fast = _try_chain_fast_path(self, ops, engine_concrete, start_nodes)
     if _fast is not None:
         return _fast
 
