@@ -350,6 +350,26 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     if len(ops) == 0:
         return self
 
+    # Node-only fast path: a single MATCH (n) (no edge traversal) — the dominant
+    # tabular/viz/crossfilter shape (MATCH (n) WHERE/RETURN ...). The result is
+    # just the filtered node table + empty edges, so skip the whole
+    # forward/backward/combine + collect_all (a ~2.5 ms fixed cost at small sizes
+    # — exactly the interactive crossfilter regime). Byte-identical: the combine
+    # for one node step yields g._nodes (filtered) in order + empty edges + the
+    # alias flag on every matched node.
+    if len(ops) == 1 and isinstance(ops[0], ASTNode) and ops[0].query is None:
+        op0 = ops[0]
+        g0 = ensure_nodes_polars(self)
+        nc = g0._node
+        assert nc is not None and g0._source is not None and g0._destination is not None
+        nodes = filter_by_dict_polars(g0._nodes, op0.filter_dict)
+        if start_nodes is not None:
+            from graphistry.Engine import Engine as _E, df_to_engine as _d2e
+            nodes = _semi(nodes, _d2e(start_nodes, _E.POLARS), nc, nc)
+        if op0._name is not None:
+            nodes = nodes.with_columns(pl.lit(True).alias(op0._name))
+        return g0.nodes(nodes, nc).edges(g0._edges.clear(), g0._source, g0._destination)
+
     if isinstance(ops[0], ASTEdge):
         ops = [ASTNode()] + ops
     if isinstance(ops[-1], ASTEdge):
