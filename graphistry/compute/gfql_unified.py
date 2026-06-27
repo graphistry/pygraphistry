@@ -5,7 +5,7 @@ from dataclasses import replace
 from types import MappingProxyType
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple, Union, cast
 from graphistry.Plottable import Plottable
-from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, df_to_engine, df_unique, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, resolve_engine
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
 from .chain import Chain, chain as chain_impl
@@ -160,6 +160,19 @@ def _apply_optional_null_fill(
 
     rows_df = getattr(result, "_nodes", None)
     actual_rows = 0 if rows_df is None else len(rows_df)
+    # The null-fill alignment machinery below (matched-id meta, .iloc row slicing,
+    # per-segment concat) is not yet native on polars: the polars OPTIONAL MATCH
+    # does not populate the matched-seed `_cypher_entity_projection_meta["ids"]`
+    # this path needs. Decline honestly (NO-CHEATING) rather than raising a
+    # misleading "unsupported-cypher-query" validation error — pandas handles it.
+    if resolve_engine(cast(Any, engine), result) in POLARS_ENGINES:
+        meta = getattr(alignment_result, "_cypher_entity_projection_meta", None)
+        if not isinstance(meta, dict) or alignment_output_name not in meta or "ids" not in meta[alignment_output_name]:
+            raise NotImplementedError(
+                "polars engine does not yet natively support this OPTIONAL MATCH "
+                "null-row fill alignment shape; use engine='pandas' for this query "
+                "(no pandas fallback — see plans/gfql-polars-engine NO-CHEATING)"
+            )
     matched_ids = _entity_projection_meta_entry(
         alignment_result,
         output_name=alignment_output_name,
